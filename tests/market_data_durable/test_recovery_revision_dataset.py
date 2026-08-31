@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.data.enums import OnlyDataSequenceSemantics
 from onlyalpha.data.evidence import OnlyRawProviderObservation
@@ -14,10 +15,12 @@ from onlyalpha.data.models import OnlyBarUpdate
 from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyAggregationSource
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.market_data.durable import (
+    OnlyBarCoverageGap,
     OnlyCoverageStatus,
     OnlyHistoricalMarketDataQueryService,
     OnlyInMemoryMarketDataCatalog,
     OnlyInMemoryMarketFactStore,
+    OnlyMarketDataConflictError,
     OnlyMarketDataIngress,
     OnlyMarketDataRecoveryCoordinator,
     OnlyMarketDataRevision,
@@ -25,6 +28,7 @@ from onlyalpha.market_data.durable import (
     OnlyMarketDataSealError,
     OnlyMarketDataWal,
     OnlyRevisionCommitService,
+    OnlyTradeCoverageGap,
     only_build_coverage,
     only_build_seal,
 )
@@ -34,7 +38,7 @@ from onlyalpha.research.dataset.market_data_materializer import (
     OnlySealedMarketDataMaterializationPlan,
 )
 
-from .conftest import BAR_TYPE, BASE, INSTRUMENT, bar_update, trade_update
+from .conftest import BAR_TYPE, BAR_TYPE_ID, BASE, INSTRUMENT, bar_update, reference_update, trade_update
 
 
 def _observation(event_id: int, provenance: str = "REALTIME_STREAM") -> OnlyRawProviderObservation:
@@ -71,7 +75,13 @@ def _sealed(
         wal, normalizer_id="binance-spot", normalizer_version="1", ingest_clock_ns=lambda: 5
     )
     ingress.begin_segment()
-    update = trade_update() if kind == "TRADE" else bar_update(bar_index, close=close)
+    update = (
+        trade_update()
+        if kind == "TRADE"
+        else reference_update()
+        if kind == "MARKET_REFERENCE"
+        else bar_update(bar_index, close=close)
+    )
     ingress.record(_observation(10), update)
     return wal, ingress.seal(), update
 
@@ -86,7 +96,7 @@ def _scope(kind: str) -> OnlyMarketDataScope:
         base_ns,
         base_ns + 60_000_000_000,
         "BINANCE_SPOT_V1",
-        "1m" if kind == "BAR" else None,
+        BAR_TYPE_ID if kind == "BAR" else None,
         10 if kind == "TRADE" else None,
         10 if kind == "TRADE" else None,
     )
@@ -168,10 +178,11 @@ def test_fresh_recovery_exactly_preserves_raw_only_normalization_failure(tmp_pat
     coordinator = OnlyMarketDataRecoveryCoordinator(
         restarted, store, catalog, OnlyRevisionCommitService(store, catalog, now=fixed_now)
     )
-    assert coordinator.recover_all() == ("RAW_ONLY_VERIFIED",)
+    assert coordinator.recover_all() == ("DURABLE_ONLY:RAW_ONLY",)
     assert store.inspect_segment(raw_only) == "EXACT"
-    assert restarted.scan_uncommitted() == ("raw-only",)
-    assert coordinator.recover_all() == ("RAW_ONLY_VERIFIED",)
+    assert catalog.is_segment_committed(raw_only.segment_id, raw_only.content_hash)
+    assert restarted.scan_uncommitted() == ()
+    assert coordinator.recover_all() == ()
 
 
 def test_unknown_write_outcome_inspects_exact_before_retry(tmp_path: Path, fixed_now) -> None:
@@ -238,10 +249,13 @@ def test_coverage_capability_is_explicit_and_unsupported_never_seals(tmp_path: P
     )
     bar_manifest = only_build_coverage(incomplete_scope, (segment,), bundle.canonical_facts)
     assert bar_manifest.coverage_status is OnlyCoverageStatus.INCOMPLETE
+    assert bar_manifest.gaps == (OnlyBarCoverageGap(_scope("BAR").end_ns, incomplete_scope.end_ns),)
 
-    reference_scope = replace(_scope("BAR"), data_kind="MARKET_REFERENCE", bar_type=None)
-    reference_fact = replace(bundle.canonical_facts[0], data_kind="MARKET_REFERENCE")
-    reference_manifest = only_build_coverage(reference_scope, (segment,), (reference_fact,) * 10_000)
+    reference_wal, reference_segment, _ = _sealed(tmp_path / "reference", fixed_now, kind="MARKET_REFERENCE")
+    [reference_bundle] = reference_wal.read_sealed(reference_segment.segment_id)
+    [reference_fact] = reference_bundle.canonical_facts
+    reference_scope = _scope("MARKET_REFERENCE")
+    reference_manifest = only_build_coverage(reference_scope, (reference_segment,), (reference_fact,) * 10_000)
     assert reference_manifest.coverage_status is OnlyCoverageStatus.UNPROVABLE
     revision = OnlyMarketDataRevision.build(
         reference_manifest,
@@ -265,6 +279,39 @@ def test_trade_provider_sequence_gap_is_incomplete(tmp_path: Path, fixed_now) ->
     scope = replace(_scope("TRADE"), first_sequence=10, last_sequence=12)
     manifest = only_build_coverage(scope, (segment,), facts)
     assert manifest.coverage_status is OnlyCoverageStatus.INCOMPLETE
+    assert manifest.gaps == (OnlyTradeCoverageGap(11, 11),)
+
+
+def test_incomplete_bar_is_durable_and_wal_reclaimed_without_seal(tmp_path: Path, fixed_now) -> None:
+    wal, segment, _ = _sealed(tmp_path, fixed_now, kind="BAR")
+    store = OnlyInMemoryMarketFactStore()
+    catalog = OnlyInMemoryMarketDataCatalog()
+    coordinator = OnlyMarketDataRecoveryCoordinator(
+        wal, store, catalog, OnlyRevisionCommitService(store, catalog, now=fixed_now)
+    )
+    incomplete_scope = replace(_scope("BAR"), end_ns=_scope("BAR").end_ns + 60_000_000_000)
+
+    assert coordinator.drain(segment.segment_id, incomplete_scope) == "DURABLE_ONLY:INCOMPLETE"
+    assert catalog.is_segment_committed(segment.segment_id, segment.content_hash)
+    assert wal.scan_uncommitted() == ()
+    with pytest.raises(KeyError, match="SEALED_REVISION_NOT_FOUND"):
+        catalog.latest_sealed_revision(incomplete_scope)
+
+
+def test_market_reference_is_durable_unprovable_and_wal_reclaimed_without_seal(tmp_path: Path, fixed_now) -> None:
+    wal, segment, _ = _sealed(tmp_path, fixed_now, kind="MARKET_REFERENCE")
+    store = OnlyInMemoryMarketFactStore()
+    catalog = OnlyInMemoryMarketDataCatalog()
+    coordinator = OnlyMarketDataRecoveryCoordinator(
+        wal, store, catalog, OnlyRevisionCommitService(store, catalog, now=fixed_now)
+    )
+    scope = replace(_scope("BAR"), data_kind="MARKET_REFERENCE", bar_type=None)
+
+    assert coordinator.drain(segment.segment_id, scope) == "DURABLE_ONLY:UNPROVABLE"
+    assert catalog.is_segment_committed(segment.segment_id, segment.content_hash)
+    assert wal.scan_uncommitted() == ()
+    with pytest.raises(KeyError, match="SEALED_REVISION_NOT_FOUND"):
+        catalog.latest_sealed_revision(scope)
 
 
 def test_multi_segment_revision_is_ordered_and_semantically_deterministic(tmp_path: Path, fixed_now) -> None:
@@ -283,7 +330,7 @@ def test_multi_segment_revision_is_ordered_and_semantically_deterministic(tmp_pa
         int(BASE.timestamp() * 1_000_000_000),
         int((BASE + timedelta(minutes=2)).timestamp() * 1_000_000_000),
         "BINANCE_SPOT_V1",
-        "1m",
+        BAR_TYPE_ID,
     )
     first_catalog = OnlyInMemoryMarketDataCatalog()
     second_catalog = OnlyInMemoryMarketDataCatalog()
@@ -304,6 +351,30 @@ def test_multi_segment_revision_is_ordered_and_semantically_deterministic(tmp_pa
     assert first.segment_refs == tuple(sorted(first.segment_refs))
     assert first.revision_id == second.revision_id
     assert first.fingerprint == second.fingerprint
+
+
+def test_coverage_rejects_declared_scope_that_does_not_match_segment(tmp_path: Path, fixed_now) -> None:
+    wal, segment, _ = _sealed(tmp_path, fixed_now, kind="BAR")
+    [bundle] = wal.read_sealed(segment.segment_id)
+
+    with pytest.raises(OnlyMarketDataConflictError, match="SEGMENT_SCOPE_MISMATCH"):
+        only_build_coverage(replace(_scope("BAR"), data_version="WRONG"), (segment,), bundle.canonical_facts)
+
+
+def test_exact_read_fails_closed_when_durable_physical_segment_becomes_partial(tmp_path: Path, fixed_now) -> None:
+    wal, segment, _ = _sealed(tmp_path, fixed_now, kind="BAR")
+    store = OnlyInMemoryMarketFactStore()
+    catalog = OnlyInMemoryMarketDataCatalog()
+    committer = OnlyRevisionCommitService(store, catalog, now=fixed_now)
+    recovery = OnlyMarketDataRecoveryCoordinator(wal, store, catalog, committer)
+    scope = _scope("BAR")
+    assert recovery.drain(segment.segment_id, scope) == "COMMITTED"
+    revision = catalog.latest_sealed_revision(scope)
+    raw_key = next(key for key in store._raw if key[0] == segment.segment_id)
+    del store._raw[raw_key]
+
+    with pytest.raises(OnlyMarketDataConflictError, match="MARKET_DATA_SEGMENT_NOT_EXACT"):
+        OnlyHistoricalMarketDataQueryService(catalog, store).read_exact(revision.revision_id, scope)
 
 
 def test_recovery_groups_finite_segments_into_one_complete_revision(tmp_path: Path, fixed_now) -> None:
@@ -460,7 +531,11 @@ def test_two_instrument_dataset_binds_one_exact_revision_per_scope(tmp_path: Pat
         segment_id = ingress.begin_segment(f"segment-{name}")
         ingress.record(_observation(10), update)
         ingress.seal()
-        scope = replace(_scope("BAR"), instrument_id=str(update.instrument_id))
+        scope = replace(
+            _scope("BAR"),
+            instrument_id=str(update.instrument_id),
+            bar_type=only_canonical_fingerprint(update.payload.bar.bar_type.to_dict()),
+        )
         OnlyMarketDataRecoveryCoordinator(
             wal, store, catalog, OnlyRevisionCommitService(store, catalog, now=fixed_now)
         ).drain(segment_id, scope)

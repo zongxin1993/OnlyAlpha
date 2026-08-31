@@ -182,12 +182,12 @@ jobs:
       - run: uv sync --frozen --all-packages --all-groups
       - run: uv build --all-packages
 
-  research-postgres:
+  research-product-closure:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
       postgres:
-        image: postgres:16.10
+        image: postgres:18.6@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
         env:
           POSTGRES_USER: onlyalpha
           POSTGRES_PASSWORD: onlyalpha_test
@@ -199,8 +199,22 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
+      postgres16-upgrade-source:
+        image: postgres:16.10@sha256:21f6013073bc6b92830a2129570e2f5ec42a6c734b5a985a41e83aa58f54c3c1
+        env:
+          POSTGRES_USER: onlyalpha
+          POSTGRES_PASSWORD: onlyalpha_test
+          POSTGRES_DB: onlyalpha_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U onlyalpha -d onlyalpha_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     env:
       ONLYALPHA_TEST_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha_test@127.0.0.1:5432/onlyalpha_test
+      ONLYALPHA_TEST_POSTGRES16_DSN: postgresql://onlyalpha:onlyalpha_test@127.0.0.1:5433/onlyalpha_test
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
@@ -217,9 +231,32 @@ jobs:
         working-directory: apps/onlyalpha-web
       - run: npx playwright install --with-deps chromium
         working-directory: apps/onlyalpha-web
-      - run: sudo apt-get update && sudo apt-get install -y postgresql-client-16
+      - name: Install PostgreSQL 18 client tools
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          curl --fail --silent --show-error https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            | sudo gpg --dearmor --yes -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo "$VERSION_CODENAME")-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-18
       - run: uv run python scripts/test_suite.py research-product-closure
-      - run: uv run python scripts/test_suite.py research-postgres
+
+  database-compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate production Compose model
+        run: >-
+          docker compose
+          --project-directory deploy/compose
+          --env-file deploy/compose/.env.production.example
+          -f deploy/compose/compose.yaml
+          -f deploy/compose/compose.production.yaml
+          config --quiet
+      - name: Run containerized real-database acceptance
+        run: deploy/compose/run-acceptance.sh
 
   web:
     runs-on: ubuntu-latest
@@ -318,7 +355,7 @@ jobs:
 
   quality-gate:
     if: always()
-    needs: [static, architecture, openapi-contract, gateway-protocol, semgrep, dependency-audit, pr-lanes, main-lanes, research-postgres, build, web]
+    needs: [static, architecture, openapi-contract, gateway-protocol, semgrep, dependency-audit, pr-lanes, main-lanes, research-product-closure, database-compose, build, web]
     runs-on: ubuntu-latest
     steps:
       - name: Require every independent gate
@@ -331,7 +368,8 @@ jobs:
           DEPENDENCY_AUDIT_RESULT: ${{ needs.dependency-audit.result }}
           PR_LANES_RESULT: ${{ needs.pr-lanes.result }}
           MAIN_LANES_RESULT: ${{ needs.main-lanes.result }}
-          RESEARCH_POSTGRES_RESULT: ${{ needs.research-postgres.result }}
+          RESEARCH_PRODUCT_CLOSURE_RESULT: ${{ needs.research-product-closure.result }}
+          DATABASE_COMPOSE_RESULT: ${{ needs.database-compose.result }}
           BUILD_RESULT: ${{ needs.build.result }}
           WEB_RESULT: ${{ needs.web.result }}
-        run: test "$STATIC_RESULT" = success -a "$ARCHITECTURE_RESULT" = success -a "$OPENAPI_CONTRACT_RESULT" = success -a "$GATEWAY_PROTOCOL_RESULT" = success -a "$SEMGREP_RESULT" = success -a "$DEPENDENCY_AUDIT_RESULT" = success -a "$RESEARCH_POSTGRES_RESULT" = success -a "$BUILD_RESULT" = success -a "$WEB_RESULT" = success -a \( "$PR_LANES_RESULT" = success -o "$PR_LANES_RESULT" = skipped \) -a \( "$MAIN_LANES_RESULT" = success -o "$MAIN_LANES_RESULT" = skipped \)
+        run: test "$STATIC_RESULT" = success -a "$ARCHITECTURE_RESULT" = success -a "$OPENAPI_CONTRACT_RESULT" = success -a "$GATEWAY_PROTOCOL_RESULT" = success -a "$SEMGREP_RESULT" = success -a "$DEPENDENCY_AUDIT_RESULT" = success -a "$RESEARCH_PRODUCT_CLOSURE_RESULT" = success -a "$DATABASE_COMPOSE_RESULT" = success -a "$BUILD_RESULT" = success -a "$WEB_RESULT" = success -a \( "$PR_LANES_RESULT" = success -o "$PR_LANES_RESULT" = skipped \) -a \( "$MAIN_LANES_RESULT" = success -o "$MAIN_LANES_RESULT" = skipped \)

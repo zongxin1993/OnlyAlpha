@@ -75,6 +75,18 @@ class OnlyInMemoryMarketFactStore:
         self, revision: OnlyMarketDataRevision, scope: OnlyMarketDataScope
     ) -> tuple[OnlyCanonicalMarketFactRecord, ...]:
         selected = {item[0] for item in revision.segment_refs}
+        return self._read_selected(selected, scope)
+
+    def read_segment_facts(
+        self, segments: tuple[OnlyIngestSegment, ...], scope: OnlyMarketDataScope
+    ) -> tuple[OnlyCanonicalMarketFactRecord, ...]:
+        if any(self.inspect_segment(item) != "EXACT" for item in segments):
+            raise OnlyMarketDataConflictError("MARKET_DATA_SEGMENT_NOT_EXACT")
+        return self._read_selected({item.segment_id for item in segments}, scope)
+
+    def _read_selected(
+        self, selected: set[str], scope: OnlyMarketDataScope
+    ) -> tuple[OnlyCanonicalMarketFactRecord, ...]:
         return tuple(
             sorted(
                 (

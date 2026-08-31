@@ -11,6 +11,7 @@ from onlyalpha.persistence.clickhouse import (
     OnlyClickHouseClient,
     OnlyClickHouseConfig,
     OnlyClickHouseMigrationAuthority,
+    only_assert_clickhouse_test_database,
 )
 
 _TABLES = ("market_raw_event", "market_trade", "market_bar", "market_reference_price")
@@ -49,6 +50,7 @@ def _backup_segment(client: OnlyClickHouseClient, segment_id: str, destination: 
 
 
 def _restore_segment(client: OnlyClickHouseClient, source: Path) -> None:
+    only_assert_clickhouse_test_database(client.config.database, restore=True)
     payload = source.read_text()
     checksum = source.with_suffix(source.suffix + ".sha256").read_text().strip()
     if hashlib.sha256(payload.encode()).hexdigest() != checksum:

@@ -134,8 +134,12 @@ def test_functional_postgres_web_and_broad_lanes_remain_active() -> None:
     lanes = matrix.get("lane")
     assert isinstance(lanes, list)
     assert {"core-full", "recovery", "research-runtime", "research-dataset"} <= set(lanes)
-    assert "uv run python scripts/test_suite.py research-product-closure" in _runs(jobs["research-postgres"])
-    assert "uv run python scripts/test_suite.py research-postgres" in _runs(jobs["research-postgres"])
+    assert "uv run python scripts/test_suite.py research-product-closure" in _runs(jobs["research-product-closure"])
+    assert "deploy/compose/run-acceptance.sh" in _runs(jobs["database-compose"])
+    assert jobs["research-product-closure"]["services"]["postgres"]["image"].startswith(  # type: ignore[index]
+        "postgres:18.6@sha256:"
+    )
+    assert "market-data-clickhouse" not in jobs
     for command in ("static", "unit", "build", "e2e"):
         assert f"uv run python scripts/web_suite.py {command}" in _runs(jobs["web"])
 

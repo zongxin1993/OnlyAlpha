@@ -46,7 +46,7 @@ def test_recovery_and_conformance_are_independent_concerns() -> None:
 def test_lane_expressions_keep_concerns_separate() -> None:
     core = LANES[OnlyTestLane.CORE_FULL].expression
     assert core.startswith("not (")
-    assert all(concern in core for concern in ("recovery", "conformance", "exhaustive"))
+    assert all(concern in core for concern in ("recovery", "conformance", "exhaustive", "postgres", "clickhouse"))
     assert LANES[OnlyTestLane.RECOVERY].expression == "recovery and not external and not exhaustive"
     assert LANES[OnlyTestLane.SIM_RECOVERY].expression == "sim_recovery and not external and not exhaustive"
     assert LANES[OnlyTestLane.ASHARE].expression == "conformance and not external and not exhaustive"

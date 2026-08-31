@@ -1,0 +1,43 @@
+services:
+  postgres:
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
+  clickhouse:
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
+  operator:
+    image: ${ONLYALPHA_OPERATOR_IMAGE:-onlyalpha-operator:0.9.8}
+    build:
+      context: ../..
+      dockerfile: deploy/compose/Dockerfile.acceptance
+      target: operator
+    profiles:
+      - tools
+    restart: "no"
+    entrypoint: []
+    environment:
+      ONLYALPHA_POSTGRES_DSN: ${ONLYALPHA_POSTGRES_DSN:?set ONLYALPHA_POSTGRES_DSN with URL-encoded credentials}
+      ONLYALPHA_CLICKHOUSE_URL: http://onlyalpha-clickhouse:8123
+      ONLYALPHA_CLICKHOUSE_USER: ${ONLYALPHA_CLICKHOUSE_USER}
+      ONLYALPHA_CLICKHOUSE_PASSWORD: ${ONLYALPHA_CLICKHOUSE_PASSWORD}
+      ONLYALPHA_CLICKHOUSE_DATABASE: ${ONLYALPHA_CLICKHOUSE_DATABASE:-onlyalpha}
+      ONLYALPHA_CLICKHOUSE_STORAGE_POLICY: hot_cold
+    volumes:
+      - user-data:/var/lib/onlyalpha
+      - ${ONLYALPHA_BACKUP_PATH:?set ONLYALPHA_BACKUP_PATH}:/var/lib/onlyalpha-backups
+    networks:
+      - database
+
+volumes:
+  user-data:
+    name: ${ONLYALPHA_USER_DATA_VOLUME:-onlyalpha-user-data}

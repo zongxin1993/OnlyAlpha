@@ -47,6 +47,29 @@ class OnlyCoverageStatus(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyBarCoverageGap:
+    start_ns: int
+    end_ns: int
+
+    def __post_init__(self) -> None:
+        if self.start_ns >= self.end_ns:
+            raise ValueError("BAR_COVERAGE_GAP_INVALID")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyTradeCoverageGap:
+    first_sequence: int
+    last_sequence: int
+
+    def __post_init__(self) -> None:
+        if self.first_sequence > self.last_sequence:
+            raise ValueError("TRADE_COVERAGE_GAP_INVALID")
+
+
+type OnlyCoverageGap = OnlyBarCoverageGap | OnlyTradeCoverageGap
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyRawProviderEvidence:
     raw_event_id: str
     source_id: str
@@ -341,6 +364,46 @@ class OnlyMarketDataScope:
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyMarketDataAcquisitionIntent:
+    acquisition_id: str
+    request_fingerprint: str
+    source_id: str
+    requested_scope: OnlyMarketDataScope
+    provenance: OnlyMarketDataProvenance
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        only_require_utc(self.created_at, "acquisition created_at")
+        expected = only_canonical_fingerprint(
+            {
+                "source_id": self.source_id,
+                "requested_scope": self.requested_scope,
+                "provenance": self.provenance.value,
+            }
+        )
+        if self.request_fingerprint != expected or self.acquisition_id != f"acquisition:{expected}":
+            raise ValueError("ACQUISITION_INTENT_IDENTITY_INVALID")
+
+    @classmethod
+    def build(
+        cls,
+        source_id: str,
+        requested_scope: OnlyMarketDataScope,
+        *,
+        provenance: OnlyMarketDataProvenance,
+        created_at: datetime,
+    ) -> OnlyMarketDataAcquisitionIntent:
+        fingerprint = only_canonical_fingerprint(
+            {
+                "source_id": source_id,
+                "requested_scope": requested_scope,
+                "provenance": provenance.value,
+            }
+        )
+        return cls(f"acquisition:{fingerprint}", fingerprint, source_id, requested_scope, provenance, created_at)
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyCoverageManifest:
     manifest_id: str
     scope: OnlyMarketDataScope
@@ -348,6 +411,7 @@ class OnlyCoverageManifest:
     coverage_status: OnlyCoverageStatus
     proof: tuple[str, ...]
     issues: tuple[str, ...]
+    gaps: tuple[OnlyCoverageGap, ...]
     fingerprint: str
 
     @classmethod
@@ -359,6 +423,7 @@ class OnlyCoverageManifest:
         coverage_status: OnlyCoverageStatus,
         proof: tuple[str, ...],
         issues: tuple[str, ...] = (),
+        gaps: tuple[OnlyCoverageGap, ...] = (),
     ) -> OnlyCoverageManifest:
         ordered = tuple(sorted(segment_refs))
         fingerprint = only_canonical_fingerprint(
@@ -368,9 +433,10 @@ class OnlyCoverageManifest:
                 "coverage_status": coverage_status.value,
                 "proof": proof,
                 "issues": issues,
+                "gaps": gaps,
             }
         )
-        return cls(f"manifest:{fingerprint}", scope, ordered, coverage_status, proof, issues, fingerprint)
+        return cls(f"manifest:{fingerprint}", scope, ordered, coverage_status, proof, issues, gaps, fingerprint)
 
     @property
     def complete(self) -> bool:

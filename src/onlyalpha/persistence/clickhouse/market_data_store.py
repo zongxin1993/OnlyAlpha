@@ -20,6 +20,7 @@ from onlyalpha.market_data.durable.models import (
 )
 
 from .client import OnlyClickHouseClient
+from .version import only_assert_supported_clickhouse_server
 
 
 class OnlyClickHouseSegmentConflictError(RuntimeError):
@@ -28,6 +29,7 @@ class OnlyClickHouseSegmentConflictError(RuntimeError):
 
 class OnlyClickHouseMarketFactStore:
     def __init__(self, client: OnlyClickHouseClient) -> None:
+        only_assert_supported_clickhouse_server(client)
         self._client = client
 
     def inspect_segment(self, segment: OnlyIngestSegment) -> str:
@@ -95,6 +97,20 @@ class OnlyClickHouseMarketFactStore:
         self, revision: OnlyMarketDataRevision, scope: OnlyMarketDataScope
     ) -> tuple[OnlyCanonicalMarketFactRecord, ...]:
         segment_ids = tuple(item[0] for item in revision.segment_refs)
+        return self._read_facts(segment_ids, scope)
+
+    def read_segment_facts(
+        self, segments: tuple[OnlyIngestSegment, ...], scope: OnlyMarketDataScope
+    ) -> tuple[OnlyCanonicalMarketFactRecord, ...]:
+        if any(self.inspect_segment(item) != "EXACT" for item in segments):
+            raise OnlyClickHouseSegmentConflictError("CLICKHOUSE_SEGMENT_NOT_EXACT")
+        return self._read_facts(tuple(item.segment_id for item in segments), scope)
+
+    def _read_facts(
+        self, segment_ids: tuple[str, ...], scope: OnlyMarketDataScope
+    ) -> tuple[OnlyCanonicalMarketFactRecord, ...]:
+        if not segment_ids:
+            return ()
         quoted = ",".join(_quote(item) for item in segment_ids)
         table = _table(scope.data_kind)
         rows = self._client.query_json(

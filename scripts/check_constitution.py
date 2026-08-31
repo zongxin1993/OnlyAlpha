@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 CONSTITUTION = ROOT / "PROJECT_CONSTITUTION.md"
 FINGERPRINT = ROOT / "docs" / "governance" / "PROJECT_CONSTITUTION.sha256"
@@ -29,10 +28,7 @@ def main() -> None:
     expected = parts[0].lower()
     actual = hashlib.sha256(CONSTITUTION.read_bytes()).hexdigest()
     if actual != expected:
-        fail(
-            "PROJECT_CONSTITUTION.md does not match the pinned fingerprint "
-            f"(expected {expected}, got {actual})"
-        )
+        fail(f"PROJECT_CONSTITUTION.md does not match the pinned fingerprint (expected {expected}, got {actual})")
 
     agents = AGENTS.read_text(encoding="utf-8")
     required_markers = (

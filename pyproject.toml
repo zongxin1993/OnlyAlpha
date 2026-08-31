@@ -12,6 +12,12 @@ dependencies = [
 ]
 
 [dependency-groups]
+compose-acceptance = [
+    "hypothesis>=6.165.5",
+    "pytest>=9.0.3",
+    "pytest-benchmark>=5.2.3",
+    "pytest-xdist>=3.8.0",
+]
 dev = [
     "build>=1.2",
     "mypy>=1.15",
@@ -154,6 +160,7 @@ markers = [
     "slow: slow test",
     "postgres: requires the pinned real PostgreSQL integration service",
     "clickhouse: requires the supported real ClickHouse integration service",
+    "p9_3_real_database: requires the combined P9.3 PostgreSQL and ClickHouse acceptance topology",
     "historical_git: requires immutable Git history and may only run in an explicitly history-capable verification lane",
 ]
 

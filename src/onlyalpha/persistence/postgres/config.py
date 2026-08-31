@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from datetime import timedelta
+from urllib.parse import urlsplit
 
 from psycopg.conninfo import make_conninfo
 
@@ -79,6 +80,17 @@ class OnlyPostgresConfig:
         return (options or OnlyPostgresOperationalConnectionOptions()).apply(self.dsn)
 
 
+def only_assert_postgres_test_database(dsn: str, *, restore: bool = False, upgrade: bool = False) -> str:
+    if restore and upgrade:
+        raise ValueError("POSTGRES_TEST_DATABASE_PURPOSE_AMBIGUOUS")
+    database = urlsplit(dsn).path.removeprefix("/")
+    suffix = "_restore_test" if restore else "_upgrade_test" if upgrade else "_test"
+    if not database or not database.endswith(suffix):
+        purpose = "restore-test" if restore else "upgrade-test" if upgrade else "integration-test"
+        raise RuntimeError(f"POSTGRES_{purpose.upper().replace('-', '_')}_DATABASE_REQUIRED")
+    return database
+
+
 def _milliseconds(value: timedelta) -> int:
     milliseconds = int(value.total_seconds() * 1000)
     if milliseconds < 1:
@@ -86,4 +98,4 @@ def _milliseconds(value: timedelta) -> int:
     return milliseconds
 
 
-__all__ = [name for name in globals() if name.startswith("Only")]
+__all__ = [name for name in globals() if name.startswith(("Only", "only_"))]

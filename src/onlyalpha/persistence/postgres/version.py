@@ -8,8 +8,8 @@ import psycopg
 
 from onlyalpha.research.run.errors import OnlyResearchRunStoreUnavailableError
 
-ONLYALPHA_POSTGRES_SERVER_MAJOR = 16
-ONLYALPHA_POSTGRES_CLIENT_MAJOR = 16
+ONLYALPHA_POSTGRES_SERVER_MAJOR = 18
+ONLYALPHA_POSTGRES_CLIENT_MAJOR = 18
 
 
 @dataclass(frozen=True, slots=True)

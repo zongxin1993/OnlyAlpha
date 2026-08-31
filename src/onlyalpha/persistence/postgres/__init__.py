@@ -2,6 +2,7 @@
 
 from .config import OnlyPostgresConfig as OnlyPostgresConfig
 from .config import OnlyPostgresOperationalConnectionOptions as OnlyPostgresOperationalConnectionOptions
+from .config import only_assert_postgres_test_database as only_assert_postgres_test_database
 from .kernel_authority import OnlyPostgresKernelAuthorityGuard as OnlyPostgresKernelAuthorityGuard
 from .market_data_catalog import OnlyPostgresMarketDataCatalog as OnlyPostgresMarketDataCatalog
 from .migration import (

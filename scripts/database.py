@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import psycopg
+from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict
 
 from onlyalpha.output import OnlyUserDataLayout
@@ -25,8 +26,10 @@ from onlyalpha.persistence.postgres import (
     OnlyPostgresResearchOperationsStore,
     OnlyPostgresResearchRunStore,
     OnlyPostgresSchemaVerifier,
+    only_assert_postgres_test_database,
     only_assert_supported_postgres_server,
     only_discover_postgres_migrations,
+    only_postgres_server_version,
 )
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from onlyalpha.research.operations.deployment import OnlyResearchSemanticStoreIdentity
@@ -154,8 +157,7 @@ def _restore_test(source_dsn: str, target_dsn: str, backup: Path, run_id: str | 
     target = conninfo_to_dict(target_dsn)
     if source.get("dbname") == target.get("dbname") and source.get("host") == target.get("host"):
         raise RuntimeError("restore-test target must be isolated from the source database")
-    if not str(target.get("dbname", "")).endswith("_restore_test"):
-        raise RuntimeError("restore-test target database name must end with _restore_test")
+    only_assert_postgres_test_database(target_dsn, restore=True)
     with psycopg.connect(target_dsn) as connection:
         result = connection.execute("SELECT count(*) FROM pg_tables WHERE schemaname = 'public'").fetchone()
         if result is None:
@@ -188,6 +190,61 @@ def _restore_test(source_dsn: str, target_dsn: str, backup: Path, run_id: str | 
         OnlyPostgresResearchRunStore(target_dsn).load(selected)
         OnlyPostgresResearchOperationsStore(target_dsn).load_operational_snapshot(run_id=selected, limit=1)
     _verifier(source_dsn).assert_compatible()
+
+
+def _table_counts(dsn: str) -> tuple[tuple[str, int], ...]:
+    with psycopg.connect(dsn) as connection:
+        tables = connection.execute(
+            "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename"
+        ).fetchall()
+        return tuple(
+            (
+                str(table[0]),
+                int(
+                    connection.execute(
+                        sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(str(table[0])))
+                    ).fetchone()[0]  # type: ignore[index]
+                ),
+            )
+            for table in tables
+        )
+
+
+def _major_upgrade_test(source_dsn: str, target_dsn: str, backup: Path) -> None:
+    only_assert_postgres_test_database(target_dsn, upgrade=True)
+    source_version = only_postgres_server_version(source_dsn)
+    target_version = only_postgres_server_version(target_dsn)
+    if source_version.major != 16 or target_version.major != 18:
+        raise RuntimeError("POSTGRES_MAJOR_UPGRADE_PATH_REQUIRES_16_TO_18")
+    _verifier(source_dsn).assert_compatible()
+    with psycopg.connect(target_dsn) as connection:
+        row = connection.execute("SELECT count(*) FROM pg_tables WHERE schemaname='public'").fetchone()
+        if row is None or row[0] != 0:
+            raise RuntimeError("upgrade-test target must be empty")
+    _assert_client_major("pg_dump")
+    _assert_client_major("pg_restore")
+    before = _table_counts(source_dsn)
+    backup.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [_tool("pg_dump"), "--format=custom", "--file", str(backup)],
+        env=_client_environment(source_dsn),
+        check=True,
+    )
+    subprocess.run(
+        [
+            _tool("pg_restore"),
+            "--exit-on-error",
+            "--dbname",
+            str(conninfo_to_dict(target_dsn)["dbname"]),
+            str(backup),
+        ],
+        env=_client_environment(target_dsn),
+        check=True,
+    )
+    only_assert_supported_postgres_server(target_dsn)
+    _verifier(target_dsn).assert_compatible()
+    if _table_counts(target_dsn) != before:
+        raise RuntimeError("POSTGRES_MAJOR_UPGRADE_DATA_INTEGRITY_MISMATCH")
 
 
 def _validate(dsn: str, run_id: str | None) -> None:
@@ -239,6 +296,9 @@ def main() -> int:
     restore.add_argument("backup", type=Path)
     restore.add_argument("--target-dsn-env", default="ONLYALPHA_POSTGRES_RESTORE_TEST_DSN")
     restore.add_argument("--run-id")
+    upgrade = commands.add_parser("upgrade-test")
+    upgrade.add_argument("backup", type=Path)
+    upgrade.add_argument("--source-dsn-env", default="ONLYALPHA_POSTGRES_16_UPGRADE_SOURCE_DSN")
     args = parser.parse_args()
     dsn = OnlyPostgresConfig.from_environment(args.dsn_env).dsn
     authority = _authority(dsn)
@@ -276,6 +336,11 @@ def main() -> int:
         target = OnlyPostgresConfig.from_environment(args.target_dsn_env).dsn
         _restore_test(dsn, target, args.backup, args.run_id)
         print(json.dumps({"restore_test": "VERIFIED"}, sort_keys=True))
+        return 0
+    if args.command == "upgrade-test":
+        source = OnlyPostgresConfig.from_environment(args.source_dsn_env).dsn
+        _major_upgrade_test(source, dsn, args.backup)
+        print(json.dumps({"major_upgrade_test": "VERIFIED", "source_major": 16, "target_major": 18}, sort_keys=True))
         return 0
     raise AssertionError(args.command)
 

@@ -7,6 +7,7 @@ import threading
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 
+from onlyalpha.cache.historical.models import OnlyCachePolicy
 from onlyalpha.cache.historical.service import OnlyHistoricalCacheService
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.data.enums import (
@@ -189,6 +190,9 @@ class OnlyBinanceSpotDataSource:
 
     def load_bars(self, request: OnlyHistoricalBarRequest) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:
         cache = self._require_cache()
+        cache_policy = (
+            OnlyCachePolicy.FORCE_REFRESH if self._request.durable_recording_required else self._config.cache_policy
+        )
         updates: list[OnlyMarketDataInboundUpdate] = []
         for bar_type in sorted(request.bar_types, key=lambda item: item.to_json()):
             instrument = self._request.instruments[bar_type.instrument_id]
@@ -200,13 +204,16 @@ class OnlyBinanceSpotDataSource:
                     OnlyTimeRange(request.data_range.start_time, request.data_range.end_time),
                 ),
                 provider,
-                self._config.cache_policy,
+                cache_policy,
             )
             updates.extend(self._bar_update(item, request.data_version) for item in result.records)
         return OnlyHistoricalDataStream(tuple(sorted(updates, key=self._order_key)), request.batch_size)
 
     def load_trades(self, request: OnlyHistoricalTradeRequest) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:
         cache = self._require_cache()
+        cache_policy = (
+            OnlyCachePolicy.FORCE_REFRESH if self._request.durable_recording_required else self._config.cache_policy
+        )
         updates: list[OnlyMarketDataInboundUpdate] = []
         for instrument_id in sorted(request.instrument_ids, key=str):
             provider = self._provider(instrument_id, self._request.bar_types[instrument_id], request.data_version)
@@ -216,7 +223,7 @@ class OnlyBinanceSpotDataSource:
                     OnlyTimeRange(request.data_range.start_time, request.data_range.end_time),
                 ),
                 provider,
-                self._config.cache_policy,
+                cache_policy,
             )
             updates.extend(self._trade_update(item, request.data_version) for item in result.records)
         return OnlyHistoricalDataStream(tuple(sorted(updates, key=self._order_key)), request.batch_size)

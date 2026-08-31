@@ -1,0 +1,61 @@
+name: onlyalpha-p93-test
+
+services:
+  postgres:
+    restart: "no"
+
+  postgres16-upgrade-source:
+    image: postgres:16.10@sha256:21f6013073bc6b92830a2129570e2f5ec42a6c734b5a985a41e83aa58f54c3c1
+    restart: "no"
+    environment:
+      POSTGRES_USER: ${ONLYALPHA_POSTGRES_USER:?set ONLYALPHA_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${ONLYALPHA_POSTGRES_PASSWORD:?set ONLYALPHA_POSTGRES_PASSWORD}
+      POSTGRES_DB: onlyalpha_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - postgres16-data:/var/lib/postgresql/data
+    networks:
+      database:
+        aliases:
+          - onlyalpha-postgres16-upgrade-source
+
+  clickhouse:
+    restart: "no"
+
+  acceptance:
+    image: ${ONLYALPHA_ACCEPTANCE_IMAGE:-onlyalpha-p93-acceptance:0.9.8}
+    build:
+      context: ../..
+      dockerfile: deploy/compose/Dockerfile.acceptance
+      target: acceptance
+    restart: "no"
+    environment:
+      ONLYALPHA_TEST_POSTGRES_DSN: postgresql://${ONLYALPHA_POSTGRES_USER}:${ONLYALPHA_POSTGRES_PASSWORD}@onlyalpha-postgres:5432/onlyalpha_test
+      ONLYALPHA_TEST_POSTGRES16_DSN: postgresql://${ONLYALPHA_POSTGRES_USER}:${ONLYALPHA_POSTGRES_PASSWORD}@onlyalpha-postgres16-upgrade-source:5432/onlyalpha_test
+      ONLYALPHA_POSTGRES_RESTORE_TEST_DSN: postgresql://${ONLYALPHA_POSTGRES_USER}:${ONLYALPHA_POSTGRES_PASSWORD}@onlyalpha-postgres:5432/onlyalpha_restore_test
+      ONLYALPHA_TEST_CLICKHOUSE_URL: http://onlyalpha-clickhouse:8123
+      ONLYALPHA_TEST_CLICKHOUSE_USER: ${ONLYALPHA_CLICKHOUSE_USER}
+      ONLYALPHA_TEST_CLICKHOUSE_PASSWORD: ${ONLYALPHA_CLICKHOUSE_PASSWORD}
+      ONLYALPHA_TEST_CLICKHOUSE_STORAGE_POLICY: hot_cold
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgres16-upgrade-source:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    networks:
+      - database
+
+networks:
+  database:
+    name: onlyalpha-p93-test
+    internal: true
+
+volumes:
+  postgres16-data:
+    name: onlyalpha-p93-test-postgres16-data

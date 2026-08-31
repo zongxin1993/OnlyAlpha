@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
@@ -16,7 +15,6 @@ from packaging.version import InvalidVersion, Version
 from tomlkit import dumps, parse
 
 ROOT = Path(__file__).resolve().parents[1]
-README_VERSION_PATTERN = re.compile(r"(?m)^\| Version \| `([^`]+)` \|$")
 TEST_DISTRIBUTION_PATHS = (Path("tests/fixtures/external_plugins/onlyalpha_test_plugin/pyproject.toml"),)
 WEB_PACKAGE_PATH = Path("apps/onlyalpha-web/package.json")
 WEB_LOCK_PATH = Path("apps/onlyalpha-web/package-lock.json")
@@ -216,13 +214,6 @@ def workspace_graph_errors(
     release_version = distributions[0].version
     errors: list[str] = []
 
-    readme_path = root / "README.md"
-    if not readme_path.is_file():
-        raise VersionSyncError(f"missing file: {readme_path}")
-    readme_versions = README_VERSION_PATTERN.findall(readme_path.read_text(encoding="utf-8"))
-    if readme_versions != [str(release_version)]:
-        errors.append(f"{readme_path}: Version rows={readme_versions!r}, expected={[str(release_version)]!r}")
-
     for distribution in distributions:
         if distribution.version != release_version:
             errors.append(
@@ -369,17 +360,6 @@ def rewrite_workspace(
         )
         documents.append((path, document))
 
-    readme_path = root / "README.md"
-    if not readme_path.is_file():
-        raise VersionSyncError(f"missing file: {readme_path}")
-    readme = readme_path.read_text(encoding="utf-8")
-    updated_readme, replacements = README_VERSION_PATTERN.subn(
-        f"| Version | `{normalized}` |",
-        readme,
-    )
-    if replacements != 1:
-        raise VersionSyncError(f"{readme_path}: expected exactly one Version table row")
-
     web_documents: list[tuple[Path, dict[str, Any]]] = []
     for relative_path in (WEB_PACKAGE_PATH, WEB_LOCK_PATH):
         path = root / relative_path
@@ -396,7 +376,6 @@ def rewrite_workspace(
         write_document(path, document)
     for path, document in web_documents:
         path.write_text(json.dumps(document, indent=4, ensure_ascii=False) + "\n", encoding="utf-8")
-    readme_path.write_text(updated_readme, encoding="utf-8")
 
 
 def set_versions(version: str, root: Path = ROOT) -> None:

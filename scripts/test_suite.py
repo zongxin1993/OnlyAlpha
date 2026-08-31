@@ -51,6 +51,8 @@ class OnlyTestLane(StrEnum):
     RESEARCH_RUN = "research-run"
     RESEARCH_EXECUTION = "research-execution"
     RESEARCH_POSTGRES = "research-postgres"
+    MARKET_DATA_CLICKHOUSE = "market-data-clickhouse"
+    P9_3_REAL_DATABASE = "p9-3-real-database"
     RESEARCH_PRODUCT_CLOSURE = "research-product-closure"
     RESEARCH_RUNTIME = "research-runtime"
     RESEARCH_JOB = "research-job"
@@ -239,6 +241,20 @@ LANES = {
         "no",
         40,
     ),
+    OnlyTestLane.MARKET_DATA_CLICKHOUSE: Lane(
+        ("tests/market_data_durable",),
+        "clickhouse and external and requires_network and not p9_3_real_database",
+        "0",
+        "no",
+        100,
+    ),
+    OnlyTestLane.P9_3_REAL_DATABASE: Lane(
+        ("tests/market_data_durable/test_real_database_acceptance.py",),
+        "p9_3_real_database and postgres and clickhouse and external and requires_network",
+        "0",
+        "no",
+        100,
+    ),
     OnlyTestLane.RESEARCH_PRODUCT_CLOSURE: Lane(
         (
             "tests/certification/p8_6",
@@ -328,7 +344,7 @@ LANES = {
     ),
     OnlyTestLane.CORE_FULL: Lane(
         WORKSPACE_TESTS,
-        "not (historical_git or recovery or sim_recovery or conformance or external or requires_network or requires_tushare or requires_local_qmt or requires_broker_account or performance or exhaustive or slow)",
+        "not (historical_git or recovery or sim_recovery or conformance or external or postgres or clickhouse or requires_network or requires_tushare or requires_local_qmt or requires_broker_account or performance or exhaustive or slow)",
         "8",
         "worksteal",
         100,
@@ -394,6 +410,7 @@ RELEASE_LANES = (
     OnlyTestLane.RESEARCH_EXECUTION,
     OnlyTestLane.RESEARCH_PRODUCT_CLOSURE,
     OnlyTestLane.RESEARCH_POSTGRES,
+    OnlyTestLane.MARKET_DATA_CLICKHOUSE,
     OnlyTestLane.RESEARCH_RUNTIME,
     OnlyTestLane.RESEARCH_QUERY,
     OnlyTestLane.RESEARCH_ARTIFACT,

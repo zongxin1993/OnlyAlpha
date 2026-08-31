@@ -5,10 +5,16 @@ from decimal import Decimal
 
 import pytest
 
+from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.data.enums import OnlyDataSequenceSemantics, OnlyMarketDataType
 from onlyalpha.data.identifiers import OnlyDataSequence, OnlyDataVersion, OnlyMarketDataSourceId
-from onlyalpha.data.identity import only_bar_update_id, only_trade_update_id
-from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate, OnlyTradeTickUpdate
+from onlyalpha.data.identity import only_bar_update_id, only_market_reference_update_id, only_trade_update_id
+from onlyalpha.data.models import (
+    OnlyBarUpdate,
+    OnlyMarketDataInboundUpdate,
+    OnlyMarketReferenceUpdate,
+    OnlyTradeTickUpdate,
+)
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
     OnlyAggregationSource,
@@ -18,7 +24,14 @@ from onlyalpha.domain.enums import (
     OnlySessionType,
 )
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRuntimeId, OnlyTradeId
-from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType, OnlyTradeTick
+from onlyalpha.domain.market import (
+    OnlyBar,
+    OnlyBarSpecification,
+    OnlyBarType,
+    OnlyMarketReferenceKind,
+    OnlyMarketReferenceTick,
+    OnlyTradeTick,
+)
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 
@@ -31,6 +44,7 @@ BAR_TYPE = OnlyBarType(
     OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
     OnlyAggregationSource.EXTERNAL,
 )
+BAR_TYPE_ID = only_canonical_fingerprint(BAR_TYPE.to_dict())
 
 
 def trade_update(sequence: int = 10, *, price: str = "100.12000000") -> OnlyMarketDataInboundUpdate:
@@ -98,6 +112,38 @@ def bar_update(index: int = 0, *, close: str = "101.00000000") -> OnlyMarketData
         OnlyTimestamp.from_datetime(end),
         OnlyTimestamp.from_datetime(end),
         sequence_semantics=OnlyDataSequenceSemantics.CONTIGUOUS,
+    )
+
+
+def reference_update(sequence: int = 10) -> OnlyMarketDataInboundUpdate:
+    event = BASE + timedelta(seconds=sequence)
+    reference = OnlyMarketReferenceTick(
+        INSTRUMENT,
+        event,
+        event,
+        sequence,
+        "BINANCE_SPOT",
+        OnlyMarketReferenceKind.VENUE_REFERENCE_PRICE,
+        OnlyPrice(Decimal("100.12000000"), 8),
+    )
+    return OnlyMarketDataInboundUpdate(
+        only_market_reference_update_id(
+            SOURCE,
+            INSTRUMENT,
+            reference.reference_kind,
+            event,
+            VERSION,
+        ),
+        OnlyRuntimeId("runtime-p93"),
+        SOURCE,
+        OnlyDataSequence(sequence),
+        VERSION,
+        INSTRUMENT,
+        OnlyMarketDataType.MARKET_REFERENCE,
+        OnlyMarketReferenceUpdate(reference),
+        OnlyTimestamp.from_datetime(event),
+        OnlyTimestamp.from_datetime(event),
+        sequence_semantics=OnlyDataSequenceSemantics.MONOTONIC,
     )
 
 

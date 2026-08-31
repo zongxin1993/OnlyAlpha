@@ -326,7 +326,7 @@ def test_nested_research_execution_module_is_in_the_recursive_guard(tmp_path: Pa
 def test_projection_reconciliation_is_operator_infrastructure_only() -> None:
     assert not (ROOT / "docs/reports/p9_k0_product_surface_inventory.md").exists()
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
-    assert "仓库不得保存" in agents
+    assert "仓库不得把以下内容作为当前 Authority" in agents
     assert "质量/审计/验收/closure 报告" in agents
 
 

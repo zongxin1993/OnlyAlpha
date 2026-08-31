@@ -43,4 +43,12 @@ class OnlyClickHouseConfig:
         return f"OnlyClickHouseConfig(url={self.url!r}, database={self.database!r}, credentials=<redacted>)"
 
 
-__all__ = ["OnlyClickHouseConfig"]
+def only_assert_clickhouse_test_database(database: str, *, restore: bool = False) -> str:
+    prefix = "onlyalpha_restore_" if restore else "onlyalpha_test_"
+    if not database.startswith(prefix) or not _IDENTIFIER.fullmatch(database):
+        purpose = "RESTORE" if restore else "TEST"
+        raise RuntimeError(f"CLICKHOUSE_{purpose}_DATABASE_REQUIRED")
+    return database
+
+
+__all__ = ["OnlyClickHouseConfig", "only_assert_clickhouse_test_database"]

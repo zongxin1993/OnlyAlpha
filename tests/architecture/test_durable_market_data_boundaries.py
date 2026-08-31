@@ -40,6 +40,12 @@ def test_durable_core_is_provider_neutral_and_research_has_no_mutable_clickhouse
     assert "onlyalpha.persistence" not in durable
     assert "persistence.clickhouse" not in research
     assert "SELECT * FROM market_" not in research
+    backfill = Path("src/onlyalpha/market_data/durable/backfill.py").read_text()
+    assert "OnlyHistoricalDataSource" in backfill
+    assert "api/v3" not in backfill
+    assert "ClickHouse" not in backfill
+    assert "Postgres" not in backfill
+    assert "historical_cache" not in durable
 
 
 def test_revision_and_wal_authorities_are_append_only_and_not_timing_luck() -> None:

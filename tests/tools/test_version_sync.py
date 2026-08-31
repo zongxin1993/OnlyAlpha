@@ -63,7 +63,7 @@ dependencies = []
 members = ["packages/a", "packages/b"]
 """,
     )
-    _write(tmp_path / "README.md", "| Version | `0.3.7` |\n")
+    _write(tmp_path / "README.md", "# Documentation without release metadata\n")
     _write(
         tmp_path / "apps/onlyalpha-web/package.json",
         '{"name":"onlyalpha-web","private":true,"version":"0.3.7"}\n',
@@ -109,6 +109,15 @@ def _failure(tmp_path: Path) -> str:
 
 def test_valid_workspace_release_graph_passes(tmp_path: Path) -> None:
     check_versions(_workspace(tmp_path))
+
+
+def test_readme_is_not_a_version_authority_and_may_be_absent(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    readme = root / "README.md"
+    readme.write_text("| Version | `stale-and-ignored` |\n", encoding="utf-8")
+    check_versions(root)
+    readme.unlink()
+    check_versions(root)
 
 
 def test_stale_internal_edge_fails(tmp_path: Path) -> None:
@@ -245,6 +254,7 @@ def test_set_rewrites_complete_graph_and_preserves_external_dependencies(tmp_pat
         fixture_version="7.9",
     )
 
+    readme_before = (root / "README.md").read_text(encoding="utf-8")
     rewrite_workspace(root, "0.3.8")
     check_versions(root)
 
@@ -263,7 +273,7 @@ def test_set_rewrites_complete_graph_and_preserves_external_dependencies(tmp_pat
     fixture = parse((root / FIXTURE_PATH).read_text(encoding="utf-8"))
     assert fixture["project"]["version"] == "7.9"
     assert list(fixture["project"]["dependencies"]) == ["onlyalpha==0.3.8"]
-    assert (root / "README.md").read_text(encoding="utf-8") == "| Version | `0.3.8` |\n"
+    assert (root / "README.md").read_text(encoding="utf-8") == readme_before
     web_package = (root / "apps/onlyalpha-web/package.json").read_text(encoding="utf-8")
     web_lock = (root / "apps/onlyalpha-web/package-lock.json").read_text(encoding="utf-8")
     assert '\n    "version": "0.3.8"' in web_package

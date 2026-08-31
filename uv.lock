@@ -893,6 +893,12 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
+compose-acceptance = [
+    { name = "hypothesis" },
+    { name = "pytest" },
+    { name = "pytest-benchmark" },
+    { name = "pytest-xdist" },
+]
 dev = [
     { name = "build" },
     { name = "coverage" },
@@ -931,6 +937,12 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
+compose-acceptance = [
+    { name = "hypothesis", specifier = ">=6.165.5" },
+    { name = "pytest", specifier = ">=9.0.3" },
+    { name = "pytest-benchmark", specifier = ">=5.2.3" },
+    { name = "pytest-xdist", specifier = ">=3.8.0" },
+]
 dev = [
     { name = "build", specifier = ">=1.2" },
     { name = "coverage", specifier = ">=7.15.2" },

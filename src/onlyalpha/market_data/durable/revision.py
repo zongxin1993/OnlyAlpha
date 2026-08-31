@@ -11,14 +11,17 @@ from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate
 from onlyalpha.domain.enums import OnlyAggregationSource, OnlyBarAggregation
 
 from .models import (
+    OnlyBarCoverageGap,
     OnlyCanonicalMarketFactRecord,
     OnlyCoverageManifest,
     OnlyCoverageStatus,
     OnlyIngestSegment,
+    OnlyMarketDataAcquisitionIntent,
     OnlyMarketDataRecordBundle,
     OnlyMarketDataRevision,
     OnlyMarketDataScope,
     OnlyMarketDataSeal,
+    OnlyTradeCoverageGap,
 )
 from .ports import OnlyMarketDataCatalog, OnlyMarketFactStore
 
@@ -65,6 +68,19 @@ def only_build_coverage(
     segments: tuple[OnlyIngestSegment, ...],
     facts: tuple[OnlyCanonicalMarketFactRecord, ...],
 ) -> OnlyCoverageManifest:
+    segment_ids = {item.segment_id for item in segments}
+    for segment in segments:
+        if (
+            segment.source_id != scope.source_id
+            or segment.market != scope.market
+            or segment.instrument_id != scope.instrument_id
+            or segment.data_kind != scope.data_kind
+            or segment.data_version != scope.data_version
+            or segment.bar_type != scope.bar_type
+        ):
+            raise OnlyMarketDataConflictError(f"SEGMENT_SCOPE_MISMATCH:{segment.segment_id}")
+    if any(item.segment_id not in segment_ids for item in facts):
+        raise OnlyMarketDataConflictError("COVERAGE_FACT_OUTSIDE_SEGMENT_SET")
     in_scope = tuple(
         item
         for item in only_deduplicate_facts(facts)
@@ -130,6 +146,23 @@ def only_build_coverage(
         status = OnlyCoverageStatus.UNPROVABLE
         proof.append("coverage_capability=unsupported")
         issues.append(f"COVERAGE_UNPROVABLE:{scope.data_kind}")
+    gaps: tuple[OnlyBarCoverageGap | OnlyTradeCoverageGap, ...]
+    if scope.data_kind == "BAR":
+        actual_set = {item.ts_event_ns for item in in_scope}
+        gaps = tuple(OnlyBarCoverageGap(item - minute, item) for item in expected if item not in actual_set)
+    elif scope.data_kind == "TRADE" and expected:
+        actual_set = set(sequences)
+        missing = tuple(item for item in expected if item not in actual_set)
+        ranges: list[OnlyTradeCoverageGap] = []
+        for sequence in missing:
+            if ranges and ranges[-1].last_sequence + 1 == sequence:
+                prior = ranges[-1]
+                ranges[-1] = OnlyTradeCoverageGap(prior.first_sequence, sequence)
+            else:
+                ranges.append(OnlyTradeCoverageGap(sequence, sequence))
+        gaps = tuple(ranges)
+    else:
+        gaps = ()
     refs = tuple((item.segment_id, item.content_hash) for item in segments)
     return OnlyCoverageManifest.build(
         scope,
@@ -137,6 +170,7 @@ def only_build_coverage(
         coverage_status=status,
         proof=tuple(proof),
         issues=tuple(issues),
+        gaps=gaps,
     )
 
 
@@ -159,10 +193,36 @@ class OnlyInMemoryMarketDataCatalog(OnlyMarketDataCatalog):
     """Deterministic test/reference implementation with put-once semantics."""
 
     def __init__(self) -> None:
-        self._segments: dict[str, str] = {}
+        self._segments: dict[str, OnlyIngestSegment] = {}
+        self._acquisitions: dict[str, OnlyMarketDataAcquisitionIntent] = {}
         self._manifests: dict[str, OnlyCoverageManifest] = {}
         self._revisions: dict[str, OnlyMarketDataRevision] = {}
         self._seals: dict[str, OnlyMarketDataSeal] = {}
+
+    def commit_durable_segments(self, segments: tuple[OnlyIngestSegment, ...]) -> None:
+        for segment in segments:
+            prior = self._segments.get(segment.segment_id)
+            if prior is not None and prior != segment:
+                raise OnlyMarketDataConflictError("SEGMENT_ID_CONTENT_CONFLICT")
+        for segment in segments:
+            self._segments.setdefault(segment.segment_id, segment)
+
+    def commit_acquisition_intent(self, intent: OnlyMarketDataAcquisitionIntent) -> None:
+        prior = self._acquisitions.get(intent.acquisition_id)
+        if prior is not None and prior != intent:
+            raise OnlyMarketDataConflictError("ACQUISITION_INTENT_CONFLICT")
+        self._acquisitions.setdefault(intent.acquisition_id, intent)
+
+    def commit_coverage_manifest(self, manifest: OnlyCoverageManifest) -> None:
+        prior = self._manifests.get(manifest.manifest_id)
+        if prior is not None and prior != manifest:
+            raise OnlyMarketDataConflictError("COVERAGE_MANIFEST_CONFLICT")
+        if any(
+            self._segments.get(segment_id) is None or self._segments[segment_id].content_hash != content_hash
+            for segment_id, content_hash in manifest.segment_refs
+        ):
+            raise OnlyMarketDataConflictError("COVERAGE_REFERENCES_NON_DURABLE_SEGMENT")
+        self._manifests.setdefault(manifest.manifest_id, manifest)
 
     def commit_revision(
         self,
@@ -171,24 +231,47 @@ class OnlyInMemoryMarketDataCatalog(OnlyMarketDataCatalog):
         revision: OnlyMarketDataRevision,
         seal: OnlyMarketDataSeal,
     ) -> None:
+        if manifest.coverage_status is not OnlyCoverageStatus.COMPLETE:
+            raise OnlyMarketDataConflictError("REVISION_REQUIRES_COMPLETE_COVERAGE")
+        self.commit_coverage_manifest(manifest)
         for segment in segments:
-            prior = self._segments.get(segment.segment_id)
-            if prior is not None and prior != segment.content_hash:
-                raise OnlyMarketDataConflictError("SEGMENT_ID_CONTENT_CONFLICT")
+            if self._segments.get(segment.segment_id) != segment:
+                raise OnlyMarketDataConflictError("REVISION_REFERENCES_NON_DURABLE_SEGMENT")
         prior_revision = self._revisions.get(revision.revision_id)
         if prior_revision is not None and prior_revision != revision:
             raise OnlyMarketDataConflictError("REVISION_ID_CONTENT_CONFLICT")
         prior_seal = self._seals.get(revision.revision_id)
         if prior_seal is not None and prior_seal != seal:
             raise OnlyMarketDataConflictError("SEALED_REVISION_IMMUTABLE")
-        for segment in segments:
-            self._segments[segment.segment_id] = segment.content_hash
-        self._manifests.setdefault(manifest.manifest_id, manifest)
         self._revisions.setdefault(revision.revision_id, revision)
         self._seals.setdefault(revision.revision_id, seal)
 
     def is_segment_committed(self, segment_id: str, content_hash: str) -> bool:
-        return self._segments.get(segment_id) == content_hash
+        segment = self._segments.get(segment_id)
+        return segment is not None and segment.content_hash == content_hash
+
+    def load_durable_segments(self, segment_ids: tuple[str, ...]) -> tuple[OnlyIngestSegment, ...]:
+        return tuple(self._segments[item] for item in segment_ids)
+
+    def list_durable_segments(self, scope: OnlyMarketDataScope) -> tuple[OnlyIngestSegment, ...]:
+        return tuple(
+            sorted(
+                (
+                    item
+                    for item in self._segments.values()
+                    if item.source_id == scope.source_id
+                    and item.market == scope.market
+                    and item.instrument_id == scope.instrument_id
+                    and item.data_kind == scope.data_kind
+                    and item.data_version == scope.data_version
+                    and item.start_ns is not None
+                    and item.end_ns is not None
+                    and item.start_ns < scope.end_ns
+                    and item.end_ns > scope.start_ns
+                ),
+                key=lambda item: item.segment_id,
+            )
+        )
 
     def load_sealed_revision(self, revision_id: str) -> tuple[OnlyMarketDataRevision, OnlyMarketDataSeal]:
         revision = self._revisions[revision_id]
@@ -222,7 +305,10 @@ class OnlyHistoricalMarketDataQueryService:
         revision = self.resolve(revision_id)
         if revision.scope != scope:
             raise ValueError("REVISION_SCOPE_MISMATCH")
-        facts = self._fact_store.read_revision_facts(revision, scope)
+        segments = self._catalog.load_durable_segments(tuple(item[0] for item in revision.segment_refs))
+        if tuple((item.segment_id, item.content_hash) for item in segments) != revision.segment_refs:
+            raise OnlyMarketDataSealError("REVISION_SEGMENT_METADATA_MISMATCH")
+        facts = self._fact_store.read_segment_facts(segments, scope)
         only_verify_canonical_uniqueness(facts)
         return only_deduplicate_facts(facts)
 
@@ -248,6 +334,26 @@ class OnlyRevisionCommitService:
         parent_revision_id: str | None = None,
         reason: str = "INGEST",
     ) -> tuple[OnlyCoverageManifest, OnlyMarketDataRevision, OnlyMarketDataSeal]:
+        manifest, revision, seal = self.commit_if_complete(
+            segments,
+            scope,
+            records_by_segment,
+            parent_revision_id=parent_revision_id,
+            reason=reason,
+        )
+        if revision is None or seal is None:
+            raise OnlyMarketDataSealError(f"REVISION_COVERAGE_NOT_SEALABLE:{manifest.coverage_status.value}")
+        return manifest, revision, seal
+
+    def commit_if_complete(
+        self,
+        segments: OnlyIngestSegment | tuple[OnlyIngestSegment, ...],
+        scope: OnlyMarketDataScope,
+        records_by_segment: dict[str, tuple[OnlyMarketDataRecordBundle, ...]],
+        *,
+        parent_revision_id: str | None = None,
+        reason: str = "INGEST",
+    ) -> tuple[OnlyCoverageManifest, OnlyMarketDataRevision | None, OnlyMarketDataSeal | None]:
         selected = (segments,) if isinstance(segments, OnlyIngestSegment) else tuple(segments)
         if not selected:
             raise ValueError("MARKET_DATA_REVISION_SEGMENTS_EMPTY")
@@ -258,6 +364,7 @@ class OnlyRevisionCommitService:
             raise ValueError("MARKET_DATA_REVISION_RECORD_SET_MISMATCH")
         for segment in ordered:
             self._facts.verify_segment(segment, records_by_segment[segment.segment_id])
+        self._catalog.commit_durable_segments(ordered)
         facts = tuple(
             fact
             for segment in ordered
@@ -266,9 +373,41 @@ class OnlyRevisionCommitService:
         )
         only_verify_canonical_uniqueness(facts)
         manifest = only_build_coverage(scope, ordered, facts)
+        self._catalog.commit_coverage_manifest(manifest)
+        if manifest.coverage_status is not OnlyCoverageStatus.COMPLETE:
+            return manifest, None, None
         normalizers = tuple({(item.normalizer_id, item.normalizer_version) for item in facts})
         revision = OnlyMarketDataRevision.build(
             manifest, normalizers=normalizers, creation_reason=reason, parent_revision_id=parent_revision_id
+        )
+        seal = only_build_seal(revision, manifest, sealed_at=self._now())
+        self._catalog.commit_revision(ordered, manifest, revision, seal)
+        return manifest, revision, seal
+
+    def commit_durable_facts(
+        self,
+        segments: tuple[OnlyIngestSegment, ...],
+        scope: OnlyMarketDataScope,
+        facts: tuple[OnlyCanonicalMarketFactRecord, ...],
+        *,
+        parent_revision_id: str | None = None,
+        reason: str,
+    ) -> tuple[OnlyCoverageManifest, OnlyMarketDataRevision | None, OnlyMarketDataSeal | None]:
+        ordered = tuple(sorted(segments, key=lambda item: (item.segment_id, item.content_hash)))
+        if not ordered or len({item.segment_id for item in ordered}) != len(ordered):
+            raise ValueError("MARKET_DATA_DURABLE_REVISION_SEGMENT_SET_INVALID")
+        if any(not self._catalog.is_segment_committed(item.segment_id, item.content_hash) for item in ordered):
+            raise OnlyMarketDataConflictError("REVISION_REFERENCES_NON_DURABLE_SEGMENT")
+        only_verify_canonical_uniqueness(facts)
+        manifest = only_build_coverage(scope, ordered, facts)
+        self._catalog.commit_coverage_manifest(manifest)
+        if manifest.coverage_status is not OnlyCoverageStatus.COMPLETE:
+            return manifest, None, None
+        revision = OnlyMarketDataRevision.build(
+            manifest,
+            normalizers=tuple({(item.normalizer_id, item.normalizer_version) for item in facts}),
+            creation_reason=reason,
+            parent_revision_id=parent_revision_id,
         )
         seal = only_build_seal(revision, manifest, sealed_at=self._now())
         self._catalog.commit_revision(ordered, manifest, revision, seal)

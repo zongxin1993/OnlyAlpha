@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .client import OnlyClickHouseClient
+from .version import only_assert_supported_clickhouse_server
 
 DEFAULT_CLICKHOUSE_MIGRATION_ROOT = Path(__file__).resolve().parents[4] / "database/clickhouse/migrations"
 
@@ -32,6 +33,7 @@ def only_discover_clickhouse_migrations(
 
 class OnlyClickHouseMigrationAuthority:
     def __init__(self, client: OnlyClickHouseClient) -> None:
+        only_assert_supported_clickhouse_server(client)
         self._client = client
         self._migrations = only_discover_clickhouse_migrations()
 

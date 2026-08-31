@@ -242,3 +242,4 @@ mutants/
 .asv/env/
 .asv/results/
 .asv/html/
+.env

@@ -1,0 +1,43 @@
+FROM ghcr.io/astral-sh/uv:0.10.5@sha256:476133fa2aaddb4cbee003e3dc79a88d327a5dc7cb3179b7f02cabd8fdfbcc6e AS uv
+
+FROM python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c AS operator
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_CACHE_DIR=/tmp/uv-cache \
+    UV_LINK_MODE=copy
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates curl gnupg \
+    && install -d -m 0755 /usr/share/postgresql-common/pgdg \
+    && curl --fail --silent --show-error https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+        | gpg --dearmor --yes -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg \
+    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
+        > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
+    && apt-get install --yes --no-install-recommends \
+        libpq5=18.6-1.pgdg12+2 \
+        postgresql-client-common=293.pgdg12+1 \
+        postgresql-client-18=18.6-1.pgdg12+2 \
+    && apt-get purge --yes --auto-remove curl gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=uv /uv /uvx /usr/local/bin/
+
+RUN useradd --create-home --uid 10001 onlyalpha \
+    && install -d -o onlyalpha -g onlyalpha /workspace
+WORKDIR /workspace
+COPY --chown=onlyalpha:onlyalpha . .
+USER onlyalpha
+
+RUN uv sync --frozen --all-packages --no-dev
+
+ENV PATH="/workspace/.venv/bin:${PATH}" \
+    UV_NO_SYNC=1
+
+FROM operator AS acceptance
+
+RUN uv sync --frozen --all-packages --no-dev --group compose-acceptance
+
+ENTRYPOINT ["/workspace/deploy/compose/container-acceptance.sh"]

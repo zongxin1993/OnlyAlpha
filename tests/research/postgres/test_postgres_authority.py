@@ -108,6 +108,7 @@ M10 = "0010_p9_0_closure_2_authority_hardening"
 M11 = "0011_p9_0_freeze_projection_convergence"
 M12 = "0012_product_command_receipt"
 M13 = "0013_market_data_catalog"
+M14 = "0014_market_data_durable_ownership"
 EXECUTION_EVIDENCE = ("e" * 64,)
 
 
@@ -429,11 +430,12 @@ def test_fresh_plan_migrate_noop_and_startup_compatibility_are_exact(postgres_ds
         M11,
         M12,
         M13,
+        M14,
     )
     with pytest.raises(OnlyPostgresSchemaIncompatibleError):
         verifier.assert_compatible()
 
-    assert authority.migrate() == (M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13)
+    assert authority.migrate() == (M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14)
     assert verifier.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
     assert authority.migrate() == ()
 
@@ -489,11 +491,11 @@ def test_operator_explicitly_initializes_and_binds_new_semantic_store(
     assert json.loads(capsys.readouterr().out)["semantic_store_id"] == first["semantic_store_id"]
 
 
-@pytest.mark.parametrize("tampered_id", [M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13])
+@pytest.mark.parametrize("tampered_id", [M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14])
 def test_migration_checksum_tamper_fails_closed(postgres_dsn: str, tmp_path: Path, tampered_id: str) -> None:
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     authority.migrate()
-    _copy_migrations(tmp_path, M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13)
+    _copy_migrations(tmp_path, M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14)
     copied = tmp_path / f"{tampered_id}.sql"
     copied.write_bytes(copied.read_bytes() + b"\n-- tampered\n")
     tampered = OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path)
@@ -521,8 +523,22 @@ def test_existing_m1_database_plans_and_applies_exact_forward_suffix(postgres_ds
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     verifier = OnlyPostgresSchemaVerifier(postgres_dsn)
     assert verifier.status().verdict is OnlyPostgresSchemaVerdict.BEHIND
-    assert tuple(item.migration_id for item in authority.plan()) == (M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13)
-    assert authority.migrate() == (M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13)
+    assert tuple(item.migration_id for item in authority.plan()) == (
+        M2,
+        M3,
+        M4,
+        M5,
+        M6,
+        M7,
+        M8,
+        M9,
+        M10,
+        M11,
+        M12,
+        M13,
+        M14,
+    )
+    assert authority.migrate() == (M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14)
     assert verifier.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
     assert OnlyPostgresResearchRunStore(postgres_dsn).load(run.run_id) == run
 
@@ -539,7 +555,7 @@ def test_m12_backfills_legacy_submission_exactly_and_retires_old_authority(postg
             (key.value, "d" * 64, run.run_id.value),
         )
 
-    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == (M12, M13)
+    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == (M12, M13, M14)
     receipt = OnlyPostgresResearchRunStore(postgres_dsn).find_product_command_receipt(key)
     assert receipt == _create_receipt(key, run)
     with psycopg.connect(postgres_dsn) as connection:
@@ -575,7 +591,7 @@ def test_known_non_prefix_histories_diverge_and_cannot_change_database(postgres_
         connection.execute("DELETE FROM onlyalpha_schema_migration WHERE migration_id = %s", (M1,))
     before = verifier.status()
     assert before.verdict is OnlyPostgresSchemaVerdict.HISTORY_DIVERGED
-    assert before.applied_migrations == (M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13)
+    assert before.applied_migrations == (M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14)
     assert before.pending_migrations == ()
     with pytest.raises(OnlyPostgresMigrationIntegrityError):
         authority.plan()
@@ -636,7 +652,7 @@ def test_migration_advisory_lock_serializes_two_operator_processes(postgres_dsn:
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         outcomes = tuple(item.result() for item in (executor.submit(migrate), executor.submit(migrate)))
-    assert sorted(outcomes) == [(), (M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13)]
+    assert sorted(outcomes) == [(), (M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14)]
     assert OnlyPostgresSchemaVerifier(postgres_dsn).status().compatible
 
 
@@ -996,9 +1012,9 @@ def test_backup_restore_to_isolated_database_preserves_exact_run_and_source(post
         metadata_path = _backup(postgres_dsn, backup)
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
         assert metadata["backup_sha256"] == hashlib.sha256(backup.read_bytes()).hexdigest()
-        assert metadata["postgres_server_version"].startswith("16.")
-        assert metadata["pg_dump_version"].startswith("pg_dump (PostgreSQL) 16.")
-        assert [item["migration_id"] for item in metadata["migrations"]][-1] == M13
+        assert metadata["postgres_server_version"].startswith("18.")
+        assert metadata["pg_dump_version"].startswith("pg_dump (PostgreSQL) 18.")
+        assert [item["migration_id"] for item in metadata["migrations"]][-1] == M14
         assert "onlyalpha_test" not in metadata_path.read_text(encoding="utf-8")
         _restore_test(postgres_dsn, target_dsn, backup, run.run_id.value)
         assert OnlyPostgresResearchRunStore(target_dsn).load(run.run_id) == run
@@ -1035,6 +1051,8 @@ def test_restore_rejects_source_target_and_nonempty_target(postgres_dsn: str, tm
 
 def test_database_client_major_policy_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("scripts.database._tool_version", lambda _name: "pg_dump (PostgreSQL) 18.6")
+    assert _assert_client_major("pg_dump") == "pg_dump (PostgreSQL) 18.6"
+    monkeypatch.setattr("scripts.database._tool_version", lambda _name: "pg_dump (PostgreSQL) 16.10")
     with pytest.raises(RuntimeError, match="POSTGRES_CLIENT_MAJOR_UNSUPPORTED"):
         _assert_client_major("pg_dump")
 

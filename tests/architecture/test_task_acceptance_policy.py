@@ -38,15 +38,15 @@ def _plan(*paths: str):  # type: ignore[no-untyped-def]
 def test_task_acceptance_has_one_normative_repository_authority() -> None:
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
 
-    assert "唯一验收规则" in agents
+    assert "不得创建第二份任务验收 Authority" in agents
     assert (
-        "Goal\nModification Scope\nExpected Impact Scope\nRequired Behavior\nAcceptance Tests\nOut of Scope\nStop Condition"
+        "Goal\nModification Scope\nExpected Impact Scope\nRequired Behavior\nAcceptance Tests\nOut of Scope\nStop Condition\nConstitution Impact"
         in agents
     )
     assert "Risk-Tiered + Impact-Aware" in agents
-    assert "Hard Stop Condition" in agents
+    assert "Scope、Severity 与 Hard Stop" in agents
     assert "bounded Independent Review" in agents
-    assert "CI 是持续质量探针" in agents
+    assert "GitHub CI 是持续质量探针" in agents
     assert "Major Milestone Phase Gate" in agents
 
     for retired in RETIRED_PATHS:

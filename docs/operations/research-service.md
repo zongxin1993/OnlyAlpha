@@ -5,8 +5,8 @@ This runbook is the operator contract for the single-host/small-team Research AP
 ## Supported environment
 
 - Python 3.12.
-- PostgreSQL server major 16; CI and local certification use PostgreSQL 16.10.
-- `pg_dump` and `pg_restore` client major 16. A different major fails closed.
+- PostgreSQL server major 18; production, CI, and Compose acceptance pin PostgreSQL 18.6.
+- `pg_dump` and `pg_restore` client major 18. A different major fails closed.
 - One writable, durable Research semantic-store namespace shared by the API and Worker. Local mount paths may differ, but each path must
   expose the same immutable namespace identity.
 - `ONLYALPHA_POSTGRES_DSN` supplied through the environment, never argv.
@@ -17,12 +17,12 @@ Worker presence is diagnostic only. Attempt leases remain the execution-ownershi
 
 Start in this order:
 
-1. Start PostgreSQL 16.
-2. Run `uv run python scripts/database.py status`.
+1. Start the pinned PostgreSQL 18.6 service through `deploy/compose/deploy-production.sh`.
+2. Run `deploy/compose/run-operator.sh python scripts/database.py status`.
 3. If and only if status is `BEHIND` or `LEDGER_MISSING`, follow the migration procedure below.
 4. For a new empty semantic root and unbound deployment, explicitly run
-   `uv run python scripts/database.py initialize-deployment --user-data-root "$USER_DATA_ROOT"`.
-5. Start the API: `uv run onlyalpha-api --user-data-root "$USER_DATA_ROOT"`.
+   `deploy/compose/run-operator.sh python scripts/database.py initialize-deployment --user-data-root /var/lib/onlyalpha`.
+5. Start the API through its production node deployment when that node is admitted; it must mount the same `onlyalpha-user-data` volume.
 6. Verify `GET /health/live` and `GET /health/ready`.
 7. Start the Worker: `uv run onlyalpha-research-worker --user-data-root "$USER_DATA_ROOT"`.
 8. Start the Web application if required.
@@ -89,14 +89,14 @@ Never edit an applied migration, repair the checksum ledger, delete an unknown m
 
 Use this exact procedure:
 
-1. `uv run python scripts/database.py status`
-2. `uv run python scripts/database.py plan`
-3. `uv run python scripts/database.py backup /secure/path/pre-migration.dump`
+1. `deploy/compose/run-operator.sh python scripts/database.py status`
+2. `deploy/compose/run-operator.sh python scripts/database.py plan`
+3. `deploy/compose/run-operator.sh python scripts/database.py backup /var/lib/onlyalpha-backups/pre-migration.dump`
 4. Create an empty isolated database whose name ends in `_restore_test`.
-5. Set `ONLYALPHA_POSTGRES_RESTORE_TEST_DSN` and run `uv run python scripts/database.py restore-test /secure/path/pre-migration.dump --run-id RUN_ID`.
-6. `uv run python scripts/database.py migrate`
-7. `uv run python scripts/database.py status`
-8. `uv run python scripts/database.py validate --run-id RUN_ID`
+5. In an isolated Compose restore environment, set `ONLYALPHA_POSTGRES_RESTORE_TEST_DSN` and run the operator's `database.py restore-test /var/lib/onlyalpha-backups/pre-migration.dump --run-id RUN_ID`.
+6. `deploy/compose/run-operator.sh python scripts/database.py migrate`
+7. `deploy/compose/run-operator.sh python scripts/database.py status`
+8. `deploy/compose/run-operator.sh python scripts/database.py validate --run-id RUN_ID`
 9. Verify API readiness and Worker startup.
 
 Migration uses an advisory lock and one transaction. Startup never invokes migration.
@@ -129,9 +129,9 @@ The reverse online order is unsupported: a filesystem snapshot followed by a new
 
 For an actual disaster restore:
 
-1. Provision an empty PostgreSQL 16 database.
+1. Provision an empty PostgreSQL 18.6 database.
 2. Verify backup SHA-256 against its metadata.
-3. Restore with PostgreSQL 16 `pg_restore --exit-on-error`.
+3. Restore with PostgreSQL 18 `pg_restore --exit-on-error`.
 4. Run `database.py status` and `database.py validate` against the restored database.
 5. Restore the paired immutable `USER_DATA_ROOT` snapshot and confirm its capture did not precede the database observation.
 6. Verify the restored semantic-store namespace identity equals the PostgreSQL deployment binding.

@@ -65,32 +65,29 @@ class OnlyMarketDataRecoveryCoordinator:
         )
         if any(committed) and not all(committed):
             raise RuntimeError("MARKET_DATA_RECOVERY_COMMIT_SET_CONFLICT")
-        if all(committed):
-            self._barrier(OnlyMarketDataCrashBoundary.C7_CATALOG_BEFORE_GC)
-            for segment in segments:
-                self._wal.mark_gc_eligible(segment.segment_id)
-                self._wal.collect_garbage(segment.segment_id)
-            return "ALREADY_COMMITTED"
         records_by_segment = {segment.segment_id: self._wal.read_sealed(segment.segment_id) for segment in segments}
-        for segment in segments:
-            state = self._facts.inspect_segment(segment)
-            if state == "ABSENT":
-                self._barrier(OnlyMarketDataCrashBoundary.C3_SEALED_BEFORE_STORE)
-                self._facts.write_segment(segment, records_by_segment[segment.segment_id])
-            elif state != "EXACT":
-                raise RuntimeError(f"MARKET_DATA_STORE_{state}")
-            self._barrier(OnlyMarketDataCrashBoundary.C5_STORE_BEFORE_VERIFY)
-            self._facts.verify_segment(segment, records_by_segment[segment.segment_id])
-            self._last_verified_segment = segment.segment_id
+        if not all(committed):
+            for segment in segments:
+                state = self._facts.inspect_segment(segment)
+                if state == "ABSENT":
+                    self._barrier(OnlyMarketDataCrashBoundary.C3_SEALED_BEFORE_STORE)
+                    self._facts.write_segment(segment, records_by_segment[segment.segment_id])
+                elif state != "EXACT":
+                    raise RuntimeError(f"MARKET_DATA_STORE_{state}")
+                self._barrier(OnlyMarketDataCrashBoundary.C5_STORE_BEFORE_VERIFY)
+                self._facts.verify_segment(segment, records_by_segment[segment.segment_id])
+                self._last_verified_segment = segment.segment_id
         self._barrier(OnlyMarketDataCrashBoundary.C6_VERIFIED_BEFORE_CATALOG)
-        self._committer.commit(segments, scope, records_by_segment)
+        manifest, revision, _ = self._committer.commit_if_complete(segments, scope, records_by_segment)
         self._last_committed_segment = segments[-1].segment_id
         self._last_recovery_error = None
         self._barrier(OnlyMarketDataCrashBoundary.C7_CATALOG_BEFORE_GC)
         for segment in segments:
             self._wal.mark_gc_eligible(segment.segment_id)
             self._wal.collect_garbage(segment.segment_id)
-        return "COMMITTED"
+        if revision is None:
+            return f"DURABLE_ONLY:{manifest.coverage_status.value}"
+        return "ALREADY_COMMITTED" if all(committed) else "COMMITTED"
 
     def recover_all(self) -> tuple[str, ...]:
         results: list[str] = []
@@ -111,7 +108,7 @@ class OnlyMarketDataRecoveryCoordinator:
             segment = self._wal.load_segment(segment_id)
             if segment.canonical_count == 0:
                 self._ensure_exact(segment)
-                results.append("RAW_ONLY_VERIFIED")
+                results.append("DURABLE_ONLY:RAW_ONLY")
                 continue
             scope = segment.recovery_scope()
             key = (
@@ -148,6 +145,12 @@ class OnlyMarketDataRecoveryCoordinator:
         self._barrier(OnlyMarketDataCrashBoundary.C5_STORE_BEFORE_VERIFY)
         self._facts.verify_segment(segment, records)
         self._last_verified_segment = segment.segment_id
+        self._barrier(OnlyMarketDataCrashBoundary.C6_VERIFIED_BEFORE_CATALOG)
+        self._catalog.commit_durable_segments((segment,))
+        self._last_committed_segment = segment.segment_id
+        self._barrier(OnlyMarketDataCrashBoundary.C7_CATALOG_BEFORE_GC)
+        self._wal.mark_gc_eligible(segment.segment_id)
+        self._wal.collect_garbage(segment.segment_id)
 
     def health(self) -> OnlyMarketDataHealth:
         return self._wal.health(

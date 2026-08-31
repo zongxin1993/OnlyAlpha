@@ -8,7 +8,7 @@ import pytest
 pytestmark = pytest.mark.architecture
 
 
-def test_postgres_schema_is_minimal_operational_authority_not_semantic_store() -> None:
+def test_postgres_schema_is_control_catalog_authority_not_high_volume_semantic_store() -> None:
     migrations = tuple(sorted(Path("database/postgres/migrations").glob("*.sql")))
     sql = "\n".join(path.read_text() for path in migrations)
     tables = re.findall(r"CREATE TABLE ([a-z_]+)", sql)
@@ -33,6 +33,7 @@ def test_postgres_schema_is_minimal_operational_authority_not_semantic_store() -
         "market_revision_segment",
         "market_revision_seal",
         "market_recovery_event",
+        "market_acquisition_intent",
     ]
     for forbidden in (
         "dataset_row",

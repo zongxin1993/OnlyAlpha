@@ -1,0 +1,69 @@
+name: ${ONLYALPHA_COMPOSE_PROJECT_NAME:-onlyalpha}
+
+services:
+  postgres:
+    image: postgres:18.6@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
+    environment:
+      POSTGRES_USER: ${ONLYALPHA_POSTGRES_USER:?set ONLYALPHA_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${ONLYALPHA_POSTGRES_PASSWORD:?set ONLYALPHA_POSTGRES_PASSWORD}
+      POSTGRES_DB: ${ONLYALPHA_POSTGRES_DATABASE:-onlyalpha}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    stop_grace_period: 60s
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    networks:
+      database:
+        aliases:
+          - onlyalpha-postgres
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.3@sha256:ad76fddfd4f1787b03cdc0045e0ccdf23a7508e1bc0301295f024389de323568
+    environment:
+      CLICKHOUSE_USER: ${ONLYALPHA_CLICKHOUSE_USER:?set ONLYALPHA_CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${ONLYALPHA_CLICKHOUSE_PASSWORD:?set ONLYALPHA_CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DB: ${ONLYALPHA_CLICKHOUSE_DATABASE:-onlyalpha}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "clickhouse-client --user \"$$CLICKHOUSE_USER\" --password \"$$CLICKHOUSE_PASSWORD\" --query 'SELECT 1'",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 15s
+    stop_grace_period: 60s
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - clickhouse-hot:/var/lib/clickhouse/disks/hot
+      - clickhouse-cold:/var/lib/clickhouse/disks/cold
+      - ./clickhouse/storage.xml:/etc/clickhouse-server/config.d/onlyalpha-storage.xml:ro
+    networks:
+      database:
+        aliases:
+          - onlyalpha-clickhouse
+
+networks:
+  database:
+    name: ${ONLYALPHA_DATABASE_NETWORK:-onlyalpha}
+    internal: true
+
+volumes:
+  postgres-data:
+    name: ${ONLYALPHA_POSTGRES_VOLUME:-onlyalpha-postgres-data}
+  clickhouse-data:
+    name: ${ONLYALPHA_CLICKHOUSE_VOLUME:-onlyalpha-clickhouse-data}
+  clickhouse-hot:
+    name: ${ONLYALPHA_CLICKHOUSE_HOT_VOLUME:-onlyalpha-clickhouse-hot}
+  clickhouse-cold:
+    name: ${ONLYALPHA_CLICKHOUSE_COLD_VOLUME:-onlyalpha-clickhouse-cold}

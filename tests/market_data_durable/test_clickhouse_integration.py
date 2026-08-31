@@ -20,6 +20,7 @@ from onlyalpha.persistence.clickhouse import (
     OnlyClickHouseError,
     OnlyClickHouseMarketFactStore,
     OnlyClickHouseMigrationAuthority,
+    only_assert_clickhouse_test_database,
 )
 from scripts.market_data_database import _backup_segment, _restore_segment
 
@@ -35,6 +36,7 @@ def clickhouse_client() -> OnlyClickHouseClient:
     if not url:
         pytest.fail("ONLYALPHA_TEST_CLICKHOUSE_URL is required for ClickHouse integration")
     database = os.environ.get("ONLYALPHA_TEST_CLICKHOUSE_DATABASE", f"onlyalpha_test_{uuid.uuid4().hex}")
+    only_assert_clickhouse_test_database(database)
     config = OnlyClickHouseConfig(
         url,
         database=database,
@@ -154,6 +156,7 @@ def test_clickhouse_migration_unknown_write_exact_round_trip_and_hot_cold(
     restore_database = os.environ.get(
         "ONLYALPHA_TEST_CLICKHOUSE_RESTORE_DATABASE", f"onlyalpha_restore_{uuid.uuid4().hex}"
     )
+    only_assert_clickhouse_test_database(restore_database, restore=True)
     restored_client = OnlyClickHouseClient(
         OnlyClickHouseConfig(
             clickhouse_client.config.url,
