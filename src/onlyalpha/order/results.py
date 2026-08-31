@@ -26,6 +26,7 @@ from onlyalpha.order.events import (
 )
 
 if TYPE_CHECKING:
+    from onlyalpha.order.execution.models import OnlyExecutionSubmissionOutcome
     from onlyalpha.risk.decisions import OnlyRiskDecision, OnlyRiskErrorInfo, OnlyRiskRejection
 
 _ONLY_ORDER_EVENT_TYPES: dict[str, type[OnlyEvent]] = {
@@ -116,6 +117,7 @@ class OnlyOrderSubmitResult:
     events: tuple[OnlyEvent, ...]
     error: str | None = None
     risk_decision: OnlyRiskDecision | None = None
+    submission_outcome: OnlyExecutionSubmissionOutcome | None = None
 
     @property
     def risk_rejection(self) -> OnlyRiskRejection | None:

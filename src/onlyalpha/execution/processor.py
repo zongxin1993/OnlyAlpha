@@ -12,6 +12,7 @@ from onlyalpha.account.models import OnlyAccountMutationResult, OnlyAccountSnaps
 from onlyalpha.account.reconciliation import OnlyAccountReconciliationService
 from onlyalpha.broker.updates import (
     OnlyBrokerAccountUpdate,
+    OnlyBrokerBalancesUpdate,
     OnlyBrokerConnectionUpdate,
     OnlyBrokerInboundUpdate,
     OnlyBrokerOrderAcceptedUpdate,
@@ -1086,6 +1087,24 @@ class OnlyExecutionProcessor:
                 else OnlyExecutionProcessingStatus.RECONCILIATION_REQUIRED
             )
             return status, None, None, None, None, invariant, None, ("ACCOUNT_RECONCILIATION",)
+        if isinstance(update, OnlyBrokerBalancesUpdate):
+            steps.append(
+                OnlyExecutionMutationRecord(
+                    OnlyExecutionMutationStep.ACCOUNT,
+                    OnlyExecutionMutationStatus.APPLIED,
+                    "SPOT_BALANCE_FACT_REQUIRES_ACCOUNT_RECONCILIATION",
+                )
+            )
+            return (
+                OnlyExecutionProcessingStatus.RECONCILIATION_REQUIRED,
+                None,
+                None,
+                None,
+                None,
+                OnlyExecutionInvariantResult(True),
+                None,
+                ("BALANCE_RECONCILIATION",),
+            )
         if isinstance(update, OnlyBrokerConnectionUpdate):
             self._connection_state(update.state)
             steps.append(

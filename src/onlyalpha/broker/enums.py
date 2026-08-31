@@ -37,5 +37,6 @@ class OnlyBrokerConnectionState(StrEnum):
 class OnlyBrokerOperationStatus(StrEnum):
     RECEIVED = "RECEIVED"
     REJECTED = "REJECTED"
+    UNKNOWN = "UNKNOWN"
     UNSUPPORTED_CAPABILITY = "UNSUPPORTED_CAPABILITY"
     NOT_READY = "NOT_READY"

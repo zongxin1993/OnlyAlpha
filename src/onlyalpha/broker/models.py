@@ -69,6 +69,7 @@ class OnlyBrokerCancelRequest(OnlyDomainModel):
     order_id: OnlyOrderId
     venue_order_id: OnlyVenueOrderId | None
     requested_at: OnlyTimestamp
+    client_order_id: OnlyClientOrderId | None = None
 
 
 @dataclass(frozen=True, slots=True)

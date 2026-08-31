@@ -185,7 +185,7 @@ def test_cn_ashare_product_has_no_runtime_or_mutable_trading_authority_dependenc
 
 
 def test_binance_packages_do_not_reverse_core_or_cross_trading_boundaries() -> None:
-    forbidden = (
+    market_product_forbidden = (
         "onlyalpha.runtime",
         "onlyalpha.broker",
         "onlyalpha.risk",
@@ -196,14 +196,59 @@ def test_binance_packages_do_not_reverse_core_or_cross_trading_boundaries() -> N
         "onlyalpha.transaction",
         "onlyalpha.market.runtime_rules",
     )
+    provider_forbidden = tuple(item for item in market_product_forbidden if item != "onlyalpha.broker")
     violations = [
         f"{path}: import {imported}"
-        for root in (BINANCE_SPOT_ROOT, BINANCE_PROVIDER_ROOT)
-        for path in sorted(root.rglob("*.py"))
+        for path in sorted(BINANCE_SPOT_ROOT.rglob("*.py"))
         for imported in _imports(path)
-        if any(imported == item or imported.startswith(f"{item}.") for item in forbidden)
+        if any(imported == item or imported.startswith(f"{item}.") for item in market_product_forbidden)
     ]
+    violations.extend(
+        f"{path}: import {imported}"
+        for path in sorted(BINANCE_PROVIDER_ROOT.rglob("*.py"))
+        for imported in _imports(path)
+        if any(imported == item or imported.startswith(f"{item}.") for item in provider_forbidden)
+    )
+    broker_root = BINANCE_PROVIDER_ROOT / "spot" / "broker"
+    broker_imports = {
+        imported
+        for path in sorted(broker_root.rglob("*.py"))
+        for imported in _imports(path)
+        if imported.startswith("onlyalpha.")
+    }
+    violations.extend(
+        f"{broker_root}: Broker adapter lacks canonical Broker contract dependency"
+        for _ in (0,)
+        if not any(value == "onlyalpha.broker" or value.startswith("onlyalpha.broker.") for value in broker_imports)
+    )
+    violations.extend(
+        f"{broker_root}: disallowed Core dependency {imported}"
+        for imported in sorted(broker_imports)
+        if not (
+            imported == "onlyalpha.broker"
+            or imported.startswith("onlyalpha.broker.")
+            or imported == "onlyalpha.domain"
+            or imported.startswith("onlyalpha.domain.")
+            or imported in {"onlyalpha.fee.evidence", "onlyalpha.fee.evidence_scope"}
+        )
+    )
     assert not violations
+
+
+def test_binance_callbacks_and_reconciliation_cannot_mutate_runtime_order_authority() -> None:
+    broker_root = BINANCE_PROVIDER_ROOT / "spot" / "broker"
+    provider_source = "\n".join(path.read_text(encoding="utf-8") for path in broker_root.rglob("*.py"))
+    reconciliation_source = (CORE_ROOT / "broker" / "reconciliation.py").read_text(encoding="utf-8")
+    forbidden = (
+        "OnlyOrderManager",
+        "onlyalpha.order",
+        "apply_accepted(",
+        "apply_fill(",
+        "apply_cancelled(",
+        "restore_execution_authority(",
+    )
+    assert not any(token in provider_source for token in forbidden)
+    assert not any(token in reconciliation_source for token in forbidden)
 
 
 def test_retired_core_market_authorities_have_zero_active_implementation() -> None:

@@ -1,7 +1,15 @@
 from onlyalpha_plugin_binance.common.environment import OnlyBinanceEnvironment as OnlyBinanceEnvironment
+from onlyalpha_plugin_binance.common.private_http import OnlyBinanceCredentials as OnlyBinanceCredentials
+from onlyalpha_plugin_binance.common.private_http import (
+    OnlyBinancePrivateHttpClient as OnlyBinancePrivateHttpClient,
+)
 from onlyalpha_plugin_binance.config import OnlyBinancePublicReferenceConfig as OnlyBinancePublicReferenceConfig
+from onlyalpha_plugin_binance.config import OnlyBinanceSpotBrokerConfig as OnlyBinanceSpotBrokerConfig
 from onlyalpha_plugin_binance.descriptor import OnlyBinancePluginDescriptor as OnlyBinancePluginDescriptor
 from onlyalpha_plugin_binance.descriptor import only_plugin_descriptor as only_plugin_descriptor
+from onlyalpha_plugin_binance.spot.broker.rest import (
+    OnlyBinanceSpotPrivateRestClient as OnlyBinanceSpotPrivateRestClient,
+)
 from onlyalpha_plugin_binance.spot.reference.capture import (
     OnlyBinanceSpotReferenceCapture as OnlyBinanceSpotReferenceCapture,
 )

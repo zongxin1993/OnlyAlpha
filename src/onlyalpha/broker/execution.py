@@ -9,6 +9,7 @@ from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.order.execution.models import (
     OnlyExecutionCancelRequest,
     OnlyExecutionCancelResult,
+    OnlyExecutionSubmissionOutcome,
     OnlyExecutionSubmitResult,
 )
 
@@ -37,7 +38,17 @@ class OnlyBrokerExecutionService:
                 OnlyTimestamp.from_unix_nanos(self._clock.timestamp_ns()),
             )
         )
-        return OnlyExecutionSubmitResult(result.request_received, result.immediate_error or result.status.value)
+        if result.status.value == "UNKNOWN":
+            outcome = OnlyExecutionSubmissionOutcome.UNKNOWN
+        elif result.request_received:
+            outcome = OnlyExecutionSubmissionOutcome.KNOWN_RESULT
+        else:
+            outcome = OnlyExecutionSubmissionOutcome.NOT_DISPATCHED
+        return OnlyExecutionSubmitResult(
+            result.request_received,
+            result.immediate_error or result.status.value,
+            outcome,
+        )
 
     def cancel_order(self, request: OnlyExecutionCancelRequest) -> OnlyExecutionCancelResult:
         self._sequence += 1
@@ -48,6 +59,7 @@ class OnlyBrokerExecutionService:
                 request.order_id,
                 request.venue_order_id,
                 request.requested_at,
+                request.client_order_id,
             )
         )
         return OnlyExecutionCancelResult(result.request_received, result.immediate_error or result.status.value)

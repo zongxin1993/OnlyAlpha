@@ -34,6 +34,7 @@ USER onlyalpha
 RUN uv sync --frozen --all-packages --no-dev
 
 ENV PATH="/workspace/.venv/bin:${PATH}" \
+    ONLYALPHA_POSTGRES_CLIENT_BIN_DIR=/usr/lib/postgresql/18/bin \
     UV_NO_SYNC=1
 
 FROM operator AS acceptance

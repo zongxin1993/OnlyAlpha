@@ -215,6 +215,7 @@ jobs:
     env:
       ONLYALPHA_TEST_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha_test@127.0.0.1:5432/onlyalpha_test
       ONLYALPHA_TEST_POSTGRES16_DSN: postgresql://onlyalpha:onlyalpha_test@127.0.0.1:5433/onlyalpha_test
+      ONLYALPHA_POSTGRES_CLIENT_BIN_DIR: /usr/lib/postgresql/18/bin
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
@@ -240,6 +241,11 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update
           sudo apt-get install -y postgresql-client-18
+      - name: Verify exact PostgreSQL 18 client family
+        run: |
+          test "$("${ONLYALPHA_POSTGRES_CLIENT_BIN_DIR}/pg_dump" --version | awk '{print $3}' | cut -d. -f1)" = "18"
+          test "$("${ONLYALPHA_POSTGRES_CLIENT_BIN_DIR}/pg_restore" --version | awk '{print $3}' | cut -d. -f1)" = "18"
+          test "$("${ONLYALPHA_POSTGRES_CLIENT_BIN_DIR}/psql" --version | awk '{print $3}' | cut -d. -f1)" = "18"
       - run: uv run python scripts/test_suite.py research-product-closure
 
   database-compose:

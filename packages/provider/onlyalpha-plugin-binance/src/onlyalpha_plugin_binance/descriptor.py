@@ -36,6 +36,8 @@ class OnlyBinancePluginDescriptor:
         "SPOT_REALTIME_BAR",
         "SPOT_REALTIME_TRADE",
         "SPOT_REALTIME_REFERENCE",
+        "SPOT_PRIVATE_REST",
+        "SPOT_USER_DATA_STREAM",
     )
 
 

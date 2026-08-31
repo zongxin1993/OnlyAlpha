@@ -89,7 +89,14 @@ from onlyalpha.research.specification import (
     OnlyResearchSpecification,
     OnlyResearchSpecificationResolver,
 )
-from scripts.database import _assert_client_major, _backup, _initialize_deployment, _restore_test
+from scripts.database import (
+    ONLYALPHA_POSTGRES_CLIENT_BIN_DIR_ENV,
+    _assert_client_major,
+    _backup,
+    _initialize_deployment,
+    _restore_test,
+    _tool,
+)
 from scripts.database import main as database_main
 from tests.research.specification.support import registry, specification
 
@@ -1055,6 +1062,37 @@ def test_database_client_major_policy_fails_closed(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr("scripts.database._tool_version", lambda _name: "pg_dump (PostgreSQL) 16.10")
     with pytest.raises(RuntimeError, match="POSTGRES_CLIENT_MAJOR_UNSUPPORTED"):
         _assert_client_major("pg_dump")
+
+
+def test_database_client_tools_use_exact_configured_family_not_ambient_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    old_bin = tmp_path / "old" / "bin"
+    pg18_bin = tmp_path / "postgresql" / "18" / "bin"
+    old_bin.mkdir(parents=True)
+    pg18_bin.mkdir(parents=True)
+    for root in (old_bin, pg18_bin):
+        for name in ("pg_dump", "pg_restore", "psql"):
+            executable = root / name
+            executable.write_text("#!/bin/sh\n", encoding="utf-8")
+            executable.chmod(0o755)
+    monkeypatch.setenv("PATH", str(old_bin))
+    monkeypatch.setenv(ONLYALPHA_POSTGRES_CLIENT_BIN_DIR_ENV, str(pg18_bin))
+    assert tuple(_tool(name) for name in ("pg_dump", "pg_restore", "psql")) == tuple(
+        str(pg18_bin / name) for name in ("pg_dump", "pg_restore", "psql")
+    )
+
+
+def test_database_client_tool_configuration_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.delenv(ONLYALPHA_POSTGRES_CLIENT_BIN_DIR_ENV, raising=False)
+    with pytest.raises(RuntimeError, match="POSTGRES_CLIENT_BIN_DIR_REQUIRED"):
+        _tool("pg_dump")
+    monkeypatch.setenv(ONLYALPHA_POSTGRES_CLIENT_BIN_DIR_ENV, "relative/bin")
+    with pytest.raises(RuntimeError, match="POSTGRES_CLIENT_BIN_DIR_INVALID"):
+        _tool("pg_dump")
+    monkeypatch.setenv(ONLYALPHA_POSTGRES_CLIENT_BIN_DIR_ENV, str(tmp_path / "missing"))
+    with pytest.raises(RuntimeError, match="POSTGRES_CLIENT_TOOL_UNAVAILABLE"):
+        _tool("pg_dump")
 
 
 def test_operational_statement_timeout_is_repository_owned_and_effective(postgres_dsn: str) -> None:

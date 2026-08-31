@@ -13,7 +13,11 @@ from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.fee.risk_gate import OnlyFeeReconciliationRiskGate
 from onlyalpha.order.cash_port import OnlyOrderCashReservationPort
 from onlyalpha.order.enums import OnlyOrderFailureCode
-from onlyalpha.order.execution.models import OnlyExecutionCancelRequest, OnlyExecutionSubmissionOutcome
+from onlyalpha.order.execution.models import (
+    OnlyExecutionCancelRequest,
+    OnlyExecutionSubmissionOutcome,
+    OnlyExecutionSubmitResult,
+)
 from onlyalpha.order.execution.service import OnlyExecutionService
 from onlyalpha.order.manager import OnlyOrderFeeContractFactory, OnlyOrderManager
 from onlyalpha.order.margin_port import OnlyOrderMarginReservationPort
@@ -223,8 +227,18 @@ class OnlyOrderService:
                     risk_decision,
                 )
         self._publisher.publish_many(created.events)
-        execution_result = self._execution.submit_order(created.snapshot)
+        try:
+            execution_result = self._execution.submit_order(created.snapshot)
+        except Exception as exc:
+            # Once control crosses the execution Port, a generic caller cannot
+            # prove that an exception occurred before remote dispatch.
+            execution_result = OnlyExecutionSubmitResult(
+                True,
+                f"SUBMISSION_OUTCOME_UNKNOWN: {type(exc).__name__}",
+                OnlyExecutionSubmissionOutcome.UNKNOWN,
+            )
         if execution_result.outcome is OnlyExecutionSubmissionOutcome.SUPPRESSED:
+            self._manager.record_submission_outcome(created.order_id, OnlyExecutionSubmissionOutcome.SUPPRESSED)
             failed = self._manager.apply_failed(
                 created.order_id,
                 self._now(),
@@ -258,7 +272,11 @@ class OnlyOrderService:
                 execution_result.message,
                 risk_decision,
             )
-        if execution_result.received:
+        if execution_result.outcome in {
+            OnlyExecutionSubmissionOutcome.KNOWN_RESULT,
+            OnlyExecutionSubmissionOutcome.UNKNOWN,
+        }:
+            self._manager.record_submission_outcome(created.order_id, execution_result.outcome)
             if self._position_reservations is not None and uses_position_reservation:
                 self._position_reservations.sent(created.order_id, self._now())
             if self._cash_reservations is not None:
@@ -278,6 +296,7 @@ class OnlyOrderService:
                 events,
                 submitted.error,
                 risk_decision,
+                execution_result.outcome,
             )
         failed = self._manager.apply_failed(
             created.order_id,
@@ -308,6 +327,7 @@ class OnlyOrderService:
             created.events + failed.events,
             execution_result.message,
             risk_decision,
+            execution_result.outcome,
         )
 
     def cancel(

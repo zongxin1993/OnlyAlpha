@@ -8,7 +8,6 @@ import importlib.metadata
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -34,6 +33,9 @@ from onlyalpha.persistence.postgres import (
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from onlyalpha.research.operations.deployment import OnlyResearchSemanticStoreIdentity
 from onlyalpha.research.run import OnlyResearchRunId
+
+ONLYALPHA_POSTGRES_CLIENT_BIN_DIR_ENV = "ONLYALPHA_POSTGRES_CLIENT_BIN_DIR"
+_POSTGRES_CLIENT_TOOLS = frozenset({"pg_dump", "pg_restore", "psql"})
 
 
 def _authority(dsn: str) -> OnlyPostgresMigrationAuthority:
@@ -74,10 +76,18 @@ def _client_environment(dsn: str) -> dict[str, str]:
 
 
 def _tool(name: str) -> str:
-    executable = shutil.which(name)
-    if executable is None:
-        raise RuntimeError(f"required PostgreSQL client tool is unavailable: {name}")
-    return executable
+    if name not in _POSTGRES_CLIENT_TOOLS:
+        raise RuntimeError(f"POSTGRES_CLIENT_TOOL_UNSUPPORTED: {name}")
+    configured = os.environ.get(ONLYALPHA_POSTGRES_CLIENT_BIN_DIR_ENV)
+    if configured is None or not configured.strip():
+        raise RuntimeError(f"POSTGRES_CLIENT_BIN_DIR_REQUIRED: set {ONLYALPHA_POSTGRES_CLIENT_BIN_DIR_ENV}")
+    bin_dir = Path(configured)
+    if not bin_dir.is_absolute():
+        raise RuntimeError(f"POSTGRES_CLIENT_BIN_DIR_INVALID: {ONLYALPHA_POSTGRES_CLIENT_BIN_DIR_ENV} must be absolute")
+    executable = bin_dir / name
+    if not executable.is_file() or not os.access(executable, os.X_OK):
+        raise RuntimeError(f"POSTGRES_CLIENT_TOOL_UNAVAILABLE: configured {name} is unavailable")
+    return str(executable)
 
 
 def _tool_version(name: str) -> str:

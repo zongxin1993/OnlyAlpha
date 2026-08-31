@@ -177,6 +177,8 @@ def test_application_startup_cannot_migrate_or_repair_postgres() -> None:
     assert 'if args.command == "migrate"' in operator
     assert "pg_dump" in operator and "pg_restore" in operator
     assert "--target-dsn-env" in operator
+    assert 'ONLYALPHA_POSTGRES_CLIENT_BIN_DIR_ENV = "ONLYALPHA_POSTGRES_CLIENT_BIN_DIR"' in operator
+    assert "shutil.which" not in operator
 
 
 def test_migrations_are_repository_local_forward_only_and_checksummed() -> None:

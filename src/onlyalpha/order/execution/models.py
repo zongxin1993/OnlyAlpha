@@ -34,9 +34,17 @@ class OnlyExecutionCancelRequest(OnlyDomainModel):
 
 
 class OnlyExecutionSubmissionOutcome(StrEnum):
-    SUBMITTED = "SUBMITTED"
+    NOT_DISPATCHED = "NOT_DISPATCHED"
+    KNOWN_RESULT = "KNOWN_RESULT"
+    UNKNOWN = "UNKNOWN"
+    RECONCILING = "RECONCILING"
+    RESOLVED = "RESOLVED"
     SUPPRESSED = "SUPPRESSED"
-    REJECTED = "REJECTED"
+
+    # Source-compatible names for existing internal callers. Their canonical
+    # serialized values are the more precise submission-knowledge semantics.
+    SUBMITTED = "KNOWN_RESULT"
+    REJECTED = "NOT_DISPATCHED"
 
 
 @dataclass(frozen=True, slots=True)

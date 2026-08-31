@@ -42,6 +42,7 @@ from onlyalpha.order.events import (
     OnlyOrderSubmittedEvent,
 )
 from onlyalpha.order.exceptions import OnlyOrderNotFoundError
+from onlyalpha.order.execution.models import OnlyExecutionSubmissionOutcome
 from onlyalpha.order.id_generator import OnlyClientOrderIdGenerator, OnlyOrderIdGenerator
 from onlyalpha.order.results import OnlyOrderMutationResult
 
@@ -69,6 +70,7 @@ class OnlyOrderManager:
         self._order_id_by_request_id: dict[OnlyOrderRequestId, OnlyOrderId] = {}
         self._order_id_by_client_order_id: dict[OnlyClientOrderId, OnlyOrderId] = {}
         self._order_id_by_venue_order_id: dict[OnlyVenueOrderId, OnlyOrderId] = {}
+        self._submission_outcomes: dict[OnlyOrderId, OnlyExecutionSubmissionOutcome] = {}
         self._open_order_ids: set[OnlyOrderId] = set()
         self._order_ids_by_cluster_id: dict[OnlyClusterId, list[OnlyOrderId]] = {}
         self._order_ids_by_account_id: dict[OnlyAccountId, list[OnlyOrderId]] = {}
@@ -101,12 +103,17 @@ class OnlyOrderManager:
             )
         order_id = self._order_id_generator.next_id()
         client_order_id = self._client_order_id_generator.next_id()
+        if order_id in self._orders:
+            raise ValueError("ORDER_IDENTITY_CONFLICT: generated Order ID already exists")
+        if client_order_id in self._order_id_by_client_order_id:
+            raise ValueError("CLIENT_ORDER_IDENTITY_CONFLICT: generated Client Order ID already exists")
         order = OnlyOrder(request, order_id, client_order_id, self.runtime_id, cluster_id, account_id, timestamp)
         if fee_contract_factory is not None:
             order.install_fee_contract(*fee_contract_factory(order.snapshot(), timestamp))
         self._orders[order_id] = order
         self._order_id_by_request_id[request.request_id] = order_id
         self._order_id_by_client_order_id[client_order_id] = order_id
+        self._submission_outcomes[order_id] = OnlyExecutionSubmissionOutcome.NOT_DISPATCHED
         self._open_order_ids.add(order_id)
         self._order_ids_by_cluster_id.setdefault(cluster_id, []).append(order_id)
         self._order_ids_by_account_id.setdefault(account_id, []).append(order_id)
@@ -145,6 +152,43 @@ class OnlyOrderManager:
     def find_by_venue_order_id(self, venue_order_id: OnlyVenueOrderId) -> OnlyOrderSnapshot | None:
         order_id = self._order_id_by_venue_order_id.get(venue_order_id)
         return None if order_id is None else self.require_snapshot(order_id)
+
+    def submission_outcome(self, order_id: OnlyOrderId) -> OnlyExecutionSubmissionOutcome | None:
+        self.require_snapshot(order_id)
+        return self._submission_outcomes.get(order_id)
+
+    def record_submission_outcome(
+        self,
+        order_id: OnlyOrderId,
+        outcome: OnlyExecutionSubmissionOutcome,
+    ) -> None:
+        self.require_snapshot(order_id)
+        current = self._submission_outcomes.get(order_id)
+        if current == outcome:
+            return
+        allowed = {
+            OnlyExecutionSubmissionOutcome.NOT_DISPATCHED: frozenset(
+                {
+                    OnlyExecutionSubmissionOutcome.KNOWN_RESULT,
+                    OnlyExecutionSubmissionOutcome.UNKNOWN,
+                    OnlyExecutionSubmissionOutcome.SUPPRESSED,
+                }
+            ),
+            OnlyExecutionSubmissionOutcome.KNOWN_RESULT: frozenset({OnlyExecutionSubmissionOutcome.RESOLVED}),
+            OnlyExecutionSubmissionOutcome.UNKNOWN: frozenset(
+                {
+                    OnlyExecutionSubmissionOutcome.RECONCILING,
+                    OnlyExecutionSubmissionOutcome.RESOLVED,
+                }
+            ),
+            OnlyExecutionSubmissionOutcome.RECONCILING: frozenset({OnlyExecutionSubmissionOutcome.RESOLVED}),
+        }
+        if current is None or outcome not in allowed.get(current, frozenset()):
+            raise ValueError(f"SUBMISSION_OUTCOME_TRANSITION_INVALID: {current} -> {outcome}")
+        self._submission_outcomes[order_id] = outcome
+
+    def begin_submission_reconciliation(self, order_id: OnlyOrderId) -> None:
+        self.record_submission_outcome(order_id, OnlyExecutionSubmissionOutcome.RECONCILING)
 
     def mark_submitted(self, order_id: OnlyOrderId, timestamp: OnlyTimestamp) -> OnlyOrderMutationResult:
         return self._mutate(order_id, lambda order: order.mark_submitted(timestamp), timestamp)
@@ -187,6 +231,8 @@ class OnlyOrderManager:
         )
         if result.changed:
             self._order_id_by_venue_order_id[venue_order_id] = order_id
+        if result.apply_result in {OnlyOrderApplyResult.APPLIED, OnlyOrderApplyResult.DUPLICATE}:
+            self._resolve_submission_if_known(order_id)
         return result
 
     def apply_fill(self, fill: OnlyOrderFill) -> OnlyOrderMutationResult:
@@ -224,6 +270,8 @@ class OnlyOrderManager:
         result = self._mutate(fill.order_id, lambda order: order.apply_fill(fill), fill.ts_event)
         if result.changed and fill.venue_order_id is not None:
             self._order_id_by_venue_order_id.setdefault(fill.venue_order_id, fill.order_id)
+        if result.apply_result in {OnlyOrderApplyResult.APPLIED, OnlyOrderApplyResult.DUPLICATE}:
+            self._resolve_submission_if_known(fill.order_id)
         return result
 
     def request_cancel(self, order_id: OnlyOrderId, timestamp: OnlyTimestamp) -> OnlyOrderMutationResult:
@@ -238,7 +286,7 @@ class OnlyOrderManager:
         external_event_id: str | None = None,
         event_time: OnlyTimestamp | None = None,
     ) -> OnlyOrderMutationResult:
-        return self._mutate(
+        result = self._mutate(
             order_id,
             lambda order: order.apply_cancelled(
                 timestamp,
@@ -247,6 +295,9 @@ class OnlyOrderManager:
             ),
             event_time or timestamp,
         )
+        if result.apply_result in {OnlyOrderApplyResult.APPLIED, OnlyOrderApplyResult.DUPLICATE}:
+            self._resolve_submission_if_known(order_id)
+        return result
 
     def apply_rejected(
         self,
@@ -258,7 +309,7 @@ class OnlyOrderManager:
         external_event_id: str | None = None,
         event_time: OnlyTimestamp | None = None,
     ) -> OnlyOrderMutationResult:
-        return self._mutate(
+        result = self._mutate(
             order_id,
             lambda order: order.apply_rejected(
                 timestamp,
@@ -268,6 +319,9 @@ class OnlyOrderManager:
             ),
             event_time or timestamp,
         )
+        if result.apply_result in {OnlyOrderApplyResult.APPLIED, OnlyOrderApplyResult.DUPLICATE}:
+            self._resolve_submission_if_known(order_id)
+        return result
 
     def apply_expired(
         self,
@@ -277,7 +331,7 @@ class OnlyOrderManager:
         external_sequence: int | None = None,
         external_event_id: str | None = None,
     ) -> OnlyOrderMutationResult:
-        return self._mutate(
+        result = self._mutate(
             order_id,
             lambda order: order.apply_expired(
                 timestamp,
@@ -286,6 +340,9 @@ class OnlyOrderManager:
             ),
             timestamp,
         )
+        if result.apply_result in {OnlyOrderApplyResult.APPLIED, OnlyOrderApplyResult.DUPLICATE}:
+            self._resolve_submission_if_known(order_id)
+        return result
 
     def apply_failed(
         self,
@@ -337,6 +394,18 @@ class OnlyOrderManager:
         if snapshot.runtime_id != self.runtime_id:
             raise ValueError("restored Order belongs to another Runtime")
         existing = self._orders.get(snapshot.order_id)
+        if existing is not None and existing.client_order_id != snapshot.client_order_id:
+            raise ValueError("CLIENT_ORDER_IDENTITY_CONFLICT: Order identity changed during restore")
+        request_owner = self._order_id_by_request_id.get(snapshot.request_id)
+        if request_owner is not None and request_owner != snapshot.order_id:
+            raise ValueError("ORDER_REQUEST_IDENTITY_CONFLICT: request belongs to another Order")
+        client_owner = self._order_id_by_client_order_id.get(snapshot.client_order_id)
+        if client_owner is not None and client_owner != snapshot.order_id:
+            raise ValueError("CLIENT_ORDER_IDENTITY_CONFLICT: Client Order ID belongs to another Order")
+        if snapshot.venue_order_id is not None:
+            venue_owner = self._order_id_by_venue_order_id.get(snapshot.venue_order_id)
+            if venue_owner is not None and venue_owner != snapshot.order_id:
+                raise ValueError("VENUE_ORDER_IDENTITY_CONFLICT: Venue Order ID belongs to another Order")
         prior_external = frozenset() if existing is None else frozenset(existing._external_event_ids)
         prior_trades = frozenset() if existing is None else frozenset(existing._trade_ids)
         prior_venue_trades = frozenset() if existing is None else frozenset(existing._venue_trade_ids)
@@ -383,6 +452,10 @@ class OnlyOrderManager:
                 }
                 for snapshot in self.snapshot_all()
             ],
+            "submission_outcomes": {
+                str(order_id): outcome.value
+                for order_id, outcome in sorted(self._submission_outcomes.items(), key=lambda item: str(item[0]))
+            },
         }
 
     def restore_checkpoint(self, payload: object) -> None:
@@ -397,9 +470,25 @@ class OnlyOrderManager:
                 trade_ids=frozenset(str(item) for item in raw["trade_ids"]),
                 venue_trade_ids=frozenset(str(item) for item in raw["venue_trade_ids"]),
             )
+        raw_outcomes = payload.get("submission_outcomes", {})
+        if not isinstance(raw_outcomes, dict):
+            raise ValueError("Order checkpoint submission outcomes must be an object")
+        for raw_order_id, raw_outcome in raw_outcomes.items():
+            order_id = OnlyOrderId(str(raw_order_id))
+            self.require_snapshot(order_id)
+            self._submission_outcomes[order_id] = OnlyExecutionSubmissionOutcome(str(raw_outcome))
         self._order_id_generator.restore_checkpoint_sequence(int(payload["order_id_sequence"]))
         self._client_order_id_generator.restore_checkpoint_sequence(int(payload["client_order_id_sequence"]))
         self.restore_execution_event_sequence(int(payload["event_sequence"]))
+
+    def _resolve_submission_if_known(self, order_id: OnlyOrderId) -> None:
+        current = self._submission_outcomes.get(order_id)
+        if current in {
+            OnlyExecutionSubmissionOutcome.KNOWN_RESULT,
+            OnlyExecutionSubmissionOutcome.UNKNOWN,
+            OnlyExecutionSubmissionOutcome.RECONCILING,
+        }:
+            self.record_submission_outcome(order_id, OnlyExecutionSubmissionOutcome.RESOLVED)
 
     def _mutate(
         self,

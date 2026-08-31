@@ -6,7 +6,9 @@ from decimal import Decimal
 import pytest
 
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerUpdateId
+from onlyalpha.broker.models import OnlyBrokerBalanceSnapshot
 from onlyalpha.broker.updates import (
+    OnlyBrokerBalancesUpdate,
     OnlyBrokerOrderAcceptedUpdate,
     OnlyBrokerOrderRejectedUpdate,
     OnlyBrokerTradeUpdate,
@@ -19,7 +21,7 @@ from onlyalpha.domain.identifiers import (
     OnlyVenueTradeId,
 )
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
+from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
 from onlyalpha.execution import (
     OnlyExecutionAuditRecord,
     OnlyExecutionEventDeliveryMode,
@@ -54,6 +56,37 @@ def test_runtime_owns_one_isolated_processor_and_execution_state() -> None:
     assert left.runtime.execution_reconciliation_queue is not right.runtime.execution_reconciliation_queue
     assert left.runtime.execution_update_deduplicator is not right.runtime.execution_update_deduplicator
     assert left.runtime.execution_sequence_tracker is not right.runtime.execution_sequence_tracker
+
+
+def test_multi_asset_balance_fact_enters_pipeline_and_fails_closed_to_reconciliation() -> None:
+    env = OnlyIntegrationEnvironment()
+    env.start()
+    env.runtime.drain_broker_inbound()
+    now = OnlyTimestamp.from_datetime(datetime(2026, 1, 5, 2, 0, tzinfo=UTC))
+    update = OnlyBrokerBalancesUpdate(
+        runtime_id=env.runtime.config.runtime_id,
+        gateway_id=OnlyBrokerGatewayId("virtual-integration"),
+        account_id=OnlyAccountId(ACCOUNT_ID),
+        update_id=OnlyBrokerUpdateId("binance-balances-1"),
+        source_sequence=1,
+        ts_event=now,
+        ts_init=now,
+        correlation_id="account-position",
+        causation_id="user-stream",
+        snapshots=(
+            OnlyBrokerBalanceSnapshot(
+                CNY,
+                OnlyMoney(Decimal("100"), CNY),
+                OnlyMoney(Decimal("90"), CNY),
+                OnlyMoney(Decimal("10"), CNY),
+            ),
+        ),
+    )
+    env.runtime.receive_broker_update(update)
+    result = env.runtime.drain_broker_inbound()[0]
+    assert isinstance(result, OnlyExecutionProcessingResult)
+    assert result.status is OnlyExecutionProcessingStatus.RECONCILIATION_REQUIRED
+    assert result.reconciliation_request is not None
 
 
 def test_trade_uses_fixed_order_and_builds_consistent_audit_snapshot() -> None:

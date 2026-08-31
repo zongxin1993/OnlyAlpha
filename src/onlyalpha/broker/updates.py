@@ -6,7 +6,7 @@ from types import MappingProxyType
 
 from onlyalpha.broker.enums import OnlyBrokerConnectionState
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerUpdateId
-from onlyalpha.broker.models import OnlyBrokerAccountSnapshot, OnlyBrokerPositionSnapshot
+from onlyalpha.broker.models import OnlyBrokerAccountSnapshot, OnlyBrokerBalanceSnapshot, OnlyBrokerPositionSnapshot
 from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.execution import OnlyOrderFill, OnlyOrderRejection
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyOrderId, OnlyRuntimeId, OnlyVenueOrderId
@@ -70,6 +70,19 @@ class OnlyBrokerTradeUpdate(OnlyBrokerInboundUpdate):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OnlyBrokerAccountUpdate(OnlyBrokerInboundUpdate):
     snapshot: OnlyBrokerAccountSnapshot
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OnlyBrokerBalancesUpdate(OnlyBrokerInboundUpdate):
+    snapshots: tuple[OnlyBrokerBalanceSnapshot, ...]
+
+    def __post_init__(self) -> None:
+        OnlyBrokerInboundUpdate.__post_init__(self)
+        if not self.snapshots:
+            raise ValueError("Broker balance update cannot be empty")
+        codes = tuple(item.currency.code for item in self.snapshots)
+        if codes != tuple(sorted(set(codes))):
+            raise ValueError("Broker balance update requires unique canonical currency order")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
