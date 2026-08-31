@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import sys
@@ -9,7 +8,7 @@ from pathlib import Path
 import pytest
 
 import scripts.verify as verify
-from scripts.test_suite import LANES, RELEASE_LANES, OnlyReleaseCheck, OnlyTestLane
+from scripts.test_suite import LANES, OnlyReleaseCheck, OnlyTestLane
 from scripts.verify import (
     ChangeKind,
     VerificationChangedPath,
@@ -22,12 +21,11 @@ from scripts.verify import (
 )
 
 HEAD = "1" * 40
-BASE = "0" * 40
 
 
 def _plan(*paths: str):  # type: ignore[no-untyped-def]
     changes = tuple(VerificationChangedPath(path) for path in paths)
-    return plan_for_change_set(VerificationChangeSet(BASE, HEAD, changes, bool(changes)))
+    return plan_for_change_set(VerificationChangeSet(HEAD, changes, bool(changes)))
 
 
 def test_input_order_is_deterministic_and_rules_union_monotonically() -> None:
@@ -60,9 +58,9 @@ def test_research_definition_change_selects_exact_semantic_consumers() -> None:
     assert plan.impact.escalation is VerificationEscalation.COMPONENT
     assert plan.impact.lanes == (
         OnlyTestLane.RESEARCH_DEFINITION,
+        OnlyTestLane.RESEARCH_CALCULATION,
         OnlyTestLane.RESEARCH_SPECIFICATION,
         OnlyTestLane.RESEARCH_SWEEP,
-        OnlyTestLane.RESEARCH_CALCULATION,
     )
     assert plan.impact.static_plan is not None
     assert plan.impact.static_plan.mypy_targets == ("src/onlyalpha/research/definition",)
@@ -73,20 +71,20 @@ def test_research_definition_change_selects_exact_semantic_consumers() -> None:
 def test_unknown_production_path_fails_closed_to_full_local() -> None:
     plan = _plan("src/onlyalpha/new_unknown_core/authority.py")
 
-    assert plan.impact.escalation is VerificationEscalation.FULL_LOCAL
-    assert plan.impact.lanes == RELEASE_LANES
-    assert plan.impact.checks == tuple(OnlyReleaseCheck)
-    assert {reason.rule for reason in plan.impact.reasons} == {"unknown-impact-fallback"}
+    assert plan.impact.escalation is VerificationEscalation.COMPONENT
+    assert plan.impact.lanes == ()
+    assert plan.impact.checks == (OnlyReleaseCheck.STATIC,)
+    assert {reason.rule for reason in plan.impact.reasons} == {"manual-impact-review-required"}
 
 
 def test_research_result_change_is_scoped_to_its_lane_and_static_targets() -> None:
     plan = _plan("src/onlyalpha/research/result/result_store.py", "tests/research/result/test_result_store.py")
 
     assert plan.impact.lanes == (
-        OnlyTestLane.RESEARCH_RUNTIME,
-        OnlyTestLane.RESEARCH_QUERY,
-        OnlyTestLane.RESEARCH_ARTIFACT,
         OnlyTestLane.RESEARCH_RESULT,
+        OnlyTestLane.RESEARCH_ARTIFACT,
+        OnlyTestLane.RESEARCH_QUERY,
+        OnlyTestLane.RESEARCH_RUNTIME,
     )
     assert plan.impact.escalation is VerificationEscalation.COMPONENT
     assert plan.impact.static_plan is not None
@@ -114,8 +112,8 @@ def test_research_run_and_postgres_changes_select_exact_authority_consumers() ->
     run = _plan("src/onlyalpha/research/run/model.py")
     postgres = _plan("database/postgres/migrations/0001_research_run_operational_authority.sql")
     assert run.impact.lanes == (
-        OnlyTestLane.RESEARCH_RUN,
         OnlyTestLane.RESEARCH_COMMAND,
+        OnlyTestLane.RESEARCH_RUN,
         OnlyTestLane.RESEARCH_EXECUTION,
         OnlyTestLane.RESEARCH_POSTGRES,
     )
@@ -127,7 +125,7 @@ def test_research_run_and_postgres_changes_select_exact_authority_consumers() ->
     assert run.impact.static_plan is not None
     assert "src/onlyalpha/research/run" in run.impact.static_plan.mypy_targets
     assert postgres.impact.static_plan is not None
-    assert "src/onlyalpha/persistence/postgres" in postgres.impact.static_plan.mypy_targets
+    assert postgres.impact.static_plan.mypy_targets == ()
 
 
 def test_research_execution_changes_select_application_and_real_postgres_proofs() -> None:
@@ -198,11 +196,11 @@ def test_statistics_authority_change_propagates_to_research_result_consumer() ->
     plan = _plan("src/onlyalpha/research/evaluation/result_store.py")
 
     assert plan.impact.lanes == (
-        OnlyTestLane.RESEARCH_RUNTIME,
-        OnlyTestLane.RESEARCH_QUERY,
-        OnlyTestLane.RESEARCH_ARTIFACT,
-        OnlyTestLane.RESEARCH_RESULT,
         OnlyTestLane.RESEARCH_EVALUATION,
+        OnlyTestLane.RESEARCH_RESULT,
+        OnlyTestLane.RESEARCH_ARTIFACT,
+        OnlyTestLane.RESEARCH_QUERY,
+        OnlyTestLane.RESEARCH_RUNTIME,
     )
     assert plan.impact.static_plan is not None
     assert plan.impact.static_plan.mypy_targets == (
@@ -215,10 +213,10 @@ def test_research_result_architecture_boundary_requests_import_linter_without_fu
     plan = _plan("tests/architecture/test_research_result_boundaries.py")
 
     assert plan.impact.lanes == (
-        OnlyTestLane.RESEARCH_RUNTIME,
-        OnlyTestLane.RESEARCH_QUERY,
-        OnlyTestLane.RESEARCH_ARTIFACT,
         OnlyTestLane.RESEARCH_RESULT,
+        OnlyTestLane.RESEARCH_ARTIFACT,
+        OnlyTestLane.RESEARCH_QUERY,
+        OnlyTestLane.RESEARCH_RUNTIME,
     )
     assert plan.impact.static_plan is not None and plan.impact.static_plan.import_linter_required
     assert plan.impact.escalation is VerificationEscalation.COMPONENT
@@ -228,16 +226,16 @@ def test_research_artifact_change_is_scoped_to_portable_boundary() -> None:
     plan = _plan("src/onlyalpha/research/artifact/store.py", "tests/research/artifact/test_store.py")
 
     assert plan.impact.lanes == (
-        OnlyTestLane.RESEARCH_RUNTIME,
-        OnlyTestLane.RESEARCH_QUERY,
         OnlyTestLane.RESEARCH_ARTIFACT,
+        OnlyTestLane.RESEARCH_QUERY,
+        OnlyTestLane.RESEARCH_RUNTIME,
     )
     assert plan.impact.static_plan is not None
     assert plan.impact.static_plan.mypy_targets == ("src/onlyalpha/research/artifact",)
     assert plan.impact.escalation is VerificationEscalation.COMPONENT
 
 
-def test_research_query_and_api_changes_use_consumer_lane_and_targeted_api_build() -> None:
+def test_research_query_and_public_api_changes_use_broad_consumer_proof() -> None:
     plan = _plan(
         "src/onlyalpha/research/query/service.py",
         "packages/api/onlyalpha-api/src/onlyalpha_api/research/routes.py",
@@ -245,17 +243,14 @@ def test_research_query_and_api_changes_use_consumer_lane_and_targeted_api_build
     )
 
     assert plan.impact.lanes == (
-        OnlyTestLane.RESEARCH_COMMAND,
-        OnlyTestLane.RESEARCH_QUERY,
         OnlyTestLane.RESEARCH_ARTIFACT,
+        OnlyTestLane.RESEARCH_QUERY,
+        OnlyTestLane.RESEARCH_COMMAND,
     )
-    assert plan.impact.escalation is VerificationEscalation.COMPONENT
+    assert plan.impact.escalation is VerificationEscalation.BROAD
     assert plan.impact.static_plan is not None
-    assert plan.impact.static_plan.mypy_targets == (
-        "packages/api/onlyalpha-api/src/onlyalpha_api",
-        "src/onlyalpha/research/query",
-    )
-    assert plan.impact.static_plan.build_targets == ("onlyalpha-api",)
+    assert plan.impact.static_plan.mypy_targets == ()
+    assert plan.impact.static_plan.build_targets == ()
     assert OnlyTestLane.CORE_FULL not in plan.impact.lanes
     assert set(verify.WEB_CHECKS).issubset(plan.impact.checks)
 
@@ -272,7 +267,7 @@ def test_web_only_change_stops_at_api_boundary_and_runs_web_evidence() -> None:
 def test_research_query_architecture_gate_is_component_scoped() -> None:
     plan = _plan("tests/architecture/test_research_query_boundaries.py")
 
-    assert plan.impact.lanes == (OnlyTestLane.RESEARCH_QUERY, OnlyTestLane.RESEARCH_ARTIFACT)
+    assert plan.impact.lanes == (OnlyTestLane.RESEARCH_ARTIFACT, OnlyTestLane.RESEARCH_QUERY)
     assert plan.impact.escalation is VerificationEscalation.COMPONENT
     assert plan.impact.static_plan is not None and plan.impact.static_plan.import_linter_required
 
@@ -296,9 +291,9 @@ def test_package_metadata_requests_version_sync_and_targeted_build() -> None:
 def test_verification_infrastructure_cannot_self_narrow() -> None:
     plan = _plan("scripts/test_suite.py")
 
-    assert plan.impact.escalation is VerificationEscalation.VERIFICATION_INFRASTRUCTURE
-    assert plan.impact.lanes == RELEASE_LANES
-    assert plan.impact.checks == tuple(OnlyReleaseCheck)
+    assert plan.impact.escalation is VerificationEscalation.QUALITY_INFRASTRUCTURE
+    assert plan.impact.lanes == (OnlyTestLane.ARCHITECTURE,)
+    assert plan.impact.checks == (OnlyReleaseCheck.STATIC,)
 
 
 def test_docs_only_selects_no_runtime_lane_and_mixed_change_cannot_downgrade() -> None:
@@ -318,8 +313,12 @@ def test_shared_core_and_shared_test_fixture_are_conservative() -> None:
 
     assert set(core.impact.lanes) == set(verify.CORE_RECOVERY)
     assert core.impact.escalation is VerificationEscalation.BROAD
-    assert fixture.impact.lanes == RELEASE_LANES
-    assert fixture.impact.escalation is VerificationEscalation.FULL_LOCAL
+    assert fixture.impact.lanes == (
+        OnlyTestLane.ARCHITECTURE,
+        OnlyTestLane.FAST,
+        OnlyTestLane.INTEGRATION,
+    )
+    assert fixture.impact.escalation is VerificationEscalation.BROAD
 
 
 def test_specific_test_change_uses_component_lane() -> None:
@@ -328,15 +327,14 @@ def test_specific_test_change_uses_component_lane() -> None:
     assert plan.impact.lanes == (
         OnlyTestLane.RESEARCH_SPECIFICATION,
         OnlyTestLane.RESEARCH_RUNTIME,
-        OnlyTestLane.RESEARCH_SWEEP,
         OnlyTestLane.RESEARCH_JOB,
+        OnlyTestLane.RESEARCH_SWEEP,
     )
     assert plan.impact.escalation is VerificationEscalation.COMPONENT
 
 
 def test_rename_and_delete_have_deterministic_impact_semantics() -> None:
     change_set = VerificationChangeSet(
-        BASE,
         HEAD,
         (
             VerificationChangedPath(
@@ -370,7 +368,7 @@ def test_name_status_parser_preserves_rename_and_delete() -> None:
 def test_dirty_worktree_and_untracked_files_are_not_silently_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_git(*args: str) -> str:
         if args[:2] == ("rev-parse", "--verify"):
-            return BASE + "\n"
+            return HEAD + "\n"
         if args == ("rev-parse", "HEAD"):
             return HEAD + "\n"
         if args[0] == "status":
@@ -387,7 +385,7 @@ def test_dirty_worktree_and_untracked_files_are_not_silently_ignored(monkeypatch
     monkeypatch.setattr(verify, "_git", fake_git)
     monkeypatch.setattr(verify, "_git_bytes", fake_git_bytes)
 
-    change_set = verify.resolve_change_set("explicit-base")
+    change_set = verify.resolve_change_set()
 
     assert change_set.dirty_worktree is True
     assert change_set.changed_paths == (VerificationChangedPath("new.py", ChangeKind.UNTRACKED),)
@@ -410,21 +408,13 @@ def test_full_local_command_order_preserves_release_static_lanes_build(monkeypat
 
     commands = verify.verification_commands(plan)
 
-    assert commands[0][0] == "check:release-static"
-    assert [gate for gate, _ in commands[1:5]] == [
-        "check:web-static",
-        "check:web-unit",
-        "check:web-build",
-        "check:web-e2e",
-    ]
-    assert [gate for gate, _ in commands[5:-1]] == [f"lane:{lane.value}" for lane in RELEASE_LANES]
-    assert commands[-1][0] == "check:build"
+    assert [gate for gate, _ in commands] == ["check:release-static", "lane:architecture"]
 
 
 def test_plan_is_stable_across_fresh_hash_seed_processes() -> None:
     code = (
         "import json; from scripts.verify import *; "
-        "c=VerificationChangeSet('0'*40,'1'*40,(VerificationChangedPath('src/onlyalpha/research/job/x.py'),"
+        "c=VerificationChangeSet('1'*40,(VerificationChangedPath('src/onlyalpha/research/job/x.py'),"
         "VerificationChangedPath('src/onlyalpha/research/calculation/y.py')),True); "
         "print(json.dumps(plan_for_change_set(c).as_json(),sort_keys=True))"
     )
@@ -445,14 +435,13 @@ def test_plan_is_stable_across_fresh_hash_seed_processes() -> None:
     assert outputs[0] == outputs[1]
 
 
-def test_compact_success_output_and_manifest_retains_full_log(
+def test_compact_success_output_persists_no_verification_authority(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     command = (sys.executable, "-c", "print('full successful output retained')")
-    monkeypatch.setattr(verify, "LOG_ROOT", tmp_path)
     monkeypatch.setattr(verify, "ROOT", tmp_path)
     monkeypatch.setattr(verify, "release_check_commands", lambda check: (command,))
-    change_set = VerificationChangeSet(BASE, HEAD, (VerificationChangedPath("tool.py"),), True)
+    change_set = VerificationChangeSet(HEAD, (VerificationChangedPath("tool.py"),), True)
     plan = VerificationPlan(
         change_set,
         VerificationImpact((), (OnlyReleaseCheck.STATIC,), (), VerificationEscalation.COMPONENT),
@@ -462,30 +451,23 @@ def test_compact_success_output_and_manifest_retains_full_log(
 
     output = capsys.readouterr().out
     assert "PASS check:release-static" in output
-    assert "IMPACT VERIFIED" in output
+    assert "SELECTED CHECKS PASSED" in output
+    assert "no verification evidence was persisted" in output
     assert "full successful output retained" not in output
-    manifests = list(tmp_path.glob("*/manifest.json"))
-    assert len(manifests) == 1
-    manifest = json.loads(manifests[0].read_text(encoding="utf-8"))
-    assert manifest["authority"] == "LOCAL_DEVELOPMENT_VERIFICATION_ONLY"
-    assert manifest["result"] == "VERIFICATION_PASSED"
-    log = next(tmp_path.glob("*/check-release-static*.log")).read_text(encoding="utf-8")
-    assert "full successful output retained" in log
+    assert list(tmp_path.rglob("manifest.json")) == []
 
 
-def test_compact_failure_exposes_command_diagnostic_and_full_log(
+def test_compact_failure_exposes_command_diagnostic_without_persisted_log(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(verify, "ROOT", tmp_path)
-    log = tmp_path / "failed.log"
-    log.write_text("short failure diagnostic\n", encoding="utf-8")
-    result = VerificationStepResult("lane:research-job", ("false",), 1, 0.5, "failed.log")
+    result = VerificationStepResult("lane:research-job", ("false",), 1, 0.5, "short failure diagnostic\n")
 
-    verify._print_result(result, tmp_path)
+    verify._print_result(result)
 
     output = capsys.readouterr().out
     assert "FAIL lane:research-job" in output
     assert "exit_code=1" in output
     assert "command: false" in output
     assert "short failure diagnostic" in output
-    assert "full log: failed.log" in output
+    assert list(tmp_path.iterdir()) == []

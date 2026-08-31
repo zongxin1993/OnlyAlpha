@@ -16,7 +16,7 @@ from onlyalpha.data.enums import (
     OnlyMarketDataRequestStatus,
     OnlyMarketDataType,
 )
-from onlyalpha.data.evidence import OnlyRawProviderObservation
+from onlyalpha.data.evidence import OnlyDurabilityState, OnlyRawProviderObservation
 from onlyalpha.data.historical import OnlyHistoricalDataRequest, OnlyHistoricalTradeDataRequest
 from onlyalpha.data.identifiers import (
     OnlyDataSequence,
@@ -175,6 +175,9 @@ class OnlyBinanceSpotDataSource:
     def health(self) -> OnlyPluginHealth:
         if self._state is OnlyPluginLifecycleState.STOPPED:
             return OnlyPluginHealth(OnlyPluginHealthStatus.STOPPED)
+        durable_health = self._durable_health()
+        if durable_health is not None:
+            return durable_health
         if self._continuity.state is OnlyMarketDataConnectionState.READY:
             return OnlyPluginHealth(OnlyPluginHealthStatus.HEALTHY)
         if self._continuity.state is OnlyMarketDataConnectionState.FAILED:
@@ -330,8 +333,32 @@ class OnlyBinanceSpotDataSource:
         update: OnlyMarketDataInboundUpdate | tuple[OnlyMarketDataInboundUpdate, ...] | None,
     ) -> None:
         sink = self._request.provider_evidence_sink
-        if sink is not None:
-            sink(observation, update)
+        if sink is None:
+            if self._request.durable_recording_required:
+                raise OnlyBinanceError("DURABLE_MARKET_DATA_RECORDER_REQUIRED")
+            return
+        receipt = sink(observation, update)
+        if self._request.durable_recording_required and receipt.durability_state is not OnlyDurabilityState.WAL_DURABLE:
+            raise OnlyBinanceError("DURABLE_MARKET_DATA_OWNERSHIP_NOT_ESTABLISHED")
+
+    def _durable_health(self) -> OnlyPluginHealth | None:
+        if not self._request.durable_recording_required:
+            return None
+        sink = self._request.provider_evidence_sink
+        if sink is None:
+            return OnlyPluginHealth(OnlyPluginHealthStatus.UNHEALTHY, "durable recorder unavailable")
+        health_method = getattr(sink, "health", None)
+        if health_method is None:
+            return OnlyPluginHealth(OnlyPluginHealthStatus.UNHEALTHY, "durable health unavailable")
+        recording_state = getattr(health_method(), "recording_state", None)
+        if getattr(recording_state, "value", None) == "HEALTHY":
+            return None
+        return OnlyPluginHealth(
+            OnlyPluginHealthStatus.UNHEALTHY
+            if getattr(recording_state, "value", None) == "FAILED"
+            else OnlyPluginHealthStatus.DEGRADED,
+            f"durable recording {getattr(recording_state, 'value', 'UNKNOWN')}",
+        )
 
     def _observe_rest_response(self, endpoint: str, params: Mapping[str, str], payload: bytes) -> None:
         receive_ns = self._request.clock.timestamp_ns()

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from onlyalpha.data.evidence import OnlyRawProviderObservation
+from onlyalpha.data.evidence import OnlyDurabilityState, OnlyDurableRecordReceipt, OnlyRawProviderObservation
 from onlyalpha.data.models import OnlyMarketDataInboundUpdate
 
 from .models import (
     OnlyCanonicalMarketFactRecord,
+    OnlyIngestSegment,
+    OnlyMarketDataHealth,
     OnlyMarketDataProvenance,
     OnlyMarketDataRecordBundle,
     OnlyRawProviderEvidence,
@@ -41,7 +43,7 @@ class OnlyMarketDataIngress:
         self,
         observation: OnlyRawProviderObservation,
         canonical_update: OnlyMarketDataInboundUpdate | tuple[OnlyMarketDataInboundUpdate, ...] | None,
-    ) -> int:
+    ) -> OnlyDurableRecordReceipt:
         if self._segment_id is None:
             raise RuntimeError("MARKET_DATA_INGRESS_SEGMENT_NOT_OPEN")
         evidence = OnlyRawProviderEvidence.capture(
@@ -82,12 +84,15 @@ class OnlyMarketDataIngress:
         self._barrier("C1")
         ordinal = self._wal.append(OnlyMarketDataRecordBundle(evidence, facts))
         self._barrier("C2")
-        return ordinal
+        return OnlyDurableRecordReceipt(self._segment_id, ordinal, OnlyDurabilityState.WAL_DURABLE)
 
-    def seal(self):  # type: ignore[no-untyped-def]
+    def seal(self) -> OnlyIngestSegment:
         segment = self._wal.seal()
         self._segment_id = None
         return segment
+
+    def health(self) -> OnlyMarketDataHealth:
+        return self._wal.health()
 
 
 __all__ = ["OnlyMarketDataIngress"]

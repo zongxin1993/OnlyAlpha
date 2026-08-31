@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 import pyarrow as pa  # type: ignore[import-untyped]
@@ -17,6 +18,10 @@ from onlyalpha.domain.market import OnlyBar
 from .codec import only_bars_to_table, only_table_to_bars
 from .definition import OnlyResearchDatasetDefinition
 from .identity import only_canonical_bars, only_content_fingerprint, only_snapshot_fingerprint
+from .lineage import (
+    OnlyDatasetMaterialization,
+    OnlyMarketDataRevisionBinding,
+)
 from .manifest import (
     OnlyResearchDatasetPartitionManifest,
     OnlyResearchDatasetSnapshot,
@@ -45,6 +50,86 @@ class OnlyParquetResearchDatasetSnapshotStore:
 
     def exists(self, snapshot_fingerprint: str) -> bool:
         return self._target(snapshot_fingerprint).exists()
+
+    def commit_materialization(self, value: OnlyDatasetMaterialization) -> OnlyDatasetMaterialization:
+        target = self._materialization_target(value.materialization_id)
+        if target.exists():
+            prior = self.load_materialization(value.materialization_id)
+            if prior.semantic_payload() != value.semantic_payload():
+                raise OnlyResearchDatasetStoreError("DATASET_MATERIALIZATION_IDENTITY_CONFLICT")
+            return prior
+        target.parent.mkdir(parents=True, exist_ok=True)
+        stage = target.parent / f".stage-{uuid.uuid4().hex}.json"
+        payload = {
+            "schema_version": 1,
+            "materialization_id": value.materialization_id,
+            "dataset_snapshot_fingerprint": value.dataset_snapshot_fingerprint,
+            "market_data_revision_bindings": [
+                {
+                    "source_id": item.source_id,
+                    "instrument_id": item.instrument_id,
+                    "data_kind": item.data_kind,
+                    "revision_id": item.revision_id,
+                    "revision_fingerprint": item.revision_fingerprint,
+                }
+                for item in value.market_data_revision_bindings
+            ],
+            "materializer_id": value.materializer_id,
+            "materializer_version": value.materializer_version,
+            "request_fingerprint": value.request_fingerprint,
+            "created_at": value.created_at.isoformat(),
+        }
+        try:
+            with stage.open("xb") as stream:
+                stream.write(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode())
+                stream.flush()
+                os.fsync(stream.fileno())
+            try:
+                os.link(stage, target)
+                _fsync_directory(target.parent)
+            except OSError:
+                if not target.exists():
+                    raise
+            prior = self.load_materialization(value.materialization_id)
+            if prior.semantic_payload() != value.semantic_payload():
+                raise OnlyResearchDatasetStoreError("DATASET_MATERIALIZATION_IDENTITY_CONFLICT")
+            return prior
+        finally:
+            stage.unlink(missing_ok=True)
+
+    def load_materialization(self, materialization_id: str) -> OnlyDatasetMaterialization:
+        path = self._materialization_target(materialization_id)
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+                raise ValueError("materialization schema")
+            raw_bindings = payload["market_data_revision_bindings"]
+            if not isinstance(raw_bindings, list):
+                raise ValueError("materialization bindings")
+            bindings = tuple(
+                OnlyMarketDataRevisionBinding(
+                    str(item["source_id"]),
+                    str(item["instrument_id"]),
+                    str(item["data_kind"]),
+                    str(item["revision_id"]),
+                    str(item["revision_fingerprint"]),
+                )
+                for item in raw_bindings
+                if isinstance(item, dict)
+            )
+            if len(bindings) != len(raw_bindings):
+                raise ValueError("materialization binding shape")
+            return OnlyDatasetMaterialization(
+                str(payload["materialization_id"]),
+                str(payload["dataset_snapshot_fingerprint"]),
+                bindings,
+                str(payload["materializer_id"]),
+                str(payload["materializer_version"]),
+                str(payload["request_fingerprint"]),
+                datetime.fromisoformat(str(payload["created_at"])),
+            )
+        except Exception as exc:
+            raise OnlyResearchDatasetCorruptError("DATASET_MATERIALIZATION_CORRUPT") from exc
 
     def commit(
         self,
@@ -223,6 +308,17 @@ class OnlyParquetResearchDatasetSnapshotStore:
             raise OnlyResearchDatasetNotFoundError("DATASET_SNAPSHOT_NOT_FOUND")
         return self._root / "sha256" / fingerprint[:2] / fingerprint
 
+    def _materialization_target(self, materialization_id: str) -> Path:
+        prefix = "dataset-materialization:"
+        fingerprint = materialization_id.removeprefix(prefix)
+        if (
+            not materialization_id.startswith(prefix)
+            or len(fingerprint) != 64
+            or any(item not in "0123456789abcdef" for item in fingerprint)
+        ):
+            raise OnlyResearchDatasetNotFoundError("DATASET_MATERIALIZATION_NOT_FOUND")
+        return self._root / "materializations" / "sha256" / fingerprint[:2] / f"{fingerprint}.json"
+
 
 def _sha(path: Path) -> str:
     digest = hashlib.sha256()
@@ -230,3 +326,11 @@ def _sha(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)

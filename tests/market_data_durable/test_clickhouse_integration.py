@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -25,7 +26,7 @@ from scripts.market_data_database import _backup_segment, _restore_segment
 from .conftest import BASE, INSTRUMENT, trade_update
 from .test_wal_and_identity import observation
 
-pytestmark = [pytest.mark.clickhouse, pytest.mark.external]
+pytestmark = [pytest.mark.clickhouse, pytest.mark.external, pytest.mark.requires_network]
 
 
 @pytest.fixture
@@ -33,7 +34,7 @@ def clickhouse_client() -> OnlyClickHouseClient:
     url = os.environ.get("ONLYALPHA_TEST_CLICKHOUSE_URL")
     if not url:
         pytest.fail("ONLYALPHA_TEST_CLICKHOUSE_URL is required for ClickHouse integration")
-    database = f"onlyalpha_test_{uuid.uuid4().hex}"
+    database = os.environ.get("ONLYALPHA_TEST_CLICKHOUSE_DATABASE", f"onlyalpha_test_{uuid.uuid4().hex}")
     config = OnlyClickHouseConfig(
         url,
         database=database,
@@ -48,15 +49,16 @@ def clickhouse_client() -> OnlyClickHouseClient:
         client.execute(f"DROP DATABASE IF EXISTS {database} SYNC", database="default")
 
 
-class _LostRawAcknowledgementClient:
-    def __init__(self, client: OnlyClickHouseClient) -> None:
+class _LostAcknowledgementClient:
+    def __init__(self, client: OnlyClickHouseClient, table: str) -> None:
         self._client = client
         self.config = client.config
+        self._table = table
         self._lost = False
 
     def insert_json_each_row(self, table: str, rows) -> None:  # type: ignore[no-untyped-def]
         self._client.insert_json_each_row(table, rows)
-        if table == "market_raw_event" and not self._lost:
+        if table == self._table and not self._lost:
             self._lost = True
             raise OnlyClickHouseError("INJECTED_ACK_LOSS")
 
@@ -83,13 +85,28 @@ def test_clickhouse_migration_unknown_write_exact_round_trip_and_hot_cold(
     assert authority.migrate() == ("0001_market_data_foundation",)
     authority.validate()
 
-    segment, records = _segment(tmp_path, fixed_now)
-    lossy = _LostRawAcknowledgementClient(clickhouse_client)
+    partial_segment, partial_records = _segment(tmp_path / "partial", fixed_now)
+    partial = OnlyClickHouseMarketFactStore(
+        _LostAcknowledgementClient(clickhouse_client, "market_raw_event")  # type: ignore[arg-type]
+    )
+    with pytest.raises(OnlyClickHouseError, match="INJECTED_ACK_LOSS"):
+        partial.write_segment(partial_segment, partial_records)
+    assert partial.inspect_segment(partial_segment) == "PARTIAL"
+
+    segment, records = _segment(tmp_path / "exact", fixed_now)
+    segment = replace(segment, segment_id="segment-ch-exact")
+    records = tuple(
+        replace(
+            bundle,
+            canonical_facts=tuple(replace(fact, segment_id=segment.segment_id) for fact in bundle.canonical_facts),
+        )
+        for bundle in records
+    )
+    lossy = _LostAcknowledgementClient(clickhouse_client, "market_trade")
     store = OnlyClickHouseMarketFactStore(lossy)  # type: ignore[arg-type]
     with pytest.raises(OnlyClickHouseError, match="INJECTED_ACK_LOSS"):
         store.write_segment(segment, records)
-    assert store.inspect_segment(segment) == "PARTIAL"
-    store.write_segment(segment, records)
+    assert store.inspect_segment(segment) == "EXACT"
     store.verify_segment(segment, records)
 
     base_ns = int(BASE.timestamp() * 1_000_000_000)
@@ -113,7 +130,7 @@ def test_clickhouse_migration_unknown_write_exact_round_trip_and_hot_cold(
 
     [stored] = clickhouse_client.query_json(
         "SELECT toString(price) AS price, price_precision, ts_event_ns, ts_receive_ns, ts_ingest_ns "
-        "FROM market_trade WHERE segment_id='segment-ch'"
+        "FROM market_trade WHERE segment_id='segment-ch-exact'"
     )
     assert stored == {
         "price": "100.12",
@@ -134,7 +151,9 @@ def test_clickhouse_migration_unknown_write_exact_round_trip_and_hot_cold(
 
     backup = tmp_path / "segment-ch.json"
     _backup_segment(clickhouse_client, segment.segment_id, backup)
-    restore_database = f"onlyalpha_restore_{uuid.uuid4().hex}"
+    restore_database = os.environ.get(
+        "ONLYALPHA_TEST_CLICKHOUSE_RESTORE_DATABASE", f"onlyalpha_restore_{uuid.uuid4().hex}"
+    )
     restored_client = OnlyClickHouseClient(
         OnlyClickHouseConfig(
             clickhouse_client.config.url,

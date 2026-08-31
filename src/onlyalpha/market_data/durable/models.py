@@ -27,18 +27,23 @@ class OnlyMarketDataQualityState(StrEnum):
 
 
 class OnlySegmentState(StrEnum):
+    ABSENT = "ABSENT"
     OPEN = "OPEN"
     SEALED = "SEALED"
-    STORE_WRITTEN = "STORE_WRITTEN"
-    VERIFIED = "VERIFIED"
-    COMMITTED = "COMMITTED"
     GC_ELIGIBLE = "GC_ELIGIBLE"
+    DELETED = "DELETED"
 
 
 class OnlyRecordingState(StrEnum):
     HEALTHY = "HEALTHY"
     DEGRADED = "DEGRADED"
     FAILED = "FAILED"
+
+
+class OnlyCoverageStatus(StrEnum):
+    COMPLETE = "COMPLETE"
+    INCOMPLETE = "INCOMPLETE"
+    UNPROVABLE = "UNPROVABLE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,6 +240,14 @@ class OnlyIngestSegment:
     content_hash: str
     created_at: datetime
     sealed_at: datetime
+    instrument_id: str | None = None
+    data_kind: str | None = None
+    start_ns: int | None = None
+    end_ns: int | None = None
+    data_version: str | None = None
+    bar_type: str | None = None
+    first_sequence: int | None = None
+    last_sequence: int | None = None
 
     def __post_init__(self) -> None:
         only_require_utc(self.created_at, "segment created_at")
@@ -262,6 +275,43 @@ class OnlyIngestSegment:
             )
         ):
             raise ValueError("SEGMENT_METADATA_INVALID")
+        scope_values = (self.instrument_id, self.data_kind, self.start_ns, self.end_ns, self.data_version)
+        if self.canonical_count > 0 and any(value is None for value in scope_values):
+            raise ValueError("SEGMENT_RECOVERY_SCOPE_MISSING")
+        if any(value is not None for value in scope_values) and any(value is None for value in scope_values):
+            raise ValueError("SEGMENT_RECOVERY_SCOPE_PARTIAL")
+        if self.start_ns is not None and self.end_ns is not None and self.start_ns >= self.end_ns:
+            raise ValueError("SEGMENT_RECOVERY_RANGE_INVALID")
+        if (self.first_sequence is None) != (self.last_sequence is None):
+            raise ValueError("SEGMENT_RECOVERY_SEQUENCE_PARTIAL")
+        if (
+            self.first_sequence is not None
+            and self.last_sequence is not None
+            and self.first_sequence > self.last_sequence
+        ):
+            raise ValueError("SEGMENT_RECOVERY_SEQUENCE_INVALID")
+
+    def recovery_scope(self) -> OnlyMarketDataScope:
+        if (
+            self.instrument_id is None
+            or self.data_kind is None
+            or self.start_ns is None
+            or self.end_ns is None
+            or self.data_version is None
+        ):
+            raise ValueError(f"SEGMENT_RECOVERY_SCOPE_UNPROVABLE:{self.segment_id}")
+        return OnlyMarketDataScope(
+            self.source_id,
+            self.market,
+            self.instrument_id,
+            self.data_kind,
+            self.start_ns,
+            self.end_ns,
+            self.data_version,
+            self.bar_type,
+            self.first_sequence,
+            self.last_sequence,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -295,7 +345,7 @@ class OnlyCoverageManifest:
     manifest_id: str
     scope: OnlyMarketDataScope
     segment_refs: tuple[tuple[str, str], ...]
-    complete: bool
+    coverage_status: OnlyCoverageStatus
     proof: tuple[str, ...]
     issues: tuple[str, ...]
     fingerprint: str
@@ -306,15 +356,26 @@ class OnlyCoverageManifest:
         scope: OnlyMarketDataScope,
         segment_refs: tuple[tuple[str, str], ...],
         *,
-        complete: bool,
+        coverage_status: OnlyCoverageStatus,
         proof: tuple[str, ...],
         issues: tuple[str, ...] = (),
     ) -> OnlyCoverageManifest:
         ordered = tuple(sorted(segment_refs))
         fingerprint = only_canonical_fingerprint(
-            {"scope": scope, "segments": ordered, "complete": complete, "proof": proof, "issues": issues}
+            {
+                "scope": scope,
+                "segments": ordered,
+                "coverage_status": coverage_status.value,
+                "proof": proof,
+                "issues": issues,
+            }
         )
-        return cls(f"manifest:{fingerprint}", scope, ordered, complete, proof, issues, fingerprint)
+        return cls(f"manifest:{fingerprint}", scope, ordered, coverage_status, proof, issues, fingerprint)
+
+    @property
+    def complete(self) -> bool:
+        """Compatibility projection; coverage_status remains the sole authority."""
+        return self.coverage_status is OnlyCoverageStatus.COMPLETE
 
 
 @dataclass(frozen=True, slots=True)

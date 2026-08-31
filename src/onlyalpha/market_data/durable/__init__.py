@@ -7,6 +7,7 @@ from .memory import OnlyInMemoryMarketFactStore
 from .models import (
     OnlyCanonicalMarketFactRecord,
     OnlyCoverageManifest,
+    OnlyCoverageStatus,
     OnlyIngestSegment,
     OnlyMarketDataHealth,
     OnlyMarketDataProvenance,
@@ -20,6 +21,7 @@ from .models import (
     OnlySegmentState,
 )
 from .ports import OnlyMarketDataCatalog, OnlyMarketFactStore
+from .recorder import OnlyDurableMarketDataRecorder
 from .recovery import OnlyInjectedMarketDataCrash, OnlyMarketDataCrashBoundary, OnlyMarketDataRecoveryCoordinator
 from .revision import (
     OnlyHistoricalMarketDataQueryService,

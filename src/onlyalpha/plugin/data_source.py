@@ -51,6 +51,7 @@ class OnlyDataSourceCreateRequest:
     historical_cache_service: OnlyHistoricalCacheService | None = None
     runtime_state_root: Path | None = None
     provider_evidence_sink: OnlyProviderEvidenceSink | None = None
+    durable_recording_required: bool = False
 
 
 class OnlyDataSource(

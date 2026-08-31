@@ -39,6 +39,11 @@ from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
 from onlyalpha.domain.value import OnlyCurrency, OnlyPrice, OnlyQuantity
 from onlyalpha.event.bus import OnlyEventBus
+from onlyalpha.market_data.durable import (
+    OnlyDurableMarketDataRecorder,
+    OnlyMarketDataIngress,
+    OnlyMarketDataWal,
+)
 from onlyalpha.plugin.capabilities import OnlyDataSourceCapabilities
 from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
 from onlyalpha.plugin.lifecycle import OnlyPluginLifecycleState
@@ -132,6 +137,34 @@ def test_factory_requires_live_sink_and_historical_cache(tmp_path: Path) -> None
         "BINANCE_MARKET_DATA_SINK_REQUIRED",
         "BINANCE_HISTORICAL_CACHE_REQUIRED",
     }
+
+
+def test_production_durable_mode_requires_and_obtains_wal_ownership(tmp_path: Path) -> None:
+    factory = OnlyBinanceSpotDataSourceFactory()
+    missing = replace(_request(tmp_path), durable_recording_required=True)
+    assert {item.code for item in factory.validate_request(missing)} == {"DURABLE_MARKET_DATA_RECORDER_REQUIRED"}
+    with pytest.raises(RuntimeError, match="DURABLE_MARKET_DATA_RECORDER_REQUIRED"):
+        factory.create(missing)
+
+    wal = OnlyMarketDataWal(tmp_path / "wal", capacity_bytes=1_000_000)
+    recorder = OnlyDurableMarketDataRecorder(
+        OnlyMarketDataIngress(
+            wal,
+            normalizer_id="binance-spot",
+            normalizer_version="1",
+            ingest_clock_ns=lambda: 1_767_225_600_200_000_000,
+        )
+    )
+    request = replace(missing, provider_evidence_sink=recorder)
+    assert factory.validate_request(request) == ()
+    resource = factory.create(request)
+    payload = b'{"e":"trade","E":1767225600124,"s":"BTCUSDT","t":123,"p":"10.00","q":"100","T":1767225600123,"m":false}'
+    with pytest.raises(OnlyBinanceError, match="CONTINUITY_NOT_READY"):
+        resource.ingest_websocket_message(payload)
+    [segment_id] = wal.scan_uncommitted()
+    [bundle] = wal.read_sealed(segment_id)
+    assert bundle.evidence.payload == payload
+    assert wal.load_segment(segment_id).canonical_count == 1
 
 
 def test_rest_and_websocket_closed_kline_converge_and_open_kline_is_not_canonical() -> None:

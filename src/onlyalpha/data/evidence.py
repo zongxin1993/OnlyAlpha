@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Protocol
 
 from onlyalpha.data.models import OnlyMarketDataInboundUpdate
@@ -27,12 +28,32 @@ class OnlyRawProviderObservation:
     provenance: str = "REALTIME_STREAM"
 
 
+class OnlyDurabilityState(StrEnum):
+    WAL_DURABLE = "WAL_DURABLE"
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyDurableRecordReceipt:
+    segment_id: str
+    ordinal: int
+    durability_state: OnlyDurabilityState
+
+    def __post_init__(self) -> None:
+        if not self.segment_id.strip() or self.ordinal < 0:
+            raise ValueError("DURABLE_RECORD_RECEIPT_INVALID")
+
+
 class OnlyProviderEvidenceSink(Protocol):
     def __call__(
         self,
         observation: OnlyRawProviderObservation,
         canonical_update: OnlyMarketDataInboundUpdate | tuple[OnlyMarketDataInboundUpdate, ...] | None,
-    ) -> None: ...
+    ) -> OnlyDurableRecordReceipt: ...
 
 
-__all__ = ["OnlyProviderEvidenceSink", "OnlyRawProviderObservation"]
+__all__ = [
+    "OnlyDurabilityState",
+    "OnlyDurableRecordReceipt",
+    "OnlyProviderEvidenceSink",
+    "OnlyRawProviderObservation",
+]

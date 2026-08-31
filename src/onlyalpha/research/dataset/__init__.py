@@ -5,10 +5,16 @@ from .definition import (
     OnlyResearchDatasetQualityPolicy,
     OnlyResearchDatasetType,
 )
+from .lineage import (
+    OnlyDatasetMaterialization,
+    OnlyDatasetMaterializationStore,
+    OnlyMarketDataRevisionBinding,
+)
 from .manifest import OnlyResearchDatasetProvenance, OnlyResearchDatasetSnapshot
 from .market_data_materializer import (
     OnlySealedMarketDataDatasetMaterializer,
     OnlySealedMarketDataMaterializationPlan,
+    OnlySealedMarketDataMaterializationResult,
 )
 from .materializer import OnlyResearchDatasetMaterializer
 from .parquet_store import (
@@ -24,6 +30,9 @@ from .validation import OnlyResearchDatasetError
 
 __all__ = [
     "OnlyParquetResearchDatasetSnapshotStore",
+    "OnlyDatasetMaterialization",
+    "OnlyDatasetMaterializationStore",
+    "OnlyMarketDataRevisionBinding",
     "OnlyResearchBarDatasetSchema",
     "OnlyResearchDatasetDefinition",
     "OnlyResearchDatasetCorruptError",
@@ -40,5 +49,6 @@ __all__ = [
     "OnlyResearchDatasetVerification",
     "OnlySealedMarketDataDatasetMaterializer",
     "OnlySealedMarketDataMaterializationPlan",
+    "OnlySealedMarketDataMaterializationResult",
     "OnlyVerifiedResearchDataset",
 ]

@@ -26,6 +26,9 @@ from onlyalpha.fee.reconciliation_policy import OnlyFeeReconciliationPolicy
 from onlyalpha.market.product import OnlyResolvedMarketProductBinding
 from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine
 from onlyalpha.market.session_clock import OnlyMarketSessionResolver
+from onlyalpha.market_data.durable.ingress import OnlyMarketDataIngress
+from onlyalpha.market_data.durable.recorder import OnlyDurableMarketDataRecorder
+from onlyalpha.market_data.durable.wal import OnlyMarketDataWal
 from onlyalpha.observation import (
     OnlyConsoleObservationSink,
     OnlyJsonLinesObservationSink,
@@ -53,6 +56,7 @@ from onlyalpha.runtime.streaming.config import OnlyStreamingRuntimeConfig
 from onlyalpha.runtime.streaming.execution import OnlyExecutionSubmissionCapability
 
 _LOGGER = logging.getLogger(__name__)
+_MARKET_DATA_WAL_CAPACITY_BYTES = 1024 * 1024 * 1024
 
 
 class _OnlySimCompositionError(ValueError):
@@ -137,6 +141,18 @@ class OnlySimRuntimeFactory:
             lease = OnlyRuntimeStateLease(state_root, config.runtime_id)
             by_instrument = {item.instrument_id: item for item in base_bar_types}
             data_factory = components.data_sources.resolve(source_common.plugin_id)
+            durable_recorder = OnlyDurableMarketDataRecorder(
+                OnlyMarketDataIngress(
+                    OnlyMarketDataWal(
+                        state_root / "market_data" / "wal",
+                        capacity_bytes=_MARKET_DATA_WAL_CAPACITY_BYTES,
+                        now=clock.now_utc,
+                    ),
+                    normalizer_id=data_factory.descriptor.plugin_id,
+                    normalizer_version=data_factory.descriptor.plugin_version,
+                    ingest_clock_ns=clock.timestamp_ns,
+                )
+            )
             data_request = OnlyDataSourceCreateRequest(
                 source_common.source_id,
                 data_factory.parse_config(source_common.extensions),
@@ -165,6 +181,8 @@ class OnlySimRuntimeFactory:
                     else None
                 ),
                 runtime_state_root=state_root,
+                provider_evidence_sink=durable_recorder,
+                durable_recording_required=True,
             )
             self._raise_issues(
                 data_factory.descriptor.plugin_id,

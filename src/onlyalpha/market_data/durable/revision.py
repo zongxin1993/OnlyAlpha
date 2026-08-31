@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import datetime
 
 from onlyalpha.canonical import only_canonical_fingerprint
+from onlyalpha.core.clock import only_system_utc_now
 from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate
 from onlyalpha.domain.enums import OnlyAggregationSource, OnlyBarAggregation
 
 from .models import (
     OnlyCanonicalMarketFactRecord,
     OnlyCoverageManifest,
+    OnlyCoverageStatus,
     OnlyIngestSegment,
     OnlyMarketDataRecordBundle,
     OnlyMarketDataRevision,
@@ -88,7 +90,7 @@ def only_build_coverage(
             and item.bar.bar_type.aggregation_source is OnlyAggregationSource.EXTERNAL
             for item in bars
         )
-        complete = actual == expected and semantic_valid
+        status = OnlyCoverageStatus.COMPLETE if actual == expected and semantic_valid else OnlyCoverageStatus.INCOMPLETE
         proof.append(f"bar_grid_count={len(expected)}")
         proof.append(f"closed_external_1m={str(semantic_valid).lower()}")
         if actual != expected:
@@ -96,11 +98,16 @@ def only_build_coverage(
         if not semantic_valid:
             issues.append("BAR_SEMANTICS_INVALID")
     elif scope.data_kind == "TRADE":
+        continuity_proven = bool(in_scope) and all(
+            item.canonical_payload.get("sequence_semantics") == "CONTIGUOUS"
+            and item.canonical_payload.get("source_sequence") is not None
+            for item in in_scope
+        )
         sequences = tuple(
             sorted(
                 int(str(item.canonical_payload["source_sequence"]))
                 for item in in_scope
-                if "source_sequence" in item.canonical_payload
+                if item.canonical_payload.get("source_sequence") is not None
             )
         )
         expected = (
@@ -108,19 +115,29 @@ def only_build_coverage(
             if scope.first_sequence is None or scope.last_sequence is None
             else tuple(range(scope.first_sequence, scope.last_sequence + 1))
         )
-        complete = bool(expected) and sequences == expected
+        status = (
+            OnlyCoverageStatus.COMPLETE
+            if continuity_proven and bool(expected) and sequences == expected
+            else OnlyCoverageStatus.INCOMPLETE
+        )
+        proof.append(f"provider_sequence_contiguous={str(continuity_proven).lower()}")
         proof.append(
             f"provider_identity_range={sequences[0] if sequences else 'none'}:{sequences[-1] if sequences else 'none'}"
         )
-        if not complete:
+        if status is not OnlyCoverageStatus.COMPLETE:
             issues.append("TRADE_PROVIDER_HISTORY_INCOMPLETE")
     else:
-        complete = bool(in_scope)
-        proof.append("explicit_event_coverage=true" if complete else "explicit_event_coverage=false")
-        if not complete:
-            issues.append("EVENT_COVERAGE_EMPTY")
+        status = OnlyCoverageStatus.UNPROVABLE
+        proof.append("coverage_capability=unsupported")
+        issues.append(f"COVERAGE_UNPROVABLE:{scope.data_kind}")
     refs = tuple((item.segment_id, item.content_hash) for item in segments)
-    return OnlyCoverageManifest.build(scope, refs, complete=complete, proof=tuple(proof), issues=tuple(issues))
+    return OnlyCoverageManifest.build(
+        scope,
+        refs,
+        coverage_status=status,
+        proof=tuple(proof),
+        issues=tuple(issues),
+    )
 
 
 def only_build_seal(
@@ -129,7 +146,7 @@ def only_build_seal(
     *,
     sealed_at: datetime,
 ) -> OnlyMarketDataSeal:
-    if not manifest.complete or manifest.issues:
+    if manifest.coverage_status is not OnlyCoverageStatus.COMPLETE or manifest.issues:
         raise OnlyMarketDataSealError("REVISION_COVERAGE_NOT_SEALABLE")
     checks = _REQUIRED_SEAL_CHECKS + (("BAR_TEMPORAL_GRID_VERIFIED",) if manifest.scope.data_kind == "BAR" else ())
     fingerprint = only_canonical_fingerprint(
@@ -216,7 +233,7 @@ class OnlyRevisionCommitService:
         fact_store: OnlyMarketFactStore,
         catalog: OnlyMarketDataCatalog,
         *,
-        now: Callable[[], datetime] = lambda: datetime.now(UTC),
+        now: Callable[[], datetime] = only_system_utc_now,
     ) -> None:
         self._facts = fact_store
         self._catalog = catalog

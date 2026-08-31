@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -124,7 +125,7 @@ def test_ingress_crash_boundary_declares_exact_wal_acceptance(
         coordinator = OnlyMarketDataRecoveryCoordinator(
             restarted, store, catalog, OnlyRevisionCommitService(store, catalog, now=fixed_now)
         )
-        assert coordinator.recover_all({}) == ()
+        assert coordinator.recover_all() == ()
         assert restarted.scan_open() == ()
         assert (tmp_path / "crash-boundary.abandoned.wal").exists()
         with pytest.raises(OnlyWalError, match="WAL_SEGMENT_ID_CONFLICT"):
@@ -143,6 +144,122 @@ def test_restart_rebuilds_metadata_after_seal_rename_boundary(tmp_path: Path, fi
     assert recovered.content_hash == segment.content_hash
     assert metadata.exists()
     assert not open_metadata.exists()
+
+
+def test_preclosure_segment_metadata_rebuilds_recovery_scope_from_immutable_wal(tmp_path: Path, fixed_now) -> None:
+    wal, segment = recorded_segment(tmp_path, fixed_now)
+    metadata_path = tmp_path / f"{segment.segment_id}.segment.json"
+    metadata = json.loads(metadata_path.read_text())
+    for field in (
+        "instrument_id",
+        "data_kind",
+        "start_ns",
+        "end_ns",
+        "data_version",
+        "bar_type",
+        "first_sequence",
+        "last_sequence",
+    ):
+        metadata.pop(field)
+    metadata_path.write_text(json.dumps(metadata))
+
+    restored = OnlyMarketDataWal(tmp_path, capacity_bytes=1_000_000, now=fixed_now).load_segment(segment.segment_id)
+    assert restored.recovery_scope().data_kind == "TRADE"
+    assert restored.content_hash == segment.content_hash
+
+
+@pytest.mark.parametrize("stage", ["W1_METADATA_PREPARED", "W2_WAL_CREATED"])
+def test_segment_creation_intermediate_states_have_one_restart_action(tmp_path: Path, fixed_now, stage: str) -> None:
+    def barrier(actual: str) -> None:
+        if actual == stage:
+            raise RuntimeError(stage)
+
+    wal = OnlyMarketDataWal(tmp_path, capacity_bytes=1_000_000, now=fixed_now, barrier=barrier)
+    with pytest.raises(RuntimeError, match=stage):
+        wal.open_segment("creation-crash")
+
+    restarted = OnlyMarketDataWal(tmp_path, capacity_bytes=1_000_000, now=fixed_now)
+    store = OnlyInMemoryMarketFactStore()
+    catalog = OnlyInMemoryMarketDataCatalog()
+    assert (
+        OnlyMarketDataRecoveryCoordinator(
+            restarted, store, catalog, OnlyRevisionCommitService(store, catalog, now=fixed_now)
+        ).recover_all()
+        == ()
+    )
+    assert restarted.scan_open() == ()
+
+
+def test_non_empty_orphan_open_wal_is_never_discarded(tmp_path: Path, fixed_now) -> None:
+    wal = OnlyMarketDataWal(tmp_path, capacity_bytes=1_000_000, now=fixed_now)
+    ingress = OnlyMarketDataIngress(wal, normalizer_id="n", normalizer_version="1", ingest_clock_ns=lambda: 1)
+    ingress.begin_segment("orphan")
+    ingress.record(observation(), trade_update())
+    (tmp_path / "orphan.open.json").unlink()
+
+    restarted = OnlyMarketDataWal(tmp_path, capacity_bytes=1_000_000, now=fixed_now)
+    store = OnlyInMemoryMarketFactStore()
+    catalog = OnlyInMemoryMarketDataCatalog()
+    with pytest.raises(OnlyWalCorruptionError, match="WAL_OPEN_METADATA_MISSING"):
+        OnlyMarketDataRecoveryCoordinator(
+            restarted, store, catalog, OnlyRevisionCommitService(store, catalog, now=fixed_now)
+        ).recover_all()
+    assert (tmp_path / "orphan.open.wal").stat().st_size > 0
+
+
+@pytest.mark.parametrize("stage", ["W6_SEAL_METADATA_PREPARED", "W7_WAL_RENAMED_BEFORE_METADATA"])
+def test_seal_interruption_publishes_durable_prepared_metadata(tmp_path: Path, fixed_now, stage: str) -> None:
+    fired = False
+
+    def barrier(actual: str) -> None:
+        nonlocal fired
+        if stage == actual and not fired:
+            fired = True
+            raise RuntimeError(actual)
+
+    wal = OnlyMarketDataWal(tmp_path, capacity_bytes=1_000_000, now=fixed_now, barrier=barrier)
+    ingress = OnlyMarketDataIngress(wal, normalizer_id="n", normalizer_version="1", ingest_clock_ns=lambda: 1)
+    ingress.begin_segment("seal-crash")
+    ingress.record(observation(), trade_update())
+    with pytest.raises(RuntimeError, match=stage):
+        ingress.seal()
+
+    restarted = OnlyMarketDataWal(
+        tmp_path,
+        capacity_bytes=1_000_000,
+        now=lambda: fixed_now().replace(year=fixed_now().year + 1),
+    )
+    if restarted.scan_open():
+        segment = restarted.seal_recovered_open("seal-crash")
+    else:
+        segment = restarted.load_segment("seal-crash")
+    assert restarted.verify_sealed(segment)
+    assert segment.recovery_scope().data_kind == "TRADE"
+    assert segment.sealed_at == fixed_now()
+
+
+@pytest.mark.parametrize("stage", ["W9_GC_MARKED_BEFORE_WAL_MOVE", "W10_GC_WAL_DELETED_BEFORE_METADATA"])
+def test_gc_interruption_is_idempotently_completed(tmp_path: Path, fixed_now, stage: str) -> None:
+    wal, segment = recorded_segment(tmp_path, fixed_now)
+    store = OnlyInMemoryMarketFactStore()
+    catalog = OnlyInMemoryMarketDataCatalog()
+    commit = OnlyRevisionCommitService(store, catalog, now=fixed_now)
+
+    def barrier(actual: str) -> None:
+        if actual == stage:
+            raise RuntimeError(stage)
+
+    fault_wal = OnlyMarketDataWal(tmp_path, capacity_bytes=1_000_000, now=fixed_now, barrier=barrier)
+    with pytest.raises(RuntimeError, match=stage):
+        OnlyMarketDataRecoveryCoordinator(fault_wal, store, catalog, commit).drain(
+            segment.segment_id, segment.recovery_scope()
+        )
+
+    restarted = OnlyMarketDataWal(tmp_path, capacity_bytes=1_000_000, now=fixed_now)
+    result = OnlyMarketDataRecoveryCoordinator(restarted, store, catalog, commit).recover_all()
+    assert result in {(), ("ALREADY_COMMITTED",)}
+    assert restarted.scan_uncommitted() == ()
+    assert restarted.scan_gc_eligible() == ()
 
 
 def test_corrupt_sealed_segment_fails_closed(tmp_path: Path, fixed_now) -> None:

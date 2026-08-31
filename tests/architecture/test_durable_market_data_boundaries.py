@@ -23,6 +23,16 @@ def test_provider_captures_opaque_evidence_without_database_dependencies() -> No
         assert forbidden not in source
 
 
+def test_production_composition_cannot_silently_bypass_durable_recorder() -> None:
+    composition = Path("src/onlyalpha/runtime/sim/factory.py").read_text()
+    provider_factory = Path(
+        "packages/provider/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance/spot/data_source/factory.py"
+    ).read_text()
+    assert "durable_recording_required=True" in composition
+    assert "provider_evidence_sink=durable_recorder" in composition
+    assert "DURABLE_MARKET_DATA_RECORDER_REQUIRED" in provider_factory
+
+
 def test_durable_core_is_provider_neutral_and_research_has_no_mutable_clickhouse_path() -> None:
     durable = _source(Path("src/onlyalpha/market_data/durable"))
     research = _source(Path("src/onlyalpha/research"))

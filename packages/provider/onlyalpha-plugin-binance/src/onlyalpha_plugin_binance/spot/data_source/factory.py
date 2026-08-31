@@ -33,11 +33,20 @@ class OnlyBinanceSpotDataSourceFactory:
             issues.append(
                 OnlyPluginValidationIssue("BINANCE_HISTORICAL_CACHE_REQUIRED", "historical cache is required")
             )
+        if request.durable_recording_required and request.provider_evidence_sink is None:
+            issues.append(
+                OnlyPluginValidationIssue(
+                    "DURABLE_MARKET_DATA_RECORDER_REQUIRED",
+                    "production durable market data requires a recorder",
+                )
+            )
         return tuple(issues)
 
     def create(self, request: OnlyDataSourceCreateRequest) -> OnlyBinanceSpotDataSource:
         if not isinstance(request.plugin_config, OnlyBinanceSpotDataSourceConfig):
             raise TypeError("Binance DataSource requires OnlyBinanceSpotDataSourceConfig")
+        if request.durable_recording_required and request.provider_evidence_sink is None:
+            raise RuntimeError("DURABLE_MARKET_DATA_RECORDER_REQUIRED")
         return OnlyBinanceSpotDataSource(request, request.plugin_config)
 
 

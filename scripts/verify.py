@@ -349,7 +349,11 @@ IMPACT_RULES = (
     ),
     VerificationImpactRule(
         "research-evaluation",
-        ("src/onlyalpha/research/evaluation/", "tests/research/evaluation/", "packages/target/onlyalpha-plugin-targets/"),
+        (
+            "src/onlyalpha/research/evaluation/",
+            "tests/research/evaluation/",
+            "packages/target/onlyalpha-plugin-targets/",
+        ),
         ("tests/architecture/test_research_evaluation_boundaries.py",),
         (
             OnlyTestLane.RESEARCH_RUNTIME,
@@ -630,8 +634,27 @@ def _static_plan(
 ) -> VerificationStaticPlan | None:
     if escalation is VerificationEscalation.DOCS_ONLY:
         return None
+
+    rules = set(rule_names)
+    metadata_paths = {
+        path
+        for changed in change_set.changed_paths
+        for path in changed.impact_paths()
+        if path in {"pyproject.toml", "uv.lock", "packages/api/onlyalpha-api/pyproject.toml"}
+    }
+    version_sync_required = "package-metadata" in rules
+    build_targets = (
+        ("onlyalpha", "onlyalpha-api")
+        if "packages/api/onlyalpha-api/pyproject.toml" in metadata_paths
+        else ("onlyalpha",)
+        if metadata_paths
+        else ()
+    )
     if escalation >= VerificationEscalation.BROAD:
-        return VerificationStaticPlan()
+        return VerificationStaticPlan(
+            version_sync_required=version_sync_required,
+            build_targets=build_targets,
+        )
 
     changed_python = tuple(
         sorted(
@@ -643,7 +666,6 @@ def _static_plan(
             }
         )
     )
-    rules = set(rule_names)
     typed_roots = {
         "strategy-product": ("src/onlyalpha/strategy", "src/onlyalpha/calculation"),
         "research-definition": ("src/onlyalpha/research/definition",),
@@ -652,7 +674,11 @@ def _static_plan(
         "research-run": ("src/onlyalpha/research/run",),
         "research-execution": ("src/onlyalpha/research/execution",),
         "research-postgres": ("src/onlyalpha/persistence/postgres",),
-        "research-workload": ("src/onlyalpha/research/specification", "src/onlyalpha/research/workload.py", "src/onlyalpha/runtime/research"),
+        "research-workload": (
+            "src/onlyalpha/research/specification",
+            "src/onlyalpha/research/workload.py",
+            "src/onlyalpha/runtime/research",
+        ),
         "research-artifact": ("src/onlyalpha/research/artifact",),
         "research-query": ("src/onlyalpha/research/query", "packages/api/onlyalpha-api/src/onlyalpha_api"),
         "research-result": ("src/onlyalpha/research/result",),
@@ -673,8 +699,8 @@ def _static_plan(
         format_targets=changed_python,
         mypy_targets=mypy_targets,
         import_linter_required=architecture,
-        version_sync_required="package-metadata" in rules,
-        build_targets=("onlyalpha",) if "package-metadata" in rules else (),
+        version_sync_required=version_sync_required,
+        build_targets=build_targets,
     )
 
 
@@ -749,6 +775,8 @@ def verification_commands(plan: VerificationPlan) -> list[tuple[str, tuple[str, 
                 _append_scoped_static_commands(commands, plan.impact.static_plan)
             else:
                 _append_check_commands(commands, check)
+    if plan.impact.escalation is not VerificationEscalation.COMPONENT:
+        _append_distribution_commands(commands, plan.impact.static_plan)
     for lane in plan.impact.lanes:
         commands.append((f"lane:{lane.value}", ("uv", "run", "python", "scripts/test_suite.py", lane.value)))
     if OnlyReleaseCheck.BUILD in plan.impact.checks:
@@ -764,11 +792,24 @@ def _append_scoped_static_commands(
     if static_plan.ruff_targets:
         commands.append(("check:affected-ruff", ("uv", "run", "ruff", "check", *static_plan.ruff_targets)))
     if static_plan.format_targets:
-        commands.append(("check:affected-format", ("uv", "run", "ruff", "format", "--check", *static_plan.format_targets)))
+        commands.append(
+            ("check:affected-format", ("uv", "run", "ruff", "format", "--check", *static_plan.format_targets))
+        )
     if static_plan.mypy_targets:
         commands.append(("check:affected-mypy", ("uv", "run", "mypy", *static_plan.mypy_targets)))
     if static_plan.import_linter_required:
         commands.append(("check:import-linter", ("uv", "run", "lint-imports")))
+    if static_plan.version_sync_required:
+        commands.append(("check:version-sync", ("uv", "run", "python", "scripts/version_sync.py", "check")))
+    for package in static_plan.build_targets:
+        commands.append((f"check:build-{package}", ("uv", "build", "--package", package)))
+
+
+def _append_distribution_commands(
+    commands: list[tuple[str, tuple[str, ...]]], static_plan: VerificationStaticPlan | None
+) -> None:
+    if static_plan is None:
+        return
     if static_plan.version_sync_required:
         commands.append(("check:version-sync", ("uv", "run", "python", "scripts/version_sync.py", "check")))
     for package in static_plan.build_targets:

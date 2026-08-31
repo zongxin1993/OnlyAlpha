@@ -324,16 +324,16 @@ def test_nested_research_execution_module_is_in_the_recursive_guard(tmp_path: Pa
 
 
 def test_projection_reconciliation_is_operator_infrastructure_only() -> None:
-    report = (ROOT / "docs/reports/p9_k0_product_surface_inventory.md").read_text(encoding="utf-8")
-    row = next(line for line in report.splitlines() if line.startswith("| K0-S022 |"))
-    assert "OPERATOR / INFRASTRUCTURE ONLY" in row
-    assert "`KEEP INTERNAL`" not in row
+    assert not (ROOT / "docs/reports/p9_k0_product_surface_inventory.md").exists()
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    assert "仓库不得保存" in agents
+    assert "质量/审计/验收/closure 报告" in agents
 
 
 def test_k01_closure_evidence_is_bound_to_the_immutable_subject() -> None:
-    report = (ROOT / "docs/reports/p9_k0_product_surface_inventory.md").read_text(encoding="utf-8")
-    assert "K0.1 implementation subject: `aeced4b4e198ed2c3035eea5ab04a46785b00a26`" in report
-    assert "Closure SHA: `WORKTREE`" not in report
+    assert not (ROOT / "docs/reports/p9_k0_product_surface_inventory.md").exists()
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    assert "Final-SHA / Exact-SHA 工程认证记录" in agents
 
 
 def test_strategy_publication_capability_remains_freeze_owned() -> None:
