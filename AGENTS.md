@@ -527,3 +527,4 @@ READ PROJECT_CONSTITUTION.md
 核心原则：
 
 > **Constitution 定义 OnlyAlpha 必须成为什么；代码工程定义 OnlyAlpha 当前做到了什么。实现必须充分，但永远无权通过局部实现重新定义项目愿景。**
+> 每次读到这里，要求在当前在任务的最后，输出现在的北京时间
