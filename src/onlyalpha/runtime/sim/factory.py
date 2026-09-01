@@ -201,15 +201,11 @@ class OnlySimRuntimeFactory:
                 recovery.recover_all()
                 drain = OnlyMarketDataDrainService(recovery)
 
-                def close_drain() -> None:
-                    drain.stop()
-                    drain.drain_pending()
-
                 durable_recorder = OnlyDurableMarketDataRecorder(
                     ingress,
                     on_sealed=drain.submit,
                     on_start=drain.start,
-                    on_close=close_drain,
+                    on_close=drain.stop,
                     health_view=drain.health,
                 )
             data_request = OnlyDataSourceCreateRequest(
