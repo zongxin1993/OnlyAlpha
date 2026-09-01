@@ -2,6 +2,13 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from decimal import Decimal
+
+from onlyalpha.execution.reference import (
+    OnlyExecutionReferenceFallback,
+    OnlyExecutionReferenceKind,
+    OnlyExecutionReferenceProfile,
+)
 
 from .execution import OnlyExecutionSubmissionCapability
 
@@ -15,6 +22,7 @@ class OnlyStreamingRuntimeConfig:
     historical_compatibility_profile: str = "miniqmt-history-v2"
     historical_timeout_seconds: int = 30
     observation_queue_capacity: int = 1024
+    execution_reference_profile: OnlyExecutionReferenceProfile | None = None
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, object]) -> "OnlyStreamingRuntimeConfig":
@@ -32,6 +40,7 @@ class OnlyStreamingRuntimeConfig:
             str(raw_streaming.get("historical_compatibility_profile", "miniqmt-history-v2")),
             int(str(raw_streaming.get("historical_timeout_seconds", 30))),
             cls._observation_capacity(value),
+            cls._execution_reference_profile(value, int(str(raw_streaming.get("stale_after_seconds", 10)))),
         )
         if (
             result.bootstrap_bars <= 0
@@ -50,3 +59,24 @@ class OnlyStreamingRuntimeConfig:
         if not isinstance(raw, Mapping):
             raise ValueError("runtime.extensions.observation must be an object")
         return int(str(raw.get("queue_capacity", 1024)))
+
+    @staticmethod
+    def _execution_reference_profile(
+        value: Mapping[str, object],
+        stale_after_seconds: int,
+    ) -> OnlyExecutionReferenceProfile | None:
+        raw = value.get("execution_reference")
+        if raw is None:
+            return None
+        if not isinstance(raw, Mapping):
+            raise ValueError("runtime.extensions.execution_reference must be an object")
+        deviation = raw.get("maximum_deviation_rate")
+        return OnlyExecutionReferenceProfile(
+            str(raw.get("profile_id", "")).strip(),
+            int(str(raw.get("policy_version", 0))),
+            OnlyExecutionReferenceKind(str(raw.get("kind", "")).upper()),
+            OnlyExecutionReferenceFallback(str(raw.get("fallback", "NONE")).upper()),
+            int(str(raw.get("max_age_seconds", stale_after_seconds))) * 1_000_000_000,
+            None if raw.get("required_source_id") is None else str(raw["required_source_id"]),
+            None if deviation is None else Decimal(str(deviation)),
+        )

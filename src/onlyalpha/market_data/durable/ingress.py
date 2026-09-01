@@ -94,5 +94,9 @@ class OnlyMarketDataIngress:
     def health(self) -> OnlyMarketDataHealth:
         return self._wal.health()
 
+    @property
+    def segment_open(self) -> bool:
+        return self._segment_id is not None
+
 
 __all__ = ["OnlyMarketDataIngress"]

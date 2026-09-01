@@ -27,6 +27,7 @@ from onlyalpha.data.models import (
     OnlyMarketDataProcessingResult,
     OnlyMarketDataQuality,
     OnlyMarketDataValidationResult,
+    OnlyTradeTickUpdate,
 )
 from onlyalpha.data.registry import OnlyMarketDataSourceRegistry
 from onlyalpha.domain.calendar import OnlyTradingCalendar
@@ -35,6 +36,7 @@ from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.market_data.dispatcher import OnlyBarDispatchResult, OnlyStrategyBarDispatcher
 from onlyalpha.market_data.pipeline import OnlyMarketDataPipeline, OnlyMarketDataUpdateResult
+from onlyalpha.market_data.realtime_state import OnlyRealtimeMarketStateStore
 
 
 class OnlyMarketDataDeduplicator:
@@ -233,6 +235,7 @@ class OnlyMarketDataProcessor:
         before_dispatch: Callable[[OnlyMarketDataUpdateResult], None] | None = None,
         after_dispatch: Callable[[OnlyMarketDataInboundUpdate], None] | None = None,
         after_processing: Callable[[OnlyMarketDataInboundUpdate, OnlyMarketDataProcessingResult], None] | None = None,
+        realtime_state: OnlyRealtimeMarketStateStore | None = None,
     ) -> None:
         self._runtime_id = runtime_id
         self._clock = clock
@@ -248,6 +251,7 @@ class OnlyMarketDataProcessor:
         self._before_dispatch = before_dispatch or (lambda result: None)
         self._after_dispatch = after_dispatch or (lambda update: None)
         self._after_processing = after_processing or (lambda update, result: None)
+        self._realtime_state = realtime_state
         self._sequence = 0
 
     def capture_checkpoint(self) -> object:
@@ -273,10 +277,24 @@ class OnlyMarketDataProcessor:
         gap_flags = self._gap_detector.assess(update, sequence.gap)
         quality = update.quality.with_flags(*gap_flags) if gap_flags else update.quality
         if OnlyMarketDataQualityFlag.UNEXPECTED_GAP in quality.flags:
+            if self._realtime_state is not None and update.sequence_scope is not None:
+                self._realtime_state.mark_gap(update.sequence_scope, int(update.source_sequence))
             return self._finish(update, OnlyMarketDataProcessingStatus.GAP_DETECTED, quality, validation)
         self._deduplicator.remember(update)
         self._sequence_tracker.commit(update)
         self._gap_detector.commit(update)
+        if isinstance(update.payload, OnlyTradeTickUpdate) and self._realtime_state is not None:
+            try:
+                self._realtime_state.apply_trade(update, quality, self._sequence)
+            except Exception as exc:
+                return self._finish(
+                    update,
+                    OnlyMarketDataProcessingStatus.FAILED,
+                    quality,
+                    validation,
+                    failure=OnlyMarketDataFailure(type(exc).__name__, str(exc)),
+                )
+            return self._finish(update, OnlyMarketDataProcessingStatus.APPLIED, quality, validation)
         if not isinstance(update.payload, OnlyBarUpdate):
             return self._finish(update, OnlyMarketDataProcessingStatus.IGNORED, quality, validation)
         try:

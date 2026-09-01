@@ -45,6 +45,7 @@ from onlyalpha.transaction.projection_builder import OnlyRuntimeProjectionBuilde
 from onlyalpha.transaction.transaction import OnlyPreparedRuntimeTransaction, OnlyRuntimePrecondition
 
 from .order_intent_fact import OnlyOrderIntentFactDraft
+from .reference import OnlyExecutionReferenceEvidence
 
 ONLY_ORDER_INTENT_IDENTITY_SCHEMA_VERSION = 1
 
@@ -80,6 +81,7 @@ class OnlyOrderIntentPlanningContext:
     risk_reservation_after: OnlyRiskReservationExecutionState | None = None
     risk_before: OnlyRiskExecutionState | None = None
     risk_after: OnlyRiskExecutionState | None = None
+    execution_reference: OnlyExecutionReferenceEvidence | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -269,6 +271,7 @@ class OnlyOrderIntentRuntimeTransactionPlanner:
             causal_reference=str(order.request_id),
             ts_event=order.created_at,
             prepared_at=prepared_at,
+            execution_reference=context.execution_reference,
         )
         return OnlyPreparedRuntimeTransaction(
             transaction_id=intent_identity,

@@ -161,6 +161,7 @@ def test_production_durable_mode_requires_and_obtains_wal_ownership(tmp_path: Pa
     payload = b'{"e":"trade","E":1767225600124,"s":"BTCUSDT","t":123,"p":"10.00","q":"100","T":1767225600123,"m":false}'
     with pytest.raises(OnlyBinanceError, match="CONTINUITY_NOT_READY"):
         resource.ingest_websocket_message(payload)
+    recorder.close()
     [segment_id] = wal.scan_uncommitted()
     [bundle] = wal.read_sealed(segment_id)
     assert bundle.evidence.payload == payload

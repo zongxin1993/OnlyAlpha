@@ -7,6 +7,7 @@ import json
 import logging
 import tempfile
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 
@@ -26,8 +27,11 @@ from onlyalpha.fee.reconciliation_policy import OnlyFeeReconciliationPolicy
 from onlyalpha.market.product import OnlyResolvedMarketProductBinding
 from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine
 from onlyalpha.market.session_clock import OnlyMarketSessionResolver
+from onlyalpha.market_data.durable.drain import OnlyMarketDataDrainService
 from onlyalpha.market_data.durable.ingress import OnlyMarketDataIngress
 from onlyalpha.market_data.durable.recorder import OnlyDurableMarketDataRecorder
+from onlyalpha.market_data.durable.recovery import OnlyMarketDataRecoveryCoordinator
+from onlyalpha.market_data.durable.revision import OnlyRevisionCommitService
 from onlyalpha.market_data.durable.wal import OnlyMarketDataWal
 from onlyalpha.observation import (
     OnlyConsoleObservationSink,
@@ -54,6 +58,10 @@ from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
 from onlyalpha.runtime.sim.runtime import OnlySimRuntime
 from onlyalpha.runtime.streaming.config import OnlyStreamingRuntimeConfig
 from onlyalpha.runtime.streaming.execution import OnlyExecutionSubmissionCapability
+from onlyalpha.runtime.streaming.requirements import (
+    OnlyRuntimeMarketDataRequirement,
+    only_compose_runtime_market_data_requirements,
+)
 
 _LOGGER = logging.getLogger(__name__)
 _MARKET_DATA_WAL_CAPACITY_BYTES = 1024 * 1024 * 1024
@@ -132,6 +140,21 @@ class OnlySimRuntimeFactory:
                     "SIM_EXTERNAL_BAR_SUBSCRIPTION_REQUIRED",
                     "SIM requires an external base Bar subscription",
                 )
+            requirements = [
+                OnlyRuntimeMarketDataRequirement(
+                    "STRATEGY_REVISION",
+                    frozenset({OnlyMarketDataType.BAR}),
+                    base_bar_types,
+                )
+            ]
+            if streaming.execution_reference_profile is not None:
+                requirements.append(
+                    OnlyRuntimeMarketDataRequirement(
+                        "EXECUTION_RISK_REFERENCE",
+                        frozenset({OnlyMarketDataType.TRADE}),
+                    )
+                )
+            requirement_plan = only_compose_runtime_market_data_requirements(*requirements)
 
             state_root = (
                 OnlyUserDataLayout(request.user_data_root).runtime_state_root(config.engine_id, config.runtime_id)
@@ -141,23 +164,64 @@ class OnlySimRuntimeFactory:
             lease = OnlyRuntimeStateLease(state_root, config.runtime_id)
             by_instrument = {item.instrument_id: item for item in base_bar_types}
             data_factory = components.data_sources.resolve(source_common.plugin_id)
-            durable_recorder = OnlyDurableMarketDataRecorder(
-                OnlyMarketDataIngress(
-                    OnlyMarketDataWal(
-                        state_root / "market_data" / "wal",
-                        capacity_bytes=_MARKET_DATA_WAL_CAPACITY_BYTES,
-                        now=clock.now_utc,
-                    ),
-                    normalizer_id=data_factory.descriptor.plugin_id,
-                    normalizer_version=data_factory.descriptor.plugin_version,
-                    ingest_clock_ns=clock.timestamp_ns,
-                )
+            wal = OnlyMarketDataWal(
+                state_root / "market_data" / "wal",
+                capacity_bytes=_MARKET_DATA_WAL_CAPACITY_BYTES,
+                now=clock.now_utc,
             )
+            ingress = OnlyMarketDataIngress(
+                wal,
+                normalizer_id=data_factory.descriptor.plugin_id,
+                normalizer_version=data_factory.descriptor.plugin_version,
+                ingest_clock_ns=clock.timestamp_ns,
+            )
+            if streaming.execution_reference_profile is None:
+                durable_recorder = OnlyDurableMarketDataRecorder(ingress)
+            else:
+                from onlyalpha.persistence.clickhouse import (
+                    OnlyClickHouseClient,
+                    OnlyClickHouseConfig,
+                    OnlyClickHouseMarketFactStore,
+                )
+                from onlyalpha.persistence.postgres import (
+                    OnlyPostgresConfig,
+                    OnlyPostgresMarketDataCatalog,
+                )
+
+                fact_store = OnlyClickHouseMarketFactStore(
+                    OnlyClickHouseClient(OnlyClickHouseConfig.from_environment())
+                )
+                catalog = OnlyPostgresMarketDataCatalog(OnlyPostgresConfig.from_environment().dsn)
+                recovery = OnlyMarketDataRecoveryCoordinator(
+                    wal,
+                    fact_store,
+                    catalog,
+                    OnlyRevisionCommitService(fact_store, catalog, now=clock.now_utc),
+                )
+                recovery.recover_all()
+                drain = OnlyMarketDataDrainService(recovery)
+
+                def close_drain() -> None:
+                    drain.stop()
+                    drain.drain_pending()
+
+                durable_recorder = OnlyDurableMarketDataRecorder(
+                    ingress,
+                    on_sealed=drain.submit,
+                    on_start=drain.start,
+                    on_close=close_drain,
+                    health_view=drain.health,
+                )
             data_request = OnlyDataSourceCreateRequest(
                 source_common.source_id,
                 data_factory.parse_config(source_common.extensions),
                 config.runtime.runtime_type,
-                OnlyDataSourceCapabilities(historical_bars=True, live_bars=True, live_reconnect=True),
+                OnlyDataSourceCapabilities(
+                    historical_bars=True,
+                    live_bars=True,
+                    live_ticks=OnlyMarketDataType.TRADE in requirement_plan.data_types,
+                    live_reconnect=True,
+                ),
                 clock,
                 event_bus,
                 config.reference_data.instrument_by_id,
@@ -288,9 +352,12 @@ class OnlySimRuntimeFactory:
                 f"sim-{config.runtime_id}",
                 source_common.source_id,
                 frozenset(by_instrument),
-                frozenset({OnlyMarketDataType.BAR}),
-                base_bar_types,
+                requirement_plan.data_types,
+                requirement_plan.bar_types,
             )
+            reference_profile = streaming.execution_reference_profile
+            if reference_profile is not None and reference_profile.required_source_id is None:
+                reference_profile = replace(reference_profile, required_source_id=str(source_common.source_id))
             runtime = OnlySimRuntime(
                 runtime_config,
                 calendar,
@@ -318,6 +385,7 @@ class OnlySimRuntimeFactory:
                 stale_after_seconds=streaming.stale_after_seconds,
                 observation_sinks=self._observation_sinks(config, request.user_data_root),
                 observation_queue_capacity=streaming.observation_queue_capacity,
+                execution_reference_profile=reference_profile,
             )
             runtime._bind_runtime_state_lease(lease)
             for instrument in config.reference_data.instruments:
@@ -412,6 +480,7 @@ class OnlySimRuntimeFactory:
         required_source_capabilities = OnlyDataSourceCapabilities(
             historical_bars=True,
             live_bars=True,
+            live_ticks=streaming.execution_reference_profile is not None,
             live_reconnect=True,
         )
         if not isinstance(source_capabilities, OnlyDataSourceCapabilities):

@@ -1,6 +1,6 @@
 from dataclasses import fields
 
-from onlyalpha.execution.order_intent_fact import OnlyOrderIntentFactDraft
+from onlyalpha.execution.order_intent_fact import OnlyCommittedOrderIntentFact, OnlyOrderIntentFactDraft
 from onlyalpha.runtime.persistence.store import OnlySqliteRuntimePersistenceStore
 from onlyalpha.transaction.codec import (
     only_decode_committed_execution_transaction,
@@ -106,3 +106,17 @@ def test_order_intent_sqlite_roundtrip_and_reopen_preserve_authority(tmp_path) -
     assert restored[0].fact == committed.fact
     assert restored[0].projection_ready
     reopened.close()
+
+
+def test_order_intent_v1_without_execution_reference_remains_byte_semantically_compatible() -> None:
+    environment = OnlyIntegrationEnvironment()
+    environment.start()
+    for minute in range(3):
+        environment.process_bar(DAY_ONE, minute, "10.00")
+    environment.submit_buy()
+    fact = environment.runtime.execution_transaction_query.records()[0].fact
+    payload = fact.to_dict()
+
+    assert payload["schema_version"] == 1
+    assert "execution_reference" not in payload
+    assert OnlyCommittedOrderIntentFact.from_dict(payload).to_dict() == payload

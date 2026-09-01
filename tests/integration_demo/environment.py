@@ -62,6 +62,7 @@ from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, Only
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.execution import OnlyExecutionProcessingResult
+from onlyalpha.execution.reference import OnlyExecutionReferenceProfile
 from onlyalpha.fee.basis import only_default_fee_basis_provider_registry
 from onlyalpha.fee.broker_contract import only_simulation_zero_broker_fee_contract
 from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine
@@ -221,6 +222,7 @@ class OnlyIntegrationEnvironment:
         virtual_broker: bool = True,
         cluster_capitals: Mapping[OnlyClusterId, OnlyMoney] | None = None,
         cn_ashare_market: bool = False,
+        execution_reference_profile: OnlyExecutionReferenceProfile | None = None,
     ) -> None:
         self.calendar = OnlyTradingCalendar(
             OnlyCalendarId("XSHG"),
@@ -305,6 +307,7 @@ class OnlyIntegrationEnvironment:
             broker_inbound_queue=broker_queue,
             runtime_persistence_store=OnlyInMemoryRuntimePersistenceStore(),
             plugin_resources=() if broker_gateway is None else (broker_gateway,),
+            execution_reference_profile=execution_reference_profile,
         )
         self.runtime.register_instrument(self.instrument)
         self.market_data_source_registry: OnlyMarketDataSourceRegistry = self.runtime.market_data_source_registry

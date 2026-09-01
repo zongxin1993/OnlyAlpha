@@ -155,6 +155,9 @@ class OnlyBinanceSpotDataSource:
     def start(self) -> None:
         if self._state is not OnlyPluginLifecycleState.CONNECTED:
             raise OnlyBinanceError("BINANCE_DATA_SOURCE_NOT_CONNECTED")
+        durable_start = getattr(self._request.provider_evidence_sink, "start", None)
+        if callable(durable_start):
+            durable_start()
         self._state = OnlyPluginLifecycleState.RUNNING
 
     def stop(self) -> None:
@@ -165,6 +168,9 @@ class OnlyBinanceSpotDataSource:
             self._worker.join(timeout=self._config.timeout_seconds)
         self._worker = None
         self._continuity.disconnected()
+        durable_close = getattr(self._request.provider_evidence_sink, "close", None)
+        if callable(durable_close):
+            durable_close()
         self._state = OnlyPluginLifecycleState.STOPPED
 
     close = stop

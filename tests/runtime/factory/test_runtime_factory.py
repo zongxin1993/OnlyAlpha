@@ -280,6 +280,73 @@ def test_sim_requires_explicit_live_reconnect_capability() -> None:
     assert "live_reconnect" in str(build.failure_message)
 
 
+def test_trade_reference_profile_requires_live_trade_capability() -> None:
+    services = only_default_engine_services()
+    factory = _DescriptorOnlyFactory(
+        _descriptor(
+            "bar-only-source",
+            OnlyPluginType.DATA_SOURCE,
+            OnlyDataSourceCapabilities(
+                historical_bars=True,
+                live_bars=True,
+                live_reconnect=True,
+            ),
+        )
+    )
+    services.assembler.components.data_sources.register(
+        cast(OnlyDataSourceFactory, factory),
+        origin=_test_origin(),
+    )
+
+    def change(payload: dict[str, Any]) -> None:
+        payload["data_sources"][0]["plugin"] = "bar-only-source"
+        payload["runtime"]["extensions"]["execution_reference"] = {
+            "profile_id": "last-trade-v1",
+            "policy_version": 1,
+            "kind": "LAST_TRADE",
+            "fallback": "NONE",
+        }
+
+    build = services.assembler.validate(_sim_plan(change))
+
+    assert build.failure_code == "SIM_DATA_SOURCE_CAPABILITY_REQUIRED"
+    assert "live_ticks" in str(build.failure_message)
+
+
+def test_trade_reference_profile_accepts_provider_neutral_live_trade_capability() -> None:
+    services = only_default_engine_services()
+    factory = _DescriptorOnlyFactory(
+        _descriptor(
+            "canonical-trade-source",
+            OnlyPluginType.DATA_SOURCE,
+            OnlyDataSourceCapabilities(
+                historical_bars=True,
+                live_bars=True,
+                live_ticks=True,
+                live_reconnect=True,
+            ),
+        )
+    )
+    services.assembler.components.data_sources.register(
+        cast(OnlyDataSourceFactory, factory),
+        origin=_test_origin(),
+    )
+
+    def change(payload: dict[str, Any]) -> None:
+        payload["data_sources"][0]["plugin"] = "canonical-trade-source"
+        payload["runtime"]["extensions"]["execution_reference"] = {
+            "profile_id": "last-trade-v1",
+            "policy_version": 1,
+            "kind": "LAST_TRADE",
+            "fallback": "NONE",
+            "maximum_deviation_rate": "0.05",
+        }
+
+    build = services.assembler.validate(_sim_plan(change))
+
+    assert build.failure_code is None
+
+
 @pytest.mark.parametrize("count", (0, 2))
 def test_sim_requires_exactly_one_enabled_broker(count: int) -> None:
     def change(payload: dict[str, Any]) -> None:

@@ -128,6 +128,7 @@ from onlyalpha.execution.projection_targets import (
     OnlyExecutionValuationAuthority,
     only_create_generic_t0_execution_projection_targets,
 )
+from onlyalpha.execution.reference import OnlyExecutionReferencePlanningService, OnlyExecutionReferenceProfile
 from onlyalpha.execution.scope import OnlyExecutionPositionScope
 from onlyalpha.execution.state import (
     OnlyExecutionSequenceTracker,
@@ -173,6 +174,7 @@ from onlyalpha.market_data.dispatcher import (
     OnlyStrategyBarDispatcher,
 )
 from onlyalpha.market_data.pipeline import OnlyMarketDataPipeline, OnlyMarketDataUpdateResult
+from onlyalpha.market_data.realtime_state import OnlyRealtimeMarketStateStore
 from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription, OnlyBarSubscriptionId
 from onlyalpha.order.execution.models import OnlyGatewayOrderFillUpdate
@@ -453,6 +455,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         recovery_source: OnlyHistoricalDataSource | None = None,
         recovery_request: OnlyHistoricalBarRequest | None = None,
         plugin_resources: tuple[OnlyPluginResource, ...] = (),
+        execution_reference_profile: OnlyExecutionReferenceProfile | None = None,
     ) -> None:
         if isinstance(initial_time_or_event_bus, bool):
             raise TypeError("Backtest Runtime requires an initial UTC time")
@@ -463,6 +466,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         clock = owned_clock or OnlyBacktestClock(initial_time_or_event_bus)
         event_bus = owned_event_bus
         super().__init__(runtime_config)
+        self._realtime_market_state = OnlyRealtimeMarketStateStore(runtime_config.runtime_id)  # type: ignore[arg-type]
         self._order_fee_accrual_manager = OnlyOrderFeeAccrualManager()
         self._bind_runtime_persistence_store(runtime_persistence_store)
         self._selected_calendar = selected_calendar
@@ -746,6 +750,11 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             self._fee_reconciliation_risk_gate,
             order_intent_durability,
             selected_execution_service if isinstance(selected_execution_service, OnlyBrokerExecutionService) else None,
+            (
+                None
+                if execution_reference_profile is None
+                else OnlyExecutionReferencePlanningService(self._realtime_market_state, execution_reference_profile)
+            ),
         )
         self._trading_day_boundary_coordinator = OnlyRuntimeTradingDayBoundaryCoordinator(
             settlement_authority=self._settlement_authority,
@@ -947,6 +956,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             before_market_dispatch,
             after_market_dispatch,
             after_market_processing,
+            self._realtime_market_state,
         )
         historical_replay_service = OnlyHistoricalReplayService(cast(OnlyBacktestClock, clock), market_data_processor)
         self._trading_kernel.install_services(
@@ -1009,6 +1019,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
                 market_data_gap_detector,
             )
         )
+
         self._valuation_versions: dict[OnlyStrategyLedgerKey, int] = {}
         self._account_valuation_version = 0
         self._broker_connection_state: object | None = None
@@ -1333,6 +1344,12 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         resources = plugin_resources
         if resources:
             self._bind_plugin_resources(resources)
+
+    @property
+    def realtime_market_state(self) -> OnlyRealtimeMarketStateStore:
+        """Read/capture access to the Runtime-wide realtime projection."""
+
+        return self._realtime_market_state
 
     def run(self) -> object:
         """Execute a configured product backtest through Replay and Runtime-owned services."""

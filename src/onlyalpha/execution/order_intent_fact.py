@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Mapping
 from dataclasses import dataclass, fields
 
 from onlyalpha.domain.base import OnlyDomainModel
@@ -10,6 +11,8 @@ from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId, OnlyOrder
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.execution.execution_state import OnlyOrderExecutionState
 from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
+
+from .reference import OnlyExecutionReferenceEvidence
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -27,6 +30,7 @@ class OnlyOrderIntentFactDraft(OnlyDomainModel):
     causal_reference: str
     ts_event: OnlyTimestamp
     prepared_at: OnlyTimestamp
+    execution_reference: OnlyExecutionReferenceEvidence | None = None
 
     def __post_init__(self) -> None:
         if self.operation_kind is not OnlyRuntimeOperationKind.ORDER_INTENT:
@@ -50,6 +54,19 @@ class OnlyOrderIntentFactDraft(OnlyDomainModel):
             ts_committed=committed_at,
         )
 
+    def to_dict(self) -> dict[str, object]:
+        payload = OnlyDomainModel.to_dict(self)
+        if self.execution_reference is None:
+            payload.pop("execution_reference")
+        return payload
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyOrderIntentFactDraft:
+        normalized = dict(payload)
+        if "execution_reference" not in normalized:
+            normalized["execution_reference"] = None
+        return super(OnlyOrderIntentFactDraft, cls).from_dict(normalized)
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OnlyCommittedOrderIntentFact(OnlyDomainModel):
@@ -68,6 +85,7 @@ class OnlyCommittedOrderIntentFact(OnlyDomainModel):
     prepared_at: OnlyTimestamp
     execution_sequence: int
     ts_committed: OnlyTimestamp
+    execution_reference: OnlyExecutionReferenceEvidence | None = None
 
     def __post_init__(self) -> None:
         draft_names = {item.name for item in fields(OnlyOrderIntentFactDraft)}
@@ -78,6 +96,19 @@ class OnlyCommittedOrderIntentFact(OnlyDomainModel):
     @property
     def stable_hash(self) -> str:
         return hashlib.sha256(self.to_json().encode("utf-8")).hexdigest()
+
+    def to_dict(self) -> dict[str, object]:
+        payload = OnlyDomainModel.to_dict(self)
+        if self.execution_reference is None:
+            payload.pop("execution_reference")
+        return payload
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyCommittedOrderIntentFact:
+        normalized = dict(payload)
+        if "execution_reference" not in normalized:
+            normalized["execution_reference"] = None
+        return super(OnlyCommittedOrderIntentFact, cls).from_dict(normalized)
 
 
 __all__ = ["OnlyCommittedOrderIntentFact", "OnlyOrderIntentFactDraft"]

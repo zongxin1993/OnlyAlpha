@@ -3,6 +3,7 @@
 # ruff: noqa: F401
 
 from .backfill import OnlyMarketDataBackfillCoordinator, OnlyMarketDataBackfillResult, OnlyMarketDataCorrectionComposer
+from .drain import OnlyMarketDataDrainService
 from .ingress import OnlyMarketDataIngress
 from .memory import OnlyInMemoryMarketFactStore
 from .models import (

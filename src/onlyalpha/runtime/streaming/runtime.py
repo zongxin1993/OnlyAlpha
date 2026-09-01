@@ -41,6 +41,7 @@ from onlyalpha.domain.identifiers import OnlyClusterId, OnlyRuntimeId
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.event.bus import OnlyEventBus
+from onlyalpha.execution.reference import OnlyExecutionReferenceProfile
 from onlyalpha.market.session_clock import (
     OnlyMarketSessionResolver,
     OnlyMarketSessionSnapshot,
@@ -122,6 +123,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         stale_after_seconds: int = 10,
         observation_sinks: tuple[OnlyObservationSink, ...] = (),
         observation_queue_capacity: int = 1024,
+        execution_reference_profile: OnlyExecutionReferenceProfile | None = None,
     ) -> None:
         self._phase_controller = OnlyStreamingPhaseController()
         super().__init__(
@@ -142,6 +144,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             plugin_resources=(
                 ((broker_resource,) if broker_resource is not None else ()) + (cast(OnlyPluginResource, data_source),)
             ),
+            execution_reference_profile=execution_reference_profile,
         )
         self._bootstrap_bars = bootstrap_bars
         self._streaming_data_version = data_version

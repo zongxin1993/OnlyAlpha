@@ -55,6 +55,7 @@ from .order_intent import (
     OnlyOrderIntentPositionChange,
     OnlyOrderIntentRuntimeTransactionPlanner,
 )
+from .reference import OnlyExecutionReferenceEvidence
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +69,7 @@ class _OnlyOrderIntentCapture:
     positions_before: tuple[OnlyPositionSnapshot, ...]
     allocations_before: tuple[OnlyPositionAllocationSnapshot, ...]
     risk_before: OnlyRiskSnapshot
+    execution_reference: OnlyExecutionReferenceEvidence | None
 
 
 class OnlyRuntimeOrderIntentDurabilityService:
@@ -111,6 +113,8 @@ class OnlyRuntimeOrderIntentDurabilityService:
         cluster_id: OnlyClusterId,
         account_id: OnlyAccountId,
         prepared_at: OnlyTimestamp,
+        *,
+        execution_reference: OnlyExecutionReferenceEvidence | None = None,
     ) -> object:
         recovery = None if self._recovery_session is None else self._recovery_session()
         if recovery is None and not self._coordinator.tail_is_projection_ready(self._risk.runtime_id):
@@ -130,6 +134,7 @@ class OnlyRuntimeOrderIntentDurabilityService:
             self._positions.snapshot_all(),
             self._allocations.snapshot_all(),
             self._risk.get_snapshot(cluster_id),
+            execution_reference,
         )
 
     def commit(self, token: object, order: OnlyOrderSnapshot) -> OnlyOrderIntentDurabilityResult:
@@ -252,6 +257,7 @@ class OnlyRuntimeOrderIntentDurabilityService:
             ),
             risk_before=only_risk_execution_state(capture.risk_before),
             risk_after=only_risk_execution_state(risk_after),
+            execution_reference=capture.execution_reference,
         )
 
 

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from onlyalpha.domain.execution import OnlyOrderRequest, OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId, OnlyOrderId
 from onlyalpha.domain.time import OnlyTimestamp
+
+if TYPE_CHECKING:
+    from onlyalpha.execution.reference import OnlyExecutionReferenceEvidence
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +33,8 @@ class OnlyOrderIntentDurabilityPort(Protocol):
         cluster_id: OnlyClusterId,
         account_id: OnlyAccountId,
         prepared_at: OnlyTimestamp,
+        *,
+        execution_reference: OnlyExecutionReferenceEvidence | None = None,
     ) -> object: ...
 
     def commit(self, token: object, order: OnlyOrderSnapshot) -> OnlyOrderIntentDurabilityResult: ...

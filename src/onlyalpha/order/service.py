@@ -10,6 +10,7 @@ from onlyalpha.domain.execution import (
 )
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId
 from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.execution.reference import OnlyExecutionReferencePlanningService
 from onlyalpha.fee.risk_gate import OnlyFeeReconciliationRiskGate
 from onlyalpha.order.cash_port import OnlyOrderCashReservationPort
 from onlyalpha.order.enums import OnlyOrderFailureCode
@@ -26,7 +27,13 @@ from onlyalpha.order.position_port import OnlyOrderPositionReservationPort
 from onlyalpha.order.publisher import OnlyOrderEventPublisher
 from onlyalpha.order.results import OnlyOrderCancelResult, OnlyOrderSubmitResult
 from onlyalpha.risk.contexts import OnlyRiskEvaluationContext
-from onlyalpha.risk.enums import OnlyRiskReleaseReason
+from onlyalpha.risk.decisions import OnlyRiskDecision, OnlyRiskRejection
+from onlyalpha.risk.enums import (
+    OnlyRiskRejectionCode,
+    OnlyRiskReleaseReason,
+    OnlyRiskRuleScope,
+)
+from onlyalpha.risk.identifiers import OnlyRiskRuleId
 from onlyalpha.risk.service import OnlyRiskService
 
 
@@ -48,6 +55,7 @@ class OnlyOrderService:
         fee_reconciliation_risk_gate: OnlyFeeReconciliationRiskGate | None = None,
         intent_durability: OnlyOrderIntentDurabilityPort | None = None,
         intent_reference_sink: OnlyRuntimeIntentReferenceSink | None = None,
+        execution_reference_planning: OnlyExecutionReferencePlanningService | None = None,
     ) -> None:
         self._manager = manager
         self._execution = execution
@@ -62,6 +70,7 @@ class OnlyOrderService:
         self._fee_reconciliation_risk_gate = fee_reconciliation_risk_gate
         self._intent_durability = intent_durability
         self._intent_reference_sink = intent_reference_sink
+        self._execution_reference_planning = execution_reference_planning
         if bool(getattr(execution, "requires_durable_intent", False)) and intent_durability is None:
             raise ValueError("REAL_EXECUTION_REQUIRES_DURABLE_ORDER_INTENT")
 
@@ -75,15 +84,51 @@ class OnlyOrderService:
         if request.expire_time is not None and request.expire_time.unix_nanos <= timestamp.unix_nanos:
             raise ValueError("Order expire_time must be later than submission time")
         account_id = request.account_id or default_account_id
+        risk_context = self._risk_context(cluster_id, account_id, timestamp)
+        execution_reference = None
+        if self._execution_reference_planning is not None:
+            risk_change = self._risk_service.classify_order_change(request, risk_context)
+            reference_plan = self._execution_reference_planning.plan(request, risk_change, timestamp)
+            if not reference_plan.accepted:
+                code = (
+                    OnlyRiskRejectionCode.PRICE_LIMIT_EXCEEDED
+                    if reference_plan.failure_code == "ORDER_PRICE_DEVIATION_EXCEEDED"
+                    else OnlyRiskRejectionCode.REQUIRED_RISK_DATA_MISSING
+                )
+                decision = OnlyRiskDecision.rejected(
+                    OnlyRiskRejection(
+                        OnlyRiskRuleId("REALTIME_EXECUTION_REFERENCE"),
+                        code,
+                        reference_plan.message or "realtime execution reference was denied",
+                        OnlyRiskRuleScope.RUNTIME,
+                        details={
+                            "reference_failure": reference_plan.failure_code or "REFERENCE_UNKNOWN",
+                            "market_snapshot_fingerprint": reference_plan.snapshot.fingerprint,
+                            "execution_profile_fingerprint": self._execution_reference_planning.profile.fingerprint,
+                        },
+                    )
+                )
+                return OnlyOrderSubmitResult(
+                    False,
+                    False,
+                    None,
+                    None,
+                    None,
+                    None,
+                    (),
+                    reference_plan.failure_code,
+                    decision,
+                )
+            execution_reference = reference_plan.evidence
         if self._fee_reconciliation_risk_gate is not None:
             risk_change = self._risk_service.classify_order_change(
                 request,
-                self._risk_context(cluster_id, account_id, timestamp),
+                risk_context,
             )
             self._fee_reconciliation_risk_gate.require_order_allowed(account_id, risk_change)
         risk_decision = self._risk_service.evaluate_order(
             request,
-            self._risk_context(cluster_id, account_id, timestamp),
+            risk_context,
         )
         if not risk_decision.is_accepted:
             message = (
@@ -104,11 +149,18 @@ class OnlyOrderService:
                 message,
                 risk_decision,
             )
-        intent_token = (
-            None
-            if self._intent_durability is None
-            else self._intent_durability.begin(request, cluster_id, account_id, timestamp)
-        )
+        if self._intent_durability is None:
+            intent_token = None
+        elif execution_reference is None:
+            intent_token = self._intent_durability.begin(request, cluster_id, account_id, timestamp)
+        else:
+            intent_token = self._intent_durability.begin(
+                request,
+                cluster_id,
+                account_id,
+                timestamp,
+                execution_reference=execution_reference,
+            )
         created = self._manager.create_order(
             request,
             cluster_id,
