@@ -913,7 +913,15 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
     ) -> None:
         if result.status is not OnlyMarketDataProcessingStatus.GAP_DETECTED:
             return
-        self._recover_gap(update)
+        if update.data_type is OnlyMarketDataType.BAR:
+            self._recover_gap(update)
+            return
+        if update.data_type is OnlyMarketDataType.TRADE:
+            # The Processor has already retained the last trusted reference and
+            # marked this Trade scope unresolved. Provider recovery remains the
+            # sole authority for supplying the missing canonical sequence.
+            return
+        self._fail_streaming_recovery(f"unsupported continuity gap type: {update.data_type.value}")
 
     def _execute_timer_occurrence(
         self,
@@ -1205,27 +1213,37 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             if not self._accept_streaming_update(update):
                 continue
             for finalized in self._live_finalizer.accept(update):
-                if not isinstance(finalized.payload, OnlyBarUpdate):
-                    continue
-                bar = finalized.payload.bar
-                identity = (str(bar.instrument_id), bar.bar_type, OnlyTimestamp.from_datetime(bar.bar_start).unix_nanos)
-                if identity in seen or not self._accept_finalized_bar(finalized):
-                    continue
-                seen.add(identity)
-                next_sequence = self._continuity.accepted_sequence(finalized.source_id, finalized.data_type) + 1
-                normalized = replace(
-                    finalized,
-                    source_sequence=OnlyDataSequence(next_sequence),
-                    metadata=finalized.metadata + (("provider_sequence", str(int(finalized.source_sequence))),),
-                )
-                outcome = self._semantic_lane.process(normalized, self._record_processing_result)
+                admitted = finalized
+                if isinstance(finalized.payload, OnlyBarUpdate):
+                    bar = finalized.payload.bar
+                    identity = (
+                        str(bar.instrument_id),
+                        bar.bar_type,
+                        OnlyTimestamp.from_datetime(bar.bar_start).unix_nanos,
+                    )
+                    if identity in seen or not self._accept_finalized_bar(finalized):
+                        continue
+                    seen.add(identity)
+                    next_sequence = self._continuity.accepted_sequence(finalized.source_id, finalized.data_type) + 1
+                    admitted = replace(
+                        finalized,
+                        source_sequence=OnlyDataSequence(next_sequence),
+                        metadata=finalized.metadata + (("provider_sequence", str(int(finalized.source_sequence))),),
+                    )
+                outcome = self._semantic_lane.process(admitted, self._record_processing_result)
                 if not outcome.started:
                     return
                 if outcome.result is None:
                     raise AssertionError("started processing must return a result")
                 result = outcome.result
                 if result.status is OnlyMarketDataProcessingStatus.GAP_DETECTED:
-                    raise OnlyRuntimeError("buffered realtime suffix contains a secondary gap")
+                    if admitted.data_type is OnlyMarketDataType.BAR:
+                        raise OnlyRuntimeError("buffered realtime suffix contains a secondary gap")
+                    if admitted.data_type is OnlyMarketDataType.TRADE:
+                        continue
+                    raise OnlyRuntimeError(
+                        f"buffered realtime suffix contains unsupported gap type: {admitted.data_type.value}"
+                    )
                 if result.status not in {
                     OnlyMarketDataProcessingStatus.APPLIED,
                     OnlyMarketDataProcessingStatus.DUPLICATE,

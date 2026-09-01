@@ -1,14 +1,33 @@
 import inspect
+from dataclasses import replace
+from datetime import UTC, datetime
+from decimal import Decimal
 
-from onlyalpha.domain.enums import OnlyOrderStatus
+from onlyalpha.data.enums import OnlyDataSequenceSemantics, OnlyMarketDataType
+from onlyalpha.data.identifiers import OnlyDataSequence, OnlyDataVersion, OnlyMarketDataSourceId
+from onlyalpha.data.identity import only_trade_update_id
+from onlyalpha.data.models import OnlyMarketDataInboundUpdate, OnlyMarketDataQuality, OnlyTradeTickUpdate
+from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderStatus, OnlyOrderType
+from onlyalpha.domain.execution import OnlyOrderRequest
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
     OnlyClusterId,
     OnlyEngineId,
+    OnlyOrderRequestId,
     OnlyRuntimeId,
+    OnlyTradeId,
     OnlyVenueOrderId,
 )
+from onlyalpha.domain.market import OnlyTradeTick
 from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
+from onlyalpha.execution.reference import (
+    OnlyExecutionReferenceFallback,
+    OnlyExecutionReferenceKind,
+    OnlyExecutionReferencePlanningService,
+    OnlyExecutionReferenceProfile,
+)
+from onlyalpha.market_data.realtime_state import OnlyRealtimeMarketStateStore
 from onlyalpha.order.execution.gateway import OnlyTradeGateway
 from onlyalpha.order.execution.models import (
     OnlyExecutionCancelResult,
@@ -25,6 +44,92 @@ from onlyalpha.order.manager import OnlyOrderManager
 from onlyalpha.order.publisher import OnlyInMemoryOrderEventPublisher
 from onlyalpha.order.service import OnlyOrderService
 from tests.order.fee_contract import only_test_zero_fee_contract
+
+
+class _PlanningReservationSpy:
+    def __init__(self) -> None:
+        self.prices: list[OnlyPrice | None] = []
+
+    def reserve(self, order, timestamp, *, planning_price=None) -> None:
+        del order, timestamp
+        self.prices.append(planning_price)
+
+    def sent(self, order_id, timestamp) -> None:
+        del order_id, timestamp
+
+    def acknowledged(self, order_id, timestamp) -> None:
+        del order_id, timestamp
+
+    def consume(self, fill, timestamp) -> None:
+        del fill, timestamp
+
+    def release(self, order_id, timestamp) -> None:
+        del order_id, timestamp
+
+
+def _reference_planner(runtime_id, instrument_id, *, advance_after_capture=False):
+    now = OnlyTimestamp.from_datetime(datetime(2026, 1, 1, tzinfo=UTC))
+    source = OnlyMarketDataSourceId("planning-source")
+    version = OnlyDataVersion("planning-v1")
+    trade = OnlyTradeTick(
+        instrument_id,
+        now.to_datetime(),
+        now.to_datetime(),
+        1,
+        str(source),
+        OnlyPrice(Decimal("100.00"), 2),
+        OnlyQuantity(Decimal("100"), 0),
+        OnlyOrderSide.BUY,
+        OnlyTradeId("planning-trade-1"),
+    )
+    update = OnlyMarketDataInboundUpdate(
+        only_trade_update_id(source, instrument_id, trade.trade_id, version),
+        runtime_id,
+        source,
+        OnlyDataSequence(1),
+        version,
+        instrument_id,
+        OnlyMarketDataType.TRADE,
+        OnlyTradeTickUpdate(trade),
+        now,
+        now,
+        sequence_semantics=OnlyDataSequenceSemantics.CONTIGUOUS,
+    )
+    state = OnlyRealtimeMarketStateStore(runtime_id)
+    state.apply_trade(update, OnlyMarketDataQuality(), 1)
+    profile = OnlyExecutionReferenceProfile(
+        "planning-v1",
+        1,
+        OnlyExecutionReferenceKind.LAST_TRADE,
+        OnlyExecutionReferenceFallback.NONE,
+        10_000_000_000,
+        str(source),
+    )
+    if not advance_after_capture:
+        return now, OnlyExecutionReferencePlanningService(state, profile)
+
+    class CaptureThenAdvance:
+        def capture(self, captured_at):
+            snapshot = state.capture(captured_at)
+            later_trade = replace(
+                trade,
+                sequence=2,
+                price=OnlyPrice(Decimal("101.00"), 2),
+                trade_id=OnlyTradeId("planning-trade-2"),
+            )
+            state.apply_trade(
+                replace(
+                    update,
+                    update_id=only_trade_update_id(source, instrument_id, later_trade.trade_id, version),
+                    source_sequence=OnlyDataSequence(2),
+                    payload=OnlyTradeTickUpdate(later_trade),
+                ),
+                OnlyMarketDataQuality(),
+                2,
+            )
+            return snapshot
+
+    return now, OnlyExecutionReferencePlanningService(CaptureThenAdvance(), profile)  # type: ignore[arg-type]
 
 
 def test_gateway_is_abstract_and_placeholders_generate_no_venue_facts() -> None:
@@ -52,6 +157,57 @@ def test_submit_publishes_created_then_submitted_and_never_accepts(order_manager
     assert result.snapshot.venue_order_id is None
     assert [str(event.event_type) for event in publisher.events] == ["ORDER_CREATED", "ORDER_SUBMITTED"]
     assert len(execution.submissions) == 1
+
+
+def test_market_planning_price_is_propagated_to_fee_cash_margin_and_risk(
+    order_manager,
+    order_request,
+    risk_service,
+) -> None:
+    now, planner = _reference_planner(
+        order_manager.runtime_id,
+        order_request.instrument_id,
+        advance_after_capture=True,
+    )
+    cash = _PlanningReservationSpy()
+    margin = _PlanningReservationSpy()
+    fee_prices: list[OnlyPrice | None] = []
+
+    def planning_fee(order, timestamp, planning_price):
+        fee_prices.append(planning_price)
+        return only_test_zero_fee_contract(order, timestamp)
+
+    service = OnlyOrderService(
+        order_manager,
+        OnlyPlaceholderExecutionService(),
+        OnlyInMemoryOrderEventPublisher(),
+        lambda: now,
+        risk_service,
+        risk_service.make_evaluation_context,
+        cash_reservations=cash,
+        margin_reservations=margin,
+        execution_reference_planning=planner,
+        planning_fee_contract_factory=planning_fee,
+    )
+    request = OnlyOrderRequest(
+        OnlyOrderRequestId("market-planning-propagation"),
+        order_request.instrument_id,
+        OnlyOrderSide.BUY,
+        OnlyOrderType.MARKET,
+        OnlyQuantity(Decimal("100"), 0),
+        offset=OnlyOffset.OPEN,
+    )
+
+    result = service.submit(request, OnlyClusterId("cluster-a"), OnlyAccountId("account"))
+
+    planning_price = OnlyPrice(Decimal("100.00"), 2)
+    assert result.created
+    assert fee_prices == [planning_price]
+    assert cash.prices == [planning_price]
+    assert margin.prices == [planning_price]
+    risk_reservation = risk_service.reservations.get_for_order(result.order_id)
+    assert risk_reservation is not None and risk_reservation.reserved_notional is not None
+    assert risk_reservation.reserved_notional.amount == Decimal("10000.00")
 
 
 def test_standardized_update_mutates_before_publishing(order_manager, order_request, risk_service) -> None:

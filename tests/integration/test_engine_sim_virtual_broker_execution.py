@@ -25,24 +25,33 @@ from onlyalpha.application import OnlyEngineInspectionService
 from onlyalpha.broker.execution import OnlyBrokerExecutionService
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.core.clock import OnlyBacktestClock
-from onlyalpha.data.enums import OnlyMarketDataProcessingStatus, OnlyMarketDataType
+from onlyalpha.data.enums import OnlyDataSequenceSemantics, OnlyMarketDataProcessingStatus, OnlyMarketDataType
 from onlyalpha.data.identifiers import OnlyDataSequence, OnlyMarketDataUpdateId
 from onlyalpha.data.models import (
     OnlyBarUpdate,
     OnlyHistoricalBarRequest,
     OnlyHistoricalDataStream,
     OnlyMarketDataInboundUpdate,
+    OnlyTradeTickUpdate,
 )
-from onlyalpha.domain.enums import OnlyOrderStatus, OnlyRuntimeMode
+from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderStatus, OnlyOrderType, OnlyRuntimeMode
 from onlyalpha.domain.execution import OnlyOrderRequest
-from onlyalpha.domain.identifiers import OnlyEngineId, OnlyRuntimeId
+from onlyalpha.domain.identifiers import OnlyEngineId, OnlyOrderRequestId, OnlyRuntimeId, OnlyTradeId
+from onlyalpha.domain.market import OnlyTradeTick
 from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.engine import OnlyEngineConfig
 from onlyalpha.engine.engine import OnlyEngine
+from onlyalpha.execution.reference import (
+    OnlyExecutionReferenceFallback,
+    OnlyExecutionReferenceKind,
+    OnlyExecutionReferencePlanningService,
+    OnlyExecutionReferenceProfile,
+)
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.plugin.broker import OnlyBrokerComponent, OnlyBrokerCreateRequest
 from onlyalpha.plugin.lifecycle import OnlyPluginLifecycleState
-from onlyalpha.risk.enums import OnlyRiskReservationState
+from onlyalpha.risk.enums import OnlyOrderRiskChange, OnlyRiskReservationState
 from onlyalpha.runtime.runtime import OnlyRuntimeState
 from onlyalpha.runtime.sim.runtime import OnlySimRuntime
 from onlyalpha.runtime.streaming.diagnostics import OnlyStreamingRecoveryStage
@@ -547,6 +556,45 @@ def _publish_closed_gap_trigger(runtime: OnlySimRuntime, clock: OnlyBacktestCloc
     clock.advance_to(end)
 
 
+def _streaming_trade(runtime: OnlySimRuntime, sequence: int, price: str) -> OnlyMarketDataInboundUpdate:
+    bar_type = next(iter(runtime.historical_watermarks)).bar_type
+    observed = OnlyTimestamp.from_unix_nanos(runtime.clock.timestamp_ns())
+    trade = OnlyTradeTick(
+        bar_type.instrument_id,
+        observed.to_datetime(),
+        observed.to_datetime(),
+        sequence,
+        str(runtime._driver.source.source_id),  # type: ignore[attr-defined,union-attr]
+        OnlyPrice(Decimal(price), 2),
+        OnlyQuantity(Decimal("100"), 0),
+        OnlyOrderSide.BUY,
+        OnlyTradeId(f"streaming-trade-{sequence}"),
+    )
+    return OnlyMarketDataInboundUpdate(
+        OnlyMarketDataUpdateId(f"fixture-streaming-trade-{sequence}"),
+        OnlyRuntimeId(runtime.runtime_id),
+        runtime._driver.source.source_id,  # type: ignore[attr-defined,union-attr]
+        OnlyDataSequence(sequence),
+        runtime._streaming_data_version,  # type: ignore[attr-defined]
+        bar_type.instrument_id,
+        OnlyMarketDataType.TRADE,
+        OnlyTradeTickUpdate(trade),
+        observed,
+        observed,
+        sequence_semantics=OnlyDataSequenceSemantics.CONTIGUOUS,
+    )
+
+
+def _publish_streaming_trade(runtime: OnlySimRuntime, sequence: int, price: str) -> None:
+    update_id = f"fixture-streaming-trade-{sequence}"
+    before = len(tuple(item for item in runtime.processing_results if str(item.update_id) == update_id))
+    runtime._services.market_data_inbound.put(_streaming_trade(runtime, sequence, price))  # type: ignore[attr-defined]
+    _wait_until(
+        lambda: len(tuple(item for item in runtime.processing_results if str(item.update_id) == update_id)) > before,
+        f"SIM worker did not process Trade {sequence}",
+    )
+
+
 def _recovery_stream(
     runtime: OnlySimRuntime,
     request: OnlyHistoricalBarRequest,
@@ -857,6 +905,101 @@ def test_engine_sim_gap_recovers_history_then_reconciles_trigger_once(
         assert runtime.ready_execution_query.ready_count(OnlyRuntimeId(runtime.runtime_id)) == 3
         assert _sqlite_transaction_state(database) == (3, 3, ("ORDER_INTENT", "ORDER_ACCEPTED", "TRADE_FILL"))
     finally:
+        engine.stop()
+
+
+def test_engine_sim_trade_gap_degrades_only_reference_and_recovery_suffix_keeps_trade(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine, xtdata, clock, _ = _engine(tmp_path, monkeypatch, engine_id="sim-trade-reference-gap")
+    engine.initialize()
+    engine.start()
+    runtime = cast(OnlySimRuntime, engine.runtimes[0])
+    runtime._stale_after_seconds = 600  # type: ignore[attr-defined]
+    source = cast(OnlyMiniQmtDataSource, runtime._driver.source)  # type: ignore[attr-defined]
+    entered = Event()
+    release = Event()
+
+    def blocked(request: OnlyHistoricalBarRequest) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:
+        entered.set()
+        assert release.wait(runtime.streaming_recovery_watchdog_seconds)
+        return _recovery_stream(runtime, request)
+
+    monkeypatch.setattr(source, "load_bars", blocked)
+    try:
+        _publish_and_wait_received(runtime, xtdata, clock, 37)
+        _publish_and_wait_received(runtime, xtdata, clock, 38)
+        for sequence in (100, 101, 105):
+            _publish_streaming_trade(runtime, sequence, f"{sequence / 10:.2f}")
+
+        snapshot = runtime.realtime_market_state.capture(OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()))
+        trusted = snapshot.latest_trade(next(iter(runtime.historical_watermarks)).bar_type.instrument_id)
+        assert trusted is not None and trusted.source_sequence == 101
+        assert snapshot.has_unresolved_gap(trusted)
+        assert runtime.streaming_phase is OnlyStreamingPhase.LIVE
+        assert runtime.state is OnlyRuntimeState.RUNNING
+
+        planner = OnlyExecutionReferencePlanningService(
+            runtime.realtime_market_state,
+            OnlyExecutionReferenceProfile(
+                "streaming-last-trade-v1",
+                1,
+                OnlyExecutionReferenceKind.LAST_TRADE,
+                OnlyExecutionReferenceFallback.NONE,
+                600_000_000_000,
+                str(source.source_id),
+            ),
+        )
+        request = OnlyOrderRequest(
+            OnlyOrderRequestId("streaming-gap-order"),
+            trusted.instrument_id,
+            OnlyOrderSide.BUY,
+            OnlyOrderType.MARKET,
+            OnlyQuantity(Decimal("100"), 0),
+            offset=OnlyOffset.OPEN,
+        )
+        denied = planner.plan(
+            request,
+            OnlyOrderRiskChange.RISK_INCREASING,
+            OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()),
+        )
+        assert denied.failure_code == "REFERENCE_GAP_UNRESOLVED"
+
+        for sequence in (102, 103, 104, 105):
+            _publish_streaming_trade(runtime, sequence, f"{sequence / 10:.2f}")
+        recovered = runtime.realtime_market_state.capture(OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()))
+        trusted = recovered.latest_trade(request.instrument_id)
+        assert trusted is not None and trusted.source_sequence == 105
+        assert not recovered.has_unresolved_gap(trusted)
+
+        before = runtime.streaming_phase_snapshot
+        _publish_closed_gap_trigger(runtime, clock, 42)
+        assert entered.wait(runtime.streaming_recovery_watchdog_seconds)
+        runtime._services.market_data_inbound.put(_streaming_trade(runtime, 110, "11.00"))  # type: ignore[attr-defined]
+        release.set()
+        _wait_for_recovery_cycle(runtime, before, expected_generation=1)
+
+        suffix_statuses = tuple(
+            item.status
+            for item in runtime.market_data_audit_store.records()
+            if str(item.update_id) == "fixture-streaming-trade-110"
+        )
+        assert suffix_statuses == (OnlyMarketDataProcessingStatus.GAP_DETECTED,)
+        unresolved = runtime.realtime_market_state.capture(OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()))
+        trusted = unresolved.latest_trade(request.instrument_id)
+        assert trusted is not None and trusted.source_sequence == 105
+        assert unresolved.has_unresolved_gap(trusted)
+        assert runtime.streaming_phase is OnlyStreamingPhase.LIVE
+
+        for sequence in (106, 107, 108, 109, 110):
+            _publish_streaming_trade(runtime, sequence, f"{sequence / 10:.2f}")
+        final = runtime.realtime_market_state.capture(OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()))
+        trusted = final.latest_trade(request.instrument_id)
+        assert trusted is not None and trusted.source_sequence == 110
+        assert not final.has_unresolved_gap(trusted)
+    finally:
+        release.set()
         engine.stop()
 
 

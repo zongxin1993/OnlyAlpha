@@ -4,7 +4,12 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from onlyalpha.data.enums import OnlyDataSequenceSemantics, OnlyMarketDataQualityFlag, OnlyMarketDataType
+from onlyalpha.data.enums import (
+    OnlyDataSequenceSemantics,
+    OnlyMarketDataProcessingStatus,
+    OnlyMarketDataQualityFlag,
+    OnlyMarketDataType,
+)
 from onlyalpha.data.identifiers import OnlyDataSequence, OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.data.identity import only_trade_update_id
 from onlyalpha.data.models import OnlyMarketDataInboundUpdate, OnlyMarketDataQuality, OnlyTradeTickUpdate
@@ -84,6 +89,44 @@ def _update(sequence: int = 1, price: str = "100.00") -> OnlyMarketDataInboundUp
         NOW,
         sequence_semantics=OnlyDataSequenceSemantics.CONTIGUOUS,
     )
+
+
+def _publish_integration_trade(
+    environment: OnlyIntegrationEnvironment,
+    *,
+    sequence: int = 1,
+    price: str = "100.00",
+) -> OnlyMarketDataInboundUpdate:
+    observed = OnlyTimestamp.from_unix_nanos(environment.runtime.clock.timestamp_ns())
+    source_id = environment.market_data_gateway.source_id
+    version = OnlyDataVersion("integration-trade-v1")
+    trade = OnlyTradeTick(
+        INTEGRATION_INSTRUMENT,
+        observed.to_datetime(),
+        observed.to_datetime(),
+        sequence,
+        str(source_id),
+        OnlyPrice(Decimal(price), 2),
+        OnlyQuantity(Decimal("100"), 0),
+        OnlyOrderSide.BUY,
+        OnlyTradeId(f"integration-trade-{sequence}"),
+    )
+    update = OnlyMarketDataInboundUpdate(
+        only_trade_update_id(source_id, INTEGRATION_INSTRUMENT, trade.trade_id, version),
+        environment.runtime.config.runtime_id,  # type: ignore[arg-type]
+        source_id,
+        OnlyDataSequence(sequence),
+        version,
+        INTEGRATION_INSTRUMENT,
+        OnlyMarketDataType.TRADE,
+        OnlyTradeTickUpdate(trade),
+        observed,
+        observed,
+        sequence_semantics=OnlyDataSequenceSemantics.CONTIGUOUS,
+    )
+    result = environment.market_data_processor.process(update)
+    assert result.status is OnlyMarketDataProcessingStatus.APPLIED
+    return update
 
 
 def test_risk_increasing_plan_uses_one_snapshot_and_exact_trade_evidence() -> None:
@@ -219,6 +262,124 @@ def test_reference_denial_does_not_mutate_original_strategy_decision() -> None:
     assert denied.failure_code == "REFERENCE_UNAVAILABLE"
     assert decision.entry and not decision.exit
     assert decision.strategy_fingerprint == "a" * 64
+
+
+def test_market_order_uses_one_trade_planning_price_for_risk_funding_and_cash() -> None:
+    profile = _profile(
+        required_source_id="integration-runtime-in-memory-live",
+        max_age_ns=600_000_000_000,
+        maximum_deviation_rate=None,
+    )
+    environment = OnlyIntegrationEnvironment(execution_reference_profile=profile)
+    environment.start()
+    environment.runtime.risk_service._market_rules = None  # type: ignore[attr-defined]
+    for minute in range(3):
+        environment.process_bar(DAY_ONE, minute, "98.00")
+    trade = _publish_integration_trade(environment, price="100.00")
+    environment.cluster.pending_order = OnlyOrderRequest(
+        OnlyOrderRequestId("market-reference-buy"),
+        INTEGRATION_INSTRUMENT,
+        OnlyOrderSide.BUY,
+        OnlyOrderType.MARKET,
+        OnlyQuantity(Decimal("100"), 0),
+        offset=OnlyOffset.OPEN,
+    )
+
+    environment.process_bar(DAY_ONE, 3, "98.00")
+    submitted = environment.cluster.submit_results[-1]
+
+    assert submitted.created and submitted.snapshot is not None
+    order = submitted.snapshot
+    assert order.price is None
+    assert order.funding_plan is not None
+    assert order.funding_plan.principal_reservation.amount == Decimal("10000.00")
+    account_reservation = environment.runtime._account_reservation_manager.snapshots()[0]  # type: ignore[attr-defined]
+    assert account_reservation.reserved_amount == order.funding_plan.total_reservation
+    ledger = environment.runtime._services.strategy_ledger_manager.list_ledgers()[0]  # type: ignore[attr-defined]
+    strategy_reservation = next(item for item in ledger.reservations if item.order_id == order.order_id)
+    assert strategy_reservation.estimated_notional.amount == Decimal("10000.00")
+    assert strategy_reservation.reserved_amount == order.funding_plan.total_reservation
+    risk_reservation = environment.runtime.risk_service.reservations.get_for_order(order.order_id)
+    assert risk_reservation is not None and risk_reservation.reserved_notional is not None
+    assert risk_reservation.reserved_notional.amount == Decimal("10000.00")
+    intent = environment.runtime.execution_transaction_query.transactions_for_order(
+        environment.runtime.config.runtime_id,  # type: ignore[arg-type]
+        order.order_id,
+    )[0].fact
+    assert intent.execution_reference is not None
+    assert intent.execution_reference.market_update_id == str(trade.update_id)
+    assert intent.execution_reference.reference_price.value == Decimal("100.00")
+    assert intent.execution_reference.resolved_order_price.value == Decimal("100.00")
+
+
+def test_limit_order_price_remains_authoritative_for_funding_and_cash() -> None:
+    profile = _profile(
+        required_source_id="integration-runtime-in-memory-live",
+        max_age_ns=600_000_000_000,
+        maximum_deviation_rate=None,
+    )
+    environment = OnlyIntegrationEnvironment(execution_reference_profile=profile)
+    environment.start()
+    for minute in range(3):
+        environment.process_bar(DAY_ONE, minute, "98.00")
+    trade = _publish_integration_trade(environment, price="100.00")
+
+    submitted = environment.submit_buy(price="95.00")
+
+    assert submitted.created and submitted.snapshot is not None
+    order = submitted.snapshot
+    assert order.funding_plan is not None
+    assert order.funding_plan.principal_reservation.amount == Decimal("9500.00")
+    account_reservation = environment.runtime._account_reservation_manager.snapshots()[0]  # type: ignore[attr-defined]
+    assert account_reservation.reserved_amount == order.funding_plan.total_reservation
+    ledger = environment.runtime._services.strategy_ledger_manager.list_ledgers()[0]  # type: ignore[attr-defined]
+    strategy_reservation = next(item for item in ledger.reservations if item.order_id == order.order_id)
+    assert strategy_reservation.estimated_notional.amount == Decimal("9500.00")
+    risk_reservation = environment.runtime.risk_service.reservations.get_for_order(order.order_id)
+    assert risk_reservation is not None and risk_reservation.reserved_notional is not None
+    assert risk_reservation.reserved_notional.amount == Decimal("9500.00")
+    intent = environment.runtime.execution_transaction_query.transactions_for_order(
+        environment.runtime.config.runtime_id,  # type: ignore[arg-type]
+        order.order_id,
+    )[0].fact
+    assert intent.execution_reference is not None
+    assert intent.execution_reference.market_update_id == str(trade.update_id)
+    assert intent.execution_reference.reference_price.value == Decimal("100.00")
+    assert intent.execution_reference.resolved_order_price.value == Decimal("95.00")
+
+
+def test_price_dependent_risk_rejection_exposes_trade_planning_evidence() -> None:
+    profile = _profile(
+        required_source_id="integration-runtime-in-memory-live",
+        max_age_ns=600_000_000_000,
+        maximum_deviation_rate=None,
+    )
+    environment = OnlyIntegrationEnvironment(execution_reference_profile=profile)
+    environment.start()
+    environment.runtime.risk_service._market_rules = None  # type: ignore[attr-defined]
+    for minute in range(3):
+        environment.process_bar(DAY_ONE, minute, "98.00")
+    trade = _publish_integration_trade(environment, price="20000.00")
+    environment.cluster.pending_order = OnlyOrderRequest(
+        OnlyOrderRequestId("market-reference-risk-reject"),
+        INTEGRATION_INSTRUMENT,
+        OnlyOrderSide.BUY,
+        OnlyOrderType.MARKET,
+        OnlyQuantity(Decimal("100"), 0),
+        offset=OnlyOffset.OPEN,
+    )
+
+    environment.process_bar(DAY_ONE, 3, "98.00")
+    submitted = environment.cluster.submit_results[-1]
+
+    assert not submitted.created and submitted.risk_decision is not None
+    rejection = submitted.risk_decision.rejection
+    assert rejection is not None
+    assert rejection.details["planning_price"] == "20000.00"
+    assert rejection.details["market_update_id"] == str(trade.update_id)
+    assert rejection.details["execution_profile_fingerprint"] == profile.fingerprint
+    assert rejection.details["market_snapshot_fingerprint"]
+    assert submitted.order_id is None
 
 
 def test_order_intent_persists_exact_trade_reference_causal_chain() -> None:

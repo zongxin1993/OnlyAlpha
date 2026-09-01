@@ -71,6 +71,11 @@ Decision 只有 ACCEPT、REJECT、ERROR，包含已执行 RuleId、结构化 rej
 携带 Runtime/Cluster/Account Scope、业务时间和只读 Instrument、MarketRule、Order、Reservation、Permission、
 Account、Position Port。跨 Runtime Context 被拒绝。
 
+Risk Context 还可携带当前 submit cycle 的 transient `order_planning_price` 及 execution-reference identity。价格优先级固定为 request
+price、explicit planning price、最后才是 legacy non-reference Bar fallback。启用 realtime reference 的 risk-increasing MARKET 请求在
+reference admission 成功后必须使用 explicit planning price；price-dependent rejection 的既有 details 同时保留 planning price、snapshot
+fingerprint、market update id 与 Execution Profile fingerprint，且不把 realtime Trade 复制成第二份 Risk state。
+
 Snapshot 是带版本、时间、Scope、活动订单数、预占金额/数量、剩余额度、拒绝计数、Kill Switch 和数据质量标记
 的 frozen 值。`ctx.risk` 不暴露 evaluate、reserve、release、disable rule、Cache 或 Gateway 能力。
 

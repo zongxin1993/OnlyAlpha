@@ -57,6 +57,12 @@ ctx.orders.list_open()
 ctx.orders.list_recent(limit)
 ```
 
+一次 submit 是一个逻辑 Order planning cycle。启用 realtime execution reference 且请求增加风险时，Runtime 在 cycle 起点只 capture
+一次 immutable realtime snapshot，并解析一个 explicit effective planning price：LIMIT 使用 request price，MARKET 使用已接受的 Trade
+reference price。该 planning price 不改变 Order type，也不是 fill 预测；Risk、fee/funding、Risk reservation、Account/Strategy cash
+reservation 与 margin reservation 必须复用它，不得在同一 cycle 重新读取 mutable latest Trade 或在 reference admission 成功后回退
+到 Bar close。durable Order Intent 继续保存 exact snapshot/update/Trade/profile 与 resolved price 的 causal evidence。
+
 查询和撤单自动限制为当前 Cluster；View 不暴露 Manager、Gateway、`apply_fill`、`set_status` 或 Venue ID 修改。
 Cluster 停止、失败或 Runtime 不可接单时拒绝命令。
 

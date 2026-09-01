@@ -30,3 +30,8 @@ checkpoint。Authority 输入侧详细决策见 ADR 0060；durable accrual/appli
 `CN_A_SHARE_PRODUCTION_MARKET_FEES@2025.06.30` 是普通 CNY A 股现金股票的生产 Market Authority，覆盖 XSHG/XSHE
 且从 2025-06-30 开始。它包含 SELL-only 印花税与双边过户费；Broker 佣金（含最低佣金）只能由严格的 Account Contract
 Snapshot 提供。测试 Pack 不在默认 Composition 或公共 Pack export 中。该费用产品不开放 A 股 Durable Execution。
+
+Order 创建时的 fee estimate/funding plan 属于同一次 Order planning operation。LIMIT 以 Order price 计算；启用 realtime reference 的
+risk-increasing MARKET 以该 operation 已解析的 explicit planning price 计算。Fee Resolver 不重新读取 mutable realtime state，生成的
+`funding_plan.principal_reservation` 必须与随后 Account/Strategy cash reservation 使用的 principal 完全一致。成交费用仍以 venue Fill
+事实和既有 Fee Authority 计算；planning price 不成为成交价 Authority。

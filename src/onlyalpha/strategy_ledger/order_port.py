@@ -32,7 +32,13 @@ class OnlyOrderStrategyCashReservationAdapter:
         self.__keys: dict[OnlyOrderId, OnlyStrategyLedgerKey] = {}
         self.__order_instruments: dict[OnlyOrderId, OnlyInstrumentId] = {}
 
-    def reserve(self, order: OnlyOrderSnapshot, timestamp: OnlyTimestamp) -> None:
+    def reserve(
+        self,
+        order: OnlyOrderSnapshot,
+        timestamp: OnlyTimestamp,
+        *,
+        planning_price: OnlyPrice | None = None,
+    ) -> None:
         if order.side is not OnlyOrderSide.BUY or order.offset in {
             OnlyOffset.CLOSE,
             OnlyOffset.CLOSE_TODAY,
@@ -43,7 +49,7 @@ class OnlyOrderStrategyCashReservationAdapter:
         if instrument is None:
             raise ValueError("cannot reserve Strategy cash for unknown Instrument")
         currency = instrument.settlement_currency
-        price = order.price or self.__reference_price(order)
+        price = order.price or planning_price or self.__reference_price(order)
         if price is None:
             raise ValueError("market BUY requires a deterministic reference price")
         amount = price.value * order.quantity.value * instrument.contract_multiplier.value

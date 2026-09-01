@@ -82,7 +82,7 @@ from onlyalpha.domain.identifiers import (
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
-from onlyalpha.domain.value import OnlyMoney, OnlyMultiplier, OnlyRate
+from onlyalpha.domain.value import OnlyMoney, OnlyMultiplier, OnlyPrice, OnlyRate
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
 from onlyalpha.event.subscription_view import OnlyEventBusSubscriptionView
@@ -657,12 +657,18 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         )
 
         def fee_contract(
-            order: OnlyOrderSnapshot, timestamp: OnlyTimestamp
+            order: OnlyOrderSnapshot,
+            timestamp: OnlyTimestamp,
+            planning_price: OnlyPrice | None,
         ) -> tuple[OnlyOrderFeePolicyBinding, OnlyOrderFeeEstimate, OnlyOrderFundingPlan]:
-            price = order.price or (
-                self._current_snapshots[order.cluster_id].primary_bar.close
-                if order.cluster_id in self._current_snapshots
-                else None
+            price = (
+                order.price
+                or planning_price
+                or (
+                    self._current_snapshots[order.cluster_id].primary_bar.close
+                    if order.cluster_id in self._current_snapshots
+                    else None
+                )
             )
             if price is None:
                 raise ValueError("market Order requires a deterministic fee reference price")
@@ -746,7 +752,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             order_position_reservations,
             order_cash_reservations,
             order_margin_reservations,
-            fee_contract,
+            None,
             self._fee_reconciliation_risk_gate,
             order_intent_durability,
             selected_execution_service if isinstance(selected_execution_service, OnlyBrokerExecutionService) else None,
@@ -755,6 +761,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
                 if execution_reference_profile is None
                 else OnlyExecutionReferencePlanningService(self._realtime_market_state, execution_reference_profile)
             ),
+            fee_contract,
         )
         self._trading_day_boundary_coordinator = OnlyRuntimeTradingDayBoundaryCoordinator(
             settlement_authority=self._settlement_authority,

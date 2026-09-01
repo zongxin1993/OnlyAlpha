@@ -19,7 +19,7 @@ from onlyalpha.domain.identifiers import (
     OnlyRuntimeId,
 )
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.domain.value import OnlyMoney, OnlyQuantity
+from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.market.models import (
     OnlyMarketPositionMode,
@@ -31,7 +31,11 @@ from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
 from onlyalpha.order.query import OnlyOrderQueryService
 from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide
 from onlyalpha.risk.audit import OnlyOrderIntentAudit, OnlyRiskDecisionAudit
-from onlyalpha.risk.contexts import OnlyRiskEvaluationContext, OnlyRiskStateUpdateContext
+from onlyalpha.risk.contexts import (
+    OnlyRiskEvaluationContext,
+    OnlyRiskStateUpdateContext,
+    only_risk_planning_details,
+)
 from onlyalpha.risk.decisions import OnlyRiskDecision, OnlyRiskRejection
 from onlyalpha.risk.enums import (
     OnlyOrderRiskChange,
@@ -264,7 +268,7 @@ class OnlyRiskService:
         resolved_context = context
         if self._market_rules is not None:
             instrument = context.instruments.get(request.instrument_id)
-            price = request.price
+            price = request.price or context.order_planning_price
             if price is None and context.market_data is not None:
                 price = context.market_data.primary_bar.close
             account = context.account_risk.snapshot(context.account_id)
@@ -368,6 +372,7 @@ class OnlyRiskService:
                             "market_product_version": str(self._market_rules.market_product_identity.product_version),
                             "market_reference_fingerprint": market_decision.compiled_identity.reference_fingerprint,
                             "market_compiled_rule_fingerprint": (market_decision.compiled_identity.policy_fingerprint),
+                            **only_risk_planning_details(context),
                         },
                     )
                 )
@@ -515,13 +520,16 @@ class OnlyRiskService:
         self,
         order: OnlyOrderSnapshot,
         timestamp: OnlyTimestamp,
+        *,
+        planning_price: OnlyPrice | None = None,
     ) -> OnlyRiskReservationResult:
         if order.runtime_id != self.runtime_id:
             raise ValueError("Order belongs to another Runtime")
         instrument = self._instruments.get(order.instrument_id)
         reserved_notional = None
-        if instrument is not None and order.price is not None:
-            raw = order.price.value * order.quantity.value * instrument.contract_multiplier.value
+        price = order.price or planning_price
+        if instrument is not None and price is not None:
+            raw = price.value * order.quantity.value * instrument.contract_multiplier.value
             quantum = Decimal(1).scaleb(-instrument.quote_currency.precision)
             reserved_notional = OnlyMoney(raw.quantize(quantum, rounding=ROUND_DOWN), instrument.quote_currency)
         result = self._reservations.create(

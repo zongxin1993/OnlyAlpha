@@ -24,6 +24,7 @@ from onlyalpha.domain.identifiers import (
     OnlyVenueOrderId,
 )
 from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.domain.value import OnlyPrice
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.fee.estimate import OnlyOrderFeeEstimate, OnlyOrderFundingPlan
 from onlyalpha.fee.models import OnlyOrderFeePolicyBinding
@@ -48,6 +49,10 @@ from onlyalpha.order.results import OnlyOrderMutationResult
 
 type OnlyOrderFeeContractFactory = Callable[
     [OnlyOrderSnapshot, OnlyTimestamp],
+    tuple[OnlyOrderFeePolicyBinding, OnlyOrderFeeEstimate, OnlyOrderFundingPlan],
+]
+type OnlyOrderPlanningFeeContractFactory = Callable[
+    [OnlyOrderSnapshot, OnlyTimestamp, OnlyPrice | None],
     tuple[OnlyOrderFeePolicyBinding, OnlyOrderFeeEstimate, OnlyOrderFundingPlan],
 ]
 

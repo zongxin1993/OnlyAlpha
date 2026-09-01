@@ -35,10 +35,16 @@ class OnlyOrderMarginReservationAdapter:
         self._trading_day = trading_day
         self._reference_price = reference_price
 
-    def reserve(self, order: OnlyOrderSnapshot, timestamp: OnlyTimestamp) -> None:
+    def reserve(
+        self,
+        order: OnlyOrderSnapshot,
+        timestamp: OnlyTimestamp,
+        *,
+        planning_price: OnlyPrice | None = None,
+    ) -> None:
         if self._rules is None or order.offset is not OnlyOffset.OPEN:
             return
-        price = order.price or self._reference_price(order)
+        price = order.price or planning_price or self._reference_price(order)
         if price is None:
             raise ValueError("margin order requires a deterministic reference price")
         instruction = self._rules.build_order_margin_instruction(

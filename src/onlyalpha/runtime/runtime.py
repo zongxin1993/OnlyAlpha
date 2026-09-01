@@ -361,7 +361,13 @@ class OnlyRuntimeAccountCashReservationAdapter:
         self._reference_price = reference_price
         self._reservations: dict[OnlyOrderId, OnlyAccountReservationId] = {}
 
-    def reserve(self, order: OnlyOrderSnapshot, timestamp: OnlyTimestamp) -> None:
+    def reserve(
+        self,
+        order: OnlyOrderSnapshot,
+        timestamp: OnlyTimestamp,
+        *,
+        planning_price: OnlyPrice | None = None,
+    ) -> None:
         if order.side is not OnlyOrderSide.BUY or order.offset in {
             OnlyOffset.CLOSE,
             OnlyOffset.CLOSE_TODAY,
@@ -371,8 +377,8 @@ class OnlyRuntimeAccountCashReservationAdapter:
         instrument = self._instruments.get(order.instrument_id)
         if instrument is None or instrument.settlement_currency != self._currency:
             raise ValueError("Account cash reservation requires a known same-currency Instrument")
-        reference = self._reference_price(order)
-        price = order.price or (reference if isinstance(reference, OnlyPrice) else None)
+        reference = self._reference_price(order) if planning_price is None else None
+        price = order.price or planning_price or (reference if isinstance(reference, OnlyPrice) else None)
         if price is None:
             raise ValueError("market BUY requires a deterministic Account reference price")
         quantum = Decimal(1).scaleb(-self._currency.precision)
@@ -431,10 +437,22 @@ class OnlyRuntimeCompositeCashReservationAdapter:
         self.account = account
         self.strategy = strategy
 
-    def reserve(self, order: OnlyOrderSnapshot, timestamp: OnlyTimestamp) -> None:
-        self.account.reserve(order, timestamp)
+    def reserve(
+        self,
+        order: OnlyOrderSnapshot,
+        timestamp: OnlyTimestamp,
+        *,
+        planning_price: OnlyPrice | None = None,
+    ) -> None:
+        if planning_price is None:
+            self.account.reserve(order, timestamp)
+        else:
+            self.account.reserve(order, timestamp, planning_price=planning_price)
         try:
-            self.strategy.reserve(order, timestamp)
+            if planning_price is None:
+                self.strategy.reserve(order, timestamp)
+            else:
+                self.strategy.reserve(order, timestamp, planning_price=planning_price)
         except Exception:
             self.account.release(order.order_id, timestamp)
             raise

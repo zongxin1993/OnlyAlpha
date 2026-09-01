@@ -3,7 +3,7 @@
 from onlyalpha.domain.enums import OnlyOrderSide
 from onlyalpha.domain.execution import OnlyOrderRequest
 from onlyalpha.market.models import OnlyPositionEffect
-from onlyalpha.risk.contexts import OnlyRiskEvaluationContext
+from onlyalpha.risk.contexts import OnlyRiskEvaluationContext, only_risk_planning_details
 from onlyalpha.risk.decisions import OnlyRiskDecision, OnlyRiskErrorInfo
 from onlyalpha.risk.enums import OnlyRiskRejectionCode, OnlyRiskRuleScope
 from onlyalpha.risk.identifiers import OnlyRiskRuleId
@@ -36,6 +36,8 @@ class OnlyAvailableBalanceRiskRule(OnlyRiskRule):
         reference_price = (
             request.price
             if request.price is not None
+            else context.order_planning_price
+            if context.order_planning_price is not None
             else context.market_data.primary_bar.close
             if context.market_data is not None
             else None
@@ -82,6 +84,7 @@ class OnlyAvailableBalanceRiskRule(OnlyRiskRule):
                 "order notional exceeds Account available cash",
                 requested_value=str(required),
                 allowed_value=str(balance.amount),
+                details=only_risk_planning_details(context),
             )
         return self._accept()
 

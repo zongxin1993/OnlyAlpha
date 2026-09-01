@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from onlyalpha.domain.execution import OnlyOrderRequest
 from onlyalpha.domain.value import OnlyMoney, OnlyQuantity
-from onlyalpha.risk.contexts import OnlyRiskEvaluationContext
+from onlyalpha.risk.contexts import OnlyRiskEvaluationContext, only_risk_planning_details
 from onlyalpha.risk.decisions import OnlyRiskDecision
 from onlyalpha.risk.enums import OnlyRiskRejectionCode, OnlyRiskRuleMode, OnlyRiskRuleScope
 from onlyalpha.risk.identifiers import OnlyRiskRuleId
@@ -126,12 +126,13 @@ class OnlyMaxOrderNotionalRiskRule(OnlyRiskRule):
                 requested_value=instrument.quote_currency.code,
                 allowed_value=self.maximum.currency.code,
             )
-        if request.price is None:
+        price = request.price or context.order_planning_price
+        if price is None:
             return self._reject(
                 OnlyRiskRejectionCode.REQUIRED_RISK_DATA_MISSING,
                 "A reliable Price is required for notional Risk",
             )
-        requested = request.price.value * request.quantity.value * instrument.contract_multiplier.value
+        requested = price.value * request.quantity.value * instrument.contract_multiplier.value
         reserved = Decimal("0")
         if self.include_active_reservations:
             reserved = context.reservations.active_notional(
@@ -150,7 +151,11 @@ class OnlyMaxOrderNotionalRiskRule(OnlyRiskRule):
                 "Order plus active reservations exceed Profile notional limit",
                 requested_value=str(total),
                 allowed_value=str(self.maximum.amount),
-                details={"order_notional": str(requested), "reserved_notional": str(reserved)},
+                details={
+                    "order_notional": str(requested),
+                    "reserved_notional": str(reserved),
+                    **only_risk_planning_details(context),
+                },
             )
         return self._accept()
 

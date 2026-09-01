@@ -1,16 +1,21 @@
 """Function-call Order command service; Event publication follows mutation."""
 
 from collections.abc import Callable
+from dataclasses import replace
 
 from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderStatus
 from onlyalpha.domain.execution import (
     OnlyCancelOrderRequest,
     OnlyOrderFailure,
     OnlyOrderRequest,
+    OnlyOrderSnapshot,
 )
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId
 from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.domain.value import OnlyPrice
 from onlyalpha.execution.reference import OnlyExecutionReferencePlanningService
+from onlyalpha.fee.estimate import OnlyOrderFeeEstimate, OnlyOrderFundingPlan
+from onlyalpha.fee.models import OnlyOrderFeePolicyBinding
 from onlyalpha.fee.risk_gate import OnlyFeeReconciliationRiskGate
 from onlyalpha.order.cash_port import OnlyOrderCashReservationPort
 from onlyalpha.order.enums import OnlyOrderFailureCode
@@ -21,7 +26,11 @@ from onlyalpha.order.execution.models import (
 )
 from onlyalpha.order.execution.service import OnlyExecutionService
 from onlyalpha.order.intent import OnlyOrderIntentDurabilityPort, OnlyRuntimeIntentReferenceSink
-from onlyalpha.order.manager import OnlyOrderFeeContractFactory, OnlyOrderManager
+from onlyalpha.order.manager import (
+    OnlyOrderFeeContractFactory,
+    OnlyOrderManager,
+    OnlyOrderPlanningFeeContractFactory,
+)
 from onlyalpha.order.margin_port import OnlyOrderMarginReservationPort
 from onlyalpha.order.position_port import OnlyOrderPositionReservationPort
 from onlyalpha.order.publisher import OnlyOrderEventPublisher
@@ -56,6 +65,7 @@ class OnlyOrderService:
         intent_durability: OnlyOrderIntentDurabilityPort | None = None,
         intent_reference_sink: OnlyRuntimeIntentReferenceSink | None = None,
         execution_reference_planning: OnlyExecutionReferencePlanningService | None = None,
+        planning_fee_contract_factory: OnlyOrderPlanningFeeContractFactory | None = None,
     ) -> None:
         self._manager = manager
         self._execution = execution
@@ -71,6 +81,7 @@ class OnlyOrderService:
         self._intent_durability = intent_durability
         self._intent_reference_sink = intent_reference_sink
         self._execution_reference_planning = execution_reference_planning
+        self._planning_fee_contract_factory = planning_fee_contract_factory
         if bool(getattr(execution, "requires_durable_intent", False)) and intent_durability is None:
             raise ValueError("REAL_EXECUTION_REQUIRES_DURABLE_ORDER_INTENT")
 
@@ -85,9 +96,10 @@ class OnlyOrderService:
             raise ValueError("Order expire_time must be later than submission time")
         account_id = request.account_id or default_account_id
         risk_context = self._risk_context(cluster_id, account_id, timestamp)
+        risk_change = self._risk_service.classify_order_change(request, risk_context)
         execution_reference = None
+        planning_price: OnlyPrice | None = None
         if self._execution_reference_planning is not None:
-            risk_change = self._risk_service.classify_order_change(request, risk_context)
             reference_plan = self._execution_reference_planning.plan(request, risk_change, timestamp)
             if not reference_plan.accepted:
                 code = (
@@ -120,11 +132,16 @@ class OnlyOrderService:
                     decision,
                 )
             execution_reference = reference_plan.evidence
+            if execution_reference is not None:
+                planning_price = execution_reference.resolved_order_price
+                risk_context = replace(
+                    risk_context,
+                    order_planning_price=planning_price,
+                    market_snapshot_fingerprint=execution_reference.snapshot_fingerprint,
+                    market_update_id=execution_reference.market_update_id,
+                    execution_profile_fingerprint=execution_reference.profile_fingerprint,
+                )
         if self._fee_reconciliation_risk_gate is not None:
-            risk_change = self._risk_service.classify_order_change(
-                request,
-                risk_context,
-            )
             self._fee_reconciliation_risk_gate.require_order_allowed(account_id, risk_change)
         risk_decision = self._risk_service.evaluate_order(
             request,
@@ -161,12 +178,22 @@ class OnlyOrderService:
                 timestamp,
                 execution_reference=execution_reference,
             )
+        fee_contract_factory = self._fee_contract_factory
+        if self._planning_fee_contract_factory is not None:
+            planning_fee_contract_factory = self._planning_fee_contract_factory
+
+            def fee_contract_factory(
+                order: OnlyOrderSnapshot,
+                created_at: OnlyTimestamp,
+            ) -> tuple[OnlyOrderFeePolicyBinding, OnlyOrderFeeEstimate, OnlyOrderFundingPlan]:
+                return planning_fee_contract_factory(order, created_at, planning_price)
+
         created = self._manager.create_order(
             request,
             cluster_id,
             account_id,
             timestamp,
-            self._fee_contract_factory,
+            fee_contract_factory,
         )
         if not created.changed:
             return OnlyOrderSubmitResult(
@@ -180,7 +207,11 @@ class OnlyOrderService:
                 created.error,
                 risk_decision,
             )
-        reservation = self._risk_service.reserve_order(created.snapshot, timestamp)
+        reservation = self._risk_service.reserve_order(
+            created.snapshot,
+            timestamp,
+            planning_price=planning_price,
+        )
         if not reservation.changed and reservation.reservation is None:
             failed = self._manager.apply_failed(
                 created.order_id,
@@ -202,7 +233,14 @@ class OnlyOrderService:
         uses_position_reservation = not (request.side is OnlyOrderSide.SELL and request.offset is OnlyOffset.OPEN)
         if self._margin_reservations is not None:
             try:
-                self._margin_reservations.reserve(created.snapshot, timestamp)
+                if planning_price is None:
+                    self._margin_reservations.reserve(created.snapshot, timestamp)
+                else:
+                    self._margin_reservations.reserve(
+                        created.snapshot,
+                        timestamp,
+                        planning_price=planning_price,
+                    )
             except Exception as exc:
                 self._risk_service.release_order(
                     created.order_id,
@@ -260,7 +298,14 @@ class OnlyOrderService:
                 )
         if self._cash_reservations is not None:
             try:
-                self._cash_reservations.reserve(created.snapshot, timestamp)
+                if planning_price is None:
+                    self._cash_reservations.reserve(created.snapshot, timestamp)
+                else:
+                    self._cash_reservations.reserve(
+                        created.snapshot,
+                        timestamp,
+                        planning_price=planning_price,
+                    )
             except Exception as exc:
                 self._risk_service.release_order(
                     created.order_id,

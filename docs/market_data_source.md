@@ -19,6 +19,12 @@ Strategy/Cluster dispatch，也不改变 Strategy fingerprint；它只在通过�
 cycle 开始时只 capture 一份 immutable snapshot，后到 Trade 只影响后续 cycle。缺失、过期、错误 source/quality 或 unresolved gap
 对新的 risk-increasing execution fail closed；risk-reducing/neutral safety path 不依赖该 reference。
 
+Decision continuity 与 reference continuity 是不同的 Runtime consequence lane。Bar gap 继续进入既有 decision-lane historical
+recovery；Trade gap 只把对应 realtime reference scope 标记为 unresolved，trusted Trade 停在 gap 前，Streaming Runtime 与 closed-Bar
+Strategy lane 继续运行。Provider/DataSource 仍独占 provider-native reconnect、baseline 与 gap backfill；Core 不重建 provider Trade
+sequence。Provider 随后给出的精确 canonical Trade suffix 必须经同一 `OnlyMarketDataProcessor` 验证，normal worker 与 Bar recovery
+期间的 buffered/catch-up suffix 使用相同的 Trade pass-through admission，不能静默丢弃 Trade，也不能绕过 Processor 直接修 projection。
+
 SIM 已实现第一条 realtime/streaming 数据路径，并由 continuity/recovery 与 durable restart 测试冻结。
 Research 使用 Historical Dataset 与纯计算边界，不经过 Trading Cluster、Broker Queue 或 ExecutionProcessor。
 
