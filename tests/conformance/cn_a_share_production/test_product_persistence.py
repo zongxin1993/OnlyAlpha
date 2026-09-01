@@ -13,6 +13,7 @@ from onlyalpha.result import only_backtest_business_projection
 from onlyalpha.runtime.defaults import only_default_engine_services
 from tests.conformance.cn_a_share_production.support import (
     OnlyCnAshareProductRun,
+    only_cn_a_share_conformance_services,
     only_cn_a_share_product_config,
     only_run_cn_a_share_product,
 )
@@ -105,8 +106,10 @@ def test_sqlite_a_b_c_forward_recovery_equals_uninterrupted_product_history(tmp_
 
     engine_a = OnlyEngine(
         OnlyEngineConfig(engine_id, recovered_root),
-        services=only_default_engine_services(
-            runtime_persistence_store_factory=OnlyPlanCursorCheckpointFailureStoreFactory(1)
+        services=only_cn_a_share_conformance_services(
+            only_default_engine_services(
+                runtime_persistence_store_factory=OnlyPlanCursorCheckpointFailureStoreFactory(1)
+            )
         ),
     )
     engine_a.add_cluster(config)
@@ -115,21 +118,29 @@ def test_sqlite_a_b_c_forward_recovery_equals_uninterrupted_product_history(tmp_
 
     engine_b = OnlyEngine(
         OnlyEngineConfig(engine_id, recovered_root),
-        services=only_default_engine_services(
-            runtime_persistence_store_factory=OnlyPlanCursorCheckpointFailureStoreFactory(2)
+        services=only_cn_a_share_conformance_services(
+            only_default_engine_services(
+                runtime_persistence_store_factory=OnlyPlanCursorCheckpointFailureStoreFactory(2)
+            )
         ),
     )
     engine_b.add_cluster(config)
     result_b = engine_b.run()
     assert result_b.status == "FAILED"
 
-    engine_c = OnlyEngine(OnlyEngineConfig(engine_id, recovered_root))
+    engine_c = OnlyEngine(
+        OnlyEngineConfig(engine_id, recovered_root),
+        services=only_cn_a_share_conformance_services(),
+    )
     engine_c.add_cluster(config)
     result_c = engine_c.run()
     assert result_c.status == "COMPLETED", result_c.failures
 
     baseline_root = tmp_path / "baseline"
-    baseline = OnlyEngine(OnlyEngineConfig(engine_id, baseline_root))
+    baseline = OnlyEngine(
+        OnlyEngineConfig(engine_id, baseline_root),
+        services=only_cn_a_share_conformance_services(),
+    )
     baseline.add_cluster(only_copy_cluster_strategy_revision(config, recovered_root, baseline_root))
     baseline_result = baseline.run()
     assert baseline_result.status == "COMPLETED", baseline_result.failures

@@ -82,7 +82,7 @@ IANA 时区。DTO 同时返回 `timestamp_utc`、带 offset 的 `display_time` �
 
 BacktestClock 只接受 UTC 并保持单调；Backtest 应复用 Calendar 推导 TradingDay/Session，
 并按历史 Calendar 与 Instrument 版本解析。当前尚无完整聚合器或撮合器。五市场确定性
-示例位于 `examples/time_model`，覆盖 A 股午休、港股分段、美股盘前/常规/盘后与 DST、
+对应 tests 覆盖 A 股午休、港股分段、美股盘前/常规/盘后与 DST、
 中国期货夜盘、Crypto UTC 24x7。相同输入在不同进程 `TZ` 下产生相同结果。
 
 Clock 的权威时间戳单位是 Unix nanoseconds，与 `OnlyTimestamp.unix_nanos` 一致。Python

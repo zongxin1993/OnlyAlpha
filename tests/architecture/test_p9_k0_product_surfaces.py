@@ -41,11 +41,6 @@ CONSTRUCTOR_OWNERS = {
 PROTECTED_CONSTRUCTOR_MODULES = frozenset(qualified.rpartition(".")[0] for qualified in CONSTRUCTOR_OWNERS)
 
 EXPECTED_CONSOLE_ENTRY_POINTS = {
-    (
-        "packages/client/onlyalpha-client/pyproject.toml",
-        "onlyalpha-client",
-        "onlyalpha_client.cli:main",
-    ),
     ("packages/api/onlyalpha-api/pyproject.toml", "onlyalpha-api", "onlyalpha_api.main:main"),
     (
         "packages/provider/onlyalpha-plugin-miniqmt/pyproject.toml",
@@ -57,15 +52,13 @@ EXPECTED_CONSOLE_ENTRY_POINTS = {
         "onlyalpha-tushare",
         "onlyalpha_plugin_tushare.doctor:main",
     ),
-    ("pyproject.toml", "onlyalpha", "onlyalpha.cli:main"),
     ("pyproject.toml", "onlyalpha-research-worker", "onlyalpha.research.worker_main:main"),
 }
 
 # This is the exact K0 allowlist. Entries include internal composition, classified
-# operator/test tooling, examples, and known migration debt. Any new construction
+# operator/test tooling and known migration debt. Any new construction
 # site requires an explicit architecture-contract update.
 EXPECTED_DIRECT_CONSTRUCTION_SITES = {
-    ("examples/internal/committed_execution_report.py", "OnlyEngine"),
     ("scripts/regenerate_recovery_baselines.py", "OnlyEngine"),
     ("scripts/regenerate_result_fixtures.py", "OnlyEngine"),
     ("src/onlyalpha/research/execution/worker.py", "OnlyEngine"),
@@ -76,7 +69,6 @@ EXPECTED_DIRECT_CONSTRUCTION_SITES = {
 }
 
 EXPECTED_DIRECT_CONSTRUCTION_CLASSIFICATION = {
-    ("examples/internal/committed_execution_report.py", "OnlyEngine"): "ALLOWED INTERNAL",
     ("scripts/regenerate_recovery_baselines.py", "OnlyEngine"): "TEST TOOLING",
     ("scripts/regenerate_result_fixtures.py", "OnlyEngine"): "TEST TOOLING",
     ("src/onlyalpha/research/execution/worker.py", "OnlyEngine"): "OPERATOR / INFRASTRUCTURE",
@@ -87,7 +79,6 @@ EXPECTED_DIRECT_CONSTRUCTION_CLASSIFICATION = {
 }
 
 EXPECTED_CONSTRUCTOR_IMPORT_OWNERS = {
-    ("examples/internal/committed_execution_report.py", "OnlyEngine"): "ALLOWED INTERNAL",
     ("scripts/pytest_metrics.py", "OnlyEngine"): "TEST TOOLING",
     ("scripts/regenerate_recovery_baselines.py", "OnlyEngine"): "TEST TOOLING",
     ("scripts/regenerate_result_fixtures.py", "OnlyEngine"): "TEST TOOLING",
@@ -185,6 +176,8 @@ def _console_entry_points() -> set[tuple[str, str, str]]:
     )
     for relative_path in sorted(filter(None, listed.stdout.splitlines())):
         path = ROOT / relative_path
+        if not path.is_file():
+            continue
         document = tomllib.loads(path.read_text(encoding="utf-8"))
         scripts = document.get("project", {}).get("scripts", {})
         assert isinstance(scripts, dict)

@@ -1,23 +1,18 @@
 ﻿# Internal Backtest Engine Contract
 
 > 本文描述 Kernel 内部 Backtest Engine/Runtime 组合，不是外部 Product client 使用指南。当前尚无 governed Backtest Product API；
-> 下述 direct `OnlyEngine` 代码只作为 `LEGACY_K8_TARGET` 的内部工程事实保留，外部用户不得据此绕过 Product Control Plane。
+> direct `OnlyEngine` composition 仅供 Worker、Scenario 和测试使用，外部用户不得据此绕过 Product Control Plane。
 
-内建 `scenario-exact` 通过 DataSource SPI 和正式 Historical Replay 提供 exact bars；Action Strategy 只经 `ctx.orders` 下单。
+验证边界的 `scenario-exact` 通过 DataSource SPI 和正式 Historical Replay 提供 exact bars；它不注册到默认 Product composition。
+Action Strategy 只经 `ctx.orders` 下单。
 
 Deterministic Scenario 是 Backtest 外层消费者，不是 Backtest 专用 API。人工 Bar 仍须走 DataSource、Replay、Pipeline 和
-Strategy dispatch；Action 仍经公共 `ctx.orders`。当前 Scenario Runner 尚未接通，禁止以 `process_bar()` 组件测试宣称完成。
+Strategy dispatch；Action 仍经公共 `ctx.orders`。
 
 ## Internal Engine composition
 
-```python
-engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("onlyalpha"), Path("user_data")))
-engine.add_cluster_from_file("../OnlyAlpha-plugins/clusters/my_cluster/config.yaml")
-result = engine.run()
-```
-
-`OnlyClusterRunConfig` parses common fields and Cluster-owned Strategy/Factor import specs. Runtime-specific, Synthetic and Virtual Broker
-parameters are parsed by their concrete factories；Indicator 参数由 Factor Config 解析。`OnlyEngine` is the sole internal execution boundary; Backtest `run()` owns
+`OnlyClusterRunConfig` 是显式 typed internal specification，不是 YAML/JSON Product surface。Runtime-specific、Synthetic 和 Virtual Broker
+parameters 由 concrete factories 验证；Indicator 参数由 Factor Config 解析。`OnlyEngine` is the sole internal execution boundary; Backtest `run()` owns
 historical replay and final invariant evaluation, while `OnlyEngineResultExporter` writes through `OnlyUserDataLayout`.
 
 ## Fixed workflow
@@ -45,18 +40,7 @@ facts被抑制且不补发。Continuation transaction 的 durable Outbox 保持 
 Runtime READY 且 start 打开 Router 后才交付，随后才 resume Cluster 并发布 `RUNTIME_STARTED`。
 Committed-but-not-ready transaction 只进入恢复/管理 diagnostic，即使失败运行构建部分 Result，也不会成为正式 execution fact。
 
-持久恢复必须显式启用：
-
-```yaml
-runtime:
-  persistence:
-    backend: SQLITE
-    checkpoint:
-      enabled: true
-      retain_last: 2
-    # path: nested/runtime.sqlite3  # 可选，相对 Runtime state root
-```
-
+持久恢复语义必须通过 typed Runtime specification 显式给出；测试 fixture 中的相同字段只用于验证 parser/Kernel behavior。
 未配置时为 `MEMORY`，不会创建 state 目录。SQLite 默认路径为
 `user_data/state/engines/<engine-id>/runtimes/<runtime-id>/runtime.sqlite3`。绝对路径、空路径和 `..` 逃逸被拒绝；Store
 identity、Participant Registry、schema 或 checkpoint hash 不匹配不会覆盖旧库或 fallback。SQLite Runtime Persistence 使用

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.core.errors import OnlyLifecycleError
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngineConfig
@@ -46,7 +47,7 @@ def test_corrupt_dataset_fails_closed_and_is_not_rebuilt(tmp_path: Path) -> None
 def test_mixed_research_and_trading_engine_fails_closed(tmp_path: Path) -> None:
     engine, workload = workload_case(tmp_path)
     engine.add_research_workload(workload)
-    engine.add_cluster_from_file("tests/fixtures/legacy_macd/cluster.json")
+    engine.add_cluster(OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json"))
     validation = engine.validate()
     assert not validation.valid
     assert "MIXED_RESEARCH_TRADING_NOT_SUPPORTED" in validation.errors

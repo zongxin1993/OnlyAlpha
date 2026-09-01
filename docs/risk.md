@@ -98,7 +98,7 @@ Event 只用于审计、监控和未来扩展，不驱动 Rule 执行，也没�
 ## 7. 隔离、Demo 与限制
 
 Risk State、Profile、Permission、Reservation、Kill Switch、审计和序列均按 Trading Runtime 隔离；Cluster 之间的 Profile、
-Snapshot 和权限也隔离。`examples/risk_demo` 覆盖 ACCEPT、非法 tick、额度拒绝、不同 Profile、连续预占、
+Snapshot 和权限也隔离。对应 tests 覆盖 ACCEPT、非法 tick、额度拒绝、不同 Profile、连续预占、
 Fail Closed 和 Snapshot。
 
 已知限制：当前正式 Backtest 已接入 Position/Allocation/Account 只读数据源，并把 Risk Reservation 纳入 checkpoint 与

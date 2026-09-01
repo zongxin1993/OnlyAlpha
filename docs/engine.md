@@ -51,13 +51,12 @@ OnlyEngine
 └── execution_plan: OnlyEngineExecutionPlan
 ```
 
-## 3. 唯一产品接口
+## 3. 内部 Engine 接口
 
 ```python
 initialize()
 start()
 stop()
-add_cluster_from_file(path)
 add_cluster(config)
 remove_cluster(cluster_id, policy)
 validate()

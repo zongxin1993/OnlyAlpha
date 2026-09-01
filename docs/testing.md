@@ -45,7 +45,7 @@ Golden Dataset 是只读冻结输入。`miniqmt-local` 仅串行运行，要求 
 
 `release` 依次运行 Ruff、Ruff format check、Core/Provider mypy、版本一致性、Core Full、Recovery、A-share、MiniQMT Contract 和包构建。
 日常修改运行最窄的正确通道；执行交易/恢复变更时必须运行 Recovery；发布前运行 Release。外部环境不满足时应记录
-“未执行”，不得记为通过。当前人工基线见 `docs/reports/test_suite_performance_baseline.md`。
+“未执行”，不得记为通过。性能数据保留为当前运行产物，不提交历史 PASS/基线报告作为 Authority。
 
 ### 固定测试数据与重生成
 
@@ -84,7 +84,7 @@ Engine Run、SQLite 创建和 Parquet 写入计数。完整 Worker 矩阵使用�
 uv run python scripts/benchmark_test_lanes.py --lanes fast integration recovery core-full `
   --workers 4 6 8 auto --dist load worksteal --repeat 3
 uv run python scripts/compare_test_metrics.py `
-  docs/reports/test_suite_performance_targets.json test-results/metrics/recovery.json --lane recovery
+  <operator-owned-targets.json> test-results/metrics/recovery.json --lane recovery
 ```
 
 性能阈值当前是软警告，不得自动覆盖人工确认的目标文件。PR/Main 的 Static、各测试 lane 和 Build 独立并行，最终由

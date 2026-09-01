@@ -16,7 +16,7 @@ docs/integration_vertical_slice.md
 除了本组件的单元测试外，必须完成：
 
 1. 将新组件接入当前统一 `OnlyIntegrationEnvironment`；
-2. 在 `examples/integration_demo/scenarios/` 中新增或更新对应场景；
+2. 在 `tests/integration_demo/scenarios/` 或 `tests/scenario/` 中新增或更新对应场景；
 3. 在 `tests/integration/` 中新增对应集成测试；
 4. 更新完整 Vertical Slice；
 5. 运行所有历史集成场景；
@@ -42,13 +42,7 @@ Bar → MarketData Pipeline → Snapshot → Cluster → Order → Risk → Exec
 
 如果某个后续能力尚未实现，必须使用明确命名的 Placeholder/Test Adapter，并在报告中说明。
 
-最终必须生成：
-
-```text
-docs/reports/<component>_integration_report.md
-```
-
-报告至少包含：
+测试输出只作为当前执行 evidence，不提交 completion/report 文件。当前任务交付信息至少包含：
 
 ```text
 新组件接入点
@@ -95,4 +89,4 @@ HistoricalDataSource / MarketDataGateway
 024～033 验证装配、正式历史入口、Audit、双 Queue、Registry、Reference Data、Lookahead、Snapshot Quality、顺序和闭环，
 034 验证 Synthetic/Virtual 产品回测，035 验证外部 DataSource/Broker 通过 Entry Point 接入同一纵向链路。
 
-Product MACD 场景使用单 Cluster 文档的 `strategy + factors[]` 配置，经 CLI 等价 Engine 入口与 Factory 运行；Runtime 不识别 MACD。通用结果通过 Cluster extension、Factor result 和 Indicator diagnostics 输出。该场景与完整 Vertical Slice 均执行 100 次确定性重放。
+MACD 验证场景使用 typed Cluster composition 中的 `strategy + factors[]`，经测试边界显式组装 Engine 与 Factory 运行；Runtime 不识别 MACD。通用结果通过 Cluster extension、Factor result 和 Indicator diagnostics 输出。该场景与完整 Vertical Slice 均执行 100 次确定性重放。

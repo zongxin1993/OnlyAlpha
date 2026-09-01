@@ -74,8 +74,8 @@ If the Worker is forcibly killed, its heartbeat stops. After the lease expires, 
 
 - `GET /health/live`: HTTP process liveness only. It remains `LIVE` during a database outage.
 - `GET /health/ready`: API responsibility readiness. PostgreSQL unavailable, incompatible schema, unusable roots, or invalid composition returns HTTP 503 with a stable, secret-free reason.
-- `uv run onlyalpha operations status`: deterministic recent Run diagnosis plus Worker presence.
-- `uv run onlyalpha operations run RUN_ID`: deterministic Run and Attempt history ordered by Attempt number and ID.
+- `OnlyResearchOperationalDiagnosticService` 是 stale worker、Run/Attempt history 和 failure diagnosis 的唯一 application semantics。
+- `scripts/database.py` 在 operator/infrastructure boundary 复用 PostgreSQL snapshot；不存在 root Product/operations CLI。
 
 Diagnosis codes are derived, read-only facts: `HEALTHY`, `QUEUE_AGED`, `NO_READY_WORKER`, `RUNNING_WITHOUT_ACTIVE_ATTEMPT`, `ACTIVE_LEASE_OVERDUE`, and `CANCELLATION_RECOVERY_PENDING`. They never transition a Run. Scheduler expiry, Worker execution/finalization, and the existing cancellation reconciler remain the only recovery paths.
 

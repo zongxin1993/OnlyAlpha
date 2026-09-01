@@ -5,6 +5,7 @@
 - Modules: cli, engine, config, runtime, output, examples, plugins
 - Numbering: 任务建议使用 0019，但 0019 已是 Accepted 决策；本 ADR 使用下一个连续编号并 Supersede 0019 的产品入口/输出部分。
 - Superseded in part by: [ADR 0068](0068-runtime-product-taxonomy-and-trading-semantic-equivalence.md) 仅替代 Runtime product taxonomy；OnlyEngine 产品入口、Cluster config、Runtime planning/grouping、Session、资源与 `user_data` 决策继续有效。
+- Superseded in part by: [ADR 0101](0101-stateful-kernel-and-protocol-boundary.md) 将 `OnlyEngine` 收回 Kernel 内部 composition boundary，并由 versioned Product API 取代 root CLI 与 runtime file admission。本 ADR 中关于 CLI、`add_cluster_from_file()` 和 Engine 作为外部产品入口的决定不再有效；其他内部 composition 决定仍在上层规范下生效。
 
 ## Context
 

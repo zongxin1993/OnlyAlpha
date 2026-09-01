@@ -1,13 +1,7 @@
-# Market Conformance CLI
+# Market Scenario Verification
 
-当前产品入口：
+Market Scenario 是 deterministic test harness，不是 Product CLI 或 Product API。验证通过 `pytest` 的 scenario/conformance lanes
+执行；Parser、Planner、Runner、assertions 和 artifacts 仅证明 Kernel semantics、recovery 与 fail-closed behavior。
 
-```text
-onlyalpha scenario validate FILE [--format json]
-onlyalpha scenario run FILE [--user-data DIR] [--format json]
-onlyalpha market profiles [--format json]
-onlyalpha market profile PROFILE [--version VERSION] [--format json]
-```
-
-Scenario PASSED 返回 0，断言失败返回 1，配置错误返回 2，Runtime 错误返回 3。Conformance list/run 命令将在内建 Pack repository
-完成后开放，避免暴露不可运行入口。
+Scenario DataSource 不注册到默认 Product composition。Scenario runner 在验证边界显式注入 exact deterministic DataSource，避免
+测试能力成为生产 Runtime admission 或第二 Product Authority。

@@ -160,14 +160,14 @@
 - Rule: Runtime 和 Assembly 不得识别 MACD、RSI 等具体指标。
 - Rule: 通用 Indicator 可位于核心库；示例 Factor 与 Strategy 必须位于独立插件包。
 - Rule: MarketData → Indicator → TimeSeries Factor → CrossSection Factor → Strategy → Order 顺序固定。
-- Rule: OnlyEngine 是 OnlyAlpha 唯一产品级运行入口，CLI 只能调用 OnlyEngine 公共接口。
-- Rule: 一个配置文档只能定义一个 OnlyCluster；多 Cluster 通过多个配置文件加载。
-- Rule: Engine.add_cluster 接收强类型 Cluster 配置，文件路径只由 add_cluster_from_file 适配。
+- Rule: Versioned Product API 是唯一外部产品入口；OnlyEngine 只属于内部 composition。
+- Rule: Runtime semantic input 必须是 validated typed specification，不从任意配置文件 admission。
+- Rule: Engine.add_cluster 只接收强类型 Cluster specification，不接受文件路径。
 - Rule: Engine 必须提供事务性动态加载和安全卸载 Cluster 的正式接口；失败必须回滚。
 - Rule: 共享基础设施必须通过 Registry、配置冲突检查和引用计数管理。
 - Rule: 同一资源 ID 对应不同配置必须拒绝，禁止后配置覆盖前配置。
 - Rule: 所有非源码运行产物必须写入 user_data。
-- Rule: Examples 目录只能包含配置文件和说明文档。
+- Rule: 测试配置只位于 tests/fixtures，并明确不是 Product Runtime surface。
 - Rule: 示例 Strategy 和 Factor 必须位于独立插件包。
-- Rule: 产品运行只使用 onlyalpha CLI，不使用示例 Python 脚本。
+- Rule: Human 通过 Web、Agent 通过 Versioned Product API 使用 OnlyAlpha；不存在 Product CLI。
 - Rule: 回测必须通过 Synthetic DataSource、Virtual Broker 和完整 ExecutionProcessor 链。

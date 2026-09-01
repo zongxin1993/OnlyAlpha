@@ -1,4 +1,4 @@
-"""Application lifecycle policy above the sole OnlyEngine product entry."""
+"""Internal application lifecycle policy around an assembled OnlyEngine."""
 
 from __future__ import annotations
 

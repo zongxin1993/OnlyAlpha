@@ -61,8 +61,19 @@ class OnlyMarketScenarioRunner:
         from onlyalpha.domain.identifiers import OnlyEngineId
         from onlyalpha.engine import OnlyEngineConfig
         from onlyalpha.engine.engine import OnlyEngine
+        from onlyalpha.plugin.descriptor import OnlyPluginOrigin, OnlyPluginOriginType
+        from onlyalpha.runtime.defaults import only_default_engine_services
+        from onlyalpha.scenario.data_source import OnlyScenarioDataSourceFactory
 
-        engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId(f"scenario-{scenario.scenario_id}"), output))
+        services = only_default_engine_services()
+        services.assembler.components.data_sources.register(
+            OnlyScenarioDataSourceFactory(),
+            origin=OnlyPluginOrigin(OnlyPluginOriginType.BUILTIN, "onlyalpha-scenario-verification"),
+        )
+        engine = OnlyEngine(
+            OnlyEngineConfig(OnlyEngineId(f"scenario-{scenario.scenario_id}"), output),
+            services=services,
+        )
         engine.add_cluster(scenario.engine_config)
         engine_result = engine.run()
         projections = tuple(engine_result.cluster_results)

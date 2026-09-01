@@ -30,4 +30,5 @@ market:
 数值必须是带引号的 Decimal 字符串。缺失 `market` 或使用已删除的旧 key 会立即拒绝加载。
 
 真实佣金合同在顶层 `authorities.broker_fee_contracts` 定义，Account 只通过 ID/Version 选择。完整严格 Schema 见
-`examples/configs/tushare_daily_backtest.yaml`。窗口外日期、未安装 Pack/Contract、Broker 或 Account scope 不匹配均 Fail Closed。
+对应测试 fixture 位于 `tests/fixtures/runtime/tushare_daily_backtest.yaml`，并明确不是 Product Runtime surface。窗口外日期、未安装
+Pack/Contract、Broker 或 Account scope 不匹配均 Fail Closed。

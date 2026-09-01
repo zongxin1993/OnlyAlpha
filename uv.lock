@@ -11,7 +11,6 @@ resolution-markers = [
 members = [
     "onlyalpha",
     "onlyalpha-api",
-    "onlyalpha-client",
     "onlyalpha-gateway-protocol",
     "onlyalpha-market-binance-spot",
     "onlyalpha-market-binance-usdm",
@@ -910,7 +909,6 @@ dev = [
     { name = "mutmut" },
     { name = "mypy" },
     { name = "onlyalpha-api" },
-    { name = "onlyalpha-client" },
     { name = "onlyalpha-gateway-protocol" },
     { name = "onlyalpha-plugin-factors" },
     { name = "onlyalpha-plugin-indicators" },
@@ -954,7 +952,6 @@ dev = [
     { name = "mutmut", specifier = ">=3.7.0" },
     { name = "mypy", specifier = ">=1.15" },
     { name = "onlyalpha-api", editable = "packages/api/onlyalpha-api" },
-    { name = "onlyalpha-client", editable = "packages/client/onlyalpha-client" },
     { name = "onlyalpha-gateway-protocol", editable = "packages/protocol/onlyalpha-gateway-protocol" },
     { name = "onlyalpha-plugin-factors", editable = "packages/factor/onlyalpha-plugin-factors" },
     { name = "onlyalpha-plugin-indicators", editable = "packages/indicator/onlyalpha-plugin-indicators" },
@@ -1005,25 +1002,6 @@ dev = [
     { name = "httpx2", specifier = ">=2,<3" },
     { name = "pytest", specifier = ">=9.0.3" },
 ]
-
-[[package]]
-name = "onlyalpha-client"
-version = "0.9.8"
-source = { editable = "packages/client/onlyalpha-client" }
-dependencies = [
-    { name = "httpx" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "httpx", specifier = ">=0.28,<1" }]
-
-[package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=9.0.3" }]
 
 [[package]]
 name = "onlyalpha-gateway-protocol"

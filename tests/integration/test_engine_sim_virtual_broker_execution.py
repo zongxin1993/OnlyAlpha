@@ -95,7 +95,7 @@ class _FakeLiveXtData:
 
 
 def _config(tmp_path: Path, *, checkpoint: bool = False) -> OnlyClusterRunConfig:
-    baseline = OnlyClusterRunConfig.load("examples/configs/miniqmt_sim_acceptance.yaml")
+    baseline = OnlyClusterRunConfig.load("tests/fixtures/runtime/miniqmt_sim_acceptance.yaml")
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["runtime"]["extensions"]["streaming"]["bootstrap_bars"] = 10
     payload["runtime"]["persistence"] = {

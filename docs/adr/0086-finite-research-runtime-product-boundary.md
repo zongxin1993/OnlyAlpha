@@ -1,5 +1,8 @@
 # ADR 0086: Finite Research Runtime Product Boundary
 
+Superseded in part by: [ADR 0101](0101-stateful-kernel-and-protocol-boundary.md) moves `OnlyEngine` behind the versioned Product API. The finite
+Research Runtime and internal Engine composition decisions below remain effective.
+
 ## Context
 
 P7.0–P7.10 established immutable Dataset, Calculation, Statistics, Research Result and Artifact authorities, while Engine/Factory/Session contracts

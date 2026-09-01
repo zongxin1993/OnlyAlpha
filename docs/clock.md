@@ -69,7 +69,7 @@ Research Job / Plan 定义，可以复用纯时间原语，但不得为满足 Tr
 ## 9. 测试、Demo 与限制
 
 `tests/clock` 覆盖转换、UTC、纳秒、Virtual/Backtest 推进、同 deadline 顺序、100 次重放、周期 Timer、
-取消、callback 重入/失败、Live 触发/线程/关闭和 AST 禁止访问。Demo 位于 `examples/clock_demo`。
+取消、callback 重入/失败、Live 触发/线程/关闭和 AST 禁止访问均由对应 tests 覆盖。
 
 已知限制：Virtual/Backtest 单线程；callback 不可随快照恢复；未公开 FIXED_DELAY 注册 API；Live callback
 在 scheduler thread 串行执行，长 callback 会延迟后续 Timer；惰性删除项在 pop 时清理，尚无主动 heap

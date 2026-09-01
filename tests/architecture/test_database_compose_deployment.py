@@ -87,9 +87,6 @@ def test_compose_templates_keep_production_secrets_out_and_acceptance_is_canonic
     production = (DEPLOY / ".env.production.example").read_text(encoding="utf-8")
     test = (DEPLOY / ".env.test.example").read_text(encoding="utf-8")
     runner = (DEPLOY / "run-acceptance.sh").read_text(encoding="utf-8")
-    prompt = (
-        ROOT / "prompts/OnlyAlpha_P9.3_Final_Durable_Market_Data_Real_Database_Closure_Codex_Prompt.md"
-    ).read_text(encoding="utf-8")
     assert "change-me" in production
     assert "onlyalpha_test" not in production
     assert "ONLYALPHA_TEST_POSTGRES_DSN=" not in test
@@ -102,8 +99,6 @@ def test_compose_templates_keep_production_secrets_out_and_acceptance_is_canonic
     assert "scripts/test_suite.py research-postgres" in container_runner
     assert "scripts/test_suite.py market-data-clickhouse" in container_runner
     assert "scripts/test_suite.py p9-3-real-database" in container_runner
-    assert "Real Unraid PostgreSQL" not in prompt
-    assert "Standard Docker Compose PostgreSQL 18.6 acceptance PASS" in prompt
 
 
 def test_ci_reuses_the_canonical_clickhouse_storage_policy() -> None:

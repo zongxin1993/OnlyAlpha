@@ -105,7 +105,7 @@ Risk 使用账户 Position View 与 Cluster Allocation View，卖出量必须同
 Restriction/Broker/Difference/Reconciliation/Unallocated 均以 Decimal 字符串、强 ID、Enum、UTC 纳秒和 version 无损
 序列化。
 
-`examples/position_demo` 展示账户合并仓位、多 Cluster 独立成本、T+1、Reservation、Broker conflict、Unallocated 和
+对应 tests 覆盖账户合并仓位、多 Cluster 独立成本、T+1、Reservation、Broker conflict、Unallocated 和
 确定性重放。
 
 ## 10. 已知限制

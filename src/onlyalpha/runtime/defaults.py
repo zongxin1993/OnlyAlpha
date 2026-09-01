@@ -30,7 +30,6 @@ from onlyalpha.runtime.persistence.factory import (
 from onlyalpha.runtime.research.factory import OnlyResearchRuntimeFactory
 from onlyalpha.runtime.sim.factory import OnlySimRuntimeFactory
 from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_primitives
-from onlyalpha.scenario.data_source import OnlyScenarioDataSourceFactory
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +46,6 @@ def only_default_engine_services(
     data_sources = OnlyDataSourceFactoryRegistry()
     builtin = OnlyPluginOrigin(OnlyPluginOriginType.BUILTIN, "onlyalpha")
     data_sources.register(OnlySyntheticDataSourceFactory(), origin=builtin)
-    data_sources.register(OnlyScenarioDataSourceFactory(), origin=builtin)
     brokers = OnlyBrokerFactoryRegistry()
     broker_contracts = OnlyBrokerFeeContractRegistry()
     market_products = OnlyMarketProductFactoryRegistry()

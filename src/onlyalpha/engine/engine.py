@@ -1,4 +1,4 @@
-"""Product-level Cluster, Runtime session, and infrastructure coordinator."""
+"""Kernel-internal Cluster, Runtime session, and infrastructure coordinator."""
 
 from __future__ import annotations
 
@@ -61,7 +61,7 @@ from onlyalpha.storage.base import OnlyStorage
 
 
 class OnlyEngine:
-    """Sole product owner of Cluster, Runtime, and infrastructure lifecycle."""
+    """Own internal Cluster, Runtime, and infrastructure composition lifecycle."""
 
     def __init__(
         self,
@@ -112,9 +112,6 @@ class OnlyEngine:
     @property
     def infrastructure_registry(self) -> OnlyInfrastructureRegistry:
         return self._infrastructure
-
-    def add_cluster_from_file(self, path: str | Path) -> OnlyClusterHandle:
-        return self.add_cluster(OnlyClusterRunConfig.load(path))
 
     def add_cluster(self, config: OnlyClusterRunConfig) -> OnlyClusterHandle:
         if self.state is OnlyEngineState.RUNNING:

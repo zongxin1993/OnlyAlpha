@@ -28,7 +28,6 @@ from onlyalpha.application.product_command_receipt import (
     OnlyProductCommandReceipt,
 )
 from onlyalpha.canonical import only_canonical_json
-from onlyalpha.cli import main as onlyalpha_main
 from onlyalpha.kernel import (
     OnlyAlphaKernelHost,
     OnlyKernelAuthorityAlreadyHeld,
@@ -392,30 +391,6 @@ def test_operational_snapshot_uses_one_read_only_repeatable_read_mvcc_observatio
     second = operations.load_operational_snapshot(run_id=queued.run_id, limit=1)
     assert second.runs[0].run.state is OnlyResearchRunState.RUNNING
     assert second.runs[0].attempts == (claim.attempt,)
-
-
-def test_operator_cli_reads_deterministic_run_attempt_audit_without_secret(
-    postgres_dsn: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    run_store = OnlyPostgresResearchRunStore(postgres_dsn)
-    queued = run_store.create_queued(_queued("00000000-0000-4000-8000-000000000097"))
-    execution = OnlyPostgresResearchExecutionStore(postgres_dsn)
-    claim = execution.claim_next(
-        worker_instance_id=OnlyResearchWorkerInstanceId("00000000-0000-4000-8002-000000000097"),
-        attempt_id=OnlyResearchRunAttemptId("00000000-0000-4000-8001-000000000097"),
-        lease_duration=timedelta(minutes=2),
-        max_attempts=3,
-        run_started_at=NOW + timedelta(seconds=1),
-    )
-    assert claim is not None
-    monkeypatch.setenv("ONLYALPHA_POSTGRES_DSN", postgres_dsn)
-    assert onlyalpha_main(["operations", "run", queued.run_id.value]) == 0
-    rendered = capsys.readouterr().out
-    payload = json.loads(rendered)
-    assert payload["runs"][0]["run_id"] == queued.run_id.value
-    assert payload["runs"][0]["attempts"][0]["attempt_number"] == 1
-    assert "postgresql://" not in rendered and "onlyalpha_test" not in rendered
 
 
 def test_fresh_plan_migrate_noop_and_startup_compatibility_are_exact(postgres_dsn: str) -> None:

@@ -56,7 +56,7 @@ Artifact 先写 staging、读回验证，再发布 Manifest；失败不留下宣
 
 ## Reports and CLI
 
-本节描述内部 Engine composition 的结果投影。P9.K.8 已删除 legacy `onlyalpha run` Product CLI；内部测试、scenario 与明确 internal
+本节描述内部 Engine composition 的结果投影。root Product CLI 不存在；内部测试、scenario 与明确 internal
 tooling 仍可消费同一 Result/Report authority，但不得作为外部 Product Control Plane。
 `report.md` 包含 Run、Data、Strategy、Order、Execution、Trade、Performance、Final Account/Positions、Diagnostics、Artifacts 与 Fingerprints。
 

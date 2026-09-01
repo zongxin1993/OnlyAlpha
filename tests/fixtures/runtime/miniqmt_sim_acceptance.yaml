@@ -1,3 +1,4 @@
+# TEST FIXTURE — not a Product Runtime configuration surface.
 schema_version: "1.0"
 
 market:
@@ -102,7 +103,6 @@ brokers:
         type: NONE
 
 strategy:
-  # Replace with the fingerprint returned by Freeze; it must exist in the configured Strategy Store.
   fingerprint: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
 output:

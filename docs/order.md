@@ -100,7 +100,7 @@ Decimal 与 Unix 纳秒无损往返。
 
 ## 8. Demo 与已知限制
 
-`examples/order_demo` 覆盖创建提交、显式 Accepted/部分成交、撤单、重复成交、乱序和 Context Scope。
+对应 tests 覆盖创建提交、显式 Accepted/部分成交、撤单、重复成交、乱序和 Context Scope。
 当前已有 Pre-Trade Risk Pipeline、Risk Reservation、Position/Allocation、Account 与持久化 ExecutionProcessor；受支持
 的 Generic T0 Cash BUY OPEN 和 multi-fill Long CLOSE 使用 durable commit、ordered Projection 与 Recovery。SIM 已完成
 realtime Virtual Broker、gap/reconnect、checkpoint/restart 的 Gateway/Trading Kernel 装配；Real Broker、Short/Hedging 与

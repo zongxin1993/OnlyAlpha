@@ -11,7 +11,7 @@ from onlyalpha.runtime.environment import OnlyRuntimeEnvironmentBuilder
 from onlyalpha.runtime.planning import OnlyRuntimePlanner
 from tests.runtime_support.market_product import _NoResources
 
-CONFIG = "examples/configs/tushare_daily_backtest.yaml"
+CONFIG = "tests/fixtures/runtime/tushare_daily_backtest.yaml"
 
 
 def _payload() -> dict[str, object]:

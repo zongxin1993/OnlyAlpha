@@ -116,7 +116,7 @@ streaming Gateway 装配；future Live 必须保持该受限 Context，不得把
 
 ## 10. Demo 与限制
 
-`examples/runtime_context_demo` 包含基础闭环、多 Cluster、Runtime 隔离和 Cluster 失败四个 Demo。
+对应 tests 覆盖基础闭环、多 Cluster、Runtime 隔离和 Cluster 失败。
 该专项 Demo 聚焦受限 `ctx.orders` 和 Runtime 私有 OrderManager；完整集成环境已包含风控、虚拟撮合和账户，仍不包含
 真实 Gateway、Storage、多线程 Runtime 或 Runtime 重启。旧四参数 Backtest Runtime 构造器仅为骨架兼容；新代码应使用
 `OnlyRuntimeConfig + OnlyTradingCalendar + initial_time`。

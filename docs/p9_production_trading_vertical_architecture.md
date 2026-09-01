@@ -1,10 +1,8 @@
 # P9 — Production Trading Vertical & Real Market Integration
 
-> Status: **FROZEN DESIGN / IMPLEMENTATION GUIDELINE**
->
 > This document is the normative P9 design contract. P9 implementation work MUST conform to this document unless a later accepted ADR or an explicit update to this document changes the contract.
 >
-> P8 is already `DONE / CERTIFIED`. P9 starts from the current repository truth after P8 certification and turns the existing Research, Backtest, SIM, market-product, DataSource, Broker, persistence and recovery foundations into the first complete production trading vertical.
+> Current implementation truth belongs to source, tests and executable behavior. This document defines the long-term production vertical and does not record milestone completion.
 
 ---
 
@@ -2292,23 +2290,23 @@ sleep-based crash correctness test
 ## 11.11 P9.7 tasks
 
 ```text
-P9.7.0 Certification Contract & Invariants
-P9.7.1 Spot Full-Vertical Certification
-P9.7.2 USD-M Full-Vertical Certification
-P9.7.3 Market Data Fault Certification
-P9.7.4 Broker Fault & Reconciliation Certification
-P9.7.5 Deterministic Crash-Boundary Certification
-P9.7.6 Storage / WAL / Revision Recovery Certification
+P9.7.0 Conformance Contract & Invariants
+P9.7.1 Spot Full-Vertical Conformance
+P9.7.2 USD-M Full-Vertical Conformance
+P9.7.3 Market Data Fault Evidence
+P9.7.4 Broker Fault & Reconciliation Evidence
+P9.7.5 Deterministic Crash-Boundary Evidence
+P9.7.6 Storage / WAL / Revision Recovery Evidence
 P9.7.7 Architecture & Authority Audit
 P9.7.8 Manual Soak Test Suite
-P9.7.9 Final Immutable Certification Bundle
+P9.7.9 Composed Phase Gate
 ```
 
-## 11.12 P9 final DONE / CERTIFIED definition
+## 11.12 Production vertical acceptance properties
 
-P9 may be declared `DONE / CERTIFIED` only when an exact final SHA receives an immutable certification bundle with verdict `ACCEPTED` proving:
+The production vertical must eventually prove through the applicable Phase Gate and current repository behavior:
 
-> OnlyAlpha has a production-grade Binance Spot + USD-M Futures Research → Strategy Revision → Backtest → SIM → LIVE Testnet vertical, a provider-neutral Market Data Platform, real Broker integration, deterministic reconciliation/recovery, human Promotion, and fail-closed LIVE safety. Mainnet remains an explicit human-approved deployment phase and is not automatically authorized by Testnet certification.
+> OnlyAlpha has a production-grade Binance Spot + USD-M Futures Research → Strategy Revision → Backtest → SIM → LIVE Testnet vertical, a provider-neutral Market Data Platform, real Broker integration, deterministic reconciliation/recovery, human Promotion, and fail-closed LIVE safety. Mainnet remains an explicit human-approved deployment phase and is not automatically authorized by Testnet evidence.
 
 ---
 

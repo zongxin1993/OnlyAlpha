@@ -29,7 +29,7 @@ def test_repository_authority_contract_is_valid_and_finite() -> None:
     assert contract.version == 1
     assert tuple(contract.facts) == tuple(f"F{number:02d}" for number in range(1, 14))
     assert tuple(contract.capabilities) == tuple(f"C{number:02d}" for number in range(1, 20))
-    assert len(contract.actors) == 20
+    assert len(contract.actors) == 19
     assert contract.reserved_future_capabilities == set()
 
 
@@ -121,10 +121,10 @@ def test_unknown_and_ambiguous_actor_classification_fail_closed() -> None:
     document = _document()
     paths = document["actor_paths"]
     assert isinstance(paths, list)
-    paths.append({"pattern": "src/onlyalpha/cli.py", "actor": "A01"})
+    paths.append({"pattern": "src/onlyalpha/kernel/*.py", "actor": "A01"})
     ambiguous = authority_contract_from_document(document)
     with pytest.raises(AuthorityContractError, match="matches 2"):
-        ambiguous.classify_path("src/onlyalpha/cli.py")
+        ambiguous.classify_path("src/onlyalpha/kernel/host.py")
 
 
 def test_fact_authority_mutation_capability_is_unique() -> None:

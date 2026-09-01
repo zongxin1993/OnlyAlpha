@@ -35,10 +35,10 @@ def _engine(tmp_path: Path) -> OnlyEngine:
 
 def test_add_duplicate_and_remove_cluster(tmp_path: Path) -> None:
     engine = _engine(tmp_path)
-    handle = engine.add_cluster_from_file(CONFIG)
+    handle = engine.add_cluster(OnlyClusterRunConfig.load(CONFIG))
     assert str(handle.cluster_id) == "macd-demo"
     with pytest.raises(OnlyDuplicateIdError):
-        engine.add_cluster_from_file(CONFIG)
+        engine.add_cluster(OnlyClusterRunConfig.load(CONFIG))
     removed = engine.remove_cluster(handle.cluster_id, policy=OnlyClusterRemovalPolicy.STOP_ONLY)
     assert removed.success
     assert not engine.snapshot().clusters
@@ -46,8 +46,8 @@ def test_add_duplicate_and_remove_cluster(tmp_path: Path) -> None:
 
 def test_shared_resources_are_reference_counted(tmp_path: Path) -> None:
     engine = _engine(tmp_path)
-    first = engine.add_cluster_from_file(CONFIG)
-    second = engine.add_cluster_from_file(FAST_CONFIG)
+    first = engine.add_cluster(OnlyClusterRunConfig.load(CONFIG))
+    second = engine.add_cluster(OnlyClusterRunConfig.load(FAST_CONFIG))
     counts = dict(engine.snapshot().resource_reference_counts)
     assert counts["broker:virtual-main"] == 2
     first_result = engine.remove_cluster(first.cluster_id, policy=OnlyClusterRemovalPolicy.STOP_ONLY)
@@ -58,7 +58,7 @@ def test_shared_resources_are_reference_counted(tmp_path: Path) -> None:
 
 def test_resource_configuration_conflict_rolls_back(tmp_path: Path) -> None:
     engine = _engine(tmp_path)
-    engine.add_cluster_from_file(CONFIG)
+    engine.add_cluster(OnlyClusterRunConfig.load(CONFIG))
     baseline = OnlyClusterRunConfig.load(FAST_CONFIG)
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["brokers"][0]["extensions"]["slippage"] = {
@@ -82,7 +82,7 @@ def test_same_account_with_different_broker_contract_fails_globally(tmp_path: Pa
     )
     services.assembler.components.broker_fee_contracts.register(alternate)
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("account-contract-conflict"), tmp_path), services=services)
-    engine.add_cluster_from_file(CONFIG)
+    engine.add_cluster(OnlyClusterRunConfig.load(CONFIG))
     second = OnlyClusterRunConfig.load(FAST_CONFIG)
     second = replace(
         second,
@@ -114,7 +114,7 @@ def test_same_account_with_different_reconciliation_policy_fails_globally(tmp_pa
     )
     services.assembler.components.fee_reconciliation_policies.register(policy)
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("account-policy-conflict"), tmp_path), services=services)
-    engine.add_cluster_from_file(CONFIG)
+    engine.add_cluster(OnlyClusterRunConfig.load(CONFIG))
     second = replace(
         second,
         accounts=(
@@ -191,10 +191,10 @@ def test_failed_composition_leaves_no_contract_authority_residue(tmp_path: Path)
 
 def test_running_backtest_dynamic_add_is_structured_error(tmp_path: Path) -> None:
     engine = _engine(tmp_path)
-    engine.add_cluster_from_file(CONFIG)
+    engine.add_cluster(OnlyClusterRunConfig.load(CONFIG))
     engine.state = engine.state.RUNNING
     with pytest.raises(OnlyClusterLoadError, match="DYNAMIC_CLUSTER_LOAD_NOT_SUPPORTED") as captured:
-        engine.add_cluster_from_file(FAST_CONFIG)
+        engine.add_cluster(OnlyClusterRunConfig.load(FAST_CONFIG))
     assert captured.value.code == "DYNAMIC_CLUSTER_LOAD_NOT_SUPPORTED_IN_CURRENT_RUNTIME_PHASE"
 
 

@@ -34,7 +34,6 @@ dev = [
     "onlyalpha-plugin-factors",
     "onlyalpha-plugin-targets",
     "onlyalpha-api",
-    "onlyalpha-client",
     "onlyalpha-gateway-protocol",
     "grpcio-tools==1.73.1",
     "types-grpcio==1.0.0.20250703",
@@ -48,7 +47,6 @@ dev = [
 ]
 
 [project.scripts]
-onlyalpha = "onlyalpha.cli:main"
 onlyalpha-research-worker = "onlyalpha.research.worker_main:main"
 
 [tool.uv.workspace]
@@ -65,7 +63,6 @@ members = [
     "packages/factor/onlyalpha-plugin-factors",
     "packages/target/onlyalpha-plugin-targets",
     "packages/api/onlyalpha-api",
-    "packages/client/onlyalpha-client",
     "packages/protocol/onlyalpha-gateway-protocol",
 ]
 
@@ -101,7 +98,6 @@ files = [
     "packages/factor/onlyalpha-plugin-factors/src/onlyalpha_plugin_factors",
     "packages/target/onlyalpha-plugin-targets/src/onlyalpha_plugin_targets",
     "packages/api/onlyalpha-api/src/onlyalpha_api",
-    "packages/client/onlyalpha-client/src/onlyalpha_client",
     "packages/protocol/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol",
     "packages/market/onlyalpha-market-binance-spot/src/onlyalpha_market_binance_spot",
     "packages/market/onlyalpha-market-binance-usdm/src/onlyalpha_market_binance_usdm",
@@ -118,7 +114,6 @@ onlyalpha-plugin-indicators = { workspace = true }
 onlyalpha-plugin-factors = { workspace = true }
 onlyalpha-plugin-targets = { workspace = true }
 onlyalpha-api = { workspace = true }
-onlyalpha-client = { workspace = true }
 onlyalpha-gateway-protocol = { workspace = true }
 onlyalpha-market-binance-spot = { workspace = true }
 onlyalpha-market-binance-usdm = { workspace = true }
@@ -139,7 +134,6 @@ testpaths = [
     "packages/factor/onlyalpha-plugin-factors/tests",
     "packages/target/onlyalpha-plugin-targets/tests",
     "packages/api/onlyalpha-api/tests",
-    "packages/client/onlyalpha-client/tests",
     "packages/protocol/onlyalpha-gateway-protocol/tests",
 ]
 markers = [

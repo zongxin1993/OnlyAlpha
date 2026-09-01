@@ -78,10 +78,7 @@ def test_test_gateway_is_fixture_infrastructure_not_product_authority() -> None:
 
 @pytest.mark.architecture
 def test_product_api_and_external_client_do_not_bypass_kernel_to_gateway_rpc() -> None:
-    roots = (
-        ROOT / "packages/api/onlyalpha-api/src",
-        ROOT / "packages/client/onlyalpha-client/src",
-    )
+    roots = (ROOT / "packages/api/onlyalpha-api/src",)
     forbidden = ("grpc", "onlyalpha_gateway_protocol")
     assert {
         str(path.relative_to(ROOT))

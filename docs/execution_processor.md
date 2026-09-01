@@ -105,7 +105,7 @@ Position、Allocation、Ledger、Account、Risk Snapshot Bundle。内存 Audit S
 processing/audit/reconciliation ID 按 Runtime sequence 生成。目标 Backtest、Sim 与 Live 共用相同 API；Virtual Broker 只产生
 标准 Broker Update。SIM 已通过 Virtual Broker、Broker Inbound Queue 与共享 Processor 进入该完整链。
 
-专项 Demo 位于 `examples/execution_processor_demo/`；统一 23 场景位于 `examples/integration_demo/`。
+专项行为与集成场景位于对应 `tests/execution/`、`tests/integration/` 和 Scenario fixtures。
 
 ## 11. 已知限制
 

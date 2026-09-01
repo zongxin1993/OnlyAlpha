@@ -6,7 +6,6 @@ import ast
 import importlib
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
 
 import pytest
@@ -24,7 +23,6 @@ pytestmark = pytest.mark.architecture
 
 ROOT = Path(__file__).parents[2]
 API_SOURCE = ROOT / "packages/api/onlyalpha-api/src/onlyalpha_api"
-CLIENT_SOURCE = ROOT / "packages/client/onlyalpha-client/src/onlyalpha_client"
 WEB_SOURCE = ROOT / "apps/onlyalpha-web/src"
 
 
@@ -124,47 +122,13 @@ def test_root_and_broad_aggregators_expose_zero_mutation_constructors() -> None:
         assert all(not hasattr(module, name) for name in forbidden), module_name
 
 
-def test_root_cli_has_only_explicit_operator_and_scenario_families() -> None:
-    source = (ROOT / "src/onlyalpha/cli.py").read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    command_names = {
-        node.args[0].value
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "add_parser"
-        and node.args
-        and isinstance(node.args[0], ast.Constant)
-        and isinstance(node.args[0].value, str)
-    }
-    assert command_names == {"operations", "run", "scenario", "status", "validate"}
-    assert 'subparsers.add_parser("run")' not in source
-    assert 'subparsers.add_parser("snapshot")' not in source
-    assert "OnlyEngine" not in source
-    assert "OnlyEngineApplicationRunner" not in source
-    assert "onlyalpha.engine" not in _imports(ROOT / "src/onlyalpha/cli.py")
+def test_root_product_cli_is_absent() -> None:
+    assert not (ROOT / "src/onlyalpha/cli.py").exists()
+    assert not any(path == "pyproject.toml" and name == "onlyalpha" for path, name, _ in _console_entry_points())
 
 
-def test_official_product_client_and_web_have_no_core_or_local_fallback_capability() -> None:
-    forbidden_imports = (
-        "onlyalpha",
-        "onlyalpha_api",
-        "onlyalpha_gateway_protocol",
-    )
-    forbidden_fallback_tokens = (
-        "OnlyEngine",
-        "OnlyRuntime",
-        "run_local",
-        "local_fallback",
-        "only_default_engine_services",
-    )
-    for path in CLIENT_SOURCE.rglob("*.py"):
-        assert not any(
-            name == prefix or name.startswith(f"{prefix}.") for name in _imports(path) for prefix in forbidden_imports
-        ), path
-        if "generated" not in path.parts:
-            source = path.read_text(encoding="utf-8")
-            assert not any(token in source for token in forbidden_fallback_tokens), path
+def test_web_has_no_core_or_local_fallback_capability() -> None:
+    assert not (ROOT / "packages/client/onlyalpha-client").exists()
     for path in WEB_SOURCE.rglob("*"):
         if path.suffix in {".ts", ".tsx"}:
             source = path.read_text(encoding="utf-8")
@@ -218,19 +182,13 @@ def test_product_space_has_zero_direct_engine_or_runtime_constructor_owner() -> 
         classification in {"ALLOWED INTERNAL", "OPERATOR / INFRASTRUCTURE", "TEST TOOLING"}
         for classification in EXPECTED_DIRECT_CONSTRUCTION_CLASSIFICATION.values()
     )
-    forbidden_roots = ("apps/", "packages/client/", "examples/product/")
+    forbidden_roots = ("apps/", "packages/client/", "examples/")
     assert not any(path.startswith(forbidden_roots) or path == "src/onlyalpha/cli.py" for path, _ in sites)
 
 
-def test_k0_and_k6_migration_debt_is_zero_and_all_external_surfaces_are_classified() -> None:
+def test_k0_migration_debt_is_zero() -> None:
     k0 = load_authority_contract(ROOT / "docs/architecture/p9_k0_authority_contract.toml")
     assert k0.legacy_debts == {}
-    k6 = tomllib.loads((ROOT / "docs/architecture/p9_k6_external_client_contract.toml").read_text(encoding="utf-8"))
-    surfaces = k6["external_surfaces"]
-    commands = k6["cli_commands"]
-    assert not any(item["classification"] == "LEGACY_K8_TARGET" for item in (*surfaces, *commands))
-    assert not any(item["k8_debt"] for item in (*surfaces, *commands))
-    assert all(item["classification"] not in {"UNKNOWN", "UNCLASSIFIED"} for item in (*surfaces, *commands))
 
 
 def test_standalone_artifact_compatibility_product_surface_is_absent() -> None:

@@ -1,15 +1,16 @@
-# OnlyAlpha Current Architecture
+# OnlyAlpha Architecture
 
-本文档描述当前系统如何组织，并标明当前实现与已接受目标架构之间的差距。历史阶段、PR 编号和完成记录由 `docs/adr/`、`docs/reports/` 与 Git history 保存，不在此维护。
+本文档描述长期结构、依赖方向与 Authority 边界。当前实现事实必须由源码、测试和可执行行为判断；历史工程过程由 Git history
+保存，不在架构文档维护进度或验收状态。
 
 Runtime 产品分类与迁移方向由 [ADR 0068](adr/0068-runtime-product-taxonomy-and-trading-semantic-equivalence.md) 决定；多市场
 拓扑与异构生命周期由 [ADR 0080](adr/0080-multi-market-platform-and-heterogeneous-runtime-lifecycle.md) 决定；目标 Live
 导入、人工操作和清仓控制由 [ADR 0081](adr/0081-live-genesis-manual-workload-and-liquidation-control.md) 决定。任何“目标”
-描述都不是实现完成声明；当前能力必须由可执行源码、正式测试和产品认证证明。
+描述都不是实现完成声明。
 
 ## 1. Architecture Principles
 
-OnlyAlpha 当前采用 Monorepo + 模块化单体 Core + 插件化 DataSource/Broker + 配置驱动 Engine/Runtime 组合。
+OnlyAlpha 采用 Monorepo + 模块化单体 Core + 插件化 DataSource/Broker + typed Engine/Runtime composition。
 
 核心不变量：
 
@@ -60,11 +61,14 @@ OnlyEngine
     └── Manual Workload E
 ```
 
-`OnlyEngine` 是唯一产品级入口。当前调用链为：
+`OnlyEngine` 是 Kernel 内部 execution composition owner，不是外部产品入口。产品调用链为：
 
 ```text
-CLI / Application
-→ OnlyEngine
+Web / Agent
+→ Versioned Product API
+→ Product Command / Query
+→ Application admission / Worker
+→ OnlyEngine (internal)
 → Trading Runtime Planner / Research Workload Plan
 → OnlyEngineRunAssembler
 → Runtime Factory
@@ -72,7 +76,7 @@ CLI / Application
 → Trading Cluster or Research Job/Sweep
 ```
 
-Engine 当前负责 Cluster Definition、配置/扩展验证、Runtime environment grouping、Runtime/Cluster Session、共享资源引用、装配、生命周期、Result/Artifact 聚合、`user_data` 布局和失败清理。Engine 不拥有 Order、Position、Account 或其他交易经济状态。
+Engine 负责 Cluster Definition、typed specification/extension validation、Runtime environment grouping、Runtime/Cluster Session、共享资源引用、装配、生命周期、Result/Artifact 聚合、`user_data` 布局和失败清理。Engine 不拥有 Order、Position、Account 或其他交易经济状态。
 
 当前 `OnlyEngine.run()` 只接受有限 `BACKTEST`。Streaming 路径使用 `initialize/start/wait/stop/close`。有限 Research 通过
 `add_research_workload()` 注册，并由 `initialize/start/run_runtime/stop/close` 驱动；它使用 Research Job/Sweep Plan，不创建
@@ -93,41 +97,9 @@ start/stop/failure 不能成为另一个 Runtime 的 lifecycle command。Web/App
 | Sim | Realtime | Event-driven | Live Clock | Virtual Broker | Streaming |
 | Live | Realtime | Event-driven | Live Clock | Real Broker | Streaming |
 
-当前源码状态：
-
-| Runtime | Current implementation status | Target treatment |
-|---|---|---|
-| `BACKTEST` | 已实现，是当前主要产品 Runtime | 保留并继续使用完整 Trading Kernel |
-| `LIVE` | Factory 注册但返回 unsupported | 后续实现目标 Live Runtime |
-| `RESEARCH` | finite Factory、programmatic workload 与 Engine product path 已实现 | 保持无 Trading authority 的 batch lifecycle |
-| `SIM` | realtime Virtual Broker、gap/reconnect、durable checkpoint 与 new-process restart 已实现 | 保持 shared Trading Kernel 与 recovery contract |
-
-历史 `PAPER/SHADOW` active package、Factory、配置与 public export 已删除，没有 alias 或 wrapper。
-
-P6.2 已建立 SIM operational composition contract：SIM 使用 `LIVE_CLOCK`、streaming lifecycle、显式
-`SIMULATED` execution capability、恰好一个同时支持 historical/live bars 的 DataSource、恰好一个声明
-`simulated_execution` 与最小订单/query 能力的 Broker，并拒绝有限 start/end range、checkpoint 与 Real Broker。
-Runtime environment identity 保留 `SIM` product identity，因此不会与 BACKTEST grouping/fingerprint 混同。
-
-P6.3 在该合同上增加 `OnlySimRuntime -> OnlyStreamingRuntime -> OnlyTradingRuntimeFacade -> OnlyTradingKernel` 的
-可执行组合。Factory 通过正式 SPI 创建 DataSource/Broker，通过显式 `OnlyDeterministicBrokerDriver` 推进 Virtual Broker，
-并为 SIM 创建独立 MarketData/Broker Inbound Queue 与 Runtime Persistence。标准 causal path 是 Bar N 的 Strategy intent
-在 dispatch 后得到 Accepted 且不在同一 Bar 成交；Bar N+1 先运行 Broker matching，再运行 Strategy，Trade 经
-Execution Processor、Durable Transaction 与 Ordered Projection 更新共享交易 authority。Runtime stop 不取消 Accepted
-order，也不创造 terminal/trade fact。
-
-当前 SIM 已完成 realtime normal path 与 P6.4 same-process continuity recovery。Unexpected gap 在 MarketData Pipeline 前
-fail closed；Streaming Runtime 独占 `DEGRADED/RECOVERING/CATCH_UP/LIVE` transition、Recovery Plan 与 confirmed frontier，
-Historical DataSource 只提供事实，Worker 仍是唯一语义 consumer。Recovered fact 进入同一 Processor/Pipeline/Broker hooks，
-既有订单可推进但新 Strategy submit 被抑制；reconnect 只恢复 transport，必须经 historical repair、buffered catch-up 与 LIVE
-proof 才恢复交易权限。P6.5 已闭合 Streaming checkpoint/new-process restart；长期生产运行仍未闭环，Runtime Persistence
-的 Durable Transaction 也不等于 Streaming Checkpoint。
-
-Streaming phase 的唯一 mutable owner 是 `OnlyStreamingPhaseController`，其单调 revision 也是异步验证的正式同步点。
-`OnlyStreamingRecoveryDiagnostics` 只是从 Phase Controller、Recovery Plan、Semantic Lane、Worker/Driver、Continuity 与 Inbound
-Queue 组合出的 immutable projection；diagnostic stage 只说明 recovery 停在 history loading、replay、suffix reconciliation 或
-continuity verification 的哪一步，禁止反向驱动控制流。Recovery timeout 是按配置派生的 stuck-operation watchdog，不进入
-continuity correctness。具体决定见 [ADR 0077](adr/0077-streaming-recovery-verification-and-diagnostics.md)。
+`PAPER/SHADOW` 不是正式 Runtime vocabulary，不得作为 alias 或 wrapper 返回。Streaming phase 由唯一 controller 拥有；diagnostic
+projection 不得反向驱动控制流，Recovery timeout 只作为 stuck-operation watchdog。具体决定见
+[ADR 0077](adr/0077-streaming-recovery-verification-and-diagnostics.md)。
 
 ## 4. Research Runtime
 
@@ -289,7 +261,7 @@ Application/API 经 Engine 进入同一 Market Rule、Risk、Reservation、Order
 
 ## 7. Runtime Environment Composition
 
-当前组合链：
+Kernel 内部组合链：
 
 ```text
 OnlyClusterRunConfig
@@ -557,28 +529,26 @@ Virtual Broker、Tushare 和 MiniQMT 位于各自 distribution。插件必须提
 正式外部 Product 使用入口为：
 
 ```text
-Web / Python / Agent / Automation / Notebook / Product CLI
-→ canonical OpenAPI-derived client
+Human → Web
+Agent / Automation → canonical versioned Product API
 → HTTPS / JSON
 → onlyalpha-api
 → Product Command / Query
 → Stateful Kernel / Application authority
 ```
 
-Python 的唯一正式 Product client package 是 `onlyalpha-client`。它不依赖 `onlyalpha` Core，transport projection 只由
-`contracts/research-api/v2/openapi.json` 经 `scripts/openapi_clients.py` 确定性生成；client facade 只拥有 URL、HTTP、header、timeout、
-transport/protocol error normalization，不拥有 Research admission、command identity、lifecycle 或 retry authority。Mutation 不隐式 retry。
+仓内不提供 Python Product SDK 或 Product CLI。Machine consumers 直接遵循 canonical OpenAPI contract；transport implementation
+不得拥有 Research admission、command identity、lifecycle 或 retry authority，也不得在 HTTP failure 后 fallback 到 local Engine。
 
 `onlyalpha.engine`、`onlyalpha.config`、`onlyalpha.domain.*`、`onlyalpha.strategy`、`onlyalpha.factor`、`onlyalpha.indicator` 与
 `onlyalpha.plugin.api` 是内部工程组合或插件边界，不作为外部 Product control contract。P9.K.8 已从根包及 broad
-`onlyalpha.engine/runtime/cluster` aggregators 移除 mutation constructors，并删除 `onlyalpha run/snapshot`。
+`onlyalpha.engine/runtime/cluster` broad aggregators 不暴露 mutation constructors；root Product CLI 不存在。
 
 Runtime Planner、Environment Builder、Assembly Plan、Assembler、Session、Manager、Registry 内部容器、ExecutionProcessor 内部步骤、Projection applier、Recovery orchestration state 和 persistence schema 属于内部实现。
 
 具体 Engine/Runtime/Cluster implementation modules 只供内部、测试、scenario、operator 或 composition owner 使用；broad aggregators
 不再提供这些 mutation constructors。`onlyalpha.config` 的 Assembly DTO 仍是内部组合值，不是外部 Product mutation contract。直接 Engine
-示例只允许位于 `examples/internal/` 并显式标记内部用途；`examples/product/` 必须只使用 Product API/client。历史 Paper/Shadow
-Runtime 导出已删除，不存在 compatibility alias。
+Scenario 与 fixture 只位于工程验证语义，不能成为 Product API/CLI。历史 Paper/Shadow Runtime 不存在 compatibility alias。
 
 ## 19. Dependency Direction
 
@@ -599,40 +569,18 @@ Stateful Kernel / Application Command + Query
         ↑
 Product HTTP Adapter
         ↑
-OpenAPI-derived Web / Python / Product CLI
+OpenAPI-derived Web / external API consumers
 
 Concrete plugins → public Plugin API / Ports
 ```
 
 Domain 不依赖 Core 外层。Core 不依赖具体 Provider/Broker SDK。Strategy/Factor 不依赖 Engine、Gateway 或 mutable Manager。Research 与 Trading Runtime 可以复用纯 Domain/definition，但不通过互相实例化对方的 mutable authority 复用。
 
-## 20. Current Product Capability Boundary
+## 20. Product Admission Boundary
 
-截至 2026-08-10，当前正式完整产品纵切面是 Backtest 下的有限 Cash-Long durable surface：
+正式 Product commands/queries 只能经版本化 API。Runtime specification 是 immutable、canonical semantic input；Runtime instance
+拥有不同的 run/runtime identity、lifecycle、worker、checkpoint/recovery state 和 result references。Specification fingerprint 不得
+替代 instance identity，文件路径、ENV、HTTP metadata 和 idempotency key 不得污染 trading semantic identity。
 
-```text
-Runtime          : BACKTEST
-Market Product   : GENERIC_T0_CASH@1
-Account Type     : CASH
-Order Type       : LIMIT
-Position Side    : LONG
-Position Mode    : NETTING
-Open / Close     : BUY OPEN / SELL CLOSE
-Fill             : Whole / Partial / Multi-Fill
-Terminal         : Cancel / Reject / Expire
-Cluster          : Single / Multi-Cluster
-Persistence      : Memory / SQLite
-Recovery         : Checkpoint / Restart / Forward Recovery
-```
-
-`CN_A_SHARE_DURABLE_BACKTEST_V1` 是已认证的有限 A 股 Backtest 产品合同；它不升级完整 A 股市场范围，也不证明所有 A 股产品或实时 Runtime 可用。
-
-当前未完成项：
-
-- `RESEARCH`：formal finite Runtime 已实现；从 exact verified Dataset Snapshot 编排 Job/Sweep/Statistics/Result/Artifact，提供
-  programmatic Engine entry 与 deterministic re-entry；read-only Research Web 已实现，Research YAML/CLI、Web execution control 和
-  mixed heterogeneous lifecycle 尚未实现；
-- `LIVE`：目标 Runtime，Factory unsupported，durable outbound Broker command、同步/对账与长期恢复尚未实现；
-- `SIM`：当前认证不覆盖 Real Broker、长期生产运维、24h soak 或 broad MiniQMT compatibility matrix。
-
-从当前实现到目标架构的阶段与删除条件见 [Roadmap](roadmap.md)。
+当前支持到何种 Runtime/product depth 必须由源码与测试判断；本架构文档不维护阶段完成状态。未来建设顺序见
+[Roadmap](roadmap.md)。

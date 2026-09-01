@@ -147,7 +147,8 @@ authority。STOP 建立后，迟到 historical batch 不进入 Semantic Lane，�
 
 ## 6. Backtest
 
-正式成品式入口为 `CLI → OnlyEngine.add_cluster(OnlyClusterRunConfig) → OnlyEngine.run()`。Engine 内部通用 Assembler 仅从 Runtime Registry
+正式产品入口为 `Web / Agent → Versioned Product API → canonical specification → admission`。`OnlyEngine.add_cluster(OnlyClusterRunConfig)`
+只属于 Worker、Scenario、测试和内部 composition。Engine 内部通用 Assembler 仅从 Runtime Registry
 取得 `OnlyRuntime`；Backtest Factory 再通过 DataSource、Broker 与 Strategy Registry 装配抽象组件。调用方只使用
 `initialize/run/pause/resume/stop/close/snapshot` 父接口，Replay、Broker drain、最终不变量、Result 与资源关闭封装在
 `OnlyBacktestRuntime.run()` 内。闭合 Bar 在 Broker 对账与 Cluster 回调前更新 Account/Strategy 估值；Calendar-derived

@@ -568,7 +568,7 @@ IMPACT_RULES = (
     ),
     VerificationImpactRule(
         "docs-only",
-        ("docs/", "prompts/"),
+        ("docs/",),
         ("README.md",),
         (),
         (),

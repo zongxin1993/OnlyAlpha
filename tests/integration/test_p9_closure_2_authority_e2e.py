@@ -73,7 +73,7 @@ def _research_bars():
 
 
 def _runtime_config(runtime_type: str, strategy_fingerprint: str, tmp_path: Path) -> OnlyClusterRunConfig:
-    baseline = OnlyClusterRunConfig.load("examples/configs/miniqmt_sim_acceptance.yaml")
+    baseline = OnlyClusterRunConfig.load("tests/fixtures/runtime/miniqmt_sim_acceptance.yaml")
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["cluster"]["runtime_type"] = runtime_type
     payload["strategy"] = {"fingerprint": strategy_fingerprint}

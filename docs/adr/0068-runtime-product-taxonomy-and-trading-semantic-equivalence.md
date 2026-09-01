@@ -4,6 +4,9 @@ Status: Accepted
 
 Date: 2026-08-10
 
+Superseded in part by: [ADR 0101](0101-stateful-kernel-and-protocol-boundary.md) replaces the external `OnlyEngine` product-entry decision with the
+versioned Product API boundary. Runtime taxonomy and Trading Semantic Equivalence decisions remain effective.
+
 Implementation update: 2026-08-13 — P6.6 已完成 active Runtime taxonomy one-shot cutover：production enum、配置、
 Factory Registry 与 public exports 只保留 `RESEARCH/BACKTEST/SIM/LIVE`；历史 `PAPER` 与 standalone `SHADOW` product
 package、Factory、配置与 acceptance path 已删除，未保留 alias、wrapper 或 durable-state converter。product-neutral

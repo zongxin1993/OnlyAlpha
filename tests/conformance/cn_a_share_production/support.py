@@ -18,8 +18,10 @@ from onlyalpha.domain.identifiers import (
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.engine import OnlyEngineConfig, OnlyEngineRunResult
 from onlyalpha.engine.engine import OnlyEngine
+from onlyalpha.plugin.descriptor import OnlyPluginOrigin, OnlyPluginOriginType
 from onlyalpha.runtime.backtest.result import OnlyBacktestResult
-from onlyalpha.runtime.defaults import OnlyEngineServices
+from onlyalpha.runtime.defaults import OnlyEngineServices, only_default_engine_services
+from onlyalpha.scenario.data_source import OnlyScenarioDataSourceFactory
 from onlyalpha.transaction import OnlyCommittedRuntimeTransaction
 from tests.runtime_runner import only_migrate_cluster_to_strategy
 
@@ -455,12 +457,13 @@ def only_run_cn_a_share_product(
     config: OnlyClusterRunConfig | None = None,
     services: OnlyEngineServices | None = None,
 ) -> OnlyCnAshareProductRun:
-    """Run one Product scenario exclusively through the formal Engine entry."""
+    """Run one conformance scenario through the internal Engine composition boundary."""
 
     selected = only_migrate_cluster_to_strategy(config or only_cn_a_share_product_config(), output_root)
+    selected_services = only_cn_a_share_conformance_services(services)
     engine = OnlyEngine(
         OnlyEngineConfig(OnlyEngineId(engine_id), output_root),
-        services=services,
+        services=selected_services,
     )
     engine.add_cluster(selected)
     engine_result = engine.run()
@@ -470,6 +473,17 @@ def only_run_cn_a_share_product(
     if not isinstance(runtime_result, OnlyBacktestResult):
         raise TypeError("CN A-share Product Runtime did not return OnlyBacktestResult")
     return OnlyCnAshareProductRun(engine, engine_result, runtime_result, selected)
+
+
+def only_cn_a_share_conformance_services(services: OnlyEngineServices | None = None) -> OnlyEngineServices:
+    """Register Scenario fixtures only in the CN A-share conformance composition root."""
+
+    selected_services = services or only_default_engine_services()
+    selected_services.assembler.components.data_sources.register(
+        OnlyScenarioDataSourceFactory(),
+        origin=OnlyPluginOrigin(OnlyPluginOriginType.BUILTIN, "onlyalpha-scenario-verification"),
+    )
+    return selected_services
 
 
 def only_cn_a_share_product_transactions(

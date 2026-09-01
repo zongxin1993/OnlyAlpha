@@ -1,16 +1,21 @@
-# Cluster 运行配置
+# Internal Runtime Specification
 
-一个 YAML/JSON 文档只能定义一个 Cluster，顶层使用 `cluster`，禁止 `clusters[]`。正式类型为
-`OnlyClusterRunConfig`，公共区段为：
+`OnlyClusterRunConfig` 是 Kernel 内部 immutable typed composition value，显式携带 Runtime、Strategy Revision、Market Product、
+reference data、universe、data source、account、broker、risk、time range、persistence/recovery 和 output semantics。
+
+它不是用户配置文档，也不是 Product admission contract。`OnlyEngine.add_cluster(config)` 只供 Worker、Scenario、测试和明确的内部
+composition owner 使用；Engine 不接受文件路径。
+
+正式 Product Runtime creation 必须遵循：
 
 ```text
-schema_version, cluster, runtime, reference_data, universes,
-data_sources, accounts, brokers, strategy, factors, output
+Web / Agent
+→ versioned Product API request
+→ validation and canonical domain specification
+→ persistence / admission
+→ scheduler / worker / internal typed composition
+→ distinct Runtime instance identity and lifecycle
 ```
 
-`cluster.runtime_type` 选择 Runtime；Strategy/Factor 使用 `python.module:OnlyClass` 导入描述。通用 Parser 只解析
-公共字段并保留 `extensions`，组件专用参数由各自 Factory 解析。
-
-文件入口只是适配层；核心入口是 `engine.add_cluster(config)`，因此 Web/Application 后续可以从 Mapping 创建强类型配置。
-Engine 通过 `OnlyRuntimePlanner` 将配置转换为内部 `OnlyRuntimeAssemblyPlan`；不存在第二套产品配置文档。
-DataSource 和 Broker 必须使用 `plugin`，`type` 不作为别名；输出配置只允许 `formats` 和 `overwrite`。
+测试可以从 `tests/fixtures/` 解析 legacy JSON/YAML 以证明现有 Kernel semantics；这些 fixture 不进入 Product API，不成为
+Runtime Authority。Deployment YAML/ENV 只允许配置 infrastructure，不允许隐式承载 Trading semantic configuration。

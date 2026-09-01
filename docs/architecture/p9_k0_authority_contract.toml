@@ -5,7 +5,6 @@ reserved_future_capabilities = []
 legacy_debts = []
 sensitive_path_patterns = [
   "src/onlyalpha/__init__.py",
-  "src/onlyalpha/cli.py",
   "src/onlyalpha/kernel/*.py",
   "src/onlyalpha/application/product_boundary.py",
   "src/onlyalpha/application/strategy_authority.py",
@@ -31,7 +30,6 @@ sensitive_path_patterns = [
   "packages/api/onlyalpha-api/src/onlyalpha_api/research/*.py",
   "scripts/database.py",
   "scripts/regenerate_*.py",
-  "examples/internal/committed_execution_report.py",
 ]
 
 [[facts]]
@@ -258,12 +256,6 @@ production = true
 allowed_capabilities = []
 
 [[actors]]
-id = "A02"
-name = "ROOT_OPERATOR_SCENARIO_CLI"
-production = true
-allowed_capabilities = ["C01", "C05"]
-
-[[actors]]
 id = "A03"
 name = "HTTP_COMPOSITION_ROOT"
 production = true
@@ -374,12 +366,6 @@ allowed_capabilities = ["C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08", 
 [[actor_paths]]
 pattern = "src/onlyalpha/__init__.py"
 actor = "A01"
-[[actor_paths]]
-pattern = "examples/internal/committed_execution_report.py"
-actor = "A15"
-[[actor_paths]]
-pattern = "src/onlyalpha/cli.py"
-actor = "A02"
 [[actor_paths]]
 pattern = "src/onlyalpha/kernel/*.py"
 actor = "A12"
@@ -662,7 +648,7 @@ approved_paths = ["src/onlyalpha/research/worker_main.py"]
 id = "K08"
 capability = "C12"
 symbol = "onlyalpha.engine.engine.OnlyEngine"
-approved_paths = ["examples/internal/committed_execution_report.py", "scripts/regenerate_recovery_baselines.py", "scripts/regenerate_result_fixtures.py", "src/onlyalpha/research/execution/worker.py", "src/onlyalpha/scenario/runner.py"]
+approved_paths = ["scripts/regenerate_recovery_baselines.py", "scripts/regenerate_result_fixtures.py", "src/onlyalpha/research/execution/worker.py", "src/onlyalpha/scenario/runner.py"]
 [[constructors]]
 id = "K09"
 capability = "C13"

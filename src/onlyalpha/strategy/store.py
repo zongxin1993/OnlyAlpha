@@ -185,13 +185,6 @@ class _StrategyFreezeRelationReader:
         return tuple(sorted(matches, key=lambda item: item.relation_fingerprint))
 
 
-class _OnlyLegacyStrategyRevisionStore(_StrategyRevisionReader):
-    """Historical raw-published namespace; never used by Runtime resolution."""
-
-    def __init__(self, semantic_root: Path) -> None:
-        super().__init__(semantic_root / "strategy" / "revisions")
-
-
 @dataclass(frozen=True, slots=True)
 class _OnlyFrozenStrategyPublication:
     revision: OnlyStrategyRevision

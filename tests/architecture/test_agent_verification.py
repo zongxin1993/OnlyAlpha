@@ -297,7 +297,7 @@ def test_verification_infrastructure_cannot_self_narrow() -> None:
 
 
 def test_docs_only_selects_no_runtime_lane_and_mixed_change_cannot_downgrade() -> None:
-    docs = _plan("docs/engineering/quality-system.md", "prompts/P7.5.2.md")
+    docs = _plan("docs/engineering/quality-system.md", "docs/runtime.md")
     mixed = _plan("docs/roadmap.md", "src/onlyalpha/runtime/streaming/recovery.py")
 
     assert docs.impact.escalation is VerificationEscalation.DOCS_ONLY

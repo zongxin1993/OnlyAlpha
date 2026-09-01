@@ -24,15 +24,15 @@ Correctness
 OnlyAlpha 使用一套 canonical Domain 与 Trading Kernel，不按市场复制 Engine、Runtime 或经济 Manager。
 
 ```text
-onlyalpha.domain
-      ↓
-OnlyEngine
-├── Research Runtime
-├── Backtest Runtime
-├── SIM Runtime
-└── LIVE Runtime
-      ↓
-versioned Market Product / DataSource / Broker plugins
+Human → Web ───────────────┐
+                          ├→ Versioned Product API → Stateful Kernel
+Agent / Automation ───────┘                            │
+                                                      ├→ Research Runtime
+                                                      ├→ Backtest Runtime
+                                                      ├→ SIM Runtime
+                                                      └→ LIVE Runtime
+                                                            ↓
+                                        Market Product / DataSource / Broker plugins
 ```
 
 正式 Runtime vocabulary：
@@ -159,20 +159,18 @@ Task Contract
 
 ## Roadmap
 
-Roadmap 只描述未来建设顺序与依赖，不承担工程进度 Authority。
-
-当前生产垂直方向以 Binance Spot Golden Vertical 为第一条完整市场纵切面，详细计划见 [`docs/p9_binance_spot_golden_vertical_execution_plan.md`](docs/p9_binance_spot_golden_vertical_execution_plan.md)。
+Roadmap 只描述未来建设顺序与依赖，不承担工程进度 Authority。Binance Spot 仍是第一条 production/LIVE Golden Vertical；在
+provider vertical 继续扩展前，先闭合 universal Spot/Futures Research 与 Backtest semantics，具体 sequencing 由
+[`ADR 0106`](docs/adr/0106-universal-spot-futures-research-backtest-sequencing.md) 决定。
 
 计划顺序：
 
 ```text
-Market Product & Reference Authority
-→ Historical & Realtime DataSource
-→ Durable Market Data Platform
-→ Real Broker
-→ LIVE Runtime Composition & Safety
-→ Research → Backtest → SIM → LIVE vertical
-→ Fault / Recovery / Conformance closure
+Existing Spot foundation
+→ Universal Spot/Futures Research + Backtest semantics
+→ Binance USD-M Research/Backtest conformance
+→ Synthetic non-Binance Futures conformance
+→ later Web / SIM / LIVE / QMT / CTP / Agent work
 ```
 
 后续 Provider 扩展遵循相同 Core/Plugin 边界，不因接入 Binance、QMT、CTP 或其他 venue 而复制第二套交易核心。

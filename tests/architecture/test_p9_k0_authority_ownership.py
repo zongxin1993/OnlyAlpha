@@ -64,19 +64,6 @@ EXPECTED_ROUTE_ONLYALPHA_IMPORTS: dict[str, frozenset[CanonicalImport]] = {
     ),
 }
 
-EXPECTED_CLI_ONLYALPHA_IMPORTS: frozenset[CanonicalImport] = frozenset(
-    {
-        ("symbol", "onlyalpha.core.errors", "OnlyError"),
-        ("symbol", "onlyalpha.persistence.postgres", "OnlyPostgresConfig"),
-        ("symbol", "onlyalpha.persistence.postgres", "OnlyPostgresResearchOperationsStore"),
-        ("symbol", "onlyalpha.research.operations.diagnostics", "OnlyResearchOperationalDiagnosticService"),
-        ("symbol", "onlyalpha.research.run", "OnlyResearchRunId"),
-        ("symbol", "onlyalpha.scenario", "OnlyMarketScenarioParser"),
-        ("symbol", "onlyalpha.scenario", "OnlyMarketScenarioRunRequest"),
-        ("symbol", "onlyalpha.scenario", "OnlyMarketScenarioRunner"),
-    }
-)
-
 FORBIDDEN_WORKER_IMPORTS = (
     "onlyalpha.application.strategy_authority",
     "onlyalpha.strategy.freeze",
@@ -169,37 +156,6 @@ def test_unexpected_route_filename_is_still_detected() -> None:
     ) in onlyalpha_imports(source)
     approved = frozenset().union(*EXPECTED_ROUTE_ONLYALPHA_IMPORTS.values())
     assert onlyalpha_imports(source).isdisjoint(approved)
-
-
-def test_cli_capability_set_is_frozen() -> None:
-    cli = ROOT / "src/onlyalpha/cli.py"
-    assert onlyalpha_imports_for_path(cli, ROOT) == EXPECTED_CLI_ONLYALPHA_IMPORTS
-
-
-def test_cli_new_strategy_mutation_capability_changes_the_frozen_set() -> None:
-    source = "from onlyalpha.application.strategy_authority import OnlyStrategyPromotionApplicationService\n"
-    assert onlyalpha_imports(source) != EXPECTED_CLI_ONLYALPHA_IMPORTS
-
-
-def test_cli_plain_module_import_cannot_bypass_the_frozen_set() -> None:
-    source = "import onlyalpha.application.strategy_authority as authority\n"
-    assert onlyalpha_imports(source) == frozenset({("module", "onlyalpha.application.strategy_authority")})
-    assert onlyalpha_imports(source) != EXPECTED_CLI_ONLYALPHA_IMPORTS
-
-
-def test_cli_symbol_alias_preserves_original_capability_identity() -> None:
-    source = (
-        "from onlyalpha.application.strategy_authority import OnlyStrategyPromotionApplicationService as Promotion\n"
-    )
-    assert onlyalpha_imports(source) == frozenset(
-        {
-            (
-                "symbol",
-                "onlyalpha.application.strategy_authority",
-                "OnlyStrategyPromotionApplicationService",
-            )
-        }
-    )
 
 
 def test_research_worker_remains_execution_agent_without_strategy_product_authority() -> None:

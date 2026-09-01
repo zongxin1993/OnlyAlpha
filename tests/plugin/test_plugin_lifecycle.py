@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngineConfig
 from onlyalpha.engine.engine import OnlyEngine
@@ -11,10 +12,12 @@ from tests.runtime_runner import only_write_migrated_cluster_config
 def test_plugin_lifecycle_stops_and_closes_idempotently(tmp_path: Path) -> None:
     services = only_default_engine_services()
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("plugin-lifecycle"), tmp_path), services=services)
-    engine.add_cluster_from_file(
-        only_write_migrated_cluster_config(
-            "tests/fixtures/legacy_macd/cluster_external_plugins.yaml",
-            tmp_path,
+    engine.add_cluster(
+        OnlyClusterRunConfig.load(
+            only_write_migrated_cluster_config(
+                "tests/fixtures/legacy_macd/cluster_external_plugins.yaml",
+                tmp_path,
+            )
         )
     )
     result = engine.run()
