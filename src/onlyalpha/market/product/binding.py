@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Self
 
 from onlyalpha.fee.market_pack import OnlyMarketFeePack
+from onlyalpha.market.economics import OnlyEffectiveTradingProfile
 from onlyalpha.market.product.errors import OnlyMarketProductAuthorityConflictError
 from onlyalpha.market.product.identity import (
     OnlyMarketProductCompositionIdentity,
@@ -23,6 +24,7 @@ class OnlyResolvedMarketProductBinding:
     policy_compiler: OnlyMarketPolicyCompiler
     market_fee_pack: OnlyMarketFeePack
     composition_identity: OnlyMarketProductCompositionIdentity
+    effective_trading_profile: OnlyEffectiveTradingProfile | None = None
 
     def __post_init__(self) -> None:
         authority_identity = (
@@ -53,6 +55,7 @@ class OnlyResolvedMarketProductBinding:
         policy_compiler: OnlyMarketPolicyCompiler,
         market_fee_pack: OnlyMarketFeePack,
         effective_config_fingerprint: str,
+        effective_trading_profile: OnlyEffectiveTradingProfile | None = None,
     ) -> Self:
         composition_identity = OnlyMarketProductCompositionIdentity.create(
             product_identity=product_identity,
@@ -60,6 +63,9 @@ class OnlyResolvedMarketProductBinding:
             policy_compiler=policy_compiler.identity,
             market_fee_pack=market_fee_pack.identity,
             effective_config_fingerprint=effective_config_fingerprint,
+            effective_trading_profile_fingerprint=(
+                None if effective_trading_profile is None else effective_trading_profile.profile_fingerprint
+            ),
         )
         return cls(
             product_identity,
@@ -68,6 +74,7 @@ class OnlyResolvedMarketProductBinding:
             policy_compiler,
             market_fee_pack,
             composition_identity,
+            effective_trading_profile,
         )
 
 

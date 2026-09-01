@@ -7,6 +7,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "onlyalpha==0.9.8",
     "onlyalpha-market-binance-spot==0.9.8",
+    "onlyalpha-market-binance-usdm==0.9.8",
     "websocket-client>=1.8,<2",
 ]
 
@@ -27,6 +28,7 @@ packages = ["src/onlyalpha_plugin_binance"]
 [tool.uv.sources]
 onlyalpha = { workspace = true }
 onlyalpha-market-binance-spot = { workspace = true }
+onlyalpha-market-binance-usdm = { workspace = true }
 
 [tool.mypy]
 python_version = "3.12"

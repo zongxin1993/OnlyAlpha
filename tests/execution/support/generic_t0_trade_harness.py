@@ -33,7 +33,6 @@ from onlyalpha.execution import (
     only_strategy_ledger_execution_state,
 )
 from onlyalpha.execution.authority_state import only_settlement_execution_state
-from onlyalpha.market.models import OnlyMarketPositionMode
 from onlyalpha.market.runtime_rules import OnlyTradeApplicationRequest
 from onlyalpha.position.enums import OnlyPositionMode
 from onlyalpha.position.identifiers import OnlyPositionAllocationId
@@ -270,9 +269,7 @@ def only_test_real_trade_planning_context(
     )
     compiled = market_rules.compiled_rules(str(order.instrument_id), trading_day)
     position_mode = (
-        OnlyPositionMode.HEDGING
-        if compiled.position_policy.mode is OnlyMarketPositionMode.HEDGING
-        else OnlyPositionMode.NETTING
+        OnlyPositionMode.HEDGING if compiled.position_mode is OnlyPositionMode.HEDGING else OnlyPositionMode.NETTING
     )
     scope = processor._position_scope_resolver.resolve_trade(order, instruction, position_mode)
     support_decision = processor._resolve_execution_support(update, scope)

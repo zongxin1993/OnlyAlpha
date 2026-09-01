@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 
-from onlyalpha.domain.enums import OnlyMarginMode, OnlyOrderType, OnlyTimeInForce
+from onlyalpha.domain.enums import OnlyCurrencyType, OnlyMarginMode, OnlyOrderType, OnlyTimeInForce
 from onlyalpha.domain.trading import (
     OnlyCloseScope,
     OnlyExposureConstraint,
@@ -14,6 +14,7 @@ from onlyalpha.domain.trading import (
     OnlyPositionMode,
     OnlyReferencePriceKind,
 )
+from onlyalpha.identity import only_identity_fingerprint
 
 
 class OnlyEconomicModel(StrEnum):
@@ -25,6 +26,113 @@ class OnlyMarginIsolationScope(StrEnum):
     ACCOUNT = "ACCOUNT"
     INSTRUMENT = "INSTRUMENT"
     POSITION_LEG = "POSITION_LEG"
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyProviderCapabilityEnvelope:
+    """Market/provider possibilities; never the effective mode of one run."""
+
+    supported_position_modes: tuple[OnlyPositionMode, ...]
+    supported_margin_modes: tuple[OnlyMarginMode, ...]
+
+    def __post_init__(self) -> None:
+        if not self.supported_position_modes or not self.supported_margin_modes:
+            raise ValueError("TRADING_CAPABILITY_ENVELOPE_EMPTY")
+        if len(set(self.supported_position_modes)) != len(self.supported_position_modes) or len(
+            set(self.supported_margin_modes)
+        ) != len(self.supported_margin_modes):
+            raise ValueError("TRADING_CAPABILITY_ENVELOPE_DUPLICATE")
+        if any(mode not in {OnlyMarginMode.CROSS, OnlyMarginMode.ISOLATED} for mode in self.supported_margin_modes):
+            raise ValueError("TRADING_CAPABILITY_MARGIN_MODE_UNSUPPORTED")
+
+    def canonical_identity(self) -> tuple[object, ...]:
+        return self.supported_position_modes, self.supported_margin_modes
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyRequestedTradingProfile:
+    position_mode: OnlyPositionMode
+    margin_mode: OnlyMarginMode
+    leverage: Decimal
+
+    def __post_init__(self) -> None:
+        if self.margin_mode not in {OnlyMarginMode.CROSS, OnlyMarginMode.ISOLATED} or self.leverage < 1:
+            raise ValueError("REQUESTED_TRADING_PROFILE_INVALID")
+
+    def canonical_identity(self) -> tuple[object, ...]:
+        return self.position_mode, self.margin_mode, self.leverage
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyAccountEffectiveTradingInputs:
+    """Account-observed modes used to prove, rather than assume, run semantics."""
+
+    position_mode: OnlyPositionMode
+    margin_mode: OnlyMarginMode
+    leverage: Decimal
+    source_fingerprint: str
+
+    def __post_init__(self) -> None:
+        if self.margin_mode not in {OnlyMarginMode.CROSS, OnlyMarginMode.ISOLATED} or self.leverage < 1:
+            raise ValueError("ACCOUNT_EFFECTIVE_TRADING_INPUTS_INVALID")
+        if len(self.source_fingerprint) != 64 or any(
+            value not in "0123456789abcdef" for value in self.source_fingerprint
+        ):
+            raise ValueError("ACCOUNT_EFFECTIVE_SOURCE_FINGERPRINT_INVALID")
+
+    def canonical_identity(self) -> tuple[object, ...]:
+        return self.position_mode, self.margin_mode, self.leverage, self.source_fingerprint
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyEffectiveTradingProfile:
+    """The single effective position/margin-mode authority for one run."""
+
+    position_mode: OnlyPositionMode
+    margin_mode: OnlyMarginMode
+    leverage: Decimal
+    account_effective_source_fingerprint: str
+    profile_fingerprint: str
+
+    @classmethod
+    def resolve(
+        cls,
+        capability: OnlyProviderCapabilityEnvelope,
+        requested: OnlyRequestedTradingProfile,
+        account_effective: OnlyAccountEffectiveTradingInputs,
+    ) -> OnlyEffectiveTradingProfile:
+        if requested.position_mode not in capability.supported_position_modes:
+            raise ValueError("REQUESTED_POSITION_MODE_UNSUPPORTED")
+        if requested.margin_mode not in capability.supported_margin_modes:
+            raise ValueError("REQUESTED_MARGIN_MODE_UNSUPPORTED")
+        requested_values = (requested.position_mode, requested.margin_mode, requested.leverage)
+        effective_values = (
+            account_effective.position_mode,
+            account_effective.margin_mode,
+            account_effective.leverage,
+        )
+        if requested_values != effective_values:
+            raise ValueError("ACCOUNT_EFFECTIVE_TRADING_PROFILE_MISMATCH")
+        payload = (*effective_values, account_effective.source_fingerprint)
+        return cls(*effective_values, account_effective.source_fingerprint, only_identity_fingerprint(payload))
+
+    def __post_init__(self) -> None:
+        payload = (
+            self.position_mode,
+            self.margin_mode,
+            self.leverage,
+            self.account_effective_source_fingerprint,
+        )
+        if self.leverage < 1 or self.profile_fingerprint != only_identity_fingerprint(payload):
+            raise ValueError("EFFECTIVE_TRADING_PROFILE_FINGERPRINT_CONFLICT")
+
+    def canonical_identity(self) -> tuple[object, ...]:
+        return (
+            self.position_mode,
+            self.margin_mode,
+            self.leverage,
+            self.account_effective_source_fingerprint,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,59 +175,103 @@ class OnlyCompiledOrderCapabilityPolicy:
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyMarginRequirementTier:
-    maximum_notional: Decimal | None
-    initial_rate: Decimal
-    maintenance_rate: Decimal
+class OnlyMarginRequirementSegment:
+    lower_bound: Decimal
+    upper_bound: Decimal | None
+    initial_slope: Decimal
+    initial_intercept: Decimal
+    maintenance_slope: Decimal
+    maintenance_intercept: Decimal
 
     def __post_init__(self) -> None:
-        if self.maximum_notional is not None and self.maximum_notional <= 0:
-            raise ValueError("MARGIN_TIER_MAX_NOTIONAL_INVALID")
-        if not Decimal(0) <= self.maintenance_rate <= self.initial_rate <= Decimal(1):
-            raise ValueError("MARGIN_TIER_RATES_INVALID")
+        if self.lower_bound < 0 or (self.upper_bound is not None and self.upper_bound <= self.lower_bound):
+            raise ValueError("MARGIN_SEGMENT_BOUNDS_INVALID")
+        if self.initial_slope < 0 or self.maintenance_slope < 0:
+            raise ValueError("MARGIN_SEGMENT_SLOPE_INVALID")
+        for notional in (self.lower_bound, self.upper_bound):
+            if notional is None:
+                continue
+            initial, maintenance = self.requirement(notional)
+            if initial < 0 or maintenance < 0 or maintenance > initial:
+                raise ValueError("MARGIN_SEGMENT_REQUIREMENT_INVALID")
+
+    def requirement(self, notional: Decimal) -> tuple[Decimal, Decimal]:
+        return (
+            self.initial_slope * notional + self.initial_intercept,
+            self.maintenance_slope * notional + self.maintenance_intercept,
+        )
 
     def canonical_identity(self) -> tuple[object, ...]:
-        return self.maximum_notional, self.initial_rate, self.maintenance_rate
+        return (
+            self.lower_bound,
+            self.upper_bound,
+            self.initial_slope,
+            self.initial_intercept,
+            self.maintenance_slope,
+            self.maintenance_intercept,
+        )
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyCompiledMarginPolicy:
-    margin_mode: OnlyMarginMode
     collateral_currency: str
     isolation_scope: OnlyMarginIsolationScope
     valuation_price_kind: OnlyReferencePriceKind
-    tiers: tuple[OnlyMarginRequirementTier, ...]
+    segments: tuple[OnlyMarginRequirementSegment, ...]
+    collateral_currency_precision: int = 2
+    collateral_currency_type: OnlyCurrencyType = OnlyCurrencyType.FIAT
 
     def __post_init__(self) -> None:
-        if self.margin_mode not in {OnlyMarginMode.CROSS, OnlyMarginMode.ISOLATED}:
-            raise ValueError("COMPILED_MARGIN_MODE_UNSUPPORTED")
-        if not self.collateral_currency.strip() or not self.tiers:
+        if (
+            not self.collateral_currency.strip()
+            or not 0 <= self.collateral_currency_precision <= 18
+            or not self.segments
+        ):
             raise ValueError("COMPILED_MARGIN_POLICY_INCOMPLETE")
-        if self.margin_mode is OnlyMarginMode.CROSS and self.isolation_scope is not OnlyMarginIsolationScope.ACCOUNT:
-            raise ValueError("CROSS_MARGIN_SCOPE_INVALID")
-        if self.margin_mode is OnlyMarginMode.ISOLATED and self.isolation_scope is OnlyMarginIsolationScope.ACCOUNT:
-            raise ValueError("ISOLATED_MARGIN_SCOPE_INVALID")
-        finite = tuple(item.maximum_notional for item in self.tiers if item.maximum_notional is not None)
-        if finite != tuple(sorted(finite)) or len(set(finite)) != len(finite):
-            raise ValueError("MARGIN_TIERS_NOT_STRICTLY_ORDERED")
-        if self.tiers[-1].maximum_notional is not None:
-            raise ValueError("MARGIN_TIERS_REQUIRE_OPEN_ENDED_FINAL_TIER")
-        if any(item.maximum_notional is None for item in self.tiers[:-1]):
-            raise ValueError("MARGIN_OPEN_ENDED_TIER_MUST_BE_LAST")
+        if self.segments[0].lower_bound != 0:
+            raise ValueError("MARGIN_SEGMENTS_DOMAIN_INCOMPLETE")
+        for current, following in zip(self.segments, self.segments[1:], strict=False):
+            if current.upper_bound != following.lower_bound:
+                raise ValueError("MARGIN_SEGMENTS_NOT_CONTIGUOUS")
+            boundary = current.upper_bound
+            if boundary is None:
+                raise ValueError("MARGIN_OPEN_ENDED_SEGMENT_MUST_BE_LAST")
+            current_initial, current_maintenance = current.requirement(boundary)
+            next_initial, next_maintenance = following.requirement(boundary)
+            if current_initial != next_initial or current_maintenance != next_maintenance:
+                raise ValueError("MARGIN_SEGMENTS_DISCONTINUOUS")
 
     def requirement(self, notional: Decimal) -> tuple[Decimal, Decimal]:
         if notional < 0:
             raise ValueError("MARGIN_NOTIONAL_NEGATIVE")
-        tier = next(item for item in self.tiers if item.maximum_notional is None or notional <= item.maximum_notional)
-        return notional * tier.initial_rate, notional * tier.maintenance_rate
+        segment = next(
+            (
+                item
+                for index, item in enumerate(self.segments)
+                if item.lower_bound <= notional
+                and (
+                    item.upper_bound is None
+                    or notional < item.upper_bound
+                    or (index == len(self.segments) - 1 and notional == item.upper_bound)
+                )
+            ),
+            None,
+        )
+        if segment is None:
+            raise ValueError("MARGIN_NOTIONAL_OUTSIDE_COMPILED_DOMAIN")
+        initial, maintenance = segment.requirement(notional)
+        if initial < 0 or maintenance < 0 or maintenance > initial:
+            raise ValueError("MARGIN_REQUIREMENT_INVALID")
+        return initial, maintenance
 
     def canonical_identity(self) -> tuple[object, ...]:
         return (
-            self.margin_mode,
             self.collateral_currency,
             self.isolation_scope,
             self.valuation_price_kind,
-            tuple(item.canonical_identity() for item in self.tiers),
+            tuple(item.canonical_identity() for item in self.segments),
+            self.collateral_currency_precision,
+            self.collateral_currency_type,
         )
 
 

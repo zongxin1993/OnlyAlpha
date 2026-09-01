@@ -13,7 +13,6 @@ from onlyalpha.plugin.api import (
     OnlyCompiledQuantityPolicy,
     OnlyInstrumentTradingStatus,
     OnlyMarketPolicyCompilationRequest,
-    OnlyMarketPositionMode,
     OnlyMarketProductAuthorityIdentity,
     OnlyPositionAccountingModel,
     OnlyPriceBandRoundingMode,
@@ -37,7 +36,7 @@ _SESSION = OnlyTradingSessionModel(
     True,
 )
 _SETTLEMENT = OnlySettlementModel("CRYPTO_SPOT_IMMEDIATE", _IMMEDIATE, _IMMEDIATE, _IMMEDIATE, _IMMEDIATE)
-_POSITION = OnlyPositionAccountingModel(OnlyMarketPositionMode.LONG_ONLY)
+_POSITION = OnlyPositionAccountingModel()
 _SHORT = OnlyShortSellingRule(OnlyShortSellingMode.DISABLED)
 
 
@@ -46,9 +45,9 @@ class OnlyBinanceSpotPolicyCompiler:
     identity: OnlyMarketProductAuthorityIdentity = OnlyMarketProductAuthorityIdentity(
         "POLICY_COMPILER",
         "BINANCE_SPOT",
-        "1",
+        "2",
         only_identity_fingerprint(
-            ("CRYPTO_SPOT_24X7", "UTC", "IMMEDIATE", "LONG_ONLY", "NO_MARGIN", "REFERENCE_STATIC_RULES")
+            ("CRYPTO_SPOT_24X7", "UTC", "IMMEDIATE", "NETTING", "SHORT_DISABLED", "NO_MARGIN", "REFERENCE_STATIC_RULES")
         ),
     )
 

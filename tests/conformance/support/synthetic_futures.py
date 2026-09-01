@@ -14,18 +14,21 @@ from onlyalpha.domain.trading import (
 )
 from onlyalpha.identity import only_identity_fingerprint
 from onlyalpha.market.economics import (
+    OnlyAccountEffectiveTradingInputs,
     OnlyCompiledMarginPolicy,
     OnlyCompiledOrderCapabilityPolicy,
     OnlyCompiledValuationPolicy,
     OnlyCompiledVariationMarginPolicy,
     OnlyEconomicModel,
+    OnlyEffectiveTradingProfile,
     OnlyMarginIsolationScope,
-    OnlyMarginRequirementTier,
+    OnlyMarginRequirementSegment,
+    OnlyProviderCapabilityEnvelope,
+    OnlyRequestedTradingProfile,
 )
 from onlyalpha.market.models import (
     OnlyCompiledPriceBandPolicy,
     OnlyCompiledQuantityPolicy,
-    OnlyMarketPositionMode,
     OnlyPositionAccountingModel,
     OnlyPriceBandRoundingMode,
     OnlySettlementModel,
@@ -76,6 +79,9 @@ class OnlySyntheticFuturesPolicyCompiler:
 
     def compile(self, request: OnlyMarketPolicyCompilationRequest) -> OnlyCompiledMarketPolicy:
         reference = request.reference_authority.resolve(request.instrument_id, request.trading_day, as_of=request.as_of)
+        profile = request.effective_trading_profile
+        if profile is None:
+            raise ValueError("SYNTHETIC_FUTURES_EFFECTIVE_TRADING_PROFILE_REQUIRED")
         immediate = OnlySettlementRule(OnlySettlementTiming.IMMEDIATE)
         return OnlyCompiledMarketPolicy.create(
             instrument_id=request.instrument_id,
@@ -96,7 +102,7 @@ class OnlySyntheticFuturesPolicyCompiler:
             quantity_policy=OnlyCompiledQuantityPolicy(
                 Decimal("1"), Decimal("1"), Decimal("1"), Decimal("1"), False, None, False
             ),
-            position_policy=OnlyPositionAccountingModel(OnlyMarketPositionMode.NETTING),
+            position_policy=OnlyPositionAccountingModel(),
             short_policy=OnlyShortSellingRule(OnlyShortSellingMode.ENABLED_UNRESTRICTED),
             settlement_policy=OnlySettlementModel("DAILY_MTM", immediate, immediate, immediate, immediate),
             margin_policy=None,
@@ -107,20 +113,53 @@ class OnlySyntheticFuturesPolicyCompiler:
                 (OnlyPositionEffect.OPEN, OnlyPositionEffect.CLOSE),
                 (OnlyCloseScope.ANY,),
                 (OnlyExposureConstraint.NONE, OnlyExposureConstraint.REDUCE_ONLY),
-                (OnlyPositionMode.NETTING,),
+                (OnlyPositionMode.NETTING, OnlyPositionMode.HEDGING),
             ),
             compiled_margin_policy=OnlyCompiledMarginPolicy(
-                OnlyMarginMode.CROSS,
                 "USD",
-                OnlyMarginIsolationScope.ACCOUNT,
+                OnlyMarginIsolationScope.ACCOUNT
+                if profile.margin_mode is OnlyMarginMode.CROSS
+                else OnlyMarginIsolationScope.POSITION_LEG,
                 OnlyReferencePriceKind.SETTLEMENT,
-                (OnlyMarginRequirementTier(None, Decimal("0.12"), Decimal("0.08")),),
+                (
+                    OnlyMarginRequirementSegment(
+                        Decimal(0),
+                        None,
+                        Decimal("0.12"),
+                        Decimal(0),
+                        Decimal("0.08"),
+                        Decimal(0),
+                    ),
+                ),
             ),
             valuation_policy=OnlyCompiledValuationPolicy(
                 OnlyReferencePriceKind.SETTLEMENT, OnlyReferencePriceKind.SETTLEMENT
             ),
             variation_margin_policy=OnlyCompiledVariationMarginPolicy(OnlyReferencePriceKind.SETTLEMENT),
+            effective_trading_profile=profile,
         )
 
 
-__all__ = ["OnlySyntheticFuturesPolicyCompiler", "OnlySyntheticFuturesReferenceAuthority"]
+def only_synthetic_futures_effective_profile(
+    position_mode: OnlyPositionMode = OnlyPositionMode.NETTING,
+    margin_mode: OnlyMarginMode = OnlyMarginMode.CROSS,
+) -> OnlyEffectiveTradingProfile:
+    capability = OnlyProviderCapabilityEnvelope(
+        (OnlyPositionMode.NETTING, OnlyPositionMode.HEDGING),
+        (OnlyMarginMode.CROSS, OnlyMarginMode.ISOLATED),
+    )
+    requested = OnlyRequestedTradingProfile(position_mode, margin_mode, Decimal("10"))
+    account = OnlyAccountEffectiveTradingInputs(
+        position_mode,
+        margin_mode,
+        Decimal("10"),
+        only_identity_fingerprint(("SYNTHETIC_ACCOUNT", position_mode, margin_mode, "10")),
+    )
+    return OnlyEffectiveTradingProfile.resolve(capability, requested, account)
+
+
+__all__ = [
+    "OnlySyntheticFuturesPolicyCompiler",
+    "OnlySyntheticFuturesReferenceAuthority",
+    "only_synthetic_futures_effective_profile",
+]

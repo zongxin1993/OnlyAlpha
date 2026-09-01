@@ -92,28 +92,35 @@ class OnlyBinanceUsdmHistoricalClient:
     def __init__(self, http: OnlyBinancePublicHttpClient) -> None:
         self._http = http
 
-    def klines(
+    def contract_klines(
         self,
         symbol: str,
         start_ms: int,
         end_ms: int,
         limit: int,
-        *,
-        kind: OnlyReferencePriceKind | None = None,
     ) -> Sequence[Sequence[object]]:
-        if kind is None:
-            endpoint = "/fapi/v1/klines"
-        elif kind is OnlyReferencePriceKind.MARK:
-            endpoint = "/fapi/v1/markPriceKlines"
-        elif kind is OnlyReferencePriceKind.INDEX:
-            endpoint = "/fapi/v1/indexPriceKlines"
-        else:
-            raise OnlyBinanceError("BINANCE_USDM_REFERENCE_KIND_UNSUPPORTED")
+        return self._klines("/fapi/v1/klines", "symbol", symbol, start_ms, end_ms, limit)
+
+    def mark_price_klines(self, symbol: str, start_ms: int, end_ms: int, limit: int) -> Sequence[Sequence[object]]:
+        return self._klines("/fapi/v1/markPriceKlines", "symbol", symbol, start_ms, end_ms, limit)
+
+    def index_price_klines(self, pair: str, start_ms: int, end_ms: int, limit: int) -> Sequence[Sequence[object]]:
+        return self._klines("/fapi/v1/indexPriceKlines", "pair", pair, start_ms, end_ms, limit)
+
+    def _klines(
+        self,
+        endpoint: str,
+        instrument_parameter: str,
+        instrument_value: str,
+        start_ms: int,
+        end_ms: int,
+        limit: int,
+    ) -> Sequence[Sequence[object]]:
         value = json.loads(
             self._http.get_json(
                 endpoint,
                 {
-                    "symbol": symbol,
+                    instrument_parameter: instrument_value,
                     "interval": "1m",
                     "startTime": str(start_ms),
                     "endTime": str(end_ms - 1),
@@ -290,12 +297,20 @@ class OnlyBinanceUsdmDataSource:
                 funding_ms = _required_int(funding_row.get("fundingTime"), "BINANCE_USDM_FUNDING_TIME_INVALID")
                 if not start_ms <= funding_ms < end_ms:
                     continue
-                funding_fact = self._normalizer.funding_rate(
+                funding_mark, funding_fact = self._normalizer.funding_boundary_facts(
                     dict(funding_row),
                     instrument_id=instrument.instrument_id,
                     data_version=str(request.data_version),
                     source_sequence=funding_ms,
                     received_at=datetime.fromtimestamp(funding_ms / 1000, tz=UTC),
+                )
+                updates.append(
+                    self._fact_envelope(
+                        funding_mark.fact_id,
+                        funding_ms,
+                        request.data_version,
+                        funding_mark,
+                    )
                 )
                 updates.append(
                     self._envelope(
@@ -345,11 +360,26 @@ class OnlyBinanceUsdmDataSource:
         cursor = start_ms
         rows: list[Sequence[object]] = []
         while cursor < end_ms:
-            page = tuple(
-                self._historical.klines(
-                    str(instrument.raw_symbol), cursor, end_ms, self._config.rest_page_size, kind=kind
+            if kind is None:
+                page = tuple(
+                    self._historical.contract_klines(
+                        str(instrument.raw_symbol), cursor, end_ms, self._config.rest_page_size
+                    )
                 )
-            )
+            elif kind is OnlyReferencePriceKind.MARK:
+                page = tuple(
+                    self._historical.mark_price_klines(
+                        str(instrument.raw_symbol), cursor, end_ms, self._config.rest_page_size
+                    )
+                )
+            elif kind is OnlyReferencePriceKind.INDEX:
+                page = tuple(
+                    self._historical.index_price_klines(
+                        str(instrument.raw_symbol), cursor, end_ms, self._config.rest_page_size
+                    )
+                )
+            else:
+                raise OnlyBinanceError("BINANCE_USDM_REFERENCE_KIND_UNSUPPORTED")
             if not page:
                 break
             open_times = tuple(_required_int(item[0], "BINANCE_USDM_KLINE_TIME_INVALID") for item in page)
@@ -452,6 +482,9 @@ class OnlyBinanceUsdmDataSource:
 class OnlyBinanceUsdmDataSourceFactory:
     descriptor = USDM_DATA_DESCRIPTOR
 
+    def __init__(self, historical_client: OnlyBinanceUsdmHistoricalClient | None = None) -> None:
+        self._historical_client = historical_client
+
     def parse_config(self, extensions: Mapping[str, object]) -> OnlyBinanceUsdmDataSourceConfig:
         return OnlyBinanceUsdmDataSourceConfig.parse(extensions)
 
@@ -469,7 +502,11 @@ class OnlyBinanceUsdmDataSourceFactory:
     def create(self, request: OnlyDataSourceCreateRequest) -> OnlyBinanceUsdmDataSource:
         if not isinstance(request.plugin_config, OnlyBinanceUsdmDataSourceConfig):
             raise TypeError("Binance USD-M DataSource requires OnlyBinanceUsdmDataSourceConfig")
-        return OnlyBinanceUsdmDataSource(request, request.plugin_config)
+        return OnlyBinanceUsdmDataSource(
+            request,
+            request.plugin_config,
+            historical_client=self._historical_client,
+        )
 
 
 def _milliseconds(value: datetime) -> int:
@@ -516,10 +553,15 @@ def _normalize_kline(row: Sequence[object], instrument: OnlyInstrument, bar_type
     )
 
 
-def _update_order_key(update: OnlyMarketDataInboundUpdate) -> tuple[int, str, int, str]:
+def _update_order_key(update: OnlyMarketDataInboundUpdate) -> tuple[int, int, int, str]:
+    priority = (
+        update.payload.fact.stable_order[1]
+        if isinstance(update.payload, OnlyReferencePriceUpdate | OnlyFundingRateUpdate)
+        else 0
+    )
     return (
         update.ts_event.unix_nanos,
-        update.data_type.value,
+        priority,
         int(update.source_sequence),
         str(update.update_id),
     )

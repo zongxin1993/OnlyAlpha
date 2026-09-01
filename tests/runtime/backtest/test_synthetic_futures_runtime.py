@@ -29,6 +29,7 @@ from onlyalpha.domain.enums import (
     OnlyAggregationSource,
     OnlyAssetClass,
     OnlyBarAggregation,
+    OnlyMarginMode,
     OnlyMarketType,
     OnlyOffset,
     OnlyOrderSide,
@@ -54,7 +55,13 @@ from onlyalpha.domain.identifiers import (
 from onlyalpha.domain.instrument import OnlyFuture
 from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType, OnlyReferencePriceFact
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone, OnlyTradingDay
-from onlyalpha.domain.trading import OnlyReferencePriceKind
+from onlyalpha.domain.trading import (
+    OnlyExecutionIntent,
+    OnlyPositionEffect,
+    OnlyPositionMode,
+    OnlyPositionSide,
+    OnlyReferencePriceKind,
+)
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, OnlyPrice, OnlyQuantity
 from onlyalpha.fee.basis import only_default_fee_basis_provider_registry
 from onlyalpha.fee.broker_contract import only_simulation_zero_broker_fee_contract
@@ -74,6 +81,7 @@ from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
 from tests.conformance.support.synthetic_futures import (
     OnlySyntheticFuturesPolicyCompiler,
     OnlySyntheticFuturesReferenceAuthority,
+    only_synthetic_futures_effective_profile,
 )
 from tests.integration_demo.environment import OnlyIntegrationCluster
 
@@ -86,10 +94,25 @@ USD = OnlyCurrency("USD", 2)
 START = datetime(2026, 9, 1, 9, tzinfo=UTC)
 
 
+def _occupied_margin(runtime: OnlyBacktestRuntime) -> Decimal:
+    return sum(
+        (
+            reservation.occupied
+            for reservation in runtime.margin_manager.active_reservations
+            if reservation.account_id == ACCOUNT
+            and reservation.instrument_id == INSTRUMENT
+            and reservation.currency == USD
+        ),
+        Decimal(0),
+    )
+
+
 def _runtime(
     store: OnlyInMemoryRuntimePersistenceStore | None = None,
     *,
     recoverable: bool = False,
+    position_mode: OnlyPositionMode = OnlyPositionMode.NETTING,
+    margin_mode: OnlyMarginMode = OnlyMarginMode.CROSS,
 ) -> tuple[OnlyBacktestRuntime, OnlyIntegrationCluster, OnlyBarType]:
     calendar = OnlyTradingCalendar(
         OnlyCalendarId("TEST"),
@@ -133,7 +156,8 @@ def _runtime(
         reference_authority=OnlySyntheticFuturesReferenceAuthority(),
         policy_compiler=OnlySyntheticFuturesPolicyCompiler(),
         market_fee_pack=fee_pack,
-        effective_config_fingerprint=only_identity_fingerprint(("TEST_LINEAR_FUTURE", "1")),
+        effective_config_fingerprint=only_identity_fingerprint(("TEST_LINEAR_FUTURE", "1", position_mode, margin_mode)),
+        effective_trading_profile=only_synthetic_futures_effective_profile(position_mode, margin_mode),
     )
     rules = OnlyMarketRuleEngine(
         binding=binding,
@@ -177,7 +201,9 @@ def _runtime(
             OnlyRuntimePersistenceBackend.SQLITE,
             checkpoint=OnlyRuntimeCheckpointConfig(True),
         ),
-        config_fingerprint=only_identity_fingerprint((ENGINE, str(RUNTIME), "synthetic-futures-v1")),
+        config_fingerprint=only_identity_fingerprint(
+            (ENGINE, str(RUNTIME), "synthetic-futures-v2", position_mode, margin_mode)
+        ),
         plugin_resources=(broker,),
     )
     bar_type = OnlyBarType(
@@ -266,7 +292,7 @@ def test_synthetic_futures_round_trip_and_daily_mtm_use_one_runtime_and_virtual_
         runtime.process_bar(_bar(bar_type, 1, "100.00"))
         runtime.drain_broker_inbound()
         assert runtime.position_manager.snapshot_all()[0].total_quantity.value == Decimal("1")
-        assert runtime.margin_manager.occupied(str(ACCOUNT), str(INSTRUMENT), USD.code) == Decimal("120.00")
+        assert _occupied_margin(runtime) == Decimal("120.00")
 
         _settlement(runtime, 2, "110.00")
         account_after_settlement = runtime.account_manager.require_snapshot(ACCOUNT)
@@ -288,7 +314,7 @@ def test_synthetic_futures_round_trip_and_daily_mtm_use_one_runtime_and_virtual_
         runtime.drain_broker_inbound()
 
         assert runtime.position_manager.snapshot_all() == ()
-        assert runtime.margin_manager.occupied(str(ACCOUNT), str(INSTRUMENT), USD.code) == Decimal("0.00")
+        assert _occupied_margin(runtime) == Decimal("0.00")
         account = runtime.account_manager.require_snapshot(ACCOUNT)
         ledger = runtime.strategy_ledger_manager.list_ledgers()[0]
         assert account.cash.ledger_cash.amount == ledger.cash.ledger_cash.amount == Decimal("100097.90")
@@ -374,6 +400,63 @@ def test_synthetic_futures_checkpoint_restores_equal_world_and_can_continue_clos
         assert recovered.margin_manager.occupied(str(ACCOUNT), str(INSTRUMENT), USD.code) == Decimal("0.00")
     finally:
         recovered.stop()
+
+
+@pytest.mark.parametrize("position_mode", tuple(OnlyPositionMode))
+@pytest.mark.parametrize("margin_mode", (OnlyMarginMode.CROSS, OnlyMarginMode.ISOLATED))
+def test_synthetic_futures_effective_modes_execute_short_round_trip_without_provider_branch(
+    position_mode: OnlyPositionMode, margin_mode: OnlyMarginMode
+) -> None:
+    runtime, cluster, bar_type = _runtime(position_mode=position_mode, margin_mode=margin_mode)
+    runtime.start()
+    try:
+        _settlement(runtime, 0, "100.00")
+        cluster.pending_order = OnlyOrderRequest(
+            OnlyOrderRequestId(f"short-open-{position_mode.value}-{margin_mode.value}"),
+            INSTRUMENT,
+            OnlyOrderSide.SELL,
+            OnlyOrderType.LIMIT,
+            OnlyQuantity(Decimal("1"), 0),
+            OnlyTimeInForce.GTC,
+            offset=OnlyOffset.OPEN,
+            price=OnlyPrice(Decimal("100.00"), 2),
+            execution_intent=OnlyExecutionIntent(
+                OnlyOrderSide.SELL,
+                OnlyPositionSide.SHORT,
+                OnlyPositionEffect.OPEN,
+                position_mode=position_mode,
+            ),
+        )
+        runtime.process_bar(_bar(bar_type, 0, "100.00"))
+        runtime.process_bar(_bar(bar_type, 1, "100.00"))
+        runtime.drain_broker_inbound()
+        (position,) = runtime.position_manager.snapshot_all()
+        assert position.position_side.value == "SHORT"
+        assert _occupied_margin(runtime) == Decimal("120.00")
+
+        cluster.pending_order = OnlyOrderRequest(
+            OnlyOrderRequestId(f"short-close-{position_mode.value}-{margin_mode.value}"),
+            INSTRUMENT,
+            OnlyOrderSide.BUY,
+            OnlyOrderType.LIMIT,
+            OnlyQuantity(Decimal("1"), 0),
+            OnlyTimeInForce.GTC,
+            offset=OnlyOffset.CLOSE,
+            price=OnlyPrice(Decimal("100.00"), 2),
+            execution_intent=OnlyExecutionIntent(
+                OnlyOrderSide.BUY,
+                OnlyPositionSide.SHORT,
+                OnlyPositionEffect.CLOSE,
+                position_mode=position_mode,
+            ),
+        )
+        runtime.process_bar(_bar(bar_type, 2, "100.00"))
+        runtime.process_bar(_bar(bar_type, 3, "100.00"))
+        runtime.drain_broker_inbound()
+        assert runtime.position_manager.snapshot_all() == ()
+        assert _occupied_margin(runtime) == Decimal("0.00")
+    finally:
+        runtime.stop()
 
 
 def test_checkpointed_partial_settlement_is_forward_recovered_before_runtime_ready(

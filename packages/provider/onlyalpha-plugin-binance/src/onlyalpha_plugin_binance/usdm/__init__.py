@@ -13,6 +13,7 @@ from .market_product import (
     OnlyBinanceUsdmReferenceAuthority,
 )
 from .orders import only_binance_usdm_order_parameters
+from .reference import OnlyBinanceUsdmReferenceCapture, OnlyBinanceUsdmReferenceClient
 
 __all__ = [
     "OnlyBinanceUsdmHistoricalNormalizer",
@@ -23,5 +24,7 @@ __all__ = [
     "OnlyBinanceUsdmPolicyCompiler",
     "OnlyBinanceUsdmReference",
     "OnlyBinanceUsdmReferenceAuthority",
+    "OnlyBinanceUsdmReferenceCapture",
+    "OnlyBinanceUsdmReferenceClient",
     "only_binance_usdm_order_parameters",
 ]

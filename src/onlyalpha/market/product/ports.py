@@ -9,8 +9,10 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Protocol, Self
 
+from onlyalpha.domain.enums import OnlyMarginMode
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.time import OnlyTradingDay
+from onlyalpha.domain.trading import OnlyPositionMode
 from onlyalpha.identity import only_identity_fingerprint
 from onlyalpha.market.economics import (
     OnlyCompiledFundingPolicy,
@@ -19,6 +21,8 @@ from onlyalpha.market.economics import (
     OnlyCompiledValuationPolicy,
     OnlyCompiledVariationMarginPolicy,
     OnlyEconomicModel,
+    OnlyEffectiveTradingProfile,
+    OnlyMarginIsolationScope,
 )
 from onlyalpha.market.models import (
     OnlyCompiledDynamicPriceRequirement,
@@ -100,13 +104,14 @@ class OnlyCompiledMarketPolicy:
     margin_policy: OnlyMarginModel | None
     notional_policy: OnlyCompiledNotionalPolicy | None
     dynamic_price_requirements: tuple[OnlyCompiledDynamicPriceRequirement, ...]
-    policy_schema_version: int = 2
+    policy_schema_version: int = 3
     economic_model: OnlyEconomicModel = OnlyEconomicModel.CASH_EXCHANGE
     order_capability_policy: OnlyCompiledOrderCapabilityPolicy | None = None
     compiled_margin_policy: OnlyCompiledMarginPolicy | None = None
     valuation_policy: OnlyCompiledValuationPolicy | None = None
     funding_policy: OnlyCompiledFundingPolicy | None = None
     variation_margin_policy: OnlyCompiledVariationMarginPolicy | None = None
+    effective_trading_profile: OnlyEffectiveTradingProfile | None = None
 
     @classmethod
     def create(
@@ -132,6 +137,7 @@ class OnlyCompiledMarketPolicy:
         valuation_policy: OnlyCompiledValuationPolicy | None = None,
         funding_policy: OnlyCompiledFundingPolicy | None = None,
         variation_margin_policy: OnlyCompiledVariationMarginPolicy | None = None,
+        effective_trading_profile: OnlyEffectiveTradingProfile | None = None,
     ) -> Self:
         policies = (
             instrument_terms,
@@ -144,13 +150,14 @@ class OnlyCompiledMarketPolicy:
             margin_policy,
             notional_policy,
             dynamic_price_requirements,
-            2,
+            3,
             economic_model,
             order_capability_policy,
             compiled_margin_policy,
             valuation_policy,
             funding_policy,
             variation_margin_policy,
+            effective_trading_profile,
         )
         identity = OnlyCompiledMarketPolicyIdentity(
             instrument_id,
@@ -171,13 +178,14 @@ class OnlyCompiledMarketPolicy:
             margin_policy,
             notional_policy,
             dynamic_price_requirements,
-            2,
+            3,
             economic_model,
             order_capability_policy,
             compiled_margin_policy,
             valuation_policy,
             funding_policy,
             variation_margin_policy,
+            effective_trading_profile,
         )
 
     def __post_init__(self) -> None:
@@ -200,19 +208,62 @@ class OnlyCompiledMarketPolicy:
                 self.valuation_policy,
                 self.funding_policy,
                 self.variation_margin_policy,
+                self.effective_trading_profile,
             )
         )
         if self.identity.policy_fingerprint != expected:
             raise ValueError("COMPILED_MARKET_POLICY_FINGERPRINT_CONFLICT")
-        if self.policy_schema_version != 2:
+        if self.policy_schema_version != 3:
             raise ValueError("COMPILED_MARKET_POLICY_SCHEMA_UNSUPPORTED")
         if self.margin_policy is not None:
             raise ValueError("LEGACY_MARGIN_POLICY_MUST_BE_NORMALIZED")
         if self.economic_model is OnlyEconomicModel.CASH_EXCHANGE:
-            if self.compiled_margin_policy is not None or self.funding_policy is not None:
+            if (
+                self.compiled_margin_policy is not None
+                or self.funding_policy is not None
+                or self.effective_trading_profile is not None
+            ):
                 raise ValueError("CASH_EXCHANGE_DERIVATIVE_POLICY_CONFLICT")
-        elif self.compiled_margin_policy is None or self.valuation_policy is None:
+        elif (
+            self.compiled_margin_policy is None
+            or self.valuation_policy is None
+            or self.effective_trading_profile is None
+        ):
             raise ValueError("MARGINED_DERIVATIVE_POLICY_INCOMPLETE")
+        if self.effective_trading_profile is not None:
+            if (
+                self.order_capability_policy is None
+                or self.effective_trading_profile.position_mode
+                not in self.order_capability_policy.supported_position_modes
+            ):
+                raise ValueError("EFFECTIVE_POSITION_MODE_NOT_SUPPORTED")
+            margin_mode = self.effective_trading_profile.margin_mode
+            if margin_mode is OnlyMarginMode.CROSS and (
+                self.compiled_margin_policy is None
+                or self.compiled_margin_policy.isolation_scope is not OnlyMarginIsolationScope.ACCOUNT
+            ):
+                raise ValueError("CROSS_MARGIN_SCOPE_INVALID")
+            if margin_mode is OnlyMarginMode.ISOLATED and (
+                self.compiled_margin_policy is None
+                or self.compiled_margin_policy.isolation_scope is OnlyMarginIsolationScope.ACCOUNT
+            ):
+                raise ValueError("ISOLATED_MARGIN_SCOPE_INVALID")
+
+    @property
+    def position_mode(self) -> OnlyPositionMode:
+        return (
+            OnlyPositionMode.NETTING
+            if self.effective_trading_profile is None
+            else self.effective_trading_profile.position_mode
+        )
+
+    @property
+    def margin_mode(self) -> OnlyMarginMode:
+        return (
+            OnlyMarginMode.CASH
+            if self.effective_trading_profile is None
+            else self.effective_trading_profile.margin_mode
+        )
 
     def policy_payload(self) -> tuple[object, ...]:
         return (
@@ -233,6 +284,7 @@ class OnlyCompiledMarketPolicy:
             self.valuation_policy,
             self.funding_policy,
             self.variation_margin_policy,
+            self.effective_trading_profile,
         )
 
 
@@ -262,6 +314,7 @@ class OnlyMarketPolicyCompilationRequest:
     trading_day: OnlyTradingDay
     reference_authority: OnlyMarketReferenceAuthority
     as_of: datetime | None = None
+    effective_trading_profile: OnlyEffectiveTradingProfile | None = None
 
     def __post_init__(self) -> None:
         if self.as_of is not None:
@@ -297,6 +350,7 @@ def _policy_identity_payload(
     valuation_policy: OnlyCompiledValuationPolicy | None,
     funding_policy: OnlyCompiledFundingPolicy | None,
     variation_margin_policy: OnlyCompiledVariationMarginPolicy | None,
+    effective_trading_profile: OnlyEffectiveTradingProfile | None,
 ) -> tuple[object, ...]:
     sessions = tuple(
         (
@@ -342,7 +396,7 @@ def _policy_identity_payload(
             quantity_policy.market_quantity_increment,
             quantity_policy.market_maximum_quantity,
         ),
-        (position_policy.mode, position_policy.allow_flip),
+        (position_policy.allow_flip,),
         (short_policy.mode,),
         (
             settlement_policy.model_id,
@@ -381,6 +435,7 @@ def _policy_identity_payload(
         None if valuation_policy is None else valuation_policy.canonical_identity(),
         None if funding_policy is None else funding_policy.canonical_identity(),
         None if variation_margin_policy is None else variation_margin_policy.canonical_identity(),
+        None if effective_trading_profile is None else effective_trading_profile.canonical_identity(),
     )
 
 

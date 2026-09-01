@@ -175,7 +175,7 @@ from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
 from onlyalpha.margin.models import OnlyMarginReservation
 from onlyalpha.margin.order_port import OnlyOrderMarginReservationAdapter
 from onlyalpha.market.economics import OnlyCompiledFundingPolicy, OnlyEconomicModel
-from onlyalpha.market.models import OnlyMarketPositionMode, OnlyPositionEffect
+from onlyalpha.market.models import OnlyPositionEffect
 from onlyalpha.market.runtime_rules import OnlyTradeApplicationRequest
 from onlyalpha.market_data.aggregation.manager import OnlyBarAggregationManager
 from onlyalpha.market_data.cache import OnlyMarketDataCache
@@ -601,7 +601,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
                 and runtime_config.market_rule_engine.position_mode(
                     str(order.instrument_id), selected_calendar.trading_day_at(timestamp)
                 )
-                is OnlyMarketPositionMode.HEDGING
+                is OnlyPositionMode.HEDGING
                 else OnlyPositionMode.NETTING
             ),
         )

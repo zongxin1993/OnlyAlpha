@@ -247,7 +247,7 @@ class OnlyOrderSnapshot(OnlyDomainModel):
                 offset=OnlyOffset(str(compatible["offset"])),
             ).to_dict()
             compatible["schema_version"] = cls.schema_version
-        return OnlyDomainModel.from_dict.__func__(cls, compatible)
+        return super(OnlyOrderSnapshot, cls).from_dict(compatible)
 
 
 @dataclass(frozen=True, slots=True)

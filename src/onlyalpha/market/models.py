@@ -27,12 +27,6 @@ class OnlySettlementTiming(StrEnum):
     FUTURES_DAILY_MARK_TO_MARK = "FUTURES_DAILY_MARK_TO_MARK"
 
 
-class OnlyMarketPositionMode(StrEnum):
-    LONG_ONLY = "LONG_ONLY"
-    NETTING = "NETTING"
-    HEDGING = "HEDGING"
-
-
 class OnlyShortSellingMode(StrEnum):
     DISABLED = "DISABLED"
     ENABLED_WITH_BORROW = "ENABLED_WITH_BORROW"
@@ -121,7 +115,6 @@ class OnlySettlementModel:
 
 @dataclass(frozen=True, slots=True)
 class OnlyPositionAccountingModel:
-    mode: OnlyMarketPositionMode
     allow_flip: bool = False
 
 

@@ -11,7 +11,6 @@ from onlyalpha.identity import only_identity_fingerprint
 from onlyalpha.market.models import (
     OnlyCompiledPriceBandPolicy,
     OnlyCompiledQuantityPolicy,
-    OnlyMarketPositionMode,
     OnlyPositionAccountingModel,
     OnlyPriceBandRoundingMode,
     OnlySettlementModel,
@@ -98,7 +97,7 @@ class _Compiler:
             quantity_policy=OnlyCompiledQuantityPolicy(
                 Decimal("7"), Decimal("7"), Decimal("7"), Decimal("7"), False, None, False
             ),
-            position_policy=OnlyPositionAccountingModel(OnlyMarketPositionMode.LONG_ONLY),
+            position_policy=OnlyPositionAccountingModel(),
             short_policy=OnlyShortSellingRule(OnlyShortSellingMode.DISABLED),
             settlement_policy=OnlySettlementModel("TEST_T2", t2, t2, t2, immediate),
             margin_policy=None,

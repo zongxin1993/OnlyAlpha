@@ -14,19 +14,22 @@ from onlyalpha.domain.trading import (
 )
 from onlyalpha.identity import only_identity_fingerprint
 from onlyalpha.market.economics import (
+    OnlyAccountEffectiveTradingInputs,
     OnlyCompiledFundingPolicy,
     OnlyCompiledMarginPolicy,
     OnlyCompiledOrderCapabilityPolicy,
     OnlyCompiledValuationPolicy,
     OnlyEconomicModel,
+    OnlyEffectiveTradingProfile,
     OnlyMarginIsolationScope,
-    OnlyMarginRequirementTier,
+    OnlyMarginRequirementSegment,
+    OnlyProviderCapabilityEnvelope,
     OnlyReferencePriceKind,
+    OnlyRequestedTradingProfile,
 )
 from onlyalpha.market.models import (
     OnlyCompiledPriceBandPolicy,
     OnlyCompiledQuantityPolicy,
-    OnlyMarketPositionMode,
     OnlyPositionAccountingModel,
     OnlyPriceBandRoundingMode,
     OnlySettlementModel,
@@ -46,7 +49,11 @@ from onlyalpha.market.product import (
 )
 
 
-def _futures_policy(*, initial_rate: Decimal = Decimal("0.10")) -> OnlyCompiledMarketPolicy:
+def _futures_policy(
+    *,
+    initial_rate: Decimal = Decimal("0.10"),
+    isolation_scope: OnlyMarginIsolationScope = OnlyMarginIsolationScope.ACCOUNT,
+) -> OnlyCompiledMarketPolicy:
     compiler = OnlyMarketProductAuthorityIdentity(
         "POLICY_COMPILER", "synthetic-futures", "1", only_identity_fingerprint(("synthetic-futures", "1"))
     )
@@ -66,7 +73,7 @@ def _futures_policy(*, initial_rate: Decimal = Decimal("0.10")) -> OnlyCompiledM
         quantity_policy=OnlyCompiledQuantityPolicy(
             Decimal("1"), Decimal("1"), Decimal("1"), Decimal("1"), False, None, False
         ),
-        position_policy=OnlyPositionAccountingModel(OnlyMarketPositionMode.NETTING),
+        position_policy=OnlyPositionAccountingModel(),
         short_policy=OnlyShortSellingRule(OnlyShortSellingMode.ENABLED_UNRESTRICTED),
         settlement_policy=OnlySettlementModel("FUTURES", immediate, immediate, immediate, immediate),
         margin_policy=None,
@@ -80,31 +87,62 @@ def _futures_policy(*, initial_rate: Decimal = Decimal("0.10")) -> OnlyCompiledM
             (OnlyPositionMode.NETTING, OnlyPositionMode.HEDGING),
         ),
         compiled_margin_policy=OnlyCompiledMarginPolicy(
-            OnlyMarginMode.CROSS,
             "USD",
-            OnlyMarginIsolationScope.ACCOUNT,
+            isolation_scope,
             OnlyReferencePriceKind.MARK,
             (
-                OnlyMarginRequirementTier(Decimal("100000"), initial_rate, Decimal("0.05")),
-                OnlyMarginRequirementTier(None, Decimal("0.20"), Decimal("0.10")),
+                OnlyMarginRequirementSegment(
+                    Decimal(0),
+                    Decimal("100000"),
+                    initial_rate,
+                    Decimal(0),
+                    Decimal("0.05"),
+                    Decimal(0),
+                ),
+                OnlyMarginRequirementSegment(
+                    Decimal("100000"),
+                    None,
+                    Decimal("0.20"),
+                    (initial_rate - Decimal("0.20")) * Decimal("100000"),
+                    Decimal("0.10"),
+                    Decimal("-5000"),
+                ),
             ),
         ),
         valuation_policy=OnlyCompiledValuationPolicy(OnlyReferencePriceKind.MARK, OnlyReferencePriceKind.MARK),
         funding_policy=OnlyCompiledFundingPolicy(8 * 60 * 60, OnlyReferencePriceKind.MARK),
+        effective_trading_profile=_profile(),
+    )
+
+
+def _profile() -> OnlyEffectiveTradingProfile:
+    source = only_identity_fingerprint(("TEST_ACCOUNT_PROFILE", "NETTING", "CROSS", "10"))
+    return OnlyEffectiveTradingProfile.resolve(
+        OnlyProviderCapabilityEnvelope(
+            (OnlyPositionMode.NETTING, OnlyPositionMode.HEDGING),
+            (OnlyMarginMode.CROSS, OnlyMarginMode.ISOLATED),
+        ),
+        OnlyRequestedTradingProfile(OnlyPositionMode.NETTING, OnlyMarginMode.CROSS, Decimal("10")),
+        OnlyAccountEffectiveTradingInputs(
+            OnlyPositionMode.NETTING,
+            OnlyMarginMode.CROSS,
+            Decimal("10"),
+            source,
+        ),
     )
 
 
 def test_tiered_margin_requirement_and_policy_identity_are_deterministic() -> None:
     policy = _futures_policy()
-    assert policy.policy_schema_version == 2
+    assert policy.policy_schema_version == 3
     assert policy.compiled_margin_policy is not None
     assert policy.compiled_margin_policy.requirement(Decimal("50000")) == (
         Decimal("5000.00"),
         Decimal("2500.00"),
     )
     assert policy.compiled_margin_policy.requirement(Decimal("150000")) == (
-        Decimal("30000.00"),
-        Decimal("15000.00"),
+        Decimal("20000.00"),
+        Decimal("10000.00"),
     )
     assert _futures_policy().identity.policy_fingerprint == policy.identity.policy_fingerprint
     assert (
@@ -114,10 +152,4 @@ def test_tiered_margin_requirement_and_policy_identity_are_deterministic() -> No
 
 def test_invalid_margin_scope_and_cash_derivative_policy_fail_closed() -> None:
     with pytest.raises(ValueError, match="CROSS_MARGIN_SCOPE"):
-        OnlyCompiledMarginPolicy(
-            OnlyMarginMode.CROSS,
-            "USD",
-            OnlyMarginIsolationScope.POSITION_LEG,
-            OnlyReferencePriceKind.MARK,
-            (OnlyMarginRequirementTier(None, Decimal("0.1"), Decimal("0.05")),),
-        )
+        _futures_policy(isolation_scope=OnlyMarginIsolationScope.POSITION_LEG)

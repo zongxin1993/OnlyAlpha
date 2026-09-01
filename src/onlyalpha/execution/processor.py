@@ -33,7 +33,6 @@ from onlyalpha.event.model import OnlyEvent
 from onlyalpha.fee.ledger import OnlyFeeApplicationLedger
 from onlyalpha.fee.resolver import OnlyFeeResolver
 from onlyalpha.margin.manager import OnlyMarginManager
-from onlyalpha.market.models import OnlyMarketPositionMode
 from onlyalpha.market.runtime_rules import (
     OnlyTradeApplicationInstruction,
     OnlyTradeApplicationRequest,
@@ -1656,9 +1655,7 @@ class OnlyExecutionProcessor:
         self._trade_instructions[str(update.fill.trade_id)] = instruction
         compiled = self._market_rules.compiled_rules(str(order.instrument_id), trading_day)
         mode = (
-            OnlyPositionMode.HEDGING
-            if compiled.position_policy.mode is OnlyMarketPositionMode.HEDGING
-            else OnlyPositionMode.NETTING
+            OnlyPositionMode.HEDGING if compiled.position_mode is OnlyPositionMode.HEDGING else OnlyPositionMode.NETTING
         )
         return self._position_scope_resolver.resolve_trade(order, instruction, mode)
 

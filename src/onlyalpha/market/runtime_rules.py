@@ -10,7 +10,7 @@ from typing import Protocol
 from zoneinfo import ZoneInfo
 
 from onlyalpha.canonical import only_canonical_fingerprint
-from onlyalpha.domain.enums import OnlyMarginMode, OnlyOrderSide, OnlyOrderType, OnlyTimeInForce
+from onlyalpha.domain.enums import OnlyCurrencyType, OnlyMarginMode, OnlyOrderSide, OnlyOrderType, OnlyTimeInForce
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay, only_require_utc
 from onlyalpha.domain.trading import (
@@ -21,10 +21,10 @@ from onlyalpha.domain.trading import (
 )
 from onlyalpha.market.economics import OnlyEconomicModel, OnlyMarginIsolationScope
 from onlyalpha.market.models import (
-    OnlyMarketPositionMode,
     OnlyMarketRuleEvaluation,
     OnlyMarketRuleEvaluationStatus,
     OnlyPositionEffect,
+    OnlyShortSellingMode,
     OnlyTradingDayAdvancer,
     OnlyTradingPhase,
 )
@@ -150,6 +150,8 @@ class OnlyMarginInstruction:
     margin_mode: str = "CROSS"
     isolation_key: str | None = None
     position_side: str = "LONG"
+    currency_precision: int = 2
+    currency_type: OnlyCurrencyType = OnlyCurrencyType.FIAT
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,7 +193,7 @@ class OnlyPreTradeMarketRulePort(Protocol):
     @property
     def market_product_provider(self) -> str: ...
 
-    def position_mode(self, instrument_id: str, trading_day: OnlyTradingDay) -> OnlyMarketPositionMode: ...
+    def position_mode(self, instrument_id: str, trading_day: OnlyTradingDay) -> OnlyPositionMode: ...
 
     def evaluate_pre_trade(self, context: OnlyPreTradeMarketContext) -> OnlyMarketOrderDecision: ...
 
@@ -259,6 +261,7 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
                 trading_day,
                 self._binding.reference_authority,
                 as_of,
+                self._binding.effective_trading_profile,
             )
         )
         key = (instrument_id, trading_day.value, compiled.identity.reference_fingerprint)
@@ -510,18 +513,9 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
             (("position_side", canonical_side.value),),
         )
         position_supported = not (
-            rules.position_policy.mode is OnlyMarketPositionMode.LONG_ONLY
-            and (
-                (context.side is OnlyOrderSide.SELL and effect is OnlyPositionEffect.OPEN)
-                or (context.side is OnlyOrderSide.BUY and effect is not OnlyPositionEffect.OPEN)
-            )
+            rules.short_policy.mode is OnlyShortSellingMode.DISABLED and canonical_side is OnlyPositionSide.SHORT
         )
-        expected_position_mode = (
-            OnlyPositionMode.HEDGING
-            if rules.position_policy.mode is OnlyMarketPositionMode.HEDGING
-            else OnlyPositionMode.NETTING
-        )
-        position_supported = position_supported and context.position_mode is expected_position_mode
+        position_supported = position_supported and context.position_mode is rules.position_mode
         record(
             "SIDE_POSITION_EFFECT",
             passed if position_supported else failed_status,
@@ -735,10 +729,10 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
         self._decisions.append(decision)
         return decision
 
-    def position_mode(self, instrument_id: str, trading_day: OnlyTradingDay) -> OnlyMarketPositionMode:
+    def position_mode(self, instrument_id: str, trading_day: OnlyTradingDay) -> OnlyPositionMode:
         """Expose the compiled position identity without leaking the compiled rule container."""
 
-        return self.compiled_rules(instrument_id, trading_day).position_policy.mode
+        return self.compiled_rules(instrument_id, trading_day).position_mode
 
     def build_trade_instruction(self, request: OnlyTradeApplicationRequest) -> OnlyTradeApplicationInstruction:
         rules = self.compiled_rules(request.instrument_id, request.trading_day, as_of=request.timestamp)
@@ -759,6 +753,9 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
         margin = None
         requirement = self._margin_requirement(rules, notional, request.price, request.quantity)
         if requirement is not None:
+            compiled_margin = rules.compiled_margin_policy
+            if compiled_margin is None:
+                raise ValueError("MARGIN_REQUIREMENT_AUTHORITY_MISSING")
             margin_mode, isolation_key = self._margin_scope(rules, request.instrument_id, position_side)
             margin = OnlyMarginInstruction(
                 "OCCUPY" if effect is OnlyPositionEffect.OPEN else "RELEASE",
@@ -773,6 +770,8 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
                 margin_mode.value,
                 isolation_key,
                 position_side,
+                compiled_margin.collateral_currency_precision,
+                compiled_margin.collateral_currency_type,
             )
         position = OnlyPositionInstruction(
             request.instrument_id,
@@ -804,7 +803,7 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
     def _position_effect(rules: OnlyCompiledMarketPolicy, context: OnlyPreTradeMarketContext) -> OnlyPositionEffect:
         if context.position_effect is not OnlyPositionEffect.AUTO:
             return context.position_effect
-        if rules.position_policy.mode is OnlyMarketPositionMode.LONG_ONLY:
+        if rules.short_policy.mode is OnlyShortSellingMode.DISABLED:
             return OnlyPositionEffect.OPEN if context.side is OnlyOrderSide.BUY else OnlyPositionEffect.CLOSE
         return OnlyPositionEffect.OPEN
 
@@ -821,6 +820,9 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
         requirement = self._margin_requirement(rules, notional, request.price, request.quantity)
         if requirement is None:
             return None
+        compiled_margin = rules.compiled_margin_policy
+        if compiled_margin is None:
+            raise ValueError("MARGIN_REQUIREMENT_AUTHORITY_MISSING")
         position_side = "LONG" if request.side is OnlyOrderSide.BUY else "SHORT"
         margin_mode, isolation_key = self._margin_scope(rules, request.instrument_id, position_side)
         return OnlyMarginInstruction(
@@ -836,6 +838,8 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
             margin_mode.value,
             isolation_key,
             position_side,
+            compiled_margin.collateral_currency_precision,
+            compiled_margin.collateral_currency_type,
         )
 
     @staticmethod
@@ -861,11 +865,11 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
         policy = rules.compiled_margin_policy
         if policy is None:
             return OnlyMarginMode.CROSS, None
-        if policy.margin_mode is OnlyMarginMode.CROSS:
-            return policy.margin_mode, None
+        if rules.margin_mode is OnlyMarginMode.CROSS:
+            return rules.margin_mode, None
         isolation_key = (
             instrument_id
             if policy.isolation_scope is OnlyMarginIsolationScope.INSTRUMENT
             else f"{instrument_id}:{position_side}"
         )
-        return policy.margin_mode, isolation_key
+        return rules.margin_mode, isolation_key

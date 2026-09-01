@@ -108,7 +108,11 @@ class OnlyMarginManager:
             account_id = OnlyAccountId(instruction.account_id)
             instrument_id = OnlyInstrumentId.parse(instruction.instrument_id)
             order_id = OnlyOrderId(instruction.source_order_id)
-            currency = OnlyCurrency(instruction.currency)
+            currency = OnlyCurrency(
+                instruction.currency,
+                instruction.currency_precision,
+                instruction.currency_type,
+            )
             original = reserved = occupied = released = maintenance = Decimal(0)
             created_at = instruction.timestamp
             version = 0
@@ -283,7 +287,7 @@ class OnlyMarginManager:
 
     def capture_checkpoint(self) -> object:
         return {
-            "schema_version": 3,
+            "schema_version": 4,
             "occupied": [[list(key), str(value[0]), str(value[1])] for key, value in sorted(self._occupied.items())],
             "records": [
                 {
@@ -305,7 +309,7 @@ class OnlyMarginManager:
                 {
                     "account_id": str(item.account_id),
                     "created_at_ns": item.created_at.unix_nanos,
-                    "currency": item.currency.code,
+                    "currency": item.currency.to_dict(),
                     "instrument_id": str(item.instrument_id),
                     "maintenance_required": str(item.maintenance_required),
                     "margin_mode": item.margin_mode.value,
@@ -325,7 +329,7 @@ class OnlyMarginManager:
         }
 
     def restore_checkpoint(self, payload: object) -> None:
-        if not isinstance(payload, dict) or payload.get("schema_version") != 3:
+        if not isinstance(payload, dict) or payload.get("schema_version") != 4:
             raise ValueError("Margin checkpoint must be an object")
         self._states = {}
         for item in payload["states"]:
@@ -337,7 +341,7 @@ class OnlyMarginManager:
                 OnlyAccountId(str(item["account_id"])),
                 OnlyInstrumentId.parse(str(item["instrument_id"])),
                 OnlyOrderId(str(item["source_order_id"])),
-                OnlyCurrency(str(item["currency"])),
+                OnlyCurrency.from_dict(item["currency"]),
                 Decimal(str(item["original_reserved"])),
                 Decimal(str(item["reserved"])),
                 Decimal(str(item["occupied"])),
@@ -346,7 +350,7 @@ class OnlyMarginManager:
                 OnlyTimestamp.from_unix_nanos(int(item["created_at_ns"])),
                 OnlyTimestamp.from_unix_nanos(int(item["updated_at_ns"])),
                 int(item["version"]),
-                OnlyMarginMode(str(item.get("margin_mode", "CROSS"))),
+                OnlyMarginMode(str(item["margin_mode"])),
                 None if item.get("isolation_key") is None else str(item["isolation_key"]),
                 OnlyPositionSide(str(item["position_side"])),
             )
@@ -383,7 +387,11 @@ class OnlyMarginManager:
 
     @staticmethod
     def _normalize_instruction(instruction: OnlyMarginInstruction) -> OnlyMarginInstruction:
-        currency = OnlyCurrency(instruction.currency)
+        currency = OnlyCurrency(
+            instruction.currency,
+            instruction.currency_precision,
+            instruction.currency_type,
+        )
         quantum = Decimal(1).scaleb(-currency.precision)
         return replace(
             instruction,

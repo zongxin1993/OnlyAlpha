@@ -2,6 +2,7 @@ from decimal import Decimal
 
 import pytest
 
+from onlyalpha.domain.enums import OnlyCurrencyType
 from onlyalpha.domain.identifiers import OnlyOrderId, OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.margin import OnlyMarginManager
@@ -83,6 +84,36 @@ def test_partial_occupations_restore_identical_maintenance_state() -> None:
 
     assert restored.capture_checkpoint() == before
     assert restored.get("a").maintenance_required == Decimal("5")  # type: ignore[union-attr]
+
+
+def test_margin_checkpoint_preserves_full_collateral_currency_identity_and_rejects_old_schema() -> None:
+    manager = OnlyMarginManager(OnlyRuntimeId("margin-crypto"))
+    instruction = OnlyMarginInstruction(
+        "RESERVE",
+        "account-1",
+        "PERP.BINANCE",
+        "USDT",
+        Decimal("1.00000000"),
+        Decimal("0.50000000"),
+        "crypto-order",
+        "crypto-trade",
+        OnlyTimestamp(1),
+        "CROSS",
+        None,
+        "LONG",
+        8,
+        OnlyCurrencyType.CRYPTO,
+    )
+    manager.apply(instruction)
+    checkpoint = manager.capture_checkpoint()
+    restored = OnlyMarginManager(OnlyRuntimeId("margin-crypto"))
+    restored.restore_checkpoint(checkpoint)
+    assert restored.active_reservations == manager.active_reservations
+
+    incompatible = dict(checkpoint)
+    incompatible["schema_version"] = 3
+    with pytest.raises(ValueError, match="Margin checkpoint"):
+        restored.restore_checkpoint(incompatible)
 
 
 def test_release_allocates_maintenance_across_multiple_reservations() -> None:

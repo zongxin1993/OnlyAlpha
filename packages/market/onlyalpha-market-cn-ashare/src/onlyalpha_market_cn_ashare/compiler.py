@@ -13,7 +13,6 @@ from onlyalpha.plugin.api import (
     OnlyCompiledQuantityPolicy,
     OnlyInstrumentTradingStatus,
     OnlyMarketPolicyCompilationRequest,
-    OnlyMarketPositionMode,
     OnlyMarketProductAuthorityIdentity,
     OnlyPositionAccountingModel,
     OnlyPriceBandRoundingMode,
@@ -53,7 +52,7 @@ _PRICE_LIMITS: dict[str, dict[tuple[OnlyCnAshareBoard, bool], Decimal]] = {
 }
 _T1 = OnlySettlementRule(OnlySettlementTiming.T_PLUS_ONE)
 _IMMEDIATE = OnlySettlementRule(OnlySettlementTiming.IMMEDIATE)
-_POSITION = OnlyPositionAccountingModel(OnlyMarketPositionMode.LONG_ONLY)
+_POSITION = OnlyPositionAccountingModel()
 _SHORT = OnlyShortSellingRule(OnlyShortSellingMode.DISABLED)
 
 
@@ -105,7 +104,7 @@ class OnlyCnAsharePolicyCompiler:
                     ),
                     session.continuous_24x7,
                 ),
-                (_POSITION.mode, _POSITION.allow_flip),
+                (_POSITION.allow_flip, "NETTING", "SHORT_DISABLED"),
                 (_SHORT.mode,),
                 "CN_A_SHARE_T1",
                 tuple(

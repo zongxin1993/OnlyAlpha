@@ -9,7 +9,7 @@ from decimal import Decimal
 from onlyalpha.domain.enums import OnlyLiquiditySide
 from onlyalpha.domain.execution import OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyTradeId
-from onlyalpha.domain.instrument import OnlyCryptoSpot, OnlyFuture, OnlyInstrument
+from onlyalpha.domain.instrument import OnlyCryptoPerpetual, OnlyCryptoSpot, OnlyFuture, OnlyInstrument
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice
 from onlyalpha.fee.assessment import OnlyTradeFeeAssessmentRequest
@@ -350,6 +350,8 @@ class OnlyFeeResolver:
 def _instrument_class(instrument: OnlyInstrument) -> str:
     if isinstance(instrument, OnlyFuture):
         return "FUTURES"
+    if isinstance(instrument, OnlyCryptoPerpetual):
+        return "DERIVATIVE"
     if isinstance(instrument, OnlyCryptoSpot):
         return "CRYPTO_SPOT"
     return "CASH"

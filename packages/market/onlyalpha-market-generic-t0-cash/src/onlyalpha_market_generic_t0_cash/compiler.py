@@ -12,7 +12,6 @@ from onlyalpha.plugin.api import (
     OnlyCompiledQuantityPolicy,
     OnlyInstrumentTradingStatus,
     OnlyMarketPolicyCompilationRequest,
-    OnlyMarketPositionMode,
     OnlyMarketProductAuthorityIdentity,
     OnlyPositionAccountingModel,
     OnlyPriceBandRoundingMode,
@@ -35,7 +34,7 @@ _SESSION = OnlyTradingSessionModel(
     (OnlyTradingSessionDefinition("regular", time(0), time(0), OnlyTradingPhase.CONTINUOUS),),
 )
 _SETTLEMENT = OnlySettlementModel("GENERIC_T0", _IMMEDIATE, _IMMEDIATE, _IMMEDIATE, _IMMEDIATE)
-_POSITION = OnlyPositionAccountingModel(OnlyMarketPositionMode.LONG_ONLY)
+_POSITION = OnlyPositionAccountingModel()
 _SHORT = OnlyShortSellingRule(OnlyShortSellingMode.DISABLED)
 
 
@@ -44,7 +43,7 @@ class OnlyGenericT0CashPolicyCompiler:
     identity: OnlyMarketProductAuthorityIdentity = OnlyMarketProductAuthorityIdentity(
         "POLICY_COMPILER",
         "GENERIC_T0_CASH",
-        "1",
+        "2",
         only_identity_fingerprint(
             (
                 "GENERIC_T0_CASH",
@@ -72,7 +71,7 @@ class OnlyGenericT0CashPolicyCompiler:
                     (_SETTLEMENT.asset_availability.timing, _SETTLEMENT.asset_availability.lag),
                     (_SETTLEMENT.cash_availability.timing, _SETTLEMENT.cash_availability.lag),
                 ),
-                (_POSITION.mode, _POSITION.allow_flip),
+                (_POSITION.allow_flip, "NETTING", "SHORT_DISABLED"),
                 (_SHORT.mode,),
                 "REFERENCE_TICK_QUANTITY_AND_TERMS",
             )

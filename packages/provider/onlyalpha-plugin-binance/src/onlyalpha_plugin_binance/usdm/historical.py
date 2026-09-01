@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -57,10 +58,50 @@ class OnlyBinanceUsdmHistoricalNormalizer:
         source_sequence: int,
         received_at: datetime,
     ) -> OnlyFundingRateFact:
+        return self.funding_boundary_facts(
+            raw,
+            instrument_id=instrument_id,
+            data_version=data_version,
+            source_sequence=source_sequence,
+            received_at=received_at,
+        )[1]
+
+    def funding_boundary_facts(
+        self,
+        raw: dict[str, object],
+        *,
+        instrument_id: OnlyInstrumentId,
+        data_version: str,
+        source_sequence: int,
+        received_at: datetime,
+    ) -> tuple[OnlyReferencePriceFact, OnlyFundingRateFact]:
+        rate_type = raw.get("rateType")
+        if rate_type is not None and rate_type not in {"REGULAR", "FUNDING_RATE"}:
+            raise ValueError("BINANCE_USDM_FUNDING_RATE_TYPE_UNSUPPORTED")
         timestamp = _timestamp(raw, "fundingTime")
-        fact_id = _fact_id("FUNDING_RATE", instrument_id, "FUNDING", timestamp, source_sequence, data_version)
-        return OnlyFundingRateFact(
-            fact_id,
+        canonical_raw = json.dumps(raw, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+        source_record_hash = hashlib.sha256(canonical_raw).hexdigest()
+        provider_evidence_id = f"BINANCE-USDM-FUNDING-{source_record_hash}"
+        mark_value = _decimal(raw, "markPrice")
+        exponent = mark_value.as_tuple().exponent
+        if not isinstance(exponent, int):
+            raise ValueError("BINANCE_USDM_MARKPRICE_INVALID")
+        mark = OnlyReferencePriceFact(
+            _fact_id("FUNDING_MARK", instrument_id, "MARK", timestamp, source_sequence, data_version),
+            instrument_id,
+            OnlyReferencePriceKind.MARK,
+            OnlyPrice(mark_value, max(-exponent, 0)),
+            timestamp,
+            _utc(received_at),
+            self.source,
+            source_sequence,
+            data_version,
+            1,
+            provider_evidence_id,
+            source_record_hash,
+        )
+        funding = OnlyFundingRateFact(
+            _fact_id("FUNDING_RATE", instrument_id, "FUNDING", timestamp, source_sequence, data_version),
             instrument_id,
             _decimal(raw, "fundingRate"),
             timestamp,
@@ -68,7 +109,11 @@ class OnlyBinanceUsdmHistoricalNormalizer:
             self.source,
             source_sequence,
             data_version,
+            0,
+            provider_evidence_id,
+            source_record_hash,
         )
+        return mark, funding
 
 
 def _decimal(raw: dict[str, object], name: str) -> Decimal:

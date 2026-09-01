@@ -114,10 +114,13 @@ class OnlyMarketProductCompositionIdentity:
     policy_compiler: OnlyMarketProductAuthorityIdentity
     market_fee_pack: OnlyMarketFeePackIdentity
     effective_config_fingerprint: str
+    effective_trading_profile_fingerprint: str | None
     fingerprint: str
 
     def __post_init__(self) -> None:
         _require_digest(self.effective_config_fingerprint, "effective config fingerprint")
+        if self.effective_trading_profile_fingerprint is not None:
+            _require_digest(self.effective_trading_profile_fingerprint, "effective trading profile fingerprint")
         _require_digest(self.fingerprint, "composition fingerprint")
         expected = only_identity_fingerprint(self.effective_authority_payload())
         if self.fingerprint != expected:
@@ -135,6 +138,7 @@ class OnlyMarketProductCompositionIdentity:
         policy_compiler: OnlyMarketProductAuthorityIdentity,
         market_fee_pack: OnlyMarketFeePackIdentity,
         effective_config_fingerprint: str,
+        effective_trading_profile_fingerprint: str | None = None,
     ) -> OnlyMarketProductCompositionIdentity:
         payload = (
             product_identity,
@@ -142,6 +146,7 @@ class OnlyMarketProductCompositionIdentity:
             policy_compiler,
             market_fee_pack,
             effective_config_fingerprint,
+            effective_trading_profile_fingerprint,
         )
         return cls(
             product_identity,
@@ -149,6 +154,7 @@ class OnlyMarketProductCompositionIdentity:
             policy_compiler,
             market_fee_pack,
             effective_config_fingerprint,
+            effective_trading_profile_fingerprint,
             only_identity_fingerprint(payload),
         )
 
@@ -159,11 +165,13 @@ class OnlyMarketProductCompositionIdentity:
             self.policy_compiler,
             self.market_fee_pack,
             self.effective_config_fingerprint,
+            self.effective_trading_profile_fingerprint,
         )
 
     def canonical_identity(self) -> dict[str, object]:
         return {
             "effective_config_fingerprint": self.effective_config_fingerprint,
+            "effective_trading_profile_fingerprint": self.effective_trading_profile_fingerprint,
             "market_fee_pack": self.market_fee_pack,
             "policy_compiler": self.policy_compiler,
             "product_identity": self.product_identity,

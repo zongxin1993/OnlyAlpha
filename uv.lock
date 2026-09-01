@@ -14,6 +14,7 @@ members = [
     "onlyalpha-client",
     "onlyalpha-gateway-protocol",
     "onlyalpha-market-binance-spot",
+    "onlyalpha-market-binance-usdm",
     "onlyalpha-market-cn-ashare",
     "onlyalpha-market-generic-t0-cash",
     "onlyalpha-plugin-binance",
@@ -1051,6 +1052,17 @@ dependencies = [
 requires-dist = [{ name = "onlyalpha", editable = "." }]
 
 [[package]]
+name = "onlyalpha-market-binance-usdm"
+version = "0.9.8"
+source = { editable = "packages/market/onlyalpha-market-binance-usdm" }
+dependencies = [
+    { name = "onlyalpha" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "onlyalpha", editable = "." }]
+
+[[package]]
 name = "onlyalpha-market-cn-ashare"
 version = "0.9.8"
 source = { editable = "packages/market/onlyalpha-market-cn-ashare" }
@@ -1111,6 +1123,7 @@ source = { editable = "packages/provider/onlyalpha-plugin-binance" }
 dependencies = [
     { name = "onlyalpha" },
     { name = "onlyalpha-market-binance-spot" },
+    { name = "onlyalpha-market-binance-usdm" },
     { name = "websocket-client" },
 ]
 
@@ -1118,6 +1131,7 @@ dependencies = [
 requires-dist = [
     { name = "onlyalpha", editable = "." },
     { name = "onlyalpha-market-binance-spot", editable = "packages/market/onlyalpha-market-binance-spot" },
+    { name = "onlyalpha-market-binance-usdm", editable = "packages/market/onlyalpha-market-binance-usdm" },
     { name = "websocket-client", specifier = ">=1.8,<2" },
 ]
 

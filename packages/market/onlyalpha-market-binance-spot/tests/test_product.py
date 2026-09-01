@@ -112,7 +112,8 @@ def test_exact_offline_binding_and_crypto_spot_policy_are_deterministic() -> Non
         )
     )
     assert policy.session_policy.timezone == "UTC" and policy.session_policy.continuous_24x7
-    assert policy.position_policy.mode.value == "LONG_ONLY" and policy.margin_policy is None
+    assert policy.position_mode.value == "NETTING" and policy.short_policy.mode.value == "DISABLED"
+    assert policy.margin_policy is None
     assert policy.price_policy.tick_size == Decimal("0.01")
     assert policy.quantity_policy.buy_quantity_increment == Decimal("0.00001")
     assert policy.quantity_policy.market_maximum_quantity is None

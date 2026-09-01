@@ -57,6 +57,7 @@ members = [
     "packages/market/onlyalpha-market-generic-t0-cash",
     "packages/market/onlyalpha-market-cn-ashare",
     "packages/market/onlyalpha-market-binance-spot",
+    "packages/market/onlyalpha-market-binance-usdm",
     "packages/provider/onlyalpha-plugin-tushare",
     "packages/provider/onlyalpha-plugin-binance",
     "packages/provider/onlyalpha-plugin-miniqmt",
@@ -103,6 +104,7 @@ files = [
     "packages/client/onlyalpha-client/src/onlyalpha_client",
     "packages/protocol/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol",
     "packages/market/onlyalpha-market-binance-spot/src/onlyalpha_market_binance_spot",
+    "packages/market/onlyalpha-market-binance-usdm/src/onlyalpha_market_binance_usdm",
     "packages/provider/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance",
 ]
 
@@ -119,6 +121,7 @@ onlyalpha-api = { workspace = true }
 onlyalpha-client = { workspace = true }
 onlyalpha-gateway-protocol = { workspace = true }
 onlyalpha-market-binance-spot = { workspace = true }
+onlyalpha-market-binance-usdm = { workspace = true }
 onlyalpha-plugin-binance = { workspace = true }
 
 [tool.pytest.ini_options]
@@ -128,6 +131,7 @@ testpaths = [
     "packages/market/onlyalpha-market-generic-t0-cash/tests",
     "packages/market/onlyalpha-market-cn-ashare/tests",
     "packages/market/onlyalpha-market-binance-spot/tests",
+    "packages/market/onlyalpha-market-binance-usdm/tests",
     "packages/provider/onlyalpha-plugin-binance/tests",
     "packages/provider/onlyalpha-plugin-tushare/tests",
     "packages/provider/onlyalpha-plugin-miniqmt/tests",

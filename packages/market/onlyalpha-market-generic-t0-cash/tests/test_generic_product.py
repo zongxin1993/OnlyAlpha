@@ -192,7 +192,8 @@ def test_policy_is_deterministic_and_contains_only_market_economics() -> None:
     assert first.quantity_policy.minimum_buy_quantity == Decimal("0.005")
     assert first.quantity_policy.buy_quantity_increment == Decimal("0.001")
     assert first.quantity_policy.allow_fractional is True
-    assert first.position_policy.mode.value == "LONG_ONLY"
+    assert first.position_mode.value == "NETTING"
+    assert first.short_policy.mode.value == "DISABLED"
     assert first.short_policy.mode.value == "DISABLED"
     assert first.settlement_policy.compile().legal_settlement_lag == 0
     assert first.margin_policy is None

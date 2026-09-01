@@ -9,6 +9,7 @@ from onlyalpha.domain.enums import OnlyOrderType as OnlyOrderType
 from onlyalpha.domain.enums import OnlyTimeInForce as OnlyTimeInForce
 from onlyalpha.domain.identifiers import OnlyInstrumentId as OnlyInstrumentId
 from onlyalpha.domain.time import OnlyTradingDay as OnlyTradingDay
+from onlyalpha.domain.trading import OnlyReferencePriceKind as OnlyReferencePriceKind
 from onlyalpha.domain.value import OnlyCurrency as OnlyCurrency
 from onlyalpha.fee.broker_contract import (
     OnlyBrokerFeeContract as OnlyBrokerFeeContract,
@@ -50,15 +51,13 @@ from onlyalpha.market.economics import (
 )
 from onlyalpha.market.economics import OnlyEconomicModel as OnlyEconomicModel
 from onlyalpha.market.economics import OnlyMarginIsolationScope as OnlyMarginIsolationScope
-from onlyalpha.market.economics import OnlyMarginRequirementTier as OnlyMarginRequirementTier
-from onlyalpha.market.economics import OnlyReferencePriceKind as OnlyReferencePriceKind
+from onlyalpha.market.economics import OnlyMarginRequirementSegment as OnlyMarginRequirementSegment
 from onlyalpha.market.models import (
     OnlyCompiledDynamicPriceRequirement as OnlyCompiledDynamicPriceRequirement,
 )
 from onlyalpha.market.models import OnlyCompiledNotionalPolicy as OnlyCompiledNotionalPolicy
 from onlyalpha.market.models import OnlyCompiledPriceBandPolicy as OnlyCompiledPriceBandPolicy
 from onlyalpha.market.models import OnlyCompiledQuantityPolicy as OnlyCompiledQuantityPolicy
-from onlyalpha.market.models import OnlyMarketPositionMode as OnlyMarketPositionMode
 from onlyalpha.market.models import OnlyPositionAccountingModel as OnlyPositionAccountingModel
 from onlyalpha.market.models import OnlyPriceBandRoundingMode as OnlyPriceBandRoundingMode
 from onlyalpha.market.models import OnlySettlementModel as OnlySettlementModel

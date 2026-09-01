@@ -1,15 +1,17 @@
+import json
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from importlib import metadata
 from types import SimpleNamespace
 
 import pytest
+from onlyalpha_market_binance_usdm import OnlyBinanceUsdmMarketProductFactory
 from onlyalpha_plugin_binance.usdm import (
     OnlyBinanceUsdmDataSource,
     OnlyBinanceUsdmDataSourceConfig,
+    OnlyBinanceUsdmHistoricalClient,
     OnlyBinanceUsdmHistoricalNormalizer,
-    OnlyBinanceUsdmPolicyCompiler,
-    OnlyBinanceUsdmReference,
-    OnlyBinanceUsdmReferenceAuthority,
+    OnlyBinanceUsdmReferenceCapture,
     only_binance_usdm_order_parameters,
 )
 
@@ -18,7 +20,7 @@ from onlyalpha.data.enums import OnlyMarketDataType
 from onlyalpha.data.historical.models import OnlyHistoricalFactRequest
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.data.models import OnlyFundingRateUpdate, OnlyReferencePriceUpdate
-from onlyalpha.domain.enums import OnlyOrderSide, OnlyTimeInForce
+from onlyalpha.domain.enums import OnlyOrderSide
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTradingDay
 from onlyalpha.domain.trading import (
@@ -29,56 +31,353 @@ from onlyalpha.domain.trading import (
     OnlyPositionSide,
     OnlyReferencePriceKind,
 )
-from onlyalpha.market.economics import OnlyEconomicModel, OnlyMarginRequirementTier
-from onlyalpha.market.product import OnlyMarketPolicyCompilationRequest
-from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine, OnlyPreTradeMarketContext
+from onlyalpha.market.product import (
+    OnlyCanonicalMarketProductConfig,
+    OnlyMarketProductConfig,
+    OnlyMarketProductId,
+    OnlyMarketProductPluginId,
+    OnlyMarketProductResolutionContext,
+    OnlyMarketProductVersion,
+)
+from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine
 
-INSTRUMENT = OnlyInstrumentId.parse("BINANCE.BTCUSDT-PERP")
+INSTRUMENT = OnlyInstrumentId.parse("BTCUSDT-PERP.BINANCE")
 NOW = datetime(2026, 9, 1, 8, 0, 1, tzinfo=UTC)
 
 
-def test_usdm_mark_index_and_funding_normalize_to_canonical_facts() -> None:
-    normalizer = OnlyBinanceUsdmHistoricalNormalizer()
-    mark = normalizer.reference_price(
-        {"T": 1788249600000, "p": "60000.10"},
-        instrument_id=INSTRUMENT,
-        kind=OnlyReferencePriceKind.MARK,
-        data_version="fixture-v1",
-        source_sequence=1,
-        received_at=NOW,
+def _bytes(value: object) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+
+
+def _capture(
+    *,
+    position_mode: str = "NETTING",
+    margin_mode: str = "CROSS",
+    interval_hours: int = 4,
+    coverage_start: datetime = datetime(2026, 8, 1, tzinfo=UTC),
+) -> OnlyBinanceUsdmReferenceCapture:
+    exchange = {
+        "serverTime": 1788249600000,
+        "symbols": [
+            {
+                "symbol": "BTCUSDT",
+                "status": "TRADING",
+                "contractType": "PERPETUAL",
+                "marginAsset": "USDT",
+                "filters": [
+                    {"filterType": "PRICE_FILTER", "minPrice": "0.10", "maxPrice": "1000000", "tickSize": "0.10"},
+                    {"filterType": "LOT_SIZE", "minQty": "0.001", "maxQty": "1000", "stepSize": "0.001"},
+                    {"filterType": "MIN_NOTIONAL", "notional": "5"},
+                ],
+            }
+        ],
+    }
+    funding = [{"symbol": "BTCUSDT", "fundingIntervalHours": interval_hours}]
+    brackets = [
+        {
+            "symbol": "BTCUSDT",
+            "brackets": [
+                {
+                    "bracket": 1,
+                    "initialLeverage": 125,
+                    "notionalFloor": "0",
+                    "notionalCap": "100000",
+                    "maintMarginRatio": "0.004",
+                    "cum": "0",
+                },
+                {
+                    "bracket": 2,
+                    "initialLeverage": 100,
+                    "notionalFloor": "100000",
+                    "notionalCap": "500000",
+                    "maintMarginRatio": "0.005",
+                    "cum": "100",
+                },
+            ],
+        }
+    ]
+    account = {
+        "positionMode": position_mode,
+        "symbols": [{"symbol": "BTCUSDT", "marginMode": margin_mode, "leverage": "10"}],
+    }
+    return OnlyBinanceUsdmReferenceCapture.create(
+        _bytes(exchange),
+        _bytes(funding),
+        _bytes(brackets),
+        _bytes(account),
+        captured_at=NOW,
+        coverage_start=coverage_start,
     )
-    index = normalizer.reference_price(
-        {"T": 1788249600000, "i": "59999.90"},
-        instrument_id=INSTRUMENT,
-        kind=OnlyReferencePriceKind.INDEX,
-        data_version="fixture-v1",
-        source_sequence=2,
-        received_at=NOW,
+
+
+class _Resources:
+    def __init__(self, capture: OnlyBinanceUsdmReferenceCapture) -> None:
+        self._resources = {"public": capture.public_authority, "account": capture.account_authority}
+
+    def require_reference_authority(self, resource_id: str):  # type: ignore[no-untyped-def]
+        return self._resources[resource_id]
+
+    def require_market_fee_pack(self, pack_id: str, pack_version: str):  # type: ignore[no-untyped-def]
+        raise AssertionError((pack_id, pack_version))
+
+
+def _binding(capture: OnlyBinanceUsdmReferenceCapture, *, position: str = "NETTING", margin: str = "CROSS"):
+    config = OnlyMarketProductConfig(
+        OnlyMarketProductPluginId("onlyalpha-market-binance-usdm"),
+        OnlyMarketProductId("BINANCE_USDM"),
+        OnlyMarketProductVersion("2"),
+        OnlyCanonicalMarketProductConfig(
+            {
+                "public_reference_resource_id": "public",
+                "expected_public_reference_fingerprint": capture.public_authority.identity.authority_fingerprint,
+                "account_reference_resource_id": "account",
+                "expected_account_reference_fingerprint": capture.account_authority.identity.authority_fingerprint,
+                "requested_position_mode": position,
+                "requested_margin_mode": margin,
+                "requested_leverage": "10",
+                "maker_fee_rate": "0.0002",
+                "taker_fee_rate": "0.0005",
+            }
+        ),
     )
-    funding = normalizer.funding_rate(
-        {"fundingTime": 1788249600000, "fundingRate": "0.0001"},
-        instrument_id=INSTRUMENT,
-        data_version="fixture-v1",
-        source_sequence=3,
-        received_at=NOW,
+    return OnlyBinanceUsdmMarketProductFactory().resolve(
+        config, OnlyMarketProductResolutionContext(_Resources(capture))
     )
-    assert (mark.kind, mark.value.value, index.kind, index.value.value) == (
-        OnlyReferencePriceKind.MARK,
-        Decimal("60000.10"),
-        OnlyReferencePriceKind.INDEX,
-        Decimal("59999.90"),
-    )
-    assert funding.rate == Decimal("0.0001")
+
+
+def test_raw_capture_normalizes_separate_public_and_account_authorities() -> None:
+    first = _capture()
+    repeated = _capture()
+    shifted = _capture(coverage_start=datetime(2026, 8, 2, tzinfo=UTC))
+    assert first == repeated
+    assert len(first.evidence) == 4
     assert (
-        normalizer.funding_rate(
-            {"fundingTime": 1788249600000, "fundingRate": "0.0001"},
-            instrument_id=INSTRUMENT,
-            data_version="fixture-v1",
-            source_sequence=3,
-            received_at=NOW,
-        ).fact_id
-        == funding.fact_id
+        first.public_authority.references[0].content_fingerprint
+        == shifted.public_authority.references[0].content_fingerprint
     )
+    assert first.public_authority.identity != shifted.public_authority.identity
+    point = datetime(2026, 8, 3, tzinfo=UTC)
+    resolved = first.public_authority.resolve(INSTRUMENT, OnlyTradingDay(point.date()), as_of=point)
+    repeated_resolved = repeated.public_authority.resolve(INSTRUMENT, OnlyTradingDay(point.date()), as_of=point)
+    assert first.public_authority.identity == repeated.public_authority.identity
+    assert resolved == repeated_resolved
+    assert resolved.funding_schedule.interval_seconds == 4 * 60 * 60
+    assert first.account_authority.effective_inputs.position_mode is OnlyPositionMode.NETTING
+
+
+def test_normal_entry_point_factory_compiles_one_effective_profile_and_lossless_margin_curve() -> None:
+    entries = metadata.entry_points().select(group="onlyalpha.market_products", name="binance-usdm")
+    assert len(tuple(entries)) == 1
+    factory = tuple(metadata.entry_points().select(group="onlyalpha.market_products", name="binance-usdm"))[0].load()()
+    assert isinstance(factory, OnlyBinanceUsdmMarketProductFactory)
+    capture = _capture()
+    binding = _binding(capture)
+    assert binding.effective_trading_profile is not None
+    assert binding.effective_trading_profile.position_mode is OnlyPositionMode.NETTING
+    engine = OnlyMarketRuleEngine(binding=binding, advance_trading_day=lambda day, lag: day)
+    policy = engine.compiled_rules(str(INSTRUMENT), OnlyTradingDay(date(2026, 9, 1)), as_of=NOW)
+    assert policy.effective_trading_profile is binding.effective_trading_profile
+    assert policy.funding_policy is not None and policy.funding_policy.interval_seconds == 14_400
+    curve = policy.compiled_margin_policy
+    assert curve is not None
+    epsilon = Decimal("0.01")
+    assert curve.requirement(Decimal("100000") - epsilon) == (
+        Decimal("9999.999"),
+        Decimal("399.99996"),
+    )
+    assert curve.requirement(Decimal("100000")) == (Decimal("10000.0"), Decimal("400.000"))
+    assert curve.requirement(Decimal("100000") + epsilon) == (
+        Decimal("10000.001"),
+        Decimal("400.00005"),
+    )
+
+
+def test_requested_and_account_effective_modes_cannot_silently_fallback() -> None:
+    isolated = _capture(position_mode="HEDGING", margin_mode="ISOLATED")
+    binding = _binding(isolated, position="HEDGING", margin="ISOLATED")
+    assert binding.effective_trading_profile is not None
+    assert binding.effective_trading_profile.position_mode is OnlyPositionMode.HEDGING
+    assert binding.composition_identity.effective_trading_profile_fingerprint
+    with pytest.raises(ValueError, match="ACCOUNT_EFFECTIVE_TRADING_PROFILE_MISMATCH"):
+        _binding(isolated, position="NETTING", margin="CROSS")
+    netting = _binding(_capture())
+    assert netting.composition_identity != binding.composition_identity
+    assert (
+        netting.composition_identity.effective_trading_profile_fingerprint
+        != binding.composition_identity.effective_trading_profile_fingerprint
+    )
+
+
+def test_usdm_funding_record_preserves_exact_mark_and_shared_lineage() -> None:
+    normalizer = OnlyBinanceUsdmHistoricalNormalizer()
+    mark, funding = normalizer.funding_boundary_facts(
+        {
+            "symbol": "BTCUSDT",
+            "fundingTime": 1788249600000,
+            "fundingRate": "0.0001",
+            "markPrice": "60000.10",
+            "rateType": "REGULAR",
+        },
+        instrument_id=INSTRUMENT,
+        data_version="fixture-v2",
+        source_sequence=7,
+        received_at=NOW,
+    )
+    assert mark.kind is OnlyReferencePriceKind.MARK and mark.revision == 1
+    assert mark.value.value == Decimal("60000.10") and funding.rate == Decimal("0.0001")
+    assert mark.provider_evidence_id == funding.provider_evidence_id
+    assert mark.source_record_hash == funding.source_record_hash
+    assert mark.stable_order < funding.stable_order
+    with pytest.raises(ValueError, match="RATE_TYPE_UNSUPPORTED"):
+        normalizer.funding_boundary_facts(
+            {
+                "fundingTime": 1788249600000,
+                "fundingRate": "0.0001",
+                "markPrice": "60000.10",
+                "rateType": "SPECIAL",
+            },
+            instrument_id=INSTRUMENT,
+            data_version="fixture-v2",
+            source_sequence=7,
+            received_at=NOW,
+        )
+    with pytest.raises(ValueError, match="MARKPRICE_REQUIRED"):
+        normalizer.funding_boundary_facts(
+            {
+                "fundingTime": 1788249600000,
+                "fundingRate": "0.0001",
+                "rateType": "REGULAR",
+            },
+            instrument_id=INSTRUMENT,
+            data_version="fixture-v2",
+            source_sequence=7,
+            received_at=NOW,
+        )
+
+
+def test_usdm_reference_and_margin_authorities_fail_closed_at_missing_or_invalid_domains() -> None:
+    capture = _capture()
+    binding = _binding(capture)
+    engine = OnlyMarketRuleEngine(binding=binding, advance_trading_day=lambda day, lag: day)
+    policy = engine.compiled_rules(str(INSTRUMENT), OnlyTradingDay(date(2026, 9, 1)), as_of=NOW)
+    assert policy.compiled_margin_policy is not None
+    with pytest.raises(ValueError, match="MARGIN_NOTIONAL_OUTSIDE_COMPILED_DOMAIN"):
+        policy.compiled_margin_policy.requirement(Decimal("500000.01"))
+
+    class MissingAccountResources(_Resources):
+        def require_reference_authority(self, resource_id: str):  # type: ignore[no-untyped-def]
+            if resource_id == "account":
+                raise ValueError("ACCOUNT_EFFECTIVE_REFERENCE_REQUIRED")
+            return super().require_reference_authority(resource_id)
+
+    config = OnlyMarketProductConfig(
+        OnlyMarketProductPluginId("onlyalpha-market-binance-usdm"),
+        OnlyMarketProductId("BINANCE_USDM"),
+        OnlyMarketProductVersion("2"),
+        OnlyCanonicalMarketProductConfig(
+            {
+                "public_reference_resource_id": "public",
+                "expected_public_reference_fingerprint": capture.public_authority.identity.authority_fingerprint,
+                "account_reference_resource_id": "account",
+                "expected_account_reference_fingerprint": capture.account_authority.identity.authority_fingerprint,
+                "requested_position_mode": "NETTING",
+                "requested_margin_mode": "CROSS",
+                "requested_leverage": "10",
+                "maker_fee_rate": "0.0002",
+                "taker_fee_rate": "0.0005",
+            }
+        ),
+    )
+    with pytest.raises(ValueError, match="ACCOUNT_EFFECTIVE_REFERENCE_REQUIRED"):
+        OnlyBinanceUsdmMarketProductFactory().resolve(
+            config, OnlyMarketProductResolutionContext(MissingAccountResources(capture))
+        )
+
+    with pytest.raises(ValueError, match="REFERENCE_INVALID"):
+        OnlyBinanceUsdmReferenceCapture.create(
+            capture.evidence[0].raw_bytes,
+            capture.evidence[1].raw_bytes,
+            capture.evidence[2].raw_bytes,
+            capture.evidence[3].raw_bytes,
+            captured_at=NOW,
+            coverage_start=NOW,
+            coverage_end=NOW,
+        )
+
+
+class _RecordedHttp:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, str]]] = []
+
+    def get_json(self, endpoint: str, parameters=None):  # type: ignore[no-untyped-def]
+        self.calls.append((endpoint, {} if parameters is None else parameters))
+        return b"[]"
+
+
+def test_explicit_kline_http_contracts_preserve_endpoint_parameter_names() -> None:
+    http = _RecordedHttp()
+    client = OnlyBinanceUsdmHistoricalClient(http)  # type: ignore[arg-type]
+    client.contract_klines("BTCUSDT", 1, 2, 3)
+    client.mark_price_klines("BTCUSDT", 1, 2, 3)
+    client.index_price_klines("BTCUSDT", 1, 2, 3)
+    assert [(endpoint, sorted(parameters)) for endpoint, parameters in http.calls] == [
+        ("/fapi/v1/klines", ["endTime", "interval", "limit", "startTime", "symbol"]),
+        ("/fapi/v1/markPriceKlines", ["endTime", "interval", "limit", "startTime", "symbol"]),
+        ("/fapi/v1/indexPriceKlines", ["endTime", "interval", "limit", "pair", "startTime"]),
+    ]
+
+
+class _RecordedUsdmHistoricalClient:
+    def contract_klines(self, *args):  # type: ignore[no-untyped-def]
+        return ()
+
+    def mark_price_klines(self, symbol, start_ms, end_ms, limit):  # type: ignore[no-untyped-def]
+        return ()
+
+    def index_price_klines(self, pair, start_ms, end_ms, limit):  # type: ignore[no-untyped-def]
+        return ()
+
+    def funding_rates(self, symbol, start_ms, end_ms, limit):  # type: ignore[no-untyped-def]
+        return (
+            {
+                "symbol": symbol,
+                "fundingTime": start_ms,
+                "fundingRate": "0.0001",
+                "markPrice": "60000.00",
+            },
+        )
+
+
+def test_funding_history_stream_orders_exact_mark_before_funding() -> None:
+    start = datetime(2026, 9, 1, 8, tzinfo=UTC)
+    end = datetime(2026, 9, 1, 8, 1, tzinfo=UTC)
+    instrument = SimpleNamespace(
+        instrument_id=INSTRUMENT, raw_symbol="BTCUSDT", price_precision=2, quantity_precision=3
+    )
+    request = SimpleNamespace(
+        source_id=OnlyMarketDataSourceId("binance-usdm-fixture"),
+        runtime_id=OnlyRuntimeId("runtime"),
+        instruments={INSTRUMENT: instrument},
+        calendars={},
+    )
+    source = OnlyBinanceUsdmDataSource(
+        request,  # type: ignore[arg-type]
+        OnlyBinanceUsdmDataSourceConfig(rest_page_size=10),
+        historical_client=_RecordedUsdmHistoricalClient(),  # type: ignore[arg-type]
+    )
+    stream = source.load_facts(
+        OnlyHistoricalFactRequest(
+            INSTRUMENT,
+            OnlyMarketDataType.FUNDING_RATE,
+            OnlyTimeRange(start, end),
+            OnlyDataVersion("fixture-v2"),
+            batch_size=10,
+        )
+    )
+    assert len(stream.records) == 2
+    assert isinstance(stream.records[0].payload, OnlyReferencePriceUpdate)
+    assert isinstance(stream.records[1].payload, OnlyFundingRateUpdate)
+    assert stream.records[0].payload.fact.provider_evidence_id == stream.records[1].payload.fact.provider_evidence_id
 
 
 def test_usdm_wire_mapping_preserves_canonical_mode_and_reduce_only() -> None:
@@ -97,148 +396,3 @@ def test_usdm_wire_mapping_preserves_canonical_mode_and_reduce_only() -> None:
         "side": "BUY",
         "positionSide": "SHORT",
     }
-    unsafe_close = OnlyExecutionIntent(
-        OnlyOrderSide.BUY,
-        OnlyPositionSide.SHORT,
-        OnlyPositionEffect.CLOSE,
-    )
-    with pytest.raises(ValueError, match="NETTING_CLOSE_REQUIRES_REDUCE_ONLY"):
-        only_binance_usdm_order_parameters(unsafe_close, position_mode=OnlyPositionMode.NETTING)
-
-
-def test_usdm_reference_compiles_to_canonical_derivative_economics() -> None:
-    reference = OnlyBinanceUsdmReference.create(
-        instrument_id=INSTRUMENT,
-        settlement_currency="USDT",
-        contract_multiplier=Decimal("1"),
-        price_tick=Decimal("0.10"),
-        quantity_step=Decimal("0.001"),
-        minimum_quantity=Decimal("0.001"),
-        maximum_quantity=Decimal("1000"),
-        margin_tiers=(
-            OnlyMarginRequirementTier(Decimal("100000"), Decimal("0.10"), Decimal("0.05")),
-            OnlyMarginRequirementTier(None, Decimal("0.20"), Decimal("0.10")),
-        ),
-        observed_at=datetime(2026, 8, 31, tzinfo=UTC),
-    )
-    authority = OnlyBinanceUsdmReferenceAuthority.create((reference,))
-    policy = OnlyBinanceUsdmPolicyCompiler().compile(
-        OnlyMarketPolicyCompilationRequest(
-            INSTRUMENT,
-            OnlyTradingDay(date(2026, 9, 1)),
-            authority,
-            NOW,
-        )
-    )
-    assert policy.economic_model is OnlyEconomicModel.MARGINED_DERIVATIVE
-    assert policy.compiled_margin_policy is not None
-    assert policy.compiled_margin_policy.requirement(Decimal("1000")) == (
-        Decimal("100.00"),
-        Decimal("50.00"),
-    )
-    assert policy.funding_policy is not None and policy.valuation_policy is not None
-
-    engine = OnlyMarketRuleEngine(
-        binding=SimpleNamespace(
-            policy_compiler=OnlyBinanceUsdmPolicyCompiler(),
-            reference_authority=authority,
-        ),
-        advance_trading_day=lambda day, lag: OnlyTradingDay(date.fromordinal(day.value.toordinal() + lag)),
-    )
-    rejected = engine.evaluate_pre_trade(
-        OnlyPreTradeMarketContext(
-            str(INSTRUMENT),
-            OnlyOrderSide.BUY,
-            Decimal("1"),
-            Decimal("100"),
-            NOW,
-            OnlyTradingDay(date(2026, 9, 1)),
-            trade_available_cash=Decimal("1000"),
-            available_margin=Decimal("1000"),
-            position_effect=OnlyPositionEffect.OPEN,
-            time_in_force=OnlyTimeInForce.DAY,
-            position_side=OnlyPositionSide.LONG,
-        )
-    )
-    assert not rejected.accepted
-    assert rejected.reason_code == "ORDER_CAPABILITY_NOT_SUPPORTED"
-
-
-class _RecordedUsdmHistoricalClient:
-    def klines(
-        self,
-        _symbol: str,
-        start_ms: int,
-        _end_ms: int,
-        _limit: int,
-        *,
-        kind: OnlyReferencePriceKind | None = None,
-    ) -> tuple[tuple[object, ...], ...]:
-        assert kind is OnlyReferencePriceKind.MARK
-        return (
-            (
-                start_ms,
-                "60000.00",
-                "60010.00",
-                "59990.00",
-                "60005.00",
-                "10.000",
-                start_ms + 59_999,
-                "600050.00",
-                10,
-                "0",
-                "0",
-                "0",
-            ),
-        )
-
-    def funding_rates(self, _symbol: str, start_ms: int, _end_ms: int, _limit: int) -> tuple[dict[str, object], ...]:
-        return ({"symbol": "BTCUSDT", "fundingTime": start_ms, "fundingRate": "0.0001"},)
-
-
-def test_usdm_historical_datasource_loads_recorded_mark_and_funding_facts() -> None:
-    start = datetime(2026, 9, 1, 8, tzinfo=UTC)
-    end = datetime(2026, 9, 1, 8, 1, tzinfo=UTC)
-    instrument = SimpleNamespace(
-        instrument_id=INSTRUMENT,
-        raw_symbol="BTCUSDT",
-        price_precision=2,
-        quantity_precision=3,
-    )
-    request = SimpleNamespace(
-        source_id=OnlyMarketDataSourceId("binance-usdm-fixture"),
-        runtime_id=OnlyRuntimeId("runtime"),
-        instruments={INSTRUMENT: instrument},
-        calendars={},
-    )
-    source = OnlyBinanceUsdmDataSource(
-        request,  # type: ignore[arg-type]
-        OnlyBinanceUsdmDataSourceConfig(rest_page_size=10),
-        historical_client=_RecordedUsdmHistoricalClient(),  # type: ignore[arg-type]
-    )
-    mark_stream = source.load_facts(
-        OnlyHistoricalFactRequest(
-            INSTRUMENT,
-            OnlyMarketDataType.REFERENCE_PRICE,
-            OnlyTimeRange(start, end),
-            OnlyDataVersion("fixture-v1"),
-            OnlyReferencePriceKind.MARK,
-            10,
-        )
-    )
-    funding_stream = source.load_facts(
-        OnlyHistoricalFactRequest(
-            INSTRUMENT,
-            OnlyMarketDataType.FUNDING_RATE,
-            OnlyTimeRange(start, end),
-            OnlyDataVersion("fixture-v1"),
-            batch_size=10,
-        )
-    )
-
-    assert len(mark_stream.records) == len(funding_stream.records) == 1
-    assert isinstance(mark_stream.records[0].payload, OnlyReferencePriceUpdate)
-    assert mark_stream.records[0].payload.fact.value.value == Decimal("60000.00")
-    assert mark_stream.records[0].ts_event == funding_stream.records[0].ts_event
-    assert isinstance(funding_stream.records[0].payload, OnlyFundingRateUpdate)
-    assert funding_stream.records[0].payload.fact.rate == Decimal("0.0001")

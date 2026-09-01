@@ -1,5 +1,7 @@
 """Immutable market data facts and fully specified bars."""
 
+import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -60,7 +62,7 @@ class OnlyTradeTick(OnlyTick):
 class OnlyReferencePriceFact(OnlyDomainModel):
     """Canonical reference-price fact; provider names terminate at adapters."""
 
-    schema_version = 1
+    schema_version = 2
 
     fact_id: str
     instrument_id: OnlyInstrumentId
@@ -72,6 +74,8 @@ class OnlyReferencePriceFact(OnlyDomainModel):
     source_sequence: int
     data_version: str
     revision: int = 0
+    provider_evidence_id: str | None = None
+    source_record_hash: str | None = None
 
     def __post_init__(self) -> None:
         _validate_market_time(self.ts_event, "ts_event")
@@ -87,6 +91,16 @@ class OnlyReferencePriceFact(OnlyDomainModel):
             or self.value.value <= 0
         ):
             raise OnlyValidationError("reference-price identity/value is invalid")
+        _validate_provider_lineage(self.provider_evidence_id, self.source_record_hash)
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> "OnlyReferencePriceFact":
+        compatible = dict(payload)
+        if compatible.get("schema_version") == 1:
+            compatible["schema_version"] = cls.schema_version
+            compatible["provider_evidence_id"] = None
+            compatible["source_record_hash"] = None
+        return super(OnlyReferencePriceFact, cls).from_dict(compatible)
 
     @property
     def stable_order(self) -> tuple[datetime, int, int, str]:
@@ -103,7 +117,7 @@ class OnlyReferencePriceFact(OnlyDomainModel):
 class OnlyFundingRateFact(OnlyDomainModel):
     """Immutable market fact; it never mutates Account state directly."""
 
-    schema_version = 1
+    schema_version = 2
 
     fact_id: str
     instrument_id: OnlyInstrumentId
@@ -114,6 +128,8 @@ class OnlyFundingRateFact(OnlyDomainModel):
     source_sequence: int
     data_version: str
     revision: int = 0
+    provider_evidence_id: str | None = None
+    source_record_hash: str | None = None
 
     def __post_init__(self) -> None:
         _validate_market_time(self.funding_time, "funding_time")
@@ -129,10 +145,31 @@ class OnlyFundingRateFact(OnlyDomainModel):
             or not self.rate.is_finite()
         ):
             raise OnlyValidationError("funding-rate identity/value is invalid")
+        _validate_provider_lineage(self.provider_evidence_id, self.source_record_hash)
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> "OnlyFundingRateFact":
+        compatible = dict(payload)
+        if compatible.get("schema_version") == 1:
+            compatible["schema_version"] = cls.schema_version
+            compatible["provider_evidence_id"] = None
+            compatible["source_record_hash"] = None
+        return super(OnlyFundingRateFact, cls).from_dict(compatible)
 
     @property
     def stable_order(self) -> tuple[datetime, int, int, str]:
         return self.funding_time, 20, self.source_sequence, self.fact_id
+
+
+def _validate_provider_lineage(provider_evidence_id: str | None, source_record_hash: str | None) -> None:
+    if (provider_evidence_id is None) != (source_record_hash is None):
+        raise OnlyValidationError("provider lineage must be complete")
+    if provider_evidence_id is not None and (
+        not provider_evidence_id.strip()
+        or source_record_hash is None
+        or re.fullmatch(r"[0-9a-f]{64}", source_record_hash) is None
+    ):
+        raise OnlyValidationError("provider lineage is invalid")
 
 
 @dataclass(frozen=True, slots=True)
