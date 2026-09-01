@@ -12,6 +12,7 @@ from onlyalpha.cache.historical.service import OnlyHistoricalCacheService
 from onlyalpha.config.models import OnlyDataSourceCoverageConfig, OnlyUniverseConfig
 from onlyalpha.core.clock import OnlyClock
 from onlyalpha.data.evidence import OnlyProviderEvidenceSink
+from onlyalpha.data.historical.models import OnlyHistoricalFactRequest
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.data.ports import (
     OnlyHistoricalDataSource,
@@ -52,6 +53,7 @@ class OnlyDataSourceCreateRequest:
     runtime_state_root: Path | None = None
     provider_evidence_sink: OnlyProviderEvidenceSink | None = None
     durable_recording_required: bool = False
+    kernel_economic_requests: tuple[OnlyHistoricalFactRequest, ...] = ()
 
 
 class OnlyDataSource(

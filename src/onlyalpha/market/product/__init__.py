@@ -1,5 +1,6 @@
 """Public Core contract for Trading Market Product plugins."""
 
+from onlyalpha.market.economics import *  # noqa: F403
 from onlyalpha.market.models import (
     OnlyCompiledDynamicPriceRequirement as OnlyCompiledDynamicPriceRequirement,
 )

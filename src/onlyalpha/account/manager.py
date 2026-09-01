@@ -18,6 +18,7 @@ from onlyalpha.account.models import (
     OnlyAccountCashBalance,
     OnlyAccountCashChange,
     OnlyAccountConfig,
+    OnlyAccountEconomicCashflow,
     OnlyAccountFee,
     OnlyAccountMutationResult,
     OnlyAccountReservation,
@@ -77,6 +78,7 @@ class OnlyAccountManager:
         self._cash_change_ids: set[object] = set()
         self._fee_ids: set[object] = set()
         self._trade_ids: set[object] = set()
+        self._economic_cashflows: dict[str, OnlyAccountEconomicCashflow] = {}
         self._valuation_versions: dict[OnlyAccountId, int] = {}
         self._event_sequence = 0
         self._performance_observer: (
@@ -271,6 +273,38 @@ class OnlyAccountManager:
             OnlyAccountValuationSource.COMMITTED_EXECUTION,
         )
 
+    def apply_economic_cashflow(self, cashflow: OnlyAccountEconomicCashflow) -> OnlyAccountMutationResult:
+        """Apply an append-only Funding/PnL/variation-margin fact exactly once."""
+
+        self._require_scope(cashflow.runtime_id)
+        state = self._require(cashflow.account_id)
+        before = self._snapshot(state)
+        existing = self._economic_cashflows.get(cashflow.cashflow_id)
+        if existing is not None:
+            if existing != cashflow:
+                raise ValueError("ACCOUNT_ECONOMIC_CASHFLOW_ID_CONFLICT")
+            return self._unchanged(before)
+        if cashflow.amount.currency != state.config.base_currency:
+            raise ValueError("ACCOUNT_ECONOMIC_CASHFLOW_CURRENCY_CONFLICT")
+        cash_after = state.ledger_cash.amount + cashflow.amount.amount
+        if cash_after < 0:
+            raise ValueError("ACCOUNT_ECONOMIC_CASHFLOW_INSUFFICIENT_COLLATERAL")
+        state.ledger_cash = OnlyMoney(cash_after, state.config.base_currency)
+        if cashflow.cashflow_type.value in {"REALIZED_PNL", "VARIATION_MARGIN"}:
+            state.realized_pnl = state.realized_pnl + cashflow.amount
+        self._economic_cashflows[cashflow.cashflow_id] = cashflow
+        return self._commit(
+            state,
+            before,
+            cashflow.timestamp,
+            f"ACCOUNT_{cashflow.cashflow_type.value}_APPLIED",
+            OnlyAccountValuationSource.STATE_CHANGE,
+        )
+
+    @property
+    def economic_cashflows(self) -> tuple[OnlyAccountEconomicCashflow, ...]:
+        return tuple(self._economic_cashflows[key] for key in sorted(self._economic_cashflows))
+
     def apply_margin_change(
         self,
         account_id: OnlyAccountId,
@@ -415,6 +449,7 @@ class OnlyAccountManager:
 
         return {
             "accounts": [item.to_json() for item in self.list_accounts()],
+            "economic_cashflows": [item.to_json() for item in self.economic_cashflows],
             "event_sequence": self._event_sequence,
             "trade_ids": sorted(str(item) for item in self._trade_ids),
             "valuation_versions": [
@@ -428,10 +463,14 @@ class OnlyAccountManager:
             raise ValueError("Account checkpoint must be an object")
         snapshots = tuple(OnlyAccountSnapshot.from_json(str(item)) for item in payload["accounts"])
         trade_ids = tuple(OnlyTradeId(str(item)) for item in payload["trade_ids"])
+        cashflows = tuple(
+            OnlyAccountEconomicCashflow.from_json(str(item)) for item in payload.get("economic_cashflows", [])
+        )
         for snapshot in snapshots:
             for reservation in snapshot.reservations:
                 self._reservation_manager.restore_execution_authority(reservation)
             self.restore_execution_authority(snapshot, trade_ids=trade_ids)
+        self._economic_cashflows = {item.cashflow_id: item for item in cashflows}
         for account_id, version in payload["valuation_versions"]:
             self.restore_valuation_version(OnlyAccountId(str(account_id)), int(version))
         self.restore_execution_event_sequence(int(payload["event_sequence"]))

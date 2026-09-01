@@ -30,8 +30,10 @@ from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRuntimeId
 from onlyalpha.domain.market import (
     OnlyBar,
     OnlyBarType,
+    OnlyFundingRateFact,
     OnlyMarketReferenceTick,
     OnlyQuoteTick,
+    OnlyReferencePriceFact,
     OnlyTradeTick,
 )
 from onlyalpha.domain.time import OnlyTimestamp, only_require_utc
@@ -69,6 +71,16 @@ class OnlyMarketReferenceUpdate:
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyReferencePriceUpdate:
+    fact: OnlyReferencePriceFact
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyFundingRateUpdate:
+    fact: OnlyFundingRateFact
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyInstrumentStatusUpdate:
     instrument_id: OnlyInstrumentId
     status: str
@@ -79,7 +91,13 @@ class OnlyInstrumentStatusUpdate:
 
 
 OnlyMarketDataPayload = (
-    OnlyBarUpdate | OnlyQuoteTickUpdate | OnlyTradeTickUpdate | OnlyMarketReferenceUpdate | OnlyInstrumentStatusUpdate
+    OnlyBarUpdate
+    | OnlyQuoteTickUpdate
+    | OnlyTradeTickUpdate
+    | OnlyMarketReferenceUpdate
+    | OnlyReferencePriceUpdate
+    | OnlyFundingRateUpdate
+    | OnlyInstrumentStatusUpdate
 )
 
 
@@ -113,17 +131,27 @@ class OnlyMarketDataInboundUpdate:
             if isinstance(self.payload, OnlyTradeTickUpdate)
             else self.payload.reference.instrument_id
             if isinstance(self.payload, OnlyMarketReferenceUpdate)
+            else self.payload.fact.instrument_id
+            if isinstance(self.payload, OnlyReferencePriceUpdate | OnlyFundingRateUpdate)
             else self.payload.instrument_id
         )
         if payload_instrument != self.instrument_id:
             raise ValueError("market-data envelope instrument does not match payload")
-        expected = {
-            OnlyBarUpdate: OnlyMarketDataType.BAR,
-            OnlyQuoteTickUpdate: OnlyMarketDataType.QUOTE,
-            OnlyTradeTickUpdate: OnlyMarketDataType.TRADE,
-            OnlyMarketReferenceUpdate: OnlyMarketDataType.MARKET_REFERENCE,
-            OnlyInstrumentStatusUpdate: OnlyMarketDataType.INSTRUMENT_STATUS,
-        }[type(self.payload)]
+        if isinstance(self.payload, OnlyReferencePriceUpdate):
+            expected = (
+                OnlyMarketDataType.SETTLEMENT
+                if self.payload.fact.kind.value == "SETTLEMENT"
+                else OnlyMarketDataType.REFERENCE_PRICE
+            )
+        else:
+            expected = {
+                OnlyBarUpdate: OnlyMarketDataType.BAR,
+                OnlyQuoteTickUpdate: OnlyMarketDataType.QUOTE,
+                OnlyTradeTickUpdate: OnlyMarketDataType.TRADE,
+                OnlyMarketReferenceUpdate: OnlyMarketDataType.MARKET_REFERENCE,
+                OnlyFundingRateUpdate: OnlyMarketDataType.FUNDING_RATE,
+                OnlyInstrumentStatusUpdate: OnlyMarketDataType.INSTRUMENT_STATUS,
+            }[type(self.payload)]
         if self.data_type is not expected:
             raise ValueError("market-data envelope type does not match payload")
         expected_scope = OnlyDataSequenceScope(
@@ -151,10 +179,14 @@ class OnlyMarketDataInboundUpdate:
             payload = {"kind": "TRADE", "value": self.payload.trade.to_dict()}
         elif isinstance(self.payload, OnlyMarketReferenceUpdate):
             payload = {"kind": "MARKET_REFERENCE", "value": self.payload.reference.to_dict()}
+        elif isinstance(self.payload, OnlyReferencePriceUpdate):
+            payload = {"kind": "REFERENCE_PRICE", "value": self.payload.fact.to_dict()}
+        elif isinstance(self.payload, OnlyFundingRateUpdate):
+            payload = {"kind": "FUNDING_RATE", "value": self.payload.fact.to_dict()}
         else:
             payload = {"kind": "INSTRUMENT_STATUS", "status": self.payload.status}
         return {
-            "schema_version": 2,
+            "schema_version": 3,
             "update_id": str(self.update_id),
             "runtime_id": str(self.runtime_id),
             "source_id": str(self.source_id),
@@ -188,6 +220,10 @@ class OnlyMarketDataInboundUpdate:
             payload = OnlyTradeTickUpdate(OnlyTradeTick.from_dict(value))
         elif kind == "MARKET_REFERENCE" and isinstance(value, Mapping):
             payload = OnlyMarketReferenceUpdate(OnlyMarketReferenceTick.from_dict(value))
+        elif kind == "REFERENCE_PRICE" and isinstance(value, Mapping):
+            payload = OnlyReferencePriceUpdate(OnlyReferencePriceFact.from_dict(value))
+        elif kind == "FUNDING_RATE" and isinstance(value, Mapping):
+            payload = OnlyFundingRateUpdate(OnlyFundingRateFact.from_dict(value))
         elif kind == "INSTRUMENT_STATUS":
             payload = OnlyInstrumentStatusUpdate(instrument_id, str(payload_raw["status"]))
         else:
@@ -202,7 +238,7 @@ class OnlyMarketDataInboundUpdate:
                 raise ValueError("metadata entries must be pairs")
             metadata.append((str(item[0]), str(item[1])))
         schema_version = int(str(raw.get("schema_version", 1)))
-        if schema_version not in {1, 2}:
+        if schema_version not in {1, 2, 3}:
             raise ValueError("unsupported market-data envelope schema version")
         scope_raw = raw.get("sequence_scope")
         return cls(

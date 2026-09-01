@@ -19,7 +19,9 @@ from onlyalpha.domain.identifiers import (
     OnlyTradeId,
     OnlyVenueTradeId,
 )
+from onlyalpha.domain.market import OnlyReferencePriceFact
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
+from onlyalpha.domain.trading import OnlyReferencePriceKind
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, OnlyPrice, OnlyQuantity
 from onlyalpha.position.enums import (
     OnlyAvailabilityState,
@@ -371,3 +373,36 @@ class OnlyPositionValuation(OnlyDomainModel):
     price_source: str
     currency: OnlyCurrency
     quality_flags: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyPositionSettlementFact(OnlyDomainModel):
+    key: OnlyPositionKey
+    reference_fact: OnlyReferencePriceFact
+    multiplier: OnlyMultiplier
+    currency: OnlyCurrency
+
+    def __post_init__(self) -> None:
+        if (
+            self.reference_fact.kind is not OnlyReferencePriceKind.SETTLEMENT
+            or self.reference_fact.instrument_id != self.key.instrument_id
+        ):
+            raise ValueError("POSITION_SETTLEMENT_FACT_INVALID")
+
+    @property
+    def settlement_fact_id(self) -> str:
+        return self.reference_fact.fact_id
+
+    @property
+    def settlement_application_id(self) -> str:
+        """Identify one reference fact applied to one canonical Position leg."""
+
+        return f"{self.reference_fact.fact_id}:{self.key.to_json()}"
+
+    @property
+    def settlement_price(self) -> OnlyPrice:
+        return self.reference_fact.value
+
+    @property
+    def timestamp(self) -> OnlyTimestamp:
+        return OnlyTimestamp.from_datetime(self.reference_fact.ts_event)

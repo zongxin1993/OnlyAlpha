@@ -3,8 +3,10 @@
 from dataclasses import dataclass
 from decimal import Decimal
 
+from onlyalpha.domain.enums import OnlyMarginMode
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyInstrumentId, OnlyOrderId, OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.domain.trading import OnlyPositionSide
 from onlyalpha.domain.value import OnlyCurrency
 
 
@@ -24,6 +26,9 @@ class OnlyMarginReservation:
     created_at: OnlyTimestamp
     updated_at: OnlyTimestamp
     version: int
+    margin_mode: OnlyMarginMode = OnlyMarginMode.CROSS
+    isolation_key: str | None = None
+    position_side: OnlyPositionSide = OnlyPositionSide.LONG
 
     def __post_init__(self) -> None:
         if (
@@ -33,6 +38,14 @@ class OnlyMarginReservation:
             or self.updated_at < self.created_at
         ):
             raise ValueError("Margin Reservation authority/lifecycle is invalid")
+        if self.margin_mode not in {OnlyMarginMode.CROSS, OnlyMarginMode.ISOLATED}:
+            raise ValueError("Margin Reservation mode is invalid")
+        if self.margin_mode is OnlyMarginMode.ISOLATED and not (self.isolation_key or "").strip():
+            raise ValueError("Isolated Margin Reservation requires isolation key")
+        if self.margin_mode is OnlyMarginMode.CROSS and self.isolation_key is not None:
+            raise ValueError("Cross Margin Reservation cannot carry isolation key")
+        if self.position_side not in {OnlyPositionSide.LONG, OnlyPositionSide.SHORT}:
+            raise ValueError("Margin Reservation requires a directional Position side")
 
 
 __all__ = ["OnlyMarginReservation"]

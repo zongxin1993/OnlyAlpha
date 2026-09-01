@@ -88,6 +88,7 @@ class OnlyPositionValuationService:
         valuation_time: OnlyTimestamp,
         *,
         price_source: str,
+        settles_notional: bool = True,
     ) -> OnlyPositionValuation:
         if snapshot.average_open_price is None:
             raise ValueError("cannot value a Position without average open price")
@@ -104,6 +105,8 @@ class OnlyPositionValuationService:
             multiplier,
             currency,
         )
+        if not settles_notional:
+            market_value = unrealized
         return OnlyPositionValuation(
             snapshot.position_id,
             mark_price,

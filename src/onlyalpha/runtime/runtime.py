@@ -9,7 +9,7 @@ from decimal import Decimal
 from enum import StrEnum
 from types import MappingProxyType
 
-from onlyalpha.account.enums import OnlyAccountReservationState
+from onlyalpha.account.enums import OnlyAccountReservationState, OnlyAccountType
 from onlyalpha.account.events import OnlyAccountEvent, OnlyAccountEventPublisher
 from onlyalpha.account.identifiers import OnlyAccountReservationId
 from onlyalpha.account.manager import OnlyAccountManager
@@ -188,6 +188,7 @@ class OnlyRuntimeAssemblyConfig:
     strategy_capitals: Mapping[OnlyClusterId, OnlyMoney] = field(default_factory=dict)
     broker_gateway_id: OnlyBrokerGatewayId | None = None
     account_initial_cash: OnlyMoney | None = None
+    account_type: OnlyAccountType = OnlyAccountType.CASH
     market_rule_engine: OnlyMarketRuleEngine | None = None
     market_fee_pack: OnlyMarketFeePack | None = None
     broker_fee_contract: OnlyBrokerFeeContract | None = None
@@ -433,9 +434,15 @@ class OnlyRuntimeAccountCashReservationAdapter:
 class OnlyRuntimeCompositeCashReservationAdapter:
     """Coordinates two independent cash books without sharing their state."""
 
-    def __init__(self, account: OnlyOrderCashReservationPort, strategy: OnlyOrderCashReservationPort) -> None:
+    def __init__(
+        self,
+        account: OnlyOrderCashReservationPort,
+        strategy: OnlyOrderCashReservationPort,
+        requires_cash: Callable[[OnlyOrderSnapshot, OnlyTimestamp], bool] | None = None,
+    ) -> None:
         self.account = account
         self.strategy = strategy
+        self._requires_cash = requires_cash or (lambda order, timestamp: True)
 
     def reserve(
         self,
@@ -444,6 +451,8 @@ class OnlyRuntimeCompositeCashReservationAdapter:
         *,
         planning_price: OnlyPrice | None = None,
     ) -> None:
+        if not self._requires_cash(order, timestamp):
+            return
         if planning_price is None:
             self.account.reserve(order, timestamp)
         else:

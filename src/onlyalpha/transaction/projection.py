@@ -861,6 +861,9 @@ def _require_margin_reservation_transition(
             before.order_id,
             before.currency,
             before.original_reserved_amount,
+            before.margin_mode,
+            before.isolation_key,
+            before.position_side,
         )
         != (
             after.runtime_id,
@@ -869,6 +872,9 @@ def _require_margin_reservation_transition(
             after.order_id,
             after.currency,
             after.original_reserved_amount,
+            after.margin_mode,
+            after.isolation_key,
+            after.position_side,
         )
         or after.remaining_reserved_amount.amount > before.remaining_reserved_amount.amount
         or after.released_amount.amount < before.released_amount.amount

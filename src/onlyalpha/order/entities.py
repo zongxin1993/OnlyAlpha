@@ -135,6 +135,7 @@ class OnlyOrder:
             snapshot.expire_time,
             snapshot.tags,
             snapshot.metadata,
+            snapshot.execution_intent,
         )
         entity = cls(
             request,
@@ -260,6 +261,7 @@ class OnlyOrder:
             self._fee_policy_binding,
             self._fee_estimate,
             self._funding_plan,
+            self._request.execution_intent,
         )
 
     def install_fee_contract(

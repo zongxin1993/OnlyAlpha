@@ -2,6 +2,7 @@
 
 from .trade_accounting import OnlyAccountTradeReducer, OnlyStrategyLedgerTradeReducer
 from .trade_fee_accrual import OnlyOrderFeeAccrualTradeReducer
+from .trade_margin import OnlyMarginReservationTradeReducer
 from .trade_reservations import (
     OnlyAccountCashReservationTradeReducer,
     OnlyPositionReservationTradeReducer,
@@ -25,6 +26,7 @@ __all__ = [
     "OnlyFeeTradeReducer",
     "OnlyOrderTradeReducer",
     "OnlyOrderFeeAccrualTradeReducer",
+    "OnlyMarginReservationTradeReducer",
     "OnlyPositionTradeReducer",
     "OnlyPositionReservationTradeReducer",
     "OnlyRiskReservationTradeReducer",

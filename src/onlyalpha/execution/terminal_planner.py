@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
 
 from onlyalpha.broker.updates import OnlyBrokerOrderRejectedUpdate
-from onlyalpha.domain.enums import OnlyOrderSide, OnlyOrderStatus
+from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.event.model import OnlyEvent, OnlyEventSource, OnlyEventType
 from onlyalpha.position.enums import OnlyPositionReservationStage
@@ -17,6 +18,7 @@ from onlyalpha.transaction.projection import (
     OnlyAccountExecutionProjection,
     OnlyAllocationExecutionProjection,
     OnlyAllocationExecutionReplayMetadata,
+    OnlyMarginReservationExecutionProjection,
     OnlyOrderTerminalExecutionProjection,
     OnlyPositionExecutionProjection,
     OnlyPositionExecutionReplayMetadata,
@@ -32,6 +34,7 @@ from onlyalpha.transaction.projection_builder import OnlyRuntimeProjectionBuilde
 from onlyalpha.transaction.transaction import OnlyPreparedRuntimeTransaction, OnlyRuntimePrecondition
 
 from .capability import OnlyExecutionCapability
+from .execution_state import OnlyMarginReservationExecutionStage, OnlyMarginReservationExecutionStatus
 from .lifecycle_reducers import (
     only_reduce_account_cash_reservation_terminal,
     only_reduce_account_terminal_release,
@@ -81,8 +84,82 @@ class OnlyTerminalExecutionTransactionPlanner:
         )
 
         released_cash: OnlyMoney | None = None
+        released_margin: OnlyMoney | None = None
         released_quantity = None
-        if context.order_before.side is OnlyOrderSide.SELL:
+        if context.margin_reservation_before is not None:
+            margin_before = context.margin_reservation_before
+            released_margin = margin_before.remaining_reserved_amount
+            remaining_occupied = margin_before.occupied_amount.amount
+            margin_after = replace(
+                margin_before,
+                remaining_reserved_amount=OnlyMoney(Decimal(0), margin_before.currency),
+                released_amount=margin_before.released_amount + released_margin,
+                state=(
+                    OnlyMarginReservationExecutionStatus.OCCUPIED
+                    if remaining_occupied > 0
+                    else OnlyMarginReservationExecutionStatus.RELEASED
+                ),
+                stage=(
+                    OnlyMarginReservationExecutionStage.OCCUPIED
+                    if remaining_occupied > 0
+                    else OnlyMarginReservationExecutionStage.RELEASED
+                ),
+                updated_at=update.ts_init,
+                version=margin_before.version + 1,
+            )
+            account_before = context.account_before
+            if (
+                account_before.reserved_margin is None
+                or account_before.released_margin is None
+                or account_before.occupied_margin is None
+            ):
+                raise ValueError("Margin terminal requires complete Account Margin authority")
+            account_after = replace(
+                account_before,
+                reserved_margin=account_before.reserved_margin - released_margin,
+                released_margin=account_before.released_margin + released_margin,
+                available_margin=OnlyMoney(
+                    account_before.ledger_cash.amount
+                    - account_before.order_reserved_cash.amount
+                    - account_before.unsettled_receivable_cash.amount
+                    - (account_before.reserved_margin.amount - released_margin.amount)
+                    - account_before.occupied_margin.amount,
+                    account_before.base_currency,
+                ),
+                updated_at=update.ts_init,
+                version=account_before.version + 1,
+            )
+            projections.append(
+                builder.finalize(
+                    OnlyAccountExecutionProjection(
+                        builder.identity(
+                            component=OnlyRuntimeProjectionComponent.ACCOUNT,
+                            entity_key=str(account_after.account_id),
+                            before=account_before,
+                            after=account_after,
+                            projection_sequence=len(projections) + 1,
+                        ),
+                        account_before,
+                        account_after,
+                    )
+                )
+            )
+            projections.append(
+                builder.finalize(
+                    OnlyMarginReservationExecutionProjection(
+                        builder.identity(
+                            component=OnlyRuntimeProjectionComponent.MARGIN_RESERVATION,
+                            entity_key=margin_after.reservation_id,
+                            before=margin_before,
+                            after=margin_after,
+                            projection_sequence=len(projections) + 1,
+                        ),
+                        margin_before,
+                        margin_after,
+                    )
+                )
+            )
+        elif context.position_scope.position_effect.value == "CLOSE":
             reservation_before = context.position_reservation_before
             allocation_before = context.allocation_before
             if reservation_before is None or allocation_before is None:
@@ -219,7 +296,7 @@ class OnlyTerminalExecutionTransactionPlanner:
                 )
             )
 
-        if context.order_before.side is OnlyOrderSide.SELL:
+        if context.position_scope.position_effect.value == "CLOSE":
             position_reservation = context.position_reservation_before
             assert position_reservation is not None
             position_reservation_after = only_reduce_position_reservation_terminal(
@@ -303,12 +380,15 @@ class OnlyTerminalExecutionTransactionPlanner:
             filled_quantity_before=context.order_before.filled_quantity,
             order_remaining_quantity=context.order_before.remaining_quantity,
             economic_release_kind=(
-                OnlyTerminalEconomicReleaseKind.CASH_RESERVATION
+                OnlyTerminalEconomicReleaseKind.MARGIN_RESERVATION
+                if released_margin is not None
+                else OnlyTerminalEconomicReleaseKind.CASH_RESERVATION
                 if released_cash is not None
                 else OnlyTerminalEconomicReleaseKind.POSITION_RESERVATION
             ),
             reservation_released_quantity=released_quantity,
             reservation_released_cash=released_cash,
+            reservation_released_margin=released_margin,
             risk_released_quantity=risk_before.remaining_quantity,
             risk_released_notional=risk_before.remaining_notional,
             active_order_count_delta=-1,

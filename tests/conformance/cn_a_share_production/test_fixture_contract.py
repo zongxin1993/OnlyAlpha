@@ -32,7 +32,7 @@ from onlyalpha_market_cn_ashare.reference import (
 
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.time import OnlyTradingDay
-from onlyalpha.execution import ONLY_EXECUTION_SUPPORT_POLICY_VERSION
+from onlyalpha.execution import ONLY_READABLE_EXECUTION_SUPPORT_POLICY_VERSIONS
 from onlyalpha.fee import OnlyBrokerFeeContractDocumentLoader
 from onlyalpha.fee.schedules import OnlyMarketFeeApplicabilityContext
 from onlyalpha.market.product import (
@@ -272,10 +272,11 @@ def test_manifest_binds_independent_broker_execution_and_supported_surface_autho
         "minimum_commission": "5.00",
     }
     assert execution == {
-        "policy_version": ONLY_EXECUTION_SUPPORT_POLICY_VERSION,
+        "policy_version": "2",
         "capabilities": ["DURABLE_ORDER_ACCEPTED", "DURABLE_TRADE", "DURABLE_TERMINAL"],
         "market_identity_is_permission": False,
     }
+    assert execution["policy_version"] in ONLY_READABLE_EXECUTION_SUPPORT_POLICY_VERSIONS
     assert surface == {
         "runtime": "BACKTEST",
         "currency": "CNY",

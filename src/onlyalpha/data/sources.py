@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from onlyalpha.data.enums import OnlyMarketDataCapability, OnlyMarketDataType
+from onlyalpha.data.historical.models import OnlyHistoricalFactRequest
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.data.models import (
     OnlyHistoricalBarRequest,
@@ -92,6 +93,27 @@ class OnlyInMemoryHistoricalDataSource:
                 )
                 and item.data_type is OnlyMarketDataType.TRADE
                 and item.data_version == request.data_version
+            ),
+            request.batch_size,
+        )
+
+    def load_facts(self, request: OnlyHistoricalFactRequest) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:
+        return OnlyHistoricalDataStream(
+            tuple(
+                item
+                for item in self._updates
+                if self._matches(
+                    item,
+                    frozenset({request.instrument_id}),
+                    request.time_range.start,
+                    request.time_range.end,
+                )
+                and item.data_type is request.fact_family
+                and item.data_version == request.data_version
+                and (
+                    request.reference_price_kind is None
+                    or getattr(getattr(item.payload, "fact", None), "kind", None) is request.reference_price_kind
+                )
             ),
             request.batch_size,
         )
@@ -220,6 +242,26 @@ class OnlyParquetHistoricalDataSource:
             OnlyTimestamp.from_datetime(request.data_range.start_time).unix_nanos,
             OnlyTimestamp.from_datetime(request.data_range.end_time).unix_nanos,
             request.data_version,
+            request.batch_size,
+        )
+
+    def load_facts(self, request: OnlyHistoricalFactRequest) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:
+        stream = self._load(
+            request.fact_family,
+            frozenset({request.instrument_id}),
+            OnlyTimestamp.from_datetime(request.time_range.start).unix_nanos,
+            OnlyTimestamp.from_datetime(request.time_range.end).unix_nanos,
+            request.data_version,
+            request.batch_size,
+        )
+        if request.reference_price_kind is None:
+            return stream
+        return OnlyHistoricalDataStream(
+            tuple(
+                item
+                for item in stream.records
+                if getattr(getattr(item.payload, "fact", None), "kind", None) is request.reference_price_kind
+            ),
             request.batch_size,
         )
 

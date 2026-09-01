@@ -12,7 +12,14 @@ from typing import Self
 from onlyalpha.account.enums import OnlyAccountReservationState, OnlyAccountStatus, OnlyAccountType
 from onlyalpha.account.models import OnlyAccountReservation, OnlyAccountSnapshot
 from onlyalpha.domain.base import OnlyDomainModel
-from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderStatus, OnlyOrderType, OnlyTimeInForce
+from onlyalpha.domain.enums import (
+    OnlyMarginMode,
+    OnlyOffset,
+    OnlyOrderSide,
+    OnlyOrderStatus,
+    OnlyOrderType,
+    OnlyTimeInForce,
+)
 from onlyalpha.domain.execution import OnlyOrderFailure, OnlyOrderRejection, OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
@@ -27,6 +34,7 @@ from onlyalpha.domain.identifiers import (
     OnlyVenueOrderId,
 )
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
+from onlyalpha.domain.trading import OnlyExecutionIntent
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity
 from onlyalpha.fee.estimate import OnlyOrderFeeEstimate, OnlyOrderFundingPlan
 from onlyalpha.fee.models import OnlyOrderFeePolicyBinding
@@ -68,7 +76,7 @@ def _metadata(value: Mapping[str, str]) -> Mapping[str, str]:
 
 @dataclass(frozen=True, slots=True)
 class OnlyOrderExecutionState(OnlyDomainModel):
-    schema_version = 3
+    schema_version = 4
 
     order_id: OnlyOrderId
     request_id: OnlyOrderRequestId
@@ -113,6 +121,7 @@ class OnlyOrderExecutionState(OnlyDomainModel):
     fee_policy_binding: OnlyOrderFeePolicyBinding | None = None
     fee_estimate: OnlyOrderFeeEstimate | None = None
     funding_plan: OnlyOrderFundingPlan | None = None
+    execution_intent: OnlyExecutionIntent | None = None
 
     def __post_init__(self) -> None:
         if self.version < 1 or self.quantity.value != self.filled_quantity.value + self.remaining_quantity.value:
@@ -150,18 +159,27 @@ class OnlyOrderExecutionState(OnlyDomainModel):
                 raise ValueError("Order fee contract scope mismatch")
             if self.funding_plan.order_id != self.order_id:
                 raise ValueError("Order funding plan scope mismatch")
+        intent = self.execution_intent or OnlyExecutionIntent.from_legacy_offset(side=self.side, offset=self.offset)
+        if intent.side is not self.side:
+            raise ValueError("Order side conflicts with canonical execution intent")
+        object.__setattr__(self, "execution_intent", intent)
         object.__setattr__(self, "tags", tuple(self.tags))
         object.__setattr__(self, "metadata", _metadata(self.metadata))
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> Self:
-        if payload.get("schema_version") != cls.schema_version:
+        if payload.get("schema_version") not in {3, cls.schema_version}:
             raise ValueError("ORDER_EXECUTION_STATE_SCHEMA_UNSUPPORTED")
         compatible = dict(payload)
         compatible["schema_version"] = OnlyOrderSnapshot.schema_version
         compatible.setdefault("fee_policy_binding", None)
         compatible.setdefault("fee_estimate", None)
         compatible.setdefault("funding_plan", None)
+        if compatible.get("execution_intent") is None:
+            compatible["execution_intent"] = OnlyExecutionIntent.from_legacy_offset(
+                side=OnlyOrderSide(str(compatible["side"])),
+                offset=OnlyOffset(str(compatible["offset"])),
+            ).to_dict()
         snapshot = OnlyOrderSnapshot.from_dict(compatible)
         return cls(**{name: getattr(snapshot, name) for name in cls.__dataclass_fields__})
 
@@ -594,6 +612,9 @@ class OnlyMarginReservationExecutionState(OnlyDomainModel):
     created_at: OnlyTimestamp
     updated_at: OnlyTimestamp
     version: int
+    margin_mode: OnlyMarginMode = OnlyMarginMode.CROSS
+    isolation_key: str | None = None
+    position_side: OnlyPositionSide = OnlyPositionSide.LONG
 
     def __post_init__(self) -> None:
         values = (
@@ -625,6 +646,12 @@ class OnlyMarginReservationExecutionState(OnlyDomainModel):
             )
         ):
             raise ValueError("Margin reservation state/stage is invalid")
+        if self.margin_mode is OnlyMarginMode.ISOLATED and not (self.isolation_key or "").strip():
+            raise ValueError("Isolated Margin Reservation requires isolation key")
+        if self.margin_mode is OnlyMarginMode.CROSS and self.isolation_key is not None:
+            raise ValueError("Cross Margin Reservation cannot carry isolation key")
+        if self.position_side not in {OnlyPositionSide.LONG, OnlyPositionSide.SHORT}:
+            raise ValueError("Margin Reservation requires a directional Position side")
 
 
 class OnlyMarginReservationExecutionStatus(StrEnum):
@@ -887,6 +914,9 @@ def only_margin_reservation_execution_state(
         reservation.created_at,
         reservation.updated_at,
         reservation.version,
+        reservation.margin_mode,
+        reservation.isolation_key,
+        reservation.position_side,
     )
 
 

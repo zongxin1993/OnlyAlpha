@@ -332,6 +332,31 @@ class OnlyStrategyLedger:
         self.version += 1
         self._reconcile_equity()
 
+    def apply_economic_cashflow(
+        self,
+        cash_flow_id: OnlyStrategyCashFlowId,
+        amount: OnlyMoney,
+        entry_type: OnlyStrategyCashEntryType,
+        timestamp: OnlyTimestamp,
+    ) -> None:
+        """Apply a Kernel-derived PnL cashflow without classifying it as external capital."""
+
+        if entry_type not in {
+            OnlyStrategyCashEntryType.FUNDING,
+            OnlyStrategyCashEntryType.VARIATION_MARGIN,
+        }:
+            raise ValueError("STRATEGY_ECONOMIC_CASHFLOW_TYPE_INVALID")
+        self._require_active()
+        self._require_currency(amount)
+        if self.ledger_cash.amount + amount.amount < 0:
+            raise OnlyStrategyLedgerInsufficientCashError("economic cashflow would make Strategy cash negative")
+        self.ledger_cash = self.ledger_cash + amount
+        self.realized_pnl = self.realized_pnl + amount
+        self._record_cash(entry_type, amount, timestamp, timestamp, cash_flow_id=cash_flow_id)
+        self.updated_at = timestamp
+        self.version += 1
+        self._reconcile_equity()
+
     def apply_valuation(
         self,
         valuation: OnlyStrategyValuation,

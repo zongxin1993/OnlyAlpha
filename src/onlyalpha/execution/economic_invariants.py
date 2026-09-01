@@ -6,6 +6,7 @@ from decimal import ROUND_HALF_EVEN, Decimal
 from typing import TYPE_CHECKING
 
 from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide
+from onlyalpha.position.enums import OnlyPositionSide
 from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 from onlyalpha.transaction.projection import (
     OnlyAccountCashReservationExecutionProjection,
@@ -135,18 +136,28 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
             != fact.ledger_realized_pnl_delta.amount
         ):
             raise ValueError("Strategy Ledger projection realized PnL contradicts execution fact")
+        fee_cash_effect = fact.fee_total_rebates.amount - fact.fee_total_charges.amount
         expected_cash_delta = (
-            -(fact.settled_notional.amount + fact.fee_total_charges.amount - fact.fee_total_rebates.amount)
-            if fact.order_side is OnlyOrderSide.BUY
-            else fact.settled_notional.amount - fact.fee_total_charges.amount + fact.fee_total_rebates.amount
+            fact.realized_pnl_delta.amount + fee_cash_effect
+            if fact.settled_notional.amount == 0
+            else (
+                fact.settled_notional.amount if fact.position_effect.value == "CLOSE" else -fact.settled_notional.amount
+            )
+            + fee_cash_effect
         )
         if fact.cash_delta.amount != expected_cash_delta:
             raise ValueError("execution Fact cash delta contradicts authoritative trade cost")
-        if fact.order_side is OnlyOrderSide.SELL and (
-            fact.gross_cash_inflow != fact.gross_notional
-            or fact.net_cash_inflow.amount
-            != fact.gross_notional.amount - fact.incremental_fee_charges.amount + fact.incremental_fee_rebates.amount
-            or fact.net_cash_inflow != fact.account_cash_delta
+        if (
+            fact.order_side is OnlyOrderSide.SELL
+            and fact.settled_notional.amount != 0
+            and (
+                fact.gross_cash_inflow != fact.gross_notional
+                or fact.net_cash_inflow.amount
+                != fact.gross_notional.amount
+                - fact.incremental_fee_charges.amount
+                + fact.incremental_fee_rebates.amount
+                or fact.net_cash_inflow != fact.account_cash_delta
+            )
         ):
             raise ValueError("SELL execution cash inflow authority is inconsistent")
         if (
@@ -192,7 +203,8 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
                 allocation.after.average_open_price,
             )
             quantum = Decimal(1).scaleb(-fact.currency.precision)
-            expected_realized = (
+            side_sign = Decimal(1) if fact.position_side is OnlyPositionSide.LONG else Decimal(-1)
+            expected_realized = side_sign * (
                 (fact.fill_price.value * fact.fill_quantity.value - fact.released_open_price_quantity)
                 * fact.contract_multiplier.value
             ).quantize(quantum, rounding=ROUND_HALF_EVEN)
@@ -239,20 +251,20 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
         if fact.margin_instruction_id is not None:
             if any(value is None for value in margin_fields):
                 raise ValueError("execution with Margin instruction requires complete Margin facts")
-            margin = _one(prepared.projections, OnlyMarginExecutionProjection).after
-            margin_reservation = _one(prepared.projections, OnlyMarginReservationExecutionProjection).after
+            margin_reservations = tuple(
+                item.after for item in _all(prepared.projections, OnlyMarginReservationExecutionProjection)
+            )
+            if not margin_reservations:
+                raise ValueError("execution with Margin instruction requires Margin reservation authority")
             if (
-                margin.instruction_id != fact.margin_instruction_id
-                or margin.action != fact.margin_action
-                or margin.currency != fact.currency.code
-                or fact.margin_currency != fact.currency
-                or margin.amount != (fact.margin_amount.amount if fact.margin_amount is not None else None)
-                or margin_reservation.order_id != fact.order_id
-                or margin_reservation.currency != fact.currency
-                or margin.account_id != fact.account_id
-                or margin.instrument_id != fact.instrument_id
-                or margin.order_id != fact.order_id
-                or margin.trade_id != str(fact.trade_id)
+                fact.margin_currency != fact.currency
+                or (
+                    fact.position_effect.value != "CLOSE"
+                    and any(item.order_id != fact.order_id for item in margin_reservations)
+                )
+                or any(item.currency != fact.currency for item in margin_reservations)
+                or any(item.account_id != fact.account_id for item in margin_reservations)
+                or any(item.instrument_id != fact.instrument_id for item in margin_reservations)
             ):
                 raise ValueError("Margin projections contradict execution fact")
             self._validate_margin_account(prepared)
@@ -276,13 +288,6 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
             raise ValueError("Accepted transaction requires Accepted Fact")
         order = _one(prepared.projections, OnlyOrderAcceptedExecutionProjection)
         components = tuple(item.identity.component.value for item in prepared.projections)
-        expected = (
-            ("ORDER", "STRATEGY_LEDGER", "STRATEGY_CASH_RESERVATION")
-            if order.before.side is OnlyOrderSide.BUY
-            else ("ORDER", "POSITION", "POSITION_RESERVATION")
-        )
-        if components != expected:
-            raise ValueError("Accepted transaction projection set is incomplete")
         if (
             order.accepted_identity != fact.accepted_identity
             or order.broker_update_id != fact.broker_update_id
@@ -292,7 +297,16 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
             or order.after.remaining_quantity != order.before.remaining_quantity
         ):
             raise ValueError("Accepted Order projection contradicts fact")
-        if order.before.side is OnlyOrderSide.BUY:
+        if components == ("ORDER",):
+            return
+        expected = (
+            ("ORDER", "STRATEGY_LEDGER", "STRATEGY_CASH_RESERVATION")
+            if components[1] == "STRATEGY_LEDGER"
+            else ("ORDER", "POSITION", "POSITION_RESERVATION")
+        )
+        if components != expected:
+            raise ValueError("Accepted transaction projection set is incomplete")
+        if components[1] == "STRATEGY_LEDGER":
             ledger = _one(prepared.projections, OnlyStrategyLedgerExecutionProjection)
             cash_reservation = _one(prepared.projections, OnlyStrategyCashReservationExecutionProjection)
             if (
@@ -349,8 +363,29 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
         ):
             raise ValueError("terminal projections contradict Terminal Fact")
         components = tuple(item.identity.component.value for item in prepared.projections)
-        if fact.economic_release_kind is OnlyTerminalEconomicReleaseKind.CASH_RESERVATION:
-            expected = (
+        if fact.economic_release_kind is OnlyTerminalEconomicReleaseKind.MARGIN_RESERVATION:
+            expected_margin_components = ("ORDER", "ACCOUNT", "MARGIN_RESERVATION", "RISK_RESERVATION", "RISK")
+            if components != expected_margin_components:
+                raise ValueError("Margin terminal projection set is incomplete")
+            account = _one(prepared.projections, OnlyAccountExecutionProjection)
+            margin = _one(prepared.projections, OnlyMarginReservationExecutionProjection)
+            release = fact.reservation_released_margin
+            if (
+                release is None
+                or margin.before is None
+                or margin.before.remaining_reserved_amount != release
+                or margin.after.remaining_reserved_amount.amount != 0
+                or account.before.reserved_margin is None
+                or account.after.reserved_margin is None
+                or account.before.released_margin is None
+                or account.after.released_margin is None
+                or account.before.reserved_margin.amount - account.after.reserved_margin.amount != release.amount
+                or account.after.released_margin.amount - account.before.released_margin.amount != release.amount
+                or account.before.ledger_cash != account.after.ledger_cash
+            ):
+                raise ValueError("Margin terminal conservation failed")
+        elif fact.economic_release_kind is OnlyTerminalEconomicReleaseKind.CASH_RESERVATION:
+            expected_cash_components = (
                 "ORDER",
                 "ACCOUNT",
                 "STRATEGY_LEDGER",
@@ -359,7 +394,7 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
                 "RISK_RESERVATION",
                 "RISK",
             )
-            if components != expected:
+            if components != expected_cash_components:
                 raise ValueError("BUY terminal projection set is incomplete")
             account = _one(prepared.projections, OnlyAccountExecutionProjection)
             ledger = _one(prepared.projections, OnlyStrategyLedgerExecutionProjection)
@@ -589,15 +624,23 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
         for projection_type, required in requirements:
             count = len(_all(prepared.projections, projection_type))
             expected = 1 if required else 0
-            if count != expected:
+            valid = (
+                count >= 1
+                if required and projection_type is OnlyMarginReservationExecutionProjection
+                else count == expected
+            )
+            if not valid:
                 raise ValueError(f"execution requires exactly {expected} {projection_type.__name__}; received {count}")
 
     @staticmethod
     def _validate_margin_account(prepared: OnlyPreparedRuntimeTransaction) -> None:
         fact = _trade_fact(prepared)
         account = _one(prepared.projections, OnlyAccountExecutionProjection)
-        margin = _one(prepared.projections, OnlyMarginExecutionProjection).after
-        reservation = _one(prepared.projections, OnlyMarginReservationExecutionProjection).after
+        reservations = tuple(
+            item.after for item in _all(prepared.projections, OnlyMarginReservationExecutionProjection)
+        )
+        if not reservations:
+            raise ValueError("Margin execution requires reservation authority")
         assert fact.reserved_margin_delta is not None
         assert fact.occupied_margin_delta is not None
         assert fact.released_margin_delta is not None
@@ -618,10 +661,8 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
             != fact.occupied_margin_delta.amount
             or account.after.released_margin.amount - account.before.released_margin.amount
             != fact.released_margin_delta.amount
-            or margin.reserved != reservation.remaining_reserved_amount.amount
-            or margin.occupied != reservation.occupied_amount.amount
-            or margin.maintenance != reservation.maintenance_amount.amount
-            or margin.maintenance != fact.maintenance_margin_after.amount
+            or sum((item.maintenance_amount.amount for item in reservations), Decimal(0))
+            != fact.maintenance_margin_after.amount
         ):
             raise ValueError("Margin Fact, Account and Reservation states do not reconcile")
 

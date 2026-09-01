@@ -99,8 +99,6 @@ class OnlyOrderIntentRuntimeTransactionPlanner:
         prepared_at = context.prepared_at
         if prepared_at < order.created_at:
             raise ValueError("ORDER_INTENT_PREPARED_TIME_INVALID")
-        if context.margin_reservation_after is not None:
-            raise ValueError("ORDER_INTENT_MARGIN_RESERVATION_PROJECTION_UNSUPPORTED")
         identity_payload = "\x1f".join(
             (
                 str(ONLY_ORDER_INTENT_IDENTITY_SCHEMA_VERSION),

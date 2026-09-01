@@ -28,6 +28,8 @@ def test_planner_rejects_unsupported_decision_as_routing_invariant() -> None:
             position_side=context.position_scope.position_side,
             position_effect=context.position_scope.position_effect,
             position_mode=context.position_scope.position_mode,
+            close_scope=context.position_scope.close_scope,
+            exposure_constraint=context.position_scope.exposure_constraint,
             has_margin=False,
             account_ledger_parity=False,
             reservations=OnlyExecutionReservationShape(True, True, False, False, True),

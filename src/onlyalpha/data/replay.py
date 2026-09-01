@@ -14,9 +14,13 @@ from onlyalpha.market_data.subscriptions import only_bar_type_id
 
 _DATA_TYPE_PRIORITY = {
     OnlyMarketDataType.INSTRUMENT_STATUS: 0,
-    OnlyMarketDataType.QUOTE: 1,
-    OnlyMarketDataType.TRADE: 2,
-    OnlyMarketDataType.BAR: 3,
+    OnlyMarketDataType.REFERENCE_PRICE: 1,
+    OnlyMarketDataType.SETTLEMENT: 2,
+    OnlyMarketDataType.FUNDING_RATE: 3,
+    OnlyMarketDataType.MARKET_REFERENCE: 4,
+    OnlyMarketDataType.QUOTE: 5,
+    OnlyMarketDataType.TRADE: 6,
+    OnlyMarketDataType.BAR: 7,
 }
 
 

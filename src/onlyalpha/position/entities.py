@@ -12,6 +12,7 @@ from onlyalpha.position.exceptions import OnlyPositionInvariantError, OnlyPositi
 from onlyalpha.position.keys import OnlyPositionKey
 from onlyalpha.position.models import (
     OnlyPositionRestriction,
+    OnlyPositionSettlementFact,
     OnlyPositionSnapshot,
     OnlyPositionTrade,
     only_zero_quantity,
@@ -173,6 +174,27 @@ class OnlyPosition:
             self.status = OnlyPositionStatus.OPEN
         self._check()
         return pnl_delta
+
+    def apply_settlement(self, fact: OnlyPositionSettlementFact, pnl_model: OnlyPnLModel) -> OnlyMoney:
+        """Realize daily variation margin and reset the canonical cost basis."""
+
+        if fact.key != self.key or self.average_open_price is None or self.total_quantity.value <= 0:
+            raise OnlyPositionInvariantError("POSITION_SETTLEMENT_SCOPE_INVALID")
+        realized = pnl_model.realized(
+            self.key.position_side,
+            self.average_open_price,
+            fact.settlement_price,
+            self.total_quantity,
+            fact.multiplier,
+            fact.currency,
+        )
+        self.realized_pnl = self.realized_pnl + realized
+        self.average_open_price = fact.settlement_price
+        self.cumulative_open_price_quantity = fact.settlement_price.value * self.total_quantity.value
+        self.updated_at = fact.timestamp
+        self.version += 1
+        self._check()
+        return realized
 
     def _increase(self, trade: OnlyPositionTrade) -> None:
         old_value = self.total_quantity.value

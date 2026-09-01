@@ -37,7 +37,7 @@ class OnlyRecordingPositionReservationPort:
         self.calls.append(("release", order_id))
 
 
-def test_order_service_reserves_position_before_marking_order_submitted(build_harness, order_request) -> None:
+def test_order_service_does_not_reserve_position_for_canonical_open_intent(build_harness, order_request) -> None:
     harness = build_harness()
     port = OnlyRecordingPositionReservationPort()
     service = OnlyOrderService(
@@ -54,4 +54,4 @@ def test_order_service_reserves_position_before_marking_order_submitted(build_ha
     result = service.submit(order_request, harness.cluster_id, harness.account_id)
 
     assert result.submitted and result.order_id is not None
-    assert port.calls == [("reserve", result.order_id), ("sent", result.order_id)]
+    assert port.calls == []

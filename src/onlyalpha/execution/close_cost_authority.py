@@ -14,6 +14,7 @@ from onlyalpha.domain.identifiers import (
     OnlyRuntimeId,
 )
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
+from onlyalpha.position.enums import OnlyPositionSide
 from onlyalpha.position.identifiers import OnlyPositionAllocationId
 
 from .execution_state import (
@@ -128,10 +129,10 @@ def only_build_attributed_close_cost_authority(
     )
     currency = trade.gross_notional.currency
     quantum = Decimal(1).scaleb(-currency.precision)
+    price_difference = trade.price.value * trade.quantity.value - reduction.released_open_price_quantity
+    side_sign = Decimal(1) if trade.position_side is OnlyPositionSide.LONG else Decimal(-1)
     realized = OnlyMoney(
-        (
-            (trade.price.value * trade.quantity.value - reduction.released_open_price_quantity) * trade.multiplier.value
-        ).quantize(quantum, rounding=ROUND_HALF_EVEN),
+        (side_sign * price_difference * trade.multiplier.value).quantize(quantum, rounding=ROUND_HALF_EVEN),
         currency,
     )
     return OnlyAttributedCloseCostAuthority(

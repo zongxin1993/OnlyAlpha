@@ -12,6 +12,7 @@ dependencies = [
 
 [project.entry-points."onlyalpha.data_sources"]
 binance = "onlyalpha_plugin_binance.spot.data_source.factory:factory"
+binance-usdm = "onlyalpha_plugin_binance.usdm.data_source:factory"
 
 [project.entry-points."onlyalpha.brokers"]
 binance-spot = "onlyalpha_plugin_binance.spot.broker_factory:OnlyBinanceSpotBrokerFactory"

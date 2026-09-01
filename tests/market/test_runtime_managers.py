@@ -106,3 +106,27 @@ def test_margin_manager_reserve_occupy_and_release_lifecycle() -> None:
     assert released.maintenance_required_after == 0
     authority = manager.get("order-1")
     assert authority is not None and authority.occupied == 0 and authority.released == Decimal(100)
+
+
+def test_margin_manager_normalizes_formula_scale_to_currency_precision() -> None:
+    manager = OnlyMarginManager(OnlyRuntimeId("runtime-margin-precision"))
+
+    record = manager.apply(
+        OnlyMarginInstruction(
+            "RESERVE",
+            "account-1",
+            "FUTURE.X",
+            "USD",
+            Decimal("120.0000"),
+            Decimal("80.005"),
+            "order-precision",
+            "",
+            OnlyTimestamp(1),
+        )
+    )
+
+    reservation = manager.get("order-precision")
+    assert reservation is not None
+    assert reservation.original_reserved == Decimal("120.00")
+    assert reservation.maintenance_required == Decimal("0.00")
+    assert record.amount == Decimal("120.00")

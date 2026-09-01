@@ -18,7 +18,7 @@ from onlyalpha.domain.identifiers import (
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 
-from .capability import ONLY_EXECUTION_SUPPORT_POLICY_VERSION, OnlyExecutionCapability
+from .capability import OnlyExecutionCapability, only_execution_support_policy_version_is_readable
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -51,7 +51,7 @@ class OnlyCommittedOrderAcceptedFactDraft(OnlyDomainModel):
             raise ValueError("accepted fact requires ORDER_ACCEPTED operation kind")
         if (
             self.execution_capability is not OnlyExecutionCapability.DURABLE_ORDER_ACCEPTED
-            or self.execution_support_policy_version != ONLY_EXECUTION_SUPPORT_POLICY_VERSION
+            or not only_execution_support_policy_version_is_readable(self.execution_support_policy_version)
             or len(self.execution_support_fingerprint) != 64
         ):
             raise ValueError("accepted fact requires a valid durable support proof")

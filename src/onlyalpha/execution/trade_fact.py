@@ -27,8 +27,8 @@ from onlyalpha.strategy.identifiers import OnlyStrategyId
 from onlyalpha.transaction.facts import OnlyCommittedRuntimeFact
 
 from .capability import (
-    ONLY_EXECUTION_SUPPORT_POLICY_VERSION,
     OnlyExecutionCapability,
+    only_execution_support_policy_version_is_readable,
 )
 
 
@@ -176,7 +176,7 @@ class OnlyCommittedExecutionFactDraft(OnlyDomainModel):
             raise ValueError("execution fact draft requires stable identity and non-negative sequences")
         if (
             self.execution_capability is not OnlyExecutionCapability.DURABLE_TRADE
-            or self.execution_support_policy_version != ONLY_EXECUTION_SUPPORT_POLICY_VERSION
+            or not only_execution_support_policy_version_is_readable(self.execution_support_policy_version)
             or len(self.execution_support_fingerprint) != 64
         ):
             raise ValueError("execution fact draft requires a valid durable Trade support proof")
@@ -221,7 +221,7 @@ class OnlyCommittedExecutionFactDraft(OnlyDomainModel):
             self.account_reservation_released_delta.amount or self.strategy_reservation_released_delta.amount
         ):
             raise ValueError("non-terminal execution fact cannot release cash Reservation")
-        if self.order_side is OnlyOrderSide.SELL and (
+        if self.position_effect is OnlyPositionEffect.CLOSE and (
             self.position_quantity_after - self.position_quantity_before != self.position_quantity_delta
             or self.allocation_quantity_after - self.allocation_quantity_before != self.allocation_quantity_delta
             or self.position_closed != (self.position_quantity_after == 0)

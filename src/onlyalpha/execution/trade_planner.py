@@ -18,6 +18,7 @@ from onlyalpha.fee.models import OnlyFeeAuthority, OnlyFeeType
 from onlyalpha.market.models import OnlyPositionEffect
 from onlyalpha.position.enums import (
     OnlyPositionReservationState,
+    OnlyPositionSide,
     OnlyPositionStatus,
     OnlySettlementBucket,
 )
@@ -68,6 +69,7 @@ from .reducers import (
     OnlyAccountTradeReducer,
     OnlyAllocationTradeReducer,
     OnlyFeeTradeReducer,
+    OnlyMarginReservationTradeReducer,
     OnlyOrderFeeAccrualTradeReducer,
     OnlyOrderTradeReducer,
     OnlyPositionReservationTradeReducer,
@@ -79,6 +81,7 @@ from .reducers import (
     OnlyStrategyLedgerTradeReducer,
     OnlyValuationTradeReducer,
 )
+from .reducers.trade_margin import OnlyMarginReservationTradeReduction
 from .trade_fact import OnlyCommittedExecutionFactDraft
 
 
@@ -150,6 +153,7 @@ class OnlyTradeExecutionTransactionPlanner:
 
     def _reduce(self, context: OnlyTradeExecutionPlanningContext) -> _OnlyTradePlan:
         closing = context.position_scope.position_effect is OnlyPositionEffect.CLOSE
+        margined = context.trade_instruction.margin_instruction is not None
         trade_without_fee = self._planned_trade(context)
         order = OnlyOrderTradeReducer().reduce(context.order_before, trade_without_fee, projection_sequence=1)
         cumulative_notional = (
@@ -203,9 +207,44 @@ class OnlyTradeExecutionTransactionPlanner:
             record_sequence=context.fee_record_sequence,
             projection_sequence=6,
         )
+        margin_reservations: tuple[OnlyMarginReservationTradeReduction, ...] = ()
+        if margined:
+            instruction = context.trade_instruction.margin_instruction
+            assert instruction is not None
+            if closing:
+                before_reservations = context.margin_reservations_before or (
+                    () if context.margin_reservation_before is None else (context.margin_reservation_before,)
+                )
+                if not before_reservations:
+                    raise ValueError("MARGIN_RESERVATION_REQUIRED")
+                margin_reservations = tuple(
+                    OnlyMarginReservationTradeReducer().reduce_close(
+                        before,
+                        instruction,
+                        fill_quantity=trade.quantity.value,
+                        position_quantity_before=(
+                            Decimal(0)
+                            if context.position_before is None
+                            else context.position_before.total_quantity.value
+                        ),
+                        projection_sequence=10 + index,
+                    )
+                    for index, before in enumerate(before_reservations)
+                )
+            else:
+                if context.margin_reservation_before is None:
+                    raise ValueError("MARGIN_RESERVATION_REQUIRED")
+                margin_reservations = (
+                    OnlyMarginReservationTradeReducer().reduce_open(
+                        context.margin_reservation_before,
+                        instruction,
+                        terminal_fill=order.terminal_fill,
+                        projection_sequence=9,
+                    ),
+                )
         account_reservation = (
             None
-            if closing
+            if closing or margined
             else OnlyAccountCashReservationTradeReducer().reduce(
                 _require_account_reservation(context),
                 trade,
@@ -215,7 +254,7 @@ class OnlyTradeExecutionTransactionPlanner:
         )
         strategy_reservation = (
             None
-            if closing
+            if closing or margined
             else OnlyStrategyCashReservationTradeReducer().reduce(
                 _require_strategy_reservation(context),
                 trade,
@@ -237,17 +276,13 @@ class OnlyTradeExecutionTransactionPlanner:
             context.risk_reservation_before,
             trade,
             order.terminal_fill,
-            projection_sequence=10 if closing else 11,
+            projection_sequence=(
+                10 + len(margin_reservations) if closing and margined else 10 if closing or margined else 11
+            ),
         )
         currency = trade.gross_notional.currency
         quantum = Decimal(1).scaleb(-currency.precision)
-        position_market_value = _money(
-            (context.valuation_price.value * position.after.total_quantity.value * trade.multiplier.value).quantize(
-                quantum
-            ),
-            currency,
-        )
-        position_market_delta = position_market_value - context.account_before.position_market_value
+        side_sign = Decimal(1) if trade.position_side is OnlyPositionSide.LONG else Decimal(-1)
         position_unrealized = _money(
             Decimal(0)
             if position.after.average_open_price is None
@@ -255,9 +290,21 @@ class OnlyTradeExecutionTransactionPlanner:
                 (context.valuation_price.value - position.after.average_open_price.value)
                 * position.after.total_quantity.value
                 * trade.multiplier.value
+                * side_sign
             ).quantize(quantum),
             currency,
         )
+        position_market_value = (
+            position_unrealized
+            if trade.margined
+            else _money(
+                (context.valuation_price.value * position.after.total_quantity.value * trade.multiplier.value).quantize(
+                    quantum
+                ),
+                currency,
+            )
+        )
+        position_market_delta = position_market_value - context.account_before.position_market_value
         account = OnlyAccountTradeReducer().reduce(
             context.account_before,
             account_reservation,
@@ -266,6 +313,7 @@ class OnlyTradeExecutionTransactionPlanner:
             position_unrealized,
             position.realized_pnl_delta if closing else None,
             settlement.after.withdrawable_cash_released,
+            margin_reductions=margin_reservations,
             projection_sequence=7,
         )
         ledger = OnlyStrategyLedgerTradeReducer().reduce(
@@ -283,7 +331,9 @@ class OnlyTradeExecutionTransactionPlanner:
             risk_reservation,
             trade,
             order.terminal_fill,
-            projection_sequence=11 if closing else 12,
+            projection_sequence=(
+                11 + len(margin_reservations) if closing and margined else 11 if closing or margined else 12
+            ),
         )
         valuation = OnlyValuationTradeReducer().reduce(
             context.valuation_before,
@@ -291,7 +341,9 @@ class OnlyTradeExecutionTransactionPlanner:
             account.after.ledger_cash,
             account.after.position_market_value,
             account.after.unrealized_pnl,
-            projection_sequence=12 if closing else 13,
+            projection_sequence=(
+                12 + len(margin_reservations) if closing and margined else 12 if closing or margined else 13
+            ),
         )
         ledger_projection = replace(
             ledger.projection,
@@ -330,7 +382,13 @@ class OnlyTradeExecutionTransactionPlanner:
         reservation_projections: tuple[OnlyRuntimeProjection, ...]
         if closing:
             assert position_reservation is not None
-            reservation_projections = (position_reservation.projection,)
+            reservation_projections = (
+                position_reservation.projection,
+                *(item.projection for item in margin_reservations),
+            )
+        elif margined:
+            assert len(margin_reservations) == 1
+            reservation_projections = (margin_reservations[0].projection,)
         else:
             assert account_reservation is not None and strategy_reservation is not None
             reservation_projections = (account_reservation.projection, strategy_reservation.projection)
@@ -353,6 +411,8 @@ class OnlyTradeExecutionTransactionPlanner:
         if closing:
             assert position_reservation is not None
             reservation_intents = position_reservation.event_intents
+        elif margined:
+            reservation_intents = ()
         else:
             assert account_reservation is not None and strategy_reservation is not None
             reservation_intents = (
@@ -374,6 +434,7 @@ class OnlyTradeExecutionTransactionPlanner:
             account_reservation,
             strategy_reservation,
             position_reservation,
+            margin_reservations,
             risk_reservation,
             account,
             ledger,
@@ -425,6 +486,7 @@ class OnlyTradeExecutionTransactionPlanner:
             context.trading_day,
             update.source_sequence,
             (update.source_sequence, update.ts_event.unix_nanos, str(update.fill.trade_id)),
+            context.trade_instruction.margin_instruction is not None,
         )
 
     @staticmethod
@@ -440,6 +502,7 @@ class OnlyTradeExecutionTransactionPlanner:
         account_reservation: object,
         strategy_reservation: object,
         position_reservation: object,
+        margin_reservations: object,
         risk_reservation: object,
         account: object,
         ledger: object,
@@ -474,11 +537,59 @@ class OnlyTradeExecutionTransactionPlanner:
             strategy_reservation, OnlyStrategyCashReservationTradeReduction
         )
         assert position_reservation is None or isinstance(position_reservation, OnlyPositionReservationTradeReduction)
+        from .reducers.trade_margin import OnlyMarginReservationTradeReduction
+
+        assert isinstance(margin_reservations, tuple) and all(
+            isinstance(item, OnlyMarginReservationTradeReduction) for item in margin_reservations
+        )
         assert isinstance(risk_reservation, OnlyRiskReservationTradeReduction)
         update = context.update
         components = fee.components
         currency = fee.total_charges.currency
         zero = _money(Decimal(0), currency)
+        margin_currency = None if not margin_reservations else margin_reservations[0].after.currency
+        if margin_currency is not None and any(item.after.currency != margin_currency for item in margin_reservations):
+            raise ValueError("MARGIN_REDUCTION_CURRENCY_CONFLICT")
+        margin_instruction_id = (
+            None
+            if not margin_reservations
+            else margin_reservations[0].instruction_id
+            if len(margin_reservations) == 1
+            else "MARGIN-"
+            + hashlib.sha256("\x1f".join(item.instruction_id for item in margin_reservations).encode()).hexdigest()
+        )
+        reserved_margin_delta = (
+            None
+            if margin_currency is None
+            else sum(
+                (item.reserved_delta for item in margin_reservations),
+                OnlyMoney(Decimal(0), margin_currency),
+            )
+        )
+        occupied_margin_delta = (
+            None
+            if margin_currency is None
+            else sum(
+                (item.occupied_delta for item in margin_reservations),
+                OnlyMoney(Decimal(0), margin_currency),
+            )
+        )
+        released_margin_delta = (
+            None
+            if margin_currency is None
+            else sum(
+                (item.released_delta for item in margin_reservations),
+                OnlyMoney(Decimal(0), margin_currency),
+            )
+        )
+        maintenance_margin_after = (
+            None
+            if margin_currency is None
+            else sum(
+                (item.after.maintenance_amount for item in margin_reservations),
+                OnlyMoney(Decimal(0), margin_currency),
+            )
+        )
         market_components = tuple(item for item in components if item.identity.authority is not OnlyFeeAuthority.BROKER)
         broker_components = tuple(item for item in components if item.identity.authority is OnlyFeeAuthority.BROKER)
         market_fee = _sum_fee(currency, market_components)
@@ -595,14 +706,24 @@ class OnlyTradeExecutionTransactionPlanner:
             asset_available_on=settlement_after.asset_available_on,
             cash_available_on=settlement_after.cash_trade_available_on,
             legal_settlement_date=settlement_after.legal_settlement_on,
-            margin_instruction_id=None,
-            margin_action=None,
-            margin_currency=None,
-            margin_amount=None,
-            reserved_margin_delta=None,
-            occupied_margin_delta=None,
-            released_margin_delta=None,
-            maintenance_margin_after=None,
+            margin_instruction_id=margin_instruction_id,
+            margin_action=(
+                None
+                if not margin_reservations
+                else "RELEASE"
+                if trade.position_effect is OnlyPositionEffect.CLOSE
+                else "OCCUPY"
+            ),
+            margin_currency=margin_currency,
+            margin_amount=(
+                None
+                if occupied_margin_delta is None
+                else OnlyMoney(abs(occupied_margin_delta.amount), occupied_margin_delta.currency)
+            ),
+            reserved_margin_delta=reserved_margin_delta,
+            occupied_margin_delta=occupied_margin_delta,
+            released_margin_delta=released_margin_delta,
+            maintenance_margin_after=maintenance_margin_after,
             position_quantity_delta=position_after.total_quantity.value - position_before_quantity,
             position_realized_pnl_delta=position.realized_pnl_delta,
             allocation_quantity_delta=allocation_after.total_quantity.value - allocation_before_quantity,
@@ -649,8 +770,8 @@ class OnlyTradeExecutionTransactionPlanner:
             released_open_price_quantity=(
                 Decimal(0) if close_authority is None else close_authority.released_open_price_quantity
             ),
-            gross_cash_inflow=(trade.gross_notional if trade.side is OnlyOrderSide.SELL else zero),
-            net_cash_inflow=(account.cash_delta if trade.side is OnlyOrderSide.SELL else zero),
+            gross_cash_inflow=(trade.settled_notional if trade.position_effect is OnlyPositionEffect.CLOSE else zero),
+            net_cash_inflow=(account.cash_delta if trade.position_effect is OnlyPositionEffect.CLOSE else zero),
             allocation_realized_pnl_delta=allocation.realized_pnl_delta,
             position_reservation_consumed_delta=(
                 OnlyQuantity(Decimal(0), trade.quantity.precision)
@@ -815,10 +936,12 @@ class OnlyTradeExecutionTransactionPlanner:
             )
         if instruction.cash_instruction.currency != currency.code:
             _fail(OnlyTradeExecutionPlanningErrorCode.CURRENCY_MISMATCH, "Cash instruction Currency disagrees")
-        expected_cash = expected_notional.amount if closing else -expected_notional.amount
+        settles_notional = instruction.cash_instruction.settle_notional
+        expected_cash = (
+            (expected_notional.amount if closing else -expected_notional.amount) if settles_notional else Decimal(0)
+        )
         if (
-            not instruction.cash_instruction.settle_notional
-            or _money(instruction.cash_instruction.amount, currency).amount != expected_cash
+            _money(instruction.cash_instruction.amount, currency).amount != expected_cash
             or instruction.cash_instruction.available_on != settlement.cash_trade_available_on
         ):
             _fail(
@@ -850,13 +973,31 @@ class OnlyTradeExecutionTransactionPlanner:
             _fail(OnlyTradeExecutionPlanningErrorCode.MISSING_BEFORE_STATE, "Strategy Ledger is not processable")
         if context.risk_reservation_before.state is not OnlyRiskReservationState.ACTIVE:
             _fail(OnlyTradeExecutionPlanningErrorCode.INVALID_RESERVATION_STATE, "Reservation is not ACTIVE")
-        if opening and (
-            _require_account_reservation(context).state
-            not in {OnlyAccountReservationState.ACTIVE, OnlyAccountReservationState.PARTIALLY_CONSUMED}
-            or _require_strategy_reservation(context).state
-            not in {OnlyStrategyCashReservationState.ACTIVE, OnlyStrategyCashReservationState.PARTIALLY_CONSUMED}
+        margin_opening = opening and instruction.margin_instruction is not None
+        if (
+            opening
+            and not margin_opening
+            and (
+                _require_account_reservation(context).state
+                not in {OnlyAccountReservationState.ACTIVE, OnlyAccountReservationState.PARTIALLY_CONSUMED}
+                or _require_strategy_reservation(context).state
+                not in {OnlyStrategyCashReservationState.ACTIVE, OnlyStrategyCashReservationState.PARTIALLY_CONSUMED}
+            )
         ):
             _fail(OnlyTradeExecutionPlanningErrorCode.INVALID_RESERVATION_STATE, "Cash Reservation is not ACTIVE")
+        if margin_opening:
+            margin = context.margin_reservation_before
+            margin_instruction = instruction.margin_instruction
+            if margin is None or margin_instruction is None:
+                _fail(OnlyTradeExecutionPlanningErrorCode.MISSING_BEFORE_STATE, "Margin Reservation is required")
+            if (
+                margin.remaining_reserved_amount.amount <= 0
+                or margin.order_id != order.order_id
+                or margin.account_id != order.account_id
+                or margin.instrument_id != order.instrument_id
+                or margin.position_side is not scope.position_side
+            ):
+                _fail(OnlyTradeExecutionPlanningErrorCode.INVALID_RESERVATION_STATE, "Margin Reservation is invalid")
         if closing:
             _validate_close_authority(context)
         stable_order = (update.source_sequence, update.ts_event.unix_nanos, str(update.fill.trade_id))
@@ -1079,10 +1220,15 @@ def _settlement_instruction(
         )
     schedule = context.trade_instruction.settlement_schedule
     cash_credit = trade.side is OnlyOrderSide.SELL
+    settlement_notional = trade.settled_notional if trade.margined else trade.gross_notional
     account_amount = OnlyMoney(
-        trade.gross_notional.amount - trade.fee_charges.amount + trade.fee_rebates.amount
-        if cash_credit
-        else trade.gross_notional.amount + trade.fee_charges.amount - trade.fee_rebates.amount,
+        Decimal(0)
+        if trade.margined
+        else (
+            trade.gross_notional.amount - trade.fee_charges.amount + trade.fee_rebates.amount
+            if cash_credit
+            else trade.gross_notional.amount + trade.fee_charges.amount - trade.fee_rebates.amount
+        ),
         trade.gross_notional.currency,
     )
     net_cash_flow = account_amount if cash_credit else OnlyMoney(-account_amount.amount, account_amount.currency)
@@ -1101,7 +1247,7 @@ def _settlement_instruction(
         allocation_cycle=allocation_cycle,
         side=trade.side,
         trade_quantity=trade.quantity,
-        gross_notional=trade.gross_notional,
+        gross_notional=settlement_notional,
         net_cash_flow=net_cash_flow,
         trading_day=trade.trading_day,
         schedule=schedule,
@@ -1114,7 +1260,7 @@ def _settlement_instruction(
         ),
         cash_leg=OnlyCashSettlementLeg(
             OnlySettlementLegDirection.CREDIT if cash_credit else OnlySettlementLegDirection.DEBIT,
-            trade.gross_notional,
+            settlement_notional,
             account_amount,
             schedule.cash_booked_on,
             schedule.cash_trade_available_on,

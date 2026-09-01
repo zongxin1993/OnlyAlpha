@@ -480,7 +480,10 @@ class OnlyOrderReservationAuthorityCheck:
             str(order_id)
             for order_id, order in open_orders.items()
             if order.side.value == "BUY"
-            and (order_id not in account or order_id not in strategy or order_id not in risk)
+            and (
+                order_id not in risk
+                or (order_id not in margin and (order_id not in account or order_id not in strategy))
+            )
         )
         maps = (
             ("account", account),
@@ -493,7 +496,14 @@ class OnlyOrderReservationAuthorityCheck:
             sorted(f"{kind}:{order_id}" for kind, items in maps for order_id in set(items) - set(all_orders))
         )
         terminal_active = tuple(
-            sorted(f"{kind}:{order_id}" for kind, items in maps for order_id in set(items) & terminal_order_ids)
+            sorted(
+                tuple(f"{kind}:{order_id}" for kind, items in maps[:-1] for order_id in set(items) & terminal_order_ids)
+                + tuple(
+                    f"margin:{order_id}"
+                    for order_id in set(margin) & terminal_order_ids
+                    if margin[order_id].reserved > 0
+                )
+            )
         )
         account_snapshots = {item.account_id: item for item in context.accounts}
         scoped: list[str] = []
@@ -579,7 +589,7 @@ class OnlyOrderReservationAuthorityCheck:
                 not terminal_active,
                 (),
                 terminal_active,
-                "terminal orders cannot retain active reservations",
+                "terminal orders cannot retain active cash/risk/position or unoccupied margin reservations",
             ),
             _check(
                 "POST_RECOVERY_RESERVATION_SCOPE_MISMATCH",

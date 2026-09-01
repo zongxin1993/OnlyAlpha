@@ -27,6 +27,7 @@ from onlyalpha.domain.execution import OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyOrderId
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
+from onlyalpha.domain.trading import OnlyPositionEffect
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.fee.ledger import OnlyFeeApplicationLedger
@@ -1565,6 +1566,20 @@ class OnlyExecutionProcessor:
         strategy_cash = next((item for item in ledger.reservations if item.order_id == order.order_id), None)
         position = self._position_reservations.get(order.order_id)
         margin = None if self._margin_manager is None else self._margin_manager.get(str(order.order_id))
+        if (
+            margin is None
+            and self._margin_manager is not None
+            and instruction is not None
+            and instruction.margin_instruction is not None
+            and position_scope.position_effect is OnlyPositionEffect.CLOSE
+        ):
+            candidates = self._margin_manager.occupied_reservations(
+                str(order.account_id),
+                str(order.instrument_id),
+                position_scope.position_side,
+            )
+            if len(candidates) == 1:
+                margin = candidates[0]
         risk = self._risk.reservations.get_for_order(order.order_id)
         reservations = only_execution_reservation_shape(
             account_cash_authority=account_cash,

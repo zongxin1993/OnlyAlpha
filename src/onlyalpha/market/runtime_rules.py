@@ -10,9 +10,16 @@ from typing import Protocol
 from zoneinfo import ZoneInfo
 
 from onlyalpha.canonical import only_canonical_fingerprint
-from onlyalpha.domain.enums import OnlyOrderSide, OnlyOrderType
+from onlyalpha.domain.enums import OnlyMarginMode, OnlyOrderSide, OnlyOrderType, OnlyTimeInForce
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay, only_require_utc
+from onlyalpha.domain.trading import (
+    OnlyCloseScope,
+    OnlyExposureConstraint,
+    OnlyPositionMode,
+    OnlyPositionSide,
+)
+from onlyalpha.market.economics import OnlyEconomicModel, OnlyMarginIsolationScope
 from onlyalpha.market.models import (
     OnlyMarketPositionMode,
     OnlyMarketRuleEvaluation,
@@ -39,6 +46,7 @@ _PRE_TRADE_RULE_ORDER = (
     "SUSPENSION",
     "INSTRUMENT_LIFECYCLE",
     "SUPPORTED_ORDER_TYPE",
+    "ORDER_CAPABILITY",
     "SIDE_POSITION_EFFECT",
     "QUANTITY_POSITIVE",
     "BUY_SELL_MINIMUM",
@@ -79,6 +87,11 @@ class OnlyPreTradeMarketContext:
     available_margin: Decimal = Decimal(0)
     position_effect: OnlyPositionEffect = OnlyPositionEffect.AUTO
     order_type: OnlyOrderType = OnlyOrderType.LIMIT
+    time_in_force: OnlyTimeInForce = OnlyTimeInForce.GTC
+    position_side: OnlyPositionSide | None = None
+    position_mode: OnlyPositionMode = OnlyPositionMode.NETTING
+    close_scope: OnlyCloseScope = OnlyCloseScope.ANY
+    exposure_constraint: OnlyExposureConstraint = OnlyExposureConstraint.NONE
 
     def __post_init__(self) -> None:
         only_require_utc(self.timestamp, "pre-trade timestamp")
@@ -134,6 +147,9 @@ class OnlyMarginInstruction:
     source_order_id: str
     source_trade_id: str
     timestamp: OnlyTimestamp
+    margin_mode: str = "CROSS"
+    isolation_key: str | None = None
+    position_side: str = "LONG"
 
 
 @dataclass(frozen=True, slots=True)
@@ -301,7 +317,7 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
                     }
                 )
         return {
-            "schema_version": 6,
+            "schema_version": 7,
             "market_composition_fingerprint": self._binding.composition_identity.fingerprint,
             "decisions": decisions,
         }
@@ -309,8 +325,8 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
     def restore_checkpoint(self, payload: object) -> None:
         if not isinstance(payload, dict) or not isinstance(payload.get("decisions"), list):
             raise ValueError("Market Rule checkpoint must contain decisions")
-        if payload.get("schema_version") != 6:
-            raise ValueError("CHECKPOINT_SCHEMA_UNSUPPORTED: Market Rule checkpoint requires version 6")
+        if payload.get("schema_version") != 7:
+            raise ValueError("CHECKPOINT_SCHEMA_UNSUPPORTED: Market Rule checkpoint requires version 7")
         if payload.get("market_composition_fingerprint") != self._binding.composition_identity.fingerprint:
             raise ValueError("MARKET_COMPOSITION_FINGERPRINT_MISMATCH")
 
@@ -388,7 +404,7 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
 
     @property
     def checkpoint_schema_version(self) -> int:
-        return 6
+        return 7
 
     def evaluate_pre_trade(self, context: OnlyPreTradeMarketContext) -> OnlyMarketOrderDecision:
         try:
@@ -397,20 +413,20 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
             return self._reference_failure_decision(context, exc)
         session = rules.session_policy.state_at(context.timestamp.astimezone(ZoneInfo(rules.session_policy.timezone)))
         effect = self._position_effect(rules, context)
-        required_position = (
-            context.quantity
-            if context.side is OnlyOrderSide.SELL and effect is not OnlyPositionEffect.OPEN
-            else Decimal(0)
-        )
+        required_position = context.quantity if effect is OnlyPositionEffect.CLOSE else Decimal(0)
         notional = context.price * context.quantity * rules.instrument_terms.contract_multiplier
         required_cash = (
-            notional if context.side is OnlyOrderSide.BUY and effect is not OnlyPositionEffect.CLOSE else Decimal(0)
+            notional
+            if rules.economic_model is OnlyEconomicModel.CASH_EXCHANGE
+            and context.side is OnlyOrderSide.BUY
+            and effect is OnlyPositionEffect.OPEN
+            else Decimal(0)
         )
         required_margin = Decimal(0)
-        if rules.margin_policy is not None and effect is OnlyPositionEffect.OPEN:
-            required_margin = rules.margin_policy.requirement(
-                context.price, context.quantity, rules.instrument_terms.contract_multiplier
-            ).initial_margin
+        if effect is OnlyPositionEffect.OPEN:
+            requirement = self._margin_requirement(rules, notional, context.price, context.quantity)
+            if requirement is not None:
+                required_margin = requirement[0]
         evaluations: list[OnlyMarketRuleEvaluation] = []
         failed = False
 
@@ -472,6 +488,27 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
             passed if order_type_supported else failed_status,
             None if order_type_supported else "ORDER_TYPE_NOT_SUPPORTED",
         )
+        canonical_side = context.position_side or (
+            OnlyPositionSide.LONG
+            if (context.side is OnlyOrderSide.BUY and effect is OnlyPositionEffect.OPEN)
+            or (context.side is OnlyOrderSide.SELL and effect is OnlyPositionEffect.CLOSE)
+            else OnlyPositionSide.SHORT
+        )
+        capability = rules.order_capability_policy
+        capability_supported = capability is None or (
+            context.order_type in capability.supported_order_types
+            and context.time_in_force in capability.supported_time_in_force
+            and effect in capability.supported_position_effects
+            and context.close_scope in capability.supported_close_scopes
+            and context.exposure_constraint in capability.supported_exposure_constraints
+            and context.position_mode in capability.supported_position_modes
+        )
+        record(
+            "ORDER_CAPABILITY",
+            passed if capability_supported else failed_status,
+            None if capability_supported else "ORDER_CAPABILITY_NOT_SUPPORTED",
+            (("position_side", canonical_side.value),),
+        )
         position_supported = not (
             rules.position_policy.mode is OnlyMarketPositionMode.LONG_ONLY
             and (
@@ -479,6 +516,12 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
                 or (context.side is OnlyOrderSide.BUY and effect is not OnlyPositionEffect.OPEN)
             )
         )
+        expected_position_mode = (
+            OnlyPositionMode.HEDGING
+            if rules.position_policy.mode is OnlyMarketPositionMode.HEDGING
+            else OnlyPositionMode.NETTING
+        )
+        position_supported = position_supported and context.position_mode is expected_position_mode
         record(
             "SIDE_POSITION_EFFECT",
             passed if position_supported else failed_status,
@@ -707,28 +750,30 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
             OnlySettlementScheduleRequest(request.side, request.trading_day),
             self._advance_trading_day,
         )
-        margin = None
-        if rules.margin_policy is not None:
-            requirement = rules.margin_policy.requirement(
-                request.price, request.quantity, rules.instrument_terms.contract_multiplier
-            )
-            margin = OnlyMarginInstruction(
-                "OCCUPY" if effect is OnlyPositionEffect.OPEN else "RELEASE",
-                request.account_id,
-                request.instrument_id,
-                rules.instrument_terms.settlement_currency,
-                requirement.initial_margin,
-                requirement.maintenance_margin,
-                request.order_id,
-                request.trade_id,
-                OnlyTimestamp.from_datetime(request.timestamp),
-            )
         position_side = (
             "SHORT"
             if (request.side is OnlyOrderSide.SELL and effect is OnlyPositionEffect.OPEN)
             or (request.side is OnlyOrderSide.BUY and effect is not OnlyPositionEffect.OPEN)
             else "LONG"
         )
+        margin = None
+        requirement = self._margin_requirement(rules, notional, request.price, request.quantity)
+        if requirement is not None:
+            margin_mode, isolation_key = self._margin_scope(rules, request.instrument_id, position_side)
+            margin = OnlyMarginInstruction(
+                "OCCUPY" if effect is OnlyPositionEffect.OPEN else "RELEASE",
+                request.account_id,
+                request.instrument_id,
+                rules.instrument_terms.settlement_currency,
+                requirement[0],
+                requirement[1],
+                request.order_id,
+                request.trade_id,
+                OnlyTimestamp.from_datetime(request.timestamp),
+                margin_mode.value,
+                isolation_key,
+                position_side,
+            )
         position = OnlyPositionInstruction(
             request.instrument_id,
             position_side,
@@ -739,7 +784,7 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
             request.order_id,
             request.trade_id,
         )
-        settles_notional = rules.margin_policy is None
+        settles_notional = rules.economic_model is OnlyEconomicModel.CASH_EXCHANGE
         cash_sign = Decimal(-1) if request.side is OnlyOrderSide.BUY else Decimal(1)
         return OnlyTradeApplicationInstruction(
             position,
@@ -770,21 +815,57 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
         """Build a submission-time reservation from the compiled margin policy."""
 
         rules = self.compiled_rules(request.instrument_id, request.trading_day, as_of=request.timestamp)
-        if rules.margin_policy is None or request.position_effect is not OnlyPositionEffect.OPEN:
+        if request.position_effect is not OnlyPositionEffect.OPEN:
             return None
-        requirement = rules.margin_policy.requirement(
-            request.price,
-            request.quantity,
-            rules.instrument_terms.contract_multiplier,
-        )
+        notional = request.price * request.quantity * rules.instrument_terms.contract_multiplier
+        requirement = self._margin_requirement(rules, notional, request.price, request.quantity)
+        if requirement is None:
+            return None
+        position_side = "LONG" if request.side is OnlyOrderSide.BUY else "SHORT"
+        margin_mode, isolation_key = self._margin_scope(rules, request.instrument_id, position_side)
         return OnlyMarginInstruction(
             "RESERVE",
             request.account_id,
             request.instrument_id,
             rules.instrument_terms.settlement_currency,
-            requirement.initial_margin,
-            requirement.maintenance_margin,
+            requirement[0],
+            requirement[1],
             request.order_id,
             request.trade_id,
             OnlyTimestamp.from_datetime(request.timestamp),
+            margin_mode.value,
+            isolation_key,
+            position_side,
         )
+
+    @staticmethod
+    def _margin_requirement(
+        rules: OnlyCompiledMarketPolicy,
+        notional: Decimal,
+        price: Decimal,
+        quantity: Decimal,
+    ) -> tuple[Decimal, Decimal] | None:
+        if rules.compiled_margin_policy is not None:
+            return rules.compiled_margin_policy.requirement(notional)
+        if rules.margin_policy is not None:
+            requirement = rules.margin_policy.requirement(price, quantity, rules.instrument_terms.contract_multiplier)
+            return requirement.initial_margin, requirement.maintenance_margin
+        return None
+
+    @staticmethod
+    def _margin_scope(
+        rules: OnlyCompiledMarketPolicy,
+        instrument_id: str,
+        position_side: str,
+    ) -> tuple[OnlyMarginMode, str | None]:
+        policy = rules.compiled_margin_policy
+        if policy is None:
+            return OnlyMarginMode.CROSS, None
+        if policy.margin_mode is OnlyMarginMode.CROSS:
+            return policy.margin_mode, None
+        isolation_key = (
+            instrument_id
+            if policy.isolation_scope is OnlyMarginIsolationScope.INSTRUMENT
+            else f"{instrument_id}:{position_side}"
+        )
+        return policy.margin_mode, isolation_key

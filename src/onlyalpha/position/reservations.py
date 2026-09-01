@@ -5,7 +5,6 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 
 from onlyalpha.domain.base import OnlyDomainModel
-from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide
 from onlyalpha.domain.execution import OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
@@ -15,6 +14,7 @@ from onlyalpha.domain.identifiers import (
     OnlyRuntimeId,
 )
 from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.domain.trading import OnlyPositionEffect
 from onlyalpha.domain.value import OnlyQuantity
 from onlyalpha.position.allocation_manager import OnlyPositionAllocationManager
 from onlyalpha.position.enums import (
@@ -400,9 +400,9 @@ class OnlyOrderPositionReservationAdapter:
         self._position_mode = position_mode or (lambda _order, _timestamp: OnlyPositionMode.NETTING)
 
     def reserve(self, order: OnlyOrderSnapshot, timestamp: OnlyTimestamp) -> None:
-        if order.offset is OnlyOffset.OPEN or (order.offset is OnlyOffset.NONE and order.side is OnlyOrderSide.BUY):
+        intent = order.execution_intent
+        if intent is None or intent.position_effect is not OnlyPositionEffect.CLOSE:
             return
-        position_side = OnlyPositionSide.SHORT if order.side is OnlyOrderSide.BUY else OnlyPositionSide.LONG
         self._manager.create(
             order.account_id,
             order.cluster_id,
@@ -410,8 +410,8 @@ class OnlyOrderPositionReservationAdapter:
             order.order_id,
             order.quantity,
             timestamp,
-            position_side=position_side,
-            position_mode=self._position_mode(order, timestamp),
+            position_side=intent.position_side,
+            position_mode=intent.position_mode,
         )
 
     def sent(self, order_id: OnlyOrderId, timestamp: OnlyTimestamp) -> None:

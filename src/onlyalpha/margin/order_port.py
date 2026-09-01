@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from decimal import Decimal
 
 from onlyalpha.account.manager import OnlyAccountManager
-from onlyalpha.domain.enums import OnlyOffset
 from onlyalpha.domain.execution import OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyOrderId
 from onlyalpha.domain.instrument import OnlyInstrument
@@ -42,7 +42,8 @@ class OnlyOrderMarginReservationAdapter:
         *,
         planning_price: OnlyPrice | None = None,
     ) -> None:
-        if self._rules is None or order.offset is not OnlyOffset.OPEN:
+        intent = order.execution_intent
+        if self._rules is None or intent is None or intent.position_effect is not OnlyPositionEffect.OPEN:
             return
         price = order.price or planning_price or self._reference_price(order)
         if price is None:
@@ -58,7 +59,7 @@ class OnlyOrderMarginReservationAdapter:
                 price.value,
                 timestamp.to_datetime(),
                 self._trading_day(timestamp),
-                OnlyPositionEffect.OPEN,
+                intent.position_effect,
             )
         )
         if instruction is None:
@@ -83,10 +84,13 @@ class OnlyOrderMarginReservationAdapter:
             str(reservation.instrument_id),
             reservation.currency.code,
             reservation.reserved,
-            reservation.maintenance_required,
+            Decimal(0),
             str(reservation.source_order_id),
             "",
             timestamp,
+            reservation.margin_mode.value,
+            reservation.isolation_key,
+            reservation.position_side.value,
         )
         self._manager.apply(instruction)
         self._accounts.apply_margin_change(

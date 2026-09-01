@@ -101,9 +101,11 @@ from onlyalpha.domain.market import (
     OnlyBar,
     OnlyBarSpecification,
     OnlyBarType,
+    OnlyFundingRateFact,
     OnlyOrderBook,
     OnlyOrderBookLevel,
     OnlyQuoteTick,
+    OnlyReferencePriceFact,
     OnlyTick,
     OnlyTradeTick,
 )
@@ -119,6 +121,16 @@ from onlyalpha.domain.market_rules import (
     OnlyValidationResult,
 )
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone, OnlyTradingDay
+from onlyalpha.domain.trading import (
+    OnlyCloseScope,
+    OnlyExecutionIntent,
+    OnlyExposureConstraint,
+    OnlyPositionEffect,
+    OnlyPositionMode,
+    OnlyPositionSide,
+    OnlyReferencePriceKind,
+    OnlyTargetExposure,
+)
 from onlyalpha.domain.value import (
     OnlyCurrency,
     OnlyMoney,

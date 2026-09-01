@@ -285,6 +285,38 @@ class OnlyStrategyLedgerManager:
         event = self._publish("STRATEGY_CASH_FLOW_APPLIED", after, timestamp)
         return self._result(before, after, (event,), cash_delta=amount)
 
+    def apply_economic_cashflow(
+        self,
+        key: OnlyStrategyLedgerKey,
+        cash_flow_id: OnlyStrategyCashFlowId,
+        amount: OnlyMoney,
+        entry_type: OnlyStrategyCashEntryType,
+        timestamp: OnlyTimestamp,
+    ) -> OnlyStrategyLedgerMutationResult:
+        ledger = self._require_entity(key)
+        before = self._snapshot(ledger)
+        if cash_flow_id in self._cash_flow_ids:
+            matching = tuple(item for item in before.cash_entries if item.cash_flow_id == cash_flow_id)
+            if len(matching) != 1:
+                raise ValueError("STRATEGY_ECONOMIC_CASHFLOW_ID_CONFLICT")
+            installed = matching[0]
+            if (
+                installed.amount != amount
+                or installed.entry_type is not entry_type
+                or installed.ts_event != timestamp
+                or installed.runtime_id != key.runtime_id
+                or installed.account_id != key.account_id
+                or installed.cluster_id != key.cluster_id
+                or installed.currency != key.base_currency
+            ):
+                raise ValueError("STRATEGY_ECONOMIC_CASHFLOW_ID_CONFLICT")
+            return self._unchanged(before, OnlyStrategyLedgerMutationStatus.DUPLICATE)
+        ledger.apply_economic_cashflow(cash_flow_id, amount, entry_type, timestamp)
+        self._cash_flow_ids.add(cash_flow_id)
+        after = self._save(ledger)
+        event = self._publish(f"STRATEGY_{entry_type.value}_APPLIED", after, timestamp)
+        return self._result(before, after, (event,), cash_delta=amount, realized_delta=amount)
+
     def apply_valuation(
         self,
         valuation: OnlyStrategyValuation,
@@ -674,6 +706,7 @@ class OnlyStrategyLedgerManager:
         events: tuple[OnlyStrategyLedgerEvent, ...],
         *,
         cash_delta: OnlyMoney | None = None,
+        realized_delta: OnlyMoney | None = None,
         fee_delta: OnlyMoney | None = None,
     ) -> OnlyStrategyLedgerMutationResult:
         zero = only_zero_money(after.key.base_currency)
@@ -682,7 +715,7 @@ class OnlyStrategyLedgerManager:
             before,
             after,
             cash_delta or zero,
-            zero,
+            realized_delta or zero,
             fee_delta or zero,
             events,
         )

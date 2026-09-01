@@ -55,6 +55,7 @@ class OnlyBrokerExecutionService:
                 OnlyTimestamp.from_unix_nanos(self._clock.timestamp_ns()),
                 reference.transaction_id,
                 reference.authority_hash,
+                order.execution_intent,
             )
         )
         if result.status.value == "UNKNOWN":

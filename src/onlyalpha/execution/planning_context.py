@@ -112,6 +112,7 @@ class OnlyTradeExecutionPlanningContext:
     ledger_high_water_mark: OnlyMoney | None = None
     position_reservation_before: OnlyPositionReservationExecutionState | None = None
     margin_reservation_before: OnlyMarginReservationExecutionState | None = None
+    margin_reservations_before: tuple[OnlyMarginReservationExecutionState, ...] = ()
     account_equity_before: tuple[OnlyAccountEquityPoint, ...] = ()
     strategy_equity_before: tuple[OnlyStrategyLedgerEquityPoint, ...] = ()
 
@@ -150,6 +151,7 @@ class OnlyTerminalExecutionPlanningContext:
     strategy_cash_reservation_before: OnlyStrategyCashReservationExecutionState | None
     strategy_valuation_lines: tuple[OnlyStrategyValuationLine, ...]
     position_reservation_before: OnlyPositionReservationExecutionState | None
+    margin_reservation_before: OnlyMarginReservationExecutionState | None
     risk_reservation_before: OnlyRiskReservationExecutionState
     risk_before: OnlyRiskExecutionState
 
@@ -175,6 +177,7 @@ class OnlyOrderAcceptedExecutionPlanningContext:
     position_before: OnlyPositionExecutionState | None
     position_cycle: int
     position_reservation_before: OnlyPositionReservationExecutionState | None
+    margin_reservation_before: OnlyMarginReservationExecutionState | None
     strategy_ledger_before: OnlyStrategyLedgerExecutionState
     strategy_cash_reservation_before: OnlyStrategyCashReservationExecutionState | None
     strategy_valuation_lines: tuple[OnlyStrategyValuationLine, ...]

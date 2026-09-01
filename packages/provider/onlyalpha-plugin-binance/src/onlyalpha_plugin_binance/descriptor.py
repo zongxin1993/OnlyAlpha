@@ -27,6 +27,23 @@ DATA_DESCRIPTOR = OnlyPluginDescriptor(
     "OnlyAlpha",
     DATA_CAPABILITIES,
 )
+USDM_DATA_CAPABILITIES = OnlyDataSourceCapabilities(
+    historical_bars=True,
+    historical_reference_prices=True,
+    historical_funding_rates=True,
+    instruments=True,
+    calendars=True,
+    supports_runtime_checkpoint=OnlyCheckpointCapability.STATELESS,
+)
+USDM_DATA_DESCRIPTOR = OnlyPluginDescriptor(
+    "binance-usdm",
+    OnlyPluginType.DATA_SOURCE,
+    "0.9.8",
+    OnlyPluginApiVersion(1, 1),
+    "Binance USD-M Public Historical Data",
+    "Binance",
+    USDM_DATA_CAPABILITIES,
+)
 BROKER_DESCRIPTOR = OnlyPluginDescriptor(
     "binance-spot",
     OnlyPluginType.BROKER,
@@ -60,6 +77,9 @@ class OnlyBinancePluginDescriptor:
         "SPOT_REALTIME_REFERENCE",
         "SPOT_PRIVATE_REST",
         "SPOT_USER_DATA_STREAM",
+        "USDM_HISTORICAL_REFERENCE_PRICE",
+        "USDM_HISTORICAL_FUNDING_RATE",
+        "USDM_CANONICAL_ORDER_TRANSLATION",
     )
 
 

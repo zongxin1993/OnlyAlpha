@@ -19,6 +19,8 @@ from onlyalpha.fee.accrual_manager import OnlyOrderFeeAccrualManager
 from onlyalpha.fee.ledger import OnlyFeeApplicationLedger
 from onlyalpha.fee.reconciliation_authority import OnlyFeeReconciliationAuthority
 from onlyalpha.fee.risk_gate import OnlyFeeReconciliationRiskGate
+from onlyalpha.margin.manager import OnlyMarginManager
+from onlyalpha.margin.models import OnlyMarginReservation
 from onlyalpha.order.manager import OnlyOrderManager
 from onlyalpha.position.allocation_manager import OnlyPositionAllocationManager
 from onlyalpha.position.manager import OnlyPositionManager
@@ -51,6 +53,7 @@ from onlyalpha.transaction.projection import (
     OnlyFeeApplicationProjection,
     OnlyFeeReconciliationProjection,
     OnlyFeeReconciliationRiskGateProjection,
+    OnlyMarginReservationExecutionProjection,
     OnlyOrderAcceptedExecutionProjection,
     OnlyOrderExecutionProjection,
     OnlyOrderFeeAccrualProjection,
@@ -89,6 +92,7 @@ from .execution_state import (
     only_account_cash_reservation_execution_state,
     only_account_execution_state,
     only_allocation_execution_state,
+    only_margin_reservation_execution_state,
     only_order_execution_state,
     only_position_execution_state,
     only_position_reservation_execution_state,
@@ -875,6 +879,49 @@ class OnlyPositionReservationExecutionProjectionTarget(_OnlyProjectionTargetBase
         return self._complete(context, current, only_position_reservation_execution_state(reservation), prepared)
 
 
+class OnlyMarginReservationExecutionProjectionTarget(_OnlyProjectionTargetBase):
+    def __init__(self, manager: OnlyMarginManager, applied_ledger: OnlyAppliedRuntimeProjectionLedger) -> None:
+        super().__init__(OnlyRuntimeProjectionComponent.MARGIN_RESERVATION, applied_ledger)
+        self._manager = manager
+
+    def apply_execution_projection(self, context: OnlyRuntimeProjectionApplyContext) -> OnlyProjectionApplyResult:
+        projection = context.projection
+        current_entity = (
+            self._manager.get(str(projection.after.order_id))
+            if isinstance(projection, OnlyMarginReservationExecutionProjection)
+            else None
+        )
+        current = None if current_entity is None else only_margin_reservation_execution_state(current_entity)
+        prepared = self._prepare(context, current)
+        if isinstance(prepared, OnlyProjectionApplyResult):
+            return prepared
+        assert isinstance(projection, OnlyMarginReservationExecutionProjection)
+        state = projection.after
+        reservation = OnlyMarginReservation(
+            state.reservation_id,
+            state.runtime_id,
+            state.account_id,
+            state.instrument_id,
+            state.order_id,
+            state.currency,
+            state.original_reserved_amount.amount,
+            state.remaining_reserved_amount.amount,
+            state.occupied_amount.amount,
+            state.released_amount.amount,
+            state.maintenance_amount.amount,
+            state.created_at,
+            state.updated_at,
+            state.version,
+            state.margin_mode,
+            state.isolation_key,
+            state.position_side,
+        )
+        self._manager.restore_execution_authority(reservation)
+        installed = self._manager.get(str(state.order_id))
+        assert installed is not None
+        return self._complete(context, current, only_margin_reservation_execution_state(installed), prepared)
+
+
 class OnlyRiskReservationExecutionProjectionTarget(_OnlyProjectionTargetBase):
     def __init__(self, service: OnlyRiskService, applied_ledger: OnlyAppliedRuntimeProjectionLedger) -> None:
         super().__init__(OnlyRuntimeProjectionComponent.RISK_RESERVATION, applied_ledger)
@@ -1023,6 +1070,7 @@ def only_create_generic_t0_execution_projection_targets(
     position_manager: OnlyPositionManager,
     allocation_manager: OnlyPositionAllocationManager,
     position_reservation_manager: OnlyPositionReservationManager,
+    margin_manager: OnlyMarginManager,
     settlement_authority: OnlySettlementAuthority,
     fee_application_ledger: OnlyFeeApplicationLedger,
     order_fee_accrual_manager: OnlyOrderFeeAccrualManager,
@@ -1046,6 +1094,7 @@ def only_create_generic_t0_execution_projection_targets(
         OnlyAccountCashReservationExecutionProjectionTarget(account_manager, applied_ledger),
         OnlyStrategyCashReservationExecutionProjectionTarget(ledger_manager, applied_ledger),
         OnlyPositionReservationExecutionProjectionTarget(position_reservation_manager, applied_ledger),
+        OnlyMarginReservationExecutionProjectionTarget(margin_manager, applied_ledger),
         OnlyRiskReservationExecutionProjectionTarget(risk_service, applied_ledger),
         OnlyRiskExecutionProjectionTarget(risk_service, applied_ledger),
         OnlyValuationExecutionProjectionTarget(
@@ -1067,7 +1116,7 @@ def only_create_generic_t0_execution_projection_targets(
         )
         targets += (OnlyFeeReconciliationRiskGateProjectionTarget(fee_reconciliation_risk_gate, applied_ledger),)
     result = {target.component: target for target in targets}
-    expected = 19 if fee_reconciliation_authority is not None else 14
+    expected = 20 if fee_reconciliation_authority is not None else 15
     if len(result) != expected:
         raise RuntimeError("Generic T0 Projection Target registry is incomplete or duplicated")
     return result

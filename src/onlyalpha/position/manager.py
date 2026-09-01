@@ -1,5 +1,6 @@
 """Runtime-owned account Position state manager."""
 
+import hashlib
 from decimal import Decimal
 
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyInstrumentId, OnlyPositionId, OnlyRuntimeId
@@ -13,6 +14,7 @@ from onlyalpha.position.keys import OnlyPositionKey
 from onlyalpha.position.models import (
     OnlyPositionMutationResult,
     OnlyPositionRestriction,
+    OnlyPositionSettlementFact,
     OnlyPositionSnapshot,
     OnlyPositionTrade,
 )
@@ -39,6 +41,7 @@ class OnlyPositionManager:
         self._active: dict[OnlyPositionKey, OnlyPosition] = {}
         self._closed: list[OnlyPositionSnapshot] = []
         self._trade_fingerprints: set[str] = set()
+        self._settlement_fact_fingerprints: dict[str, str] = {}
         self._cycles: dict[OnlyPositionKey, int] = {}
         self._event_sequence = 0
 
@@ -184,6 +187,9 @@ class OnlyPositionManager:
             ],
             "event_sequence": self._event_sequence,
             "open": [item.to_json() for item in self.snapshot_all()],
+            "settlement_fact_fingerprints": [
+                [fact_id, fingerprint] for fact_id, fingerprint in sorted(self._settlement_fact_fingerprints.items())
+            ],
             "trade_fingerprints": sorted(self._trade_fingerprints),
         }
 
@@ -192,6 +198,9 @@ class OnlyPositionManager:
             raise ValueError("Position checkpoint must be an object")
         cycles = {OnlyPositionKey.from_json(str(key)): int(value) for key, value in payload["cycles"]}
         fingerprints = tuple(str(item) for item in payload["trade_fingerprints"])
+        settlement_fact_fingerprints = {
+            str(fact_id): str(fingerprint) for fact_id, fingerprint in payload.get("settlement_fact_fingerprints", [])
+        }
         snapshots = tuple(OnlyPositionSnapshot.from_json(str(raw)) for raw in (*payload["open"], *payload["closed"]))
         for snapshot in snapshots:
             self.restore_execution_authority(
@@ -200,6 +209,22 @@ class OnlyPositionManager:
                 trade_fingerprints=fingerprints,
             )
         self.restore_execution_event_sequence(int(payload["event_sequence"]))
+        self._settlement_fact_fingerprints = settlement_fact_fingerprints
+
+    def apply_settlement(self, fact: OnlyPositionSettlementFact) -> tuple[OnlyPositionSnapshot, OnlyMoney]:
+        entity = self._require_entity(fact.key)
+        fingerprint = hashlib.sha256(fact.to_json().encode("utf-8")).hexdigest()
+        application_id = fact.settlement_application_id
+        existing = self._settlement_fact_fingerprints.get(application_id)
+        if existing == fingerprint:
+            return entity.snapshot(), OnlyMoney(Decimal(0), fact.currency)
+        if existing is not None:
+            raise ValueError("POSITION_SETTLEMENT_FACT_ID_CONFLICT")
+        realized = entity.apply_settlement(fact, self._pnl_model)
+        self._settlement_fact_fingerprints[application_id] = fingerprint
+        snapshot = entity.snapshot()
+        self._save(snapshot)
+        return snapshot, realized
 
     def freeze(self, key: OnlyPositionKey, quantity: OnlyQuantity, *, risk: bool = False) -> OnlyPositionSnapshot:
         entity = self._require_entity(key)

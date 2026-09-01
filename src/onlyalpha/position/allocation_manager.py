@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from decimal import ROUND_HALF_EVEN, Decimal
 
@@ -14,6 +15,7 @@ from onlyalpha.position.identifiers import OnlyPositionAllocationId
 from onlyalpha.position.keys import OnlyPositionAllocationKey
 from onlyalpha.position.models import (
     OnlyPositionAllocationSnapshot,
+    OnlyPositionSettlementFact,
     OnlyPositionTrade,
     OnlyUnallocatedPosition,
     only_zero_quantity,
@@ -107,6 +109,7 @@ class OnlyPositionAllocationManager:
         self._closed: list[OnlyPositionAllocationSnapshot] = []
         self._unallocated: dict[tuple[OnlyAccountId, OnlyInstrumentId, OnlyPositionSide], OnlyUnallocatedPosition] = {}
         self._trade_fingerprints: set[str] = set()
+        self._settlement_fact_fingerprints: dict[str, str] = {}
         self._cycles: dict[OnlyPositionAllocationKey, int] = {}
 
     def apply_trade(
@@ -208,6 +211,9 @@ class OnlyPositionAllocationManager:
             ],
             "open": [item.to_json() for item in self.snapshot_all()],
             "trade_fingerprints": sorted(self._trade_fingerprints),
+            "settlement_fact_fingerprints": [
+                [fact_id, fingerprint] for fact_id, fingerprint in sorted(self._settlement_fact_fingerprints.items())
+            ],
         }
 
     def restore_checkpoint(self, payload: object) -> None:
@@ -224,6 +230,49 @@ class OnlyPositionAllocationManager:
                 cycle=cycles[snapshot.key],
                 trade_fingerprints=fingerprints,
             )
+        self._settlement_fact_fingerprints = {
+            str(fact_id): str(fingerprint) for fact_id, fingerprint in payload.get("settlement_fact_fingerprints", [])
+        }
+
+    def apply_settlement(
+        self, fact: OnlyPositionSettlementFact
+    ) -> tuple[tuple[OnlyPositionAllocationSnapshot, OnlyMoney], ...]:
+        fingerprint = hashlib.sha256(fact.to_json().encode("utf-8")).hexdigest()
+        application_id = fact.settlement_application_id
+        existing = self._settlement_fact_fingerprints.get(application_id)
+        if existing == fingerprint:
+            return ()
+        if existing is not None:
+            raise ValueError("ALLOCATION_SETTLEMENT_FACT_ID_CONFLICT")
+        matched = tuple(
+            state
+            for key, state in sorted(self._active.items(), key=lambda item: item[0].to_json())
+            if key.account_id == fact.key.account_id
+            and key.instrument_id == fact.key.instrument_id
+            and key.position_side == fact.key.position_side
+        )
+        results: list[tuple[OnlyPositionAllocationSnapshot, OnlyMoney]] = []
+        for state in matched:
+            if state.average is None:
+                raise ValueError("ALLOCATION_SETTLEMENT_COST_BASIS_MISSING")
+            realized = self._pnl_model.realized(
+                state.key.position_side,
+                state.average,
+                fact.settlement_price,
+                state.total,
+                fact.multiplier,
+                fact.currency,
+            )
+            state.realized = state.realized + realized
+            state.average = fact.settlement_price
+            state.cumulative_open_price_quantity = fact.settlement_price.value * state.total.value
+            state.updated_at = fact.timestamp
+            state.version += 1
+            snapshot = state.snapshot()
+            self._repository.save(snapshot)
+            results.append((snapshot, realized))
+        self._settlement_fact_fingerprints[application_id] = fingerprint
+        return tuple(results)
 
     def unallocated(self) -> tuple[OnlyUnallocatedPosition, ...]:
         return tuple(

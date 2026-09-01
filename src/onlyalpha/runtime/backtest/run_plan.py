@@ -9,6 +9,7 @@ from onlyalpha.account.performance import OnlyAccountValuationSource
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterState
 from onlyalpha.collector import OnlyBacktestResultCollector
 from onlyalpha.config import OnlyRuntimeAssemblyPlan
+from onlyalpha.data.historical.models import OnlyHistoricalFactRequest
 from onlyalpha.data.models import OnlyHistoricalBarRequest
 from onlyalpha.data.ports import OnlyHistoricalDataSource
 from onlyalpha.domain.enums import OnlyOrderStatus
@@ -44,11 +45,13 @@ class OnlyBacktestRunPlan:
         source: OnlyHistoricalDataSource,
         request: OnlyHistoricalBarRequest,
         clusters: tuple[OnlyCluster, ...],
+        economic_requests: tuple[OnlyHistoricalFactRequest, ...] = (),
     ) -> None:
         self._config = config
         self._source = source
         self._request = request
         self._clusters = clusters
+        self._economic_requests = economic_requests
         self._completed = False
 
         self._runtime: OnlyBacktestRuntime | None = None
@@ -62,7 +65,7 @@ class OnlyBacktestRunPlan:
         self._collector.start()
         request = self._request
         generated = self._source.load_bars(request)
-        replay = runtime.replay_historical_bars(self._source, request)
+        replay = runtime.replay_historical_bars(self._source, request, self._economic_requests)
         runtime.drain_broker_inbound()
         progress = runtime.result_progress.snapshot()
         status = (

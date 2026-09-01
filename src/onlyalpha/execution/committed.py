@@ -26,10 +26,7 @@ from onlyalpha.market.models import OnlyPositionEffect
 from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide
 from onlyalpha.strategy.identifiers import OnlyStrategyId
 
-from .capability import (
-    ONLY_EXECUTION_SUPPORT_POLICY_VERSION,
-    OnlyExecutionCapability,
-)
+from .capability import OnlyExecutionCapability, only_execution_support_policy_version_is_readable
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -178,7 +175,7 @@ class OnlyCommittedExecutionFact(OnlyDomainModel):
             raise ValueError("committed execution requires a stable identity and positive sequence")
         if (
             self.execution_capability is not OnlyExecutionCapability.DURABLE_TRADE
-            or self.execution_support_policy_version != ONLY_EXECUTION_SUPPORT_POLICY_VERSION
+            or not only_execution_support_policy_version_is_readable(self.execution_support_policy_version)
             or len(self.execution_support_fingerprint) != 64
         ):
             raise ValueError("committed execution requires a valid durable Trade support proof")

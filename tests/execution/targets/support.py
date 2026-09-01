@@ -50,6 +50,7 @@ class OnlyTestProjectionTargetBundle:
                 position_manager=runtime.position_manager,
                 allocation_manager=runtime.allocation_manager,
                 position_reservation_manager=runtime.position_reservation_manager,
+                margin_manager=runtime.margin_manager,
                 settlement_authority=runtime.settlement_authority,
                 fee_application_ledger=runtime.fee_application_ledger,
                 order_fee_accrual_manager=runtime.order_fee_accrual_manager,

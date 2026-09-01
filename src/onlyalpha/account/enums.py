@@ -33,6 +33,12 @@ class OnlyAccountCashChangeType(StrEnum):
     FEE = "FEE"
 
 
+class OnlyAccountEconomicCashflowType(StrEnum):
+    REALIZED_PNL = "REALIZED_PNL"
+    FUNDING = "FUNDING"
+    VARIATION_MARGIN = "VARIATION_MARGIN"
+
+
 class OnlyAccountReservationState(StrEnum):
     ACTIVE = "ACTIVE"
     PARTIALLY_CONSUMED = "PARTIALLY_CONSUMED"

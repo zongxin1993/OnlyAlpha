@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from dataclasses import replace
 
-from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderStatus
+from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.execution import (
     OnlyCancelOrderRequest,
     OnlyOrderFailure,
@@ -12,6 +12,7 @@ from onlyalpha.domain.execution import (
 )
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId
 from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.domain.trading import OnlyPositionEffect
 from onlyalpha.domain.value import OnlyPrice
 from onlyalpha.execution.reference import OnlyExecutionReferencePlanningService
 from onlyalpha.fee.estimate import OnlyOrderFeeEstimate, OnlyOrderFundingPlan
@@ -230,7 +231,10 @@ class OnlyOrderService:
                 reservation.error or "Risk reservation failed",
                 risk_decision,
             )
-        uses_position_reservation = not (request.side is OnlyOrderSide.SELL and request.offset is OnlyOffset.OPEN)
+        uses_position_reservation = (
+            request.execution_intent is not None
+            and request.execution_intent.position_effect is OnlyPositionEffect.CLOSE
+        )
         if self._margin_reservations is not None:
             try:
                 if planning_price is None:

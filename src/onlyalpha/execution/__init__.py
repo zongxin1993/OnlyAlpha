@@ -19,6 +19,7 @@ _EXPORT_MODULES = (
     "onlyalpha.execution.execution_state",
     "onlyalpha.execution.fill_identity",
     "onlyalpha.execution.invariants",
+    "onlyalpha.execution.intent_planner",
     "onlyalpha.execution.lifecycle_reducers",
     "onlyalpha.execution.market_evidence",
     "onlyalpha.execution.models",

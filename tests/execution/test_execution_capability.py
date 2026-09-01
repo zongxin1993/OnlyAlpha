@@ -4,7 +4,9 @@ import pytest
 
 from onlyalpha.account.enums import OnlyAccountType
 from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderType
+from onlyalpha.domain.trading import OnlyExposureConstraint
 from onlyalpha.execution import (
+    ONLY_READABLE_EXECUTION_SUPPORT_POLICY_VERSIONS,
     OnlyExecutionCapability,
     OnlyExecutionCapabilityResolver,
     OnlyExecutionReservationShape,
@@ -14,6 +16,7 @@ from onlyalpha.execution import (
 from onlyalpha.market.models import OnlyPositionEffect
 from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide
 from onlyalpha.transaction import OnlyRuntimeOperationKind
+from tests.execution.factories.transaction_factory import only_test_execution_fact_draft
 
 
 def _buy_open(**changes: object) -> OnlyExecutionSupportContext:
@@ -49,7 +52,7 @@ def test_cash_long_netting_trade_shapes_are_durable(context: OnlyExecutionSuppor
     decision = OnlyExecutionCapabilityResolver().resolve(context)
     assert decision.capability is OnlyExecutionCapability.DURABLE_TRADE
     assert decision.reason is None
-    assert decision.policy_version == "2"
+    assert decision.policy_version == "3"
     assert len(decision.fingerprint) == 64
 
 
@@ -82,17 +85,22 @@ def test_sell_close_requires_exact_reservation_shape(reservations: OnlyExecution
     assert decision.reason is OnlyExecutionSupportReason.RESERVATION_SHAPE_UNSUPPORTED
 
 
+def test_margin_account_can_execute_cash_exchange_shape_without_margin() -> None:
+    decision = OnlyExecutionCapabilityResolver().resolve(_buy_open(account_type=OnlyAccountType.MARGIN))
+
+    assert decision.capability is OnlyExecutionCapability.DURABLE_TRADE
+
+
 @pytest.mark.parametrize(
     ("changes", "reason"),
     (
-        ({"account_type": OnlyAccountType.MARGIN}, OnlyExecutionSupportReason.ACCOUNT_TYPE_UNSUPPORTED),
         ({"order_type": OnlyOrderType.MARKET}, OnlyExecutionSupportReason.ORDER_TYPE_UNSUPPORTED),
         ({"position_side": OnlyPositionSide.SHORT}, OnlyExecutionSupportReason.POSITION_SIDE_UNSUPPORTED),
         ({"position_mode": OnlyPositionMode.HEDGING}, OnlyExecutionSupportReason.POSITION_MODE_UNSUPPORTED),
         ({"has_margin": True}, OnlyExecutionSupportReason.MARGIN_UNSUPPORTED),
         (
             {"reservations": OnlyExecutionReservationShape(True, True, False, True, True)},
-            OnlyExecutionSupportReason.MARGIN_UNSUPPORTED,
+            OnlyExecutionSupportReason.RESERVATION_SHAPE_UNSUPPORTED,
         ),
         (
             {"account_ledger_parity": False},
@@ -142,7 +150,43 @@ def test_buy_open_and_sell_close_accepted_are_durable(context: OnlyExecutionSupp
     )
     assert decision.capability is OnlyExecutionCapability.DURABLE_ORDER_ACCEPTED
     assert decision.reason is None
-    assert decision.policy_version == "2"
+    assert decision.policy_version == "3"
+
+
+def test_reduce_only_open_fails_closed() -> None:
+    decision = OnlyExecutionCapabilityResolver().resolve(
+        _buy_open(exposure_constraint=OnlyExposureConstraint.REDUCE_ONLY)
+    )
+    assert decision.capability is OnlyExecutionCapability.UNSUPPORTED
+    assert decision.reason is OnlyExecutionSupportReason.ORDER_SEMANTICS_UNSUPPORTED
+
+
+@pytest.mark.parametrize(
+    ("side", "position_side", "mode"),
+    (
+        (OnlyOrderSide.BUY, OnlyPositionSide.LONG, OnlyPositionMode.NETTING),
+        (OnlyOrderSide.SELL, OnlyPositionSide.SHORT, OnlyPositionMode.NETTING),
+        (OnlyOrderSide.BUY, OnlyPositionSide.LONG, OnlyPositionMode.HEDGING),
+        (OnlyOrderSide.SELL, OnlyPositionSide.SHORT, OnlyPositionMode.HEDGING),
+    ),
+)
+def test_margin_long_short_open_shapes_are_durable(
+    side: OnlyOrderSide,
+    position_side: OnlyPositionSide,
+    mode: OnlyPositionMode,
+) -> None:
+    decision = OnlyExecutionCapabilityResolver().resolve(
+        _buy_open(
+            account_type=OnlyAccountType.MARGIN,
+            order_side=side,
+            position_side=position_side,
+            position_mode=mode,
+            has_margin=True,
+            reservations=OnlyExecutionReservationShape(False, False, False, True, True),
+        )
+    )
+    assert decision.capability is OnlyExecutionCapability.DURABLE_TRADE
+    assert decision.reason is None
 
 
 def test_support_decision_is_deterministic_and_has_no_market_identity_input() -> None:
@@ -151,6 +195,13 @@ def test_support_decision_is_deterministic_and_has_no_market_identity_input() ->
     assert resolver.resolve(context) == resolver.resolve(context)
     assert "market" not in context.__dataclass_fields__
     assert "profile" not in context.__dataclass_fields__
+
+
+def test_v3_writer_keeps_v2_historical_fact_policy_readable() -> None:
+    assert ONLY_READABLE_EXECUTION_SUPPORT_POLICY_VERSIONS == frozenset({"2", "3"})
+    draft = replace(only_test_execution_fact_draft(), execution_support_policy_version="2")
+    committed = draft.finalize(1, draft.ts_init)
+    assert committed.execution_support_policy_version == "2"
 
 
 def test_same_product_evidence_cannot_override_different_semantics() -> None:

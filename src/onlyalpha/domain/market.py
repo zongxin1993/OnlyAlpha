@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal
 from enum import StrEnum
 
 from onlyalpha.domain.base import OnlyDomainModel
@@ -17,6 +18,7 @@ from onlyalpha.domain.enums import (
 from onlyalpha.domain.errors import OnlyValidationError
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyTradeId
 from onlyalpha.domain.time import only_require_utc
+from onlyalpha.domain.trading import OnlyReferencePriceKind
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
 
 
@@ -52,6 +54,85 @@ class OnlyTradeTick(OnlyTick):
         super(OnlyTradeTick, self).__post_init__()
         if self.quantity.value <= 0:
             raise OnlyValidationError("trade tick quantity must be positive")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyReferencePriceFact(OnlyDomainModel):
+    """Canonical reference-price fact; provider names terminate at adapters."""
+
+    schema_version = 1
+
+    fact_id: str
+    instrument_id: OnlyInstrumentId
+    kind: OnlyReferencePriceKind
+    value: OnlyPrice
+    ts_event: datetime
+    ts_init: datetime
+    source: str
+    source_sequence: int
+    data_version: str
+    revision: int = 0
+
+    def __post_init__(self) -> None:
+        _validate_market_time(self.ts_event, "ts_event")
+        _validate_market_time(self.ts_init, "ts_init")
+        if self.ts_init < self.ts_event:
+            raise OnlyValidationError("reference-price ts_init cannot precede ts_event")
+        if (
+            not self.fact_id.strip()
+            or not self.source.strip()
+            or not self.data_version.strip()
+            or self.source_sequence < 0
+            or self.revision < 0
+            or self.value.value <= 0
+        ):
+            raise OnlyValidationError("reference-price identity/value is invalid")
+
+    @property
+    def stable_order(self) -> tuple[datetime, int, int, str]:
+        priority = {
+            OnlyReferencePriceKind.INDEX: 10,
+            OnlyReferencePriceKind.MARK: 11,
+            OnlyReferencePriceKind.SETTLEMENT: 12,
+            OnlyReferencePriceKind.TRADE: 13,
+        }[self.kind]
+        return self.ts_event, priority, self.source_sequence, self.fact_id
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyFundingRateFact(OnlyDomainModel):
+    """Immutable market fact; it never mutates Account state directly."""
+
+    schema_version = 1
+
+    fact_id: str
+    instrument_id: OnlyInstrumentId
+    rate: Decimal
+    funding_time: datetime
+    ts_init: datetime
+    source: str
+    source_sequence: int
+    data_version: str
+    revision: int = 0
+
+    def __post_init__(self) -> None:
+        _validate_market_time(self.funding_time, "funding_time")
+        _validate_market_time(self.ts_init, "ts_init")
+        if self.ts_init < self.funding_time:
+            raise OnlyValidationError("funding ts_init cannot precede funding_time")
+        if (
+            not self.fact_id.strip()
+            or not self.source.strip()
+            or not self.data_version.strip()
+            or self.source_sequence < 0
+            or self.revision < 0
+            or not self.rate.is_finite()
+        ):
+            raise OnlyValidationError("funding-rate identity/value is invalid")
+
+    @property
+    def stable_order(self) -> tuple[datetime, int, int, str]:
+        return self.funding_time, 20, self.source_sequence, self.fact_id
 
 
 @dataclass(frozen=True, slots=True)

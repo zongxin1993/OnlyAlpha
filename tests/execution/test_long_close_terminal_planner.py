@@ -90,7 +90,7 @@ def test_partial_long_close_terminal_is_one_durable_transaction(
     assert not hasattr(committed.fact, "trade_id")
     assert isinstance(committed.fact, OnlyCommittedTerminalExecutionFact)
     assert committed.fact.execution_capability is OnlyExecutionCapability.DURABLE_TERMINAL
-    assert committed.fact.execution_support_policy_version == "2"
+    assert committed.fact.execution_support_policy_version == "3"
     assert len(committed.fact.execution_support_fingerprint) == 64
     assert tuple(item.identity.component for item in committed.projections) == (
         OnlyRuntimeProjectionComponent.ORDER,

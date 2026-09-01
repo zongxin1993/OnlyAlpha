@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Protocol, cast
 
-from onlyalpha.account.enums import OnlyAccountType
+from onlyalpha.account.enums import OnlyAccountEconomicCashflowType
+from onlyalpha.account.funding import only_derive_funding_cashflow
 from onlyalpha.account.models import (
     OnlyAccountCashBalance,
     OnlyAccountConfig,
+    OnlyAccountEconomicCashflow,
     OnlyAccountSnapshot,
     OnlyAccountValuation,
 )
@@ -25,6 +27,7 @@ from onlyalpha.broker.reconciliation import (
     OnlyBrokerFactApplicationStatus,
 )
 from onlyalpha.broker.updates import OnlyBrokerInboundUpdate, OnlyBrokerOrderAcceptedUpdate, OnlyBrokerTradeUpdate
+from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterState
 from onlyalpha.cluster.manager import OnlyClusterExecutionResult, OnlyClusterManager
 from onlyalpha.config.persistence import OnlyRuntimePersistenceConfig
@@ -38,6 +41,7 @@ from onlyalpha.data.enums import (
     OnlyMarketDataType,
 )
 from onlyalpha.data.gateway import OnlyInMemoryMarketDataGateway
+from onlyalpha.data.historical.models import OnlyHistoricalFactRequest
 from onlyalpha.data.identifiers import (
     OnlyDataSequence,
     OnlyDataVersion,
@@ -47,6 +51,7 @@ from onlyalpha.data.identifiers import (
 from onlyalpha.data.identity import only_bar_update_id
 from onlyalpha.data.models import (
     OnlyBarUpdate,
+    OnlyFundingRateUpdate,
     OnlyHistoricalBarRequest,
     OnlyHistoricalDataRange,
     OnlyHistoricalDataStream,
@@ -55,8 +60,9 @@ from onlyalpha.data.models import (
     OnlyMarketDataInboundUpdate,
     OnlyMarketDataProcessingResult,
     OnlyMarketDataQuality,
+    OnlyReferencePriceUpdate,
 )
-from onlyalpha.data.ports import OnlyHistoricalDataSource
+from onlyalpha.data.ports import OnlyHistoricalDataSource, OnlyHistoricalFactSource
 from onlyalpha.data.processor import (
     OnlyMarketDataDeduplicator,
     OnlyMarketDataGapDetector,
@@ -67,6 +73,7 @@ from onlyalpha.data.queue import OnlyMarketDataInboundQueue
 from onlyalpha.data.registry import OnlyMarketDataSourceRegistry
 from onlyalpha.data.replay import OnlyHistoricalReplayService
 from onlyalpha.data.sources import OnlyInMemoryHistoricalDataSource, OnlyInMemoryReferenceDataSource
+from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.calendar import OnlyTradingCalendar
 from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide
 from onlyalpha.domain.execution import OnlyOrderRequest, OnlyOrderSnapshot
@@ -80,8 +87,9 @@ from onlyalpha.domain.identifiers import (
     OnlyRuntimeId,
 )
 from onlyalpha.domain.instrument import OnlyInstrument
-from onlyalpha.domain.market import OnlyBar, OnlyBarType
+from onlyalpha.domain.market import OnlyBar, OnlyBarType, OnlyFundingRateFact, OnlyReferencePriceFact
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
+from onlyalpha.domain.trading import OnlyReferencePriceKind
 from onlyalpha.domain.value import OnlyMoney, OnlyMultiplier, OnlyPrice, OnlyRate
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
@@ -104,6 +112,7 @@ from onlyalpha.execution.execution_state import (
     only_account_cash_reservation_execution_state,
     only_account_execution_state,
     only_allocation_execution_state,
+    only_margin_reservation_execution_state,
     only_order_execution_state,
     only_position_execution_state,
     only_position_reservation_execution_state,
@@ -163,7 +172,9 @@ from onlyalpha.fee.transaction_planner import (
     OnlyFeeReconciliationTransactionPlanner,
 )
 from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
+from onlyalpha.margin.models import OnlyMarginReservation
 from onlyalpha.margin.order_port import OnlyOrderMarginReservationAdapter
+from onlyalpha.market.economics import OnlyCompiledFundingPolicy, OnlyEconomicModel
 from onlyalpha.market.models import OnlyMarketPositionMode, OnlyPositionEffect
 from onlyalpha.market.runtime_rules import OnlyTradeApplicationRequest
 from onlyalpha.market_data.aggregation.manager import OnlyBarAggregationManager
@@ -194,7 +205,8 @@ from onlyalpha.position.authority import OnlyPositionAuthorityPolicy
 from onlyalpha.position.enums import OnlyPositionMode
 from onlyalpha.position.identifiers import OnlyPositionAllocationId
 from onlyalpha.position.keys import OnlyPositionAllocationKey
-from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionTrade
+from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionSettlementFact, OnlyPositionTrade
+from onlyalpha.position.pnl import OnlyLinearPnLModel, OnlyPositionValuationService
 from onlyalpha.position.reconciliation import OnlyPositionReconciliationService
 from onlyalpha.position.reservations import OnlyOrderPositionReservationAdapter
 from onlyalpha.position.views import OnlyPositionContextView, OnlyPositionRiskView
@@ -269,6 +281,8 @@ from onlyalpha.runtime.runtime import (
     OnlyRuntimeState,
 )
 from onlyalpha.runtime.trading_day_boundary import OnlyRuntimeTradingDayBoundaryCoordinator
+from onlyalpha.strategy_ledger.enums import OnlyStrategyCashEntryType
+from onlyalpha.strategy_ledger.identifiers import OnlyStrategyCashFlowId
 from onlyalpha.strategy_ledger.keys import OnlyStrategyLedgerKey
 from onlyalpha.strategy_ledger.models import (
     OnlyStrategyCashSnapshot,
@@ -300,6 +314,29 @@ from onlyalpha.transaction.projection import (
 from onlyalpha.transaction.projection_applier import OnlyRuntimeProjectionApplier
 from onlyalpha.transaction.recovery import OnlyExecutionRecoveryService
 from onlyalpha.transaction.transaction import OnlyCommittedRuntimeTransaction
+
+
+@dataclass(frozen=True, slots=True)
+class _OnlyStrategyEconomicCashflowApplication(OnlyDomainModel):
+    key: OnlyStrategyLedgerKey
+    cashflow_id: OnlyStrategyCashFlowId
+    amount: OnlyMoney
+    entry_type: OnlyStrategyCashEntryType
+    timestamp: OnlyTimestamp
+
+
+@dataclass(frozen=True, slots=True)
+class _OnlyEconomicFactApplicationPlan(OnlyDomainModel):
+    fact_id: str
+    source_fact_json: str
+    application_kind: str
+    settlements: tuple[OnlyPositionSettlementFact, ...]
+    account_cashflows: tuple[OnlyAccountEconomicCashflow, ...]
+    strategy_cashflows: tuple[_OnlyStrategyEconomicCashflowApplication, ...]
+
+    def __post_init__(self) -> None:
+        if not self.fact_id.strip() or self.application_kind not in {"FUNDING", "SETTLEMENT"}:
+            raise ValueError("ECONOMIC_FACT_APPLICATION_PLAN_INVALID")
 
 
 class OnlyBacktestRunPlanPort(Protocol):
@@ -454,6 +491,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         replay_data_version: OnlyDataVersion | None = None,
         recovery_source: OnlyHistoricalDataSource | None = None,
         recovery_request: OnlyHistoricalBarRequest | None = None,
+        recovery_economic_requests: tuple[OnlyHistoricalFactRequest, ...] = (),
         plugin_resources: tuple[OnlyPluginResource, ...] = (),
         execution_reference_profile: OnlyExecutionReferenceProfile | None = None,
     ) -> None:
@@ -509,7 +547,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
                 runtime_config.runtime_id,  # type: ignore[arg-type]
                 runtime_config.default_account_id,  # type: ignore[arg-type]
                 (str(configured_gateway_id) if configured_gateway_id is not None else "placeholder"),
-                OnlyAccountType.CASH,
+                runtime_config.account_type,
                 runtime_config.strategy_base_currency,
                 account_initial_cash,
             ),
@@ -610,6 +648,12 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         order_cash_reservations = OnlyRuntimeCompositeCashReservationAdapter(
             account_cash_reservations,
             strategy_cash_reservations,
+            lambda order, timestamp: (
+                market_rule_engine.compiled_rules(
+                    str(order.instrument_id), selected_calendar.trading_day_at(timestamp), as_of=timestamp.to_datetime()
+                ).economic_model
+                is OnlyEconomicModel.CASH_EXCHANGE
+            ),
         )
         self._account_cash_reservations = account_cash_reservations
         order_margin_reservations = OnlyOrderMarginReservationAdapter(
@@ -703,6 +747,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             position_manager=position_manager,
             allocation_manager=allocation_manager,
             position_reservation_manager=position_reservations,
+            margin_manager=self._margin_manager,
             settlement_authority=self._settlement_authority,
             fee_application_ledger=self._fee_application_ledger,
             order_fee_accrual_manager=self._order_fee_accrual_manager,
@@ -862,6 +907,13 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         )
         market_data_audit_store = OnlyMarketDataAuditStore()
         self._result_progress = OnlyBacktestResultProgress()
+        self._reference_price_facts: dict[str, OnlyReferencePriceFact] = {}
+        self._reference_prices_by_boundary: dict[
+            tuple[OnlyInstrumentId, OnlyReferencePriceKind, int], OnlyReferencePriceFact
+        ] = {}
+        self._funding_rate_facts: dict[str, OnlyFundingRateFact] = {}
+        self._pending_economic_fact_applications: dict[str, _OnlyEconomicFactApplicationPlan] = {}
+        self._position_valuation_service = OnlyPositionValuationService()
         market_data_deduplicator = OnlyMarketDataDeduplicator()
         market_data_sequence_tracker = OnlyMarketDataSequenceTracker()
         market_data_gap_detector = OnlyMarketDataGapDetector(self._market_calendars)
@@ -964,6 +1016,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             after_market_dispatch,
             after_market_processing,
             self._realtime_market_state,
+            self._apply_canonical_economic_fact,
         )
         historical_replay_service = OnlyHistoricalReplayService(cast(OnlyBacktestClock, clock), market_data_processor)
         self._trading_kernel.install_services(
@@ -1129,6 +1182,14 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
                 market_data_processor.restore_checkpoint,
             )
         )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "market.economic-facts",
+                2,
+                self._capture_economic_facts_checkpoint,
+                self._restore_economic_facts_checkpoint,
+            )
+        )
         if runtime_config.market_rule_engine is not None:
             self._checkpoint_registry.register(
                 OnlyJsonRuntimeCheckpointParticipant(
@@ -1141,7 +1202,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         self._checkpoint_registry.register(
             OnlyJsonRuntimeCheckpointParticipant(
                 "account.authority",
-                1,
+                3,
                 self._account_manager.capture_checkpoint,
                 self._account_manager.restore_checkpoint,
             )
@@ -1173,7 +1234,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         self._checkpoint_registry.register(
             OnlyJsonRuntimeCheckpointParticipant(
                 "position.authority",
-                1,
+                2,
                 position_manager.capture_checkpoint,
                 position_manager.restore_checkpoint,
             )
@@ -1181,7 +1242,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         self._checkpoint_registry.register(
             OnlyJsonRuntimeCheckpointParticipant(
                 "allocation.authority",
-                1,
+                2,
                 allocation_manager.capture_checkpoint,
                 allocation_manager.restore_checkpoint,
             )
@@ -1229,7 +1290,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         self._checkpoint_registry.register(
             OnlyJsonRuntimeCheckpointParticipant(
                 "margin.authority",
-                1,
+                3,
                 self._margin_manager.capture_checkpoint,
                 self._margin_manager.restore_checkpoint,
             )
@@ -1322,6 +1383,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         recovery_replay = OnlyBacktestRecoveryReplayService(
             source=recovery_source,
             request=recovery_request,
+            economic_requests=recovery_economic_requests,
             source_registry=market_data_source_registry,
             replay=historical_replay_service,
             activate=self._activate_backtest_recovery,
@@ -1446,6 +1508,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
                 raise AssertionError("checkpoint query and recovery outcome disagree")
             self._services.event_router.complete_fresh_bootstrap()
             return
+        self._resume_pending_economic_fact_applications()
         self._services.event_router.begin_finalization()
         try:
             finalization = self._runtime_recovery_finalizer.finalize(outcome)
@@ -1877,6 +1940,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         self,
         source: OnlyHistoricalDataSource,
         request: OnlyHistoricalBarRequest,
+        economic_requests: tuple[OnlyHistoricalFactRequest, ...] = (),
     ) -> OnlyHistoricalReplayResult:
         """Load through HistoricalDataSource, then merge/advance/process through ReplayService."""
 
@@ -1884,7 +1948,15 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             raise OnlyLifecycleError("Runtime accepts historical replay only while RUNNING")
         if not self._services.market_data_source_registry.contains(source.source_id):
             self._services.market_data_source_registry.register(source)
-        stream = source.load_bars(request)
+        economic_source = cast(OnlyHistoricalFactSource, source)
+        streams = (
+            source.load_bars(request),
+            *(economic_source.load_facts(item) for item in economic_requests),
+        )
+        prepared = self._services.historical_replay_service.prepare(
+            OnlyHistoricalReplayConfig(streams, source_priority=(source.source_id,))
+        )
+        stream = OnlyHistoricalDataStream(prepared.updates, request.batch_size)
         replay_cursor = self._replay_cursor
         if replay_cursor.last_update_id is not None:
             if source.source_id != replay_cursor.source_id or request.data_version != replay_cursor.data_version:
@@ -2148,17 +2220,34 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             None,
         )
         closing = position_scope.position_effect is OnlyPositionEffect.CLOSE
-        if account_reservation is None and not closing:
+        margin_opening = not closing and instruction.margin_instruction is not None
+        if account_reservation is None and not closing and not margin_opening:
             raise ValueError("prepared Trade planning requires Account cash Reservation")
         strategy_reservation = next(
             (item for item in ledger_snapshot.reservations if item.order_id == order.order_id),
             None,
         )
-        if strategy_reservation is None and not closing:
+        if strategy_reservation is None and not closing and not margin_opening:
             raise ValueError("prepared Trade planning requires Strategy cash Reservation")
         position_reservation = self._position_reservation_manager.get(order.order_id)
+        margin_reservation = self._margin_manager.get(str(order.order_id))
+        margin_reservations: tuple[OnlyMarginReservation, ...] = (
+            () if margin_reservation is None else (margin_reservation,)
+        )
+        if closing and instruction.margin_instruction is not None and margin_reservation is None:
+            margin_candidates = self._margin_manager.occupied_reservations(
+                str(order.account_id),
+                str(order.instrument_id),
+                position_scope.position_side,
+            )
+            if not margin_candidates:
+                raise ValueError("prepared Margin Close requires occupied Margin authority")
+            margin_reservation = margin_candidates[0]
+            margin_reservations = margin_candidates
         if position_reservation is None and closing:
             raise ValueError("prepared Close planning requires Position Reservation")
+        if instruction.margin_instruction is not None and not closing and margin_reservation is None:
+            raise ValueError("prepared Margin Trade planning requires Margin Reservation")
         risk_reservation = self._services.risk_service.reservations.get_for_order(order.order_id)
         if risk_reservation is None:
             raise ValueError("prepared Trade planning requires Risk Reservation")
@@ -2189,15 +2278,11 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         )
         account_timeline = self._account_performance_projector.timeline(order.account_id)
         ledger_timeline = self._strategy_ledger_manager.equity_timeline(ledger_snapshot.key)
-        candidates = tuple(
-            bar
-            for registration in self._subscriptions.values()
-            for bar_type in registration.subscription.bar_types
-            if bar_type.instrument_id == order.instrument_id
-            if (bar := self._services.market_data_cache.latest_closed(bar_type)) is not None
+        valuation_price, _valuation_source = self._valuation_price(
+            order.instrument_id,
+            trading_day,
+            update.ts_event,
         )
-        if not candidates:
-            raise ValueError("prepared Trade planning requires a closed market-data valuation mark")
         valuation_state = self._execution_valuation_state(order.account_id)
         if valuation_state is None:
             raise ValueError("prepared Trade planning requires Runtime valuation authority")
@@ -2209,7 +2294,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             processing_sequence=processing_sequence,
             trading_day=trading_day,
             contract_multiplier=self._instruments[order.instrument_id].contract_multiplier,
-            valuation_price=max(candidates, key=lambda item: item.ts_event).close,
+            valuation_price=valuation_price,
             position_scope=position_scope,
             trade_instruction=instruction,
             support_decision=support_decision,
@@ -2274,6 +2359,12 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
                 if position_reservation is None
                 else only_position_reservation_execution_state(position_reservation)
             ),
+            margin_reservation_before=(
+                None if margin_reservation is None else only_margin_reservation_execution_state(margin_reservation)
+            ),
+            margin_reservations_before=tuple(
+                only_margin_reservation_execution_state(item) for item in margin_reservations
+            ),
         )
 
     def _build_terminal_execution_planning_context(
@@ -2288,6 +2379,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         if account is None:
             raise KeyError(f"Account not found: {order.account_id}")
         position_reservation = self._position_reservation_manager.get(order.order_id)
+        margin_reservation = self._margin_manager.get(str(order.order_id))
         risk_reservation = self._services.risk_service.reservations.get_for_order(order.order_id)
         if risk_reservation is None:
             raise ValueError("prepared Terminal planning requires Risk Reservation")
@@ -2340,6 +2432,9 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
                 if position_reservation is None
                 else only_position_reservation_execution_state(position_reservation)
             ),
+            margin_reservation_before=(
+                None if margin_reservation is None else only_margin_reservation_execution_state(margin_reservation)
+            ),
             risk_reservation_before=only_risk_reservation_execution_state(risk_reservation),
             risk_before=only_risk_execution_state(self._services.risk_service.get_snapshot(order.cluster_id)),
         )
@@ -2359,6 +2454,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             cluster_id=order.cluster_id,
             currency=account.base_currency,
         )
+        margin_reservation = self._margin_manager.get(str(order.order_id))
         position = self._services.position_manager.get_snapshot(position_scope.position_key)
         position_reservation = self._position_reservation_manager.get(order.order_id)
         strategy_reservation = next((item for item in ledger.reservations if item.order_id == order.order_id), None)
@@ -2377,6 +2473,9 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
                 None
                 if position_reservation is None
                 else only_position_reservation_execution_state(position_reservation)
+            ),
+            margin_reservation_before=(
+                None if margin_reservation is None else only_margin_reservation_execution_state(margin_reservation)
             ),
             strategy_ledger_before=only_strategy_ledger_execution_state(ledger),
             strategy_cash_reservation_before=(
@@ -2414,33 +2513,458 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         self.restore_execution_valuation_version(state.version)
         self._execution_valuation_states[state.account_id] = state
 
+    def _capture_economic_facts_checkpoint(self) -> object:
+        return {
+            "reference_prices": [
+                self._reference_price_facts[key].to_json() for key in sorted(self._reference_price_facts)
+            ],
+            "funding_rates": [self._funding_rate_facts[key].to_json() for key in sorted(self._funding_rate_facts)],
+            "pending_applications": [
+                self._pending_economic_fact_applications[key].to_json()
+                for key in sorted(self._pending_economic_fact_applications)
+            ],
+        }
+
+    def _restore_economic_facts_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("economic facts checkpoint must be an object")
+        references = tuple(OnlyReferencePriceFact.from_json(str(item)) for item in payload["reference_prices"])
+        funding = tuple(OnlyFundingRateFact.from_json(str(item)) for item in payload["funding_rates"])
+        self._reference_price_facts = {item.fact_id: item for item in references}
+        self._funding_rate_facts = {item.fact_id: item for item in funding}
+        pending = tuple(
+            _OnlyEconomicFactApplicationPlan.from_json(str(item)) for item in payload.get("pending_applications", [])
+        )
+        self._pending_economic_fact_applications = {item.fact_id: item for item in pending}
+        self._reference_prices_by_boundary = {}
+        for fact in sorted(references, key=lambda item: item.stable_order):
+            boundary = (
+                fact.instrument_id,
+                fact.kind,
+                OnlyTimestamp.from_datetime(fact.ts_event).unix_nanos,
+            )
+            current = self._reference_prices_by_boundary.get(boundary)
+            if current is None or (fact.revision, fact.source_sequence, fact.fact_id) > (
+                current.revision,
+                current.source_sequence,
+                current.fact_id,
+            ):
+                self._reference_prices_by_boundary[boundary] = fact
+
+    def _apply_canonical_economic_fact(self, update: OnlyMarketDataInboundUpdate) -> None:
+        self._begin_direct_execution_events()
+        try:
+            if isinstance(update.payload, OnlyReferencePriceUpdate):
+                self._install_reference_price(update.payload.fact, apply_valuation=True)
+            elif isinstance(update.payload, OnlyFundingRateUpdate):
+                self._apply_funding_rate(update.payload.fact)
+            else:
+                raise ValueError("CANONICAL_ECONOMIC_FACT_TYPE_UNSUPPORTED")
+        except Exception:
+            self._flush_direct_execution_events()
+            raise
+        else:
+            self._complete_direct_execution_events(True)
+
+    def _resume_pending_economic_fact_applications(self) -> None:
+        plans = tuple(
+            sorted(
+                self._pending_economic_fact_applications.values(),
+                key=_economic_fact_application_stable_order,
+            )
+        )
+        for plan in plans:
+            self._begin_direct_execution_events()
+            try:
+                if plan.application_kind == "SETTLEMENT":
+                    fact = OnlyReferencePriceFact.from_json(plan.source_fact_json)
+                    self._install_reference_price(fact, apply_valuation=True)
+                elif plan.application_kind == "FUNDING":
+                    funding = OnlyFundingRateFact.from_json(plan.source_fact_json)
+                    self._apply_funding_rate(funding)
+                else:
+                    raise ValueError("ECONOMIC_FACT_APPLICATION_KIND_UNSUPPORTED")
+            except Exception:
+                self._flush_direct_execution_events()
+                raise
+            else:
+                self._complete_direct_execution_events(True)
+
+    def _install_reference_price(self, fact: OnlyReferencePriceFact, *, apply_valuation: bool) -> None:
+        existing = self._reference_price_facts.get(fact.fact_id)
+        if existing is not None:
+            if existing != fact:
+                raise ValueError("REFERENCE_PRICE_FACT_ID_CONFLICT")
+            return
+        boundary = (
+            fact.instrument_id,
+            fact.kind,
+            OnlyTimestamp.from_datetime(fact.ts_event).unix_nanos,
+        )
+        current = self._reference_prices_by_boundary.get(boundary)
+        if current is not None and current.revision == fact.revision and current != fact:
+            raise ValueError("REFERENCE_PRICE_BOUNDARY_AUTHORITY_CONFLICT")
+        if fact.kind is OnlyReferencePriceKind.SETTLEMENT and apply_valuation:
+            self._apply_settlement_fact(fact)
+        self._reference_price_facts[fact.fact_id] = fact
+        selected = current is None or (fact.revision, fact.source_sequence, fact.fact_id) > (
+            current.revision,
+            current.source_sequence,
+            current.fact_id,
+        )
+        if selected:
+            self._reference_prices_by_boundary[boundary] = fact
+        try:
+            if not apply_valuation:
+                return
+            trading_day = self._selected_calendar.trading_day_at(fact.ts_event)
+            engine = self.config.market_rule_engine
+            if engine is None:
+                raise ValueError("MARKET_RULE_ENGINE_REQUIRED")
+            policy = engine.compiled_rules(str(fact.instrument_id), trading_day, as_of=fact.ts_event)
+            if (
+                policy.economic_model is OnlyEconomicModel.MARGINED_DERIVATIVE
+                and policy.valuation_policy is not None
+                and policy.valuation_policy.unrealized_price_kind is fact.kind
+            ):
+                self._apply_market_valuations_at(
+                    OnlyTimestamp.from_datetime(fact.ts_event),
+                    trading_day,
+                )
+        except Exception:
+            self._reference_price_facts.pop(fact.fact_id, None)
+            if selected:
+                if current is None:
+                    self._reference_prices_by_boundary.pop(boundary, None)
+                else:
+                    self._reference_prices_by_boundary[boundary] = current
+            raise
+        else:
+            self._pending_economic_fact_applications.pop(fact.fact_id, None)
+
+    def _apply_settlement_fact(self, fact: OnlyReferencePriceFact) -> None:
+        trading_day = self._selected_calendar.trading_day_at(fact.ts_event)
+        engine = self.config.market_rule_engine
+        if engine is None:
+            raise ValueError("MARKET_RULE_ENGINE_REQUIRED")
+        policy = engine.compiled_rules(str(fact.instrument_id), trading_day, as_of=fact.ts_event)
+        if policy.variation_margin_policy is None:
+            raise ValueError("VARIATION_MARGIN_POLICY_UNAVAILABLE")
+        plan = self._pending_economic_fact_applications.get(fact.fact_id)
+        if plan is None:
+            plan = self._plan_settlement_application(fact)
+            self._pending_economic_fact_applications[fact.fact_id] = plan
+        elif plan.source_fact_json != fact.to_json() or plan.application_kind != "SETTLEMENT":
+            raise ValueError("ECONOMIC_FACT_APPLICATION_ID_CONFLICT")
+        self._apply_economic_fact_plan(plan)
+
+    def _apply_funding_rate(self, fact: OnlyFundingRateFact) -> None:
+        existing = self._funding_rate_facts.get(fact.fact_id)
+        if existing is not None:
+            if existing != fact:
+                raise ValueError("FUNDING_RATE_FACT_ID_CONFLICT")
+            return
+        trading_day = self._selected_calendar.trading_day_at(fact.funding_time)
+        engine = self.config.market_rule_engine
+        if engine is None:
+            raise ValueError("MARKET_RULE_ENGINE_REQUIRED")
+        policy = engine.compiled_rules(str(fact.instrument_id), trading_day, as_of=fact.funding_time)
+        if policy.funding_policy is None:
+            raise ValueError("FUNDING_POLICY_UNAVAILABLE")
+        boundary = (
+            fact.instrument_id,
+            policy.funding_policy.valuation_price_kind,
+            OnlyTimestamp.from_datetime(fact.funding_time).unix_nanos,
+        )
+        valuation = self._reference_prices_by_boundary.get(boundary)
+        if valuation is None:
+            raise ValueError("FUNDING_REFERENCE_PRICE_MISSING")
+        plan = self._pending_economic_fact_applications.get(fact.fact_id)
+        if plan is None:
+            plan = self._plan_funding_application(fact, valuation, policy.funding_policy)
+            self._pending_economic_fact_applications[fact.fact_id] = plan
+        elif plan.source_fact_json != fact.to_json() or plan.application_kind != "FUNDING":
+            raise ValueError("ECONOMIC_FACT_APPLICATION_ID_CONFLICT")
+        self._apply_economic_fact_plan(plan)
+        self._funding_rate_facts[fact.fact_id] = fact
+        self._pending_economic_fact_applications.pop(fact.fact_id, None)
+
+    def _plan_funding_application(
+        self,
+        fact: OnlyFundingRateFact,
+        valuation: OnlyReferencePriceFact,
+        funding_policy: OnlyCompiledFundingPolicy,
+    ) -> _OnlyEconomicFactApplicationPlan:
+        positions = tuple(
+            item
+            for item in self._services.position_manager.list_by_account(self.config.default_account_id)  # type: ignore[arg-type]
+            if item.key.instrument_id == fact.instrument_id and item.total_quantity.value > 0
+        )
+        instrument = self._instruments[fact.instrument_id]
+        account_cashflows: list[OnlyAccountEconomicCashflow] = []
+        strategy_cashflows: list[_OnlyStrategyEconomicCashflowApplication] = []
+        for position in positions:
+            cashflow = only_derive_funding_cashflow(
+                runtime_id=self.config.runtime_id,  # type: ignore[arg-type]
+                account_id=position.key.account_id,
+                position=position,
+                funding=fact,
+                valuation=valuation,
+                multiplier=instrument.contract_multiplier,
+                currency=instrument.settlement_currency,
+                policy=funding_policy,
+            )
+            account_cashflows.append(cashflow)
+            allocations = tuple(
+                item
+                for item in self._services.allocation_manager.list_by_instrument(fact.instrument_id)
+                if item.key.account_id == position.key.account_id
+                and item.key.position_side == position.key.position_side
+                and item.total_quantity.value > 0
+            )
+            allocated = sum((item.total_quantity.value for item in allocations), Decimal(0))
+            if allocated != position.total_quantity.value:
+                raise ValueError("FUNDING_ALLOCATION_AUTHORITY_INCOMPLETE")
+            remaining = cashflow.amount.amount
+            quantum = Decimal(1).scaleb(-cashflow.amount.currency.precision)
+            for index, allocation in enumerate(allocations):
+                amount = (
+                    remaining
+                    if index == len(allocations) - 1
+                    else (
+                        cashflow.amount.amount * allocation.total_quantity.value / position.total_quantity.value
+                    ).quantize(quantum)
+                )
+                remaining -= amount
+                key = self._services.strategy_ledger_manager.require_key(
+                    runtime_id=self.config.runtime_id,  # type: ignore[arg-type]
+                    account_id=allocation.key.account_id,
+                    cluster_id=allocation.key.cluster_id,
+                    currency=cashflow.amount.currency,
+                )
+                strategy_cashflows.append(
+                    _OnlyStrategyEconomicCashflowApplication(
+                        key,
+                        _strategy_economic_cashflow_id(cashflow.cashflow_id, allocation.key.cluster_id),
+                        OnlyMoney(amount, cashflow.amount.currency),
+                        OnlyStrategyCashEntryType.FUNDING,
+                        cashflow.timestamp,
+                    )
+                )
+        plan = _OnlyEconomicFactApplicationPlan(
+            fact.fact_id,
+            fact.to_json(),
+            "FUNDING",
+            (),
+            tuple(account_cashflows),
+            tuple(strategy_cashflows),
+        )
+        self._validate_economic_fact_plan(plan)
+        return plan
+
+    def _plan_settlement_application(
+        self,
+        fact: OnlyReferencePriceFact,
+    ) -> _OnlyEconomicFactApplicationPlan:
+        instrument = self._instruments[fact.instrument_id]
+        timestamp = OnlyTimestamp.from_datetime(fact.ts_event)
+        pnl_model = OnlyLinearPnLModel()
+        positions = tuple(
+            sorted(
+                (
+                    item
+                    for item in self._services.position_manager.list_by_account(self.config.default_account_id)  # type: ignore[arg-type]
+                    if item.key.instrument_id == fact.instrument_id and item.total_quantity.value > 0
+                ),
+                key=lambda item: str(item.position_id),
+            )
+        )
+        settlements: list[OnlyPositionSettlementFact] = []
+        account_cashflows: list[OnlyAccountEconomicCashflow] = []
+        strategy_cashflows: list[_OnlyStrategyEconomicCashflowApplication] = []
+        for position in positions:
+            if position.average_open_price is None:
+                raise ValueError("POSITION_SETTLEMENT_COST_BASIS_MISSING")
+            settlement = OnlyPositionSettlementFact(
+                position.key,
+                fact,
+                instrument.contract_multiplier,
+                instrument.settlement_currency,
+            )
+            realized = pnl_model.realized(
+                position.position_side,
+                position.average_open_price,
+                fact.value,
+                position.total_quantity,
+                instrument.contract_multiplier,
+                instrument.settlement_currency,
+            )
+            allocations = tuple(
+                sorted(
+                    (
+                        item
+                        for item in self._services.allocation_manager.list_by_instrument(fact.instrument_id)
+                        if item.key.account_id == position.key.account_id
+                        and item.key.position_side == position.key.position_side
+                        and item.total_quantity.value > 0
+                    ),
+                    key=lambda item: str(item.allocation_id),
+                )
+            )
+            allocated_quantity = sum((item.total_quantity.value for item in allocations), Decimal(0))
+            if allocated_quantity != position.total_quantity.value:
+                raise ValueError("SETTLEMENT_ALLOCATION_AUTHORITY_INCOMPLETE")
+            allocation_cashflows: list[tuple[OnlyPositionAllocationSnapshot, OnlyMoney]] = []
+            for allocation in allocations:
+                if allocation.average_open_price is None:
+                    raise ValueError("ALLOCATION_SETTLEMENT_COST_BASIS_MISSING")
+                allocation_cashflows.append(
+                    (
+                        allocation,
+                        pnl_model.realized(
+                            allocation.key.position_side,
+                            allocation.average_open_price,
+                            fact.value,
+                            allocation.total_quantity,
+                            instrument.contract_multiplier,
+                            instrument.settlement_currency,
+                        ),
+                    )
+                )
+            if sum((item.amount for _allocation, item in allocation_cashflows), Decimal(0)) != realized.amount:
+                raise ValueError("SETTLEMENT_ALLOCATION_PNL_DIVERGENCE")
+            account_cashflow = OnlyAccountEconomicCashflow(
+                f"SETTLE-{fact.fact_id}-{position.position_id}",
+                self.config.runtime_id,  # type: ignore[arg-type]
+                position.key.account_id,
+                OnlyAccountEconomicCashflowType.VARIATION_MARGIN,
+                realized,
+                timestamp,
+                fact.fact_id,
+                str(fact.instrument_id),
+            )
+            settlements.append(settlement)
+            account_cashflows.append(account_cashflow)
+            for allocation, allocation_realized in allocation_cashflows:
+                key = self._services.strategy_ledger_manager.require_key(
+                    runtime_id=self.config.runtime_id,  # type: ignore[arg-type]
+                    account_id=allocation.key.account_id,
+                    cluster_id=allocation.key.cluster_id,
+                    currency=allocation_realized.currency,
+                )
+                strategy_cashflows.append(
+                    _OnlyStrategyEconomicCashflowApplication(
+                        key,
+                        _strategy_economic_cashflow_id(account_cashflow.cashflow_id, allocation.key.cluster_id),
+                        allocation_realized,
+                        OnlyStrategyCashEntryType.VARIATION_MARGIN,
+                        timestamp,
+                    )
+                )
+        plan = _OnlyEconomicFactApplicationPlan(
+            fact.fact_id,
+            fact.to_json(),
+            "SETTLEMENT",
+            tuple(settlements),
+            tuple(account_cashflows),
+            tuple(strategy_cashflows),
+        )
+        self._validate_economic_fact_plan(plan)
+        return plan
+
+    def _validate_economic_fact_plan(self, plan: _OnlyEconomicFactApplicationPlan) -> None:
+        account_balances: dict[OnlyAccountId, Decimal] = {}
+        for cashflow in plan.account_cashflows:
+            snapshot = self._services.account_manager.require_snapshot(cashflow.account_id)
+            if cashflow.amount.currency != snapshot.cash.ledger_cash.currency:
+                raise ValueError("ACCOUNT_ECONOMIC_CASHFLOW_CURRENCY_CONFLICT")
+            balance = account_balances.get(cashflow.account_id, snapshot.cash.ledger_cash.amount)
+            balance += cashflow.amount.amount
+            if balance < 0:
+                raise ValueError("ACCOUNT_ECONOMIC_CASHFLOW_INSUFFICIENT_COLLATERAL")
+            account_balances[cashflow.account_id] = balance
+        strategy_balances: dict[OnlyStrategyLedgerKey, Decimal] = {}
+        for application in plan.strategy_cashflows:
+            ledger_snapshot = self._services.strategy_ledger_manager.require_snapshot(application.key)
+            balance = strategy_balances.get(application.key, ledger_snapshot.cash.ledger_cash.amount)
+            balance += application.amount.amount
+            if balance < 0:
+                raise ValueError("STRATEGY_ECONOMIC_CASHFLOW_INSUFFICIENT_COLLATERAL")
+            strategy_balances[application.key] = balance
+
+    def _apply_economic_fact_plan(self, plan: _OnlyEconomicFactApplicationPlan) -> None:
+        for settlement in plan.settlements:
+            self._services.position_manager.apply_settlement(settlement)
+            self._services.allocation_manager.apply_settlement(settlement)
+        for cashflow in plan.account_cashflows:
+            self._services.account_manager.apply_economic_cashflow(cashflow)
+        for application in plan.strategy_cashflows:
+            self._services.strategy_ledger_manager.apply_economic_cashflow(
+                application.key,
+                application.cashflow_id,
+                application.amount,
+                application.entry_type,
+                application.timestamp,
+            )
+
+    def _valuation_price(
+        self,
+        instrument_id: OnlyInstrumentId,
+        trading_day: OnlyTradingDay,
+        timestamp: OnlyTimestamp,
+        bar: OnlyBar | None = None,
+    ) -> tuple[OnlyPrice, str]:
+        engine = self.config.market_rule_engine
+        if engine is None:
+            raise ValueError("MARKET_RULE_ENGINE_REQUIRED")
+        policy = engine.compiled_rules(str(instrument_id), trading_day, as_of=timestamp.to_datetime())
+        if policy.economic_model is OnlyEconomicModel.MARGINED_DERIVATIVE:
+            if policy.valuation_policy is None:
+                raise ValueError("DERIVATIVE_VALUATION_POLICY_MISSING")
+            kind = policy.valuation_policy.unrealized_price_kind
+            reference_candidates = tuple(
+                item
+                for (candidate_instrument, candidate_kind, event_ns), item in self._reference_prices_by_boundary.items()
+                if candidate_instrument == instrument_id and candidate_kind is kind and event_ns <= timestamp.unix_nanos
+            )
+            if not reference_candidates:
+                raise ValueError(f"REQUIRED_{kind.value}_PRICE_MISSING")
+            fact = max(
+                reference_candidates,
+                key=lambda item: (
+                    OnlyTimestamp.from_datetime(item.ts_event).unix_nanos,
+                    item.revision,
+                    item.source_sequence,
+                    item.fact_id,
+                ),
+            )
+            return fact.value, f"REFERENCE_PRICE:{kind.value}:{fact.fact_id}"
+        if bar is not None and bar.instrument_id == instrument_id:
+            return bar.close, "MARKET_DATA_SNAPSHOT"
+        bar_candidates = tuple(
+            cached
+            for registration in self._subscriptions.values()
+            for bar_type in registration.subscription.bar_types
+            if bar_type.instrument_id == instrument_id
+            if (cached := self._services.market_data_cache.latest_closed(bar_type)) is not None
+        )
+        if not bar_candidates:
+            raise ValueError("CASH_EXCHANGE_CLOSED_BAR_MISSING")
+        return max(bar_candidates, key=lambda item: item.ts_event).close, "MARKET_DATA_SNAPSHOT"
+
     def _apply_strategy_valuation(
         self,
         key: OnlyStrategyLedgerKey,
         trade: OnlyPositionTrade,
     ) -> None:
         allocations = self._services.allocation_manager.list_by_cluster(key.cluster_id)
-        candidates = tuple(
-            bar
-            for registration in self._subscriptions.values()
-            for bar_type in registration.subscription.bar_types
-            if bar_type.instrument_id == trade.instrument_id
-            if (bar := self._services.market_data_cache.latest_closed(bar_type)) is not None
-        )
-        if allocations and not candidates:
-            raise ValueError("Strategy valuation requires a closed market-data mark")
         marks: tuple[OnlyStrategyMarkPrice, ...] = ()
-        trading_day: OnlyTradingDay | None = None
-        if candidates:
-            latest = max(candidates, key=lambda item: item.ts_event)
-            version = self._valuation_versions.get(key, 0) + 1
-            marks = (OnlyStrategyMarkPrice(trade.instrument_id, latest.close, version, "MARKET_DATA_SNAPSHOT"),)
-            trading_day = OnlyTradingDay(latest.trading_day)
-        else:
-            version = self._valuation_versions.get(key, 0) + 1
+        trading_day = self._selected_calendar.trading_day_at(trade.ts_event)
+        version = self._valuation_versions.get(key, 0) + 1
+        if allocations:
+            price, source = self._valuation_price(trade.instrument_id, trading_day, trade.ts_event)
+            marks = (OnlyStrategyMarkPrice(trade.instrument_id, price, version, source),)
         self._valuation_versions[key] = version
-        if trading_day is None:
-            raise RuntimeError("trading_day must not be None for settlement calculation")
         valuation = self._services.strategy_valuation_service.value(
             key,
             allocations,
@@ -2464,29 +2988,21 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         unrealized = Decimal(0)
         for position in self._services.position_manager.list_by_account(trade.account_id):
             instrument = self._instruments[position.key.instrument_id]
-            candidates = tuple(
-                bar
-                for registration in self._subscriptions.values()
-                for bar_type in registration.subscription.bar_types
-                if bar_type.instrument_id == position.key.instrument_id
-                if (bar := self._services.market_data_cache.latest_closed(bar_type)) is not None
+            if position.average_open_price is None:
+                raise ValueError("Account valuation requires cost basis for every open Position")
+            trading_day = self._selected_calendar.trading_day_at(trade.ts_event)
+            mark, _source = self._valuation_price(position.key.instrument_id, trading_day, trade.ts_event)
+            position_valuation = self._position_valuation_service.value(
+                position,
+                mark,
+                instrument.contract_multiplier,
+                instrument.settlement_currency,
+                trade.ts_event,
+                price_source=_source,
+                settles_notional=self._settles_notional(position.key.instrument_id, trading_day),
             )
-            if not candidates or position.average_open_price is None:
-                raise ValueError("Account valuation requires a closed mark for every open Position")
-            mark = max(candidates, key=lambda item: item.ts_event).close
-            multiplier = instrument.contract_multiplier.value
-            pnl = (mark.value - position.average_open_price.value) * position.total_quantity.value * multiplier
-            if position.key.position_side.value == "SHORT":
-                pnl = -pnl
-            unrealized += pnl
-            market_value += (
-                mark.value * position.total_quantity.value * multiplier
-                if self._settles_notional(
-                    position.key.instrument_id,
-                    self._selected_calendar.trading_day_at(trade.ts_event),
-                )
-                else pnl
-            )
+            unrealized += position_valuation.unrealized_pnl.amount
+            market_value += position_valuation.market_value.amount
         quantum = Decimal(1).scaleb(-self.config.strategy_base_currency.precision)
         self._account_valuation_version += 1
         self._services.account_manager.apply_valuation(
@@ -2505,6 +3021,14 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         """Mark Runtime-owned account and strategy views before Broker reconciliation and strategy callbacks."""
 
         timestamp = OnlyTimestamp.from_datetime(bar.ts_event)
+        self._apply_market_valuations_at(timestamp, trading_day, bar)
+
+    def _apply_market_valuations_at(
+        self,
+        timestamp: OnlyTimestamp,
+        trading_day: OnlyTradingDay,
+        bar: OnlyBar | None = None,
+    ) -> None:
         for ledger in self._services.strategy_ledger_manager.list_ledgers():
             allocations = self._services.allocation_manager.list_by_cluster(ledger.key.cluster_id)
             marks: list[OnlyStrategyMarkPrice] = []
@@ -2512,22 +3036,13 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             next_version = self._valuation_versions.get(ledger.key, 0) + 1
             for allocation in allocations:
                 instrument = self._instruments[allocation.key.instrument_id]
-                candidates = tuple(
-                    cached
-                    for registration in self._subscriptions.values()
-                    for bar_type in registration.subscription.bar_types
-                    if bar_type.instrument_id == allocation.key.instrument_id
-                    if (cached := self._services.market_data_cache.latest_closed(bar_type)) is not None
-                )
-                if not candidates:
-                    raise ValueError("Strategy mark-to-market requires a closed Bar for every Allocation")
-                latest = max(candidates, key=lambda item: item.ts_event)
+                mark, source = self._valuation_price(allocation.key.instrument_id, trading_day, timestamp, bar)
                 marks.append(
                     OnlyStrategyMarkPrice(
                         allocation.key.instrument_id,
-                        latest.close,
+                        mark,
                         next_version,
-                        "MARKET_DATA_SNAPSHOT",
+                        source,
                     )
                 )
                 multipliers[allocation.key.instrument_id] = instrument.contract_multiplier
@@ -2554,26 +3069,20 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         unrealized = Decimal(0)
         for position in self._services.position_manager.list_by_account(self.config.default_account_id):  # type: ignore[arg-type]
             instrument = self._instruments[position.key.instrument_id]
-            candidates = tuple(
-                cached
-                for registration in self._subscriptions.values()
-                for bar_type in registration.subscription.bar_types
-                if bar_type.instrument_id == position.key.instrument_id
-                if (cached := self._services.market_data_cache.latest_closed(bar_type)) is not None
+            if position.average_open_price is None:
+                raise ValueError("Account mark-to-market requires cost basis for every Position")
+            mark, source = self._valuation_price(position.key.instrument_id, trading_day, timestamp, bar)
+            position_valuation = self._position_valuation_service.value(
+                position,
+                mark,
+                instrument.contract_multiplier,
+                instrument.settlement_currency,
+                timestamp,
+                price_source=source,
+                settles_notional=self._settles_notional(position.key.instrument_id, trading_day),
             )
-            if not candidates or position.average_open_price is None:
-                raise ValueError("Account mark-to-market requires a closed Bar for every Position")
-            mark = max(candidates, key=lambda item: item.ts_event).close
-            multiplier = instrument.contract_multiplier.value
-            pnl = (mark.value - position.average_open_price.value) * position.total_quantity.value * multiplier
-            if position.key.position_side.value == "SHORT":
-                pnl = -pnl
-            unrealized += pnl
-            market_value += (
-                mark.value * position.total_quantity.value * multiplier
-                if self._settles_notional(position.key.instrument_id, trading_day)
-                else pnl
-            )
+            unrealized += position_valuation.unrealized_pnl.amount
+            market_value += position_valuation.market_value.amount
         quantum = Decimal(1).scaleb(-self.config.strategy_base_currency.precision)
         self._account_valuation_version += 1
         self._services.account_manager.apply_valuation(
@@ -2590,7 +3099,10 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
 
     def _settles_notional(self, instrument_id: OnlyInstrumentId, trading_day: OnlyTradingDay) -> bool:
         engine = self.config.market_rule_engine
-        return engine is None or engine.compiled_rules(str(instrument_id), trading_day).margin_policy is None
+        return (
+            engine is None
+            or engine.compiled_rules(str(instrument_id), trading_day).economic_model is OnlyEconomicModel.CASH_EXCHANGE
+        )
 
     def _set_broker_connection_state(self, state: object) -> None:
         self._broker_connection_state = state
@@ -2674,6 +3186,9 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         if not succeeded:
             self._services.execution_event_buffer.abort()
             return
+        self._flush_direct_execution_events()
+
+    def _flush_direct_execution_events(self) -> None:
         batch = self._services.execution_event_buffer.seal()
         intent = (
             OnlyExecutionEventDeliveryIntent(OnlyExecutionEventDeliveryMode.NONE)
@@ -2926,6 +3441,24 @@ def _execution_bootstrap_account_snapshot(
 
 def _execution_bootstrap_rate(value: Decimal) -> OnlyRate:
     return OnlyRate(value.quantize(Decimal("0.00000001")), 8)
+
+
+def _strategy_economic_cashflow_id(
+    account_cashflow_id: str,
+    cluster_id: OnlyClusterId,
+) -> OnlyStrategyCashFlowId:
+    fingerprint = only_canonical_fingerprint((account_cashflow_id, str(cluster_id)))
+    return OnlyStrategyCashFlowId(f"ECONOMIC-{fingerprint}")
+
+
+def _economic_fact_application_stable_order(
+    plan: _OnlyEconomicFactApplicationPlan,
+) -> tuple[datetime, int, int, str]:
+    if plan.application_kind == "SETTLEMENT":
+        return OnlyReferencePriceFact.from_json(plan.source_fact_json).stable_order
+    if plan.application_kind == "FUNDING":
+        return OnlyFundingRateFact.from_json(plan.source_fact_json).stable_order
+    raise ValueError("ECONOMIC_FACT_APPLICATION_KIND_UNSUPPORTED")
 
 
 def _execution_bootstrap_ledger_snapshot(

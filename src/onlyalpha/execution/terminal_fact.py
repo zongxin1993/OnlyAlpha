@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from enum import StrEnum
+from typing import Self
 
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerUpdateId
 from onlyalpha.domain.base import OnlyDomainModel
@@ -21,17 +23,18 @@ from onlyalpha.domain.value import OnlyMoney, OnlyQuantity
 from onlyalpha.risk.enums import OnlyRiskReleaseReason
 from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 
-from .capability import ONLY_EXECUTION_SUPPORT_POLICY_VERSION, OnlyExecutionCapability
+from .capability import OnlyExecutionCapability, only_execution_support_policy_version_is_readable
 
 
 class OnlyTerminalEconomicReleaseKind(StrEnum):
     CASH_RESERVATION = "CASH_RESERVATION"
     POSITION_RESERVATION = "POSITION_RESERVATION"
+    MARGIN_RESERVATION = "MARGIN_RESERVATION"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OnlyCommittedTerminalExecutionFactDraft(OnlyDomainModel):
-    schema_version = 3
+    schema_version = 4
 
     operation_kind: OnlyRuntimeOperationKind
     terminal_identity: str
@@ -60,6 +63,7 @@ class OnlyCommittedTerminalExecutionFactDraft(OnlyDomainModel):
     economic_release_kind: OnlyTerminalEconomicReleaseKind
     reservation_released_quantity: OnlyQuantity | None
     reservation_released_cash: OnlyMoney | None
+    reservation_released_margin: OnlyMoney | None
     risk_released_quantity: OnlyQuantity
     risk_released_notional: OnlyMoney | None
     active_order_count_delta: int
@@ -70,7 +74,7 @@ class OnlyCommittedTerminalExecutionFactDraft(OnlyDomainModel):
             raise ValueError("terminal fact requires ORDER_TERMINAL operation kind")
         if (
             self.execution_capability is not OnlyExecutionCapability.DURABLE_TERMINAL
-            or self.execution_support_policy_version != ONLY_EXECUTION_SUPPORT_POLICY_VERSION
+            or not only_execution_support_policy_version_is_readable(self.execution_support_policy_version)
             or len(self.execution_support_fingerprint) != 64
         ):
             raise ValueError("terminal fact requires a valid durable support proof")
@@ -94,9 +98,13 @@ class OnlyCommittedTerminalExecutionFactDraft(OnlyDomainModel):
         ):
             raise ValueError("terminal fact quantities cannot be negative")
         cash_release = self.economic_release_kind is OnlyTerminalEconomicReleaseKind.CASH_RESERVATION
+        margin_release = self.economic_release_kind is OnlyTerminalEconomicReleaseKind.MARGIN_RESERVATION
         if cash_release != (self.reservation_released_cash is not None):
             raise ValueError("terminal fact cash release shape is inconsistent")
-        if cash_release == (self.reservation_released_quantity is not None):
+        if margin_release != (self.reservation_released_margin is not None):
+            raise ValueError("terminal fact Margin release shape is inconsistent")
+        quantity_release = self.economic_release_kind is OnlyTerminalEconomicReleaseKind.POSITION_RESERVATION
+        if quantity_release != (self.reservation_released_quantity is not None):
             raise ValueError("terminal fact quantity release shape is inconsistent")
         if self.active_order_count_delta != -1 or self.cluster_active_order_count_delta != -1:
             raise ValueError("terminal fact must close exactly one active Order")
@@ -113,10 +121,16 @@ class OnlyCommittedTerminalExecutionFactDraft(OnlyDomainModel):
             ts_committed=committed_at,
         )
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> Self:
+        compatible = dict(payload)
+        compatible.setdefault("reservation_released_margin", None)
+        return super(OnlyCommittedTerminalExecutionFactDraft, cls).from_dict(compatible)
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OnlyCommittedTerminalExecutionFact(OnlyDomainModel):
-    schema_version = 3
+    schema_version = 4
 
     operation_kind: OnlyRuntimeOperationKind
     terminal_identity: str
@@ -145,6 +159,7 @@ class OnlyCommittedTerminalExecutionFact(OnlyDomainModel):
     economic_release_kind: OnlyTerminalEconomicReleaseKind
     reservation_released_quantity: OnlyQuantity | None
     reservation_released_cash: OnlyMoney | None
+    reservation_released_margin: OnlyMoney | None
     risk_released_quantity: OnlyQuantity
     risk_released_notional: OnlyMoney | None
     active_order_count_delta: int
@@ -157,6 +172,12 @@ class OnlyCommittedTerminalExecutionFact(OnlyDomainModel):
         OnlyCommittedTerminalExecutionFactDraft(**{name: getattr(self, name) for name in draft_names})
         if self.execution_sequence < 1 or self.ts_committed < self.ts_init:
             raise ValueError("committed terminal fact sequence/timestamp is invalid")
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> Self:
+        compatible = dict(payload)
+        compatible.setdefault("reservation_released_margin", None)
+        return super(OnlyCommittedTerminalExecutionFact, cls).from_dict(compatible)
 
     @property
     def stable_order(self) -> tuple[int, int, int, str]:

@@ -4,6 +4,7 @@ from collections.abc import Callable
 from typing import Protocol
 
 from onlyalpha.data.enums import OnlyMarketDataCapability
+from onlyalpha.data.historical.models import OnlyHistoricalFactRequest
 from onlyalpha.data.identifiers import OnlyMarketDataSourceId
 from onlyalpha.data.models import (
     OnlyHistoricalBarRequest,
@@ -62,6 +63,14 @@ class OnlyHistoricalDataSource(Protocol):
     ) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]: ...
     def load_trades(
         self, request: OnlyHistoricalTradeRequest
+    ) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]: ...
+
+
+class OnlyHistoricalFactSource(Protocol):
+    """Optional canonical extension for Kernel economic facts."""
+
+    def load_facts(
+        self, request: OnlyHistoricalFactRequest
     ) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]: ...
 
 

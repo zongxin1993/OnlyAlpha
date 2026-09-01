@@ -52,3 +52,9 @@ __all__ = [
     "OnlySealedMarketDataMaterializationResult",
     "OnlyVerifiedResearchDataset",
 ]
+from onlyalpha.research.dataset.economic import (
+    OnlyEconomicFactManifest as OnlyEconomicFactManifest,
+)
+from onlyalpha.research.dataset.economic import (
+    OnlyResearchDatasetEconomicBinding as OnlyResearchDatasetEconomicBinding,
+)

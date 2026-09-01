@@ -22,11 +22,13 @@ from onlyalpha.data.identifiers import (
 )
 from onlyalpha.data.models import (
     OnlyBarUpdate,
+    OnlyFundingRateUpdate,
     OnlyMarketDataFailure,
     OnlyMarketDataInboundUpdate,
     OnlyMarketDataProcessingResult,
     OnlyMarketDataQuality,
     OnlyMarketDataValidationResult,
+    OnlyReferencePriceUpdate,
     OnlyTradeTickUpdate,
 )
 from onlyalpha.data.registry import OnlyMarketDataSourceRegistry
@@ -236,6 +238,7 @@ class OnlyMarketDataProcessor:
         after_dispatch: Callable[[OnlyMarketDataInboundUpdate], None] | None = None,
         after_processing: Callable[[OnlyMarketDataInboundUpdate, OnlyMarketDataProcessingResult], None] | None = None,
         realtime_state: OnlyRealtimeMarketStateStore | None = None,
+        canonical_fact_handler: Callable[[OnlyMarketDataInboundUpdate], None] | None = None,
     ) -> None:
         self._runtime_id = runtime_id
         self._clock = clock
@@ -252,6 +255,7 @@ class OnlyMarketDataProcessor:
         self._after_dispatch = after_dispatch or (lambda update: None)
         self._after_processing = after_processing or (lambda update, result: None)
         self._realtime_state = realtime_state
+        self._canonical_fact_handler = canonical_fact_handler
         self._sequence = 0
 
     def capture_checkpoint(self) -> object:
@@ -280,6 +284,23 @@ class OnlyMarketDataProcessor:
             if self._realtime_state is not None and update.sequence_scope is not None:
                 self._realtime_state.mark_gap(update.sequence_scope, int(update.source_sequence))
             return self._finish(update, OnlyMarketDataProcessingStatus.GAP_DETECTED, quality, validation)
+        if isinstance(update.payload, OnlyReferencePriceUpdate | OnlyFundingRateUpdate):
+            try:
+                if self._canonical_fact_handler is None:
+                    raise ValueError("CANONICAL_ECONOMIC_FACT_HANDLER_UNAVAILABLE")
+                self._canonical_fact_handler(update)
+            except Exception as exc:
+                return self._finish(
+                    update,
+                    OnlyMarketDataProcessingStatus.FAILED,
+                    quality,
+                    validation,
+                    failure=OnlyMarketDataFailure(type(exc).__name__, str(exc)),
+                )
+            self._deduplicator.remember(update)
+            self._sequence_tracker.commit(update)
+            self._gap_detector.commit(update)
+            return self._finish(update, OnlyMarketDataProcessingStatus.APPLIED, quality, validation)
         self._deduplicator.remember(update)
         self._sequence_tracker.commit(update)
         self._gap_detector.commit(update)

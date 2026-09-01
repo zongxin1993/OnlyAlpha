@@ -50,6 +50,8 @@ def only_execution_support_context(
         position_side=position_scope.position_side,
         position_effect=position_scope.position_effect,
         position_mode=position_scope.position_mode,
+        close_scope=position_scope.close_scope,
+        exposure_constraint=position_scope.exposure_constraint,
         has_margin=has_margin,
         account_ledger_parity=account_ledger_parity,
         reservations=reservations,

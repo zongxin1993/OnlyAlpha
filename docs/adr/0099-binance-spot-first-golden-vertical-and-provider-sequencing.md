@@ -1,5 +1,7 @@
 # ADR 0099 — Binance Spot First Golden Vertical and Provider Sequencing
 
+> Superseded in part by [ADR 0106](0106-universal-spot-futures-research-backtest-sequencing.md): section 1's pre-Futures scope restriction and section 2's Spot-only restriction are superseded only for bounded universal Research/Backtest semantics and Binance USD-M Research/Backtest conformance; section 8's post-Spot provider sequence is superseded. Binance Spot remains the first production/LIVE Golden Vertical, and all other decisions below remain in force.
+
 - Status: **ACCEPTED**
 - Date: 2026-08-28
 - Scope: P9.1+ implementation sequencing and first production vertical

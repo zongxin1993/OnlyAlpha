@@ -15,6 +15,9 @@ class OnlyCheckpointCapability(StrEnum):
 class OnlyDataSourceCapabilities:
     historical_bars: bool = False
     historical_ticks: bool = False
+    historical_reference_prices: bool = False
+    historical_funding_rates: bool = False
+    historical_settlements: bool = False
     live_bars: bool = False
     live_ticks: bool = False
     live_reconnect: bool = False

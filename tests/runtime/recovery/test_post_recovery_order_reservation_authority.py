@@ -207,6 +207,42 @@ def test_unknown_and_terminal_order_reservations_are_distinct() -> None:
     assert "POST_RECOVERY_ORPHAN_RESERVATION" not in terminal_failures
 
 
+def test_filled_margin_open_may_retain_occupied_position_collateral() -> None:
+    fixture, order, _, _, _ = _authorities()
+    now = fixture.context().runtime_boundary_view.clock_time
+    filled = replace(
+        order,
+        status=OnlyOrderStatus.FILLED,
+        filled_quantity=order.quantity,
+        remaining_quantity=OnlyQuantity(Decimal(0), order.quantity.precision),
+        average_fill_price=order.price,
+        filled_at=now,
+        fill_count=1,
+        cumulative_price_quantity=Decimal("10"),
+        last_trade_id="trade",
+    )
+    occupied = OnlyMarginReservation(
+        "margin-reservation",
+        fixture.runtime_id,
+        order.account_id,
+        order.instrument_id,
+        order.order_id,
+        _CNY,
+        Decimal("10"),
+        Decimal(0),
+        Decimal("10"),
+        Decimal(0),
+        Decimal("5"),
+        now,
+        now,
+        2,
+    )
+
+    failures = _failed(fixture.context(orders=(filled,), margin_reservations=(occupied,)))
+
+    assert "POST_RECOVERY_TERMINAL_ORDER_ACTIVE_RESERVATION" not in failures
+
+
 @pytest.mark.parametrize("kind", ("account", "strategy", "risk", "position", "margin"))
 def test_each_reservation_type_checks_cross_object_scope(kind: str) -> None:
     fixture, order, account, strategy, risk = _authorities()

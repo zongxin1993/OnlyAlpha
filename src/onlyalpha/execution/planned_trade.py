@@ -53,6 +53,7 @@ class OnlyPlannedTrade:
     trading_day: OnlyTradingDay
     source_sequence: int
     stable_order: tuple[int, int, str]
+    margined: bool = False
 
     @property
     def fee_charges(self) -> OnlyMoney:

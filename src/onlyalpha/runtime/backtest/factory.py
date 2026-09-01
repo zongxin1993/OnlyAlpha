@@ -9,10 +9,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from onlyalpha.account.enums import OnlyAccountType
 from onlyalpha.broker.inbound import OnlyBoundedBrokerInboundQueue
 from onlyalpha.broker.ports import OnlyBrokerGateway
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
 from onlyalpha.core.clock import OnlyBacktestClock
+from onlyalpha.core.ranges import OnlyTimeRange
+from onlyalpha.data.enums import OnlyMarketDataType
+from onlyalpha.data.historical.models import OnlyHistoricalFactRequest
 from onlyalpha.data.models import OnlyHistoricalBarRequest, OnlyHistoricalDataRange
 from onlyalpha.domain.enums import OnlyRuntimeMode
 from onlyalpha.domain.identifiers import OnlyInstrumentId
@@ -20,6 +24,7 @@ from onlyalpha.domain.market import OnlyBarType
 from onlyalpha.domain.time import OnlyTradingDay
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
+from onlyalpha.market.economics import OnlyEconomicModel
 from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.plugin.broker import OnlyBrokerComponent, OnlyBrokerCreateRequest, OnlyBrokerGatewayFactory
@@ -35,6 +40,7 @@ from onlyalpha.plugin.lifecycle import OnlyPluginResource
 from onlyalpha.runtime.assembler import OnlyComponentFactoryRegistries
 from onlyalpha.runtime.backtest.config import OnlyBacktestRuntimeExtensionConfig
 from onlyalpha.runtime.backtest.driver import OnlyBacktestDriver
+from onlyalpha.runtime.backtest.input_requirements import only_kernel_economic_input_requirements
 from onlyalpha.runtime.backtest.run_plan import OnlyBacktestRunPlan
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.factory import OnlyRuntimeBuildRequest, OnlyRuntimeBuildResult
@@ -61,6 +67,7 @@ class _OnlyBacktestPluginPlan:
     broker_factory: OnlyBrokerGatewayFactory
     broker_request: OnlyBrokerCreateRequest
     broker_checkpoint_schema_version: int | None
+    economic_requests: tuple[OnlyHistoricalFactRequest, ...]
 
 
 class OnlyBacktestRuntimeFactory:
@@ -99,6 +106,8 @@ class OnlyBacktestRuntimeFactory:
         try:
             try:
                 source = plan.data_factory.create(plan.data_request)
+                if plan.economic_requests and not callable(getattr(source, "load_facts", None)):
+                    raise ValueError("KERNEL_ECONOMIC_FACT_SOURCE_UNAVAILABLE")
             except Exception as exc:
                 raise OnlyPluginError(
                     "PLUGIN_CREATE_FAILED",
@@ -164,7 +173,7 @@ class OnlyBacktestRuntimeFactory:
                 source_common.data_version,
                 batch_size=source_common.batch_size,
             )
-            run_plan = OnlyBacktestRunPlan(config, source, request_model, clusters)
+            run_plan = OnlyBacktestRunPlan(config, source, request_model, clusters, plan.economic_requests)
             if config.start_time is None:
                 raise ValueError("BACKTEST requires runtime.start_time")
             runtime = OnlyBacktestRuntime(
@@ -184,6 +193,7 @@ class OnlyBacktestRuntimeFactory:
                 replay_data_version=source_common.data_version,
                 recovery_source=source,
                 recovery_request=request_model,
+                recovery_economic_requests=plan.economic_requests,
                 plugin_resources=(source, broker_resource),
             )
             for instrument in config.reference_data.instruments:
@@ -248,6 +258,24 @@ class OnlyBacktestRuntimeFactory:
             binding=request.market_product,
             advance_trading_day=advance_trading_day,
         )
+        assert config.start_time is not None
+        initial_trading_day = calendar.trading_day_at(config.start_time)
+        policies = {
+            instrument.instrument_id: market_rule_engine.compiled_rules(
+                str(instrument.instrument_id),
+                initial_trading_day,
+                as_of=config.start_time,
+            )
+            for instrument in config.reference_data.instruments
+        }
+        economic_models = {policy.economic_model for policy in policies.values()}
+        if len(economic_models) != 1:
+            raise ValueError("one Backtest Account cannot mix cash and margined economic models")
+        account_type = (
+            OnlyAccountType.MARGIN
+            if economic_models == {OnlyEconomicModel.MARGINED_DERIVATIVE}
+            else OnlyAccountType.CASH
+        )
         market_fee_pack = request.market_product.market_fee_pack
         broker_fee_contract = components.broker_fee_contracts.require(
             account.broker_fee_contract.contract_id,
@@ -274,6 +302,7 @@ class OnlyBacktestRuntimeFactory:
             },
             broker_gateway_id=broker_common.gateway_id,
             account_initial_cash=account.initial_cash,
+            account_type=account_type,
             market_rule_engine=market_rule_engine,
             market_fee_pack=market_fee_pack,
             broker_fee_contract=broker_fee_contract,
@@ -295,11 +324,29 @@ class OnlyBacktestRuntimeFactory:
             if data_checkpoint is not OnlyCheckpointCapability.STATELESS:
                 raise ValueError("Backtest Historical DataSource checkpoint capability must be STATELESS")
         data_plugin_config = data_factory.parse_config(source_common.extensions)
+        economic_requests = tuple(
+            OnlyHistoricalFactRequest(
+                instrument_id,
+                requirement.fact_family,
+                OnlyTimeRange(config.start_time, config.end_time),
+                source_common.data_version,
+                requirement.reference_price_kind,
+                source_common.batch_size,
+            )
+            for instrument_id, policy in sorted(policies.items(), key=lambda item: str(item[0]))
+            for requirement in only_kernel_economic_input_requirements(policy)
+        )
+        required_families = frozenset(item.fact_family for item in economic_requests)
         data_request = OnlyDataSourceCreateRequest(
             source_common.source_id,
             data_plugin_config,
             config.runtime.runtime_type,
-            OnlyDataSourceCapabilities(historical_bars=True),
+            OnlyDataSourceCapabilities(
+                historical_bars=True,
+                historical_reference_prices=OnlyMarketDataType.REFERENCE_PRICE in required_families,
+                historical_funding_rates=OnlyMarketDataType.FUNDING_RATE in required_families,
+                historical_settlements=OnlyMarketDataType.SETTLEMENT in required_families,
+            ),
             clock,
             event_bus,
             config.reference_data.instrument_by_id,
@@ -321,6 +368,7 @@ class OnlyBacktestRuntimeFactory:
                 if request.user_data_root is not None
                 else None
             ),
+            kernel_economic_requests=economic_requests,
         )
         self._raise_issues(
             data_factory.descriptor.plugin_id, str(source_common.source_id), data_factory.validate_request(data_request)
@@ -367,6 +415,7 @@ class OnlyBacktestRuntimeFactory:
             broker_factory,
             broker_request,
             broker_checkpoint_version,
+            economic_requests,
         )
 
     @staticmethod

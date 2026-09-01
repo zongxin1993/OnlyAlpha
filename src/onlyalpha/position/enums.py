@@ -2,16 +2,8 @@
 
 from enum import StrEnum
 
-
-class OnlyPositionSide(StrEnum):
-    LONG = "LONG"
-    SHORT = "SHORT"
-    FLAT = "FLAT"
-
-
-class OnlyPositionMode(StrEnum):
-    NETTING = "NETTING"
-    HEDGING = "HEDGING"
+from onlyalpha.domain.trading import OnlyPositionMode as OnlyPositionMode
+from onlyalpha.domain.trading import OnlyPositionSide as OnlyPositionSide
 
 
 class OnlyPositionStatus(StrEnum):

@@ -12,6 +12,14 @@ from typing import Protocol, Self
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.time import OnlyTradingDay
 from onlyalpha.identity import only_identity_fingerprint
+from onlyalpha.market.economics import (
+    OnlyCompiledFundingPolicy,
+    OnlyCompiledMarginPolicy,
+    OnlyCompiledOrderCapabilityPolicy,
+    OnlyCompiledValuationPolicy,
+    OnlyCompiledVariationMarginPolicy,
+    OnlyEconomicModel,
+)
 from onlyalpha.market.models import (
     OnlyCompiledDynamicPriceRequirement,
     OnlyCompiledNotionalPolicy,
@@ -92,6 +100,13 @@ class OnlyCompiledMarketPolicy:
     margin_policy: OnlyMarginModel | None
     notional_policy: OnlyCompiledNotionalPolicy | None
     dynamic_price_requirements: tuple[OnlyCompiledDynamicPriceRequirement, ...]
+    policy_schema_version: int = 2
+    economic_model: OnlyEconomicModel = OnlyEconomicModel.CASH_EXCHANGE
+    order_capability_policy: OnlyCompiledOrderCapabilityPolicy | None = None
+    compiled_margin_policy: OnlyCompiledMarginPolicy | None = None
+    valuation_policy: OnlyCompiledValuationPolicy | None = None
+    funding_policy: OnlyCompiledFundingPolicy | None = None
+    variation_margin_policy: OnlyCompiledVariationMarginPolicy | None = None
 
     @classmethod
     def create(
@@ -111,6 +126,12 @@ class OnlyCompiledMarketPolicy:
         margin_policy: OnlyMarginModel | None,
         notional_policy: OnlyCompiledNotionalPolicy | None = None,
         dynamic_price_requirements: tuple[OnlyCompiledDynamicPriceRequirement, ...] = (),
+        economic_model: OnlyEconomicModel = OnlyEconomicModel.CASH_EXCHANGE,
+        order_capability_policy: OnlyCompiledOrderCapabilityPolicy | None = None,
+        compiled_margin_policy: OnlyCompiledMarginPolicy | None = None,
+        valuation_policy: OnlyCompiledValuationPolicy | None = None,
+        funding_policy: OnlyCompiledFundingPolicy | None = None,
+        variation_margin_policy: OnlyCompiledVariationMarginPolicy | None = None,
     ) -> Self:
         policies = (
             instrument_terms,
@@ -123,6 +144,13 @@ class OnlyCompiledMarketPolicy:
             margin_policy,
             notional_policy,
             dynamic_price_requirements,
+            2,
+            economic_model,
+            order_capability_policy,
+            compiled_margin_policy,
+            valuation_policy,
+            funding_policy,
+            variation_margin_policy,
         )
         identity = OnlyCompiledMarketPolicyIdentity(
             instrument_id,
@@ -143,6 +171,13 @@ class OnlyCompiledMarketPolicy:
             margin_policy,
             notional_policy,
             dynamic_price_requirements,
+            2,
+            economic_model,
+            order_capability_policy,
+            compiled_margin_policy,
+            valuation_policy,
+            funding_policy,
+            variation_margin_policy,
         )
 
     def __post_init__(self) -> None:
@@ -158,10 +193,26 @@ class OnlyCompiledMarketPolicy:
                 self.margin_policy,
                 self.notional_policy,
                 self.dynamic_price_requirements,
+                self.policy_schema_version,
+                self.economic_model,
+                self.order_capability_policy,
+                self.compiled_margin_policy,
+                self.valuation_policy,
+                self.funding_policy,
+                self.variation_margin_policy,
             )
         )
         if self.identity.policy_fingerprint != expected:
             raise ValueError("COMPILED_MARKET_POLICY_FINGERPRINT_CONFLICT")
+        if self.policy_schema_version != 2:
+            raise ValueError("COMPILED_MARKET_POLICY_SCHEMA_UNSUPPORTED")
+        if self.margin_policy is not None:
+            raise ValueError("LEGACY_MARGIN_POLICY_MUST_BE_NORMALIZED")
+        if self.economic_model is OnlyEconomicModel.CASH_EXCHANGE:
+            if self.compiled_margin_policy is not None or self.funding_policy is not None:
+                raise ValueError("CASH_EXCHANGE_DERIVATIVE_POLICY_CONFLICT")
+        elif self.compiled_margin_policy is None or self.valuation_policy is None:
+            raise ValueError("MARGINED_DERIVATIVE_POLICY_INCOMPLETE")
 
     def policy_payload(self) -> tuple[object, ...]:
         return (
@@ -175,6 +226,13 @@ class OnlyCompiledMarketPolicy:
             self.margin_policy,
             self.notional_policy,
             self.dynamic_price_requirements,
+            self.policy_schema_version,
+            self.economic_model,
+            self.order_capability_policy,
+            self.compiled_margin_policy,
+            self.valuation_policy,
+            self.funding_policy,
+            self.variation_margin_policy,
         )
 
 
@@ -232,6 +290,13 @@ def _policy_identity_payload(
     margin_policy: OnlyMarginModel | None,
     notional_policy: OnlyCompiledNotionalPolicy | None,
     dynamic_price_requirements: tuple[OnlyCompiledDynamicPriceRequirement, ...],
+    policy_schema_version: int,
+    economic_model: OnlyEconomicModel,
+    order_capability_policy: OnlyCompiledOrderCapabilityPolicy | None,
+    compiled_margin_policy: OnlyCompiledMarginPolicy | None,
+    valuation_policy: OnlyCompiledValuationPolicy | None,
+    funding_policy: OnlyCompiledFundingPolicy | None,
+    variation_margin_policy: OnlyCompiledVariationMarginPolicy | None,
 ) -> tuple[object, ...]:
     sessions = tuple(
         (
@@ -309,6 +374,13 @@ def _policy_identity_payload(
             )
             for item in dynamic_price_requirements
         ),
+        policy_schema_version,
+        economic_model,
+        None if order_capability_policy is None else order_capability_policy.canonical_identity(),
+        None if compiled_margin_policy is None else compiled_margin_policy.canonical_identity(),
+        None if valuation_policy is None else valuation_policy.canonical_identity(),
+        None if funding_policy is None else funding_policy.canonical_identity(),
+        None if variation_margin_policy is None else variation_margin_policy.canonical_identity(),
     )
 
 

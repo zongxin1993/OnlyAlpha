@@ -316,6 +316,8 @@ def test_checkpoint_round_trip_is_lossless_and_validates_authorities() -> None:
     original = _ashare_engine()
     expected = _decision(original, date(2026, 7, 5))
     payload = original.capture_checkpoint()
+    assert payload["schema_version"] == 7
+    assert original.checkpoint_schema_version == 7
     restored = _ashare_engine()
     restored.restore_checkpoint(payload)
     assert restored.decisions == (expected,)

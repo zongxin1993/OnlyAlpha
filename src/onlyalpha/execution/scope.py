@@ -6,10 +6,15 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from onlyalpha.domain.base import OnlyDomainModel
-from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide
+from onlyalpha.domain.enums import OnlyOrderSide
 from onlyalpha.domain.execution import OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId, OnlyInstrumentId, OnlyRuntimeId
-from onlyalpha.market.models import OnlyPositionEffect
+from onlyalpha.domain.trading import (
+    OnlyCloseScope,
+    OnlyExecutionIntent,
+    OnlyExposureConstraint,
+    OnlyPositionEffect,
+)
 from onlyalpha.market.runtime_rules import OnlyTradeApplicationInstruction
 from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide
 from onlyalpha.position.keys import OnlyPositionAllocationKey, OnlyPositionKey
@@ -34,6 +39,8 @@ class OnlyExecutionPositionScope(OnlyDomainModel):
     position_key: OnlyPositionKey
     allocation_key: OnlyPositionAllocationKey | None
     resolution_source: OnlyPositionScopeResolutionSource
+    close_scope: OnlyCloseScope = OnlyCloseScope.ANY
+    exposure_constraint: OnlyExposureConstraint = OnlyExposureConstraint.NONE
 
     def __post_init__(self) -> None:
         if self.position_key.position_side is not self.position_side:
@@ -49,15 +56,24 @@ class OnlyExecutionPositionScopeResolver:
         self._runtime_id = runtime_id
 
     def resolve_order(self, order: OnlyOrderSnapshot) -> OnlyExecutionPositionScope:
-        if order.offset is OnlyOffset.NONE:
-            # Orders reaching this compatibility boundary are already normalized cash orders.
-            effect = OnlyPositionEffect.OPEN if order.side is OnlyOrderSide.BUY else OnlyPositionEffect.CLOSE
-            source = OnlyPositionScopeResolutionSource.NORMALIZED_CASH_ORDER
-        else:
-            effect = OnlyPositionEffect(order.offset.value)
-            source = OnlyPositionScopeResolutionSource.EXPLICIT_ORDER_OFFSET
-        side = self._side(order.side, effect)
-        return self._build(order, side, effect, OnlyPositionMode.NETTING, source)
+        intent = getattr(order, "execution_intent", None) or OnlyExecutionIntent.from_legacy_offset(
+            side=order.side,
+            offset=order.offset,
+        )
+        source = (
+            OnlyPositionScopeResolutionSource.NORMALIZED_CASH_ORDER
+            if order.offset.value == "NONE"
+            else OnlyPositionScopeResolutionSource.EXPLICIT_ORDER_OFFSET
+        )
+        return self._build(
+            order,
+            intent.position_side,
+            intent.position_effect,
+            intent.position_mode,
+            source,
+            intent.close_scope,
+            intent.exposure_constraint,
+        )
 
     def resolve_trade(
         self,
@@ -66,16 +82,31 @@ class OnlyExecutionPositionScopeResolver:
         position_mode: OnlyPositionMode,
     ) -> OnlyExecutionPositionScope:
         fallback = self.resolve_order(order)
+        if fallback.position_mode is not position_mode:
+            raise ValueError("POSITION_SCOPE_CONFLICT: canonical intent conflicts with Market Product mode")
         if instruction is None:
             return self._build(
-                order, fallback.position_side, fallback.position_effect, position_mode, fallback.resolution_source
+                order,
+                fallback.position_side,
+                fallback.position_effect,
+                position_mode,
+                fallback.resolution_source,
+                fallback.close_scope,
+                fallback.exposure_constraint,
             )
         side = OnlyPositionSide(instruction.position_instruction.position_side)
-        effect = instruction.position_instruction.position_effect
+        instruction_effect = instruction.position_instruction.position_effect
+        effect = OnlyPositionEffect.OPEN if instruction_effect is OnlyPositionEffect.OPEN else OnlyPositionEffect.CLOSE
         if fallback.position_side is not side or fallback.position_effect is not effect:
             raise ValueError("POSITION_SCOPE_CONFLICT: market instruction conflicts with Order scope")
         return self._build(
-            order, side, effect, position_mode, OnlyPositionScopeResolutionSource.MARKET_RULE_INSTRUCTION
+            order,
+            side,
+            effect,
+            position_mode,
+            OnlyPositionScopeResolutionSource.MARKET_RULE_INSTRUCTION,
+            fallback.close_scope,
+            fallback.exposure_constraint,
         )
 
     def resolve_broker_position(
@@ -102,6 +133,8 @@ class OnlyExecutionPositionScopeResolver:
         effect: OnlyPositionEffect,
         mode: OnlyPositionMode,
         source: OnlyPositionScopeResolutionSource,
+        close_scope: OnlyCloseScope = OnlyCloseScope.ANY,
+        exposure_constraint: OnlyExposureConstraint = OnlyExposureConstraint.NONE,
     ) -> OnlyExecutionPositionScope:
         key = OnlyPositionKey(self._runtime_id, order.account_id, order.instrument_id, side, mode)
         allocation = OnlyPositionAllocationKey(
@@ -118,6 +151,8 @@ class OnlyExecutionPositionScopeResolver:
             key,
             allocation,
             source,
+            close_scope,
+            exposure_constraint,
         )
 
     @staticmethod

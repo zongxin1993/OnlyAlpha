@@ -31,6 +31,7 @@ from onlyalpha.domain.identifiers import (
     OnlyVenueTradeId,
 )
 from onlyalpha.domain.time import OnlyTimestamp, only_require_utc
+from onlyalpha.domain.trading import OnlyExecutionIntent
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
 from onlyalpha.fee.estimate import OnlyOrderFeeEstimate, OnlyOrderFundingPlan
 from onlyalpha.fee.models import OnlyOrderFeePolicyBinding
@@ -57,6 +58,7 @@ class OnlyOrderRequest(OnlyDomainModel):
     expire_time: OnlyTimestamp | None = None
     tags: tuple[str, ...] = ()
     metadata: Mapping[str, str] = field(default_factory=dict)
+    execution_intent: OnlyExecutionIntent | None = None
 
     def __post_init__(self) -> None:
         if self.quantity.value <= 0:
@@ -73,6 +75,10 @@ class OnlyOrderRequest(OnlyDomainModel):
             raise OnlyValidationError("stop orders are not implemented in the first Order phase")
         if self.time_in_force is OnlyTimeInForce.GTD and self.expire_time is None:
             raise OnlyValidationError("GTD order requires expire_time")
+        intent = self.execution_intent or OnlyExecutionIntent.from_legacy_offset(side=self.side, offset=self.offset)
+        if intent.side is not self.side:
+            raise OnlyValidationError("order side conflicts with canonical execution intent")
+        object.__setattr__(self, "execution_intent", intent)
         object.__setattr__(self, "tags", tuple(self.tags))
         object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
 
@@ -140,7 +146,7 @@ class OnlyOrderFill(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyOrderSnapshot(OnlyDomainModel):
-    schema_version = 3
+    schema_version = 4
 
     order_id: OnlyOrderId
     request_id: OnlyOrderRequestId
@@ -185,6 +191,7 @@ class OnlyOrderSnapshot(OnlyDomainModel):
     fee_policy_binding: OnlyOrderFeePolicyBinding | None = None
     fee_estimate: OnlyOrderFeeEstimate | None = None
     funding_plan: OnlyOrderFundingPlan | None = None
+    execution_intent: OnlyExecutionIntent | None = None
 
     def __post_init__(self) -> None:
         if self.version < 1:
@@ -224,8 +231,23 @@ class OnlyOrderSnapshot(OnlyDomainModel):
                 raise OnlyValidationError("Order fee contract scope mismatch")
             if self.funding_plan.order_id != self.order_id:
                 raise OnlyValidationError("Order funding plan scope mismatch")
+        intent = self.execution_intent or OnlyExecutionIntent.from_legacy_offset(side=self.side, offset=self.offset)
+        if intent.side is not self.side:
+            raise OnlyValidationError("Order side conflicts with canonical execution intent")
+        object.__setattr__(self, "execution_intent", intent)
         object.__setattr__(self, "tags", tuple(self.tags))
         object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyOrderSnapshot:
+        compatible = dict(payload)
+        if compatible.get("schema_version") == 3:
+            compatible["execution_intent"] = OnlyExecutionIntent.from_legacy_offset(
+                side=OnlyOrderSide(str(compatible["side"])),
+                offset=OnlyOffset(str(compatible["offset"])),
+            ).to_dict()
+            compatible["schema_version"] = cls.schema_version
+        return OnlyDomainModel.from_dict.__func__(cls, compatible)
 
 
 @dataclass(frozen=True, slots=True)

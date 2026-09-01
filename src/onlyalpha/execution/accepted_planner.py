@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide
 from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.event.model import OnlyEvent, OnlyEventSource, OnlyEventType
+from onlyalpha.market.models import OnlyPositionEffect
 from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 from onlyalpha.transaction.event_identity import OnlyExecutionTransactionEventFactory
 from onlyalpha.transaction.projection import (
@@ -66,7 +66,9 @@ class OnlyOrderAcceptedExecutionTransactionPlanner:
             )
         )
 
-        if context.order_before.side is OnlyOrderSide.SELL:
+        if context.margin_reservation_before is not None:
+            pass
+        elif context.position_scope.position_effect is OnlyPositionEffect.CLOSE:
             position_before = context.position_before
             reservation_before = context.position_reservation_before
             if position_before is None or reservation_before is None:
@@ -207,9 +209,9 @@ class OnlyOrderAcceptedExecutionTransactionPlanner:
             raise ValueError("Accepted capability routing invariant failed")
         if update.account_id != order.account_id or context.position_scope.cluster_id != order.cluster_id:
             raise ValueError("Accepted Account/Cluster scope disagrees")
-        buy_open = order.side is OnlyOrderSide.BUY and order.offset is OnlyOffset.OPEN
-        sell_close = order.side is OnlyOrderSide.SELL and order.offset is OnlyOffset.CLOSE
-        if not buy_open and not sell_close:
+        opening = context.position_scope.position_effect is OnlyPositionEffect.OPEN
+        closing = context.position_scope.position_effect is OnlyPositionEffect.CLOSE
+        if not opening and not closing:
             raise ValueError("Accepted order semantics are unsupported")
 
 

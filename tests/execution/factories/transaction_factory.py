@@ -151,7 +151,7 @@ def only_test_execution_fact_draft(
         instrument_id=_instrument(),
         venue_id="XSHG",
         execution_capability=OnlyExecutionCapability.DURABLE_TRADE,
-        execution_support_policy_version="2",
+        execution_support_policy_version="3",
         execution_support_fingerprint="0" * 64,
         source_sequence=7,
         processing_sequence=3,

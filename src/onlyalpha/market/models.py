@@ -9,6 +9,7 @@ from enum import StrEnum
 from typing import Protocol
 
 from onlyalpha.domain.time import OnlyTradingDay
+from onlyalpha.domain.trading import OnlyPositionEffect as OnlyPositionEffect
 from onlyalpha.settlement.models import (
     OnlyCompiledSettlementPolicy,
     OnlySettlementSchedule,
@@ -30,15 +31,6 @@ class OnlyMarketPositionMode(StrEnum):
     LONG_ONLY = "LONG_ONLY"
     NETTING = "NETTING"
     HEDGING = "HEDGING"
-
-
-class OnlyPositionEffect(StrEnum):
-    OPEN = "OPEN"
-    CLOSE = "CLOSE"
-    CLOSE_TODAY = "CLOSE_TODAY"
-    CLOSE_YESTERDAY = "CLOSE_YESTERDAY"
-    REDUCE_ONLY = "REDUCE_ONLY"
-    AUTO = "AUTO"
 
 
 class OnlyShortSellingMode(StrEnum):

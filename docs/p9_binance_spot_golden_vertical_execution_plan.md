@@ -1,5 +1,7 @@
 # P9 Binance Spot Golden Vertical — Execution Plan
 
+> Sequencing note: [ADR 0106](adr/0106-universal-spot-futures-research-backtest-sequencing.md) supersedes section 1's Binance Futures exclusion only for bounded universal Research/Backtest semantics and Binance USD-M Research/Backtest conformance, and supersedes section 5's post-Spot provider order. Binance Spot remains the first production/LIVE Golden Vertical; the original plan text is retained as historical context.
+
 本文档只定义 P9 Binance Spot Golden Vertical 的未来建设顺序、依赖关系与长期实现边界，不记录工程完成状态、当前 Increment、验收结论或下一步授权状态。
 
 ADR 0099 冻结 Binance Spot 为第一条 Golden Vertical。更广泛的生产交易架构见 `docs/p9_production_trading_vertical_architecture.md`；本文件只收敛 Binance Spot 的实现顺序。

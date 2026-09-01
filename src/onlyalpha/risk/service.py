@@ -7,7 +7,7 @@ from decimal import ROUND_DOWN, Decimal
 
 from onlyalpha.core.clock import OnlyClockView
 from onlyalpha.domain.calendar import OnlyTradingCalendar
-from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderType
+from onlyalpha.domain.enums import OnlyOrderType
 from onlyalpha.domain.execution import OnlyOrderRequest, OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
@@ -21,15 +21,10 @@ from onlyalpha.domain.identifiers import (
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
 from onlyalpha.event.model import OnlyEvent
-from onlyalpha.market.models import (
-    OnlyMarketPositionMode,
-    OnlyMarketRuleEvaluationStatus,
-    OnlyPositionEffect,
-)
+from onlyalpha.market.models import OnlyMarketRuleEvaluationStatus, OnlyPositionEffect
 from onlyalpha.market.runtime_rules import OnlyPreTradeMarketContext, OnlyPreTradeMarketRulePort
 from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
 from onlyalpha.order.query import OnlyOrderQueryService
-from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide
 from onlyalpha.risk.audit import OnlyOrderIntentAudit, OnlyRiskDecisionAudit
 from onlyalpha.risk.contexts import (
     OnlyRiskEvaluationContext,
@@ -103,12 +98,8 @@ class OnlyRiskService:
         """Classify exposure direction at the Risk/Position boundary."""
 
         del context
-        effect = {
-            OnlyOffset.OPEN: OnlyPositionEffect.OPEN,
-            OnlyOffset.CLOSE: OnlyPositionEffect.CLOSE,
-            OnlyOffset.CLOSE_TODAY: OnlyPositionEffect.CLOSE_TODAY,
-            OnlyOffset.CLOSE_YESTERDAY: OnlyPositionEffect.CLOSE_YESTERDAY,
-        }.get(request.offset, OnlyPositionEffect.AUTO)
+        intent = request.execution_intent
+        effect = OnlyPositionEffect.AUTO if intent is None else intent.position_effect
         if effect is OnlyPositionEffect.OPEN:
             return OnlyOrderRiskChange.RISK_INCREASING
         if effect in {
@@ -272,24 +263,13 @@ class OnlyRiskService:
             if price is None and context.market_data is not None:
                 price = context.market_data.primary_bar.close
             account = context.account_risk.snapshot(context.account_id)
-            effect = {
-                OnlyOffset.OPEN: OnlyPositionEffect.OPEN,
-                OnlyOffset.CLOSE: OnlyPositionEffect.CLOSE,
-                OnlyOffset.CLOSE_TODAY: OnlyPositionEffect.CLOSE_TODAY,
-                OnlyOffset.CLOSE_YESTERDAY: OnlyPositionEffect.CLOSE_YESTERDAY,
-            }.get(request.offset, OnlyPositionEffect.AUTO)
-            position_side = (
-                OnlyPositionSide.SHORT
-                if request.side is OnlyOrderSide.BUY and effect is not OnlyPositionEffect.OPEN
-                else OnlyPositionSide.LONG
-            )
+            intent = request.execution_intent
+            if intent is None:
+                raise ValueError("canonical execution intent is required")
+            effect = intent.position_effect
+            position_side = intent.position_side
             trading_day = context.trading_calendar.trading_day_at(context.ts_event)
-            market_position_mode = self._market_rules.position_mode(str(request.instrument_id), trading_day)
-            position_mode = (
-                OnlyPositionMode.HEDGING
-                if market_position_mode is OnlyMarketPositionMode.HEDGING
-                else OnlyPositionMode.NETTING
-            )
+            position_mode = intent.position_mode
             position = context.position_risk.snapshot(
                 context.account_id,
                 request.instrument_id,
@@ -328,6 +308,11 @@ class OnlyRiskService:
                     trade_available_cash if account.available_margin is None else account.available_margin.amount,
                     position_effect=effect,
                     order_type=request.order_type,
+                    time_in_force=request.time_in_force,
+                    position_side=position_side,
+                    position_mode=position_mode,
+                    close_scope=intent.close_scope,
+                    exposure_constraint=intent.exposure_constraint,
                 )
             )
             if not market_decision.accepted:

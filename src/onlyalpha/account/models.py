@@ -8,6 +8,7 @@ from types import MappingProxyType
 
 from onlyalpha.account.enums import (
     OnlyAccountCashChangeType,
+    OnlyAccountEconomicCashflowType,
     OnlyAccountMutationStatus,
     OnlyAccountReservationState,
     OnlyAccountStatus,
@@ -177,6 +178,26 @@ class OnlyAccountTradeCashFlow(OnlyDomainModel):
             raise ValueError("Account Trade cash flow requires one currency")
         if self.notional.amount < 0 or self.fee.amount < 0 or self.external_sequence < 0:
             raise ValueError("Account Trade notional, fee and sequence cannot be negative")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyAccountEconomicCashflow(OnlyDomainModel):
+    """Non-trade-notional accounting fact such as Funding or variation margin."""
+
+    schema_version = 1
+
+    cashflow_id: str
+    runtime_id: OnlyRuntimeId
+    account_id: OnlyAccountId
+    cashflow_type: OnlyAccountEconomicCashflowType
+    amount: OnlyMoney
+    timestamp: OnlyTimestamp
+    source_fact_id: str
+    instrument_id: str
+
+    def __post_init__(self) -> None:
+        if not self.cashflow_id.strip() or not self.source_fact_id.strip() or not self.instrument_id.strip():
+            raise ValueError("ACCOUNT_ECONOMIC_CASHFLOW_IDENTITY_REQUIRED")
 
 
 @dataclass(frozen=True, slots=True)

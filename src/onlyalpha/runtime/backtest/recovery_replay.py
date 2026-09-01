@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import cast
 
 from onlyalpha.data.enums import OnlyMarketDataProcessingStatus
+from onlyalpha.data.historical.models import OnlyHistoricalFactRequest
 from onlyalpha.data.models import (
     OnlyHistoricalBarRequest,
     OnlyHistoricalDataStream,
     OnlyHistoricalReplayConfig,
 )
-from onlyalpha.data.ports import OnlyHistoricalDataSource
+from onlyalpha.data.ports import OnlyHistoricalDataSource, OnlyHistoricalFactSource
 from onlyalpha.data.registry import OnlyMarketDataSourceRegistry
 from onlyalpha.data.replay import OnlyHistoricalReplayService
 from onlyalpha.execution.causal_recovery import OnlyExecutionRecoverySession
@@ -30,6 +32,7 @@ class OnlyBacktestRecoveryReplayService:
         *,
         source: OnlyHistoricalDataSource | None,
         request: OnlyHistoricalBarRequest | None,
+        economic_requests: tuple[OnlyHistoricalFactRequest, ...],
         source_registry: OnlyMarketDataSourceRegistry,
         replay: OnlyHistoricalReplayService,
         activate: Callable[[OnlyBacktestRecoverySession], None],
@@ -37,6 +40,7 @@ class OnlyBacktestRecoveryReplayService:
     ) -> None:
         self._source = source
         self._request = request
+        self._economic_requests = economic_requests
         self._source_registry = source_registry
         self._replay = replay
         self._activate = activate
@@ -51,7 +55,13 @@ class OnlyBacktestRecoveryReplayService:
             raise RuntimeError("Recovery replay source is unavailable")
         if not self._source_registry.contains(self._source.source_id):
             self._source_registry.register(self._source)
-        stream = self._source.load_bars(self._request)
+        economic_source = cast(OnlyHistoricalFactSource, self._source)
+        streams = (
+            self._source.load_bars(self._request),
+            *(economic_source.load_facts(item) for item in self._economic_requests),
+        )
+        prepared = self._replay.prepare(OnlyHistoricalReplayConfig(streams, source_priority=(self._source.source_id,)))
+        stream = OnlyHistoricalDataStream(prepared.updates, self._request.batch_size)
         cursor = only_backtest_replay_cursor(checkpoint)
         if cursor.last_update_id is None:
             remaining = stream.records

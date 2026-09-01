@@ -11,7 +11,12 @@ from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.domain.calendar import OnlyTradingCalendar
 from onlyalpha.domain.instrument import OnlyInstrument
 
-from .models import OnlyHistoricalDataRequest, OnlyHistoricalFetchResult
+from .models import (
+    OnlyHistoricalDataRequest,
+    OnlyHistoricalFactFetchResult,
+    OnlyHistoricalFactRequest,
+    OnlyHistoricalFetchResult,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +36,12 @@ class OnlyHistoricalDataProviderCreateRequest:
 
 class OnlyHistoricalDataProvider(Protocol):
     def fetch(self, request: OnlyHistoricalDataRequest, time_range: OnlyTimeRange) -> OnlyHistoricalFetchResult: ...
+
+
+class OnlyHistoricalFactProvider(Protocol):
+    def fetch_facts(
+        self, request: OnlyHistoricalFactRequest, time_range: OnlyTimeRange
+    ) -> OnlyHistoricalFactFetchResult: ...
 
 
 class OnlyHistoricalDataProviderFactory(Protocol):
