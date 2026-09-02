@@ -100,7 +100,7 @@ def test_product_runtime_cannot_be_admitted_from_a_file() -> None:
 def test_web_remains_the_governed_product_consumer() -> None:
     package = (ROOT / "packages/onlyalpha-web-console/package.json").read_text(encoding="utf-8")
     web_suite = (ROOT / "scripts/web_suite.py").read_text(encoding="utf-8")
-    assert package.count("../../contracts/research-api/v2/openapi.json") == 1
+    assert package.count("../../contracts/product-api/v2/openapi.json") == 1
     assert "check_generated_client" in web_suite
     for path in (ROOT / "packages/onlyalpha-web-console/src").rglob("*"):
         if path.suffix in {".ts", ".tsx"}:

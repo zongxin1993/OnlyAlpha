@@ -54,15 +54,17 @@ class OnlyClusterComposition:
         infrastructure: OnlyInfrastructureRegistry,
         components: OnlyComponentFactoryRegistries,
         environment_builder: OnlyRuntimeEnvironmentBuilder | None = None,
+        market_product_resources: OnlyMarketProductResourceResolver | None = None,
     ) -> None:
         self._infrastructure = infrastructure
         self._components = components
         self._environment_builder = environment_builder or OnlyRuntimeEnvironmentBuilder()
+        self._market_product_resources = market_product_resources or _NoExternalMarketProductResources()
 
     def plan(self, config: OnlyClusterRunConfig) -> OnlyClusterCompositionPlan:
         market_product = self._components.market_products.resolve(
             config.market,
-            OnlyMarketProductResolutionContext(_NoExternalMarketProductResources(), config.reference_data.instruments),
+            OnlyMarketProductResolutionContext(self._market_product_resources, config.reference_data.instruments),
         )
         environment = self._environment_builder.build(config, market_product)
         claims = self._environment_builder.resource_claims(config, market_product)

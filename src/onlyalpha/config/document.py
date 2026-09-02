@@ -65,7 +65,14 @@ from onlyalpha.domain.identifiers import (
     OnlyRuntimeId,
     OnlyVenueId,
 )
-from onlyalpha.domain.instrument import OnlyCryptoSpot, OnlyEquity, OnlyETF, OnlyFuture, OnlyInstrument
+from onlyalpha.domain.instrument import (
+    OnlyCryptoPerpetual,
+    OnlyCryptoSpot,
+    OnlyEquity,
+    OnlyETF,
+    OnlyFuture,
+    OnlyInstrument,
+)
 from onlyalpha.domain.time import OnlyTimeZone, only_require_utc
 from onlyalpha.domain.value import (
     OnlyCurrency,
@@ -345,6 +352,8 @@ class _OnlyClusterDocumentParser:
             )
         elif asset_class == "CRYPTO_SPOT":
             allowed.update({"base_currency", "minimum_notional"})
+        elif asset_class == "CRYPTO_PERPETUAL":
+            allowed.update({"base_currency", "margin_currency", "contract_type"})
         unknown = sorted(set(raw) - allowed)
         if unknown:
             raise OnlyClusterConfigError(f"UNKNOWN_FIELD: {path}.{unknown[0]}")
@@ -428,6 +437,24 @@ class _OnlyClusterDocumentParser:
             return OnlyCryptoSpot(
                 market_type=OnlyMarketType.CASH,
                 base_currency=crypto_base,
+                **common,  # type: ignore[arg-type]
+            )
+        if asset_class == "CRYPTO_PERPETUAL":
+            crypto_base = OnlyCurrency(
+                self._str(raw.get("base_currency"), f"{path}.base_currency"),
+                8,
+                OnlyCurrencyType.CRYPTO,
+            )
+            crypto_margin = OnlyCurrency(
+                self._str(raw.get("margin_currency"), f"{path}.margin_currency"),
+                8,
+                OnlyCurrencyType.CRYPTO,
+            )
+            return OnlyCryptoPerpetual(
+                market_type=OnlyMarketType.DERIVATIVE,
+                base_currency=crypto_base,
+                margin_currency=crypto_margin,
+                contract_type=OnlyContractType(self._str(raw.get("contract_type", "LINEAR"), f"{path}.contract_type")),
                 **common,  # type: ignore[arg-type]
             )
         raise OnlyClusterConfigError(f"{path}.asset_class={asset_class!r} is not supported")

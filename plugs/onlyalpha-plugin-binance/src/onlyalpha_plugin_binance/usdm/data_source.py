@@ -251,7 +251,7 @@ class OnlyBinanceUsdmDataSource:
             rows = self._paged_klines(instrument, start_ms, end_ms)
             updates.extend(
                 self._bar_envelope(
-                    _normalize_kline(item, instrument, bar_type),
+                    only_normalize_binance_usdm_kline(item, instrument, bar_type),
                     request.data_version,
                 )
                 for item in rows
@@ -525,7 +525,9 @@ def _required_int(value: object, code: str) -> int:
     return result
 
 
-def _normalize_kline(row: Sequence[object], instrument: OnlyInstrument, bar_type: OnlyBarType) -> OnlyBar:
+def only_normalize_binance_usdm_kline(
+    row: Sequence[object], instrument: OnlyInstrument, bar_type: OnlyBarType
+) -> OnlyBar:
     if len(row) < 11:
         raise OnlyBinanceError("BINANCE_USDM_KLINE_SHAPE_INVALID")
     start = datetime.fromtimestamp(_required_int(row[0], "BINANCE_USDM_KLINE_TIME_INVALID") / 1000, tz=UTC)
@@ -575,5 +577,6 @@ __all__ = [
     "OnlyBinanceUsdmDataSourceConfig",
     "OnlyBinanceUsdmDataSourceFactory",
     "OnlyBinanceUsdmHistoricalClient",
+    "only_normalize_binance_usdm_kline",
     "factory",
 ]

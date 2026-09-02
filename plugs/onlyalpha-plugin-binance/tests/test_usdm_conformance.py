@@ -14,6 +14,7 @@ from onlyalpha_plugin_binance.usdm import (
     only_binance_usdm_order_parameters,
 )
 from onlyalpha_plugin_binance_usdm import OnlyBinanceUsdmMarketProductFactory
+from onlyalpha_plugin_binance_usdm.resource_provider import OnlyBinanceUsdmBacktestResourceProvider
 
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.data.enums import OnlyMarketDataType
@@ -163,6 +164,19 @@ def test_raw_capture_normalizes_separate_public_and_account_authorities() -> Non
     assert resolved == repeated_resolved
     assert resolved.funding_schedule.interval_seconds == 4 * 60 * 60
     assert first.account_authority.effective_inputs.position_mode is OnlyPositionMode.NETTING
+
+
+def test_usdm_backtest_resource_provider_round_trips_public_and_account_authorities() -> None:
+    capture = _capture()
+    provider = OnlyBinanceUsdmBacktestResourceProvider()
+
+    assert provider.load_reference(provider.dump_reference(capture.public_authority)) == capture.public_authority
+    assert provider.load_reference(provider.dump_reference(capture.account_authority)) == capture.account_authority
+
+    tampered = provider.dump_reference(capture.public_authority)
+    tampered["authority_fingerprint"] = "0" * 64
+    with pytest.raises(ValueError, match="FINGERPRINT_CONFLICT"):
+        provider.load_reference(tampered)
 
 
 def test_normal_entry_point_factory_compiles_one_effective_profile_and_lossless_margin_curve() -> None:

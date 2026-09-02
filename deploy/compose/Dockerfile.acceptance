@@ -42,3 +42,12 @@ FROM operator AS acceptance
 RUN uv sync --frozen --all-packages --no-dev --group compose-acceptance
 
 ENTRYPOINT ["/workspace/deploy/compose/container-acceptance.sh"]
+
+FROM python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c AS product-acceptance-client
+
+RUN useradd --create-home --uid 10001 acceptance
+WORKDIR /acceptance
+COPY --chown=acceptance:acceptance deploy/compose/product_acceptance_client.py /acceptance/client.py
+USER acceptance
+
+ENTRYPOINT ["python", "/acceptance/client.py"]

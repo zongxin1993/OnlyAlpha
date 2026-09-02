@@ -13,10 +13,16 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, cast
 
-from onlyalpha_http_server import create_research_app
+from onlyalpha_http_server import create_product_app
 from onlyalpha_http_server.health import OnlyKernelResearchReadinessProjection
 
 from onlyalpha.application.product_boundary import only_compose_research_product_boundary
+from onlyalpha.application.strategy_product import (
+    OnlyStrategyFreezeProductService,
+    OnlyStrategyPromotionProductService,
+    OnlyStrategyQueryService,
+)
+from onlyalpha.backtest import OnlyBacktestCommandService, OnlyBacktestQueryService
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.kernel import OnlyAlphaKernelHost
 from onlyalpha.research.artifact.model import OnlyResearchArtifact
@@ -25,7 +31,8 @@ from onlyalpha.research.definition.resolver import OnlyResearchDefinitionResolve
 from onlyalpha.research.operations.readiness import OnlyResearchReadiness, OnlyResearchReadinessStatus
 
 ROOT = Path(__file__).resolve().parents[1]
-CONTRACT_RELATIVE = Path("contracts/research-api/v2/openapi.json")
+CONTRACT_RELATIVE = Path("contracts/product-api/v2/openapi.json")
+LEGACY_CONTRACT_RELATIVE = Path("contracts/research-api/v2/openapi.json")
 CONTRACT = ROOT / CONTRACT_RELATIVE
 WEB = ROOT / "packages/onlyalpha-web-console"
 GENERATED_CLIENT = WEB / "src/api/research/generated.ts"
@@ -122,7 +129,7 @@ def render_document() -> JsonObject:
     kernel = OnlyAlphaKernelHost()
     kernel.start()
     try:
-        app = create_research_app(
+        app = create_product_app(
             _ContractReader(),
             only_compose_research_product_boundary(
                 admission=kernel,
@@ -135,6 +142,11 @@ def render_document() -> JsonObject:
                 kernel,
                 OnlyResearchReadiness(OnlyResearchReadinessStatus.READY, ()),
             ),
+            cast(OnlyStrategyFreezeProductService, object()),
+            cast(OnlyStrategyPromotionProductService, object()),
+            cast(OnlyStrategyQueryService, object()),
+            cast(OnlyBacktestCommandService, object()),
+            cast(OnlyBacktestQueryService, object()),
         )
         return app.openapi()
     finally:
@@ -726,15 +738,24 @@ def load_git_baseline(base_sha: str) -> tuple[str, JsonObject, bytes]:
     )
     if verified.returncode or verified.stdout.strip() != base_sha:
         raise ValueError(f"BASE_SHA is not an exact available commit: {base_sha}")
+    baseline_relative = CONTRACT_RELATIVE
     shown = subprocess.run(
         ["git", "show", f"{base_sha}:{CONTRACT_RELATIVE.as_posix()}"],
         cwd=ROOT,
         check=False,
         capture_output=True,
     )
+    if shown.returncode and CONTRACT_RELATIVE == Path("contracts/product-api/v2/openapi.json"):
+        baseline_relative = LEGACY_CONTRACT_RELATIVE
+        shown = subprocess.run(
+            ["git", "show", f"{base_sha}:{baseline_relative.as_posix()}"],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+        )
     if shown.returncode:
         raise ValueError(f"canonical v{API_MAJOR} contract is missing from BASE_SHA {base_sha}")
-    document = parse_document(shown.stdout, source=f"{base_sha}:{CONTRACT_RELATIVE}")
+    document = parse_document(shown.stdout, source=f"{base_sha}:{baseline_relative}")
     baseline = canonical_bytes(document)
     if shown.stdout != baseline:
         raise ValueError(f"historical contract in BASE_SHA {base_sha} is not canonical")
@@ -745,7 +766,7 @@ def load_git_baseline(base_sha: str) -> tuple[str, JsonObject, bytes]:
 def check_current_contract() -> tuple[JsonObject, bytes]:
     rendered = rendered_contract()
     if not CONTRACT.is_file() or CONTRACT.read_bytes() != rendered:
-        raise ValueError("Research API OpenAPI contract is stale; run openapi_contract.py write")
+        raise ValueError("Product API OpenAPI contract is stale; run openapi_contract.py write")
     document = parse_document(rendered, source=str(CONTRACT_RELATIVE))
     lint_contract(document)
     return document, rendered
@@ -798,7 +819,7 @@ def _verify(base_sha: str) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Govern the canonical OnlyAlpha Research API v2 contract")
+    parser = argparse.ArgumentParser(description="Govern the canonical OnlyAlpha Product API v2 contract")
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("write")
     subparsers.add_parser("check")

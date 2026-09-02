@@ -51,6 +51,23 @@ services:
     networks:
       - database
 
+  acceptance-client:
+    image: ${ONLYALPHA_PRODUCT_ACCEPTANCE_CLIENT_IMAGE:-onlyalpha-product-acceptance-client:a0}
+    build:
+      context: ../..
+      dockerfile: deploy/compose/Dockerfile.acceptance
+      target: product-acceptance-client
+    profiles:
+      - product-acceptance
+    restart: "no"
+    environment:
+      ONLYALPHA_PRODUCT_API_URL: http://onlyalpha-http-server:8000
+      ONLYALPHA_ACCEPTANCE_TIMEOUT_SECONDS: ${ONLYALPHA_ACCEPTANCE_TIMEOUT_SECONDS:-120}
+      ONLYALPHA_ACCEPTANCE_DEFINITION_JSON: ${ONLYALPHA_ACCEPTANCE_DEFINITION_JSON:-}
+      ONLYALPHA_ACCEPTANCE_BACKTEST_JSON: ${ONLYALPHA_ACCEPTANCE_BACKTEST_JSON:-}
+    networks:
+      - database
+
 networks:
   database:
     name: onlyalpha-p93-test

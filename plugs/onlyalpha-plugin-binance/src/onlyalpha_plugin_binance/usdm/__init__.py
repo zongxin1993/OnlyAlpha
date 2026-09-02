@@ -5,6 +5,7 @@ from .data_source import (
     OnlyBinanceUsdmDataSourceConfig,
     OnlyBinanceUsdmDataSourceFactory,
     OnlyBinanceUsdmHistoricalClient,
+    only_normalize_binance_usdm_kline,
 )
 from .historical import OnlyBinanceUsdmHistoricalNormalizer
 from .market_product import (
@@ -26,5 +27,6 @@ __all__ = [
     "OnlyBinanceUsdmReferenceAuthority",
     "OnlyBinanceUsdmReferenceCapture",
     "OnlyBinanceUsdmReferenceClient",
+    "only_normalize_binance_usdm_kline",
     "only_binance_usdm_order_parameters",
 ]

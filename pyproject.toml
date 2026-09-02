@@ -45,6 +45,7 @@ dev = [
 ]
 
 [project.scripts]
+onlyalpha-backtest-worker = "onlyalpha.backtest.worker_main:main"
 onlyalpha-research-worker = "onlyalpha.research.worker_main:main"
 
 [tool.uv.workspace]

@@ -1,19 +1,23 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from threading import Barrier
 
 import psycopg
 import pytest
 
+from onlyalpha.application.product_command_receipt import OnlyProductCommandId
 from onlyalpha.persistence.postgres import (
     OnlyPostgresResearchDeploymentStore,
 )
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
+from onlyalpha.persistence.postgres.strategy_product_store import OnlyPostgresStrategyProductStore
 from onlyalpha.persistence.postgres.strategy_store import OnlyPostgresStrategyStore
 from onlyalpha.research.operations.deployment import (
     OnlyResearchDeploymentError,
     OnlyResearchDeploymentErrorCode,
     OnlyResearchSemanticStoreId,
 )
-from onlyalpha.strategy.errors import OnlyStrategyFreezeError
+from onlyalpha.strategy.errors import OnlyStrategyFreezeError, OnlyStrategyPromotionError
 from onlyalpha.strategy.freeze import OnlyStrategyFreezeRecord
 from onlyalpha.strategy.promotion import (
     OnlyStrategyPromotionDecision,
@@ -30,6 +34,12 @@ def _store(postgres_dsn: str) -> OnlyPostgresStrategyStore:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     OnlyPostgresResearchDeploymentStore(postgres_dsn).initialize(NAMESPACE)
     return OnlyPostgresStrategyStore(postgres_dsn, NAMESPACE)
+
+
+def _product_store(postgres_dsn: str) -> OnlyPostgresStrategyProductStore:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    OnlyPostgresResearchDeploymentStore(postgres_dsn).initialize(NAMESPACE)
+    return OnlyPostgresStrategyProductStore(postgres_dsn, NAMESPACE)
 
 
 def test_strategy_catalog_and_freeze_provenance_are_idempotent_without_semantic_json(postgres_dsn: str) -> None:
@@ -104,6 +114,48 @@ def test_strategy_promotion_is_exact_append_only_chain(postgres_dsn: str) -> Non
         connection.execute(
             "DELETE FROM strategy_promotion_record WHERE promotion_record_fingerprint = %s", (first.record_fingerprint,)
         )
+
+
+def test_promotion_command_concurrency_replays_same_intent_and_rejects_different_intent(
+    postgres_dsn: str,
+) -> None:
+    store = _product_store(postgres_dsn)
+    store.ensure_strategy("a" * 64, 1)
+    command_id = OnlyProductCommandId("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+    record = OnlyStrategyPromotionRecord(
+        "a" * 64,
+        OnlyStrategyPromotionStage.RESEARCH,
+        OnlyStrategyPromotionStage.BACKTEST,
+        ("b" * 64,),
+        OnlyStrategyPromotionDecision.APPROVED,
+        "backtest evidence",
+        "operator",
+        NOW,
+    )
+    barrier = Barrier(2)
+
+    def append_same(_index: int):  # type: ignore[no-untyped-def]
+        barrier.wait()
+        return store.append_promotion_with_receipt(record, command_id, "c" * 64)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        receipts = tuple(pool.map(append_same, range(2)))
+
+    assert receipts[0] == receipts[1]
+    assert store.records(record.strategy_fingerprint) == (record,)
+
+    conflicting = OnlyStrategyPromotionRecord(
+        record.strategy_fingerprint,
+        record.from_stage,
+        record.to_stage,
+        ("d" * 64,),
+        record.decision,
+        "different intent",
+        record.actor,
+        record.recorded_at,
+    )
+    with pytest.raises(OnlyStrategyPromotionError, match="PRODUCT_COMMAND_CONFLICT"):
+        store.append_promotion_with_receipt(conflicting, command_id, "e" * 64)
 
 
 def test_strategy_store_fails_closed_on_semantic_namespace_mismatch(postgres_dsn: str) -> None:

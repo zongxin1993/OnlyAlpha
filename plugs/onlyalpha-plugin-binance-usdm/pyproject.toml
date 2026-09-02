@@ -9,6 +9,9 @@ dependencies = ["onlyalpha==0.9.8"]
 [project.entry-points."onlyalpha.market_products"]
 binance-usdm = "onlyalpha_plugin_binance_usdm.factory:OnlyBinanceUsdmMarketProductFactory"
 
+[project.entry-points."onlyalpha.backtest_market_product_resources"]
+binance-usdm-reference = "onlyalpha_plugin_binance_usdm.resource_provider:OnlyBinanceUsdmBacktestResourceProvider"
+
 [build-system]
 requires = ["hatchling>=1.26,<2"]
 build-backend = "hatchling.build"

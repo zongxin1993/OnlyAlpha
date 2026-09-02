@@ -13,8 +13,12 @@ compose.test.yaml            isolated containerized acceptance override
 clickhouse/storage.xml       one HOT/COLD storage-policy definition
 Dockerfile.acceptance        pinned Python/PostgreSQL-client test image
 container-acceptance.sh      test process entrypoint inside Compose
+product_acceptance_client.py isolated HTTP-only future-Agent acceptance client
+certify_binance_golden_source.py verifies pinned provider archives before materialization
+provision_a0_binance_golden.py captures provider authority and provisions real post-capture history
 deploy-production.sh         validate, pull, and converge production services
 run-operator.sh              execute explicit operators on the private network
+run-binance-golden.sh        run online provisioning with isolated Binance egress
 ```
 
 Database versions are intentionally exact:
@@ -59,6 +63,24 @@ Production publishes no PostgreSQL or ClickHouse ports to the host. OnlyAlpha
 application containers join the `${ONLYALPHA_DATABASE_NETWORK}` network and
 use `onlyalpha-postgres:5432` and `onlyalpha-clickhouse:8123`. Named volumes
 hold PostgreSQL state, ClickHouse metadata, and the HOT/COLD data paths.
+
+`ONLYALPHA_PRODUCT_CONFIG_PATH` must be an operator-owned directory containing
+the exact files mounted read-only by the Product API and Backtest Worker:
+
+```text
+binance-spot.json
+binance-usdm.json
+binance-spot-reference.json
+binance-usdm-public-reference.json
+binance-usdm-account-reference.json
+```
+
+The first two are validated `OnlyClusterRunConfig` Product compositions. The
+remaining documents use schema version 1 and the plugin resource-provider IDs
+`onlyalpha-plugin-binance-spot/reference@1` and
+`onlyalpha-plugin-binance-usdm/reference@1`. Both processes load the same
+read-only directory. Missing, malformed, fingerprint-mismatched, or conflicting
+documents fail startup; Compose does not generate or silently substitute them.
 
 Application startup verifies compatibility but never performs migration. The
 pinned operator image joins the private Compose network under the opt-in
@@ -106,6 +128,57 @@ p9-3-real-database
 
 and then stops the services while retaining named volumes. Set
 `ONLYALPHA_KEEP_TEST_STACK=1` to leave the healthy test deployment running.
+
+The `product-acceptance` profile additionally defines an isolated
+`acceptance-client` image. That image contains only the Python standard library
+and the HTTP client script: it has no OnlyAlpha package, database credentials,
+Engine types, or shared Product storage. Its definition and Backtest command
+payloads are injected as JSON environment values after the operator-owned
+Golden Dataset and Product configuration have been provisioned. It validates
+Definition → Research → Evidence → Freeze → Promotion → Backtest → Evidence,
+including exact command replay and conflicting-payload rejection.
+
+The Binance online certification lane starts from
+`tests/fixtures/a0_binance_golden/source-manifest.json`. Download each official
+archive to an operator-owned staging directory using `<source_id>.zip` as its
+name, then verify archive/content hashes, record counts, and timestamp domains
+before any ClickHouse ingestion or immutable Dataset materialization:
+
+```bash
+uv run python deploy/compose/certify_binance_golden_source.py \
+  --manifest tests/fixtures/a0_binance_golden/source-manifest.json \
+  --archive-root /secure/binance-golden-2024-01
+```
+
+The offline Product lane consumes the resulting immutable Dataset and economic
+fact identities; it does not contact Binance or treat a mutable ClickHouse
+query as semantic truth.
+
+For an end-to-end online capture, the database network stays internal and only
+the `binance-golden-provisioner` profile joins a separate egress network. USD-M
+capture calls read-only signed account endpoints; it never changes account
+settings or sends orders. Capture the authority first:
+
+```bash
+deploy/compose/run-binance-golden.sh capture-reference --products all
+```
+
+Then choose a closed, minute-aligned interval whose start is not earlier than
+the captured provider time. USD-M certification must include a real BTCUSDT
+funding boundary; an interval without one fails closed:
+
+```bash
+deploy/compose/run-binance-golden.sh provision \
+  --products all \
+  --start 2026-09-02T11:00:00+00:00 \
+  --end 2026-09-02T16:01:00+00:00
+```
+
+The provisioner writes exact raw REST pages to ClickHouse, canonical 1m Bars
+to ClickHouse, revision/seal authority to PostgreSQL, immutable Parquet Dataset
+Snapshots and economic facts to the shared semantic volume, and Product/config
+acceptance inputs to `ONLYALPHA_PRODUCT_CONFIG_PATH`. It refuses to backdate a
+captured reference authority.
 
 Manual equivalent:
 

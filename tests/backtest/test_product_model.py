@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 from onlyalpha.backtest import (
+    OnlyBacktestAdmissionResolution,
     OnlyBacktestProfileReference,
     OnlyBacktestRun,
     OnlyBacktestRunId,
@@ -25,6 +26,21 @@ def _specification() -> OnlyBacktestSpecification:
     )
 
 
+def _resolution() -> OnlyBacktestAdmissionResolution:
+    return OnlyBacktestAdmissionResolution(
+        1,
+        "a" * 64,
+        "b" * 64,
+        "d" * 64,
+        "e" * 64,
+        "1" * 64,
+        "2" * 64,
+        "3" * 64,
+        "kernel-v1",
+        (),
+    )
+
+
 def test_backtest_specification_round_trip_and_identity_are_canonical() -> None:
     expected = _specification()
     restored = OnlyBacktestSpecification.from_dict(expected.to_dict())
@@ -33,6 +49,14 @@ def test_backtest_specification_round_trip_and_identity_are_canonical() -> None:
     assert restored.specification_fingerprint == expected.specification_fingerprint
     assert "worker" not in restored.to_dict()
     assert "path" not in restored.to_dict()
+
+
+def test_admission_resolution_round_trip_and_identity_are_canonical() -> None:
+    expected = _resolution()
+    restored = OnlyBacktestAdmissionResolution.from_dict(expected.to_dict())
+
+    assert restored == expected
+    assert restored.admission_resolution_fingerprint == expected.admission_resolution_fingerprint
 
 
 def test_backtest_specification_rejects_unknown_product_fields() -> None:
@@ -48,7 +72,7 @@ def test_backtest_run_requires_verified_evidence_before_completion() -> None:
     queued = OnlyBacktestRun.queued(
         run_id=OnlyBacktestRunId("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
         specification=_specification(),
-        admission_resolution_fingerprint="d" * 64,
+        admission_resolution=_resolution(),
         queued_at=queued_at,
     )
     running = queued.transition(OnlyBacktestRunState.RUNNING, at=queued_at)

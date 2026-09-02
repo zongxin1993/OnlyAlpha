@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from importlib import metadata
@@ -10,7 +11,9 @@ from onlyalpha_plugin_binance_spot.reference import (
     OnlyBinanceSpotReferenceAuthority,
     OnlyBinanceSpotRule,
 )
+from onlyalpha_plugin_binance_spot.resource_provider import OnlyBinanceSpotBacktestResourceProvider
 
+from onlyalpha.backtest import only_load_backtest_market_product_resources
 from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine, OnlyPreTradeMarketContext
 from onlyalpha.plugin.api import (
     OnlyCanonicalMarketProductConfig,
@@ -84,6 +87,43 @@ class _Resources:
 
     def require_market_fee_pack(self, pack_id: str, pack_version: str):
         raise AssertionError
+
+
+def test_backtest_resource_provider_round_trips_exact_authority() -> None:
+    provider = OnlyBinanceSpotBacktestResourceProvider()
+    authority = _authority()
+
+    loaded = provider.load_reference(provider.dump_reference(authority))
+    assert loaded.identity == authority.identity
+    assert loaded.to_semantic_dict() == authority.to_semantic_dict()
+
+    tampered = provider.dump_reference(authority)
+    tampered_authority = tampered["authority"]
+    assert isinstance(tampered_authority, dict)
+    tampered_authority["authority_fingerprint"] = "0" * 64
+    with pytest.raises(ValueError, match="FINGERPRINT"):
+        provider.load_reference(tampered)
+
+
+def test_production_resource_document_loads_through_plugin_entry_point(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    provider = OnlyBinanceSpotBacktestResourceProvider()
+    authority = _authority()
+    path = tmp_path / "spot-reference.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "provider_id": provider.provider_id,
+                "resource_id": "sha256:spot-golden",
+                "payload": provider.dump_reference(authority),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = only_load_backtest_market_product_resources((path,)).require_reference_authority("sha256:spot-golden")
+
+    assert loaded.identity == authority.identity
 
 
 def test_exact_offline_binding_and_crypto_spot_policy_are_deterministic() -> None:

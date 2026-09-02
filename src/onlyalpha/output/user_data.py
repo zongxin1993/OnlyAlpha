@@ -50,6 +50,18 @@ class OnlyUserDataLayout:
     def research_artifact_root(self) -> Path:
         return self.research_root / "artifacts"
 
+    @property
+    def research_dataset_economic_binding_root(self) -> Path:
+        return self.research_root / "dataset-economic-bindings"
+
+    @property
+    def backtest_root(self) -> Path:
+        return self.root / "backtest"
+
+    @property
+    def backtest_evidence_root(self) -> Path:
+        return self.backtest_root / "evidence"
+
     def run_root(self, engine_id: OnlyEngineId, run_id: str) -> Path:
         return self.root / "runs" / str(engine_id) / run_id
 

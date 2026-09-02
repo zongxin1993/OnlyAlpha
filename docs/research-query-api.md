@@ -18,7 +18,7 @@ strictly greater-than, the default limit is 1000, and the maximum is 5000. HTTP 
 are canonical fixed strings or null. Query Core schema remains 1, while top-level HTTP DTO/error `schema_version` is independently 2.
 Error bodies are `{schema_version, code, detail}` with invalid query=400, missing identity=404, and corrupt verified Artifact=500.
 
-The deterministic OpenAPI contract is `contracts/research-api/v2/openapi.json`, generated from FastAPI by
+The deterministic OpenAPI contract is `contracts/product-api/v2/openapi.json`, generated from FastAPI by
 `scripts/openapi_contract.py`. `packages/onlyalpha-web-console` generates compile-time transport types from it and separately performs
 strict Zod admission before mapping timestamps to `bigint`. There are no v1 product routes or compatibility wrapper.
 

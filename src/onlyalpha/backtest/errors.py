@@ -31,6 +31,11 @@ class OnlyBacktestNotFoundError(OnlyBacktestError):
         super().__init__(OnlyBacktestErrorPhase.OPERATIONAL, "BACKTEST_RUN_NOT_FOUND", run_id)
 
 
+class OnlyBacktestArtifactNotFoundError(OnlyBacktestError):
+    def __init__(self, name: str) -> None:
+        super().__init__(OnlyBacktestErrorPhase.OPERATIONAL, "BACKTEST_ARTIFACT_NOT_FOUND", name)
+
+
 class OnlyBacktestStateConflictError(OnlyBacktestError):
     def __init__(self, detail: str) -> None:
         super().__init__(OnlyBacktestErrorPhase.OPERATIONAL, "BACKTEST_RUN_STATE_CONFLICT", detail)

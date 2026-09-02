@@ -65,6 +65,36 @@ def test_ready_contract_is_strict_and_deterministic() -> None:
     assert response.json()["checks"] == {"postgres": "READY", "schema": "COMPATIBLE"}
 
 
+def test_execution_capacity_reports_worker_absence_without_blocking_product_readiness() -> None:
+    class Capacity:
+        available = False
+
+        def has_fresh_worker(self) -> bool:
+            return self.available
+
+    readiness = OnlyResearchReadiness(OnlyResearchReadinessStatus.READY, ())
+    capacity = Capacity()
+    app = FastAPI()
+    app.include_router(create_health_router(Probe(readiness), capacity))
+    client = TestClient(app)
+
+    assert client.get("/health/ready").status_code == 200
+    degraded = client.get("/health/execution")
+    assert degraded.status_code == 503
+    assert degraded.json() == {
+        "status": "DEGRADED",
+        "checks": {"backtest_worker": "ABSENT"},
+        "reason": "BACKTEST_WORKER_ABSENT",
+    }
+
+    capacity.available = True
+    assert client.get("/health/execution").json() == {
+        "status": "AVAILABLE",
+        "checks": {"backtest_worker": "AVAILABLE"},
+        "reason": None,
+    }
+
+
 def test_kernel_projection_preserves_verified_contract_and_fails_closed_after_stop() -> None:
     evidence = OnlyResearchReadiness(
         OnlyResearchReadinessStatus.READY,

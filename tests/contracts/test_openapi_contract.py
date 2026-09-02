@@ -94,7 +94,7 @@ def test_canonicalization_and_sha_are_deterministic() -> None:
 def test_current_render_is_byte_deterministic_and_has_no_build_metadata() -> None:
     first = governance.rendered_contract()
     second = governance.rendered_contract()
-    assert first == second == (ROOT / "contracts/research-api/v2/openapi.json").read_bytes()
+    assert first == second == (ROOT / "contracts/product-api/v2/openapi.json").read_bytes()
     lowered = first.lower()
     for forbidden in (b"generated_at", b"hostname", b"build_number", b"git_sha", str(ROOT).encode()):
         assert forbidden not in lowered
@@ -133,7 +133,7 @@ def test_git_baseline_is_exact_immutable_artifact_and_invalid_sha_fails_closed(m
     assert governance.compare_contracts(document, _fixture("breaking_remove_path.json")).change.value == "BREAKING"
     with pytest.raises(ValueError, match="full lowercase Git object ID"):
         governance.load_git_baseline("HEAD")
-    monkeypatch.setattr(governance, "CONTRACT_RELATIVE", Path("contracts/research-api/v2/missing.json"))
+    monkeypatch.setattr(governance, "CONTRACT_RELATIVE", Path("contracts/product-api/v2/missing.json"))
     with pytest.raises(ValueError, match="missing from BASE_SHA"):
         governance.load_git_baseline(base_sha)
 
@@ -383,7 +383,7 @@ def test_discriminator_change_fails_closed() -> None:
 
 
 def test_current_v2_schema_vocabulary_is_fully_governed() -> None:
-    document = json.loads((ROOT / "contracts/research-api/v2/openapi.json").read_text(encoding="utf-8"))
+    document = json.loads((ROOT / "contracts/product-api/v2/openapi.json").read_text(encoding="utf-8"))
     vocabulary = governance.schema_vocabulary(document)
     assert vocabulary == {
         "$ref",

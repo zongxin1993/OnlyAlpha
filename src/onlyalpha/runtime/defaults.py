@@ -15,7 +15,7 @@ from onlyalpha.fee.reconciliation_policy import (
     only_standard_fee_reconciliation_policy,
 )
 from onlyalpha.indicator.registry import OnlyIndicatorFactoryRegistry
-from onlyalpha.market.product import OnlyMarketProductFactoryRegistry
+from onlyalpha.market.product import OnlyMarketProductFactoryRegistry, OnlyMarketProductResourceResolver
 from onlyalpha.plugin.descriptor import OnlyPluginOrigin, OnlyPluginOriginType
 from onlyalpha.plugin.discovery import OnlyPluginDiscoveryReport, only_discover_plugins
 from onlyalpha.research.calculation.predicate import only_register_research_predicate_primitives
@@ -36,6 +36,7 @@ from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_
 class OnlyEngineServices:
     assembler: OnlyEngineRunAssembler
     plugin_discovery: OnlyPluginDiscoveryReport = OnlyPluginDiscoveryReport((), ())
+    market_product_resources: OnlyMarketProductResourceResolver | None = None
 
 
 def only_default_engine_services(

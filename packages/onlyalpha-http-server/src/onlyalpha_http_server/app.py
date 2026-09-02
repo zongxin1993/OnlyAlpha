@@ -14,6 +14,14 @@ from onlyalpha.application.strategy_product import (
     OnlyStrategyPromotionProductService,
     OnlyStrategyQueryService,
 )
+from onlyalpha.backtest import OnlyBacktestCommandService, OnlyBacktestQueryService
+from onlyalpha.backtest.errors import (
+    OnlyBacktestError,
+    OnlyBacktestIntegrityError,
+    OnlyBacktestNotFoundError,
+    OnlyBacktestStateConflictError,
+    OnlyBacktestStoreUnavailableError,
+)
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.kernel import OnlyKernelAuthorityError, OnlyKernelMutationRejected
 from onlyalpha.research.command.errors import OnlyResearchCommandError
@@ -27,8 +35,11 @@ from onlyalpha.research.operations.readiness import (
 from onlyalpha.research.query import OnlyResearchArtifactReader, OnlyResearchQueryError, OnlyResearchQueryService
 from onlyalpha.research.run.errors import OnlyResearchRunError
 from onlyalpha.research.specification.errors import OnlyResearchSpecificationError
+from onlyalpha.strategy.errors import OnlyStrategyError
 
-from .health import OnlyKernelResearchReadinessProjection, create_health_router
+from .backtest.routes import BACKTEST_ROUTE_TAG, create_backtest_router
+from .backtest.schema import ProductErrorDto, ProductErrorEnvelopeDto
+from .health import OnlyKernelResearchReadinessProjection, OnlyProductExecutionCapacityProbe, create_health_router
 from .research.definition_errors import definition_error_response
 from .research.definition_routes import (
     DEFINITION_ROUTE_TAG,
@@ -45,7 +56,7 @@ from .research.run_errors import run_error_response
 from .research.run_routes import RUN_ROUTE_TAG, create_run_router
 from .research.run_schema import ResearchRunErrorDto, ResearchRunErrorEnvelopeDto
 from .research.schema import RESEARCH_API_SCHEMA_VERSION, ResearchErrorDto
-from .strategy.routes import create_strategy_router
+from .strategy.routes import STRATEGY_ROUTE_TAG, create_strategy_router
 
 
 def _artifact_validation_error_response() -> JSONResponse:
@@ -87,7 +98,17 @@ def _request_route_tag(request: Request) -> str | None:
         return None
     tags = tuple(route.tags)
     known = tuple(
-        tag for tag in tags if tag in {RUN_ROUTE_TAG, ARTIFACT_ROUTE_TAG, DEFINITION_ROUTE_TAG, DISCOVERY_ROUTE_TAG}
+        tag
+        for tag in tags
+        if tag
+        in {
+            RUN_ROUTE_TAG,
+            ARTIFACT_ROUTE_TAG,
+            DEFINITION_ROUTE_TAG,
+            DISCOVERY_ROUTE_TAG,
+            STRATEGY_ROUTE_TAG,
+            BACKTEST_ROUTE_TAG,
+        }
     )
     return known[0] if len(known) == 1 else None
 
@@ -107,6 +128,9 @@ def create_research_app(
     strategy_freeze: OnlyStrategyFreezeProductService | None = None,
     strategy_promotion: OnlyStrategyPromotionProductService | None = None,
     strategy_query: OnlyStrategyQueryService | None = None,
+    backtest_commands: OnlyBacktestCommandService | None = None,
+    backtest_queries: OnlyBacktestQueryService | None = None,
+    execution_capacity: OnlyProductExecutionCapacityProbe | None = None,
 ) -> FastAPI:
     universe_authority = definition_resolver.universe_resolver
     if universe_authority is not None and not isinstance(universe_authority, OnlyResearchUniverseCatalog):
@@ -174,6 +198,60 @@ def create_research_app(
 
     app.add_exception_handler(OnlyResearchDefinitionError, definition_domain_error_handler)
 
+    async def product_error_handler(_request: Request, error: Exception) -> JSONResponse:
+        if isinstance(error, OnlyBacktestError):
+            phase = error.phase.value
+            code = error.code
+            detail = error.detail
+            if isinstance(error, OnlyBacktestNotFoundError) or code.endswith("_NOT_FOUND"):
+                status = 404
+            elif isinstance(error, OnlyBacktestStoreUnavailableError) or code.endswith("_UNAVAILABLE"):
+                status = 503
+                detail = "Required Product authority is unavailable"
+            elif isinstance(error, OnlyBacktestIntegrityError) or "CORRUPT" in code:
+                status = 500
+                detail = "Verified Product authority is corrupt"
+            elif isinstance(error, OnlyBacktestStateConflictError) or "CONFLICT" in code or "NOT_ADMITTED" in code:
+                status = 409
+            else:
+                status = 400
+        else:
+            assert isinstance(error, OnlyStrategyError)
+            phase = "COMMAND"
+            code = error.code
+            detail = error.detail or code
+            if code.endswith("_NOT_FOUND"):
+                status = 404
+            elif "UNAVAILABLE" in code:
+                status = 503
+                detail = "Required Product authority is unavailable"
+            elif "CORRUPT" in code:
+                status = 500
+                detail = "Verified Product authority is corrupt"
+            elif "CONFLICT" in code or "INVALID" in code:
+                status = 409
+            else:
+                status = 400
+        body = ProductErrorEnvelopeDto(error=ProductErrorDto(phase=phase, code=code, detail=detail))
+        return JSONResponse(status_code=status, content=body.model_dump(mode="json"))
+
+    app.add_exception_handler(OnlyBacktestError, product_error_handler)
+    app.add_exception_handler(OnlyStrategyError, product_error_handler)
+
+    async def product_value_error_handler(request: Request, _error: Exception) -> JSONResponse:
+        if _request_route_tag(request) not in {STRATEGY_ROUTE_TAG, BACKTEST_ROUTE_TAG}:
+            return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
+        body = ProductErrorEnvelopeDto(
+            error=ProductErrorDto(
+                phase="COMMAND",
+                code="PRODUCT_REQUEST_INVALID",
+                detail="HTTP request validation failed",
+            )
+        )
+        return JSONResponse(status_code=400, content=body.model_dump(mode="json"))
+
+    app.add_exception_handler(ValueError, product_value_error_handler)
+
     async def request_validation_error_handler(request: Request, error: Exception) -> JSONResponse:
         assert isinstance(error, RequestValidationError)
         family = _request_route_tag(request)
@@ -183,6 +261,15 @@ def create_research_app(
             return _artifact_validation_error_response()
         if family == DEFINITION_ROUTE_TAG:
             return _definition_validation_error_response(error)
+        if family in {STRATEGY_ROUTE_TAG, BACKTEST_ROUTE_TAG}:
+            body = ProductErrorEnvelopeDto(
+                error=ProductErrorDto(
+                    phase="COMMAND",
+                    code="PRODUCT_REQUEST_INVALID",
+                    detail="HTTP request validation failed",
+                )
+            )
+            return JSONResponse(status_code=400, content=body.model_dump(mode="json"))
         return JSONResponse(status_code=400, content={"detail": "HTTP request validation failed"})
 
     app.add_exception_handler(RequestValidationError, request_validation_error_handler)
@@ -196,7 +283,7 @@ def create_research_app(
         create_definition_router(ResearchDefinitionApiService(definition_resolver)),
         dependencies=readiness_dependencies,
     )
-    app.include_router(create_health_router(readiness_probe))
+    app.include_router(create_health_router(readiness_probe, execution_capacity))
     if strategy_freeze is not None or strategy_promotion is not None or strategy_query is not None:
         if strategy_freeze is None or strategy_promotion is None or strategy_query is None:
             raise TypeError("Strategy Product routes require all Strategy services")
@@ -204,7 +291,44 @@ def create_research_app(
             create_strategy_router(strategy_freeze, strategy_promotion, strategy_query),
             dependencies=readiness_dependencies,
         )
+    if backtest_commands is not None or backtest_queries is not None:
+        if backtest_commands is None or backtest_queries is None:
+            raise TypeError("Backtest Product routes require command and query services")
+        app.include_router(
+            create_backtest_router(backtest_commands, backtest_queries),
+            dependencies=readiness_dependencies,
+        )
     return app
 
 
-__all__ = ["create_research_app"]
+def create_product_app(
+    reader: OnlyResearchArtifactReader,
+    product_boundary: OnlyResearchProductBoundary,
+    calculation_registry: OnlyCalculationRegistry,
+    definition_resolver: OnlyResearchDefinitionResolver,
+    readiness_probe: OnlyKernelResearchReadinessProjection,
+    strategy_freeze: OnlyStrategyFreezeProductService,
+    strategy_promotion: OnlyStrategyPromotionProductService,
+    strategy_query: OnlyStrategyQueryService,
+    backtest_commands: OnlyBacktestCommandService,
+    backtest_queries: OnlyBacktestQueryService,
+    execution_capacity: OnlyProductExecutionCapacityProbe | None = None,
+) -> FastAPI:
+    app = create_research_app(
+        reader,
+        product_boundary,
+        calculation_registry,
+        definition_resolver,
+        readiness_probe,
+        strategy_freeze,
+        strategy_promotion,
+        strategy_query,
+        backtest_commands,
+        backtest_queries,
+        execution_capacity,
+    )
+    app.title = "OnlyAlpha Product API"
+    return app
+
+
+__all__ = ["create_product_app", "create_research_app"]

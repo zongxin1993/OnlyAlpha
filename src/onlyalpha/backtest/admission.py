@@ -7,6 +7,7 @@ from typing import Protocol
 
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.research.dataset import (
+    OnlyResearchDatasetDefinition,
     OnlyResearchDatasetEconomicBinding,
     OnlyResearchDatasetSnapshotStore,
 )
@@ -21,6 +22,7 @@ from .model import (
     OnlyBacktestProfileReference,
     OnlyBacktestSpecification,
 )
+from .profiles import OnlyBacktestProfile
 
 
 class _PromotionAuthority(Protocol):
@@ -32,7 +34,7 @@ class _DatasetBindingAuthority(Protocol):
 
 
 class _ProfileAuthority(Protocol):
-    def resolve_profile_fingerprint(self, kind: str, reference: OnlyBacktestProfileReference) -> str: ...
+    def resolve_profile(self, kind: str, reference: OnlyBacktestProfileReference) -> OnlyBacktestProfile: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +49,7 @@ class _MarketProductAuthority(Protocol):
         self,
         configuration_fingerprint: str,
         strategy: OnlyStrategyRevision,
+        dataset: OnlyResearchDatasetDefinition,
     ) -> OnlyBacktestMarketProductAdmission: ...
 
 
@@ -83,6 +86,7 @@ class OnlyBacktestAdmissionService:
         market = self._market_products.resolve_for_backtest(
             specification.market_product_configuration_fingerprint,
             strategy,
+            dataset.snapshot.definition,
         )
         if market.composition_fingerprint != binding.market_product_composition_fingerprint:
             _reject(
@@ -175,15 +179,13 @@ class OnlyBacktestAdmissionService:
 
     def _profile(self, kind: str, reference: OnlyBacktestProfileReference) -> str:
         try:
-            fingerprint = self._profiles.resolve_profile_fingerprint(kind, reference)
+            profile = self._profiles.resolve_profile(kind, reference)
         except Exception as exc:
             _reject("BACKTEST_PROFILE_NOT_FOUND", f"{kind}:{reference.profile_id}@{reference.version}", cause=exc)
-        expected = only_canonical_fingerprint(
-            {"kind": kind, "profile_id": reference.profile_id, "version": reference.version}
-        )
-        if fingerprint != expected:
+        expected = only_canonical_fingerprint(profile.to_dict())
+        if profile.kind != kind or profile.reference != reference or profile.fingerprint != expected:
             _reject("BACKTEST_PROFILE_CORRUPT", f"{kind}:{reference.profile_id}@{reference.version}")
-        return fingerprint
+        return profile.fingerprint
 
 
 def _reject(code: str, detail: str, *, cause: Exception | None = None):  # type: ignore[no-untyped-def]

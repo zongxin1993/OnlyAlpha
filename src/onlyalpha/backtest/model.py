@@ -162,9 +162,14 @@ class OnlyBacktestAdmissionResolution:
     execution_profile_fingerprint: str
     kernel_semantics_version: str
     implementation_fingerprints: tuple[str, ...]
+    schema_version: int = 1
 
     def __post_init__(self) -> None:
-        if self.strategy_revision_schema_version < 1 or not self.kernel_semantics_version.strip():
+        if (
+            self.schema_version != 1
+            or self.strategy_revision_schema_version < 1
+            or not self.kernel_semantics_version.strip()
+        ):
             raise ValueError("BACKTEST_ADMISSION_RESOLUTION_INVALID")
         for name in (
             "strategy_fingerprint",
@@ -184,20 +189,59 @@ class OnlyBacktestAdmissionResolution:
 
     @property
     def admission_resolution_fingerprint(self) -> str:
-        return only_canonical_fingerprint(
+        return only_canonical_fingerprint(self.to_dict())
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "strategy_revision_schema_version": self.strategy_revision_schema_version,
+            "strategy_fingerprint": self.strategy_fingerprint,
+            "dataset_binding_fingerprint": self.dataset_binding_fingerprint,
+            "base_dataset_snapshot_fingerprint": self.base_dataset_snapshot_fingerprint,
+            "market_product_composition_fingerprint": self.market_product_composition_fingerprint,
+            "portfolio_profile_fingerprint": self.portfolio_profile_fingerprint,
+            "risk_profile_fingerprint": self.risk_profile_fingerprint,
+            "execution_profile_fingerprint": self.execution_profile_fingerprint,
+            "kernel_semantics_version": self.kernel_semantics_version,
+            "implementation_fingerprints": list(self.implementation_fingerprints),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyBacktestAdmissionResolution:
+        _exact(
+            payload,
             {
-                "schema_version": 1,
-                "strategy_revision_schema_version": self.strategy_revision_schema_version,
-                "strategy_fingerprint": self.strategy_fingerprint,
-                "dataset_binding_fingerprint": self.dataset_binding_fingerprint,
-                "base_dataset_snapshot_fingerprint": self.base_dataset_snapshot_fingerprint,
-                "market_product_composition_fingerprint": self.market_product_composition_fingerprint,
-                "portfolio_profile_fingerprint": self.portfolio_profile_fingerprint,
-                "risk_profile_fingerprint": self.risk_profile_fingerprint,
-                "execution_profile_fingerprint": self.execution_profile_fingerprint,
-                "kernel_semantics_version": self.kernel_semantics_version,
-                "implementation_fingerprints": list(self.implementation_fingerprints),
-            }
+                "schema_version",
+                "strategy_revision_schema_version",
+                "strategy_fingerprint",
+                "dataset_binding_fingerprint",
+                "base_dataset_snapshot_fingerprint",
+                "market_product_composition_fingerprint",
+                "portfolio_profile_fingerprint",
+                "risk_profile_fingerprint",
+                "execution_profile_fingerprint",
+                "kernel_semantics_version",
+                "implementation_fingerprints",
+            },
+            "Backtest Admission Resolution",
+        )
+        schema_version = _integer(payload, "schema_version")
+        revision_schema_version = _integer(payload, "strategy_revision_schema_version")
+        implementations = payload["implementation_fingerprints"]
+        if not isinstance(implementations, list) or any(not isinstance(item, str) for item in implementations):
+            raise ValueError("implementation_fingerprints must be an array of strings")
+        return cls(
+            strategy_revision_schema_version=revision_schema_version,
+            strategy_fingerprint=_string(payload, "strategy_fingerprint"),
+            dataset_binding_fingerprint=_string(payload, "dataset_binding_fingerprint"),
+            base_dataset_snapshot_fingerprint=_string(payload, "base_dataset_snapshot_fingerprint"),
+            market_product_composition_fingerprint=_string(payload, "market_product_composition_fingerprint"),
+            portfolio_profile_fingerprint=_string(payload, "portfolio_profile_fingerprint"),
+            risk_profile_fingerprint=_string(payload, "risk_profile_fingerprint"),
+            execution_profile_fingerprint=_string(payload, "execution_profile_fingerprint"),
+            kernel_semantics_version=_string(payload, "kernel_semantics_version"),
+            implementation_fingerprints=tuple(implementations),
+            schema_version=schema_version,
         )
 
 
@@ -257,7 +301,8 @@ class OnlyBacktestRun:
     state: OnlyBacktestRunState
     specification: OnlyBacktestSpecification
     canonical_specification_payload: str
-    admission_resolution_fingerprint: str
+    admission_resolution: OnlyBacktestAdmissionResolution
+    canonical_admission_resolution_payload: str
     queued_at: datetime
     started_at: datetime | None = None
     cancel_requested_at: datetime | None = None
@@ -275,7 +320,14 @@ class OnlyBacktestRun:
                 raise ValueError("Backtest Run state is invalid")
             if self.canonical_specification_payload != only_canonical_json(self.specification.to_dict()):
                 raise ValueError("Backtest Specification payload is not canonical")
-            _sha(self.admission_resolution_fingerprint, "admission_resolution_fingerprint")
+            if not isinstance(self.admission_resolution, OnlyBacktestAdmissionResolution):
+                raise ValueError("Backtest Admission Resolution is invalid")
+            if self.canonical_admission_resolution_payload != only_canonical_json(self.admission_resolution.to_dict()):
+                raise ValueError("Backtest Admission Resolution payload is not canonical")
+            if self.admission_resolution.strategy_fingerprint != self.specification.strategy_fingerprint:
+                raise ValueError("Backtest Specification and Admission Strategy differ")
+            if self.admission_resolution.dataset_binding_fingerprint != self.specification.dataset_binding_fingerprint:
+                raise ValueError("Backtest Specification and Admission Dataset binding differ")
             for name in ("evidence_fingerprint", "result_fingerprint", "determinism_fingerprint"):
                 value = getattr(self, name)
                 if value is not None:
@@ -326,13 +378,17 @@ class OnlyBacktestRun:
     def specification_fingerprint(self) -> str:
         return self.specification.specification_fingerprint
 
+    @property
+    def admission_resolution_fingerprint(self) -> str:
+        return self.admission_resolution.admission_resolution_fingerprint
+
     @classmethod
     def queued(
         cls,
         *,
         run_id: OnlyBacktestRunId,
         specification: OnlyBacktestSpecification,
-        admission_resolution_fingerprint: str,
+        admission_resolution: OnlyBacktestAdmissionResolution,
         queued_at: datetime,
     ) -> OnlyBacktestRun:
         return cls(
@@ -341,7 +397,8 @@ class OnlyBacktestRun:
             state=OnlyBacktestRunState.QUEUED,
             specification=specification,
             canonical_specification_payload=only_canonical_json(specification.to_dict()),
-            admission_resolution_fingerprint=admission_resolution_fingerprint,
+            admission_resolution=admission_resolution,
+            canonical_admission_resolution_payload=only_canonical_json(admission_resolution.to_dict()),
             queued_at=queued_at,
         )
 
@@ -375,7 +432,8 @@ class OnlyBacktestRun:
             state=target,
             specification=self.specification,
             canonical_specification_payload=self.canonical_specification_payload,
-            admission_resolution_fingerprint=self.admission_resolution_fingerprint,
+            admission_resolution=self.admission_resolution,
+            canonical_admission_resolution_payload=self.canonical_admission_resolution_payload,
             queued_at=self.queued_at,
             started_at=started,
             cancel_requested_at=cancelled,
@@ -403,6 +461,13 @@ def _string(payload: Mapping[str, object], key: str) -> str:
     value = payload[key]
     if not isinstance(value, str):
         raise ValueError(f"{key} must be a string")
+    return value
+
+
+def _integer(payload: Mapping[str, object], key: str) -> int:
+    value = payload[key]
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{key} must be an integer")
     return value
 
 

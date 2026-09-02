@@ -20,11 +20,11 @@ def _imports(path: Path) -> frozenset[str]:
 
 
 def test_one_v2_canonical_contract_and_no_mutable_baseline() -> None:
-    contract_root = ROOT / "contracts/research-api"
+    contract_root = ROOT / "contracts/product-api"
     contracts = sorted(
         path for path in contract_root.rglob("*") if path.is_file() and path.suffix in {".json", ".yaml", ".yml"}
     )
-    assert contracts == [ROOT / "contracts/research-api/v2/openapi.json"]
+    assert contracts == [ROOT / "contracts/product-api/v2/openapi.json"]
     forbidden = {"baseline.json", "accepted.json", "accepted-openapi.json", "previous.json"}
     assert not any(path.name in forbidden for path in ROOT.rglob("*.json"))
 
@@ -32,11 +32,11 @@ def test_one_v2_canonical_contract_and_no_mutable_baseline() -> None:
 def test_fastapi_app_remains_authoring_authority_and_wrapper_has_no_duplicate_logic() -> None:
     source = GOVERNANCE.read_text(encoding="utf-8")
     wrapper = WRAPPER.read_text(encoding="utf-8")
-    assert "create_research_app" in source
+    assert "create_product_app" in source
     assert "app.openapi()" in source
     assert "json.dumps(" in source
     assert "governance_main(argv)" in wrapper
-    assert "create_research_app" not in wrapper
+    assert "create_product_app" not in wrapper
     assert "json.dumps(" not in wrapper
 
 
@@ -51,7 +51,7 @@ def test_governance_has_immutable_git_baseline_and_no_breaking_bypass() -> None:
 def test_generated_web_client_has_only_canonical_openapi_source() -> None:
     package = (ROOT / "packages/onlyalpha-web-console/package.json").read_text(encoding="utf-8")
     web_suite = (ROOT / "scripts/web_suite.py").read_text(encoding="utf-8")
-    assert package.count("../../contracts/research-api/v2/openapi.json") == 1
+    assert package.count("../../contracts/product-api/v2/openapi.json") == 1
     assert "check_generated_client" in web_suite
     assert "openapi-typescript" not in web_suite
 
@@ -63,7 +63,7 @@ def test_core_domain_has_no_api_contract_tooling_dependency() -> None:
 
 
 def test_k4_contract_governance_does_not_start_v3_or_remote_protocol_work() -> None:
-    assert not (ROOT / "contracts/research-api/v3").exists()
+    assert not (ROOT / "contracts/product-api/v3").exists()
     changed = "\n".join(path.as_posix() for path in ROOT.rglob("*"))
     assert "scripts/openapi_contract.py" in changed
     source = GOVERNANCE.read_text(encoding="utf-8")

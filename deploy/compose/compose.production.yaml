@@ -15,6 +15,17 @@ services:
         max-size: 10m
         max-file: "5"
 
+  user-data-initializer:
+    image: ${ONLYALPHA_OPERATOR_IMAGE:-onlyalpha-operator:0.9.8}
+    profiles:
+      - tools
+    restart: "no"
+    user: "0:0"
+    entrypoint: ["chown"]
+    command: ["10001:10001", "/var/lib/onlyalpha"]
+    volumes:
+      - user-data:/var/lib/onlyalpha
+
   operator:
     image: ${ONLYALPHA_OPERATOR_IMAGE:-onlyalpha-operator:0.9.8}
     build:
@@ -38,6 +49,127 @@ services:
     networks:
       - database
 
+  binance-golden-provisioner:
+    image: ${ONLYALPHA_OPERATOR_IMAGE:-onlyalpha-operator:0.9.8}
+    build:
+      context: ../..
+      dockerfile: deploy/compose/Dockerfile.acceptance
+      target: operator
+    profiles:
+      - binance-certification
+    restart: "no"
+    entrypoint: []
+    environment:
+      ONLYALPHA_POSTGRES_DSN: ${ONLYALPHA_POSTGRES_DSN:?set ONLYALPHA_POSTGRES_DSN with URL-encoded credentials}
+      ONLYALPHA_CLICKHOUSE_URL: http://onlyalpha-clickhouse:8123
+      ONLYALPHA_CLICKHOUSE_USER: ${ONLYALPHA_CLICKHOUSE_USER}
+      ONLYALPHA_CLICKHOUSE_PASSWORD: ${ONLYALPHA_CLICKHOUSE_PASSWORD}
+      ONLYALPHA_CLICKHOUSE_DATABASE: ${ONLYALPHA_CLICKHOUSE_DATABASE:-onlyalpha}
+      ONLYALPHA_CLICKHOUSE_STORAGE_POLICY: hot_cold
+      ONLYALPHA_BINANCE_API_KEY: ${ONLYALPHA_BINANCE_API_KEY:-}
+      ONLYALPHA_BINANCE_API_SECRET: ${ONLYALPHA_BINANCE_API_SECRET:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    volumes:
+      - user-data:/var/lib/onlyalpha
+      - ${ONLYALPHA_PRODUCT_CONFIG_PATH:?set ONLYALPHA_PRODUCT_CONFIG_PATH}:/var/lib/onlyalpha-product
+    networks:
+      - database
+      - binance-egress
+
+  onlyalpha-http-server:
+    image: ${ONLYALPHA_OPERATOR_IMAGE:-onlyalpha-operator:0.9.8}
+    restart: unless-stopped
+    entrypoint: ["onlyalpha-http-server"]
+    command:
+      - --user-data-root
+      - /var/lib/onlyalpha
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --backtest-product-config
+      - /etc/onlyalpha/product/binance-spot.json
+      - --backtest-product-config
+      - /etc/onlyalpha/product/binance-usdm.json
+      - --backtest-market-resource
+      - /etc/onlyalpha/product/binance-spot-reference.json
+      - --backtest-market-resource
+      - /etc/onlyalpha/product/binance-usdm-public-reference.json
+      - --backtest-market-resource
+      - /etc/onlyalpha/product/binance-usdm-account-reference.json
+    environment:
+      ONLYALPHA_POSTGRES_DSN: ${ONLYALPHA_POSTGRES_DSN:?set ONLYALPHA_POSTGRES_DSN with URL-encoded credentials}
+      ONLYALPHA_CLICKHOUSE_URL: http://onlyalpha-clickhouse:8123
+      ONLYALPHA_CLICKHOUSE_USER: ${ONLYALPHA_CLICKHOUSE_USER}
+      ONLYALPHA_CLICKHOUSE_PASSWORD: ${ONLYALPHA_CLICKHOUSE_PASSWORD}
+      ONLYALPHA_CLICKHOUSE_DATABASE: ${ONLYALPHA_CLICKHOUSE_DATABASE:-onlyalpha}
+      ONLYALPHA_CLICKHOUSE_STORAGE_POLICY: hot_cold
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    ports:
+      - "${ONLYALPHA_HTTP_BIND_ADDRESS:-127.0.0.1}:${ONLYALPHA_HTTP_PORT:-8000}:8000"
+    volumes:
+      - user-data:/var/lib/onlyalpha
+      - ${ONLYALPHA_PRODUCT_CONFIG_PATH:?set ONLYALPHA_PRODUCT_CONFIG_PATH}:/etc/onlyalpha/product:ro
+    networks:
+      - database
+
+  research-worker:
+    image: ${ONLYALPHA_OPERATOR_IMAGE:-onlyalpha-operator:0.9.8}
+    restart: unless-stopped
+    entrypoint: ["onlyalpha-research-worker"]
+    command: ["--user-data-root", "/var/lib/onlyalpha"]
+    environment:
+      ONLYALPHA_POSTGRES_DSN: ${ONLYALPHA_POSTGRES_DSN:?set ONLYALPHA_POSTGRES_DSN with URL-encoded credentials}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    volumes:
+      - user-data:/var/lib/onlyalpha
+    networks:
+      - database
+
+  backtest-worker:
+    image: ${ONLYALPHA_OPERATOR_IMAGE:-onlyalpha-operator:0.9.8}
+    restart: unless-stopped
+    entrypoint: ["onlyalpha-backtest-worker"]
+    command:
+      - --user-data-root
+      - /var/lib/onlyalpha
+      - --backtest-product-config
+      - /etc/onlyalpha/product/binance-spot.json
+      - --backtest-product-config
+      - /etc/onlyalpha/product/binance-usdm.json
+      - --backtest-market-resource
+      - /etc/onlyalpha/product/binance-spot-reference.json
+      - --backtest-market-resource
+      - /etc/onlyalpha/product/binance-usdm-public-reference.json
+      - --backtest-market-resource
+      - /etc/onlyalpha/product/binance-usdm-account-reference.json
+    environment:
+      ONLYALPHA_POSTGRES_DSN: ${ONLYALPHA_POSTGRES_DSN:?set ONLYALPHA_POSTGRES_DSN with URL-encoded credentials}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - user-data:/var/lib/onlyalpha
+      - ${ONLYALPHA_PRODUCT_CONFIG_PATH:?set ONLYALPHA_PRODUCT_CONFIG_PATH}:/etc/onlyalpha/product:ro
+    networks:
+      - database
+
 volumes:
   user-data:
     name: ${ONLYALPHA_USER_DATA_VOLUME:-onlyalpha-user-data}
+
+networks:
+  binance-egress:
+    name: ${ONLYALPHA_BINANCE_EGRESS_NETWORK:-onlyalpha-binance-egress}

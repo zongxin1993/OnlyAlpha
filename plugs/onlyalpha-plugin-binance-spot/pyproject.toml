@@ -9,6 +9,9 @@ dependencies = ["onlyalpha==0.9.8"]
 [project.entry-points."onlyalpha.market_products"]
 binance-spot = "onlyalpha_plugin_binance_spot.factory:OnlyBinanceSpotMarketProductFactory"
 
+[project.entry-points."onlyalpha.backtest_market_product_resources"]
+binance-spot-reference = "onlyalpha_plugin_binance_spot.resource_provider:OnlyBinanceSpotBacktestResourceProvider"
+
 [build-system]
 requires = ["hatchling>=1.26,<2"]
 build-backend = "hatchling.build"

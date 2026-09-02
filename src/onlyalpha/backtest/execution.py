@@ -90,14 +90,31 @@ class OnlyBacktestExecutionClaim:
 @dataclass(frozen=True, slots=True)
 class OnlyBacktestExecutionPolicy:
     lease_duration: timedelta = timedelta(seconds=30)
+    heartbeat_interval: timedelta = timedelta(seconds=10)
     max_attempts: int = 3
+    retryable_failure_codes: tuple[str, ...] = (
+        "BACKTEST_STORE_UNAVAILABLE",
+        "LEASE_EXPIRED",
+        "UNEXPECTED_WORKER_FAILURE",
+    )
 
     def __post_init__(self) -> None:
-        if self.lease_duration <= timedelta(0) or self.max_attempts < 1:
+        if (
+            self.lease_duration <= timedelta(0)
+            or self.heartbeat_interval <= timedelta(0)
+            or self.heartbeat_interval >= self.lease_duration
+            or self.max_attempts < 1
+        ):
             raise ValueError("BACKTEST_EXECUTION_POLICY_INVALID")
+        if self.retryable_failure_codes != tuple(sorted(set(self.retryable_failure_codes))) or any(
+            not item or item != item.upper() for item in self.retryable_failure_codes
+        ):
+            raise ValueError("BACKTEST_RETRYABLE_FAILURE_CODES_INVALID")
 
 
 class OnlyBacktestExecutionStore(Protocol):
+    def load(self, run_id: OnlyBacktestRunId) -> OnlyBacktestRun: ...
+
     def claim_next(
         self,
         worker_instance_id: OnlyBacktestWorkerInstanceId,
@@ -106,6 +123,25 @@ class OnlyBacktestExecutionStore(Protocol):
     ) -> OnlyBacktestExecutionClaim | None: ...
 
     def heartbeat(self, claim: OnlyBacktestExecutionClaim, lease_duration: timedelta) -> OnlyBacktestAttempt: ...
+
+    def expire_next(self, policy: OnlyBacktestExecutionPolicy) -> OnlyBacktestAttempt | None: ...
+
+    def load_attempt(self, attempt_id: OnlyBacktestAttemptId) -> OnlyBacktestAttempt: ...
+
+    def load_reconciliation_candidate(self) -> OnlyBacktestRun | None: ...
+
+    def reconcile_complete(
+        self,
+        run: OnlyBacktestRun,
+        *,
+        evidence_fingerprint: str,
+        result_fingerprint: str,
+        determinism_fingerprint: str,
+    ) -> OnlyBacktestRun: ...
+
+    def reconcile_fail(self, run: OnlyBacktestRun, failure: OnlyBacktestRunFailure) -> OnlyBacktestRun: ...
+
+    def reconcile_cancel(self, run: OnlyBacktestRun) -> OnlyBacktestRun: ...
 
     def complete(
         self,
@@ -116,7 +152,12 @@ class OnlyBacktestExecutionStore(Protocol):
         determinism_fingerprint: str,
     ) -> OnlyBacktestRun: ...
 
-    def fail(self, claim: OnlyBacktestExecutionClaim, failure: OnlyBacktestRunFailure) -> OnlyBacktestRun: ...
+    def fail(
+        self,
+        claim: OnlyBacktestExecutionClaim,
+        failure: OnlyBacktestRunFailure,
+        policy: OnlyBacktestExecutionPolicy,
+    ) -> OnlyBacktestRun: ...
 
     def cancel(self, claim: OnlyBacktestExecutionClaim) -> OnlyBacktestRun: ...
 

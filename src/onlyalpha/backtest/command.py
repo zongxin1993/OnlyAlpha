@@ -77,7 +77,7 @@ class OnlyBacktestCommandService:
         run = OnlyBacktestRun.queued(
             run_id=OnlyBacktestRunId.new(),
             specification=specification,
-            admission_resolution_fingerprint=resolution.admission_resolution_fingerprint,
+            admission_resolution=resolution,
             queued_at=queued_at,
         )
         prepared = OnlyProductCommandReceipt(

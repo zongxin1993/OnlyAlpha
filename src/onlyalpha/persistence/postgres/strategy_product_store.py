@@ -67,11 +67,25 @@ class OnlyPostgresStrategyProductStore(OnlyPostgresStrategyStore):
         try:
             with psycopg.connect(self._product_dsn, row_factory=dict_row) as connection:
                 receipt = connection.execute(
-                    "SELECT command_id FROM product_command_receipt WHERE command_id = %s FOR UPDATE",
+                    "SELECT * FROM product_command_receipt WHERE command_id = %s FOR UPDATE",
                     (command_id.value,),
                 ).fetchone()
                 if receipt is not None:
-                    raise OnlyStrategyFreezeError("PRODUCT_COMMAND_CONFLICT", command_id.value)
+                    existing = _receipt(cast(Mapping[str, object], receipt))
+                    _assert_receipt_binding(
+                        existing,
+                        command_fingerprint,
+                        OnlyProductCommandKind.FREEZE_STRATEGY,
+                        OnlyProductCommandOutcomeKind.STRATEGY,
+                        OnlyStrategyFreezeError,
+                    )
+                    completed = connection.execute(
+                        "SELECT * FROM strategy_freeze_command_admission WHERE command_id = %s FOR UPDATE",
+                        (command_id.value,),
+                    ).fetchone()
+                    if completed is None:
+                        raise OnlyStrategyFreezeError("PRODUCT_COMMAND_RECEIPT_CORRUPT", command_id.value)
+                    return _freeze_admission(cast(Mapping[str, object], completed))
                 row = connection.execute(
                     "SELECT * FROM strategy_freeze_command_admission WHERE command_id = %s FOR UPDATE",
                     (command_id.value,),
@@ -99,9 +113,20 @@ class OnlyPostgresStrategyProductStore(OnlyPostgresStrategyStore):
                         OnlyStrategyFreezeAdmissionState.PREPARED,
                         prepared_at,
                     )
-                return _freeze_admission(cast(Mapping[str, object], row))
+                existing_admission = _freeze_admission(cast(Mapping[str, object], row))
+                if (
+                    existing_admission.command_fingerprint != command_fingerprint
+                    or existing_admission.request != request
+                ):
+                    raise OnlyStrategyFreezeError("PRODUCT_COMMAND_CONFLICT", command_id.value)
+                return existing_admission
         except OnlyStrategyFreezeError:
             raise
+        except psycopg.errors.UniqueViolation as exc:
+            concurrent = self.load_freeze_admission(command_id)
+            if concurrent.command_fingerprint != command_fingerprint or concurrent.request != request:
+                raise OnlyStrategyFreezeError("PRODUCT_COMMAND_CONFLICT", command_id.value) from exc
+            return concurrent
         except psycopg.Error as exc:
             raise OnlyStrategyFreezeError("STRATEGY_FREEZE_ADMISSION_UNAVAILABLE", command_id.value) from exc
 
@@ -151,7 +176,17 @@ class OnlyPostgresStrategyProductStore(OnlyPostgresStrategyStore):
                     (admission.command_id.value,),
                 ).fetchone()
                 if existing_row is not None:
-                    return _receipt(cast(Mapping[str, object], existing_row))
+                    existing = _receipt(cast(Mapping[str, object], existing_row))
+                    _assert_receipt_binding(
+                        existing,
+                        admission.command_fingerprint,
+                        OnlyProductCommandKind.FREEZE_STRATEGY,
+                        OnlyProductCommandOutcomeKind.STRATEGY,
+                        OnlyStrategyFreezeError,
+                    )
+                    if existing.outcome_ref.outcome_id != outcome.strategy_fingerprint:
+                        raise OnlyStrategyFreezeError("PRODUCT_COMMAND_RECEIPT_CORRUPT", admission.command_id.value)
+                    return existing
                 if current.state is OnlyStrategyFreezeAdmissionState.COMPLETED:
                     raise OnlyStrategyFreezeError("PRODUCT_COMMAND_RECEIPT_CORRUPT", admission.command_id.value)
                 projection = connection.execute(
@@ -200,12 +235,24 @@ class OnlyPostgresStrategyProductStore(OnlyPostgresStrategyStore):
         self.assert_namespace()
         try:
             with psycopg.connect(self._product_dsn, row_factory=dict_row) as connection:
+                connection.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                    (command_id.value,),
+                )
                 existing_row = connection.execute(
                     "SELECT * FROM product_command_receipt WHERE command_id = %s FOR UPDATE",
                     (command_id.value,),
                 ).fetchone()
                 if existing_row is not None:
-                    return _receipt(cast(Mapping[str, object], existing_row))
+                    existing = _receipt(cast(Mapping[str, object], existing_row))
+                    _assert_receipt_binding(
+                        existing,
+                        command_fingerprint,
+                        OnlyProductCommandKind.PROMOTE_STRATEGY,
+                        OnlyProductCommandOutcomeKind.STRATEGY_PROMOTION,
+                        OnlyStrategyPromotionError,
+                    )
+                    return existing
                 catalog = connection.execute(
                     "SELECT strategy_fingerprint FROM strategy_catalog WHERE strategy_fingerprint = %s FOR UPDATE",
                     (record.strategy_fingerprint,),
@@ -249,9 +296,18 @@ class OnlyPostgresStrategyProductStore(OnlyPostgresStrategyStore):
         except OnlyStrategyPromotionError:
             raise
         except psycopg.errors.UniqueViolation as exc:
-            existing = self.find_product_command_receipt(command_id)
-            if existing is not None:
-                return existing
+            concurrent_receipt = self.find_product_command_receipt(command_id)
+            if concurrent_receipt is not None:
+                _assert_receipt_binding(
+                    concurrent_receipt,
+                    command_fingerprint,
+                    OnlyProductCommandKind.PROMOTE_STRATEGY,
+                    OnlyProductCommandOutcomeKind.STRATEGY_PROMOTION,
+                    OnlyStrategyPromotionError,
+                )
+                if concurrent_receipt.outcome_ref.outcome_id != record.record_fingerprint:
+                    raise OnlyStrategyPromotionError("PRODUCT_COMMAND_CONFLICT", command_id.value) from exc
+                return concurrent_receipt
             raise OnlyStrategyPromotionError("PROMOTION_LEDGER_CONFLICT", record.strategy_fingerprint) from exc
         except psycopg.Error as exc:
             raise OnlyStrategyPromotionError("PROMOTION_LEDGER_UNAVAILABLE", record.strategy_fingerprint) from exc
@@ -340,6 +396,21 @@ def _promotion(row: Mapping[str, object]) -> OnlyStrategyPromotionRecord:
         return result
     except Exception as exc:
         raise OnlyStrategyPromotionError("PROMOTION_LEDGER_CORRUPT", str(row.get("strategy_fingerprint"))) from exc
+
+
+def _assert_receipt_binding(
+    receipt: OnlyProductCommandReceipt,
+    command_fingerprint: str,
+    command_kind: OnlyProductCommandKind,
+    outcome_kind: OnlyProductCommandOutcomeKind,
+    error_type: type[OnlyStrategyFreezeError] | type[OnlyStrategyPromotionError],
+) -> None:
+    if (
+        receipt.command_fingerprint != command_fingerprint
+        or receipt.command_kind is not command_kind
+        or receipt.outcome_ref.kind is not outcome_kind
+    ):
+        raise error_type("PRODUCT_COMMAND_CONFLICT", receipt.command_id.value)
 
 
 def _insert_receipt(connection, receipt: OnlyProductCommandReceipt) -> None:  # type: ignore[no-untyped-def]

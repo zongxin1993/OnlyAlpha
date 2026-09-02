@@ -1,6 +1,342 @@
 {
   "components": {
     "schemas": {
+      "BacktestCancellationResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "state",
+          "revision"
+        ],
+        "title": "BacktestCancellationResponse",
+        "type": "object"
+      },
+      "BacktestEvidenceDto": {
+        "additionalProperties": false,
+        "properties": {
+          "manifest": {
+            "additionalProperties": true,
+            "title": "Manifest",
+            "type": "object"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "manifest"
+        ],
+        "title": "BacktestEvidenceDto",
+        "type": "object"
+      },
+      "BacktestFailureDto": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "phase": {
+            "title": "Phase",
+            "type": "string"
+          }
+        },
+        "required": [
+          "phase",
+          "code",
+          "detail"
+        ],
+        "title": "BacktestFailureDto",
+        "type": "object"
+      },
+      "BacktestInitialAccountDto": {
+        "additionalProperties": false,
+        "properties": {
+          "base_currency": {
+            "title": "Base Currency",
+            "type": "string"
+          },
+          "capital": {
+            "title": "Capital",
+            "type": "string"
+          }
+        },
+        "required": [
+          "base_currency",
+          "capital"
+        ],
+        "title": "BacktestInitialAccountDto",
+        "type": "object"
+      },
+      "BacktestProfileReferenceDto": {
+        "additionalProperties": false,
+        "properties": {
+          "profile_id": {
+            "title": "Profile Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "profile_id",
+          "version"
+        ],
+        "title": "BacktestProfileReferenceDto",
+        "type": "object"
+      },
+      "BacktestRunCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "dataset_binding_fingerprint": {
+            "title": "Dataset Binding Fingerprint",
+            "type": "string"
+          },
+          "execution_profile": {
+            "$ref": "#/components/schemas/BacktestProfileReferenceDto"
+          },
+          "initial_account": {
+            "$ref": "#/components/schemas/BacktestInitialAccountDto"
+          },
+          "market_product_configuration_fingerprint": {
+            "title": "Market Product Configuration Fingerprint",
+            "type": "string"
+          },
+          "portfolio_profile": {
+            "$ref": "#/components/schemas/BacktestProfileReferenceDto"
+          },
+          "risk_profile": {
+            "$ref": "#/components/schemas/BacktestProfileReferenceDto"
+          },
+          "runtime_options": {
+            "$ref": "#/components/schemas/BacktestRuntimeOptionsDto",
+            "default": {
+              "ordered_fact_policy": "ORDERED_FACTS_V1"
+            }
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "strategy_fingerprint": {
+            "title": "Strategy Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "strategy_fingerprint",
+          "dataset_binding_fingerprint",
+          "market_product_configuration_fingerprint",
+          "portfolio_profile",
+          "risk_profile",
+          "execution_profile",
+          "initial_account"
+        ],
+        "title": "BacktestRunCreateRequest",
+        "type": "object"
+      },
+      "BacktestRunCreateResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "backtest_run_id": {
+            "title": "Backtest Run Id",
+            "type": "string"
+          },
+          "disposition": {
+            "title": "Disposition",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "backtest_run_id",
+          "state",
+          "disposition"
+        ],
+        "title": "BacktestRunCreateResponse",
+        "type": "object"
+      },
+      "BacktestRunDto": {
+        "additionalProperties": false,
+        "properties": {
+          "admission_resolution_fingerprint": {
+            "title": "Admission Resolution Fingerprint",
+            "type": "string"
+          },
+          "cancel_requested_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancel Requested At"
+          },
+          "determinism_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Determinism Fingerprint"
+          },
+          "evidence_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Fingerprint"
+          },
+          "failure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BacktestFailureDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "queued_at": {
+            "title": "Queued At",
+            "type": "string"
+          },
+          "result_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Fingerprint"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "specification_fingerprint": {
+            "title": "Specification Fingerprint",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "state",
+          "revision",
+          "specification_fingerprint",
+          "admission_resolution_fingerprint",
+          "queued_at",
+          "started_at",
+          "cancel_requested_at",
+          "finished_at",
+          "result_fingerprint",
+          "evidence_fingerprint",
+          "determinism_fingerprint",
+          "failure"
+        ],
+        "title": "BacktestRunDto",
+        "type": "object"
+      },
+      "BacktestRuntimeOptionsDto": {
+        "additionalProperties": false,
+        "properties": {
+          "ordered_fact_policy": {
+            "const": "ORDERED_FACTS_V1",
+            "default": "ORDERED_FACTS_V1",
+            "title": "Ordered Fact Policy",
+            "type": "string"
+          }
+        },
+        "title": "BacktestRuntimeOptionsDto",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -108,6 +444,39 @@
         ],
         "title": "OnlyResearchWeighting",
         "type": "string"
+      },
+      "ProductExecutionHealthDto": {
+        "additionalProperties": false,
+        "properties": {
+          "checks": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Checks",
+            "type": "object"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "checks"
+        ],
+        "title": "ProductExecutionHealthDto",
+        "type": "object"
       },
       "ResearchAndDto": {
         "additionalProperties": false,
@@ -3266,6 +3635,193 @@
         "title": "ResearchVariableRefDto",
         "type": "object"
       },
+      "StrategyDto": {
+        "additionalProperties": false,
+        "properties": {
+          "current_stage": {
+            "title": "Current Stage",
+            "type": "string"
+          },
+          "freeze_relation_fingerprints": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Freeze Relation Fingerprints",
+            "type": "array"
+          },
+          "promotion_records": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Promotion Records",
+            "type": "array"
+          },
+          "revision": {
+            "additionalProperties": true,
+            "title": "Revision",
+            "type": "object"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "strategy_fingerprint": {
+            "title": "Strategy Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "strategy_fingerprint",
+          "revision",
+          "freeze_relation_fingerprints",
+          "current_stage",
+          "promotion_records"
+        ],
+        "title": "StrategyDto",
+        "type": "object"
+      },
+      "StrategyFreezeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "title": "Actor",
+            "type": "string"
+          },
+          "candidate_fingerprint": {
+            "title": "Candidate Fingerprint",
+            "type": "string"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "research_run_id": {
+            "title": "Research Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "research_run_id",
+          "candidate_fingerprint",
+          "actor"
+        ],
+        "title": "StrategyFreezeRequest",
+        "type": "object"
+      },
+      "StrategyFreezeResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "disposition": {
+            "title": "Disposition",
+            "type": "string"
+          },
+          "freeze_record_fingerprint": {
+            "title": "Freeze Record Fingerprint",
+            "type": "string"
+          },
+          "replayed": {
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "strategy_fingerprint": {
+            "title": "Strategy Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "strategy_fingerprint",
+          "disposition",
+          "freeze_record_fingerprint",
+          "replayed"
+        ],
+        "title": "StrategyFreezeResponse",
+        "type": "object"
+      },
+      "StrategyPromotionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "title": "Actor",
+            "type": "string"
+          },
+          "freeze_relation_fingerprint": {
+            "title": "Freeze Relation Fingerprint",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "freeze_relation_fingerprint",
+          "reason",
+          "actor"
+        ],
+        "title": "StrategyPromotionRequest",
+        "type": "object"
+      },
+      "StrategyPromotionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "title": "Decision",
+            "type": "string"
+          },
+          "from_stage": {
+            "title": "From Stage",
+            "type": "string"
+          },
+          "promotion_record_fingerprint": {
+            "title": "Promotion Record Fingerprint",
+            "type": "string"
+          },
+          "replayed": {
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "strategy_fingerprint": {
+            "title": "Strategy Fingerprint",
+            "type": "string"
+          },
+          "to_stage": {
+            "title": "To Stage",
+            "type": "string"
+          }
+        },
+        "required": [
+          "strategy_fingerprint",
+          "promotion_record_fingerprint",
+          "from_stage",
+          "to_stage",
+          "decision",
+          "replayed"
+        ],
+        "title": "StrategyPromotionResponse",
+        "type": "object"
+      },
       "SubmitResearchRunRequest": {
         "additionalProperties": false,
         "properties": {
@@ -3344,11 +3900,322 @@
     }
   },
   "info": {
-    "title": "OnlyAlpha Research API",
+    "title": "OnlyAlpha Product API",
     "version": "2"
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v2/backtest/runs": {
+      "post": {
+        "operationId": "create_run_api_v2_backtest_runs_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BacktestRunCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestRunCreateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Create Run",
+        "tags": [
+          "backtest"
+        ]
+      }
+    },
+    "/api/v2/backtest/runs/{run_id}": {
+      "get": {
+        "operationId": "get_run_api_v2_backtest_runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestRunDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Run",
+        "tags": [
+          "backtest"
+        ]
+      }
+    },
+    "/api/v2/backtest/runs/{run_id}/cancellation": {
+      "post": {
+        "operationId": "cancel_run_api_v2_backtest_runs__run_id__cancellation_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestCancellationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Cancel Run",
+        "tags": [
+          "backtest"
+        ]
+      }
+    },
+    "/api/v2/backtest/runs/{run_id}/evidence": {
+      "get": {
+        "operationId": "get_evidence_api_v2_backtest_runs__run_id__evidence_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestEvidenceDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Evidence",
+        "tags": [
+          "backtest"
+        ]
+      }
+    },
+    "/api/v2/backtest/runs/{run_id}/evidence/artifacts/{artifact_name}": {
+      "get": {
+        "operationId": "get_artifact_api_v2_backtest_runs__run_id__evidence_artifacts__artifact_name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "artifact_name",
+            "required": true,
+            "schema": {
+              "title": "Artifact Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Artifact",
+        "tags": [
+          "backtest"
+        ]
+      }
+    },
     "/api/v2/research/artifacts/{research_result_fingerprint}": {
       "get": {
         "operationId": "artifact_summary_api_v2_research_artifacts__research_result_fingerprint__get",
@@ -4985,6 +5852,237 @@
         "summary": "Cancel Run",
         "tags": [
           "research-runs"
+        ]
+      }
+    },
+    "/api/v2/strategies/{strategy_fingerprint}": {
+      "get": {
+        "operationId": "get_strategy_api_v2_strategies__strategy_fingerprint__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "strategy_fingerprint",
+            "required": true,
+            "schema": {
+              "title": "Strategy Fingerprint",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Strategy",
+        "tags": [
+          "strategies"
+        ]
+      }
+    },
+    "/api/v2/strategies/{strategy_fingerprint}/promotions": {
+      "post": {
+        "operationId": "promote_strategy_api_v2_strategies__strategy_fingerprint__promotions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "strategy_fingerprint",
+            "required": true,
+            "schema": {
+              "title": "Strategy Fingerprint",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StrategyPromotionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyPromotionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Promote Strategy",
+        "tags": [
+          "strategies"
+        ]
+      }
+    },
+    "/api/v2/strategy-freezes": {
+      "post": {
+        "operationId": "freeze_strategy_api_v2_strategy_freezes_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StrategyFreezeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyFreezeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Freeze Strategy",
+        "tags": [
+          "strategies"
+        ]
+      }
+    },
+    "/health/execution": {
+      "get": {
+        "operationId": "execution_health_execution_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductExecutionHealthDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductExecutionHealthDto"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Execution",
+        "tags": [
+          "health"
         ]
       }
     },

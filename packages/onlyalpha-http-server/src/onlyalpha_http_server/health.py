@@ -15,6 +15,10 @@ class _ReadinessProbe(Protocol):
     def inspect(self) -> OnlyResearchReadiness: ...
 
 
+class OnlyProductExecutionCapacityProbe(Protocol):
+    def has_fresh_worker(self) -> bool: ...
+
+
 class _KernelStateProjection(Protocol):
     @property
     def value(self) -> str: ...
@@ -67,6 +71,14 @@ class ResearchHealthDto(BaseModel):
     reason: str | None = None
 
 
+class ProductExecutionHealthDto(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    status: str
+    checks: dict[str, str]
+    reason: str | None = None
+
+
 class _UnavailableProbe:
     def inspect(self) -> OnlyResearchReadiness:
         from onlyalpha.research.operations.readiness import OnlyResearchReadinessCheck
@@ -78,7 +90,10 @@ class _UnavailableProbe:
         )
 
 
-def create_health_router(probe: _ReadinessProbe | None) -> APIRouter:
+def create_health_router(
+    probe: _ReadinessProbe | None,
+    execution_capacity: OnlyProductExecutionCapacityProbe | None = None,
+) -> APIRouter:
     router = APIRouter(tags=["health"])
     readiness = probe or _UnavailableProbe()
 
@@ -102,7 +117,39 @@ def create_health_router(probe: _ReadinessProbe | None) -> APIRouter:
             return body
         return JSONResponse(status_code=503, content=body.model_dump(mode="json"))
 
+    @router.get(
+        "/health/execution",
+        response_model=ProductExecutionHealthDto,
+        responses={503: {"model": ProductExecutionHealthDto}},
+    )
+    def execution() -> ProductExecutionHealthDto | JSONResponse:
+        if execution_capacity is None:
+            body = ProductExecutionHealthDto(
+                status="UNKNOWN",
+                checks={"backtest_worker": "UNKNOWN"},
+                reason="BACKTEST_WORKER_CAPACITY_UNAVAILABLE",
+            )
+            return JSONResponse(status_code=503, content=body.model_dump(mode="json"))
+        try:
+            available = execution_capacity.has_fresh_worker()
+        except Exception:
+            available = False
+        body = ProductExecutionHealthDto(
+            status="AVAILABLE" if available else "DEGRADED",
+            checks={"backtest_worker": "AVAILABLE" if available else "ABSENT"},
+            reason=None if available else "BACKTEST_WORKER_ABSENT",
+        )
+        if available:
+            return body
+        return JSONResponse(status_code=503, content=body.model_dump(mode="json"))
+
     return router
 
 
-__all__ = ["OnlyKernelResearchReadinessProjection", "ResearchHealthDto", "create_health_router"]
+__all__ = [
+    "OnlyKernelResearchReadinessProjection",
+    "OnlyProductExecutionCapacityProbe",
+    "ProductExecutionHealthDto",
+    "ResearchHealthDto",
+    "create_health_router",
+]
