@@ -21,7 +21,7 @@ nanosecond `[from,to)`, cursor semantics use `ts_event_ns > after_ts_event_ns`, 
 page returns its last timestamp as the next cursor. Query may select, sort, filter, paginate, and project existing Artifact facts. It
 may not recompute Statistics or analytics, scan upstream Stores, inspect physical Artifact files, or infer composition.
 
-The HTTP adapter is a separate `onlyalpha-api` workspace package. It owns FastAPI/Pydantic/Uvicorn dependencies and exposes exactly
+The HTTP adapter is a separate `onlyalpha-http-server` workspace package. It owns FastAPI/Pydantic/Uvicorn dependencies and exposes exactly
 three GET product endpoints under `/api/v1`; Core has no reverse dependency. Decimal values are JSON strings, event timestamps retain
 exact nanosecond integers, and audit `created_at` is UTC ISO-8601. Exact lower-case SHA256 addressing is mandatory. Missing Artifact,
 corrupt Artifact, unknown Statistics, and invalid query remain distinct stable errors; corruption is never empty, missing, repaired,

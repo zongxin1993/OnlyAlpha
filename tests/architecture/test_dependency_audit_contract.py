@@ -105,7 +105,7 @@ def test_missing_or_invalid_scanner_output_is_infrastructure_failure(tmp_path: P
 def test_authoritative_python_and_web_locks_are_one_fail_closed_gate(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.chdir(tmp_path)
     python_lock = Path("uv.lock")
-    web_lock = Path("apps/onlyalpha-web/package-lock.json")
+    web_lock = Path("packages/onlyalpha-web-console/package-lock.json")
     python_lock.write_text("version = 1\n", encoding="utf-8")
     web_lock.parent.mkdir(parents=True)
     web_lock.write_text('{"lockfileVersion":3}\n', encoding="utf-8")
@@ -125,5 +125,5 @@ def test_authoritative_python_and_web_locks_are_one_fail_closed_gate(tmp_path: P
     )
 
     assert evidence["status"] == "PASSED"
-    assert evidence["audited_authorities"] == ["apps/onlyalpha-web/package-lock.json", "uv.lock"]
-    assert set(evidence["lock_sha256"]) == {"uv.lock", "apps/onlyalpha-web/package-lock.json"}
+    assert evidence["audited_authorities"] == ["packages/onlyalpha-web-console/package-lock.json", "uv.lock"]
+    assert set(evidence["lock_sha256"]) == {"uv.lock", "packages/onlyalpha-web-console/package-lock.json"}

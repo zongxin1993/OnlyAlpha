@@ -52,10 +52,10 @@ coverage.xml
 .test-metrics/
 test-results/
 node_modules/
-apps/onlyalpha-web/dist/
-apps/onlyalpha-web/coverage/
-apps/onlyalpha-web/playwright-report/
-apps/onlyalpha-web/test-results/
+packages/onlyalpha-web-console/dist/
+packages/onlyalpha-web-console/coverage/
+packages/onlyalpha-web-console/playwright-report/
+packages/onlyalpha-web-console/test-results/
 *.tsbuildinfo
 .test-cache/
 .baseline-*.txt
@@ -84,12 +84,10 @@ docs/_build/
 # PyBuilder
 .pybuilder/
 target/
-!packages/target/
-!packages/target/**
-packages/target/**/__pycache__/
-packages/target/**/*.py[cod]
-packages/target/**/.pytest_cache/
-packages/target/**/dist/
+plugs/**/__pycache__/
+plugs/**/*.py[cod]
+plugs/**/.pytest_cache/
+plugs/**/dist/
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -243,3 +241,5 @@ mutants/
 .asv/results/
 .asv/html/
 .env
+prompt/
+.DS_Store

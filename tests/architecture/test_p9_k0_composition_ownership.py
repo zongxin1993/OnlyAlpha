@@ -45,7 +45,7 @@ def test_migration_authority_surface_does_not_masquerade_as_verifier() -> None:
 
 def test_worker_and_api_construct_only_schema_verifier() -> None:
     worker = (ROOT / "src/onlyalpha/research/worker_main.py").read_text(encoding="utf-8")
-    api = (ROOT / "packages/api/onlyalpha-api/src/onlyalpha_api/main.py").read_text(encoding="utf-8")
+    api = (ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py").read_text(encoding="utf-8")
     for source in (worker, api):
         assert "OnlyPostgresSchemaVerifier(" in source
         assert "OnlyPostgresMigrationAuthority" not in source
@@ -59,7 +59,7 @@ def test_database_operator_is_only_production_migration_composer() -> None:
 def test_kernel_host_and_product_dispatchers_have_exact_composition_sites() -> None:
     lifecycle = next(item for item in CONTRACT.constructors.values() if item.capability == "C17")
     command = next(item for item in CONTRACT.constructors.values() if item.capability == "C18")
-    production_path = "packages/api/onlyalpha-api/src/onlyalpha_api/main.py"
+    production_path = "packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"
     tooling_path = "scripts/openapi_contract.py"
     assert CONSTRUCTOR_SITES[lifecycle.id] == {production_path, tooling_path}
     assert CONTRACT.classify_path(production_path).production

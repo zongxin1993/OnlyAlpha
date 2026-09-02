@@ -8,7 +8,7 @@ import pytest
 pytestmark = pytest.mark.architecture
 
 ROOT = Path(__file__).parents[2]
-API = ROOT / "packages/api/onlyalpha-api/src/onlyalpha_api"
+API = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server"
 RUN_ROUTES = API / "research/run_routes.py"
 APP = API / "app.py"
 MAIN = API / "main.py"
@@ -75,7 +75,7 @@ def test_standalone_artifact_console_is_no_longer_a_product_surface() -> None:
 
 
 def test_core_and_product_intents_remain_http_transport_neutral() -> None:
-    forbidden = ("fastapi", "starlette", "onlyalpha_api")
+    forbidden = ("fastapi", "starlette", "onlyalpha_http_server")
     for path in (ROOT / "src/onlyalpha").rglob("*.py"):
         assert not any(name.startswith(forbidden) for name in _imports(path)), path
     product_source = (ROOT / "src/onlyalpha/application/product_boundary.py").read_text(encoding="utf-8")

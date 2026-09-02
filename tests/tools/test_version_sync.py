@@ -65,11 +65,11 @@ members = ["packages/a", "packages/b"]
     )
     _write(tmp_path / "README.md", "# Documentation without release metadata\n")
     _write(
-        tmp_path / "apps/onlyalpha-web/package.json",
+        tmp_path / "packages/onlyalpha-web-console/package.json",
         '{"name":"onlyalpha-web","private":true,"version":"0.3.7"}\n',
     )
     _write(
-        tmp_path / "apps/onlyalpha-web/package-lock.json",
+        tmp_path / "packages/onlyalpha-web-console/package-lock.json",
         '{"name":"onlyalpha-web","version":"0.3.7","packages":{"":{"version":"0.3.7"}}}\n',
     )
     _write(
@@ -274,8 +274,8 @@ def test_set_rewrites_complete_graph_and_preserves_external_dependencies(tmp_pat
     assert fixture["project"]["version"] == "7.9"
     assert list(fixture["project"]["dependencies"]) == ["onlyalpha==0.3.8"]
     assert (root / "README.md").read_text(encoding="utf-8") == readme_before
-    web_package = (root / "apps/onlyalpha-web/package.json").read_text(encoding="utf-8")
-    web_lock = (root / "apps/onlyalpha-web/package-lock.json").read_text(encoding="utf-8")
+    web_package = (root / "packages/onlyalpha-web-console/package.json").read_text(encoding="utf-8")
+    web_lock = (root / "packages/onlyalpha-web-console/package-lock.json").read_text(encoding="utf-8")
     assert '\n    "version": "0.3.8"' in web_package
     assert '\n    "version": "0.3.8"' in web_lock
     assert '\n  "version": "0.3.8"' not in web_package

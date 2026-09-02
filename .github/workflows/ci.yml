@@ -55,8 +55,8 @@ jobs:
           expected = {
               "onlyalpha",
               "onlyalpha-plugin-broker-virtual",
-              "onlyalpha-market-generic-t0-cash",
-              "onlyalpha-market-cn-ashare",
+              "onlyalpha-plugin-generic-t0-cash",
+              "onlyalpha-plugin-cn-ashare",
               "onlyalpha-plugin-tushare",
               "onlyalpha-plugin-miniqmt",
           }
@@ -127,7 +127,7 @@ jobs:
         run: uv run ruff format --check src tests examples
 
       - name: Mypy Core
-        run: uv run mypy src/onlyalpha packages/indicator/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators packages/factor/onlyalpha-plugin-factors/src/onlyalpha_plugin_factors packages/target/onlyalpha-plugin-targets/src/onlyalpha_plugin_targets
+        run: uv run mypy src/onlyalpha plugs/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators plugs/onlyalpha-plugin-factors/src/onlyalpha_plugin_factors plugs/onlyalpha-plugin-targets/src/onlyalpha_plugin_targets
 
       - name: Run Core tests
         run: >-
@@ -161,13 +161,13 @@ jobs:
       - name: Synchronize workspace
         run: uv sync --frozen --all-packages --all-groups
       - name: Ruff lint Virtual Broker
-        run: uv run ruff check packages/fake/onlyalpha-plugin-broker-virtual
+        run: uv run ruff check plugs/onlyalpha-plugin-broker-virtual
       - name: Ruff format Virtual Broker
-        run: uv run ruff format --check packages/fake/onlyalpha-plugin-broker-virtual
+        run: uv run ruff format --check plugs/onlyalpha-plugin-broker-virtual
       - name: Mypy Virtual Broker
-        run: uv run mypy --config-file packages/fake/onlyalpha-plugin-broker-virtual/pyproject.toml packages/fake/onlyalpha-plugin-broker-virtual/src/onlyalpha_plugin_broker_virtual
+        run: uv run mypy --config-file plugs/onlyalpha-plugin-broker-virtual/pyproject.toml plugs/onlyalpha-plugin-broker-virtual/src/onlyalpha_plugin_broker_virtual
       - name: Test Virtual Broker
-        run: uv run pytest packages/fake/onlyalpha-plugin-broker-virtual/tests -q
+        run: uv run pytest plugs/onlyalpha-plugin-broker-virtual/tests -q
 
   tushare:
     name: Tushare / ${{ matrix.os }}
@@ -200,24 +200,24 @@ jobs:
       - name: Ruff lint Tushare
         run: >-
           uv run ruff check
-          packages/provider/onlyalpha-plugin-tushare/src
-          packages/provider/onlyalpha-plugin-tushare/tests
+          plugs/onlyalpha-plugin-tushare/src
+          plugs/onlyalpha-plugin-tushare/tests
 
       - name: Ruff format Tushare
         run: >-
           uv run ruff format --check
-          packages/provider/onlyalpha-plugin-tushare/src
-          packages/provider/onlyalpha-plugin-tushare/tests
+          plugs/onlyalpha-plugin-tushare/src
+          plugs/onlyalpha-plugin-tushare/tests
 
       - name: Mypy Tushare
         run: >-
           uv run mypy
-          packages/provider/onlyalpha-plugin-tushare/src/onlyalpha_plugin_tushare
+          plugs/onlyalpha-plugin-tushare/src/onlyalpha_plugin_tushare
 
       - name: Run offline Tushare tests
         run: >-
           uv run pytest
-          packages/provider/onlyalpha-plugin-tushare/tests
+          plugs/onlyalpha-plugin-tushare/tests
           -q
           -m "not external
           and not requires_network
@@ -235,10 +235,10 @@ jobs:
           version: "0.10.5"
           python-version: ${{ env.PYTHON_VERSION }}
       - run: uv sync --frozen --all-packages --all-groups
-      - run: uv run ruff check packages/market/onlyalpha-market-generic-t0-cash
-      - run: uv run ruff format --check packages/market/onlyalpha-market-generic-t0-cash
-      - run: uv run mypy --config-file packages/market/onlyalpha-market-generic-t0-cash/pyproject.toml packages/market/onlyalpha-market-generic-t0-cash/src/onlyalpha_market_generic_t0_cash
-      - run: uv run pytest packages/market/onlyalpha-market-generic-t0-cash/tests -q
+      - run: uv run ruff check plugs/onlyalpha-plugin-generic-t0-cash
+      - run: uv run ruff format --check plugs/onlyalpha-plugin-generic-t0-cash
+      - run: uv run mypy --config-file plugs/onlyalpha-plugin-generic-t0-cash/pyproject.toml plugs/onlyalpha-plugin-generic-t0-cash/src/onlyalpha_plugin_generic_t0_cash
+      - run: uv run pytest plugs/onlyalpha-plugin-generic-t0-cash/tests -q
 
   cn-ashare-market-product:
     name: CN A-share Market Product
@@ -252,10 +252,10 @@ jobs:
           version: "0.10.5"
           python-version: ${{ env.PYTHON_VERSION }}
       - run: uv sync --frozen --all-packages --all-groups
-      - run: uv run ruff check packages/market/onlyalpha-market-cn-ashare
-      - run: uv run ruff format --check packages/market/onlyalpha-market-cn-ashare
-      - run: uv run mypy --config-file packages/market/onlyalpha-market-cn-ashare/pyproject.toml packages/market/onlyalpha-market-cn-ashare/src/onlyalpha_market_cn_ashare
-      - run: uv run pytest packages/market/onlyalpha-market-cn-ashare/tests -q
+      - run: uv run ruff check plugs/onlyalpha-plugin-cn-ashare
+      - run: uv run ruff format --check plugs/onlyalpha-plugin-cn-ashare
+      - run: uv run mypy --config-file plugs/onlyalpha-plugin-cn-ashare/pyproject.toml plugs/onlyalpha-plugin-cn-ashare/src/onlyalpha_plugin_cn_ashare
+      - run: uv run pytest plugs/onlyalpha-plugin-cn-ashare/tests -q
 
   # ---------------------------------------------------------------------------
   # MiniQMT 是 Windows-only 运行插件。
@@ -284,26 +284,26 @@ jobs:
       - name: Ruff lint MiniQMT
         run: >-
           uv run ruff check
-          packages/provider/onlyalpha-plugin-miniqmt/src
-          packages/provider/onlyalpha-plugin-miniqmt/tests
+          plugs/onlyalpha-plugin-miniqmt/src
+          plugs/onlyalpha-plugin-miniqmt/tests
 
       - name: Ruff format MiniQMT
         run: >-
           uv run ruff format --check
-          packages/provider/onlyalpha-plugin-miniqmt/src
-          packages/provider/onlyalpha-plugin-miniqmt/tests
+          plugs/onlyalpha-plugin-miniqmt/src
+          plugs/onlyalpha-plugin-miniqmt/tests
 
       - name: Mypy MiniQMT
         run: >-
           uv run mypy
-          packages/provider/onlyalpha-plugin-miniqmt/src/onlyalpha_plugin_miniqmt
+          plugs/onlyalpha-plugin-miniqmt/src/onlyalpha_plugin_miniqmt
 
       - name: Run offline MiniQMT tests
         env:
           ONLYALPHA_MINIQMT_REAL_HISTORY: "0"
         run: >-
           uv run pytest
-          packages/provider/onlyalpha-plugin-miniqmt/tests
+          plugs/onlyalpha-plugin-miniqmt/tests
           -q
           -m "not external
           and not requires_network
@@ -425,14 +425,14 @@ jobs:
             import-name: onlyalpha_plugin_broker_virtual
             entry-points: "onlyalpha.brokers=virtual"
 
-          - distribution: onlyalpha-market-generic-t0-cash
+          - distribution: onlyalpha-plugin-generic-t0-cash
             os: ubuntu-latest
-            import-name: onlyalpha_market_generic_t0_cash
+            import-name: onlyalpha_plugin_generic_t0_cash
             entry-points: "onlyalpha.market_products=generic-t0-cash"
 
-          - distribution: onlyalpha-market-cn-ashare
+          - distribution: onlyalpha-plugin-cn-ashare
             os: ubuntu-latest
-            import-name: onlyalpha_market_cn_ashare
+            import-name: onlyalpha_plugin_cn_ashare
             entry-points: "onlyalpha.market_products=cn-ashare"
 
           - distribution: onlyalpha-plugin-miniqmt

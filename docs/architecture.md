@@ -3,6 +3,26 @@
 本文档描述长期结构、依赖方向与 Authority 边界。当前实现事实必须由源码、测试和可执行行为判断；历史工程过程由 Git history
 保存，不在架构文档维护进度或验收状态。
 
+## Repository taxonomy and protocol boundary
+
+```text
+Web / Agent
+    ↓ Product API (versioned OpenAPI contract in contracts/)
+onlyalpha-http-server (replaceable HTTP component)
+    ↓ Application Command / Query
+src/onlyalpha (stateful Kernel and canonical semantics)
+    ↓ stable Plugin SPI / ports
+plugs/onlyalpha-plugin-* (concrete plugins)
+    ↓
+External market / provider / broker
+```
+
+`packages/` contains independently buildable non-plugin components such as the Web console,
+HTTP server and Gateway protocol. Web is not a Plugin and the HTTP server is not the Kernel.
+The Kernel remains transport-neutral and concrete-plugin-free; its internal deterministic
+trading chain uses direct typed calls. Gateway protocol is an infrastructure/data-plane
+contract, while OpenAPI is the Product control-plane contract. Plugins never own Core Authority.
+
 Runtime 产品分类与迁移方向由 [ADR 0068](adr/0068-runtime-product-taxonomy-and-trading-semantic-equivalence.md) 决定；多市场
 拓扑与异构生命周期由 [ADR 0080](adr/0080-multi-market-platform-and-heterogeneous-runtime-lifecycle.md) 决定；目标 Live
 导入、人工操作和清仓控制由 [ADR 0081](adr/0081-live-genesis-manual-workload-and-liquidation-control.md) 决定。任何“目标”
@@ -133,9 +153,9 @@ P7.11 已激活 finite Research Factory：Runtime 从 exact verified Dataset Sna
 Artifact 与 final verified load 顺序编排既有 authority，并使用 verified immutable authority + deterministic re-entry 恢复；不创建
 Runtime checkpoint 或 workload semantic fingerprint。P7.8 已实现 composition-only immutable Research Result，P7.9 已实现只复制该 Result
 精确选择的 Statistics rows、可脱离全部上游 Store 自验证的 immutable Research Artifact。P7.10 已在 Artifact 之上实现无状态、
-transport-neutral Query Model/Service，并由独立 `onlyalpha-api` package 提供三个 exact-identity GET endpoint。Artifact 不是新的
+transport-neutral Query Model/Service，并由独立 `onlyalpha-http-server` package 提供三个 exact-identity GET endpoint。Artifact 不是新的
 Statistics 或 Research authority，Query Result 只是 ephemeral projection。P7.12 将 HTTP transport 独立升级为 schema v2，以 canonical
-decimal string 表达纳秒和 cursor，并建立 `apps/onlyalpha-web` browser consumer：OpenAPI generated type + Zod admission 后映射为
+decimal string 表达纳秒和 cursor，并建立 `packages/onlyalpha-web-console` browser consumer：OpenAPI generated type + Zod admission 后映射为
 `bigint`/exact Decimal text，URL 拥有 selection，TanStack Query 只拥有 disposable cache，Lightweight Charts 只消费显式 lossy projection。
 Web 仅调用 same-origin read-only API，不读取 Artifact path/Parquet/Store，不访问或控制 Research Runtime。P8.2 已在 Runtime 外建立
 PostgreSQL operational Scheduler/Worker：Run 是总体 intent/outcome，Attempt 是 lease-governed execution ownership/history；claim、heartbeat、
@@ -303,7 +323,7 @@ Instrument Market Terms
 
 `Matching / Slippage / Simulation Liquidity / Latency / Fill Plan / Fill Schedule` 不属于 Market Product IR；它们属于 Virtual Broker / Execution Simulation。该边界由 [ADR 0070](adr/0070-generic-t0-cash-market-product-and-canonical-market-ir.md) 和静态门禁冻结。
 
-`onlyalpha-market-generic-t0-cash` 与 `onlyalpha-market-cn-ashare` 通过 `onlyalpha.market_products` entry point 自动发现，各自拥有 plugin-local Reference、deterministic Reference Authority、pure Policy Compiler 和 Market Fee Pack。Core composition root 只持有 neutral `OnlyMarketProductFactoryRegistry`，没有 concrete import、hard registration 或 Generic fallback。tests-only `TEST_T2_MARKET` 以 tick `0.25`、quantity step `7`、T+2 证明同一 IR 不依赖 Generic branch。
+`onlyalpha-plugin-generic-t0-cash` 与 `onlyalpha-plugin-cn-ashare` 通过 `onlyalpha.market_products` entry point 自动发现，各自拥有 plugin-local Reference、deterministic Reference Authority、pure Policy Compiler 和 Market Fee Pack。Core composition root 只持有 neutral `OnlyMarketProductFactoryRegistry`，没有 concrete import、hard registration 或 Generic fallback。tests-only `TEST_T2_MARKET` 以 tick `0.25`、quantity step `7`、T+2 证明同一 IR 不依赖 Generic branch。
 
 当前生产组合已经是：
 
@@ -532,7 +552,7 @@ Virtual Broker、Tushare 和 MiniQMT 位于各自 distribution。插件必须提
 Human → Web
 Agent / Automation → canonical versioned Product API
 → HTTPS / JSON
-→ onlyalpha-api
+→ onlyalpha-http-server
 → Product Command / Query
 → Stateful Kernel / Application authority
 ```

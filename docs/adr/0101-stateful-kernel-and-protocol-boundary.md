@@ -6,7 +6,7 @@
 
 ## Context
 
-P8 already established a durable Research control plane and an external HTTP surface. The current `onlyalpha-api` package uses FastAPI/Pydantic/Uvicorn, publishes a generated OpenAPI contract, requires UUID4 idempotency for Research submission, returns `202 Accepted` only after durable PostgreSQL commit, and keeps Worker/Engine execution outside the HTTP request lifecycle.
+P8 already established a durable Research control plane and an external HTTP surface. The current `onlyalpha-http-server` package uses FastAPI/Pydantic/Uvicorn, publishes a generated OpenAPI contract, requires UUID4 idempotency for Research submission, returns `202 Accepted` only after durable PostgreSQL commit, and keeps Worker/Engine execution outside the HTTP request lifecycle.
 
 P9.0 then established a much stronger semantic authority chain: exact Research execution evidence, exact RESEARCH/TRADING equivalence evidence, unique Candidate Freeze, immutable Strategy Revision identity, read-only runtime Strategy authority, append-only Promotion, and deterministic publication/reconciliation rules.
 

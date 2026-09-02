@@ -10,7 +10,7 @@ def _source(root: Path) -> str:
 
 
 def test_provider_captures_opaque_evidence_without_database_dependencies() -> None:
-    provider = Path("packages/provider/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance")
+    provider = Path("plugs/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance")
     source = _source(provider)
     assert "provider_evidence_sink" in source
     assert "OnlyRawProviderObservation" in source
@@ -26,7 +26,7 @@ def test_provider_captures_opaque_evidence_without_database_dependencies() -> No
 def test_production_composition_cannot_silently_bypass_durable_recorder() -> None:
     composition = Path("src/onlyalpha/runtime/sim/factory.py").read_text()
     provider_factory = Path(
-        "packages/provider/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance/spot/data_source/factory.py"
+        "plugs/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance/spot/data_source/factory.py"
     ).read_text()
     assert "durable_recording_required=True" in composition
     assert "provider_evidence_sink=durable_recorder" in composition

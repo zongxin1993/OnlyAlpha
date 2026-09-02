@@ -56,13 +56,13 @@ def test_producer_authorities_and_core_do_not_reverse_depend_on_query_or_api() -
     ):
         for path in root.glob("*.py"):
             imports = _imports(path)
-            assert not any(name.startswith(("onlyalpha.research.query", "onlyalpha_api")) for name in imports), path
+            assert not any(name.startswith(("onlyalpha.research.query", "onlyalpha_http_server")) for name in imports), path
     for path in Path("src/onlyalpha").rglob("*.py"):
-        assert not any(name.startswith("onlyalpha_api") for name in _imports(path)), path
+        assert not any(name.startswith("onlyalpha_http_server") for name in _imports(path)), path
 
 
 def test_http_routes_and_schema_only_consume_query_public_contract() -> None:
-    adapter_root = Path("packages/api/onlyalpha-api/src/onlyalpha_api/research")
+    adapter_root = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server/research")
     forbidden = (
         "onlyalpha.research.artifact",
         "onlyalpha.research.dataset",
@@ -81,7 +81,7 @@ def test_http_routes_and_schema_only_consume_query_public_contract() -> None:
 
 
 def test_only_server_composition_root_constructs_bounded_artifact_profile_reader() -> None:
-    api_root = Path("packages/api/onlyalpha-api/src/onlyalpha_api")
+    api_root = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server")
     consumers = []
     for path in api_root.rglob("*.py"):
         if "OnlyResearchArtifactProfileReader" in path.read_text(encoding="utf-8"):
@@ -107,7 +107,7 @@ def test_query_defines_no_durable_authority_catalog_or_semantic_calculation() ->
 
 
 def test_product_api_has_bounded_get_only_routes_and_live_remains_unsupported() -> None:
-    routes = (Path("packages/api/onlyalpha-api/src/onlyalpha_api/research/routes.py")).read_text(encoding="utf-8")
+    routes = (Path("packages/onlyalpha-http-server/src/onlyalpha_http_server/research/routes.py")).read_text(encoding="utf-8")
     assert routes.count("@router.get(") == 9
     assert not any(token in routes for token in ("@router.post", "@router.put", "@router.patch", "@router.delete"))
     live = OnlyLiveRuntimeFactory().create(None)

@@ -12,18 +12,18 @@ from typing import cast
 from zoneinfo import ZoneInfo
 
 import pytest
-from onlyalpha_market_cn_ashare.factory import OnlyCnAshareMarketProductFactory
-from onlyalpha_market_cn_ashare.fee_pack import (
+from onlyalpha_plugin_cn_ashare.factory import OnlyCnAshareMarketProductFactory
+from onlyalpha_plugin_cn_ashare.fee_pack import (
     CN_A_SHARE_PRODUCTION_FEE_COVERAGE_FROM,
     only_cn_a_share_market_fee_pack,
 )
-from onlyalpha_market_cn_ashare.fee_pack import (
+from onlyalpha_plugin_cn_ashare.fee_pack import (
     PACK_ID as CN_A_SHARE_PRODUCTION_MARKET_FEE_PACK_ID,
 )
-from onlyalpha_market_cn_ashare.fee_pack import (
+from onlyalpha_plugin_cn_ashare.fee_pack import (
     PACK_VERSION as CN_A_SHARE_PRODUCTION_MARKET_FEE_PACK_VERSION,
 )
-from onlyalpha_market_cn_ashare.reference import (
+from onlyalpha_plugin_cn_ashare.reference import (
     OnlyCnAshareInstrumentReference,
     OnlyCnAshareReferenceAuthority,
     OnlyCnAshareReferenceSource,
@@ -220,7 +220,7 @@ def test_trading_dates_resolve_current_production_product_and_fee_authority() ->
     _, _, reference_values = _load_sealed_fixture(DATASET)
     binding = OnlyCnAshareMarketProductFactory().resolve(
         OnlyMarketProductConfig(
-            OnlyMarketProductPluginId("onlyalpha-market-cn-ashare"),
+            OnlyMarketProductPluginId("onlyalpha-plugin-cn-ashare"),
             OnlyMarketProductId("CN_A_SHARE_CASH"),
             OnlyMarketProductVersion("2025.1"),
             OnlyCanonicalMarketProductConfig({"references": reference_values}),  # type: ignore[arg-type]

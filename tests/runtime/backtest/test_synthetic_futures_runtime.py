@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 
 import pytest
-from onlyalpha_market_generic_t0_cash.fee_pack import only_generic_t0_cash_market_fee_pack
+from onlyalpha_plugin_generic_t0_cash.fee_pack import only_generic_t0_cash_market_fee_pack
 from onlyalpha_plugin_broker_virtual import OnlyVirtualBrokerConfig, OnlyVirtualBrokerGateway
 
 from onlyalpha.account.enums import OnlyAccountEconomicCashflowType, OnlyAccountType

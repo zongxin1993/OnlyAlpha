@@ -3,7 +3,7 @@
 Artifact queries are served by the unique Product API. Configure it explicitly:
 
 ```bash
-ONLYALPHA_POSTGRES_DSN='postgresql://...' onlyalpha-api --user-data-root /absolute/path/to/user-data
+ONLYALPHA_POSTGRES_DSN='postgresql://...' onlyalpha-http-server --user-data-root /absolute/path/to/user-data
 ```
 
 It binds `127.0.0.1:8000` by default and exposes:
@@ -19,14 +19,14 @@ are canonical fixed strings or null. Query Core schema remains 1, while top-leve
 Error bodies are `{schema_version, code, detail}` with invalid query=400, missing identity=404, and corrupt verified Artifact=500.
 
 The deterministic OpenAPI contract is `contracts/research-api/v2/openapi.json`, generated from FastAPI by
-`scripts/openapi_contract.py`. `apps/onlyalpha-web` generates compile-time transport types from it and separately performs
+`scripts/openapi_contract.py`. `packages/onlyalpha-web-console` generates compile-time transport types from it and separately performs
 strict Zod admission before mapping timestamps to `bigint`. There are no v1 product routes or compatibility wrapper.
 
 The Artifact query family is read-only and exact-addressed. It has no catalog/search/latest endpoint, mutation, raw Parquet download, query cache,
 semantic recomputation, authentication, Trading endpoint, or Runtime control. The read-only Research Web consumer uses only these
 same-origin endpoints and never reads Artifact filesystem layout or execution Stores.
 
-The full local control API uses `onlyalpha-api --user-data-root /absolute/user-data`, reads the PostgreSQL DSN only from
+The full local control API uses `onlyalpha-http-server --user-data-root /absolute/user-data`, reads the PostgreSQL DSN only from
 `ONLYALPHA_POSTGRES_DSN`, checks schema compatibility without migrating, and adds:
 
 - `POST /api/v2/research/runs` with required canonical UUID4 `Idempotency-Key` (`202` + `Location`);

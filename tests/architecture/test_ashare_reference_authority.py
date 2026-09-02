@@ -17,7 +17,7 @@ def test_runtime_factories_do_not_read_legacy_ashare_mappings() -> None:
 def test_ashare_authority_never_infers_board_from_symbol_prefix() -> None:
     assert not (ROOT / "src/onlyalpha/reference/ashare.py").exists()
     source = (
-        ROOT / "packages/market/onlyalpha-market-cn-ashare/src/onlyalpha_market_cn_ashare/reference.py"
+        ROOT / "plugs/onlyalpha-plugin-cn-ashare/src/onlyalpha_plugin_cn_ashare/reference.py"
     ).read_text(encoding="utf-8")
     assert "startswith" not in source
     assert "binary float" not in source

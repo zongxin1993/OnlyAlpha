@@ -25,7 +25,7 @@ from tests.strategy.test_strategy_freeze import _freeze_case
 
 pytestmark = pytest.mark.integration
 
-_HELPER = Path("packages/provider/onlyalpha-plugin-miniqmt/tests/helpers/historical_worker.py").resolve()
+_HELPER = Path("plugs/onlyalpha-plugin-miniqmt/tests/helpers/historical_worker.py").resolve()
 _OBSERVED_AT = datetime(2026, 8, 4, 1, 36, 17, tzinfo=UTC)
 
 

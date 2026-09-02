@@ -117,7 +117,7 @@ def test_wrong_namespace_api_is_not_ready_and_cannot_serve_product_routes(
         [
             sys.executable,
             "-m",
-            "onlyalpha_api.main",
+            "onlyalpha_http_server.main",
             "--user-data-root",
             str(wrong),
             "--port",

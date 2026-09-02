@@ -4,11 +4,11 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from onlyalpha_market_cn_ashare.fee_pack import (
+from onlyalpha_plugin_cn_ashare.fee_pack import (
     CN_A_SHARE_PRODUCTION_FEE_COVERAGE_FROM,
     only_cn_a_share_market_fee_pack,
 )
-from onlyalpha_market_cn_ashare.fee_sources import (
+from onlyalpha_plugin_cn_ashare.fee_sources import (
     CN_A_SHARE_FEE_AUTHORITY_SOURCE_BY_ID,
 )
 

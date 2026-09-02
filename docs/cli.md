@@ -6,13 +6,13 @@ OpenAPI/HTTPS contract。HTTP 不可用时不得 fallback 到本地 Engine、Run
 保留的命令行入口属于进程或 provider-local infrastructure tooling：
 
 ```text
-onlyalpha-api              Product HTTP adapter process
+onlyalpha-http-server              Product HTTP adapter process
 onlyalpha-research-worker  fenced Research execution worker
 onlyalpha-miniqmt          provider-local environment diagnostics
 onlyalpha-tushare          provider-local environment diagnostics
 ```
 
-`onlyalpha-api` 默认绑定本机地址，只验证 schema compatibility，不自动执行 migration。PostgreSQL DSN 通过 infrastructure
+`onlyalpha-http-server` 默认绑定本机地址，只验证 schema compatibility，不自动执行 migration。PostgreSQL DSN 通过 infrastructure
 environment 注入，不属于 Trading semantic configuration。
 
 以下入口不是支持的产品面，也没有兼容 alias：

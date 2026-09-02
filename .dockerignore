@@ -15,8 +15,8 @@
 **/.env
 **/.env.*
 !**/.env.example
-apps/onlyalpha-web/node_modules
-apps/onlyalpha-web/dist
+packages/onlyalpha-web-console/node_modules
+packages/onlyalpha-web-console/dist
 test-results
 build
 dist

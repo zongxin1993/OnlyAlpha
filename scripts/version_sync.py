@@ -16,8 +16,8 @@ from tomlkit import dumps, parse
 
 ROOT = Path(__file__).resolve().parents[1]
 TEST_DISTRIBUTION_PATHS = (Path("tests/fixtures/external_plugins/onlyalpha_test_plugin/pyproject.toml"),)
-WEB_PACKAGE_PATH = Path("apps/onlyalpha-web/package.json")
-WEB_LOCK_PATH = Path("apps/onlyalpha-web/package-lock.json")
+WEB_PACKAGE_PATH = Path("packages/onlyalpha-web-console/package.json")
+WEB_LOCK_PATH = Path("packages/onlyalpha-web-console/package-lock.json")
 
 
 class VersionSyncError(RuntimeError):

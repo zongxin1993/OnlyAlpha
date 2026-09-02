@@ -2,8 +2,8 @@
 
 from typing import Any, cast
 
-from onlyalpha_market_cn_ashare.factory import OnlyCnAshareMarketProductFactory
-from onlyalpha_market_generic_t0_cash.factory import OnlyGenericT0CashMarketProductFactory
+from onlyalpha_plugin_cn_ashare.factory import OnlyCnAshareMarketProductFactory
+from onlyalpha_plugin_generic_t0_cash.factory import OnlyGenericT0CashMarketProductFactory
 
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.market.product import (
@@ -28,7 +28,7 @@ class _NoResources:
 
 def only_generic_market_product(instrument: OnlyInstrument) -> OnlyResolvedMarketProductBinding:
     config = OnlyMarketProductConfig(
-        OnlyMarketProductPluginId("onlyalpha-market-generic-t0-cash"),
+        OnlyMarketProductPluginId("onlyalpha-plugin-generic-t0-cash"),
         OnlyMarketProductId("GENERIC_T0_CASH"),
         OnlyMarketProductVersion("1"),
         OnlyCanonicalMarketProductConfig(),
@@ -62,7 +62,7 @@ def only_cn_ashare_market_product(
         "data_version": "integration-v1",
     }
     config = OnlyMarketProductConfig(
-        OnlyMarketProductPluginId("onlyalpha-market-cn-ashare"),
+        OnlyMarketProductPluginId("onlyalpha-plugin-cn-ashare"),
         OnlyMarketProductId("CN_A_SHARE_CASH"),
         OnlyMarketProductVersion(product_version),
         OnlyCanonicalMarketProductConfig(cast(dict[str, OnlyMarketProductConfigValue], {"references": (reference,)})),

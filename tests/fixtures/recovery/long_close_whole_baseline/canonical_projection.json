@@ -8474,7 +8474,7 @@
       "composition_fingerprint": "51b31da29870467fb1fb2db77f53f14941552279d3ae21f106f195c73f678078",
       "product_id": "GENERIC_T0_CASH",
       "product_version": "1",
-      "provider_plugin_id": "onlyalpha-market-generic-t0-cash"
+      "provider_plugin_id": "onlyalpha-plugin-generic-t0-cash"
     },
     "market_product_timeline": [
       {

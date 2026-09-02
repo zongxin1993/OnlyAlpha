@@ -18,7 +18,7 @@ from google.protobuf import descriptor_pb2
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_ROOT = ROOT / "contracts/gateway/v1"
 PROTO_PACKAGE_ROOT = Path("onlyalpha_gateway_protocol/v1")
-PROJECTION_ROOT = ROOT / "packages/protocol/onlyalpha-gateway-protocol/src"
+PROJECTION_ROOT = ROOT / "packages/onlyalpha-gateway-protocol/src"
 DESCRIPTOR = PROJECTION_ROOT / PROTO_PACKAGE_ROOT / "descriptor.pb"
 EXPECTED_SOURCES = (
     PROTO_PACKAGE_ROOT / "common.proto",

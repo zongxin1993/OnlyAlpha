@@ -5,8 +5,8 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import pytest
-from onlyalpha_market_cn_ashare.factory import OnlyCnAshareMarketProductFactory
-from onlyalpha_market_generic_t0_cash.factory import OnlyGenericT0CashMarketProductFactory
+from onlyalpha_plugin_cn_ashare.factory import OnlyCnAshareMarketProductFactory
+from onlyalpha_plugin_generic_t0_cash.factory import OnlyGenericT0CashMarketProductFactory
 
 from onlyalpha.domain.enums import OnlyMarketType, OnlyOrderSide
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRawSymbol
@@ -44,7 +44,7 @@ def _generic_engine() -> OnlyMarketRuleEngine:
         contract_multiplier=OnlyMultiplier(Decimal(1), 0),
     )
     config = OnlyMarketProductConfig(
-        OnlyMarketProductPluginId("onlyalpha-market-generic-t0-cash"),
+        OnlyMarketProductPluginId("onlyalpha-plugin-generic-t0-cash"),
         OnlyMarketProductId("GENERIC_T0_CASH"),
         OnlyMarketProductVersion("1"),
         OnlyCanonicalMarketProductConfig(),
@@ -74,7 +74,7 @@ def _ashare_engine(
     venue = "XSHE" if board in {"SZSE_MAIN", "CHINEXT"} else "XSHG"
     instrument_id = f"TEST.{venue}"
     config = OnlyMarketProductConfig(
-        OnlyMarketProductPluginId("onlyalpha-market-cn-ashare"),
+        OnlyMarketProductPluginId("onlyalpha-plugin-cn-ashare"),
         OnlyMarketProductId("CN_A_SHARE_CASH"),
         OnlyMarketProductVersion(product_version),
         OnlyCanonicalMarketProductConfig(

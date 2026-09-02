@@ -63,7 +63,7 @@ from tests.runtime_runner import only_migrate_cluster_to_strategy
 
 pytestmark = pytest.mark.integration
 
-_HELPER = Path("packages/provider/onlyalpha-plugin-miniqmt/tests/helpers/historical_worker.py").resolve()
+_HELPER = Path("plugs/onlyalpha-plugin-miniqmt/tests/helpers/historical_worker.py").resolve()
 _INITIAL_TIME = datetime(2026, 8, 4, 1, 36, 17, tzinfo=UTC)
 
 

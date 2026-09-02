@@ -156,7 +156,7 @@ def test_gateway_protocol_history_is_scoped_to_protocol_compatibility() -> None:
 def test_static_projection_uses_canonical_root_mypy_owner() -> None:
     assert ("uv", "run", "mypy") in RELEASE_STATIC_COMMANDS
     root_mypy_targets = Path("pyproject.toml").read_text(encoding="utf-8")
-    assert "onlyalpha_market_binance_spot" in root_mypy_targets
+    assert "onlyalpha_plugin_binance_spot" in root_mypy_targets
     assert "onlyalpha_plugin_binance" in root_mypy_targets
     runs = _runs(_workflow()["static"])
     assert runs.count(CANONICAL_STATIC_COMMAND) == 1
@@ -172,5 +172,5 @@ def test_quality_dependency_audit_uses_every_authoritative_lock() -> None:
     scan_args = scan_with.get("scan-args")
     assert isinstance(scan_args, str)
     assert "--lockfile=uv.lock" in scan_args
-    assert "--lockfile=apps/onlyalpha-web/package-lock.json" in scan_args
+    assert "--lockfile=packages/onlyalpha-web-console/package-lock.json" in scan_args
     assert all("continue-on-error" not in step for step in steps)

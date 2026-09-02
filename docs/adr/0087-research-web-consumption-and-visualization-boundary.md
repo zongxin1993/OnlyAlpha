@@ -13,7 +13,7 @@ silently lose authority precision before rendering.
 
 ## Decision
 
-The deployable private application is `apps/onlyalpha-web`. Its Research feature consumes only same-origin `/api/v2` GET routes and
+The deployable private application is `packages/onlyalpha-web-console`. Its Research feature consumes only same-origin `/api/v2` GET routes and
 has no filesystem, Parquet, Store, Engine, Runtime, Trading, or mutation dependency. The Query Core contract remains schema version
 1 with Python `int` timestamps and `Decimal` values. HTTP has the independent `RESEARCH_API_SCHEMA_VERSION = 2`: response timestamps
 and cursors, plus request time filters and cursors, are canonical decimal strings. Decimal remains canonical fixed decimal text.

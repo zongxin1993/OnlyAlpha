@@ -46,7 +46,7 @@ def scenario_payload() -> dict[str, object]:
             "base_currency": "CNY",
         },
         "market": {
-            "plugin_id": "onlyalpha-market-generic-t0-cash",
+            "plugin_id": "onlyalpha-plugin-generic-t0-cash",
             "product_id": "GENERIC_T0_CASH",
             "product_version": "1",
             "config": {},

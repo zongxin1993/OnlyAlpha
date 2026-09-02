@@ -38,7 +38,7 @@ def test_command_core_is_transport_and_execution_neutral() -> None:
 
 
 def test_run_http_adapter_cannot_start_execution_or_modify_attempt_authority() -> None:
-    root = Path("packages/api/onlyalpha-api/src/onlyalpha_api")
+    root = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server")
     source = "\n".join(path.read_text(encoding="utf-8") for path in root.rglob("*.py"))
     for forbidden in (
         "OnlyResearchWorkerService",
@@ -54,12 +54,12 @@ def test_run_http_adapter_cannot_start_execution_or_modify_attempt_authority() -
 
 
 def test_standalone_artifact_composition_is_absent() -> None:
-    assert not Path("packages/api/onlyalpha-api/src/onlyalpha_api/artifact_main.py").exists()
+    assert not Path("packages/onlyalpha-http-server/src/onlyalpha_http_server/artifact_main.py").exists()
 
 
 def test_command_api_does_not_return_artifact_or_result_content() -> None:
     source = "\n".join(
-        Path(f"packages/api/onlyalpha-api/src/onlyalpha_api/research/{name}").read_text()
+        Path(f"packages/onlyalpha-http-server/src/onlyalpha_http_server/research/{name}").read_text()
         for name in ("run_schema.py", "run_routes.py")
     )
     for forbidden in ("statistics_rows", "series", "parquet", "artifact_manifest", "result_content"):

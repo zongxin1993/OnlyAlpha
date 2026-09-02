@@ -2,7 +2,7 @@ from dataclasses import FrozenInstanceError
 from datetime import date
 
 import pytest
-from onlyalpha_market_cn_ashare.reference import (
+from onlyalpha_plugin_cn_ashare.reference import (
     OnlyCnAshareBoard,
     OnlyCnAshareInstrumentReference,
     OnlyCnAshareReferenceAuthority,

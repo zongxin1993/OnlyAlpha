@@ -59,10 +59,10 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: apps/onlyalpha-web/package-lock.json
+          cache-dependency-path: packages/onlyalpha-web-console/package-lock.json
       - run: uv sync --frozen --all-packages --all-groups
       - run: npm ci
-        working-directory: apps/onlyalpha-web
+        working-directory: packages/onlyalpha-web-console
       - id: baseline
         name: Select immutable compatibility baseline
         env:
@@ -226,12 +226,12 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: apps/onlyalpha-web/package-lock.json
+          cache-dependency-path: packages/onlyalpha-web-console/package-lock.json
       - run: uv sync --frozen --all-packages --all-groups
       - run: npm ci
-        working-directory: apps/onlyalpha-web
+        working-directory: packages/onlyalpha-web-console
       - run: npx playwright install --with-deps chromium
-        working-directory: apps/onlyalpha-web
+        working-directory: packages/onlyalpha-web-console
       - name: Install PostgreSQL 18 client tools
         run: |
           sudo install -d /usr/share/postgresql-common/pgdg
@@ -277,10 +277,10 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: apps/onlyalpha-web/package-lock.json
+          cache-dependency-path: packages/onlyalpha-web-console/package-lock.json
       - run: uv sync --frozen --all-packages --all-groups
       - run: npm ci
-        working-directory: apps/onlyalpha-web
+        working-directory: packages/onlyalpha-web-console
       - name: web-static
         run: uv run python scripts/web_suite.py static
       - name: web-unit
@@ -288,7 +288,7 @@ jobs:
       - name: web-build
         run: uv run python scripts/web_suite.py build
       - run: npx playwright install --with-deps chromium
-        working-directory: apps/onlyalpha-web
+        working-directory: packages/onlyalpha-web-console
       - name: web-e2e
         run: uv run python scripts/web_suite.py e2e
 
@@ -310,7 +310,7 @@ jobs:
             --format=json
             --output-file=test-results/security/osv-results.json
             --lockfile=uv.lock
-            --lockfile=apps/onlyalpha-web/package-lock.json
+            --lockfile=packages/onlyalpha-web-console/package-lock.json
       - name: Build fail-closed dependency audit evidence
         if: always()
         env:
@@ -320,7 +320,7 @@ jobs:
           python scripts/dependency_audit.py
           --subject-sha "$GITHUB_SHA"
           --lockfile uv.lock
-          --lockfile apps/onlyalpha-web/package-lock.json
+          --lockfile packages/onlyalpha-web-console/package-lock.json
           --scanner OSV-Scanner
           --scanner-version "2.5.0"
           --scan-time "$SCAN_TIME"

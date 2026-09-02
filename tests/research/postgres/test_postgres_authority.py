@@ -1176,7 +1176,7 @@ def test_api_process_restart_reads_same_postgres_run_authority(postgres_dsn: str
             [
                 sys.executable,
                 "-m",
-                "onlyalpha_api.main",
+                "onlyalpha_http_server.main",
                 "--user-data-root",
                 str(tmp_path),
                 "--port",

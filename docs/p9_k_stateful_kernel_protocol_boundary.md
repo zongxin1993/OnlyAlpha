@@ -45,7 +45,7 @@ HTTP DTO、domain model 和 persistence schema 是不同 schema worlds，必须�
 隐藏 mutation。Externally retryable mutation 使用 durable command identity；same key + same canonical command 收敛到同一 outcome，
 same key + different command fail closed。
 
-仓内不提供 Product CLI 或 Python SDK。API failure 不得 fallback 到 local Engine/Runtime。`onlyalpha-api` 是 process entrypoint，
+仓内不提供 Product CLI 或 Python SDK。API failure 不得 fallback 到 local Engine/Runtime。`onlyalpha-http-server` 是 process entrypoint，
 不是 Product CLI；Research Worker 和 provider doctor 同属 infrastructure/operator process/tooling。
 
 ## Internal Kernel protocol

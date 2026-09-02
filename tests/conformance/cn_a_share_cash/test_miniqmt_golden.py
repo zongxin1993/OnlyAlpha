@@ -30,7 +30,7 @@ def _config() -> OnlyClusterRunConfig:
     baseline = OnlyClusterRunConfig.load(BASE_CONFIG)
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["market"] = {
-        "plugin_id": "onlyalpha-market-cn-ashare",
+        "plugin_id": "onlyalpha-plugin-cn-ashare",
         "product_id": "CN_A_SHARE_CASH",
         "product_version": "2025.1",
         "config": {

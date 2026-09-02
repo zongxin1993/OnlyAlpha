@@ -8,10 +8,10 @@ from onlyalpha.market.product import OnlyCompiledMarketPolicy
 
 PRODUCT_ROOT = Path("src/onlyalpha/market/product")
 CORE_ROOT = Path("src/onlyalpha")
-GENERIC_ROOT = Path("packages/market/onlyalpha-market-generic-t0-cash/src/onlyalpha_market_generic_t0_cash")
-CN_ASHARE_ROOT = Path("packages/market/onlyalpha-market-cn-ashare/src/onlyalpha_market_cn_ashare")
-BINANCE_SPOT_ROOT = Path("packages/market/onlyalpha-market-binance-spot/src/onlyalpha_market_binance_spot")
-BINANCE_PROVIDER_ROOT = Path("packages/provider/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance")
+GENERIC_ROOT = Path("plugs/onlyalpha-plugin-generic-t0-cash/src/onlyalpha_plugin_generic_t0_cash")
+CN_ASHARE_ROOT = Path("plugs/onlyalpha-plugin-cn-ashare/src/onlyalpha_plugin_cn_ashare")
+BINANCE_SPOT_ROOT = Path("plugs/onlyalpha-plugin-binance-spot/src/onlyalpha_plugin_binance_spot")
+BINANCE_PROVIDER_ROOT = Path("plugs/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance")
 FORMAL_IDENTITY = Path("src/onlyalpha/identity.py")
 
 
@@ -106,9 +106,9 @@ def test_core_does_not_import_concrete_market_product_plugins() -> None:
         if any(
             imported == package or imported.startswith(f"{package}.")
             for package in (
-                "onlyalpha_market_generic_t0_cash",
-                "onlyalpha_market_cn_ashare",
-                "onlyalpha_market_binance_spot",
+                "onlyalpha_plugin_generic_t0_cash",
+                "onlyalpha_plugin_cn_ashare",
+                "onlyalpha_plugin_binance_spot",
                 "onlyalpha_plugin_binance",
             )
         )

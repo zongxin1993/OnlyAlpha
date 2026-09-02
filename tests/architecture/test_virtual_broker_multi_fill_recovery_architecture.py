@@ -3,7 +3,7 @@ from pathlib import Path
 from onlyalpha_plugin_broker_virtual.descriptor import ONLY_VIRTUAL_PLUGIN_DESCRIPTOR
 
 ROOT = Path(__file__).resolve().parents[2]
-PLUGIN = ROOT / "packages/fake/onlyalpha-plugin-broker-virtual/src/onlyalpha_plugin_broker_virtual"
+PLUGIN = ROOT / "plugs/onlyalpha-plugin-broker-virtual/src/onlyalpha_plugin_broker_virtual"
 
 
 def test_fill_plan_stays_in_plugin_and_core_has_no_virtual_implementation() -> None:

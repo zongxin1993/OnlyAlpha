@@ -33,10 +33,10 @@ def test_installed_distribution_is_discovered_through_real_entry_points() -> Non
     assert (
         str(
             services.assembler.components.market_products.require(
-                OnlyMarketProductPluginId("onlyalpha-market-generic-t0-cash")
+                OnlyMarketProductPluginId("onlyalpha-plugin-generic-t0-cash")
             ).plugin_id
         )
-        == "onlyalpha-market-generic-t0-cash"
+        == "onlyalpha-plugin-generic-t0-cash"
     )
     assert (
         services.assembler.components.broker_fee_contracts.require(

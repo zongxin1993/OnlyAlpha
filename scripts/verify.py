@@ -259,7 +259,7 @@ IMPACT_RULES = (
     ),
     VerificationImpactRule(
         "research-web",
-        ("apps/onlyalpha-web/",),
+        ("packages/onlyalpha-web-console/",),
         (),
         (),
         WEB_CHECKS,
@@ -268,7 +268,7 @@ IMPACT_RULES = (
     ),
     VerificationImpactRule(
         "research-api-web-contract",
-        ("packages/api/onlyalpha-api/", "contracts/research-api/v2/", "tests/contracts/"),
+        ("packages/onlyalpha-http-server/", "contracts/research-api/v2/", "tests/contracts/"),
         (
             "scripts/export_research_openapi.py",
             "scripts/openapi_contract.py",
@@ -308,7 +308,7 @@ IMPACT_RULES = (
     ),
     VerificationImpactRule(
         "research-query",
-        ("src/onlyalpha/research/query/", "tests/research/query/", "packages/api/onlyalpha-api/"),
+        ("src/onlyalpha/research/query/", "tests/research/query/", "packages/onlyalpha-http-server/"),
         ("tests/architecture/test_research_query_boundaries.py",),
         (OnlyTestLane.RESEARCH_QUERY, OnlyTestLane.RESEARCH_ARTIFACT),
         STATIC,
@@ -352,7 +352,7 @@ IMPACT_RULES = (
         (
             "src/onlyalpha/research/evaluation/",
             "tests/research/evaluation/",
-            "packages/target/onlyalpha-plugin-targets/",
+            "plugs/onlyalpha-plugin-targets/",
         ),
         ("tests/architecture/test_research_evaluation_boundaries.py",),
         (
@@ -422,7 +422,7 @@ IMPACT_RULES = (
     ),
     VerificationImpactRule(
         "research-factor",
-        ("tests/research/factor/", "packages/factor/onlyalpha-plugin-factors/"),
+        ("tests/research/factor/", "plugs/onlyalpha-plugin-factors/"),
         (),
         (
             OnlyTestLane.RESEARCH_SPECIFICATION,
@@ -451,7 +451,7 @@ IMPACT_RULES = (
     ),
     VerificationImpactRule(
         "calculation-foundation",
-        ("src/onlyalpha/calculation/", "tests/calculation/", "packages/indicator/onlyalpha-plugin-indicators/"),
+        ("src/onlyalpha/calculation/", "tests/calculation/", "plugs/onlyalpha-plugin-indicators/"),
         (),
         (OnlyTestLane.RESEARCH_SPECIFICATION, OnlyTestLane.CALCULATION, *RESEARCH_CHAIN, OnlyTestLane.CORE_FULL),
         STATIC,
@@ -487,7 +487,7 @@ IMPACT_RULES = (
     ),
     VerificationImpactRule(
         "cn-ashare-market",
-        ("packages/market/onlyalpha-market-cn-ashare/", "tests/conformance/cn_a_share_cash/"),
+        ("plugs/onlyalpha-plugin-cn-ashare/", "tests/conformance/cn_a_share_cash/"),
         (),
         (OnlyTestLane.ASHARE, OnlyTestLane.CORE_FULL, OnlyTestLane.RECOVERY),
         STATIC,
@@ -496,7 +496,7 @@ IMPACT_RULES = (
     ),
     VerificationImpactRule(
         "generic-market",
-        ("packages/market/onlyalpha-market-generic-t0-cash/",),
+        ("plugs/onlyalpha-plugin-generic-t0-cash/",),
         (),
         (OnlyTestLane.CORE_FULL, OnlyTestLane.RECOVERY, OnlyTestLane.SIM_RECOVERY),
         STATIC,
@@ -505,7 +505,7 @@ IMPACT_RULES = (
     ),
     VerificationImpactRule(
         "miniqmt-provider",
-        ("packages/provider/onlyalpha-plugin-miniqmt/",),
+        ("plugs/onlyalpha-plugin-miniqmt/",),
         (),
         (OnlyTestLane.MINIQMT_CONTRACT, OnlyTestLane.RESEARCH_DATASET),
         STATIC,
@@ -514,7 +514,7 @@ IMPACT_RULES = (
     ),
     VerificationImpactRule(
         "tushare-provider",
-        ("packages/provider/onlyalpha-plugin-tushare/",),
+        ("plugs/onlyalpha-plugin-tushare/",),
         (),
         (OnlyTestLane.RESEARCH_DATASET,),
         STATIC,
@@ -523,7 +523,7 @@ IMPACT_RULES = (
     ),
     VerificationImpactRule(
         "binance-spot",
-        ("packages/market/onlyalpha-market-binance-spot/", "packages/provider/onlyalpha-plugin-binance/"),
+        ("plugs/onlyalpha-plugin-binance-spot/", "plugs/onlyalpha-plugin-binance/"),
         (),
         (OnlyTestLane.CORE_FULL,),
         STATIC,
@@ -542,7 +542,7 @@ IMPACT_RULES = (
     VerificationImpactRule(
         "package-metadata",
         (),
-        ("pyproject.toml", "uv.lock", "packages/api/onlyalpha-api/pyproject.toml"),
+        ("pyproject.toml", "uv.lock", "packages/onlyalpha-http-server/pyproject.toml"),
         (),
         STATIC,
         VerificationEscalation.COMPONENT,
@@ -640,12 +640,12 @@ def _static_plan(
         path
         for changed in change_set.changed_paths
         for path in changed.impact_paths()
-        if path in {"pyproject.toml", "uv.lock", "packages/api/onlyalpha-api/pyproject.toml"}
+        if path in {"pyproject.toml", "uv.lock", "packages/onlyalpha-http-server/pyproject.toml"}
     }
     version_sync_required = "package-metadata" in rules
     build_targets = (
-        ("onlyalpha", "onlyalpha-api")
-        if "packages/api/onlyalpha-api/pyproject.toml" in metadata_paths
+        ("onlyalpha", "onlyalpha-http-server")
+        if "packages/onlyalpha-http-server/pyproject.toml" in metadata_paths
         else ("onlyalpha",)
         if metadata_paths
         else ()
@@ -680,7 +680,7 @@ def _static_plan(
             "src/onlyalpha/runtime/research",
         ),
         "research-artifact": ("src/onlyalpha/research/artifact",),
-        "research-query": ("src/onlyalpha/research/query", "packages/api/onlyalpha-api/src/onlyalpha_api"),
+        "research-query": ("src/onlyalpha/research/query", "packages/onlyalpha-http-server/src/onlyalpha_http_server"),
         "research-result": ("src/onlyalpha/research/result",),
         "research-evaluation": ("src/onlyalpha/research/evaluation", "src/onlyalpha/research/result"),
         "research-sweep": ("src/onlyalpha/research/sweep",),

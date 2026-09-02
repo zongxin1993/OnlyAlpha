@@ -201,7 +201,7 @@ def only_cn_a_share_product_config(
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["authorities"] = {"broker_fee_contracts": [only_cn_a_share_product_broker_fee_contract()]}
     payload["market"] = {
-        "plugin_id": "onlyalpha-market-cn-ashare",
+        "plugin_id": "onlyalpha-plugin-cn-ashare",
         "product_id": MARKET_PRODUCT_ID,
         "product_version": MARKET_PRODUCT_VERSION,
         "config": {"references": [dict(item) for item in fixture.references]},

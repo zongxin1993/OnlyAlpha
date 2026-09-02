@@ -61,7 +61,7 @@ def test_worker_claim_execution_cannot_rediscover_process_composition() -> None:
 
 def test_scheduler_worker_have_no_http_web_or_semantic_checkpoint_dependency() -> None:
     source = _source(Path("src/onlyalpha/research/execution"))
-    for forbidden in ("fastapi", "pydantic", "onlyalpha_api", "onlyalpha-web", "semantic_checkpoint"):
+    for forbidden in ("fastapi", "pydantic", "onlyalpha_http_server", "onlyalpha-web", "semantic_checkpoint"):
         assert forbidden not in source.lower()
 
 
@@ -117,7 +117,7 @@ def test_worker_presence_is_not_attempt_ownership_authority() -> None:
 
 
 def test_api_and_worker_startup_check_compatibility_without_migrating() -> None:
-    api = Path("packages/api/onlyalpha-api/src/onlyalpha_api/main.py").read_text()
+    api = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py").read_text()
     worker = Path("src/onlyalpha/research/worker_main.py").read_text()
     startup = "\n".join((api, worker))
     assert startup.count("OnlyPostgresSchemaVerifier(") == 2

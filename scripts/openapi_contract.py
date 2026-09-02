@@ -13,8 +13,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, cast
 
-from onlyalpha_api import create_research_app
-from onlyalpha_api.health import OnlyKernelResearchReadinessProjection
+from onlyalpha_http_server import create_research_app
+from onlyalpha_http_server.health import OnlyKernelResearchReadinessProjection
 
 from onlyalpha.application.product_boundary import only_compose_research_product_boundary
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
@@ -27,7 +27,7 @@ from onlyalpha.research.operations.readiness import OnlyResearchReadiness, OnlyR
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_RELATIVE = Path("contracts/research-api/v2/openapi.json")
 CONTRACT = ROOT / CONTRACT_RELATIVE
-WEB = ROOT / "apps/onlyalpha-web"
+WEB = ROOT / "packages/onlyalpha-web-console"
 GENERATED_CLIENT = WEB / "src/api/research/generated.ts"
 OPENAPI_TYPESCRIPT = WEB / "node_modules/.bin/openapi-typescript"
 API_MAJOR = 2
@@ -753,7 +753,7 @@ def check_current_contract() -> tuple[JsonObject, bytes]:
 
 def check_generated_client() -> None:
     if not OPENAPI_TYPESCRIPT.is_file():
-        raise ValueError("pinned openapi-typescript is unavailable; run npm ci in apps/onlyalpha-web")
+        raise ValueError("pinned openapi-typescript is unavailable; run npm ci in packages/onlyalpha-web-console")
     with tempfile.TemporaryDirectory(prefix="onlyalpha-openapi-") as raw:
         candidate = Path(raw) / "generated.ts"
         completed = subprocess.run(

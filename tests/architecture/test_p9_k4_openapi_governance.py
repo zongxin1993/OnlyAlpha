@@ -49,7 +49,7 @@ def test_governance_has_immutable_git_baseline_and_no_breaking_bypass() -> None:
 
 
 def test_generated_web_client_has_only_canonical_openapi_source() -> None:
-    package = (ROOT / "apps/onlyalpha-web/package.json").read_text(encoding="utf-8")
+    package = (ROOT / "packages/onlyalpha-web-console/package.json").read_text(encoding="utf-8")
     web_suite = (ROOT / "scripts/web_suite.py").read_text(encoding="utf-8")
     assert package.count("../../contracts/research-api/v2/openapi.json") == 1
     assert "check_generated_client" in web_suite
@@ -57,7 +57,7 @@ def test_generated_web_client_has_only_canonical_openapi_source() -> None:
 
 
 def test_core_domain_has_no_api_contract_tooling_dependency() -> None:
-    forbidden = {"openapi_contract", "onlyalpha_api", "fastapi", "starlette"}
+    forbidden = {"openapi_contract", "onlyalpha_http_server", "fastapi", "starlette"}
     for path in (ROOT / "src/onlyalpha").rglob("*.py"):
         assert not (_imports(path) & forbidden), path
 

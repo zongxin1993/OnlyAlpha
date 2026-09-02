@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 import yaml  # type: ignore[import-untyped]
-from onlyalpha_market_cn_ashare.factory import OnlyCnAshareMarketProductFactory
-from onlyalpha_market_cn_ashare.reference import OnlyCnAshareReferenceAuthority
+from onlyalpha_plugin_cn_ashare.factory import OnlyCnAshareMarketProductFactory
+from onlyalpha_plugin_cn_ashare.reference import OnlyCnAshareReferenceAuthority
 
 from onlyalpha.domain.time import OnlyTradingDay
 from onlyalpha.market.product import OnlyMarketProductResolutionContext

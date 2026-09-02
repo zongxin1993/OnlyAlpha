@@ -99,7 +99,7 @@ def test_research_job_lane_owns_application_contract_and_architecture_gate() -> 
 def test_research_factor_lane_owns_semantics_execution_architecture_and_full_coverage() -> None:
     lane = LANES[OnlyTestLane.RESEARCH_FACTOR]
     assert "tests/research/factor" in lane.paths
-    assert "packages/factor/onlyalpha-plugin-factors/tests" in lane.paths
+    assert "plugs/onlyalpha-plugin-factors/tests" in lane.paths
     assert "tests/research/calculation/test_execution.py" in lane.paths
     assert "tests/architecture/test_research_factor_boundaries.py" in lane.paths
     source = Path("scripts/test_suite.py").read_text()
@@ -123,7 +123,7 @@ def test_research_evaluation_lane_owns_target_statistics_and_strict_coverage() -
     lane = LANES[OnlyTestLane.RESEARCH_EVALUATION]
     assert lane.paths == (
         "tests/research/evaluation",
-        "packages/target/onlyalpha-plugin-targets/tests",
+        "plugs/onlyalpha-plugin-targets/tests",
         "tests/architecture/test_research_evaluation_boundaries.py",
         "tests/research/factor/test_indicator_identity_regression.py",
     )
@@ -166,11 +166,11 @@ def test_research_query_lane_owns_core_api_architecture_and_strict_coverage() ->
     assert lane.paths == (
         "tests/research/query",
         "tests/architecture/test_research_query_boundaries.py",
-        "packages/api/onlyalpha-api/tests",
+        "packages/onlyalpha-http-server/tests",
     )
     source = Path("scripts/test_suite.py").read_text()
     assert '"src/onlyalpha/research/query"' in source
-    assert '"packages/api/onlyalpha-api/src/onlyalpha_api"' in source
+    assert '"packages/onlyalpha-http-server/src/onlyalpha_http_server"' in source
     assert '"research-query-coverage"' in source
     assert "Research Query branch coverage must be at least 90%" in source
     assert "Research Query line coverage must be at least 95%" in source
@@ -181,7 +181,7 @@ def test_research_command_lane_owns_application_http_and_architecture_contract()
     assert lane.paths == (
         "tests/research/command",
         "tests/architecture/test_research_command_boundaries.py",
-        "packages/api/onlyalpha-api/tests",
+        "packages/onlyalpha-http-server/tests",
     )
     source = Path("scripts/test_suite.py").read_text()
     assert '"src/onlyalpha/research/command"' in source

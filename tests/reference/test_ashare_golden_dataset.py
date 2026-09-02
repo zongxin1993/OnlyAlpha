@@ -2,7 +2,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from onlyalpha_market_cn_ashare.reference import (
+from onlyalpha_plugin_cn_ashare.reference import (
     OnlyCnAshareInstrumentReference,
     OnlyCnAshareReferenceAuthority,
 )

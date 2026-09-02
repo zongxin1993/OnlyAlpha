@@ -528,3 +528,18 @@ READ PROJECT_CONSTITUTION.md
 
 > **Constitution 定义 OnlyAlpha 必须成为什么；代码工程定义 OnlyAlpha 当前做到了什么。实现必须充分，但永远无权通过局部实现重新定义项目愿景。**
 > 每次读到这里，要求在当前在任务的最后，输出现在的北京时间
+
+## Repository placement and naming
+
+Any concrete implementation loaded through the OnlyAlpha Plugin SPI MUST live under
+`plugs/onlyalpha-plugin-<NAME>/`. Any independently buildable, versioned, deployable
+non-plugin component MUST live under `packages/onlyalpha-<FUNC>-<NAME>/`. Stable,
+market-agnostic canonical semantics and the Plugin SPI belong under `src/onlyalpha/`.
+
+Do not add `apps/<...>` or category-first wrappers such as `packages/provider`,
+`packages/market`, `packages/api`, `packages/protocol`, `packages/factor`,
+`packages/indicator`, `packages/target`, or `packages/fake`. Do not place a non-plugin
+component under `plugs/`, and do not place a concrete plugin under `packages/`.
+If a new architecture requires a different boundary, record an explicit architecture
+decision before adding the path. Web and HTTP transport are components, not plugins;
+the OpenAPI Product Contract remains a first-class contract under `contracts/`.

@@ -111,7 +111,7 @@ def test_evaluation_plane_has_no_trading_authority_imports() -> None:
     )
     roots = (
         Path("src/onlyalpha/research/evaluation"),
-        Path("packages/target/onlyalpha-plugin-targets/src/onlyalpha_plugin_targets"),
+        Path("plugs/onlyalpha-plugin-targets/src/onlyalpha_plugin_targets"),
     )
     for root in roots:
         for path in root.glob("*.py"):

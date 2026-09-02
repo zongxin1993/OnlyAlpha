@@ -16,7 +16,7 @@ def test_process_signal_handlers_exist_only_at_application_boundary() -> None:
 
 
 def test_onlyalpha_owned_threads_are_not_daemon_escape_hatches_and_joins_are_bounded() -> None:
-    roots = (Path("src/onlyalpha"), Path("packages/provider/onlyalpha-plugin-miniqmt/src"))
+    roots = (Path("src/onlyalpha"), Path("plugs/onlyalpha-plugin-miniqmt/src"))
     sources = {path: path.read_text(encoding="utf-8") for root in roots for path in root.rglob("*.py")}
     assert [path for path, source in sources.items() if "daemon=True" in source] == []
     assert [path for path, source in sources.items() if ".join()" in source] == []

@@ -124,7 +124,7 @@ def test_external_calculation_runs_through_real_api_worker_engine_and_artifact_q
     api_command = [
         sys.executable,
         "-m",
-        "onlyalpha_api.main",
+        "onlyalpha_http_server.main",
         "--user-data-root",
         str(tmp_path),
         "--port",

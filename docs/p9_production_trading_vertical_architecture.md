@@ -838,7 +838,7 @@ Later accounting may create `FundingCashflow` from the rate plus a held position
 One package, explicit internal product boundaries:
 
 ```text
-packages/provider/onlyalpha-plugin-binance/
+plugs/onlyalpha-plugin-binance/
   common/
     auth / transport / websocket / clock / rate_limit / errors / normalization
   spot/

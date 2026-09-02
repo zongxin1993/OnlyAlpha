@@ -50,7 +50,7 @@ def test_internal_predicates_are_not_exposed_by_public_authoring_descriptors() -
 
 
 def test_definition_http_is_projection_only_and_error_ownership_is_route_metadata() -> None:
-    api = Path("packages/api/onlyalpha-api/src/onlyalpha_api")
+    api = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server")
     definition_source = "\n".join(
         (api / "research" / name).read_text(encoding="utf-8")
         for name in (

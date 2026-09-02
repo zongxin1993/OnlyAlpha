@@ -11,7 +11,7 @@ import pytest
 pytestmark = pytest.mark.architecture
 
 ROOT = Path(__file__).parents[2]
-FORBIDDEN_TRANSPORT_IMPORTS = ("fastapi", "starlette", "uvicorn", "onlyalpha_api")
+FORBIDDEN_TRANSPORT_IMPORTS = ("fastapi", "starlette", "uvicorn", "onlyalpha_http_server")
 
 
 def _imports(path: Path) -> tuple[str, ...]:
@@ -43,11 +43,11 @@ def test_web_is_an_http_client_and_cannot_import_kernel_mutation_capabilities() 
         "OnlyPostgres",
     )
     import_pattern = re.compile(r"(?:from\s+|import\s*\()(?P<quote>['\"])(?P<module>[^'\"]+)(?P=quote)")
-    for path in sorted((ROOT / "apps/onlyalpha-web/src").rglob("*")):
+    for path in sorted((ROOT / "packages/onlyalpha-web-console/src").rglob("*")):
         if path.suffix not in {".ts", ".tsx"}:
             continue
         source = path.read_text(encoding="utf-8")
         modules = tuple(match.group("module") for match in import_pattern.finditer(source))
-        assert all(not module.startswith(("onlyalpha", "onlyalpha_api")) for module in modules), path
+        assert all(not module.startswith(("onlyalpha", "onlyalpha_http_server")) for module in modules), path
         for symbol in forbidden_symbols:
             assert symbol not in source, f"{path.relative_to(ROOT)} reaches Kernel capability {symbol}"

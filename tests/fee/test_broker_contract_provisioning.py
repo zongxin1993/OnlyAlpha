@@ -5,7 +5,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from onlyalpha_market_cn_ashare.fee_pack import only_cn_a_share_market_fee_pack
+from onlyalpha_plugin_cn_ashare.fee_pack import only_cn_a_share_market_fee_pack
 
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,

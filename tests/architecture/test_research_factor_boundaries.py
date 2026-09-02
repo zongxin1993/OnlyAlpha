@@ -24,14 +24,14 @@ def test_research_factor_plugin_has_no_trading_authority_or_mutable_factor_lifec
         "onlyalpha.transaction",
         "onlyalpha.factor",
     )
-    root = Path("packages/factor/onlyalpha-plugin-factors/src/onlyalpha_plugin_factors")
+    root = Path("plugs/onlyalpha-plugin-factors/src/onlyalpha_plugin_factors")
     for path in root.glob("*.py"):
         imports = _imports(path)
         assert not any(name.startswith(forbidden) for name in imports), (path, imports)
 
 
 def test_factor_backend_cannot_hide_indicator_implementation_or_create_parallel_authority() -> None:
-    root = Path("packages/factor/onlyalpha-plugin-factors/src/onlyalpha_plugin_factors")
+    root = Path("plugs/onlyalpha-plugin-factors/src/onlyalpha_plugin_factors")
     imports = set().union(*(_imports(path) for path in root.glob("*.py")))
     assert not any(name.startswith(("onlyalpha.indicator", "onlyalpha_plugin_indicators")) for name in imports)
     names = {path.name.lower() for path in root.glob("*.py")}

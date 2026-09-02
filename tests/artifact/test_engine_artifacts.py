@@ -38,7 +38,7 @@ def test_engine_publishes_verified_standard_artifacts(tmp_path: Path) -> None:
     summary = json.loads((root / "summary.json").read_text(encoding="utf-8"))
     assert summary["market_product"]["product_id"] == "GENERIC_T0_CASH"
     assert summary["market_product"]["product_version"] == "1"
-    assert summary["market_product"]["provider_plugin_id"] == "onlyalpha-market-generic-t0-cash"
+    assert summary["market_product"]["provider_plugin_id"] == "onlyalpha-plugin-generic-t0-cash"
     assert len(summary["market_product"]["composition_fingerprint"]) == 64
     expected_rows = {
         "orders.parquet": 0,

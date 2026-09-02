@@ -1,4 +1,4 @@
-"""Freeze every direct onlyalpha_api to Core capability crossing."""
+"""Freeze every direct onlyalpha_http_server to Core capability crossing."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from tests.architecture._p9_k0_guard_helpers import CanonicalImport, onlyalpha_i
 pytestmark = pytest.mark.architecture
 
 ROOT = Path(__file__).parents[2]
-API_ROOT = ROOT / "packages/api/onlyalpha-api/src/onlyalpha_api"
+API_ROOT = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server"
 
 COMPOSITION_ROOT = "COMPOSITION ROOT"
 TRANSPORT_ROUTE = "TRANSPORT ROUTE"

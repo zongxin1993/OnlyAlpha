@@ -2,7 +2,7 @@ import json
 from copy import deepcopy
 
 import pytest
-from onlyalpha_market_cn_ashare.factory import OnlyCnAshareMarketProductFactory
+from onlyalpha_plugin_cn_ashare.factory import OnlyCnAshareMarketProductFactory
 
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId

@@ -20,7 +20,7 @@ def _imports(path: Path) -> frozenset[str]:
 
 
 def test_kernel_remains_transport_and_postgres_neutral() -> None:
-    forbidden = ("psycopg", "fastapi", "starlette", "onlyalpha_api")
+    forbidden = ("psycopg", "fastapi", "starlette", "onlyalpha_http_server")
     for path in (ROOT / "src/onlyalpha/kernel").glob("*.py"):
         assert not any(item.startswith(forbidden) for item in _imports(path)), path
 
@@ -54,7 +54,7 @@ def test_product_command_identity_does_not_enter_semantic_fingerprint_modules() 
 
 
 def test_production_kernel_composes_guard_and_strategy_recovery() -> None:
-    source = (ROOT / "packages/api/onlyalpha-api/src/onlyalpha_api/main.py").read_text(encoding="utf-8")
+    source = (ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py").read_text(encoding="utf-8")
     assert "authority_guard=OnlyPostgresKernelAuthorityGuard(operational_dsn)" in source
     assert "strategy_projection_reconciliation" in source
     assert ".reconcile_all()" in source

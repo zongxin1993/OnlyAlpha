@@ -238,7 +238,7 @@ def test_research_artifact_change_is_scoped_to_portable_boundary() -> None:
 def test_research_query_and_public_api_changes_use_broad_consumer_proof() -> None:
     plan = _plan(
         "src/onlyalpha/research/query/service.py",
-        "packages/api/onlyalpha-api/src/onlyalpha_api/research/routes.py",
+        "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/routes.py",
         "tests/research/query/test_service.py",
     )
 
@@ -256,7 +256,7 @@ def test_research_query_and_public_api_changes_use_broad_consumer_proof() -> Non
 
 
 def test_web_only_change_stops_at_api_boundary_and_runs_web_evidence() -> None:
-    plan = _plan("apps/onlyalpha-web/src/charts/researchSeriesProjection.ts")
+    plan = _plan("packages/onlyalpha-web-console/src/charts/researchSeriesProjection.ts")
 
     assert plan.impact.escalation is VerificationEscalation.COMPONENT
     assert plan.impact.lanes == ()
@@ -273,11 +273,11 @@ def test_research_query_architecture_gate_is_component_scoped() -> None:
 
 
 def test_api_package_metadata_requires_version_sync_and_api_build() -> None:
-    plan = _plan("packages/api/onlyalpha-api/pyproject.toml")
+    plan = _plan("packages/onlyalpha-http-server/pyproject.toml")
 
     assert plan.impact.static_plan is not None
     assert plan.impact.static_plan.version_sync_required
-    assert plan.impact.static_plan.build_targets == ("onlyalpha", "onlyalpha-api")
+    assert plan.impact.static_plan.build_targets == ("onlyalpha", "onlyalpha-http-server")
 
 
 def test_package_metadata_requests_version_sync_and_targeted_build() -> None:

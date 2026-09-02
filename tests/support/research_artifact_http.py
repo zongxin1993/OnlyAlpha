@@ -3,9 +3,9 @@
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from onlyalpha_api.research.errors import research_error_response
-from onlyalpha_api.research.routes import create_artifact_router
-from onlyalpha_api.research.schema import RESEARCH_API_SCHEMA_VERSION, ResearchErrorDto
+from onlyalpha_http_server.research.errors import research_error_response
+from onlyalpha_http_server.research.routes import create_artifact_router
+from onlyalpha_http_server.research.schema import RESEARCH_API_SCHEMA_VERSION, ResearchErrorDto
 
 from onlyalpha.research.query import OnlyResearchArtifactReader, OnlyResearchQueryError, OnlyResearchQueryService
 

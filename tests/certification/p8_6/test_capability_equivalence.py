@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from onlyalpha_api.main import _configure_calculation_registry
+from onlyalpha_http_server.main import _configure_calculation_registry
 
 from onlyalpha.calculation import (
     OnlyCalculationBackendKind,

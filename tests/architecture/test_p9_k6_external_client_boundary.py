@@ -60,7 +60,7 @@ def test_only_process_and_provider_entrypoints_remain() -> None:
     entry_points = _console_entry_points()
     assert "onlyalpha" not in entry_points
     assert "onlyalpha-client" not in entry_points
-    assert entry_points["onlyalpha-api"] == "onlyalpha_api.main:main"
+    assert entry_points["onlyalpha-http-server"] == "onlyalpha_http_server.main:main"
     assert entry_points["onlyalpha-research-worker"] == "onlyalpha.research.worker_main:main"
     assert entry_points["onlyalpha-miniqmt"] == "onlyalpha_plugin_miniqmt.doctor:main"
     assert entry_points["onlyalpha-tushare"] == "onlyalpha_plugin_tushare.doctor:main"
@@ -92,17 +92,17 @@ def test_product_runtime_cannot_be_admitted_from_a_file() -> None:
                 continue
             source = path.read_text(encoding="utf-8")
             assert "OnlyClusterRunConfig.load(" not in source, path
-    for path in (ROOT / "packages/api/onlyalpha-api/src").rglob("*.py"):
+    for path in (ROOT / "packages/onlyalpha-http-server/src").rglob("*.py"):
         imports = _imports(path)
         assert not any(name == "onlyalpha.config" or name.startswith("onlyalpha.config.") for name in imports), path
 
 
 def test_web_remains_the_governed_product_consumer() -> None:
-    package = (ROOT / "apps/onlyalpha-web/package.json").read_text(encoding="utf-8")
+    package = (ROOT / "packages/onlyalpha-web-console/package.json").read_text(encoding="utf-8")
     web_suite = (ROOT / "scripts/web_suite.py").read_text(encoding="utf-8")
     assert package.count("../../contracts/research-api/v2/openapi.json") == 1
     assert "check_generated_client" in web_suite
-    for path in (ROOT / "apps/onlyalpha-web/src").rglob("*"):
+    for path in (ROOT / "packages/onlyalpha-web-console/src").rglob("*"):
         if path.suffix in {".ts", ".tsx"}:
             source = path.read_text(encoding="utf-8")
             assert "OnlyEngine" not in source

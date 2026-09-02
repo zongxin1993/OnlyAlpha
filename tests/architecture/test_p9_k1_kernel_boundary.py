@@ -33,7 +33,7 @@ def test_product_kernel_boundary_is_minimal_and_transport_neutral() -> None:
         "lifecycle.py",
         "query.py",
     }
-    forbidden = ("fastapi", "starlette", "pydantic", "uvicorn", "onlyalpha_api")
+    forbidden = ("fastapi", "starlette", "pydantic", "uvicorn", "onlyalpha_http_server")
     for path in KERNEL_ROOT.glob("*.py"):
         assert not any(name.startswith(forbidden) for name in _imports(path)), path
 
@@ -65,7 +65,7 @@ def test_lifecycle_has_no_public_arbitrary_state_writer() -> None:
 
 
 def test_api_startup_owns_host_and_only_read_only_schema_verification() -> None:
-    source = (ROOT / "packages/api/onlyalpha-api/src/onlyalpha_api/main.py").read_text(encoding="utf-8")
+    source = (ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py").read_text(encoding="utf-8")
     assert "OnlyAlphaKernelHost(" in source
     assert "OnlyPostgresSchemaVerifier(" in source
     assert "OnlyPostgresMigrationAuthority" not in source
@@ -74,6 +74,6 @@ def test_api_startup_owns_host_and_only_read_only_schema_verification() -> None:
     assert "registry_check=lambda: _verify_calculation_registry(calculations)" in source
     assert source.index("kernel.start()") < source.index("uvicorn.run(")
     assert source.index("kernel = OnlyAlphaKernelHost(") < source.index("kernel.start()")
-    app_source = (ROOT / "packages/api/onlyalpha-api/src/onlyalpha_api/app.py").read_text(encoding="utf-8")
+    app_source = (ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/app.py").read_text(encoding="utf-8")
     assert "readiness_probe: OnlyKernelResearchReadinessProjection" in app_source
     assert "readiness_probe: OnlyResearchServiceReadinessProbe" not in app_source

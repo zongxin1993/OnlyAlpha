@@ -25,7 +25,7 @@ def _lock_authority(path: Path) -> str:
     if path.name == "uv.lock":
         return "uv.lock"
     if path.name == "package-lock.json" and path.parent.name == "onlyalpha-web":
-        return "apps/onlyalpha-web/package-lock.json"
+        return "packages/onlyalpha-web-console/package-lock.json"
     return path.as_posix()
 
 
@@ -122,7 +122,7 @@ def build_dependency_audit_evidence(
     if _FULL_SHA.fullmatch(subject_sha) is None:
         raise ValueError("subject_sha must be a lowercase 40-character commit SHA")
     authorities = lockfiles if lockfiles is not None else (() if lockfile is None else (lockfile,))
-    expected = {"uv.lock", "apps/onlyalpha-web/package-lock.json"}
+    expected = {"uv.lock", "packages/onlyalpha-web-console/package-lock.json"}
     normalized = {_lock_authority(path) for path in authorities}
     if not authorities or any(not path.is_file() for path in authorities):
         raise ValueError("dependency audit authorities must be existing lockfiles")

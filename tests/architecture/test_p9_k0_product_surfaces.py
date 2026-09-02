@@ -41,14 +41,14 @@ CONSTRUCTOR_OWNERS = {
 PROTECTED_CONSTRUCTOR_MODULES = frozenset(qualified.rpartition(".")[0] for qualified in CONSTRUCTOR_OWNERS)
 
 EXPECTED_CONSOLE_ENTRY_POINTS = {
-    ("packages/api/onlyalpha-api/pyproject.toml", "onlyalpha-api", "onlyalpha_api.main:main"),
+    ("packages/onlyalpha-http-server/pyproject.toml", "onlyalpha-http-server", "onlyalpha_http_server.main:main"),
     (
-        "packages/provider/onlyalpha-plugin-miniqmt/pyproject.toml",
+        "plugs/onlyalpha-plugin-miniqmt/pyproject.toml",
         "onlyalpha-miniqmt",
         "onlyalpha_plugin_miniqmt.doctor:main",
     ),
     (
-        "packages/provider/onlyalpha-plugin-tushare/pyproject.toml",
+        "plugs/onlyalpha-plugin-tushare/pyproject.toml",
         "onlyalpha-tushare",
         "onlyalpha_plugin_tushare.doctor:main",
     ),

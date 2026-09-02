@@ -9,7 +9,7 @@ from pathlib import Path
 from openapi_contract import check_generated_client
 
 ROOT = Path(__file__).resolve().parents[1]
-WEB = ROOT / "apps/onlyalpha-web"
+WEB = ROOT / "packages/onlyalpha-web-console"
 
 
 def _run(*command: str, cwd: Path = WEB) -> None:

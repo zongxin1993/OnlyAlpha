@@ -26,8 +26,8 @@ sensitive_path_patterns = [
   "src/onlyalpha/persistence/postgres/market_data_catalog.py",
   "src/onlyalpha/persistence/postgres/strategy_store.py",
   "src/onlyalpha/persistence/postgres/research_*_store.py",
-  "packages/api/onlyalpha-api/src/onlyalpha_api/*.py",
-  "packages/api/onlyalpha-api/src/onlyalpha_api/research/*.py",
+  "packages/onlyalpha-http-server/src/onlyalpha_http_server/*.py",
+  "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/*.py",
   "scripts/database.py",
   "scripts/regenerate_*.py",
 ]
@@ -370,19 +370,19 @@ actor = "A01"
 pattern = "src/onlyalpha/kernel/*.py"
 actor = "A12"
 [[actor_paths]]
-pattern = "packages/api/onlyalpha-api/src/onlyalpha_api/app.py"
+pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/app.py"
 actor = "A03"
 [[actor_paths]]
-pattern = "packages/api/onlyalpha-api/src/onlyalpha_api/main.py"
+pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"
 actor = "A03"
 [[actor_paths]]
-pattern = "packages/api/onlyalpha-api/src/onlyalpha_api/__init__.py"
+pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/__init__.py"
 actor = "A04"
 [[actor_paths]]
-pattern = "packages/api/onlyalpha-api/src/onlyalpha_api/health.py"
+pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/health.py"
 actor = "A04"
 [[actor_paths]]
-pattern = "packages/api/onlyalpha-api/src/onlyalpha_api/research/*.py"
+pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/*.py"
 actor = "A04"
 [[actor_paths]]
 pattern = "src/onlyalpha/research/worker_main.py"
@@ -668,7 +668,7 @@ approved_paths = ["src/onlyalpha/runtime/sim/factory.py"]
 id = "K12"
 capability = "C17"
 symbol = "onlyalpha.kernel.host.OnlyAlphaKernelHost"
-approved_paths = ["packages/api/onlyalpha-api/src/onlyalpha_api/main.py", "scripts/openapi_contract.py"]
+approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py", "scripts/openapi_contract.py"]
 [[constructors]]
 id = "K13"
 capability = "C18"

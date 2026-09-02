@@ -58,7 +58,7 @@ def test_core_has_no_binance_reference_price_protocol_fields() -> None:
 
 
 def test_binance_data_source_is_discoverable_through_existing_spi() -> None:
-    pyproject = ROOT / "packages" / "provider" / "onlyalpha-plugin-binance" / "pyproject.toml"
+    pyproject = ROOT / "plugs" / "onlyalpha-plugin-binance" / "pyproject.toml"
     raw = tomllib.loads(pyproject.read_text(encoding="utf-8"))
     target = raw["project"]["entry-points"]["onlyalpha.data_sources"]["binance"]
     module_name, attribute = target.split(":", 1)

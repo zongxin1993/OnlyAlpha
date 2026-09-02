@@ -89,7 +89,7 @@ def test_research_runtime_factory_is_formally_activated() -> None:
 
 def test_plugin_research_backend_does_not_reuse_trading_indicator_classes() -> None:
     source = Path(
-        "packages/indicator/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators/research.py"
+        "plugs/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators/research.py"
     ).read_text()
     assert "update_bar" not in source
     assert "OnlyStandardBarIndicator" not in source

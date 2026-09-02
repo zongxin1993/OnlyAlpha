@@ -46,7 +46,7 @@ def test_postgres_binding_is_single_purpose_and_has_no_update_or_semantic_conten
 
 
 def test_api_and_worker_verify_but_never_initialize_or_rebind_deployment() -> None:
-    api = _source("packages/api/onlyalpha-api/src/onlyalpha_api/main.py")
+    api = _source("packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py")
     worker = _source("src/onlyalpha/research/worker_main.py")
     for startup in (api, worker):
         assert "OnlyResearchDeploymentCoherenceVerifier(" in startup
@@ -74,7 +74,7 @@ def test_deployment_identity_cannot_enter_research_semantic_fingerprints() -> No
 
 
 def test_real_browser_certification_has_no_route_mock_and_uses_process_barrier() -> None:
-    browser = _source("apps/onlyalpha-web/e2e-real/research-product.spec.ts")
+    browser = _source("packages/onlyalpha-web-console/e2e-real/research-product.spec.ts")
     harness = _source("tests/certification/p8_6/test_real_browser_product.py")
     assert "page.route(" not in browser
     assert "route.fulfill(" not in browser

@@ -22,8 +22,8 @@ from tests.architecture.test_p9_k0_product_surfaces import (
 pytestmark = pytest.mark.architecture
 
 ROOT = Path(__file__).parents[2]
-API_SOURCE = ROOT / "packages/api/onlyalpha-api/src/onlyalpha_api"
-WEB_SOURCE = ROOT / "apps/onlyalpha-web/src"
+API_SOURCE = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server"
+WEB_SOURCE = ROOT / "packages/onlyalpha-web-console/src"
 
 
 @pytest.mark.parametrize(

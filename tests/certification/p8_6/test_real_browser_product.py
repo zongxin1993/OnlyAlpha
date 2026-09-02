@@ -88,7 +88,7 @@ def test_real_chromium_product_vertical_survives_refresh_close_and_reopen(
         [
             sys.executable,
             "-m",
-            "onlyalpha_api.main",
+            "onlyalpha_http_server.main",
             "--user-data-root",
             str(tmp_path),
             "--port",
@@ -101,7 +101,7 @@ def test_real_chromium_product_vertical_survives_refresh_close_and_reopen(
     )
     web = subprocess.Popen(
         ["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", str(web_port)],
-        cwd=Path("apps/onlyalpha-web"),
+        cwd=Path("packages/onlyalpha-web-console"),
         env=environment,
         text=True,
         stdout=subprocess.DEVNULL,
@@ -153,7 +153,7 @@ def test_real_chromium_product_vertical_survives_refresh_close_and_reopen(
                 "test",
                 "--config=playwright.real.config.ts",
             ],
-            cwd=Path("apps/onlyalpha-web"),
+            cwd=Path("packages/onlyalpha-web-console"),
             env=environment,
             text=True,
             capture_output=True,

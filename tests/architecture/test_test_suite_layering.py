@@ -40,11 +40,11 @@ def test_every_workspace_test_path_exists() -> None:
 
 
 def test_binance_offline_packages_are_in_core_full_and_network_contract_is_excluded() -> None:
-    assert "packages/market/onlyalpha-market-binance-spot/tests" in WORKSPACE_TESTS
-    assert "packages/provider/onlyalpha-plugin-binance/tests" in WORKSPACE_TESTS
+    assert "plugs/onlyalpha-plugin-binance-spot/tests" in WORKSPACE_TESTS
+    assert "plugs/onlyalpha-plugin-binance/tests" in WORKSPACE_TESTS
     assert "external" in LANES[OnlyTestLane.CORE_FULL].expression
     assert "requires_network" in LANES[OnlyTestLane.CORE_FULL].expression
-    public_contract = (ROOT / "packages/provider/onlyalpha-plugin-binance/tests/test_public_contract.py").read_text()
+    public_contract = (ROOT / "plugs/onlyalpha-plugin-binance/tests/test_public_contract.py").read_text()
     assert "pytest.mark.external" in public_contract
     assert "pytest.mark.requires_network" in public_contract
 
@@ -62,12 +62,12 @@ def test_release_static_uses_root_mypy_authority_and_package_local_exceptions() 
     assert not any(command.startswith("uv run mypy src/onlyalpha") for command in joined)
     for package in (
         "onlyalpha-plugin-broker-virtual",
-        "onlyalpha-market-generic-t0-cash",
-        "onlyalpha-market-cn-ashare",
+        "onlyalpha-plugin-generic-t0-cash",
+        "onlyalpha-plugin-cn-ashare",
         "onlyalpha-plugin-tushare",
         "onlyalpha-plugin-miniqmt",
     ):
-        assert any("packages/" in command and package in command for command in joined)
+            assert any("plugs/" in command and package in command for command in joined)
 
 
 def test_external_and_real_order_tests_are_excluded_from_offline_lanes() -> None:

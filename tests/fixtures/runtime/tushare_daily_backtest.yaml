@@ -28,7 +28,7 @@ authorities:
               pipeline: ROUND_THEN_BOUNDS
 cluster: {cluster_id: tushare-daily-demo, enabled: true, runtime_type: BACKTEST, account_id: backtest-account, risk_profile_id: cn-equity-default}
 market:
-  plugin_id: onlyalpha-market-cn-ashare
+  plugin_id: onlyalpha-plugin-cn-ashare
   product_id: CN_A_SHARE_CASH
   product_version: "2025.1"
   config:

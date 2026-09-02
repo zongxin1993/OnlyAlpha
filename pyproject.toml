@@ -32,7 +32,7 @@ dev = [
     "onlyalpha-plugin-indicators",
     "onlyalpha-plugin-factors",
     "onlyalpha-plugin-targets",
-    "onlyalpha-api",
+    "onlyalpha-http-server",
     "onlyalpha-gateway-protocol",
     "grpcio-tools==1.73.1",
     "types-grpcio==1.0.0.20250703",
@@ -49,19 +49,19 @@ onlyalpha-research-worker = "onlyalpha.research.worker_main:main"
 
 [tool.uv.workspace]
 members = [
-    "packages/fake/onlyalpha-plugin-broker-virtual",
-    "packages/market/onlyalpha-market-generic-t0-cash",
-    "packages/market/onlyalpha-market-cn-ashare",
-    "packages/market/onlyalpha-market-binance-spot",
-    "packages/market/onlyalpha-market-binance-usdm",
-    "packages/provider/onlyalpha-plugin-tushare",
-    "packages/provider/onlyalpha-plugin-binance",
-    "packages/provider/onlyalpha-plugin-miniqmt",
-    "packages/indicator/onlyalpha-plugin-indicators",
-    "packages/factor/onlyalpha-plugin-factors",
-    "packages/target/onlyalpha-plugin-targets",
-    "packages/api/onlyalpha-api",
-    "packages/protocol/onlyalpha-gateway-protocol",
+    "plugs/onlyalpha-plugin-broker-virtual",
+    "plugs/onlyalpha-plugin-generic-t0-cash",
+    "plugs/onlyalpha-plugin-cn-ashare",
+    "plugs/onlyalpha-plugin-binance-spot",
+    "plugs/onlyalpha-plugin-binance-usdm",
+    "plugs/onlyalpha-plugin-tushare",
+    "plugs/onlyalpha-plugin-binance",
+    "plugs/onlyalpha-plugin-miniqmt",
+    "plugs/onlyalpha-plugin-indicators",
+    "plugs/onlyalpha-plugin-factors",
+    "plugs/onlyalpha-plugin-targets",
+    "packages/onlyalpha-http-server",
+    "packages/onlyalpha-gateway-protocol",
 ]
 
 [build-system]
@@ -76,9 +76,9 @@ line-length = 120
 target-version = "py312"
 indent-width = 4
 extend-exclude = [
-    "packages/protocol/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol/v1/*_pb2.py",
-    "packages/protocol/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol/v1/*_pb2.pyi",
-    "packages/protocol/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol/v1/*_pb2_grpc.py",
+    "packages/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol/v1/*_pb2.py",
+    "packages/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol/v1/*_pb2.pyi",
+    "packages/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol/v1/*_pb2_grpc.py",
 ]
 
 [tool.ruff.lint]
@@ -92,14 +92,14 @@ python_version = "3.12"
 strict = true
 files = [
     "src/onlyalpha",
-    "packages/indicator/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators",
-    "packages/factor/onlyalpha-plugin-factors/src/onlyalpha_plugin_factors",
-    "packages/target/onlyalpha-plugin-targets/src/onlyalpha_plugin_targets",
-    "packages/api/onlyalpha-api/src/onlyalpha_api",
-    "packages/protocol/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol",
-    "packages/market/onlyalpha-market-binance-spot/src/onlyalpha_market_binance_spot",
-    "packages/market/onlyalpha-market-binance-usdm/src/onlyalpha_market_binance_usdm",
-    "packages/provider/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance",
+    "plugs/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators",
+    "plugs/onlyalpha-plugin-factors/src/onlyalpha_plugin_factors",
+    "plugs/onlyalpha-plugin-targets/src/onlyalpha_plugin_targets",
+    "packages/onlyalpha-http-server/src/onlyalpha_http_server",
+    "packages/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol",
+    "plugs/onlyalpha-plugin-binance-spot/src/onlyalpha_plugin_binance_spot",
+    "plugs/onlyalpha-plugin-binance-usdm/src/onlyalpha_plugin_binance_usdm",
+    "plugs/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance",
 ]
 
 [[tool.mypy.overrides]]
@@ -111,28 +111,28 @@ onlyalpha-test-plugin = { path = "tests/fixtures/external_plugins/onlyalpha_test
 onlyalpha-plugin-indicators = { workspace = true }
 onlyalpha-plugin-factors = { workspace = true }
 onlyalpha-plugin-targets = { workspace = true }
-onlyalpha-api = { workspace = true }
+onlyalpha-http-server = { workspace = true }
 onlyalpha-gateway-protocol = { workspace = true }
-onlyalpha-market-binance-spot = { workspace = true }
-onlyalpha-market-binance-usdm = { workspace = true }
+onlyalpha-plugin-binance-spot = { workspace = true }
+onlyalpha-plugin-binance-usdm = { workspace = true }
 onlyalpha-plugin-binance = { workspace = true }
 
 [tool.pytest.ini_options]
 consider_namespace_packages = true
 testpaths = [
     "tests",
-    "packages/fake/onlyalpha-plugin-broker-virtual/tests",
-    "packages/market/onlyalpha-market-generic-t0-cash/tests",
-    "packages/market/onlyalpha-market-cn-ashare/tests",
-    "packages/market/onlyalpha-market-binance-spot/tests",
-    "packages/provider/onlyalpha-plugin-binance/tests",
-    "packages/provider/onlyalpha-plugin-tushare/tests",
-    "packages/provider/onlyalpha-plugin-miniqmt/tests",
-    "packages/indicator/onlyalpha-plugin-indicators/tests",
-    "packages/factor/onlyalpha-plugin-factors/tests",
-    "packages/target/onlyalpha-plugin-targets/tests",
-    "packages/api/onlyalpha-api/tests",
-    "packages/protocol/onlyalpha-gateway-protocol/tests",
+    "plugs/onlyalpha-plugin-broker-virtual/tests",
+    "plugs/onlyalpha-plugin-generic-t0-cash/tests",
+    "plugs/onlyalpha-plugin-cn-ashare/tests",
+    "plugs/onlyalpha-plugin-binance-spot/tests",
+    "plugs/onlyalpha-plugin-binance/tests",
+    "plugs/onlyalpha-plugin-tushare/tests",
+    "plugs/onlyalpha-plugin-miniqmt/tests",
+    "plugs/onlyalpha-plugin-indicators/tests",
+    "plugs/onlyalpha-plugin-factors/tests",
+    "plugs/onlyalpha-plugin-targets/tests",
+    "packages/onlyalpha-http-server/tests",
+    "packages/onlyalpha-gateway-protocol/tests",
 ]
 markers = [
     "unit: isolated unit test",
@@ -209,9 +209,9 @@ forbidden_modules = [
     "onlyalpha_plugin_broker_virtual",
     "onlyalpha_plugin_miniqmt",
     "onlyalpha_plugin_tushare",
-    "onlyalpha_market_cn_ashare",
-    "onlyalpha_market_generic_t0_cash",
-    "onlyalpha_market_binance_spot",
+    "onlyalpha_plugin_cn_ashare",
+    "onlyalpha_plugin_generic_t0_cash",
+    "onlyalpha_plugin_binance_spot",
     "onlyalpha_plugin_binance",
     "onlyalpha_plugin_indicators",
     "onlyalpha_plugin_factors",

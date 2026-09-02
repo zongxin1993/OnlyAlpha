@@ -29,9 +29,9 @@ Margin Policy
 
 Matching, slippage, simulation liquidity, latency, fill planning and fill scheduling are excluded from Market Product IR. They belong to Virtual Broker / Execution Simulation. Market Product may define market legality and economic settlement semantics; it does not define whether or how a simulated Broker fills an order.
 
-`onlyalpha-market-generic-t0-cash` is the first concrete implementation:
+`onlyalpha-plugin-generic-t0-cash` is the first concrete implementation:
 
-- provider `onlyalpha-market-generic-t0-cash`;
+- provider `onlyalpha-plugin-generic-t0-cash`;
 - product `GENERIC_T0_CASH@1`;
 - minimal typed config containing only `reference_resource_id`;
 - plugin-owned immutable references and fail-closed instrument/day authority;

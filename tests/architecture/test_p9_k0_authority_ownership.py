@@ -16,27 +16,27 @@ from tests.architecture._p9_k0_guard_helpers import (
 pytestmark = pytest.mark.architecture
 
 ROOT = Path(__file__).parents[2]
-API_ROOT = ROOT / "packages/api/onlyalpha-api/src/onlyalpha_api"
+API_ROOT = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server"
 RESEARCH_EXECUTION_ROOT = ROOT / "src/onlyalpha/research/execution"
 
 HTTP_METHODS = {"delete", "get", "head", "options", "patch", "post", "put", "trace"}
 EXPECTED_HTTP_ROUTE_MODULES = {
-    "packages/api/onlyalpha-api/src/onlyalpha_api/health.py",
-    "packages/api/onlyalpha-api/src/onlyalpha_api/research/definition_routes.py",
-    "packages/api/onlyalpha-api/src/onlyalpha_api/research/routes.py",
-    "packages/api/onlyalpha-api/src/onlyalpha_api/research/run_routes.py",
+    "packages/onlyalpha-http-server/src/onlyalpha_http_server/health.py",
+    "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/definition_routes.py",
+    "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/routes.py",
+    "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/run_routes.py",
 }
 
 EXPECTED_ROUTE_ONLYALPHA_IMPORTS: dict[str, frozenset[CanonicalImport]] = {
-    "packages/api/onlyalpha-api/src/onlyalpha_api/health.py": frozenset(
+    "packages/onlyalpha-http-server/src/onlyalpha_http_server/health.py": frozenset(
         {
             ("symbol", "onlyalpha.research.operations.readiness", "OnlyResearchReadiness"),
             ("symbol", "onlyalpha.research.operations.readiness", "OnlyResearchReadinessCheck"),
             ("symbol", "onlyalpha.research.operations.readiness", "OnlyResearchReadinessStatus"),
         }
     ),
-    "packages/api/onlyalpha-api/src/onlyalpha_api/research/definition_routes.py": frozenset(),
-    "packages/api/onlyalpha-api/src/onlyalpha_api/research/routes.py": frozenset(
+    "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/definition_routes.py": frozenset(),
+    "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/routes.py": frozenset(
         {
             ("symbol", "onlyalpha.research.query", "DEFAULT_PAGE_SIZE"),
             ("symbol", "onlyalpha.research.query", "OnlyResearchQueryService"),
@@ -44,7 +44,7 @@ EXPECTED_ROUTE_ONLYALPHA_IMPORTS: dict[str, frozenset[CanonicalImport]] = {
             ("symbol", "onlyalpha.research.query", "OnlyResearchStatisticSeriesQuery"),
         }
     ),
-    "packages/api/onlyalpha-api/src/onlyalpha_api/research/run_routes.py": frozenset(
+    "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/run_routes.py": frozenset(
         {
             ("symbol", "onlyalpha.application.product_boundary", "OnlyCancelResearchRun"),
             ("symbol", "onlyalpha.application.product_boundary", "OnlyCreateResearchRun"),
