@@ -75,7 +75,7 @@ class OnlyOrderRequest(OnlyDomainModel):
             raise OnlyValidationError("stop orders are not implemented in the first Order phase")
         if self.time_in_force is OnlyTimeInForce.GTD and self.expire_time is None:
             raise OnlyValidationError("GTD order requires expire_time")
-        intent = self.execution_intent or OnlyExecutionIntent.from_legacy_offset(side=self.side, offset=self.offset)
+        intent = self.execution_intent or OnlyExecutionIntent.from_offset(side=self.side, offset=self.offset)
         if intent.side is not self.side:
             raise OnlyValidationError("order side conflicts with canonical execution intent")
         object.__setattr__(self, "execution_intent", intent)
@@ -231,7 +231,7 @@ class OnlyOrderSnapshot(OnlyDomainModel):
                 raise OnlyValidationError("Order fee contract scope mismatch")
             if self.funding_plan.order_id != self.order_id:
                 raise OnlyValidationError("Order funding plan scope mismatch")
-        intent = self.execution_intent or OnlyExecutionIntent.from_legacy_offset(side=self.side, offset=self.offset)
+        intent = self.execution_intent or OnlyExecutionIntent.from_offset(side=self.side, offset=self.offset)
         if intent.side is not self.side:
             raise OnlyValidationError("Order side conflicts with canonical execution intent")
         object.__setattr__(self, "execution_intent", intent)
@@ -242,7 +242,7 @@ class OnlyOrderSnapshot(OnlyDomainModel):
     def from_dict(cls, payload: Mapping[str, object]) -> OnlyOrderSnapshot:
         compatible = dict(payload)
         if compatible.get("schema_version") == 3:
-            compatible["execution_intent"] = OnlyExecutionIntent.from_legacy_offset(
+            compatible["execution_intent"] = OnlyExecutionIntent.from_offset(
                 side=OnlyOrderSide(str(compatible["side"])),
                 offset=OnlyOffset(str(compatible["offset"])),
             ).to_dict()

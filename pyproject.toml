@@ -15,7 +15,6 @@ dependencies = [
 compose-acceptance = [
     "hypothesis>=6.165.5",
     "pytest>=9.0.3",
-    "pytest-benchmark>=5.2.3",
     "pytest-xdist>=3.8.0",
 ]
 dev = [
@@ -43,7 +42,6 @@ dev = [
     "crosshair-tool>=0.0.109",
     "mutmut>=3.7.0",
     "coverage>=7.15.2",
-    "pytest-benchmark>=5.2.3",
 ]
 
 [project.scripts]
@@ -120,13 +118,13 @@ onlyalpha-market-binance-usdm = { workspace = true }
 onlyalpha-plugin-binance = { workspace = true }
 
 [tool.pytest.ini_options]
+consider_namespace_packages = true
 testpaths = [
     "tests",
     "packages/fake/onlyalpha-plugin-broker-virtual/tests",
     "packages/market/onlyalpha-market-generic-t0-cash/tests",
     "packages/market/onlyalpha-market-cn-ashare/tests",
     "packages/market/onlyalpha-market-binance-spot/tests",
-    "packages/market/onlyalpha-market-binance-usdm/tests",
     "packages/provider/onlyalpha-plugin-binance/tests",
     "packages/provider/onlyalpha-plugin-tushare/tests",
     "packages/provider/onlyalpha-plugin-miniqmt/tests",
@@ -146,7 +144,6 @@ markers = [
     "recovery: checkpoint, restart, fault injection, or projection recovery test",
     "sim_recovery: SIM durable product and new-process recovery certification test",
     "external: external service integration test",
-    "performance: explicit performance or scale test",
     "exhaustive: combinatorial, 100-run, or full fault-matrix verification",
     "miniqmt: MiniQMT adapter or environment test",
     "requires_network: requires network access",

@@ -17,7 +17,6 @@ def test_layer_and_concern_taxonomies_are_orthogonal() -> None:
         "sim_recovery",
         "conformance",
         "external",
-        "performance",
         "exhaustive",
         "miniqmt",
     }

@@ -42,7 +42,7 @@ def test_legacy_offset_normalizes_to_one_canonical_intent(
     effect: OnlyPositionEffect,
     scope: OnlyCloseScope,
 ) -> None:
-    intent = OnlyExecutionIntent.from_legacy_offset(side=side, offset=offset)
+    intent = OnlyExecutionIntent.from_offset(side=side, offset=offset)
 
     assert intent.position_side is position_side
     assert intent.position_effect is effect

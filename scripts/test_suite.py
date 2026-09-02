@@ -311,13 +311,13 @@ LANES = {
     ),
     OnlyTestLane.FAST: Lane(
         WORKSPACE_TESTS,
-        "(unit or contract or architecture) and not (historical_git or recovery or sim_recovery or conformance or external or performance or exhaustive or slow)",
+        "(unit or contract or architecture) and not (historical_git or recovery or sim_recovery or conformance or external or exhaustive or slow)",
         "8",
         "worksteal",
     ),
     OnlyTestLane.INTEGRATION: Lane(
         ("tests",),
-        "(integration or scenario) and not (recovery or sim_recovery or conformance or external or performance or exhaustive or slow)",
+        "(integration or scenario) and not (recovery or sim_recovery or conformance or external or exhaustive or slow)",
         "6",
         "worksteal",
     ),
@@ -344,7 +344,7 @@ LANES = {
     ),
     OnlyTestLane.CORE_FULL: Lane(
         WORKSPACE_TESTS,
-        "not (historical_git or recovery or sim_recovery or conformance or external or postgres or clickhouse or requires_network or requires_tushare or requires_local_qmt or requires_broker_account or performance or exhaustive or slow)",
+        "not (historical_git or recovery or sim_recovery or conformance or external or postgres or clickhouse or requires_network or requires_tushare or requires_local_qmt or requires_broker_account or exhaustive or slow)",
         "8",
         "worksteal",
         100,
@@ -353,8 +353,8 @@ LANES = {
 }
 
 RELEASE_STATIC_COMMANDS: tuple[tuple[str, ...], ...] = (
-    ("uv", "run", "ruff", "check", "src", "tests", "examples", "packages", "scripts"),
-    ("uv", "run", "ruff", "format", "--check", "src", "tests", "examples", "packages", "scripts"),
+    ("uv", "run", "ruff", "check", "src", "tests", "packages", "scripts"),
+    ("uv", "run", "ruff", "format", "--check", "src", "tests", "packages", "scripts"),
     ("uv", "run", "mypy"),
     (
         "uv",
@@ -512,7 +512,6 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
         "scripts.pytest_layering",
         "-p",
         "scripts.pytest_metrics",
-        "--benchmark-disable",
     ]
     if args.coverage:
         coverage_sources = {

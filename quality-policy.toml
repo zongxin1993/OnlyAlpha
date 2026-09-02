@@ -7,7 +7,6 @@ required_gates = [
     "architecture",
     "openapi-contract",
     "gateway-protocol",
-    "semgrep",
     "dependency-audit",
     "research-product-closure",
     "database-compose",

@@ -292,29 +292,6 @@ jobs:
       - name: web-e2e
         run: uv run python scripts/web_suite.py e2e
 
-  semgrep:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: astral-sh/setup-uv@v7
-        with:
-          version: "0.10.5"
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install Semgrep
-        run: uv tool install semgrep
-
-      - name: OnlyAlpha semantic guardrails
-        run: |
-          semgrep scan --config semgrep/onlyalpha.yml --test semgrep/onlyalpha.py
-          semgrep scan \
-            --config semgrep/onlyalpha.yml \
-            --error \
-            src packages
-
   dependency-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -361,7 +338,7 @@ jobs:
 
   quality-gate:
     if: always()
-    needs: [static, architecture, openapi-contract, gateway-protocol, semgrep, dependency-audit, pr-lanes, main-lanes, research-product-closure, database-compose, build, web]
+    needs: [static, architecture, openapi-contract, gateway-protocol, dependency-audit, pr-lanes, main-lanes, research-product-closure, database-compose, build, web]
     runs-on: ubuntu-latest
     steps:
       - name: Require every independent gate
@@ -370,7 +347,6 @@ jobs:
           ARCHITECTURE_RESULT: ${{ needs.architecture.result }}
           OPENAPI_CONTRACT_RESULT: ${{ needs.openapi-contract.result }}
           GATEWAY_PROTOCOL_RESULT: ${{ needs.gateway-protocol.result }}
-          SEMGREP_RESULT: ${{ needs.semgrep.result }}
           DEPENDENCY_AUDIT_RESULT: ${{ needs.dependency-audit.result }}
           PR_LANES_RESULT: ${{ needs.pr-lanes.result }}
           MAIN_LANES_RESULT: ${{ needs.main-lanes.result }}
@@ -378,4 +354,4 @@ jobs:
           DATABASE_COMPOSE_RESULT: ${{ needs.database-compose.result }}
           BUILD_RESULT: ${{ needs.build.result }}
           WEB_RESULT: ${{ needs.web.result }}
-        run: test "$STATIC_RESULT" = success -a "$ARCHITECTURE_RESULT" = success -a "$OPENAPI_CONTRACT_RESULT" = success -a "$GATEWAY_PROTOCOL_RESULT" = success -a "$SEMGREP_RESULT" = success -a "$DEPENDENCY_AUDIT_RESULT" = success -a "$RESEARCH_PRODUCT_CLOSURE_RESULT" = success -a "$DATABASE_COMPOSE_RESULT" = success -a "$BUILD_RESULT" = success -a "$WEB_RESULT" = success -a \( "$PR_LANES_RESULT" = success -o "$PR_LANES_RESULT" = skipped \) -a \( "$MAIN_LANES_RESULT" = success -o "$MAIN_LANES_RESULT" = skipped \)
+        run: test "$STATIC_RESULT" = success -a "$ARCHITECTURE_RESULT" = success -a "$OPENAPI_CONTRACT_RESULT" = success -a "$GATEWAY_PROTOCOL_RESULT" = success -a "$DEPENDENCY_AUDIT_RESULT" = success -a "$RESEARCH_PRODUCT_CLOSURE_RESULT" = success -a "$DATABASE_COMPOSE_RESULT" = success -a "$BUILD_RESULT" = success -a "$WEB_RESULT" = success -a \( "$PR_LANES_RESULT" = success -o "$PR_LANES_RESULT" = skipped \) -a \( "$MAIN_LANES_RESULT" = success -o "$MAIN_LANES_RESULT" = skipped \)

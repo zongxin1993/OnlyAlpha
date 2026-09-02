@@ -75,20 +75,7 @@ uv run python scripts/capture_miniqmt_golden.py --userdata-mini "C:\path\userdat
   --adjustment none --output tests/fixtures/miniqmt/cn_a_share_v1
 ```
 
-### 性能测量与比较
-
-Lane metrics 写入 `test-results/metrics/`，包括阶段耗时、Worker/分发模式、机器与 Git 信息，以及测试侧观测到的缓存命中、
-Engine Run、SQLite 创建和 Parquet 写入计数。完整 Worker 矩阵使用三次运行中位数：
-
-```powershell
-uv run python scripts/benchmark_test_lanes.py --lanes fast integration recovery core-full `
-  --workers 4 6 8 auto --dist load worksteal --repeat 3
-uv run python scripts/compare_test_metrics.py `
-  <operator-owned-targets.json> test-results/metrics/recovery.json --lane recovery
-```
-
-性能阈值当前是软警告，不得自动覆盖人工确认的目标文件。PR/Main 的 Static、各测试 lane 和 Build 独立并行，最终由
-Quality Gate 汇总；Nightly 额外运行 Exhaustive 和指标采集。真实 MiniQMT 查询仅在自托管 Windows
+PR/Main 的 Static、各测试 lane 和 Build 独立并行，最终由 Quality Gate 汇总；Nightly 额外运行 Exhaustive。真实 MiniQMT 查询仅在自托管 Windows
 Runner 串行运行；真实订单属于独立手动工作流，P0 不自动提交订单。原跨平台 distribution/install Smoke 保留在
 `ci.yml`，但只允许手动触发，避免在 PR 重复运行三平台 Full/Recovery。
 

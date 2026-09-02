@@ -1,1 +1,0 @@
-"""ASV benchmark suite package."""

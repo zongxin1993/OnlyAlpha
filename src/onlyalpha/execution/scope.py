@@ -56,7 +56,7 @@ class OnlyExecutionPositionScopeResolver:
         self._runtime_id = runtime_id
 
     def resolve_order(self, order: OnlyOrderSnapshot) -> OnlyExecutionPositionScope:
-        intent = getattr(order, "execution_intent", None) or OnlyExecutionIntent.from_legacy_offset(
+        intent = getattr(order, "execution_intent", None) or OnlyExecutionIntent.from_offset(
             side=order.side,
             offset=order.offset,
         )
