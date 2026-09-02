@@ -9,6 +9,11 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
 from onlyalpha.application.product_boundary import OnlyResearchProductBoundary
+from onlyalpha.application.strategy_product import (
+    OnlyStrategyFreezeProductService,
+    OnlyStrategyPromotionProductService,
+    OnlyStrategyQueryService,
+)
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.kernel import OnlyKernelAuthorityError, OnlyKernelMutationRejected
 from onlyalpha.research.command.errors import OnlyResearchCommandError
@@ -40,6 +45,7 @@ from .research.run_errors import run_error_response
 from .research.run_routes import RUN_ROUTE_TAG, create_run_router
 from .research.run_schema import ResearchRunErrorDto, ResearchRunErrorEnvelopeDto
 from .research.schema import RESEARCH_API_SCHEMA_VERSION, ResearchErrorDto
+from .strategy.routes import create_strategy_router
 
 
 def _artifact_validation_error_response() -> JSONResponse:
@@ -98,6 +104,9 @@ def create_research_app(
     calculation_registry: OnlyCalculationRegistry,
     definition_resolver: OnlyResearchDefinitionResolver,
     readiness_probe: OnlyKernelResearchReadinessProjection,
+    strategy_freeze: OnlyStrategyFreezeProductService | None = None,
+    strategy_promotion: OnlyStrategyPromotionProductService | None = None,
+    strategy_query: OnlyStrategyQueryService | None = None,
 ) -> FastAPI:
     universe_authority = definition_resolver.universe_resolver
     if universe_authority is not None and not isinstance(universe_authority, OnlyResearchUniverseCatalog):
@@ -188,6 +197,13 @@ def create_research_app(
         dependencies=readiness_dependencies,
     )
     app.include_router(create_health_router(readiness_probe))
+    if strategy_freeze is not None or strategy_promotion is not None or strategy_query is not None:
+        if strategy_freeze is None or strategy_promotion is None or strategy_query is None:
+            raise TypeError("Strategy Product routes require all Strategy services")
+        app.include_router(
+            create_strategy_router(strategy_freeze, strategy_promotion, strategy_query),
+            dependencies=readiness_dependencies,
+        )
     return app
 
 

@@ -29,10 +29,17 @@ class OnlyProductCommandId:
 class OnlyProductCommandKind(StrEnum):
     CREATE_RESEARCH_RUN = "CREATE_RESEARCH_RUN"
     CANCEL_RESEARCH_RUN = "CANCEL_RESEARCH_RUN"
+    FREEZE_STRATEGY = "FREEZE_STRATEGY"
+    PROMOTE_STRATEGY = "PROMOTE_STRATEGY"
+    CREATE_BACKTEST_RUN = "CREATE_BACKTEST_RUN"
+    CANCEL_BACKTEST_RUN = "CANCEL_BACKTEST_RUN"
 
 
 class OnlyProductCommandOutcomeKind(StrEnum):
     RESEARCH_RUN = "RESEARCH_RUN"
+    STRATEGY = "STRATEGY"
+    STRATEGY_PROMOTION = "STRATEGY_PROMOTION"
+    BACKTEST_RUN = "BACKTEST_RUN"
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,13 +50,18 @@ class OnlyProductCommandOutcomeRef:
     def __post_init__(self) -> None:
         if not isinstance(self.kind, OnlyProductCommandOutcomeKind):
             raise ValueError("Product Command outcome kind is invalid")
-        if self.kind is OnlyProductCommandOutcomeKind.RESEARCH_RUN:
+        if self.kind in {
+            OnlyProductCommandOutcomeKind.RESEARCH_RUN,
+            OnlyProductCommandOutcomeKind.BACKTEST_RUN,
+        }:
             try:
                 parsed = uuid.UUID(self.outcome_id)
             except (AttributeError, TypeError, ValueError) as exc:
                 raise ValueError("Research Run outcome ID must be a canonical UUID4") from exc
             if parsed.version != 4 or str(parsed) != self.outcome_id:
-                raise ValueError("Research Run outcome ID must be a canonical UUID4")
+                raise ValueError("Product Run outcome ID must be a canonical UUID4")
+        elif len(self.outcome_id) != 64 or any(char not in "0123456789abcdef" for char in self.outcome_id):
+            raise ValueError("Strategy outcome ID must be a lower-case SHA256")
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +97,12 @@ def only_cancel_research_run_command_fingerprint(run_id: str) -> str:
 
     OnlyProductCommandOutcomeRef(OnlyProductCommandOutcomeKind.RESEARCH_RUN, run_id)
     return only_canonical_fingerprint({"run_id": run_id})
+
+
+def only_product_command_fingerprint(payload: object) -> str:
+    """Canonical operational intent identity shared without entering semantic identities."""
+
+    return only_canonical_fingerprint(payload)
 
 
 __all__ = [name for name in globals() if name.startswith(("Only", "only_"))]

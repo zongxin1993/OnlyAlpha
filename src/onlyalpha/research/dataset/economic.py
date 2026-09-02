@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from onlyalpha.canonical import only_canonical_fingerprint
@@ -48,6 +49,28 @@ class OnlyEconomicFactManifest:
             "record_count": self.record_count,
             "reference_price_kind": (None if self.reference_price_kind is None else self.reference_price_kind.value),
         }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyEconomicFactManifest:
+        if set(payload) != {
+            "content_fingerprint",
+            "data_version",
+            "fact_family",
+            "record_count",
+            "reference_price_kind",
+        }:
+            raise ValueError("ECONOMIC_FACT_MANIFEST_INVALID")
+        reference = payload["reference_price_kind"]
+        count = payload["record_count"]
+        if isinstance(count, bool) or not isinstance(count, int):
+            raise ValueError("ECONOMIC_FACT_MANIFEST_INVALID")
+        return cls(
+            fact_family=OnlyMarketDataType(str(payload["fact_family"])),
+            content_fingerprint=str(payload["content_fingerprint"]),
+            record_count=count,
+            data_version=str(payload["data_version"]),
+            reference_price_kind=None if reference is None else OnlyReferencePriceKind(str(reference)),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +118,32 @@ class OnlyResearchDatasetEconomicBinding:
     @property
     def fingerprint(self) -> str:
         return only_canonical_fingerprint(self.semantic_payload())
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchDatasetEconomicBinding:
+        if set(payload) != {
+            "base_dataset_snapshot_fingerprint",
+            "canonical_ordering_version",
+            "economic_facts",
+            "market_product_composition_fingerprint",
+            "schema_version",
+        } or not isinstance(payload["economic_facts"], list):
+            raise ValueError("DATASET_ECONOMIC_BINDING_INVALID")
+        facts: list[OnlyEconomicFactManifest] = []
+        for item in payload["economic_facts"]:
+            if not isinstance(item, Mapping):
+                raise ValueError("DATASET_ECONOMIC_BINDING_INVALID")
+            facts.append(OnlyEconomicFactManifest.from_dict(item))
+        schema_version = payload["schema_version"]
+        if isinstance(schema_version, bool) or not isinstance(schema_version, int):
+            raise ValueError("DATASET_ECONOMIC_BINDING_INVALID")
+        return cls(
+            base_dataset_snapshot_fingerprint=str(payload["base_dataset_snapshot_fingerprint"]),
+            market_product_composition_fingerprint=str(payload["market_product_composition_fingerprint"]),
+            economic_facts=tuple(facts),
+            canonical_ordering_version=str(payload["canonical_ordering_version"]),
+            schema_version=schema_version,
+        )
 
 
 __all__ = ["OnlyEconomicFactManifest", "OnlyResearchDatasetEconomicBinding"]
