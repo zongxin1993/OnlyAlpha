@@ -90,14 +90,14 @@ class OnlyExecutionIntent(OnlyDomainModel):
                 raise ValueError("EXECUTION_INTENT_REDUCE_ONLY_OPEN_CONFLICT")
 
     @classmethod
-    def from_legacy_offset(
+    def from_offset(
         cls,
         *,
         side: OnlyOrderSide,
         offset: OnlyOffset,
         position_side: OnlyPositionSide | None = None,
     ) -> OnlyExecutionIntent:
-        """Normalize the historical Offset surface without granting it authority."""
+        """Normalize the canonical Offset surface without granting it authority."""
 
         if offset is OnlyOffset.NONE:
             # Historical Spot semantics: BUY opens long and SELL closes long.

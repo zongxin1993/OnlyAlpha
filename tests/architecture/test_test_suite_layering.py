@@ -20,7 +20,6 @@ from scripts.test_suite import (  # noqa: E402
 def test_core_full_lane_covers_every_workspace_test_distribution() -> None:
     assert LANES[OnlyTestLane.CORE_FULL].paths == WORKSPACE_TESTS
     assert "external" in LANES[OnlyTestLane.CORE_FULL].expression
-    assert "performance" in LANES[OnlyTestLane.CORE_FULL].expression
     assert "recovery" in LANES[OnlyTestLane.CORE_FULL].expression
     assert "conformance" in LANES[OnlyTestLane.CORE_FULL].expression
     assert "exhaustive" in LANES[OnlyTestLane.CORE_FULL].expression
@@ -32,6 +31,12 @@ def test_workspace_tests_are_derived_from_root_pytest_testpaths(tmp_path: Path) 
     pyproject.write_text('[tool.pytest.ini_options]\ntestpaths = ["tests", "packages/new/tests"]\n')
 
     assert workspace_test_paths(pyproject) == ("tests", "packages/new/tests")
+
+
+def test_every_workspace_test_path_exists() -> None:
+    missing = [path for path in WORKSPACE_TESTS if not (ROOT / path).is_dir()]
+
+    assert missing == []
 
 
 def test_binance_offline_packages_are_in_core_full_and_network_contract_is_excluded() -> None:

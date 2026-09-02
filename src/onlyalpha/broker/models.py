@@ -71,7 +71,7 @@ class OnlyBrokerOrderRequest(OnlyDomainModel):
             raise ValueError("BROKER_ORDER_INTENT_REFERENCE_INCOMPLETE")
         if self.runtime_intent_authority_hash and len(self.runtime_intent_authority_hash) != 64:
             raise ValueError("BROKER_ORDER_INTENT_AUTHORITY_HASH_INVALID")
-        intent = self.execution_intent or OnlyExecutionIntent.from_legacy_offset(side=self.side, offset=self.offset)
+        intent = self.execution_intent or OnlyExecutionIntent.from_offset(side=self.side, offset=self.offset)
         if intent.side is not self.side:
             raise ValueError("BROKER_ORDER_CANONICAL_INTENT_CONFLICT")
         object.__setattr__(self, "execution_intent", intent)
@@ -80,7 +80,7 @@ class OnlyBrokerOrderRequest(OnlyDomainModel):
     def from_dict(cls, payload: Mapping[str, object]) -> OnlyBrokerOrderRequest:
         compatible = dict(payload)
         if compatible.get("schema_version") == 1:
-            compatible["execution_intent"] = OnlyExecutionIntent.from_legacy_offset(
+            compatible["execution_intent"] = OnlyExecutionIntent.from_offset(
                 side=OnlyOrderSide(str(compatible["side"])),
                 offset=OnlyOffset(str(compatible["offset"])),
             ).to_dict()

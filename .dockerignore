@@ -1,11 +1,9 @@
 .git
 .venv
-.benchmarks
 .hypothesis
 .import_linter_cache
 .test-cache
 .VSCodeCounter
-.asv
 .coverage
 .coverage.*
 .mypy_cache

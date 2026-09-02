@@ -159,7 +159,7 @@ class OnlyOrderExecutionState(OnlyDomainModel):
                 raise ValueError("Order fee contract scope mismatch")
             if self.funding_plan.order_id != self.order_id:
                 raise ValueError("Order funding plan scope mismatch")
-        intent = self.execution_intent or OnlyExecutionIntent.from_legacy_offset(side=self.side, offset=self.offset)
+        intent = self.execution_intent or OnlyExecutionIntent.from_offset(side=self.side, offset=self.offset)
         if intent.side is not self.side:
             raise ValueError("Order side conflicts with canonical execution intent")
         object.__setattr__(self, "execution_intent", intent)
@@ -176,7 +176,7 @@ class OnlyOrderExecutionState(OnlyDomainModel):
         compatible.setdefault("fee_estimate", None)
         compatible.setdefault("funding_plan", None)
         if compatible.get("execution_intent") is None:
-            compatible["execution_intent"] = OnlyExecutionIntent.from_legacy_offset(
+            compatible["execution_intent"] = OnlyExecutionIntent.from_offset(
                 side=OnlyOrderSide(str(compatible["side"])),
                 offset=OnlyOffset(str(compatible["offset"])),
             ).to_dict()
