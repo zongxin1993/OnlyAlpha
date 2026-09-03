@@ -26,6 +26,7 @@ from onlyalpha.calculation import (
     OnlyWarmupDefinition,
 )
 from onlyalpha.calculation.implementation import (
+    OnlyCalculationImplementationManifest,
     OnlyCalculationStateCapability,
     only_distribution_semantic_dependency,
     only_python_implementation_manifest,
@@ -153,6 +154,27 @@ _CROSS_SECTION = frozenset(
 )
 
 
+def _warmup_for(
+    type_definition: OnlyCalculationTypeDefinition,
+    normalized_parameters: Mapping[str, object],
+) -> OnlyWarmupDefinition:
+    period = int(str(normalized_parameters.get("period", 1)))
+    if type_definition in {ROLLING_MEAN, CROSS_SECTION_PERCENTILE}:
+        return OnlyWarmupDefinition(
+            period,
+            "complete declared input window is available" if period > 1 else "declared input is available",
+            OnlyPreReadyOutput.NULL,
+            "UPSTREAM",
+        )
+    observations = period + 1 if type_definition in {DELAY, DELTA} else period
+    return OnlyWarmupDefinition(
+        observations,
+        "complete inclusive declared window is available" if observations > 1 else "declared inputs are available",
+        OnlyPreReadyOutput.NULL,
+        "UPSTREAM",
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class OnlyOfficialOperatorDefinitionResolver:
     type_definition: OnlyCalculationTypeDefinition
@@ -161,15 +183,10 @@ class OnlyOfficialOperatorDefinitionResolver:
         self, parameters: Mapping[str, object], input_bindings: Mapping[str, OnlyCalculationReference]
     ) -> OnlyCalculationDefinition:
         normalized = self.type_definition.parameters.normalize(parameters)
-        period = int(str(normalized.get("period", 1)))
-        observations = period + 1 if self.type_definition in {DELAY, DELTA} else period
-        condition = (
-            "complete inclusive declared window is available" if observations > 1 else "declared inputs are available"
-        )
         return self.type_definition.resolve(
             parameters,
             input_bindings,
-            OnlyWarmupDefinition(observations, condition, OnlyPreReadyOutput.NULL, "UPSTREAM"),
+            _warmup_for(self.type_definition, normalized),
         )
 
 
@@ -198,7 +215,9 @@ def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
     research_backend = OnlyOfficialResearchOperatorBackend()
     resolvers = {item: OnlyOfficialOperatorDefinitionResolver(item) for item in P0_TYPES}
 
-    def manifest(item: OnlyCalculationTypeDefinition, backend: OnlyCalculationBackendKind):
+    def manifest(
+        item: OnlyCalculationTypeDefinition, backend: OnlyCalculationBackendKind
+    ) -> OnlyCalculationImplementationManifest:
         module = "research" if backend is OnlyCalculationBackendKind.RESEARCH else "trading"
         dependencies = [only_python_stdlib_semantic_dependency("decimal")]
         if backend is OnlyCalculationBackendKind.RESEARCH:

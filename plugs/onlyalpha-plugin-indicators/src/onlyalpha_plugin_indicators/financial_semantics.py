@@ -1,9 +1,25 @@
 """Pure Decimal semantics for the B1 financial feature family."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from decimal import Decimal, localcontext
 
 from onlyalpha.calculation import OnlyCalculationDefinition
+
+
+@contextmanager
+def financial_numeric_context(definition: OnlyCalculationDefinition) -> Iterator[None]:
+    with localcontext() as context:
+        context.prec, context.rounding = definition.numeric.precision, definition.numeric.rounding
+        yield
+
+
+def quantize_financial(definition: OnlyCalculationDefinition, value: Decimal) -> Decimal:
+    quantum = definition.numeric.output_quantum
+    if quantum is None:
+        raise ValueError("financial Indicator requires output_quantum")
+    with financial_numeric_context(definition):
+        return value.quantize(quantum)
 
 
 def evaluate_financial(
@@ -25,8 +41,7 @@ def evaluate_financial(
         raise ValueError("financial Indicator inputs must be finite Decimal or null")
     name = definition.type_id.removeprefix("onlyalpha.indicator.")
     size = next(iter(lengths), 0)
-    with localcontext() as context:
-        context.prec, context.rounding = definition.numeric.precision, definition.numeric.rounding
+    with financial_numeric_context(definition):
         if name == "stochastic":
             return _stochastic(definition, columns, size)
         if name == "obv":
@@ -131,9 +146,4 @@ def _stochastic(
 
 
 def _q(definition: OnlyCalculationDefinition, value: Decimal) -> Decimal:
-    quantum = definition.numeric.output_quantum
-    if quantum is None:
-        raise ValueError("financial Indicator requires output_quantum")
-    with localcontext() as context:
-        context.prec, context.rounding = definition.numeric.precision, definition.numeric.rounding
-        return value.quantize(quantum)
+    return quantize_financial(definition, value)

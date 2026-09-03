@@ -6,7 +6,11 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 
 from onlyalpha.calculation import OnlyCalculationDefinition
-from onlyalpha_plugin_indicators.financial_semantics import evaluate_financial
+from onlyalpha_plugin_indicators.financial_semantics import (
+    evaluate_financial,
+    financial_numeric_context,
+    quantize_financial,
+)
 
 
 class OnlyFinancialTradingBackendFactory:
@@ -94,11 +98,12 @@ class OnlyFinancialTradingBackend:
             close, volume = values["close"], values["volume"]
             if close is None or volume is None or (self._last_close is None and len(self._inputs["close"]) > 0):
                 self._obv_valid = False
-            if self._obv_valid and self._last_close is not None and close is not None and volume is not None:
-                if close > self._last_close:
-                    self._obv += volume
-                elif close < self._last_close:
-                    self._obv -= volume
+            with financial_numeric_context(self.definition):
+                if self._obv_valid and self._last_close is not None and close is not None and volume is not None:
+                    if close > self._last_close:
+                        self._obv += volume
+                    elif close < self._last_close:
+                        self._obv -= volume
             self._last_close = close
             for name, value in values.items():
                 self._inputs[name].append(value)
@@ -118,10 +123,7 @@ class OnlyFinancialTradingBackend:
         return int(str(self.definition.parameters.get("period", 1)))
 
     def _quantize(self, value: Decimal) -> Decimal:
-        quantum = self.definition.numeric.output_quantum
-        if quantum is None:
-            raise ValueError("financial Indicator requires output_quantum")
-        return value.quantize(quantum)
+        return quantize_financial(self.definition, value)
 
 
 def _input_value(value: object) -> Decimal | None:

@@ -42,6 +42,21 @@ def test_l1_definitions_are_generic_non_factor_calculations() -> None:
     assert only_calculation_execution_shape(percentile) is OnlyFactorKind.CROSS_SECTION
 
 
+def test_pre_b1_l1_definition_identities_are_exactly_preserved() -> None:
+    rolling_one = resolve_rolling_mean({"period": 1}, _source())
+    rolling_three = resolve_rolling_mean({"period": 3}, _source())
+    percentile = resolve_cross_section_percentile({}, _source())
+    lower_percentile = resolve_cross_section_percentile({"direction": "LOWER_IS_BETTER"}, _source())
+
+    assert rolling_one.warmup.ready_condition == "declared input is available"
+    assert rolling_one.fingerprint == "c315536669add8a901d02051597219a4dff7e9cb5448c8b2a6ea676cb40aad7c"
+    assert rolling_three.warmup.ready_condition == "complete declared input window is available"
+    assert rolling_three.fingerprint == "c8090848926bea5073fa564ab35395b2a1e353adde7f85920cf200a08d8faa76"
+    assert percentile.warmup.ready_condition == "declared input is available"
+    assert percentile.fingerprint == "9259f6b3d79ef6c801996c5ffc5bcef7fdb07f52a37948d00fa1385948c3fa0d"
+    assert lower_percentile.fingerprint == "2fe30b38133d189fceaf88947d9feae72c7bc025be0253e2eeb42ec787da596e"
+
+
 def test_rolling_mean_has_explicit_warmup_null_and_decimal_semantics() -> None:
     definition = resolve_rolling_mean({"period": 3}, _source())
     assert definition.warmup.minimum_observations == 3

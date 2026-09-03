@@ -2,6 +2,7 @@ from decimal import ROUND_DOWN, Decimal, localcontext
 
 import pyarrow as pa
 import pytest
+from onlyalpha_plugin_indicators.provider import quant_asset_provider
 from onlyalpha_plugin_indicators.registration import (
     B1_FINANCIAL_TYPES,
     OBV,
@@ -105,6 +106,11 @@ def test_b1_financial_catalog_contracts_are_explicit() -> None:
         B1_FINANCIAL_TYPES
     )
     assert all(item.implementation_manifest is not None for item in actual)
+    provider = quant_asset_provider()
+    assert provider.manifest.provider_id == "onlyalpha.indicator.library"
+    assert provider.manifest.provider_version == "3"
+    assert provider.content_fingerprint == "d21b01930880e6633e459d6c97ff26a34d3c5b3ca9d6478073f69147afb5564b"
+    assert provider.content_fingerprint == quant_asset_provider().content_fingerprint
 
 
 def test_financial_results_ignore_caller_decimal_context() -> None:
@@ -116,6 +122,47 @@ def test_financial_results_ignore_caller_decimal_context() -> None:
         caller.prec = 4
         caller.rounding = ROUND_DOWN
         assert backend.execute(definition, inputs)["value"].to_pylist() == expected
+
+
+def test_obv_research_trading_and_checkpoint_ignore_caller_decimal_context() -> None:
+    definition = _definition(OBV, {})
+    inputs = {
+        "close": [Decimal("100"), Decimal("101"), Decimal("102"), Decimal("101"), Decimal("103")],
+        "volume": [
+            Decimal("1.000000000001"),
+            Decimal("1234567890123.123456789012"),
+            Decimal("9876543210987.987654321098"),
+            Decimal("2222222222222.222222222222"),
+            Decimal("3333333333333.333333333333"),
+        ],
+    }
+    research = (
+        _registration(OBV, OnlyCalculationBackendKind.RESEARCH)
+        .provider.execute(
+            definition,
+            {name: pa.array(values, type=_D) for name, values in inputs.items()},
+        )["obv"]
+        .to_pylist()
+    )
+    rows = [dict(zip(inputs, row, strict=True)) for row in zip(*(inputs[name] for name in inputs), strict=True)]
+    trading_registration = _registration(OBV, OnlyCalculationBackendKind.TRADING)
+
+    with localcontext() as caller:
+        caller.prec = 6
+        caller.rounding = ROUND_DOWN
+        uninterrupted = trading_registration.provider.create(definition, object())
+        streamed = [uninterrupted.update(row)["obv"] for row in rows]
+
+        split = 3
+        original = trading_registration.provider.create(definition, object())
+        for row in rows[:split]:
+            original.update(row)
+        restored = trading_registration.provider.create(definition, object())
+        restored.restore_checkpoint(original.capture_checkpoint())
+        continued = [restored.update(row)["obv"] for row in rows[split:]]
+
+    assert streamed == research
+    assert continued == research[split:]
 
 
 def test_obv_checkpoint_rejects_inconsistent_last_close() -> None:

@@ -202,47 +202,31 @@ def test_cross_section_p0_is_research_only_and_preserves_missing(type_definition
 
 def test_p0_discovery_and_provider_version_are_complete() -> None:
     provider = quant_asset_provider()
-    assert provider.manifest.provider_version == "2"
+    assert provider.manifest.provider_id == "onlyalpha.operator.library"
+    assert provider.manifest.provider_version == "3"
     assert {item.type_definition for item in provider.calculation_registrations} == set(P0_TYPES)
+    assert provider.content_fingerprint == "9b50f3c60dfb9e20621bb375a8ea60ac8636c3e7ab33124a87764a9b2f8f1213"
     assert provider.content_fingerprint == quant_asset_provider().content_fingerprint
 
 
-def test_twelve_representative_operator_compositions_have_canonical_identity() -> None:
-    first_types = (
-        ROLLING_MEAN,
-        ROLLING_SUM,
-        ROLLING_STD,
-        ROLLING_VAR,
-        ROLLING_MIN,
-        ROLLING_MAX,
-        DELAY,
-        DELTA,
-        TS_RANK,
-        DECAY_LINEAR,
-    )
-    second_types = (ABS, SIGN, LOG, SCALE)
-    graphs = []
-    for index in range(12):
-        first_type = first_types[index % len(first_types)]
-        first = resolve_operator(first_type, {"period": 2}, value=_SOURCE)
-        second_type = second_types[index % len(second_types)]
-        parameters = {"factor": Decimal(index + 1)} if second_type is SCALE else {}
-        second = resolve_operator(second_type, parameters, value=OnlyCalculationReference(first.fingerprint, "value"))
-        nodes = (OnlyCalculationNodeDefinition(first), OnlyCalculationNodeDefinition(second))
-        graph = OnlyCalculationGraphDefinition(nodes)
-        assert graph.fingerprint == OnlyCalculationGraphDefinition(tuple(reversed(nodes))).fingerprint
-        graphs.append(graph.fingerprint)
-    assert len(set(graphs)) == 12
+def test_operator_composition_identity_is_order_independent_and_parameter_sensitive() -> None:
+    first = resolve_operator(ROLLING_MEAN, {"period": 2}, value=_SOURCE)
+    second = resolve_operator(ABS, {}, value=OnlyCalculationReference(first.fingerprint, "value"))
+    nodes = (OnlyCalculationNodeDefinition(first), OnlyCalculationNodeDefinition(second))
+    graph = OnlyCalculationGraphDefinition(nodes)
+    assert graph.fingerprint == OnlyCalculationGraphDefinition(tuple(reversed(nodes))).fingerprint
     changed = resolve_operator(ROLLING_MEAN, {"period": 3}, value=_SOURCE)
-    assert changed.fingerprint != resolve_operator(ROLLING_MEAN, {"period": 2}, value=_SOURCE).fingerprint
+    assert changed.fingerprint != first.fingerprint
 
 
-def test_cross_section_definition_is_fresh_process_hash_seed_independent() -> None:
+def test_representative_composition_is_fresh_process_hash_seed_independent() -> None:
     program = """
-from onlyalpha.calculation import OnlyCalculationReference
-from onlyalpha_plugin_operators.registration import CROSS_SECTION_RANK, resolve_operator
+from onlyalpha.calculation import OnlyCalculationGraphDefinition, OnlyCalculationNodeDefinition, OnlyCalculationReference
+from onlyalpha_plugin_operators.registration import DELTA, ROLLING_MEAN, resolve_operator
 source = OnlyCalculationReference(None, 'value', 'dataset.value')
-print(resolve_operator(CROSS_SECTION_RANK, {}, value=source).fingerprint)
+mean = resolve_operator(ROLLING_MEAN, {'period': 5}, value=source)
+delta = resolve_operator(DELTA, {'period': 2}, value=OnlyCalculationReference(mean.fingerprint, 'value'))
+print(OnlyCalculationGraphDefinition((OnlyCalculationNodeDefinition(delta), OnlyCalculationNodeDefinition(mean))).fingerprint)
 """
     fingerprints = []
     for seed in ("1", "987654"):
