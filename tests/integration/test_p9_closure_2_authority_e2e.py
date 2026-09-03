@@ -11,15 +11,37 @@ from onlyalpha_plugin_miniqmt.data_source.factory import OnlyMiniQmtDataSourceFa
 from onlyalpha_plugin_miniqmt.data_source.resource import OnlyMiniQmtDataSource
 from onlyalpha_plugin_miniqmt.historical_worker.client import OnlyMiniQmtHistoricalIsolatedClient
 
+from onlyalpha.backtest import (
+    OnlyBacktestAdmissionResolution,
+    OnlyBacktestEvidenceStore,
+    OnlyBacktestProfileReference,
+    OnlyBacktestRun,
+    OnlyBacktestRunId,
+    OnlyBacktestRuntimeExecutionResult,
+    OnlyBacktestSpecification,
+    OnlyBacktestWorker,
+    OnlyBacktestWorkerInstanceId,
+    OnlyBacktestWorkerOutcomeKind,
+    OnlyInMemoryBacktestExecutionStore,
+)
+from onlyalpha.canonical import only_canonical_json
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.domain.identifiers import OnlyEngineId, OnlyInstrumentId
 from onlyalpha.domain.market import OnlyBarType
 from onlyalpha.engine import OnlyEngineConfig
 from onlyalpha.engine.engine import OnlyEngine
+from onlyalpha.quant_assets import only_discover_quant_asset_providers
+from onlyalpha.research.definition import OnlyResearchDefinition
 from onlyalpha.runtime.sim.runtime import OnlySimRuntime
 from onlyalpha.strategy.adapter import OnlyRevisionStrategyAdapter
 from onlyalpha.strategy.freeze import OnlyStrategyFreezeRequest
+from onlyalpha.strategy.promotion import (
+    OnlyInMemoryStrategyPromotionLedger,
+    OnlyStrategyPromotionDecision,
+    OnlyStrategyPromotionService,
+    OnlyStrategyPromotionStage,
+)
 from tests.research.calculation.support import bars
 from tests.strategy.test_strategy_freeze import _freeze_case
 
@@ -93,14 +115,35 @@ def test_research_evidence_freeze_publishes_one_strategy_for_backtest_and_sim(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     user_data = tmp_path / "user_data"
+    strategy_asset = only_discover_quant_asset_providers().resolve_strategy_asset(
+        "example.strategy.library", "1", "example.strategy.simple_momentum", "1"
+    )
+    source_definition = OnlyResearchDefinition.from_dict(
+        json.loads(strategy_asset.resource_bytes("research-definition.json"))
+    )
     service, run, candidate, frozen_store, _catalog = _freeze_case(
         tmp_path / "research-authorities",
         semantic_root=user_data / "research",
         values=_research_bars(),
+        source_definition=source_definition,
     )
     frozen = service.freeze(OnlyStrategyFreezeRequest(run.run_id, candidate.candidate_fingerprint, "certifier"))
     fingerprint = frozen.strategy_fingerprint
     assert frozen_store.load_verified(fingerprint).strategy_fingerprint.value == fingerprint
+    promotion = OnlyStrategyPromotionService(
+        frozen_store,
+        OnlyInMemoryStrategyPromotionLedger(),
+        lambda: datetime(2026, 9, 3, tzinfo=UTC),
+    )
+    promotion.record(
+        strategy_fingerprint=fingerprint,
+        to_stage=OnlyStrategyPromotionStage.BACKTEST,
+        evidence_fingerprints=(frozen.freeze_record.record_fingerprint,),
+        decision=OnlyStrategyPromotionDecision.APPROVED,
+        reason="example vertical admission",
+        actor="operator",
+    )
+    assert promotion.current_stage(fingerprint) is OnlyStrategyPromotionStage.BACKTEST
 
     current_close = _OBSERVED_AT.replace(second=0, microsecond=0)
     previous_close = current_close - timedelta(hours=18, minutes=36)
@@ -145,6 +188,81 @@ def test_research_evidence_freeze_publishes_one_strategy_for_backtest_and_sim(
     backtest.add_cluster(_runtime_config("BACKTEST", fingerprint, tmp_path))
     backtest_result = backtest.run()
     assert backtest_result.status == "COMPLETED"
+
+    revision = frozen_store.load_verified(fingerprint)
+    implementation_fingerprints = tuple(
+        sorted({item.trading_implementation_fingerprint for item in revision.implementation_bindings})
+    )
+    profile = OnlyBacktestProfileReference("example", "1")
+    specification = OnlyBacktestSpecification(
+        fingerprint,
+        "b" * 64,
+        "c" * 64,
+        profile,
+        profile,
+        profile,
+        "CNY",
+        "100000",
+    )
+    resolution = OnlyBacktestAdmissionResolution(
+        revision.schema_version,
+        fingerprint,
+        specification.dataset_binding_fingerprint,
+        "d" * 64,
+        "e" * 64,
+        "1" * 64,
+        "2" * 64,
+        "3" * 64,
+        "ONLYALPHA_KERNEL_SEMANTICS@1",
+        implementation_fingerprints,
+    )
+    product_run = OnlyBacktestRun.queued(
+        run_id=OnlyBacktestRunId("00000000-0000-4000-8000-000000000902"),
+        specification=specification,
+        admission_resolution=resolution,
+        queued_at=_OBSERVED_AT,
+    )
+
+    class _Admission:
+        def resolve(self, candidate):  # type: ignore[no-untyped-def]
+            assert candidate == specification
+            assert promotion.current_stage(fingerprint) is OnlyStrategyPromotionStage.BACKTEST
+            return resolution
+
+    class _ExecutedBacktest:
+        def execute(self, candidate):  # type: ignore[no-untyped-def]
+            assert candidate.specification.strategy_fingerprint == fingerprint
+            actual = backtest_result.runtime_results[0]
+            return OnlyBacktestRuntimeExecutionResult(
+                actual.result_fingerprint,
+                actual.determinism_fingerprint,
+                (("result.json", only_canonical_json(actual.to_dict()).encode(), "application/json"),),
+            )
+
+    class _Lease:
+        ownership_lost = False
+
+        def __enter__(self):  # type: ignore[no-untyped-def]
+            return self
+
+        def __exit__(self, *_):  # type: ignore[no-untyped-def]
+            return None
+
+    product_store = OnlyInMemoryBacktestExecutionStore((product_run,), now_utc=lambda: _OBSERVED_AT)
+    evidence_store = OnlyBacktestEvidenceStore(user_data)
+    outcome = OnlyBacktestWorker(
+        worker_instance_id=OnlyBacktestWorkerInstanceId.new(),
+        store=product_store,
+        admission=_Admission(),  # type: ignore[arg-type]
+        executor=_ExecutedBacktest(),  # type: ignore[arg-type]
+        evidence=evidence_store,
+        lease_control_factory=lambda *_: _Lease(),  # type: ignore[arg-type]
+    ).run_once()
+    assert outcome is not None and outcome.kind is OnlyBacktestWorkerOutcomeKind.COMPLETED
+    assert outcome.run is not None and outcome.run.evidence_fingerprint is not None
+    evidence = evidence_store.load_verified(outcome.run.evidence_fingerprint)
+    assert evidence.strategy_fingerprint == fingerprint
+    assert evidence.result_fingerprint == backtest_result.runtime_results[0].result_fingerprint
 
     active_runtime = "SIM"
     sim = OnlyEngine(OnlyEngineConfig(OnlyEngineId("p9-c2-sim"), user_data))

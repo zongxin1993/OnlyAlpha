@@ -1,6 +1,17 @@
-# Example Plugin
+# Quantitative Plugins and Examples
 
-官方 Strategy、Factor、扩展组件和 Cluster 配置统一归属并列的 `OnlyAlpha-plugins` 项目；官方示例的入口、教程和生成结果
-统一归属 `OnlyAlpha-examples`。OnlyAlpha 核心不得反向依赖二者。
+ADR 0110 defines the active boundary. Public reusable L1 Operators and L2 Indicators live in official plugins. Production L3
+Factors and L4 Strategies belong in private repositories. The main repository keeps exactly two non-production references:
+`examples/onlyalpha-example-alpha/` and `examples/onlyalpha-example-strategies/`.
 
-核心 `src/onlyalpha` 不包含官方 Strategy/Factor/Cluster 配置。核心纵切面使用 `tests/runtime_support` Test Adapter，且不会打包。
+Core never imports these concrete implementations. Example Alpha registers through the public Calculation SPI; example Strategy
+documents travel through Definition Resolve and verified Freeze rather than becoming callback or filesystem runtime authority.
+
+ADR 0111 defines two consumption modes for future private L3/L4 repositories. A local checkout may be installed editable or imported
+through an explicit development source path for controlled Agent research. A released wheel/private-index installation uses standard
+distribution metadata: L3 is discovered through `onlyalpha.calculations`, while L4 authoring JSON is read through its package resource
+API. Only installed distributions participate in production plugin discovery; no Core component recursively executes arbitrary paths.
+
+Every L1-L4 library also exposes one `onlyalpha.quant_assets` provider. The management catalog binds provider version to exact content and
+creates immutable generation fingerprints. A changed provider must use a new provider version; semantic changes also bump their Calculation
+or Strategy-asset semantic version. Refresh affects new authoring/admission only and never mutates an active Run or StrategyRevision.

@@ -3,7 +3,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from onlyalpha_plugin_factors.registration import MOMENTUM
+from onlyalpha_example_alpha.registration import MOMENTUM
 from onlyalpha_plugin_indicators.registration import TYPES, resolve_definition
 from onlyalpha_plugin_targets.registration import resolve_forward_return
 

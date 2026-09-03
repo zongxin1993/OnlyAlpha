@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from onlyalpha_plugin_factors.registration import MOMENTUM
+from onlyalpha_example_alpha.registration import MOMENTUM
 from onlyalpha_plugin_indicators.registration import TYPES
 from onlyalpha_plugin_targets.registration import FORWARD_RETURN
 

@@ -115,8 +115,11 @@ LANES = {
             "tests/calculation",
             "tests/indicator",
             "tests/plugin/test_calculation_plugin_discovery.py",
+            "tests/plugin/test_entry_point_discovery.py",
+            "tests/plugin/test_quant_asset_catalog.py",
             "tests/architecture/test_calculation_plugin_boundaries.py",
             "plugs/onlyalpha-plugin-indicators/tests",
+            "plugs/onlyalpha-plugin-operators/tests",
         ),
         "not external",
         "4",
@@ -146,7 +149,8 @@ LANES = {
     OnlyTestLane.RESEARCH_FACTOR: Lane(
         (
             "tests/research/factor",
-            "plugs/onlyalpha-plugin-factors/tests",
+            "examples/onlyalpha-example-alpha/tests",
+            "plugs/onlyalpha-plugin-operators/tests",
             "tests/research/calculation/test_execution.py",
             (
                 "tests/research/calculation/test_execution_evidence.py"
@@ -154,6 +158,7 @@ LANES = {
             ),
             "tests/architecture/test_research_factor_boundaries.py",
             "tests/architecture/test_calculation_plugin_boundaries.py",
+            "tests/plugin/test_quant_asset_catalog.py",
         ),
         "not external",
         "4",
@@ -538,13 +543,13 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             OnlyTestLane.RESEARCH_SWEEP: ("src/onlyalpha/research/sweep",),
             OnlyTestLane.RESEARCH_FACTOR: (
                 "onlyalpha.research.calculation.execution",
-                "onlyalpha_plugin_factors",
+                "onlyalpha_plugin_operators",
+                "onlyalpha_example_alpha",
+                "onlyalpha_example_strategies",
             ),
             OnlyTestLane.RESEARCH_JOB: ("src/onlyalpha/research/job",),
             OnlyTestLane.RESEARCH_CALCULATION: ("src/onlyalpha/research/calculation",),
-            OnlyTestLane.CALCULATION: (
-                "plugs/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators",
-            ),
+            OnlyTestLane.CALCULATION: ("plugs/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators",),
             OnlyTestLane.RESEARCH_DATASET: ("src/onlyalpha/research/dataset",),
         }.get(name, ("src/onlyalpha",))
         coverage_output = (

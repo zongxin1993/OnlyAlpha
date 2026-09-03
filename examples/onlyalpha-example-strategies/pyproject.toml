@@ -1,0 +1,23 @@
+[project]
+name = "onlyalpha-example-strategies"
+version = "0.9.8"
+description = "Non-production L4 Strategy authoring references for OnlyAlpha"
+requires-python = ">=3.12,<3.13"
+dependencies = ["onlyalpha==0.9.8"]
+
+[project.entry-points."onlyalpha.quant_assets"]
+example-strategies = "onlyalpha_example_strategies.provider:quant_asset_provider"
+
+[build-system]
+requires = ["hatchling>=1.26,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/onlyalpha_example_strategies"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"simple_momentum/research-definition.json" = "onlyalpha_example_strategies/simple_momentum/research-definition.json"
+"simple_momentum/metadata.json" = "onlyalpha_example_strategies/simple_momentum/metadata.json"
+
+[tool.uv.sources]
+onlyalpha = { workspace = true }

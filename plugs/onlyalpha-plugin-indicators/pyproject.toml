@@ -1,12 +1,15 @@
 [project]
 name = "onlyalpha-plugin-indicators"
 version = "0.9.8"
-description = "Canonical trading Indicator backends for OnlyAlpha"
+description = "Official public L2 financial Indicator calculations for OnlyAlpha"
 requires-python = ">=3.12,<3.13"
 dependencies = ["onlyalpha==0.9.8"]
 
 [project.entry-points."onlyalpha.calculations"]
 standard-indicators = "onlyalpha_plugin_indicators.registration:registrations"
+
+[project.entry-points."onlyalpha.quant_assets"]
+standard-indicators = "onlyalpha_plugin_indicators.provider:quant_asset_provider"
 
 [dependency-groups]
 dev = ["mypy>=1.15", "pytest>=9.0.3", "ruff>=0.11"]

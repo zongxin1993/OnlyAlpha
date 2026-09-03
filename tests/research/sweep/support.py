@@ -4,9 +4,10 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
-from onlyalpha_plugin_factors.registration import registrations as factor_registrations
+from onlyalpha_example_alpha.registration import registrations as factor_registrations
 from onlyalpha_plugin_indicators.registration import TYPES
 from onlyalpha_plugin_indicators.registration import registrations as indicator_registrations
+from onlyalpha_plugin_operators.registration import registrations as operator_registrations
 
 from onlyalpha.calculation import (
     OnlyCalculationKind,
@@ -32,7 +33,7 @@ from tests.research.calculation.support import snapshot
 
 def registry() -> OnlyCalculationRegistry:
     result = OnlyCalculationRegistry()
-    for registration in (*indicator_registrations(), *factor_registrations()):
+    for registration in (*operator_registrations(), *indicator_registrations(), *factor_registrations()):
         result.register(registration)
     return result
 
@@ -53,7 +54,7 @@ def factor_template(*, alias: str | None = None) -> OnlyResearchGraphTemplate:
             ),
             OnlyResearchGraphTemplateNode(
                 "momentum",
-                reference(OnlyCalculationKind.FACTOR, "onlyalpha.factor.momentum"),
+                reference(OnlyCalculationKind.FACTOR, "example.factor.momentum"),
                 {"short_weight": Decimal("0.5"), "long_weight": Decimal("0.5")},
                 (
                     OnlyResearchTemplateInputBinding("return_short", OnlyResearchTemplateReference("short", "value")),
@@ -63,13 +64,9 @@ def factor_template(*, alias: str | None = None) -> OnlyResearchGraphTemplate:
             ),
             OnlyResearchGraphTemplateNode(
                 "score",
-                reference(OnlyCalculationKind.FACTOR, "onlyalpha.factor.cross_section_percentile"),
+                reference(OnlyCalculationKind.INDICATOR, "onlyalpha.operator.cross_section_percentile"),
                 {"direction": "HIGHER_IS_BETTER"},
-                (
-                    OnlyResearchTemplateInputBinding(
-                        "factor_value", OnlyResearchTemplateReference("momentum", "factor_value")
-                    ),
-                ),
+                (OnlyResearchTemplateInputBinding("value", OnlyResearchTemplateReference("short", "value")),),
             ),
         )
     )

@@ -33,9 +33,7 @@ def workload_case(root: Path) -> tuple[OnlyEngine, OnlyResearchWorkloadPlan]:
     target = target_graph()
     feature_job = OnlyResearchJobPlan(dataset.snapshot_fingerprint, feature)
     target_job = OnlyResearchJobPlan(dataset.snapshot_fingerprint, target)
-    feature_node = next(
-        node for node in feature.ordered_nodes if node.definition.type_id == "onlyalpha.factor.momentum"
-    )
+    feature_node = next(node for node in feature.ordered_nodes if node.definition.type_id == "example.factor.momentum")
     target_node = target.ordered_nodes[0]
     statistics = OnlyResearchStatisticsPlan(
         OnlyResearchFeatureSeriesReference(
@@ -62,9 +60,7 @@ def sweep_only_workload_case(root: Path) -> tuple[OnlyEngine, OnlyResearchWorklo
     target = target_graph()
     feature_job = OnlyResearchJobPlan(dataset.snapshot_fingerprint, feature)
     target_job = OnlyResearchJobPlan(dataset.snapshot_fingerprint, target)
-    feature_node = next(
-        node for node in feature.ordered_nodes if node.definition.type_id == "onlyalpha.factor.momentum"
-    )
+    feature_node = next(node for node in feature.ordered_nodes if node.definition.type_id == "example.factor.momentum")
     target_node = target.ordered_nodes[0]
     statistics = OnlyResearchStatisticsPlan(
         OnlyResearchFeatureSeriesReference(

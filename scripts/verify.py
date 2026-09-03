@@ -421,8 +421,31 @@ IMPACT_RULES = (
         "Research calculation is upstream of factor execution and jobs",
     ),
     VerificationImpactRule(
+        "quant-asset-catalog",
+        (
+            "src/onlyalpha/quant_assets/",
+            "tests/plugin/test_quant_asset_catalog.py",
+            "examples/onlyalpha-example-strategies/",
+        ),
+        (),
+        (
+            OnlyTestLane.CALCULATION,
+            OnlyTestLane.RESEARCH_DEFINITION,
+            OnlyTestLane.RESEARCH_FACTOR,
+            OnlyTestLane.STRATEGY,
+        ),
+        STATIC,
+        VerificationEscalation.COMPONENT,
+        "Versioned asset generations feed new Research authoring and Strategy Freeze",
+    ),
+    VerificationImpactRule(
         "research-factor",
-        ("tests/research/factor/", "plugs/onlyalpha-plugin-factors/"),
+        (
+            "tests/research/factor/",
+            "plugs/onlyalpha-plugin-factors/",
+            "plugs/onlyalpha-plugin-operators/",
+            "examples/onlyalpha-example-alpha/",
+        ),
         (),
         (
             OnlyTestLane.RESEARCH_SPECIFICATION,
@@ -451,7 +474,12 @@ IMPACT_RULES = (
     ),
     VerificationImpactRule(
         "calculation-foundation",
-        ("src/onlyalpha/calculation/", "tests/calculation/", "plugs/onlyalpha-plugin-indicators/"),
+        (
+            "src/onlyalpha/calculation/",
+            "src/onlyalpha/quant_assets/",
+            "tests/calculation/",
+            "plugs/onlyalpha-plugin-indicators/",
+        ),
         (),
         (OnlyTestLane.RESEARCH_SPECIFICATION, OnlyTestLane.CALCULATION, *RESEARCH_CHAIN, OnlyTestLane.CORE_FULL),
         STATIC,

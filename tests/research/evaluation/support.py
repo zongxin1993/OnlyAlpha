@@ -3,8 +3,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from onlyalpha_plugin_factors.registration import registrations as factor_registrations
+from onlyalpha_example_alpha.registration import registrations as factor_registrations
 from onlyalpha_plugin_indicators.registration import registrations as indicator_registrations
+from onlyalpha_plugin_operators.registration import registrations as operator_registrations
 from onlyalpha_plugin_targets.registration import registrations as target_registrations
 from onlyalpha_plugin_targets.registration import resolve_forward_return
 
@@ -36,7 +37,12 @@ from tests.research.factor.support import factor_graph
 
 def evaluation_registry() -> OnlyCalculationRegistry:
     registry = OnlyCalculationRegistry()
-    for registration in (*indicator_registrations(), *factor_registrations(), *target_registrations()):
+    for registration in (
+        *operator_registrations(),
+        *indicator_registrations(),
+        *factor_registrations(),
+        *target_registrations(),
+    ):
         registry.register(registration)
     return registry
 
@@ -76,7 +82,7 @@ def evaluation_case(root: Path):
     feature_outcome = job.execute(feature_plan)
     target_outcome = job.execute(target_plan)
     feature_node = next(
-        node for node in feature_graph.ordered_nodes if node.definition.type_id == "onlyalpha.factor.momentum"
+        node for node in feature_graph.ordered_nodes if node.definition.type_id == "example.factor.momentum"
     )
     target_node = target.ordered_nodes[0]
     statistics_plan = OnlyResearchStatisticsPlan(

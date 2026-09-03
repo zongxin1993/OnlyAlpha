@@ -16,14 +16,28 @@ def test_core_does_not_import_calculation_plugins_or_own_concrete_algorithms() -
             name.startswith(
                 (
                     "onlyalpha_plugin_indicators",
-                    "onlyalpha_plugin_factors",
+                    "onlyalpha_plugin_operators",
+                    "onlyalpha_example_alpha",
+                    "onlyalpha_example_strategies",
                     "onlyalpha_plugin_targets",
                     "onlyalpha_test_plugin",
                 )
             )
             for name in imports
         ), path
-    forbidden = {"macd", "ema", "sma", "rsi", "atr", "bollinger", "rolling_return", "rolling_volatility", "zscore"}
+    forbidden = {
+        "macd",
+        "ema",
+        "sma",
+        "rsi",
+        "atr",
+        "bollinger",
+        "rolling_return",
+        "rolling_volatility",
+        "zscore",
+        "rolling_mean",
+        "cross_section_percentile",
+    }
     assert not forbidden.intersection(
         path.name for path in Path("src/onlyalpha/indicator").iterdir() if any(path.glob("*.py"))
     )

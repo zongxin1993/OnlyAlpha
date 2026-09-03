@@ -229,6 +229,21 @@ Broker command、同步、对账和长期恢复闭环。
 
 ## 6. Cluster / Strategy / Factor / Indicator
 
+ADR 0110 freezes the quantitative asset boundary without adding execution frameworks:
+
+```text
+L1 Mathematical Operator → L2 Financial Indicator → Feature
+→ L3 Alpha Factor → Factor Value/Score
+→ L4 Strategy → Signal/Selection/Rank
+→ Portfolio/Risk/Execution
+```
+
+Calculation and its Graph remain the only calculation abstraction and DAG authority. L1/L2 are public reusable capabilities;
+production L3/L4 are private, while the main repository keeps only two non-production reference libraries. Feature remains an
+output port, Factor carries a hypothesis, and immutable StrategyRevision remains runtime Strategy authority. Generic
+cross-sectional rank/percentile is L1 mathematics rather than an Alpha hypothesis. Target and Research statistics remain
+orthogonal evaluation infrastructure.
+
 Cluster 是 Trading Runtime workload：
 
 ```text
@@ -543,6 +558,20 @@ Concrete DataSource / Broker Plugin
 Virtual Broker、Tushare 和 MiniQMT 位于各自 distribution。插件必须提供稳定 descriptor/capability/config/lifecycle，把 SDK 异常转换为可诊断错误，并将 callback 数据标准化后送入 Runtime queue；不得在 import 时访问外部环境、泄漏 SDK 对象或持有 Runtime Manager。
 
 缺失或不兼容插件必须明确失败，Core 不提供隐藏 Synthetic/Virtual/Placeholder fallback。
+
+Quantitative capability dependencies follow ADR 0110: L1 Operators may depend only on public Calculation contracts; L2 Indicators
+may depend on Core contracts and L1; L3 Alpha may depend on public L1/L2; L4 authoring assets may reference admitted L1/L2/L3
+identities. Core imports none of their concrete implementations, public packages do not depend on examples, and examples are not
+default production dependencies.
+
+ADR 0111 gives private L3/L4 libraries a source/editable development mode and a uv/pip distribution mode. Production Calculation
+discovery continues to use installed entry-point metadata only. L4 checkout roots and package resources are interchangeable sources of
+the same Product authoring document before Freeze; no filesystem path participates in StrategyRevision or Runtime identity.
+
+ADR 0112 defines the common `onlyalpha.quant_assets` management SPI. Each L1-L4 distribution contributes a versioned, content-addressed
+provider to one immutable catalog generation. Refresh validates a complete generation and atomically publishes it for new work; existing
+work retains its prior snapshot. This management catalog does not replace Calculation Graph, `onlyalpha.calculations`, Product API, Freeze
+or StrategyRevision authorities.
 
 ## 18. Public vs Internal API
 

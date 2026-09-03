@@ -8,9 +8,10 @@ from decimal import Decimal
 
 import pyarrow as pa
 import pytest
-from onlyalpha_plugin_factors.registration import CROSS_SECTION_PERCENTILE
-from onlyalpha_plugin_factors.registration import registrations as factor_registrations
+from onlyalpha_example_alpha.registration import registrations as factor_registrations
 from onlyalpha_plugin_indicators.registration import registrations as indicator_registrations
+from onlyalpha_plugin_operators.registration import CROSS_SECTION_PERCENTILE
+from onlyalpha_plugin_operators.registration import registrations as operator_registrations
 
 from onlyalpha.calculation import (
     OnlyCalculationGraphDefinition,
@@ -50,8 +51,8 @@ def test_factor_graph_exposes_every_dependency_and_alias_is_not_identity() -> No
     assert tuple(node.definition.type_id for node in ordered) == (
         "onlyalpha.indicator.rolling_return",
         "onlyalpha.indicator.rolling_return",
-        "onlyalpha.factor.momentum",
-        "onlyalpha.factor.cross_section_percentile",
+        "example.factor.momentum",
+        "onlyalpha.operator.cross_section_percentile",
     )
     momentum = ordered[2].definition
     scorer = ordered[3].definition
@@ -59,25 +60,26 @@ def test_factor_graph_exposes_every_dependency_and_alias_is_not_identity() -> No
         ordered[0].fingerprint,
         ordered[1].fingerprint,
     }
-    assert scorer.input_bindings["factor_value"].node_fingerprint == ordered[2].fingerprint
+    short = next(node for node in ordered if node.definition.parameters.get("period") == 1)
+    assert scorer.input_bindings["value"].node_fingerprint == short.fingerprint
     aliased = OnlyCalculationGraphDefinition(
         tuple(OnlyCalculationNodeDefinition(node.definition, f"node-{index}") for index, node in enumerate(graph.nodes))
     )
     assert aliased.fingerprint == graph.fingerprint
 
 
-def test_factor_port_compatibility_fails_closed() -> None:
+def test_generic_operator_input_does_not_require_factor_semantic_type() -> None:
     graph = factor_graph()
     scorer = graph.ordered_nodes[-1].definition
-    incompatible = replace(
+    rebound = replace(
         scorer,
-        input_bindings={"factor_value": OnlyCalculationReference(graph.ordered_nodes[0].fingerprint, "value")},
+        input_bindings={"value": OnlyCalculationReference(graph.ordered_nodes[0].fingerprint, "value")},
     )
-    with pytest.raises(ValueError, match="semantic_type"):
-        OnlyCalculationGraphDefinition(
-            tuple(node for node in graph.nodes if node.fingerprint != scorer.fingerprint)
-            + (OnlyCalculationNodeDefinition(incompatible),)
-        )
+    generic = OnlyCalculationGraphDefinition(
+        tuple(node for node in graph.nodes if node.fingerprint != scorer.fingerprint)
+        + (OnlyCalculationNodeDefinition(rebound),)
+    )
+    assert generic.ordered_nodes[-1].definition.type_id == "onlyalpha.operator.cross_section_percentile"
 
 
 def test_node_first_execution_produces_raw_values_and_cross_section_scores(tmp_path) -> None:
@@ -88,8 +90,8 @@ def test_node_first_execution_produces_raw_values_and_cross_section_scores(tmp_p
     execution = OnlyResearchCalculationExecutor(
         store, OnlyResearchCalculationBackendResolver(factor_registry())
     ).execute(candidate.snapshot_fingerprint, graph)
-    values = _outputs_by_type(execution, graph, "onlyalpha.factor.momentum")
-    scores = _outputs_by_type(execution, graph, "onlyalpha.factor.cross_section_percentile")
+    values = _outputs_by_type(execution, graph, "example.factor.momentum")
+    scores = _outputs_by_type(execution, graph, "onlyalpha.operator.cross_section_percentile")
     assert values["A.XNAS"].column("factor_value").to_pylist() == [
         None,
         None,
@@ -102,15 +104,15 @@ def test_node_first_execution_produces_raw_values_and_cross_section_scores(tmp_p
         Decimal("-0.155555555556"),
         Decimal("-0.173611111111"),
     ]
-    assert scores["A.XNAS"].column("factor_score").to_pylist() == [
+    assert scores["A.XNAS"].column("percentile").to_pylist() == [
         None,
-        None,
+        Decimal("1.000000000000"),
         Decimal("1.000000000000"),
         Decimal("1.000000000000"),
     ]
-    assert scores["B.XNAS"].column("factor_score").to_pylist() == [
+    assert scores["B.XNAS"].column("percentile").to_pylist() == [
         None,
-        None,
+        Decimal("0E-12"),
         Decimal("0E-12"),
         Decimal("0E-12"),
     ]
@@ -158,14 +160,9 @@ def test_cross_section_requires_complete_exact_timestamp_axis(tmp_path) -> None:
     assert raised.value.code == "RESEARCH_CROSS_SECTION_ALIGNMENT_FAILED"
 
 
-class _OutOfRangeBackend:
-    def execute(self, definition, inputs):
-        return {"factor_score": pa.array([Decimal("1.1")] * len(inputs["factor_value"]), type=pa.decimal128(38, 12))}
-
-
 def _registry_with_scorer(backend):
     registry = factor_registry().__class__()
-    for registration in (*indicator_registrations(), *factor_registrations()):
+    for registration in (*operator_registrations(), *indicator_registrations(), *factor_registrations()):
         registry.register(
             replace(registration, provider=backend)
             if registration.type_definition is CROSS_SECTION_PERCENTILE
@@ -174,17 +171,15 @@ def _registry_with_scorer(backend):
     return registry
 
 
-def test_executor_rejects_factor_score_outside_formal_range(tmp_path) -> None:
-    store = OnlyParquetResearchDatasetSnapshotStore(tmp_path)
-    candidate, partitions = snapshot()
-    store.commit(candidate, partitions)
+def test_operator_output_does_not_claim_factor_score_semantics() -> None:
     graph = factor_graph()
-    registry = _registry_with_scorer(_OutOfRangeBackend())
-    with pytest.raises(OnlyResearchCalculationError) as raised:
-        OnlyResearchCalculationExecutor(store, OnlyResearchCalculationBackendResolver(registry)).execute(
-            candidate.snapshot_fingerprint, graph
-        )
-    assert raised.value.code == "RESEARCH_SCORE_OUT_OF_RANGE"
+    scorer = next(
+        node.definition
+        for node in graph.nodes
+        if node.definition.type_id == "onlyalpha.operator.cross_section_percentile"
+    )
+    assert scorer.inputs[0].semantic_type == "NUMERIC_SERIES"
+    assert scorer.outputs[0].semantic_type == "NUMERIC_SERIES"
 
 
 class _ChangingTypeBackend:
@@ -194,7 +189,7 @@ class _ChangingTypeBackend:
     def execute(self, definition, inputs):
         self.calls += 1
         scale = 12 if self.calls == 1 else 6
-        return {"factor_score": pa.array([Decimal("0.5")] * len(inputs["factor_value"]), type=pa.decimal128(38, scale))}
+        return {"percentile": pa.array([Decimal("0.5")] * len(inputs["value"]), type=pa.decimal128(38, scale))}
 
 
 class _StableResearchErrorBackend:

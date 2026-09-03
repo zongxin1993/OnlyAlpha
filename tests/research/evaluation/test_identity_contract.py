@@ -4,7 +4,7 @@ import subprocess
 import sys
 
 import pytest
-from onlyalpha_plugin_factors.registration import resolve_momentum
+from onlyalpha_example_alpha.registration import resolve_momentum
 from onlyalpha_plugin_indicators.registration import TYPES, resolve_definition
 
 from onlyalpha.calculation import OnlyCalculationReference
@@ -37,7 +37,7 @@ def test_statistics_identity_is_canonical_semantic_and_round_trips() -> None:
     assert baseline.statistics_fingerprint != _plan(minimum=3).statistics_fingerprint
 
 
-def test_target_kind_extension_preserves_existing_indicator_factor_and_graph_fingerprints() -> None:
+def test_indicator_identity_is_preserved_and_new_example_graph_identity_is_pinned() -> None:
     indicator = resolve_definition(TYPES[0], {"period": 2})
     factor = resolve_momentum(
         {},
@@ -45,8 +45,8 @@ def test_target_kind_extension_preserves_existing_indicator_factor_and_graph_fin
         OnlyCalculationReference(None, "x", "bar.close"),
     )
     assert indicator.fingerprint == "49d97b301c4879ce787c87c1745a965fb8dc4ed1c037d4a9fd082e4bafb069c3"
-    assert factor.fingerprint == "148722d0c89cdcd47bf4cef94a0d4179abf579c3d01e49fd70f6ef55c435f02d"
-    assert factor_graph().fingerprint == "94220fca8f569c34bba94073dda8808d0060ddb9ce904100c7732cfbfd7f0cf3"
+    assert factor.fingerprint == "cf86386000744b8bf429363bfdbc60ee76e77087af6500266d6b03dbadfed8d9"
+    assert factor_graph().fingerprint == "e1bd22f5281d0b84b8c27d64ae219273732c374e63b362c794e8d2c48358f2f0"
 
 
 def test_statistics_identity_is_stable_in_fresh_process() -> None:

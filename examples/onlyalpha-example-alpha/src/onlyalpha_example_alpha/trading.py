@@ -1,6 +1,4 @@
-"""Exact incremental TRADING Factor backends."""
-
-from __future__ import annotations
+"""Exact incremental TRADING backend for the example Momentum hypothesis."""
 
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -9,16 +7,16 @@ from decimal import Decimal, localcontext
 from onlyalpha.calculation import OnlyCalculationDefinition
 
 
-class OnlyOfficialTradingFactorBackendFactory:
+class OnlyExampleTradingMomentumBackendFactory:
     def create(self, definition: OnlyCalculationDefinition, request: object) -> object:
         del request
-        if definition.type_id != "onlyalpha.factor.momentum" or definition.semantic_version != "1":
-            raise ValueError(f"unsupported official TRADING Factor: {definition.type_id}@{definition.semantic_version}")
-        return OnlyOfficialTradingMomentumBackend(definition)
+        if definition.type_id != "example.factor.momentum" or definition.semantic_version != "1":
+            raise ValueError(f"unsupported example TRADING Factor: {definition.type_id}@{definition.semantic_version}")
+        return OnlyExampleTradingMomentumBackend(definition)
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyOfficialTradingMomentumBackend:
+class OnlyExampleTradingMomentumBackend:
     definition: OnlyCalculationDefinition
 
     def update(self, inputs: Mapping[str, object]) -> Mapping[str, object]:

@@ -17,6 +17,7 @@ from onlyalpha.research import (
     OnlyResearchCalculationExecutor,
     OnlyResearchDefinitionResolver,
 )
+from onlyalpha.research.definition import OnlyResearchDefinition
 from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_primitives
 from onlyalpha.strategy import (
     OnlyFrozenStrategyRevisionStore,
@@ -94,7 +95,12 @@ def publish_frozen_strategy_for_execution_test(root: Path, revision: OnlyStrateg
     (target / "manifest.json").write_text(only_canonical_json(payload), encoding="utf-8")
 
 
-def p9_strategy_case(root: Path, *, values: tuple[OnlyBar, ...] | None = None) -> P9StrategyCase:
+def p9_strategy_case(
+    root: Path,
+    *,
+    values: tuple[OnlyBar, ...] | None = None,
+    source_definition: OnlyResearchDefinition | None = None,
+) -> P9StrategyCase:
     dataset_store = OnlyParquetResearchDatasetSnapshotStore(root / "datasets")
     candidate, partitions = snapshot(values)
     committed = dataset_store.commit(candidate, partitions)
@@ -102,7 +108,7 @@ def p9_strategy_case(root: Path, *, values: tuple[OnlyBar, ...] | None = None) -
     resolved = OnlyResearchDefinitionResolver(
         registry,
         _Datasets(dataset_store, committed.snapshot_fingerprint),
-    ).resolve(definition(committed.definition))
+    ).resolve(definition(committed.definition) if source_definition is None else source_definition)
     only_register_trading_predicate_primitives(registry)
     candidates = tuple(
         item

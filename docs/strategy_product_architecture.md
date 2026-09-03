@@ -119,6 +119,10 @@ Research Specification
 
 ## 4. Indicator、Feature、Factor、Eligibility 的角色
 
+ADR 0110 refines this model into four layers: generic mathematical Operators (L1), financial Indicators (L2), hypothesis-bearing
+Alpha Factors (L3), and canonical Strategy decisions (L4). L1/L2 are public reusable capabilities; production L3/L4 are private.
+Calculation/Graph remain the sole engineering/DAG authorities and Feature remains an output port.
+
 ### 4.1 Indicator → Named Feature
 
 Indicator 是无交易副作用的计算定义，可以输出一个或多个具有稳定名称和语义的 Feature，例如：
@@ -534,6 +538,15 @@ LLM / Agent 可以在用户授权下：
 - 把自己的推理或聊天上下文当 durable strategy fact。
 
 Human Author 与 LLM Author 必须经过同一验证、identity、freeze 和 promotion contract。
+
+The Agent primarily creates and searches L3 Factors and L4 Strategies, while querying and composing admitted L1 Operators and L2
+Indicators. If reusable mathematics or financial knowledge is missing, the Agent proposes a separate L1/L2 admission; it must not
+hide that capability inside a Factor or Strategy.
+
+ADR 0111 permits high-change private L3/L4 repositories to be consumed from an explicit source/editable path during controlled Agent
+research, or from an installed uv/pip distribution. L3 source import and installed entry-point discovery expose the same registrations;
+L4 explicit-root and package-resource reads expose the same authoring JSON. Paths remain pre-Freeze authoring inputs and are excluded from
+Strategy identity and Runtime authority.
 
 ## 12. 代码与依赖证据
 

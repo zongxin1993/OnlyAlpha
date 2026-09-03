@@ -64,13 +64,17 @@ class _BrokenDatasetStore:
         raise ValueError("corrupt Dataset authority")
 
 
-def _freeze_case(tmp_path, *, semantic_root=None, values=None):
-    case = p9_strategy_case(tmp_path / "base", values=values)
+def _freeze_case(tmp_path, *, semantic_root=None, values=None, source_definition=None):
+    case = p9_strategy_case(tmp_path / "base", values=values, source_definition=source_definition)
     semantic_root = tmp_path / "semantic" if semantic_root is None else semantic_root
     resolved_definition = OnlyResearchDefinitionResolver(
         case.registry,
         _Datasets(case.dataset_store, case.dataset_fingerprint),
-    ).resolve(definition(case.dataset_store.load_verified_table(case.dataset_fingerprint).snapshot.definition))
+    ).resolve(
+        definition(case.dataset_store.load_verified_table(case.dataset_fingerprint).snapshot.definition)
+        if source_definition is None
+        else source_definition
+    )
     workload = resolved_definition.workload
     calculation_store = OnlyParquetResearchCalculationResultStore(
         tmp_path / "calculation-results", case.dataset_store, audit_time=lambda: NOW

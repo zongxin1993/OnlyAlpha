@@ -543,3 +543,27 @@ component under `plugs/`, and do not place a concrete plugin under `packages/`.
 If a new architecture requires a different boundary, record an explicit architecture
 decision before adding the path. Web and HTTP transport are components, not plugins;
 the OpenAPI Product Contract remains a first-class contract under `contracts/`.
+
+## Quantitative asset placement
+
+Classify each new quantitative capability under ADR 0110:
+
+1. Generic mathematics without financial context is an L1 Operator.
+2. Stable financial meaning without a predictive Target hypothesis is an L2 Indicator.
+3. A testable predictive or explanatory Alpha hypothesis is an L3 Factor.
+4. Composition of admitted Features/Factors into eligibility, selection, entry or exit decisions is an L4 Strategy.
+
+L1/L2 are public reusable capabilities. Production L3/L4 assets are private; the main repository's only L3/L4 assets are the
+non-production reference libraries explicitly authorized by ADR 0110 under `examples/onlyalpha-example-alpha/` and
+`examples/onlyalpha-example-strategies/`. The Agent primarily creates/searches L3/L4. Missing reusable L1/L2 capability must be
+proposed and admitted separately, never hidden inside a Factor or Strategy.
+
+Under ADR 0111, high-change private L3/L4 repositories may be consumed from an explicit source path or editable path installation only in
+development, testing and controlled Agent research. Production L3 discovery requires installed distribution metadata and the public
+Calculation entry point. L4 package/path resources are pre-Freeze authoring inputs only; their path never becomes Strategy identity or
+Runtime authority.
+
+All L1/L2/L3/L4 libraries expose versioned management providers through `onlyalpha.quant_assets` under ADR 0112. L1/L2/L3 continue to
+execute only through `onlyalpha.calculations`; L4 remains authoring data. Any content change requires a new provider version, and any semantic
+change additionally requires a new Calculation or Strategy-asset semantic version. Hot plug switches an immutable catalog generation only
+for new work; never reload modules in place or rebind an active Run/StrategyRevision.

@@ -31,10 +31,9 @@
 产品输出只能通过 `OnlyUserDataLayout` 和 `OnlyEngineResultExporter` 写入
 `<user_data_root>/runs/<engine_id>/<run_id>/`。
 
-## 三仓边界
+## Quantitative asset boundary
 
-- OnlyAlpha：核心库、CLI、领域模型、Engine/Runtime/Cluster 容器与通用基础设施。
-- OnlyAlpha-plugins：可复用或面向产品的官方 Strategy、Factor、扩展与基础设施适配器。
-- OnlyAlpha-examples：示例专用 Strategy/Factor、示例 Cluster 配置、教程与工作流，只消费公开接口。
-
-依赖方向固定为 `OnlyAlpha-examples → OnlyAlpha-plugins → OnlyAlpha`，核心不得反向依赖。
+ADR 0110 replaces the old three-repository example placement. Public reusable L1 Operators and L2 Indicators are official
+plugins; production L3 Factors and L4 Strategies are private assets. The main repository contains only the two local
+non-production L3/L4 reference libraries named by ADR 0110. Dependency direction is
+`L4 examples → L3 examples → public L1/L2 plugins → OnlyAlpha contracts`; Core and public plugins never depend on examples.

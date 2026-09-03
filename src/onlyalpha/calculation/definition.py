@@ -77,6 +77,7 @@ FACTOR_VALUE_SEMANTIC_TYPE = "FACTOR_VALUE"
 FACTOR_SCORE_SEMANTIC_TYPE = "FACTOR_SCORE"
 TARGET_VALUE_SEMANTIC_TYPE = "TARGET_VALUE"
 PREDICATE_OPERAND_SEMANTIC_TYPE = "PREDICATE_OPERAND"
+CALCULATION_EXECUTION_SHAPE_EXTENSION = "calculation_execution_shape"
 
 
 def only_calculation_execution_shape(
@@ -84,15 +85,25 @@ def only_calculation_execution_shape(
 ) -> OnlyFactorKind:
     """Return the Definition-owned execution axis without consulting Runtime state."""
 
+    if isinstance(definition, OnlyCalculationTypeDefinition):
+        return definition.execution_shape
+    if definition.kind is OnlyCalculationKind.FACTOR:
+        if definition.factor_kind is None:  # defensive for non-canonical objects
+            raise ValueError("Factor calculation requires an execution shape")
+        return definition.factor_kind
+    extension = definition.extensions.get(CALCULATION_EXECUTION_SHAPE_EXTENSION)
+    if extension is not None:
+        try:
+            return OnlyFactorKind(str(extension))
+        except ValueError as exc:
+            raise ValueError("Calculation execution shape extension is invalid") from exc
     if definition.kind is OnlyCalculationKind.INDICATOR:
         return OnlyFactorKind.TIME_SERIES
     if definition.kind is OnlyCalculationKind.TARGET:
         return OnlyFactorKind.TIME_SERIES
     if definition.kind is OnlyCalculationKind.PREDICATE:
         return OnlyFactorKind.TIME_SERIES
-    if definition.factor_kind is None:  # defensive for non-canonical objects
-        raise ValueError("Factor calculation requires an execution shape")
-    return definition.factor_kind
+    raise ValueError(f"Unsupported calculation kind: {definition.kind}")
 
 
 def only_calculation_semantic_bounds(semantic_type: str) -> tuple[Decimal, Decimal] | None:
@@ -418,6 +429,7 @@ class OnlyCalculationTypeDefinition:
     timestamp: OnlyTimestampSemantic
     numeric: OnlyNumericDefinition
     factor_kind: OnlyFactorKind | None = None
+    execution_shape: OnlyFactorKind = OnlyFactorKind.TIME_SERIES
 
     def __post_init__(self) -> None:
         if not self.type_id or self.type_id != self.type_id.lower() or "." not in self.type_id:
@@ -428,6 +440,8 @@ class OnlyCalculationTypeDefinition:
             raise ValueError("Factor type definition requires factor_kind")
         if self.kind is not OnlyCalculationKind.FACTOR and self.factor_kind is not None:
             raise ValueError(f"{self.kind.value.title()} type definition cannot declare factor_kind")
+        if self.kind is OnlyCalculationKind.FACTOR:
+            object.__setattr__(self, "execution_shape", self.factor_kind)
         input_names = tuple(item.name for item in self.inputs)
         output_names = tuple(item.name for item in self.outputs)
         if not output_names or len(input_names) != len(set(input_names)) or len(output_names) != len(set(output_names)):
@@ -439,6 +453,9 @@ class OnlyCalculationTypeDefinition:
         input_bindings: Mapping[str, OnlyCalculationReference],
         warmup: OnlyWarmupDefinition,
     ) -> OnlyCalculationDefinition:
+        extensions: Mapping[str, OnlyCalculationScalar] = MappingProxyType({})
+        if self.kind is not OnlyCalculationKind.FACTOR and self.execution_shape is OnlyFactorKind.CROSS_SECTION:
+            extensions = MappingProxyType({CALCULATION_EXECUTION_SHAPE_EXTENSION: self.execution_shape.value})
         return OnlyCalculationDefinition(
             self.kind,
             self.type_id,
@@ -452,6 +469,7 @@ class OnlyCalculationTypeDefinition:
             self.timestamp,
             self.numeric,
             self.factor_kind,
+            extensions=extensions,
         )
 
     def descriptor(self) -> Mapping[str, object]:

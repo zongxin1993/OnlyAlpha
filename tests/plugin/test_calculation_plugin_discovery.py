@@ -1,6 +1,7 @@
 import pytest
-from onlyalpha_plugin_factors.registration import registrations as factor_registrations
+from onlyalpha_example_alpha.registration import registrations as factor_registrations
 from onlyalpha_plugin_indicators.registration import registrations as indicator_registrations
+from onlyalpha_plugin_operators.registration import registrations as operator_registrations
 from onlyalpha_plugin_targets.registration import registrations as target_registrations
 
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
@@ -50,17 +51,37 @@ def _discover(monkeypatch, entries, *, fail_fast=True):
 
 def test_calculation_discovery_is_stable_and_registers_research_evaluation_types(monkeypatch) -> None:
     entries = (
-        _Entry("z-factors", "factor:registrations", factor_registrations),
+        _Entry("z-example-alpha", "alpha:registrations", factor_registrations),
         _Entry("a-indicators", "indicator:registrations", indicator_registrations),
         _Entry("m-targets", "target:registrations", target_registrations),
+        _Entry("b-operators", "operator:registrations", operator_registrations),
     )
     registry, report = _discover(monkeypatch, entries)
-    assert tuple(item.name for item in report.discovered) == ("a-indicators", "m-targets", "z-factors")
+    assert tuple(item.name for item in report.discovered) == (
+        "a-indicators",
+        "b-operators",
+        "m-targets",
+        "z-example-alpha",
+    )
     assert {item.type_id for item in registry.type_definitions()} >= {
-        "onlyalpha.factor.momentum",
-        "onlyalpha.factor.cross_section_percentile",
+        "example.factor.momentum",
+        "onlyalpha.operator.cross_section_percentile",
         "onlyalpha.target.forward_return",
     }
+
+
+def test_official_public_environment_discovers_no_l3_factor_package(monkeypatch) -> None:
+    entries = (
+        _Entry("operators", "operator:registrations", operator_registrations),
+        _Entry("indicators", "indicator:registrations", indicator_registrations),
+        _Entry("targets", "target:registrations", target_registrations),
+    )
+    registry, _ = _discover(monkeypatch, entries)
+    type_ids = {item.type_id for item in registry.type_definitions()}
+    assert "onlyalpha.operator.rolling_mean" in type_ids
+    assert "onlyalpha.indicator.rolling_return" in type_ids
+    assert "onlyalpha.target.forward_return" in type_ids
+    assert not any(item.kind.value == "FACTOR" for item in registry.type_definitions())
 
 
 @pytest.mark.parametrize("provider", (object(), lambda: (object(),), ImportError("boom")))

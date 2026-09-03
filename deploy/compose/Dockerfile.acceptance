@@ -31,13 +31,19 @@ WORKDIR /workspace
 COPY --chown=onlyalpha:onlyalpha . .
 USER onlyalpha
 
-RUN uv sync --frozen --all-packages --no-dev
+RUN uv sync --frozen --all-packages --no-dev \
+    --no-install-package onlyalpha-example-alpha \
+    --no-install-package onlyalpha-example-strategies
 
 ENV PATH="/workspace/.venv/bin:${PATH}" \
     ONLYALPHA_POSTGRES_CLIENT_BIN_DIR=/usr/lib/postgresql/18/bin \
     UV_NO_SYNC=1
 
-FROM operator AS acceptance
+FROM operator AS acceptance-operator
+
+RUN uv sync --frozen --all-packages --no-dev
+
+FROM acceptance-operator AS acceptance
 
 RUN uv sync --frozen --all-packages --no-dev --group compose-acceptance
 

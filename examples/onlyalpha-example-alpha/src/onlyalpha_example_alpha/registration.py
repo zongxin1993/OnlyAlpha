@@ -1,4 +1,4 @@
-"""Canonical official Factor definitions and exact RESEARCH registrations."""
+"""Canonical example Momentum Factor and exact backend registrations."""
 
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -6,7 +6,6 @@ from decimal import Decimal
 from pathlib import Path
 
 from onlyalpha.calculation import (
-    FACTOR_SCORE_SEMANTIC_TYPE,
     FACTOR_VALUE_SEMANTIC_TYPE,
     OnlyCalculationBackendKind,
     OnlyCalculationDataType,
@@ -34,8 +33,8 @@ from onlyalpha.calculation.implementation import (
     only_python_stdlib_semantic_dependency,
 )
 from onlyalpha.calculation.registry import OnlyCalculationBackendRegistration
-from onlyalpha_plugin_factors.research import OnlyOfficialResearchFactorBackend
-from onlyalpha_plugin_factors.trading import OnlyOfficialTradingFactorBackendFactory
+from onlyalpha_example_alpha.research import OnlyExampleResearchMomentumBackend
+from onlyalpha_example_alpha.trading import OnlyExampleTradingMomentumBackendFactory
 
 _NUMERIC = OnlyNumericDefinition(
     representation="DECIMAL",
@@ -46,7 +45,7 @@ _NUMERIC = OnlyNumericDefinition(
 
 MOMENTUM = OnlyCalculationTypeDefinition(
     OnlyCalculationKind.FACTOR,
-    "onlyalpha.factor.momentum",
+    "example.factor.momentum",
     "1",
     OnlyParameterSchema(
         (
@@ -69,61 +68,21 @@ MOMENTUM = OnlyCalculationTypeDefinition(
     OnlyFactorKind.TIME_SERIES,
 )
 
-CROSS_SECTION_PERCENTILE = OnlyCalculationTypeDefinition(
-    OnlyCalculationKind.FACTOR,
-    "onlyalpha.factor.cross_section_percentile",
-    "1",
-    OnlyParameterSchema(
-        (
-            OnlyParameterDefinition(
-                "direction",
-                OnlyParameterType.STRING,
-                False,
-                "HIGHER_IS_BETTER",
-                enum_values=("HIGHER_IS_BETTER", "LOWER_IS_BETTER"),
-                uppercase=True,
-            ),
-            OnlyParameterDefinition(
-                "tie_method",
-                OnlyParameterType.STRING,
-                False,
-                "AVERAGE",
-                enum_values=("AVERAGE",),
-                uppercase=True,
-            ),
-        )
-    ),
-    (
-        OnlyInputDefinition(
-            "factor_value", OnlyCalculationDataType.DECIMAL, True, semantic_type=FACTOR_VALUE_SEMANTIC_TYPE
-        ),
-    ),
-    (
-        OnlyOutputDefinition(
-            "factor_score", OnlyCalculationDataType.DECIMAL, True, semantic_type=FACTOR_SCORE_SEMANTIC_TYPE
-        ),
-    ),
-    OnlyMissingValuePolicy.PROPAGATE,
-    OnlyTimestampSemantic.EVENT_TIME,
-    _NUMERIC,
-    OnlyFactorKind.CROSS_SECTION,
-)
-
-_WARMUP = OnlyWarmupDefinition(1, "declared upstream value is available", OnlyPreReadyOutput.NULL, "UPSTREAM")
-
 
 @dataclass(frozen=True, slots=True)
-class OnlyOfficialFactorDefinitionResolver:
-    """Own complete, backend-neutral semantics for one official Factor type."""
-
-    type_definition: OnlyCalculationTypeDefinition
+class OnlyExampleMomentumDefinitionResolver:
+    type_definition: OnlyCalculationTypeDefinition = MOMENTUM
 
     def resolve(
         self,
         parameters: Mapping[str, object],
         input_bindings: Mapping[str, OnlyCalculationReference],
     ) -> OnlyCalculationDefinition:
-        return self.type_definition.resolve(parameters, input_bindings, _WARMUP)
+        return self.type_definition.resolve(
+            parameters,
+            input_bindings,
+            OnlyWarmupDefinition(1, "declared upstream values are available", OnlyPreReadyOutput.NULL, "UPSTREAM"),
+        )
 
 
 def resolve_momentum(
@@ -131,27 +90,23 @@ def resolve_momentum(
     short: OnlyCalculationReference,
     long: OnlyCalculationReference,
 ) -> OnlyCalculationDefinition:
-    return MOMENTUM.resolve(parameters, {"return_short": short, "return_long": long}, _WARMUP)
-
-
-def resolve_percentile(parameters: Mapping[str, object], value: OnlyCalculationReference) -> OnlyCalculationDefinition:
-    return CROSS_SECTION_PERCENTILE.resolve(parameters, {"factor_value": value}, _WARMUP)
+    return OnlyExampleMomentumDefinitionResolver().resolve(parameters, {"return_short": short, "return_long": long})
 
 
 def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
-    backend = OnlyOfficialResearchFactorBackend()
     package_root = Path(__file__).resolve().parent
-    resolvers = {item: OnlyOfficialFactorDefinitionResolver(item) for item in (MOMENTUM, CROSS_SECTION_PERCENTILE)}
-    research = tuple(
+    resolver = OnlyExampleMomentumDefinitionResolver()
+    reference = OnlyCalculationTypeReference(MOMENTUM.kind, MOMENTUM.type_id, MOMENTUM.semantic_version)
+    return (
         OnlyCalculationBackendRegistration(
-            item,
+            MOMENTUM,
             OnlyCalculationBackendKind.RESEARCH,
-            backend,
-            resolvers[item],
+            OnlyExampleResearchMomentumBackend(),
+            resolver,
             only_python_implementation_manifest(
-                calculation_type_reference=OnlyCalculationTypeReference(item.kind, item.type_id, item.semantic_version),
+                calculation_type_reference=reference,
                 backend_kind=OnlyCalculationBackendKind.RESEARCH,
-                entrypoint_identity="onlyalpha_plugin_factors.research:OnlyOfficialResearchFactorBackend",
+                entrypoint_identity="onlyalpha_example_alpha.research:OnlyExampleResearchMomentumBackend",
                 package_root=package_root,
                 resource_paths=("registration.py", "research.py"),
                 semantic_dependencies=(
@@ -159,21 +114,16 @@ def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
                     only_distribution_semantic_dependency("pyarrow"),
                 ),
             ),
-        )
-        for item in (MOMENTUM, CROSS_SECTION_PERCENTILE)
-    )
-    trading = (
+        ),
         OnlyCalculationBackendRegistration(
             MOMENTUM,
             OnlyCalculationBackendKind.TRADING,
-            OnlyOfficialTradingFactorBackendFactory(),
-            resolvers[MOMENTUM],
+            OnlyExampleTradingMomentumBackendFactory(),
+            resolver,
             only_python_implementation_manifest(
-                calculation_type_reference=OnlyCalculationTypeReference(
-                    MOMENTUM.kind, MOMENTUM.type_id, MOMENTUM.semantic_version
-                ),
+                calculation_type_reference=reference,
                 backend_kind=OnlyCalculationBackendKind.TRADING,
-                entrypoint_identity=("onlyalpha_plugin_factors.trading:OnlyOfficialTradingFactorBackendFactory"),
+                entrypoint_identity="onlyalpha_example_alpha.trading:OnlyExampleTradingMomentumBackendFactory",
                 package_root=package_root,
                 resource_paths=("registration.py", "trading.py"),
                 semantic_dependencies=(only_python_stdlib_semantic_dependency("decimal"),),
@@ -181,4 +131,3 @@ def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
             OnlyCalculationStateCapability.STATELESS,
         ),
     )
-    return research + trading

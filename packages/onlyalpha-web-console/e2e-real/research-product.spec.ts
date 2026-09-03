@@ -94,12 +94,12 @@ test("real Browser to PostgreSQL Worker Engine Artifact and Viewer product verti
         await rolling.getByLabel("Input · value").selectOption("bar.close");
     }
 
-    await calculations.selectOption({ label: "onlyalpha.factor.momentum" });
+    await calculations.selectOption({ label: "example.factor.momentum" });
     await calculationSection.getByRole("button", { name: "Add" }).click();
     const factor = calculationSection
         .locator("article")
-        .filter({ hasText: "onlyalpha.factor.momentum" });
-    await factor.getByLabel("onlyalpha.factor.momentum instance key").fill("momentum");
+        .filter({ hasText: "example.factor.momentum" });
+    await factor.getByLabel("example.factor.momentum instance key").fill("momentum");
     await factor.getByLabel("Input · return_short").selectOption("returns_short.value");
     await factor.getByLabel("Input · return_long").selectOption("returns_long.value");
 

@@ -3,10 +3,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from onlyalpha_plugin_factors.registration import registrations as factor_registrations
-from onlyalpha_plugin_factors.registration import resolve_momentum, resolve_percentile
+from onlyalpha_example_alpha.registration import registrations as factor_registrations
+from onlyalpha_example_alpha.registration import resolve_momentum
 from onlyalpha_plugin_indicators.registration import TYPES, resolve_definition
 from onlyalpha_plugin_indicators.registration import registrations as indicator_registrations
+from onlyalpha_plugin_operators.registration import registrations as operator_registrations
+from onlyalpha_plugin_operators.registration import resolve_cross_section_percentile
 
 from onlyalpha.calculation import (
     OnlyCalculationGraphDefinition,
@@ -35,8 +37,8 @@ def factor_graph(direction: str = "HIGHER_IS_BETTER") -> OnlyCalculationGraphDef
         OnlyCalculationReference(short.fingerprint, "value"),
         OnlyCalculationReference(long.fingerprint, "value"),
     )
-    scorer = resolve_percentile(
-        {"direction": direction}, OnlyCalculationReference(momentum.fingerprint, "factor_value")
+    scorer = resolve_cross_section_percentile(
+        {"direction": direction}, OnlyCalculationReference(short.fingerprint, "value")
     )
     return OnlyCalculationGraphDefinition(
         tuple(OnlyCalculationNodeDefinition(item) for item in (scorer, momentum, long, short))
@@ -45,7 +47,7 @@ def factor_graph(direction: str = "HIGHER_IS_BETTER") -> OnlyCalculationGraphDef
 
 def factor_registry() -> OnlyCalculationRegistry:
     registry = OnlyCalculationRegistry()
-    for registration in (*indicator_registrations(), *factor_registrations()):
+    for registration in (*operator_registrations(), *indicator_registrations(), *factor_registrations()):
         registry.register(registration)
     return registry
 

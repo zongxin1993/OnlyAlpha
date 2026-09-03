@@ -282,6 +282,22 @@ def test_set_rewrites_complete_graph_and_preserves_external_dependencies(tmp_pat
     assert '\n  "version": "0.3.8"' not in web_lock
 
 
+def test_quant_asset_provider_distribution_version_is_checked_and_rewritten(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    provider_path = root / VERSION_SYNC.QUANT_ASSET_PROVIDER_PATHS[0]
+    _write(
+        provider_path,
+        'manifest = Provider(\n    distribution_version="0.3.6",\n)\n',
+    )
+
+    message = _failure(root)
+    assert "quant asset distribution_version expected '0.3.7'" in message
+
+    rewrite_workspace(root, "0.3.8")
+    check_versions(root)
+    assert 'distribution_version="0.3.8"' in provider_path.read_text(encoding="utf-8")
+
+
 def test_set_versions_locks_then_checks_complete_graph(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = _workspace(tmp_path)
     calls: list[tuple[list[str], Path, bool]] = []

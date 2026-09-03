@@ -29,8 +29,10 @@ dev = [
     "tomlkit>=0.13",
     "twine>=6",
     "onlyalpha-test-plugin",
+    "onlyalpha-example-alpha",
+    "onlyalpha-example-strategies",
+    "onlyalpha-plugin-operators",
     "onlyalpha-plugin-indicators",
-    "onlyalpha-plugin-factors",
     "onlyalpha-plugin-targets",
     "onlyalpha-http-server",
     "onlyalpha-gateway-protocol",
@@ -59,8 +61,10 @@ members = [
     "plugs/onlyalpha-plugin-binance",
     "plugs/onlyalpha-plugin-miniqmt",
     "plugs/onlyalpha-plugin-indicators",
-    "plugs/onlyalpha-plugin-factors",
+    "plugs/onlyalpha-plugin-operators",
     "plugs/onlyalpha-plugin-targets",
+    "examples/onlyalpha-example-alpha",
+    "examples/onlyalpha-example-strategies",
     "packages/onlyalpha-http-server",
     "packages/onlyalpha-gateway-protocol",
 ]
@@ -94,8 +98,10 @@ strict = true
 files = [
     "src/onlyalpha",
     "plugs/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators",
-    "plugs/onlyalpha-plugin-factors/src/onlyalpha_plugin_factors",
+    "plugs/onlyalpha-plugin-operators/src/onlyalpha_plugin_operators",
     "plugs/onlyalpha-plugin-targets/src/onlyalpha_plugin_targets",
+    "examples/onlyalpha-example-alpha/src/onlyalpha_example_alpha",
+    "examples/onlyalpha-example-strategies/src/onlyalpha_example_strategies",
     "packages/onlyalpha-http-server/src/onlyalpha_http_server",
     "packages/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol",
     "plugs/onlyalpha-plugin-binance-spot/src/onlyalpha_plugin_binance_spot",
@@ -109,8 +115,10 @@ ignore_errors = true
 
 [tool.uv.sources]
 onlyalpha-test-plugin = { path = "tests/fixtures/external_plugins/onlyalpha_test_plugin", editable = true }
+onlyalpha-example-alpha = { workspace = true }
+onlyalpha-example-strategies = { workspace = true }
+onlyalpha-plugin-operators = { workspace = true }
 onlyalpha-plugin-indicators = { workspace = true }
-onlyalpha-plugin-factors = { workspace = true }
 onlyalpha-plugin-targets = { workspace = true }
 onlyalpha-http-server = { workspace = true }
 onlyalpha-gateway-protocol = { workspace = true }
@@ -130,8 +138,10 @@ testpaths = [
     "plugs/onlyalpha-plugin-tushare/tests",
     "plugs/onlyalpha-plugin-miniqmt/tests",
     "plugs/onlyalpha-plugin-indicators/tests",
-    "plugs/onlyalpha-plugin-factors/tests",
+    "plugs/onlyalpha-plugin-operators/tests",
     "plugs/onlyalpha-plugin-targets/tests",
+    "examples/onlyalpha-example-alpha/tests",
+    "examples/onlyalpha-example-strategies/tests",
     "packages/onlyalpha-http-server/tests",
     "packages/onlyalpha-gateway-protocol/tests",
 ]
@@ -215,7 +225,9 @@ forbidden_modules = [
     "onlyalpha_plugin_binance_spot",
     "onlyalpha_plugin_binance",
     "onlyalpha_plugin_indicators",
-    "onlyalpha_plugin_factors",
+    "onlyalpha_plugin_operators",
+    "onlyalpha_example_alpha",
+    "onlyalpha_example_strategies",
     "onlyalpha_plugin_targets",
 ]
 

@@ -8,8 +8,9 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 import pytest
-from onlyalpha_plugin_factors.registration import resolve_momentum, resolve_percentile
+from onlyalpha_example_alpha.registration import resolve_momentum
 from onlyalpha_plugin_indicators.registration import TYPES, resolve_definition
+from onlyalpha_plugin_operators.registration import resolve_cross_section_percentile
 
 from onlyalpha.calculation import (
     OnlyCalculationBackendKind,
@@ -164,8 +165,8 @@ def test_upstream_identity_propagates_while_independent_node_is_stable() -> None
         )
         for cell in plan.cells
     ]
-    momentum = [_node(plan, index, "onlyalpha.factor.momentum") for index in range(2)]
-    score = [_node(plan, index, "onlyalpha.factor.cross_section_percentile") for index in range(2)]
+    momentum = [_node(plan, index, "example.factor.momentum") for index in range(2)]
+    score = [_node(plan, index, "onlyalpha.operator.cross_section_percentile") for index in range(2)]
     assert swept[0].fingerprint != swept[1].fingerprint
     assert independent[0].fingerprint == independent[1].fingerprint
     assert momentum[0].fingerprint != momentum[1].fingerprint
@@ -183,8 +184,8 @@ def test_base_candidate_reproduces_existing_factor_graph_and_calculation_identit
         OnlyCalculationReference(short.fingerprint, "value"),
         OnlyCalculationReference(long.fingerprint, "value"),
     )
-    score = resolve_percentile(
-        {"direction": "HIGHER_IS_BETTER"}, OnlyCalculationReference(momentum.fingerprint, "factor_value")
+    score = resolve_cross_section_percentile(
+        {"direction": "HIGHER_IS_BETTER"}, OnlyCalculationReference(short.fingerprint, "value")
     )
     baseline = OnlyCalculationGraphDefinition(
         tuple(OnlyCalculationNodeDefinition(item) for item in (score, momentum, long, short))

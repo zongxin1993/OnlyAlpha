@@ -43,8 +43,8 @@ Stable Kernel
 └── Promotion / permission boundaries when implemented
 
 High-change Domain Plugins
-├── Indicators
-├── Factors
+├── Public L1 Operators / L2 Indicators
+├── Private L3 Factors / L4 Strategies
 ├── Targets
 └── Statistics Methods
 
@@ -194,6 +194,10 @@ Decision/Research Definition
 not generating another near-duplicate plugin.
 
 This keeps the semantic catalog small, reusable, and auditable.
+
+ADR 0110 makes L3 Factor and L4 Strategy the Agent's primary creation/search space. Missing reusable generic mathematics belongs
+in public L1; missing stable financial/descriptive knowledge belongs in public L2. Either capability must be proposed and admitted
+separately instead of being embedded in one private Factor or Strategy.
 
 ## 7. Generated code is quarantined until admission
 

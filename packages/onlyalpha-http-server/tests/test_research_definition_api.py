@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from dataclasses import replace
 from typing import cast
@@ -12,7 +13,10 @@ from onlyalpha_http_server.research.definition_schema import ResearchDefinitionR
 from onlyalpha_http_server.research.run_schema import SubmitResearchRunRequest
 
 from onlyalpha.application.product_boundary import only_compose_research_product_boundary
+from onlyalpha.domain.identifiers import OnlyInstrumentId
+from onlyalpha.domain.market import OnlyBarType
 from onlyalpha.kernel import OnlyAlphaKernelHost
+from onlyalpha.quant_assets import only_discover_quant_asset_providers
 from onlyalpha.research.command import OnlyResearchCommandService, OnlyResearchRunQueryService
 from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore
 from onlyalpha.research.definition import (
@@ -28,7 +32,7 @@ from onlyalpha.research.operations.readiness import (
 )
 from onlyalpha.research.query import OnlyResearchArtifactReader
 from onlyalpha.research.specification import OnlyResearchSpecification
-from tests.research.calculation.support import snapshot
+from tests.research.calculation.support import bars, snapshot
 from tests.research.definition.support import definition
 from tests.research.evaluation.support import evaluation_registry
 
@@ -56,9 +60,9 @@ class _ResolverOnlyUniverses:
         return ("A.XNAS", "B.XNAS")
 
 
-def _case(tmp_path, universe_authority=None):  # type: ignore[no-untyped-def]
+def _case(tmp_path, universe_authority=None, values=None):  # type: ignore[no-untyped-def]
     store = OnlyParquetResearchDatasetSnapshotStore(tmp_path / "datasets")
-    candidate, partitions = snapshot()
+    candidate, partitions = snapshot(values)
     committed = store.commit(candidate, partitions)
     calculations = evaluation_registry()
     resolver = OnlyResearchDefinitionResolver(calculations, store, universe_resolver=universe_authority)
@@ -205,6 +209,31 @@ def test_resolve_projects_domain_truth_and_exact_specification_is_run_input(tmp_
     assert SubmitResearchRunRequest.model_validate({"specification": body["exact_specification"]})
     assert "PREDICATE" in str(body["exact_specification"])
     assert "workload" not in body and "node_fingerprints" not in str(body)
+
+
+def test_simple_momentum_example_resolves_through_the_product_definition_api(tmp_path) -> None:
+    instrument = OnlyInstrumentId.parse("000001.XSHE")
+    values = tuple(
+        replace(
+            bar,
+            bar_type=OnlyBarType(instrument, bar.bar_type.specification, bar.bar_type.aggregation_source),
+        )
+        for bar in bars()[:4]
+    )
+    committed, _, _, client = _case(tmp_path, values=values)
+    asset = only_discover_quant_asset_providers().resolve_strategy_asset(
+        "example.strategy.library", "1", "example.strategy.simple_momentum", "1"
+    )
+    payload = json.loads(asset.resource_bytes("research-definition.json"))
+    assert payload["dataset"]["universe"]["instrument_ids"] == [str(item) for item in committed.definition.instruments]
+    response = client.post("/api/v2/research/definitions/resolve", json=payload)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["candidate_count"] == 1
+    assert any(
+        item["instance_key"] == "momentum" and item["output_name"] == "factor_value"
+        for item in body["published_variables"]
+    )
 
 
 def test_definition_domain_error_preserves_authoring_path(tmp_path) -> None:

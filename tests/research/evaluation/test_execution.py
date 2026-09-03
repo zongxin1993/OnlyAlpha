@@ -53,7 +53,7 @@ def test_multiple_feature_calculations_reuse_one_target_result(tmp_path) -> None
     assert target_again.disposition is OnlyResearchJobDisposition.REUSED
     assert target_again.calculation_result_fingerprint == original_target.calculation_result_fingerprint
     alternate_node = next(
-        node for node in alternate_graph.ordered_nodes if node.definition.type_id == "onlyalpha.factor.momentum"
+        node for node in alternate_graph.ordered_nodes if node.definition.type_id == "example.factor.momentum"
     )
     alternate_statistics = replace(
         statistics_plan,
@@ -118,7 +118,7 @@ def test_sweep_cells_compose_with_one_shared_target_and_distinct_statistics(tmp_
         node = next(
             item
             for item in cell.calculation_graph.ordered_nodes
-            if item.definition.type_id == "onlyalpha.factor.momentum"
+            if item.definition.type_id == "example.factor.momentum"
         )
         plan = replace(
             base_statistics,

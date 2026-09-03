@@ -757,7 +757,7 @@ def _definition(dataset: OnlyResearchDatasetDefinition) -> dict[str, object]:
         ),
         OnlyResearchCalculationInstance(
             "momentum",
-            reference(OnlyCalculationKind.FACTOR, "onlyalpha.factor.momentum"),
+            reference(OnlyCalculationKind.FACTOR, "example.factor.momentum"),
             {
                 "short_weight": OnlyResearchFixedParameter(Decimal("1")),
                 "long_weight": OnlyResearchFixedParameter(Decimal("1")),

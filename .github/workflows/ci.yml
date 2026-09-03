@@ -127,7 +127,7 @@ jobs:
         run: uv run ruff format --check src tests examples
 
       - name: Mypy Core
-        run: uv run mypy src/onlyalpha plugs/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators plugs/onlyalpha-plugin-factors/src/onlyalpha_plugin_factors plugs/onlyalpha-plugin-targets/src/onlyalpha_plugin_targets
+        run: uv run mypy src/onlyalpha plugs/onlyalpha-plugin-operators/src/onlyalpha_plugin_operators plugs/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators plugs/onlyalpha-plugin-targets/src/onlyalpha_plugin_targets examples/onlyalpha-example-alpha/src/onlyalpha_example_alpha examples/onlyalpha-example-strategies/src/onlyalpha_example_strategies
 
       - name: Run Core tests
         run: >-

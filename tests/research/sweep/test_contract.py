@@ -50,7 +50,7 @@ def test_template_rejects_empty_duplicate_missing_self_and_cycle() -> None:
     assert duplicate.value.code == "SWEEP_TEMPLATE_NODE_DUPLICATE"
     missing = OnlyResearchGraphTemplateNode(
         "consumer",
-        reference(OnlyCalculationKind.FACTOR, "onlyalpha.factor.cross_section_percentile"),
+        reference(OnlyCalculationKind.INDICATOR, "onlyalpha.operator.cross_section_percentile"),
         {},
         (OnlyResearchTemplateInputBinding("factor_value", OnlyResearchTemplateReference("missing", "value")),),
     )

@@ -10,17 +10,19 @@ resolution-markers = [
 [manifest]
 members = [
     "onlyalpha",
-    "onlyalpha-http-server",
+    "onlyalpha-example-alpha",
+    "onlyalpha-example-strategies",
     "onlyalpha-gateway-protocol",
+    "onlyalpha-http-server",
+    "onlyalpha-plugin-binance",
     "onlyalpha-plugin-binance-spot",
     "onlyalpha-plugin-binance-usdm",
+    "onlyalpha-plugin-broker-virtual",
     "onlyalpha-plugin-cn-ashare",
     "onlyalpha-plugin-generic-t0-cash",
-    "onlyalpha-plugin-binance",
-    "onlyalpha-plugin-broker-virtual",
-    "onlyalpha-plugin-factors",
     "onlyalpha-plugin-indicators",
     "onlyalpha-plugin-miniqmt",
+    "onlyalpha-plugin-operators",
     "onlyalpha-plugin-targets",
     "onlyalpha-plugin-tushare",
 ]
@@ -907,10 +909,12 @@ dev = [
     { name = "import-linter" },
     { name = "mutmut" },
     { name = "mypy" },
-    { name = "onlyalpha-http-server" },
+    { name = "onlyalpha-example-alpha" },
+    { name = "onlyalpha-example-strategies" },
     { name = "onlyalpha-gateway-protocol" },
-    { name = "onlyalpha-plugin-factors" },
+    { name = "onlyalpha-http-server" },
     { name = "onlyalpha-plugin-indicators" },
+    { name = "onlyalpha-plugin-operators" },
     { name = "onlyalpha-plugin-targets" },
     { name = "onlyalpha-test-plugin" },
     { name = "packaging" },
@@ -948,10 +952,12 @@ dev = [
     { name = "import-linter", specifier = ">=2.13" },
     { name = "mutmut", specifier = ">=3.7.0" },
     { name = "mypy", specifier = ">=1.15" },
-    { name = "onlyalpha-http-server", editable = "packages/onlyalpha-http-server" },
+    { name = "onlyalpha-example-alpha", editable = "examples/onlyalpha-example-alpha" },
+    { name = "onlyalpha-example-strategies", editable = "examples/onlyalpha-example-strategies" },
     { name = "onlyalpha-gateway-protocol", editable = "packages/onlyalpha-gateway-protocol" },
-    { name = "onlyalpha-plugin-factors", editable = "plugs/onlyalpha-plugin-factors" },
+    { name = "onlyalpha-http-server", editable = "packages/onlyalpha-http-server" },
     { name = "onlyalpha-plugin-indicators", editable = "plugs/onlyalpha-plugin-indicators" },
+    { name = "onlyalpha-plugin-operators", editable = "plugs/onlyalpha-plugin-operators" },
     { name = "onlyalpha-plugin-targets", editable = "plugs/onlyalpha-plugin-targets" },
     { name = "onlyalpha-test-plugin", editable = "tests/fixtures/external_plugins/onlyalpha_test_plugin" },
     { name = "packaging", specifier = ">=25" },
@@ -964,6 +970,49 @@ dev = [
     { name = "twine", specifier = ">=6" },
     { name = "types-grpcio", specifier = "==1.0.0.20250703" },
     { name = "types-protobuf", specifier = "==6.30.2.20250809" },
+]
+
+[[package]]
+name = "onlyalpha-example-alpha"
+version = "0.9.8"
+source = { editable = "examples/onlyalpha-example-alpha" }
+dependencies = [
+    { name = "onlyalpha" },
+    { name = "onlyalpha-plugin-indicators" },
+    { name = "onlyalpha-plugin-operators" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "onlyalpha", editable = "." },
+    { name = "onlyalpha-plugin-indicators", editable = "plugs/onlyalpha-plugin-indicators" },
+    { name = "onlyalpha-plugin-operators", editable = "plugs/onlyalpha-plugin-operators" },
+]
+
+[[package]]
+name = "onlyalpha-example-strategies"
+version = "0.9.8"
+source = { editable = "examples/onlyalpha-example-strategies" }
+dependencies = [
+    { name = "onlyalpha" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "onlyalpha", editable = "." }]
+
+[[package]]
+name = "onlyalpha-gateway-protocol"
+version = "0.9.8"
+source = { editable = "packages/onlyalpha-gateway-protocol" }
+dependencies = [
+    { name = "grpcio" },
+    { name = "protobuf" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "grpcio", specifier = "==1.73.1" },
+    { name = "protobuf", specifier = "==6.33.5" },
 ]
 
 [[package]]
@@ -1000,18 +1049,22 @@ dev = [
 ]
 
 [[package]]
-name = "onlyalpha-gateway-protocol"
+name = "onlyalpha-plugin-binance"
 version = "0.9.8"
-source = { editable = "packages/onlyalpha-gateway-protocol" }
+source = { editable = "plugs/onlyalpha-plugin-binance" }
 dependencies = [
-    { name = "grpcio" },
-    { name = "protobuf" },
+    { name = "onlyalpha" },
+    { name = "onlyalpha-plugin-binance-spot" },
+    { name = "onlyalpha-plugin-binance-usdm" },
+    { name = "websocket-client" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "grpcio", specifier = "==1.73.1" },
-    { name = "protobuf", specifier = "==6.33.5" },
+    { name = "onlyalpha", editable = "." },
+    { name = "onlyalpha-plugin-binance-spot", editable = "plugs/onlyalpha-plugin-binance-spot" },
+    { name = "onlyalpha-plugin-binance-usdm", editable = "plugs/onlyalpha-plugin-binance-usdm" },
+    { name = "websocket-client", specifier = ">=1.8,<2" },
 ]
 
 [[package]]
@@ -1035,6 +1088,33 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "onlyalpha", editable = "." }]
+
+[[package]]
+name = "onlyalpha-plugin-broker-virtual"
+version = "0.9.8"
+source = { editable = "plugs/onlyalpha-plugin-broker-virtual" }
+dependencies = [
+    { name = "onlyalpha" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "onlyalpha", editable = "." }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = ">=1.15" },
+    { name = "pytest", specifier = ">=9.0.3" },
+    { name = "pytest-cov", specifier = ">=6" },
+    { name = "ruff", specifier = ">=0.11" },
+]
 
 [[package]]
 name = "onlyalpha-plugin-cn-ashare"
@@ -1089,63 +1169,6 @@ dev = [
     { name = "pytest-cov", specifier = ">=6" },
     { name = "ruff", specifier = ">=0.11" },
 ]
-
-[[package]]
-name = "onlyalpha-plugin-binance"
-version = "0.9.8"
-source = { editable = "plugs/onlyalpha-plugin-binance" }
-dependencies = [
-    { name = "onlyalpha" },
-    { name = "onlyalpha-plugin-binance-spot" },
-    { name = "onlyalpha-plugin-binance-usdm" },
-    { name = "websocket-client" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "onlyalpha", editable = "." },
-    { name = "onlyalpha-plugin-binance-spot", editable = "plugs/onlyalpha-plugin-binance-spot" },
-    { name = "onlyalpha-plugin-binance-usdm", editable = "plugs/onlyalpha-plugin-binance-usdm" },
-    { name = "websocket-client", specifier = ">=1.8,<2" },
-]
-
-[[package]]
-name = "onlyalpha-plugin-broker-virtual"
-version = "0.9.8"
-source = { editable = "plugs/onlyalpha-plugin-broker-virtual" }
-dependencies = [
-    { name = "onlyalpha" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "mypy" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "onlyalpha", editable = "." }]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "mypy", specifier = ">=1.15" },
-    { name = "pytest", specifier = ">=9.0.3" },
-    { name = "pytest-cov", specifier = ">=6" },
-    { name = "ruff", specifier = ">=0.11" },
-]
-
-[[package]]
-name = "onlyalpha-plugin-factors"
-version = "0.9.8"
-source = { editable = "plugs/onlyalpha-plugin-factors" }
-dependencies = [
-    { name = "onlyalpha" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "onlyalpha", editable = "." }]
 
 [[package]]
 name = "onlyalpha-plugin-indicators"
@@ -1206,6 +1229,17 @@ dev = [
     { name = "pytest-cov", specifier = ">=6" },
     { name = "ruff", specifier = ">=0.11" },
 ]
+
+[[package]]
+name = "onlyalpha-plugin-operators"
+version = "0.9.8"
+source = { editable = "plugs/onlyalpha-plugin-operators" }
+dependencies = [
+    { name = "onlyalpha" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "onlyalpha", editable = "." }]
 
 [[package]]
 name = "onlyalpha-plugin-targets"

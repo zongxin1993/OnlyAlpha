@@ -1,0 +1,131 @@
+{
+  "calculations": [
+    {
+      "input_bindings": [],
+      "instance_key": "returns_short",
+      "parameters": {
+        "period": {"kind": "FIXED", "value": {"type": "INTEGER", "value": 2}}
+      },
+      "primary_output": null,
+      "published_outputs": ["value"],
+      "type_reference": {
+        "kind": "INDICATOR",
+        "semantic_version": "1",
+        "type_id": "onlyalpha.indicator.rolling_return"
+      }
+    },
+    {
+      "input_bindings": [],
+      "instance_key": "returns_long",
+      "parameters": {
+        "period": {"kind": "FIXED", "value": {"type": "INTEGER", "value": 3}}
+      },
+      "primary_output": null,
+      "published_outputs": ["value"],
+      "type_reference": {
+        "kind": "INDICATOR",
+        "semantic_version": "1",
+        "type_id": "onlyalpha.indicator.rolling_return"
+      }
+    },
+    {
+      "input_bindings": [
+        {
+          "input_name": "return_short",
+          "source": {"instance_key": "returns_short", "kind": "VARIABLE", "output_name": "value"}
+        },
+        {
+          "input_name": "return_long",
+          "source": {"instance_key": "returns_long", "kind": "VARIABLE", "output_name": "value"}
+        }
+      ],
+      "instance_key": "momentum",
+      "parameters": {
+        "long_weight": {"kind": "FIXED", "value": {"type": "DECIMAL", "value": "0.5"}},
+        "short_weight": {"kind": "FIXED", "value": {"type": "DECIMAL", "value": "0.5"}}
+      },
+      "primary_output": null,
+      "published_outputs": ["factor_value"],
+      "type_reference": {
+        "kind": "FACTOR",
+        "semantic_version": "1",
+        "type_id": "example.factor.momentum"
+      }
+    }
+  ],
+  "dataset": {
+    "adjustment_reference": null,
+    "adjustment_type": "RAW",
+    "aggregation_source": "EXTERNAL",
+    "bar_specification": {"aggregation": "TIME", "price_type": "LAST", "step": 1},
+    "end": "2026-01-05T01:34:01+00:00",
+    "start": "2026-01-05T01:30:00+00:00",
+    "universe": {
+      "instrument_ids": ["000001.XSHE"],
+      "kind": "SINGLE_INSTRUMENT",
+      "registered_id": null
+    }
+  },
+  "display_metadata": {"name": "Simple Momentum Signal"},
+  "eligibility": {
+    "kind": "COMPARISON",
+    "left": {"field_name": "close", "kind": "DATASET_FIELD"},
+    "operator": ">",
+    "right": {"data_type": "DECIMAL", "kind": "LITERAL", "value": {"type": "DECIMAL", "value": "0"}}
+  },
+  "schema_version": 1,
+  "signals": {
+    "entry": {
+      "kind": "COMPARISON",
+      "left": {"instance_key": "momentum", "kind": "VARIABLE", "output_name": "factor_value"},
+      "operator": ">",
+      "right": {"data_type": "DECIMAL", "kind": "LITERAL", "value": {"type": "DECIMAL", "value": "0"}}
+    },
+    "exit": {
+      "kind": "COMPARISON",
+      "left": {"instance_key": "momentum", "kind": "VARIABLE", "output_name": "factor_value"},
+      "operator": "<=",
+      "right": {"data_type": "DECIMAL", "kind": "LITERAL", "value": {"type": "DECIMAL", "value": "0"}}
+    }
+  },
+  "statistics": [
+    {
+      "definition": {
+        "method": "IC",
+        "minimum_observations": 2,
+        "numeric": {
+          "output_quantum": "0.000000000001",
+          "precision": 38,
+          "representation": "DECIMAL",
+          "rounding": "ROUND_HALF_EVEN"
+        },
+        "pairing_policy": "PAIRWISE_COMPLETE",
+        "rank_tie_method": "AVERAGE",
+        "schema_version": 1,
+        "universe_policy": "OBSERVED_PAIRWISE",
+        "weighting": "EQUAL"
+      },
+      "target_instance_key": "forward_return_1",
+      "variable": {"instance_key": "momentum", "kind": "VARIABLE", "output_name": "factor_value"}
+    }
+  ],
+  "targets": [
+    {
+      "input_bindings": [
+        {"input_name": "entry_price", "source": "bar.close"},
+        {"input_name": "exit_price", "source": "bar.close"}
+      ],
+      "instance_key": "forward_return_1",
+      "parameters": {
+        "exit_offset": {"kind": "FIXED", "value": {"type": "INTEGER", "value": 1}}
+      },
+      "primary_output": null,
+      "published_outputs": ["target_value"],
+      "type_reference": {
+        "kind": "TARGET",
+        "semantic_version": "1",
+        "type_id": "onlyalpha.target.forward_return"
+      }
+    }
+  ]
+}

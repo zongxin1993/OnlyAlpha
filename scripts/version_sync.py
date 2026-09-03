@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
@@ -18,6 +19,15 @@ ROOT = Path(__file__).resolve().parents[1]
 TEST_DISTRIBUTION_PATHS = (Path("tests/fixtures/external_plugins/onlyalpha_test_plugin/pyproject.toml"),)
 WEB_PACKAGE_PATH = Path("packages/onlyalpha-web-console/package.json")
 WEB_LOCK_PATH = Path("packages/onlyalpha-web-console/package-lock.json")
+QUANT_ASSET_PROVIDER_PATHS = (
+    Path("plugs/onlyalpha-plugin-operators/src/onlyalpha_plugin_operators/provider.py"),
+    Path("plugs/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators/provider.py"),
+    Path("examples/onlyalpha-example-alpha/src/onlyalpha_example_alpha/provider.py"),
+    Path("examples/onlyalpha-example-strategies/src/onlyalpha_example_strategies/provider.py"),
+)
+_DISTRIBUTION_VERSION = re.compile(
+    r'(?m)^(?P<prefix>\s*distribution_version\s*=\s*)"(?P<version>[^"]+)"(?P<suffix>,\s*)$'
+)
 
 
 class VersionSyncError(RuntimeError):
@@ -256,6 +266,18 @@ def workspace_graph_errors(
                     f"{path}: root package expected version {str(release_version)!r}; "
                     f"found {root_package.get('version')!r}"
                 )
+    for relative_path in QUANT_ASSET_PROVIDER_PATHS:
+        path = root / relative_path
+        if not path.is_file():
+            continue
+        matches = tuple(_DISTRIBUTION_VERSION.finditer(path.read_text(encoding="utf-8")))
+        if len(matches) != 1:
+            errors.append(f"{path}: expected exactly one quant asset distribution_version")
+        elif matches[0].group("version") != str(release_version):
+            errors.append(
+                f"{path}: quant asset distribution_version expected {str(release_version)!r}; "
+                f"found {matches[0].group('version')!r}"
+            )
     return errors
 
 
@@ -372,10 +394,30 @@ def rewrite_workspace(
             document["packages"][""]["version"] = normalized
         web_documents.append((path, document))
 
+    provider_documents: list[tuple[Path, str]] = []
+    for relative_path in QUANT_ASSET_PROVIDER_PATHS:
+        path = root / relative_path
+        if not path.is_file():
+            continue
+        source = path.read_text(encoding="utf-8")
+        if len(tuple(_DISTRIBUTION_VERSION.finditer(source))) != 1:
+            raise VersionSyncError(f"{path}: expected exactly one quant asset distribution_version")
+        provider_documents.append(
+            (
+                path,
+                _DISTRIBUTION_VERSION.sub(
+                    lambda match: f'{match.group("prefix")}"{normalized}"{match.group("suffix")}',
+                    source,
+                ),
+            )
+        )
+
     for path, document in documents:
         write_document(path, document)
     for path, document in web_documents:
         path.write_text(json.dumps(document, indent=4, ensure_ascii=False) + "\n", encoding="utf-8")
+    for path, source in provider_documents:
+        path.write_text(source, encoding="utf-8")
 
 
 def set_versions(version: str, root: Path = ROOT) -> None:

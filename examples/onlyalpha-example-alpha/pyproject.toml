@@ -1,0 +1,28 @@
+[project]
+name = "onlyalpha-example-alpha"
+version = "0.9.8"
+description = "Non-production L3 Alpha reference package for OnlyAlpha"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "onlyalpha==0.9.8",
+    "onlyalpha-plugin-indicators==0.9.8",
+    "onlyalpha-plugin-operators==0.9.8",
+]
+
+[project.entry-points."onlyalpha.calculations"]
+example-alpha = "onlyalpha_example_alpha.registration:registrations"
+
+[project.entry-points."onlyalpha.quant_assets"]
+example-alpha = "onlyalpha_example_alpha.provider:quant_asset_provider"
+
+[build-system]
+requires = ["hatchling>=1.26,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/onlyalpha_example_alpha"]
+
+[tool.uv.sources]
+onlyalpha = { workspace = true }
+onlyalpha-plugin-indicators = { workspace = true }
+onlyalpha-plugin-operators = { workspace = true }

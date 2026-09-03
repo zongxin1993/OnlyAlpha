@@ -24,7 +24,7 @@ def test_actual_backends_must_match_before_evidence_v2_is_published(tmp_path) ->
     node = next(
         item
         for item in case.revision.decision_graph.ordered_nodes
-        if item.definition.type_id.startswith("onlyalpha.factor.")
+        if item.definition.type_id.startswith("example.factor.")
     )
     registry = OnlyCalculationRegistry()
     seen = set()

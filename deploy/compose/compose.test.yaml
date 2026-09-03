@@ -1,6 +1,14 @@
 name: onlyalpha-p93-test
 
 services:
+  operator:
+    build:
+      target: acceptance-operator
+
+  binance-golden-provisioner:
+    build:
+      target: acceptance-operator
+
   postgres:
     restart: "no"
 

@@ -1,21 +1,25 @@
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
-from onlyalpha_plugin_factors.registration import registrations as factor_registrations
+from onlyalpha_example_alpha.registration import registrations as factor_registrations
 from onlyalpha_plugin_indicators.registration import TYPES, resolve_definition
 from onlyalpha_plugin_indicators.registration import registrations as indicator_registrations
+from onlyalpha_plugin_operators.registration import registrations as operator_registrations
 
 from onlyalpha.calculation import (
     OnlyCalculationKind,
     OnlyCalculationReference,
     OnlyCalculationRegistry,
     OnlyCalculationTypeReference,
+    OnlyFactorKind,
+    only_calculation_execution_shape,
 )
 
 
 def _registry() -> OnlyCalculationRegistry:
     result = OnlyCalculationRegistry()
-    for registration in (*indicator_registrations(), *factor_registrations()):
+    for registration in (*operator_registrations(), *indicator_registrations(), *factor_registrations()):
         result.register(registration)
     return result
 
@@ -58,19 +62,34 @@ def test_factor_resolution_uses_exact_composition_bindings_and_normalization() -
     left = OnlyCalculationReference("a" * 64, "value")
     right = OnlyCalculationReference("b" * 64, "value")
     momentum = registry.rematerialize_definition(
-        _reference(OnlyCalculationKind.FACTOR, "onlyalpha.factor.momentum"),
+        _reference(OnlyCalculationKind.FACTOR, "example.factor.momentum"),
         {"short_weight": "0.25", "long_weight": Decimal("0.75")},
         {"return_short": left, "return_long": right},
     )
     percentile = registry.rematerialize_definition(
-        _reference(OnlyCalculationKind.FACTOR, "onlyalpha.factor.cross_section_percentile"),
+        _reference(OnlyCalculationKind.INDICATOR, "onlyalpha.operator.cross_section_percentile"),
         {"direction": "lower_is_better"},
-        {"factor_value": OnlyCalculationReference(momentum.fingerprint, "factor_value")},
+        {"value": OnlyCalculationReference(momentum.fingerprint, "factor_value")},
     )
     assert momentum.parameters == {"short_weight": Decimal("0.25"), "long_weight": Decimal("0.75")}
     assert percentile.parameters["direction"] == "LOWER_IS_BETTER"
     assert not hasattr(momentum, "resolver_fingerprint")
     assert "OnlyOfficial" not in str(momentum.semantic_payload())
+
+
+def test_factor_kind_remains_the_only_factor_execution_shape_authority() -> None:
+    registry = _registry()
+    factor = registry.rematerialize_definition(
+        _reference(OnlyCalculationKind.FACTOR, "example.factor.momentum"),
+        {},
+        {
+            "return_short": OnlyCalculationReference("a" * 64, "value"),
+            "return_long": OnlyCalculationReference("b" * 64, "value"),
+        },
+    )
+    conflicting_extension = replace(factor, extensions={"calculation_execution_shape": "CROSS_SECTION"})
+    assert factor.factor_kind is OnlyFactorKind.TIME_SERIES
+    assert only_calculation_execution_shape(conflicting_extension) is OnlyFactorKind.TIME_SERIES
 
 
 def test_rematerialization_is_exact_and_fails_closed_without_a_registered_resolver() -> None:
