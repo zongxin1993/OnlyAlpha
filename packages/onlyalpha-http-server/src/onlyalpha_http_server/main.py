@@ -132,7 +132,7 @@ def _verify_product_registries(
         configuration = catalog.configurations.resolve(fingerprint)
         market_products.resolve(
             configuration.config,
-            OnlyMarketProductResolutionContext(resources, catalog.document(fingerprint).reference_data.instruments),
+            OnlyMarketProductResolutionContext(resources, catalog.document(fingerprint).instruments),
         )
 
 

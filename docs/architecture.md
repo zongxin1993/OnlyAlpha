@@ -602,5 +602,11 @@ Domain 不依赖 Core 外层。Core 不依赖具体 Provider/Broker SDK。Strate
 拥有不同的 run/runtime identity、lifecycle、worker、checkpoint/recovery state 和 result references。Specification fingerprint 不得
 替代 instance identity，文件路径、ENV、HTTP metadata 和 idempotency key 不得污染 trading semantic identity。
 
+Backtest Product 的 operator deployment 输入只保留 Market Product 配置与 instrument/reference resources。Portfolio、Risk、Execution、
+initial Account、Strategy、Dataset 与 Kernel identities 分别来自已 admission 的唯一 authority；Worker 从这些 authority 从零构造内部
+`OnlyClusterRunConfig`，不得复制完整 operator deployment document。`OnlyBacktestExecutionSemanticBinding` 是 durable Specification 与
+Admission Resolution 的 canonical immutable projection，不是第二 Authority，并明确排除 Run/Attempt/Worker/path/poll interval 等 operational
+identity。Worker 每次 Attempt 都重新解析 authority 并在 Engine 启动前 fail closed 于 `EXECUTION_SEMANTIC_DRIFT`。
+
 当前支持到何种 Runtime/product depth 必须由源码与测试判断；本架构文档不维护阶段完成状态。未来建设顺序见
 [Roadmap](roadmap.md)。

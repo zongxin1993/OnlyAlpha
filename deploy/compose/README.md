@@ -19,6 +19,7 @@ provision_a0_binance_golden.py captures provider authority and provisions real p
 deploy-production.sh         validate, pull, and converge production services
 run-operator.sh              execute explicit operators on the private network
 run-binance-golden.sh        run online provisioning with isolated Binance egress
+run-a0-product-acceptance.sh canonical offline Spot/USD-M Product acceptance
 ```
 
 Database versions are intentionally exact:
@@ -153,6 +154,31 @@ uv run python deploy/compose/certify_binance_golden_source.py \
 The offline Product lane consumes the resulting immutable Dataset and economic
 fact identities; it does not contact Binance or treat a mutable ClickHouse
 query as semantic truth.
+
+The canonical A0 lane consumes one operator-supplied, content-addressed frozen
+bundle and performs materialization plus the complete HTTP-only Product proof:
+
+```bash
+ONLYALPHA_A0_GOLDEN_ROOT=/secure/a0-golden-2024-01 \
+  deploy/compose/run-a0-product-acceptance.sh
+```
+
+`bundle-manifest.json` is strict schema version 1 with
+`bundle_kind=A0_GOLDEN_V1`, exact SHA256 references to `source-manifest.json`
+and `reference-capture.json`, and a minute-aligned `interval.start/end` that
+contains a USD-M funding boundary. The bundle is mounted read-only and generated
+Product configuration is written to an isolated temporary directory. Certified archives live below `archives/`
+using `<source_id>.zip`. The lane verifies every archive before invoking the
+same Binance Spot/USD-M normalizers used by provider ingestion, persists facts
+through ClickHouse/PostgreSQL, seals immutable Dataset/economic bindings, then
+runs Spot and USD-M twice and compares Result/determinism identities. Its final
+fault phase holds a claimed Attempt at a deterministic operational barrier,
+kills the Backtest Worker, restarts it after lease recovery, and compares the
+recovered result to the uninterrupted baseline. The external client contains
+no OnlyAlpha or database imports.
+
+Online capture/certification remains a separate lane and is never invoked by
+`run-a0-product-acceptance.sh`.
 
 For an end-to-end online capture, the database network stays internal and only
 the `binance-golden-provisioner` profile joins a separate egress network. USD-M

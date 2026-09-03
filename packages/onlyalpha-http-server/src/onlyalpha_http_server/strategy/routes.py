@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Header
 
@@ -15,6 +15,7 @@ from onlyalpha.application.strategy_product import (
 from onlyalpha.research.run import OnlyResearchRunId
 from onlyalpha.strategy.freeze import OnlyStrategyFreezeRequest
 
+from ..backtest.schema import PRODUCT_ERROR_RESPONSES
 from .schema import (
     StrategyDto,
     StrategyFreezeRequest,
@@ -25,7 +26,6 @@ from .schema import (
 
 STRATEGY_ROUTE_TAG = "strategies"
 IdempotencyKeyHeader = Annotated[str, Header(alias="Idempotency-Key")]
-_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {status: {} for status in (400, 404, 409, 500, 503)}
 
 
 def _command_id(value: str) -> OnlyProductCommandId:
@@ -43,7 +43,7 @@ def create_strategy_router(
     router = APIRouter(prefix="/api/v2", tags=[STRATEGY_ROUTE_TAG])
 
     @router.post(
-        "/strategy-freezes", status_code=202, response_model=StrategyFreezeResponse, responses=_ERROR_RESPONSES
+        "/strategy-freezes", status_code=202, response_model=StrategyFreezeResponse, responses=PRODUCT_ERROR_RESPONSES
     )
     def freeze_strategy(
         request: StrategyFreezeRequest, idempotency_key: IdempotencyKeyHeader
@@ -64,7 +64,7 @@ def create_strategy_router(
             replayed=result.replayed,
         )
 
-    @router.get("/strategies/{strategy_fingerprint}", response_model=StrategyDto, responses=_ERROR_RESPONSES)
+    @router.get("/strategies/{strategy_fingerprint}", response_model=StrategyDto, responses=PRODUCT_ERROR_RESPONSES)
     def get_strategy(strategy_fingerprint: str) -> StrategyDto:
         value = query.get(strategy_fingerprint)
         revision = value.revision
@@ -80,7 +80,7 @@ def create_strategy_router(
         "/strategies/{strategy_fingerprint}/promotions",
         status_code=202,
         response_model=StrategyPromotionResponse,
-        responses=_ERROR_RESPONSES,
+        responses=PRODUCT_ERROR_RESPONSES,
     )
     def promote_strategy(
         strategy_fingerprint: str,

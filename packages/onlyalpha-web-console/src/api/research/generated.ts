@@ -4,6 +4,91 @@
  */
 
 export interface paths {
+    "/api/v2/backtest/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Run */
+        post: operations["create_run_api_v2_backtest_runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/backtest/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run */
+        get: operations["get_run_api_v2_backtest_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/backtest/runs/{run_id}/cancellation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Run */
+        post: operations["cancel_run_api_v2_backtest_runs__run_id__cancellation_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/backtest/runs/{run_id}/evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Evidence */
+        get: operations["get_evidence_api_v2_backtest_runs__run_id__evidence_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/backtest/runs/{run_id}/evidence/artifacts/{artifact_name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Artifact */
+        get: operations["get_artifact_api_v2_backtest_runs__run_id__evidence_artifacts__artifact_name__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/research/artifacts/{research_result_fingerprint}": {
         parameters: {
             query?: never;
@@ -294,6 +379,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/strategies/{strategy_fingerprint}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Strategy */
+        get: operations["get_strategy_api_v2_strategies__strategy_fingerprint__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/strategies/{strategy_fingerprint}/promotions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Promote Strategy */
+        post: operations["promote_strategy_api_v2_strategies__strategy_fingerprint__promotions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/strategy-freezes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Freeze Strategy */
+        post: operations["freeze_strategy_api_v2_strategy_freezes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health/execution": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Execution */
+        get: operations["execution_health_execution_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health/live": {
         parameters: {
             query?: never;
@@ -332,6 +485,189 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** BacktestCancellationResponse */
+        BacktestCancellationResponse: {
+            /** Revision */
+            revision: number;
+            /** Run Id */
+            run_id: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** State */
+            state: string;
+        };
+        /** BacktestEvidenceArtifactDto */
+        BacktestEvidenceArtifactDto: {
+            /** Media Type */
+            media_type: string;
+            /** Name */
+            name: string;
+            /** Sha256 */
+            sha256: string;
+            /** Size */
+            size: number;
+        };
+        /** BacktestEvidenceDto */
+        BacktestEvidenceDto: {
+            manifest: components["schemas"]["BacktestEvidenceManifestDto"];
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** BacktestEvidenceManifestDto */
+        BacktestEvidenceManifestDto: {
+            /** Admission Resolution Fingerprint */
+            admission_resolution_fingerprint: string;
+            /** Artifacts */
+            artifacts: components["schemas"]["BacktestEvidenceArtifactDto"][];
+            /** Backtest Run Id */
+            backtest_run_id: string;
+            /** Base Dataset Snapshot Fingerprint */
+            base_dataset_snapshot_fingerprint: string;
+            /** Dataset Binding Fingerprint */
+            dataset_binding_fingerprint: string;
+            /** Determinism Fingerprint */
+            determinism_fingerprint: string;
+            /** Evidence Fingerprint */
+            evidence_fingerprint: string;
+            /** Execution Profile Fingerprint */
+            execution_profile_fingerprint: string;
+            /** Implementation Fingerprints */
+            implementation_fingerprints: string[];
+            /** Kernel Semantics Version */
+            kernel_semantics_version: string;
+            /** Market Product Composition Fingerprint */
+            market_product_composition_fingerprint: string;
+            /** Portfolio Profile Fingerprint */
+            portfolio_profile_fingerprint: string;
+            /** Result Fingerprint */
+            result_fingerprint: string;
+            /** Risk Profile Fingerprint */
+            risk_profile_fingerprint: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Specification Fingerprint */
+            specification_fingerprint: string;
+            /** Strategy Fingerprint */
+            strategy_fingerprint: string;
+        };
+        /** BacktestFailureDto */
+        BacktestFailureDto: {
+            /** Code */
+            code: string;
+            /** Detail */
+            detail: string;
+            /** Phase */
+            phase: string;
+        };
+        /** BacktestInitialAccountDto */
+        BacktestInitialAccountDto: {
+            /** Base Currency */
+            base_currency: string;
+            /** Capital */
+            capital: string;
+        };
+        /** BacktestProfileReferenceDto */
+        BacktestProfileReferenceDto: {
+            /** Profile Id */
+            profile_id: string;
+            /** Version */
+            version: string;
+        };
+        /** BacktestRunCreateRequest */
+        BacktestRunCreateRequest: {
+            /** Dataset Binding Fingerprint */
+            dataset_binding_fingerprint: string;
+            execution_profile: components["schemas"]["BacktestProfileReferenceDto"];
+            initial_account: components["schemas"]["BacktestInitialAccountDto"];
+            /** Market Product Configuration Fingerprint */
+            market_product_configuration_fingerprint: string;
+            portfolio_profile: components["schemas"]["BacktestProfileReferenceDto"];
+            risk_profile: components["schemas"]["BacktestProfileReferenceDto"];
+            /**
+             * @default {
+             *       "ordered_fact_policy": "ORDERED_FACTS_V1"
+             *     }
+             */
+            runtime_options: components["schemas"]["BacktestRuntimeOptionsDto"];
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Strategy Fingerprint */
+            strategy_fingerprint: string;
+        };
+        /** BacktestRunCreateResponse */
+        BacktestRunCreateResponse: {
+            /** Backtest Run Id */
+            backtest_run_id: string;
+            /** Disposition */
+            disposition: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** State */
+            state: string;
+        };
+        /** BacktestRunDto */
+        BacktestRunDto: {
+            /** Admission Resolution Fingerprint */
+            admission_resolution_fingerprint: string;
+            /** Cancel Requested At */
+            cancel_requested_at: string | null;
+            /** Determinism Fingerprint */
+            determinism_fingerprint: string | null;
+            /** Evidence Fingerprint */
+            evidence_fingerprint: string | null;
+            failure: components["schemas"]["BacktestFailureDto"] | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Queued At */
+            queued_at: string;
+            /** Result Fingerprint */
+            result_fingerprint: string | null;
+            /** Revision */
+            revision: number;
+            /** Run Id */
+            run_id: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Specification Fingerprint */
+            specification_fingerprint: string;
+            /** Started At */
+            started_at: string | null;
+            /** State */
+            state: string;
+        };
+        /** BacktestRuntimeOptionsDto */
+        BacktestRuntimeOptionsDto: {
+            /**
+             * Ordered Fact Policy
+             * @default ORDERED_FACTS_V1
+             * @constant
+             */
+            ordered_fact_policy: "ORDERED_FACTS_V1";
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -393,6 +729,36 @@ export interface components {
          * @enum {string}
          */
         OnlyResearchWeighting: "EQUAL";
+        /** ProductErrorDto */
+        ProductErrorDto: {
+            /** Code */
+            code: string;
+            /** Detail */
+            detail: string;
+            /** Phase */
+            phase: string;
+        };
+        /** ProductErrorEnvelopeDto */
+        ProductErrorEnvelopeDto: {
+            error: components["schemas"]["ProductErrorDto"];
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** ProductExecutionHealthDto */
+        ProductExecutionHealthDto: {
+            /** Checks */
+            checks: {
+                [key: string]: string;
+            };
+            /** Reason */
+            reason?: string | null;
+            /** Status */
+            status: string;
+        };
         /** ResearchAndDto */
         ResearchAndDto: {
             /**
@@ -1420,6 +1786,87 @@ export interface components {
             /** Output Name */
             output_name: string;
         };
+        /** StrategyDto */
+        StrategyDto: {
+            /** Current Stage */
+            current_stage: string;
+            /** Freeze Relation Fingerprints */
+            freeze_relation_fingerprints: string[];
+            /** Promotion Records */
+            promotion_records: {
+                [key: string]: unknown;
+            }[];
+            /** Revision */
+            revision: {
+                [key: string]: unknown;
+            };
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Strategy Fingerprint */
+            strategy_fingerprint: string;
+        };
+        /** StrategyFreezeRequest */
+        StrategyFreezeRequest: {
+            /** Actor */
+            actor: string;
+            /** Candidate Fingerprint */
+            candidate_fingerprint: string;
+            /** Comment */
+            comment?: string | null;
+            /** Research Run Id */
+            research_run_id: string;
+        };
+        /** StrategyFreezeResponse */
+        StrategyFreezeResponse: {
+            /** Disposition */
+            disposition: string;
+            /** Freeze Record Fingerprint */
+            freeze_record_fingerprint: string;
+            /** Replayed */
+            replayed: boolean;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Strategy Fingerprint */
+            strategy_fingerprint: string;
+        };
+        /** StrategyPromotionRequest */
+        StrategyPromotionRequest: {
+            /** Actor */
+            actor: string;
+            /** Freeze Relation Fingerprint */
+            freeze_relation_fingerprint: string;
+            /** Reason */
+            reason: string;
+        };
+        /** StrategyPromotionResponse */
+        StrategyPromotionResponse: {
+            /** Decision */
+            decision: string;
+            /** From Stage */
+            from_stage: string;
+            /** Promotion Record Fingerprint */
+            promotion_record_fingerprint: string;
+            /** Replayed */
+            replayed: boolean;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Strategy Fingerprint */
+            strategy_fingerprint: string;
+            /** To Stage */
+            to_stage: string;
+        };
         /** SubmitResearchRunRequest */
         SubmitResearchRunRequest: {
             /** Specification */
@@ -1455,6 +1902,348 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    create_run_api_v2_backtest_runs_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BacktestRunCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BacktestRunCreateResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    get_run_api_v2_backtest_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BacktestRunDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    cancel_run_api_v2_backtest_runs__run_id__cancellation_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BacktestCancellationResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    get_evidence_api_v2_backtest_runs__run_id__evidence_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BacktestEvidenceDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    get_artifact_api_v2_backtest_runs__run_id__evidence_artifacts__artifact_name__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                artifact_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
     artifact_summary_api_v2_research_artifacts__research_result_fingerprint__get: {
         parameters: {
             query?: never;
@@ -2518,6 +3307,246 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    get_strategy_api_v2_strategies__strategy_fingerprint__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                strategy_fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StrategyDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    promote_strategy_api_v2_strategies__strategy_fingerprint__promotions_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                strategy_fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StrategyPromotionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StrategyPromotionResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    freeze_strategy_api_v2_strategy_freezes_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StrategyFreezeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StrategyFreezeResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    execution_health_execution_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductExecutionHealthDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductExecutionHealthDto"];
                 };
             };
         };

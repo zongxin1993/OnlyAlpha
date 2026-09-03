@@ -81,6 +81,30 @@ def only_default_backtest_profile_registry() -> OnlyBacktestProfileRegistry:
                 OnlyBacktestProfileReference("virtual-next-bar", "1"),
                 {"broker_model": "VIRTUAL", "matching_policy": "NEXT_BAR"},
             ),
+            OnlyBacktestProfile(
+                "EXECUTION",
+                OnlyBacktestProfileReference("virtual-next-bar", "2"),
+                {
+                    "broker_model": "VIRTUAL",
+                    "matching": {"type": "NEXT_BAR"},
+                    "slippage": {"type": "NONE"},
+                    "latency": {
+                        "submit_ns": 0,
+                        "acceptance_ns": 0,
+                        "fill_ns": 0,
+                        "cancel_ns": 0,
+                        "query_ns": 0,
+                    },
+                    "broker_fee_contract": {
+                        "contract_id": "VIRTUAL_SIMULATION_ZERO_BROKER_FEES",
+                        "contract_version": "1",
+                    },
+                    "fee_reconciliation_policy": {
+                        "policy_id": "STANDARD_FEE_RECONCILIATION",
+                        "policy_version": "1",
+                    },
+                },
+            ),
         )
     )
 

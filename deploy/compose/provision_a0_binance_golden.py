@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import argparse
 import base64
+import csv
+import hashlib
 import json
 import os
 import time
+import zipfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -164,6 +167,134 @@ class _Page:
     payload: bytes
     rows: tuple[Any, ...]
     received_ns: int
+
+
+class _ArchiveHttpClient:
+    """Exact offline projection of certified Binance archive rows into REST-shaped pages."""
+
+    def __init__(self, sources: Mapping[tuple[str, str], tuple[Any, ...]], end_ms: int) -> None:
+        self._sources = dict(sources)
+        self._end_ms = end_ms
+
+    def get_json(self, path: str, parameters: Mapping[str, str] | None = None) -> bytes:
+        parameters = parameters or {}
+        if path in {"/api/v3/time", "/fapi/v1/time"}:
+            return _json_bytes({"serverTime": self._end_ms})
+        symbol = parameters.get("symbol", "BTCUSDT")
+        funding_rows = False
+        if path == "/api/v3/klines":
+            rows = self._sources[("SPOT_BAR", symbol)]
+        elif path == "/fapi/v1/klines":
+            rows = self._sources[("USDM_BAR", symbol)]
+        elif path == "/fapi/v1/markPriceKlines":
+            rows = self._sources[("USDM_MARK", symbol)]
+        elif path == "/fapi/v1/fundingRate":
+            rows = self._sources[("USDM_FUNDING", symbol)]
+            funding_rows = True
+        else:
+            raise ValueError(f"GOLDEN_ARCHIVE_ENDPOINT_UNSUPPORTED:{path}")
+
+        def timestamp(row: Any) -> int:
+            return int(str(row["fundingTime"] if funding_rows else row[0]))
+
+        start_ms = int(parameters.get("startTime", "0"))
+        end_ms = int(parameters.get("endTime", str(self._end_ms)))
+        limit = int(parameters.get("limit", "1000"))
+        selected = [row for row in rows if start_ms <= timestamp(row) <= end_ms][:limit]
+        return _json_bytes(selected)
+
+    def receive_time_ns(self) -> int:
+        return self._end_ms * 1_000_000
+
+
+def _archive_sources(manifest_path: Path, archive_root: Path) -> dict[tuple[str, str], tuple[Any, ...]]:
+    from certify_binance_golden_source import certify
+
+    certify(manifest_path, archive_root)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("sources"), list):
+        raise ValueError("BINANCE_GOLDEN_SOURCE_MANIFEST_INVALID")
+    declared = manifest["sources"]
+    sources: dict[tuple[str, str], tuple[Any, ...]] = {}
+    for source in declared:
+        if not isinstance(source, dict):
+            raise ValueError("BINANCE_GOLDEN_SOURCE_MANIFEST_INVALID")
+        source_id = str(source["source_id"])
+        archive = archive_root / f"{source_id}.zip"
+        with zipfile.ZipFile(archive) as container:
+            members = tuple(item for item in container.infolist() if not item.is_dir())
+            if len(members) != 1:
+                raise ValueError(f"GOLDEN_ARCHIVE_MEMBER_SET_INVALID:{source_id}")
+            text = container.read(members[0]).decode("utf-8")
+        rows = list(csv.reader(text.splitlines()))
+        if rows and (not rows[0] or not rows[0][0].isdigit()):
+            rows.pop(0)
+        instrument = str(source["instrument_id"]).split(".", 1)[0].removesuffix("-PERP")
+        feed_type = str(source["feed_type"])
+        if source_id.startswith("BINANCE_SPOT_"):
+            key = ("SPOT_BAR", instrument)
+            values: tuple[Any, ...] = tuple(rows)
+        elif feed_type == "BAR_1M":
+            key = ("USDM_BAR", instrument)
+            values = tuple(rows)
+        elif feed_type == "MARK_PRICE_1M":
+            key = ("USDM_MARK", instrument)
+            values = tuple(rows)
+        elif feed_type == "FUNDING_RATE":
+            key = ("USDM_FUNDING", instrument)
+            values = tuple({"fundingTime": row[0], "fundingRate": row[2], "symbol": instrument} for row in rows)
+        else:
+            raise ValueError(f"GOLDEN_ARCHIVE_FEED_UNSUPPORTED:{feed_type}")
+        if key in sources:
+            raise ValueError(f"GOLDEN_ARCHIVE_SOURCE_CONFLICT:{key}")
+        sources[key] = values
+    return sources
+
+
+def _verified_offline_bundle(
+    bundle_manifest: Path,
+    archive_root: Path,
+) -> tuple[Path, Path, datetime, datetime, dict[tuple[str, str], tuple[Any, ...]], str]:
+    raw_bytes = bundle_manifest.read_bytes()
+    raw = json.loads(raw_bytes)
+    if not isinstance(raw, dict) or raw.get("schema_version") != 1 or raw.get("bundle_kind") != "A0_GOLDEN_V1":
+        raise ValueError("A0_GOLDEN_BUNDLE_MANIFEST_INVALID")
+    expected = {"schema_version", "bundle_kind", "source_manifest", "reference_capture", "interval"}
+    if (
+        set(raw) != expected
+        or not isinstance(raw["source_manifest"], dict)
+        or not isinstance(raw["reference_capture"], dict)
+    ):
+        raise ValueError("A0_GOLDEN_BUNDLE_MANIFEST_INVALID")
+
+    def verified_file(entry: Mapping[str, object]) -> Path:
+        if set(entry) != {"path", "sha256"} or not isinstance(entry["path"], str):
+            raise ValueError("A0_GOLDEN_BUNDLE_MANIFEST_INVALID")
+        path = bundle_manifest.parent / entry["path"]
+        if path.is_symlink() or not path.is_file() or bundle_manifest.parent.resolve() not in path.resolve().parents:
+            raise ValueError("A0_GOLDEN_BUNDLE_PATH_INVALID")
+        if hashlib.sha256(path.read_bytes()).hexdigest() != entry["sha256"]:
+            raise ValueError("A0_GOLDEN_BUNDLE_HASH_MISMATCH")
+        return path
+
+    source_manifest = verified_file(raw["source_manifest"])
+    capture = verified_file(raw["reference_capture"])
+    interval = raw["interval"]
+    if (
+        not isinstance(interval, dict)
+        or set(interval) != {"start", "end"}
+        or not isinstance(interval["start"], str)
+        or not isinstance(interval["end"], str)
+    ):
+        raise ValueError("A0_GOLDEN_BUNDLE_INTERVAL_INVALID")
+    start = datetime.fromisoformat(interval["start"])
+    end = datetime.fromisoformat(interval["end"])
+    if start.tzinfo is None or end.tzinfo is None:
+        raise ValueError("A0_GOLDEN_BUNDLE_INTERVAL_INVALID")
+    start = start.astimezone(UTC)
+    end = end.astimezone(UTC)
+    sources = _archive_sources(source_manifest, archive_root)
+    return source_manifest, capture, start, end, sources, hashlib.sha256(raw_bytes).hexdigest()
 
 
 def _json_bytes(value: object) -> bytes:
@@ -351,7 +482,8 @@ def _pages(
     while cursor < end_ms:
         query = dict(parameters)
         query.update({"startTime": str(cursor), "endTime": str(end_ms - 1), "limit": str(page_size)})
-        received = time.time_ns()
+        receive_time_ns = getattr(client, "receive_time_ns", time.time_ns)
+        received = int(receive_time_ns())
         payload = client.get_json(endpoint, query)
         rows = _decode(payload, expected=list)
         if not rows:
@@ -846,7 +978,7 @@ def _backtest_request(binding: str, configuration: str) -> dict[str, object]:
         "market_product_configuration_fingerprint": configuration,
         "portfolio_profile": {"profile_id": "fixed-capital", "version": "1"},
         "risk_profile": {"profile_id": "default-risk", "version": "1"},
-        "execution_profile": {"profile_id": "virtual-next-bar", "version": "1"},
+        "execution_profile": {"profile_id": "virtual-next-bar", "version": "2"},
         "initial_account": {"base_currency": "USDT", "capital": "100000.00"},
         "runtime_options": {"ordered_fact_policy": "ORDERED_FACTS_V1"},
     }
@@ -967,6 +1099,7 @@ def provision(
     end: datetime,
     products: tuple[str, ...],
     spot_symbols: tuple[str, ...] = ("BTCUSDT", "ETHUSDT"),
+    offline_sources: Mapping[tuple[str, str], tuple[Any, ...]] | None = None,
 ) -> dict[str, object]:
     if start.tzinfo is None or end.tzinfo is None or start >= end:
         raise ValueError("GOLDEN_INTERVAL_INVALID")
@@ -989,8 +1122,13 @@ def provision(
             raise ValueError(
                 f"HISTORICAL_COVERAGE_UNPROVEN:start={start.isoformat()}:captured_at={captured_at.isoformat()}"
             )
-    spot_http = OnlyBinancePublicHttpClient(_SPOT_URL, max_response_bytes=16 * 1024 * 1024)
-    usdm_http = OnlyBinancePublicHttpClient(_USDM_URL, max_response_bytes=16 * 1024 * 1024)
+    if offline_sources is None:
+        spot_http: Any = OnlyBinancePublicHttpClient(_SPOT_URL, max_response_bytes=16 * 1024 * 1024)
+        usdm_http: Any = OnlyBinancePublicHttpClient(_USDM_URL, max_response_bytes=16 * 1024 * 1024)
+    else:
+        end_ms = int(end.timestamp() * 1000)
+        spot_http = _ArchiveHttpClient(offline_sources, end_ms)
+        usdm_http = _ArchiveHttpClient(offline_sources, end_ms)
     server_times = []
     if "spot" in products:
         server_times.append(_server_time(spot_http, "/api/v3/time"))
@@ -1297,7 +1435,7 @@ def provision(
     manifest = {
         "schema_version": 1,
         "provider": "BINANCE",
-        "environment": "LIVE",
+        "environment": "FROZEN_ARCHIVE" if offline_sources is not None else "LIVE",
         "interval": {"start": start.isoformat(), "end": end.isoformat()},
         "reference_capture": str(capture_path),
         "verticals": results,
@@ -1324,6 +1462,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     provision_parser.add_argument("--end", type=datetime.fromisoformat, required=True)
     provision_parser.add_argument("--products", choices=("spot", "usdm", "all"), default="all")
     provision_parser.add_argument("--spot-symbol", action="append")
+    offline = subparsers.add_parser("provision-offline")
+    offline.add_argument("--bundle-manifest", type=Path, required=True)
+    offline.add_argument("--archive-root", type=Path, required=True)
+    offline.add_argument("--user-data-root", type=Path, required=True)
+    offline.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
     result: dict[str, object]
     if args.command == "capture-reference":
@@ -1339,7 +1482,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if name in {"spot", "usdm"} and isinstance(value, dict)
             },
         }
-    else:
+    elif args.command == "provision":
         result = provision(
             capture_path=args.capture,
             user_data_root=args.user_data_root,
@@ -1349,6 +1492,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             products=_products(args.products),
             spot_symbols=tuple(args.spot_symbol or ("BTCUSDT", "ETHUSDT")),
         )
+    else:
+        _, capture_path, start, end, sources, bundle_fingerprint = _verified_offline_bundle(
+            args.bundle_manifest,
+            args.archive_root,
+        )
+        result = provision(
+            capture_path=capture_path,
+            user_data_root=args.user_data_root,
+            output=args.output,
+            start=start,
+            end=end,
+            products=("spot", "usdm"),
+            offline_sources=sources,
+        )
+        result["golden_bundle_fingerprint"] = bundle_fingerprint
     print(only_canonical_json(result))
     return 0
 

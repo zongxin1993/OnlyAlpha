@@ -14,6 +14,7 @@ import urllib.error
 import urllib.request
 import uuid
 from collections.abc import Mapping
+from decimal import Decimal, InvalidOperation
 from threading import Event
 from typing import Any
 
@@ -90,9 +91,69 @@ def _poll_run(
         _POLL_BARRIER.wait(0.25)
 
 
+def _wait_for_state(
+    client: ProductHttpClient,
+    path: str,
+    state: str,
+    *,
+    timeout_seconds: float,
+) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        run = client.request("GET", path)
+        if run.get("state") == state:
+            return run
+        if run.get("state") in {"FAILED", "CANCELLED", "COMPLETED", "EXHAUSTED"}:
+            raise AcceptanceFailure(f"{path} reached {run.get('state')} before {state}")
+        if time.monotonic() >= deadline:
+            raise AcceptanceFailure(f"{path} did not reach {state} before the acceptance deadline")
+        _POLL_BARRIER.wait(0.25)
+
+
+def _resume_backtest(client: ProductHttpClient, run_id: str, timeout_seconds: float) -> dict[str, str]:
+    run = _poll_run(client, f"/api/v2/backtest/runs/{run_id}", timeout_seconds=timeout_seconds)
+    evidence = client.request("GET", f"/api/v2/backtest/runs/{run_id}/evidence")
+    manifest = evidence.get("manifest")
+    if not isinstance(manifest, dict) or manifest.get("result_fingerprint") != run.get("result_fingerprint"):
+        raise AcceptanceFailure("Recovered Backtest Evidence does not match the durable Run")
+    return {
+        "backtest_run_id": run_id,
+        "result_fingerprint": str(run["result_fingerprint"]),
+        "determinism_fingerprint": str(run["determinism_fingerprint"]),
+        "evidence_fingerprint": str(manifest["evidence_fingerprint"]),
+    }
+
+
+def _require_applied_funding(result: Mapping[str, Any]) -> None:
+    ledgers = result.get("final_ledgers")
+    if not isinstance(ledgers, list):
+        raise AcceptanceFailure("USD-M Golden result has no final Strategy ledgers")
+    funding_entries = [
+        entry
+        for ledger in ledgers
+        if isinstance(ledger, dict) and isinstance(ledger.get("cash_entries"), list)
+        for entry in ledger["cash_entries"]
+        if isinstance(entry, dict) and entry.get("entry_type") == "FUNDING"
+    ]
+    try:
+        applied = any(
+            isinstance(entry.get("amount"), dict)
+            and Decimal(str(entry["amount"].get("amount"))) != Decimal(0)
+            and isinstance(entry.get("cash_flow_id"), str)
+            for entry in funding_entries
+        )
+    except InvalidOperation as exc:
+        raise AcceptanceFailure("USD-M Golden funding amount is not canonical Decimal text") from exc
+    if not applied:
+        raise AcceptanceFailure("USD-M Golden result contains no non-zero applied funding cashflow")
+
+
 def run() -> dict[str, str]:
     client = ProductHttpClient(os.environ.get("ONLYALPHA_PRODUCT_API_URL", "http://onlyalpha-http-server:8000"))
     timeout_seconds = float(os.environ.get("ONLYALPHA_ACCEPTANCE_TIMEOUT_SECONDS", "120"))
+    resume_run_id = os.environ.get("ONLYALPHA_ACCEPTANCE_RESUME_BACKTEST_RUN_ID")
+    if resume_run_id:
+        return _resume_backtest(client, resume_run_id, timeout_seconds)
     definition = _required_json("ONLYALPHA_ACCEPTANCE_DEFINITION_JSON")
     backtest_request = _required_json("ONLYALPHA_ACCEPTANCE_BACKTEST_JSON")
 
@@ -205,6 +266,20 @@ def run() -> dict[str, str]:
     )
 
     backtest_run_id = submitted["backtest_run_id"]
+    if os.environ.get("ONLYALPHA_ACCEPTANCE_PAUSE_AT_RUNNING") == "1":
+        _wait_for_state(
+            client,
+            f"/api/v2/backtest/runs/{backtest_run_id}",
+            "RUNNING",
+            timeout_seconds=timeout_seconds,
+        )
+        return {
+            "research_run_id": research_run_id,
+            "strategy_fingerprint": strategy_fingerprint,
+            "backtest_run_id": backtest_run_id,
+            "result_fingerprint": "PENDING",
+            "evidence_fingerprint": "PENDING",
+        }
     backtest_run = _poll_run(
         client,
         f"/api/v2/backtest/runs/{backtest_run_id}",
@@ -224,11 +299,18 @@ def run() -> dict[str, str]:
     for field, expected in equalities.items():
         if not isinstance(expected, str) or manifest.get(field) != expected:
             raise AcceptanceFailure(f"Backtest Evidence provenance mismatch: {field}")
+    if os.environ.get("ONLYALPHA_ACCEPTANCE_EXPECT_FUNDING") == "1":
+        result = client.request(
+            "GET",
+            f"/api/v2/backtest/runs/{backtest_run_id}/evidence/artifacts/result.json",
+        )
+        _require_applied_funding(result)
     return {
         "research_run_id": research_run_id,
         "strategy_fingerprint": strategy_fingerprint,
         "backtest_run_id": backtest_run_id,
         "result_fingerprint": str(backtest_run["result_fingerprint"]),
+        "determinism_fingerprint": str(backtest_run["determinism_fingerprint"]),
         "evidence_fingerprint": str(manifest["evidence_fingerprint"]),
     }
 

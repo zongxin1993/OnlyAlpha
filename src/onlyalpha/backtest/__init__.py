@@ -22,6 +22,7 @@ from .deployment import (
 from .deployment import (
     OnlyBacktestMarketProductResourceRegistry as OnlyBacktestMarketProductResourceRegistry,
 )
+from .deployment import OnlyBacktestProductResourceDocument as OnlyBacktestProductResourceDocument
 from .deployment import only_load_backtest_deployment_catalog as only_load_backtest_deployment_catalog
 from .deployment import (
     only_load_backtest_market_product_resources as only_load_backtest_market_product_resources,
@@ -47,6 +48,9 @@ from .market_adapter import (
 )
 from .model import (
     OnlyBacktestAdmissionResolution as OnlyBacktestAdmissionResolution,
+)
+from .model import (
+    OnlyBacktestExecutionSemanticBinding as OnlyBacktestExecutionSemanticBinding,
 )
 from .model import (
     OnlyBacktestProfileReference as OnlyBacktestProfileReference,

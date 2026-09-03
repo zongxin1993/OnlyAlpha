@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
-from onlyalpha.config import OnlyClusterRunConfig
+from onlyalpha.config import OnlyClusterRunConfig, OnlyJsonMapping
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.fee.market_pack import OnlyMarketFeePack
@@ -20,21 +21,37 @@ from .market_adapter import (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class OnlyBacktestProductResourceDocument:
+    """Narrow operator resource projection; never an execution semantic authority."""
+
+    configuration_fingerprint: str
+    market: OnlyJsonMapping
+    reference_data: OnlyJsonMapping
+    instruments: tuple[OnlyInstrument, ...]
+
+
 class OnlyBacktestDeploymentCatalog:
-    """Exact operator-provisioned Product documents, never user admission paths."""
+    """Operator-owned Market Product/reference resources only."""
 
     def __init__(self, documents: tuple[OnlyClusterRunConfig, ...]) -> None:
         if not documents:
             raise ValueError("BACKTEST_PRODUCT_CONFIGURATION_REQUIRED")
-        self._documents: dict[str, OnlyClusterRunConfig] = {}
+        self._documents: dict[str, OnlyBacktestProductResourceDocument] = {}
         instruments: dict[OnlyInstrumentId, OnlyInstrument] = {}
         configurations = OnlyBacktestMarketProductConfigurationRegistry()
         for document in documents:
             configuration = OnlyBacktestMarketProductConfiguration(document.market)
+            resource = OnlyBacktestProductResourceDocument(
+                configuration.fingerprint,
+                cast(OnlyJsonMapping, document.normalized_payload["market"]),
+                cast(OnlyJsonMapping, document.normalized_payload["reference_data"]),
+                document.reference_data.instruments,
+            )
             current = self._documents.get(configuration.fingerprint)
-            if current is not None and current.normalized_payload != document.normalized_payload:
+            if current is not None and current != resource:
                 raise ValueError("BACKTEST_PRODUCT_CONFIGURATION_CONFLICT")
-            self._documents[configuration.fingerprint] = document
+            self._documents[configuration.fingerprint] = resource
             configurations.register(configuration)
             for instrument in document.reference_data.instruments:
                 prior = instruments.get(instrument.instrument_id)
@@ -48,7 +65,7 @@ class OnlyBacktestDeploymentCatalog:
     def configuration_fingerprints(self) -> tuple[str, ...]:
         return tuple(sorted(self._documents))
 
-    def document(self, configuration_fingerprint: str) -> OnlyClusterRunConfig:
+    def document(self, configuration_fingerprint: str) -> OnlyBacktestProductResourceDocument:
         try:
             return self._documents[configuration_fingerprint]
         except KeyError as exc:

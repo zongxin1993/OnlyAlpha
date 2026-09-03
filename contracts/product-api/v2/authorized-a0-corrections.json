@@ -1,0 +1,107 @@
+{
+  "adr": "docs/adr/0109-product-api-v2-a0-pre-freeze-contract-correction.md",
+  "api_major": 2,
+  "base_contract_sha256": "53d910b4d812122e1ed7aeb9163a08e344556bc28c7256e4cfa7de625b0c7a58",
+  "base_git_sha": "8901fec27faf8599c965df792d07a84b902583f3",
+  "classification": "REQUIRED_A0_CONTRACT_CORRECTION",
+  "corrected_contract_sha256": "4ccaf32197bf969bc5e602be4ee2b494c4a76fb5418c8112a1ba298db268b332",
+  "corrections": [
+    {
+      "added_response_content": [
+        {"media_type": "application/json", "status": "400"},
+        {"media_type": "application/json", "status": "404"},
+        {"media_type": "application/json", "status": "409"},
+        {"media_type": "application/json", "status": "500"},
+        {"media_type": "application/json", "status": "503"}
+      ],
+      "method": "GET",
+      "path": "/api/v2/backtest/runs/{run_id}",
+      "removed_response_statuses": ["422"]
+    },
+    {
+      "added_response_content": [
+        {"media_type": "application/json", "status": "400"},
+        {"media_type": "application/json", "status": "404"},
+        {"media_type": "application/json", "status": "409"},
+        {"media_type": "application/json", "status": "500"},
+        {"media_type": "application/json", "status": "503"}
+      ],
+      "method": "GET",
+      "path": "/api/v2/backtest/runs/{run_id}/evidence",
+      "removed_response_statuses": ["422"]
+    },
+    {
+      "added_response_content": [
+        {"media_type": "application/json", "status": "400"},
+        {"media_type": "application/json", "status": "404"},
+        {"media_type": "application/json", "status": "409"},
+        {"media_type": "application/json", "status": "500"},
+        {"media_type": "application/json", "status": "503"}
+      ],
+      "method": "GET",
+      "path": "/api/v2/backtest/runs/{run_id}/evidence/artifacts/{artifact_name}",
+      "removed_response_statuses": ["422"]
+    },
+    {
+      "added_response_content": [
+        {"media_type": "application/json", "status": "400"},
+        {"media_type": "application/json", "status": "404"},
+        {"media_type": "application/json", "status": "409"},
+        {"media_type": "application/json", "status": "500"},
+        {"media_type": "application/json", "status": "503"}
+      ],
+      "method": "GET",
+      "path": "/api/v2/strategies/{strategy_fingerprint}",
+      "removed_response_statuses": ["422"]
+    },
+    {
+      "added_response_content": [
+        {"media_type": "application/json", "status": "400"},
+        {"media_type": "application/json", "status": "404"},
+        {"media_type": "application/json", "status": "409"},
+        {"media_type": "application/json", "status": "500"},
+        {"media_type": "application/json", "status": "503"}
+      ],
+      "method": "POST",
+      "path": "/api/v2/backtest/runs",
+      "removed_response_statuses": ["422"]
+    },
+    {
+      "added_response_content": [
+        {"media_type": "application/json", "status": "400"},
+        {"media_type": "application/json", "status": "404"},
+        {"media_type": "application/json", "status": "409"},
+        {"media_type": "application/json", "status": "500"},
+        {"media_type": "application/json", "status": "503"}
+      ],
+      "method": "POST",
+      "path": "/api/v2/backtest/runs/{run_id}/cancellation",
+      "removed_response_statuses": ["422"]
+    },
+    {
+      "added_response_content": [
+        {"media_type": "application/json", "status": "400"},
+        {"media_type": "application/json", "status": "404"},
+        {"media_type": "application/json", "status": "409"},
+        {"media_type": "application/json", "status": "500"},
+        {"media_type": "application/json", "status": "503"}
+      ],
+      "method": "POST",
+      "path": "/api/v2/strategies/{strategy_fingerprint}/promotions",
+      "removed_response_statuses": ["422"]
+    },
+    {
+      "added_response_content": [
+        {"media_type": "application/json", "status": "400"},
+        {"media_type": "application/json", "status": "404"},
+        {"media_type": "application/json", "status": "409"},
+        {"media_type": "application/json", "status": "500"},
+        {"media_type": "application/json", "status": "503"}
+      ],
+      "method": "POST",
+      "path": "/api/v2/strategy-freezes",
+      "removed_response_statuses": ["422"]
+    }
+  ],
+  "schema_version": 1
+}

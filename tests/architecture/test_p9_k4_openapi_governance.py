@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 
 import pytest
@@ -19,12 +20,17 @@ def _imports(path: Path) -> frozenset[str]:
     )
 
 
-def test_one_v2_canonical_contract_and_no_mutable_baseline() -> None:
+def test_one_v2_canonical_contract_and_one_bounded_a0_authorization() -> None:
     contract_root = ROOT / "contracts/product-api"
     contracts = sorted(
         path for path in contract_root.rglob("*") if path.is_file() and path.suffix in {".json", ".yaml", ".yml"}
     )
-    assert contracts == [ROOT / "contracts/product-api/v2/openapi.json"]
+    authorization = ROOT / "contracts/product-api/v2/authorized-a0-corrections.json"
+    assert contracts == [authorization, ROOT / "contracts/product-api/v2/openapi.json"]
+    manifest = json.loads(authorization.read_text(encoding="utf-8"))
+    assert manifest["classification"] == "REQUIRED_A0_CONTRACT_CORRECTION"
+    assert manifest["adr"] == "docs/adr/0109-product-api-v2-a0-pre-freeze-contract-correction.md"
+    assert manifest["base_git_sha"] == "8901fec27faf8599c965df792d07a84b902583f3"
     forbidden = {"baseline.json", "accepted.json", "accepted-openapi.json", "previous.json"}
     assert not any(path.name in forbidden for path in ROOT.rglob("*.json"))
 

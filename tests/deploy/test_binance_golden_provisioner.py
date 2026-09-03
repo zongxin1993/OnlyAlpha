@@ -53,3 +53,34 @@ def test_provisioner_initializes_product_output_roots(tmp_path: Path) -> None:
 
     assert layout.research_artifact_root.is_dir()
     assert layout.backtest_evidence_root.is_dir()
+
+
+def test_offline_archive_client_projects_certified_rows_as_rest_pages() -> None:
+    module = _module()
+    client = module._ArchiveHttpClient(
+        {
+            ("SPOT_BAR", "BTCUSDT"): (
+                ["1704067200000", "1", "2", "0.5", "1.5", "10", "1704067259999", "", "", "", "", ""],
+                ["1704067260000", "1.5", "2", "1", "1.8", "11", "1704067319999", "", "", "", "", ""],
+            ),
+            ("USDM_FUNDING", "BTCUSDT"): (
+                {"fundingTime": "1704067200000", "fundingRate": "0.0001", "symbol": "BTCUSDT"},
+            ),
+        },
+        1704067320000,
+    )
+
+    bars = module._decode(
+        client.get_json(
+            "/api/v3/klines",
+            {"symbol": "BTCUSDT", "startTime": "1704067260000", "endTime": "1704067320000", "limit": "1"},
+        ),
+        expected=list,
+    )
+    funding = module._decode(
+        client.get_json("/fapi/v1/fundingRate", {"symbol": "BTCUSDT"}),
+        expected=list,
+    )
+
+    assert [row[0] for row in bars] == ["1704067260000"]
+    assert funding == [{"fundingRate": "0.0001", "fundingTime": "1704067200000", "symbol": "BTCUSDT"}]

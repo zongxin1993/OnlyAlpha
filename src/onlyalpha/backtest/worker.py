@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable
-from copy import deepcopy
 from dataclasses import dataclass
 from dataclasses import replace as dataclass_replace
 from enum import StrEnum
@@ -15,6 +14,7 @@ from typing import Protocol
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
+from onlyalpha.domain.value import OnlyCurrency
 from onlyalpha.engine import OnlyEngineConfig
 from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.market.product import OnlyMarketProductResourceResolver
@@ -34,8 +34,14 @@ from .execution import (
     OnlyBacktestExecutionStore,
     OnlyBacktestWorkerInstanceId,
 )
-from .model import OnlyBacktestRun, OnlyBacktestRunFailure, OnlyBacktestRunFailurePhase, OnlyBacktestRunState
-from .profiles import OnlyBacktestProfileRegistry
+from .model import (
+    OnlyBacktestExecutionSemanticBinding,
+    OnlyBacktestRun,
+    OnlyBacktestRunFailure,
+    OnlyBacktestRunFailurePhase,
+    OnlyBacktestRunState,
+)
+from .profiles import OnlyBacktestProfile, OnlyBacktestProfileRegistry
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,17 +90,6 @@ class OnlyBacktestProductEnginePlanBuilder:
         self._profiles = profiles
         services = only_default_engine_services(fail_fast=True)
         services.assembler.components.data_sources.register(OnlyBacktestDatasetSourceFactory(datasets, economic_facts))
-        currency_documents = tuple(catalog.document(item) for item in catalog.configuration_fingerprints)
-        from onlyalpha.fee.reconciliation_policy import only_standard_fee_reconciliation_policy
-
-        for document in currency_documents:
-            try:
-                services.assembler.components.fee_reconciliation_policies.register(
-                    only_standard_fee_reconciliation_policy(document.runtime.base_currency)
-                )
-            except ValueError as exc:
-                if "already" not in str(exc).lower() and "conflict" not in str(exc).lower():
-                    raise
         self._services = dataclass_replace(services, market_product_resources=market_product_resources)
 
     def build(
@@ -106,31 +101,48 @@ class OnlyBacktestProductEnginePlanBuilder:
         verified = self._datasets.load_verified_table(resolution.base_dataset_snapshot_fingerprint)
         definition = verified.snapshot.definition
         document = self._catalog.document(specification.market_product_configuration_fingerprint)
-        if tuple(item.instrument_id for item in document.reference_data.instruments) != strategy.universe.instruments:
+        if tuple(item.instrument_id for item in document.instruments) != strategy.universe.instruments:
             raise OnlyBacktestError(
                 OnlyBacktestErrorPhase.EXECUTION,
                 "BACKTEST_PRODUCT_INSTRUMENT_SET_MISMATCH",
                 run.run_id.value,
             )
+        resolved_profiles: dict[str, OnlyBacktestProfile] = {}
         for kind, reference, fingerprint in (
             ("PORTFOLIO", specification.portfolio_profile, resolution.portfolio_profile_fingerprint),
             ("RISK", specification.risk_profile, resolution.risk_profile_fingerprint),
             ("EXECUTION", specification.execution_profile, resolution.execution_profile_fingerprint),
         ):
-            if self._profiles.resolve_profile(kind, reference).fingerprint != fingerprint:
+            profile = self._profiles.resolve_profile(kind, reference)
+            if profile.fingerprint != fingerprint:
                 raise OnlyBacktestError(OnlyBacktestErrorPhase.EXECUTION, "EXECUTION_SEMANTIC_DRIFT", kind)
-        payload = deepcopy(dict(document.normalized_payload))
+            resolved_profiles[kind] = profile
+        OnlyBacktestExecutionSemanticBinding.from_admission(specification, resolution)
+        allocation_model = _fixed_capital_profile(resolved_profiles["PORTFOLIO"])
+        _validate_risk_profile(resolved_profiles["RISK"])
+        execution = _execution_profile(resolved_profiles["EXECUTION"])
         semantic_id = run.specification_fingerprint[:16]
         cluster_id = f"backtest-{semantic_id}"
         runtime_id = f"{cluster_id}-runtime"
         engine_id = OnlyEngineId(f"{cluster_id}-engine")
-        cluster = dict(payload["cluster"])  # type: ignore[arg-type]
-        cluster.update({"cluster_id": cluster_id, "runtime_type": "BACKTEST"})
-        cluster.pop("capital", None)
-        payload["cluster"] = cluster
-        runtime = dict(payload["runtime"])  # type: ignore[arg-type]
-        runtime.update(
-            {
+        account_id = "backtest-account"
+        gateway_id = "virtual-main"
+        universe_id = f"universe-{semantic_id}"
+        payload: dict[str, object] = {
+            "schema_version": "1.0",
+            "market": dict(document.market),
+            "cluster": {
+                "cluster_id": cluster_id,
+                "account_id": account_id,
+                "enabled": True,
+                "runtime_type": "BACKTEST",
+                "capital": {
+                    "mode": allocation_model,
+                    "amount": specification.initial_capital,
+                    "currency": specification.base_currency,
+                },
+            },
+            "runtime": {
                 "engine_id": str(engine_id),
                 "runtime_id": runtime_id,
                 "type": "BACKTEST",
@@ -138,29 +150,118 @@ class OnlyBacktestProductEnginePlanBuilder:
                 "end_time": definition.time_range.end.isoformat(),
                 "base_currency": specification.base_currency,
                 "persistence": {"backend": "MEMORY", "checkpoint": {"enabled": False, "retain_last": 2}},
-            }
-        )
-        payload["runtime"] = runtime
-        payload["strategy"] = {"fingerprint": resolution.strategy_fingerprint}
-        payload["factors"] = []
-        account = dict(payload["accounts"][0])  # type: ignore[index,arg-type]
-        account["initial_cash"] = {"value": specification.initial_capital, "currency": specification.base_currency}
-        payload["accounts"] = [account]
-        payload["data_sources"] = [
-            {
-                "source_id": f"dataset-{semantic_id}",
-                "plugin": "onlyalpha-dataset-snapshot",
-                "data_version": f"snapshot-{resolution.base_dataset_snapshot_fingerprint[:16]}",
-                "batch_size": 1024,
-                "coverage": {"instrument_ids": [str(item) for item in strategy.universe.instruments]},
-                "extensions": {
-                    "snapshot_fingerprint": resolution.base_dataset_snapshot_fingerprint,
-                    "dataset_binding_fingerprint": resolution.dataset_binding_fingerprint,
-                },
-            }
-        ]
+                "extensions": {"replay": {"stop_on_data_error": True}},
+            },
+            "reference_data": dict(document.reference_data),
+            "universes": [
+                {
+                    "universe_id": universe_id,
+                    "type": "STATIC",
+                    "instruments": [str(item) for item in strategy.universe.instruments],
+                }
+            ],
+            "data_sources": [
+                {
+                    "source_id": f"dataset-{semantic_id}",
+                    "plugin": "onlyalpha-dataset-snapshot",
+                    "data_version": f"snapshot-{resolution.base_dataset_snapshot_fingerprint[:16]}",
+                    "batch_size": 1024,
+                    "coverage": {"instrument_ids": [str(item) for item in strategy.universe.instruments]},
+                    "extensions": {
+                        "snapshot_fingerprint": resolution.base_dataset_snapshot_fingerprint,
+                        "dataset_binding_fingerprint": resolution.dataset_binding_fingerprint,
+                    },
+                }
+            ],
+            "accounts": [
+                {
+                    "account_id": account_id,
+                    "gateway_id": gateway_id,
+                    "broker_fee_contract": execution["broker_fee_contract"],
+                    "fee_reconciliation_policy": execution["fee_reconciliation_policy"],
+                    "initial_cash": {"value": specification.initial_capital, "currency": specification.base_currency},
+                }
+            ],
+            "brokers": [
+                {
+                    "gateway_id": gateway_id,
+                    "plugin": "virtual",
+                    "extensions": {
+                        "matching": execution["matching"],
+                        "slippage": execution["slippage"],
+                        "latency": execution["latency"],
+                    },
+                }
+            ],
+            "strategy": {"fingerprint": resolution.strategy_fingerprint},
+            "factors": [],
+            "output": {"formats": ["JSON"], "overwrite": False},
+        }
+        from onlyalpha.fee.reconciliation_policy import only_standard_fee_reconciliation_policy
+
+        currency = OnlyCurrency(specification.base_currency, 2)
+        policies = self._services.assembler.components.fee_reconciliation_policies
+        try:
+            policies.require("STANDARD_FEE_RECONCILIATION", "1", currency)
+        except ValueError as exc:
+            if str(exc) != "FEE_RECONCILIATION_POLICY_NOT_INSTALLED":
+                raise
+            policies.register(only_standard_fee_reconciliation_policy(currency))
         config = OnlyClusterRunConfig.from_mapping(payload, source_path=f"<backtest-product:{run.run_id.value}>")
         return OnlyEngineConfig(engine_id, self._user_data_root), (config,), self._services
+
+
+def _fixed_capital_profile(profile: OnlyBacktestProfile) -> str:
+    if dict(profile.semantics) != {"allocation_model": "FIXED_CAPITAL"}:
+        raise OnlyBacktestError(
+            OnlyBacktestErrorPhase.EXECUTION,
+            "BACKTEST_PORTFOLIO_PROFILE_UNSUPPORTED",
+            profile.fingerprint,
+        )
+    return "FIXED_CAPITAL"
+
+
+def _validate_risk_profile(profile: OnlyBacktestProfile) -> None:
+    if dict(profile.semantics) != {"mandatory_system_rules": True, "optional_rules": []}:
+        raise OnlyBacktestError(
+            OnlyBacktestErrorPhase.EXECUTION,
+            "BACKTEST_RISK_PROFILE_UNSUPPORTED",
+            profile.fingerprint,
+        )
+
+
+def _execution_profile(profile: OnlyBacktestProfile) -> dict[str, object]:
+    semantics = dict(profile.semantics)
+    if semantics == {"broker_model": "VIRTUAL", "matching_policy": "NEXT_BAR"}:
+        return {
+            "broker_model": "VIRTUAL",
+            "matching": {"type": "NEXT_BAR"},
+            "slippage": {"type": "NONE"},
+            "latency": {"submit_ns": 0, "acceptance_ns": 0, "fill_ns": 0, "cancel_ns": 0, "query_ns": 0},
+            "broker_fee_contract": {
+                "contract_id": "VIRTUAL_SIMULATION_ZERO_BROKER_FEES",
+                "contract_version": "1",
+            },
+            "fee_reconciliation_policy": {
+                "policy_id": "STANDARD_FEE_RECONCILIATION",
+                "policy_version": "1",
+            },
+        }
+    required = {
+        "broker_model",
+        "matching",
+        "slippage",
+        "latency",
+        "broker_fee_contract",
+        "fee_reconciliation_policy",
+    }
+    if set(semantics) != required or semantics["broker_model"] != "VIRTUAL":
+        raise OnlyBacktestError(
+            OnlyBacktestErrorPhase.EXECUTION,
+            "BACKTEST_EXECUTION_PROFILE_UNSUPPORTED",
+            profile.fingerprint,
+        )
+    return semantics
 
 
 class OnlyEngineBacktestRuntimeExecutor:
@@ -301,8 +402,16 @@ class OnlyBacktestWorker:
                         claim,
                         self._store.cancel(claim),
                     )
+                admitted_binding = OnlyBacktestExecutionSemanticBinding.from_admission(
+                    current.specification,
+                    current.admission_resolution,
+                )
                 resolution = self._admission.resolve(current.specification)
-                if resolution != current.admission_resolution:
+                current_binding = OnlyBacktestExecutionSemanticBinding.from_admission(
+                    current.specification,
+                    resolution,
+                )
+                if current_binding != admitted_binding or resolution != current.admission_resolution:
                     raise OnlyBacktestError(
                         OnlyBacktestErrorPhase.EXECUTION,
                         "EXECUTION_SEMANTIC_DRIFT",

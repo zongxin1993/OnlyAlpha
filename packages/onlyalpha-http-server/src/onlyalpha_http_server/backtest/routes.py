@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Header, Response
 
@@ -17,8 +17,10 @@ from onlyalpha.backtest import (
 )
 
 from .schema import (
+    PRODUCT_ERROR_RESPONSES,
     BacktestCancellationResponse,
     BacktestEvidenceDto,
+    BacktestEvidenceManifestDto,
     BacktestFailureDto,
     BacktestRunCreateRequest,
     BacktestRunCreateResponse,
@@ -27,13 +29,12 @@ from .schema import (
 
 BACKTEST_ROUTE_TAG = "backtest"
 IdempotencyKeyHeader = Annotated[str, Header(alias="Idempotency-Key")]
-_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {status: {} for status in (400, 404, 409, 500, 503)}
 
 
 def create_backtest_router(commands: OnlyBacktestCommandService, queries: OnlyBacktestQueryService) -> APIRouter:
     router = APIRouter(prefix="/api/v2/backtest", tags=[BACKTEST_ROUTE_TAG])
 
-    @router.post("/runs", status_code=202, response_model=BacktestRunCreateResponse, responses=_ERROR_RESPONSES)
+    @router.post("/runs", status_code=202, response_model=BacktestRunCreateResponse, responses=PRODUCT_ERROR_RESPONSES)
     def create_run(
         request: BacktestRunCreateRequest,
         response: Response,
@@ -47,7 +48,7 @@ def create_backtest_router(commands: OnlyBacktestCommandService, queries: OnlyBa
             disposition=outcome.disposition.value,
         )
 
-    @router.get("/runs/{run_id}", response_model=BacktestRunDto, responses=_ERROR_RESPONSES)
+    @router.get("/runs/{run_id}", response_model=BacktestRunDto, responses=PRODUCT_ERROR_RESPONSES)
     def get_run(run_id: str) -> BacktestRunDto:
         return _run_dto(queries.get(_run_id(run_id)))
 
@@ -55,17 +56,18 @@ def create_backtest_router(commands: OnlyBacktestCommandService, queries: OnlyBa
         "/runs/{run_id}/cancellation",
         status_code=202,
         response_model=BacktestCancellationResponse,
-        responses=_ERROR_RESPONSES,
+        responses=PRODUCT_ERROR_RESPONSES,
     )
     def cancel_run(run_id: str, idempotency_key: IdempotencyKeyHeader) -> BacktestCancellationResponse:
         run = commands.cancel(_run_id(run_id), _command_id(idempotency_key))
         return BacktestCancellationResponse(run_id=run.run_id.value, state=run.state.value, revision=run.revision)
 
-    @router.get("/runs/{run_id}/evidence", response_model=BacktestEvidenceDto, responses=_ERROR_RESPONSES)
+    @router.get("/runs/{run_id}/evidence", response_model=BacktestEvidenceDto, responses=PRODUCT_ERROR_RESPONSES)
     def get_evidence(run_id: str) -> BacktestEvidenceDto:
-        return BacktestEvidenceDto(manifest=queries.evidence(_run_id(run_id)).to_dict())
+        manifest = BacktestEvidenceManifestDto.model_validate(queries.evidence(_run_id(run_id)).to_dict())
+        return BacktestEvidenceDto(manifest=manifest)
 
-    @router.get("/runs/{run_id}/evidence/artifacts/{artifact_name:path}", responses=_ERROR_RESPONSES)
+    @router.get("/runs/{run_id}/evidence/artifacts/{artifact_name:path}", responses=PRODUCT_ERROR_RESPONSES)
     def get_artifact(run_id: str, artifact_name: str) -> Response:
         artifact = queries.artifact(_run_id(run_id), artifact_name)
         return Response(content=artifact.content, media_type=artifact.media_type)

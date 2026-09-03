@@ -38,6 +38,18 @@ def test_worker_is_the_only_backtest_product_to_engine_bridge() -> None:
     worker = (root / "worker.py").read_text(encoding="utf-8")
     assert "class OnlyEngineBacktestRuntimeExecutor" in worker
     assert "OnlyEngine(" in worker
+    assert "deepcopy" not in worker
+    assert "document.normalized_payload" not in worker
+
+
+def test_operator_deployment_catalog_retains_only_market_resources() -> None:
+    deployment = (ROOT / "src/onlyalpha/backtest/deployment.py").read_text(encoding="utf-8")
+
+    resource = deployment.split("class OnlyBacktestProductResourceDocument", 1)[1].split(
+        "class OnlyBacktestDeploymentCatalog", 1
+    )[0]
+    for forbidden in ("brokers", "accounts", "strategy", "risk", "portfolio", "slippage", "matching"):
+        assert forbidden not in resource
 
 
 def test_backtest_core_has_no_concrete_provider_or_mutable_query_path() -> None:

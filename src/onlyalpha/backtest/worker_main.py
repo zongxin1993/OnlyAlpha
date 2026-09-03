@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import signal
 from collections.abc import Sequence
 from datetime import datetime, timedelta
@@ -38,7 +39,26 @@ from .execution import OnlyBacktestWorkerInstanceId
 from .market_adapter import OnlyMarketProductBacktestAdmissionAdapter
 from .presence import OnlyBacktestWorkerPresenceReporter
 from .profiles import only_default_backtest_profile_registry
-from .worker import OnlyBacktestProductEnginePlanBuilder, OnlyBacktestWorker, OnlyEngineBacktestRuntimeExecutor
+from .worker import (
+    OnlyBacktestProductEnginePlanBuilder,
+    OnlyBacktestRuntimeExecutor,
+    OnlyBacktestWorker,
+    OnlyEngineBacktestRuntimeExecutor,
+)
+
+
+class _AcceptanceBarrierExecutor:
+    """Operational crash-test barrier; absent unless the Compose lane opts in."""
+
+    def __init__(self, delegate: OnlyBacktestRuntimeExecutor, release_path: Path) -> None:
+        self._delegate = delegate
+        self._release_path = release_path
+        self._wait = Event()
+
+    def execute(self, run):  # type: ignore[no-untyped-def]
+        while not self._release_path.is_file():
+            self._wait.wait(0.1)
+        return self._delegate.execute(run)
 
 
 def _service_version() -> str:
@@ -106,11 +126,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     worker_id = OnlyBacktestWorkerInstanceId.new()
     store = OnlyPostgresBacktestStore(postgres.dsn, options)
+    executor: OnlyBacktestRuntimeExecutor = OnlyEngineBacktestRuntimeExecutor(plan_builder)
+    barrier_path = os.environ.get("ONLYALPHA_BACKTEST_ACCEPTANCE_BARRIER_PATH")
+    if barrier_path:
+        executor = _AcceptanceBarrierExecutor(executor, Path(barrier_path))
     worker = OnlyBacktestWorker(
         worker_instance_id=worker_id,
         store=store,
         admission=admission,
-        executor=OnlyEngineBacktestRuntimeExecutor(plan_builder),
+        executor=executor,
         evidence=OnlyBacktestEvidenceStore(layout.root),
     )
     stop = Event()

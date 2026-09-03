@@ -62,6 +62,7 @@ def test_http_only_client_executes_complete_product_chain_and_conflict_probe(  #
                     "specification_fingerprint": specification,
                     "admission_resolution_fingerprint": admission,
                     "result_fingerprint": result,
+                    "determinism_fingerprint": "9" * 64,
                 }
             if path == "/api/v2/backtest/runs/backtest-run/evidence":
                 return {
@@ -91,6 +92,7 @@ def test_http_only_client_executes_complete_product_chain_and_conflict_probe(  #
         "strategy_fingerprint": fingerprint,
         "backtest_run_id": "backtest-run",
         "result_fingerprint": result,
+        "determinism_fingerprint": "9" * 64,
         "evidence_fingerprint": "f" * 64,
     }
     assert ("POST", "/api/v2/backtest/runs", 409) in calls
@@ -99,3 +101,25 @@ def test_http_only_client_executes_complete_product_chain_and_conflict_probe(  #
     assert calls.count(("POST", f"/api/v2/strategies/{fingerprint}/promotions", 202)) == (
         1 if current_stage == "RESEARCH" else 0
     )
+
+
+def test_usdm_acceptance_requires_a_nonzero_applied_funding_cashflow() -> None:
+    module = _module()
+    result = {
+        "final_ledgers": [
+            {
+                "cash_entries": [
+                    {
+                        "entry_type": "FUNDING",
+                        "amount": {"amount": "-0.12500000", "currency": {"code": "USDT", "precision": 8}},
+                        "cash_flow_id": "funding:btc:1704096000000000000",
+                    }
+                ]
+            }
+        ]
+    }
+
+    module._require_applied_funding(result)
+    result["final_ledgers"][0]["cash_entries"][0]["amount"]["amount"] = "0"
+    with pytest.raises(module.AcceptanceFailure, match="non-zero applied funding"):
+        module._require_applied_funding(result)

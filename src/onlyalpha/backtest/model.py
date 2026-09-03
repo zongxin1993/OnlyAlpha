@@ -245,6 +245,85 @@ class OnlyBacktestAdmissionResolution:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class OnlyBacktestExecutionSemanticBinding:
+    """Canonical projection of the immutable authorities used by one execution."""
+
+    specification_fingerprint: str
+    strategy_fingerprint: str
+    dataset_binding_fingerprint: str
+    base_dataset_snapshot_fingerprint: str
+    market_product_composition_fingerprint: str
+    portfolio_profile_fingerprint: str
+    risk_profile_fingerprint: str
+    execution_profile_fingerprint: str
+    kernel_semantics_version: str
+    implementation_fingerprints: tuple[str, ...]
+    schema_version: int = 1
+
+    def __post_init__(self) -> None:
+        if self.schema_version != 1 or not self.kernel_semantics_version.strip():
+            raise ValueError("BACKTEST_EXECUTION_SEMANTIC_BINDING_INVALID")
+        for name in (
+            "specification_fingerprint",
+            "strategy_fingerprint",
+            "dataset_binding_fingerprint",
+            "base_dataset_snapshot_fingerprint",
+            "market_product_composition_fingerprint",
+            "portfolio_profile_fingerprint",
+            "risk_profile_fingerprint",
+            "execution_profile_fingerprint",
+        ):
+            _sha(getattr(self, name), name)
+        if self.implementation_fingerprints != tuple(sorted(set(self.implementation_fingerprints))):
+            raise ValueError("BACKTEST_IMPLEMENTATION_IDENTITIES_INVALID")
+        for value in self.implementation_fingerprints:
+            _sha(value, "implementation_fingerprint")
+
+    @classmethod
+    def from_admission(
+        cls,
+        specification: OnlyBacktestSpecification,
+        resolution: OnlyBacktestAdmissionResolution,
+    ) -> OnlyBacktestExecutionSemanticBinding:
+        if (
+            specification.strategy_fingerprint != resolution.strategy_fingerprint
+            or specification.dataset_binding_fingerprint != resolution.dataset_binding_fingerprint
+        ):
+            raise ValueError("BACKTEST_EXECUTION_SEMANTIC_BINDING_INVALID")
+        return cls(
+            specification_fingerprint=specification.specification_fingerprint,
+            strategy_fingerprint=resolution.strategy_fingerprint,
+            dataset_binding_fingerprint=resolution.dataset_binding_fingerprint,
+            base_dataset_snapshot_fingerprint=resolution.base_dataset_snapshot_fingerprint,
+            market_product_composition_fingerprint=resolution.market_product_composition_fingerprint,
+            portfolio_profile_fingerprint=resolution.portfolio_profile_fingerprint,
+            risk_profile_fingerprint=resolution.risk_profile_fingerprint,
+            execution_profile_fingerprint=resolution.execution_profile_fingerprint,
+            kernel_semantics_version=resolution.kernel_semantics_version,
+            implementation_fingerprints=resolution.implementation_fingerprints,
+        )
+
+    @property
+    def fingerprint(self) -> str:
+        return only_canonical_fingerprint(self.to_dict())
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "specification_fingerprint": self.specification_fingerprint,
+            "strategy_fingerprint": self.strategy_fingerprint,
+            "dataset_binding_fingerprint": self.dataset_binding_fingerprint,
+            "base_dataset_snapshot_fingerprint": self.base_dataset_snapshot_fingerprint,
+            "market_product_composition_fingerprint": self.market_product_composition_fingerprint,
+            "portfolio_profile_fingerprint": self.portfolio_profile_fingerprint,
+            "risk_profile_fingerprint": self.risk_profile_fingerprint,
+            "execution_profile_fingerprint": self.execution_profile_fingerprint,
+            "kernel_semantics_version": self.kernel_semantics_version,
+            "implementation_fingerprints": list(self.implementation_fingerprints),
+        }
+
+
 class OnlyBacktestRunState(StrEnum):
     QUEUED = "QUEUED"
     RUNNING = "RUNNING"

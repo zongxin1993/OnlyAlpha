@@ -127,7 +127,29 @@ def test_operator_deployment_catalog_loads_exact_json_document(tmp_path) -> None
 
     loaded = only_load_backtest_deployment_catalog((path,))
 
-    assert loaded.document(loaded.configuration_fingerprints[0]).normalized_payload == document.normalized_payload
+    resource = loaded.document(loaded.configuration_fingerprints[0])
+    assert dict(resource.market) == document.normalized_payload["market"]
+    assert dict(resource.reference_data) == document.normalized_payload["reference_data"]
+
+
+def test_operator_execution_mutation_does_not_enter_product_resource_semantics(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    values = tuple(item for item in bars() if str(item.instrument_id) == "A.XNAS")
+    case = p9_strategy_case(tmp_path / "case", values=values)
+    original = _deployment(case)
+    changed_payload = json.loads(only_canonical_json(original.normalized_payload))
+    changed_payload["brokers"][0]["extensions"] = {
+        "matching": {"type": "MUTABLE_OPERATOR_VALUE"},
+        "slippage": {"type": "MUTABLE_OPERATOR_VALUE"},
+    }
+    changed_payload["accounts"][0]["initial_cash"]["value"] = "999999999.99"
+    changed = OnlyClusterRunConfig.from_mapping(changed_payload, source_path="<operational-mutation>")
+
+    original_catalog = OnlyBacktestDeploymentCatalog((original,))
+    changed_catalog = OnlyBacktestDeploymentCatalog((changed,))
+
+    assert original_catalog.document(original_catalog.configuration_fingerprints[0]) == changed_catalog.document(
+        changed_catalog.configuration_fingerprints[0]
+    )
 
 
 def test_product_plan_runs_existing_engine_and_distinct_runs_replay_identically(tmp_path) -> None:  # type: ignore[no-untyped-def]

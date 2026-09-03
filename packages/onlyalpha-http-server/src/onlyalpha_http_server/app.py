@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.params import Depends as DependsParam
@@ -298,7 +300,36 @@ def create_research_app(
             create_backtest_router(backtest_commands, backtest_queries),
             dependencies=readiness_dependencies,
         )
+    _install_exact_product_openapi(app)
     return app
+
+
+def _install_exact_product_openapi(app: FastAPI) -> None:
+    """Remove FastAPI's synthetic 422 from routes whose runtime maps validation to 400."""
+
+    generated_openapi = app.openapi
+
+    def exact_product_openapi() -> dict[str, Any]:
+        document = generated_openapi()
+        paths = document.get("paths", {})
+        if isinstance(paths, dict):
+            for path_item in paths.values():
+                if not isinstance(path_item, dict):
+                    continue
+                for operation in path_item.values():
+                    if not isinstance(operation, dict):
+                        continue
+                    tags = operation.get("tags", [])
+                    responses = operation.get("responses", {})
+                    if (
+                        isinstance(tags, list)
+                        and ({STRATEGY_ROUTE_TAG, BACKTEST_ROUTE_TAG} & set(tags))
+                        and isinstance(responses, dict)
+                    ):
+                        responses.pop("422", None)
+        return document
+
+    cast(Any, app).openapi = exact_product_openapi
 
 
 def create_product_app(

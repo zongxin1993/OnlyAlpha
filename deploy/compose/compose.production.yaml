@@ -76,6 +76,7 @@ services:
     volumes:
       - user-data:/var/lib/onlyalpha
       - ${ONLYALPHA_PRODUCT_CONFIG_PATH:?set ONLYALPHA_PRODUCT_CONFIG_PATH}:/var/lib/onlyalpha-product
+      - ${ONLYALPHA_A0_GOLDEN_BUNDLE_PATH:-${ONLYALPHA_PRODUCT_CONFIG_PATH}}:/var/lib/onlyalpha-golden:ro
     networks:
       - database
       - binance-egress
@@ -157,6 +158,7 @@ services:
       - /etc/onlyalpha/product/binance-usdm-account-reference.json
     environment:
       ONLYALPHA_POSTGRES_DSN: ${ONLYALPHA_POSTGRES_DSN:?set ONLYALPHA_POSTGRES_DSN with URL-encoded credentials}
+      ONLYALPHA_BACKTEST_ACCEPTANCE_BARRIER_PATH: ${ONLYALPHA_BACKTEST_ACCEPTANCE_BARRIER_PATH:-}
     depends_on:
       postgres:
         condition: service_healthy

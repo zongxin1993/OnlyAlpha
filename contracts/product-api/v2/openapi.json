@@ -31,13 +31,40 @@
         "title": "BacktestCancellationResponse",
         "type": "object"
       },
+      "BacktestEvidenceArtifactDto": {
+        "additionalProperties": false,
+        "properties": {
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "sha256",
+          "size",
+          "media_type"
+        ],
+        "title": "BacktestEvidenceArtifactDto",
+        "type": "object"
+      },
       "BacktestEvidenceDto": {
         "additionalProperties": false,
         "properties": {
           "manifest": {
-            "additionalProperties": true,
-            "title": "Manifest",
-            "type": "object"
+            "$ref": "#/components/schemas/BacktestEvidenceManifestDto"
           },
           "schema_version": {
             "const": 1,
@@ -50,6 +77,107 @@
           "manifest"
         ],
         "title": "BacktestEvidenceDto",
+        "type": "object"
+      },
+      "BacktestEvidenceManifestDto": {
+        "additionalProperties": false,
+        "properties": {
+          "admission_resolution_fingerprint": {
+            "title": "Admission Resolution Fingerprint",
+            "type": "string"
+          },
+          "artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/BacktestEvidenceArtifactDto"
+            },
+            "title": "Artifacts",
+            "type": "array"
+          },
+          "backtest_run_id": {
+            "title": "Backtest Run Id",
+            "type": "string"
+          },
+          "base_dataset_snapshot_fingerprint": {
+            "title": "Base Dataset Snapshot Fingerprint",
+            "type": "string"
+          },
+          "dataset_binding_fingerprint": {
+            "title": "Dataset Binding Fingerprint",
+            "type": "string"
+          },
+          "determinism_fingerprint": {
+            "title": "Determinism Fingerprint",
+            "type": "string"
+          },
+          "evidence_fingerprint": {
+            "title": "Evidence Fingerprint",
+            "type": "string"
+          },
+          "execution_profile_fingerprint": {
+            "title": "Execution Profile Fingerprint",
+            "type": "string"
+          },
+          "implementation_fingerprints": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Implementation Fingerprints",
+            "type": "array"
+          },
+          "kernel_semantics_version": {
+            "title": "Kernel Semantics Version",
+            "type": "string"
+          },
+          "market_product_composition_fingerprint": {
+            "title": "Market Product Composition Fingerprint",
+            "type": "string"
+          },
+          "portfolio_profile_fingerprint": {
+            "title": "Portfolio Profile Fingerprint",
+            "type": "string"
+          },
+          "result_fingerprint": {
+            "title": "Result Fingerprint",
+            "type": "string"
+          },
+          "risk_profile_fingerprint": {
+            "title": "Risk Profile Fingerprint",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "specification_fingerprint": {
+            "title": "Specification Fingerprint",
+            "type": "string"
+          },
+          "strategy_fingerprint": {
+            "title": "Strategy Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "backtest_run_id",
+          "specification_fingerprint",
+          "admission_resolution_fingerprint",
+          "strategy_fingerprint",
+          "dataset_binding_fingerprint",
+          "base_dataset_snapshot_fingerprint",
+          "market_product_composition_fingerprint",
+          "portfolio_profile_fingerprint",
+          "risk_profile_fingerprint",
+          "execution_profile_fingerprint",
+          "kernel_semantics_version",
+          "implementation_fingerprints",
+          "result_fingerprint",
+          "determinism_fingerprint",
+          "artifacts",
+          "evidence_fingerprint"
+        ],
+        "title": "BacktestEvidenceManifestDto",
         "type": "object"
       },
       "BacktestFailureDto": {
@@ -444,6 +572,49 @@
         ],
         "title": "OnlyResearchWeighting",
         "type": "string"
+      },
+      "ProductErrorDto": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "phase": {
+            "title": "Phase",
+            "type": "string"
+          }
+        },
+        "required": [
+          "phase",
+          "code",
+          "detail"
+        ],
+        "title": "ProductErrorDto",
+        "type": "object"
+      },
+      "ProductErrorEnvelopeDto": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ProductErrorDto"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "ProductErrorEnvelopeDto",
+        "type": "object"
       },
       "ProductExecutionHealthDto": {
         "additionalProperties": false,
@@ -3941,28 +4112,53 @@
             "description": "Successful Response"
           },
           "400": {
-            "description": "Bad Request"
-          },
-          "404": {
-            "description": "Not Found"
-          },
-          "409": {
-            "description": "Conflict"
-          },
-          "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
             "description": "Internal Server Error"
           },
           "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
             "description": "Service Unavailable"
           }
         },
@@ -3998,28 +4194,53 @@
             "description": "Successful Response"
           },
           "400": {
-            "description": "Bad Request"
-          },
-          "404": {
-            "description": "Not Found"
-          },
-          "409": {
-            "description": "Conflict"
-          },
-          "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
             "description": "Internal Server Error"
           },
           "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
             "description": "Service Unavailable"
           }
         },
@@ -4064,28 +4285,53 @@
             "description": "Successful Response"
           },
           "400": {
-            "description": "Bad Request"
-          },
-          "404": {
-            "description": "Not Found"
-          },
-          "409": {
-            "description": "Conflict"
-          },
-          "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
             "description": "Internal Server Error"
           },
           "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
             "description": "Service Unavailable"
           }
         },
@@ -4121,28 +4367,53 @@
             "description": "Successful Response"
           },
           "400": {
-            "description": "Bad Request"
-          },
-          "404": {
-            "description": "Not Found"
-          },
-          "409": {
-            "description": "Conflict"
-          },
-          "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
             "description": "Internal Server Error"
           },
           "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
             "description": "Service Unavailable"
           }
         },
@@ -4185,28 +4456,53 @@
             "description": "Successful Response"
           },
           "400": {
-            "description": "Bad Request"
-          },
-          "404": {
-            "description": "Not Found"
-          },
-          "409": {
-            "description": "Conflict"
-          },
-          "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
             "description": "Internal Server Error"
           },
           "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
             "description": "Service Unavailable"
           }
         },
@@ -5881,28 +6177,53 @@
             "description": "Successful Response"
           },
           "400": {
-            "description": "Bad Request"
-          },
-          "404": {
-            "description": "Not Found"
-          },
-          "409": {
-            "description": "Conflict"
-          },
-          "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
             "description": "Internal Server Error"
           },
           "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
             "description": "Service Unavailable"
           }
         },
@@ -5957,28 +6278,53 @@
             "description": "Successful Response"
           },
           "400": {
-            "description": "Bad Request"
-          },
-          "404": {
-            "description": "Not Found"
-          },
-          "409": {
-            "description": "Conflict"
-          },
-          "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
             "description": "Internal Server Error"
           },
           "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
             "description": "Service Unavailable"
           }
         },
@@ -6024,28 +6370,53 @@
             "description": "Successful Response"
           },
           "400": {
-            "description": "Bad Request"
-          },
-          "404": {
-            "description": "Not Found"
-          },
-          "409": {
-            "description": "Conflict"
-          },
-          "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
             "description": "Internal Server Error"
           },
           "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+                }
+              }
+            },
             "description": "Service Unavailable"
           }
         },

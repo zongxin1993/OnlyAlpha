@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
 from fastapi.testclient import TestClient
 from onlyalpha_http_server import create_research_app
 from onlyalpha_http_server.health import OnlyKernelResearchReadinessProjection
@@ -14,10 +15,17 @@ from onlyalpha.backtest import (
     OnlyBacktestQueryService,
     OnlyInMemoryBacktestCommandStore,
 )
+from onlyalpha.backtest.errors import (
+    OnlyBacktestIntegrityError,
+    OnlyBacktestNotFoundError,
+    OnlyBacktestStateConflictError,
+    OnlyBacktestStoreUnavailableError,
+)
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.kernel import OnlyAlphaKernelHost
 from onlyalpha.research.definition import OnlyResearchDefinitionResolver
 from onlyalpha.research.operations.readiness import OnlyResearchReadiness, OnlyResearchReadinessStatus
+from onlyalpha.strategy.errors import OnlyStrategyError
 
 NOW = datetime(2026, 9, 2, tzinfo=UTC)
 KEY = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -75,6 +83,48 @@ def _client(tmp_path):  # type: ignore[no-untyped-def]
         backtest_queries=query,
     )
     return store, TestClient(app)
+
+
+class _FailingProductQuery:
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
+    def get(self, _identity: object) -> object:
+        raise self._error
+
+
+def _error_client(tmp_path, *, family: str, error: Exception) -> TestClient:  # type: ignore[no-untyped-def]
+    kernel = OnlyAlphaKernelHost()
+    kernel.start()
+    boundary = only_compose_research_product_boundary(
+        admission=kernel,
+        commands=object(),  # type: ignore[arg-type]
+        queries=object(),  # type: ignore[arg-type]
+    )
+    options: dict[str, object]
+    if family == "backtest":
+        options = {
+            "backtest_commands": object(),
+            "backtest_queries": _FailingProductQuery(error),
+        }
+    else:
+        options = {
+            "strategy_freeze": object(),
+            "strategy_promotion": object(),
+            "strategy_query": _FailingProductQuery(error),
+        }
+    app = create_research_app(
+        _Reader(),  # type: ignore[arg-type]
+        boundary,
+        OnlyCalculationRegistry(),
+        OnlyResearchDefinitionResolver(OnlyCalculationRegistry(), _Definitions()),  # type: ignore[arg-type]
+        OnlyKernelResearchReadinessProjection(
+            kernel,
+            OnlyResearchReadiness(OnlyResearchReadinessStatus.READY, ()),
+        ),
+        **options,  # type: ignore[arg-type]
+    )
+    return TestClient(app)
 
 
 def _payload() -> dict[str, object]:
@@ -136,3 +186,79 @@ def test_backtest_http_validation_uses_stable_product_error(tmp_path) -> None:  
     invalid_path = client.get("/api/v2/backtest/runs/not-a-uuid")
     assert invalid_path.status_code == 400
     assert invalid_path.json()["error"]["code"] == "PRODUCT_REQUEST_INVALID"
+
+
+@pytest.mark.parametrize(
+    ("family", "error", "status"),
+    (
+        ("backtest", OnlyBacktestNotFoundError("missing"), 404),
+        ("backtest", OnlyBacktestStateConflictError("conflict"), 409),
+        ("backtest", OnlyBacktestStoreUnavailableError("offline"), 503),
+        ("backtest", OnlyBacktestIntegrityError("BACKTEST_EVIDENCE_CORRUPT", "corrupt"), 500),
+        ("strategy", OnlyStrategyError("STRATEGY_NOT_FOUND"), 404),
+        ("strategy", OnlyStrategyError("STRATEGY_CONFLICT"), 409),
+        ("strategy", OnlyStrategyError("STRATEGY_AUTHORITY_UNAVAILABLE"), 503),
+        ("strategy", OnlyStrategyError("STRATEGY_CORRUPT"), 500),
+    ),
+)
+def test_product_domain_errors_match_declared_envelope(
+    tmp_path,
+    family: str,
+    error: Exception,
+    status: int,  # type: ignore[no-untyped-def]
+) -> None:
+    client = _error_client(tmp_path, family=family, error=error)
+    if family == "backtest":
+        path = "/api/v2/backtest/runs/00000000-0000-4000-8000-000000000001"
+        contract_path = "/api/v2/backtest/runs/{run_id}"
+    else:
+        path = f"/api/v2/strategies/{'a' * 64}"
+        contract_path = "/api/v2/strategies/{strategy_fingerprint}"
+
+    response = client.get(path)
+
+    assert response.status_code == status
+    assert response.json()["schema_version"] == 1
+    assert set(response.json()["error"]) == {"phase", "code", "detail"}
+    operation = client.app.openapi()["paths"][contract_path]["get"]
+    assert operation["responses"][str(status)]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
+    }
+
+
+def test_backtest_openapi_matches_product_error_and_evidence_runtime_contract(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    _, client = _client(tmp_path)
+    document = client.app.openapi()
+    operations = [
+        operation
+        for path, item in document["paths"].items()
+        if path.startswith("/api/v2/backtest/")
+        for operation in item.values()
+    ]
+
+    for operation in operations:
+        assert "422" not in operation["responses"]
+        for status in ("400", "404", "409", "500", "503"):
+            schema = operation["responses"][status]["content"]["application/json"]["schema"]
+            assert schema == {"$ref": "#/components/schemas/ProductErrorEnvelopeDto"}
+
+    manifest = document["components"]["schemas"]["BacktestEvidenceManifestDto"]
+    assert manifest["additionalProperties"] is False
+    assert set(manifest["required"]) == {
+        "backtest_run_id",
+        "specification_fingerprint",
+        "admission_resolution_fingerprint",
+        "strategy_fingerprint",
+        "dataset_binding_fingerprint",
+        "base_dataset_snapshot_fingerprint",
+        "market_product_composition_fingerprint",
+        "portfolio_profile_fingerprint",
+        "risk_profile_fingerprint",
+        "execution_profile_fingerprint",
+        "kernel_semantics_version",
+        "implementation_fingerprints",
+        "result_fingerprint",
+        "determinism_fingerprint",
+        "artifacts",
+        "evidence_fingerprint",
+    }

@@ -1,9 +1,11 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
 
 from onlyalpha.backtest import (
     OnlyBacktestAdmissionResolution,
+    OnlyBacktestExecutionSemanticBinding,
     OnlyBacktestProfileReference,
     OnlyBacktestRun,
     OnlyBacktestRunId,
@@ -57,6 +59,29 @@ def test_admission_resolution_round_trip_and_identity_are_canonical() -> None:
 
     assert restored == expected
     assert restored.admission_resolution_fingerprint == expected.admission_resolution_fingerprint
+
+
+def test_execution_semantic_binding_excludes_operational_identity() -> None:
+    first = OnlyBacktestExecutionSemanticBinding.from_admission(_specification(), _resolution())
+    second = OnlyBacktestExecutionSemanticBinding.from_admission(_specification(), _resolution())
+
+    assert first == second
+    assert first.fingerprint == second.fingerprint
+    assert not ({"run_id", "attempt_id", "worker_instance_id", "config_path"} & set(first.to_dict()))
+
+    changed = OnlyBacktestExecutionSemanticBinding.from_admission(
+        _specification(),
+        replace(_resolution(), kernel_semantics_version="kernel-v2"),
+    )
+    assert changed.fingerprint != first.fingerprint
+
+
+def test_execution_semantic_binding_rejects_cross_authority_drift() -> None:
+    with pytest.raises(ValueError, match="BACKTEST_EXECUTION_SEMANTIC_BINDING_INVALID"):
+        OnlyBacktestExecutionSemanticBinding.from_admission(
+            _specification(),
+            replace(_resolution(), dataset_binding_fingerprint="f" * 64),
+        )
 
 
 def test_backtest_specification_rejects_unknown_product_fields() -> None:
