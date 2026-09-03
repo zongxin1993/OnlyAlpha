@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import argparse
 import os
-import signal
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import timedelta
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from threading import Event
 
+from onlyalpha.application.stop_controller import (
+    OnlyApplicationShutdownReason,
+    OnlyApplicationStopController,
+)
+from onlyalpha.application.strategy_product import OnlyStrategyQueryService
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
@@ -28,7 +32,6 @@ from onlyalpha.research.dataset import (
 from onlyalpha.research.operations.deployment import (
     OnlyResearchSemanticStoreIdentity,
 )
-from onlyalpha.strategy.promotion import OnlyStrategyPromotionService
 from onlyalpha.strategy.store import OnlyFrozenStrategyRevisionStore
 
 from .admission import OnlyBacktestAdmissionService
@@ -103,7 +106,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     resources = only_load_backtest_market_product_resources(tuple(args.backtest_market_resource))
     admission = OnlyBacktestAdmissionService(
         strategies=strategies,
-        promotions=OnlyStrategyPromotionService(strategies, promotions, _unreachable_audit_time),
+        promotions=OnlyStrategyQueryService(strategies, promotions),
         dataset_bindings=bindings,
         datasets=datasets,
         market_products=OnlyMarketProductBacktestAdmissionAdapter(
@@ -137,28 +140,45 @@ def main(argv: Sequence[str] | None = None) -> int:
         executor=executor,
         evidence=OnlyBacktestEvidenceStore(layout.root),
     )
-    stop = Event()
-
-    def request_stop(_signum: int, _frame: object) -> None:
-        stop.set()
-
-    signal.signal(signal.SIGTERM, request_stop)
-    signal.signal(signal.SIGINT, request_stop)
+    stop = OnlyApplicationStopController()
     presence = OnlyBacktestWorkerPresenceReporter(store, worker_id, _service_version(), timedelta(seconds=15))
-    presence.start()
+    stop.install()
+    first_failure: BaseException | None = None
     try:
-        while not stop.is_set():
+        presence.start()
+        while not stop.stop_requested:
             outcome = worker.run_once()
             if outcome is None:
                 stop.wait(args.poll_interval)
-    finally:
-        presence.draining()
-        presence.stop()
-    return 0
+    except KeyboardInterrupt:
+        stop.request_stop(OnlyApplicationShutdownReason.KEYBOARD_INTERRUPT)
+    except BaseException as exc:
+        first_failure = exc
+    try:
+        _shutdown_presence(presence)
+    except BaseException as exc:
+        if first_failure is None:
+            first_failure = exc
+    try:
+        stop.restore()
+    except BaseException as exc:
+        if first_failure is None:
+            first_failure = exc
+    if first_failure is not None:
+        raise first_failure
+    return stop.exit_code
 
 
-def _unreachable_audit_time() -> datetime:
-    raise RuntimeError("Backtest admission must not produce Strategy Promotion facts")
+def _shutdown_presence(presence: OnlyBacktestWorkerPresenceReporter) -> None:
+    first_failure: BaseException | None = None
+    for action in (presence.draining, presence.stop):
+        try:
+            action()
+        except BaseException as exc:
+            if first_failure is None:
+                first_failure = exc
+    if first_failure is not None:
+        raise first_failure
 
 
 if __name__ == "__main__":  # pragma: no cover

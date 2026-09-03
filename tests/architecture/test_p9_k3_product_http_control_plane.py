@@ -57,7 +57,9 @@ def test_one_main_composition_uses_same_started_host_and_forbids_multi_worker() 
     assert source.count("only_compose_research_product_boundary(") == 1
     assert source.index("kernel.start()") < source.index("only_compose_research_product_boundary(")
     assert "admission=kernel" in source
-    assert source.index("only_compose_research_product_boundary(") < source.index("create_research_app(")
+    assert source.index("only_compose_research_product_boundary(") < source.index("create_product_app(")
+    assert source.count("create_product_app(") == 1
+    assert "OnlyEngine(" not in source
     assert "workers=" not in source
     assert "--workers" not in source
 

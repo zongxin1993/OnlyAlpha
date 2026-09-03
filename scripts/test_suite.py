@@ -86,6 +86,7 @@ class Lane:
     workers: str
     dist: str
     durations: int = 20
+    prefilter_marker: str | None = None
 
 
 LANES = {
@@ -326,14 +327,28 @@ LANES = {
         "6",
         "worksteal",
     ),
-    OnlyTestLane.ASHARE: Lane(WORKSPACE_TESTS, "conformance and not external and not exhaustive", "4", "worksteal"),
-    OnlyTestLane.RECOVERY: Lane(WORKSPACE_TESTS, "recovery and not external and not exhaustive", "8", "worksteal", 100),
+    OnlyTestLane.ASHARE: Lane(
+        WORKSPACE_TESTS,
+        "conformance and not external and not exhaustive",
+        "4",
+        "worksteal",
+        prefilter_marker="conformance",
+    ),
+    OnlyTestLane.RECOVERY: Lane(
+        WORKSPACE_TESTS,
+        "recovery and not external and not exhaustive",
+        "8",
+        "worksteal",
+        100,
+        "recovery",
+    ),
     OnlyTestLane.SIM_RECOVERY: Lane(
         WORKSPACE_TESTS,
         "sim_recovery and not external and not exhaustive",
         "4",
         "worksteal",
         100,
+        "sim_recovery",
     ),
     OnlyTestLane.MINIQMT_CONTRACT: Lane(
         ("plugs/onlyalpha-plugin-miniqmt/tests",),
@@ -354,7 +369,14 @@ LANES = {
         "worksteal",
         100,
     ),
-    OnlyTestLane.EXHAUSTIVE: Lane(WORKSPACE_TESTS, "exhaustive and not external", "8", "worksteal", 100),
+    OnlyTestLane.EXHAUSTIVE: Lane(
+        WORKSPACE_TESTS,
+        "exhaustive and not external",
+        "8",
+        "worksteal",
+        100,
+        "exhaustive",
+    ),
 }
 
 RELEASE_STATIC_COMMANDS: tuple[tuple[str, ...], ...] = (
@@ -518,6 +540,15 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
         "-p",
         "scripts.pytest_metrics",
     ]
+    if lane.prefilter_marker is not None:
+        command.extend(
+            [
+                "-p",
+                "scripts.pytest_marker_prefilter",
+                "--onlyalpha-prefilter-marker",
+                lane.prefilter_marker,
+            ]
+        )
     if args.coverage:
         coverage_sources = {
             OnlyTestLane.RESEARCH_DEFINITION: ("src/onlyalpha/research/definition",),

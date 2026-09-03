@@ -10,7 +10,11 @@ from onlyalpha_http_server.research.schema import RESEARCH_API_SCHEMA_VERSION, R
 from onlyalpha.research.query import OnlyResearchArtifactReader, OnlyResearchQueryError, OnlyResearchQueryService
 
 
-def create_test_artifact_query_app(reader: OnlyResearchArtifactReader) -> FastAPI:
+def create_test_artifact_query_app(
+    reader: OnlyResearchArtifactReader,
+    *,
+    fixture_identity: dict[str, str] | None = None,
+) -> FastAPI:
     app = FastAPI(title="OnlyAlpha Test Artifact Query API", version=str(RESEARCH_API_SCHEMA_VERSION))
 
     @app.exception_handler(OnlyResearchQueryError)
@@ -24,6 +28,12 @@ def create_test_artifact_query_app(reader: OnlyResearchArtifactReader) -> FastAP
         return JSONResponse(status_code=400, content=body.model_dump(mode="json"))
 
     app.include_router(create_artifact_router(OnlyResearchQueryService(reader)))
+    if fixture_identity is not None:
+
+        @app.get("/__onlyalpha_e2e__/fixture", include_in_schema=False)
+        def e2e_fixture_identity() -> dict[str, str]:
+            return dict(fixture_identity)
+
     return app
 
 

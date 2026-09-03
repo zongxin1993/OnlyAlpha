@@ -11,7 +11,7 @@ from onlyalpha_plugin_binance_spot.reference import (
     OnlyBinanceSpotReferenceAuthority,
     OnlyBinanceSpotRule,
 )
-from onlyalpha_plugin_binance_spot.resource_provider import OnlyBinanceSpotBacktestResourceProvider
+from onlyalpha_plugin_binance_spot.resource_provider import OnlyBinanceSpotReferenceResourceProvider
 
 from onlyalpha.backtest import only_load_backtest_market_product_resources
 from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine, OnlyPreTradeMarketContext
@@ -90,7 +90,7 @@ class _Resources:
 
 
 def test_backtest_resource_provider_round_trips_exact_authority() -> None:
-    provider = OnlyBinanceSpotBacktestResourceProvider()
+    provider = OnlyBinanceSpotReferenceResourceProvider()
     authority = _authority()
 
     loaded = provider.load_reference(provider.dump_reference(authority))
@@ -106,7 +106,7 @@ def test_backtest_resource_provider_round_trips_exact_authority() -> None:
 
 
 def test_production_resource_document_loads_through_plugin_entry_point(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    provider = OnlyBinanceSpotBacktestResourceProvider()
+    provider = OnlyBinanceSpotReferenceResourceProvider()
     authority = _authority()
     path = tmp_path / "spot-reference.json"
     path.write_text(

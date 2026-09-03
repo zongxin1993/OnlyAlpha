@@ -17,8 +17,6 @@ def test_historical_provider_spi_has_no_runtime_dependencies() -> None:
 
 
 def test_miniqmt_narrow_provider_does_not_hold_trading_create_request() -> None:
-    source = Path(
-        "plugs/onlyalpha-plugin-miniqmt/src/onlyalpha_plugin_miniqmt/data_source/provider.py"
-    ).read_text()
+    source = Path("plugs/onlyalpha-plugin-miniqmt/src/onlyalpha_plugin_miniqmt/data_source/provider.py").read_text()
     assert "OnlyDataSourceCreateRequest" not in source
     assert "_create_request" not in source

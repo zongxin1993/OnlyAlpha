@@ -284,6 +284,8 @@ def _initialize_deployment(dsn: str, user_data_root: Path) -> str:
         layout.research_statistics_result_root,
         layout.research_result_root,
         layout.research_artifact_root,
+        layout.research_dataset_economic_binding_root,
+        layout.backtest_evidence_root,
     ):
         root.mkdir(parents=True, exist_ok=True)
     return str(identity)

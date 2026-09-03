@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 from .execution import (
     OnlyBacktestAttempt,
@@ -27,12 +27,12 @@ class OnlyInMemoryBacktestExecutionStore:
         self,
         runs: tuple[OnlyBacktestRun, ...] = (),
         *,
-        now_utc: Callable[[], datetime] | None = None,
+        now_utc: Callable[[], datetime],
     ) -> None:
         self.runs: dict[OnlyBacktestRunId, OnlyBacktestRun] = {run.run_id: run for run in runs}
         self.attempts: dict[OnlyBacktestAttemptId, OnlyBacktestAttempt] = {}
         self._fencing: dict[OnlyBacktestRunId, int] = {}
-        self._now_utc = now_utc or (lambda: datetime.now(UTC))
+        self._now_utc = now_utc
 
     def add(self, run: OnlyBacktestRun) -> None:
         if run.run_id in self.runs:

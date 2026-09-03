@@ -116,6 +116,7 @@ def test_lint_rejects_duplicate_operation_id_and_external_reference() -> None:
         governance.lint_contract(document)
 
 
+@pytest.mark.historical_git
 def test_git_baseline_is_exact_immutable_artifact_and_invalid_sha_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     base_sha = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=ROOT, check=True, capture_output=True, text=True
@@ -138,6 +139,7 @@ def test_git_baseline_is_exact_immutable_artifact_and_invalid_sha_fails_closed(m
         governance.load_git_baseline(base_sha)
 
 
+@pytest.mark.historical_git
 def test_a0_pre_freeze_authorization_is_exact_and_non_reusable() -> None:
     base_sha = "8901fec27faf8599c965df792d07a84b902583f3"
     exact, baseline_document, baseline = governance.load_git_baseline(base_sha)

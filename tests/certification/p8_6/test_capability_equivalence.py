@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import pytest
-from onlyalpha_http_server.main import _configure_calculation_registry
+from onlyalpha_http_server.composition import only_configure_product_registries
 
+from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.calculation import (
     OnlyCalculationBackendKind,
     OnlyCalculationRegistry,
     only_assert_calculation_capabilities_equivalent,
     only_calculation_capability_projection,
 )
+from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
+from onlyalpha.fee.broker_contract import OnlyBrokerFeeContractRegistry
+from onlyalpha.market.product import OnlyMarketProductFactoryRegistry
 from onlyalpha.runtime.defaults import only_default_engine_services
 
 
@@ -18,7 +22,13 @@ def _research_projection(registry: OnlyCalculationRegistry):
 
 def _api_calculation_registry() -> OnlyCalculationRegistry:
     registry = OnlyCalculationRegistry()
-    _configure_calculation_registry(registry)
+    only_configure_product_registries(
+        registry,
+        OnlyDataSourceFactoryRegistry(),
+        OnlyBrokerFactoryRegistry(),
+        OnlyBrokerFeeContractRegistry(),
+        OnlyMarketProductFactoryRegistry(),
+    )
     return registry
 
 

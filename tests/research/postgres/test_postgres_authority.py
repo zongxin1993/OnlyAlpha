@@ -97,6 +97,12 @@ from scripts.database import (
     _tool,
 )
 from scripts.database import main as database_main
+from tests.research.postgres.migration_support import (
+    copy_migrations_through,
+    current_migrations,
+    migrations_through,
+    tamper_migration,
+)
 from tests.research.specification.support import registry, specification
 
 pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
@@ -115,6 +121,7 @@ M11 = "0011_p9_0_freeze_projection_convergence"
 M12 = "0012_product_command_receipt"
 M13 = "0013_market_data_catalog"
 M14 = "0014_market_data_durable_ownership"
+CURRENT_MIGRATIONS = current_migrations()
 EXECUTION_EVIDENCE = ("e" * 64,)
 
 
@@ -398,26 +405,11 @@ def test_fresh_plan_migrate_noop_and_startup_compatibility_are_exact(postgres_ds
     verifier = OnlyPostgresSchemaVerifier(postgres_dsn)
     before = verifier.status()
     assert before.verdict is OnlyPostgresSchemaVerdict.LEDGER_MISSING
-    assert tuple(item.migration_id for item in authority.plan()) == (
-        M1,
-        M2,
-        M3,
-        M4,
-        M5,
-        M6,
-        M7,
-        M8,
-        M9,
-        M10,
-        M11,
-        M12,
-        M13,
-        M14,
-    )
+    assert tuple(item.migration_id for item in authority.plan()) == CURRENT_MIGRATIONS
     with pytest.raises(OnlyPostgresSchemaIncompatibleError):
         verifier.assert_compatible()
 
-    assert authority.migrate() == (M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14)
+    assert authority.migrate() == CURRENT_MIGRATIONS
     assert verifier.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
     assert authority.migrate() == ()
 
@@ -466,6 +458,8 @@ def test_operator_explicitly_initializes_and_binds_new_semantic_store(
             layout.research_statistics_result_root,
             layout.research_result_root,
             layout.research_artifact_root,
+            layout.research_dataset_economic_binding_root,
+            layout.backtest_evidence_root,
         )
     )
 
@@ -473,13 +467,12 @@ def test_operator_explicitly_initializes_and_binds_new_semantic_store(
     assert json.loads(capsys.readouterr().out)["semantic_store_id"] == first["semantic_store_id"]
 
 
-@pytest.mark.parametrize("tampered_id", [M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14])
+@pytest.mark.parametrize("tampered_id", CURRENT_MIGRATIONS)
 def test_migration_checksum_tamper_fails_closed(postgres_dsn: str, tmp_path: Path, tampered_id: str) -> None:
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     authority.migrate()
-    _copy_migrations(tmp_path, M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14)
-    copied = tmp_path / f"{tampered_id}.sql"
-    copied.write_bytes(copied.read_bytes() + b"\n-- tampered\n")
+    copy_migrations_through(tmp_path, CURRENT_MIGRATIONS[-1])
+    tamper_migration(tmp_path, tampered_id)
     tampered = OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path)
     assert (
         OnlyPostgresSchemaVerifier(postgres_dsn, migration_root=tmp_path).status().verdict
@@ -497,6 +490,17 @@ def test_unknown_database_history_is_ahead(postgres_dsn: str) -> None:
     assert OnlyPostgresSchemaVerifier(postgres_dsn).status().verdict is OnlyPostgresSchemaVerdict.AHEAD
 
 
+def test_current_database_is_ahead_of_historical_m14_verifier(postgres_dsn: str, tmp_path: Path) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    assert migrations_through(M14)[-1] == M14
+    copy_migrations_through(tmp_path, M14)
+
+    assert (
+        OnlyPostgresSchemaVerifier(postgres_dsn, migration_root=tmp_path).status().verdict
+        is OnlyPostgresSchemaVerdict.AHEAD
+    )
+
+
 def test_existing_m1_database_plans_and_applies_exact_forward_suffix(postgres_dsn: str, tmp_path: Path) -> None:
     _copy_migrations(tmp_path, M1)
     assert OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path).migrate() == (M1,)
@@ -505,22 +509,8 @@ def test_existing_m1_database_plans_and_applies_exact_forward_suffix(postgres_ds
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     verifier = OnlyPostgresSchemaVerifier(postgres_dsn)
     assert verifier.status().verdict is OnlyPostgresSchemaVerdict.BEHIND
-    assert tuple(item.migration_id for item in authority.plan()) == (
-        M2,
-        M3,
-        M4,
-        M5,
-        M6,
-        M7,
-        M8,
-        M9,
-        M10,
-        M11,
-        M12,
-        M13,
-        M14,
-    )
-    assert authority.migrate() == (M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14)
+    assert tuple(item.migration_id for item in authority.plan()) == CURRENT_MIGRATIONS[1:]
+    assert authority.migrate() == CURRENT_MIGRATIONS[1:]
     assert verifier.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
     assert OnlyPostgresResearchRunStore(postgres_dsn).load(run.run_id) == run
 
@@ -537,7 +527,7 @@ def test_m12_backfills_legacy_submission_exactly_and_retires_old_authority(postg
             (key.value, "d" * 64, run.run_id.value),
         )
 
-    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == (M12, M13, M14)
+    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == CURRENT_MIGRATIONS[11:]
     receipt = OnlyPostgresResearchRunStore(postgres_dsn).find_product_command_receipt(key)
     assert receipt == _create_receipt(key, run)
     with psycopg.connect(postgres_dsn) as connection:
@@ -573,7 +563,7 @@ def test_known_non_prefix_histories_diverge_and_cannot_change_database(postgres_
         connection.execute("DELETE FROM onlyalpha_schema_migration WHERE migration_id = %s", (M1,))
     before = verifier.status()
     assert before.verdict is OnlyPostgresSchemaVerdict.HISTORY_DIVERGED
-    assert before.applied_migrations == (M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14)
+    assert before.applied_migrations == CURRENT_MIGRATIONS[1:]
     assert before.pending_migrations == ()
     with pytest.raises(OnlyPostgresMigrationIntegrityError):
         authority.plan()
@@ -634,7 +624,7 @@ def test_migration_advisory_lock_serializes_two_operator_processes(postgres_dsn:
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         outcomes = tuple(item.result() for item in (executor.submit(migrate), executor.submit(migrate)))
-    assert sorted(outcomes) == [(), (M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14)]
+    assert sorted(outcomes) == [(), CURRENT_MIGRATIONS]
     assert OnlyPostgresSchemaVerifier(postgres_dsn).status().compatible
 
 
@@ -996,7 +986,7 @@ def test_backup_restore_to_isolated_database_preserves_exact_run_and_source(post
         assert metadata["backup_sha256"] == hashlib.sha256(backup.read_bytes()).hexdigest()
         assert metadata["postgres_server_version"].startswith("18.")
         assert metadata["pg_dump_version"].startswith("pg_dump (PostgreSQL) 18.")
-        assert [item["migration_id"] for item in metadata["migrations"]][-1] == M14
+        assert [item["migration_id"] for item in metadata["migrations"]][-1] == CURRENT_MIGRATIONS[-1]
         assert "onlyalpha_test" not in metadata_path.read_text(encoding="utf-8")
         _restore_test(postgres_dsn, target_dsn, backup, run.run_id.value)
         assert OnlyPostgresResearchRunStore(target_dsn).load(run.run_id) == run
@@ -1181,6 +1171,8 @@ def test_api_process_restart_reads_same_postgres_run_authority(postgres_dsn: str
                 str(tmp_path),
                 "--port",
                 str(port),
+                "--backtest-product-config",
+                str(Path("tests/fixtures/legacy_macd/cluster.json").resolve()),
             ],
             cwd=Path(__file__).parents[3],
             env=environment,

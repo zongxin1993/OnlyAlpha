@@ -35,7 +35,7 @@ class OnlyBacktestWorkerPresenceReporter:
         self._service_version = service_version
         self._heartbeat_interval = heartbeat_interval
         self._stop = Event()
-        self._thread = Thread(target=self._heartbeat, name=f"backtest-presence-{worker_id.value}", daemon=True)
+        self._thread = Thread(target=self._heartbeat, name=f"backtest-presence-{worker_id.value}", daemon=False)
 
     def start(self) -> None:
         self._writer.announce_worker(self._worker_id, self._service_version)

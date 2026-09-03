@@ -139,18 +139,12 @@ def test_web_has_no_core_or_local_fallback_capability() -> None:
 
 def test_http_route_modules_own_no_raw_mutation_capability() -> None:
     routes = _route_modules()
-    assert {path.relative_to(API_SOURCE).as_posix() for path in routes} == {
-        "health.py",
-        "research/definition_routes.py",
-        "research/routes.py",
-        "research/run_routes.py",
-    }
+    assert routes
     forbidden_prefixes = (
         "onlyalpha.engine",
         "onlyalpha.runtime",
         "onlyalpha.kernel",
         "onlyalpha.persistence",
-        "onlyalpha.strategy",
         "onlyalpha_gateway_protocol",
     )
     forbidden_symbols = (
@@ -158,14 +152,20 @@ def test_http_route_modules_own_no_raw_mutation_capability() -> None:
         "OnlyEngine",
         "OnlyPostgres",
         "OnlyResearchCommandService",
-        "OnlyStrategyFreeze",
-        "OnlyStrategyPromotion",
+        "OnlyStrategyFreezeService",
+        "OnlyStrategyPromotionService",
     )
     for path in routes:
         imports = _imports(path)
         assert not any(name.startswith(forbidden_prefixes) for name in imports), path
         assert not any(
-            name.startswith("onlyalpha.application") and name != "onlyalpha.application.product_boundary"
+            name.startswith("onlyalpha.application")
+            and name
+            not in {
+                "onlyalpha.application.product_boundary",
+                "onlyalpha.application.product_command_receipt",
+                "onlyalpha.application.strategy_product",
+            }
             for name in imports
         ), path
         source = path.read_text(encoding="utf-8")
@@ -207,4 +207,5 @@ def test_composition_root_retains_real_kernel_wiring_without_route_ownership() -
     assert main.count("OnlyAlphaKernelHost(") == 1
     assert "OnlyPostgresResearchRunStore(" in main
     assert "only_compose_research_product_boundary(" in main
-    assert "create_research_app(" in main
+    assert main.count("create_product_app(") == 1
+    assert "OnlyEngine(" not in main

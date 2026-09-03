@@ -27,9 +27,25 @@ def _document() -> dict[str, object]:
 def test_repository_authority_contract_is_valid_and_finite() -> None:
     contract = load_authority_contract(CONTRACT_PATH)
     assert contract.version == 1
-    assert tuple(contract.facts) == tuple(f"F{number:02d}" for number in range(1, 14))
-    assert tuple(contract.capabilities) == tuple(f"C{number:02d}" for number in range(1, 20))
-    assert len(contract.actors) == 19
+    assert tuple(contract.facts) == tuple(f"F{number:02d}" for number in range(1, len(contract.facts) + 1))
+    assert tuple(contract.capabilities) == tuple(
+        f"C{number:02d}" for number in range(1, len(contract.capabilities) + 1)
+    )
+    assert {fact.name for fact in contract.facts.values()} >= {
+        "Backtest Run lifecycle",
+        "Backtest Attempt and lease fencing lifecycle",
+        "Backtest execution evidence",
+        "Backtest Worker presence",
+    }
+    assert {actor.name for actor in contract.actors.values()} >= {
+        "STRATEGY_APPLICATION",
+        "HTTP_COMPOSITION_ROOT",
+        "HTTP_TRANSPORT_ADAPTER",
+        "BACKTEST_APPLICATION",
+        "BACKTEST_WORKER_COMPOSITION",
+        "BACKTEST_EXECUTION_AGENT",
+        "BACKTEST_PERSISTENCE_ADAPTER",
+    }
     assert contract.reserved_future_capabilities == set()
 
 
@@ -130,4 +146,4 @@ def test_unknown_and_ambiguous_actor_classification_fail_closed() -> None:
 def test_fact_authority_mutation_capability_is_unique() -> None:
     contract = load_authority_contract(CONTRACT_PATH)
     assert all(fact.mutation_capability in contract.capabilities for fact in contract.facts.values())
-    assert len(contract.facts) == 13
+    assert len({fact.id for fact in contract.facts.values()}) == len(contract.facts)

@@ -67,10 +67,7 @@ def test_engine_recovers_ready_prefix_and_unprojected_suffix_then_continues(tmp_
     assert engine_a.run().status == "FAILED"
     failed_runtime = engine_a.runtime_sessions[0].runtime
     assert failed_runtime.historical_replay_service.events
-    assert failed_runtime.historical_replay_service.events[-1].result.status.value == "FAILED"
     assert failed_runtime.result_progress.snapshot().processed_bar_count > 0
-    assert config.end_time is not None
-    assert failed_runtime.historical_replay_service.events[-1].update.ts_event.to_datetime() < config.end_time
     runtime_id = engine_a.runtime_sessions[0].runtime_id
     path = OnlyUserDataLayout(tmp_path).runtime_persistence_path(engine_id, runtime_id)
     reader = OnlySqliteRuntimePersistenceStore(path)

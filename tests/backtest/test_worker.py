@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from threading import Event
 
 import pytest
 
@@ -10,17 +11,22 @@ from onlyalpha.backtest import (
     OnlyBacktestEvidenceStore,
     OnlyBacktestExecutionPolicy,
     OnlyBacktestProfileReference,
-    OnlyBacktestReconciler,
     OnlyBacktestRun,
     OnlyBacktestRunId,
     OnlyBacktestRunState,
-    OnlyBacktestRuntimeExecutionResult,
     OnlyBacktestSpecification,
-    OnlyBacktestWorker,
     OnlyBacktestWorkerInstanceId,
-    OnlyBacktestWorkerOutcomeKind,
     OnlyInMemoryBacktestExecutionStore,
 )
+from onlyalpha.backtest.presence import OnlyBacktestWorkerPresenceReporter
+from onlyalpha.backtest.worker import (
+    OnlyBacktestReconciler,
+    OnlyBacktestRuntimeExecutionResult,
+    OnlyBacktestWorker,
+    OnlyBacktestWorkerOutcomeKind,
+    _LeaseControl,
+)
+from onlyalpha.backtest.worker_main import _shutdown_presence
 
 
 def _resolution(*, kernel: str = "kernel-v1") -> OnlyBacktestAdmissionResolution:
@@ -89,6 +95,115 @@ class _NoThreadLease:
 
 def _lease(*_: object) -> _NoThreadLease:
     return _NoThreadLease()
+
+
+class _PresenceWriter:
+    def __init__(self) -> None:
+        self.announced = Event()
+
+    def announce_worker(self, *_: object) -> None:
+        self.announced.set()
+
+    def heartbeat_worker(self, *_: object) -> None:
+        raise AssertionError("long heartbeat interval must remain wakeable")
+
+    def mark_worker_draining(self, *_: object) -> None:
+        return None
+
+
+class _AliveThread:
+    ident = 1
+
+    def __init__(self) -> None:
+        self.join_timeout: float | None = None
+
+    def join(self, timeout: float | None = None) -> None:
+        self.join_timeout = timeout
+
+    def is_alive(self) -> bool:
+        return True
+
+
+def test_backtest_presence_thread_is_non_daemon_wakeable_and_stop_is_bounded() -> None:
+    writer = _PresenceWriter()
+    reporter = OnlyBacktestWorkerPresenceReporter(
+        writer,  # type: ignore[arg-type]
+        OnlyBacktestWorkerInstanceId.new(),
+        "test",
+        timedelta(days=1),
+    )
+    assert not reporter._thread.daemon
+
+    reporter.start()
+    assert writer.announced.is_set()
+    reporter.stop()
+
+    assert not reporter._thread.is_alive()
+
+
+def test_backtest_presence_stop_timeout_fails_explicitly() -> None:
+    reporter = OnlyBacktestWorkerPresenceReporter(
+        _PresenceWriter(),  # type: ignore[arg-type]
+        OnlyBacktestWorkerInstanceId.new(),
+        "test",
+        timedelta(seconds=2),
+    )
+    thread = _AliveThread()
+    reporter._thread = thread  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeError, match="BACKTEST_WORKER_PRESENCE_STOP_TIMEOUT"):
+        reporter.stop()
+
+    assert thread.join_timeout == 3
+
+
+def test_backtest_lease_thread_is_non_daemon_wakeable_and_stop_is_bounded() -> None:
+    now = datetime(2026, 9, 2, tzinfo=UTC)
+    policy = OnlyBacktestExecutionPolicy(lease_duration=timedelta(days=2), heartbeat_interval=timedelta(days=1))
+    store = OnlyInMemoryBacktestExecutionStore((_run(now),), now_utc=lambda: now)
+    claim = store.claim_next(OnlyBacktestWorkerInstanceId.new(), OnlyBacktestAttemptId.new(), policy)
+    assert claim is not None
+    control = _LeaseControl(store, claim, policy)
+    assert not control._thread.daemon
+
+    with control:
+        pass
+
+    assert not control._thread.is_alive()
+
+
+def test_backtest_lease_stop_timeout_fails_explicitly() -> None:
+    now = datetime(2026, 9, 2, tzinfo=UTC)
+    policy = OnlyBacktestExecutionPolicy(lease_duration=timedelta(seconds=4), heartbeat_interval=timedelta(seconds=2))
+    store = OnlyInMemoryBacktestExecutionStore((_run(now),), now_utc=lambda: now)
+    claim = store.claim_next(OnlyBacktestWorkerInstanceId.new(), OnlyBacktestAttemptId.new(), policy)
+    assert claim is not None
+    control = _LeaseControl(store, claim, policy)
+    thread = _AliveThread()
+    control._thread = thread  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeError, match="BACKTEST_LEASE_CONTROL_STOP_TIMEOUT"):
+        control.__exit__()
+
+    assert thread.join_timeout == 3
+
+
+def test_backtest_worker_cleanup_stops_presence_and_preserves_first_failure() -> None:
+    calls: list[str] = []
+
+    class _FailingPresence:
+        def draining(self) -> None:
+            calls.append("draining")
+            raise RuntimeError("DRAINING_FAILED")
+
+        def stop(self) -> None:
+            calls.append("stop")
+            raise RuntimeError("STOP_FAILED")
+
+    with pytest.raises(RuntimeError, match="DRAINING_FAILED"):
+        _shutdown_presence(_FailingPresence())  # type: ignore[arg-type]
+
+    assert calls == ["draining", "stop"]
 
 
 class _LostLease(_NoThreadLease):

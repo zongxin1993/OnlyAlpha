@@ -24,7 +24,17 @@ def main() -> int:
                 source.rename(root / f"unavailable-{name}")
         if not artifact.rows:
             raise RuntimeError("E2E fixture must contain exact Statistics rows")
-        uvicorn.run(create_test_artifact_query_app(store), host="127.0.0.1", port=8000)
+        uvicorn.run(
+            create_test_artifact_query_app(
+                store,
+                fixture_identity={
+                    "research_result_fingerprint": candidate.research_result_fingerprint,
+                    "statistics_fingerprint": artifact.manifest.statistics_results[0].statistics_fingerprint,
+                },
+            ),
+            host="127.0.0.1",
+            port=8000,
+        )
     return 0
 
 

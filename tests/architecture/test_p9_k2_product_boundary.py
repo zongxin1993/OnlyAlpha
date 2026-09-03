@@ -68,4 +68,6 @@ def test_research_product_composition_remains_thin_after_k3_http_adoption() -> N
     assert "request_research_run_cancellation(" in source
     assert "get_run(" in source
     assert "list_runs(" in source
-    assert not any(name.startswith(("fastapi", "pydantic", "onlyalpha_http_server")) for name in _imports(PRODUCT_COMPOSITION))
+    assert not any(
+        name.startswith(("fastapi", "pydantic", "onlyalpha_http_server")) for name in _imports(PRODUCT_COMPOSITION)
+    )

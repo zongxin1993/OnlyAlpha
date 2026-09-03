@@ -68,7 +68,10 @@ def test_attempt_claim_and_fencing() -> None:
 
 
 def test_default_policy_retries_actual_backtest_store_unavailable_code() -> None:
-    store = OnlyInMemoryBacktestExecutionStore((_run(),))
+    store = OnlyInMemoryBacktestExecutionStore(
+        (_run(),),
+        now_utc=lambda: datetime(2026, 9, 2, tzinfo=UTC),
+    )
     policy = OnlyBacktestExecutionPolicy()
     first = store.claim_next(OnlyBacktestWorkerInstanceId.new(), OnlyBacktestAttemptId.new(), policy)
     assert first is not None

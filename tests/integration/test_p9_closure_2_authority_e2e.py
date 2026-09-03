@@ -17,12 +17,14 @@ from onlyalpha.backtest import (
     OnlyBacktestProfileReference,
     OnlyBacktestRun,
     OnlyBacktestRunId,
-    OnlyBacktestRuntimeExecutionResult,
     OnlyBacktestSpecification,
-    OnlyBacktestWorker,
     OnlyBacktestWorkerInstanceId,
-    OnlyBacktestWorkerOutcomeKind,
     OnlyInMemoryBacktestExecutionStore,
+)
+from onlyalpha.backtest.worker import (
+    OnlyBacktestRuntimeExecutionResult,
+    OnlyBacktestWorker,
+    OnlyBacktestWorkerOutcomeKind,
 )
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.config import OnlyClusterRunConfig

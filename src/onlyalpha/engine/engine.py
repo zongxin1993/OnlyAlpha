@@ -129,7 +129,6 @@ class OnlyEngine:
                 self._infrastructure,
                 services.assembler.components,
                 self._environment_builder,
-                services.market_product_resources,
             )
             plan = composition.plan(config)
             fingerprint = self._config_fingerprint(config)

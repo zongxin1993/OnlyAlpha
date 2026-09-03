@@ -74,6 +74,11 @@ class OnlyApplicationStopController:
         if force:
             self._forced_exit.exit(self.exit_code)
 
+    def wait(self, timeout: float | None = None) -> bool:
+        """Wait for a stop request without exposing the mutable process event."""
+
+        return self._stop_requested.wait(timeout)
+
     def install(self) -> None:
         if self._handlers:
             return

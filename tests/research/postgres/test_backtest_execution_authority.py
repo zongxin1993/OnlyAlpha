@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import os
+import signal
+import subprocess
+import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import psycopg
 import pytest
@@ -29,6 +35,7 @@ from onlyalpha.backtest import (
 from onlyalpha.backtest.errors import OnlyBacktestError, OnlyBacktestStateConflictError
 from onlyalpha.persistence.postgres.backtest_store import OnlyPostgresBacktestStore
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
+from scripts.database import _initialize_deployment
 
 pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
 NOW = datetime(2026, 9, 2, tzinfo=UTC)
@@ -81,6 +88,42 @@ def _receipt(
 def _store(postgres_dsn: str) -> OnlyPostgresBacktestStore:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     return OnlyPostgresBacktestStore(postgres_dsn)
+
+
+@pytest.mark.parametrize(("signum", "exit_code"), ((signal.SIGINT, 130), (signal.SIGTERM, 143)))
+def test_backtest_worker_process_signal_marks_draining_and_uses_application_exit_contract(
+    postgres_dsn: str,
+    tmp_path: Path,
+    signum: signal.Signals,
+    exit_code: int,
+) -> None:
+    store = _store(postgres_dsn)
+    _initialize_deployment(postgres_dsn, tmp_path)
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "onlyalpha.backtest.worker_main",
+            "--user-data-root",
+            str(tmp_path),
+            "--backtest-product-config",
+            str(Path("tests/fixtures/legacy_macd/cluster.json").resolve()),
+            "--poll-interval",
+            "0.05",
+        ],
+        env={**os.environ, "ONLYALPHA_POSTGRES_DSN": postgres_dsn},
+    )
+    deadline = time.monotonic() + 10
+    while not store.has_fresh_worker() and time.monotonic() < deadline:
+        if process.poll() is not None:
+            pytest.fail(f"Backtest Worker exited before announcing presence: {process.returncode}")
+    assert store.has_fresh_worker()
+
+    process.send_signal(signum)
+    process.wait(timeout=10)
+
+    assert process.returncode == exit_code
+    assert not store.has_fresh_worker()
 
 
 def test_real_postgres_attempt_lease_fencing_retry_cancellation_and_reconciliation(postgres_dsn: str) -> None:

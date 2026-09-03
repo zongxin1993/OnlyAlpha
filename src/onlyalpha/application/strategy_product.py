@@ -245,25 +245,31 @@ class OnlyStrategyQueryService:
         revision = self._strategies.load_verified(strategy_fingerprint)
         relations = self._strategies.freeze_relations(strategy_fingerprint)
         records = self._promotions.records(strategy_fingerprint)
-
-        class _QueryLedger:
-            def records(_, value: str) -> tuple[OnlyStrategyPromotionRecord, ...]:
-                return self._promotions.records(value)
-
-            def append(_, record: OnlyStrategyPromotionRecord) -> OnlyStrategyPromotionRecord:
-                raise RuntimeError("query must not produce Promotion facts")
-
-        stage = OnlyStrategyPromotionService(
-            self._strategies,
-            _QueryLedger(),
-            self._audit_time_unreachable,
-        ).current_stage(strategy_fingerprint)
+        stage = self.current_stage(strategy_fingerprint)
         return OnlyStrategyProductView(
             revision,
             tuple(item.relation_fingerprint for item in relations),
             stage,
             records,
         )
+
+    def current_stage(self, strategy_fingerprint: str) -> OnlyStrategyPromotionStage:
+        """Read Promotion stage without exposing mutation capability to callers."""
+
+        promotions = self._promotions
+
+        class _QueryLedger:
+            def records(_, value: str) -> tuple[OnlyStrategyPromotionRecord, ...]:
+                return promotions.records(value)
+
+            def append(_, record: OnlyStrategyPromotionRecord) -> OnlyStrategyPromotionRecord:
+                raise RuntimeError("query must not produce Promotion facts")
+
+        return OnlyStrategyPromotionService(
+            self._strategies,
+            _QueryLedger(),
+            self._audit_time_unreachable,
+        ).current_stage(strategy_fingerprint)
 
     @staticmethod
     def _audit_time_unreachable() -> datetime:

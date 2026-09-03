@@ -8,6 +8,8 @@ sensitive_path_patterns = [
   "src/onlyalpha/kernel/*.py",
   "src/onlyalpha/application/product_boundary.py",
   "src/onlyalpha/application/strategy_authority.py",
+  "src/onlyalpha/application/strategy_product.py",
+  "src/onlyalpha/backtest/*.py",
   "src/onlyalpha/strategy/freeze.py",
   "src/onlyalpha/strategy/promotion.py",
   "src/onlyalpha/strategy/store.py",
@@ -25,9 +27,13 @@ sensitive_path_patterns = [
   "src/onlyalpha/persistence/postgres/migration.py",
   "src/onlyalpha/persistence/postgres/market_data_catalog.py",
   "src/onlyalpha/persistence/postgres/strategy_store.py",
+  "src/onlyalpha/persistence/postgres/backtest_store.py",
+  "src/onlyalpha/persistence/postgres/strategy_product_store.py",
   "src/onlyalpha/persistence/postgres/research_*_store.py",
   "packages/onlyalpha-http-server/src/onlyalpha_http_server/*.py",
   "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/*.py",
+  "packages/onlyalpha-http-server/src/onlyalpha_http_server/strategy/*.py",
+  "packages/onlyalpha-http-server/src/onlyalpha_http_server/backtest/*.py",
   "scripts/database.py",
   "scripts/regenerate_*.py",
 ]
@@ -134,6 +140,38 @@ name = "Runtime supervision state"
 identity_authority = "reserved Kernel-supervised Runtime identity"
 mutation_capability = "C17"
 semantic_persistence_relation = "reserved contract only; no current implementation"
+
+[[facts]]
+id = "F14"
+name = "Backtest Run lifecycle"
+identity_authority = "OnlyBacktestRunId plus exact specification and admission resolution"
+mutation_capability = "C20"
+read_capability = "C20"
+semantic_persistence_relation = "PostgreSQL Backtest Run is the sole durable user execution-intent authority"
+
+[[facts]]
+id = "F15"
+name = "Backtest Attempt and lease fencing lifecycle"
+identity_authority = "OnlyBacktestAttemptId, Worker Instance ID, attempt number and fencing token"
+mutation_capability = "C21"
+recovery_capability = "C21"
+semantic_persistence_relation = "PostgreSQL Attempt and server-clock lease are the sole operational execution-ownership authority"
+
+[[facts]]
+id = "F16"
+name = "Backtest execution evidence"
+identity_authority = "Backtest Evidence fingerprint bound to result and determinism identities"
+mutation_capability = "C23"
+read_capability = "C23"
+semantic_persistence_relation = "immutable Backtest Evidence store is authority; PostgreSQL only projects its verified reference"
+
+[[facts]]
+id = "F17"
+name = "Backtest Worker presence"
+identity_authority = "Worker Instance ID"
+mutation_capability = "C24"
+read_capability = "C24"
+semantic_persistence_relation = "PostgreSQL presence is diagnostic operational state and never execution ownership"
 
 [[capabilities]]
 id = "C01"
@@ -249,6 +287,36 @@ name = "PRODUCT_QUERY_DISPATCH"
 kind = "READ"
 privileged = true
 
+[[capabilities]]
+id = "C20"
+name = "BACKTEST_RUN_MUTATE"
+kind = "TRANSITION"
+privileged = true
+
+[[capabilities]]
+id = "C21"
+name = "BACKTEST_ATTEMPT_MUTATE"
+kind = "RECOVER"
+privileged = true
+
+[[capabilities]]
+id = "C22"
+name = "BACKTEST_EXECUTE"
+kind = "EXECUTE"
+privileged = true
+
+[[capabilities]]
+id = "C23"
+name = "BACKTEST_EVIDENCE_PUBLISH"
+kind = "PUBLISH"
+privileged = true
+
+[[capabilities]]
+id = "C24"
+name = "BACKTEST_WORKER_PRESENCE_MUTATE"
+kind = "TRANSITION"
+privileged = true
+
 [[actors]]
 id = "A01"
 name = "PUBLIC_PYTHON_SURFACE"
@@ -259,13 +327,13 @@ allowed_capabilities = []
 id = "A03"
 name = "HTTP_COMPOSITION_ROOT"
 production = true
-allowed_capabilities = ["C01", "C05", "C09", "C10", "C17", "C18", "C19"]
+allowed_capabilities = ["C01", "C05", "C06", "C09", "C10", "C17", "C18", "C19", "C20", "C21", "C23", "C24"]
 
 [[actors]]
 id = "A04"
 name = "HTTP_TRANSPORT_ADAPTER"
 production = true
-allowed_capabilities = ["C05", "C18", "C19"]
+allowed_capabilities = ["C05", "C18", "C19", "C20"]
 
 [[actors]]
 id = "A05"
@@ -352,6 +420,30 @@ production = true
 allowed_capabilities = ["C10"]
 
 [[actors]]
+id = "A19"
+name = "BACKTEST_APPLICATION"
+production = true
+allowed_capabilities = ["C05", "C20", "C23"]
+
+[[actors]]
+id = "A20"
+name = "BACKTEST_WORKER_COMPOSITION"
+production = true
+allowed_capabilities = ["C05", "C10", "C20", "C21", "C22", "C23", "C24"]
+
+[[actors]]
+id = "A21"
+name = "BACKTEST_EXECUTION_AGENT"
+production = true
+allowed_capabilities = ["C05", "C12", "C14", "C20", "C21", "C22", "C23"]
+
+[[actors]]
+id = "A22"
+name = "BACKTEST_PERSISTENCE_ADAPTER"
+production = true
+allowed_capabilities = ["C20", "C21", "C24"]
+
+[[actors]]
 id = "T01"
 name = "TEST"
 production = false
@@ -376,6 +468,9 @@ actor = "A03"
 pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"
 actor = "A03"
 [[actor_paths]]
+pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/composition.py"
+actor = "A03"
+[[actor_paths]]
 pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/__init__.py"
 actor = "A04"
 [[actor_paths]]
@@ -383,6 +478,12 @@ pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/health.py"
 actor = "A04"
 [[actor_paths]]
 pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/*.py"
+actor = "A04"
+[[actor_paths]]
+pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/strategy/*.py"
+actor = "A04"
+[[actor_paths]]
+pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/backtest/*.py"
 actor = "A04"
 [[actor_paths]]
 pattern = "src/onlyalpha/research/worker_main.py"
@@ -415,6 +516,9 @@ actor = "A11"
 pattern = "src/onlyalpha/application/strategy_authority.py"
 actor = "A14"
 [[actor_paths]]
+pattern = "src/onlyalpha/application/strategy_product.py"
+actor = "A14"
+[[actor_paths]]
 pattern = "src/onlyalpha/application/product_boundary.py"
 actor = "A17"
 [[actor_paths]]
@@ -434,6 +538,66 @@ pattern = "src/onlyalpha/strategy/store.py"
 actor = "A14"
 [[actor_paths]]
 pattern = "src/onlyalpha/persistence/postgres/strategy_store.py"
+actor = "A14"
+[[actor_paths]]
+pattern = "src/onlyalpha/backtest/worker_main.py"
+actor = "A20"
+[[actor_paths]]
+pattern = "src/onlyalpha/backtest/worker.py"
+actor = "A21"
+[[actor_paths]]
+pattern = "src/onlyalpha/backtest/presence.py"
+actor = "A20"
+[[actor_paths]]
+pattern = "src/onlyalpha/backtest/deployment.py"
+actor = "A20"
+[[actor_paths]]
+pattern = "src/onlyalpha/backtest/__init__.py"
+actor = "A19"
+[[actor_paths]]
+pattern = "src/onlyalpha/backtest/admission.py"
+actor = "A19"
+[[actor_paths]]
+pattern = "src/onlyalpha/backtest/command.py"
+actor = "A19"
+[[actor_paths]]
+pattern = "src/onlyalpha/backtest/command_memory.py"
+actor = "A19"
+[[actor_paths]]
+pattern = "src/onlyalpha/backtest/dataset_source.py"
+actor = "A19"
+[[actor_paths]]
+pattern = "src/onlyalpha/backtest/economic_facts.py"
+actor = "A19"
+[[actor_paths]]
+pattern = "src/onlyalpha/backtest/errors.py"
+actor = "A19"
+[[actor_paths]]
+pattern = "src/onlyalpha/backtest/evidence.py"
+actor = "A19"
+[[actor_paths]]
+pattern = "src/onlyalpha/backtest/execution.py"
+actor = "A19"
+[[actor_paths]]
+pattern = "src/onlyalpha/backtest/in_memory.py"
+actor = "A19"
+[[actor_paths]]
+pattern = "src/onlyalpha/backtest/market_adapter.py"
+actor = "A19"
+[[actor_paths]]
+pattern = "src/onlyalpha/backtest/model.py"
+actor = "A19"
+[[actor_paths]]
+pattern = "src/onlyalpha/backtest/profiles.py"
+actor = "A19"
+[[actor_paths]]
+pattern = "src/onlyalpha/backtest/query.py"
+actor = "A19"
+[[actor_paths]]
+pattern = "src/onlyalpha/persistence/postgres/backtest_store.py"
+actor = "A22"
+[[actor_paths]]
+pattern = "src/onlyalpha/persistence/postgres/strategy_product_store.py"
 actor = "A14"
 [[actor_paths]]
 pattern = "src/onlyalpha/engine/*.py"
@@ -550,6 +714,21 @@ symbols = ["onlyalpha.kernel.command.OnlyProductCommandDispatcher", "onlyalpha.a
 [[bindings]]
 capability = "C19"
 symbols = ["onlyalpha.kernel.query.OnlyProductQueryDispatcher", "onlyalpha.application.product_boundary.OnlyResearchProductBoundary"]
+[[bindings]]
+capability = "C20"
+symbols = ["onlyalpha.backtest.command.OnlyBacktestCommandService", "onlyalpha.persistence.postgres.backtest_store.OnlyPostgresBacktestStore"]
+[[bindings]]
+capability = "C21"
+symbols = ["onlyalpha.backtest.worker.OnlyBacktestWorker", "onlyalpha.persistence.postgres.backtest_store.OnlyPostgresBacktestStore"]
+[[bindings]]
+capability = "C22"
+symbols = ["onlyalpha.backtest.worker.OnlyBacktestWorker", "onlyalpha.backtest.worker.OnlyEngineBacktestRuntimeExecutor"]
+[[bindings]]
+capability = "C23"
+symbols = ["onlyalpha.backtest.evidence.OnlyBacktestEvidenceStore"]
+[[bindings]]
+capability = "C24"
+symbols = ["onlyalpha.backtest.presence.OnlyBacktestWorkerPresenceReporter", "onlyalpha.persistence.postgres.backtest_store.OnlyPostgresBacktestStore"]
 
 [[ownership]]
 capability = "C01"
@@ -565,10 +744,10 @@ capability = "C04"
 approved_production_holders = ["A15", "A16"]
 [[ownership]]
 capability = "C05"
-approved_production_holders = ["A07", "A08", "A14", "A15"]
+approved_production_holders = ["A03", "A07", "A08", "A14", "A15", "A19", "A20", "A21"]
 [[ownership]]
 capability = "C06"
-approved_production_holders = ["A14"]
+approved_production_holders = ["A03", "A14"]
 [[ownership]]
 capability = "C07"
 approved_production_holders = ["A14"]
@@ -586,13 +765,13 @@ capability = "C11"
 approved_production_holders = ["A10"]
 [[ownership]]
 capability = "C12"
-approved_production_holders = ["A06", "A11", "A15"]
+approved_production_holders = ["A06", "A11", "A15", "A21"]
 [[ownership]]
 capability = "C13"
 approved_production_holders = ["A07", "A08", "A09", "A15"]
 [[ownership]]
 capability = "C14"
-approved_production_holders = ["A06", "A07", "A08", "A09", "A11", "A15"]
+approved_production_holders = ["A06", "A07", "A08", "A09", "A11", "A15", "A21"]
 [[ownership]]
 capability = "C15"
 approved_production_holders = []
@@ -608,6 +787,21 @@ approved_production_holders = ["A03", "A04", "A12", "A17"]
 [[ownership]]
 capability = "C19"
 approved_production_holders = ["A03", "A04", "A12", "A17"]
+[[ownership]]
+capability = "C20"
+approved_production_holders = ["A03", "A04", "A19", "A20", "A22"]
+[[ownership]]
+capability = "C21"
+approved_production_holders = ["A03", "A20", "A21", "A22"]
+[[ownership]]
+capability = "C22"
+approved_production_holders = ["A20", "A21"]
+[[ownership]]
+capability = "C23"
+approved_production_holders = ["A03", "A19", "A20", "A21"]
+[[ownership]]
+capability = "C24"
+approved_production_holders = ["A03", "A20", "A22"]
 
 [[constructors]]
 id = "K01"
@@ -618,7 +812,7 @@ approved_paths = ["src/onlyalpha/application/strategy_authority.py"]
 id = "K02"
 capability = "C07"
 symbol = "onlyalpha.strategy.promotion.OnlyStrategyPromotionService"
-approved_paths = ["src/onlyalpha/application/strategy_authority.py"]
+approved_paths = ["src/onlyalpha/application/strategy_authority.py", "src/onlyalpha/application/strategy_product.py"]
 [[constructors]]
 id = "K03"
 capability = "C08"
@@ -648,7 +842,7 @@ approved_paths = ["src/onlyalpha/research/worker_main.py"]
 id = "K08"
 capability = "C12"
 symbol = "onlyalpha.engine.engine.OnlyEngine"
-approved_paths = ["scripts/regenerate_recovery_baselines.py", "scripts/regenerate_result_fixtures.py", "src/onlyalpha/research/execution/worker.py", "src/onlyalpha/scenario/runner.py"]
+approved_paths = ["scripts/regenerate_recovery_baselines.py", "scripts/regenerate_result_fixtures.py", "src/onlyalpha/backtest/worker.py", "src/onlyalpha/research/execution/worker.py", "src/onlyalpha/scenario/runner.py"]
 [[constructors]]
 id = "K09"
 capability = "C13"

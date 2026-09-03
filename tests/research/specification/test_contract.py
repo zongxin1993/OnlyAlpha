@@ -37,7 +37,17 @@ def test_strict_round_trip_and_identity_are_declaration_order_neutral() -> None:
     assert restored == original
     assert restored.specification_fingerprint == original.specification_fingerprint
     assert reordered.specification_fingerprint == original.specification_fingerprint
-    assert original.specification_fingerprint == "305323bea3a87e7d4fb864ac2915675858aa2a6529a4e82b1a230fd9e971cd80"
+    assert original.specification_fingerprint == "0feeec97f7ce6e7b04e884514c75b233b843e7f6d761bff85f7aa81d640a9c21"
+
+
+def test_semantic_calculation_type_change_changes_specification_identity() -> None:
+    original = specification()
+    payload = original.to_dict()
+    payload["calculations"][0]["graph_template"]["nodes"][0]["type_reference"]["type_id"] = "onlyalpha.factor.changed"
+
+    changed = OnlyResearchSpecification.from_dict(payload)
+
+    assert changed.specification_fingerprint != original.specification_fingerprint
 
 
 @pytest.mark.parametrize("version", [0, 2, "1", True, None])

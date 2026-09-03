@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 from pathlib import Path
+from typing import cast
 
 import uvicorn
 
@@ -49,9 +50,7 @@ from onlyalpha.persistence.postgres import (
 )
 from onlyalpha.persistence.postgres.backtest_store import OnlyPostgresBacktestStore
 from onlyalpha.persistence.postgres.strategy_product_store import OnlyPostgresStrategyProductStore
-from onlyalpha.plugin.discovery import only_discover_plugins
 from onlyalpha.research.artifact.reader import OnlyResearchArtifactProfileReader
-from onlyalpha.research.calculation.predicate import only_register_research_predicate_primitives
 from onlyalpha.research.calculation.result_store import OnlyParquetResearchCalculationResultStore
 from onlyalpha.research.command.query import OnlyResearchRunQueryService
 from onlyalpha.research.command.service import OnlyResearchCommandService
@@ -72,10 +71,10 @@ from onlyalpha.research.operations.readiness import (
 from onlyalpha.research.result.result_store import OnlyJsonResearchResultStore
 from onlyalpha.research.run.admission import OnlyResearchRunAdmissionService
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
-from onlyalpha.strategy.promotion import OnlyStrategyPromotionService
 from onlyalpha.strategy.store import OnlyFrozenStrategyRevisionStore
 
 from .app import create_product_app
+from .composition import only_configure_product_registries
 from .health import OnlyKernelResearchReadinessProjection
 
 
@@ -95,26 +94,15 @@ class _ResearchProductVerification:
             raise RuntimeError(evidence.reason or "RESEARCH_SERVICE_NOT_READY")
 
 
+class _UnavailableProductAuthority:
+    """Fail-closed placeholder used only while the Product Kernel is unavailable."""
+
+    def __getattr__(self, name: str) -> object:
+        raise RuntimeError(f"PRODUCT_KERNEL_NOT_READY: {name}")
+
+
 def _verify_postgres_server(operational_dsn: str) -> None:
     only_assert_supported_postgres_server(operational_dsn)
-
-
-def _configure_product_registries(
-    calculations: OnlyCalculationRegistry,
-    data_sources: OnlyDataSourceFactoryRegistry,
-    brokers: OnlyBrokerFactoryRegistry,
-    broker_fees: OnlyBrokerFeeContractRegistry,
-    market_products: OnlyMarketProductFactoryRegistry,
-) -> None:
-    only_discover_plugins(
-        data_sources,
-        brokers,
-        broker_fees,
-        market_products,
-        calculations,
-        fail_fast=True,
-    )
-    only_register_research_predicate_primitives(calculations)
 
 
 def _verify_calculation_registry(calculations: OnlyCalculationRegistry) -> None:
@@ -160,9 +148,10 @@ def _compose_backtest_product(
     datasets = OnlyParquetResearchDatasetSnapshotStore(layout.research_dataset_root)
     store = OnlyPostgresBacktestStore(postgres_dsn, operational_options)
     evidence = OnlyBacktestEvidenceStore(layout.root)
+    strategy_queries = OnlyStrategyQueryService(strategies, promotions)
     admission = OnlyBacktestAdmissionService(
         strategies=strategies,
-        promotions=OnlyStrategyPromotionService(strategies, promotions, only_system_utc_now),
+        promotions=strategy_queries,
         dataset_bindings=OnlyDatasetEconomicBindingStore(layout.root),
         datasets=datasets,
         market_products=OnlyMarketProductBacktestAdmissionAdapter(
@@ -244,7 +233,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         booters=(
             OnlyKernelLifecycleStep(
                 "calculation_registry_composition",
-                lambda: _configure_product_registries(
+                lambda: only_configure_product_registries(
                     calculations,
                     data_sources,
                     brokers,
@@ -293,64 +282,79 @@ def main(argv: Sequence[str] | None = None) -> int:
             commands=command,
             queries=OnlyResearchRunQueryService(run_store),
         )
-        semantic_namespace_id = OnlyResearchSemanticStoreIdentity(layout.research_root).load_verified()
-        strategy_store = OnlyPostgresStrategyProductStore(
-            postgres.dsn,
-            semantic_namespace_id,
-            operational_options,
-        )
-        frozen_strategies = OnlyFrozenStrategyRevisionStore(layout.research_root)
-        calculation_results = OnlyParquetResearchCalculationResultStore(
-            layout.research_calculation_result_root,
-            dataset_store,
-        )
-        statistics_results = OnlyParquetResearchStatisticsResultStore(
-            layout.research_statistics_result_root,
-            calculation_results,
-        )
-        research_results = OnlyJsonResearchResultStore(
-            layout.research_result_root,
-            statistics_results,
-            calculation_results,
-        )
-        freeze = OnlyStrategyFreezeApplicationService.compose(
-            semantic_root=layout.research_root,
-            postgres_dsn=postgres.dsn,
-            semantic_namespace_id=semantic_namespace_id,
-            runs=run_store,
-            research_results=research_results,
-            calculation_results=calculation_results,
-            datasets=dataset_store,
-            specification_resolver=resolver,
-            calculations=calculations,
-            audit_time=only_system_utc_now,
-        )
-        backtest_commands, backtest_queries, backtest_store = _compose_backtest_product(
-            postgres.dsn,
-            operational_options,
-            layout,
-            market_products,
-            catalog,
-            resources,
-        )
-        app = create_product_app(
-            OnlyResearchArtifactProfileReader(layout.research_artifact_root),
-            product_boundary,
-            calculations,
-            OnlyResearchDefinitionResolver(calculations, dataset_store),
-            OnlyKernelResearchReadinessProjection(kernel, verification.evidence),
-            OnlyStrategyFreezeProductService(
+        readiness = OnlyKernelResearchReadinessProjection(kernel, verification.evidence)
+        artifact_reader = OnlyResearchArtifactProfileReader(layout.research_artifact_root)
+        definition_resolver = OnlyResearchDefinitionResolver(calculations, dataset_store)
+        if startup_status.state is OnlyKernelState.FAILED:
+            unavailable = _UnavailableProductAuthority()
+            strategy_freeze = cast(OnlyStrategyFreezeProductService, unavailable)
+            strategy_promotion = cast(OnlyStrategyPromotionProductService, unavailable)
+            strategy_query = cast(OnlyStrategyQueryService, unavailable)
+            backtest_commands = cast(OnlyBacktestCommandService, unavailable)
+            backtest_queries = cast(OnlyBacktestQueryService, unavailable)
+            backtest_store = OnlyPostgresBacktestStore(postgres.dsn, operational_options)
+        else:
+            semantic_namespace_id = OnlyResearchSemanticStoreIdentity(layout.research_root).load_verified()
+            strategy_store = OnlyPostgresStrategyProductStore(
+                postgres.dsn,
+                semantic_namespace_id,
+                operational_options,
+            )
+            frozen_strategies = OnlyFrozenStrategyRevisionStore(layout.research_root)
+            calculation_results = OnlyParquetResearchCalculationResultStore(
+                layout.research_calculation_result_root,
+                dataset_store,
+            )
+            statistics_results = OnlyParquetResearchStatisticsResultStore(
+                layout.research_statistics_result_root,
+                calculation_results,
+            )
+            research_results = OnlyJsonResearchResultStore(
+                layout.research_result_root,
+                statistics_results,
+                calculation_results,
+            )
+            freeze = OnlyStrategyFreezeApplicationService.compose(
+                semantic_root=layout.research_root,
+                postgres_dsn=postgres.dsn,
+                semantic_namespace_id=semantic_namespace_id,
+                runs=run_store,
+                research_results=research_results,
+                calculation_results=calculation_results,
+                datasets=dataset_store,
+                specification_resolver=resolver,
+                calculations=calculations,
+                audit_time=only_system_utc_now,
+            )
+            strategy_freeze = OnlyStrategyFreezeProductService(
                 freeze=freeze,
                 strategies=frozen_strategies,
                 store=strategy_store,
                 now_utc=only_system_utc_now,
-            ),
-            OnlyStrategyPromotionProductService(
+            )
+            strategy_promotion = OnlyStrategyPromotionProductService(
                 strategies=frozen_strategies,
                 store=strategy_store,
                 audit_time=only_system_utc_now,
-            ),
-            OnlyStrategyQueryService(frozen_strategies, strategy_store),
+            )
+            strategy_query = OnlyStrategyQueryService(frozen_strategies, strategy_store)
+            backtest_commands, backtest_queries, backtest_store = _compose_backtest_product(
+                postgres.dsn,
+                operational_options,
+                layout,
+                market_products,
+                catalog,
+                resources,
+            )
+        app = create_product_app(
+            artifact_reader,
+            product_boundary,
+            calculations,
+            definition_resolver,
+            readiness,
+            strategy_freeze,
+            strategy_promotion,
+            strategy_query,
             backtest_commands,
             backtest_queries,
             backtest_store,

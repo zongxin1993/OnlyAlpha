@@ -73,22 +73,34 @@ def _stop(process: subprocess.Popen[str]) -> None:
             process.wait(timeout=5)
 
 
-def _wait_health(port: int, expected_reason: str | None, *, timeout: float = 20) -> dict[str, object]:
+def _wait_health(
+    port: int,
+    expected_reason: str | None,
+    *,
+    timeout: float = 20,
+    process: subprocess.Popen[str] | None = None,
+) -> dict[str, object]:
     deadline = time.monotonic() + timeout
+    last_payload: dict[str, object] | None = None
     while time.monotonic() < deadline:
         try:
             with urlopen(f"http://127.0.0.1:{port}/health/ready", timeout=1) as response:  # noqa: S310
                 payload = json.load(response)
+                last_payload = payload
                 if expected_reason is None and response.status == 200:
                     return payload
         except HTTPError as error:
             payload = json.loads(error.read())
+            last_payload = payload
             if error.code == 503 and payload.get("reason") == expected_reason:
                 return payload
         except (URLError, TimeoutError):
             pass
+        if process is not None and process.poll() is not None:
+            output = process.stdout.read() if process.stdout is not None else ""
+            raise AssertionError(f"API exited before readiness: {output}")
         time.sleep(0.05)
-    raise AssertionError(f"API readiness did not reach expected reason {expected_reason}")
+    raise AssertionError(f"API readiness did not reach expected reason {expected_reason}; last={last_payload!r}")
 
 
 def _queued() -> OnlyResearchRun:
@@ -106,6 +118,7 @@ def _queued() -> OnlyResearchRun:
 def test_wrong_namespace_api_is_not_ready_and_cannot_serve_product_routes(
     postgres_dsn: str,
     tmp_path: Path,
+    backtest_product_config: Path,
 ) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     _initialize_deployment(postgres_dsn, tmp_path / "correct")
@@ -122,6 +135,8 @@ def test_wrong_namespace_api_is_not_ready_and_cannot_serve_product_routes(
             str(wrong),
             "--port",
             str(port),
+            "--backtest-product-config",
+            str(backtest_product_config),
         ],
         env=_environment(postgres_dsn),
         text=True,
@@ -129,7 +144,7 @@ def test_wrong_namespace_api_is_not_ready_and_cannot_serve_product_routes(
         stderr=subprocess.STDOUT,
     )
     try:
-        readiness = _wait_health(port, "SEMANTIC_STORE_IDENTITY_MISMATCH")
+        readiness = _wait_health(port, "SEMANTIC_STORE_IDENTITY_MISMATCH", process=api)
         assert readiness["checks"]["deployment_binding"] == "SEMANTIC_STORE_IDENTITY_MISMATCH"  # type: ignore[index]
         with pytest.raises(HTTPError) as blocked:
             urlopen(f"http://127.0.0.1:{port}/api/v2/research/catalog/calculations", timeout=2)  # noqa: S310

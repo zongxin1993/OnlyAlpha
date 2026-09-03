@@ -67,7 +67,7 @@ def test_release_static_uses_root_mypy_authority_and_package_local_exceptions() 
         "onlyalpha-plugin-tushare",
         "onlyalpha-plugin-miniqmt",
     ):
-            assert any("plugs/" in command and package in command for command in joined)
+        assert any("plugs/" in command and package in command for command in joined)
 
 
 def test_external_and_real_order_tests_are_excluded_from_offline_lanes() -> None:
@@ -134,6 +134,15 @@ def test_release_and_local_runner_boundaries_are_explicit() -> None:
         assert lane in source
     assert LANES[OnlyTestLane.MINIQMT_LOCAL].workers == "0"
     assert "not requires_broker_account" in LANES[OnlyTestLane.MINIQMT_LOCAL].expression
+
+
+def test_positive_marker_lanes_prefilter_before_collection_without_narrowing_general_lanes() -> None:
+    assert LANES[OnlyTestLane.ASHARE].prefilter_marker == "conformance"
+    assert LANES[OnlyTestLane.RECOVERY].prefilter_marker == "recovery"
+    assert LANES[OnlyTestLane.SIM_RECOVERY].prefilter_marker == "sim_recovery"
+    assert LANES[OnlyTestLane.EXHAUSTIVE].prefilter_marker == "exhaustive"
+    for lane in (OnlyTestLane.FAST, OnlyTestLane.INTEGRATION, OnlyTestLane.CORE_FULL):
+        assert LANES[lane].prefilter_marker is None
 
 
 def test_release_runs_each_canonical_lane_exactly_once() -> None:

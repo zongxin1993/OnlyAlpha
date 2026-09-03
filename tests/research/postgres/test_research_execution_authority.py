@@ -56,6 +56,7 @@ from onlyalpha.research.specification import OnlyResearchSpecificationResolver
 from onlyalpha.runtime.defaults import OnlyEngineServices, only_default_engine_services
 from onlyalpha.runtime.research import OnlyResearchRuntimeBoundary, OnlyResearchRuntimeResult
 from onlyalpha.runtime.result import OnlyRuntimeResultStatus
+from tests.research.postgres.migration_support import current_migrations
 from tests.research.specification.support import registry, specification
 from tests.runtime.research.support import workload_case
 
@@ -75,6 +76,7 @@ M11 = "0011_p9_0_freeze_projection_convergence"
 M12 = "0012_product_command_receipt"
 M13 = "0013_market_data_catalog"
 M14 = "0014_market_data_durable_ownership"
+CURRENT_MIGRATIONS = current_migrations()
 EXECUTION_EVIDENCE = ("e" * 64,)
 WORKER_1 = OnlyResearchWorkerInstanceId("00000000-0000-4000-8000-000000000301")
 WORKER_2 = OnlyResearchWorkerInstanceId("00000000-0000-4000-8000-000000000302")
@@ -183,21 +185,8 @@ def test_existing_m1_m2_database_plans_exact_forward_suffix_and_preserves_run(
     assert OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path).migrate() == (M1, M2)
     run = _insert_legacy_queued(postgres_dsn, _queued(310))
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
-    assert tuple(item.migration_id for item in authority.plan()) == (
-        M3,
-        M4,
-        M5,
-        M6,
-        M7,
-        M8,
-        M9,
-        M10,
-        M11,
-        M12,
-        M13,
-        M14,
-    )
-    assert authority.migrate() == (M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14)
+    assert tuple(item.migration_id for item in authority.plan()) == CURRENT_MIGRATIONS[2:]
+    assert authority.migrate() == CURRENT_MIGRATIONS[2:]
     assert OnlyPostgresResearchRunStore(postgres_dsn).load(run.run_id) == run
 
 

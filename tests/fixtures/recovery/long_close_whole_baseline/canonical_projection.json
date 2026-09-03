@@ -60,7 +60,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 1,
       "source": "ACCOUNT_CREATED",
@@ -137,7 +137,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 2,
       "source": "MARKET_VALUATION",
@@ -214,7 +214,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 3,
       "source": "STATE_CHANGE",
@@ -291,7 +291,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 4,
       "source": "MARKET_VALUATION",
@@ -368,7 +368,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 5,
       "source": "COMMITTED_EXECUTION",
@@ -445,7 +445,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 6,
       "source": "MARKET_VALUATION",
@@ -522,7 +522,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 7,
       "source": "STATE_CHANGE",
@@ -599,7 +599,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 8,
       "source": "STATE_CHANGE",
@@ -676,7 +676,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 9,
       "source": "MARKET_VALUATION",
@@ -753,7 +753,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 10,
       "source": "MARKET_VALUATION",
@@ -830,7 +830,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 11,
       "source": "MARKET_VALUATION",
@@ -907,7 +907,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 12,
       "source": "MARKET_VALUATION",
@@ -984,7 +984,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 13,
       "source": "COMMITTED_EXECUTION",
@@ -1061,7 +1061,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 14,
       "source": "MARKET_VALUATION",
@@ -1138,7 +1138,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 15,
       "source": "STATE_CHANGE",
@@ -1215,7 +1215,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 16,
       "source": "STATE_CHANGE",
@@ -1292,7 +1292,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 17,
       "source": "MARKET_VALUATION",
@@ -1369,7 +1369,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 18,
       "source": "MARKET_VALUATION",
@@ -1446,7 +1446,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 19,
       "source": "MARKET_VALUATION",
@@ -1523,7 +1523,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 20,
       "source": "MARKET_VALUATION",
@@ -1600,7 +1600,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 21,
       "source": "MARKET_VALUATION",
@@ -1677,7 +1677,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 22,
       "source": "MARKET_VALUATION",
@@ -1754,7 +1754,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 23,
       "source": "MARKET_VALUATION",
@@ -1831,7 +1831,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 24,
       "source": "MARKET_VALUATION",
@@ -1908,7 +1908,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 25,
       "source": "MARKET_VALUATION",
@@ -1985,7 +1985,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 26,
       "source": "MARKET_VALUATION",
@@ -2062,7 +2062,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 27,
       "source": "MARKET_VALUATION",
@@ -2139,7 +2139,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 28,
       "source": "MARKET_VALUATION",
@@ -2216,7 +2216,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 29,
       "source": "MARKET_VALUATION",
@@ -2293,7 +2293,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 30,
       "source": "MARKET_VALUATION",
@@ -2370,7 +2370,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 31,
       "source": "MARKET_VALUATION",
@@ -2447,7 +2447,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 32,
       "source": "MARKET_VALUATION",
@@ -2524,7 +2524,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 33,
       "source": "MARKET_VALUATION",
@@ -2601,7 +2601,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 34,
       "source": "MARKET_VALUATION",
@@ -2678,7 +2678,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 35,
       "source": "MARKET_VALUATION",
@@ -2755,7 +2755,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 36,
       "source": "MARKET_VALUATION",
@@ -2832,7 +2832,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 37,
       "source": "MARKET_VALUATION",
@@ -2909,7 +2909,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 38,
       "source": "MARKET_VALUATION",
@@ -2986,7 +2986,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 39,
       "source": "MARKET_VALUATION",
@@ -3063,7 +3063,7 @@
         }
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "sequence": 40,
       "source": "FINAL_SEAL",
@@ -3130,7 +3130,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -3142,7 +3142,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 1,
         "maximum_drawdown": {
@@ -3230,7 +3230,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -3242,7 +3242,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 2,
         "maximum_drawdown": {
@@ -3330,7 +3330,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -3342,7 +3342,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 3,
         "maximum_drawdown": {
@@ -3430,7 +3430,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -3442,7 +3442,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 4,
         "maximum_drawdown": {
@@ -3530,7 +3530,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -3542,7 +3542,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 5,
         "maximum_drawdown": {
@@ -3630,7 +3630,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -3642,7 +3642,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 7,
         "maximum_drawdown": {
@@ -3730,7 +3730,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -3742,7 +3742,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 8,
         "maximum_drawdown": {
@@ -3830,7 +3830,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -3842,7 +3842,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 9,
         "maximum_drawdown": {
@@ -3930,7 +3930,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -3942,7 +3942,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 10,
         "maximum_drawdown": {
@@ -4030,7 +4030,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -4042,7 +4042,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 11,
         "maximum_drawdown": {
@@ -4130,7 +4130,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -4142,7 +4142,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 12,
         "maximum_drawdown": {
@@ -4230,7 +4230,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -4242,7 +4242,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 13,
         "maximum_drawdown": {
@@ -4330,7 +4330,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -4342,7 +4342,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 14,
         "maximum_drawdown": {
@@ -4430,7 +4430,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -4442,7 +4442,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 15,
         "maximum_drawdown": {
@@ -4530,7 +4530,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -4542,7 +4542,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 16,
         "maximum_drawdown": {
@@ -4630,7 +4630,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -4642,7 +4642,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 17,
         "maximum_drawdown": {
@@ -4730,7 +4730,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -4742,7 +4742,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 18,
         "maximum_drawdown": {
@@ -4830,7 +4830,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -4842,7 +4842,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 19,
         "maximum_drawdown": {
@@ -4930,7 +4930,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -4942,7 +4942,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 20,
         "maximum_drawdown": {
@@ -5030,7 +5030,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -5042,7 +5042,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 21,
         "maximum_drawdown": {
@@ -5130,7 +5130,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -5142,7 +5142,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 22,
         "maximum_drawdown": {
@@ -5230,7 +5230,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -5242,7 +5242,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 23,
         "maximum_drawdown": {
@@ -5330,7 +5330,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -5342,7 +5342,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 24,
         "maximum_drawdown": {
@@ -5430,7 +5430,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -5442,7 +5442,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 25,
         "maximum_drawdown": {
@@ -5530,7 +5530,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -5542,7 +5542,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 26,
         "maximum_drawdown": {
@@ -5630,7 +5630,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -5642,7 +5642,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 27,
         "maximum_drawdown": {
@@ -5730,7 +5730,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -5742,7 +5742,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 28,
         "maximum_drawdown": {
@@ -5830,7 +5830,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -5842,7 +5842,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 29,
         "maximum_drawdown": {
@@ -5930,7 +5930,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -5942,7 +5942,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 30,
         "maximum_drawdown": {
@@ -6030,7 +6030,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -6042,7 +6042,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 31,
         "maximum_drawdown": {
@@ -6130,7 +6130,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -6142,7 +6142,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 32,
         "maximum_drawdown": {
@@ -6230,7 +6230,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -6242,7 +6242,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 33,
         "maximum_drawdown": {
@@ -6330,7 +6330,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -6342,7 +6342,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 34,
         "maximum_drawdown": {
@@ -6430,7 +6430,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -6442,7 +6442,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 35,
         "maximum_drawdown": {
@@ -6530,7 +6530,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -6542,7 +6542,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 36,
         "maximum_drawdown": {
@@ -6630,7 +6630,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -6642,7 +6642,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 37,
         "maximum_drawdown": {
@@ -6730,7 +6730,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -6742,7 +6742,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 38,
         "maximum_drawdown": {
@@ -6830,7 +6830,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -6842,7 +6842,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 39,
         "maximum_drawdown": {
@@ -6930,7 +6930,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -6942,7 +6942,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 40,
         "maximum_drawdown": {
@@ -7030,7 +7030,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -7042,7 +7042,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 41,
         "maximum_drawdown": {
@@ -7130,7 +7130,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -7142,7 +7142,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "ledger_version": 42,
         "maximum_drawdown": {
@@ -7233,7 +7233,7 @@
           }
         },
         "ledger_id": {
-          "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+          "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
         },
         "losing_trade_count": 0,
         "maximum_drawdown": {
@@ -7263,7 +7263,7 @@
           "value": "-0.01000001"
         },
         "runtime_id": {
-          "value": "backtest-2d18c07709ac9b21"
+          "value": "backtest-2571931d96c5fdbe"
         },
         "trade_count": 2,
         "unrealized_pnl": {
@@ -7289,7 +7289,7 @@
           "instrument_id": "TESTETF.XSHG",
           "observation_fingerprint": "0af3c69aa18aa104f46c25e51e4fd52d65349dbbf39adb0e5e00ff4fbd14aef1",
           "observation_key": "d9ee0db0a425ef36cf062d82208adb9c39ddf04dfa1c9df91f5422cfe760c240",
-          "strategy_fingerprint": "ca94500eefad898f564defc84563d9c55df3903f41a4e8c0a088554d530efdd5"
+          "strategy_fingerprint": "02b4bf4655e1b0f9802e7ba346a1766da5bdfa0553f88d1d5c436b6904385e70"
         },
         "scenario_actions": [
           {
@@ -7302,7 +7302,7 @@
             "market_reason_code": null,
             "market_reference_fingerprint": null,
             "market_rule_code": null,
-            "order_id": "backtest-2d18c07709ac9b21-ORDER-000001",
+            "order_id": "backtest-2571931d96c5fdbe-ORDER-000001",
             "record_type": "SUBMISSION",
             "request_id": "scenario-macd-demo:OPEN",
             "risk_rejection": "",
@@ -7322,7 +7322,7 @@
             "market_reason_code": null,
             "market_reference_fingerprint": null,
             "market_rule_code": null,
-            "order_id": "backtest-2d18c07709ac9b21-ORDER-000002",
+            "order_id": "backtest-2571931d96c5fdbe-ORDER-000002",
             "record_type": "SUBMISSION",
             "request_id": "scenario-macd-demo:CLOSE",
             "risk_rejection": "",
@@ -7333,7 +7333,7 @@
             "tag": "CLOSE"
           }
         ],
-        "strategy_fingerprint": "ca94500eefad898f564defc84563d9c55df3903f41a4e8c0a088554d530efdd5",
+        "strategy_fingerprint": "02b4bf4655e1b0f9802e7ba346a1766da5bdfa0553f88d1d5c436b6904385e70",
         "submission_results": [
           {
             "action_id": "OPEN",
@@ -7345,7 +7345,7 @@
             "market_reason_code": null,
             "market_reference_fingerprint": null,
             "market_rule_code": null,
-            "order_id": "backtest-2d18c07709ac9b21-ORDER-000001",
+            "order_id": "backtest-2571931d96c5fdbe-ORDER-000001",
             "record_type": "SUBMISSION",
             "request_id": "scenario-macd-demo:OPEN",
             "risk_rejection": "",
@@ -7365,7 +7365,7 @@
             "market_reason_code": null,
             "market_reference_fingerprint": null,
             "market_rule_code": null,
-            "order_id": "backtest-2d18c07709ac9b21-ORDER-000002",
+            "order_id": "backtest-2571931d96c5fdbe-ORDER-000002",
             "record_type": "SUBMISSION",
             "request_id": "scenario-macd-demo:CLOSE",
             "risk_rejection": "",
@@ -7417,7 +7417,7 @@
         "realized_pnl": "-9990.00",
         "released_margin": "0",
         "reserved_margin": "0",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 7,
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:59:00Z",
@@ -7426,7 +7426,7 @@
     ],
     "compiled_market_rules": [
       {
-        "compiled_rules_fingerprint": "7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f",
+        "compiled_rules_fingerprint": "ff0fae7f6925be3e171dd29b0bbb2d383e7789327a0d8dfb8ef334e3b5ca0c7e",
         "instrument_id": "TESTETF.XSHG",
         "product_id": "GENERIC_T0_CASH",
         "product_version": "1",
@@ -7453,7 +7453,7 @@
         "net_exposure": "0",
         "position_count": 0,
         "realized_pnl": "0",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 8,
         "snapshot_phase": "ACCOUNT_CREATED",
         "trading_day": "2026-01-05",
@@ -7474,7 +7474,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "0",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 9,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -7495,7 +7495,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "0",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 10,
         "snapshot_phase": "STATE_CHANGE",
         "trading_day": "2026-01-05",
@@ -7516,7 +7516,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "0",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 11,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -7537,7 +7537,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "0",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 12,
         "snapshot_phase": "COMMITTED_EXECUTION",
         "trading_day": "2026-01-05",
@@ -7558,7 +7558,7 @@
         "net_exposure": "10000.00",
         "position_count": 0,
         "realized_pnl": "0",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 13,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -7579,7 +7579,7 @@
         "net_exposure": "10000.00",
         "position_count": 0,
         "realized_pnl": "0",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 14,
         "snapshot_phase": "STATE_CHANGE",
         "trading_day": "2026-01-05",
@@ -7600,7 +7600,7 @@
         "net_exposure": "10000.00",
         "position_count": 0,
         "realized_pnl": "0",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 15,
         "snapshot_phase": "STATE_CHANGE",
         "trading_day": "2026-01-05",
@@ -7621,7 +7621,7 @@
         "net_exposure": "10000.00",
         "position_count": 0,
         "realized_pnl": "0",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 16,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -7642,7 +7642,7 @@
         "net_exposure": "10000.00",
         "position_count": 0,
         "realized_pnl": "0",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 17,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -7663,7 +7663,7 @@
         "net_exposure": "10000.00",
         "position_count": 0,
         "realized_pnl": "0",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 18,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -7684,7 +7684,7 @@
         "net_exposure": "10000.00",
         "position_count": 0,
         "realized_pnl": "0",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 19,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -7705,7 +7705,7 @@
         "net_exposure": "10000.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 20,
         "snapshot_phase": "COMMITTED_EXECUTION",
         "trading_day": "2026-01-05",
@@ -7726,7 +7726,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 21,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -7747,7 +7747,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 22,
         "snapshot_phase": "STATE_CHANGE",
         "trading_day": "2026-01-05",
@@ -7768,7 +7768,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 23,
         "snapshot_phase": "STATE_CHANGE",
         "trading_day": "2026-01-05",
@@ -7789,7 +7789,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 24,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -7810,7 +7810,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 25,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -7831,7 +7831,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 26,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -7852,7 +7852,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 27,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -7873,7 +7873,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 28,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -7894,7 +7894,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 29,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -7915,7 +7915,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 30,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -7936,7 +7936,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 31,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -7957,7 +7957,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 32,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -7978,7 +7978,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 33,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -7999,7 +7999,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 34,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -8020,7 +8020,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 35,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -8041,7 +8041,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 36,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -8062,7 +8062,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 37,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -8083,7 +8083,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 38,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -8104,7 +8104,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 39,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -8125,7 +8125,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 40,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -8146,7 +8146,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 41,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -8167,7 +8167,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 42,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -8188,7 +8188,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 43,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -8209,7 +8209,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 44,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -8230,7 +8230,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 45,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -8251,7 +8251,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 46,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
@@ -8272,7 +8272,7 @@
         "net_exposure": "0.00",
         "position_count": 0,
         "realized_pnl": "-9990.00",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 47,
         "snapshot_phase": "FINAL_SEAL",
         "trading_day": "2026-01-05",
@@ -8293,15 +8293,15 @@
         "broker_fee_schedule_versions": [],
         "cluster_id": "macd-demo",
         "commission": "0.00",
-        "compiled_rule_fingerprint": "7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f",
+        "compiled_rule_fingerprint": "ff0fae7f6925be3e171dd29b0bbb2d383e7789327a0d8dfb8ef334e3b5ca0c7e",
         "contract_multiplier": "1",
-        "execution_id": "EXEC-424462e00a9239575a427f42cae1a6b82707fe4f4c9a257d4058a75826d0df86",
-        "fee_application_id": "465873818daaa48a513051668fd5a59a9d3e5a996c1e70dd820e907af77e384b",
-        "fee_binding_fingerprint": "0b73b875a70b6d16c53b259c0ecc68771a6401d779025d401d24b2b6b4d5da9c",
+        "execution_id": "EXEC-a47ce7c9c85fbb9a74867990b619078c87d6f4120b8b72d8dd5f654ff266b3c5",
+        "fee_application_id": "238ae5807a31503599125de520a9bf6aade472134083db8f2469a10f4d565b95",
+        "fee_binding_fingerprint": "679cb3f3439492470cabd4d7da390a4db355090b8a577dcc90ca912a76fb97b3",
         "fee_breakdown": {
           "EXCHANGE_FEE": "10.00"
         },
-        "fee_resolution_fingerprint": "ebcabddc4c10959073e7053c561e3b6265da555a043c350346493cfcea5e4d68",
+        "fee_resolution_fingerprint": "37c8ce257babb6fb74872d5d99dd751e9acb4555b783f151c9c9476844986fbf",
         "fee_scope_fingerprint": "4b466f65d75c5ec7da73854f61a9ade39a4980ac3ffec2d335a36f425bdf6eba",
         "fee_signed_cash_effect": "-10.00",
         "fee_total_charges": "10.00",
@@ -8309,7 +8309,7 @@
         "fees": "10.00",
         "instrument_id": "TESTETF.XSHG",
         "liquidity": {
-          "fee_application_id": "465873818daaa48a513051668fd5a59a9d3e5a996c1e70dd820e907af77e384b",
+          "fee_application_id": "238ae5807a31503599125de520a9bf6aade472134083db8f2469a10f4d565b95",
           "side": "TAKER"
         },
         "liquidity_side": "TAKER",
@@ -8331,7 +8331,7 @@
         "market_product_id": "GENERIC_T0_CASH",
         "market_product_version": "1",
         "offset": "OPEN",
-        "order_id": "backtest-2d18c07709ac9b21-ORDER-000001",
+        "order_id": "backtest-2571931d96c5fdbe-ORDER-000001",
         "position_effect": "OPEN",
         "position_mode": "NETTING",
         "position_side": "LONG",
@@ -8341,14 +8341,14 @@
         "reference_fingerprint": "5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93",
         "reference_price": "10.00",
         "request_id": "scenario-macd-demo:OPEN",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 5,
-        "settlement_instruction_id": "SINS-e3f4b22ea332e82bd61fde200294170eea762d453e655d394a9a925e7d485af5",
+        "settlement_instruction_id": "SINS-4e1d20e5b43fdb1d8cf06740e679f26d85695001c81b39f93e2b8cbb51f2eebc",
         "settlement_status": "SETTLED",
         "side": "BUY",
         "slippage": "0.00",
-        "strategy_id": "ca94500eefad898f564defc84563d9c55df3903f41a4e8c0a088554d530efdd5",
-        "trade_instruction_id": "TINSTR-a293bfab19decb933e79c02ee9bc398da44521b21764d9ddf8d62f11351c27f0",
+        "strategy_id": "02b4bf4655e1b0f9802e7ba346a1766da5bdfa0553f88d1d5c436b6904385e70",
+        "trade_instruction_id": "TINSTR-64d7d62c7e38b437ca8e5a72a392500f84ba95156f98f898b0c6b9df79f44140",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:32:00Z",
         "turnover": "10000.00",
@@ -8366,15 +8366,15 @@
         "broker_fee_schedule_versions": [],
         "cluster_id": "macd-demo",
         "commission": "0.00",
-        "compiled_rule_fingerprint": "7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f",
+        "compiled_rule_fingerprint": "ff0fae7f6925be3e171dd29b0bbb2d383e7789327a0d8dfb8ef334e3b5ca0c7e",
         "contract_multiplier": "1",
-        "execution_id": "EXEC-b508751722361a4baf07f276a8634877856d15151c723bac733c7a3e8340e7ce",
-        "fee_application_id": "08c05147001a760c569925eeddd687eb74cead56d8789c0f9dd7005dca4e7ace",
-        "fee_binding_fingerprint": "4879d10b2a4305963127014a9223e2286ca54e632504794d4d8036c18fd4168a",
+        "execution_id": "EXEC-a51523216101a631a55d42aa4195c57f3144a26b4ffabeb3f576037fddc97e28",
+        "fee_application_id": "45622946301381617779284c25b224c2d1a23d0b1dc5b9e11f015dc62a47926f",
+        "fee_binding_fingerprint": "3ca0a1ee16a188a5c056b49c154cf195b9b6bc3f66eb1d139ee58da9071d356c",
         "fee_breakdown": {
           "EXCHANGE_FEE": "0.01"
         },
-        "fee_resolution_fingerprint": "583ca47078e856bd37da3e72c9f27dbd8b1c275372bc16c43153368d017548a6",
+        "fee_resolution_fingerprint": "e242bfc3597832a272d021bd8d167a4cf4b28fdd550f59106a9f92a801d302cb",
         "fee_scope_fingerprint": "4b466f65d75c5ec7da73854f61a9ade39a4980ac3ffec2d335a36f425bdf6eba",
         "fee_signed_cash_effect": "-0.01",
         "fee_total_charges": "0.01",
@@ -8382,7 +8382,7 @@
         "fees": "0.01",
         "instrument_id": "TESTETF.XSHG",
         "liquidity": {
-          "fee_application_id": "08c05147001a760c569925eeddd687eb74cead56d8789c0f9dd7005dca4e7ace",
+          "fee_application_id": "45622946301381617779284c25b224c2d1a23d0b1dc5b9e11f015dc62a47926f",
           "side": "TAKER"
         },
         "liquidity_side": "TAKER",
@@ -8404,7 +8404,7 @@
         "market_product_id": "GENERIC_T0_CASH",
         "market_product_version": "1",
         "offset": "CLOSE",
-        "order_id": "backtest-2d18c07709ac9b21-ORDER-000002",
+        "order_id": "backtest-2571931d96c5fdbe-ORDER-000002",
         "position_effect": "CLOSE",
         "position_mode": "NETTING",
         "position_side": "LONG",
@@ -8414,14 +8414,14 @@
         "reference_fingerprint": "5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93",
         "reference_price": "0.01",
         "request_id": "scenario-macd-demo:CLOSE",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 6,
-        "settlement_instruction_id": "SINS-60f9121e8c7e51d699e196062f6e4f464ca5ba293cd797f2c42332ff816a3f01",
+        "settlement_instruction_id": "SINS-23fdcd823c0c4051fcfc945b9d8d342915947000cb7619e49c0c5d644910c50c",
         "settlement_status": "SETTLED",
         "side": "SELL",
         "slippage": "-0.00",
-        "strategy_id": "ca94500eefad898f564defc84563d9c55df3903f41a4e8c0a088554d530efdd5",
-        "trade_instruction_id": "TINSTR-b47e7ebcb7242518dd51887c2ad30009c23f3091b6707a002940f620d37c8304",
+        "strategy_id": "02b4bf4655e1b0f9802e7ba346a1766da5bdfa0553f88d1d5c436b6904385e70",
+        "trade_instruction_id": "TINSTR-947cc96d90cfb412b78f173f3d0061c00f220fa9c769e69a2512bee7df2bfe59",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:36:00Z",
         "turnover": "10.00",
@@ -8438,12 +8438,12 @@
         "authority": "MARKET",
         "charged": "10.00",
         "currency": "CNY",
-        "fee_record_id": "FEEAPP-465873818daaa48a513051668fd5a59a9d3e5a996c1e70dd820e907af77e384b-00000001",
+        "fee_record_id": "FEEAPP-238ae5807a31503599125de520a9bf6aade472134083db8f2469a10f4d565b95-00000001",
         "fee_type": "EXCHANGE_FEE",
-        "idempotency_key": "465873818daaa48a513051668fd5a59a9d3e5a996c1e70dd820e907af77e384b",
-        "instruction_id": "465873818daaa48a513051668fd5a59a9d3e5a996c1e70dd820e907af77e384b",
+        "idempotency_key": "238ae5807a31503599125de520a9bf6aade472134083db8f2469a10f4d565b95",
+        "instruction_id": "238ae5807a31503599125de520a9bf6aade472134083db8f2469a10f4d565b95",
         "instrument_id": "TESTETF.XSHG",
-        "order_id": "backtest-2d18c07709ac9b21-ORDER-000001",
+        "order_id": "backtest-2571931d96c5fdbe-ORDER-000001",
         "schedule_id": "GENERIC_T0_CASH_FEES",
         "schedule_version": "1",
         "sequence": 58,
@@ -8456,12 +8456,12 @@
         "authority": "MARKET",
         "charged": "0.01",
         "currency": "CNY",
-        "fee_record_id": "FEEAPP-08c05147001a760c569925eeddd687eb74cead56d8789c0f9dd7005dca4e7ace-00000002",
+        "fee_record_id": "FEEAPP-45622946301381617779284c25b224c2d1a23d0b1dc5b9e11f015dc62a47926f-00000002",
         "fee_type": "EXCHANGE_FEE",
-        "idempotency_key": "08c05147001a760c569925eeddd687eb74cead56d8789c0f9dd7005dca4e7ace",
-        "instruction_id": "08c05147001a760c569925eeddd687eb74cead56d8789c0f9dd7005dca4e7ace",
+        "idempotency_key": "45622946301381617779284c25b224c2d1a23d0b1dc5b9e11f015dc62a47926f",
+        "instruction_id": "45622946301381617779284c25b224c2d1a23d0b1dc5b9e11f015dc62a47926f",
         "instrument_id": "TESTETF.XSHG",
-        "order_id": "backtest-2d18c07709ac9b21-ORDER-000002",
+        "order_id": "backtest-2571931d96c5fdbe-ORDER-000002",
         "schedule_id": "GENERIC_T0_CASH_FEES",
         "schedule_version": "1",
         "sequence": 59,
@@ -8471,7 +8471,7 @@
     ],
     "margin": [],
     "market_product": {
-      "composition_fingerprint": "51b31da29870467fb1fb2db77f53f14941552279d3ae21f106f195c73f678078",
+      "composition_fingerprint": "c20b8f9a458a14b361eded4c537cb1e633f245ad788aedc25713abae5b75906c",
       "product_id": "GENERIC_T0_CASH",
       "product_version": "1",
       "provider_plugin_id": "onlyalpha-plugin-generic-t0-cash"
@@ -8484,8 +8484,8 @@
         "product_id": "GENERIC_T0_CASH",
         "product_version": "1",
         "reference_fingerprint": "5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93",
-        "resolved_rules_fingerprint": "51b31da29870467fb1fb2db77f53f14941552279d3ae21f106f195c73f678078",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "resolved_rules_fingerprint": "c20b8f9a458a14b361eded4c537cb1e633f245ad788aedc25713abae5b75906c",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "runtime_mode": "BACKTEST",
         "sequence": 62,
         "trading_day": "2026-01-05"
@@ -8495,7 +8495,7 @@
       {
         "account_id": "backtest-account",
         "decision": "ACCEPTED",
-        "evaluations": "[{\"inputs\":[[\"reference_fingerprint\",\"5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93\"]],\"reason_code\":null,\"rule_code\":\"REFERENCE_COVERAGE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"REFERENCE_EFFECTIVE_RANGE\",\"status\":\"PASSED\"},{\"inputs\":[[\"policy_fingerprint\",\"7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f\"]],\"reason_code\":null,\"rule_code\":\"EFFECTIVE_MARKET_POLICY_RESOLUTION\",\"status\":\"PASSED\"},{\"inputs\":[[\"phase\",\"CONTINUOUS\"]],\"reason_code\":null,\"rule_code\":\"TRADING_PHASE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SUSPENSION\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"INSTRUMENT_LIFECYCLE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SUPPORTED_ORDER_TYPE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SIDE_POSITION_EFFECT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"QUANTITY_POSITIVE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"BUY_SELL_MINIMUM\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"QUANTITY_INCREMENT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"ODD_LOT_LIQUIDATION\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PRICE_POSITIVE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PRICE_TICK_ALIGNMENT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PREVIOUS_CLOSE_SEMANTICS\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DAILY_UPPER_LIMIT\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DAILY_LOWER_LIMIT\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"NOTIONAL_MINIMUM\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"NOTIONAL_MAXIMUM\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SELLABLE_POSITION\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"AVAILABLE_CASH\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DYNAMIC_PRICE_CAGE\",\"status\":\"NOT_APPLICABLE\"}]",
+        "evaluations": "[{\"inputs\":[[\"reference_fingerprint\",\"5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93\"]],\"reason_code\":null,\"rule_code\":\"REFERENCE_COVERAGE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"REFERENCE_EFFECTIVE_RANGE\",\"status\":\"PASSED\"},{\"inputs\":[[\"policy_fingerprint\",\"ff0fae7f6925be3e171dd29b0bbb2d383e7789327a0d8dfb8ef334e3b5ca0c7e\"]],\"reason_code\":null,\"rule_code\":\"EFFECTIVE_MARKET_POLICY_RESOLUTION\",\"status\":\"PASSED\"},{\"inputs\":[[\"phase\",\"CONTINUOUS\"]],\"reason_code\":null,\"rule_code\":\"TRADING_PHASE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SUSPENSION\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"INSTRUMENT_LIFECYCLE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SUPPORTED_ORDER_TYPE\",\"status\":\"PASSED\"},{\"inputs\":[[\"position_side\",\"LONG\"]],\"reason_code\":null,\"rule_code\":\"ORDER_CAPABILITY\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SIDE_POSITION_EFFECT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"QUANTITY_POSITIVE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"BUY_SELL_MINIMUM\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"QUANTITY_INCREMENT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"ODD_LOT_LIQUIDATION\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PRICE_POSITIVE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PRICE_TICK_ALIGNMENT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PREVIOUS_CLOSE_SEMANTICS\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DAILY_UPPER_LIMIT\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DAILY_LOWER_LIMIT\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"NOTIONAL_MINIMUM\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"NOTIONAL_MAXIMUM\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SELLABLE_POSITION\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"AVAILABLE_CASH\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DYNAMIC_PRICE_CAGE\",\"status\":\"NOT_APPLICABLE\"}]",
         "instrument_id": "TESTETF.XSHG",
         "limit_rate": null,
         "lower_limit": null,
@@ -8507,7 +8507,7 @@
         "quantity_policy": "{\"buy_quantity_increment\":\"100\",\"minimum_buy_quantity\":\"100\",\"sell_quantity_increment\":\"100\"}",
         "reason": null,
         "reference_fingerprint": "5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93",
-        "rule_set_id": "7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f",
+        "rule_set_id": "ff0fae7f6925be3e171dd29b0bbb2d383e7789327a0d8dfb8ef334e3b5ca0c7e",
         "rule_type": "OnlyMarketOrderDecision",
         "sequence": 60,
         "side": "BUY",
@@ -8520,7 +8520,7 @@
       {
         "account_id": "backtest-account",
         "decision": "ACCEPTED",
-        "evaluations": "[{\"inputs\":[[\"reference_fingerprint\",\"5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93\"]],\"reason_code\":null,\"rule_code\":\"REFERENCE_COVERAGE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"REFERENCE_EFFECTIVE_RANGE\",\"status\":\"PASSED\"},{\"inputs\":[[\"policy_fingerprint\",\"7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f\"]],\"reason_code\":null,\"rule_code\":\"EFFECTIVE_MARKET_POLICY_RESOLUTION\",\"status\":\"PASSED\"},{\"inputs\":[[\"phase\",\"CONTINUOUS\"]],\"reason_code\":null,\"rule_code\":\"TRADING_PHASE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SUSPENSION\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"INSTRUMENT_LIFECYCLE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SUPPORTED_ORDER_TYPE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SIDE_POSITION_EFFECT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"QUANTITY_POSITIVE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"BUY_SELL_MINIMUM\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"QUANTITY_INCREMENT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"ODD_LOT_LIQUIDATION\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PRICE_POSITIVE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PRICE_TICK_ALIGNMENT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PREVIOUS_CLOSE_SEMANTICS\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DAILY_UPPER_LIMIT\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DAILY_LOWER_LIMIT\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"NOTIONAL_MINIMUM\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"NOTIONAL_MAXIMUM\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SELLABLE_POSITION\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"AVAILABLE_CASH\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DYNAMIC_PRICE_CAGE\",\"status\":\"NOT_APPLICABLE\"}]",
+        "evaluations": "[{\"inputs\":[[\"reference_fingerprint\",\"5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93\"]],\"reason_code\":null,\"rule_code\":\"REFERENCE_COVERAGE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"REFERENCE_EFFECTIVE_RANGE\",\"status\":\"PASSED\"},{\"inputs\":[[\"policy_fingerprint\",\"ff0fae7f6925be3e171dd29b0bbb2d383e7789327a0d8dfb8ef334e3b5ca0c7e\"]],\"reason_code\":null,\"rule_code\":\"EFFECTIVE_MARKET_POLICY_RESOLUTION\",\"status\":\"PASSED\"},{\"inputs\":[[\"phase\",\"CONTINUOUS\"]],\"reason_code\":null,\"rule_code\":\"TRADING_PHASE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SUSPENSION\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"INSTRUMENT_LIFECYCLE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SUPPORTED_ORDER_TYPE\",\"status\":\"PASSED\"},{\"inputs\":[[\"position_side\",\"LONG\"]],\"reason_code\":null,\"rule_code\":\"ORDER_CAPABILITY\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SIDE_POSITION_EFFECT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"QUANTITY_POSITIVE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"BUY_SELL_MINIMUM\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"QUANTITY_INCREMENT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"ODD_LOT_LIQUIDATION\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PRICE_POSITIVE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PRICE_TICK_ALIGNMENT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PREVIOUS_CLOSE_SEMANTICS\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DAILY_UPPER_LIMIT\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DAILY_LOWER_LIMIT\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"NOTIONAL_MINIMUM\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"NOTIONAL_MAXIMUM\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SELLABLE_POSITION\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"AVAILABLE_CASH\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DYNAMIC_PRICE_CAGE\",\"status\":\"NOT_APPLICABLE\"}]",
         "instrument_id": "TESTETF.XSHG",
         "limit_rate": null,
         "lower_limit": null,
@@ -8532,7 +8532,7 @@
         "quantity_policy": "{\"buy_quantity_increment\":\"100\",\"minimum_buy_quantity\":\"100\",\"sell_quantity_increment\":\"100\"}",
         "reason": null,
         "reference_fingerprint": "5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93",
-        "rule_set_id": "7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f",
+        "rule_set_id": "ff0fae7f6925be3e171dd29b0bbb2d383e7789327a0d8dfb8ef334e3b5ca0c7e",
         "rule_type": "OnlyMarketOrderDecision",
         "sequence": 61,
         "side": "SELL",
@@ -8553,11 +8553,11 @@
         "order_type": "LIMIT",
         "quantity": "1000",
         "request_id": "scenario-macd-demo:OPEN",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 1,
         "side": "BUY",
         "stop_price": null,
-        "strategy_id": "ca94500eefad898f564defc84563d9c55df3903f41a4e8c0a088554d530efdd5",
+        "strategy_id": "02b4bf4655e1b0f9802e7ba346a1766da5bdfa0553f88d1d5c436b6904385e70",
         "submitted_at": "2026-01-05T01:31:00Z",
         "tags": []
       },
@@ -8570,11 +8570,11 @@
         "order_type": "LIMIT",
         "quantity": "1000",
         "request_id": "scenario-macd-demo:CLOSE",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 2,
         "side": "SELL",
         "stop_price": null,
-        "strategy_id": "ca94500eefad898f564defc84563d9c55df3903f41a4e8c0a088554d530efdd5",
+        "strategy_id": "02b4bf4655e1b0f9802e7ba346a1766da5bdfa0553f88d1d5c436b6904385e70",
         "submitted_at": "2026-01-05T01:35:00Z",
         "tags": []
       }
@@ -8588,18 +8588,18 @@
         "filled_quantity": "1000",
         "instrument_id": "TESTETF.XSHG",
         "offset": "OPEN",
-        "order_id": "backtest-2d18c07709ac9b21-ORDER-000001",
+        "order_id": "backtest-2571931d96c5fdbe-ORDER-000001",
         "order_type": "LIMIT",
         "rejection_code": null,
         "rejection_message": null,
         "remaining_quantity": "0",
         "request_id": "scenario-macd-demo:OPEN",
         "requested_quantity": "1000",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 3,
         "side": "BUY",
         "status": "FILLED",
-        "strategy_id": "ca94500eefad898f564defc84563d9c55df3903f41a4e8c0a088554d530efdd5",
+        "strategy_id": "02b4bf4655e1b0f9802e7ba346a1766da5bdfa0553f88d1d5c436b6904385e70",
         "submitted_at": "2026-01-05T01:31:00Z",
         "tags": []
       },
@@ -8611,18 +8611,18 @@
         "filled_quantity": "1000",
         "instrument_id": "TESTETF.XSHG",
         "offset": "CLOSE",
-        "order_id": "backtest-2d18c07709ac9b21-ORDER-000002",
+        "order_id": "backtest-2571931d96c5fdbe-ORDER-000002",
         "order_type": "LIMIT",
         "rejection_code": null,
         "rejection_message": null,
         "remaining_quantity": "0",
         "request_id": "scenario-macd-demo:CLOSE",
         "requested_quantity": "1000",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 4,
         "side": "SELL",
         "status": "FILLED",
-        "strategy_id": "ca94500eefad898f564defc84563d9c55df3903f41a4e8c0a088554d530efdd5",
+        "strategy_id": "02b4bf4655e1b0f9802e7ba346a1766da5bdfa0553f88d1d5c436b6904385e70",
         "submitted_at": "2026-01-05T01:35:00Z",
         "tags": []
       }
@@ -8632,92 +8632,92 @@
       {
         "account_id": "backtest-account",
         "effective_time": "2026-01-05T01:31:00Z",
-        "operation_identity": "OINT-e8aa31585c59dbb56c370ef1c61fe511ed21e7d535b48b6c417bd9bf07908cdb",
+        "operation_identity": "OINT-af07fff634759550cd4ff0bb288039c0f58f9db23ee12d5124dcf139284d3284",
         "operation_kind": "ORDER_INTENT",
         "projection_ready": true,
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "runtime_sequence": 1,
         "sequence": 52,
-        "transaction_id": "OINT-e8aa31585c59dbb56c370ef1c61fe511ed21e7d535b48b6c417bd9bf07908cdb"
+        "transaction_id": "OINT-af07fff634759550cd4ff0bb288039c0f58f9db23ee12d5124dcf139284d3284"
       },
       {
         "account_id": "backtest-account",
         "effective_time": "2026-01-05T01:31:00Z",
-        "operation_identity": "EACK-b6e90261d2684092ef9140df08988ce91852f7a193fe4447605e5551c500ab0f",
+        "operation_identity": "EACK-244ed1ff69f0429d80996923a28b998cf9538bb91611ea12c4ef2510bd693a7f",
         "operation_kind": "ORDER_ACCEPTED",
         "projection_ready": true,
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "runtime_sequence": 2,
         "sequence": 53,
-        "transaction_id": "EACK-b6e90261d2684092ef9140df08988ce91852f7a193fe4447605e5551c500ab0f"
+        "transaction_id": "EACK-244ed1ff69f0429d80996923a28b998cf9538bb91611ea12c4ef2510bd693a7f"
       },
       {
         "account_id": "backtest-account",
         "effective_time": "2026-01-05T01:32:00Z",
-        "operation_identity": "EFILL-27437a952ae2f777907557b332f799318bb2b4b03b07f167fcd8bf97a1ce9c04",
+        "operation_identity": "EFILL-5dd75e3d555922200172747961d259bc8658add6e3414146ca2bbae4b1fb8c6f",
         "operation_kind": "TRADE_FILL",
         "projection_ready": true,
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "runtime_sequence": 3,
         "sequence": 54,
-        "transaction_id": "ETX-7c295ba31b24db9c2b91f8b113c352e92cf61a7731c844b12bff6a692e8d1fe1"
+        "transaction_id": "ETX-9d54a4994b3d41483e17031e497ff781af2e4166637997e197d56b9d106aa815"
       },
       {
         "account_id": "backtest-account",
         "effective_time": "2026-01-05T01:35:00Z",
-        "operation_identity": "OINT-ac274d26f0daa9dc02f74183518d3ea119c80e49fc8ce26321b2b12d9e724c8b",
+        "operation_identity": "OINT-bc686f83a781e4f21ad615feea481724184de5cc7ec9be5701a56057b169a232",
         "operation_kind": "ORDER_INTENT",
         "projection_ready": true,
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "runtime_sequence": 4,
         "sequence": 55,
-        "transaction_id": "OINT-ac274d26f0daa9dc02f74183518d3ea119c80e49fc8ce26321b2b12d9e724c8b"
+        "transaction_id": "OINT-bc686f83a781e4f21ad615feea481724184de5cc7ec9be5701a56057b169a232"
       },
       {
         "account_id": "backtest-account",
         "effective_time": "2026-01-05T01:35:00Z",
-        "operation_identity": "EACK-9add48473e80138377cc75191f617f030b79ab23ed5299461b6166eb2d012ddc",
+        "operation_identity": "EACK-ce378db0c5c359aadb2579f148ef7c1019c9e3fa07219f8f17659b10f00661c9",
         "operation_kind": "ORDER_ACCEPTED",
         "projection_ready": true,
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "runtime_sequence": 5,
         "sequence": 56,
-        "transaction_id": "EACK-9add48473e80138377cc75191f617f030b79ab23ed5299461b6166eb2d012ddc"
+        "transaction_id": "EACK-ce378db0c5c359aadb2579f148ef7c1019c9e3fa07219f8f17659b10f00661c9"
       },
       {
         "account_id": "backtest-account",
         "effective_time": "2026-01-05T01:36:00Z",
-        "operation_identity": "EFILL-c4578db5d56545bf7797521a6d0bccb8928aedfb8d201da030c64fca1c02dc20",
+        "operation_identity": "EFILL-79969e22ef8e02edea52a3546f2f02b9fe24cf7a8f3229a7d928be65fcc43bff",
         "operation_kind": "TRADE_FILL",
         "projection_ready": true,
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "runtime_sequence": 6,
         "sequence": 57,
-        "transaction_id": "ETX-d58daa8666c646cef2313a6f18dafd013091b5a9ffb514bc63401331e9022d35"
+        "transaction_id": "ETX-1c9c3f6e2d05e1ac9eb0e722d8be96f6ac469abbe0d729b2f7a582badea0f2b8"
       }
     ],
     "settlement_instructions": [
       {
         "account_id": "backtest-account",
         "allocation_cycle": 1,
-        "allocation_id": "ALLOC-backtest-2d18c07709ac9b21-backtest-account-macd-demo-TESTETF.XSHG-00000001",
+        "allocation_id": "ALLOC-backtest-2571931d96c5fdbe-backtest-account-macd-demo-TESTETF.XSHG-00000001",
         "asset_trade_available_on": "2026-01-05",
         "cash_trade_available_on": "2026-01-05",
         "cash_withdrawable_on": "2026-01-05",
         "cluster_id": "macd-demo",
-        "compiled_rule_fingerprint": "7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f",
+        "compiled_rule_fingerprint": "ff0fae7f6925be3e171dd29b0bbb2d383e7789327a0d8dfb8ef334e3b5ca0c7e",
         "gross_notional": "10.00",
-        "instruction_id": "SINS-60f9121e8c7e51d699e196062f6e4f464ca5ba293cd797f2c42332ff816a3f01",
+        "instruction_id": "SINS-23fdcd823c0c4051fcfc945b9d8d342915947000cb7619e49c0c5d644910c50c",
         "instrument_id": "TESTETF.XSHG",
         "legal_settlement_on": "2026-01-05",
         "net_cash_flow": "9.99",
-        "order_id": "backtest-2d18c07709ac9b21-ORDER-000002",
+        "order_id": "backtest-2571931d96c5fdbe-ORDER-000002",
         "policy_id": "GENERIC_T0",
         "position_cycle": 1,
-        "position_id": "POS-backtest-2d18c07709ac9b21-backtest-account-TESTETF.XSHG-LONG-00000001",
+        "position_id": "POS-backtest-2571931d96c5fdbe-backtest-account-TESTETF.XSHG-LONG-00000001",
         "quantity": "1000",
         "reference_fingerprint": "5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 50,
         "side": "SELL",
         "status": "COMPLETED",
@@ -8728,24 +8728,24 @@
       {
         "account_id": "backtest-account",
         "allocation_cycle": 1,
-        "allocation_id": "ALLOC-backtest-2d18c07709ac9b21-backtest-account-macd-demo-TESTETF.XSHG-00000001",
+        "allocation_id": "ALLOC-backtest-2571931d96c5fdbe-backtest-account-macd-demo-TESTETF.XSHG-00000001",
         "asset_trade_available_on": "2026-01-05",
         "cash_trade_available_on": "2026-01-05",
         "cash_withdrawable_on": "2026-01-05",
         "cluster_id": "macd-demo",
-        "compiled_rule_fingerprint": "7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f",
+        "compiled_rule_fingerprint": "ff0fae7f6925be3e171dd29b0bbb2d383e7789327a0d8dfb8ef334e3b5ca0c7e",
         "gross_notional": "10000.00",
-        "instruction_id": "SINS-e3f4b22ea332e82bd61fde200294170eea762d453e655d394a9a925e7d485af5",
+        "instruction_id": "SINS-4e1d20e5b43fdb1d8cf06740e679f26d85695001c81b39f93e2b8cbb51f2eebc",
         "instrument_id": "TESTETF.XSHG",
         "legal_settlement_on": "2026-01-05",
         "net_cash_flow": "-10010.00",
-        "order_id": "backtest-2d18c07709ac9b21-ORDER-000001",
+        "order_id": "backtest-2571931d96c5fdbe-ORDER-000001",
         "policy_id": "GENERIC_T0",
         "position_cycle": 1,
-        "position_id": "POS-backtest-2d18c07709ac9b21-backtest-account-TESTETF.XSHG-LONG-00000001",
+        "position_id": "POS-backtest-2571931d96c5fdbe-backtest-account-TESTETF.XSHG-LONG-00000001",
         "quantity": "1000",
         "reference_fingerprint": "5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93",
-        "runtime_id": "backtest-2d18c07709ac9b21",
+        "runtime_id": "backtest-2571931d96c5fdbe",
         "sequence": 51,
         "side": "BUY",
         "status": "COMPLETED",
@@ -8920,7 +8920,7 @@
           "unix_nanos": 1767576660000000000
         },
         "order_id": {
-          "value": "backtest-2d18c07709ac9b21-ORDER-000001"
+          "value": "backtest-2571931d96c5fdbe-ORDER-000001"
         },
         "remaining_amount": {
           "amount": "0",
@@ -8931,7 +8931,7 @@
           }
         },
         "reservation_id": {
-          "value": "ARESV-backtest-2d18c07709ac9b21-backtest-2d18c07709ac9b21-ORDER-000001"
+          "value": "ARESV-backtest-2571931d96c5fdbe-backtest-2571931d96c5fdbe-ORDER-000001"
         },
         "reserved_amount": {
           "amount": "10010.00",
@@ -8942,7 +8942,7 @@
           }
         },
         "runtime_id": {
-          "value": "backtest-2d18c07709ac9b21"
+          "value": "backtest-2571931d96c5fdbe"
         },
         "state": "CONSUMED",
         "updated_at": {
@@ -8960,7 +8960,7 @@
       }
     },
     "runtime_id": {
-      "value": "backtest-2d18c07709ac9b21"
+      "value": "backtest-2571931d96c5fdbe"
     },
     "status": "ACTIVE",
     "unrealized_pnl": {
@@ -9015,7 +9015,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "mode": "FIXED_CAPITAL",
@@ -9072,14 +9072,14 @@
             "precision": 2
           },
           "entry_id": {
-            "value": "SCASH-SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY-0000000001"
+            "value": "SCASH-SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY-0000000001"
           },
           "entry_type": "INITIAL_ALLOCATION",
           "metadata": {},
           "order_id": null,
           "reservation_id": null,
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           },
           "sequence": 1,
           "trade_id": null,
@@ -9114,18 +9114,18 @@
             "precision": 2
           },
           "entry_id": {
-            "value": "SCASH-SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY-0000000002"
+            "value": "SCASH-SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY-0000000002"
           },
           "entry_type": "ORDER_RESERVATION",
           "metadata": {},
           "order_id": {
-            "value": "backtest-2d18c07709ac9b21-ORDER-000001"
+            "value": "backtest-2571931d96c5fdbe-ORDER-000001"
           },
           "reservation_id": {
-            "value": "SCRES-backtest-2d18c07709ac9b21-macd-demo-backtest-2d18c07709ac9b21-ORDER-000001"
+            "value": "SCRES-backtest-2571931d96c5fdbe-macd-demo-backtest-2571931d96c5fdbe-ORDER-000001"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           },
           "sequence": 2,
           "trade_id": null,
@@ -9160,16 +9160,16 @@
             "precision": 2
           },
           "entry_id": {
-            "value": "SCASH-SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY-0000000003"
+            "value": "SCASH-SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY-0000000003"
           },
           "entry_type": "BUY_SETTLEMENT",
           "metadata": {},
           "order_id": {
-            "value": "backtest-2d18c07709ac9b21-ORDER-000001"
+            "value": "backtest-2571931d96c5fdbe-ORDER-000001"
           },
           "reservation_id": null,
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           },
           "sequence": 3,
           "trade_id": {
@@ -9206,16 +9206,16 @@
             "precision": 2
           },
           "entry_id": {
-            "value": "SCASH-SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY-0000000004"
+            "value": "SCASH-SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY-0000000004"
           },
           "entry_type": "FEE",
           "metadata": {},
           "order_id": {
-            "value": "backtest-2d18c07709ac9b21-ORDER-000001"
+            "value": "backtest-2571931d96c5fdbe-ORDER-000001"
           },
           "reservation_id": null,
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           },
           "sequence": 4,
           "trade_id": {
@@ -9252,16 +9252,16 @@
             "precision": 2
           },
           "entry_id": {
-            "value": "SCASH-SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY-0000000005"
+            "value": "SCASH-SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY-0000000005"
           },
           "entry_type": "SELL_SETTLEMENT",
           "metadata": {},
           "order_id": {
-            "value": "backtest-2d18c07709ac9b21-ORDER-000002"
+            "value": "backtest-2571931d96c5fdbe-ORDER-000002"
           },
           "reservation_id": null,
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           },
           "sequence": 5,
           "trade_id": {
@@ -9298,16 +9298,16 @@
             "precision": 2
           },
           "entry_id": {
-            "value": "SCASH-SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY-0000000006"
+            "value": "SCASH-SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY-0000000006"
           },
           "entry_type": "FEE",
           "metadata": {},
           "order_id": {
-            "value": "backtest-2d18c07709ac9b21-ORDER-000002"
+            "value": "backtest-2571931d96c5fdbe-ORDER-000002"
           },
           "reservation_id": null,
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           },
           "sequence": 6,
           "trade_id": {
@@ -9426,7 +9426,7 @@
             "value": "macd-demo"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "ledger_cash": {
@@ -9509,7 +9509,7 @@
             }
           },
           "entry_id": {
-            "value": "SFEE-backtest-2d18c07709ac9b21-virtual-trade-00000001"
+            "value": "SFEE-backtest-2571931d96c5fdbe-virtual-trade-00000001"
           },
           "fee_type": "COMMISSION",
           "key": {
@@ -9525,12 +9525,12 @@
               "value": "macd-demo"
             },
             "runtime_id": {
-              "value": "backtest-2d18c07709ac9b21"
+              "value": "backtest-2571931d96c5fdbe"
             }
           },
           "metadata": {},
           "order_id": {
-            "value": "backtest-2d18c07709ac9b21-ORDER-000001"
+            "value": "backtest-2571931d96c5fdbe-ORDER-000001"
           },
           "sequence": 5,
           "trade_id": {
@@ -9553,7 +9553,7 @@
             }
           },
           "entry_id": {
-            "value": "SFEE-backtest-2d18c07709ac9b21-virtual-trade-00000002"
+            "value": "SFEE-backtest-2571931d96c5fdbe-virtual-trade-00000002"
           },
           "fee_type": "COMMISSION",
           "key": {
@@ -9569,12 +9569,12 @@
               "value": "macd-demo"
             },
             "runtime_id": {
-              "value": "backtest-2d18c07709ac9b21"
+              "value": "backtest-2571931d96c5fdbe"
             }
           },
           "metadata": {},
           "order_id": {
-            "value": "backtest-2d18c07709ac9b21-ORDER-000002"
+            "value": "backtest-2571931d96c5fdbe-ORDER-000002"
           },
           "sequence": 8,
           "trade_id": {
@@ -9601,7 +9601,7 @@
           "value": "macd-demo"
         },
         "runtime_id": {
-          "value": "backtest-2d18c07709ac9b21"
+          "value": "backtest-2571931d96c5fdbe"
         }
       },
       "last_trade_order": [
@@ -9611,7 +9611,7 @@
       ],
       "last_trade_sequence": 8,
       "ledger_id": {
-        "value": "SLEDGER-backtest-2d18c07709ac9b21-backtest-account-macd-demo-CNY"
+        "value": "SLEDGER-backtest-2571931d96c5fdbe-backtest-account-macd-demo-CNY"
       },
       "performance": {
         "cluster_id": {
@@ -9768,12 +9768,12 @@
               "value": "macd-demo"
             },
             "runtime_id": {
-              "value": "backtest-2d18c07709ac9b21"
+              "value": "backtest-2571931d96c5fdbe"
             }
           },
           "metadata": {},
           "order_id": {
-            "value": "backtest-2d18c07709ac9b21-ORDER-000001"
+            "value": "backtest-2571931d96c5fdbe-ORDER-000001"
           },
           "remaining_amount": {
             "amount": "0",
@@ -9784,7 +9784,7 @@
             }
           },
           "reservation_id": {
-            "value": "SCRES-backtest-2d18c07709ac9b21-macd-demo-backtest-2d18c07709ac9b21-ORDER-000001"
+            "value": "SCRES-backtest-2571931d96c5fdbe-macd-demo-backtest-2571931d96c5fdbe-ORDER-000001"
           },
           "reserved_amount": {
             "amount": "10010.00",
@@ -9835,7 +9835,7 @@
       "cancel_requested_at": null,
       "cancelled_at": null,
       "client_order_id": {
-        "value": "backtest-2d18c07709ac9b21-CLIENT-000001"
+        "value": "backtest-2571931d96c5fdbe-CLIENT-000001"
       },
       "cluster_id": {
         "value": "macd-demo"
@@ -9844,12 +9844,20 @@
         "unix_nanos": 1767576660000000000
       },
       "cumulative_price_quantity": "10000.00",
+      "execution_intent": {
+        "close_scope": "ANY",
+        "exposure_constraint": "NONE",
+        "position_effect": "OPEN",
+        "position_mode": "NETTING",
+        "position_side": "LONG",
+        "side": "BUY"
+      },
       "expire_time": null,
       "expired_at": null,
       "failed_at": null,
       "failure": null,
       "fee_estimate": {
-        "assumptions_fingerprint": "21db338d9431c77686b8af3a062286374b368515cdc841a4163aa908f8c0628e",
+        "assumptions_fingerprint": "eb2ef32d098a00a732fc29d5bf33eb37f429770816f1075aa2fb4309817143e4",
         "estimated_rebate": {
           "amount": "0",
           "currency": {
@@ -9859,7 +9867,7 @@
           }
         },
         "expected": {
-          "assessment_id": "8420d44f412650e3a155e4f7de46b973d01c8c0cf8f0da69f4afcf3f4ccd521f",
+          "assessment_id": "c230e9048343773ff2c9d4c0fee5a4342feeb19002d76c15acce3a5d31b600ba",
           "binding": {
             "account_id": {
               "value": "backtest-account"
@@ -9916,7 +9924,7 @@
                 "scope_fingerprint": "c6fa81ec33041e61ed6c0b0070e995914f1ec7d4af67260c5fa7df3af15240eb"
               }
             ],
-            "fingerprint": "0b73b875a70b6d16c53b259c0ecc68771a6401d779025d401d24b2b6b4d5da9c",
+            "fingerprint": "679cb3f3439492470cabd4d7da390a4db355090b8a577dcc90ca912a76fb97b3",
             "instrument_id": {
               "symbol": {
                 "value": "TESTETF"
@@ -9934,10 +9942,10 @@
             "market_product_version": "1",
             "order_fixed_schedules": [],
             "order_id": {
-              "value": "backtest-2d18c07709ac9b21-ORDER-000001"
+              "value": "backtest-2571931d96c5fdbe-ORDER-000001"
             },
             "runtime_id": {
-              "value": "backtest-2d18c07709ac9b21"
+              "value": "backtest-2571931d96c5fdbe"
             }
           },
           "components": [
@@ -9984,7 +9992,7 @@
           ],
           "local_finality": "ESTIMATED",
           "policy_fingerprint": "19309a3d329ac3faafb5b9942ea71d22bf414eb2b93e6f6c620f70dd3570b4ae",
-          "resolution_fingerprint": "ebcabddc4c10959073e7053c561e3b6265da555a043c350346493cfcea5e4d68",
+          "resolution_fingerprint": "37c8ce257babb6fb74872d5d99dd751e9acb4555b783f151c9c9476844986fbf",
           "subject": {
             "account_id": {
               "value": "backtest-account"
@@ -10001,10 +10009,10 @@
               }
             },
             "order_id": {
-              "value": "backtest-2d18c07709ac9b21-ORDER-000001"
+              "value": "backtest-2571931d96c5fdbe-ORDER-000001"
             },
             "runtime_id": {
-              "value": "backtest-2d18c07709ac9b21"
+              "value": "backtest-2571931d96c5fdbe"
             }
           },
           "total_charges": {
@@ -10026,7 +10034,7 @@
           "trade_id": null
         },
         "maximum": {
-          "assessment_id": "d5fbd2d8d8dfc6c51fd66a24106cce82a7df5c02c8c7e02c498090307da74bc6",
+          "assessment_id": "4843a829d3042acd8ea0fb962293f75fafc8509b01b299fa0c93325e32d33c42",
           "binding": {
             "account_id": {
               "value": "backtest-account"
@@ -10083,7 +10091,7 @@
                 "scope_fingerprint": "c6fa81ec33041e61ed6c0b0070e995914f1ec7d4af67260c5fa7df3af15240eb"
               }
             ],
-            "fingerprint": "0b73b875a70b6d16c53b259c0ecc68771a6401d779025d401d24b2b6b4d5da9c",
+            "fingerprint": "679cb3f3439492470cabd4d7da390a4db355090b8a577dcc90ca912a76fb97b3",
             "instrument_id": {
               "symbol": {
                 "value": "TESTETF"
@@ -10101,10 +10109,10 @@
             "market_product_version": "1",
             "order_fixed_schedules": [],
             "order_id": {
-              "value": "backtest-2d18c07709ac9b21-ORDER-000001"
+              "value": "backtest-2571931d96c5fdbe-ORDER-000001"
             },
             "runtime_id": {
-              "value": "backtest-2d18c07709ac9b21"
+              "value": "backtest-2571931d96c5fdbe"
             }
           },
           "components": [
@@ -10151,7 +10159,7 @@
           ],
           "local_finality": "ESTIMATED",
           "policy_fingerprint": "19309a3d329ac3faafb5b9942ea71d22bf414eb2b93e6f6c620f70dd3570b4ae",
-          "resolution_fingerprint": "ebcabddc4c10959073e7053c561e3b6265da555a043c350346493cfcea5e4d68",
+          "resolution_fingerprint": "37c8ce257babb6fb74872d5d99dd751e9acb4555b783f151c9c9476844986fbf",
           "subject": {
             "account_id": {
               "value": "backtest-account"
@@ -10168,10 +10176,10 @@
               }
             },
             "order_id": {
-              "value": "backtest-2d18c07709ac9b21-ORDER-000001"
+              "value": "backtest-2571931d96c5fdbe-ORDER-000001"
             },
             "runtime_id": {
-              "value": "backtest-2d18c07709ac9b21"
+              "value": "backtest-2571931d96c5fdbe"
             }
           },
           "total_charges": {
@@ -10257,7 +10265,7 @@
             "scope_fingerprint": "c6fa81ec33041e61ed6c0b0070e995914f1ec7d4af67260c5fa7df3af15240eb"
           }
         ],
-        "fingerprint": "0b73b875a70b6d16c53b259c0ecc68771a6401d779025d401d24b2b6b4d5da9c",
+        "fingerprint": "679cb3f3439492470cabd4d7da390a4db355090b8a577dcc90ca912a76fb97b3",
         "instrument_id": {
           "symbol": {
             "value": "TESTETF"
@@ -10275,10 +10283,10 @@
         "market_product_version": "1",
         "order_fixed_schedules": [],
         "order_id": {
-          "value": "backtest-2d18c07709ac9b21-ORDER-000001"
+          "value": "backtest-2571931d96c5fdbe-ORDER-000001"
         },
         "runtime_id": {
-          "value": "backtest-2d18c07709ac9b21"
+          "value": "backtest-2571931d96c5fdbe"
         }
       },
       "fill_count": 1,
@@ -10290,8 +10298,8 @@
         "value": "1000"
       },
       "funding_plan": {
-        "binding_fingerprint": "0b73b875a70b6d16c53b259c0ecc68771a6401d779025d401d24b2b6b4d5da9c",
-        "estimate_fingerprint": "21db338d9431c77686b8af3a062286374b368515cdc841a4163aa908f8c0628e",
+        "binding_fingerprint": "679cb3f3439492470cabd4d7da390a4db355090b8a577dcc90ca912a76fb97b3",
+        "estimate_fingerprint": "eb2ef32d098a00a732fc29d5bf33eb37f429770816f1075aa2fb4309817143e4",
         "fee_reservation": {
           "amount": "10.00",
           "currency": {
@@ -10301,7 +10309,7 @@
           }
         },
         "order_id": {
-          "value": "backtest-2d18c07709ac9b21-ORDER-000001"
+          "value": "backtest-2571931d96c5fdbe-ORDER-000001"
         },
         "principal_reservation": {
           "amount": "10000.00",
@@ -10338,7 +10346,7 @@
       },
       "offset": "OPEN",
       "order_id": {
-        "value": "backtest-2d18c07709ac9b21-ORDER-000001"
+        "value": "backtest-2571931d96c5fdbe-ORDER-000001"
       },
       "order_type": "LIMIT",
       "price": {
@@ -10359,7 +10367,7 @@
         "value": "scenario-macd-demo:OPEN"
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "side": "BUY",
       "status": "FILLED",
@@ -10391,7 +10399,7 @@
       "cancel_requested_at": null,
       "cancelled_at": null,
       "client_order_id": {
-        "value": "backtest-2d18c07709ac9b21-CLIENT-000002"
+        "value": "backtest-2571931d96c5fdbe-CLIENT-000002"
       },
       "cluster_id": {
         "value": "macd-demo"
@@ -10400,12 +10408,20 @@
         "unix_nanos": 1767576900000000000
       },
       "cumulative_price_quantity": "10.00",
+      "execution_intent": {
+        "close_scope": "ANY",
+        "exposure_constraint": "NONE",
+        "position_effect": "CLOSE",
+        "position_mode": "NETTING",
+        "position_side": "LONG",
+        "side": "SELL"
+      },
       "expire_time": null,
       "expired_at": null,
       "failed_at": null,
       "failure": null,
       "fee_estimate": {
-        "assumptions_fingerprint": "5229fdcaf530e78206f3c4759fe4b440594271fbae833cce9afdd5b08297f74e",
+        "assumptions_fingerprint": "62f02a4f160653285dee3860f4fb192f7e3610a4befb13b72d0c4890c27ecc24",
         "estimated_rebate": {
           "amount": "0",
           "currency": {
@@ -10415,7 +10431,7 @@
           }
         },
         "expected": {
-          "assessment_id": "4458df85cef21a11d938c8b26946b66eb1bd808a30947e47f80edb49b739034b",
+          "assessment_id": "a4e7ba9699ba471c5acf21e613908ef2f210a79ee5cdac78fe8508b10964c386",
           "binding": {
             "account_id": {
               "value": "backtest-account"
@@ -10472,7 +10488,7 @@
                 "scope_fingerprint": "c6fa81ec33041e61ed6c0b0070e995914f1ec7d4af67260c5fa7df3af15240eb"
               }
             ],
-            "fingerprint": "4879d10b2a4305963127014a9223e2286ca54e632504794d4d8036c18fd4168a",
+            "fingerprint": "3ca0a1ee16a188a5c056b49c154cf195b9b6bc3f66eb1d139ee58da9071d356c",
             "instrument_id": {
               "symbol": {
                 "value": "TESTETF"
@@ -10490,10 +10506,10 @@
             "market_product_version": "1",
             "order_fixed_schedules": [],
             "order_id": {
-              "value": "backtest-2d18c07709ac9b21-ORDER-000002"
+              "value": "backtest-2571931d96c5fdbe-ORDER-000002"
             },
             "runtime_id": {
-              "value": "backtest-2d18c07709ac9b21"
+              "value": "backtest-2571931d96c5fdbe"
             }
           },
           "components": [
@@ -10540,7 +10556,7 @@
           ],
           "local_finality": "ESTIMATED",
           "policy_fingerprint": "19309a3d329ac3faafb5b9942ea71d22bf414eb2b93e6f6c620f70dd3570b4ae",
-          "resolution_fingerprint": "583ca47078e856bd37da3e72c9f27dbd8b1c275372bc16c43153368d017548a6",
+          "resolution_fingerprint": "e242bfc3597832a272d021bd8d167a4cf4b28fdd550f59106a9f92a801d302cb",
           "subject": {
             "account_id": {
               "value": "backtest-account"
@@ -10557,10 +10573,10 @@
               }
             },
             "order_id": {
-              "value": "backtest-2d18c07709ac9b21-ORDER-000002"
+              "value": "backtest-2571931d96c5fdbe-ORDER-000002"
             },
             "runtime_id": {
-              "value": "backtest-2d18c07709ac9b21"
+              "value": "backtest-2571931d96c5fdbe"
             }
           },
           "total_charges": {
@@ -10582,7 +10598,7 @@
           "trade_id": null
         },
         "maximum": {
-          "assessment_id": "8a9904ec9e6610ab2cfc19f9eb450b1a4f6f13a260843a9945394e11c2a35366",
+          "assessment_id": "24b896fba43b58b426df8339f01f004c19e3cef17e8dab77612c4c9cf6aeb22b",
           "binding": {
             "account_id": {
               "value": "backtest-account"
@@ -10639,7 +10655,7 @@
                 "scope_fingerprint": "c6fa81ec33041e61ed6c0b0070e995914f1ec7d4af67260c5fa7df3af15240eb"
               }
             ],
-            "fingerprint": "4879d10b2a4305963127014a9223e2286ca54e632504794d4d8036c18fd4168a",
+            "fingerprint": "3ca0a1ee16a188a5c056b49c154cf195b9b6bc3f66eb1d139ee58da9071d356c",
             "instrument_id": {
               "symbol": {
                 "value": "TESTETF"
@@ -10657,10 +10673,10 @@
             "market_product_version": "1",
             "order_fixed_schedules": [],
             "order_id": {
-              "value": "backtest-2d18c07709ac9b21-ORDER-000002"
+              "value": "backtest-2571931d96c5fdbe-ORDER-000002"
             },
             "runtime_id": {
-              "value": "backtest-2d18c07709ac9b21"
+              "value": "backtest-2571931d96c5fdbe"
             }
           },
           "components": [
@@ -10707,7 +10723,7 @@
           ],
           "local_finality": "ESTIMATED",
           "policy_fingerprint": "19309a3d329ac3faafb5b9942ea71d22bf414eb2b93e6f6c620f70dd3570b4ae",
-          "resolution_fingerprint": "583ca47078e856bd37da3e72c9f27dbd8b1c275372bc16c43153368d017548a6",
+          "resolution_fingerprint": "e242bfc3597832a272d021bd8d167a4cf4b28fdd550f59106a9f92a801d302cb",
           "subject": {
             "account_id": {
               "value": "backtest-account"
@@ -10724,10 +10740,10 @@
               }
             },
             "order_id": {
-              "value": "backtest-2d18c07709ac9b21-ORDER-000002"
+              "value": "backtest-2571931d96c5fdbe-ORDER-000002"
             },
             "runtime_id": {
-              "value": "backtest-2d18c07709ac9b21"
+              "value": "backtest-2571931d96c5fdbe"
             }
           },
           "total_charges": {
@@ -10813,7 +10829,7 @@
             "scope_fingerprint": "c6fa81ec33041e61ed6c0b0070e995914f1ec7d4af67260c5fa7df3af15240eb"
           }
         ],
-        "fingerprint": "4879d10b2a4305963127014a9223e2286ca54e632504794d4d8036c18fd4168a",
+        "fingerprint": "3ca0a1ee16a188a5c056b49c154cf195b9b6bc3f66eb1d139ee58da9071d356c",
         "instrument_id": {
           "symbol": {
             "value": "TESTETF"
@@ -10831,10 +10847,10 @@
         "market_product_version": "1",
         "order_fixed_schedules": [],
         "order_id": {
-          "value": "backtest-2d18c07709ac9b21-ORDER-000002"
+          "value": "backtest-2571931d96c5fdbe-ORDER-000002"
         },
         "runtime_id": {
-          "value": "backtest-2d18c07709ac9b21"
+          "value": "backtest-2571931d96c5fdbe"
         }
       },
       "fill_count": 1,
@@ -10846,8 +10862,8 @@
         "value": "1000"
       },
       "funding_plan": {
-        "binding_fingerprint": "4879d10b2a4305963127014a9223e2286ca54e632504794d4d8036c18fd4168a",
-        "estimate_fingerprint": "5229fdcaf530e78206f3c4759fe4b440594271fbae833cce9afdd5b08297f74e",
+        "binding_fingerprint": "3ca0a1ee16a188a5c056b49c154cf195b9b6bc3f66eb1d139ee58da9071d356c",
+        "estimate_fingerprint": "62f02a4f160653285dee3860f4fb192f7e3610a4befb13b72d0c4890c27ecc24",
         "fee_reservation": {
           "amount": "0.01",
           "currency": {
@@ -10857,7 +10873,7 @@
           }
         },
         "order_id": {
-          "value": "backtest-2d18c07709ac9b21-ORDER-000002"
+          "value": "backtest-2571931d96c5fdbe-ORDER-000002"
         },
         "principal_reservation": {
           "amount": "10.00",
@@ -10894,7 +10910,7 @@
       },
       "offset": "CLOSE",
       "order_id": {
-        "value": "backtest-2d18c07709ac9b21-ORDER-000002"
+        "value": "backtest-2571931d96c5fdbe-ORDER-000002"
       },
       "order_type": "LIMIT",
       "price": {
@@ -10915,7 +10931,7 @@
         "value": "scenario-macd-demo:CLOSE"
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "side": "SELL",
       "status": "FILLED",
@@ -10940,7 +10956,7 @@
     },
     "differences": [],
     "runtime_id": {
-      "value": "backtest-2d18c07709ac9b21"
+      "value": "backtest-2571931d96c5fdbe"
     },
     "status": "MATCHED",
     "ts_event": {
@@ -10958,7 +10974,7 @@
     },
     "failure": null,
     "runtime_id": {
-      "value": "backtest-2d18c07709ac9b21"
+      "value": "backtest-2571931d96c5fdbe"
     },
     "start_time": {
       "unix_nanos": 1767576600000000000
@@ -11045,7 +11061,7 @@
       "value": "-0.01000001"
     },
     "runtime_id": {
-      "value": "backtest-2d18c07709ac9b21"
+      "value": "backtest-2571931d96c5fdbe"
     },
     "unrealized_pnl": {
       "amount": "0.00",
@@ -11149,8 +11165,8 @@
           "precision": 2
         }
       },
-      "causation_id": "backtest-2d18c07709ac9b21-ORDER-000001",
-      "client_order_id": "backtest-2d18c07709ac9b21-CLIENT-000001",
+      "causation_id": "backtest-2571931d96c5fdbe-ORDER-000001",
+      "client_order_id": "backtest-2571931d96c5fdbe-CLIENT-000001",
       "cluster_id": {
         "value": "macd-demo"
       },
@@ -11162,12 +11178,12 @@
           "precision": 2
         }
       },
-      "compiled_rule_fingerprint": "7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f",
+      "compiled_rule_fingerprint": "ff0fae7f6925be3e171dd29b0bbb2d383e7789327a0d8dfb8ef334e3b5ca0c7e",
       "contract_multiplier": {
         "precision": 0,
         "value": "1"
       },
-      "correlation_id": "backtest-2d18c07709ac9b21-ORDER-000001",
+      "correlation_id": "backtest-2571931d96c5fdbe-ORDER-000001",
       "cumulative_filled_quantity": {
         "precision": 0,
         "value": "1000"
@@ -11179,16 +11195,16 @@
         "precision": 2
       },
       "execution_capability": "DURABLE_TRADE",
-      "execution_id": "EXEC-424462e00a9239575a427f42cae1a6b82707fe4f4c9a257d4058a75826d0df86",
+      "execution_id": "EXEC-a47ce7c9c85fbb9a74867990b619078c87d6f4120b8b72d8dd5f654ff266b3c5",
       "execution_sequence": 3,
-      "execution_support_fingerprint": "cc13cf1470bdcd97472af5d6af1b708d8b173a32e5fdd589983373880c05584d",
-      "execution_support_policy_version": "2",
+      "execution_support_fingerprint": "65141e2c19b806a6d8e55f335957a26173315709083535063e3f8aa0070537da",
+      "execution_support_policy_version": "3",
       "external_event_id": "virtual-fill-00000001",
       "fee_application": {
-        "accrual_after_fingerprint": "df88280986b5cc7776e49d0268e77ad72577ca24b01f364dba6544a19fb44e33",
+        "accrual_after_fingerprint": "d9de65a7d44d41e0d1365632b449d955d81ce3fccc474425986ed997826e6a45",
         "accrual_before_fingerprint": null,
-        "application_id": "465873818daaa48a513051668fd5a59a9d3e5a996c1e70dd820e907af77e384b",
-        "binding_fingerprint": "0b73b875a70b6d16c53b259c0ecc68771a6401d779025d401d24b2b6b4d5da9c",
+        "application_id": "238ae5807a31503599125de520a9bf6aade472134083db8f2469a10f4d565b95",
+        "binding_fingerprint": "679cb3f3439492470cabd4d7da390a4db355090b8a577dcc90ca912a76fb97b3",
         "components": [
           {
             "amount": {
@@ -11255,9 +11271,9 @@
             }
           }
         ],
-        "idempotency_key": "fee-application:backtest-2d18c07709ac9b21:virtual-trade-00000001",
+        "idempotency_key": "fee-application:backtest-2571931d96c5fdbe:virtual-trade-00000001",
         "local_finality": "MODEL_CONFIRMED",
-        "resolution_fingerprint": "ebcabddc4c10959073e7053c561e3b6265da555a043c350346493cfcea5e4d68",
+        "resolution_fingerprint": "37c8ce257babb6fb74872d5d99dd751e9acb4555b783f151c9c9476844986fbf",
         "signed_cash_effect": "-10.00",
         "subject": {
           "account_id": {
@@ -11275,10 +11291,10 @@
             }
           },
           "order_id": {
-            "value": "backtest-2d18c07709ac9b21-ORDER-000001"
+            "value": "backtest-2571931d96c5fdbe-ORDER-000001"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "total_charges": {
@@ -11301,10 +11317,10 @@
           "value": "virtual-trade-00000001"
         }
       },
-      "fee_application_id": "465873818daaa48a513051668fd5a59a9d3e5a996c1e70dd820e907af77e384b",
+      "fee_application_id": "238ae5807a31503599125de520a9bf6aade472134083db8f2469a10f4d565b95",
       "fee_authority": "MARKET",
-      "fee_binding_fingerprint": "0b73b875a70b6d16c53b259c0ecc68771a6401d779025d401d24b2b6b4d5da9c",
-      "fee_resolution_fingerprint": "ebcabddc4c10959073e7053c561e3b6265da555a043c350346493cfcea5e4d68",
+      "fee_binding_fingerprint": "679cb3f3439492470cabd4d7da390a4db355090b8a577dcc90ca912a76fb97b3",
+      "fee_resolution_fingerprint": "37c8ce257babb6fb74872d5d99dd751e9acb4555b783f151c9c9476844986fbf",
       "fee_scope_fingerprint": "4b466f65d75c5ec7da73854f61a9ade39a4980ac3ffec2d335a36f425bdf6eba",
       "fee_signed_cash_effect": "-10.00",
       "fee_status": "MODEL_CONFIRMED",
@@ -11325,9 +11341,9 @@
         }
       },
       "fill_count_after": 1,
-      "fill_identity": "EFILL-27437a952ae2f777907557b332f799318bb2b4b03b07f167fcd8bf97a1ce9c04",
+      "fill_identity": "EFILL-5dd75e3d555922200172747961d259bc8658add6e3414146ca2bbae4b1fb8c6f",
       "fill_index": 1,
-      "fill_payload_fingerprint": "b032b7c78a023536e3d66d842c4de494a159c54f4945190f614a5e16275dcd6b",
+      "fill_payload_fingerprint": "098421c6d0f7103c9902fd865358fc02cd0fc9a52fe7e3ce51730269d9ca93a0",
       "fill_price": {
         "precision": 2,
         "value": "10.00"
@@ -11461,7 +11477,7 @@
         }
       },
       "order_id": {
-        "value": "backtest-2d18c07709ac9b21-ORDER-000001"
+        "value": "backtest-2571931d96c5fdbe-ORDER-000001"
       },
       "order_side": "BUY",
       "order_status_after": "FILLED",
@@ -11530,7 +11546,7 @@
         "value": "1000"
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "settled_notional": {
         "amount": "10000.00",
@@ -11540,7 +11556,7 @@
           "precision": 2
         }
       },
-      "settlement_instruction_id": "SINS-e3f4b22ea332e82bd61fde200294170eea762d453e655d394a9a925e7d485af5",
+      "settlement_instruction_id": "SINS-4e1d20e5b43fdb1d8cf06740e679f26d85695001c81b39f93e2b8cbb51f2eebc",
       "settlement_status": "SETTLED",
       "slippage": {
         "amount": "0.00",
@@ -11552,7 +11568,7 @@
       },
       "source_sequence": 5,
       "strategy_id": {
-        "value": "ca94500eefad898f564defc84563d9c55df3903f41a4e8c0a088554d530efdd5"
+        "value": "02b4bf4655e1b0f9802e7ba346a1766da5bdfa0553f88d1d5c436b6904385e70"
       },
       "strategy_reservation_consumed_delta": {
         "amount": "10010.00",
@@ -11582,7 +11598,7 @@
       "trade_id": {
         "value": "virtual-trade-00000001"
       },
-      "trade_instruction_id": "TINSTR-a293bfab19decb933e79c02ee9bc398da44521b21764d9ddf8d62f11351c27f0",
+      "trade_instruction_id": "TINSTR-64d7d62c7e38b437ca8e5a72a392500f84ba95156f98f898b0c6b9df79f44140",
       "trading_day": {
         "value": "2026-01-05"
       },
@@ -11689,8 +11705,8 @@
           "precision": 2
         }
       },
-      "causation_id": "backtest-2d18c07709ac9b21-ORDER-000002",
-      "client_order_id": "backtest-2d18c07709ac9b21-CLIENT-000002",
+      "causation_id": "backtest-2571931d96c5fdbe-ORDER-000002",
+      "client_order_id": "backtest-2571931d96c5fdbe-CLIENT-000002",
       "cluster_id": {
         "value": "macd-demo"
       },
@@ -11702,12 +11718,12 @@
           "precision": 2
         }
       },
-      "compiled_rule_fingerprint": "7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f",
+      "compiled_rule_fingerprint": "ff0fae7f6925be3e171dd29b0bbb2d383e7789327a0d8dfb8ef334e3b5ca0c7e",
       "contract_multiplier": {
         "precision": 0,
         "value": "1"
       },
-      "correlation_id": "backtest-2d18c07709ac9b21-ORDER-000002",
+      "correlation_id": "backtest-2571931d96c5fdbe-ORDER-000002",
       "cumulative_filled_quantity": {
         "precision": 0,
         "value": "1000"
@@ -11719,16 +11735,16 @@
         "precision": 2
       },
       "execution_capability": "DURABLE_TRADE",
-      "execution_id": "EXEC-b508751722361a4baf07f276a8634877856d15151c723bac733c7a3e8340e7ce",
+      "execution_id": "EXEC-a51523216101a631a55d42aa4195c57f3144a26b4ffabeb3f576037fddc97e28",
       "execution_sequence": 6,
-      "execution_support_fingerprint": "d6b163987ec1881038b0a87c49e180cb9e3c369eeaa5e18629708f03da104537",
-      "execution_support_policy_version": "2",
+      "execution_support_fingerprint": "846d0f2c26ce91aa4a8150d0defc1615088149697147ab18f1ffa5869071a238",
+      "execution_support_policy_version": "3",
       "external_event_id": "virtual-fill-00000002",
       "fee_application": {
-        "accrual_after_fingerprint": "886ad9b739631b158a8bd1de41f66ae09b7df42916b71b8d30b3d068cb793409",
+        "accrual_after_fingerprint": "66243619dc23685ecf5111634bdc8f923085343a405f721ec26e54052a316bcc",
         "accrual_before_fingerprint": null,
-        "application_id": "08c05147001a760c569925eeddd687eb74cead56d8789c0f9dd7005dca4e7ace",
-        "binding_fingerprint": "4879d10b2a4305963127014a9223e2286ca54e632504794d4d8036c18fd4168a",
+        "application_id": "45622946301381617779284c25b224c2d1a23d0b1dc5b9e11f015dc62a47926f",
+        "binding_fingerprint": "3ca0a1ee16a188a5c056b49c154cf195b9b6bc3f66eb1d139ee58da9071d356c",
         "components": [
           {
             "amount": {
@@ -11795,9 +11811,9 @@
             }
           }
         ],
-        "idempotency_key": "fee-application:backtest-2d18c07709ac9b21:virtual-trade-00000002",
+        "idempotency_key": "fee-application:backtest-2571931d96c5fdbe:virtual-trade-00000002",
         "local_finality": "MODEL_CONFIRMED",
-        "resolution_fingerprint": "583ca47078e856bd37da3e72c9f27dbd8b1c275372bc16c43153368d017548a6",
+        "resolution_fingerprint": "e242bfc3597832a272d021bd8d167a4cf4b28fdd550f59106a9f92a801d302cb",
         "signed_cash_effect": "-0.01",
         "subject": {
           "account_id": {
@@ -11815,10 +11831,10 @@
             }
           },
           "order_id": {
-            "value": "backtest-2d18c07709ac9b21-ORDER-000002"
+            "value": "backtest-2571931d96c5fdbe-ORDER-000002"
           },
           "runtime_id": {
-            "value": "backtest-2d18c07709ac9b21"
+            "value": "backtest-2571931d96c5fdbe"
           }
         },
         "total_charges": {
@@ -11841,10 +11857,10 @@
           "value": "virtual-trade-00000002"
         }
       },
-      "fee_application_id": "08c05147001a760c569925eeddd687eb74cead56d8789c0f9dd7005dca4e7ace",
+      "fee_application_id": "45622946301381617779284c25b224c2d1a23d0b1dc5b9e11f015dc62a47926f",
       "fee_authority": "MARKET",
-      "fee_binding_fingerprint": "4879d10b2a4305963127014a9223e2286ca54e632504794d4d8036c18fd4168a",
-      "fee_resolution_fingerprint": "583ca47078e856bd37da3e72c9f27dbd8b1c275372bc16c43153368d017548a6",
+      "fee_binding_fingerprint": "3ca0a1ee16a188a5c056b49c154cf195b9b6bc3f66eb1d139ee58da9071d356c",
+      "fee_resolution_fingerprint": "e242bfc3597832a272d021bd8d167a4cf4b28fdd550f59106a9f92a801d302cb",
       "fee_scope_fingerprint": "4b466f65d75c5ec7da73854f61a9ade39a4980ac3ffec2d335a36f425bdf6eba",
       "fee_signed_cash_effect": "-0.01",
       "fee_status": "MODEL_CONFIRMED",
@@ -11865,9 +11881,9 @@
         }
       },
       "fill_count_after": 1,
-      "fill_identity": "EFILL-c4578db5d56545bf7797521a6d0bccb8928aedfb8d201da030c64fca1c02dc20",
+      "fill_identity": "EFILL-79969e22ef8e02edea52a3546f2f02b9fe24cf7a8f3229a7d928be65fcc43bff",
       "fill_index": 1,
-      "fill_payload_fingerprint": "f6d460ad0b20a9b6c042dead5c9892a91b0622ae12b3f4d65d5d3a7840ceef30",
+      "fill_payload_fingerprint": "58fee03bdfeba3c43266cd56b4d4baf8ff4c68204c452cef6e668090e2eb47d5",
       "fill_price": {
         "precision": 2,
         "value": "0.01"
@@ -12001,7 +12017,7 @@
         }
       },
       "order_id": {
-        "value": "backtest-2d18c07709ac9b21-ORDER-000002"
+        "value": "backtest-2571931d96c5fdbe-ORDER-000002"
       },
       "order_side": "SELL",
       "order_status_after": "FILLED",
@@ -12070,7 +12086,7 @@
         "value": "1000"
       },
       "runtime_id": {
-        "value": "backtest-2d18c07709ac9b21"
+        "value": "backtest-2571931d96c5fdbe"
       },
       "settled_notional": {
         "amount": "10.00",
@@ -12080,7 +12096,7 @@
           "precision": 2
         }
       },
-      "settlement_instruction_id": "SINS-60f9121e8c7e51d699e196062f6e4f464ca5ba293cd797f2c42332ff816a3f01",
+      "settlement_instruction_id": "SINS-23fdcd823c0c4051fcfc945b9d8d342915947000cb7619e49c0c5d644910c50c",
       "settlement_status": "SETTLED",
       "slippage": {
         "amount": "-0.00",
@@ -12092,7 +12108,7 @@
       },
       "source_sequence": 8,
       "strategy_id": {
-        "value": "ca94500eefad898f564defc84563d9c55df3903f41a4e8c0a088554d530efdd5"
+        "value": "02b4bf4655e1b0f9802e7ba346a1766da5bdfa0553f88d1d5c436b6904385e70"
       },
       "strategy_reservation_consumed_delta": {
         "amount": "0.00",
@@ -12122,7 +12138,7 @@
       "trade_id": {
         "value": "virtual-trade-00000002"
       },
-      "trade_instruction_id": "TINSTR-b47e7ebcb7242518dd51887c2ad30009c23f3091b6707a002940f620d37c8304",
+      "trade_instruction_id": "TINSTR-947cc96d90cfb412b78f173f3d0061c00f220fa9c769e69a2512bee7df2bfe59",
       "trading_day": {
         "value": "2026-01-05"
       },

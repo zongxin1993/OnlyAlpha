@@ -37,7 +37,7 @@ from onlyalpha_plugin_binance.usdm import (
     only_normalize_binance_usdm_kline,
 )
 from onlyalpha_plugin_binance_spot import OnlyBinanceSpotMarketProductFactory, OnlyBinanceSpotReference
-from onlyalpha_plugin_binance_spot.resource_provider import OnlyBinanceSpotBacktestResourceProvider
+from onlyalpha_plugin_binance_spot.resource_provider import OnlyBinanceSpotReferenceResourceProvider
 from onlyalpha_plugin_binance_usdm import OnlyBinanceUsdmMarketProductFactory, OnlyBinanceUsdmPublicMarketReference
 from onlyalpha_plugin_binance_usdm.resource_provider import OnlyBinanceUsdmBacktestResourceProvider
 
@@ -1150,7 +1150,7 @@ def provision(
     results: dict[str, object] = {}
 
     if spot_capture is not None and "spot" in products:
-        provider = OnlyBinanceSpotBacktestResourceProvider()
+        provider = OnlyBinanceSpotReferenceResourceProvider()
         resource_id = f"sha256:{spot_capture.authority.identity.authority_fingerprint}"
         _write_exclusive(
             output / "binance-spot-reference.json",

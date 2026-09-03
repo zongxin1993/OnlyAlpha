@@ -1,7 +1,20 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const result = "c1c188880821de9790dfcc84a075c8bdd615f273c27f9fa75bcccc1e812d33cc";
-const statistics = "a23de5e058ec65fe9251b525f10c9b4d8a4b7a4b62d478214a1f0a7c50eef411";
+interface FixtureIdentity {
+    research_result_fingerprint: string;
+    statistics_fingerprint: string;
+}
+
+let result = "";
+let statistics = "";
+
+test.beforeAll(async ({ request }) => {
+    const response = await request.get("http://127.0.0.1:8000/__onlyalpha_e2e__/fixture");
+    expect(response.ok()).toBeTruthy();
+    const fixtureIdentity = (await response.json()) as FixtureIdentity;
+    result = fixtureIdentity.research_result_fingerprint;
+    statistics = fixtureIdentity.statistics_fingerprint;
+});
 const runId = "00000000-0000-4000-8000-000000000301";
 const exactSpecification = { schema_version: 2, exact: "authoritative-e2e-specification" };
 const candidateA = "1".repeat(64);

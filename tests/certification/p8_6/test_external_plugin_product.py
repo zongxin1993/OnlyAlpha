@@ -105,7 +105,7 @@ def _semantic_readers(root: Path):  # type: ignore[no-untyped-def]
 
 
 def test_external_calculation_runs_through_real_api_worker_engine_and_artifact_query(
-    postgres_dsn: str, tmp_path: Path
+    postgres_dsn: str, tmp_path: Path, backtest_product_config: Path
 ) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     _initialize_deployment(postgres_dsn, tmp_path)
@@ -129,6 +129,8 @@ def test_external_calculation_runs_through_real_api_worker_engine_and_artifact_q
         str(tmp_path),
         "--port",
         str(port),
+        "--backtest-product-config",
+        str(backtest_product_config),
     ]
     worker_command = [
         sys.executable,
@@ -253,7 +255,17 @@ def test_external_calculation_runs_through_real_api_worker_engine_and_artifact_q
         assert restored_artifact.manifest.artifact_content_fingerprint == artifact
 
         restored_environment = {**environment, "ONLYALPHA_POSTGRES_DSN": target_dsn}
-        restored_api_command = [*api_command[:-3], str(restore_root), "--port", str(port)]
+        restored_api_command = [
+            sys.executable,
+            "-m",
+            "onlyalpha_http_server.main",
+            "--user-data-root",
+            str(restore_root),
+            "--port",
+            str(port),
+            "--backtest-product-config",
+            str(backtest_product_config),
+        ]
         api = subprocess.Popen(
             restored_api_command,
             cwd=Path.cwd(),

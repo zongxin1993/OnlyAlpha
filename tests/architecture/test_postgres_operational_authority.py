@@ -34,6 +34,10 @@ def test_postgres_schema_is_control_catalog_authority_not_high_volume_semantic_s
         "market_revision_seal",
         "market_recovery_event",
         "market_acquisition_intent",
+        "strategy_freeze_command_admission",
+        "backtest_run",
+        "backtest_run_attempt",
+        "backtest_worker_presence",
     ]
     for forbidden in (
         "dataset_row",

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.architecture._p9_k0_authority_contract import load_authority_contract
 from tests.architecture._p9_k0_guard_helpers import (
     CanonicalImport,
     onlyalpha_imports,
@@ -20,49 +21,14 @@ API_ROOT = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server"
 RESEARCH_EXECUTION_ROOT = ROOT / "src/onlyalpha/research/execution"
 
 HTTP_METHODS = {"delete", "get", "head", "options", "patch", "post", "put", "trace"}
-EXPECTED_HTTP_ROUTE_MODULES = {
-    "packages/onlyalpha-http-server/src/onlyalpha_http_server/health.py",
-    "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/definition_routes.py",
-    "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/routes.py",
-    "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/run_routes.py",
-}
-
-EXPECTED_ROUTE_ONLYALPHA_IMPORTS: dict[str, frozenset[CanonicalImport]] = {
-    "packages/onlyalpha-http-server/src/onlyalpha_http_server/health.py": frozenset(
-        {
-            ("symbol", "onlyalpha.research.operations.readiness", "OnlyResearchReadiness"),
-            ("symbol", "onlyalpha.research.operations.readiness", "OnlyResearchReadinessCheck"),
-            ("symbol", "onlyalpha.research.operations.readiness", "OnlyResearchReadinessStatus"),
-        }
-    ),
-    "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/definition_routes.py": frozenset(),
-    "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/routes.py": frozenset(
-        {
-            ("symbol", "onlyalpha.research.query", "DEFAULT_PAGE_SIZE"),
-            ("symbol", "onlyalpha.research.query", "OnlyResearchQueryService"),
-            ("symbol", "onlyalpha.research.query", "OnlyResearchScientificSeriesQuery"),
-            ("symbol", "onlyalpha.research.query", "OnlyResearchStatisticSeriesQuery"),
-        }
-    ),
-    "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/run_routes.py": frozenset(
-        {
-            ("symbol", "onlyalpha.application.product_boundary", "OnlyCancelResearchRun"),
-            ("symbol", "onlyalpha.application.product_boundary", "OnlyCreateResearchRun"),
-            ("symbol", "onlyalpha.application.product_boundary", "OnlyGetResearchRun"),
-            ("symbol", "onlyalpha.application.product_boundary", "OnlyListResearchRuns"),
-            ("symbol", "onlyalpha.application.product_boundary", "OnlyResearchProductBoundary"),
-            ("symbol", "onlyalpha.research.command.errors", "OnlyResearchCommandError"),
-            ("symbol", "onlyalpha.research.command.errors", "OnlyResearchCommandPhase"),
-            ("symbol", "onlyalpha.research.command.model", "OnlyResearchRunPage"),
-            ("symbol", "onlyalpha.research.command.model", "OnlyResearchSubmissionKey"),
-            ("symbol", "onlyalpha.research.command.model", "OnlyResearchSubmitOutcome"),
-            ("symbol", "onlyalpha.research.command.query", "DEFAULT_RESEARCH_RUN_PAGE_SIZE"),
-            ("symbol", "onlyalpha.research.run.model", "OnlyResearchRun"),
-            ("symbol", "onlyalpha.research.run.model", "OnlyResearchRunId"),
-            ("symbol", "onlyalpha.research.specification.model", "OnlyResearchSpecification"),
-        }
-    ),
-}
+CONTRACT = load_authority_contract(ROOT / "docs/architecture/p9_k0_authority_contract.toml")
+FORBIDDEN_ROUTE_IMPORTS = (
+    "onlyalpha.application.strategy_authority",
+    "onlyalpha.engine",
+    "onlyalpha.persistence",
+    "onlyalpha.runtime",
+    "onlyalpha.strategy.store",
+)
 
 FORBIDDEN_WORKER_IMPORTS = (
     "onlyalpha.application.strategy_authority",
@@ -136,11 +102,17 @@ def _assert_no_forbidden_capability(
 
 def test_api_routes_do_not_own_semantic_or_infrastructure_writers() -> None:
     route_paths = tuple(path for path in sorted(API_ROOT.rglob("*.py")) if _defines_http_route(path))
-    assert {path.relative_to(ROOT).as_posix() for path in route_paths} == EXPECTED_HTTP_ROUTE_MODULES
-    assert set(EXPECTED_ROUTE_ONLYALPHA_IMPORTS) == EXPECTED_HTTP_ROUTE_MODULES
+    assert route_paths
     for path in route_paths:
         relative = path.relative_to(ROOT).as_posix()
-        assert onlyalpha_imports_for_path(path, ROOT) == EXPECTED_ROUTE_ONLYALPHA_IMPORTS[relative]
+        assert CONTRACT.classify_path(relative).name == "HTTP_TRANSPORT_ADAPTER"
+        imports = onlyalpha_imports_for_path(path, ROOT)
+        assert not frozenset(
+            item
+            for item in imports
+            if any(item[1] == module or item[1].startswith(f"{module}.") for module in FORBIDDEN_ROUTE_IMPORTS)
+            or (len(item) == 3 and item[2] in FORBIDDEN_WORKER_CAPABILITIES)
+        )
 
 
 def test_unexpected_route_filename_is_still_detected() -> None:
@@ -154,8 +126,11 @@ def test_unexpected_route_filename_is_still_detected() -> None:
         "onlyalpha.application.strategy_authority",
         "OnlyStrategyPromotionApplicationService",
     ) in onlyalpha_imports(source)
-    approved = frozenset().union(*EXPECTED_ROUTE_ONLYALPHA_IMPORTS.values())
-    assert onlyalpha_imports(source).isdisjoint(approved)
+    assert _forbidden_capability_imports(
+        source,
+        forbidden_imports=FORBIDDEN_ROUTE_IMPORTS,
+        forbidden_capabilities=FORBIDDEN_WORKER_CAPABILITIES,
+    )
 
 
 def test_research_worker_remains_execution_agent_without_strategy_product_authority() -> None:

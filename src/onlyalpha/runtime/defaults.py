@@ -36,13 +36,13 @@ from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_
 class OnlyEngineServices:
     assembler: OnlyEngineRunAssembler
     plugin_discovery: OnlyPluginDiscoveryReport = OnlyPluginDiscoveryReport((), ())
-    market_product_resources: OnlyMarketProductResourceResolver | None = None
 
 
 def only_default_engine_services(
     *,
     fail_fast: bool = True,
     runtime_persistence_store_factory: OnlyRuntimePersistenceStoreFactory | None = None,
+    market_product_resources: OnlyMarketProductResourceResolver | None = None,
 ) -> OnlyEngineServices:
     data_sources = OnlyDataSourceFactoryRegistry()
     builtin = OnlyPluginOrigin(OnlyPluginOriginType.BUILTIN, "onlyalpha")
@@ -85,6 +85,7 @@ def only_default_engine_services(
             only_default_fee_basis_provider_registry(),
             reconciliation_policies,
             runtime_persistence_store_factory or OnlyDefaultRuntimePersistenceStoreFactory(),
+            market_product_resources,
         ),
     )
     return OnlyEngineServices(assembler, discovery)

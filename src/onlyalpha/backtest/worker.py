@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass
-from dataclasses import replace as dataclass_replace
 from enum import StrEnum
 from pathlib import Path
 from threading import Event, Thread
@@ -88,9 +87,12 @@ class OnlyBacktestProductEnginePlanBuilder:
         self._strategies = strategies
         self._datasets = datasets
         self._profiles = profiles
-        services = only_default_engine_services(fail_fast=True)
+        services = only_default_engine_services(
+            fail_fast=True,
+            market_product_resources=market_product_resources,
+        )
         services.assembler.components.data_sources.register(OnlyBacktestDatasetSourceFactory(datasets, economic_facts))
-        self._services = dataclass_replace(services, market_product_resources=market_product_resources)
+        self._services = services
 
     def build(
         self, run: OnlyBacktestRun
@@ -331,7 +333,7 @@ class _LeaseControl:
         self._policy = policy
         self._stop = Event()
         self._lost = Event()
-        self._thread = Thread(target=self._run, name=f"backtest-lease-{claim.attempt.attempt_id.value}", daemon=True)
+        self._thread = Thread(target=self._run, name=f"backtest-lease-{claim.attempt.attempt_id.value}", daemon=False)
 
     @property
     def ownership_lost(self) -> bool:
@@ -343,7 +345,9 @@ class _LeaseControl:
 
     def __exit__(self, *_: object) -> None:
         self._stop.set()
-        self._thread.join()
+        self._thread.join(timeout=self._policy.heartbeat_interval.total_seconds() + 1)
+        if self._thread.is_alive():
+            raise RuntimeError("BACKTEST_LEASE_CONTROL_STOP_TIMEOUT")
 
     def _run(self) -> None:
         while not self._stop.wait(self._policy.heartbeat_interval.total_seconds()):

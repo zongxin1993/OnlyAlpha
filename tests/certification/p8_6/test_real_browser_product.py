@@ -58,6 +58,7 @@ def _stop(process: subprocess.Popen[str] | None) -> None:
 def test_real_chromium_product_vertical_survives_refresh_close_and_reopen(
     postgres_dsn: str,
     tmp_path: Path,
+    backtest_product_config: Path,
 ) -> None:
     api_port = 8000
     web_port = 4173
@@ -93,6 +94,8 @@ def test_real_chromium_product_vertical_survives_refresh_close_and_reopen(
             str(tmp_path),
             "--port",
             str(api_port),
+            "--backtest-product-config",
+            str(backtest_product_config),
         ],
         env=environment,
         text=True,

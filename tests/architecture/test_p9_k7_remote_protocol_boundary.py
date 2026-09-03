@@ -46,7 +46,9 @@ def test_protocol_package_is_independent_of_core_product_and_api_packages() -> N
     package = ROOT / "packages/onlyalpha-gateway-protocol"
     metadata = tomllib.loads((package / "pyproject.toml").read_text(encoding="utf-8"))
     dependencies = metadata["project"]["dependencies"]
-    assert all(not item.startswith(("onlyalpha==", "onlyalpha-http-server", "onlyalpha-client")) for item in dependencies)
+    assert all(
+        not item.startswith(("onlyalpha==", "onlyalpha-http-server", "onlyalpha-client")) for item in dependencies
+    )
     forbidden = ("onlyalpha", "onlyalpha_http_server", "onlyalpha_client")
     offenders = {
         str(path.relative_to(ROOT)): sorted(

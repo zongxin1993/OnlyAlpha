@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import psycopg
 import pytest
@@ -15,3 +16,10 @@ def postgres_dsn() -> str:
         connection.execute("DROP SCHEMA public CASCADE")
         connection.execute("CREATE SCHEMA public")
     return dsn
+
+
+@pytest.fixture(scope="session")
+def backtest_product_config() -> Path:
+    """Deterministic Product config required by the real HTTP composition root."""
+
+    return Path(__file__).parents[2] / "fixtures" / "legacy_macd" / "cluster.json"

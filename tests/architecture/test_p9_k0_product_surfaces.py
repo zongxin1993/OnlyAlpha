@@ -53,6 +53,7 @@ EXPECTED_CONSOLE_ENTRY_POINTS = {
         "onlyalpha_plugin_tushare.doctor:main",
     ),
     ("pyproject.toml", "onlyalpha-research-worker", "onlyalpha.research.worker_main:main"),
+    ("pyproject.toml", "onlyalpha-backtest-worker", "onlyalpha.backtest.worker_main:main"),
 }
 
 # This is the exact K0 allowlist. Entries include internal composition, classified
@@ -62,6 +63,7 @@ EXPECTED_DIRECT_CONSTRUCTION_SITES = {
     ("scripts/regenerate_recovery_baselines.py", "OnlyEngine"),
     ("scripts/regenerate_result_fixtures.py", "OnlyEngine"),
     ("src/onlyalpha/research/execution/worker.py", "OnlyEngine"),
+    ("src/onlyalpha/backtest/worker.py", "OnlyEngine"),
     ("src/onlyalpha/runtime/backtest/factory.py", "OnlyBacktestRuntime"),
     ("src/onlyalpha/runtime/research/factory.py", "OnlyResearchRuntime"),
     ("src/onlyalpha/runtime/sim/factory.py", "OnlySimRuntime"),
@@ -72,6 +74,7 @@ EXPECTED_DIRECT_CONSTRUCTION_CLASSIFICATION = {
     ("scripts/regenerate_recovery_baselines.py", "OnlyEngine"): "TEST TOOLING",
     ("scripts/regenerate_result_fixtures.py", "OnlyEngine"): "TEST TOOLING",
     ("src/onlyalpha/research/execution/worker.py", "OnlyEngine"): "OPERATOR / INFRASTRUCTURE",
+    ("src/onlyalpha/backtest/worker.py", "OnlyEngine"): "OPERATOR / INFRASTRUCTURE",
     ("src/onlyalpha/runtime/backtest/factory.py", "OnlyBacktestRuntime"): "ALLOWED INTERNAL",
     ("src/onlyalpha/runtime/research/factory.py", "OnlyResearchRuntime"): "ALLOWED INTERNAL",
     ("src/onlyalpha/runtime/sim/factory.py", "OnlySimRuntime"): "ALLOWED INTERNAL",
@@ -89,6 +92,7 @@ EXPECTED_CONSTRUCTOR_IMPORT_OWNERS = {
     ("src/onlyalpha/engine/engine.py", "OnlyResearchRuntime"): "ALLOWED INTERNAL",
     ("src/onlyalpha/engine/engine.py", "OnlyRuntime"): "ALLOWED INTERNAL",
     ("src/onlyalpha/research/execution/worker.py", "OnlyEngine"): "OPERATOR / INFRASTRUCTURE",
+    ("src/onlyalpha/backtest/worker.py", "OnlyEngine"): "OPERATOR / INFRASTRUCTURE",
     ("src/onlyalpha/runtime/backtest/driver.py", "OnlyBacktestRuntime"): "ALLOWED INTERNAL",
     ("src/onlyalpha/runtime/backtest/factory.py", "OnlyBacktestRuntime"): "ALLOWED INTERNAL",
     ("src/onlyalpha/runtime/backtest/run_plan.py", "OnlyBacktestRuntime"): "ALLOWED INTERNAL",

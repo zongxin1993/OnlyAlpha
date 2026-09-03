@@ -10,15 +10,15 @@ from onlyalpha_plugin_binance_spot.reference import OnlyBinanceSpotReferenceAuth
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyBinanceSpotBacktestResourceProvider:
+class OnlyBinanceSpotReferenceResourceProvider:
     provider_id: str = "onlyalpha-plugin-binance-spot/reference@1"
 
     def load_reference(self, payload: Mapping[str, object]) -> OnlyBinanceSpotReferenceAuthority:
         if set(payload) != {"observed_at", "authority"} or not isinstance(payload["authority"], dict):
-            raise ValueError("BINANCE_SPOT_BACKTEST_RESOURCE_SCHEMA_INVALID")
+            raise ValueError("BINANCE_SPOT_RESOURCE_SCHEMA_INVALID")
         observed_at = payload["observed_at"]
         if not isinstance(observed_at, str):
-            raise ValueError("BINANCE_SPOT_BACKTEST_RESOURCE_OBSERVED_AT_INVALID")
+            raise ValueError("BINANCE_SPOT_RESOURCE_OBSERVED_AT_INVALID")
         return OnlyBinanceSpotReferenceAuthority.from_semantic_dict(
             payload["authority"],
             observed_at=datetime.fromisoformat(observed_at),
@@ -27,8 +27,8 @@ class OnlyBinanceSpotBacktestResourceProvider:
     def dump_reference(self, authority: OnlyBinanceSpotReferenceAuthority) -> dict[str, object]:
         observed = {item.observed_at for item in authority.references}
         if len(observed) != 1:
-            raise ValueError("BINANCE_SPOT_BACKTEST_RESOURCE_OBSERVED_AT_AMBIGUOUS")
+            raise ValueError("BINANCE_SPOT_RESOURCE_OBSERVED_AT_AMBIGUOUS")
         return {"observed_at": next(iter(observed)).isoformat(), "authority": authority.to_semantic_dict()}
 
 
-__all__ = ["OnlyBinanceSpotBacktestResourceProvider"]
+__all__ = ["OnlyBinanceSpotReferenceResourceProvider"]

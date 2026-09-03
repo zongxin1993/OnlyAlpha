@@ -71,7 +71,9 @@ def test_api_startup_owns_host_and_only_read_only_schema_verification() -> None:
     assert "OnlyPostgresMigrationAuthority" not in source
     assert ".migrate(" not in source
     assert "OnlyKernelResearchReadinessProjection(kernel, verification.evidence)" in source
-    assert "registry_check=lambda: _verify_calculation_registry(calculations)" in source
+    assert (
+        "registry_check=lambda: _verify_product_registries(calculations, market_products, catalog, resources)" in source
+    )
     assert source.index("kernel.start()") < source.index("uvicorn.run(")
     assert source.index("kernel = OnlyAlphaKernelHost(") < source.index("kernel.start()")
     app_source = (ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/app.py").read_text(encoding="utf-8")

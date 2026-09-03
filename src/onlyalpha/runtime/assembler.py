@@ -13,7 +13,7 @@ from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.fee.basis import OnlyFeeBasisProviderRegistry
 from onlyalpha.fee.broker_contract import OnlyBrokerFeeContractRegistry
 from onlyalpha.fee.reconciliation_policy import OnlyFeeReconciliationPolicyRegistry
-from onlyalpha.market.product import OnlyMarketProductFactoryRegistry
+from onlyalpha.market.product import OnlyMarketProductFactoryRegistry, OnlyMarketProductResourceResolver
 from onlyalpha.runtime.factory import OnlyRuntimeBuildRequest, OnlyRuntimeBuildResult, OnlyRuntimeFactoryRegistry
 from onlyalpha.runtime.persistence.factory import OnlyRuntimePersistenceStoreFactory
 from onlyalpha.runtime.product import OnlyRuntimeProductPlan
@@ -30,6 +30,7 @@ class OnlyComponentFactoryRegistries:
     fee_basis_providers: OnlyFeeBasisProviderRegistry
     fee_reconciliation_policies: OnlyFeeReconciliationPolicyRegistry
     runtime_persistence_stores: OnlyRuntimePersistenceStoreFactory
+    market_product_resources: OnlyMarketProductResourceResolver | None = None
 
 
 class OnlyEngineRunAssembler:

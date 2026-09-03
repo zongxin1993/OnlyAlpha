@@ -4,7 +4,7 @@
   "broker_checkpoint": {
     "accepted_bar": [
       [
-        "backtest-610c351e7f6165c0-ORDER-000001",
+        "backtest-61bcdce17b156134-ORDER-000001",
         1
       ]
     ],
@@ -39,11 +39,11 @@
         "dispatch_mode": "ONE_PER_BAR",
         "mode": "SCHEDULE",
         "next_step_index": 2,
-        "order_id": "backtest-610c351e7f6165c0-ORDER-000001",
+        "order_id": "backtest-61bcdce17b156134-ORDER-000001",
         "original_quantity": "1000",
         "original_quantity_precision": 0,
-        "plan_fingerprint": "0b5771d09983fe99182576589d245c48c942847a6d4ad7714a110fa6f44223fd",
-        "plan_id": "VPLAN-0b5771d09983fe99182576589d245c48c942847a6d4ad7714a110fa6f44223fd",
+        "plan_fingerprint": "42ba251bffda89cc1c794746fafa0b43313d9a9207419157b36cabeaa7e3d378",
+        "plan_id": "VPLAN-42ba251bffda89cc1c794746fafa0b43313d9a9207419157b36cabeaa7e3d378",
         "status": "CANCELLED",
         "steps": [
           {
@@ -76,7 +76,7 @@
       ]
     ],
     "orders": [
-      "{\"account_id\":{\"schema_version\":1,\"value\":\"backtest-account\"},\"client_order_id\":{\"schema_version\":1,\"value\":\"backtest-610c351e7f6165c0-CLIENT-000001\"},\"filled_quantity\":{\"precision\":0,\"schema_version\":1,\"value\":\"700\"},\"gateway_id\":{\"schema_version\":1,\"value\":\"virtual-main\"},\"instrument_id\":{\"schema_version\":1,\"symbol\":{\"schema_version\":1,\"value\":\"TESTETF\"},\"venue\":{\"schema_version\":1,\"value\":\"XSHG\"}},\"offset\":\"OPEN\",\"order_id\":{\"schema_version\":1,\"value\":\"backtest-610c351e7f6165c0-ORDER-000001\"},\"order_type\":\"LIMIT\",\"price\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.00\"},\"quantity\":{\"precision\":0,\"schema_version\":1,\"value\":\"1000\"},\"schema_version\":1,\"side\":\"BUY\",\"source_sequence\":7,\"status\":\"CANCELLED\",\"submitted_at\":{\"schema_version\":1,\"unix_nanos\":1767576660000000000},\"updated_at\":{\"schema_version\":1,\"unix_nanos\":1767576780000000000},\"venue_order_id\":{\"schema_version\":1,\"value\":\"virtual-order-00000001\"}}"
+      "{\"account_id\":{\"schema_version\":1,\"value\":\"backtest-account\"},\"client_order_id\":{\"schema_version\":1,\"value\":\"backtest-61bcdce17b156134-CLIENT-000001\"},\"filled_quantity\":{\"precision\":0,\"schema_version\":1,\"value\":\"700\"},\"gateway_id\":{\"schema_version\":1,\"value\":\"virtual-main\"},\"instrument_id\":{\"schema_version\":1,\"symbol\":{\"schema_version\":1,\"value\":\"TESTETF\"},\"venue\":{\"schema_version\":1,\"value\":\"XSHG\"}},\"offset\":\"OPEN\",\"order_id\":{\"schema_version\":1,\"value\":\"backtest-61bcdce17b156134-ORDER-000001\"},\"order_type\":\"LIMIT\",\"price\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.00\"},\"quantity\":{\"precision\":0,\"schema_version\":1,\"value\":\"1000\"},\"schema_version\":1,\"side\":\"BUY\",\"source_sequence\":7,\"status\":\"CANCELLED\",\"submitted_at\":{\"schema_version\":1,\"unix_nanos\":1767576660000000000},\"updated_at\":{\"schema_version\":1,\"unix_nanos\":1767576780000000000},\"venue_order_id\":{\"schema_version\":1,\"value\":\"virtual-order-00000001\"}}"
     ],
     "plugin_state": "STOPPED",
     "scheduler": {
@@ -89,35 +89,35 @@
     "state_time_ns": 1767578340000000000,
     "trade_sequence": 2,
     "trades": [
-      "{\"account_id\":{\"schema_version\":1,\"value\":\"backtest-account\"},\"fill\":{\"external_event_id\":\"virtual-fill-00000001\",\"external_sequence\":5,\"liquidity_side\":\"TAKER\",\"metadata\":{},\"order_id\":{\"schema_version\":1,\"value\":\"backtest-610c351e7f6165c0-ORDER-000001\"},\"price\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.00\"},\"quantity\":{\"precision\":0,\"schema_version\":1,\"value\":\"300\"},\"reference_price\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.00\"},\"schema_version\":1,\"trade_id\":{\"schema_version\":1,\"value\":\"virtual-trade-00000001\"},\"ts_event\":{\"schema_version\":1,\"unix_nanos\":1767576720000000000},\"ts_init\":{\"schema_version\":1,\"unix_nanos\":1767576720000000000},\"venue_order_id\":{\"schema_version\":1,\"value\":\"virtual-order-00000001\"},\"venue_trade_id\":{\"schema_version\":1,\"value\":\"virtual-venue-trade-00000001\"}},\"gateway_id\":{\"schema_version\":1,\"value\":\"virtual-main\"},\"schema_version\":1,\"source_sequence\":5,\"trade_id\":{\"schema_version\":1,\"value\":\"virtual-trade-00000001\"}}",
-      "{\"account_id\":{\"schema_version\":1,\"value\":\"backtest-account\"},\"fill\":{\"external_event_id\":\"virtual-fill-00000002\",\"external_sequence\":6,\"liquidity_side\":\"TAKER\",\"metadata\":{},\"order_id\":{\"schema_version\":1,\"value\":\"backtest-610c351e7f6165c0-ORDER-000001\"},\"price\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.00\"},\"quantity\":{\"precision\":0,\"schema_version\":1,\"value\":\"400\"},\"reference_price\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.00\"},\"schema_version\":1,\"trade_id\":{\"schema_version\":1,\"value\":\"virtual-trade-00000002\"},\"ts_event\":{\"schema_version\":1,\"unix_nanos\":1767576780000000000},\"ts_init\":{\"schema_version\":1,\"unix_nanos\":1767576780000000000},\"venue_order_id\":{\"schema_version\":1,\"value\":\"virtual-order-00000001\"},\"venue_trade_id\":{\"schema_version\":1,\"value\":\"virtual-venue-trade-00000002\"}},\"gateway_id\":{\"schema_version\":1,\"value\":\"virtual-main\"},\"schema_version\":1,\"source_sequence\":6,\"trade_id\":{\"schema_version\":1,\"value\":\"virtual-trade-00000002\"}}"
+      "{\"account_id\":{\"schema_version\":1,\"value\":\"backtest-account\"},\"fill\":{\"external_event_id\":\"virtual-fill-00000001\",\"external_sequence\":5,\"liquidity_side\":\"TAKER\",\"metadata\":{},\"order_id\":{\"schema_version\":1,\"value\":\"backtest-61bcdce17b156134-ORDER-000001\"},\"price\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.00\"},\"quantity\":{\"precision\":0,\"schema_version\":1,\"value\":\"300\"},\"reference_price\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.00\"},\"schema_version\":1,\"trade_id\":{\"schema_version\":1,\"value\":\"virtual-trade-00000001\"},\"ts_event\":{\"schema_version\":1,\"unix_nanos\":1767576720000000000},\"ts_init\":{\"schema_version\":1,\"unix_nanos\":1767576720000000000},\"venue_order_id\":{\"schema_version\":1,\"value\":\"virtual-order-00000001\"},\"venue_trade_id\":{\"schema_version\":1,\"value\":\"virtual-venue-trade-00000001\"}},\"gateway_id\":{\"schema_version\":1,\"value\":\"virtual-main\"},\"schema_version\":1,\"source_sequence\":5,\"trade_id\":{\"schema_version\":1,\"value\":\"virtual-trade-00000001\"}}",
+      "{\"account_id\":{\"schema_version\":1,\"value\":\"backtest-account\"},\"fill\":{\"external_event_id\":\"virtual-fill-00000002\",\"external_sequence\":6,\"liquidity_side\":\"TAKER\",\"metadata\":{},\"order_id\":{\"schema_version\":1,\"value\":\"backtest-61bcdce17b156134-ORDER-000001\"},\"price\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.00\"},\"quantity\":{\"precision\":0,\"schema_version\":1,\"value\":\"400\"},\"reference_price\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.00\"},\"schema_version\":1,\"trade_id\":{\"schema_version\":1,\"value\":\"virtual-trade-00000002\"},\"ts_event\":{\"schema_version\":1,\"unix_nanos\":1767576780000000000},\"ts_init\":{\"schema_version\":1,\"unix_nanos\":1767576780000000000},\"venue_order_id\":{\"schema_version\":1,\"value\":\"virtual-order-00000001\"},\"venue_trade_id\":{\"schema_version\":1,\"value\":\"virtual-venue-trade-00000002\"}},\"gateway_id\":{\"schema_version\":1,\"value\":\"virtual-main\"},\"schema_version\":1,\"source_sequence\":6,\"trade_id\":{\"schema_version\":1,\"value\":\"virtual-trade-00000002\"}}"
     ],
     "venue_order_sequence": 1
   },
-  "checkpoint_id": "backtest-610c351e7f6165c0:30",
+  "checkpoint_id": "backtest-61bcdce17b156134:30",
   "committed_fact_ids": [
-    "OINT-3bcd72acd49d91763e00e18bc7bdd9bcfb5cace92f71e01eb6cd3867b67f9a84",
-    "EACK-59d07d3182798598d528560764013818172f1bac6945ce57200e859420f84815",
-    "EFILL-aed05de07481d61e82a6e6f4c4a411eb069c94ec59fa0c1121a1510793d46d8a",
-    "EFILL-7bafdc4a4709225eed15c10f3f63ac3628e678b93877799e9b5f920edbef51ae",
-    "ETERM-486644f215f08701814209f0f0535eef75ac8acb62ec478f6f3956215d986fd9"
+    "OINT-e75ce7a19866a35480d756e5a9196e6634388fe95133236caf95481dedf63cf6",
+    "EACK-1100c240b8d5ee03990389e64af5352ce9dfc7da099687b72bfda36887377367",
+    "EFILL-6880fcb4b77394a7a494e448c8422cbef7d5d93af97d92d0e9336af690f262ee",
+    "EFILL-3ce707d5d82c8958d451a0c4439ae01ef010e90913a69a706eb2b6847d39666f",
+    "ETERM-d002b2ff0ce580dee6219cd79fd2573a9a5167fa9fc302a1696d01fef8743fc0"
   ],
   "committed_transaction_ids": [
-    "OINT-3bcd72acd49d91763e00e18bc7bdd9bcfb5cace92f71e01eb6cd3867b67f9a84",
-    "EACK-59d07d3182798598d528560764013818172f1bac6945ce57200e859420f84815",
-    "ETX-899194f04e4fe73de308ed24cb99debb1041f0caadd6108321b774706f5fec2b",
-    "ETX-8173c035c3985d3fe4f0cb150eb0975e4a6efbd6cf948dcc140d378b63985010",
-    "ETERM-486644f215f08701814209f0f0535eef75ac8acb62ec478f6f3956215d986fd9"
+    "OINT-e75ce7a19866a35480d756e5a9196e6634388fe95133236caf95481dedf63cf6",
+    "EACK-1100c240b8d5ee03990389e64af5352ce9dfc7da099687b72bfda36887377367",
+    "ETX-71d3a0f9e46985b72435bdc000740c9b6e296d94d3b2b218ef4c06c021df37fb",
+    "ETX-6097a9a4ad62a7386df88a4b6f31fe587acdd6840a077e6f6b043981b0231085",
+    "ETERM-d002b2ff0ce580dee6219cd79fd2573a9a5167fa9fc302a1696d01fef8743fc0"
   ],
-  "configuration_fingerprint": "97c3ff8e781e23fbed47e7a1089b112fddaf89c52eec96e9139a0d1b1f8c754b",
+  "configuration_fingerprint": "295476b22d6d2c010cef97f9be2027cc49e364e6e64205f5858cdc624f607cab",
   "database_archive": "database.sqlite3.gz",
-  "database_fingerprint": "51029de7ebc7ad4dcee159ed52dc8a10b6b4a1b0a6447abc6efe1267d5c242b5",
-  "database_template": "terminal_after_partial_fill_baseline-51029de7ebc7ad4dcee159ed52dc8a10b6b4a1b0a6447abc6efe1267d5c242b5.sqlite3",
+  "database_fingerprint": "a37b5d8ae8c0c63a75d523f34af671e29b8ac6bd1b7e9a964d53ae6c5f1c3092",
+  "database_template": "terminal_after_partial_fill_baseline-a37b5d8ae8c0c63a75d523f34af671e29b8ac6bd1b7e9a964d53ae6c5f1c3092.sqlite3",
   "fill_count": 2,
   "onlyalpha_version": "0.9.8",
   "order_count": 1,
   "persistence_schema_version": "5",
-  "result_fingerprint": "6da5942c2049facfd01cd6ada1b799a56aa82f776e1ad89f016306bf1c3dfb44",
-  "scenario_fingerprint": "97c3ff8e781e23fbed47e7a1089b112fddaf89c52eec96e9139a0d1b1f8c754b",
+  "result_fingerprint": "045ad367a70bce686f78de9527c35622175a82ed6ad51e067ae593633dbc508a",
+  "scenario_fingerprint": "295476b22d6d2c010cef97f9be2027cc49e364e6e64205f5858cdc624f607cab",
   "terminal_count": 1
 }
