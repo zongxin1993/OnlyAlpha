@@ -1,6 +1,6 @@
 {
   "baseline_id": "multi_cluster_close_baseline",
-  "baseline_schema_version": 1,
+  "baseline_schema_version": 2,
   "broker_checkpoint": {
     "accepted_bar": [
       [
@@ -194,15 +194,18 @@
     "EACK-1d05866452d39d9dd71f8257293639fc1960f8fc9ae7044f0d27425283ba3458",
     "ETX-b276dab9415feac666dbdc4a4b88be0b546229993a4e693daa5c92efd1073f37"
   ],
-  "configuration_fingerprint": "5339caa551bdcfd6a1fc671b1a6db4ce4d19387ebd6a30a45ff7b9fc79c56811",
+  "configuration_fingerprint": "45274662f3a5a3581033db820f9857a2e5e964346203e3d8f3c542c163f69acd",
   "database_archive": "database.sqlite3.gz",
-  "database_fingerprint": "85ed16cea37c5bad3f9b4b11f6db54e2bd354247a7298d3f2faa2abdd00f4a33",
-  "database_template": "multi_cluster_close_baseline-85ed16cea37c5bad3f9b4b11f6db54e2bd354247a7298d3f2faa2abdd00f4a33.sqlite3",
+  "database_fingerprint": "39fed00f448d1cc00180ebda8722c662ab6b195bf232970ff99eb51527df5f6e",
+  "database_template": "multi_cluster_close_baseline-39fed00f448d1cc00180ebda8722c662ab6b195bf232970ff99eb51527df5f6e.sqlite3",
   "fill_count": 4,
-  "onlyalpha_version": "0.9.8",
+  "onlyalpha_version": "0.9.9",
   "order_count": 4,
   "persistence_schema_version": "5",
-  "result_fingerprint": "16f8ae6ce4e6be3f2f0bcdabb3f29253b323e39acb09747dbacca426e6bd7027",
-  "scenario_fingerprint": "5339caa551bdcfd6a1fc671b1a6db4ce4d19387ebd6a30a45ff7b9fc79c56811",
+  "result_fingerprint": "e7d2f49c3f8a38eab1af19f4599e9f074ea23421f76bacb4adab56b1b2a7ecb9",
+  "scenario_fingerprint": "45274662f3a5a3581033db820f9857a2e5e964346203e3d8f3c542c163f69acd",
+  "strategy_fingerprints": [
+    "f001f74308a48721ab8e680654b9395739a4344b8bbc995df733574ee23c4cbe"
+  ],
   "terminal_count": 0
 }

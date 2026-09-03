@@ -24,6 +24,7 @@ from onlyalpha.calculation import (
     OnlyPreReadyOutput,
     OnlyTimestampSemantic,
     OnlyWarmupDefinition,
+    only_decimal_execution_semantic_dependency,
 )
 from onlyalpha.calculation.implementation import (
     OnlyCalculationImplementationManifest,
@@ -219,7 +220,10 @@ def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
         item: OnlyCalculationTypeDefinition, backend: OnlyCalculationBackendKind
     ) -> OnlyCalculationImplementationManifest:
         module = "research" if backend is OnlyCalculationBackendKind.RESEARCH else "trading"
-        dependencies = [only_python_stdlib_semantic_dependency("decimal")]
+        dependencies = [
+            only_decimal_execution_semantic_dependency(),
+            only_python_stdlib_semantic_dependency("decimal"),
+        ]
         if backend is OnlyCalculationBackendKind.RESEARCH:
             dependencies.append(only_distribution_semantic_dependency("pyarrow"))
         return only_python_implementation_manifest(

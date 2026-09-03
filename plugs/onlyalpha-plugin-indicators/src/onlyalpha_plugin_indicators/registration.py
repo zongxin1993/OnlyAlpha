@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
+from onlyalpha.calculation.decimal_execution import only_decimal_execution_semantic_dependency
 from onlyalpha.calculation.definition import (
     OnlyCalculationBackendKind,
     OnlyCalculationDataType,
@@ -387,6 +388,7 @@ def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
             package_root=package_root,
             resource_paths=resources,
             semantic_dependencies=(
+                *((only_decimal_execution_semantic_dependency(),) if item in B1_FINANCIAL_TYPES else ()),
                 only_python_stdlib_semantic_dependency("decimal"),
                 *(
                     (only_distribution_semantic_dependency("pyarrow"),)

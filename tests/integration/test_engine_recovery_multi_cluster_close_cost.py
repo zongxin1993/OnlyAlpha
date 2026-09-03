@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from onlyalpha.domain.identifiers import OnlyEngineId
@@ -10,11 +8,15 @@ from onlyalpha.runtime.defaults import only_default_engine_services
 from tests.execution.support.execution_fault_injection import OnlyTestRuntimePersistenceFault
 from tests.integration.test_engine_multi_cluster_close_cost_authority import _configs
 from tests.integration.virtual_multi_fill_support import OnlyMultiFillFaultStoreFactory
-from tests.support.recovery_baselines import assert_recovery_equivalent, load_recovery_baseline
+from tests.support.recovery_baselines import (
+    assert_recovery_baseline_compatible,
+    assert_recovery_equivalent,
+    load_recovery_baseline,
+)
 
 
-def _add_configs(engine: OnlyEngine, user_data_root: Path) -> None:
-    for config in _configs(user_data_root):
+def _add_configs(engine: OnlyEngine, configs) -> None:  # type: ignore[no-untyped-def]
+    for config in configs:
         engine.add_cluster(config)
 
 
@@ -24,34 +26,38 @@ def _add_configs(engine: OnlyEngine, user_data_root: Path) -> None:
 )
 def test_multi_cluster_close_recovery_matches_baseline(tmp_path, fault) -> None:  # type: ignore[no-untyped-def]
     engine_id = OnlyEngineId(f"multi-cluster-close-{fault.value.lower()}")
+    configs = _configs(tmp_path)
+    baseline = load_recovery_baseline("multi_cluster_close_baseline")
+    assert_recovery_baseline_compatible(baseline, [config.strategy.fingerprint for config in configs])
     failed = OnlyEngine(
         OnlyEngineConfig(engine_id, tmp_path),
         services=only_default_engine_services(
             runtime_persistence_store_factory=OnlyMultiFillFaultStoreFactory(fault, fault_after=2)
         ),
     )
-    _add_configs(failed, tmp_path)
+    _add_configs(failed, configs)
     failed_result = failed.run()
     assert failed_result.status == "FAILED"
 
     recovered = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path))
-    _add_configs(recovered, tmp_path)
+    _add_configs(recovered, configs)
     recovered_result = recovered.run()
     assert recovered_result.status == "COMPLETED", recovered_result.failures
 
     actual = recovered_result.runtime_results[0]
-    assert_recovery_equivalent(load_recovery_baseline("multi_cluster_close_baseline"), actual)
+    assert_recovery_equivalent(baseline, actual)
 
 
 def test_completed_multi_cluster_close_checkpoint_restart_is_idempotent(tmp_path) -> None:  # type: ignore[no-untyped-def]
     engine_id = OnlyEngineId("multi-cluster-close-checkpoint")
+    configs = _configs(tmp_path)
     first = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path))
-    _add_configs(first, tmp_path)
+    _add_configs(first, configs)
     first_result = first.run()
     assert first_result.status == "COMPLETED", first_result.failures
 
     restarted = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path))
-    _add_configs(restarted, tmp_path)
+    _add_configs(restarted, configs)
     restarted_result = restarted.run()
     assert restarted_result.status == "COMPLETED", restarted_result.failures
     assert only_backtest_business_projection(first_result.runtime_results[0]) == only_backtest_business_projection(

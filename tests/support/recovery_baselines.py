@@ -28,12 +28,14 @@ class OnlyRecoveryBaseline:
     checkpoint_id: str
     canonical_projection: Mapping[str, object]
     result_fingerprint: str
+    strategy_fingerprints: tuple[str, ...]
     manifest: Mapping[str, object]
 
 
 def load_recovery_baseline(baseline_id: str) -> OnlyRecoveryBaseline:
     directory = RECOVERY_FIXTURE_ROOT / baseline_id
     manifest = _object(directory / "manifest.json")
+    strategy_fingerprints = _validate_recovery_manifest(manifest, baseline_id)
     projection = _object(directory / "canonical_projection.json")
     template_name = str(manifest["database_template"])
     template = RECOVERY_CACHE_ROOT / template_name
@@ -57,8 +59,28 @@ def load_recovery_baseline(baseline_id: str) -> OnlyRecoveryBaseline:
         str(manifest["checkpoint_id"]),
         _freeze_mapping(projection),
         str(manifest["result_fingerprint"]),
+        strategy_fingerprints,
         _freeze_mapping(manifest),
     )
+
+
+def assert_recovery_baseline_compatible(
+    baseline: OnlyRecoveryBaseline,
+    current_strategy_fingerprints: tuple[str, ...] | list[str],
+) -> None:
+    """Fail before Engine execution when a current scenario no longer matches its Golden."""
+
+    current = tuple(sorted(set(current_strategy_fingerprints)))
+    if any(not _is_sha256(value) for value in current):
+        raise ValueError("current Recovery scenario contains a malformed Strategy fingerprint")
+    if current != baseline.strategy_fingerprints:
+        raise AssertionError(
+            "RECOVERY_BASELINE_STRATEGY_IDENTITY_MISMATCH\n"
+            f"baseline: {list(baseline.strategy_fingerprints)}\n"
+            f"current: {list(current)}\n"
+            "Regenerate using: uv run python scripts/regenerate_recovery_baselines.py "
+            f"--baseline {baseline.baseline_id}"
+        )
 
 
 def assert_recovery_equivalent(baseline: OnlyRecoveryBaseline, recovered: OnlyRecoveryResultView) -> None:
@@ -95,6 +117,28 @@ def _object(path: Path) -> dict[str, object]:
     return value
 
 
+def _validate_recovery_manifest(manifest: Mapping[str, object], baseline_id: str) -> tuple[str, ...]:
+    if manifest.get("baseline_schema_version") != 2:
+        raise ValueError("unsupported Recovery baseline schema")
+    if manifest.get("baseline_id") != baseline_id:
+        raise ValueError("Recovery baseline identity differs from its directory")
+    raw = manifest.get("strategy_fingerprints")
+    if not isinstance(raw, list) or not raw or any(not isinstance(value, str) for value in raw):
+        raise ValueError("Recovery baseline strategy_fingerprints must be a non-empty list")
+    result = tuple(raw)
+    if any(not _is_sha256(value) for value in result):
+        raise ValueError("Recovery baseline contains a malformed Strategy fingerprint")
+    if result != tuple(sorted(result)):
+        raise ValueError("Recovery baseline strategy_fingerprints are not canonically ordered")
+    if len(result) != len(set(result)):
+        raise ValueError("Recovery baseline strategy_fingerprints contain duplicates")
+    return result
+
+
+def _is_sha256(value: str) -> bool:
+    return len(value) == 64 and all(char in "0123456789abcdef" for char in value)
+
+
 def _freeze(value: object) -> object:
     if isinstance(value, dict):
         return MappingProxyType({str(key): _freeze(item) for key, item in value.items()})
@@ -120,6 +164,7 @@ def _thaw(value: object) -> object:
 
 __all__ = [
     "OnlyRecoveryBaseline",
+    "assert_recovery_baseline_compatible",
     "assert_recovery_equivalent",
     "load_recovery_baseline",
 ]

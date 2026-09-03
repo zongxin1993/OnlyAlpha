@@ -1,4 +1,4 @@
-from decimal import ROUND_DOWN, Decimal, localcontext
+from decimal import ROUND_DOWN, Clamped, Decimal, Inexact, Rounded, Subnormal, Underflow, localcontext
 
 import pyarrow as pa
 import pytest
@@ -29,6 +29,18 @@ def _definition(type_definition, parameters):
 
 def _registration(type_definition, backend):
     return next(item for item in registrations() if item.type_definition is type_definition and item.backend is backend)
+
+
+def _make_hostile(caller, variant=0):
+    caller.prec = 4 if variant == 0 else 6
+    caller.rounding = ROUND_DOWN
+    caller.Emin = -5 if variant == 0 else -3
+    caller.Emax = 5 if variant == 0 else 3
+    caller.clamp = 1
+    for signal in (Inexact, Rounded, Underflow, Subnormal):
+        caller.traps[signal] = True
+        caller.flags[signal] = True
+    caller.flags[Clamped] = True
 
 
 @pytest.mark.parametrize(
@@ -108,20 +120,41 @@ def test_b1_financial_catalog_contracts_are_explicit() -> None:
     assert all(item.implementation_manifest is not None for item in actual)
     provider = quant_asset_provider()
     assert provider.manifest.provider_id == "onlyalpha.indicator.library"
-    assert provider.manifest.provider_version == "3"
-    assert provider.content_fingerprint == "d21b01930880e6633e459d6c97ff26a34d3c5b3ca9d6478073f69147afb5564b"
+    assert provider.manifest.provider_version == "4"
+    assert provider.content_fingerprint == "b580296fd98c1fbcecf2856fc723f2774f27e788ae51f9d3d6ec54ca86e61f94"
     assert provider.content_fingerprint == quant_asset_provider().content_fingerprint
+    financial = tuple(item for item in actual if item.type_definition in B1_FINANCIAL_TYPES)
+    assert all(
+        any(
+            dependency.dependency_id == "onlyalpha.decimal.execution"
+            for dependency in item.implementation_manifest.semantic_dependencies
+        )
+        for item in financial
+    )
 
 
-def test_financial_results_ignore_caller_decimal_context() -> None:
-    definition = _definition(WMA, {"period": 2})
-    backend = _registration(WMA, OnlyCalculationBackendKind.RESEARCH).provider
-    inputs = {"price": pa.array([Decimal("1.234567890123"), Decimal("9.876543210987")], type=_D)}
-    expected = backend.execute(definition, inputs)["value"].to_pylist()
+@pytest.mark.parametrize(
+    ("type_definition", "parameters", "inputs"),
+    (
+        (WMA, {"period": 2}, {"price": ("1.234567890123", "9.876543210987")}),
+        (ROC, {"period": 1}, {"price": ("0.00000001", "1")}),
+        (VWAP, {"period": 2}, {"price": ("1E4", "2E4"), "volume": ("1E4", "3E4")}),
+        (OBV, {}, {"close": ("1", "2", "1"), "volume": ("1E8", "2E8", "3E8")}),
+        (
+            STOCHASTIC,
+            {"k_period": 2, "d_period": 2},
+            {"high": ("2", "4", "8"), "low": ("0", "1", "2"), "close": ("1", "3", "7")},
+        ),
+    ),
+)
+def test_financial_results_ignore_complete_hostile_caller_context(type_definition, parameters, inputs) -> None:
+    definition = _definition(type_definition, parameters)
+    backend = _registration(type_definition, OnlyCalculationBackendKind.RESEARCH).provider
+    arrays = {name: pa.array([Decimal(value) for value in values], type=_D) for name, values in inputs.items()}
+    expected = {name: values.to_pylist() for name, values in backend.execute(definition, arrays).items()}
     with localcontext() as caller:
-        caller.prec = 4
-        caller.rounding = ROUND_DOWN
-        assert backend.execute(definition, inputs)["value"].to_pylist() == expected
+        _make_hostile(caller)
+        assert {name: values.to_pylist() for name, values in backend.execute(definition, arrays).items()} == expected
 
 
 def test_obv_research_trading_and_checkpoint_ignore_caller_decimal_context() -> None:
@@ -147,9 +180,8 @@ def test_obv_research_trading_and_checkpoint_ignore_caller_decimal_context() -> 
     rows = [dict(zip(inputs, row, strict=True)) for row in zip(*(inputs[name] for name in inputs), strict=True)]
     trading_registration = _registration(OBV, OnlyCalculationBackendKind.TRADING)
 
-    with localcontext() as caller:
-        caller.prec = 6
-        caller.rounding = ROUND_DOWN
+    with localcontext() as caller_a:
+        _make_hostile(caller_a, 0)
         uninterrupted = trading_registration.provider.create(definition, object())
         streamed = [uninterrupted.update(row)["obv"] for row in rows]
 
@@ -157,8 +189,12 @@ def test_obv_research_trading_and_checkpoint_ignore_caller_decimal_context() -> 
         original = trading_registration.provider.create(definition, object())
         for row in rows[:split]:
             original.update(row)
+        checkpoint = original.capture_checkpoint()
+
+    with localcontext() as caller_b:
+        _make_hostile(caller_b, 1)
         restored = trading_registration.provider.create(definition, object())
-        restored.restore_checkpoint(original.capture_checkpoint())
+        restored.restore_checkpoint(checkpoint)
         continued = [restored.update(row)["obv"] for row in rows[split:]]
 
     assert streamed == research

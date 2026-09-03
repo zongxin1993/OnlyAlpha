@@ -72,6 +72,7 @@ def test_calculation_semantic_identity_is_separate_from_explicit_implementation_
                 fingerprint_calls.append(path)
     assert set(fingerprint_calls) == {
         calculation / "definition.py",
+        calculation / "decimal_execution.py",
         calculation / "equivalence.py",
         calculation / "graph.py",
         calculation / "implementation.py",

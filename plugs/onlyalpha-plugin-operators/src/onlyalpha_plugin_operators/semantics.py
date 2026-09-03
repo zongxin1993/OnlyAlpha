@@ -3,7 +3,7 @@
 from collections.abc import Mapping, Sequence
 from decimal import Decimal, localcontext
 
-from onlyalpha.calculation import OnlyCalculationDefinition
+from onlyalpha.calculation import OnlyCalculationDefinition, only_decimal_context, only_quantize_decimal
 
 
 def evaluate(
@@ -23,8 +23,7 @@ def evaluate(
     ):
         raise ValueError("Operator inputs must be finite Decimal or null")
     name = definition.type_id.removeprefix("onlyalpha.operator.")
-    with localcontext() as context:
-        context.prec, context.rounding = definition.numeric.precision, definition.numeric.rounding
+    with localcontext(only_decimal_context(definition.numeric)):
         if name.startswith("cross_section_"):
             return {_output_name(definition): _cross_section(definition, tuple(inputs["value"]))}
         size = next(iter(lengths), 0)
@@ -57,9 +56,7 @@ def _at(
         elif name == "sign":
             result = Decimal(1 if value > 0 else -1 if value < 0 else 0)
         elif name == "log":
-            with localcontext() as context:
-                context.prec, context.rounding = definition.numeric.precision, definition.numeric.rounding
-                result = value.ln()
+            result = value.ln()
         else:
             result = value * Decimal(str(definition.parameters["factor"]))
         return _q(definition, result)
@@ -87,9 +84,7 @@ def _at(
         vx, vy = _variance(x, mx), _variance(y, my)
         if vx == 0 or vy == 0:
             return None
-        with localcontext() as context:
-            context.prec, context.rounding = definition.numeric.precision, definition.numeric.rounding
-            return _q(definition, covariance / (vx * vy).sqrt())
+        return _q(definition, covariance / (vx * vy).sqrt())
     window = tuple(inputs["value"][start : index + 1])
     if any(item is None for item in window):
         return None
@@ -101,9 +96,7 @@ def _at(
     elif name in {"rolling_var", "rolling_std"}:
         result = _variance(exact, _mean(exact))
         if name == "rolling_std":
-            with localcontext() as context:
-                context.prec, context.rounding = definition.numeric.precision, definition.numeric.rounding
-                result = result.sqrt()
+            result = result.sqrt()
     elif name == "rolling_min":
         result = min(exact)
     elif name == "rolling_max":
@@ -140,10 +133,8 @@ def _cross_section(
         variance = _variance(eligible, mean)
         if variance == 0:
             return tuple(None for _ in values)
-        with localcontext() as context:
-            context.prec, context.rounding = definition.numeric.precision, definition.numeric.rounding
-            std = variance.sqrt()
-            return tuple(None if value is None else _q(definition, (value - mean) / std) for value in values)
+        std = variance.sqrt()
+        return tuple(None if value is None else _q(definition, (value - mean) / std) for value in values)
     raise ValueError(f"unsupported cross-section Operator: {definition.type_id}")
 
 
@@ -171,6 +162,4 @@ def _q(definition: OnlyCalculationDefinition, value: Decimal) -> Decimal:
     quantum = definition.numeric.output_quantum
     if quantum is None:
         raise ValueError("Operator requires output_quantum")
-    with localcontext() as context:
-        context.prec, context.rounding = definition.numeric.precision, definition.numeric.rounding
-        return value.quantize(quantum)
+    return only_quantize_decimal(definition.numeric, value)

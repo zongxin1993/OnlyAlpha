@@ -25,7 +25,11 @@ from tests.execution.support.execution_fault_injection import (
 )
 from tests.runtime_runner import only_copy_cluster_strategy_revision, only_migrate_cluster_to_strategy
 from tests.support.canonical import canonical_value
-from tests.support.recovery_baselines import assert_recovery_equivalent, load_recovery_baseline
+from tests.support.recovery_baselines import (
+    assert_recovery_baseline_compatible,
+    assert_recovery_equivalent,
+    load_recovery_baseline,
+)
 
 
 def only_virtual_multi_fill_config(
@@ -203,6 +207,9 @@ def only_assert_multi_fill_recovery_equivalence(
     baseline_id: str | None = None,
 ) -> tuple[OnlyEngine, OnlyEngine]:
     selected = config or only_virtual_multi_fill_config(tmp_path)
+    baseline_fixture = load_recovery_baseline(baseline_id) if baseline_id is not None else None
+    if baseline_fixture is not None:
+        assert_recovery_baseline_compatible(baseline_fixture, [selected.strategy.fingerprint])
     engine_a = OnlyEngine(
         OnlyEngineConfig(engine_id, tmp_path),
         services=only_default_engine_services(runtime_persistence_store_factory=factory),  # type: ignore[arg-type]
@@ -217,8 +224,7 @@ def only_assert_multi_fill_recovery_equivalence(
     actual_result = recovered.runtime_results[0]
     recovered_broker = engine_b.runtime_sessions[0].runtime.broker_gateway
     assert isinstance(recovered_broker, OnlyVirtualBrokerGateway)
-    if baseline_id is not None:
-        baseline_fixture = load_recovery_baseline(baseline_id)
+    if baseline_fixture is not None:
         assert_recovery_equivalent(baseline_fixture, actual_result)
         assert canonical_value(recovered_broker.capture_checkpoint()) == canonical_value(
             baseline_fixture.manifest["broker_checkpoint"]

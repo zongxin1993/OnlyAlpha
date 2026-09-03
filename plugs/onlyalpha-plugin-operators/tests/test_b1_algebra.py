@@ -1,7 +1,18 @@
 import os
 import subprocess
 import sys
-from decimal import ROUND_DOWN, Decimal, localcontext
+from concurrent.futures import ThreadPoolExecutor
+from decimal import (
+    ROUND_DOWN,
+    Clamped,
+    Decimal,
+    Inexact,
+    Rounded,
+    Subnormal,
+    Underflow,
+    localcontext,
+)
+from threading import Barrier
 
 import pyarrow as pa
 import pytest
@@ -10,6 +21,7 @@ from onlyalpha_plugin_operators.registration import (
     ABS,
     ADD,
     CROSS_SECTION_DEMEAN,
+    CROSS_SECTION_PERCENTILE,
     CROSS_SECTION_RANK,
     CROSS_SECTION_ZSCORE,
     DECAY_LINEAR,
@@ -56,6 +68,18 @@ def _definition(type_definition, parameters=None):
 
 def _registration(type_definition, backend):
     return next(item for item in registrations() if item.type_definition is type_definition and item.backend is backend)
+
+
+def _make_hostile(caller, variant=0):
+    caller.prec = 4 if variant == 0 else 6
+    caller.rounding = ROUND_DOWN
+    caller.Emin = -5 if variant == 0 else -3
+    caller.Emax = 5 if variant == 0 else 3
+    caller.clamp = 1
+    for signal in (Inexact, Rounded, Underflow, Subnormal):
+        caller.traps[signal] = True
+        caller.flags[signal] = True
+    caller.flags[Clamped] = True
 
 
 @pytest.mark.parametrize(
@@ -140,15 +164,120 @@ def test_invalid_domains_population_statistics_and_rank_ties_are_exact() -> None
     )["value"].to_pylist()[-1] == Decimal("1.000000000000")
 
 
-def test_operator_results_ignore_caller_decimal_context() -> None:
-    definition = _definition(ROLLING_MEAN, {"period": 2})
-    backend = _registration(ROLLING_MEAN, OnlyCalculationBackendKind.RESEARCH).provider
-    inputs = {"value": pa.array([Decimal("1.234567890123"), Decimal("9.876543210987")], type=_D)}
-    expected = backend.execute(definition, inputs)["value"].to_pylist()
+@pytest.mark.parametrize(
+    ("type_definition", "parameters", "inputs"),
+    (
+        (MULTIPLY, {}, {"left": ("1E4",), "right": ("1E4",)}),
+        (DIVIDE, {}, {"left": ("1",), "right": ("3",)}),
+        (LOG, {}, {"value": ("2",)}),
+        (ROLLING_STD, {"period": 3}, {"value": ("1", "2", "4")}),
+        (
+            ROLLING_CORRELATION,
+            {"period": 3},
+            {"left": ("1", "2", "4"), "right": ("2", "5", "9")},
+        ),
+        (DECAY_LINEAR, {"period": 3}, {"value": ("1", "2", "4")}),
+        (CROSS_SECTION_ZSCORE, {}, {"value": ("1", "2", "4")}),
+        (TS_RANK, {"period": 3}, {"value": ("1", "2", "4")}),
+    ),
+)
+def test_representative_operators_ignore_complete_hostile_caller_context(type_definition, parameters, inputs) -> None:
+    definition = _definition(type_definition, parameters)
+    backend = _registration(type_definition, OnlyCalculationBackendKind.RESEARCH).provider
+    arrays = {name: pa.array([Decimal(value) for value in values], type=_D) for name, values in inputs.items()}
+    expected = {name: values.to_pylist() for name, values in backend.execute(definition, arrays).items()}
     with localcontext() as caller:
-        caller.prec = 4
-        caller.rounding = ROUND_DOWN
-        assert backend.execute(definition, inputs)["value"].to_pylist() == expected
+        _make_hostile(caller)
+        assert {name: values.to_pylist() for name, values in backend.execute(definition, arrays).items()} == expected
+
+
+def test_stateful_operator_checkpoint_continues_across_hostile_contexts() -> None:
+    definition = _definition(ROLLING_STD, {"period": 3})
+    registration = _registration(ROLLING_STD, OnlyCalculationBackendKind.TRADING)
+    values = tuple(Decimal(value) for value in ("1", "2", "4", "8", "16"))
+    research = (
+        _registration(ROLLING_STD, OnlyCalculationBackendKind.RESEARCH)
+        .provider.execute(definition, {"value": pa.array(values, type=_D)})["value"]
+        .to_pylist()
+    )
+    with localcontext() as caller_a:
+        _make_hostile(caller_a, 0)
+        uninterrupted = registration.provider.create(definition, object())
+        streamed = [uninterrupted.update({"value": value})["value"] for value in values]
+        original = registration.provider.create(definition, object())
+        for value in values[:3]:
+            original.update({"value": value})
+        checkpoint = original.capture_checkpoint()
+    with localcontext() as caller_b:
+        _make_hostile(caller_b, 1)
+        restored = registration.provider.create(definition, object())
+        restored.restore_checkpoint(checkpoint)
+        continued = [restored.update({"value": value})["value"] for value in values[3:]]
+    assert streamed == research
+    assert continued == research[3:]
+
+
+def test_operator_execution_is_thread_context_independent() -> None:
+    definition = _definition(DIVIDE)
+    backend = _registration(DIVIDE, OnlyCalculationBackendKind.RESEARCH).provider
+    inputs = {
+        "left": pa.array([Decimal("1"), Decimal("1E4")], type=_D),
+        "right": pa.array([Decimal("3"), Decimal("0.0001")], type=_D),
+    }
+    barrier = Barrier(2)
+
+    def execute(variant):
+        with localcontext() as caller:
+            _make_hostile(caller, variant)
+            barrier.wait()
+            return backend.execute(definition, inputs)["value"].to_pylist()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = tuple(executor.submit(execute, variant) for variant in (0, 1))
+    assert futures[0].result() == futures[1].result()
+
+
+def test_operator_execution_is_process_default_context_independent() -> None:
+    program = """
+from decimal import Inexact, Rounded, Subnormal, Underflow, Decimal, getcontext
+import pyarrow as pa
+from onlyalpha.calculation import OnlyCalculationBackendKind, OnlyCalculationReference
+from onlyalpha_plugin_operators.registration import MULTIPLY, registrations, resolve_operator
+variant = int(__import__('os').environ['ONLYALPHA_CONTEXT_VARIANT'])
+caller = getcontext()
+caller.prec = 4 + variant
+caller.Emin = -5 + variant
+caller.Emax = 5 - variant
+caller.clamp = 1
+for signal in (Inexact, Rounded, Subnormal, Underflow):
+    caller.traps[signal] = True
+    caller.flags[signal] = True
+definition = resolve_operator(
+    MULTIPLY, {},
+    left=OnlyCalculationReference(None, 'left', 'dataset.left'),
+    right=OnlyCalculationReference(None, 'right', 'dataset.right'),
+)
+registration = next(item for item in registrations() if item.type_definition is MULTIPLY and item.backend is OnlyCalculationBackendKind.RESEARCH)
+value = registration.provider.execute(
+    definition,
+    {'left': pa.array([Decimal('1E4')], type=pa.decimal128(38, 12)), 'right': pa.array([Decimal('1E4')], type=pa.decimal128(38, 12))},
+)['value'].to_pylist()
+print(value)
+"""
+    outputs = []
+    for variant in ("0", "1"):
+        environment = dict(os.environ)
+        environment["ONLYALPHA_CONTEXT_VARIANT"] = variant
+        outputs.append(
+            subprocess.run(
+                [sys.executable, "-c", program],
+                check=True,
+                capture_output=True,
+                text=True,
+                env=environment,
+            ).stdout.strip()
+        )
+    assert outputs == ["[Decimal('100000000.000000000000')]"] * 2
 
 
 def test_shared_numeric_vectors_cover_alternating_quantum_large_and_population_results() -> None:
@@ -203,9 +332,16 @@ def test_cross_section_p0_is_research_only_and_preserves_missing(type_definition
 def test_p0_discovery_and_provider_version_are_complete() -> None:
     provider = quant_asset_provider()
     assert provider.manifest.provider_id == "onlyalpha.operator.library"
-    assert provider.manifest.provider_version == "3"
+    assert provider.manifest.provider_version == "4"
     assert {item.type_definition for item in provider.calculation_registrations} == set(P0_TYPES)
-    assert provider.content_fingerprint == "9b50f3c60dfb9e20621bb375a8ea60ac8636c3e7ab33124a87764a9b2f8f1213"
+    assert provider.content_fingerprint == "aa0131efd0f7c9c033ca4423fa4b20ad70940cba3f41f4782b870f62ccdba122"
+    assert all(
+        any(
+            dependency.dependency_id == "onlyalpha.decimal.execution"
+            for dependency in item.implementation_manifest.semantic_dependencies
+        )
+        for item in provider.calculation_registrations
+    )
     assert provider.content_fingerprint == quant_asset_provider().content_fingerprint
 
 
@@ -214,6 +350,10 @@ def test_operator_composition_identity_is_order_independent_and_parameter_sensit
     second = resolve_operator(ABS, {}, value=OnlyCalculationReference(first.fingerprint, "value"))
     nodes = (OnlyCalculationNodeDefinition(first), OnlyCalculationNodeDefinition(second))
     graph = OnlyCalculationGraphDefinition(nodes)
+    assert first.fingerprint == "40c666c455783fee14e8af4e70062f470a7b060e495a992c8c9800de356e28ef"
+    assert _definition(CROSS_SECTION_PERCENTILE).fingerprint == (
+        "9259f6b3d79ef6c801996c5ffc5bcef7fdb07f52a37948d00fa1385948c3fa0d"
+    )
     assert graph.fingerprint == OnlyCalculationGraphDefinition(tuple(reversed(nodes))).fingerprint
     changed = resolve_operator(ROLLING_MEAN, {"period": 3}, value=_SOURCE)
     assert changed.fingerprint != first.fingerprint

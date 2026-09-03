@@ -58,7 +58,8 @@ def regenerate(name: str) -> None:
     with tempfile.TemporaryDirectory(prefix=f"onlyalpha-recovery-{name}-") as raw:
         run_root = Path(raw)
         engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId(f"recovery-{name}"), run_root))
-        for config in _configs_for(name, run_root):
+        configs = _configs_for(name, run_root)
+        for config in configs:
             engine.add_cluster(config)  # type: ignore[arg-type]
         result = engine.run()
         if result.status != "COMPLETED" or not result.runtime_results:
@@ -102,8 +103,9 @@ def regenerate(name: str) -> None:
         write_canonical_json(
             directory / "manifest.json",
             {
-                "baseline_schema_version": 1,
+                "baseline_schema_version": 2,
                 "baseline_id": name,
+                "strategy_fingerprints": sorted({config.strategy.fingerprint for config in configs}),
                 "scenario_fingerprint": result.determinism_fingerprint,
                 "configuration_fingerprint": result.determinism_fingerprint,
                 "persistence_schema_version": "5",

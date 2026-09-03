@@ -12,7 +12,11 @@ from tests.integration.virtual_multi_fill_support import (
     only_assert_multi_fill_recovery_equivalence,
     only_virtual_multi_fill_config,
 )
-from tests.support.recovery_baselines import assert_recovery_equivalent, load_recovery_baseline
+from tests.support.recovery_baselines import (
+    assert_recovery_baseline_compatible,
+    assert_recovery_equivalent,
+    load_recovery_baseline,
+)
 
 
 @pytest.mark.parametrize(
@@ -65,6 +69,8 @@ def test_long_close_pending_outbox_recovers_without_double_projection(tmp_path) 
 
 def test_long_close_a_b_c_restart_matches_no_fault_baseline(tmp_path) -> None:  # type: ignore[no-untyped-def]
     config = only_virtual_multi_fill_config(tmp_path, long_close=True)
+    baseline = load_recovery_baseline("long_close_multi_fill_baseline")
+    assert_recovery_baseline_compatible(baseline, [config.strategy.fingerprint])
     engine_id = OnlyEngineId("long-close-three-stage")
     fault = OnlyTestRuntimePersistenceFault.AFTER_COMMIT
     engine_a = OnlyEngine(
@@ -86,4 +92,4 @@ def test_long_close_a_b_c_restart_matches_no_fault_baseline(tmp_path) -> None:  
     recovered = engine_c.run()
     assert recovered.status == "COMPLETED", recovered.failures
     actual = recovered.runtime_results[0]
-    assert_recovery_equivalent(load_recovery_baseline("long_close_multi_fill_baseline"), actual)
+    assert_recovery_equivalent(baseline, actual)

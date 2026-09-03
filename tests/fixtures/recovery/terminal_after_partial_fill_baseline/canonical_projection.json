@@ -7297,7 +7297,7 @@
           "instrument_id": "TESTETF.XSHG",
           "observation_fingerprint": "0af3c69aa18aa104f46c25e51e4fd52d65349dbbf39adb0e5e00ff4fbd14aef1",
           "observation_key": "d9ee0db0a425ef36cf062d82208adb9c39ddf04dfa1c9df91f5422cfe760c240",
-          "strategy_fingerprint": "02b4bf4655e1b0f9802e7ba346a1766da5bdfa0553f88d1d5c436b6904385e70"
+          "strategy_fingerprint": "f001f74308a48721ab8e680654b9395739a4344b8bbc995df733574ee23c4cbe"
         },
         "scenario_actions": [
           {
@@ -7331,7 +7331,7 @@
             "status": "EXECUTED"
           }
         ],
-        "strategy_fingerprint": "02b4bf4655e1b0f9802e7ba346a1766da5bdfa0553f88d1d5c436b6904385e70",
+        "strategy_fingerprint": "f001f74308a48721ab8e680654b9395739a4344b8bbc995df733574ee23c4cbe",
         "submission_results": [
           {
             "action_id": "OPEN",
@@ -8325,7 +8325,7 @@
         "settlement_status": "SETTLED",
         "side": "BUY",
         "slippage": "0.00",
-        "strategy_id": "02b4bf4655e1b0f9802e7ba346a1766da5bdfa0553f88d1d5c436b6904385e70",
+        "strategy_id": "f001f74308a48721ab8e680654b9395739a4344b8bbc995df733574ee23c4cbe",
         "trade_instruction_id": "TINSTR-64d7d62c7e38b437ca8e5a72a392500f84ba95156f98f898b0c6b9df79f44140",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:32:00Z",
@@ -8398,7 +8398,7 @@
         "settlement_status": "SETTLED",
         "side": "BUY",
         "slippage": "0.00",
-        "strategy_id": "02b4bf4655e1b0f9802e7ba346a1766da5bdfa0553f88d1d5c436b6904385e70",
+        "strategy_id": "f001f74308a48721ab8e680654b9395739a4344b8bbc995df733574ee23c4cbe",
         "trade_instruction_id": "TINSTR-64d7d62c7e38b437ca8e5a72a392500f84ba95156f98f898b0c6b9df79f44140",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:33:00Z",
@@ -8510,7 +8510,7 @@
         "sequence": 1,
         "side": "BUY",
         "stop_price": null,
-        "strategy_id": "02b4bf4655e1b0f9802e7ba346a1766da5bdfa0553f88d1d5c436b6904385e70",
+        "strategy_id": "f001f74308a48721ab8e680654b9395739a4344b8bbc995df733574ee23c4cbe",
         "submitted_at": "2026-01-05T01:31:00Z",
         "tags": []
       }
@@ -8535,7 +8535,7 @@
         "sequence": 2,
         "side": "BUY",
         "status": "CANCELLED",
-        "strategy_id": "02b4bf4655e1b0f9802e7ba346a1766da5bdfa0553f88d1d5c436b6904385e70",
+        "strategy_id": "f001f74308a48721ab8e680654b9395739a4344b8bbc995df733574ee23c4cbe",
         "submitted_at": "2026-01-05T01:31:00Z",
         "tags": []
       }
@@ -11145,7 +11145,7 @@
       },
       "source_sequence": 5,
       "strategy_id": {
-        "value": "02b4bf4655e1b0f9802e7ba346a1766da5bdfa0553f88d1d5c436b6904385e70"
+        "value": "f001f74308a48721ab8e680654b9395739a4344b8bbc995df733574ee23c4cbe"
       },
       "strategy_reservation_consumed_delta": {
         "amount": "3003.00",
@@ -11685,7 +11685,7 @@
       },
       "source_sequence": 6,
       "strategy_id": {
-        "value": "02b4bf4655e1b0f9802e7ba346a1766da5bdfa0553f88d1d5c436b6904385e70"
+        "value": "f001f74308a48721ab8e680654b9395739a4344b8bbc995df733574ee23c4cbe"
       },
       "strategy_reservation_consumed_delta": {
         "amount": "4004.00",

@@ -4,22 +4,19 @@ from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from decimal import Decimal, localcontext
 
-from onlyalpha.calculation import OnlyCalculationDefinition
+from onlyalpha.calculation import OnlyCalculationDefinition, only_decimal_context, only_quantize_decimal
 
 
 @contextmanager
 def financial_numeric_context(definition: OnlyCalculationDefinition) -> Iterator[None]:
-    with localcontext() as context:
-        context.prec, context.rounding = definition.numeric.precision, definition.numeric.rounding
+    with localcontext(only_decimal_context(definition.numeric)):
         yield
 
 
 def quantize_financial(definition: OnlyCalculationDefinition, value: Decimal) -> Decimal:
-    quantum = definition.numeric.output_quantum
-    if quantum is None:
+    if definition.numeric.output_quantum is None:
         raise ValueError("financial Indicator requires output_quantum")
-    with financial_numeric_context(definition):
-        return value.quantize(quantum)
+    return only_quantize_decimal(definition.numeric, value)
 
 
 def evaluate_financial(
