@@ -46,7 +46,10 @@ class OnlyIndicatorFactoryRegistry:
         factory = registration.provider
         key = getattr(factory, "indicator_type", None)
         if not isinstance(key, OnlyIndicatorTypeId):
-            raise TypeError("Indicator backend factory must expose indicator_type")
+            if not callable(getattr(factory, "create", None)):
+                raise TypeError("Indicator backend factory must expose indicator_type or create()")
+            self._calculations.register(registration)
+            return
         if key in self._factories and registration.type_definition.semantic_version == "1":
             raise ValueError(f"duplicate indicator factory: {key}")
         if registration.type_definition.kind is not OnlyCalculationKind.INDICATOR:

@@ -1,12 +1,12 @@
 [project]
 name = "onlyalpha-example-alpha"
-version = "0.9.8"
+version = "0.9.9"
 description = "Non-production L3 Alpha reference package for OnlyAlpha"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "onlyalpha==0.9.8",
-    "onlyalpha-plugin-indicators==0.9.8",
-    "onlyalpha-plugin-operators==0.9.8",
+    "onlyalpha==0.9.9",
+    "onlyalpha-plugin-indicators==0.9.9",
+    "onlyalpha-plugin-operators==0.9.9",
 ]
 
 [project.entry-points."onlyalpha.calculations"]

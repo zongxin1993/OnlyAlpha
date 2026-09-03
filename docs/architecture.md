@@ -573,6 +573,11 @@ provider to one immutable catalog generation. Refresh validates a complete gener
 work retains its prior snapshot. This management catalog does not replace Calculation Graph, `onlyalpha.calculations`, Product API, Freeze
 or StrategyRevision authorities.
 
+ADR 0113 freezes the common L1 algebra policy: Decimal precision/quantization, inclusive complete windows, null propagation,
+deterministic invalid-domain nulls, population statistics, average-tie normalized ranks, and exact RESEARCH/TRADING/checkpoint
+equivalence. Cross-section L1 remains RESEARCH-only until a separate trading-plane contract exists. Public L2 WMA, ROC, windowed VWAP,
+OBV and Stochastic retain explicit financial inputs and do not create a second Feature or calculation authority.
+
 ## 18. Public vs Internal API
 
 正式外部 Product 使用入口为：

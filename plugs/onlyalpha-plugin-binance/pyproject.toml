@@ -1,13 +1,13 @@
 [project]
 name = "onlyalpha-plugin-binance"
-version = "0.9.8"
+version = "0.9.9"
 description = "Public Binance provider adapter for OnlyAlpha"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "onlyalpha==0.9.8",
-    "onlyalpha-plugin-binance-spot==0.9.8",
-    "onlyalpha-plugin-binance-usdm==0.9.8",
+    "onlyalpha==0.9.9",
+    "onlyalpha-plugin-binance-spot==0.9.9",
+    "onlyalpha-plugin-binance-usdm==0.9.9",
     "websocket-client>=1.8,<2",
 ]
 

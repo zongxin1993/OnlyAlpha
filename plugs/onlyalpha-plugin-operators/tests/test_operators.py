@@ -1,9 +1,11 @@
+from dataclasses import replace
 from decimal import Decimal
 
 import pyarrow as pa
 import pytest
 from onlyalpha_plugin_operators.registration import (
     CROSS_SECTION_PERCENTILE,
+    P0_TYPES,
     ROLLING_MEAN,
     registrations,
     resolve_cross_section_percentile,
@@ -77,15 +79,31 @@ def test_rolling_mean_trading_checkpoint_continuation_is_exact() -> None:
         == restored.update({"value": Decimal("3")})
         == {"value": Decimal("2.000000000000")}
     )
-    with pytest.raises(ValueError, match="values"):
+    with pytest.raises(ValueError, match="inputs"):
         restored.restore_checkpoint({"wrong": []})
 
 
 def test_operator_registrations_have_exact_manifests_and_capabilities() -> None:
     actual = registrations()
-    assert {item.type_definition for item in actual} == {ROLLING_MEAN, CROSS_SECTION_PERCENTILE}
+    assert {item.type_definition for item in actual} == set(P0_TYPES)
     assert {item.backend for item in actual} == {
         OnlyCalculationBackendKind.RESEARCH,
         OnlyCalculationBackendKind.TRADING,
     }
     assert all(item.implementation_manifest is not None for item in actual)
+    rolling_trading = next(
+        item
+        for item in actual
+        if item.type_definition is ROLLING_MEAN and item.backend is OnlyCalculationBackendKind.TRADING
+    )
+    assert rolling_trading.checkpoint_schema_version == 2
+    assert (
+        OnlyOfficialTradingOperatorBackendFactory()
+        .create(resolve_rolling_mean({"period": 2}, _source()), object())
+        .checkpoint_schema_version
+        == 2
+    )
+    with pytest.raises(ValueError, match="unsupported"):
+        OnlyOfficialTradingOperatorBackendFactory().create(
+            replace(resolve_rolling_mean({"period": 2}, _source()), type_id="vendor.operator"), object()
+        )

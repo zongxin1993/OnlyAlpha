@@ -15,7 +15,7 @@ def quant_asset_provider() -> OnlyQuantAssetProvider:
             provider_version="1",
             layer=OnlyQuantAssetLayer.FACTOR,
             distribution_name="onlyalpha-example-alpha",
-            distribution_version="0.9.8",
+            distribution_version="0.9.9",
         ),
         calculation_registrations=registrations(),
     )

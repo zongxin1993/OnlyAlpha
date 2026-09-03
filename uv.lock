@@ -885,7 +885,7 @@ wheels = [
 
 [[package]]
 name = "onlyalpha"
-version = "0.9.8"
+version = "0.9.9"
 source = { editable = "." }
 dependencies = [
     { name = "psycopg", extra = ["binary"] },
@@ -974,7 +974,7 @@ dev = [
 
 [[package]]
 name = "onlyalpha-example-alpha"
-version = "0.9.8"
+version = "0.9.9"
 source = { editable = "examples/onlyalpha-example-alpha" }
 dependencies = [
     { name = "onlyalpha" },
@@ -991,7 +991,7 @@ requires-dist = [
 
 [[package]]
 name = "onlyalpha-example-strategies"
-version = "0.9.8"
+version = "0.9.9"
 source = { editable = "examples/onlyalpha-example-strategies" }
 dependencies = [
     { name = "onlyalpha" },
@@ -1002,7 +1002,7 @@ requires-dist = [{ name = "onlyalpha", editable = "." }]
 
 [[package]]
 name = "onlyalpha-gateway-protocol"
-version = "0.9.8"
+version = "0.9.9"
 source = { editable = "packages/onlyalpha-gateway-protocol" }
 dependencies = [
     { name = "grpcio" },
@@ -1017,7 +1017,7 @@ requires-dist = [
 
 [[package]]
 name = "onlyalpha-http-server"
-version = "0.9.8"
+version = "0.9.9"
 source = { editable = "packages/onlyalpha-http-server" }
 dependencies = [
     { name = "fastapi" },
@@ -1050,7 +1050,7 @@ dev = [
 
 [[package]]
 name = "onlyalpha-plugin-binance"
-version = "0.9.8"
+version = "0.9.9"
 source = { editable = "plugs/onlyalpha-plugin-binance" }
 dependencies = [
     { name = "onlyalpha" },
@@ -1069,7 +1069,7 @@ requires-dist = [
 
 [[package]]
 name = "onlyalpha-plugin-binance-spot"
-version = "0.9.8"
+version = "0.9.9"
 source = { editable = "plugs/onlyalpha-plugin-binance-spot" }
 dependencies = [
     { name = "onlyalpha" },
@@ -1080,7 +1080,7 @@ requires-dist = [{ name = "onlyalpha", editable = "." }]
 
 [[package]]
 name = "onlyalpha-plugin-binance-usdm"
-version = "0.9.8"
+version = "0.9.9"
 source = { editable = "plugs/onlyalpha-plugin-binance-usdm" }
 dependencies = [
     { name = "onlyalpha" },
@@ -1091,7 +1091,7 @@ requires-dist = [{ name = "onlyalpha", editable = "." }]
 
 [[package]]
 name = "onlyalpha-plugin-broker-virtual"
-version = "0.9.8"
+version = "0.9.9"
 source = { editable = "plugs/onlyalpha-plugin-broker-virtual" }
 dependencies = [
     { name = "onlyalpha" },
@@ -1118,7 +1118,7 @@ dev = [
 
 [[package]]
 name = "onlyalpha-plugin-cn-ashare"
-version = "0.9.8"
+version = "0.9.9"
 source = { editable = "plugs/onlyalpha-plugin-cn-ashare" }
 dependencies = [
     { name = "onlyalpha" },
@@ -1145,7 +1145,7 @@ dev = [
 
 [[package]]
 name = "onlyalpha-plugin-generic-t0-cash"
-version = "0.9.8"
+version = "0.9.9"
 source = { editable = "plugs/onlyalpha-plugin-generic-t0-cash" }
 dependencies = [
     { name = "onlyalpha" },
@@ -1172,7 +1172,7 @@ dev = [
 
 [[package]]
 name = "onlyalpha-plugin-indicators"
-version = "0.9.8"
+version = "0.9.9"
 source = { editable = "plugs/onlyalpha-plugin-indicators" }
 dependencies = [
     { name = "onlyalpha" },
@@ -1197,7 +1197,7 @@ dev = [
 
 [[package]]
 name = "onlyalpha-plugin-miniqmt"
-version = "0.9.8"
+version = "0.9.9"
 source = { editable = "plugs/onlyalpha-plugin-miniqmt" }
 dependencies = [
     { name = "onlyalpha" },
@@ -1232,7 +1232,7 @@ dev = [
 
 [[package]]
 name = "onlyalpha-plugin-operators"
-version = "0.9.8"
+version = "0.9.9"
 source = { editable = "plugs/onlyalpha-plugin-operators" }
 dependencies = [
     { name = "onlyalpha" },
@@ -1243,7 +1243,7 @@ requires-dist = [{ name = "onlyalpha", editable = "." }]
 
 [[package]]
 name = "onlyalpha-plugin-targets"
-version = "0.9.8"
+version = "0.9.9"
 source = { editable = "plugs/onlyalpha-plugin-targets" }
 dependencies = [
     { name = "onlyalpha" },
@@ -1254,7 +1254,7 @@ requires-dist = [{ name = "onlyalpha", editable = "." }]
 
 [[package]]
 name = "onlyalpha-plugin-tushare"
-version = "0.9.8"
+version = "0.9.9"
 source = { editable = "plugs/onlyalpha-plugin-tushare" }
 dependencies = [
     { name = "onlyalpha" },
@@ -1296,8 +1296,8 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "onlyalpha", specifier = "==0.9.8" },
-    { name = "onlyalpha-plugin-indicators", specifier = "==0.9.8" },
+    { name = "onlyalpha", specifier = "==0.9.9" },
+    { name = "onlyalpha-plugin-indicators", specifier = "==0.9.9" },
 ]
 
 [[package]]

@@ -3,65 +3,115 @@
 from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from decimal import Decimal, localcontext
+from decimal import Decimal
 
 from onlyalpha.calculation import OnlyCalculationDefinition
+from onlyalpha_plugin_operators.semantics import evaluate
+
+_SUPPORTED = {
+    "onlyalpha.operator.add",
+    "onlyalpha.operator.subtract",
+    "onlyalpha.operator.multiply",
+    "onlyalpha.operator.divide",
+    "onlyalpha.operator.abs",
+    "onlyalpha.operator.sign",
+    "onlyalpha.operator.log",
+    "onlyalpha.operator.delay",
+    "onlyalpha.operator.delta",
+    "onlyalpha.operator.rolling_mean",
+    "onlyalpha.operator.rolling_sum",
+    "onlyalpha.operator.rolling_std",
+    "onlyalpha.operator.rolling_var",
+    "onlyalpha.operator.rolling_min",
+    "onlyalpha.operator.rolling_max",
+    "onlyalpha.operator.rolling_covariance",
+    "onlyalpha.operator.rolling_correlation",
+    "onlyalpha.operator.ts_rank",
+    "onlyalpha.operator.scale",
+    "onlyalpha.operator.decay_linear",
+}
 
 
 class OnlyOfficialTradingOperatorBackendFactory:
     def create(self, definition: OnlyCalculationDefinition, request: object) -> object:
         del request
-        if definition.type_id != "onlyalpha.operator.rolling_mean" or definition.semantic_version != "1":
+        if definition.semantic_version != "1" or definition.type_id not in _SUPPORTED:
             raise ValueError(
                 f"unsupported official TRADING Operator: {definition.type_id}@{definition.semantic_version}"
             )
-        return OnlyOfficialTradingRollingMeanBackend(definition)
+        if "period" not in definition.parameters:
+            return OnlyOfficialTradingStatelessOperatorBackend(definition)
+        return OnlyOfficialTradingStatefulOperatorBackend(definition)
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyOfficialTradingStatelessOperatorBackend:
+    definition: OnlyCalculationDefinition
+
+    def update(self, inputs: Mapping[str, object]) -> Mapping[str, object]:
+        columns = {name: (_value(value),) for name, value in inputs.items()}
+        return {name: values[-1] for name, values in evaluate(self.definition, columns).items()}
 
 
 @dataclass(slots=True)
-class OnlyOfficialTradingRollingMeanBackend:
+class OnlyOfficialTradingStatefulOperatorBackend:
     definition: OnlyCalculationDefinition
-    _window: deque[Decimal | None] = field(init=False)
+    _windows: dict[str, deque[Decimal | None]] = field(init=False)
 
     def __post_init__(self) -> None:
-        self._window = deque(maxlen=int(str(self.definition.parameters["period"])))
+        period = int(str(self.definition.parameters["period"]))
+        size = period + 1 if self.definition.type_id.endswith((".delay", ".delta")) else period
+        self._windows = {item.name: deque(maxlen=size) for item in self.definition.inputs}
 
     @property
     def checkpoint_schema_version(self) -> int:
-        return 1
+        return 2 if self.definition.type_id == "onlyalpha.operator.rolling_mean" else 1
 
     def capture_checkpoint(self) -> object:
-        return {"values": [None if item is None else str(item) for item in self._window]}
+        return {
+            "inputs": {
+                name: [None if value is None else str(value) for value in values]
+                for name, values in sorted(self._windows.items())
+            }
+        }
 
     def restore_checkpoint(self, payload: object) -> None:
-        if not isinstance(payload, dict) or set(payload) != {"values"} or not isinstance(payload["values"], list):
-            raise ValueError("Rolling Mean checkpoint must contain only a values array")
-        period = int(str(self.definition.parameters["period"]))
-        if len(payload["values"]) > period:
-            raise ValueError("Rolling Mean checkpoint exceeds the declared period")
-        self._window = deque(
-            (None if item is None else Decimal(str(item)) for item in payload["values"]),
-            maxlen=period,
-        )
+        if not isinstance(payload, Mapping) or set(payload) != {"inputs"} or not isinstance(payload["inputs"], Mapping):
+            raise ValueError("Operator checkpoint must contain only an inputs object")
+        if set(payload["inputs"]) != set(self._windows):
+            raise ValueError("Operator checkpoint input names differ")
+        limit = next(iter(self._windows.values())).maxlen
+        restored: dict[str, deque[Decimal | None]] = {}
+        for name, raw in payload["inputs"].items():
+            if not isinstance(name, str) or not isinstance(raw, list) or len(raw) > int(limit or 0):
+                raise ValueError("Operator checkpoint input history is invalid")
+            restored[name] = deque((_checkpoint_value(value) for value in raw), maxlen=limit)
+        self._windows = restored
 
     def update(self, inputs: Mapping[str, object]) -> Mapping[str, object]:
-        if set(inputs) != {"value"}:
-            raise ValueError("Rolling Mean TRADING inputs are invalid")
-        value = inputs["value"]
-        if value is not None and not isinstance(value, Decimal):
-            raise TypeError("Rolling Mean TRADING input must be Decimal or null")
-        self._window.append(value)
-        period = int(str(self.definition.parameters["period"]))
-        if len(self._window) < period or any(item is None for item in self._window):
-            return {"value": None}
-        quantum = self.definition.numeric.output_quantum
-        if quantum is None:
-            raise ValueError("Rolling Mean requires an output quantum")
-        with localcontext() as context:
-            context.prec = self.definition.numeric.precision
-            context.rounding = self.definition.numeric.rounding
-            result = (sum((item for item in self._window if item is not None), Decimal(0)) / period).quantize(quantum)
-        return {"value": result}
+        if set(inputs) != set(self._windows):
+            raise ValueError("Operator TRADING input names are invalid")
+        for name, value in inputs.items():
+            self._windows[name].append(_value(value))
+        outputs = evaluate(self.definition, self._windows)
+        return {name: values[-1] for name, values in outputs.items()}
+
+
+def _value(value: object) -> Decimal | None:
+    if value is not None and (not isinstance(value, Decimal) or not value.is_finite()):
+        raise TypeError("Operator TRADING input must be finite Decimal or null")
+    return value
+
+
+def _checkpoint_value(value: object) -> Decimal | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("Operator checkpoint values must be Decimal strings or null")
+    result = Decimal(value)
+    if not result.is_finite():
+        raise ValueError("Operator checkpoint values must be finite")
+    return result
 
 
 __all__ = [name for name in globals() if name.startswith("Only")]

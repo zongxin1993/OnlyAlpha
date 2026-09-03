@@ -1,9 +1,10 @@
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 from onlyalpha_plugin_indicators import OnlyMacdIndicator, OnlyMacdSnapshot, OnlyRsiSnapshot
-from onlyalpha_plugin_indicators.registration import registrations
+from onlyalpha_plugin_indicators.registration import WMA, registrations
 
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.enums import OnlyAdjustmentType, OnlySessionType
@@ -93,3 +94,21 @@ def test_registry_creates_default_rsi_and_rejects_unknown_or_duplicate_factory()
         )
     with pytest.raises(ValueError, match="duplicate indicator factory"):
         registry.register(next(item for item in registrations() if item.backend.value == "TRADING"))
+
+
+def test_legacy_registry_admits_generic_trading_calculations_without_claiming_legacy_factory_identity() -> None:
+    registry = OnlyIndicatorFactoryRegistry()
+    for registration in registrations():
+        registry.register(registration)
+    with pytest.raises(TypeError, match="must define resolve_definition"):
+        registry.create(
+            OnlyIndicatorCreateRequest(
+                type(RSI)(f"{WMA.type_id}@{WMA.semantic_version}"),
+                OnlyIndicatorId("generic-wma"),
+                _bar_type(),
+                {"period": 3},
+            )
+        )
+    generic = next(item for item in registrations() if item.backend.value == "TRADING" and item.type_definition is WMA)
+    with pytest.raises(TypeError, match="indicator_type or create"):
+        OnlyIndicatorFactoryRegistry().register(replace(generic, provider=object()))

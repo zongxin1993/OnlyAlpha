@@ -1,9 +1,9 @@
 [project]
 name = "onlyalpha-example-strategies"
-version = "0.9.8"
+version = "0.9.9"
 description = "Non-production L4 Strategy authoring references for OnlyAlpha"
 requires-python = ">=3.12,<3.13"
-dependencies = ["onlyalpha==0.9.8"]
+dependencies = ["onlyalpha==0.9.9"]
 
 [project.entry-points."onlyalpha.quant_assets"]
 example-strategies = "onlyalpha_example_strategies.provider:quant_asset_provider"

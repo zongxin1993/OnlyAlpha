@@ -9,6 +9,7 @@ from decimal import Decimal, localcontext
 import pyarrow as pa  # type: ignore[import-untyped]
 
 from onlyalpha.calculation import OnlyCalculationDefinition, OnlyMissingValuePolicy
+from onlyalpha_plugin_indicators.financial_semantics import evaluate_financial
 
 _Q = Decimal("0.000000000001")
 _DECIMAL = pa.decimal128(38, 12)
@@ -22,6 +23,17 @@ class OnlyOfficialResearchIndicatorBackend:
         definition: OnlyCalculationDefinition,
         inputs: Mapping[str, pa.Array | pa.ChunkedArray],
     ) -> Mapping[str, pa.Array]:
+        if definition.type_id in {
+            "onlyalpha.indicator.wma",
+            "onlyalpha.indicator.roc",
+            "onlyalpha.indicator.vwap",
+            "onlyalpha.indicator.obv",
+            "onlyalpha.indicator.stochastic",
+        }:
+            if any(not pa.types.is_decimal(array.type) for array in inputs.values()):
+                raise ValueError("B1 financial Indicator inputs must use Arrow Decimal")
+            result = evaluate_financial(definition, {name: tuple(array.to_pylist()) for name, array in inputs.items()})
+            return {name: _decimal_array(values) for name, values in result.items()}
         if definition.missing_values is not OnlyMissingValuePolicy.FAIL:
             raise ValueError("official RESEARCH Indicators require missing-value FAIL")
         values = {name: tuple(array.to_pylist()) for name, array in inputs.items()}

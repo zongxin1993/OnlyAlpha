@@ -137,7 +137,7 @@ def test_distribution_rebuild_changes_generation_without_false_content_drift() -
     strategy = strategy_provider()
     repackaged = replace(
         strategy,
-        manifest=replace(strategy.manifest, distribution_version="0.9.9"),
+        manifest=replace(strategy.manifest, distribution_version="0.9.10"),
     )
     assert repackaged.content_fingerprint == strategy.content_fingerprint
     candidate = OnlyQuantAssetCatalogGeneration(

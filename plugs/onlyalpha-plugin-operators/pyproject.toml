@@ -1,9 +1,9 @@
 [project]
 name = "onlyalpha-plugin-operators"
-version = "0.9.8"
+version = "0.9.9"
 description = "Official public mathematical Operator calculations for OnlyAlpha"
 requires-python = ">=3.12,<3.13"
-dependencies = ["onlyalpha==0.9.8"]
+dependencies = ["onlyalpha==0.9.9"]
 
 [project.entry-points."onlyalpha.calculations"]
 official-operators = "onlyalpha_plugin_operators.registration:registrations"

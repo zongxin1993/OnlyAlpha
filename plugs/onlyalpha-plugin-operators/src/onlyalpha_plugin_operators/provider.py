@@ -12,10 +12,10 @@ def quant_asset_provider() -> OnlyQuantAssetProvider:
     return OnlyQuantAssetProvider(
         OnlyQuantAssetProviderManifest(
             provider_id="onlyalpha.operator.library",
-            provider_version="1",
+            provider_version="2",
             layer=OnlyQuantAssetLayer.OPERATOR,
             distribution_name="onlyalpha-plugin-operators",
-            distribution_version="0.9.8",
+            distribution_version="0.9.9",
         ),
         calculation_registrations=registrations(),
     )

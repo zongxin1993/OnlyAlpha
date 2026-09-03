@@ -1,9 +1,9 @@
 [project]
 name = "onlyalpha-plugin-indicators"
-version = "0.9.8"
+version = "0.9.9"
 description = "Official public L2 financial Indicator calculations for OnlyAlpha"
 requires-python = ">=3.12,<3.13"
-dependencies = ["onlyalpha==0.9.8"]
+dependencies = ["onlyalpha==0.9.9"]
 
 [project.entry-points."onlyalpha.calculations"]
 standard-indicators = "onlyalpha_plugin_indicators.registration:registrations"

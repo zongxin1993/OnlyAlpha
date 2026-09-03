@@ -51,6 +51,7 @@ from onlyalpha.indicator.identifiers import (
     OnlyIndicatorTypeId,
 )
 from onlyalpha.indicator.snapshot import OnlyIndicatorSnapshot
+from onlyalpha_plugin_indicators.financial import OnlyFinancialTradingBackendFactory
 from onlyalpha_plugin_indicators.macd import OnlyMacdIndicator, config_from_parameters
 from onlyalpha_plugin_indicators.research import OnlyOfficialResearchIndicatorBackend
 from onlyalpha_plugin_indicators.standard import OnlyRollingIndicatorConfig, OnlyStandardBarIndicator
@@ -247,6 +248,85 @@ ATR_V2 = OnlyCalculationTypeDefinition(
     TYPES[3].numeric,
 )
 
+_B1_NUMERIC = OnlyNumericDefinition("DECIMAL", 28, Decimal("0.000000000001"), "ROUND_HALF_EVEN")
+_PRICE = OnlyInputDefinition("price", OnlyCalculationDataType.DECIMAL, True, semantic_type="PRICE")
+_VOLUME = OnlyInputDefinition("volume", OnlyCalculationDataType.DECIMAL, True, semantic_type="VOLUME")
+_CLOSE = OnlyInputDefinition("close", OnlyCalculationDataType.DECIMAL, True, semantic_type="PRICE")
+_HIGH = OnlyInputDefinition("high", OnlyCalculationDataType.DECIMAL, True, semantic_type="PRICE")
+_LOW = OnlyInputDefinition("low", OnlyCalculationDataType.DECIMAL, True, semantic_type="PRICE")
+
+
+def _b1_indicator(
+    name: str,
+    parameters: tuple[OnlyParameterDefinition, ...],
+    inputs: tuple[OnlyInputDefinition, ...],
+    outputs: tuple[str, ...],
+) -> OnlyCalculationTypeDefinition:
+    return OnlyCalculationTypeDefinition(
+        OnlyCalculationKind.INDICATOR,
+        f"onlyalpha.indicator.{name}",
+        "1",
+        OnlyParameterSchema(parameters),
+        inputs,
+        tuple(OnlyOutputDefinition(output, OnlyCalculationDataType.DECIMAL, True) for output in outputs),
+        OnlyMissingValuePolicy.PROPAGATE,
+        OnlyTimestampSemantic.EVENT_TIME,
+        _B1_NUMERIC,
+    )
+
+
+_REQUIRED_PERIOD = (OnlyParameterDefinition("period", OnlyParameterType.INTEGER, True, minimum=1),)
+WMA = _b1_indicator("wma", _REQUIRED_PERIOD, (_PRICE,), ("value",))
+ROC = _b1_indicator("roc", _REQUIRED_PERIOD, (_PRICE,), ("roc",))
+VWAP = _b1_indicator("vwap", _REQUIRED_PERIOD, (_PRICE, _VOLUME), ("vwap",))
+OBV = _b1_indicator("obv", (), (_CLOSE, _VOLUME), ("obv",))
+STOCHASTIC = _b1_indicator(
+    "stochastic",
+    (
+        OnlyParameterDefinition("k_period", OnlyParameterType.INTEGER, True, minimum=1),
+        OnlyParameterDefinition("d_period", OnlyParameterType.INTEGER, False, 3, minimum=1),
+    ),
+    (_HIGH, _LOW, _CLOSE),
+    ("k", "d"),
+)
+B1_FINANCIAL_TYPES = (WMA, ROC, VWAP, OBV, STOCHASTIC)
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyFinancialIndicatorDefinitionResolver:
+    type_definition: OnlyCalculationTypeDefinition
+
+    def resolve(
+        self,
+        parameters: Mapping[str, object],
+        input_bindings: Mapping[str, OnlyCalculationReference],
+    ) -> OnlyCalculationDefinition:
+        normalized = self.type_definition.parameters.normalize(parameters)
+        defaults = {
+            "price": OnlyCalculationReference(None, "price", "bar.close"),
+            "volume": OnlyCalculationReference(None, "volume", "bar.volume"),
+            "close": OnlyCalculationReference(None, "close", "bar.close"),
+            "high": OnlyCalculationReference(None, "high", "bar.high"),
+            "low": OnlyCalculationReference(None, "low", "bar.low"),
+        }
+        bindings = dict(input_bindings) or {item.name: defaults[item.name] for item in self.type_definition.inputs}
+        if self.type_definition is ROC:
+            observations = int(str(normalized["period"])) + 1
+        elif self.type_definition is STOCHASTIC:
+            observations = int(str(normalized["k_period"])) + int(str(normalized["d_period"])) - 1
+        else:
+            observations = int(str(normalized.get("period", 1)))
+        return self.type_definition.resolve(
+            parameters,
+            bindings,
+            OnlyWarmupDefinition(
+                observations,
+                "complete declared financial window is available",
+                OnlyPreReadyOutput.NULL,
+                "UPSTREAM",
+            ),
+        )
+
 
 def warmup(type_definition: OnlyCalculationTypeDefinition, parameters: dict[str, object]) -> OnlyWarmupDefinition:
     normalized = type_definition.parameters.normalize(parameters)
@@ -287,6 +367,7 @@ def resolve_definition(
 
 def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
     resolvers = tuple(OnlyOfficialIndicatorDefinitionResolver(item) for item in (*TYPES, ATR_V2))
+    financial_resolvers = tuple(OnlyFinancialIndicatorDefinitionResolver(item) for item in B1_FINANCIAL_TYPES)
 
     def resolver_for(item: OnlyCalculationTypeDefinition) -> OnlyOfficialIndicatorDefinitionResolver:
         return next(resolver for resolver in resolvers if resolver.type_definition is item)
@@ -355,4 +436,36 @@ def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
         )
         for item in (*TYPES[:3], *TYPES[4:], ATR_V2)
     )
-    return trading + research
+    financial_trading = tuple(
+        OnlyCalculationBackendRegistration(
+            item,
+            OnlyCalculationBackendKind.TRADING,
+            OnlyFinancialTradingBackendFactory(),
+            next(resolver for resolver in financial_resolvers if resolver.type_definition is item),
+            manifest(
+                item,
+                OnlyCalculationBackendKind.TRADING,
+                "onlyalpha_plugin_indicators.financial:OnlyFinancialTradingBackendFactory",
+                ("registration.py", "financial.py", "financial_semantics.py"),
+            ),
+            OnlyCalculationStateCapability.CHECKPOINTABLE,
+            1,
+        )
+        for item in B1_FINANCIAL_TYPES
+    )
+    financial_research = tuple(
+        OnlyCalculationBackendRegistration(
+            item,
+            OnlyCalculationBackendKind.RESEARCH,
+            OnlyOfficialResearchIndicatorBackend(),
+            next(resolver for resolver in financial_resolvers if resolver.type_definition is item),
+            manifest(
+                item,
+                OnlyCalculationBackendKind.RESEARCH,
+                "onlyalpha_plugin_indicators.research:OnlyOfficialResearchIndicatorBackend",
+                ("registration.py", "research.py", "financial_semantics.py"),
+            ),
+        )
+        for item in B1_FINANCIAL_TYPES
+    )
+    return trading + research + financial_trading + financial_research

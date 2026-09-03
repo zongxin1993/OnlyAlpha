@@ -66,7 +66,8 @@ def _bar(index: int, close: str) -> OnlyBar:
 def _indicator(indicator_type: OnlyIndicatorTypeId, **parameters: object):
     registry = OnlyIndicatorFactoryRegistry()
     for registration in registrations():
-        registry.register(registration)
+        if registration.backend.value != "TRADING" or hasattr(registration.provider, "indicator_type"):
+            registry.register(registration)
     return registry.create(
         OnlyIndicatorCreateRequest(indicator_type, OnlyIndicatorId(str(indicator_type).lower()), BAR_TYPE, parameters)
     )
@@ -153,9 +154,21 @@ def test_all_official_definitions_have_exact_identity_and_defaults() -> None:
         for item in registrations()
         if item.backend.value == "TRADING" and item.type_definition.semantic_version == "1"
     )
-    assert len(definitions) == 9
-    assert {item.semantic_version for item in definitions} == {"1"}
-    assert {item.type_id for item in definitions} == {
+    retained = tuple(
+        item
+        for item in definitions
+        if hasattr(
+            next(
+                registration.provider
+                for registration in registrations()
+                if registration.backend.value == "TRADING" and registration.type_definition is item
+            ),
+            "indicator_type",
+        )
+    )
+    assert len(retained) == 9
+    assert {item.semantic_version for item in retained} == {"1"}
+    assert {item.type_id for item in retained} == {
         "onlyalpha.indicator.ema",
         "onlyalpha.indicator.sma",
         "onlyalpha.indicator.rsi",
