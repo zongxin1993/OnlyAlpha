@@ -5,9 +5,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, JsonValue
+from pydantic import BaseModel, ConfigDict, JsonValue, model_validator
 
 from onlyalpha.research.command.model import OnlyResearchRunPage, OnlyResearchSubmitOutcome
+from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 from onlyalpha.research.run.model import OnlyResearchRun, OnlyResearchRunFailure
 
 from .schema import RESEARCH_API_SCHEMA_VERSION
@@ -21,8 +22,35 @@ def _time(value: datetime | None) -> str | None:
     return None if value is None else value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
+class ResearchAuthoringProvenanceDto(_RunDto):
+    schema_version: Literal[1]
+    experiment_id: str
+    source_repository: str
+    source_revision: str
+    source_tree: str
+    candidate_provider_id: str
+    candidate_provider_version: str
+    candidate_provider_content_fingerprint: str
+    catalog_generation_fingerprint: str
+    execution_generation_fingerprint: str
+    source_locator: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_domain_contract(self) -> ResearchAuthoringProvenanceDto:
+        self.to_model()
+        return self
+
+    def to_model(self) -> OnlyResearchAuthoringProvenance:
+        return OnlyResearchAuthoringProvenance.from_dict(self.model_dump(exclude_none=True))
+
+    @classmethod
+    def from_model(cls, value: OnlyResearchAuthoringProvenance | None) -> ResearchAuthoringProvenanceDto | None:
+        return None if value is None else cls.model_validate(value.to_dict())
+
+
 class SubmitResearchRunRequest(_RunDto):
     specification: dict[str, JsonValue]
+    authoring_provenance: ResearchAuthoringProvenanceDto | None = None
 
 
 class ResearchRunFailureDto(_RunDto):
@@ -50,6 +78,8 @@ class ResearchRunDto(_RunDto):
     finished_at: str | None
     result_ref: str | None
     artifact_ref: str | None
+    calculation_execution_evidence_refs: tuple[str, ...]
+    authoring_provenance: ResearchAuthoringProvenanceDto | None
     failure: ResearchRunFailureDto | None
 
     @classmethod
@@ -68,6 +98,8 @@ class ResearchRunDto(_RunDto):
             finished_at=_time(value.finished_at),
             result_ref=value.research_result_fingerprint,
             artifact_ref=value.artifact_content_fingerprint,
+            calculation_execution_evidence_refs=value.calculation_execution_evidence_fingerprints,
+            authoring_provenance=ResearchAuthoringProvenanceDto.from_model(value.authoring_provenance),
             failure=ResearchRunFailureDto.from_model(value.failure),
         )
 
@@ -86,6 +118,8 @@ class ResearchRunSummaryDto(_RunDto):
     finished_at: str | None
     result_ref: str | None
     artifact_ref: str | None
+    calculation_execution_evidence_refs: tuple[str, ...]
+    authoring_provenance: ResearchAuthoringProvenanceDto | None
     failure: ResearchRunFailureDto | None
 
     @classmethod

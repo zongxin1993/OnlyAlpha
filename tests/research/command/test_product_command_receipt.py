@@ -12,6 +12,10 @@ from onlyalpha.application.product_command_receipt import (
 )
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.research.command.model import OnlyResearchSubmitCommand
+from onlyalpha.research.provenance import (
+    OnlyResearchAuthoringProvenance,
+    only_research_execution_generation_fingerprint,
+)
 from onlyalpha.research.specification.model import OnlyResearchSpecification
 from tests.research.specification.support import specification
 
@@ -49,6 +53,46 @@ def test_create_fingerprint_bytes_remain_the_legacy_specification_shape() -> Non
     assert command.command_fingerprint != only_canonical_fingerprint(
         {"command_kind": OnlyProductCommandKind.CREATE_RESEARCH_RUN.value, "specification": strict.to_dict()}
     )
+
+
+def test_create_fingerprint_binds_authoritative_provenance_and_excludes_locator() -> None:
+    strict = OnlyResearchSpecification.from_dict(specification().to_dict())
+    identity = {
+        "experiment_id": "exp-" + "a" * 32,
+        "source_repository": "OnlyAlpha-alpha",
+        "source_revision": "1" * 40,
+        "source_tree": "2" * 40,
+        "candidate_provider_id": "private.onlyalpha.alpha.candidate",
+        "candidate_provider_version": "candidate-1",
+        "candidate_provider_content_fingerprint": "3" * 64,
+        "catalog_generation_fingerprint": "4" * 64,
+    }
+    provenance = OnlyResearchAuthoringProvenance(
+        schema_version=1,
+        **identity,
+        execution_generation_fingerprint=only_research_execution_generation_fingerprint(**identity),
+        source_locator="/one",
+    )
+    first = OnlyResearchSubmitCommand(COMMAND_ID, strict, provenance)
+    second = OnlyResearchSubmitCommand(
+        COMMAND_ID,
+        strict,
+        OnlyResearchAuthoringProvenance.from_dict({**provenance.to_dict(), "source_locator": "/two"}),
+    )
+    changed_identity = {**identity, "source_revision": "5" * 40}
+    changed = OnlyResearchSubmitCommand(
+        COMMAND_ID,
+        strict,
+        OnlyResearchAuthoringProvenance.from_dict(
+            {
+                **provenance.to_dict(),
+                "source_revision": "5" * 40,
+                "execution_generation_fingerprint": only_research_execution_generation_fingerprint(**changed_identity),
+            }
+        ),
+    )
+    assert first.command_fingerprint == second.command_fingerprint
+    assert first.command_fingerprint != changed.command_fingerprint
 
 
 def test_cancel_fingerprint_depends_only_on_exact_target_run() -> None:

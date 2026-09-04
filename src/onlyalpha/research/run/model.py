@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 
 from onlyalpha.canonical import only_canonical_json
+from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 from onlyalpha.research.specification.model import OnlyResearchSpecification
 
 from .errors import OnlyResearchRunIntegrityError, OnlyResearchRunStateConflictError
@@ -107,6 +108,7 @@ class OnlyResearchRun:
     artifact_content_fingerprint: str | None = None
     failure: OnlyResearchRunFailure | None = None
     calculation_execution_evidence_fingerprints: tuple[str, ...] = ()
+    authoring_provenance: OnlyResearchAuthoringProvenance | None = None
 
     def __post_init__(self) -> None:
         try:
@@ -135,6 +137,10 @@ class OnlyResearchRun:
                 _sha(value, "calculation_execution_evidence_fingerprint")
             if evidence and self.research_result_fingerprint is None:
                 raise ValueError("Execution Evidence references require Research Result reference")
+            if self.authoring_provenance is not None and not isinstance(
+                self.authoring_provenance, OnlyResearchAuthoringProvenance
+            ):
+                raise ValueError("Research authoring provenance is invalid")
             for name in ("queued_at", "started_at", "cancel_requested_at", "finished_at"):
                 value = getattr(self, name)
                 if value is not None:
@@ -207,6 +213,7 @@ class OnlyResearchRun:
         canonical_specification_payload: str,
         admission_resolution_fingerprint: str,
         queued_at: datetime,
+        authoring_provenance: OnlyResearchAuthoringProvenance | None = None,
     ) -> OnlyResearchRun:
         return cls(
             run_id,
@@ -217,6 +224,7 @@ class OnlyResearchRun:
             canonical_specification_payload,
             admission_resolution_fingerprint,
             queued_at,
+            authoring_provenance=authoring_provenance,
         )
 
     def transition(
@@ -267,6 +275,7 @@ class OnlyResearchRun:
                 if calculation_execution_evidence_fingerprints is None
                 else calculation_execution_evidence_fingerprints
             ),
+            authoring_provenance=self.authoring_provenance,
         )
 
     def is_exact_successor_of(self, previous: OnlyResearchRun) -> bool:

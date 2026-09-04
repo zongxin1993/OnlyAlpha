@@ -203,6 +203,7 @@ class OnlyResearchWorker:
         runtime_executor: OnlyResearchRuntimeExecutor,
         policy: OnlyResearchExecutionPolicy,
         now_utc: Callable[[], datetime],
+        authoring_execution_generation_fingerprint: str | None = None,
     ) -> None:
         self.worker_instance_id = worker_instance_id
         self._execution_store = execution_store
@@ -212,6 +213,7 @@ class OnlyResearchWorker:
         self._runtime_executor = runtime_executor
         self._policy = policy
         self._now_utc = now_utc
+        self._authoring_execution_generation_fingerprint = authoring_execution_generation_fingerprint
 
     def execute_claim(self, claim: OnlyResearchExecutionClaim) -> OnlyResearchWorkerOutcome:
         if claim.attempt.worker_instance_id != self.worker_instance_id:
@@ -234,6 +236,11 @@ class OnlyResearchWorker:
         try:
             control.start()
             run = self._run_store.load(claim.attempt.run_id)
+            actual_generation = (
+                None if run.authoring_provenance is None else run.authoring_provenance.execution_generation_fingerprint
+            )
+            if actual_generation != self._authoring_execution_generation_fingerprint:
+                raise OnlyResearchExecutionOwnershipLostError("Claim belongs to another execution generation")
             control.checkpoint(OnlyResearchRuntimeBoundary.BEFORE_DATASET_VERIFICATION)
             try:
                 self._dataset_store.load_verified_table(run.specification.dataset_snapshot_fingerprint)

@@ -1,7 +1,7 @@
 # ADR 0115: Private Quant Asset Identity, Version, Admission and Release Contract
 
 - Status: Accepted
-- Date: 2026-09-03
+- Date: 2026-09-03 (amended 2026-09-04)
 - Related: ADR 0097, 0098, 0110, 0111, 0112, 0113, 0114
 
 ## Context
@@ -83,19 +83,20 @@ process/worker environment generations. It never means `importlib.reload`, globa
 rebinding an active Run or StrategyRevision. Rollback selects an older exact artifact set for a new worker generation; existing
 work continues on its bound generation or is explicitly cancelled and restarted.
 
-Git admission uses four deliberately separate enforcement layers. Repository-tracked local hooks provide fast feedback but are not
-an authority because they can be bypassed. Pull-request CI independently runs the canonical semantic/provider transition validator,
-contract tests and installed-wheel checks under one stable `private-asset-admission` status. Server policy requires that status and a
-pull request for `master`, blocks deletion and force-push, requires linear history, and permits squash merge only. Release is a second
-gate over clean admitted `master`; it repeats the canonical validation, builds and installs the wheel, and creates a new immutable
-CalVer tag, artifact and release manifest. A repository without verified server protection is not fully enforced even when all
-repository-side artifacts exist.
+Git admission for the two private repositories is enforced by repository-tracked local hooks. Commit and pre-push hooks invoke one
+canonical `local_strict_gate.py` which runs the semantic/provider transition validator, Ruff check, Ruff format check, strict mypy,
+the complete pytest suite, wheel build, clean isolated installation and installed entry-point/provider discovery. Strategies also
+runs its installed Resolve → Research → Freeze lifecycle proof. A pull request may be opened or pushed only after this gate passes
+on the exact clean candidate commit; pre-push reruns it after any later working-tree or dependency change. `--no-verify` is
+forbidden for Agents and never constitutes admission. No remote CI workflow or required-status check is required for PR acceptance
+in these two development repositories. Release remains a separate gate over clean admitted `master`; it repeats the canonical
+validation, builds and installs the wheel, and creates a new immutable CalVer tag, artifact and release manifest.
 
 `master` therefore denotes admitted source, not current production activation. Experiment branches may contain incomplete iterations
 without provider-version churn, but formal registration, semantic-version changes when required, provider-version changes, tests and
 provenance must enter `master` atomically in the final squash commit. Commit messages and Git branch names classify workflow intent
-only; content-derived identities remain authoritative. Neither `--no-verify` nor an Agent policy exception can bypass pull-request CI
-and server-required checks. Agents may prepare experiment branches and pull requests, but may not push or merge `master`, publish from
+only; content-derived identities remain authoritative. Neither `--no-verify` nor an Agent policy exception can turn a failed local
+gate into an admission result. Agents may prepare experiment branches and pull requests, but may not push or merge `master`, publish from
 an experiment branch, move release tags, activate a Catalog, or acquire LIVE authority.
 
 Deprecation is authoring guidance and does not mutate identity. Retirement omits an asset from a new Provider generation while its

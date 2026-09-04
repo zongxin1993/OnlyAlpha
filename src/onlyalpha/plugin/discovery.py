@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from importlib import metadata
 
@@ -45,18 +46,29 @@ def only_discover_plugins(
     calculations: object | None = None,
     *,
     fail_fast: bool,
+    include_calculations: bool = True,
+    excluded_calculation_distributions: frozenset[str] = frozenset(),
 ) -> OnlyPluginDiscoveryReport:
     selected = metadata.entry_points()
+    excluded_calculations = {re.sub(r"[-_.]+", "-", name).lower() for name in excluded_calculation_distributions}
+    groups = [
+        ONLYALPHA_DATA_SOURCE_ENTRY_POINT,
+        ONLYALPHA_BROKER_ENTRY_POINT,
+        ONLYALPHA_BROKER_FEE_CONTRACT_ENTRY_POINT,
+        ONLYALPHA_MARKET_PRODUCT_ENTRY_POINT,
+    ]
+    if include_calculations:
+        groups.append(ONLYALPHA_CALCULATION_ENTRY_POINT)
     entries = [
         entry
-        for group in (
-            ONLYALPHA_DATA_SOURCE_ENTRY_POINT,
-            ONLYALPHA_BROKER_ENTRY_POINT,
-            ONLYALPHA_BROKER_FEE_CONTRACT_ENTRY_POINT,
-            ONLYALPHA_MARKET_PRODUCT_ENTRY_POINT,
-            ONLYALPHA_CALCULATION_ENTRY_POINT,
-        )
+        for group in groups
         for entry in selected.select(group=group)
+        if not (
+            group == ONLYALPHA_CALCULATION_ENTRY_POINT
+            and getattr(entry, "dist", None) is not None
+            and re.sub(r"[-_.]+", "-", str(getattr(getattr(entry, "dist", None), "name", ""))).lower()
+            in excluded_calculations
+        )
     ]
     records: list[OnlyPluginDiscoveryRecord] = []
     failures: list[OnlyPluginDiscoveryFailure] = []

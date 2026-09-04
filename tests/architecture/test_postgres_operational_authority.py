@@ -134,6 +134,14 @@ def test_specification_v2_migration_only_expands_existing_version_admission() ->
     assert "UPDATE research_run" not in sql
 
 
+def test_research_authoring_provenance_migration_is_forward_only_and_legacy_compatible() -> None:
+    sql = Path("database/postgres/migrations/0019_research_authoring_provenance.sql").read_text()
+    assert "ADD COLUMN authoring_provenance JSONB NULL" in sql
+    assert "research_run_authoring_provenance_object" in sql
+    assert "jsonb_typeof(authoring_provenance) = 'object'" in sql
+    assert "UPDATE research_run" not in sql
+
+
 def test_worker_presence_migration_is_minimal_and_diagnostic_only() -> None:
     sql = Path("database/postgres/migrations/0006_research_worker_presence.sql").read_text()
     for required in ("worker_instance_id", "started_at", "last_seen_at", "service_version", "draining_since"):

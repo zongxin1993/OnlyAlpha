@@ -11,6 +11,7 @@ from typing import cast
 
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
+from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 from onlyalpha.research.run.model import OnlyResearchRun, OnlyResearchRunId
 from onlyalpha.research.specification.model import OnlyResearchSpecification
 
@@ -23,10 +24,15 @@ OnlyResearchSubmissionKey = OnlyProductCommandId
 class OnlyResearchSubmitCommand:
     submission_key: OnlyResearchSubmissionKey
     specification: OnlyResearchSpecification
+    authoring_provenance: OnlyResearchAuthoringProvenance | None = None
 
     @property
     def command_fingerprint(self) -> str:
-        return only_canonical_fingerprint({"specification": self.specification.to_dict()})
+        # Provenance is part of command identity, while remaining outside strategy semantics.
+        payload = {"specification": self.specification.to_dict()}
+        if self.authoring_provenance is not None:
+            payload["authoring_provenance"] = self.authoring_provenance.identity_dict()
+        return only_canonical_fingerprint(payload)
 
 
 class OnlyResearchSubmitDisposition(StrEnum):

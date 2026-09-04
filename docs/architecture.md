@@ -586,11 +586,22 @@ create/select isolated process generations for new work; they never reload modul
 historical artifacts fail closed rather than falling forward. Dynamic Research outcomes remain in OnlyAlpha Evidence, not private source
 status files or registries.
 
-Private Git admission has four layers: tracked local hooks are fast feedback; the aggregate `private-asset-admission` pull-request check
-is the canonical engineering gate; verified server policy makes PR-only, linear, squash admission non-optional and blocks deletion or
-force-push of `master`; and the release gate accepts only clean admitted `master` to create a new immutable wheel/tag/manifest. Repository
-configuration that merely describes the desired server policy is not proof that protection is active. `master` means admitted source,
-not an active Catalog or production release, and Git metadata never participates in asset, Provider, Evidence or StrategyRevision identity.
+ADR 0116 closes the execution side of candidate provenance. An Authoring Execution Generation binds the exact Snapshot, candidate
+executable content, Candidate Provider and complete Catalog generation to one process-lifetime Calculation composition. The independent
+`packages/onlyalpha-authoring-execution-worker/` component verifies that generation before it may register presence or claim work. Normal
+Research Workers claim only unbound Runs; an authoring Worker claims only Runs bound to its exact generation fingerprint, with the filter
+inside the existing transactional Attempt authority. Git/path/artifact loading remains outside Core, active Runs are never rebound, and
+Evidence can cross admission only when executable Provider content remains identical. Release, Catalog activation, Strategy promotion and
+LIVE authorization remain separate authorities.
+
+Private Git admission uses the repository-tracked commit and pre-push hooks to invoke one canonical local `local_strict_gate.py` on the
+exact clean candidate commit. The gate proves semantic/provider transition correctness, formatting, static quality, tests, wheel build,
+clean isolated installation and provider discovery; the Strategies repository additionally proves its installed Resolve → Research →
+Freeze lifecycle. Agents may never use `--no-verify`, and a bypassed hook is not an admission result. Remote code-quality CI and required
+status checks are intentionally inactive for these two private development repositories. Gitea carries only the candidate branch and PR
+transport; it does not become admission, semantic, Evidence, merge, release, Catalog or LIVE authority. The separate release gate accepts
+only clean admitted `master` to create a new immutable wheel/tag/manifest. `master` means admitted source, not an active Catalog or
+production release, and Git metadata never participates in asset, Provider, Evidence or StrategyRevision identity.
 
 ADR 0113 freezes the common L1 algebra policy: Decimal precision/quantization, inclusive complete windows, null propagation,
 deterministic invalid-domain nulls, population statistics, average-tie normalized ranks, and exact RESEARCH/TRADING/checkpoint

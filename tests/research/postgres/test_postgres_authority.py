@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier, Event, Thread
@@ -66,6 +67,10 @@ from onlyalpha.research.operations.diagnostics import (
     OnlyResearchOperationalDiagnosticService,
 )
 from onlyalpha.research.operations.model import OnlyResearchOperationalDiagnosisCode
+from onlyalpha.research.provenance import (
+    OnlyResearchAuthoringProvenance,
+    only_research_execution_generation_fingerprint,
+)
 from onlyalpha.research.run import (
     OnlyPostgresMigrationIntegrityError,
     OnlyPostgresSchemaIncompatibleError,
@@ -121,6 +126,8 @@ M11 = "0011_p9_0_freeze_projection_convergence"
 M12 = "0012_product_command_receipt"
 M13 = "0013_market_data_catalog"
 M14 = "0014_market_data_durable_ownership"
+M18 = "0018_a0_backtest_worker_presence"
+M19 = "0019_research_authoring_provenance"
 CURRENT_MIGRATIONS = current_migrations()
 EXECUTION_EVIDENCE = ("e" * 64,)
 
@@ -177,6 +184,25 @@ def _queued(run_id: str) -> OnlyResearchRun:
         canonical_specification_payload=only_canonical_json(spec.to_dict()),
         admission_resolution_fingerprint=only_research_admission_resolution_fingerprint(resolution),
         queued_at=NOW,
+    )
+
+
+def _authoring_provenance(source_revision: str = "1" * 40) -> OnlyResearchAuthoringProvenance:
+    identity = {
+        "experiment_id": "exp-" + "a" * 32,
+        "source_repository": "OnlyAlpha-alpha",
+        "source_revision": source_revision,
+        "source_tree": "2" * 40,
+        "candidate_provider_id": "private.onlyalpha.alpha.candidate",
+        "candidate_provider_version": "candidate-1",
+        "candidate_provider_content_fingerprint": "3" * 64,
+        "catalog_generation_fingerprint": "4" * 64,
+    }
+    return OnlyResearchAuthoringProvenance(
+        schema_version=1,
+        **identity,
+        execution_generation_fingerprint=only_research_execution_generation_fingerprint(**identity),
+        source_locator="/operational/checkout",
     )
 
 
@@ -321,6 +347,52 @@ def test_worker_presence_and_operational_history_use_server_time_and_remain_diag
         ).state.value
         == "ACTIVE"
     )
+
+
+def test_transactional_claim_is_partitioned_by_exact_authoring_generation(postgres_dsn: str) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    runs = OnlyPostgresResearchRunStore(postgres_dsn)
+    normal = runs.create_queued(_queued("00000000-0000-4000-8000-000000000091"))
+    generation_one = _authoring_provenance()
+    generation_two = _authoring_provenance("5" * 40)
+    first = runs.create_queued(
+        replace(
+            _queued("00000000-0000-4000-8000-000000000092"),
+            authoring_provenance=generation_one,
+        )
+    )
+    second = runs.create_queued(
+        replace(
+            _queued("00000000-0000-4000-8000-000000000093"),
+            authoring_provenance=generation_two,
+        )
+    )
+
+    def claim(store: OnlyPostgresResearchExecutionStore, suffix: str):
+        return store.claim_next(
+            worker_instance_id=OnlyResearchWorkerInstanceId(f"00000000-0000-4000-8002-0000000000{suffix}"),
+            attempt_id=OnlyResearchRunAttemptId(f"00000000-0000-4000-8001-0000000000{suffix}"),
+            lease_duration=timedelta(minutes=2),
+            max_attempts=3,
+            run_started_at=NOW + timedelta(seconds=1),
+        )
+
+    normal_claim = claim(OnlyPostgresResearchExecutionStore(postgres_dsn), "91")
+    generation_one_store = OnlyPostgresResearchExecutionStore(
+        postgres_dsn,
+        authoring_execution_generation_fingerprint=generation_one.execution_generation_fingerprint,
+    )
+    first_claim = claim(generation_one_store, "92")
+
+    assert normal_claim is not None and normal_claim.attempt.run_id == normal.run_id
+    assert first_claim is not None and first_claim.attempt.run_id == first.run_id
+    assert claim(generation_one_store, "94") is None
+    assert runs.load(second.run_id).state is OnlyResearchRunState.QUEUED
+    with psycopg.connect(postgres_dsn) as connection:
+        attempt_count = connection.execute(
+            "SELECT count(*) FROM research_run_attempt WHERE run_id = %s", (second.run_id.value,)
+        ).fetchone()
+    assert attempt_count == (0,)
 
 
 def test_operational_snapshot_uses_one_read_only_repeatable_read_mvcc_observation(
@@ -513,6 +585,42 @@ def test_existing_m1_database_plans_and_applies_exact_forward_suffix(postgres_ds
     assert authority.migrate() == CURRENT_MIGRATIONS[1:]
     assert verifier.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
     assert OnlyPostgresResearchRunStore(postgres_dsn).load(run.run_id) == run
+
+
+def test_m19_preserves_legacy_runs_as_explicitly_unbound_provenance(postgres_dsn: str, tmp_path: Path) -> None:
+    assert copy_migrations_through(tmp_path, M18)[-1] == M18
+    OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path).migrate()
+    legacy = _insert_legacy_queued(
+        postgres_dsn,
+        _queued("00000000-0000-4000-8000-000000000419"),
+    )
+
+    authority = OnlyPostgresMigrationAuthority(postgres_dsn)
+    assert tuple(item.migration_id for item in authority.plan()) == (M19,)
+    assert authority.migrate() == (M19,)
+    assert OnlyPostgresResearchRunStore(postgres_dsn).load(legacy.run_id) == legacy
+    assert OnlyPostgresResearchRunStore(postgres_dsn).load(legacy.run_id).authoring_provenance is None
+
+
+def test_authoring_provenance_survives_postgres_restart_read_and_rejects_corruption(postgres_dsn: str) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    expected = replace(
+        _queued("00000000-0000-4000-8000-000000000420"),
+        authoring_provenance=_authoring_provenance(),
+    )
+    OnlyPostgresResearchRunStore(postgres_dsn).create_queued(expected)
+
+    reloaded = OnlyPostgresResearchRunStore(postgres_dsn).load(expected.run_id)
+    assert reloaded == expected
+    assert reloaded.authoring_provenance == _authoring_provenance()
+
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute(
+            "UPDATE research_run SET authoring_provenance = %s WHERE run_id = %s",
+            (json.dumps({"schema_version": 1}), expected.run_id.value),
+        )
+    with pytest.raises(OnlyResearchRunIntegrityError):
+        OnlyPostgresResearchRunStore(postgres_dsn).load(expected.run_id)
 
 
 def test_m12_backfills_legacy_submission_exactly_and_retires_old_authority(postgres_dsn: str, tmp_path: Path) -> None:
