@@ -228,6 +228,28 @@ Agent-generated source
 != admitted plugin
 ```
 
+ADR 0115 makes the authoring boundary concrete for private L3/L4 repositories. An experiment has a deterministic manifest-derived
+workflow identity and an exact Git commit or source-bundle revision, but neither identity is a Calculation, Provider, Catalog or
+StrategyRevision identity. Candidate providers are explicit and non-production. Only an admitted registry change with valid semantic
+and provider version transitions may enter an immutable distribution and a Catalog Generation for new work.
+
+The resulting long-term transition is:
+
+```text
+isolated experiment → exact candidate revision → engineering validation → OnlyAlpha Research Evidence
+→ admission review → formal Provider version → immutable distribution → new-work Catalog Generation
+```
+
+Package release does not activate a Catalog and Catalog activation does not grant LIVE authority. Active Runs and StrategyRevisions
+remain bound to their exact implementation generation.
+
+Formal source admission is PR-only. Repository-tracked hooks give an Agent early feedback, while the independent aggregate
+`private-asset-admission` CI check derives semantic/provider impact from canonical content, builds and installs the candidate wheel, and
+repeats the applicable Research/Freeze boundary. Verified server policy blocks direct or force updates and deletion of `master` and admits
+one atomic squash commit. An Agent may prepare the experiment branch and PR but cannot merge it, bypass CI, release from the experiment,
+activate the resulting Catalog, or treat a commit message as semantic authority. Release from clean admitted `master` is a separate
+immutable tag/wheel/manifest transition.
+
 ## 8. Research Designer Agent
 
 Once capabilities are admitted, a Research Designer Agent may create the same formal Research Definition used by Web.
@@ -485,9 +507,9 @@ SIM evidence when promoted
 
 Chat history or Agent hidden state is never durable semantic authority.
 
-## 18. Factor Registry lifecycle
+## 18. Evidence-backed lifecycle projection
 
-A long-term component/research registry may expose explicit lifecycle states such as:
+A long-term read model may project lifecycle states such as:
 
 ```text
 PROPOSED
@@ -503,6 +525,8 @@ LIVE_CANDIDATE
 ```
 
 Exact names/state machine are future design work. The important rule is that lifecycle is evidence-driven and historical evidence is immutable.
+The projection is not a second Factor/Strategy status authority: experiment source, formal Provider content, immutable distribution,
+Catalog Generation, Research Evidence and StrategyRevision remain the authoritative lifecycle boundaries defined by ADR 0115.
 
 ## 19. Alpha Knowledge Base
 

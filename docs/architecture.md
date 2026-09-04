@@ -573,6 +573,25 @@ provider to one immutable catalog generation. Refresh validates a complete gener
 work retains its prior snapshot. This management catalog does not replace Calculation Graph, `onlyalpha.calculations`, Product API, Freeze
 or StrategyRevision authorities.
 
+ADR 0115 separates the complete private-asset lifecycle: Git commit and deterministic experiment identity are authoring provenance;
+positive-integer asset versions identify immutable L3/L4 semantics; implementation fingerprints identify exact executable code;
+positive-integer provider versions identify admitted content; immutable CalVer distributions identify released artifacts; Catalog
+Generation selects an exact provider set for new work; Research Evidence owns outcomes; and verified Freeze alone creates the
+StrategyRevision used at runtime. These identities cannot substitute for one another. Production private namespaces are
+`private.factor.*` and `private.strategy.*`; no `latest` aliases exist.
+
+Private release/admission gates reject semantic or provider drift and prevent release artifact overwrite. Experiments use explicit
+isolated source revisions and non-production candidate providers, never normal installed production entry points. Hot plug and rollback
+create/select isolated process generations for new work; they never reload modules or rebind an active Run/StrategyRevision. Missing exact
+historical artifacts fail closed rather than falling forward. Dynamic Research outcomes remain in OnlyAlpha Evidence, not private source
+status files or registries.
+
+Private Git admission has four layers: tracked local hooks are fast feedback; the aggregate `private-asset-admission` pull-request check
+is the canonical engineering gate; verified server policy makes PR-only, linear, squash admission non-optional and blocks deletion or
+force-push of `master`; and the release gate accepts only clean admitted `master` to create a new immutable wheel/tag/manifest. Repository
+configuration that merely describes the desired server policy is not proof that protection is active. `master` means admitted source,
+not an active Catalog or production release, and Git metadata never participates in asset, Provider, Evidence or StrategyRevision identity.
+
 ADR 0113 freezes the common L1 algebra policy: Decimal precision/quantization, inclusive complete windows, null propagation,
 deterministic invalid-domain nulls, population statistics, average-tie normalized ranks, and exact RESEARCH/TRADING/checkpoint
 equivalence. Cross-section L1 remains RESEARCH-only until a separate trading-plane contract exists. Public L2 WMA, ROC, windowed VWAP,
