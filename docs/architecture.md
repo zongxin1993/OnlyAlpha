@@ -586,11 +586,16 @@ create/select isolated process generations for new work; they never reload modul
 historical artifacts fail closed rather than falling forward. Dynamic Research outcomes remain in OnlyAlpha Evidence, not private source
 status files or registries.
 
-Private Git admission has four layers: tracked local hooks are fast feedback; the aggregate `private-asset-admission` pull-request check
-is the canonical engineering gate; verified server policy makes PR-only, linear, squash admission non-optional and blocks deletion or
-force-push of `master`; and the release gate accepts only clean admitted `master` to create a new immutable wheel/tag/manifest. Repository
-configuration that merely describes the desired server policy is not proof that protection is active. `master` means admitted source,
-not an active Catalog or production release, and Git metadata never participates in asset, Provider, Evidence or StrategyRevision identity.
+Private Git admission has three layers: one repository-tracked strict local gate owns full-tree policy, canonical semantic/provider
+validation, Ruff check and format, strict mypy, the complete test suite, wheel builds and installed-wheel lifecycle checks; tracked
+`pre-commit` and `pre-push` hooks invoke that same gate; verified server policy makes PR-only, up-to-date, linear, squash admission
+non-optional and blocks direct push, force-push and administrative merge override on `master`; and the separate release gate accepts
+only clean admitted `master` to create a new immutable wheel/tag/manifest. The private repositories deliberately have no code-quality
+Actions workflow or required status context. Local hooks can be bypassed by a human with `--no-verify`, so they are a documented and
+Agent-enforced workflow control rather than server-attested proof. A future requirement for non-bypassable proof must add an explicit
+remote admission check or trusted server-side pre-receive hook. Repository configuration that merely describes desired server policy
+is not proof that protection is active. `master` means human-reviewed source admitted under this workflow, not an active Catalog or
+production release, and Git metadata never participates in asset, Provider, Evidence or StrategyRevision identity.
 
 ADR 0113 freezes the common L1 algebra policy: Decimal precision/quantization, inclusive complete windows, null propagation,
 deterministic invalid-domain nulls, population statistics, average-tie normalized ranks, and exact RESEARCH/TRADING/checkpoint

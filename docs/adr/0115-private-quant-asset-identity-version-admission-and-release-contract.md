@@ -83,20 +83,27 @@ process/worker environment generations. It never means `importlib.reload`, globa
 rebinding an active Run or StrategyRevision. Rollback selects an older exact artifact set for a new worker generation; existing
 work continues on its bound generation or is explicitly cancelled and restarted.
 
-Git admission uses four deliberately separate enforcement layers. Repository-tracked local hooks provide fast feedback but are not
-an authority because they can be bypassed. Pull-request CI independently runs the canonical semantic/provider transition validator,
-contract tests and installed-wheel checks under one stable `private-asset-admission` status. Server policy requires that status and a
-pull request for `master`, blocks deletion and force-push, requires linear history, and permits squash merge only. Release is a second
-gate over clean admitted `master`; it repeats the canonical validation, builds and installs the wheel, and creates a new immutable
-CalVer tag, artifact and release manifest. A repository without verified server protection is not fully enforced even when all
-repository-side artifacts exist.
+Git admission uses three deliberately separate enforcement layers. A repository-tracked strict local gate runs the canonical
+semantic/provider transition validator, full-tree secret/symlink policy, repository-policy checks, Ruff check and format, strict mypy,
+the complete test suite, wheel builds and installed-wheel lifecycle checks. Tracked `pre-commit` and `pre-push` hooks invoke that same
+gate; every development checkout must install them through the tracked bootstrap command. Server policy requires a pull request for
+`master`, blocks direct and force push, blocks administrative merge override, requires an up-to-date branch and linear history, and
+permits squash merge only. Private asset repositories deliberately have no code-quality Actions workflow and no required status
+context. Release is a separate gate over clean admitted `master`; it repeats the canonical validation, builds and installs the wheel,
+and creates a new immutable CalVer tag, artifact and release manifest.
 
-`master` therefore denotes admitted source, not current production activation. Experiment branches may contain incomplete iterations
-without provider-version churn, but formal registration, semantic-version changes when required, provider-version changes, tests and
-provenance must enter `master` atomically in the final squash commit. Commit messages and Git branch names classify workflow intent
-only; content-derived identities remain authoritative. Neither `--no-verify` nor an Agent policy exception can bypass pull-request CI
-and server-required checks. Agents may prepare experiment branches and pull requests, but may not push or merge `master`, publish from
-an experiment branch, move release tags, activate a Catalog, or acquire LIVE authority.
+Local hooks are a repository workflow control, not server-verifiable proof: Git permits a human to bypass them with `--no-verify`, and
+the Gitea server cannot attest that the local gate ran. Agents and the documented contribution workflow therefore prohibit bypassing
+the hooks, but that prohibition must not be represented as cryptographic or server-side enforcement. If non-bypassable engineering
+proof becomes required, a remote admission check or a trusted server-side pre-receive mechanism must be introduced explicitly; the
+absence of such proof must never be hidden behind a synthetic status.
+
+`master` therefore denotes human-reviewed source admitted under this local workflow, not current production activation. Experiment
+branches may contain incomplete iterations without provider-version churn, but formal registration, semantic-version changes when
+required, provider-version changes, tests and provenance must enter `master` atomically in the final squash commit. Commit messages
+and Git branch names classify workflow intent only; content-derived identities remain authoritative. Agents may prepare experiment
+branches and pull requests, but may not bypass hooks with `--no-verify`, push or merge `master`, publish from an experiment branch,
+move release tags, activate a Catalog, or acquire LIVE authority.
 
 Deprecation is authoring guidance and does not mutate identity. Retirement omits an asset from a new Provider generation while its
 historical artifacts remain exact and addressable. No successor alias or `latest` resolution is introduced.
