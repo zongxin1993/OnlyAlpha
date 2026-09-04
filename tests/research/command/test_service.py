@@ -32,7 +32,10 @@ from onlyalpha.research.command import (
     OnlyResearchSubmissionRecord,
     OnlyResearchSubmitDisposition,
 )
-from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
+from onlyalpha.research.provenance import (
+    OnlyResearchAuthoringProvenance,
+    only_research_execution_generation_fingerprint,
+)
 from onlyalpha.research.run import (
     OnlyResearchRun,
     OnlyResearchRunAdmissionError,
@@ -53,17 +56,21 @@ OTHER_KEY = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000002")
 def _provenance(
     *, source_revision: str = "1" * 40, source_locator: str | None = None
 ) -> OnlyResearchAuthoringProvenance:
+    identity = {
+        "experiment_id": "exp-" + "a" * 32,
+        "source_repository": "OnlyAlpha-alpha",
+        "source_revision": source_revision,
+        "source_tree": "2" * 40,
+        "candidate_provider_id": "private.onlyalpha.alpha.candidate",
+        "candidate_provider_version": "candidate-1",
+        "candidate_provider_content_fingerprint": "3" * 64,
+        "catalog_generation_fingerprint": "4" * 64,
+    }
     return OnlyResearchAuthoringProvenance(
-        1,
-        "exp-" + "a" * 32,
-        "OnlyAlpha-alpha",
-        source_revision,
-        "2" * 40,
-        "private.onlyalpha.alpha.candidate",
-        "candidate-1",
-        "3" * 64,
-        "4" * 64,
-        source_locator,
+        schema_version=1,
+        **identity,
+        execution_generation_fingerprint=only_research_execution_generation_fingerprint(**identity),
+        source_locator=source_locator,
     )
 
 
@@ -77,6 +84,13 @@ class _DatasetStore:
         if self.fail:
             raise RuntimeError("dataset failed")
         return object()
+
+
+class _AuthoringGenerations:
+    def resolve(self, provenance, research_specification):  # type: ignore[no-untyped-def]
+        if provenance.identity_dict() != _provenance().identity_dict():
+            raise ValueError("generation mismatch")
+        return OnlyResearchSpecificationResolver(registry()).resolve(research_specification)
 
 
 class _Store:
@@ -160,6 +174,7 @@ def _service(
         run_store=store,  # type: ignore[arg-type]
         now_utc=lambda: next(clock),
         run_id_factory=lambda: OnlyResearchRunId(next(run_ids)),
+        authoring_generation_resolver=_AuthoringGenerations(),
     )
     return OnlyResearchCommandService(admission=admission, store=store, now_utc=lambda: next(clock))  # type: ignore[arg-type]
 

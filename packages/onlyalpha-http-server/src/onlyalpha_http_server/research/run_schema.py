@@ -32,6 +32,7 @@ class ResearchAuthoringProvenanceDto(_RunDto):
     candidate_provider_version: str
     candidate_provider_content_fingerprint: str
     catalog_generation_fingerprint: str
+    execution_generation_fingerprint: str
     source_locator: str | None = None
 
     @model_validator(mode="after")

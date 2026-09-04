@@ -820,6 +820,8 @@ export interface components {
             candidate_provider_version: string;
             /** Catalog Generation Fingerprint */
             catalog_generation_fingerprint: string;
+            /** Execution Generation Fingerprint */
+            execution_generation_fingerprint: string;
             /** Experiment Id */
             experiment_id: string;
             /**

@@ -423,6 +423,7 @@ const researchAuthoringProvenanceSchema = z.strictObject({
     candidate_provider_version: z.string().min(1),
     candidate_provider_content_fingerprint: sha256,
     catalog_generation_fingerprint: sha256,
+    execution_generation_fingerprint: sha256,
     source_locator: z.string().min(1).nullable()
 });
 const runSummaryShape = {

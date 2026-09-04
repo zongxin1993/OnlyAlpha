@@ -37,6 +37,7 @@ from onlyalpha.research.operations.readiness import (
     OnlyResearchReadinessCheck,
     OnlyResearchReadinessStatus,
 )
+from onlyalpha.research.provenance import only_research_execution_generation_fingerprint
 from onlyalpha.research.run import (
     OnlyPostgresSchemaIncompatibleError,
     OnlyResearchRun,
@@ -59,8 +60,7 @@ KEY = "00000000-0000-4000-8000-000000000501"
 
 
 def _authoring_provenance() -> dict[str, object]:
-    return {
-        "schema_version": 1,
+    identity = {
         "experiment_id": "exp-" + "a" * 32,
         "source_repository": "OnlyAlpha-alpha",
         "source_revision": "1" * 40,
@@ -69,6 +69,11 @@ def _authoring_provenance() -> dict[str, object]:
         "candidate_provider_version": "candidate-1",
         "candidate_provider_content_fingerprint": "3" * 64,
         "catalog_generation_fingerprint": "4" * 64,
+    }
+    return {
+        "schema_version": 1,
+        **identity,
+        "execution_generation_fingerprint": only_research_execution_generation_fingerprint(**identity),
         "source_locator": "/operational/checkout",
     }
 
@@ -85,6 +90,15 @@ class _Dataset:
     def load_verified_table(self, _fingerprint: str) -> object:
         self.loads += 1
         return object()
+
+
+class _AuthoringGenerations:
+    def resolve(self, provenance, research_specification):  # type: ignore[no-untyped-def]
+        if provenance.identity_dict() != {
+            key: value for key, value in _authoring_provenance().items() if key != "source_locator"
+        }:
+            raise ValueError("generation mismatch")
+        return OnlyResearchSpecificationResolver(registry()).resolve(research_specification)
 
 
 class _Store:
@@ -181,7 +195,7 @@ def _ready_projection() -> OnlyKernelResearchReadinessProjection:
     )
 
 
-def _client(readiness_probe=None):  # type: ignore[no-untyped-def]
+def _client(readiness_probe=None, *, authoring_generations=True):  # type: ignore[no-untyped-def]
     store, dataset = _Store(), _Dataset()
     admission = OnlyResearchRunAdmissionService(
         resolver=OnlyResearchSpecificationResolver(registry()),
@@ -189,6 +203,7 @@ def _client(readiness_probe=None):  # type: ignore[no-untyped-def]
         run_store=store,  # type: ignore[arg-type]
         now_utc=lambda: NOW,
         run_id_factory=lambda: OnlyResearchRunId("00000000-0000-4000-8000-000000000510"),
+        authoring_generation_resolver=_AuthoringGenerations() if authoring_generations else None,
     )
     command = OnlyResearchCommandService(admission=admission, store=store, now_utc=lambda: NOW)  # type: ignore[arg-type]
     query = OnlyResearchRunQueryService(store)  # type: ignore[arg-type]
@@ -279,13 +294,35 @@ def test_authoring_provenance_round_trips_and_conflicting_retry_fails_closed() -
     assert listed.json()["runs"][0]["authoring_provenance"] == provenance
     assert next(iter(store.runs.values())).authoring_provenance is not None
 
-    conflict_payload = {
-        **payload,
-        "authoring_provenance": {**provenance, "source_revision": "5" * 40},
-    }
+    changed_identity = {**provenance, "source_revision": "5" * 40}
+    changed_identity["execution_generation_fingerprint"] = only_research_execution_generation_fingerprint(
+        **{
+            key: value
+            for key, value in changed_identity.items()
+            if key not in {"schema_version", "execution_generation_fingerprint", "source_locator"}
+        }
+    )
+    conflict_payload = {**payload, "authoring_provenance": changed_identity}
     conflict = client.post("/api/v2/research/runs", headers={"Idempotency-Key": KEY}, json=conflict_payload)
     assert conflict.status_code == 409
     assert conflict.json()["error"]["code"] == "RESEARCH_SUBMISSION_KEY_CONFLICT"
+
+
+def test_authoring_run_requires_server_verified_execution_generation_before_persistence() -> None:
+    _, store, client = _client(authoring_generations=False)
+    response = client.post(
+        "/api/v2/research/runs",
+        headers={"Idempotency-Key": KEY},
+        json={
+            "specification": dict(specification().to_dict()),
+            "authoring_provenance": _authoring_provenance(),
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "RESEARCH_EXECUTION_GENERATION_UNAVAILABLE"
+    assert store.runs == {}
+    assert store.receipts == {}
 
 
 def test_invalid_authoring_provenance_is_rejected_at_http_boundary() -> None:

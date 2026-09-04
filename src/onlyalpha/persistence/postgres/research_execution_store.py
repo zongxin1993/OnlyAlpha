@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
 from typing import cast
@@ -52,13 +53,26 @@ _ATTEMPT_COLUMNS = (
     "failure_code",
     "failure_detail",
 )
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
 class OnlyPostgresResearchExecutionStore:
     """PostgreSQL server time is the sole lease coordination clock."""
 
-    def __init__(self, dsn: str, options: OnlyPostgresOperationalConnectionOptions | None = None) -> None:
+    def __init__(
+        self,
+        dsn: str,
+        options: OnlyPostgresOperationalConnectionOptions | None = None,
+        *,
+        authoring_execution_generation_fingerprint: str | None = None,
+    ) -> None:
         self._dsn = (options or OnlyPostgresOperationalConnectionOptions()).apply(dsn)
+        if (
+            authoring_execution_generation_fingerprint is not None
+            and _SHA256.fullmatch(authoring_execution_generation_fingerprint) is None
+        ):
+            raise ValueError("RESEARCH_EXECUTION_GENERATION_INVALID")
+        self._authoring_execution_generation_fingerprint = authoring_execution_generation_fingerprint
 
     def load_attempt(self, attempt_id: OnlyResearchRunAttemptId) -> OnlyResearchRunAttempt:
         try:
@@ -109,10 +123,18 @@ class OnlyPostgresResearchExecutionStore:
         run_started_at: datetime,
     ) -> OnlyResearchExecutionClaim | None:
         with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+            generation = self._authoring_execution_generation_fingerprint
+            generation_predicate = (
+                "r.authoring_provenance IS NULL"
+                if generation is None
+                else "r.authoring_provenance ->> 'execution_generation_fingerprint' = %s"
+            )
+            parameters: tuple[object, ...] = (max_attempts,) if generation is None else (generation, max_attempts)
             row = connection.execute(
-                """
+                f"""
                     SELECT r.* FROM research_run AS r
                     WHERE r.state IN ('QUEUED', 'RUNNING')
+                      AND {generation_predicate}
                       AND NOT EXISTS (
                           SELECT 1 FROM research_run_attempt AS active
                           WHERE active.run_id = r.run_id AND active.state = 'ACTIVE'
@@ -122,7 +144,7 @@ class OnlyPostgresResearchExecutionStore:
                     ORDER BY r.queued_at ASC, r.run_id ASC
                     FOR UPDATE OF r SKIP LOCKED LIMIT 1
                     """,
-                (max_attempts,),
+                parameters,
             ).fetchone()
             if row is None:
                 return None
@@ -259,17 +281,25 @@ class OnlyPostgresResearchExecutionStore:
         """Load one operationally eligible candidate without inspecting semantic Stores."""
         try:
             with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+                generation = self._authoring_execution_generation_fingerprint
+                generation_predicate = (
+                    "r.authoring_provenance IS NULL"
+                    if generation is None
+                    else "r.authoring_provenance ->> 'execution_generation_fingerprint' = %s"
+                )
                 row = connection.execute(
-                    """
+                    f"""
                     SELECT r.* FROM research_run AS r
                     WHERE r.state = 'CANCEL_REQUESTED'
+                      AND {generation_predicate}
                       AND NOT EXISTS (
                           SELECT 1 FROM research_run_attempt AS active
                           WHERE active.run_id = r.run_id AND active.state = 'ACTIVE'
                       )
                     ORDER BY r.cancel_requested_at ASC, r.run_id ASC
                     LIMIT 1
-                    """
+                    """,
+                    () if generation is None else (generation,),
                 ).fetchone()
         except psycopg.Error as exc:
             raise OnlyResearchExecutionStoreUnavailableError("Cancellation recovery candidate load failed") from exc
@@ -297,6 +327,15 @@ class OnlyPostgresResearchExecutionStore:
                 if current.state is not OnlyResearchRunState.CANCEL_REQUESTED or current.revision != expected.revision:
                     raise OnlyResearchExecutionOwnershipLostError(
                         "Cancellation recovery Run changed before terminal projection"
+                    )
+                actual_generation = (
+                    None
+                    if current.authoring_provenance is None
+                    else current.authoring_provenance.execution_generation_fingerprint
+                )
+                if actual_generation != self._authoring_execution_generation_fingerprint:
+                    raise OnlyResearchExecutionOwnershipLostError(
+                        "Cancellation recovery belongs to another execution generation"
                     )
                 active = connection.execute(
                     "SELECT 1 FROM research_run_attempt WHERE run_id = %s AND state = 'ACTIVE' LIMIT 1",

@@ -67,7 +67,10 @@ from onlyalpha.research.operations.diagnostics import (
     OnlyResearchOperationalDiagnosticService,
 )
 from onlyalpha.research.operations.model import OnlyResearchOperationalDiagnosisCode
-from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
+from onlyalpha.research.provenance import (
+    OnlyResearchAuthoringProvenance,
+    only_research_execution_generation_fingerprint,
+)
 from onlyalpha.research.run import (
     OnlyPostgresMigrationIntegrityError,
     OnlyPostgresSchemaIncompatibleError,
@@ -184,18 +187,22 @@ def _queued(run_id: str) -> OnlyResearchRun:
     )
 
 
-def _authoring_provenance() -> OnlyResearchAuthoringProvenance:
+def _authoring_provenance(source_revision: str = "1" * 40) -> OnlyResearchAuthoringProvenance:
+    identity = {
+        "experiment_id": "exp-" + "a" * 32,
+        "source_repository": "OnlyAlpha-alpha",
+        "source_revision": source_revision,
+        "source_tree": "2" * 40,
+        "candidate_provider_id": "private.onlyalpha.alpha.candidate",
+        "candidate_provider_version": "candidate-1",
+        "candidate_provider_content_fingerprint": "3" * 64,
+        "catalog_generation_fingerprint": "4" * 64,
+    }
     return OnlyResearchAuthoringProvenance(
-        1,
-        "exp-" + "a" * 32,
-        "OnlyAlpha-alpha",
-        "1" * 40,
-        "2" * 40,
-        "private.onlyalpha.alpha.candidate",
-        "candidate-1",
-        "3" * 64,
-        "4" * 64,
-        "/operational/checkout",
+        schema_version=1,
+        **identity,
+        execution_generation_fingerprint=only_research_execution_generation_fingerprint(**identity),
+        source_locator="/operational/checkout",
     )
 
 
@@ -340,6 +347,52 @@ def test_worker_presence_and_operational_history_use_server_time_and_remain_diag
         ).state.value
         == "ACTIVE"
     )
+
+
+def test_transactional_claim_is_partitioned_by_exact_authoring_generation(postgres_dsn: str) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    runs = OnlyPostgresResearchRunStore(postgres_dsn)
+    normal = runs.create_queued(_queued("00000000-0000-4000-8000-000000000091"))
+    generation_one = _authoring_provenance()
+    generation_two = _authoring_provenance("5" * 40)
+    first = runs.create_queued(
+        replace(
+            _queued("00000000-0000-4000-8000-000000000092"),
+            authoring_provenance=generation_one,
+        )
+    )
+    second = runs.create_queued(
+        replace(
+            _queued("00000000-0000-4000-8000-000000000093"),
+            authoring_provenance=generation_two,
+        )
+    )
+
+    def claim(store: OnlyPostgresResearchExecutionStore, suffix: str):
+        return store.claim_next(
+            worker_instance_id=OnlyResearchWorkerInstanceId(f"00000000-0000-4000-8002-0000000000{suffix}"),
+            attempt_id=OnlyResearchRunAttemptId(f"00000000-0000-4000-8001-0000000000{suffix}"),
+            lease_duration=timedelta(minutes=2),
+            max_attempts=3,
+            run_started_at=NOW + timedelta(seconds=1),
+        )
+
+    normal_claim = claim(OnlyPostgresResearchExecutionStore(postgres_dsn), "91")
+    generation_one_store = OnlyPostgresResearchExecutionStore(
+        postgres_dsn,
+        authoring_execution_generation_fingerprint=generation_one.execution_generation_fingerprint,
+    )
+    first_claim = claim(generation_one_store, "92")
+
+    assert normal_claim is not None and normal_claim.attempt.run_id == normal.run_id
+    assert first_claim is not None and first_claim.attempt.run_id == first.run_id
+    assert claim(generation_one_store, "94") is None
+    assert runs.load(second.run_id).state is OnlyResearchRunState.QUEUED
+    with psycopg.connect(postgres_dsn) as connection:
+        attempt_count = connection.execute(
+            "SELECT count(*) FROM research_run_attempt WHERE run_id = %s", (second.run_id.value,)
+        ).fetchone()
+    assert attempt_count == (0,)
 
 
 def test_operational_snapshot_uses_one_read_only_repeatable_read_mvcc_observation(

@@ -25,6 +25,10 @@ from onlyalpha.research.execution import (
     OnlyResearchWorkerOutcomeKind,
     OnlyResearchWorkerService,
 )
+from onlyalpha.research.provenance import (
+    OnlyResearchAuthoringProvenance,
+    only_research_execution_generation_fingerprint,
+)
 from onlyalpha.research.run import (
     OnlyResearchRun,
     OnlyResearchRunId,
@@ -177,6 +181,8 @@ def _case(
     *,
     runtime_executor: object | None = None,
     dataset_store: object | None = None,
+    authoring_provenance: OnlyResearchAuthoringProvenance | None = None,
+    worker_generation: str | None = None,
 ) -> tuple[OnlyResearchWorker, _RunStore, _ExecutionStore, OnlyResearchExecutionClaim]:
     _, workload = workload_case(tmp_path)
     services = only_default_engine_services() if runtime_executor is None else None
@@ -190,6 +196,7 @@ def _case(
         canonical_specification_payload=only_canonical_json(spec.to_dict()),
         admission_resolution_fingerprint=only_research_admission_resolution_fingerprint(resolution),
         queued_at=NOW,
+        authoring_provenance=authoring_provenance,
     )
     running = queued.transition(OnlyResearchRunState.RUNNING, at=NOW + timedelta(seconds=1))
     run_store = _RunStore(running)
@@ -223,8 +230,27 @@ def _case(
             lease_duration=timedelta(seconds=1), heartbeat_interval=timedelta(milliseconds=10)
         ),
         now_utc=lambda: NOW + timedelta(minutes=1),
+        authoring_execution_generation_fingerprint=worker_generation,
     )
     return worker, run_store, execution_store, claim
+
+
+def _authoring_provenance(source_revision: str = "1" * 40) -> OnlyResearchAuthoringProvenance:
+    identity = {
+        "experiment_id": "exp-" + "a" * 32,
+        "source_repository": "OnlyAlpha-alpha",
+        "source_revision": source_revision,
+        "source_tree": "2" * 40,
+        "candidate_provider_id": "candidate.onlyalpha.alpha." + "a" * 32,
+        "candidate_provider_version": source_revision,
+        "candidate_provider_content_fingerprint": "3" * 64,
+        "catalog_generation_fingerprint": "4" * 64,
+    }
+    return OnlyResearchAuthoringProvenance(
+        schema_version=1,
+        **identity,
+        execution_generation_fingerprint=only_research_execution_generation_fingerprint(**identity),
+    )
 
 
 def test_worker_reverifies_and_enters_real_engine_runtime_to_complete(tmp_path: Path) -> None:
@@ -235,6 +261,24 @@ def test_worker_reverifies_and_enters_real_engine_runtime_to_complete(tmp_path: 
     assert run_store.run.research_result_fingerprint is not None
     assert run_store.run.artifact_content_fingerprint is not None
     assert execution_store.heartbeat_count >= 2
+
+
+def test_worker_loses_ownership_before_execution_when_generation_differs(tmp_path: Path) -> None:
+    provenance = _authoring_provenance()
+    runtime = _RuntimeExecutor()
+    worker, run_store, execution_store, claim = _case(
+        tmp_path,
+        runtime_executor=runtime,
+        dataset_store=object(),
+        authoring_provenance=provenance,
+        worker_generation="9" * 64,
+    )
+
+    outcome = worker.execute_claim(claim)
+
+    assert outcome.kind is OnlyResearchWorkerOutcomeKind.OWNERSHIP_LOST
+    assert run_store.run.state is OnlyResearchRunState.RUNNING
+    assert execution_store.attempt.attempt_number == 1
 
 
 def test_runtime_executor_reuses_services_but_creates_a_fresh_engine_per_claim(

@@ -7,6 +7,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import cast
 
+from onlyalpha.canonical import only_canonical_fingerprint
+
 _GIT_OBJECT_ID = re.compile(r"^[0-9a-f]{40,64}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _EXPERIMENT_ID = re.compile(r"^exp-[0-9a-f]{24,64}$")
@@ -23,6 +25,7 @@ class OnlyResearchAuthoringProvenance:
     candidate_provider_version: str
     candidate_provider_content_fingerprint: str
     catalog_generation_fingerprint: str
+    execution_generation_fingerprint: str
     source_locator: str | None = None
 
     def __post_init__(self) -> None:
@@ -34,10 +37,26 @@ class OnlyResearchAuthoringProvenance:
             raise ValueError("RESEARCH_PROVENANCE_INVALID")
         if not _GIT_OBJECT_ID.fullmatch(self.source_revision) or not _GIT_OBJECT_ID.fullmatch(self.source_tree):
             raise ValueError("RESEARCH_PROVENANCE_INVALID")
-        if not _SHA256.fullmatch(self.candidate_provider_content_fingerprint) or not _SHA256.fullmatch(
-            self.catalog_generation_fingerprint
+        if not all(
+            _SHA256.fullmatch(value)
+            for value in (
+                self.candidate_provider_content_fingerprint,
+                self.catalog_generation_fingerprint,
+                self.execution_generation_fingerprint,
+            )
         ):
             raise ValueError("RESEARCH_PROVENANCE_INVALID")
+        if self.execution_generation_fingerprint != only_research_execution_generation_fingerprint(
+            experiment_id=self.experiment_id,
+            source_repository=self.source_repository,
+            source_revision=self.source_revision,
+            source_tree=self.source_tree,
+            candidate_provider_id=self.candidate_provider_id,
+            candidate_provider_version=self.candidate_provider_version,
+            candidate_provider_content_fingerprint=self.candidate_provider_content_fingerprint,
+            catalog_generation_fingerprint=self.catalog_generation_fingerprint,
+        ):
+            raise ValueError("RESEARCH_EXECUTION_GENERATION_MISMATCH")
 
     def identity_dict(self) -> dict[str, object]:
         """Return authoritative provenance fields, excluding the operational locator."""
@@ -52,6 +71,7 @@ class OnlyResearchAuthoringProvenance:
             "candidate_provider_version": self.candidate_provider_version,
             "candidate_provider_content_fingerprint": self.candidate_provider_content_fingerprint,
             "catalog_generation_fingerprint": self.catalog_generation_fingerprint,
+            "execution_generation_fingerprint": self.execution_generation_fingerprint,
         }
 
     def to_dict(self) -> dict[str, object]:
@@ -72,8 +92,35 @@ class OnlyResearchAuthoringProvenance:
             str(payload["candidate_provider_version"]),
             str(payload["candidate_provider_content_fingerprint"]),
             str(payload["catalog_generation_fingerprint"]),
+            str(payload["execution_generation_fingerprint"]),
             None if payload.get("source_locator") is None else str(payload["source_locator"]),
         )
 
 
-__all__ = ["OnlyResearchAuthoringProvenance"]
+def only_research_execution_generation_fingerprint(
+    *,
+    experiment_id: str,
+    source_repository: str,
+    source_revision: str,
+    source_tree: str,
+    candidate_provider_id: str,
+    candidate_provider_version: str,
+    candidate_provider_content_fingerprint: str,
+    catalog_generation_fingerprint: str,
+) -> str:
+    return only_canonical_fingerprint(
+        {
+            "contract": "ONLYALPHA_AUTHORING_EXECUTION_GENERATION_V1",
+            "experiment_id": experiment_id,
+            "source_repository": source_repository,
+            "source_revision": source_revision,
+            "source_tree": source_tree,
+            "candidate_provider_id": candidate_provider_id,
+            "candidate_provider_version": candidate_provider_version,
+            "candidate_provider_content_fingerprint": candidate_provider_content_fingerprint,
+            "catalog_generation_fingerprint": catalog_generation_fingerprint,
+        }
+    )
+
+
+__all__ = ["OnlyResearchAuthoringProvenance", "only_research_execution_generation_fingerprint"]

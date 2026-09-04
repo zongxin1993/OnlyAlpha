@@ -18,6 +18,7 @@ from onlyalpha.indicator.registry import OnlyIndicatorFactoryRegistry
 from onlyalpha.market.product import OnlyMarketProductFactoryRegistry, OnlyMarketProductResourceResolver
 from onlyalpha.plugin.descriptor import OnlyPluginOrigin, OnlyPluginOriginType
 from onlyalpha.plugin.discovery import OnlyPluginDiscoveryReport, only_discover_plugins
+from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration
 from onlyalpha.research.calculation.predicate import only_register_research_predicate_primitives
 from onlyalpha.runtime.assembler import OnlyComponentFactoryRegistries, OnlyEngineRunAssembler
 from onlyalpha.runtime.backtest.factory import OnlyBacktestRuntimeFactory
@@ -43,6 +44,7 @@ def only_default_engine_services(
     fail_fast: bool = True,
     runtime_persistence_store_factory: OnlyRuntimePersistenceStoreFactory | None = None,
     market_product_resources: OnlyMarketProductResourceResolver | None = None,
+    calculation_catalog_generation: OnlyQuantAssetCatalogGeneration | None = None,
 ) -> OnlyEngineServices:
     data_sources = OnlyDataSourceFactoryRegistry()
     builtin = OnlyPluginOrigin(OnlyPluginOriginType.BUILTIN, "onlyalpha")
@@ -50,7 +52,11 @@ def only_default_engine_services(
     brokers = OnlyBrokerFactoryRegistry()
     broker_contracts = OnlyBrokerFeeContractRegistry()
     market_products = OnlyMarketProductFactoryRegistry()
-    calculations = OnlyCalculationRegistry()
+    calculations = (
+        OnlyCalculationRegistry()
+        if calculation_catalog_generation is None
+        else calculation_catalog_generation.calculation_registry()
+    )
     indicators = OnlyIndicatorFactoryRegistry(calculations)
     discovery = only_discover_plugins(
         data_sources,
@@ -59,6 +65,11 @@ def only_default_engine_services(
         market_products,
         calculations,
         fail_fast=fail_fast,
+        excluded_calculation_distributions=(
+            frozenset()
+            if calculation_catalog_generation is None
+            else frozenset(provider.manifest.distribution_name for provider in calculation_catalog_generation.providers)
+        ),
     )
     only_register_research_predicate_primitives(calculations)
     only_register_trading_predicate_primitives(calculations)

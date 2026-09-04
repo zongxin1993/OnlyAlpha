@@ -586,6 +586,14 @@ create/select isolated process generations for new work; they never reload modul
 historical artifacts fail closed rather than falling forward. Dynamic Research outcomes remain in OnlyAlpha Evidence, not private source
 status files or registries.
 
+ADR 0116 closes the execution side of candidate provenance. An Authoring Execution Generation binds the exact Snapshot, candidate
+executable content, Candidate Provider and complete Catalog generation to one process-lifetime Calculation composition. The independent
+`packages/onlyalpha-authoring-execution-worker/` component verifies that generation before it may register presence or claim work. Normal
+Research Workers claim only unbound Runs; an authoring Worker claims only Runs bound to its exact generation fingerprint, with the filter
+inside the existing transactional Attempt authority. Git/path/artifact loading remains outside Core, active Runs are never rebound, and
+Evidence can cross admission only when executable Provider content remains identical. Release, Catalog activation, Strategy promotion and
+LIVE authorization remain separate authorities.
+
 Private Git admission uses the repository-tracked commit and pre-push hooks to invoke one canonical local `local_strict_gate.py` on the
 exact clean candidate commit. The gate proves semantic/provider transition correctness, formatting, static quality, tests, wheel build,
 clean isolated installation and provider discovery; the Strategies repository additionally proves its installed Resolve → Research →

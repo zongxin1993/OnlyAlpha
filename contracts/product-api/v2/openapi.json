@@ -811,6 +811,10 @@
             "title": "Catalog Generation Fingerprint",
             "type": "string"
           },
+          "execution_generation_fingerprint": {
+            "title": "Execution Generation Fingerprint",
+            "type": "string"
+          },
           "experiment_id": {
             "title": "Experiment Id",
             "type": "string"
@@ -853,7 +857,8 @@
           "candidate_provider_id",
           "candidate_provider_version",
           "candidate_provider_content_fingerprint",
-          "catalog_generation_fingerprint"
+          "catalog_generation_fingerprint",
+          "execution_generation_fingerprint"
         ],
         "title": "ResearchAuthoringProvenanceDto",
         "type": "object"
