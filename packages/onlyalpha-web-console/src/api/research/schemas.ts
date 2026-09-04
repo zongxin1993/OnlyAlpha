@@ -413,6 +413,18 @@ const runFailureSchema = z.strictObject({
     code: z.string().min(1),
     detail: z.string().min(1)
 });
+const researchAuthoringProvenanceSchema = z.strictObject({
+    schema_version: z.literal(1),
+    experiment_id: z.string().regex(/^exp-[0-9a-f]{24,64}$/),
+    source_repository: z.string().min(1),
+    source_revision: z.string().regex(/^[0-9a-f]{40,64}$/),
+    source_tree: z.string().regex(/^[0-9a-f]{40,64}$/),
+    candidate_provider_id: z.string().min(1),
+    candidate_provider_version: z.string().min(1),
+    candidate_provider_content_fingerprint: sha256,
+    catalog_generation_fingerprint: sha256,
+    source_locator: z.string().min(1).nullable()
+});
 const runSummaryShape = {
     schema_version: z.literal(2),
     run_id: uuid4,
@@ -427,6 +439,8 @@ const runSummaryShape = {
     finished_at: timestamp.nullable(),
     result_ref: sha256.nullable(),
     artifact_ref: sha256.nullable(),
+    calculation_execution_evidence_refs: z.array(sha256),
+    authoring_provenance: researchAuthoringProvenanceSchema.nullable(),
     failure: runFailureSchema.nullable()
 } as const;
 

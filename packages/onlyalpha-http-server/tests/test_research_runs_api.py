@@ -58,6 +58,21 @@ NOW = datetime(2026, 8, 18, 1, 2, 3, tzinfo=UTC)
 KEY = "00000000-0000-4000-8000-000000000501"
 
 
+def _authoring_provenance() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "experiment_id": "exp-" + "a" * 32,
+        "source_repository": "OnlyAlpha-alpha",
+        "source_revision": "1" * 40,
+        "source_tree": "2" * 40,
+        "candidate_provider_id": "private.onlyalpha.alpha.candidate",
+        "candidate_provider_version": "candidate-1",
+        "candidate_provider_content_fingerprint": "3" * 64,
+        "catalog_generation_fingerprint": "4" * 64,
+        "source_locator": "/operational/checkout",
+    }
+
+
 class _Reader:
     def load_verified(self, _fingerprint: str):  # type: ignore[no-untyped-def]
         raise OnlyResearchArtifactStoreError("RESEARCH_ARTIFACT_NOT_FOUND", "missing")
@@ -246,6 +261,41 @@ def test_submit_replay_get_list_and_cancel_contract() -> None:
     assert cancelled.status_code == 200
     assert cancelled.json()["state"] == "CANCELLED"
     assert cancelled.json()["revision"] == "1"
+
+
+def test_authoring_provenance_round_trips_and_conflicting_retry_fails_closed() -> None:
+    _, store, client = _client()
+    provenance = _authoring_provenance()
+    payload = {"specification": dict(specification().to_dict()), "authoring_provenance": provenance}
+    created = client.post("/api/v2/research/runs", headers={"Idempotency-Key": KEY}, json=payload)
+    assert created.status_code == 202
+    run = created.json()["run"]
+    assert run["authoring_provenance"] == provenance
+    assert run["calculation_execution_evidence_refs"] == []
+
+    fetched = client.get(f"/api/v2/research/runs/{run['run_id']}")
+    listed = client.get("/api/v2/research/runs")
+    assert fetched.json()["authoring_provenance"] == provenance
+    assert listed.json()["runs"][0]["authoring_provenance"] == provenance
+    assert next(iter(store.runs.values())).authoring_provenance is not None
+
+    conflict_payload = {
+        **payload,
+        "authoring_provenance": {**provenance, "source_revision": "5" * 40},
+    }
+    conflict = client.post("/api/v2/research/runs", headers={"Idempotency-Key": KEY}, json=conflict_payload)
+    assert conflict.status_code == 409
+    assert conflict.json()["error"]["code"] == "RESEARCH_SUBMISSION_KEY_CONFLICT"
+
+
+def test_invalid_authoring_provenance_is_rejected_at_http_boundary() -> None:
+    payload = {
+        "specification": dict(specification().to_dict()),
+        "authoring_provenance": {**_authoring_provenance(), "source_tree": "not-a-tree"},
+    }
+    response = _client()[2].post("/api/v2/research/runs", headers={"Idempotency-Key": KEY}, json=payload)
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "RESEARCH_REQUEST_INVALID"
 
 
 def test_cancel_idempotency_header_is_optional_and_keyed_retry_is_strong() -> None:

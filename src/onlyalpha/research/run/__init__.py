@@ -1,5 +1,7 @@
 """Durable Research Run operational authority."""
 
+from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance as OnlyResearchAuthoringProvenance
+
 from .admission import OnlyResearchRunAdmissionService  # noqa: F401
 from .errors import *  # noqa: F403
 from .evidence import only_research_admission_resolution_fingerprint  # noqa: F401

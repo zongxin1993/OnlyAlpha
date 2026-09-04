@@ -19,6 +19,7 @@ from onlyalpha.research.command.model import (
 )
 from onlyalpha.research.command.query import DEFAULT_RESEARCH_RUN_PAGE_SIZE, OnlyResearchRunQueryService
 from onlyalpha.research.command.service import OnlyResearchCommandService
+from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 from onlyalpha.research.run.model import OnlyResearchRun, OnlyResearchRunId
 from onlyalpha.research.specification.model import OnlyResearchSpecification
 
@@ -27,6 +28,7 @@ from onlyalpha.research.specification.model import OnlyResearchSpecification
 class OnlyCreateResearchRun(OnlyProductCommand):
     submission_key: OnlyResearchSubmissionKey
     specification: OnlyResearchSpecification
+    authoring_provenance: OnlyResearchAuthoringProvenance | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +63,11 @@ def only_compose_research_product_boundary(
     """Freeze the one legal Research Product binding topology."""
 
     def create(command: OnlyCreateResearchRun) -> OnlyResearchSubmitOutcome:
-        return commands.submit_research_run(command.submission_key, command.specification)
+        return commands.submit_research_run(
+            command.submission_key,
+            command.specification,
+            command.authoring_provenance,
+        )
 
     def cancel(command: OnlyCancelResearchRun) -> OnlyResearchRun:
         return commands.request_research_run_cancellation(command.run_id, command.command_id)

@@ -32,6 +32,7 @@ from onlyalpha.research.command import (
     OnlyResearchSubmissionRecord,
     OnlyResearchSubmitDisposition,
 )
+from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 from onlyalpha.research.run import (
     OnlyResearchRun,
     OnlyResearchRunAdmissionError,
@@ -47,6 +48,23 @@ from tests.research.specification.support import registry, specification
 NOW = datetime(2026, 8, 18, 1, 2, 3, 456789, tzinfo=UTC)
 KEY = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000001")
 OTHER_KEY = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000002")
+
+
+def _provenance(
+    *, source_revision: str = "1" * 40, source_locator: str | None = None
+) -> OnlyResearchAuthoringProvenance:
+    return OnlyResearchAuthoringProvenance(
+        1,
+        "exp-" + "a" * 32,
+        "OnlyAlpha-alpha",
+        source_revision,
+        "2" * 40,
+        "private.onlyalpha.alpha.candidate",
+        "candidate-1",
+        "3" * 64,
+        "4" * 64,
+        source_locator,
+    )
 
 
 class _DatasetStore:
@@ -234,6 +252,20 @@ def test_same_key_different_command_conflicts_but_different_keys_create_distinct
     )
     with pytest.raises(OnlyResearchSubmissionConflictError):
         service.submit_research_run(KEY, spec)
+
+
+def test_submission_identity_binds_authoritative_provenance_but_not_source_locator() -> None:
+    store, dataset = _Store(), _DatasetStore()
+    service = _service(store, dataset)
+    created = service.submit_research_run(KEY, specification(), _provenance(source_locator="/first"))
+
+    replayed = service.submit_research_run(KEY, specification(), _provenance(source_locator="/second"))
+    assert replayed.disposition is OnlyResearchSubmitDisposition.REUSED
+    assert replayed.run == created.run
+    assert replayed.run.authoring_provenance == _provenance(source_locator="/first")
+
+    with pytest.raises(OnlyResearchSubmissionConflictError):
+        service.submit_research_run(KEY, specification(), _provenance(source_revision="5" * 40))
 
 
 def test_admission_failure_persists_nothing() -> None:

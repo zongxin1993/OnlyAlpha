@@ -13,6 +13,7 @@ from onlyalpha.application.product_command_receipt import (
     OnlyProductCommandReceipt,
     only_cancel_research_run_command_fingerprint,
 )
+from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 from onlyalpha.research.run.admission import OnlyResearchRunAdmissionService
 from onlyalpha.research.run.errors import (
     OnlyResearchRunIntegrityError,
@@ -53,10 +54,13 @@ class OnlyResearchCommandService:
         self._cancellation_cas_attempts = cancellation_cas_attempts
 
     def submit_research_run(
-        self, submission_key: OnlyResearchSubmissionKey, specification: OnlyResearchSpecification
+        self,
+        submission_key: OnlyResearchSubmissionKey,
+        specification: OnlyResearchSpecification,
+        provenance: OnlyResearchAuthoringProvenance | None = None,
     ) -> OnlyResearchSubmitOutcome:
         strict = OnlyResearchSpecification.from_dict(specification.to_dict())
-        command = OnlyResearchSubmitCommand(submission_key, strict)
+        command = OnlyResearchSubmitCommand(submission_key, strict, provenance)
         existing = self._store.find_product_command_receipt(submission_key)
         if existing is not None:
             run = self._replay_receipt(
@@ -65,7 +69,7 @@ class OnlyResearchCommandService:
                 fingerprint=command.command_fingerprint,
             )
             return OnlyResearchSubmitOutcome(OnlyResearchSubmitDisposition.REUSED, run)
-        prepared = self._admission.prepare(strict)
+        prepared = self._admission.prepare(strict, provenance=provenance)
         requested = OnlyProductCommandReceipt(
             command_id=submission_key,
             command_kind=OnlyProductCommandKind.CREATE_RESEARCH_RUN,

@@ -82,6 +82,7 @@ def create_run_router(product: OnlyResearchProductBoundary) -> APIRouter:
                 OnlyCreateResearchRun(
                     _submission_key(idempotency_key),
                     OnlyResearchSpecification.from_dict(request.specification),
+                    None if request.authoring_provenance is None else request.authoring_provenance.to_model(),
                 )
             ),
             OnlyResearchSubmitOutcome,

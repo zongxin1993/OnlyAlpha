@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier, Event, Thread
@@ -66,6 +67,7 @@ from onlyalpha.research.operations.diagnostics import (
     OnlyResearchOperationalDiagnosticService,
 )
 from onlyalpha.research.operations.model import OnlyResearchOperationalDiagnosisCode
+from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 from onlyalpha.research.run import (
     OnlyPostgresMigrationIntegrityError,
     OnlyPostgresSchemaIncompatibleError,
@@ -121,6 +123,8 @@ M11 = "0011_p9_0_freeze_projection_convergence"
 M12 = "0012_product_command_receipt"
 M13 = "0013_market_data_catalog"
 M14 = "0014_market_data_durable_ownership"
+M18 = "0018_a0_backtest_worker_presence"
+M19 = "0019_research_authoring_provenance"
 CURRENT_MIGRATIONS = current_migrations()
 EXECUTION_EVIDENCE = ("e" * 64,)
 
@@ -177,6 +181,21 @@ def _queued(run_id: str) -> OnlyResearchRun:
         canonical_specification_payload=only_canonical_json(spec.to_dict()),
         admission_resolution_fingerprint=only_research_admission_resolution_fingerprint(resolution),
         queued_at=NOW,
+    )
+
+
+def _authoring_provenance() -> OnlyResearchAuthoringProvenance:
+    return OnlyResearchAuthoringProvenance(
+        1,
+        "exp-" + "a" * 32,
+        "OnlyAlpha-alpha",
+        "1" * 40,
+        "2" * 40,
+        "private.onlyalpha.alpha.candidate",
+        "candidate-1",
+        "3" * 64,
+        "4" * 64,
+        "/operational/checkout",
     )
 
 
@@ -513,6 +532,42 @@ def test_existing_m1_database_plans_and_applies_exact_forward_suffix(postgres_ds
     assert authority.migrate() == CURRENT_MIGRATIONS[1:]
     assert verifier.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
     assert OnlyPostgresResearchRunStore(postgres_dsn).load(run.run_id) == run
+
+
+def test_m19_preserves_legacy_runs_as_explicitly_unbound_provenance(postgres_dsn: str, tmp_path: Path) -> None:
+    assert copy_migrations_through(tmp_path, M18)[-1] == M18
+    OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path).migrate()
+    legacy = _insert_legacy_queued(
+        postgres_dsn,
+        _queued("00000000-0000-4000-8000-000000000419"),
+    )
+
+    authority = OnlyPostgresMigrationAuthority(postgres_dsn)
+    assert tuple(item.migration_id for item in authority.plan()) == (M19,)
+    assert authority.migrate() == (M19,)
+    assert OnlyPostgresResearchRunStore(postgres_dsn).load(legacy.run_id) == legacy
+    assert OnlyPostgresResearchRunStore(postgres_dsn).load(legacy.run_id).authoring_provenance is None
+
+
+def test_authoring_provenance_survives_postgres_restart_read_and_rejects_corruption(postgres_dsn: str) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    expected = replace(
+        _queued("00000000-0000-4000-8000-000000000420"),
+        authoring_provenance=_authoring_provenance(),
+    )
+    OnlyPostgresResearchRunStore(postgres_dsn).create_queued(expected)
+
+    reloaded = OnlyPostgresResearchRunStore(postgres_dsn).load(expected.run_id)
+    assert reloaded == expected
+    assert reloaded.authoring_provenance == _authoring_provenance()
+
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute(
+            "UPDATE research_run SET authoring_provenance = %s WHERE run_id = %s",
+            (json.dumps({"schema_version": 1}), expected.run_id.value),
+        )
+    with pytest.raises(OnlyResearchRunIntegrityError):
+        OnlyPostgresResearchRunStore(postgres_dsn).load(expected.run_id)
 
 
 def test_m12_backfills_legacy_submission_exactly_and_retires_old_authority(postgres_dsn: str, tmp_path: Path) -> None:

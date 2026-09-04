@@ -792,6 +792,72 @@
         "title": "ResearchArtifactSummaryDto",
         "type": "object"
       },
+      "ResearchAuthoringProvenanceDto": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_provider_content_fingerprint": {
+            "title": "Candidate Provider Content Fingerprint",
+            "type": "string"
+          },
+          "candidate_provider_id": {
+            "title": "Candidate Provider Id",
+            "type": "string"
+          },
+          "candidate_provider_version": {
+            "title": "Candidate Provider Version",
+            "type": "string"
+          },
+          "catalog_generation_fingerprint": {
+            "title": "Catalog Generation Fingerprint",
+            "type": "string"
+          },
+          "experiment_id": {
+            "title": "Experiment Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "source_locator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Locator"
+          },
+          "source_repository": {
+            "title": "Source Repository",
+            "type": "string"
+          },
+          "source_revision": {
+            "title": "Source Revision",
+            "type": "string"
+          },
+          "source_tree": {
+            "title": "Source Tree",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "experiment_id",
+          "source_repository",
+          "source_revision",
+          "source_tree",
+          "candidate_provider_id",
+          "candidate_provider_version",
+          "candidate_provider_content_fingerprint",
+          "catalog_generation_fingerprint"
+        ],
+        "title": "ResearchAuthoringProvenanceDto",
+        "type": "object"
+      },
       "ResearchBarSpecificationDto": {
         "additionalProperties": false,
         "properties": {
@@ -2672,6 +2738,23 @@
             ],
             "title": "Artifact Ref"
           },
+          "authoring_provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResearchAuthoringProvenanceDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "calculation_execution_evidence_refs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Calculation Execution Evidence Refs",
+            "type": "array"
+          },
           "cancel_requested_at": {
             "anyOf": [
               {
@@ -2778,6 +2861,8 @@
           "finished_at",
           "result_ref",
           "artifact_ref",
+          "calculation_execution_evidence_refs",
+          "authoring_provenance",
           "failure"
         ],
         "title": "ResearchRunDto",
@@ -2902,6 +2987,23 @@
             ],
             "title": "Artifact Ref"
           },
+          "authoring_provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResearchAuthoringProvenanceDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "calculation_execution_evidence_refs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Calculation Execution Evidence Refs",
+            "type": "array"
+          },
           "cancel_requested_at": {
             "anyOf": [
               {
@@ -3000,6 +3102,8 @@
           "finished_at",
           "result_ref",
           "artifact_ref",
+          "calculation_execution_evidence_refs",
+          "authoring_provenance",
           "failure"
         ],
         "title": "ResearchRunSummaryDto",
@@ -3996,6 +4100,16 @@
       "SubmitResearchRunRequest": {
         "additionalProperties": false,
         "properties": {
+          "authoring_provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResearchAuthoringProvenanceDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "specification": {
             "additionalProperties": {
               "$ref": "#/components/schemas/JsonValue"

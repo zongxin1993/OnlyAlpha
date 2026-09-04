@@ -21,6 +21,7 @@ from onlyalpha.application.product_command_receipt import (
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.research.command.errors import OnlyResearchCancellationConflictError
 from onlyalpha.research.command.model import OnlyResearchRunPageCursor
+from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 from onlyalpha.research.run.errors import (
     OnlyResearchRunIntegrityError,
     OnlyResearchRunNotFoundError,
@@ -57,6 +58,7 @@ _COLUMNS = (
     "failure_phase",
     "failure_code",
     "failure_detail",
+    "authoring_provenance",
 )
 
 
@@ -75,6 +77,22 @@ class OnlyPostgresResearchRunStore:
             with psycopg.connect(self._dsn) as connection:
                 connection.execute(query, self._values(run))
             return run
+        except psycopg.errors.UndefinedColumn as exc:
+            if run.authoring_provenance is not None or "authoring_provenance" not in str(exc):
+                raise OnlyResearchRunStoreUnavailableError("Research Run create transaction failed") from exc
+            legacy_columns = _COLUMNS[:-1]
+            legacy_query = sql.SQL("INSERT INTO research_run ({}) VALUES ({})").format(
+                sql.SQL(", ").join(map(sql.Identifier, legacy_columns)),
+                sql.SQL(", ").join(sql.Placeholder() for _ in legacy_columns),
+            )
+            try:
+                with psycopg.connect(self._dsn) as connection:
+                    connection.execute(legacy_query, self._values(run)[:-1])
+                return run
+            except psycopg.errors.UniqueViolation as retry_exc:
+                raise OnlyResearchRunIntegrityError(f"Research Run already exists: {run.run_id}") from retry_exc
+            except psycopg.Error as retry_exc:
+                raise OnlyResearchRunStoreUnavailableError("Research Run create transaction failed") from retry_exc
         except psycopg.errors.UniqueViolation as exc:
             raise OnlyResearchRunIntegrityError(f"Research Run already exists: {run.run_id}") from exc
         except psycopg.Error as exc:
@@ -277,6 +295,7 @@ class OnlyPostgresResearchRunStore:
             None if failure is None else failure.phase.value,
             None if failure is None else failure.code,
             None if failure is None else failure.detail,
+            None if run.authoring_provenance is None else only_canonical_json(run.authoring_provenance.to_dict()),
         )
 
     @staticmethod
@@ -359,9 +378,22 @@ class OnlyPostgresResearchRunStore:
                 artifact_content_fingerprint=cast(str | None, row["artifact_content_fingerprint"]),
                 failure=failure,
                 calculation_execution_evidence_fingerprints=evidence,
+                authoring_provenance=_decode_authoring_provenance(row.get("authoring_provenance")),
             )
         except (KeyError, TypeError, ValueError, OnlyResearchRunIntegrityError) as exc:
             raise OnlyResearchRunIntegrityError("PostgreSQL Research Run row failed strict verification") from exc
 
 
 __all__ = ["OnlyPostgresResearchRunStore"]
+
+
+def _decode_authoring_provenance(value: object) -> OnlyResearchAuthoringProvenance | None:
+    if value is None:
+        return None
+    payload = json.loads(value) if isinstance(value, str) else value
+    if not isinstance(payload, Mapping):
+        raise ValueError("Research authoring provenance must be a JSON object or null")
+    provenance = OnlyResearchAuthoringProvenance.from_dict(payload)
+    if only_canonical_json(payload) != only_canonical_json(provenance.to_dict()):
+        raise ValueError("Research authoring provenance is not canonical")
+    return provenance

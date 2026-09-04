@@ -12,6 +12,7 @@ from onlyalpha.application.product_command_receipt import (
 )
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.research.command.model import OnlyResearchSubmitCommand
+from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 from onlyalpha.research.specification.model import OnlyResearchSpecification
 from tests.research.specification.support import specification
 
@@ -49,6 +50,35 @@ def test_create_fingerprint_bytes_remain_the_legacy_specification_shape() -> Non
     assert command.command_fingerprint != only_canonical_fingerprint(
         {"command_kind": OnlyProductCommandKind.CREATE_RESEARCH_RUN.value, "specification": strict.to_dict()}
     )
+
+
+def test_create_fingerprint_binds_authoritative_provenance_and_excludes_locator() -> None:
+    strict = OnlyResearchSpecification.from_dict(specification().to_dict())
+    provenance = OnlyResearchAuthoringProvenance(
+        1,
+        "exp-" + "a" * 32,
+        "OnlyAlpha-alpha",
+        "1" * 40,
+        "2" * 40,
+        "private.onlyalpha.alpha.candidate",
+        "candidate-1",
+        "3" * 64,
+        "4" * 64,
+        "/one",
+    )
+    first = OnlyResearchSubmitCommand(COMMAND_ID, strict, provenance)
+    second = OnlyResearchSubmitCommand(
+        COMMAND_ID,
+        strict,
+        OnlyResearchAuthoringProvenance.from_dict({**provenance.to_dict(), "source_locator": "/two"}),
+    )
+    changed = OnlyResearchSubmitCommand(
+        COMMAND_ID,
+        strict,
+        OnlyResearchAuthoringProvenance.from_dict({**provenance.to_dict(), "source_revision": "5" * 40}),
+    )
+    assert first.command_fingerprint == second.command_fingerprint
+    assert first.command_fingerprint != changed.command_fingerprint
 
 
 def test_cancel_fingerprint_depends_only_on_exact_target_run() -> None:

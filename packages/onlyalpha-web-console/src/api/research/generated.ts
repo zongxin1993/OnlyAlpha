@@ -810,6 +810,32 @@ export interface components {
             /** Statistics Count */
             statistics_count: number;
         };
+        /** ResearchAuthoringProvenanceDto */
+        ResearchAuthoringProvenanceDto: {
+            /** Candidate Provider Content Fingerprint */
+            candidate_provider_content_fingerprint: string;
+            /** Candidate Provider Id */
+            candidate_provider_id: string;
+            /** Candidate Provider Version */
+            candidate_provider_version: string;
+            /** Catalog Generation Fingerprint */
+            catalog_generation_fingerprint: string;
+            /** Experiment Id */
+            experiment_id: string;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /** Source Locator */
+            source_locator?: string | null;
+            /** Source Repository */
+            source_repository: string;
+            /** Source Revision */
+            source_revision: string;
+            /** Source Tree */
+            source_tree: string;
+        };
         /** ResearchBarSpecificationDto */
         ResearchBarSpecificationDto: {
             aggregation: components["schemas"]["OnlyBarAggregation"];
@@ -1429,6 +1455,9 @@ export interface components {
             admission_resolution_fingerprint: string;
             /** Artifact Ref */
             artifact_ref: string | null;
+            authoring_provenance: components["schemas"]["ResearchAuthoringProvenanceDto"] | null;
+            /** Calculation Execution Evidence Refs */
+            calculation_execution_evidence_refs: string[];
             /** Cancel Requested At */
             cancel_requested_at: string | null;
             failure: components["schemas"]["ResearchRunFailureDto"] | null;
@@ -1504,6 +1533,9 @@ export interface components {
             admission_resolution_fingerprint: string;
             /** Artifact Ref */
             artifact_ref: string | null;
+            authoring_provenance: components["schemas"]["ResearchAuthoringProvenanceDto"] | null;
+            /** Calculation Execution Evidence Refs */
+            calculation_execution_evidence_refs: string[];
             /** Cancel Requested At */
             cancel_requested_at: string | null;
             failure: components["schemas"]["ResearchRunFailureDto"] | null;
@@ -1869,6 +1901,7 @@ export interface components {
         };
         /** SubmitResearchRunRequest */
         SubmitResearchRunRequest: {
+            authoring_provenance?: components["schemas"]["ResearchAuthoringProvenanceDto"] | null;
             /** Specification */
             specification: {
                 [key: string]: components["schemas"]["JsonValue"];

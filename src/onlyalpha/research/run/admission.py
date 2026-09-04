@@ -11,6 +11,7 @@ from onlyalpha.research.dataset import (
     OnlyResearchDatasetNotFoundError,
     OnlyResearchDatasetSnapshotStore,
 )
+from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 from onlyalpha.research.specification.errors import OnlyResearchSpecificationError
 from onlyalpha.research.specification.model import OnlyResearchSpecification
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
@@ -37,10 +38,14 @@ class OnlyResearchRunAdmissionService:
         self._now_utc = now_utc
         self._run_id_factory = run_id_factory
 
-    def submit(self, specification: OnlyResearchSpecification) -> OnlyResearchRun:
-        return self._run_store.create_queued(self.prepare(specification))
+    def submit(
+        self, specification: OnlyResearchSpecification, provenance: OnlyResearchAuthoringProvenance | None = None
+    ) -> OnlyResearchRun:
+        return self._run_store.create_queued(self.prepare(specification, provenance=provenance))
 
-    def prepare(self, specification: OnlyResearchSpecification) -> OnlyResearchRun:
+    def prepare(
+        self, specification: OnlyResearchSpecification, *, provenance: OnlyResearchAuthoringProvenance | None = None
+    ) -> OnlyResearchRun:
         """Prepare a QUEUED Run without making a durable acknowledgement."""
 
         try:
@@ -53,6 +58,7 @@ class OnlyResearchRunAdmissionService:
                 canonical_specification_payload=only_canonical_json(strict.to_dict()),
                 admission_resolution_fingerprint=only_research_admission_resolution_fingerprint(resolution),
                 queued_at=self._now_utc(),
+                authoring_provenance=provenance,
             )
         except OnlyResearchRunAdmissionError:
             raise
