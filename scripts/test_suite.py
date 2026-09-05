@@ -58,6 +58,7 @@ class OnlyTestLane(StrEnum):
     RESEARCH_JOB = "research-job"
     RESEARCH_SWEEP = "research-sweep"
     RESEARCH_DATASET = "research-dataset"
+    PRIVATE_ASSET_CONTRACT = "private-asset-contract"
     FAST = "fast"
     INTEGRATION = "integration"
     ASHARE = "ashare"
@@ -315,6 +316,19 @@ LANES = {
         "4",
         "worksteal",
     ),
+    OnlyTestLane.PRIVATE_ASSET_CONTRACT: Lane(
+        (
+            "tests/quant_assets/test_private_asset_contract_conformance.py",
+            "packages/onlyalpha-authoring-execution-worker/tests",
+            "packages/onlyalpha-http-server/tests/test_research_runs_api.py",
+            "examples/onlyalpha-example-alpha/tests",
+            "examples/onlyalpha-example-strategies/tests",
+            "tests/architecture/test_private_asset_contract_parity.py",
+        ),
+        "not external",
+        "0",
+        "no",
+    ),
     OnlyTestLane.FAST: Lane(
         WORKSPACE_TESTS,
         "(unit or contract or architecture) and not (historical_git or recovery or sim_recovery or conformance or external or exhaustive or slow)",
@@ -449,6 +463,7 @@ RELEASE_LANES = (
     OnlyTestLane.RESEARCH_CALCULATION,
     OnlyTestLane.CALCULATION,
     OnlyTestLane.RESEARCH_DATASET,
+    OnlyTestLane.PRIVATE_ASSET_CONTRACT,
     OnlyTestLane.CORE_FULL,
     OnlyTestLane.RECOVERY,
     OnlyTestLane.SIM_RECOVERY,

@@ -3,6 +3,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from onlyalpha.runtime.defaults import only_default_engine_services
+
 
 def _imports(path: Path) -> set[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -55,12 +57,56 @@ def test_research_plan_has_no_cluster_market_or_new_semantic_identity() -> None:
 
 
 def test_shared_calculation_registry_is_explicit_and_research_uses_no_indicator_private_state() -> None:
-    defaults = Path("src/onlyalpha/runtime/defaults.py").read_text(encoding="utf-8")
-    factory = Path("src/onlyalpha/runtime/research/factory.py").read_text(encoding="utf-8")
-    assert "calculations = OnlyCalculationRegistry()" in defaults
-    assert "OnlyIndicatorFactoryRegistry(calculations)" in defaults
-    assert "components.calculations" in factory
-    assert "_calculations" not in factory
+    defaults_path = Path("src/onlyalpha/runtime/defaults.py")
+    defaults = ast.parse(defaults_path.read_text(encoding="utf-8"))
+    composition = next(
+        node
+        for node in defaults.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "only_default_engine_services"
+    )
+    registry_constructors = [
+        node
+        for node in ast.walk(composition)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "OnlyCalculationRegistry"
+    ]
+    assert len(registry_constructors) == 1
+
+    assignments = {
+        target.id: node.value
+        for node in composition.body
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
+    assert "calculations" in assignments
+    indicator_compositions = [
+        node
+        for node in ast.walk(composition)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "OnlyIndicatorFactoryRegistry"
+    ]
+    assert len(indicator_compositions) == 1
+    assert [ast.unparse(arg) for arg in indicator_compositions[0].args] == ["calculations"]
+
+    factory_path = Path("src/onlyalpha/runtime/research/factory.py")
+    factory = ast.parse(factory_path.read_text(encoding="utf-8"))
+    assert not any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in {"OnlyCalculationRegistry", "OnlyIndicatorFactoryRegistry"}
+        for node in ast.walk(factory)
+    )
+    assert any(
+        isinstance(node, ast.Attribute)
+        and node.attr == "calculations"
+        and isinstance(node.value, ast.Attribute)
+        and node.value.attr == "components"
+        for node in ast.walk(factory)
+    )
+
+    services = only_default_engine_services(fail_fast=True)
+    assert services.assembler.components.calculations is not None
 
 
 def test_query_remains_downstream_and_absent_from_runtime_execution() -> None:

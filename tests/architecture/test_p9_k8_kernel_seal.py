@@ -172,7 +172,7 @@ def test_http_route_modules_own_no_raw_mutation_capability() -> None:
         assert not any(symbol in source for symbol in forbidden_symbols), path
     run_source = (API_SOURCE / "research/run_routes.py").read_text(encoding="utf-8")
     assert run_source.count("product.commands.dispatch(") == 2
-    assert run_source.count("product.queries.dispatch(") == 2
+    assert run_source.count("product.queries.dispatch(") == 3
 
 
 def test_product_space_has_zero_direct_engine_or_runtime_constructor_owner() -> None:

@@ -567,3 +567,14 @@ All L1/L2/L3/L4 libraries expose versioned management providers through `onlyalp
 execute only through `onlyalpha.calculations`; L4 remains authoring data. Any content change requires a new provider version, and any semantic
 change additionally requires a new Calculation or Strategy-asset semantic version. Hot plug switches an immutable catalog generation only
 for new work; never reload modules in place or rebind an active Run/StrategyRevision.
+
+## Public example / private asset contract parity
+
+When a public Core change affects an L3/L4 authoring, discovery, execution, Research, Evidence or Freeze contract, the implementer must
+inspect the corresponding public example, update it in the same public change when behavior changes, run the public example conformance
+lane, and assess both `OnlyAlpha-alpha` and `OnlyAlpha-strategies` against the exact Core revision. If private execution is unavailable,
+report `PRIVATE_ASSET_COMPATIBILITY_CERTIFICATION_PENDING`; never claim compatibility without evidence.
+
+When a private repository needs a new Core capability, it must first be expressible through a public OnlyAlpha contract, demonstrated by
+the corresponding public example, and consumed by the private repository through that same contract. Hidden private-only Core integration
+paths are forbidden and must fail closed as `EXAMPLE_CONTRACT_COVERAGE_REQUIRED` until public contract/example coverage exists.

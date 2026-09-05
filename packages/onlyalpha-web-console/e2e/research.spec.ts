@@ -538,8 +538,6 @@ test("uncertain Run submission retry preserves one Idempotency-Key", async ({ pa
                     finished_at: null,
                     result_ref: null,
                     artifact_ref: null,
-                    calculation_execution_evidence_refs: [],
-                    authoring_provenance: null,
                     failure: null,
                     specification: exactSpecification
                 }
@@ -577,8 +575,6 @@ test("exact resolved Specification submits to durable Run and opens exact Result
         finished_at: state === "COMPLETED" ? "2026-08-21T00:00:02Z" : null,
         result_ref: state === "COMPLETED" ? result : null,
         artifact_ref: state === "COMPLETED" ? result : null,
-        calculation_execution_evidence_refs: [],
-        authoring_provenance: null,
         failure: null,
         specification: exactSpecification
     });

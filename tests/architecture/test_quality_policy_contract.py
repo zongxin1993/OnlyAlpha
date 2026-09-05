@@ -135,6 +135,7 @@ def test_functional_postgres_web_and_broad_lanes_remain_active() -> None:
     assert isinstance(lanes, list)
     assert {"core-full", "recovery", "research-runtime", "research-dataset"} <= set(lanes)
     assert "uv run python scripts/test_suite.py research-product-closure" in _runs(jobs["research-product-closure"])
+    assert "uv run python scripts/test_suite.py private-asset-contract" in _runs(jobs["private-asset-contract"])
     assert "deploy/compose/run-acceptance.sh" in _runs(jobs["database-compose"])
     assert jobs["research-product-closure"]["services"]["postgres"]["image"].startswith(  # type: ignore[index]
         "postgres:18.6@sha256:"

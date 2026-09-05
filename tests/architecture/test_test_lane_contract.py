@@ -85,6 +85,12 @@ def test_normal_ci_directly_runs_the_canonical_architecture_gate() -> None:
     assert "ARCHITECTURE_RESULT: ${{ needs.architecture.result }}" in workflow
 
 
+def test_public_ci_runs_and_requires_private_asset_contract_conformance() -> None:
+    workflow = Path(".github/workflows/quality.yml").read_text(encoding="utf-8")
+    assert "uv run python scripts/test_suite.py private-asset-contract" in workflow
+    assert "PRIVATE_ASSET_CONTRACT_RESULT: ${{ needs.private-asset-contract.result }}" in workflow
+
+
 def test_research_job_lane_owns_application_contract_and_architecture_gate() -> None:
     lane = LANES[OnlyTestLane.RESEARCH_JOB]
     assert lane.paths == (

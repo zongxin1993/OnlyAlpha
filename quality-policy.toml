@@ -6,6 +6,7 @@ required_gates = [
     "static",
     "architecture",
     "openapi-contract",
+    "private-asset-contract",
     "gateway-protocol",
     "dependency-audit",
     "research-product-closure",

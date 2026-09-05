@@ -78,8 +78,6 @@ class ResearchRunDto(_RunDto):
     finished_at: str | None
     result_ref: str | None
     artifact_ref: str | None
-    calculation_execution_evidence_refs: tuple[str, ...]
-    authoring_provenance: ResearchAuthoringProvenanceDto | None
     failure: ResearchRunFailureDto | None
 
     @classmethod
@@ -98,8 +96,6 @@ class ResearchRunDto(_RunDto):
             finished_at=_time(value.finished_at),
             result_ref=value.research_result_fingerprint,
             artifact_ref=value.artifact_content_fingerprint,
-            calculation_execution_evidence_refs=value.calculation_execution_evidence_fingerprints,
-            authoring_provenance=ResearchAuthoringProvenanceDto.from_model(value.authoring_provenance),
             failure=ResearchRunFailureDto.from_model(value.failure),
         )
 
@@ -118,14 +114,31 @@ class ResearchRunSummaryDto(_RunDto):
     finished_at: str | None
     result_ref: str | None
     artifact_ref: str | None
-    calculation_execution_evidence_refs: tuple[str, ...]
-    authoring_provenance: ResearchAuthoringProvenanceDto | None
     failure: ResearchRunFailureDto | None
 
     @classmethod
     def from_model(cls, value: OnlyResearchRun) -> ResearchRunSummaryDto:
         full = ResearchRunDto.from_model(value)
         return cls(**full.model_dump(exclude={"specification"}))
+
+
+class ResearchRunExecutionEvidenceDto(_RunDto):
+    schema_version: Literal[1] = 1
+    run_id: str
+    revision: str
+    result_ref: str | None
+    calculation_execution_evidence_refs: tuple[str, ...]
+    authoring_provenance: ResearchAuthoringProvenanceDto | None
+
+    @classmethod
+    def from_model(cls, value: OnlyResearchRun) -> ResearchRunExecutionEvidenceDto:
+        return cls(
+            run_id=value.run_id.value,
+            revision=str(value.revision),
+            result_ref=value.research_result_fingerprint,
+            calculation_execution_evidence_refs=value.calculation_execution_evidence_fingerprints,
+            authoring_provenance=ResearchAuthoringProvenanceDto.from_model(value.authoring_provenance),
+        )
 
 
 class SubmitResearchRunResponse(_RunDto):

@@ -109,8 +109,6 @@ const run = {
     finished_at: null,
     result_ref: null,
     artifact_ref: null,
-    calculation_execution_evidence_refs: [],
-    authoring_provenance: null,
     failure: null
 };
 

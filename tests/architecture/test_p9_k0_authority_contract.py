@@ -45,6 +45,7 @@ def test_repository_authority_contract_is_valid_and_finite() -> None:
         "BACKTEST_WORKER_COMPOSITION",
         "BACKTEST_EXECUTION_AGENT",
         "BACKTEST_PERSISTENCE_ADAPTER",
+        "AUTHORING_EXECUTION_WORKER",
     }
     assert contract.reserved_future_capabilities == set()
 

@@ -33,14 +33,14 @@ def test_canonical_run_http_uses_only_product_command_and_query_boundary() -> No
     assert "OnlyResearchCommandService" not in source
     assert "OnlyResearchRunQueryService" not in source
     assert source.count("product.commands.dispatch(") == 2
-    assert source.count("product.queries.dispatch(") == 2
+    assert source.count("product.queries.dispatch(") == 3
     for intent in (
         "OnlyCreateResearchRun(",
         "OnlyCancelResearchRun(",
-        "OnlyGetResearchRun(",
         "OnlyListResearchRuns(",
     ):
         assert source.count(intent) == 1
+    assert source.count("OnlyGetResearchRun(") == 2
 
 
 def test_product_app_cannot_receive_legacy_direct_run_services() -> None:

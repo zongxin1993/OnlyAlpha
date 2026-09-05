@@ -594,6 +594,21 @@ inside the existing transactional Attempt authority. Git/path/artifact loading r
 Evidence can cross admission only when executable Provider content remains identical. Release, Catalog activation, Strategy promotion and
 LIVE authorization remain separate authorities.
 
+### Public Example / Private Asset Contract Parity
+
+`examples/onlyalpha-example-alpha` and `examples/onlyalpha-example-strategies` are the public executable reference consumers of the L3
+and L4 private-asset contracts. They are compatibility witnesses, not source mirrors, semantic authorities or runtime authorities. A
+public-contract change affecting L3/L4 authoring, discovery, execution, Research, Evidence or Freeze must keep the corresponding example
+executable in the same public change. A private capability that cannot be expressed and verified through that public contract and example
+fails closed as an example-contract coverage gap; no hidden private-only Core integration path is permitted.
+
+Public examples and `OnlyAlpha-alpha` / `OnlyAlpha-strategies` satisfy the same provider-neutral conformance suite against the exact Core
+revision they target. Parity means equal public SPI/protocol requirements and observable contract behavior. Provider IDs, asset IDs,
+source code, hypotheses and Factor/Strategy semantics intentionally differ. Public CI proves the example subjects without private secrets;
+private certification selects the private subjects in its own environment and must not claim compatibility without executable evidence.
+For any Core change touching Calculation SPI, `onlyalpha.quant_assets`, Catalog discovery, Research specification/API/provenance,
+authoring execution, Strategy resources, Freeze or StrategyRevision admission, `PRIVATE_ASSET_IMPACT = YES`.
+
 Private Git admission uses the repository-tracked commit and pre-push hooks to invoke one canonical local `local_strict_gate.py` on the
 exact clean candidate commit. The gate proves semantic/provider transition correctness, formatting, static quality, tests, wheel build,
 clean isolated installation and provider discovery; the Strategies repository additionally proves its installed Resolve → Research →

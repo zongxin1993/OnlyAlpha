@@ -2743,23 +2743,6 @@
             ],
             "title": "Artifact Ref"
           },
-          "authoring_provenance": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ResearchAuthoringProvenanceDto"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "calculation_execution_evidence_refs": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Calculation Execution Evidence Refs",
-            "type": "array"
-          },
           "cancel_requested_at": {
             "anyOf": [
               {
@@ -2866,8 +2849,6 @@
           "finished_at",
           "result_ref",
           "artifact_ref",
-          "calculation_execution_evidence_refs",
-          "authoring_provenance",
           "failure"
         ],
         "title": "ResearchRunDto",
@@ -2908,6 +2889,62 @@
           "error"
         ],
         "title": "ResearchRunErrorEnvelopeDto",
+        "type": "object"
+      },
+      "ResearchRunExecutionEvidenceDto": {
+        "additionalProperties": false,
+        "properties": {
+          "authoring_provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResearchAuthoringProvenanceDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "calculation_execution_evidence_refs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Calculation Execution Evidence Refs",
+            "type": "array"
+          },
+          "result_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Ref"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run_id",
+          "revision",
+          "result_ref",
+          "calculation_execution_evidence_refs",
+          "authoring_provenance"
+        ],
+        "title": "ResearchRunExecutionEvidenceDto",
         "type": "object"
       },
       "ResearchRunFailureDto": {
@@ -2991,23 +3028,6 @@
               }
             ],
             "title": "Artifact Ref"
-          },
-          "authoring_provenance": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ResearchAuthoringProvenanceDto"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "calculation_execution_evidence_refs": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Calculation Execution Evidence Refs",
-            "type": "array"
           },
           "cancel_requested_at": {
             "anyOf": [
@@ -3107,8 +3127,6 @@
           "finished_at",
           "result_ref",
           "artifact_ref",
-          "calculation_execution_evidence_refs",
-          "authoring_provenance",
           "failure"
         ],
         "title": "ResearchRunSummaryDto",
@@ -6265,6 +6283,98 @@
           }
         },
         "summary": "Cancel Run",
+        "tags": [
+          "research-runs"
+        ]
+      }
+    },
+    "/api/v2/research/runs/{run_id}/execution-evidence": {
+      "get": {
+        "operationId": "get_run_execution_evidence_api_v2_research_runs__run_id__execution_evidence_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchRunExecutionEvidenceDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchRunErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchRunErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchRunErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchRunErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchRunErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Run Execution Evidence",
         "tags": [
           "research-runs"
         ]

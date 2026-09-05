@@ -143,7 +143,8 @@ def test_git_baseline_is_exact_immutable_artifact_and_invalid_sha_fails_closed(m
 def test_a0_pre_freeze_authorization_is_exact_and_non_reusable() -> None:
     base_sha = "8901fec27faf8599c965df792d07a84b902583f3"
     exact, baseline_document, baseline = governance.load_git_baseline(base_sha)
-    candidate_document, candidate = governance.check_current_contract()
+    corrected_sha = "a09da64745e92848b0f618f7ba5f2bf6ca6771b8"
+    _, candidate_document, candidate = governance.load_git_baseline(corrected_sha)
     result = governance.compare_contracts(baseline_document, candidate_document)
 
     authorization = governance.authorize_a0_pre_freeze_correction(

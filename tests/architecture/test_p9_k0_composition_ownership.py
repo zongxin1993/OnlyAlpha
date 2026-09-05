@@ -56,6 +56,18 @@ def test_database_operator_is_only_production_migration_composer() -> None:
     assert constructor.approved_paths == {"scripts/database.py"}
 
 
+def test_authoring_worker_has_only_exact_research_scheduler_and_worker_constructor_sites() -> None:
+    authoring_worker = (
+        "packages/onlyalpha-authoring-execution-worker/src/onlyalpha_authoring_execution_worker/worker.py"
+    )
+    scheduler = next(item for item in CONTRACT.constructors.values() if item.id == "K06")
+    worker = next(item for item in CONTRACT.constructors.values() if item.id == "K07")
+    expected = {authoring_worker, "src/onlyalpha/research/worker_main.py"}
+    assert scheduler.approved_paths == expected
+    assert worker.approved_paths == expected
+    assert CONTRACT.classify_path(authoring_worker).name == "AUTHORING_EXECUTION_WORKER"
+
+
 def test_kernel_host_and_product_dispatchers_have_exact_composition_sites() -> None:
     lifecycle = next(item for item in CONTRACT.constructors.values() if item.capability == "C17")
     command = next(item for item in CONTRACT.constructors.values() if item.capability == "C18")

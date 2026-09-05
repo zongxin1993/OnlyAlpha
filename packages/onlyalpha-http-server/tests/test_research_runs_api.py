@@ -285,13 +285,23 @@ def test_authoring_provenance_round_trips_and_conflicting_retry_fails_closed() -
     created = client.post("/api/v2/research/runs", headers={"Idempotency-Key": KEY}, json=payload)
     assert created.status_code == 202
     run = created.json()["run"]
-    assert run["authoring_provenance"] == provenance
-    assert run["calculation_execution_evidence_refs"] == []
+    assert "authoring_provenance" not in run
+    assert "calculation_execution_evidence_refs" not in run
 
     fetched = client.get(f"/api/v2/research/runs/{run['run_id']}")
     listed = client.get("/api/v2/research/runs")
-    assert fetched.json()["authoring_provenance"] == provenance
-    assert listed.json()["runs"][0]["authoring_provenance"] == provenance
+    evidence = client.get(f"/api/v2/research/runs/{run['run_id']}/execution-evidence")
+    assert "authoring_provenance" not in fetched.json()
+    assert "authoring_provenance" not in listed.json()["runs"][0]
+    assert evidence.status_code == 200
+    assert evidence.json() == {
+        "schema_version": 1,
+        "run_id": run["run_id"],
+        "revision": "0",
+        "result_ref": None,
+        "calculation_execution_evidence_refs": [],
+        "authoring_provenance": provenance,
+    }
     assert next(iter(store.runs.values())).authoring_provenance is not None
 
     changed_identity = {**provenance, "source_revision": "5" * 40}

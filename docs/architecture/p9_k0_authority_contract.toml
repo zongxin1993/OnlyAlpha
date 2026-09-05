@@ -444,6 +444,12 @@ production = true
 allowed_capabilities = ["C20", "C21", "C24"]
 
 [[actors]]
+id = "A23"
+name = "AUTHORING_EXECUTION_WORKER"
+production = true
+allowed_capabilities = ["C01", "C02", "C03"]
+
+[[actors]]
 id = "T01"
 name = "TEST"
 production = false
@@ -656,6 +662,9 @@ actor = "T01"
 [[actor_paths]]
 pattern = "src/onlyalpha/collector/backtest.py"
 actor = "A07"
+[[actor_paths]]
+pattern = "packages/onlyalpha-authoring-execution-worker/src/onlyalpha_authoring_execution_worker/worker.py"
+actor = "A23"
 
 [[bindings]]
 capability = "C01"
@@ -732,13 +741,13 @@ symbols = ["onlyalpha.backtest.presence.OnlyBacktestWorkerPresenceReporter", "on
 
 [[ownership]]
 capability = "C01"
-approved_production_holders = ["A03", "A05", "A10", "A16", "A17"]
+approved_production_holders = ["A03", "A05", "A10", "A16", "A17", "A23"]
 [[ownership]]
 capability = "C02"
-approved_production_holders = ["A05", "A06", "A16"]
+approved_production_holders = ["A05", "A06", "A16", "A23"]
 [[ownership]]
 capability = "C03"
-approved_production_holders = ["A05", "A06"]
+approved_production_holders = ["A05", "A06", "A23"]
 [[ownership]]
 capability = "C04"
 approved_production_holders = ["A15", "A16"]
@@ -832,12 +841,12 @@ approved_paths = ["scripts/database.py"]
 id = "K06"
 capability = "C02"
 symbol = "onlyalpha.research.execution.scheduler.OnlyResearchScheduler"
-approved_paths = ["src/onlyalpha/research/worker_main.py"]
+approved_paths = ["packages/onlyalpha-authoring-execution-worker/src/onlyalpha_authoring_execution_worker/worker.py", "src/onlyalpha/research/worker_main.py"]
 [[constructors]]
 id = "K07"
 capability = "C03"
 symbol = "onlyalpha.research.execution.worker.OnlyResearchWorker"
-approved_paths = ["src/onlyalpha/research/worker_main.py"]
+approved_paths = ["packages/onlyalpha-authoring-execution-worker/src/onlyalpha_authoring_execution_worker/worker.py", "src/onlyalpha/research/worker_main.py"]
 [[constructors]]
 id = "K08"
 capability = "C12"

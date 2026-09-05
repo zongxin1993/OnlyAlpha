@@ -26,6 +26,7 @@ from onlyalpha.research.specification.model import OnlyResearchSpecification
 from .run_schema import (
     ResearchRunDto,
     ResearchRunErrorEnvelopeDto,
+    ResearchRunExecutionEvidenceDto,
     ResearchRunPageDto,
     SubmitResearchRunRequest,
     SubmitResearchRunResponse,
@@ -94,6 +95,15 @@ def create_run_router(product: OnlyResearchProductBoundary) -> APIRouter:
     def get_run(run_id: str) -> ResearchRunDto:
         result = product.queries.dispatch(OnlyGetResearchRun(_run_id(run_id)))
         return ResearchRunDto.from_model(_expected_result(result, OnlyResearchRun))
+
+    @router.get(
+        "/{run_id}/execution-evidence",
+        response_model=ResearchRunExecutionEvidenceDto,
+        responses=_ERROR_RESPONSES,
+    )
+    def get_run_execution_evidence(run_id: str) -> ResearchRunExecutionEvidenceDto:
+        result = product.queries.dispatch(OnlyGetResearchRun(_run_id(run_id)))
+        return ResearchRunExecutionEvidenceDto.from_model(_expected_result(result, OnlyResearchRun))
 
     @router.get("", response_model=ResearchRunPageDto, responses=_ERROR_RESPONSES)
     def list_runs(
