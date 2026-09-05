@@ -37,6 +37,10 @@ from onlyalpha.research import (
     OnlyResearchStatisticsMethod,
     OnlyResearchStatisticsPlan,
     OnlyResearchTargetSeriesReference,
+    OnlyResearchTemporalSlice,
+    OnlyResearchTemporalStabilityDefinition,
+    OnlyResearchTemporalStabilityExecutor,
+    OnlyResearchTemporalStabilityPlan,
 )
 from tests.research.calculation.support import snapshot
 from tests.research.factor.support import factor_graph
@@ -181,4 +185,41 @@ def coverage_case(root: Path, source_method: OnlyResearchStatisticsMethod = Only
         audit_time=lambda: datetime(2026, 8, 15, tzinfo=UTC),
     )
     executor = OnlyResearchCoverageSummaryExecutor(source_store, summary_store)
+    return (*case, plan, summary_store, executor)
+
+
+def stability_case(
+    root: Path,
+    source_method: OnlyResearchStatisticsMethod = OnlyResearchStatisticsMethod.IC,
+    intervals: tuple[OnlyResearchTemporalSlice, ...] = (
+        OnlyResearchTemporalSlice(1767576600000000000, 1767576800000000000),
+        OnlyResearchTemporalSlice(1767576800000000000, 1767576900000000000),
+    ),
+):
+    case = statistics_case(root)
+    source_store = case[8]
+    source_plan = case[6]
+    if source_method is not source_plan.definition.method:
+        source_plan = OnlyResearchStatisticsPlan(
+            source_plan.feature,
+            source_plan.target,
+            OnlyResearchStatisticsDefinition(source_method),
+        )
+        case[9].execute(source_plan)
+    source = source_store.load_verified(source_plan.statistics_fingerprint)
+    plan = OnlyResearchTemporalStabilityPlan(
+        source.manifest.dataset_snapshot_fingerprint,
+        "c" * 64,
+        source_plan.feature,
+        source.manifest.statistics_fingerprint,
+        source.manifest.statistics_result_fingerprint,
+        OnlyResearchTemporalStabilityDefinition(source_method),
+        intervals,
+    )
+    summary_store = OnlyJsonResearchSummaryStatisticsResultStore(
+        root / "statistics-results",
+        source_store,
+        audit_time=lambda: datetime(2026, 8, 15, tzinfo=UTC),
+    )
+    executor = OnlyResearchTemporalStabilityExecutor(source_store, summary_store)
     return (*case, plan, summary_store, executor)

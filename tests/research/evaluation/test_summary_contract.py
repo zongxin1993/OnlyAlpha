@@ -70,7 +70,7 @@ def test_effect_definition_and_plan_round_trip_are_exact_and_versioned() -> None
 def test_metric_registry_is_exact_immutable_and_method_typed() -> None:
     ids = tuple(item.metric_id for item in ONLY_RESEARCH_SUMMARY_METRICS)
     assert ids == tuple(sorted(ids))
-    assert len(ids) == len(set(ids)) == 48
+    assert len(ids) == len(set(ids)) == 70
     assert (
         tuple(OnlyResearchSummaryMetricDescriptor.from_dict(item.to_dict()) for item in ONLY_RESEARCH_SUMMARY_METRICS)
         == ONLY_RESEARCH_SUMMARY_METRICS
@@ -230,7 +230,7 @@ def test_typed_plan_and_payload_dispatch_never_guess_another_summary_kind() -> N
     with pytest.raises(ValueError):
         only_research_summary_plan_from_dict(plan)
     definition["summary_kind"] = "TEMPORAL_STABILITY"
-    with pytest.raises(ValueError, match="unsupported"):
+    with pytest.raises(ValueError, match="fields"):
         only_research_summary_plan_from_dict(plan)
 
     payload: dict[str, object] = {
@@ -242,5 +242,5 @@ def test_typed_plan_and_payload_dispatch_never_guess_another_summary_kind() -> N
     with pytest.raises(ValueError, match="Effect Summary result fields"):
         only_research_summary_from_dict(payload)
     payload["summary_kind"] = "TEMPORAL_STABILITY"
-    with pytest.raises(ValueError, match="unsupported"):
+    with pytest.raises(ValueError, match="fields"):
         only_research_summary_from_dict(payload)

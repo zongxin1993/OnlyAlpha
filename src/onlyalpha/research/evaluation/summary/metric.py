@@ -13,6 +13,7 @@ from ..definition import OnlyResearchStatisticsMethod
 class OnlyResearchSummaryKind(StrEnum):
     EFFECT_SUMMARY = "EFFECT_SUMMARY"
     COVERAGE_SUMMARY = "COVERAGE_SUMMARY"
+    TEMPORAL_STABILITY = "TEMPORAL_STABILITY"
 
 
 class OnlyResearchSummaryValueKind(StrEnum):
@@ -106,6 +107,21 @@ _COVERAGE_INTEGER_FIELDS = (
     "pair_count_max",
 )
 _COVERAGE_DECIMAL_FIELDS = ("valid_timestamp_ratio", "pair_count_mean")
+_STABILITY_INTEGER_FIELDS = (
+    "slice_count",
+    "valid_slice_count",
+    "positive_mean_slice_count",
+    "negative_mean_slice_count",
+    "zero_mean_slice_count",
+)
+_STABILITY_DECIMAL_FIELDS = (
+    "positive_mean_slice_ratio",
+    "negative_mean_slice_ratio",
+    "zero_mean_slice_ratio",
+    "min_slice_mean",
+    "max_slice_mean",
+    "stddev_of_slice_means",
+)
 
 
 def _descriptors() -> tuple[OnlyResearchSummaryMetricDescriptor, ...]:
@@ -124,6 +140,20 @@ def _descriptors() -> tuple[OnlyResearchSummaryMetricDescriptor, ...]:
                     f"{prefix}.{suffix}@1",
                     1,
                     OnlyResearchSummaryKind.EFFECT_SUMMARY,
+                    method,
+                    field_name,
+                    value_kind,
+                )
+            )
+        for field_name, value_kind in (
+            *((name, OnlyResearchSummaryValueKind.INTEGER) for name in _STABILITY_INTEGER_FIELDS),
+            *((name, OnlyResearchSummaryValueKind.DECIMAL) for name in _STABILITY_DECIMAL_FIELDS),
+        ):
+            result.append(
+                OnlyResearchSummaryMetricDescriptor(
+                    f"{prefix}.stability.{field_name}@1",
+                    1,
+                    OnlyResearchSummaryKind.TEMPORAL_STABILITY,
                     method,
                     field_name,
                     value_kind,
@@ -191,6 +221,22 @@ def only_research_coverage_metric(
     return matches[0]
 
 
+def only_research_stability_metric(
+    source_method: OnlyResearchStatisticsMethod,
+    field_name: str,
+) -> OnlyResearchSummaryMetricDescriptor:
+    matches = tuple(
+        descriptor
+        for descriptor in ONLY_RESEARCH_SUMMARY_METRICS
+        if descriptor.summary_kind is OnlyResearchSummaryKind.TEMPORAL_STABILITY
+        and descriptor.source_method is source_method
+        and descriptor.field_name == field_name
+    )
+    if len(matches) != 1:
+        raise ValueError("unsupported Temporal Stability metric field")
+    return matches[0]
+
+
 def _string(payload: Mapping[str, object], name: str) -> str:
     value = payload[name]
     if not isinstance(value, str):
@@ -205,5 +251,6 @@ __all__ = [
     "OnlyResearchSummaryValueKind",
     "only_research_coverage_metric",
     "only_research_effect_metric",
+    "only_research_stability_metric",
     "only_research_summary_metric",
 ]

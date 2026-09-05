@@ -14,10 +14,12 @@ from .metric import OnlyResearchSummaryKind
 
 RESEARCH_EFFECT_SUMMARY_DEFINITION_SCHEMA_VERSION = 1
 RESEARCH_COVERAGE_SUMMARY_DEFINITION_SCHEMA_VERSION = 1
+RESEARCH_TEMPORAL_STABILITY_DEFINITION_SCHEMA_VERSION = 1
 
 
 class OnlyResearchSummarySourceStatusPolicy(StrEnum):
     VALID_ONLY = "VALID_ONLY"
+    VALID_ONLY_FOR_EFFECT = "VALID_ONLY_FOR_EFFECT"
 
 
 class OnlyResearchSummaryStandardDeviation(StrEnum):
@@ -34,6 +36,10 @@ class OnlyResearchSummarySignRule(StrEnum):
 
 class OnlyResearchCoverageSemantics(StrEnum):
     OBSERVED_TIMESTAMP_PAIR = "OBSERVED_TIMESTAMP_PAIR"
+
+
+class OnlyResearchTemporalIntervalAssignment(StrEnum):
+    HALF_OPEN_EXPLICIT = "HALF_OPEN_EXPLICIT"
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,6 +214,111 @@ class OnlyResearchCoverageSummaryDefinition:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class OnlyResearchTemporalStabilityDefinition:
+    source_method: OnlyResearchStatisticsMethod
+    summary_kind: OnlyResearchSummaryKind = OnlyResearchSummaryKind.TEMPORAL_STABILITY
+    interval_assignment: OnlyResearchTemporalIntervalAssignment = (
+        OnlyResearchTemporalIntervalAssignment.HALF_OPEN_EXPLICIT
+    )
+    source_status_policy: OnlyResearchSummarySourceStatusPolicy = (
+        OnlyResearchSummarySourceStatusPolicy.VALID_ONLY_FOR_EFFECT
+    )
+    standard_deviation: OnlyResearchSummaryStandardDeviation = OnlyResearchSummaryStandardDeviation.SAMPLE
+    information_ratio: OnlyResearchSummaryInformationRatio = OnlyResearchSummaryInformationRatio.NON_ANNUALIZED
+    sign_rule: OnlyResearchSummarySignRule = OnlyResearchSummarySignRule.STRICT
+    numeric: OnlyNumericDefinition = OnlyNumericDefinition("DECIMAL", 38, Decimal("0.000000000001"), "ROUND_HALF_EVEN")
+    decimal_execution_policy: str = "onlyalpha.decimal.execution@1"
+    schema_version: int = RESEARCH_TEMPORAL_STABILITY_DEFINITION_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if self.schema_version != RESEARCH_TEMPORAL_STABILITY_DEFINITION_SCHEMA_VERSION:
+            raise ValueError("unsupported Temporal Stability Definition schema version")
+        if not isinstance(self.source_method, OnlyResearchStatisticsMethod) or self.source_method not in {
+            OnlyResearchStatisticsMethod.IC,
+            OnlyResearchStatisticsMethod.RANK_IC,
+        }:
+            raise ValueError("Temporal Stability source method is unsupported")
+        if self.summary_kind is not OnlyResearchSummaryKind.TEMPORAL_STABILITY:
+            raise ValueError("Temporal Stability kind is invalid")
+        if self.interval_assignment is not OnlyResearchTemporalIntervalAssignment.HALF_OPEN_EXPLICIT:
+            raise ValueError("Temporal Stability interval assignment is unsupported")
+        if self.source_status_policy is not OnlyResearchSummarySourceStatusPolicy.VALID_ONLY_FOR_EFFECT:
+            raise ValueError("Temporal Stability requires VALID_ONLY_FOR_EFFECT source policy")
+        if self.standard_deviation is not OnlyResearchSummaryStandardDeviation.SAMPLE:
+            raise ValueError("Temporal Stability requires sample standard deviation")
+        if self.information_ratio is not OnlyResearchSummaryInformationRatio.NON_ANNUALIZED:
+            raise ValueError("Temporal Stability requires non-annualized information ratio")
+        if self.sign_rule is not OnlyResearchSummarySignRule.STRICT:
+            raise ValueError("Temporal Stability requires strict sign classification")
+        if self.numeric != OnlyNumericDefinition("DECIMAL", 38, Decimal("0.000000000001"), "ROUND_HALF_EVEN"):
+            raise ValueError("Temporal Stability requires Decimal(38), quantum 1e-12, ROUND_HALF_EVEN")
+        policy = ONLY_DECIMAL_EXECUTION_POLICY_V1
+        if self.decimal_execution_policy != f"{policy.policy_id}@{policy.semantic_version}":
+            raise ValueError("Temporal Stability Decimal execution policy is unsupported")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "summary_kind": self.summary_kind.value,
+            "source_method": self.source_method.value,
+            "interval_assignment": self.interval_assignment.value,
+            "source_status_policy": self.source_status_policy.value,
+            "standard_deviation": self.standard_deviation.value,
+            "information_ratio": self.information_ratio.value,
+            "sign_rule": self.sign_rule.value,
+            "numeric": {
+                "representation": self.numeric.representation,
+                "precision": self.numeric.precision,
+                "output_quantum": format(self.numeric.output_quantum, "f"),
+                "rounding": self.numeric.rounding,
+            },
+            "decimal_execution_policy": self.decimal_execution_policy,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchTemporalStabilityDefinition:
+        expected = {
+            "schema_version",
+            "summary_kind",
+            "source_method",
+            "interval_assignment",
+            "source_status_policy",
+            "standard_deviation",
+            "information_ratio",
+            "sign_rule",
+            "numeric",
+            "decimal_execution_policy",
+        }
+        if set(payload) != expected:
+            raise ValueError("Temporal Stability Definition fields are invalid")
+        numeric = payload["numeric"]
+        if not isinstance(numeric, Mapping) or set(numeric) != {
+            "representation",
+            "precision",
+            "output_quantum",
+            "rounding",
+        }:
+            raise ValueError("Temporal Stability numeric fields are invalid")
+        return cls(
+            source_method=OnlyResearchStatisticsMethod(_string(payload, "source_method")),
+            summary_kind=OnlyResearchSummaryKind(_string(payload, "summary_kind")),
+            interval_assignment=OnlyResearchTemporalIntervalAssignment(_string(payload, "interval_assignment")),
+            source_status_policy=OnlyResearchSummarySourceStatusPolicy(_string(payload, "source_status_policy")),
+            standard_deviation=OnlyResearchSummaryStandardDeviation(_string(payload, "standard_deviation")),
+            information_ratio=OnlyResearchSummaryInformationRatio(_string(payload, "information_ratio")),
+            sign_rule=OnlyResearchSummarySignRule(_string(payload, "sign_rule")),
+            numeric=OnlyNumericDefinition(
+                _string(numeric, "representation"),
+                _integer(numeric, "precision"),
+                Decimal(_string(numeric, "output_quantum")),
+                _string(numeric, "rounding"),
+            ),
+            decimal_execution_policy=_string(payload, "decimal_execution_policy"),
+            schema_version=_integer(payload, "schema_version"),
+        )
+
+
 def _string(payload: Mapping[str, object], name: str) -> str:
     value = payload[name]
     if not isinstance(value, str):
@@ -230,4 +341,6 @@ __all__ = [
     "OnlyResearchSummarySignRule",
     "OnlyResearchSummarySourceStatusPolicy",
     "OnlyResearchSummaryStandardDeviation",
+    "OnlyResearchTemporalIntervalAssignment",
+    "OnlyResearchTemporalStabilityDefinition",
 ]

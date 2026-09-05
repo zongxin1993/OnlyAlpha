@@ -20,9 +20,11 @@ from .execution import (
     OnlyResearchCoverageSummaryExecution,
     OnlyResearchEffectSummaryExecution,
     OnlyResearchSummaryExecution,
+    OnlyResearchTemporalStabilityExecution,
     _validate_source,
     only_compute_research_coverage_summary,
     only_compute_research_effect_summary,
+    only_compute_research_temporal_stability,
 )
 from .identity import (
     only_research_summary_result_content_fingerprint,
@@ -57,7 +59,14 @@ class OnlyJsonResearchSummaryStatisticsResultStore:
         return self._target(statistics_fingerprint).exists()
 
     def commit(self, execution: OnlyResearchSummaryExecution) -> OnlyResearchSummaryStatisticsResult:
-        if not isinstance(execution, (OnlyResearchEffectSummaryExecution, OnlyResearchCoverageSummaryExecution)):
+        if not isinstance(
+            execution,
+            (
+                OnlyResearchEffectSummaryExecution,
+                OnlyResearchCoverageSummaryExecution,
+                OnlyResearchTemporalStabilityExecution,
+            ),
+        ):
             raise OnlyResearchStatisticsResultStoreError(
                 "SUMMARY_STATISTICS_RESULT_INVALID", "execution contract is invalid"
             )
@@ -223,12 +232,14 @@ def _compute_summary(
 
 
 def _compute_plan_summary(source: OnlyResearchStatisticsResult, plan: OnlyResearchSummaryPlan) -> OnlyResearchSummary:
-    from .plan import OnlyResearchCoverageSummaryPlan, OnlyResearchEffectSummaryPlan
+    from .plan import OnlyResearchCoverageSummaryPlan, OnlyResearchEffectSummaryPlan, OnlyResearchTemporalStabilityPlan
 
     if isinstance(plan, OnlyResearchEffectSummaryPlan):
         return only_compute_research_effect_summary(source, plan)
     if isinstance(plan, OnlyResearchCoverageSummaryPlan):
         return only_compute_research_coverage_summary(source, plan)
+    if isinstance(plan, OnlyResearchTemporalStabilityPlan):
+        return only_compute_research_temporal_stability(source, plan)
     raise ValueError("Summary Statistics Plan kind is unsupported")
 
 

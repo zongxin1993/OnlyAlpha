@@ -14,9 +14,15 @@ from .identity import (
     RESEARCH_SUMMARY_STATISTICS_RESULT_SCHEMA_VERSION,
     only_research_summary_result_fingerprint,
 )
-from .metric import OnlyResearchSummaryKind, only_research_coverage_metric, only_research_effect_metric
-from .plan import OnlyResearchSummaryPlan, only_research_summary_plan_from_dict
+from .metric import (
+    OnlyResearchSummaryKind,
+    only_research_coverage_metric,
+    only_research_effect_metric,
+    only_research_stability_metric,
+)
+from .plan import OnlyResearchSummaryPlan, OnlyResearchTemporalStabilityPlan, only_research_summary_plan_from_dict
 from .scalar import OnlyResearchSummaryScalar, OnlyResearchSummaryScalarStatus
+from .temporal import OnlyResearchTemporalSlice
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _EFFECT_FIELDS = (
@@ -46,6 +52,19 @@ _COVERAGE_FIELDS = (
     "pair_count_mean",
     "pair_count_min",
     "pair_count_max",
+)
+_STABILITY_FIELDS = (
+    "slice_count",
+    "valid_slice_count",
+    "positive_mean_slice_count",
+    "negative_mean_slice_count",
+    "zero_mean_slice_count",
+    "positive_mean_slice_ratio",
+    "negative_mean_slice_ratio",
+    "zero_mean_slice_ratio",
+    "min_slice_mean",
+    "max_slice_mean",
+    "stddev_of_slice_means",
 )
 
 
@@ -273,7 +292,267 @@ class OnlyResearchCoverageSummary:
         )
 
 
-OnlyResearchSummary = OnlyResearchEffectSummary | OnlyResearchCoverageSummary
+@dataclass(frozen=True, slots=True)
+class OnlyResearchTemporalSliceValue:
+    status: OnlyResearchSummaryScalarStatus
+    decimal_value: Decimal | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.status, OnlyResearchSummaryScalarStatus):
+            raise ValueError("Temporal Slice value status is invalid")
+        if self.status is OnlyResearchSummaryScalarStatus.VALID:
+            if not isinstance(self.decimal_value, Decimal) or not self.decimal_value.is_finite():
+                raise ValueError("VALID Temporal Slice value requires a finite Decimal")
+            if self.decimal_value.as_tuple().exponent != -12:
+                raise ValueError("Temporal Slice Decimal must use canonical quantum 1e-12")
+            if self.decimal_value.is_zero() and self.decimal_value.is_signed():
+                raise ValueError("Temporal Slice zero must use the canonical positive representation")
+        elif self.decimal_value is not None:
+            raise ValueError("non-VALID Temporal Slice value requires an absent Decimal")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "status": self.status.value,
+            "decimal_value": None if self.decimal_value is None else format(self.decimal_value, "f"),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchTemporalSliceValue:
+        if set(payload) != {"status", "decimal_value"}:
+            raise ValueError("Temporal Slice value fields are invalid")
+        raw = payload["decimal_value"]
+        if raw is not None and not isinstance(raw, str):
+            raise ValueError("Temporal Slice decimal_value is invalid")
+        return cls(
+            OnlyResearchSummaryScalarStatus(_string(payload, "status")),
+            None if raw is None else Decimal(raw),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyResearchTemporalSliceEvidence:
+    start_ts_event_ns: int
+    end_ts_event_ns: int
+    total_timestamp_count: int
+    valid_timestamp_count: int
+    mean: OnlyResearchTemporalSliceValue
+    stddev_sample: OnlyResearchTemporalSliceValue
+    information_ratio: OnlyResearchTemporalSliceValue
+    valid_timestamp_ratio: OnlyResearchTemporalSliceValue
+
+    def __post_init__(self) -> None:
+        OnlyResearchTemporalSlice(self.start_ts_event_ns, self.end_ts_event_ns)
+        for name in ("total_timestamp_count", "valid_timestamp_count"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"Temporal Slice {name} must be a non-negative integer")
+        if self.valid_timestamp_count > self.total_timestamp_count:
+            raise ValueError("Temporal Slice valid timestamp count exceeds total")
+        for name in ("mean", "stddev_sample", "information_ratio", "valid_timestamp_ratio"):
+            if not isinstance(getattr(self, name), OnlyResearchTemporalSliceValue):
+                raise ValueError(f"Temporal Slice {name} is invalid")
+        valid_count = self.valid_timestamp_count
+        mean_status = (
+            OnlyResearchSummaryScalarStatus.VALID
+            if valid_count
+            else OnlyResearchSummaryScalarStatus.NO_VALID_OBSERVATIONS
+        )
+        if self.mean.status is not mean_status:
+            raise ValueError("Temporal Slice mean status is inconsistent")
+        if valid_count < 2:
+            if self.stddev_sample.status is not OnlyResearchSummaryScalarStatus.INSUFFICIENT_OBSERVATIONS:
+                raise ValueError("Temporal Slice standard deviation status is inconsistent")
+            if self.information_ratio.status is not OnlyResearchSummaryScalarStatus.INSUFFICIENT_OBSERVATIONS:
+                raise ValueError("Temporal Slice information ratio status is inconsistent")
+        else:
+            if self.stddev_sample.status is not OnlyResearchSummaryScalarStatus.VALID:
+                raise ValueError("Temporal Slice standard deviation must be VALID")
+            if self.information_ratio.status not in {
+                OnlyResearchSummaryScalarStatus.VALID,
+                OnlyResearchSummaryScalarStatus.ZERO_VARIANCE,
+            }:
+                raise ValueError("Temporal Slice information ratio status is inconsistent")
+            if self.information_ratio.status is OnlyResearchSummaryScalarStatus.ZERO_VARIANCE:
+                if self.stddev_sample.decimal_value != 0:
+                    raise ValueError("Temporal Slice ZERO_VARIANCE requires published zero standard deviation")
+        ratio_status = (
+            OnlyResearchSummaryScalarStatus.VALID
+            if self.total_timestamp_count
+            else OnlyResearchSummaryScalarStatus.NO_VALID_OBSERVATIONS
+        )
+        if self.valid_timestamp_ratio.status is not ratio_status:
+            raise ValueError("Temporal Slice valid timestamp ratio status is inconsistent")
+        ratio = self.valid_timestamp_ratio.decimal_value
+        if ratio is not None and not Decimal(0) <= ratio <= Decimal(1):
+            raise ValueError("Temporal Slice valid timestamp ratio is invalid")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "start_ts_event_ns": self.start_ts_event_ns,
+            "end_ts_event_ns": self.end_ts_event_ns,
+            "total_timestamp_count": self.total_timestamp_count,
+            "valid_timestamp_count": self.valid_timestamp_count,
+            "mean": self.mean.to_dict(),
+            "stddev_sample": self.stddev_sample.to_dict(),
+            "information_ratio": self.information_ratio.to_dict(),
+            "valid_timestamp_ratio": self.valid_timestamp_ratio.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchTemporalSliceEvidence:
+        expected = {
+            "start_ts_event_ns",
+            "end_ts_event_ns",
+            "total_timestamp_count",
+            "valid_timestamp_count",
+            "mean",
+            "stddev_sample",
+            "information_ratio",
+            "valid_timestamp_ratio",
+        }
+        if set(payload) != expected:
+            raise ValueError("Temporal Slice evidence fields are invalid")
+        values: dict[str, OnlyResearchTemporalSliceValue] = {}
+        for name in ("mean", "stddev_sample", "information_ratio", "valid_timestamp_ratio"):
+            value = payload[name]
+            if not isinstance(value, Mapping) or any(not isinstance(key, str) for key in value):
+                raise ValueError(f"Temporal Slice {name} must be an object")
+            values[name] = OnlyResearchTemporalSliceValue.from_dict(value)
+        return cls(
+            _integer(payload, "start_ts_event_ns"),
+            _integer(payload, "end_ts_event_ns"),
+            _integer(payload, "total_timestamp_count"),
+            _integer(payload, "valid_timestamp_count"),
+            **values,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyResearchTemporalStabilitySummary:
+    source_method: OnlyResearchStatisticsMethod
+    slices: tuple[OnlyResearchTemporalSliceEvidence, ...]
+    slice_count: OnlyResearchSummaryScalar
+    valid_slice_count: OnlyResearchSummaryScalar
+    positive_mean_slice_count: OnlyResearchSummaryScalar
+    negative_mean_slice_count: OnlyResearchSummaryScalar
+    zero_mean_slice_count: OnlyResearchSummaryScalar
+    positive_mean_slice_ratio: OnlyResearchSummaryScalar
+    negative_mean_slice_ratio: OnlyResearchSummaryScalar
+    zero_mean_slice_ratio: OnlyResearchSummaryScalar
+    min_slice_mean: OnlyResearchSummaryScalar
+    max_slice_mean: OnlyResearchSummaryScalar
+    stddev_of_slice_means: OnlyResearchSummaryScalar
+    summary_kind: OnlyResearchSummaryKind = OnlyResearchSummaryKind.TEMPORAL_STABILITY
+    schema_version: int = RESEARCH_SUMMARY_STATISTICS_RESULT_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if self.schema_version != RESEARCH_SUMMARY_STATISTICS_RESULT_SCHEMA_VERSION:
+            raise ValueError("Temporal Stability result schema is unsupported")
+        if self.summary_kind is not OnlyResearchSummaryKind.TEMPORAL_STABILITY:
+            raise ValueError("Temporal Stability result kind is invalid")
+        if not isinstance(self.source_method, OnlyResearchStatisticsMethod) or self.source_method not in {
+            OnlyResearchStatisticsMethod.IC,
+            OnlyResearchStatisticsMethod.RANK_IC,
+        }:
+            raise ValueError("Temporal Stability result source method is invalid")
+        if not isinstance(self.slices, tuple) or any(
+            not isinstance(item, OnlyResearchTemporalSliceEvidence) for item in self.slices
+        ):
+            raise ValueError("Temporal Stability slices are invalid")
+        for previous, current in zip(self.slices, self.slices[1:], strict=False):
+            if current.start_ts_event_ns < previous.end_ts_event_ns:
+                raise ValueError("Temporal Stability slices must be ordered and non-overlapping")
+        for name in _STABILITY_FIELDS:
+            scalar = getattr(self, name)
+            if not isinstance(scalar, OnlyResearchSummaryScalar):
+                raise ValueError(f"Temporal Stability {name} scalar is invalid")
+            descriptor = only_research_stability_metric(self.source_method, name)
+            if scalar.metric_id != descriptor.metric_id or scalar.value_kind is not descriptor.value_kind:
+                raise ValueError(f"Temporal Stability {name} metric linkage mismatch")
+        self._validate_stability_invariants()
+
+    def _validate_stability_invariants(self) -> None:
+        count_fields = (
+            "slice_count",
+            "valid_slice_count",
+            "positive_mean_slice_count",
+            "negative_mean_slice_count",
+            "zero_mean_slice_count",
+        )
+        if any(getattr(self, name).status is not OnlyResearchSummaryScalarStatus.VALID for name in count_fields):
+            raise ValueError("Temporal Stability count scalars must be VALID")
+        slice_count = _integer_scalar(self.slice_count)
+        valid_count = _integer_scalar(self.valid_slice_count)
+        if slice_count != len(self.slices):
+            raise ValueError("Temporal Stability slice count is inconsistent")
+        if valid_count != sum(item.mean.status is OnlyResearchSummaryScalarStatus.VALID for item in self.slices):
+            raise ValueError("Temporal Stability valid slice count is inconsistent")
+        if valid_count != sum(
+            _integer_scalar(getattr(self, name))
+            for name in ("positive_mean_slice_count", "negative_mean_slice_count", "zero_mean_slice_count")
+        ):
+            raise ValueError("Temporal Stability sign counts are inconsistent")
+        aggregate_fields = (
+            "positive_mean_slice_ratio",
+            "negative_mean_slice_ratio",
+            "zero_mean_slice_ratio",
+            "min_slice_mean",
+            "max_slice_mean",
+        )
+        aggregate_status = (
+            OnlyResearchSummaryScalarStatus.VALID
+            if valid_count
+            else OnlyResearchSummaryScalarStatus.NO_VALID_OBSERVATIONS
+        )
+        if any(getattr(self, name).status is not aggregate_status for name in aggregate_fields):
+            raise ValueError("Temporal Stability aggregate statuses are inconsistent")
+        stddev_status = (
+            OnlyResearchSummaryScalarStatus.VALID
+            if valid_count >= 2
+            else OnlyResearchSummaryScalarStatus.INSUFFICIENT_OBSERVATIONS
+        )
+        if self.stddev_of_slice_means.status is not stddev_status:
+            raise ValueError("Temporal Stability cross-slice standard deviation status is inconsistent")
+        if valid_count:
+            minimum = self.min_slice_mean.decimal_value
+            maximum = self.max_slice_mean.decimal_value
+            if minimum is None or maximum is None or minimum > maximum:
+                raise ValueError("Temporal Stability slice mean bounds are inconsistent")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "summary_kind": self.summary_kind.value,
+            "source_method": self.source_method.value,
+            "slices": [item.to_dict() for item in self.slices],
+            **{name: getattr(self, name).to_dict() for name in _STABILITY_FIELDS},
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchTemporalStabilitySummary:
+        if set(payload) != {"schema_version", "summary_kind", "source_method", "slices", *_STABILITY_FIELDS}:
+            raise ValueError("Temporal Stability result fields are invalid")
+        slices = payload["slices"]
+        if not isinstance(slices, list) or any(
+            not isinstance(item, Mapping) or any(not isinstance(key, str) for key in item) for item in slices
+        ):
+            raise ValueError("Temporal Stability slices must be an array of objects")
+        scalars: dict[str, OnlyResearchSummaryScalar] = {}
+        for name in _STABILITY_FIELDS:
+            value = payload[name]
+            if not isinstance(value, Mapping) or any(not isinstance(key, str) for key in value):
+                raise ValueError(f"Temporal Stability {name} must be an object")
+            scalars[name] = OnlyResearchSummaryScalar.from_dict(value)
+        return cls(
+            source_method=OnlyResearchStatisticsMethod(_string(payload, "source_method")),
+            slices=tuple(OnlyResearchTemporalSliceEvidence.from_dict(item) for item in slices),
+            **scalars,
+            summary_kind=OnlyResearchSummaryKind(_string(payload, "summary_kind")),
+            schema_version=_integer(payload, "schema_version"),
+        )
+
+
+OnlyResearchSummary = OnlyResearchEffectSummary | OnlyResearchCoverageSummary | OnlyResearchTemporalStabilitySummary
 
 
 def only_research_summary_from_dict(payload: Mapping[str, object]) -> OnlyResearchSummary:
@@ -288,6 +567,8 @@ def only_research_summary_from_dict(payload: Mapping[str, object]) -> OnlyResear
         return OnlyResearchEffectSummary.from_dict(payload)
     if kind is OnlyResearchSummaryKind.COVERAGE_SUMMARY:
         return OnlyResearchCoverageSummary.from_dict(payload)
+    if kind is OnlyResearchSummaryKind.TEMPORAL_STABILITY:
+        return OnlyResearchTemporalStabilitySummary.from_dict(payload)
     raise ValueError("Summary Statistics payload kind is unsupported")  # pragma: no cover
 
 
@@ -323,7 +604,10 @@ class OnlyResearchSummaryStatisticsResultManifest:
                 raise ValueError(f"Summary Statistics {name} must be a lower-case SHA256")
         from .plan import OnlyResearchCoverageSummaryPlan, OnlyResearchEffectSummaryPlan
 
-        if not isinstance(self.plan, (OnlyResearchEffectSummaryPlan, OnlyResearchCoverageSummaryPlan)):
+        if not isinstance(
+            self.plan,
+            (OnlyResearchEffectSummaryPlan, OnlyResearchCoverageSummaryPlan, OnlyResearchTemporalStabilityPlan),
+        ):
             raise ValueError("Summary Statistics Plan is invalid")
         if self.statistics_fingerprint != self.plan.statistics_fingerprint:
             raise ValueError("Summary Statistics logical identity mismatch")
@@ -375,12 +659,22 @@ class OnlyResearchSummaryStatisticsResult:
     def __post_init__(self) -> None:
         if self.manifest.plan.definition.summary_kind is not self.summary.summary_kind:
             raise ValueError("Summary Statistics Plan/payload kind mismatch")
+        if isinstance(self.manifest.plan, OnlyResearchTemporalStabilityPlan):
+            if not isinstance(self.summary, OnlyResearchTemporalStabilitySummary):
+                raise ValueError("Temporal Stability Plan requires a Temporal Stability payload")
+            actual = tuple(
+                OnlyResearchTemporalSlice(item.start_ts_event_ns, item.end_ts_event_ns) for item in self.summary.slices
+            )
+            if actual != self.manifest.plan.intervals:
+                raise ValueError("Temporal Stability Result intervals do not match Plan")
 
 
 def _manifest_value(value: object) -> object:
     from .plan import OnlyResearchCoverageSummaryPlan, OnlyResearchEffectSummaryPlan
 
-    if isinstance(value, (OnlyResearchEffectSummaryPlan, OnlyResearchCoverageSummaryPlan)):
+    if isinstance(
+        value, (OnlyResearchEffectSummaryPlan, OnlyResearchCoverageSummaryPlan, OnlyResearchTemporalStabilityPlan)
+    ):
         return value.to_dict()
     if isinstance(value, datetime):
         return value.isoformat()
@@ -428,5 +722,8 @@ __all__ = [
     "OnlyResearchSummary",
     "OnlyResearchSummaryStatisticsResult",
     "OnlyResearchSummaryStatisticsResultManifest",
+    "OnlyResearchTemporalSliceEvidence",
+    "OnlyResearchTemporalSliceValue",
+    "OnlyResearchTemporalStabilitySummary",
     "only_research_summary_from_dict",
 ]
