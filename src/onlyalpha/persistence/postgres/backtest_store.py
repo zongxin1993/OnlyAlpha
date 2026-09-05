@@ -264,12 +264,22 @@ class OnlyPostgresBacktestStore:
         worker_instance_id: OnlyBacktestWorkerInstanceId,
         attempt_id: OnlyBacktestAttemptId,
         policy: OnlyBacktestExecutionPolicy,
+        eligible_run_ids: tuple[str, ...] | None = None,
     ) -> OnlyBacktestExecutionClaim | None:
+        if eligible_run_ids == ():
+            return None
         try:
             with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+                work_predicate = "TRUE" if eligible_run_ids is None else "run.run_id = ANY(%s)"
+                parameters: tuple[object, ...] = (
+                    (policy.max_attempts,)
+                    if eligible_run_ids is None
+                    else (list(eligible_run_ids), policy.max_attempts)
+                )
                 row = connection.execute(
-                    """SELECT run.* FROM backtest_run AS run
+                    f"""SELECT run.* FROM backtest_run AS run
                     WHERE run.state IN ('QUEUED', 'RUNNING')
+                      AND {work_predicate}
                       AND NOT EXISTS (
                         SELECT 1 FROM backtest_run_attempt AS active
                         WHERE active.run_id = run.run_id AND active.state = 'ACTIVE'
@@ -281,7 +291,7 @@ class OnlyPostgresBacktestStore:
                     ORDER BY run.queued_at, run.run_id
                     FOR UPDATE OF run SKIP LOCKED
                     LIMIT 1""",
-                    (policy.max_attempts,),
+                    parameters,
                 ).fetchone()
                 if row is None:
                     return None
@@ -370,14 +380,21 @@ class OnlyPostgresBacktestStore:
             raise OnlyBacktestNotFoundError(attempt_id.value)
         return _decode_attempt(cast(Mapping[str, object], row))
 
-    def expire_next(self, policy: OnlyBacktestExecutionPolicy) -> OnlyBacktestAttempt | None:
+    def expire_next(
+        self,
+        policy: OnlyBacktestExecutionPolicy,
+        eligible_run_ids: tuple[str, ...] | None = None,
+    ) -> OnlyBacktestAttempt | None:
         try:
             with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+                generation_predicate = "TRUE" if eligible_run_ids is None else "run_id = ANY(%s::uuid[])"
                 row = connection.execute(
-                    """SELECT * FROM backtest_run_attempt
+                    f"""SELECT * FROM backtest_run_attempt
                     WHERE state = 'ACTIVE' AND lease_expires_at <= clock_timestamp()
+                      AND {generation_predicate}
                     ORDER BY lease_expires_at, attempt_id
-                    FOR UPDATE SKIP LOCKED LIMIT 1"""
+                    FOR UPDATE SKIP LOCKED LIMIT 1""",
+                    () if eligible_run_ids is None else (list(eligible_run_ids),),
                 ).fetchone()
                 if row is None:
                     return None
@@ -422,17 +439,23 @@ class OnlyPostgresBacktestStore:
         except psycopg.Error as exc:
             raise OnlyBacktestStoreUnavailableError("Backtest expiry transaction failed") from exc
 
-    def load_reconciliation_candidate(self) -> OnlyBacktestRun | None:
+    def load_reconciliation_candidate(
+        self,
+        eligible_run_ids: tuple[str, ...] | None = None,
+    ) -> OnlyBacktestRun | None:
         try:
             with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+                generation_predicate = "TRUE" if eligible_run_ids is None else "run.run_id = ANY(%s::uuid[])"
                 row = connection.execute(
-                    """SELECT run.* FROM backtest_run AS run
+                    f"""SELECT run.* FROM backtest_run AS run
                     WHERE run.state IN ('RUNNING', 'CANCEL_REQUESTED')
+                      AND {generation_predicate}
                       AND NOT EXISTS (
                         SELECT 1 FROM backtest_run_attempt AS attempt
                         WHERE attempt.run_id = run.run_id AND attempt.state = 'ACTIVE'
                       )
-                    ORDER BY run.queued_at, run.run_id LIMIT 1"""
+                    ORDER BY run.queued_at, run.run_id LIMIT 1""",
+                    () if eligible_run_ids is None else (list(eligible_run_ids),),
                 ).fetchone()
         except psycopg.Error as exc:
             raise OnlyBacktestStoreUnavailableError("Backtest reconciliation query failed") from exc

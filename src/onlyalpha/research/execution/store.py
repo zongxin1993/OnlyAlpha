@@ -28,6 +28,7 @@ class OnlyResearchExecutionStore(Protocol):
         lease_duration: timedelta,
         max_attempts: int,
         run_started_at: datetime,
+        eligible_run_ids: tuple[str, ...],
     ) -> OnlyResearchExecutionClaim | None: ...
 
     def heartbeat(
@@ -43,9 +44,13 @@ class OnlyResearchExecutionStore(Protocol):
         *,
         max_attempts: int,
         run_finished_at: datetime,
+        eligible_run_ids: tuple[str, ...] | None = None,
     ) -> OnlyResearchRunAttempt | None: ...
 
-    def load_cancellation_recovery_candidate(self) -> OnlyResearchRun | None: ...
+    def load_cancellation_recovery_candidate(
+        self,
+        eligible_run_ids: tuple[str, ...] | None = None,
+    ) -> OnlyResearchRun | None: ...
 
     def reconcile_cancellation(
         self,

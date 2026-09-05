@@ -6,6 +6,9 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = ["onlyalpha==0.9.9"]
 
+[project.entry-points."onlyalpha.runtime_generation_work_authority"]
+manager = "onlyalpha_runtime_generation_manager.entrypoint:runtime_generation_work_authority"
+
 [build-system]
 requires = ["hatchling>=1.26,<2"]
 build-backend = "hatchling.build"

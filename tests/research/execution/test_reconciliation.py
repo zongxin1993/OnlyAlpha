@@ -200,7 +200,10 @@ class _RecoveryStore:
     def __init__(self, run: OnlyResearchRun) -> None:
         self.run = run
 
-    def load_cancellation_recovery_candidate(self) -> OnlyResearchRun | None:
+    def load_cancellation_recovery_candidate(
+        self, eligible_run_ids: tuple[str, ...] | None = None
+    ) -> OnlyResearchRun | None:
+        del eligible_run_ids
         return self.run if self.run.state is OnlyResearchRunState.CANCEL_REQUESTED else None
 
     def reconcile_cancellation(
@@ -307,7 +310,7 @@ def test_reconciler_handles_no_candidate_wrong_state_drift_and_resolution_failur
     assert reconciler.reconcile_once() is None
 
     wrong_store = SimpleNamespace(
-        load_cancellation_recovery_candidate=lambda: SimpleNamespace(state=OnlyResearchRunState.RUNNING)
+        load_cancellation_recovery_candidate=lambda _eligible=None: SimpleNamespace(state=OnlyResearchRunState.RUNNING)
     )
     with pytest.raises(OnlyResearchExecutionOwnershipLostError):
         OnlyResearchCancellationRecoveryReconciler(

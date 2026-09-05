@@ -15,6 +15,9 @@ from onlyalpha.distribution import (
     OnlyArtifactCalculationImplementation as OnlyArtifactCalculationImplementation,
 )
 from onlyalpha.distribution import (
+    OnlyArtifactSourceProvenanceAuthority as OnlyArtifactSourceProvenanceAuthority,
+)
+from onlyalpha.distribution import (
     OnlyDistributionArtifactManifest as OnlyDistributionArtifactManifest,
 )
 from onlyalpha.distribution import (
@@ -170,6 +173,111 @@ class OnlyRuntimeGenerationManifest:
         )
         if _string(payload, "runtime_generation_fingerprint") != result.runtime_generation_fingerprint:
             raise ValueError("RUNTIME_GENERATION_MANIFEST_MISMATCH")
+        return result
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyRuntimeGenerationValidationEvidence:
+    """Immutable proof that one exact generation passed clean executable validation."""
+
+    runtime_generation_fingerprint: str
+    core_execution_fingerprint: str
+    artifact_manifest_fingerprints: tuple[str, ...]
+    artifact_sha256s: tuple[str, ...]
+    providers: tuple[OnlyRuntimeProviderBinding, ...]
+    catalog_generation_fingerprint: str
+    implementations: tuple[OnlyArtifactCalculationImplementation, ...]
+    validation_contract_version: str = "ONLYALPHA_RUNTIME_GENERATION_VALIDATION@1"
+    schema_version: int = 1
+
+    def __post_init__(self) -> None:
+        if self.schema_version != 1 or self.validation_contract_version != "ONLYALPHA_RUNTIME_GENERATION_VALIDATION@1":
+            raise ValueError("RUNTIME_GENERATION_VALIDATION_EVIDENCE_INVALID")
+        for value in (
+            self.runtime_generation_fingerprint,
+            self.core_execution_fingerprint,
+            self.catalog_generation_fingerprint,
+            *self.artifact_manifest_fingerprints,
+            *self.artifact_sha256s,
+        ):
+            _sha(value, "RUNTIME_GENERATION_VALIDATION_EVIDENCE_INVALID")
+        if self.artifact_manifest_fingerprints != tuple(sorted(set(self.artifact_manifest_fingerprints))):
+            raise ValueError("RUNTIME_GENERATION_VALIDATION_EVIDENCE_INVALID")
+        if self.artifact_sha256s != tuple(sorted(set(self.artifact_sha256s))):
+            raise ValueError("RUNTIME_GENERATION_VALIDATION_EVIDENCE_INVALID")
+        if self.providers != tuple(sorted(set(self.providers))):
+            raise ValueError("RUNTIME_GENERATION_VALIDATION_EVIDENCE_INVALID")
+        if self.implementations != tuple(sorted(set(self.implementations))):
+            raise ValueError("RUNTIME_GENERATION_VALIDATION_EVIDENCE_INVALID")
+
+    @classmethod
+    def from_manifest(cls, manifest: OnlyRuntimeGenerationManifest) -> OnlyRuntimeGenerationValidationEvidence:
+        return cls(
+            runtime_generation_fingerprint=manifest.runtime_generation_fingerprint,
+            core_execution_fingerprint=manifest.core_execution.fingerprint,
+            artifact_manifest_fingerprints=manifest.artifact_manifest_fingerprints,
+            artifact_sha256s=manifest.artifact_sha256s,
+            providers=manifest.providers,
+            catalog_generation_fingerprint=manifest.catalog_generation_fingerprint,
+            implementations=manifest.implementations,
+        )
+
+    def verifies(self, manifest: OnlyRuntimeGenerationManifest) -> bool:
+        return self == type(self).from_manifest(manifest)
+
+    @property
+    def validation_evidence_fingerprint(self) -> str:
+        return only_canonical_fingerprint(self.to_dict(include_fingerprint=False))
+
+    def to_dict(self, *, include_fingerprint: bool = True) -> dict[str, object]:
+        result: dict[str, object] = {
+            "schema_version": self.schema_version,
+            "validation_contract_version": self.validation_contract_version,
+            "runtime_generation_fingerprint": self.runtime_generation_fingerprint,
+            "core_execution_fingerprint": self.core_execution_fingerprint,
+            "artifact_manifest_fingerprints": list(self.artifact_manifest_fingerprints),
+            "artifact_sha256s": list(self.artifact_sha256s),
+            "providers": [item.to_dict() for item in self.providers],
+            "catalog_generation_fingerprint": self.catalog_generation_fingerprint,
+            "implementations": [item.to_dict() for item in self.implementations],
+        }
+        if include_fingerprint:
+            result["validation_evidence_fingerprint"] = self.validation_evidence_fingerprint
+        return result
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyRuntimeGenerationValidationEvidence:
+        _exact(
+            payload,
+            {
+                "schema_version",
+                "validation_contract_version",
+                "runtime_generation_fingerprint",
+                "core_execution_fingerprint",
+                "artifact_manifest_fingerprints",
+                "artifact_sha256s",
+                "providers",
+                "catalog_generation_fingerprint",
+                "implementations",
+                "validation_evidence_fingerprint",
+            },
+        )
+        result = cls(
+            runtime_generation_fingerprint=_string(payload, "runtime_generation_fingerprint"),
+            core_execution_fingerprint=_string(payload, "core_execution_fingerprint"),
+            artifact_manifest_fingerprints=_string_list(payload, "artifact_manifest_fingerprints"),
+            artifact_sha256s=_string_list(payload, "artifact_sha256s"),
+            providers=tuple(OnlyRuntimeProviderBinding.from_dict(item) for item in _mapping_list(payload, "providers")),
+            catalog_generation_fingerprint=_string(payload, "catalog_generation_fingerprint"),
+            implementations=tuple(
+                OnlyArtifactCalculationImplementation.from_dict(item)
+                for item in _mapping_list(payload, "implementations")
+            ),
+            validation_contract_version=_string(payload, "validation_contract_version"),
+            schema_version=_integer(payload, "schema_version"),
+        )
+        if _string(payload, "validation_evidence_fingerprint") != result.validation_evidence_fingerprint:
+            raise ValueError("RUNTIME_GENERATION_VALIDATION_EVIDENCE_MISMATCH")
         return result
 
 

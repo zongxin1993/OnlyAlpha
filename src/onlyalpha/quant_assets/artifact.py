@@ -8,6 +8,7 @@ from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.distribution import (
     OnlyArtifactAssetIdentity,
     OnlyArtifactCalculationImplementation,
+    OnlyArtifactSourceProvenanceAuthority,
     OnlyDistributionArtifactManifest,
     OnlyDistributionArtifactRole,
 )
@@ -23,6 +24,7 @@ def only_quant_asset_distribution_artifact_manifest(
     artifact_bytes: bytes,
     tested_core_execution_fingerprint: str,
     provider: OnlyQuantAssetProvider,
+    source_provenance_authority: OnlyArtifactSourceProvenanceAuthority = OnlyArtifactSourceProvenanceAuthority.ONLYALPHA_GIT,
 ) -> OnlyDistributionArtifactManifest:
     """Bind release bytes to the exact public Provider content they must supply when installed."""
 
@@ -63,6 +65,7 @@ def only_quant_asset_distribution_artifact_manifest(
         )
     return OnlyDistributionArtifactManifest(
         role=OnlyDistributionArtifactRole.QUANT_ASSET,
+        source_provenance_authority=source_provenance_authority,
         source_repository=source_repository,
         source_revision=source_revision,
         distribution_name=provider.manifest.distribution_name,

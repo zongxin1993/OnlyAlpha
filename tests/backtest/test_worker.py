@@ -97,6 +97,23 @@ def _lease(*_: object) -> _NoThreadLease:
     return _NoThreadLease()
 
 
+class _RuntimeGenerations:
+    def __init__(self, work_id: str) -> None:
+        self.work_id = work_id
+
+    def work_ids_for_generation(self, process_generation_fingerprint):  # type: ignore[no-untyped-def]
+        assert process_generation_fingerprint == "7" * 64
+        return (self.work_id,)
+
+    def require_work_generation(self, work_id, process_generation_fingerprint):  # type: ignore[no-untyped-def]
+        if work_id != self.work_id or process_generation_fingerprint != "7" * 64:
+            raise ValueError("RUNTIME_WORK_GENERATION_MISMATCH")
+
+    def release_work(self, work_id, **_):  # type: ignore[no-untyped-def]
+        assert work_id == self.work_id
+        self.work_id = ""
+
+
 class _PresenceWriter:
     def __init__(self) -> None:
         self.announced = Event()
@@ -226,6 +243,8 @@ def test_worker_revalidates_admission_publishes_evidence_then_completes(tmp_path
         executor=_Executor(),
         evidence=OnlyBacktestEvidenceStore(tmp_path),
         lease_control_factory=_lease,  # type: ignore[arg-type]
+        runtime_generations=_RuntimeGenerations(_run(now[0]).run_id.value),  # type: ignore[arg-type]
+        process_generation_fingerprint="7" * 64,
     )
 
     outcome = worker.run_once()
@@ -245,6 +264,8 @@ def test_worker_fails_closed_on_execution_semantic_drift(tmp_path) -> None:  # t
         executor=_Executor(),
         evidence=OnlyBacktestEvidenceStore(tmp_path),
         lease_control_factory=_lease,  # type: ignore[arg-type]
+        runtime_generations=_RuntimeGenerations(_run(now).run_id.value),  # type: ignore[arg-type]
+        process_generation_fingerprint="7" * 64,
     )
 
     outcome = worker.run_once()
@@ -276,6 +297,8 @@ def test_worker_starts_lease_before_revalidation_and_does_not_execute_after_loss
         executor=_FailIfExecuted(),
         evidence=OnlyBacktestEvidenceStore(tmp_path),
         lease_control_factory=lambda *_: _ObservedLostLease(),  # type: ignore[arg-type]
+        runtime_generations=_RuntimeGenerations(_run(now).run_id.value),  # type: ignore[arg-type]
+        process_generation_fingerprint="7" * 64,
     )
 
     outcome = worker.run_once()
@@ -303,6 +326,8 @@ def test_reconciliation_completes_after_evidence_publish_crash(tmp_path) -> None
         executor=_Executor(),
         evidence=evidence,
         lease_control_factory=_lease,  # type: ignore[arg-type]
+        runtime_generations=_RuntimeGenerations(_run(now[0]).run_id.value),  # type: ignore[arg-type]
+        process_generation_fingerprint="7" * 64,
     )
 
     with pytest.raises(SystemExit, match="crash after Evidence"):

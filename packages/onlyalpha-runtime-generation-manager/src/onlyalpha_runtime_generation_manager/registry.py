@@ -16,7 +16,10 @@ from types import MappingProxyType
 from typing import Any, cast
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
-from onlyalpha.runtime.generation import OnlyRuntimeGenerationManifest
+from onlyalpha.runtime.generation import (
+    OnlyRuntimeGenerationManifest,
+    OnlyRuntimeGenerationValidationEvidence,
+)
 from onlyalpha.strategy.revision import OnlyStrategyRevision
 
 _LOCKS_GUARD = RLock()
@@ -53,6 +56,7 @@ class OnlyGenerationEvent:
     expected_current: str | None = None
     work_id: str | None = None
     reason: str | None = None
+    validation_evidence_fingerprint: str | None = None
     schema_version: int = 1
 
     def __post_init__(self) -> None:
@@ -73,6 +77,10 @@ class OnlyGenerationEvent:
             raise ValueError("RUNTIME_GENERATION_EVENT_INVALID")
         if self.kind == _EventKind.ACTIVATED.value and self.expected_current == self.generation_fingerprint:
             raise ValueError("RUNTIME_GENERATION_EVENT_INVALID")
+        if self.kind == _EventKind.VALIDATED.value:
+            _sha(self.validation_evidence_fingerprint, "RUNTIME_GENERATION_EVENT_INVALID")
+        elif self.validation_evidence_fingerprint is not None:
+            raise ValueError("RUNTIME_GENERATION_EVENT_INVALID")
 
     @property
     def event_fingerprint(self) -> str:
@@ -90,6 +98,7 @@ class OnlyGenerationEvent:
             "expected_current": self.expected_current,
             "work_id": self.work_id,
             "reason": self.reason,
+            "validation_evidence_fingerprint": self.validation_evidence_fingerprint,
         }
         if include_fingerprint:
             result["event_fingerprint"] = self.event_fingerprint
@@ -108,6 +117,7 @@ class OnlyGenerationEvent:
             "expected_current",
             "work_id",
             "reason",
+            "validation_evidence_fingerprint",
             "event_fingerprint",
         }
         if set(payload) != expected:
@@ -122,6 +132,7 @@ class OnlyGenerationEvent:
             expected_current=_optional_string(payload, "expected_current"),
             work_id=_optional_string(payload, "work_id"),
             reason=_optional_string(payload, "reason"),
+            validation_evidence_fingerprint=_optional_string(payload, "validation_evidence_fingerprint"),
             schema_version=_integer(payload, "schema_version"),
         )
         if _string(payload, "event_fingerprint") != result.event_fingerprint:
@@ -162,6 +173,10 @@ class OnlyRuntimeGenerationRegistry:
     def _manifest_root(self) -> Path:
         return self.root / "runtime-generations"
 
+    @property
+    def _validation_root(self) -> Path:
+        return self.root / "runtime-generation-validation"
+
     def prepare(self, manifest: OnlyRuntimeGenerationManifest, *, actor: str, occurred_at: datetime) -> None:
         fingerprint = manifest.runtime_generation_fingerprint
         with self._locked():
@@ -173,16 +188,37 @@ class OnlyRuntimeGenerationRegistry:
                 return
             self._append(self._event(events, _EventKind.PREPARED, fingerprint, actor, occurred_at))
 
-    def mark_ready(self, generation_fingerprint: str, *, actor: str, occurred_at: datetime) -> None:
+    def admit_ready(
+        self,
+        evidence: OnlyRuntimeGenerationValidationEvidence,
+        *,
+        actor: str,
+        occurred_at: datetime,
+    ) -> None:
+        generation_fingerprint = evidence.runtime_generation_fingerprint
         with self._locked():
             projection, events = self._replay()
             state = projection.state(generation_fingerprint)
             if state is OnlyGenerationState.READY:
+                if self.load_validation_evidence(generation_fingerprint) != evidence:
+                    raise ValueError("RUNTIME_GENERATION_VALIDATION_EVIDENCE_MISMATCH")
                 return
             if state is not OnlyGenerationState.PREPARING:
                 raise ValueError("RUNTIME_GENERATION_NOT_PREPARING")
-            self.load_manifest(generation_fingerprint)
-            self._append(self._event(events, _EventKind.VALIDATED, generation_fingerprint, actor, occurred_at))
+            manifest = self.load_manifest(generation_fingerprint)
+            if not evidence.verifies(manifest):
+                raise ValueError("RUNTIME_GENERATION_VALIDATION_EVIDENCE_MISMATCH")
+            self._commit_validation_evidence(evidence)
+            self._append(
+                self._event(
+                    events,
+                    _EventKind.VALIDATED,
+                    generation_fingerprint,
+                    actor,
+                    occurred_at,
+                    validation_evidence_fingerprint=evidence.validation_evidence_fingerprint,
+                )
+            )
 
     def reject(self, generation_fingerprint: str, *, actor: str, occurred_at: datetime, reason: str) -> None:
         if not reason.strip():
@@ -294,6 +330,26 @@ class OnlyRuntimeGenerationRegistry:
                 raise ValueError("RUNTIME_WORK_GENERATION_MISMATCH")
             return self.load_manifest(process_generation_fingerprint)
 
+    def require_work_binding(self, work_id: str) -> OnlyRuntimeWorkBinding:
+        with self._locked(shared=True):
+            projection, _ = self._replay()
+            try:
+                binding = projection.work_bindings[work_id]
+            except KeyError as exc:
+                raise ValueError("RUNTIME_WORK_GENERATION_UNBOUND") from exc
+            return binding
+
+    def work_ids_for_generation(self, process_generation_fingerprint: str) -> tuple[str, ...]:
+        with self._locked(shared=True):
+            projection, _ = self._replay()
+            return tuple(
+                sorted(
+                    binding.work_id
+                    for binding in projection.work_bindings.values()
+                    if binding.active and binding.runtime_generation_fingerprint == process_generation_fingerprint
+                )
+            )
+
     def retire(self, generation_fingerprint: str, *, actor: str, occurred_at: datetime) -> None:
         with self._locked():
             projection, events = self._replay()
@@ -329,11 +385,35 @@ class OnlyRuntimeGenerationRegistry:
         projection = self.projection()
         return tuple(self.load_manifest(fingerprint) for fingerprint in sorted(projection.states))
 
+    def load_validation_evidence(self, generation_fingerprint: str) -> OnlyRuntimeGenerationValidationEvidence:
+        path = self._validation_root / f"{generation_fingerprint}.json"
+        try:
+            payload: Any = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError
+            evidence = OnlyRuntimeGenerationValidationEvidence.from_dict(cast(dict[str, object], payload))
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise ValueError("RUNTIME_GENERATION_VALIDATION_EVIDENCE_MISMATCH") from exc
+        if evidence.runtime_generation_fingerprint != generation_fingerprint:
+            raise ValueError("RUNTIME_GENERATION_VALIDATION_EVIDENCE_MISMATCH")
+        return evidence
+
+    def verify_hosted_generation(self, generation_fingerprint: str) -> None:
+        from .hosted import only_verify_hosted_runtime_generation
+
+        only_verify_hosted_runtime_generation(self.load_validation_evidence(generation_fingerprint))
+
     def _commit_manifest(self, manifest: OnlyRuntimeGenerationManifest) -> None:
         self._manifest_root.mkdir(parents=True, exist_ok=True)
         path = self._manifest_root / f"{manifest.runtime_generation_fingerprint}.json"
         content = (only_canonical_json(manifest.to_dict()) + "\n").encode()
         _write_once(path, content, "RUNTIME_GENERATION_MANIFEST_CONFLICT")
+
+    def _commit_validation_evidence(self, evidence: OnlyRuntimeGenerationValidationEvidence) -> None:
+        self._validation_root.mkdir(parents=True, exist_ok=True)
+        path = self._validation_root / f"{evidence.runtime_generation_fingerprint}.json"
+        content = (only_canonical_json(evidence.to_dict()) + "\n").encode()
+        _write_once(path, content, "RUNTIME_GENERATION_VALIDATION_EVIDENCE_CONFLICT")
 
     def _replay(self) -> tuple[OnlyGenerationProjection, tuple[OnlyGenerationEvent, ...]]:
         events = self._read_events()
@@ -352,6 +432,12 @@ class OnlyRuntimeGenerationRegistry:
             elif kind is _EventKind.VALIDATED:
                 if lifecycle[generation] is not OnlyGenerationState.PREPARING:
                     raise ValueError("RUNTIME_GENERATION_EVENT_ORDER_INVALID")
+                evidence = self.load_validation_evidence(generation)
+                if (
+                    event.validation_evidence_fingerprint != evidence.validation_evidence_fingerprint
+                    or not evidence.verifies(self.load_manifest(generation))
+                ):
+                    raise ValueError("RUNTIME_GENERATION_VALIDATION_EVIDENCE_MISMATCH")
                 lifecycle[generation] = OnlyGenerationState.READY
             elif kind is _EventKind.REJECTED:
                 if lifecycle[generation] is not OnlyGenerationState.PREPARING:
@@ -426,6 +512,7 @@ class OnlyRuntimeGenerationRegistry:
         expected_current: str | None = None,
         work_id: str | None = None,
         reason: str | None = None,
+        validation_evidence_fingerprint: str | None = None,
     ) -> OnlyGenerationEvent:
         return OnlyGenerationEvent(
             sequence=len(events) + 1,
@@ -437,6 +524,7 @@ class OnlyRuntimeGenerationRegistry:
             expected_current=expected_current,
             work_id=work_id,
             reason=reason,
+            validation_evidence_fingerprint=validation_evidence_fingerprint,
         )
 
     def _append(self, event: OnlyGenerationEvent) -> None:

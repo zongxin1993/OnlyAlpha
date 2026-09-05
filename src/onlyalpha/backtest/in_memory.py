@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime, timedelta
 
+from .errors import OnlyBacktestNotFoundError
 from .execution import (
     OnlyBacktestAttempt,
     OnlyBacktestAttemptId,
@@ -43,16 +44,19 @@ class OnlyInMemoryBacktestExecutionStore:
         try:
             return self.runs[run_id]
         except KeyError as exc:
-            raise RuntimeError("BACKTEST_RUN_NOT_FOUND") from exc
+            raise OnlyBacktestNotFoundError(run_id.value) from exc
 
     def claim_next(
         self,
         worker_instance_id: OnlyBacktestWorkerInstanceId,
         attempt_id: OnlyBacktestAttemptId,
         policy: OnlyBacktestExecutionPolicy,
+        eligible_run_ids: tuple[str, ...] | None = None,
     ) -> OnlyBacktestExecutionClaim | None:
         now = self._now_utc()
         for run in sorted(self.runs.values(), key=lambda item: item.run_id.value):
+            if eligible_run_ids is not None and run.run_id.value not in eligible_run_ids:
+                continue
             if run.state not in {OnlyBacktestRunState.QUEUED, OnlyBacktestRunState.RUNNING}:
                 continue
             if any(item.run_id == run.run_id and item.state is item.state.ACTIVE for item in self.attempts.values()):
@@ -110,13 +114,20 @@ class OnlyInMemoryBacktestExecutionStore:
         except KeyError as exc:
             raise RuntimeError("BACKTEST_ATTEMPT_NOT_FOUND") from exc
 
-    def expire_next(self, policy: OnlyBacktestExecutionPolicy) -> OnlyBacktestAttempt | None:
+    def expire_next(
+        self,
+        policy: OnlyBacktestExecutionPolicy,
+        eligible_run_ids: tuple[str, ...] | None = None,
+    ) -> OnlyBacktestAttempt | None:
         now = self._now_utc()
+        eligible = None if eligible_run_ids is None else set(eligible_run_ids)
         candidates = sorted(
             (
                 item
                 for item in self.attempts.values()
-                if item.state is item.state.ACTIVE and item.lease_expires_at <= now
+                if item.state is item.state.ACTIVE
+                and item.lease_expires_at <= now
+                and (eligible is None or item.run_id.value in eligible)
             ),
             key=lambda item: (item.lease_expires_at, item.attempt_id.value),
         )
@@ -148,11 +159,16 @@ class OnlyInMemoryBacktestExecutionStore:
             self.runs[run.run_id] = run.transition(OnlyBacktestRunState.FAILED, at=now, failure=failure)
         return expired
 
-    def load_reconciliation_candidate(self) -> OnlyBacktestRun | None:
+    def load_reconciliation_candidate(
+        self,
+        eligible_run_ids: tuple[str, ...] | None = None,
+    ) -> OnlyBacktestRun | None:
+        eligible = None if eligible_run_ids is None else set(eligible_run_ids)
         candidates = tuple(
             run
             for run in self.runs.values()
             if run.state in {OnlyBacktestRunState.RUNNING, OnlyBacktestRunState.CANCEL_REQUESTED}
+            and (eligible is None or run.run_id.value in eligible)
             and not any(
                 attempt.run_id == run.run_id and attempt.state is attempt.state.ACTIVE
                 for attempt in self.attempts.values()

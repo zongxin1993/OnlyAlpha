@@ -26,6 +26,12 @@ class _Store:
         return None
 
 
+class _RuntimeGenerations:
+    def work_ids_for_generation(self, process_generation_fingerprint):  # type: ignore[no-untyped-def]
+        assert process_generation_fingerprint == "a" * 64
+        return ("run-1",)
+
+
 def test_scheduler_finite_operations_supply_policy_identity_and_application_clock() -> None:
     store = _Store()
     attempt_id = OnlyResearchRunAttemptId("00000000-0000-4000-8000-000000000111")
@@ -37,6 +43,8 @@ def test_scheduler_finite_operations_supply_policy_identity_and_application_cloc
         store=store,  # type: ignore[arg-type]
         policy=policy,
         now_utc=lambda: NOW,
+        runtime_generations=_RuntimeGenerations(),  # type: ignore[arg-type]
+        process_generation_fingerprint="a" * 64,
         attempt_id_factory=lambda: attempt_id,
     )
     assert scheduler.claim_once(worker_id) is None
@@ -46,6 +54,11 @@ def test_scheduler_finite_operations_supply_policy_identity_and_application_cloc
         "lease_duration": timedelta(seconds=10),
         "max_attempts": 4,
         "run_started_at": NOW,
+        "eligible_run_ids": ("run-1",),
     }
     assert scheduler.expire_once() is None
-    assert store.expire_args == {"max_attempts": 4, "run_finished_at": NOW}
+    assert store.expire_args == {
+        "max_attempts": 4,
+        "run_finished_at": NOW,
+        "eligible_run_ids": ("run-1",),
+    }

@@ -10,6 +10,7 @@ from pathlib import Path
 from threading import Event, Thread
 from typing import Protocol
 
+from onlyalpha.application.runtime_generation import OnlyRuntimeGenerationWorkAuthority
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
@@ -24,7 +25,12 @@ from onlyalpha.strategy.store import OnlyStrategyRevisionReader
 from .admission import OnlyBacktestAdmissionService
 from .dataset_source import OnlyBacktestDatasetSourceFactory, OnlyBacktestEconomicFactReader
 from .deployment import OnlyBacktestDeploymentCatalog
-from .errors import OnlyBacktestError, OnlyBacktestErrorPhase, OnlyBacktestStateConflictError
+from .errors import (
+    OnlyBacktestError,
+    OnlyBacktestErrorPhase,
+    OnlyBacktestNotFoundError,
+    OnlyBacktestStateConflictError,
+)
 from .evidence import OnlyBacktestEvidenceManifest, OnlyBacktestEvidenceStore
 from .execution import (
     OnlyBacktestAttemptId,
@@ -38,6 +44,7 @@ from .model import (
     OnlyBacktestRun,
     OnlyBacktestRunFailure,
     OnlyBacktestRunFailurePhase,
+    OnlyBacktestRunId,
     OnlyBacktestRunState,
 )
 from .profiles import OnlyBacktestProfile, OnlyBacktestProfileRegistry
@@ -371,6 +378,8 @@ class OnlyBacktestWorker:
         lease_control_factory: Callable[
             [OnlyBacktestExecutionStore, OnlyBacktestExecutionClaim, OnlyBacktestExecutionPolicy], _LeaseControl
         ] = _LeaseControl,
+        runtime_generations: OnlyRuntimeGenerationWorkAuthority,
+        process_generation_fingerprint: str,
     ) -> None:
         self.worker_instance_id = worker_instance_id
         self._store = store
@@ -380,23 +389,65 @@ class OnlyBacktestWorker:
         self._policy = policy or OnlyBacktestExecutionPolicy()
         self._lease_control_factory = lease_control_factory
         self._reconciler = OnlyBacktestReconciler(store, evidence)
+        self._runtime_generations = runtime_generations
+        self._process_generation_fingerprint = process_generation_fingerprint
 
     def run_once(self) -> OnlyBacktestWorkerOutcome | None:
-        if self._reconciler.run_once() is not None:
+        self._release_terminal_bindings()
+        eligible = self._runtime_generations.work_ids_for_generation(self._process_generation_fingerprint)
+        reconciled = self._reconciler.run_once(eligible)
+        if reconciled is not None:
+            self._release_if_terminal(reconciled)
             return None
-        self._store.expire_next(self._policy)
-        if self._reconciler.run_once() is not None:
+        self._store.expire_next(self._policy, eligible)
+        self._release_terminal_bindings()
+        eligible = self._runtime_generations.work_ids_for_generation(self._process_generation_fingerprint)
+        reconciled = self._reconciler.run_once(eligible)
+        if reconciled is not None:
+            self._release_if_terminal(reconciled)
+            return None
+        if not eligible:
             return None
         claim = self._store.claim_next(
             self.worker_instance_id,
             OnlyBacktestAttemptId.new(),
             self._policy,
+            eligible,
         )
         if claim is None:
             return None
-        return self.execute_claim(claim)
+        outcome = self.execute_claim(claim)
+        if outcome.run is not None:
+            self._release_if_terminal(outcome.run)
+        return outcome
+
+    def _release_terminal_bindings(self) -> None:
+        for work_id in self._runtime_generations.work_ids_for_generation(self._process_generation_fingerprint):
+            try:
+                run = self._store.load(OnlyBacktestRunId(work_id))
+            except OnlyBacktestNotFoundError:
+                continue
+            self._release_if_terminal(run)
+
+    def _release_if_terminal(self, run: OnlyBacktestRun) -> None:
+        if run.state in {
+            OnlyBacktestRunState.COMPLETED,
+            OnlyBacktestRunState.FAILED,
+            OnlyBacktestRunState.CANCELLED,
+        }:
+            if run.finished_at is None:
+                raise RuntimeError("BACKTEST_TERMINAL_RUN_MISSING_FINISHED_AT")
+            self._runtime_generations.release_work(
+                run.run_id.value,
+                actor="backtest-product-terminal-reconciliation",
+                occurred_at=run.finished_at,
+            )
 
     def execute_claim(self, claim: OnlyBacktestExecutionClaim) -> OnlyBacktestWorkerOutcome:
+        self._runtime_generations.require_work_generation(
+            claim.run.run_id.value,
+            self._process_generation_fingerprint,
+        )
         try:
             with self._lease_control_factory(self._store, claim, self._policy) as lease:
                 current = self._store.load(claim.run.run_id)
@@ -465,8 +516,8 @@ class OnlyBacktestReconciler:
         self._store = store
         self._evidence = evidence
 
-    def run_once(self) -> OnlyBacktestRun | None:
-        run = self._store.load_reconciliation_candidate()
+    def run_once(self, eligible_run_ids: tuple[str, ...] | None = None) -> OnlyBacktestRun | None:
+        run = self._store.load_reconciliation_candidate(eligible_run_ids)
         if run is None:
             return None
         try:

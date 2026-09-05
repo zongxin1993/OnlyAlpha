@@ -195,6 +195,21 @@ def _ready_projection() -> OnlyKernelResearchReadinessProjection:
     )
 
 
+class _RuntimeGenerations:
+    def __init__(self) -> None:
+        self.work: set[str] = set()
+
+    def bind_new_work(self, work_id, **_):  # type: ignore[no-untyped-def]
+        self.work.add(work_id)
+
+    def release_work(self, work_id, **_):  # type: ignore[no-untyped-def]
+        self.work.discard(work_id)
+
+    def require_work_binding(self, work_id):  # type: ignore[no-untyped-def]
+        if work_id not in self.work:
+            raise ValueError("RUNTIME_WORK_GENERATION_UNBOUND")
+
+
 def _client(readiness_probe=None, *, authoring_generations=True):  # type: ignore[no-untyped-def]
     store, dataset = _Store(), _Dataset()
     admission = OnlyResearchRunAdmissionService(
@@ -205,7 +220,12 @@ def _client(readiness_probe=None, *, authoring_generations=True):  # type: ignor
         run_id_factory=lambda: OnlyResearchRunId("00000000-0000-4000-8000-000000000510"),
         authoring_generation_resolver=_AuthoringGenerations() if authoring_generations else None,
     )
-    command = OnlyResearchCommandService(admission=admission, store=store, now_utc=lambda: NOW)  # type: ignore[arg-type]
+    command = OnlyResearchCommandService(
+        admission=admission,
+        store=store,
+        now_utc=lambda: NOW,
+        runtime_generations=_RuntimeGenerations(),  # type: ignore[arg-type]
+    )  # type: ignore[arg-type]
     query = OnlyResearchRunQueryService(store)  # type: ignore[arg-type]
     calculations = registry()
     kernel = OnlyAlphaKernelHost()

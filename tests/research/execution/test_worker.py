@@ -131,7 +131,8 @@ class _ExecutionStore:
     def expire_next(self, **kwargs: object) -> None:
         return None
 
-    def load_cancellation_recovery_candidate(self) -> None:
+    def load_cancellation_recovery_candidate(self, eligible_run_ids=None) -> None:  # type: ignore[no-untyped-def]
+        del eligible_run_ids
         return None
 
     def reconcile_cancellation(self, **kwargs: object) -> OnlyResearchRun:
@@ -174,6 +175,15 @@ def _runtime_result(
         code=code,
         detail="detail" if phase is not None else None,
     )
+
+
+class _RuntimeGenerations:
+    def __init__(self, work_id: str) -> None:
+        self.work_id = work_id
+
+    def require_work_generation(self, work_id, process_generation_fingerprint):  # type: ignore[no-untyped-def]
+        if work_id != self.work_id or process_generation_fingerprint != "f" * 64:
+            raise ValueError("RUNTIME_WORK_GENERATION_MISMATCH")
 
 
 def _case(
@@ -230,6 +240,8 @@ def _case(
             lease_duration=timedelta(seconds=1), heartbeat_interval=timedelta(milliseconds=10)
         ),
         now_utc=lambda: NOW + timedelta(minutes=1),
+        runtime_generations=_RuntimeGenerations(RUN_ID.value),  # type: ignore[arg-type]
+        process_generation_fingerprint="f" * 64,
         authoring_execution_generation_fingerprint=worker_generation,
     )
     return worker, run_store, execution_store, claim
@@ -467,6 +479,15 @@ class _Scheduler:
 class _ServiceWorker:
     worker_instance_id = WORKER_ID
 
+    def release_terminal_bindings(self) -> None:
+        return None
+
+    def eligible_work_ids(self) -> tuple[str, ...]:
+        return (str(RUN_ID),)
+
+    def release_outcome_if_terminal(self, outcome) -> None:  # type: ignore[no-untyped-def]
+        del outcome
+
     def execute_claim(self, claim: OnlyResearchExecutionClaim):
         return OnlyResearchWorkerOutcomeKind.COMPLETED, claim
 
@@ -476,7 +497,8 @@ class _Reconciler:
         self.calls = 0
         self.after_reconcile = after_reconcile
 
-    def reconcile_once(self) -> None:
+    def reconcile_once(self, eligible_run_ids=None) -> None:  # type: ignore[no-untyped-def]
+        del eligible_run_ids
         self.calls += 1
         if callable(self.after_reconcile):
             self.after_reconcile()

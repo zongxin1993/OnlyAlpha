@@ -4,7 +4,11 @@ from pathlib import Path
 import pytest
 from onlyalpha_runtime_generation_manager import OnlyLocalImmutableArtifactStore
 
-from onlyalpha.runtime.generation import OnlyDistributionArtifactManifest, OnlyDistributionArtifactRole
+from onlyalpha.runtime.generation import (
+    OnlyArtifactSourceProvenanceAuthority,
+    OnlyDistributionArtifactManifest,
+    OnlyDistributionArtifactRole,
+)
 
 
 def _manifest(content: bytes) -> OnlyDistributionArtifactManifest:
@@ -12,6 +16,7 @@ def _manifest(content: bytes) -> OnlyDistributionArtifactManifest:
 
     return OnlyDistributionArtifactManifest(
         role=OnlyDistributionArtifactRole.SUPPORT,
+        source_provenance_authority=OnlyArtifactSourceProvenanceAuthority.EXTERNAL_RELEASE,
         source_repository="support-distribution",
         source_revision="1" * 40,
         distribution_name="support-distribution",

@@ -59,6 +59,7 @@ from onlyalpha.runtime.result import OnlyRuntimeResultStatus
 from tests.research.postgres.migration_support import current_migrations
 from tests.research.specification.support import registry, specification
 from tests.runtime.research.support import workload_case
+from tests.runtime_generation_support import OnlyTestRuntimeGenerationAuthority
 
 pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
 NOW = datetime(2026, 8, 18, 1, 2, 3, tzinfo=UTC)
@@ -78,6 +79,14 @@ M13 = "0013_market_data_catalog"
 M14 = "0014_market_data_durable_ownership"
 CURRENT_MIGRATIONS = current_migrations()
 EXECUTION_EVIDENCE = ("e" * 64,)
+
+
+def _runtime_generations(run_id: OnlyResearchRunId) -> OnlyTestRuntimeGenerationAuthority:
+    authority = OnlyTestRuntimeGenerationAuthority()
+    authority.bind_new_work(run_id.value)
+    return authority
+
+
 WORKER_1 = OnlyResearchWorkerInstanceId("00000000-0000-4000-8000-000000000301")
 WORKER_2 = OnlyResearchWorkerInstanceId("00000000-0000-4000-8000-000000000302")
 
@@ -430,6 +439,8 @@ def test_real_postgres_outage_loses_worker_ownership_before_finalization_and_rec
             lease_duration=timedelta(milliseconds=250), heartbeat_interval=timedelta(milliseconds=30)
         ),
         now_utc=lambda: NOW + timedelta(minutes=1),
+        runtime_generations=(runtime_generations := _runtime_generations(queued.run_id)),
+        process_generation_fingerprint=runtime_generations.generation_fingerprint,
     )
     assert worker.execute_claim(claim).kind is OnlyResearchWorkerOutcomeKind.OWNERSHIP_LOST
     assert run_store.load(queued.run_id).state is OnlyResearchRunState.RUNNING
@@ -610,6 +621,8 @@ def test_artifact_commit_crash_reenters_real_engine_and_completes_with_new_servi
         runtime_executor=OnlyEngineResearchRuntimeExecutor(tmp_path, restarted_services),
         policy=OnlyResearchExecutionPolicy(),
         now_utc=lambda: NOW + timedelta(minutes=4),
+        runtime_generations=(runtime_generations := _runtime_generations(queued.run_id)),
+        process_generation_fingerprint=runtime_generations.generation_fingerprint,
     )
     outcome = worker.execute_claim(second)
     assert outcome.kind is OnlyResearchWorkerOutcomeKind.COMPLETED
@@ -674,6 +687,8 @@ def test_result_commit_crash_reenters_real_engine_without_rewriting_result(
         runtime_executor=OnlyEngineResearchRuntimeExecutor(tmp_path, restarted_services),
         policy=OnlyResearchExecutionPolicy(),
         now_utc=lambda: NOW + timedelta(minutes=4),
+        runtime_generations=(runtime_generations := _runtime_generations(queued.run_id)),
+        process_generation_fingerprint=runtime_generations.generation_fingerprint,
     )
     assert worker.execute_claim(second).kind is OnlyResearchWorkerOutcomeKind.COMPLETED
     assert {

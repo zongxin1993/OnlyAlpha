@@ -10,6 +10,10 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from threading import Event
 
+from onlyalpha.application.runtime_generation import (
+    OnlyNoClaimRuntimeGenerationWorkAuthority,
+    OnlyRuntimeGenerationWorkAuthority,
+)
 from onlyalpha.application.stop_controller import (
     OnlyApplicationShutdownReason,
     OnlyApplicationStopController,
@@ -32,6 +36,7 @@ from onlyalpha.research.dataset import (
 from onlyalpha.research.operations.deployment import (
     OnlyResearchSemanticStoreIdentity,
 )
+from onlyalpha.runtime.work_binding import only_load_runtime_generation_work_authority
 from onlyalpha.strategy.store import OnlyFrozenStrategyRevisionStore
 
 from .admission import OnlyBacktestAdmissionService
@@ -77,12 +82,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--backtest-product-config", action="append", type=Path, required=True)
     parser.add_argument("--backtest-market-resource", action="append", type=Path, default=[])
     parser.add_argument("--poll-interval", type=float, default=1.0)
+    parser.add_argument("--runtime-generation-authority-root", type=Path)
+    parser.add_argument("--runtime-generation-fingerprint")
     args = parser.parse_args(argv)
     if args.poll_interval <= 0:
         parser.error("--poll-interval must be positive")
     postgres = OnlyPostgresConfig.from_environment()
     options = OnlyPostgresOperationalConnectionOptions()
     layout = OnlyUserDataLayout(args.user_data_root)
+    if (args.runtime_generation_authority_root is None) != (args.runtime_generation_fingerprint is None):
+        parser.error("RuntimeGeneration authority root and fingerprint must be supplied together")
+    process_generation_fingerprint = args.runtime_generation_fingerprint or "0" * 64
+    runtime_generations: OnlyRuntimeGenerationWorkAuthority
+    if args.runtime_generation_authority_root is None:
+        runtime_generations = OnlyNoClaimRuntimeGenerationWorkAuthority()
+    else:
+        runtime_generations = only_load_runtime_generation_work_authority(args.runtime_generation_authority_root)
+        runtime_generations.verify_hosted_generation(process_generation_fingerprint)
     catalog = only_load_backtest_deployment_catalog(tuple(args.backtest_product_config))
     data_sources = OnlyDataSourceFactoryRegistry()
     brokers = OnlyBrokerFactoryRegistry()
@@ -139,6 +155,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         admission=admission,
         executor=executor,
         evidence=OnlyBacktestEvidenceStore(layout.root),
+        runtime_generations=runtime_generations,
+        process_generation_fingerprint=process_generation_fingerprint,
     )
     stop = OnlyApplicationStopController()
     presence = OnlyBacktestWorkerPresenceReporter(store, worker_id, _service_version(), timedelta(seconds=15))

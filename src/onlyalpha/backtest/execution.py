@@ -120,15 +120,23 @@ class OnlyBacktestExecutionStore(Protocol):
         worker_instance_id: OnlyBacktestWorkerInstanceId,
         attempt_id: OnlyBacktestAttemptId,
         policy: OnlyBacktestExecutionPolicy,
+        eligible_run_ids: tuple[str, ...],
     ) -> OnlyBacktestExecutionClaim | None: ...
 
     def heartbeat(self, claim: OnlyBacktestExecutionClaim, lease_duration: timedelta) -> OnlyBacktestAttempt: ...
 
-    def expire_next(self, policy: OnlyBacktestExecutionPolicy) -> OnlyBacktestAttempt | None: ...
+    def expire_next(
+        self,
+        policy: OnlyBacktestExecutionPolicy,
+        eligible_run_ids: tuple[str, ...] | None = None,
+    ) -> OnlyBacktestAttempt | None: ...
 
     def load_attempt(self, attempt_id: OnlyBacktestAttemptId) -> OnlyBacktestAttempt: ...
 
-    def load_reconciliation_candidate(self) -> OnlyBacktestRun | None: ...
+    def load_reconciliation_candidate(
+        self,
+        eligible_run_ids: tuple[str, ...] | None = None,
+    ) -> OnlyBacktestRun | None: ...
 
     def reconcile_complete(
         self,

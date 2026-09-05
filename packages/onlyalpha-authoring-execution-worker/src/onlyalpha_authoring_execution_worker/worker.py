@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from onlyalpha.application.runtime_generation import OnlyRuntimeGenerationWorkAuthority
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
     OnlyPostgresOperationalConnectionOptions,
@@ -59,6 +60,8 @@ def only_compose_authoring_research_worker(
     operational_options: OnlyPostgresOperationalConnectionOptions | None = None,
     polling_interval: timedelta = timedelta(seconds=1),
     worker_instance_id: OnlyResearchWorkerInstanceId | None = None,
+    runtime_generations: OnlyRuntimeGenerationWorkAuthority,
+    process_generation_fingerprint: str,
 ) -> OnlyAuthoringResearchWorkerComposition:
     """Verify immutable generation evidence before constructing any claim-capable object."""
 
@@ -94,7 +97,13 @@ def only_compose_authoring_research_worker(
     )
     run_store = OnlyPostgresResearchRunStore(postgres_dsn, options)
     worker_id = worker_instance_id or OnlyResearchWorkerInstanceId.new()
-    scheduler = OnlyResearchScheduler(store=execution_store, policy=policy, now_utc=now_utc)
+    scheduler = OnlyResearchScheduler(
+        store=execution_store,
+        policy=policy,
+        now_utc=now_utc,
+        runtime_generations=runtime_generations,
+        process_generation_fingerprint=process_generation_fingerprint,
+    )
     reconciler = OnlyResearchCancellationRecoveryReconciler(
         execution_store=execution_store,
         resolver=resolver,
@@ -115,6 +124,8 @@ def only_compose_authoring_research_worker(
         runtime_executor=OnlyEngineResearchRuntimeExecutor(layout.root, services),
         policy=policy,
         now_utc=now_utc,
+        runtime_generations=runtime_generations,
+        process_generation_fingerprint=process_generation_fingerprint,
         authoring_execution_generation_fingerprint=generation.fingerprint,
     )
     service = OnlyResearchWorkerService(

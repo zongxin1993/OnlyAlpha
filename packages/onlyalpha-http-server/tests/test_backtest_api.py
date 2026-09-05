@@ -59,9 +59,29 @@ class _Definitions:
         return value
 
 
+class _RuntimeGenerations:
+    def __init__(self) -> None:
+        self.work: set[str] = set()
+
+    def bind_new_work(self, work_id, **_):  # type: ignore[no-untyped-def]
+        self.work.add(work_id)
+
+    def release_work(self, work_id, **_):  # type: ignore[no-untyped-def]
+        self.work.discard(work_id)
+
+    def require_work_binding(self, work_id):  # type: ignore[no-untyped-def]
+        if work_id not in self.work:
+            raise ValueError("RUNTIME_WORK_GENERATION_UNBOUND")
+
+
 def _client(tmp_path):  # type: ignore[no-untyped-def]
     store = OnlyInMemoryBacktestCommandStore()
-    command = OnlyBacktestCommandService(admission=_Admission(), store=store, now_utc=lambda: NOW)  # type: ignore[arg-type]
+    command = OnlyBacktestCommandService(
+        admission=_Admission(),
+        store=store,
+        now_utc=lambda: NOW,
+        runtime_generations=_RuntimeGenerations(),  # type: ignore[arg-type]
+    )  # type: ignore[arg-type]
     query = OnlyBacktestQueryService(store, OnlyBacktestEvidenceStore(tmp_path))
     kernel = OnlyAlphaKernelHost()
     kernel.start()

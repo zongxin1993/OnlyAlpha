@@ -15,13 +15,10 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from onlyalpha_authoring_execution_worker import (
-    OnlyAuthoringExecutionGeneration,
-    OnlyAuthoringExecutionGenerationRegistry,
-    OnlyAuthoringExecutionGenerationStore,
-)
+from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry
 
 from onlyalpha.application import OnlyCalculationEquivalenceCertificationApplicationService
+from onlyalpha.application.product_command_receipt import OnlyProductCommandReceipt
 from onlyalpha.calculation import OnlyCalculationBackendKind, OnlyCalculationKind
 from onlyalpha.calculation.equivalence import OnlyCalculationEquivalenceEvidenceV2Store
 from onlyalpha.canonical import only_canonical_json
@@ -43,6 +40,10 @@ from onlyalpha.research.calculation.backend import OnlyResearchCalculationBacken
 from onlyalpha.research.calculation.execution import OnlyResearchCalculationExecutor
 from onlyalpha.research.calculation.execution_evidence import OnlyResearchCalculationExecutionEvidenceStore
 from onlyalpha.research.calculation.result_store import OnlyParquetResearchCalculationResultStore
+from onlyalpha.research.command import (
+    OnlyResearchCommandService,
+    OnlyResearchSubmissionKey,
+)
 from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore
 from onlyalpha.research.dataset.definition import OnlyResearchDatasetDefinition
 from onlyalpha.research.dataset.identity import only_content_fingerprint, only_snapshot_fingerprint
@@ -201,6 +202,12 @@ def test_l3_and_l4_subjects_bind_one_public_artifact_and_runtime_generation_cont
 
 
 def test_l3_subject_binds_an_exact_authoring_execution_generation(tmp_path: Path) -> None:
+    from onlyalpha_authoring_execution_worker import (
+        OnlyAuthoringExecutionGeneration,
+        OnlyAuthoringExecutionGenerationRegistry,
+        OnlyAuthoringExecutionGenerationStore,
+    )
+
     generation = only_discover_quant_asset_providers()
     factor = _selected_provider({item.manifest.provider_id: item for item in generation.providers}, L3_PROVIDER_ID)
     candidate = OnlyQuantAssetProvider(
@@ -309,6 +316,51 @@ def test_installed_l3_l4_resolve_research_evidence_freeze_and_revision(tmp_path:
         ),
         queued_at=NOW,
     )
+    generation_fingerprint = os.environ.get("ONLYALPHA_EXACT_RUNTIME_GENERATION_FINGERPRINT")
+    generation_authority_root = os.environ.get("ONLYALPHA_EXACT_RUNTIME_GENERATION_AUTHORITY_ROOT")
+    generation_manifest = None
+    if generation_fingerprint is not None or generation_authority_root is not None:
+        assert generation_fingerprint is not None and generation_authority_root is not None
+        runtime_generations = OnlyRuntimeGenerationRegistry(Path(generation_authority_root))
+
+        class _Admission:
+            def prepare(self, specification, *, provenance=None):  # type: ignore[no-untyped-def]
+                assert specification == queued.specification
+                assert provenance is None
+                return queued
+
+        class _Commands:
+            receipt: OnlyProductCommandReceipt | None = None
+            persisted: OnlyResearchRun | None = None
+
+            def find_product_command_receipt(self, key):  # type: ignore[no-untyped-def]
+                del key
+                return self.receipt
+
+            def create_queued_with_receipt(self, candidate, receipt):  # type: ignore[no-untyped-def]
+                self.persisted = candidate
+                self.receipt = receipt
+                return receipt
+
+            def load(self, candidate_run_id):  # type: ignore[no-untyped-def]
+                assert candidate_run_id == run_id and self.persisted is not None
+                return self.persisted
+
+        commands = _Commands()
+        admitted = OnlyResearchCommandService(
+            admission=_Admission(),  # type: ignore[arg-type]
+            store=commands,  # type: ignore[arg-type]
+            now_utc=lambda: NOW,
+            runtime_generations=runtime_generations,
+        ).submit_research_run(
+            OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000003001"),
+            queued.specification,
+        )
+        assert admitted.run == queued
+        binding = runtime_generations.require_work_binding(run_id.value)
+        assert binding.runtime_generation_fingerprint == generation_fingerprint
+        generation_manifest = runtime_generations.require_work_generation(run_id.value, generation_fingerprint)
+
     run = queued.transition(OnlyResearchRunState.RUNNING, at=NOW + timedelta(seconds=1)).transition(
         OnlyResearchRunState.COMPLETED,
         at=NOW + timedelta(seconds=2),
@@ -336,7 +388,27 @@ def test_installed_l3_l4_resolve_research_evidence_freeze_and_revision(tmp_path:
     first = freeze.freeze(request)
     second = freeze.freeze(request)
     assert first.strategy_fingerprint == second.strategy_fingerprint
-    assert strategies.load_verified(first.strategy_fingerprint).strategy_fingerprint.value == first.strategy_fingerprint
+    revision = strategies.load_verified(first.strategy_fingerprint)
+    assert revision.strategy_fingerprint.value == first.strategy_fingerprint
+    if generation_manifest is not None:
+        generation_implementations = {
+            (item.backend, item.implementation_fingerprint) for item in generation_manifest.implementations
+        }
+        research_implementations = {
+            ("RESEARCH", binding.research_implementation_fingerprint)
+            for fingerprint in evidence
+            for binding in evidence_store.load_verified(fingerprint).research_implementation_bindings
+        }
+        revision_implementations = {
+            (backend, fingerprint)
+            for binding in revision.implementation_bindings
+            for backend, fingerprint in (
+                ("RESEARCH", binding.research_implementation_fingerprint),
+                ("TRADING", binding.trading_implementation_fingerprint),
+            )
+        }
+        assert research_implementations <= generation_implementations
+        assert revision_implementations <= generation_implementations
 
 
 def _snapshot(

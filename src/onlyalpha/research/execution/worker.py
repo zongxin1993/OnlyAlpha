@@ -11,17 +11,19 @@ from pathlib import Path
 from threading import Event, Thread
 from typing import Protocol, cast
 
+from onlyalpha.application.runtime_generation import OnlyRuntimeGenerationWorkAuthority
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngineConfig
 from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.research.dataset import OnlyResearchDatasetSnapshotStore
 from onlyalpha.research.operations.logging import only_log_research_operational_event
-from onlyalpha.research.run.errors import OnlyResearchRunStoreUnavailableError
+from onlyalpha.research.run.errors import OnlyResearchRunNotFoundError, OnlyResearchRunStoreUnavailableError
 from onlyalpha.research.run.evidence import only_research_admission_resolution_fingerprint
 from onlyalpha.research.run.model import (
     OnlyResearchRun,
     OnlyResearchRunFailure,
     OnlyResearchRunFailurePhase,
+    OnlyResearchRunId,
     OnlyResearchRunState,
 )
 from onlyalpha.research.run.store import OnlyResearchRunStore
@@ -203,6 +205,8 @@ class OnlyResearchWorker:
         runtime_executor: OnlyResearchRuntimeExecutor,
         policy: OnlyResearchExecutionPolicy,
         now_utc: Callable[[], datetime],
+        runtime_generations: OnlyRuntimeGenerationWorkAuthority,
+        process_generation_fingerprint: str,
         authoring_execution_generation_fingerprint: str | None = None,
     ) -> None:
         self.worker_instance_id = worker_instance_id
@@ -214,10 +218,49 @@ class OnlyResearchWorker:
         self._policy = policy
         self._now_utc = now_utc
         self._authoring_execution_generation_fingerprint = authoring_execution_generation_fingerprint
+        self._runtime_generations = runtime_generations
+        self._process_generation_fingerprint = process_generation_fingerprint
+
+    def eligible_work_ids(self) -> tuple[str, ...]:
+        return self._runtime_generations.work_ids_for_generation(self._process_generation_fingerprint)
+
+    def release_terminal_bindings(self) -> None:
+        for work_id in self.eligible_work_ids():
+            try:
+                run = self._run_store.load(OnlyResearchRunId(work_id))
+            except OnlyResearchRunNotFoundError:
+                continue
+            if run.state in {
+                OnlyResearchRunState.COMPLETED,
+                OnlyResearchRunState.FAILED,
+                OnlyResearchRunState.CANCELLED,
+            }:
+                self._runtime_generations.release_work(
+                    work_id,
+                    actor="research-product-terminal-reconciliation",
+                    occurred_at=self._now_utc(),
+                )
+
+    def release_outcome_if_terminal(self, outcome: OnlyResearchWorkerOutcome) -> None:
+        run = outcome.run
+        if run is not None and run.state in {
+            OnlyResearchRunState.COMPLETED,
+            OnlyResearchRunState.FAILED,
+            OnlyResearchRunState.CANCELLED,
+        }:
+            self._runtime_generations.release_work(
+                run.run_id.value,
+                actor="research-product-terminal",
+                occurred_at=self._now_utc(),
+            )
 
     def execute_claim(self, claim: OnlyResearchExecutionClaim) -> OnlyResearchWorkerOutcome:
         if claim.attempt.worker_instance_id != self.worker_instance_id:
             raise OnlyResearchExecutionOwnershipLostError("Claim belongs to a different Worker instance")
+        self._runtime_generations.require_work_generation(
+            claim.attempt.run_id.value,
+            self._process_generation_fingerprint,
+        )
         only_log_research_operational_event(
             _LOG,
             logging.INFO,
@@ -368,13 +411,20 @@ class OnlyResearchWorkerService:
     def run_once(self, *, stop_requested: Callable[[], bool] | None = None) -> OnlyResearchWorkerOutcome | None:
         if self._stop.is_set():
             return None
+        self._worker.release_terminal_bindings()
         self._scheduler.expire_once()
-        self._cancellation_reconciler.reconcile_once()
+        self._worker.release_terminal_bindings()
+        self._cancellation_reconciler.reconcile_once(self._worker.eligible_work_ids())
+        self._worker.release_terminal_bindings()
         if self._stop.is_set() or (stop_requested or (lambda: False))():
             self.stop()
             return None
         claim = self._scheduler.claim_once(self._worker.worker_instance_id)
-        return None if claim is None else self._worker.execute_claim(claim)
+        if claim is None:
+            return None
+        outcome = self._worker.execute_claim(claim)
+        self._worker.release_outcome_if_terminal(outcome)
+        return outcome
 
     def run_forever(self, *, stop_requested: Callable[[], bool] | None = None) -> None:
         externally_stopped = stop_requested or (lambda: False)
