@@ -12,6 +12,7 @@ from ..definition import OnlyResearchStatisticsMethod
 
 class OnlyResearchSummaryKind(StrEnum):
     EFFECT_SUMMARY = "EFFECT_SUMMARY"
+    COVERAGE_SUMMARY = "COVERAGE_SUMMARY"
 
 
 class OnlyResearchSummaryValueKind(StrEnum):
@@ -75,7 +76,7 @@ class OnlyResearchSummaryMetricDescriptor:
         )
 
 
-_INTEGER_FIELDS = (
+_EFFECT_INTEGER_FIELDS = (
     "total_count",
     "valid_count",
     "insufficient_observations_count",
@@ -85,7 +86,7 @@ _INTEGER_FIELDS = (
     "negative_count",
     "zero_count",
 )
-_DECIMAL_FIELDS = (
+_EFFECT_DECIMAL_FIELDS = (
     "mean",
     "stddev_sample",
     "information_ratio",
@@ -94,6 +95,17 @@ _DECIMAL_FIELDS = (
     "zero_ratio",
 )
 _METRIC_SUFFIX = MappingProxyType({"information_ratio": "ir"})
+_COVERAGE_INTEGER_FIELDS = (
+    "total_timestamp_count",
+    "valid_timestamp_count",
+    "insufficient_timestamp_count",
+    "zero_variance_feature_count",
+    "zero_variance_target_count",
+    "pair_count_total",
+    "pair_count_min",
+    "pair_count_max",
+)
+_COVERAGE_DECIMAL_FIELDS = ("valid_timestamp_ratio", "pair_count_mean")
 
 
 def _descriptors() -> tuple[OnlyResearchSummaryMetricDescriptor, ...]:
@@ -103,8 +115,8 @@ def _descriptors() -> tuple[OnlyResearchSummaryMetricDescriptor, ...]:
         (OnlyResearchStatisticsMethod.RANK_IC, "research.factor.rank_ic"),
     ):
         for field_name, value_kind in (
-            *((name, OnlyResearchSummaryValueKind.INTEGER) for name in _INTEGER_FIELDS),
-            *((name, OnlyResearchSummaryValueKind.DECIMAL) for name in _DECIMAL_FIELDS),
+            *((name, OnlyResearchSummaryValueKind.INTEGER) for name in _EFFECT_INTEGER_FIELDS),
+            *((name, OnlyResearchSummaryValueKind.DECIMAL) for name in _EFFECT_DECIMAL_FIELDS),
         ):
             suffix = _METRIC_SUFFIX.get(field_name, field_name)
             result.append(
@@ -112,6 +124,20 @@ def _descriptors() -> tuple[OnlyResearchSummaryMetricDescriptor, ...]:
                     f"{prefix}.{suffix}@1",
                     1,
                     OnlyResearchSummaryKind.EFFECT_SUMMARY,
+                    method,
+                    field_name,
+                    value_kind,
+                )
+            )
+        for field_name, value_kind in (
+            *((name, OnlyResearchSummaryValueKind.INTEGER) for name in _COVERAGE_INTEGER_FIELDS),
+            *((name, OnlyResearchSummaryValueKind.DECIMAL) for name in _COVERAGE_DECIMAL_FIELDS),
+        ):
+            result.append(
+                OnlyResearchSummaryMetricDescriptor(
+                    f"{prefix}.coverage.{field_name}@1",
+                    1,
+                    OnlyResearchSummaryKind.COVERAGE_SUMMARY,
                     method,
                     field_name,
                     value_kind,
@@ -140,10 +166,28 @@ def only_research_effect_metric(
     matches = tuple(
         descriptor
         for descriptor in ONLY_RESEARCH_SUMMARY_METRICS
-        if descriptor.source_method is source_method and descriptor.field_name == field_name
+        if descriptor.summary_kind is OnlyResearchSummaryKind.EFFECT_SUMMARY
+        and descriptor.source_method is source_method
+        and descriptor.field_name == field_name
     )
     if len(matches) != 1:
         raise ValueError("unsupported Effect Summary metric field")
+    return matches[0]
+
+
+def only_research_coverage_metric(
+    source_method: OnlyResearchStatisticsMethod,
+    field_name: str,
+) -> OnlyResearchSummaryMetricDescriptor:
+    matches = tuple(
+        descriptor
+        for descriptor in ONLY_RESEARCH_SUMMARY_METRICS
+        if descriptor.summary_kind is OnlyResearchSummaryKind.COVERAGE_SUMMARY
+        and descriptor.source_method is source_method
+        and descriptor.field_name == field_name
+    )
+    if len(matches) != 1:
+        raise ValueError("unsupported Coverage Summary metric field")
     return matches[0]
 
 
@@ -159,6 +203,7 @@ __all__ = [
     "OnlyResearchSummaryKind",
     "OnlyResearchSummaryMetricDescriptor",
     "OnlyResearchSummaryValueKind",
+    "only_research_coverage_metric",
     "only_research_effect_metric",
     "only_research_summary_metric",
 ]

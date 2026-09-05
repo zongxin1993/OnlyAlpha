@@ -4,6 +4,9 @@ from decimal import Decimal
 import pytest
 
 from onlyalpha.research import (
+    OnlyResearchCoverageSemantics,
+    OnlyResearchCoverageSummaryDefinition,
+    OnlyResearchCoverageSummaryPlan,
     OnlyResearchEffectSummaryDefinition,
     OnlyResearchEffectSummaryPlan,
     OnlyResearchFeatureSeriesReference,
@@ -13,9 +16,12 @@ from onlyalpha.research import (
     OnlyResearchSummaryScalar,
     OnlyResearchSummaryScalarStatus,
     OnlyResearchSummaryValueKind,
+    only_research_coverage_metric,
     only_research_effect_metric,
     only_research_statistics_family,
+    only_research_summary_from_dict,
     only_research_summary_metric,
+    only_research_summary_plan_from_dict,
 )
 from onlyalpha.research.evaluation import (
     ONLY_RESEARCH_SUMMARY_METRICS,
@@ -64,7 +70,7 @@ def test_effect_definition_and_plan_round_trip_are_exact_and_versioned() -> None
 def test_metric_registry_is_exact_immutable_and_method_typed() -> None:
     ids = tuple(item.metric_id for item in ONLY_RESEARCH_SUMMARY_METRICS)
     assert ids == tuple(sorted(ids))
-    assert len(ids) == len(set(ids)) == 28
+    assert len(ids) == len(set(ids)) == 48
     assert (
         tuple(OnlyResearchSummaryMetricDescriptor.from_dict(item.to_dict()) for item in ONLY_RESEARCH_SUMMARY_METRICS)
         == ONLY_RESEARCH_SUMMARY_METRICS
@@ -80,6 +86,14 @@ def test_metric_registry_is_exact_immutable_and_method_typed() -> None:
     )
     assert (
         only_research_effect_metric(OnlyResearchStatisticsMethod.IC, "mean").value_kind
+        is OnlyResearchSummaryValueKind.DECIMAL
+    )
+    assert (
+        only_research_coverage_metric(OnlyResearchStatisticsMethod.IC, "pair_count_total").value_kind
+        is OnlyResearchSummaryValueKind.INTEGER
+    )
+    assert (
+        only_research_coverage_metric(OnlyResearchStatisticsMethod.IC, "pair_count_mean").value_kind
         is OnlyResearchSummaryValueKind.DECIMAL
     )
     with pytest.raises(ValueError, match="unsupported"):
@@ -173,3 +187,60 @@ def test_exact_payload_readers_reject_unknown_fields() -> None:
     payload["unknown"] = True
     with pytest.raises(ValueError, match="fields"):
         OnlyResearchEffectSummaryPlan.from_dict(payload)
+
+
+def test_coverage_definition_and_plan_round_trip_are_exact_and_versioned() -> None:
+    effect = _plan()
+    definition = OnlyResearchCoverageSummaryDefinition(OnlyResearchStatisticsMethod.IC)
+    plan = OnlyResearchCoverageSummaryPlan(
+        effect.dataset_snapshot_fingerprint,
+        effect.subject_candidate_fingerprint,
+        effect.subject,
+        effect.source_statistics_fingerprint,
+        effect.source_statistics_result_fingerprint,
+        definition,
+    )
+    assert OnlyResearchCoverageSummaryDefinition.from_dict(definition.to_dict()) == definition
+    assert OnlyResearchCoverageSummaryPlan.from_dict(plan.to_dict()) == plan
+    assert only_research_summary_plan_from_dict(plan.to_dict()) == plan
+    assert plan.statistics_fingerprint != effect.statistics_fingerprint
+    assert (
+        replace(plan, source_statistics_result_fingerprint="4" * 64).statistics_fingerprint
+        == plan.statistics_fingerprint
+    )
+    for field, value in (
+        ("coverage_semantics", "THEORETICAL_UNIVERSE"),
+        ("source_method", "FACTOR_CORRELATION"),
+        ("schema_version", 2),
+    ):
+        payload = definition.to_dict()
+        payload[field] = value
+        with pytest.raises((TypeError, ValueError)):
+            OnlyResearchCoverageSummaryDefinition.from_dict(payload)
+    with pytest.raises(ValueError):
+        replace(definition, coverage_semantics=object())  # type: ignore[arg-type]
+    assert definition.coverage_semantics is OnlyResearchCoverageSemantics.OBSERVED_TIMESTAMP_PAIR
+
+
+def test_typed_plan_and_payload_dispatch_never_guess_another_summary_kind() -> None:
+    plan = _plan().to_dict()
+    definition = plan["definition"]
+    assert isinstance(definition, dict)
+    definition["summary_kind"] = "COVERAGE_SUMMARY"
+    with pytest.raises(ValueError):
+        only_research_summary_plan_from_dict(plan)
+    definition["summary_kind"] = "TEMPORAL_STABILITY"
+    with pytest.raises(ValueError, match="unsupported"):
+        only_research_summary_plan_from_dict(plan)
+
+    payload: dict[str, object] = {
+        "schema_version": 1,
+        "summary_kind": "EFFECT_SUMMARY",
+        "source_method": "IC",
+        "total_timestamp_count": {},
+    }
+    with pytest.raises(ValueError, match="Effect Summary result fields"):
+        only_research_summary_from_dict(payload)
+    payload["summary_kind"] = "TEMPORAL_STABILITY"
+    with pytest.raises(ValueError, match="unsupported"):
+        only_research_summary_from_dict(payload)

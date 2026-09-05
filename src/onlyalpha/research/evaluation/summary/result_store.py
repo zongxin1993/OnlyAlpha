@@ -17,18 +17,23 @@ from onlyalpha.canonical import only_canonical_json
 from ..errors import OnlyResearchStatisticsResultStoreError
 from ..result import OnlyResearchStatisticsResult
 from .execution import (
+    OnlyResearchCoverageSummaryExecution,
     OnlyResearchEffectSummaryExecution,
+    OnlyResearchSummaryExecution,
     _validate_source,
+    only_compute_research_coverage_summary,
     only_compute_research_effect_summary,
 )
 from .identity import (
     only_research_summary_result_content_fingerprint,
     only_research_summary_result_fingerprint,
 )
+from .plan import OnlyResearchSummaryPlan
 from .result import (
-    OnlyResearchEffectSummary,
+    OnlyResearchSummary,
     OnlyResearchSummaryStatisticsResult,
     OnlyResearchSummaryStatisticsResultManifest,
+    only_research_summary_from_dict,
 )
 
 
@@ -51,8 +56,8 @@ class OnlyJsonResearchSummaryStatisticsResultStore:
     def exists(self, statistics_fingerprint: str) -> bool:
         return self._target(statistics_fingerprint).exists()
 
-    def commit(self, execution: OnlyResearchEffectSummaryExecution) -> OnlyResearchSummaryStatisticsResult:
-        if not isinstance(execution, OnlyResearchEffectSummaryExecution):
+    def commit(self, execution: OnlyResearchSummaryExecution) -> OnlyResearchSummaryStatisticsResult:
+        if not isinstance(execution, (OnlyResearchEffectSummaryExecution, OnlyResearchCoverageSummaryExecution)):
             raise OnlyResearchStatisticsResultStoreError(
                 "SUMMARY_STATISTICS_RESULT_INVALID", "execution contract is invalid"
             )
@@ -109,13 +114,13 @@ class OnlyJsonResearchSummaryStatisticsResultStore:
     def load_verified(self, statistics_fingerprint: str) -> OnlyResearchSummaryStatisticsResult:
         return self._read_verified(self._target(statistics_fingerprint), statistics_fingerprint)
 
-    def _admit(self, execution: OnlyResearchEffectSummaryExecution) -> tuple[OnlyResearchEffectSummary, str, str]:
+    def _admit(self, execution: OnlyResearchSummaryExecution) -> tuple[OnlyResearchSummary, str, str]:
         try:
             source = self._source_store.load_verified(execution.plan.source_statistics_fingerprint)
             _validate_source(source, execution.plan)
-            expected = only_compute_research_effect_summary(source, execution.plan)
+            expected = _compute_summary(source, execution)
             if execution.summary != expected:
-                raise ValueError("Effect Summary content is not the deterministic source projection")
+                raise ValueError("Summary content is not the deterministic source projection")
             content = only_research_summary_result_content_fingerprint(
                 execution.plan.source_statistics_fingerprint,
                 execution.plan.source_statistics_result_fingerprint,
@@ -133,7 +138,7 @@ class OnlyJsonResearchSummaryStatisticsResultStore:
 
     def _resolve_existing(
         self,
-        execution: OnlyResearchEffectSummaryExecution,
+        execution: OnlyResearchSummaryExecution,
         result_content_fingerprint: str,
     ) -> OnlyResearchSummaryStatisticsResult:
         existing = self.load_verified(execution.plan.statistics_fingerprint)
@@ -164,8 +169,8 @@ class OnlyJsonResearchSummaryStatisticsResultStore:
                 raise ValueError("Summary Statistics byte hash mismatch")
             source = self._source_store.load_verified(manifest.source_statistics_fingerprint)
             _validate_source(source, manifest.plan)
-            summary = OnlyResearchEffectSummary.from_dict(summary_payload)
-            expected = only_compute_research_effect_summary(source, manifest.plan)
+            summary = only_research_summary_from_dict(summary_payload)
+            expected = _compute_plan_summary(source, manifest.plan)
             if summary != expected:
                 raise ValueError("Summary Statistics semantic payload mismatch")
             content = only_research_summary_result_content_fingerprint(
@@ -208,6 +213,23 @@ class OnlyJsonResearchSummaryStatisticsResultStore:
 
 def _valid_sha(value: str) -> bool:
     return isinstance(value, str) and len(value) == 64 and all(char in "0123456789abcdef" for char in value)
+
+
+def _compute_summary(
+    source: OnlyResearchStatisticsResult,
+    execution: OnlyResearchSummaryExecution,
+) -> OnlyResearchSummary:
+    return _compute_plan_summary(source, execution.plan)
+
+
+def _compute_plan_summary(source: OnlyResearchStatisticsResult, plan: OnlyResearchSummaryPlan) -> OnlyResearchSummary:
+    from .plan import OnlyResearchCoverageSummaryPlan, OnlyResearchEffectSummaryPlan
+
+    if isinstance(plan, OnlyResearchEffectSummaryPlan):
+        return only_compute_research_effect_summary(source, plan)
+    if isinstance(plan, OnlyResearchCoverageSummaryPlan):
+        return only_compute_research_coverage_summary(source, plan)
+    raise ValueError("Summary Statistics Plan kind is unsupported")
 
 
 def _sha(path: Path) -> str:

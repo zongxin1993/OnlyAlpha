@@ -1,4 +1,4 @@
-"""Immutable fixed-shape Effect Summary result contracts."""
+"""Immutable fixed-shape typed Summary Statistics result contracts."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 from ..definition import OnlyResearchStatisticsMethod
 from .identity import (
@@ -13,8 +14,8 @@ from .identity import (
     RESEARCH_SUMMARY_STATISTICS_RESULT_SCHEMA_VERSION,
     only_research_summary_result_fingerprint,
 )
-from .metric import OnlyResearchSummaryKind, only_research_effect_metric
-from .plan import OnlyResearchEffectSummaryPlan
+from .metric import OnlyResearchSummaryKind, only_research_coverage_metric, only_research_effect_metric
+from .plan import OnlyResearchSummaryPlan, only_research_summary_plan_from_dict
 from .scalar import OnlyResearchSummaryScalar, OnlyResearchSummaryScalarStatus
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -33,6 +34,18 @@ _EFFECT_FIELDS = (
     "positive_ratio",
     "negative_ratio",
     "zero_ratio",
+)
+_COVERAGE_FIELDS = (
+    "total_timestamp_count",
+    "valid_timestamp_count",
+    "valid_timestamp_ratio",
+    "insufficient_timestamp_count",
+    "zero_variance_feature_count",
+    "zero_variance_target_count",
+    "pair_count_total",
+    "pair_count_mean",
+    "pair_count_min",
+    "pair_count_max",
 )
 
 
@@ -163,9 +176,125 @@ class OnlyResearchEffectSummary:
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyResearchCoverageSummary:
+    source_method: OnlyResearchStatisticsMethod
+    total_timestamp_count: OnlyResearchSummaryScalar
+    valid_timestamp_count: OnlyResearchSummaryScalar
+    valid_timestamp_ratio: OnlyResearchSummaryScalar
+    insufficient_timestamp_count: OnlyResearchSummaryScalar
+    zero_variance_feature_count: OnlyResearchSummaryScalar
+    zero_variance_target_count: OnlyResearchSummaryScalar
+    pair_count_total: OnlyResearchSummaryScalar
+    pair_count_mean: OnlyResearchSummaryScalar
+    pair_count_min: OnlyResearchSummaryScalar
+    pair_count_max: OnlyResearchSummaryScalar
+    summary_kind: OnlyResearchSummaryKind = OnlyResearchSummaryKind.COVERAGE_SUMMARY
+    schema_version: int = RESEARCH_SUMMARY_STATISTICS_RESULT_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if self.schema_version != RESEARCH_SUMMARY_STATISTICS_RESULT_SCHEMA_VERSION:
+            raise ValueError("Coverage Summary result schema is unsupported")
+        if self.summary_kind is not OnlyResearchSummaryKind.COVERAGE_SUMMARY:
+            raise ValueError("Coverage Summary result kind is invalid")
+        if not isinstance(self.source_method, OnlyResearchStatisticsMethod) or self.source_method not in {
+            OnlyResearchStatisticsMethod.IC,
+            OnlyResearchStatisticsMethod.RANK_IC,
+        }:
+            raise ValueError("Coverage Summary result source method is invalid")
+        for name in _COVERAGE_FIELDS:
+            scalar = getattr(self, name)
+            if not isinstance(scalar, OnlyResearchSummaryScalar):
+                raise ValueError(f"Coverage Summary {name} scalar is invalid")
+            descriptor = only_research_coverage_metric(self.source_method, name)
+            if scalar.metric_id != descriptor.metric_id or scalar.value_kind is not descriptor.value_kind:
+                raise ValueError(f"Coverage Summary {name} metric linkage mismatch")
+        self._validate_coverage_invariants()
+
+    def _validate_coverage_invariants(self) -> None:
+        count_fields = (
+            "total_timestamp_count",
+            "valid_timestamp_count",
+            "insufficient_timestamp_count",
+            "zero_variance_feature_count",
+            "zero_variance_target_count",
+            "pair_count_total",
+        )
+        if any(getattr(self, name).status is not OnlyResearchSummaryScalarStatus.VALID for name in count_fields):
+            raise ValueError("Coverage Summary count scalars must be VALID")
+        total = _integer_scalar(self.total_timestamp_count)
+        valid = _integer_scalar(self.valid_timestamp_count)
+        if total != valid + sum(
+            _integer_scalar(getattr(self, name))
+            for name in (
+                "insufficient_timestamp_count",
+                "zero_variance_feature_count",
+                "zero_variance_target_count",
+            )
+        ):
+            raise ValueError("Coverage Summary source status counts are inconsistent")
+        observed_fields = ("valid_timestamp_ratio", "pair_count_mean", "pair_count_min", "pair_count_max")
+        expected = (
+            OnlyResearchSummaryScalarStatus.VALID
+            if total > 0
+            else OnlyResearchSummaryScalarStatus.NO_VALID_OBSERVATIONS
+        )
+        if any(getattr(self, name).status is not expected for name in observed_fields):
+            raise ValueError("Coverage Summary observed metric statuses are inconsistent")
+        if total > 0:
+            ratio = self.valid_timestamp_ratio.decimal_value
+            if ratio is None or not Decimal(0) <= ratio <= Decimal(1):
+                raise ValueError("Coverage Summary valid timestamp ratio is invalid")
+            if _integer_scalar(self.pair_count_min) > _integer_scalar(self.pair_count_max):
+                raise ValueError("Coverage Summary pair count bounds are inconsistent")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "summary_kind": self.summary_kind.value,
+            "source_method": self.source_method.value,
+            **{name: getattr(self, name).to_dict() for name in _COVERAGE_FIELDS},
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchCoverageSummary:
+        if set(payload) != {"schema_version", "summary_kind", "source_method", *_COVERAGE_FIELDS}:
+            raise ValueError("Coverage Summary result fields are invalid")
+        scalars: dict[str, OnlyResearchSummaryScalar] = {}
+        for name in _COVERAGE_FIELDS:
+            value = payload[name]
+            if not isinstance(value, Mapping) or any(not isinstance(key, str) for key in value):
+                raise ValueError(f"Coverage Summary {name} must be an object")
+            scalars[name] = OnlyResearchSummaryScalar.from_dict(value)
+        return cls(
+            source_method=OnlyResearchStatisticsMethod(_string(payload, "source_method")),
+            **scalars,
+            summary_kind=OnlyResearchSummaryKind(_string(payload, "summary_kind")),
+            schema_version=_integer(payload, "schema_version"),
+        )
+
+
+OnlyResearchSummary = OnlyResearchEffectSummary | OnlyResearchCoverageSummary
+
+
+def only_research_summary_from_dict(payload: Mapping[str, object]) -> OnlyResearchSummary:
+    raw_kind = payload.get("summary_kind")
+    if not isinstance(raw_kind, str):
+        raise ValueError("Summary Statistics payload kind must be a string")
+    try:
+        kind = OnlyResearchSummaryKind(raw_kind)
+    except ValueError as exc:
+        raise ValueError("Summary Statistics payload kind is unsupported") from exc
+    if kind is OnlyResearchSummaryKind.EFFECT_SUMMARY:
+        return OnlyResearchEffectSummary.from_dict(payload)
+    if kind is OnlyResearchSummaryKind.COVERAGE_SUMMARY:
+        return OnlyResearchCoverageSummary.from_dict(payload)
+    raise ValueError("Summary Statistics payload kind is unsupported")  # pragma: no cover
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyResearchSummaryStatisticsResultManifest:
     statistics_fingerprint: str
-    plan: OnlyResearchEffectSummaryPlan
+    plan: OnlyResearchSummaryPlan
     source_statistics_fingerprint: str
     source_statistics_result_fingerprint: str
     dataset_snapshot_fingerprint: str
@@ -192,7 +321,9 @@ class OnlyResearchSummaryStatisticsResultManifest:
         ):
             if _SHA256.fullmatch(getattr(self, name)) is None:
                 raise ValueError(f"Summary Statistics {name} must be a lower-case SHA256")
-        if not isinstance(self.plan, OnlyResearchEffectSummaryPlan):
+        from .plan import OnlyResearchCoverageSummaryPlan, OnlyResearchEffectSummaryPlan
+
+        if not isinstance(self.plan, (OnlyResearchEffectSummaryPlan, OnlyResearchCoverageSummaryPlan)):
             raise ValueError("Summary Statistics Plan is invalid")
         if self.statistics_fingerprint != self.plan.statistics_fingerprint:
             raise ValueError("Summary Statistics logical identity mismatch")
@@ -223,7 +354,7 @@ class OnlyResearchSummaryStatisticsResultManifest:
             raise ValueError("Summary Statistics manifest plan must be an object")
         return cls(
             statistics_fingerprint=_string(payload, "statistics_fingerprint"),
-            plan=OnlyResearchEffectSummaryPlan.from_dict(plan),
+            plan=only_research_summary_plan_from_dict(plan),
             source_statistics_fingerprint=_string(payload, "source_statistics_fingerprint"),
             source_statistics_result_fingerprint=_string(payload, "source_statistics_result_fingerprint"),
             dataset_snapshot_fingerprint=_string(payload, "dataset_snapshot_fingerprint"),
@@ -239,11 +370,17 @@ class OnlyResearchSummaryStatisticsResultManifest:
 @dataclass(frozen=True, slots=True)
 class OnlyResearchSummaryStatisticsResult:
     manifest: OnlyResearchSummaryStatisticsResultManifest
-    summary: OnlyResearchEffectSummary
+    summary: OnlyResearchSummary
+
+    def __post_init__(self) -> None:
+        if self.manifest.plan.definition.summary_kind is not self.summary.summary_kind:
+            raise ValueError("Summary Statistics Plan/payload kind mismatch")
 
 
 def _manifest_value(value: object) -> object:
-    if isinstance(value, OnlyResearchEffectSummaryPlan):
+    from .plan import OnlyResearchCoverageSummaryPlan, OnlyResearchEffectSummaryPlan
+
+    if isinstance(value, (OnlyResearchEffectSummaryPlan, OnlyResearchCoverageSummaryPlan)):
         return value.to_dict()
     if isinstance(value, datetime):
         return value.isoformat()
@@ -255,6 +392,12 @@ def _required_count(counts: Mapping[str, int | None], name: str) -> int:
     if value is None:  # pragma: no cover - scalar invariant
         raise ValueError("Effect Summary count scalar is absent")
     return value
+
+
+def _integer_scalar(scalar: OnlyResearchSummaryScalar) -> int:
+    if scalar.integer_value is None:  # pragma: no cover - scalar invariant
+        raise ValueError("Summary count scalar is absent")
+    return scalar.integer_value
 
 
 def _string(payload: Mapping[str, object], name: str) -> str:
@@ -280,7 +423,10 @@ def _datetime(payload: Mapping[str, object], name: str) -> datetime:
 
 
 __all__ = [
+    "OnlyResearchCoverageSummary",
     "OnlyResearchEffectSummary",
+    "OnlyResearchSummary",
     "OnlyResearchSummaryStatisticsResult",
     "OnlyResearchSummaryStatisticsResultManifest",
+    "only_research_summary_from_dict",
 ]

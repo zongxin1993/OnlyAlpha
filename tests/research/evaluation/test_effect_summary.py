@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -9,6 +10,7 @@ from decimal import ROUND_DOWN, Decimal, Inexact, Rounded, localcontext
 
 import pytest
 
+from onlyalpha.canonical import only_canonical_json
 from onlyalpha.research import (
     OnlyResearchStatisticRow,
     OnlyResearchStatisticsDisposition,
@@ -211,3 +213,27 @@ print(json.dumps({"logical": plan.statistics_fingerprint, "result": outcome.stat
         "result": first.statistics_result_fingerprint,
         "disposition": "REUSED",
     }
+
+
+def test_b3_0_1_effect_identities_and_canonical_payloads_are_pinned(tmp_path) -> None:
+    case = summary_case(tmp_path)
+    case[13].execute(case[11])
+    loaded = case[12].load_verified(case[11].statistics_fingerprint)
+
+    def canonical_sha(payload: object) -> str:
+        return hashlib.sha256(only_canonical_json(payload).encode()).hexdigest()
+
+    assert case[11].statistics_fingerprint == "869301b91160a95029ce6c1150d52f525016b6a15e244bcc6e4fe20a709ecc5e"
+    assert loaded.manifest.result_content_fingerprint == (
+        "a7f8ad66f4e07d174b2e242faf2e26781d8bbd48b3ae7f7d874426e98870955f"
+    )
+    assert loaded.manifest.statistics_result_fingerprint == (
+        "0ae0f83b091d95e4eb8921d4c991f0bcca98a8d86f689b102a0d29e529c045a1"
+    )
+    assert canonical_sha(case[11].to_dict()) == "1d6570e48f129863b62db6db9ee2438f3f73c93d92ea840a6becdd1bae72ff9d"
+    assert canonical_sha(loaded.summary.to_dict()) == (
+        "8809f819090d139cc055e546dc566fb35a00d616cc8565f1addb8437192ca607"
+    )
+    assert canonical_sha(loaded.manifest.to_dict()) == (
+        "a0f350fd59345ac6d9a9b7ed2fc2c4a33d15d53f0f39dad0d89f50e6d396e26b"
+    )
