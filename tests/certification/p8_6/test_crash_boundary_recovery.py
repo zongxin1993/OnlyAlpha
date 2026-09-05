@@ -141,7 +141,8 @@ def test_process_kill_boundaries_reenter_and_converge_exact_semantic_truth(
     crash = subprocess.Popen(
         [
             sys.executable,
-            "tests/certification/p8_6/crash_worker.py",
+            "-m",
+            "tests.certification.p8_6.crash_worker",
             boundary,
             "--barrier",
             str(barrier),

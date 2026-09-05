@@ -76,10 +76,12 @@ def test_deployment_identity_cannot_enter_research_semantic_fingerprints() -> No
 def test_real_browser_certification_has_no_route_mock_and_uses_process_barrier() -> None:
     browser = _source("packages/onlyalpha-web-console/e2e-real/research-product.spec.ts")
     harness = _source("tests/certification/p8_6/test_real_browser_product.py")
+    worker_harness = _source("tests/runtime_generation_worker_main.py")
     assert "page.route(" not in browser
     assert "route.fulfill(" not in browser
     assert "browser-closed.barrier" in harness
-    assert "onlyalpha.research.worker_main" in harness
+    assert "tests.runtime_generation_worker_main" in harness
+    assert "onlyalpha.research.worker_main import main" in worker_harness
     for semantic_word in ("recompute", "parquet", "psycopg"):
         assert semantic_word not in browser.lower()
 
