@@ -1,6 +1,6 @@
 # ADR 0119: Rich Research Statistics Authority and Factor-Quality Evidence Contract
 
-- Status: PROPOSED
+- Status: Accepted
 - Date: 2026-09-05
 - Related: ADR 0082, 0083, 0084, 0085, 0092, 0095, 0097, 0114, 0115, 0116, 0117, 0118
 

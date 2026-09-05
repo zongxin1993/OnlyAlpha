@@ -16,12 +16,16 @@ from onlyalpha.calculation import (
     OnlyCalculationRegistry,
 )
 from onlyalpha.research import (
+    OnlyJsonResearchSummaryStatisticsResultStore,
     OnlyParquetResearchCalculationResultStore,
     OnlyParquetResearchDatasetSnapshotStore,
     OnlyParquetResearchStatisticsResultStore,
     OnlyResearchCalculationBackendResolver,
     OnlyResearchCalculationExecutionEvidenceStore,
     OnlyResearchCalculationExecutor,
+    OnlyResearchEffectSummaryDefinition,
+    OnlyResearchEffectSummaryExecutor,
+    OnlyResearchEffectSummaryPlan,
     OnlyResearchFeatureSeriesReference,
     OnlyResearchJobExecutor,
     OnlyResearchJobPlan,
@@ -117,3 +121,32 @@ def statistics_case(root: Path):
     )
     executor = OnlyResearchStatisticsExecutor(calculation_store, statistics_store)
     return (*case, statistics_store, executor, executor.execute(statistics_plan))
+
+
+def summary_case(root: Path, source_method: OnlyResearchStatisticsMethod = OnlyResearchStatisticsMethod.IC):
+    case = statistics_case(root)
+    source_store = case[8]
+    source_plan = case[6]
+    if source_method is not source_plan.definition.method:
+        source_plan = OnlyResearchStatisticsPlan(
+            source_plan.feature,
+            source_plan.target,
+            OnlyResearchStatisticsDefinition(source_method),
+        )
+        case[9].execute(source_plan)
+    source = source_store.load_verified(source_plan.statistics_fingerprint)
+    plan = OnlyResearchEffectSummaryPlan(
+        source.manifest.dataset_snapshot_fingerprint,
+        "c" * 64,
+        source_plan.feature,
+        source.manifest.statistics_fingerprint,
+        source.manifest.statistics_result_fingerprint,
+        OnlyResearchEffectSummaryDefinition(source_method),
+    )
+    summary_store = OnlyJsonResearchSummaryStatisticsResultStore(
+        root / "statistics-results",
+        source_store,
+        audit_time=lambda: datetime(2026, 8, 15, tzinfo=UTC),
+    )
+    executor = OnlyResearchEffectSummaryExecutor(source_store, summary_store)
+    return (*case, plan, summary_store, executor)

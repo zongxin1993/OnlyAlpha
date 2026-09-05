@@ -114,9 +114,29 @@ def test_evaluation_plane_has_no_trading_authority_imports() -> None:
         Path("plugs/onlyalpha-plugin-targets/src/onlyalpha_plugin_targets"),
     )
     for root in roots:
-        for path in root.glob("*.py"):
+        for path in root.rglob("*.py"):
             imports = _imports(path)
             assert not any(name.startswith(forbidden) for name in imports), (path, imports)
+
+
+def test_summary_statistics_has_no_downstream_research_or_product_dependencies() -> None:
+    forbidden = (
+        "onlyalpha.research.result",
+        "onlyalpha.research.artifact",
+        "onlyalpha.research.query",
+        "onlyalpha.research.specification",
+        "onlyalpha.strategy",
+        "onlyalpha.runtime",
+        "onlyalpha.broker",
+        "onlyalpha.account",
+        "onlyalpha.risk",
+        "onlyalpha.portfolio",
+        "onlyalpha.execution",
+        "onlyalpha.web",
+    )
+    for path in Path("src/onlyalpha/research/evaluation/summary").rglob("*.py"):
+        imports = _imports(path)
+        assert not any(name.startswith(forbidden) for name in imports), (path, imports)
 
 
 def test_research_runtime_factory_is_formally_activated_after_p7_11() -> None:
