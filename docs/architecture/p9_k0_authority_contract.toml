@@ -9,9 +9,12 @@ sensitive_path_patterns = [
   "src/onlyalpha/application/product_boundary.py",
   "src/onlyalpha/application/strategy_authority.py",
   "src/onlyalpha/application/strategy_product.py",
+  "src/onlyalpha/application/qualification_product.py",
   "src/onlyalpha/backtest/*.py",
   "src/onlyalpha/strategy/freeze.py",
   "src/onlyalpha/strategy/promotion.py",
+  "src/onlyalpha/strategy/qualification.py",
+  "src/onlyalpha/strategy/qualification_store.py",
   "src/onlyalpha/strategy/store.py",
   "src/onlyalpha/engine/*.py",
   "src/onlyalpha/runtime/assembler.py",
@@ -173,6 +176,22 @@ mutation_capability = "C24"
 read_capability = "C24"
 semantic_persistence_relation = "PostgreSQL presence is diagnostic operational state and never execution ownership"
 
+[[facts]]
+id = "F18"
+name = "Qualification Policy Revision"
+identity_authority = "exact policy ID, version and canonical policy fingerprint"
+mutation_capability = "C25"
+read_capability = "C27"
+semantic_persistence_relation = "immutable semantic Policy store is authority; operator composition publishes exact revisions"
+
+[[facts]]
+id = "F19"
+name = "Qualification Decision"
+identity_authority = "exact Strategy Revision, Policy Revision, typed Evidence and criterion results"
+mutation_capability = "C26"
+read_capability = "C27"
+semantic_persistence_relation = "immutable semantic Decision store is authority; PostgreSQL stores command admission and receipt only"
+
 [[capabilities]]
 id = "C01"
 name = "RESEARCH_RUN_MUTATE"
@@ -317,6 +336,24 @@ name = "BACKTEST_WORKER_PRESENCE_MUTATE"
 kind = "TRANSITION"
 privileged = true
 
+[[capabilities]]
+id = "C25"
+name = "QUALIFICATION_POLICY_PUBLISH"
+kind = "PUBLISH"
+privileged = true
+
+[[capabilities]]
+id = "C26"
+name = "QUALIFICATION_DECISION_PUBLISH"
+kind = "PUBLISH"
+privileged = true
+
+[[capabilities]]
+id = "C27"
+name = "QUALIFICATION_READ"
+kind = "READ"
+privileged = true
+
 [[actors]]
 id = "A01"
 name = "PUBLIC_PYTHON_SURFACE"
@@ -327,13 +364,13 @@ allowed_capabilities = []
 id = "A03"
 name = "HTTP_COMPOSITION_ROOT"
 production = true
-allowed_capabilities = ["C01", "C05", "C06", "C09", "C10", "C17", "C18", "C19", "C20", "C21", "C23", "C24"]
+allowed_capabilities = ["C01", "C05", "C06", "C09", "C10", "C17", "C18", "C19", "C20", "C21", "C23", "C24", "C25", "C26", "C27"]
 
 [[actors]]
 id = "A04"
 name = "HTTP_TRANSPORT_ADAPTER"
 production = true
-allowed_capabilities = ["C05", "C18", "C19", "C20"]
+allowed_capabilities = ["C05", "C18", "C19", "C20", "C26", "C27"]
 
 [[actors]]
 id = "A05"
@@ -393,7 +430,7 @@ allowed_capabilities = ["C05", "C17", "C18"]
 id = "A14"
 name = "STRATEGY_APPLICATION"
 production = true
-allowed_capabilities = ["C05", "C06", "C07", "C08", "C09"]
+allowed_capabilities = ["C05", "C06", "C07", "C08", "C09", "C25", "C26", "C27"]
 
 [[actors]]
 id = "A15"
@@ -525,6 +562,9 @@ actor = "A14"
 pattern = "src/onlyalpha/application/strategy_product.py"
 actor = "A14"
 [[actor_paths]]
+pattern = "src/onlyalpha/application/qualification_product.py"
+actor = "A14"
+[[actor_paths]]
 pattern = "src/onlyalpha/application/product_boundary.py"
 actor = "A17"
 [[actor_paths]]
@@ -538,6 +578,12 @@ pattern = "src/onlyalpha/strategy/freeze.py"
 actor = "A14"
 [[actor_paths]]
 pattern = "src/onlyalpha/strategy/promotion.py"
+actor = "A14"
+[[actor_paths]]
+pattern = "src/onlyalpha/strategy/qualification.py"
+actor = "A14"
+[[actor_paths]]
+pattern = "src/onlyalpha/strategy/qualification_store.py"
 actor = "A14"
 [[actor_paths]]
 pattern = "src/onlyalpha/strategy/store.py"
@@ -686,7 +732,7 @@ capability = "C06"
 symbols = ["onlyalpha.application.strategy_authority.OnlyStrategyFreezeApplicationService", "onlyalpha.strategy.freeze.OnlyStrategyFreezeService"]
 [[bindings]]
 capability = "C07"
-symbols = ["onlyalpha.application.strategy_authority.OnlyStrategyPromotionApplicationService", "onlyalpha.strategy.promotion.OnlyStrategyPromotionService"]
+symbols = ["onlyalpha.application.strategy_authority.OnlyStrategyPromotionApplicationService", "onlyalpha.strategy.promotion.OnlyStrategyPromotionService", "onlyalpha.strategy.promotion._only_authorize_qualified_promotion"]
 [[bindings]]
 capability = "C08"
 symbols = ["onlyalpha.strategy.store._OnlyFrozenStrategyPublisher", "onlyalpha.strategy.store._only_compose_frozen_strategy_authority"]
@@ -738,6 +784,15 @@ symbols = ["onlyalpha.backtest.evidence.OnlyBacktestEvidenceStore"]
 [[bindings]]
 capability = "C24"
 symbols = ["onlyalpha.backtest.presence.OnlyBacktestWorkerPresenceReporter", "onlyalpha.persistence.postgres.backtest_store.OnlyPostgresBacktestStore"]
+[[bindings]]
+capability = "C25"
+symbols = ["onlyalpha.strategy.qualification_store.OnlyQualificationPolicyStore"]
+[[bindings]]
+capability = "C26"
+symbols = ["onlyalpha.strategy.qualification.OnlyQualificationEvaluator", "onlyalpha.strategy.qualification_store._OnlyQualificationDecisionPublisher", "onlyalpha.strategy.qualification_store._only_compose_qualification_decision_authority", "onlyalpha.application.qualification_product.OnlyQualificationProductService"]
+[[bindings]]
+capability = "C27"
+symbols = ["onlyalpha.strategy.qualification_store.OnlyQualificationDecisionStore", "onlyalpha.application.qualification_product.OnlyQualificationQueryService"]
 
 [[ownership]]
 capability = "C01"
@@ -811,6 +866,15 @@ approved_production_holders = ["A03", "A19", "A20", "A21"]
 [[ownership]]
 capability = "C24"
 approved_production_holders = ["A03", "A20", "A22"]
+[[ownership]]
+capability = "C25"
+approved_production_holders = ["A03", "A14"]
+[[ownership]]
+capability = "C26"
+approved_production_holders = ["A03", "A04", "A14"]
+[[ownership]]
+capability = "C27"
+approved_production_holders = ["A03", "A04", "A14"]
 
 [[constructors]]
 id = "K01"
@@ -882,3 +946,23 @@ id = "K14"
 capability = "C19"
 symbol = "onlyalpha.kernel.query.OnlyProductQueryDispatcher"
 approved_paths = ["src/onlyalpha/application/product_boundary.py"]
+[[constructors]]
+id = "K15"
+capability = "C26"
+symbol = "onlyalpha.strategy.qualification_store._only_compose_qualification_decision_authority"
+approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"]
+[[constructors]]
+id = "K16"
+capability = "C26"
+symbol = "onlyalpha.strategy.qualification.OnlyQualificationEvaluator"
+approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"]
+[[constructors]]
+id = "K17"
+capability = "C26"
+symbol = "onlyalpha.application.qualification_product.OnlyQualificationProductService"
+approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"]
+[[constructors]]
+id = "K18"
+capability = "C07"
+symbol = "onlyalpha.strategy.promotion._only_authorize_qualified_promotion"
+approved_paths = ["src/onlyalpha/application/strategy_product.py"]

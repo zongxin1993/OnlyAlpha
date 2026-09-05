@@ -43,6 +43,7 @@ from onlyalpha.strategy.promotion import (
     OnlyStrategyPromotionDecision,
     OnlyStrategyPromotionService,
     OnlyStrategyPromotionStage,
+    _only_authorize_qualified_promotion,
 )
 from tests.research.calculation.support import bars
 from tests.runtime_generation_support import OnlyTestRuntimeGenerationAuthority
@@ -141,10 +142,11 @@ def test_research_evidence_freeze_publishes_one_strategy_for_backtest_and_sim(
     promotion.record(
         strategy_fingerprint=fingerprint,
         to_stage=OnlyStrategyPromotionStage.BACKTEST,
-        evidence_fingerprints=(frozen.freeze_record.record_fingerprint,),
+        evidence_fingerprints=tuple(sorted((frozen.freeze_record.record_fingerprint, "f" * 64))),
         decision=OnlyStrategyPromotionDecision.APPROVED,
         reason="example vertical admission",
         actor="operator",
+        qualification_authorization=_only_authorize_qualified_promotion("f" * 64),
     )
     assert promotion.current_stage(fingerprint) is OnlyStrategyPromotionStage.BACKTEST
 

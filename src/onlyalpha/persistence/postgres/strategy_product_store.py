@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from datetime import datetime
 from typing import cast
@@ -16,6 +17,10 @@ from onlyalpha.application.product_command_receipt import (
     OnlyProductCommandOutcomeRef,
     OnlyProductCommandReceipt,
 )
+from onlyalpha.application.qualification_product import (
+    OnlyQualificationAdmissionState,
+    OnlyQualificationCommandAdmission,
+)
 from onlyalpha.application.strategy_product import (
     OnlyStrategyFreezeAdmissionState,
     OnlyStrategyFreezeCommandAdmission,
@@ -23,13 +28,19 @@ from onlyalpha.application.strategy_product import (
 from onlyalpha.research.operations.deployment import OnlyResearchSemanticStoreId
 from onlyalpha.research.run import OnlyResearchRunId
 from onlyalpha.research.run.errors import OnlyResearchRunStoreUnavailableError
-from onlyalpha.strategy.errors import OnlyStrategyFreezeError, OnlyStrategyPromotionError
+from onlyalpha.strategy.errors import OnlyQualificationError, OnlyStrategyFreezeError, OnlyStrategyPromotionError
 from onlyalpha.strategy.freeze import OnlyStrategyFreezeOutcome, OnlyStrategyFreezeRequest
 from onlyalpha.strategy.promotion import (
     OnlyStrategyPromotionDecision,
     OnlyStrategyPromotionRecord,
     OnlyStrategyPromotionStage,
+    _only_require_qualified_promotion,
+    _OnlyQualifiedPromotionAuthorization,
     only_verified_strategy_promotion_chain,
+)
+from onlyalpha.strategy.qualification import (
+    OnlyQualificationDecision,
+    OnlyQualificationEvidenceReference,
 )
 
 from .config import OnlyPostgresOperationalConnectionOptions
@@ -56,6 +67,142 @@ class OnlyPostgresStrategyProductStore(OnlyPostgresStrategyStore):
         except psycopg.Error as exc:
             raise OnlyResearchRunStoreUnavailableError("Strategy Product receipt load failed") from exc
         return None if row is None else _receipt(cast(Mapping[str, object], row))
+
+    def prepare_qualification_admission(
+        self, admission: OnlyQualificationCommandAdmission
+    ) -> OnlyQualificationCommandAdmission:
+        try:
+            with psycopg.connect(self._product_dsn, row_factory=dict_row) as connection:
+                connection.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                    (admission.command_id.value,),
+                )
+                receipt_row = connection.execute(
+                    "SELECT * FROM product_command_receipt WHERE command_id = %s FOR UPDATE",
+                    (admission.command_id.value,),
+                ).fetchone()
+                if receipt_row is not None:
+                    receipt = _receipt(cast(Mapping[str, object], receipt_row))
+                    _assert_receipt_binding(
+                        receipt,
+                        admission.command_fingerprint,
+                        OnlyProductCommandKind.EVALUATE_QUALIFICATION,
+                        OnlyProductCommandOutcomeKind.QUALIFICATION_DECISION,
+                        OnlyQualificationError,
+                    )
+                row = connection.execute(
+                    "SELECT * FROM qualification_command_admission WHERE command_id = %s FOR UPDATE",
+                    (admission.command_id.value,),
+                ).fetchone()
+                if row is not None:
+                    existing = _qualification_admission(cast(Mapping[str, object], row))
+                    if existing.command_fingerprint != admission.command_fingerprint:
+                        raise OnlyQualificationError("PRODUCT_COMMAND_CONFLICT", admission.command_id.value)
+                    return existing
+                if receipt_row is not None:
+                    raise OnlyQualificationError("PRODUCT_COMMAND_RECEIPT_CORRUPT", admission.command_id.value)
+                connection.execute(
+                    """INSERT INTO qualification_command_admission
+                    (command_id, command_fingerprint, subject_strategy_fingerprint, policy_id, policy_version,
+                     evidence_payload, state, prepared_at, schema_version)
+                    VALUES (%s, %s, %s, %s, %s, %s::jsonb, 'PREPARED', %s, 1)""",
+                    (
+                        admission.command_id.value,
+                        admission.command_fingerprint,
+                        admission.subject_strategy_fingerprint,
+                        admission.policy_id,
+                        admission.policy_version,
+                        json.dumps(
+                            [item.to_dict() for item in admission.evidence], separators=(",", ":"), sort_keys=True
+                        ),
+                        admission.prepared_at,
+                    ),
+                )
+            return admission
+        except OnlyQualificationError:
+            raise
+        except psycopg.Error as exc:
+            raise OnlyQualificationError("QUALIFICATION_COMMAND_UNAVAILABLE", admission.command_id.value) from exc
+
+    def load_qualification_admission(self, command_id: OnlyProductCommandId) -> OnlyQualificationCommandAdmission:
+        try:
+            with psycopg.connect(self._product_dsn, row_factory=dict_row) as connection:
+                row = connection.execute(
+                    "SELECT * FROM qualification_command_admission WHERE command_id = %s",
+                    (command_id.value,),
+                ).fetchone()
+        except psycopg.Error as exc:
+            raise OnlyQualificationError("QUALIFICATION_COMMAND_UNAVAILABLE", command_id.value) from exc
+        if row is None:
+            raise OnlyQualificationError("PRODUCT_COMMAND_RECEIPT_CORRUPT", command_id.value)
+        return _qualification_admission(cast(Mapping[str, object], row))
+
+    def complete_qualification_admission(
+        self,
+        admission: OnlyQualificationCommandAdmission,
+        decision: OnlyQualificationDecision,
+        completed_at: datetime,
+    ) -> OnlyProductCommandReceipt:
+        receipt = OnlyProductCommandReceipt(
+            admission.command_id,
+            OnlyProductCommandKind.EVALUATE_QUALIFICATION,
+            admission.command_fingerprint,
+            OnlyProductCommandOutcomeRef(
+                OnlyProductCommandOutcomeKind.QUALIFICATION_DECISION,
+                decision.decision_fingerprint,
+            ),
+            completed_at,
+        )
+        try:
+            with psycopg.connect(self._product_dsn, row_factory=dict_row) as connection:
+                connection.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                    (admission.command_id.value,),
+                )
+                row = connection.execute(
+                    "SELECT * FROM qualification_command_admission WHERE command_id = %s FOR UPDATE",
+                    (admission.command_id.value,),
+                ).fetchone()
+                if row is None:
+                    raise OnlyQualificationError("PRODUCT_COMMAND_RECEIPT_CORRUPT", admission.command_id.value)
+                existing = _qualification_admission(cast(Mapping[str, object], row))
+                if existing.command_fingerprint != admission.command_fingerprint:
+                    raise OnlyQualificationError("PRODUCT_COMMAND_CONFLICT", admission.command_id.value)
+                if existing.state is OnlyQualificationAdmissionState.COMPLETED:
+                    found = connection.execute(
+                        "SELECT * FROM product_command_receipt WHERE command_id = %s",
+                        (admission.command_id.value,),
+                    ).fetchone()
+                    if found is None:
+                        raise OnlyQualificationError("PRODUCT_COMMAND_RECEIPT_CORRUPT", admission.command_id.value)
+                    persisted = _receipt(cast(Mapping[str, object], found))
+                    _assert_receipt_binding(
+                        persisted,
+                        admission.command_fingerprint,
+                        OnlyProductCommandKind.EVALUATE_QUALIFICATION,
+                        OnlyProductCommandOutcomeKind.QUALIFICATION_DECISION,
+                        OnlyQualificationError,
+                    )
+                    return persisted
+                if (
+                    decision.subject_strategy_fingerprint != admission.subject_strategy_fingerprint
+                    or decision.policy_id != admission.policy_id
+                    or decision.policy_version != admission.policy_version
+                    or decision.evidence != admission.evidence
+                ):
+                    raise OnlyQualificationError("QUALIFICATION_DECISION_CORRUPT", decision.decision_fingerprint)
+                connection.execute(
+                    """UPDATE qualification_command_admission
+                    SET state = 'COMPLETED', decision_fingerprint = %s, completed_at = %s
+                    WHERE command_id = %s AND state = 'PREPARED'""",
+                    (decision.decision_fingerprint, completed_at, admission.command_id.value),
+                )
+                _insert_receipt(connection, receipt)
+            return receipt
+        except OnlyQualificationError:
+            raise
+        except psycopg.Error as exc:
+            raise OnlyQualificationError("QUALIFICATION_COMMAND_UNAVAILABLE", admission.command_id.value) from exc
 
     def prepare_freeze_admission(
         self,
@@ -221,7 +368,11 @@ class OnlyPostgresStrategyProductStore(OnlyPostgresStrategyStore):
         record: OnlyStrategyPromotionRecord,
         command_id: OnlyProductCommandId,
         command_fingerprint: str,
+        qualification_authorization: _OnlyQualifiedPromotionAuthorization,
     ) -> OnlyProductCommandReceipt:
+        authorized_decision = _only_require_qualified_promotion(qualification_authorization)
+        if record.schema_version != 2 or record.qualification_decision_fingerprint != authorized_decision:
+            raise OnlyStrategyPromotionError("QUALIFICATION_DECISION_NOT_APPROVED", record.record_fingerprint)
         prepared = OnlyProductCommandReceipt(
             command_id=command_id,
             command_kind=OnlyProductCommandKind.PROMOTE_STRATEGY,
@@ -274,9 +425,9 @@ class OnlyPostgresStrategyProductStore(OnlyPostgresStrategyStore):
                 connection.execute(
                     """INSERT INTO strategy_promotion_record
                     (promotion_record_fingerprint, strategy_fingerprint, from_stage, to_stage,
-                     evidence_fingerprints, previous_record_fingerprint, decision, reason, actor,
-                     recorded_at, schema_version)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                     evidence_fingerprints, previous_record_fingerprint, qualification_decision_fingerprint,
+                     decision, reason, actor, recorded_at, schema_version)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                     (
                         record.record_fingerprint,
                         record.strategy_fingerprint,
@@ -284,6 +435,7 @@ class OnlyPostgresStrategyProductStore(OnlyPostgresStrategyStore):
                         record.to_stage.value,
                         list(record.evidence_fingerprints),
                         record.previous_record_fingerprint,
+                        record.qualification_decision_fingerprint,
                         record.decision.value,
                         record.reason,
                         record.actor,
@@ -355,6 +507,29 @@ def _freeze_admission(row: Mapping[str, object]) -> OnlyStrategyFreezeCommandAdm
         raise OnlyStrategyFreezeError("STRATEGY_FREEZE_ADMISSION_CORRUPT", str(row.get("command_id"))) from exc
 
 
+def _qualification_admission(row: Mapping[str, object]) -> OnlyQualificationCommandAdmission:
+    try:
+        raw_evidence = row["evidence_payload"]
+        if not isinstance(raw_evidence, list):
+            raise ValueError("Qualification evidence payload must be an array")
+        return OnlyQualificationCommandAdmission(
+            OnlyProductCommandId(str(row["command_id"])),
+            str(row["command_fingerprint"]),
+            str(row["subject_strategy_fingerprint"]),
+            str(row["policy_id"]),
+            str(row["policy_version"]),
+            tuple(
+                OnlyQualificationEvidenceReference.from_dict(cast(Mapping[str, object], item)) for item in raw_evidence
+            ),
+            OnlyQualificationAdmissionState(str(row["state"])),
+            cast(datetime, row["prepared_at"]),
+            None if row["decision_fingerprint"] is None else str(row["decision_fingerprint"]),
+            cast(datetime | None, row["completed_at"]),
+        )
+    except Exception as exc:
+        raise OnlyQualificationError("QUALIFICATION_COMMAND_CORRUPT", str(row.get("command_id"))) from exc
+
+
 def _receipt(row: Mapping[str, object]) -> OnlyProductCommandReceipt:
     try:
         return OnlyProductCommandReceipt(
@@ -389,6 +564,11 @@ def _promotion(row: Mapping[str, object]) -> OnlyStrategyPromotionRecord:
             previous_record_fingerprint=(
                 None if row["previous_record_fingerprint"] is None else str(row["previous_record_fingerprint"])
             ),
+            qualification_decision_fingerprint=(
+                None
+                if row.get("qualification_decision_fingerprint") is None
+                else str(row["qualification_decision_fingerprint"])
+            ),
             schema_version=int(str(row["schema_version"])),
         )
         if result.record_fingerprint != row["promotion_record_fingerprint"]:
@@ -403,7 +583,7 @@ def _assert_receipt_binding(
     command_fingerprint: str,
     command_kind: OnlyProductCommandKind,
     outcome_kind: OnlyProductCommandOutcomeKind,
-    error_type: type[OnlyStrategyFreezeError] | type[OnlyStrategyPromotionError],
+    error_type: type[OnlyStrategyFreezeError] | type[OnlyStrategyPromotionError] | type[OnlyQualificationError],
 ) -> None:
     if (
         receipt.command_fingerprint != command_fingerprint

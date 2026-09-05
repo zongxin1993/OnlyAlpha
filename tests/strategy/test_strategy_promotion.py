@@ -13,6 +13,7 @@ from onlyalpha.strategy.promotion import (
     OnlyStrategyPromotionRecord,
     OnlyStrategyPromotionService,
     OnlyStrategyPromotionStage,
+    _only_authorize_qualified_promotion,
     only_verified_strategy_promotion_chain,
 )
 from tests.strategy.p9_support import p9_strategy_case, publish_frozen_strategy_for_execution_test
@@ -40,6 +41,7 @@ def test_promotion_is_append_only_chained_evidence_with_derived_stage(tmp_path) 
         decision=OnlyStrategyPromotionDecision.APPROVED,
         reason="exact historical evidence accepted",
         actor="operator",
+        qualification_authorization=_only_authorize_qualified_promotion("a" * 64),
     )
     second = service.record(
         strategy_fingerprint=fingerprint,
@@ -48,6 +50,7 @@ def test_promotion_is_append_only_chained_evidence_with_derived_stage(tmp_path) 
         decision=OnlyStrategyPromotionDecision.APPROVED,
         reason="realtime simulation evidence accepted",
         actor="operator",
+        qualification_authorization=_only_authorize_qualified_promotion("b" * 64),
     )
     third = service.record(
         strategy_fingerprint=fingerprint,
@@ -56,6 +59,7 @@ def test_promotion_is_append_only_chained_evidence_with_derived_stage(tmp_path) 
         decision=OnlyStrategyPromotionDecision.REJECTED,
         reason="eligibility evidence rejected",
         actor="operator",
+        qualification_authorization=_only_authorize_qualified_promotion("c" * 64),
     )
 
     assert first.previous_record_fingerprint is None
@@ -87,6 +91,7 @@ def test_promotion_rejects_stage_skips(tmp_path, target) -> None:
             decision=OnlyStrategyPromotionDecision.APPROVED,
             reason="illegal skip",
             actor="operator",
+            qualification_authorization=_only_authorize_qualified_promotion("a" * 64),
         )
     assert error.value.code == "ILLEGAL_PROMOTION_TRANSITION"
 
@@ -119,6 +124,7 @@ def test_promotion_records_are_immutable_and_invalid_evidence_fails_closed(tmp_p
             decision=OnlyStrategyPromotionDecision.APPROVED,
             reason="invalid evidence",
             actor="operator",
+            qualification_authorization=_only_authorize_qualified_promotion("a" * 64),
         )
     assert error.value.code == "PROMOTION_RECORD_INVALID"
 
@@ -129,6 +135,7 @@ def test_promotion_records_are_immutable_and_invalid_evidence_fails_closed(tmp_p
         decision=OnlyStrategyPromotionDecision.APPROVED,
         reason="valid evidence",
         actor="operator",
+        qualification_authorization=_only_authorize_qualified_promotion("a" * 64),
     )
     with pytest.raises(FrozenInstanceError):
         record.reason = "mutated"  # type: ignore[misc]
@@ -160,6 +167,7 @@ def test_promotion_chain_order_is_timestamp_independent(tmp_path) -> None:
             decision=OnlyStrategyPromotionDecision.APPROVED,
             reason="exact evidence",
             actor="operator",
+            qualification_authorization=_only_authorize_qualified_promotion(evidence),
         )
 
     assert service.current_stage(fingerprint) is OnlyStrategyPromotionStage.LIVE_ELIGIBLE
@@ -167,6 +175,28 @@ def test_promotion_chain_order_is_timestamp_independent(tmp_path) -> None:
         tuple(reversed(ledger.records(fingerprint))),
         fingerprint,
     ) == ledger.records(fingerprint)
+
+
+def test_promotion_recording_requires_verified_qualification_authorization(tmp_path) -> None:
+    revision = p9_strategy_case(tmp_path / "case").revision
+    store = OnlyFrozenStrategyRevisionStore(tmp_path / "semantic")
+    publish_frozen_strategy_for_execution_test(tmp_path / "semantic", revision)
+    service = OnlyStrategyPromotionService(
+        store,
+        OnlyInMemoryStrategyPromotionLedger(),
+        lambda: datetime(2026, 8, 24, tzinfo=UTC),
+    )
+    with pytest.raises(OnlyStrategyPromotionError) as error:
+        service.record(
+            strategy_fingerprint=str(revision.strategy_fingerprint),
+            to_stage=OnlyStrategyPromotionStage.BACKTEST,
+            evidence_fingerprints=("a" * 64,),
+            decision=OnlyStrategyPromotionDecision.APPROVED,
+            reason="must not bypass evaluator proof",
+            actor="operator",
+            qualification_authorization=object(),  # type: ignore[arg-type]
+        )
+    assert error.value.code == "QUALIFICATION_DECISION_NOT_APPROVED"
 
 
 def test_promotion_chain_rejects_two_heads_branch_and_orphan() -> None:

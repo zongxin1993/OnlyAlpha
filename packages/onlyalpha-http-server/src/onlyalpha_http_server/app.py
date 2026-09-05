@@ -11,6 +11,10 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
 from onlyalpha.application.product_boundary import OnlyResearchProductBoundary
+from onlyalpha.application.qualification_product import (
+    OnlyQualificationProductService,
+    OnlyQualificationQueryService,
+)
 from onlyalpha.application.strategy_product import (
     OnlyStrategyFreezeProductService,
     OnlyStrategyPromotionProductService,
@@ -130,6 +134,8 @@ def create_research_app(
     strategy_freeze: OnlyStrategyFreezeProductService | None = None,
     strategy_promotion: OnlyStrategyPromotionProductService | None = None,
     strategy_query: OnlyStrategyQueryService | None = None,
+    qualification: OnlyQualificationProductService | None = None,
+    qualification_query: OnlyQualificationQueryService | None = None,
     backtest_commands: OnlyBacktestCommandService | None = None,
     backtest_queries: OnlyBacktestQueryService | None = None,
     execution_capacity: OnlyProductExecutionCapacityProbe | None = None,
@@ -286,11 +292,28 @@ def create_research_app(
         dependencies=readiness_dependencies,
     )
     app.include_router(create_health_router(readiness_probe, execution_capacity))
-    if strategy_freeze is not None or strategy_promotion is not None or strategy_query is not None:
-        if strategy_freeze is None or strategy_promotion is None or strategy_query is None:
+    if any(
+        item is not None
+        for item in (strategy_freeze, strategy_promotion, strategy_query, qualification, qualification_query)
+    ):
+        if any(
+            item is None
+            for item in (strategy_freeze, strategy_promotion, strategy_query, qualification, qualification_query)
+        ):
             raise TypeError("Strategy Product routes require all Strategy services")
+        assert strategy_freeze is not None
+        assert strategy_promotion is not None
+        assert strategy_query is not None
+        assert qualification is not None
+        assert qualification_query is not None
         app.include_router(
-            create_strategy_router(strategy_freeze, strategy_promotion, strategy_query),
+            create_strategy_router(
+                strategy_freeze,
+                strategy_promotion,
+                strategy_query,
+                qualification,
+                qualification_query,
+            ),
             dependencies=readiness_dependencies,
         )
     if backtest_commands is not None or backtest_queries is not None:
@@ -341,6 +364,8 @@ def create_product_app(
     strategy_freeze: OnlyStrategyFreezeProductService,
     strategy_promotion: OnlyStrategyPromotionProductService,
     strategy_query: OnlyStrategyQueryService,
+    qualification: OnlyQualificationProductService,
+    qualification_query: OnlyQualificationQueryService,
     backtest_commands: OnlyBacktestCommandService,
     backtest_queries: OnlyBacktestQueryService,
     execution_capacity: OnlyProductExecutionCapacityProbe | None = None,
@@ -354,6 +379,8 @@ def create_product_app(
         strategy_freeze,
         strategy_promotion,
         strategy_query,
+        qualification,
+        qualification_query,
         backtest_commands,
         backtest_queries,
         execution_capacity,

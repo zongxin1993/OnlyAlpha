@@ -17,6 +17,10 @@ from onlyalpha_http_server import create_product_app
 from onlyalpha_http_server.health import OnlyKernelResearchReadinessProjection
 
 from onlyalpha.application.product_boundary import only_compose_research_product_boundary
+from onlyalpha.application.qualification_product import (
+    OnlyQualificationProductService,
+    OnlyQualificationQueryService,
+)
 from onlyalpha.application.strategy_product import (
     OnlyStrategyFreezeProductService,
     OnlyStrategyPromotionProductService,
@@ -246,6 +250,8 @@ def render_document() -> JsonObject:
             cast(OnlyStrategyFreezeProductService, object()),
             cast(OnlyStrategyPromotionProductService, object()),
             cast(OnlyStrategyQueryService, object()),
+            cast(OnlyQualificationProductService, object()),
+            cast(OnlyQualificationQueryService, object()),
             cast(OnlyBacktestCommandService, object()),
             cast(OnlyBacktestQueryService, object()),
         )

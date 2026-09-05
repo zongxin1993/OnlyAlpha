@@ -18,7 +18,29 @@ import pytest
 from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry
 
 from onlyalpha.application import OnlyCalculationEquivalenceCertificationApplicationService
-from onlyalpha.application.product_command_receipt import OnlyProductCommandReceipt
+from onlyalpha.application.product_command_receipt import (
+    OnlyProductCommandId,
+    OnlyProductCommandKind,
+    OnlyProductCommandOutcomeKind,
+    OnlyProductCommandOutcomeRef,
+    OnlyProductCommandReceipt,
+)
+from onlyalpha.application.strategy_product import OnlyStrategyPromotionProductService
+from onlyalpha.backtest import (
+    OnlyBacktestAdmissionResolution,
+    OnlyBacktestEvidenceStore,
+    OnlyBacktestProfileReference,
+    OnlyBacktestRun,
+    OnlyBacktestRunId,
+    OnlyBacktestSpecification,
+    OnlyBacktestWorkerInstanceId,
+    OnlyInMemoryBacktestExecutionStore,
+)
+from onlyalpha.backtest.worker import (
+    OnlyBacktestRuntimeExecutionResult,
+    OnlyBacktestWorker,
+    OnlyBacktestWorkerOutcomeKind,
+)
 from onlyalpha.calculation import OnlyCalculationBackendKind, OnlyCalculationKind
 from onlyalpha.calculation.equivalence import OnlyCalculationEquivalenceEvidenceV2Store
 from onlyalpha.canonical import only_canonical_json
@@ -73,7 +95,26 @@ from onlyalpha.runtime.generation import (
 from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_primitives
 from onlyalpha.strategy.admission import OnlyStrategyTradingAdmissionService
 from onlyalpha.strategy.freeze import OnlyInMemoryStrategyCatalog, OnlyStrategyFreezeRequest, OnlyStrategyFreezeService
+from onlyalpha.strategy.promotion import (
+    OnlyInMemoryStrategyPromotionLedger,
+    OnlyStrategyPromotionRecord,
+    OnlyStrategyPromotionStage,
+)
+from onlyalpha.strategy.qualification import (
+    OnlyQualificationCriterion,
+    OnlyQualificationEvaluator,
+    OnlyQualificationEvidenceKind,
+    OnlyQualificationEvidenceReference,
+    OnlyQualificationGate,
+    OnlyQualificationOutcome,
+    OnlyQualificationPolicyRevision,
+)
+from onlyalpha.strategy.qualification_store import (
+    OnlyQualificationPolicyStore,
+    _only_compose_qualification_decision_authority,
+)
 from onlyalpha.strategy.store import _only_compose_frozen_strategy_authority
+from tests.runtime_generation_support import OnlyTestRuntimeGenerationAuthority
 
 pytestmark = pytest.mark.contract
 
@@ -104,6 +145,62 @@ class _Datasets:
         if verified.snapshot.definition != expected:
             raise ValueError("Dataset Definition is unavailable")
         return verified
+
+
+class _PromotionProductStore:
+    def __init__(self) -> None:
+        self.receipts: dict[str, OnlyProductCommandReceipt] = {}
+        self.ledger = OnlyInMemoryStrategyPromotionLedger()
+        self.promotions: dict[str, OnlyStrategyPromotionRecord] = {}
+
+    def find_product_command_receipt(self, command_id):  # type: ignore[no-untyped-def]
+        return self.receipts.get(command_id.value)
+
+    def records(self, strategy_fingerprint):  # type: ignore[no-untyped-def]
+        return self.ledger.records(strategy_fingerprint)
+
+    def append_promotion_with_receipt(self, record, command_id, command_fingerprint, qualification_authorization):  # type: ignore[no-untyped-def]
+        del qualification_authorization
+        existing = self.receipts.get(command_id.value)
+        if existing is not None:
+            return existing
+        self.ledger.append(record)
+        self.promotions[record.record_fingerprint] = record
+        receipt = OnlyProductCommandReceipt(
+            command_id,
+            OnlyProductCommandKind.PROMOTE_STRATEGY,
+            command_fingerprint,
+            OnlyProductCommandOutcomeRef(
+                OnlyProductCommandOutcomeKind.STRATEGY_PROMOTION,
+                record.record_fingerprint,
+            ),
+            record.recorded_at,
+        )
+        self.receipts[command_id.value] = receipt
+        return receipt
+
+    def load_promotion(self, record_fingerprint):  # type: ignore[no-untyped-def]
+        return self.promotions[record_fingerprint]
+
+
+class _BacktestExecutor:
+    def execute(self, run):  # type: ignore[no-untyped-def]
+        assert run.specification.strategy_fingerprint
+        return OnlyBacktestRuntimeExecutionResult(
+            "5" * 64,
+            "6" * 64,
+            (("result.json", b"{}", "application/json"),),
+        )
+
+
+class _Lease:
+    ownership_lost = False
+
+    def __enter__(self):  # type: ignore[no-untyped-def]
+        return self
+
+    def __exit__(self, *_):  # type: ignore[no-untyped-def]
+        return None
 
 
 def _providers() -> dict[str, OnlyQuantAssetProvider]:
@@ -390,6 +487,158 @@ def test_installed_l3_l4_resolve_research_evidence_freeze_and_revision(tmp_path:
     assert first.strategy_fingerprint == second.strategy_fingerprint
     revision = strategies.load_verified(first.strategy_fingerprint)
     assert revision.strategy_fingerprint.value == first.strategy_fingerprint
+
+    policies = OnlyQualificationPolicyStore(semantic_root)
+    decisions, decision_publisher = _only_compose_qualification_decision_authority(semantic_root)
+    backtest_evidence = OnlyBacktestEvidenceStore(tmp_path)
+    evaluator = OnlyQualificationEvaluator(
+        strategies=strategies,
+        policies=policies,
+        research_results=research_store,
+        backtest_evidence=backtest_evidence,
+        decisions=decision_publisher,
+    )
+    research_policy = policies.put(
+        OnlyQualificationPolicyRevision(
+            "public-example-research-gate",
+            "1",
+            OnlyQualificationGate.RESEARCH_TO_BACKTEST,
+            (
+                OnlyQualificationCriterion(
+                    "has-statistics",
+                    OnlyQualificationEvidenceKind.RESEARCH_RESULT,
+                    "research.statistics_result_count",
+                    "GE",
+                    Decimal(1),
+                ),
+            ),
+        )
+    )
+    research_decision = evaluator.evaluate(
+        subject_strategy_fingerprint=first.strategy_fingerprint,
+        policy_id=research_policy.policy_id,
+        policy_version=research_policy.policy_version,
+        evidence=(
+            OnlyQualificationEvidenceReference(
+                OnlyQualificationEvidenceKind.RESEARCH_RESULT,
+                result.research_result_fingerprint,
+                result.research_result_plan_fingerprint,
+                first.freeze_record.record_fingerprint,
+            ),
+        ),
+    )
+    assert research_decision.outcome is OnlyQualificationOutcome.APPROVED
+
+    promotion_store = _PromotionProductStore()
+    promotion = OnlyStrategyPromotionProductService(
+        strategies=strategies,
+        store=promotion_store,  # type: ignore[arg-type]
+        qualification_decisions=decisions,
+        qualification_policies=policies,
+        audit_time=lambda: NOW,
+    )
+    promoted, _ = promotion.promote_to_backtest(
+        command_id=OnlyProductCommandId("00000000-0000-4000-8000-000000003002"),
+        strategy_fingerprint=first.strategy_fingerprint,
+        qualification_decision_fingerprint=research_decision.decision_fingerprint,
+        policy_fingerprint=research_policy.policy_fingerprint,
+        reason="public contract qualification",
+        actor="contract-conformance",
+    )
+    assert promoted.to_stage is OnlyStrategyPromotionStage.BACKTEST
+
+    profile = OnlyBacktestProfileReference("contract", "1")
+    implementation_fingerprints = tuple(
+        sorted({item.trading_implementation_fingerprint for item in revision.implementation_bindings})
+    )
+    specification = OnlyBacktestSpecification(
+        first.strategy_fingerprint,
+        committed.snapshot_fingerprint,
+        "c" * 64,
+        profile,
+        profile,
+        profile,
+        "USD",
+        "100000",
+    )
+    resolution = OnlyBacktestAdmissionResolution(
+        revision.schema_version,
+        first.strategy_fingerprint,
+        specification.dataset_binding_fingerprint,
+        committed.snapshot_fingerprint,
+        "e" * 64,
+        "1" * 64,
+        "2" * 64,
+        "3" * 64,
+        "ONLYALPHA_KERNEL_SEMANTICS@1",
+        implementation_fingerprints,
+    )
+    backtest_run = OnlyBacktestRun.queued(
+        run_id=OnlyBacktestRunId("00000000-0000-4000-8000-000000003003"),
+        specification=specification,
+        admission_resolution=resolution,
+        queued_at=NOW,
+    )
+
+    class _BacktestAdmission:
+        def resolve(self, candidate):  # type: ignore[no-untyped-def]
+            assert candidate == specification
+            assert promotion_store.ledger.records(first.strategy_fingerprint)
+            return resolution
+
+    backtest_runs = OnlyInMemoryBacktestExecutionStore((backtest_run,), now_utc=lambda: NOW)
+    runtime_generation = OnlyTestRuntimeGenerationAuthority()
+    runtime_generation.bind_new_work(backtest_run.run_id.value)
+    backtest_outcome = OnlyBacktestWorker(
+        worker_instance_id=OnlyBacktestWorkerInstanceId.new(),
+        store=backtest_runs,
+        admission=_BacktestAdmission(),  # type: ignore[arg-type]
+        executor=_BacktestExecutor(),  # type: ignore[arg-type]
+        evidence=backtest_evidence,
+        lease_control_factory=lambda *_: _Lease(),  # type: ignore[arg-type]
+        runtime_generations=runtime_generation,
+        process_generation_fingerprint=runtime_generation.generation_fingerprint,
+    ).run_once()
+    assert backtest_outcome is not None and backtest_outcome.kind is OnlyBacktestWorkerOutcomeKind.COMPLETED
+    assert backtest_outcome.run is not None and backtest_outcome.run.evidence_fingerprint is not None
+
+    backtest_policy = policies.put(
+        OnlyQualificationPolicyRevision(
+            "public-example-backtest-gate",
+            "1",
+            OnlyQualificationGate.BACKTEST_TO_SIM,
+            (
+                OnlyQualificationCriterion(
+                    "has-artifact",
+                    OnlyQualificationEvidenceKind.BACKTEST_EVIDENCE,
+                    "backtest.artifact_count",
+                    "GE",
+                    Decimal(1),
+                ),
+            ),
+        )
+    )
+    backtest_decision = evaluator.evaluate(
+        subject_strategy_fingerprint=first.strategy_fingerprint,
+        policy_id=backtest_policy.policy_id,
+        policy_version=backtest_policy.policy_version,
+        evidence=(
+            OnlyQualificationEvidenceReference(
+                OnlyQualificationEvidenceKind.BACKTEST_EVIDENCE,
+                backtest_outcome.run.evidence_fingerprint,
+            ),
+        ),
+    )
+    assert backtest_decision.outcome is OnlyQualificationOutcome.APPROVED
+    sim_eligibility, _ = promotion.promote_to_sim(
+        command_id=OnlyProductCommandId("00000000-0000-4000-8000-000000003004"),
+        strategy_fingerprint=first.strategy_fingerprint,
+        qualification_decision_fingerprint=backtest_decision.decision_fingerprint,
+        policy_fingerprint=backtest_policy.policy_fingerprint,
+        reason="public contract backtest qualification",
+        actor="contract-conformance",
+    )
+    assert sim_eligibility.to_stage is OnlyStrategyPromotionStage.SIM
     if generation_manifest is not None:
         generation_implementations = {
             (item.backend, item.implementation_fingerprint) for item in generation_manifest.implementations

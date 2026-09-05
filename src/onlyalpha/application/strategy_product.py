@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from onlyalpha.application.product_command_receipt import (
     OnlyProductCommandId,
@@ -25,11 +25,20 @@ from onlyalpha.strategy.promotion import (
     OnlyStrategyPromotionRecord,
     OnlyStrategyPromotionService,
     OnlyStrategyPromotionStage,
+    _only_authorize_qualified_promotion,
+    _OnlyQualifiedPromotionAuthorization,
+)
+from onlyalpha.strategy.qualification import (
+    OnlyQualificationDecision,
+    OnlyQualificationGate,
+    OnlyQualificationOutcome,
+    OnlyQualificationPolicyRevision,
 )
 from onlyalpha.strategy.revision import OnlyStrategyRevision
 from onlyalpha.strategy.store import OnlyFrozenStrategyRevisionStore
 
-from .strategy_authority import OnlyStrategyFreezeApplicationService
+if TYPE_CHECKING:
+    from .strategy_authority import OnlyStrategyFreezeApplicationService
 
 
 class OnlyStrategyFreezeAdmissionState(StrEnum):
@@ -76,9 +85,18 @@ class OnlyStrategyProductStore(Protocol):
         record: OnlyStrategyPromotionRecord,
         command_id: OnlyProductCommandId,
         command_fingerprint: str,
+        qualification_authorization: _OnlyQualifiedPromotionAuthorization,
     ) -> OnlyProductCommandReceipt: ...
 
     def load_promotion(self, record_fingerprint: str) -> OnlyStrategyPromotionRecord: ...
+
+
+class _QualificationDecisionReader(Protocol):
+    def load_verified(self, decision_fingerprint: str) -> OnlyQualificationDecision: ...
+
+
+class _QualificationPolicyReader(Protocol):
+    def load_exact(self, policy_id: str, policy_version: str) -> OnlyQualificationPolicyRevision: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,10 +180,12 @@ class _ReceiptPromotionLedger:
         store: OnlyStrategyProductStore,
         command_id: OnlyProductCommandId,
         command_fingerprint: str,
+        qualification_authorization: _OnlyQualifiedPromotionAuthorization,
     ) -> None:
         self._store = store
         self._command_id = command_id
         self._command_fingerprint = command_fingerprint
+        self._qualification_authorization = qualification_authorization
 
     def records(self, strategy_fingerprint: str) -> tuple[OnlyStrategyPromotionRecord, ...]:
         return self._store.records(strategy_fingerprint)
@@ -175,6 +195,7 @@ class _ReceiptPromotionLedger:
             record,
             self._command_id,
             self._command_fingerprint,
+            self._qualification_authorization,
         )
         if receipt.outcome_ref.outcome_id == record.record_fingerprint:
             return record
@@ -187,10 +208,14 @@ class OnlyStrategyPromotionProductService:
         *,
         strategies: OnlyFrozenStrategyRevisionStore,
         store: OnlyStrategyProductStore,
+        qualification_decisions: _QualificationDecisionReader,
+        qualification_policies: _QualificationPolicyReader,
         audit_time: Callable[[], datetime],
     ) -> None:
         self._strategies = strategies
         self._store = store
+        self._qualification_decisions = qualification_decisions
+        self._qualification_policies = qualification_policies
         self._audit_time = audit_time
 
     def promote_to_backtest(
@@ -198,15 +223,58 @@ class OnlyStrategyPromotionProductService:
         *,
         command_id: OnlyProductCommandId,
         strategy_fingerprint: str,
-        freeze_relation_fingerprint: str,
+        qualification_decision_fingerprint: str,
+        policy_fingerprint: str,
+        reason: str,
+        actor: str,
+    ) -> tuple[OnlyStrategyPromotionRecord, bool]:
+        return self._promote(
+            command_id=command_id,
+            strategy_fingerprint=strategy_fingerprint,
+            to_stage=OnlyStrategyPromotionStage.BACKTEST,
+            qualification_decision_fingerprint=qualification_decision_fingerprint,
+            policy_fingerprint=policy_fingerprint,
+            reason=reason,
+            actor=actor,
+        )
+
+    def promote_to_sim(
+        self,
+        *,
+        command_id: OnlyProductCommandId,
+        strategy_fingerprint: str,
+        qualification_decision_fingerprint: str,
+        policy_fingerprint: str,
+        reason: str,
+        actor: str,
+    ) -> tuple[OnlyStrategyPromotionRecord, bool]:
+        return self._promote(
+            command_id=command_id,
+            strategy_fingerprint=strategy_fingerprint,
+            to_stage=OnlyStrategyPromotionStage.SIM,
+            qualification_decision_fingerprint=qualification_decision_fingerprint,
+            policy_fingerprint=policy_fingerprint,
+            reason=reason,
+            actor=actor,
+        )
+
+    def _promote(
+        self,
+        *,
+        command_id: OnlyProductCommandId,
+        strategy_fingerprint: str,
+        to_stage: OnlyStrategyPromotionStage,
+        qualification_decision_fingerprint: str,
+        policy_fingerprint: str,
         reason: str,
         actor: str,
     ) -> tuple[OnlyStrategyPromotionRecord, bool]:
         fingerprint = only_product_command_fingerprint(
             {
                 "strategy_fingerprint": strategy_fingerprint,
-                "to_stage": OnlyStrategyPromotionStage.BACKTEST.value,
-                "freeze_relation_fingerprint": freeze_relation_fingerprint,
+                "to_stage": to_stage.value,
+                "qualification_decision_fingerprint": qualification_decision_fingerprint,
+                "policy_fingerprint": policy_fingerprint,
                 "decision": OnlyStrategyPromotionDecision.APPROVED.value,
                 "reason": reason,
                 "actor": actor,
@@ -221,19 +289,65 @@ class OnlyStrategyPromotionProductService:
             ):
                 raise OnlyStrategyPromotionError("PRODUCT_COMMAND_CONFLICT", command_id.value)
             return self._store.load_promotion(receipt.outcome_ref.outcome_id), True
-        relations = self._strategies.freeze_relations(strategy_fingerprint)
-        if freeze_relation_fingerprint not in {item.relation_fingerprint for item in relations}:
-            raise OnlyStrategyPromotionError("STRATEGY_FREEZE_EVIDENCE_INVALID", freeze_relation_fingerprint)
-        ledger = _ReceiptPromotionLedger(self._store, command_id, fingerprint)
+        decision = self._load_qualification(qualification_decision_fingerprint)
+        expected_gate = (
+            OnlyQualificationGate.RESEARCH_TO_BACKTEST
+            if to_stage is OnlyStrategyPromotionStage.BACKTEST
+            else OnlyQualificationGate.BACKTEST_TO_SIM
+        )
+        if decision.outcome is not OnlyQualificationOutcome.APPROVED:
+            raise OnlyStrategyPromotionError("QUALIFICATION_DECISION_NOT_APPROVED", qualification_decision_fingerprint)
+        if decision.subject_strategy_fingerprint != strategy_fingerprint:
+            raise OnlyStrategyPromotionError(
+                "QUALIFICATION_DECISION_SUBJECT_MISMATCH", qualification_decision_fingerprint
+            )
+        if decision.gate is not expected_gate:
+            raise OnlyStrategyPromotionError("QUALIFICATION_EVIDENCE_GATE_MISMATCH", qualification_decision_fingerprint)
+        if decision.policy_fingerprint != policy_fingerprint:
+            raise OnlyStrategyPromotionError(
+                "QUALIFICATION_DECISION_POLICY_MISMATCH", qualification_decision_fingerprint
+            )
+        try:
+            policy = self._qualification_policies.load_exact(decision.policy_id, decision.policy_version)
+        except Exception as exc:
+            raise OnlyStrategyPromotionError("QUALIFICATION_POLICY_NOT_FOUND", decision.policy_fingerprint) from exc
+        if policy.policy_fingerprint != policy_fingerprint or policy.gate is not expected_gate:
+            raise OnlyStrategyPromotionError(
+                "QUALIFICATION_DECISION_POLICY_MISMATCH", qualification_decision_fingerprint
+            )
+        evidence = {qualification_decision_fingerprint}
+        if expected_gate is OnlyQualificationGate.RESEARCH_TO_BACKTEST:
+            binding = decision.evidence[0].subject_binding_fingerprint
+            relations = self._strategies.freeze_relations(strategy_fingerprint)
+            if binding is None or binding not in {item.relation_fingerprint for item in relations}:
+                raise OnlyStrategyPromotionError("STRATEGY_FREEZE_EVIDENCE_INVALID", str(binding))
+            evidence.add(binding)
+        qualification_authorization = _only_authorize_qualified_promotion(qualification_decision_fingerprint)
+        ledger = _ReceiptPromotionLedger(
+            self._store,
+            command_id,
+            fingerprint,
+            qualification_authorization,
+        )
         record = OnlyStrategyPromotionService(self._strategies, ledger, self._audit_time).record(
             strategy_fingerprint=strategy_fingerprint,
-            to_stage=OnlyStrategyPromotionStage.BACKTEST,
-            evidence_fingerprints=(freeze_relation_fingerprint,),
+            to_stage=to_stage,
+            evidence_fingerprints=tuple(sorted(evidence)),
             decision=OnlyStrategyPromotionDecision.APPROVED,
             reason=reason,
             actor=actor,
+            qualification_authorization=qualification_authorization,
         )
         return record, False
+
+    def _load_qualification(self, fingerprint: str) -> OnlyQualificationDecision:
+        try:
+            decision = self._qualification_decisions.load_verified(fingerprint)
+        except Exception as exc:
+            raise OnlyStrategyPromotionError("QUALIFICATION_DECISION_CORRUPT", fingerprint) from exc
+        if decision.decision_fingerprint != fingerprint:
+            raise OnlyStrategyPromotionError("QUALIFICATION_DECISION_CORRUPT", fingerprint)
+        return decision
 
 
 class OnlyStrategyQueryService:

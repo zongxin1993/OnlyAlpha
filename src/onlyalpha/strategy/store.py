@@ -98,6 +98,11 @@ class OnlyFrozenStrategyRevisionStore(_StrategyRevisionReader):
         super().load_verified(fingerprint)
         return self._relations.require_for_strategy(fingerprint)
 
+    def load_freeze_relation(self, relation_fingerprint: str) -> OnlyStrategyFreezeRelation:
+        """Load one exact verified relation without exposing publication authority."""
+
+        return self._relations.load_verified(relation_fingerprint)
+
     def frozen_strategy_fingerprints(self) -> tuple[str, ...]:
         """Enumerate every verified frozen Strategy in canonical identity order."""
 

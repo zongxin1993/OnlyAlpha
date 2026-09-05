@@ -132,6 +132,8 @@ def _error_client(tmp_path, *, family: str, error: Exception) -> TestClient:  # 
             "strategy_freeze": object(),
             "strategy_promotion": object(),
             "strategy_query": _FailingProductQuery(error),
+            "qualification": object(),
+            "qualification_query": object(),
         }
     app = create_research_app(
         _Reader(),  # type: ignore[arg-type]

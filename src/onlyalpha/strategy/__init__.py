@@ -8,6 +8,7 @@ from onlyalpha.strategy.admission import (
     OnlyStrategyTradingAdmissionService,
 )
 from onlyalpha.strategy.errors import (
+    OnlyQualificationError,
     OnlyStrategyAdmissionError,
     OnlyStrategyError,
     OnlyStrategyFreezeError,

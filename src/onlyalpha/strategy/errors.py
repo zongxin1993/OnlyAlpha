@@ -34,4 +34,10 @@ class OnlyStrategyPromotionError(OnlyStrategyError):
     pass
 
 
+class OnlyQualificationError(OnlyStrategyError):
+    """Stable failure raised by Qualification semantic authorities."""
+
+    pass
+
+
 __all__ = [name for name in globals() if name.startswith("Only")]

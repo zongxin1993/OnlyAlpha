@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
+import json
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import cast
 
@@ -11,6 +12,10 @@ import uvicorn
 from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry
 
 from onlyalpha.application.product_boundary import only_compose_research_product_boundary
+from onlyalpha.application.qualification_product import (
+    OnlyQualificationProductService,
+    OnlyQualificationQueryService,
+)
 from onlyalpha.application.strategy_authority import (
     OnlyStrategyFreezeApplicationService,
     OnlyStrategyFreezeProjectionReconciliationApplicationService,
@@ -72,6 +77,11 @@ from onlyalpha.research.operations.readiness import (
 from onlyalpha.research.result.result_store import OnlyJsonResearchResultStore
 from onlyalpha.research.run.admission import OnlyResearchRunAdmissionService
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
+from onlyalpha.strategy.qualification import OnlyQualificationEvaluator, OnlyQualificationPolicyRevision
+from onlyalpha.strategy.qualification_store import (
+    OnlyQualificationPolicyStore,
+    _only_compose_qualification_decision_authority,
+)
 from onlyalpha.strategy.store import OnlyFrozenStrategyRevisionStore
 
 from .app import create_product_app
@@ -135,6 +145,14 @@ def _reconcile_strategy_projections(layout: OnlyUserDataLayout, postgres_dsn: st
     ).reconcile_all()
 
 
+def _load_qualification_policies(paths: tuple[Path, ...], store: OnlyQualificationPolicyStore) -> None:
+    for path in paths:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, Mapping):
+            raise ValueError(f"Qualification Policy must be an object: {path}")
+        store.put(OnlyQualificationPolicyRevision.from_dict(payload))
+
+
 def _compose_backtest_product(
     postgres_dsn: str,
     operational_options: OnlyPostgresOperationalConnectionOptions,
@@ -191,6 +209,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--runtime-generation-authority-root", type=Path, required=True)
     parser.add_argument(
+        "--qualification-policy",
+        action="append",
+        type=Path,
+        default=[],
+        help="operator-owned exact Qualification Policy Revision manifest; repeat as required",
+    )
+    parser.add_argument(
         "--backtest-market-resource",
         action="append",
         type=Path,
@@ -203,6 +228,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     operational_dsn = postgres.operational_dsn(operational_options)
     schema = OnlyPostgresSchemaVerifier(operational_dsn)
     layout = OnlyUserDataLayout(args.user_data_root)
+    qualification_policies = OnlyQualificationPolicyStore(layout.research_root)
+    qualification_decisions, qualification_decision_publisher = _only_compose_qualification_decision_authority(
+        layout.research_root
+    )
     runtime_generations = OnlyRuntimeGenerationRegistry(args.runtime_generation_authority_root)
     run_store = OnlyPostgresResearchRunStore(postgres.dsn, operational_options)
     calculations = OnlyCalculationRegistry()
@@ -249,6 +278,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     broker_fees,
                     market_products,
                 ),
+            ),
+            OnlyKernelLifecycleStep(
+                "qualification_policy_admission",
+                lambda: _load_qualification_policies(tuple(args.qualification_policy), qualification_policies),
             ),
         ),
         verifiers=(
@@ -300,6 +333,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             strategy_freeze = cast(OnlyStrategyFreezeProductService, unavailable)
             strategy_promotion = cast(OnlyStrategyPromotionProductService, unavailable)
             strategy_query = cast(OnlyStrategyQueryService, unavailable)
+            qualification = cast(OnlyQualificationProductService, unavailable)
+            qualification_query = cast(OnlyQualificationQueryService, unavailable)
             backtest_commands = cast(OnlyBacktestCommandService, unavailable)
             backtest_queries = cast(OnlyBacktestQueryService, unavailable)
             backtest_store = OnlyPostgresBacktestStore(postgres.dsn, operational_options)
@@ -342,9 +377,28 @@ def main(argv: Sequence[str] | None = None) -> int:
                 store=strategy_store,
                 now_utc=only_system_utc_now,
             )
+            qualification_evaluator = OnlyQualificationEvaluator(
+                strategies=frozen_strategies,
+                policies=qualification_policies,
+                research_results=research_results,
+                backtest_evidence=OnlyBacktestEvidenceStore(layout.root),
+                decisions=qualification_decision_publisher,
+            )
+            qualification = OnlyQualificationProductService(
+                evaluator=qualification_evaluator,
+                decisions=qualification_decisions,
+                store=strategy_store,
+                now_utc=only_system_utc_now,
+            )
+            qualification_query = OnlyQualificationQueryService(
+                qualification_policies,
+                qualification_decisions,
+            )
             strategy_promotion = OnlyStrategyPromotionProductService(
                 strategies=frozen_strategies,
                 store=strategy_store,
+                qualification_decisions=qualification_decisions,
+                qualification_policies=qualification_policies,
                 audit_time=only_system_utc_now,
             )
             strategy_query = OnlyStrategyQueryService(frozen_strategies, strategy_store)
@@ -366,6 +420,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             strategy_freeze,
             strategy_promotion,
             strategy_query,
+            qualification,
+            qualification_query,
             backtest_commands,
             backtest_queries,
             backtest_store,

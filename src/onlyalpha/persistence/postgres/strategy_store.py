@@ -145,51 +145,10 @@ class OnlyPostgresStrategyStore:
         )
 
     def append(self, record: OnlyStrategyPromotionRecord) -> OnlyStrategyPromotionRecord:
-        self.assert_namespace()
-        try:
-            with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
-                connection.execute(
-                    "SELECT strategy_fingerprint FROM strategy_catalog WHERE strategy_fingerprint = %s FOR UPDATE",
-                    (record.strategy_fingerprint,),
-                )
-                rows = connection.execute(
-                    "SELECT * FROM strategy_promotion_record WHERE strategy_fingerprint = %s "
-                    "ORDER BY promotion_record_fingerprint",
-                    (record.strategy_fingerprint,),
-                ).fetchall()
-                chain = only_verified_strategy_promotion_chain(
-                    tuple(_promotion_record(row) for row in rows),
-                    record.strategy_fingerprint,
-                )
-                expected = None if not chain else chain[-1].record_fingerprint
-                if expected != record.previous_record_fingerprint:
-                    raise OnlyStrategyPromotionError("PROMOTION_LEDGER_CONFLICT", record.strategy_fingerprint)
-                connection.execute(
-                    "INSERT INTO strategy_promotion_record "
-                    "(promotion_record_fingerprint, strategy_fingerprint, from_stage, to_stage, evidence_fingerprints, "
-                    "previous_record_fingerprint, decision, reason, actor, recorded_at, schema_version) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                    (
-                        record.record_fingerprint,
-                        record.strategy_fingerprint,
-                        record.from_stage.value,
-                        record.to_stage.value,
-                        list(record.evidence_fingerprints),
-                        record.previous_record_fingerprint,
-                        record.decision.value,
-                        record.reason,
-                        record.actor,
-                        record.recorded_at,
-                        record.schema_version,
-                    ),
-                )
-        except OnlyStrategyPromotionError:
-            raise
-        except psycopg.errors.UniqueViolation as exc:
-            raise OnlyStrategyPromotionError("PROMOTION_LEDGER_CONFLICT", record.strategy_fingerprint) from exc
-        except psycopg.Error as exc:
-            raise OnlyStrategyPromotionError("PROMOTION_LEDGER_UNAVAILABLE", record.strategy_fingerprint) from exc
-        return record
+        raise OnlyStrategyPromotionError(
+            "QUALIFICATION_DECISION_NOT_APPROVED",
+            f"raw Promotion append is retired for {record.strategy_fingerprint}",
+        )
 
 
 def _freeze_record(row: dict[str, object]) -> OnlyStrategyFreezeRecord:
@@ -228,6 +187,9 @@ def _promotion_record(row: dict[str, object]) -> OnlyStrategyPromotionRecord:
         str(row["actor"]),
         cast(datetime, row["recorded_at"]),
         None if row["previous_record_fingerprint"] is None else str(row["previous_record_fingerprint"]),
+        None
+        if row.get("qualification_decision_fingerprint") is None
+        else str(row["qualification_decision_fingerprint"]),
         int(str(row["schema_version"])),
     )
     if record.record_fingerprint != row["promotion_record_fingerprint"]:

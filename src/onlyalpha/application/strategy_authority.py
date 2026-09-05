@@ -26,6 +26,7 @@ from onlyalpha.research.run import OnlyResearchRun, OnlyResearchRunId
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_primitives
 from onlyalpha.strategy.admission import OnlyStrategyTradingAdmissionService
+from onlyalpha.strategy.errors import OnlyStrategyPromotionError
 from onlyalpha.strategy.freeze import (
     OnlyStrategyFreezeOutcome,
     OnlyStrategyFreezeProjectionReconciler,
@@ -146,14 +147,20 @@ class OnlyStrategyPromotionApplicationService:
         decision: OnlyStrategyPromotionDecision,
         reason: str,
         actor: str,
+        qualification_decision_fingerprint: str,
     ) -> OnlyStrategyPromotionRecord:
-        return self._service.record(
-            strategy_fingerprint=strategy_fingerprint,
-            to_stage=to_stage,
-            evidence_fingerprints=evidence_fingerprints,
-            decision=decision,
-            reason=reason,
-            actor=actor,
+        del (
+            strategy_fingerprint,
+            to_stage,
+            evidence_fingerprints,
+            decision,
+            reason,
+            actor,
+            qualification_decision_fingerprint,
+        )
+        raise OnlyStrategyPromotionError(
+            "QUALIFICATION_DECISION_NOT_APPROVED",
+            "legacy Promotion application is read-only; use the qualification-backed Product command",
         )
 
 

@@ -33,6 +33,36 @@ _NEXT = {
 
 
 @dataclass(frozen=True, slots=True)
+class _OnlyQualifiedPromotionAuthorization:
+    qualification_decision_fingerprint: str
+    seal: object
+
+
+_QUALIFIED_PROMOTION_SEAL = object()
+
+
+def _only_authorize_qualified_promotion(
+    qualification_decision_fingerprint: str,
+) -> _OnlyQualifiedPromotionAuthorization:
+    _sha(qualification_decision_fingerprint, "Qualification Decision identity")
+    return _OnlyQualifiedPromotionAuthorization(qualification_decision_fingerprint, _QUALIFIED_PROMOTION_SEAL)
+
+
+def _only_require_qualified_promotion(
+    authorization: _OnlyQualifiedPromotionAuthorization,
+) -> str:
+    if (
+        not isinstance(authorization, _OnlyQualifiedPromotionAuthorization)
+        or authorization.seal is not _QUALIFIED_PROMOTION_SEAL
+    ):
+        raise OnlyStrategyPromotionError(
+            "QUALIFICATION_DECISION_NOT_APPROVED",
+            "Promotion requires verified Qualification authorization",
+        )
+    return authorization.qualification_decision_fingerprint
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyStrategyPromotionRecord:
     strategy_fingerprint: str
     from_stage: OnlyStrategyPromotionStage
@@ -43,10 +73,11 @@ class OnlyStrategyPromotionRecord:
     actor: str
     recorded_at: datetime
     previous_record_fingerprint: str | None = None
+    qualification_decision_fingerprint: str | None = None
     schema_version: int = 1
 
     def __post_init__(self) -> None:
-        if self.schema_version != 1:
+        if self.schema_version not in {1, 2}:
             raise ValueError("unsupported Strategy Promotion Record schema")
         _sha(self.strategy_fingerprint, "strategy_fingerprint")
         if _NEXT.get(self.from_stage) is not self.to_stage:
@@ -61,6 +92,15 @@ class OnlyStrategyPromotionRecord:
         _utc(self.recorded_at, "Promotion recorded_at")
         if self.previous_record_fingerprint is not None:
             _sha(self.previous_record_fingerprint, "previous Promotion Record identity")
+        if self.schema_version == 1:
+            if self.qualification_decision_fingerprint is not None:
+                raise ValueError("legacy Promotion Record cannot claim Qualification evidence")
+        elif self.qualification_decision_fingerprint is None:
+            raise ValueError("Qualification Decision is required for a new Promotion Record")
+        else:
+            _sha(self.qualification_decision_fingerprint, "Qualification Decision identity")
+            if self.qualification_decision_fingerprint not in self.evidence_fingerprints:
+                raise ValueError("Qualification Decision must be Promotion evidence")
 
     @property
     def record_fingerprint(self) -> str:
@@ -79,6 +119,8 @@ class OnlyStrategyPromotionRecord:
             "recorded_at": self.recorded_at.isoformat(),
             "previous_record_fingerprint": self.previous_record_fingerprint,
         }
+        if self.schema_version == 2:
+            payload["qualification_decision_fingerprint"] = self.qualification_decision_fingerprint
         if include_fingerprint:
             payload["record_fingerprint"] = self.record_fingerprint
         return payload
@@ -127,7 +169,9 @@ class OnlyStrategyPromotionService:
         decision: OnlyStrategyPromotionDecision,
         reason: str,
         actor: str,
+        qualification_authorization: _OnlyQualifiedPromotionAuthorization,
     ) -> OnlyStrategyPromotionRecord:
+        qualification_decision_fingerprint = _only_require_qualified_promotion(qualification_authorization)
         current = self.current_stage(strategy_fingerprint)
         if _NEXT.get(current) is not to_stage:
             raise OnlyStrategyPromotionError(
@@ -151,6 +195,8 @@ class OnlyStrategyPromotionService:
                 actor,
                 timestamp,
                 None if not records else records[-1].record_fingerprint,
+                qualification_decision_fingerprint,
+                2,
             )
         except ValueError as exc:
             code = "ILLEGAL_PROMOTION_TRANSITION" if "ILLEGAL" in str(exc) else "PROMOTION_RECORD_INVALID"

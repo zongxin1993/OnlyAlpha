@@ -164,6 +164,7 @@ def test_http_route_modules_own_no_raw_mutation_capability() -> None:
             not in {
                 "onlyalpha.application.product_boundary",
                 "onlyalpha.application.product_command_receipt",
+                "onlyalpha.application.qualification_product",
                 "onlyalpha.application.strategy_product",
             }
             for name in imports
