@@ -320,6 +320,7 @@ LANES = {
         (
             "tests/quant_assets/test_private_asset_contract_conformance.py",
             "packages/onlyalpha-authoring-execution-worker/tests",
+            "packages/onlyalpha-runtime-generation-manager/tests",
             "packages/onlyalpha-http-server/tests/test_research_runs_api.py",
             "examples/onlyalpha-example-alpha/tests",
             "examples/onlyalpha-example-strategies/tests",

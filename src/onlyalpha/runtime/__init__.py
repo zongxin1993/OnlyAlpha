@@ -3,6 +3,13 @@
 from importlib import import_module
 
 _EXPORTS = {
+    "OnlyArtifactAssetIdentity": "onlyalpha.runtime.generation",
+    "OnlyArtifactCalculationImplementation": "onlyalpha.runtime.generation",
+    "OnlyCoreExecutionIdentity": "onlyalpha.runtime.generation",
+    "OnlyDistributionArtifactManifest": "onlyalpha.runtime.generation",
+    "OnlyDistributionArtifactRole": "onlyalpha.runtime.generation",
+    "OnlyRuntimeGenerationManifest": "onlyalpha.runtime.generation",
+    "OnlyRuntimeProviderBinding": "onlyalpha.runtime.generation",
     "OnlyRuntimeContext": "onlyalpha.runtime.context",
     "OnlyRuntimeContextView": "onlyalpha.runtime.context",
     "OnlyResearchRuntimeEnvironmentIdentity": "onlyalpha.runtime.research.environment",

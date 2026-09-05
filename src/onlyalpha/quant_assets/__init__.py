@@ -1,5 +1,6 @@
 """Versioned four-layer quantitative asset provider and catalog contracts."""
 
+from .artifact import only_quant_asset_distribution_artifact_manifest as only_quant_asset_distribution_artifact_manifest
 from .catalog import ONLYALPHA_QUANT_ASSET_ENTRY_POINT as ONLYALPHA_QUANT_ASSET_ENTRY_POINT
 from .catalog import OnlyQuantAssetCatalogGeneration as OnlyQuantAssetCatalogGeneration
 from .catalog import OnlyQuantAssetCatalogManager as OnlyQuantAssetCatalogManager

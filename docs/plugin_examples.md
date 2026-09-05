@@ -15,3 +15,8 @@ API. Only installed distributions participate in production plugin discovery; no
 Every L1-L4 library also exposes one `onlyalpha.quant_assets` provider. The management catalog binds provider version to exact content and
 creates immutable generation fingerprints. A changed provider must use a new provider version; semantic changes also bump their Calculation
 or Strategy-asset semantic version. Refresh affects new authoring/admission only and never mutates an active Run or StrategyRevision.
+
+ADR 0117 adds the next boundary: exact wheel bytes become a public immutable Distribution Artifact manifest, then an independent
+Infrastructure component clean-installs and revalidates a complete Runtime Generation before durable new-work activation. Public examples
+and private repositories derive the same artifact contract. Runtime rollback changes only the guarded new-work pointer, and historical
+StrategyRevisions resolve exact implementation fingerprints without a latest-version fallback.

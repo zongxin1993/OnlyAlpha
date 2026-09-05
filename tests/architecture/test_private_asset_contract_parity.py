@@ -52,6 +52,7 @@ def test_private_asset_contract_lane_is_provider_neutral_and_executable() -> Non
     lane = LANES[OnlyTestLane.PRIVATE_ASSET_CONTRACT]
     assert "tests/quant_assets/test_private_asset_contract_conformance.py" in lane.paths
     assert "packages/onlyalpha-authoring-execution-worker/tests" in lane.paths
+    assert "packages/onlyalpha-runtime-generation-manager/tests" in lane.paths
     assert lane.expression == "not external"
     source = Path("tests/quant_assets/test_private_asset_contract_conformance.py").read_text(encoding="utf-8")
     assert "ONLYALPHA_CONFORMANCE_L3_PROVIDER_ID" in source

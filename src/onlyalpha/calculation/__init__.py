@@ -1,6 +1,7 @@
 """Public calculation semantic authority."""
 # ruff: noqa: F401, F403
 
+from onlyalpha.calculation.artifact import only_calculation_distribution_artifact_manifest
 from onlyalpha.calculation.capability import (
     OnlyCalculationSemanticCapability,
     only_assert_calculation_capabilities_equivalent,

@@ -44,3 +44,8 @@ generation = only_discover_quant_asset_providers(
 Change `provider_version` whenever implementation content changes. Change the Factor semantic version as well when its hypothesis or output
 semantics change. `distribution_version` must equal the installed distribution metadata (the workspace version tool maintains it for this
 reference package). Existing Strategy Revisions keep their exact prior implementation fingerprint.
+
+An admitted release additionally derives the public immutable Distribution Artifact manifest from the exact wheel bytes and the
+Provider above. Deployment installs that exact artifact in a clean process generation, recomputes both public entry points and the
+Catalog/implementation fingerprints, and only then may mark the Runtime Generation READY for new work. A package version or source
+path is never sufficient execution identity.

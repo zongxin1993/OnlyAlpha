@@ -4,6 +4,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pyarrow as pa
+from onlyalpha_example_alpha.provider import quant_asset_provider
 from onlyalpha_example_alpha.registration import MOMENTUM, registrations, resolve_momentum
 from onlyalpha_example_alpha.research import OnlyExampleResearchMomentumBackend
 from onlyalpha_example_alpha.trading import OnlyExampleTradingMomentumBackendFactory
@@ -16,6 +17,8 @@ from onlyalpha.calculation import (
     OnlyCalculationStateCapability,
     OnlyFactorKind,
 )
+from onlyalpha.quant_assets import only_quant_asset_distribution_artifact_manifest
+from onlyalpha.runtime.generation import OnlyCoreExecutionIdentity
 
 _D = pa.decimal128(38, 12)
 
@@ -68,6 +71,20 @@ def test_example_factor_registrations_bind_manifests_and_state_capability() -> N
     assert all(item.implementation_manifest is not None for item in actual)
     trading = next(item for item in actual if item.backend is OnlyCalculationBackendKind.TRADING)
     assert trading.state_capability is OnlyCalculationStateCapability.STATELESS
+
+
+def test_example_factor_can_bind_the_public_immutable_distribution_contract() -> None:
+    core = OnlyCoreExecutionIdentity("onlyalpha", "0.9.9", "a" * 64)
+    manifest = only_quant_asset_distribution_artifact_manifest(
+        source_repository="OnlyAlpha-example-alpha",
+        source_revision="b" * 40,
+        artifact_logical_name="onlyalpha_example_alpha-0.9.9-py3-none-any.whl",
+        artifact_bytes=b"example alpha wheel",
+        tested_core_execution_fingerprint=core.fingerprint,
+        provider=quant_asset_provider(),
+    )
+    assert manifest.provider_id == "example.alpha.library"
+    assert {item.backend for item in manifest.implementations} == {"RESEARCH", "TRADING"}
 
 
 def test_l3_checkout_supports_explicit_source_path_import(tmp_path: Path) -> None:

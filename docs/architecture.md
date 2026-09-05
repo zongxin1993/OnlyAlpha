@@ -594,6 +594,18 @@ inside the existing transactional Attempt authority. Git/path/artifact loading r
 Evidence can cross admission only when executable Provider content remains identical. Release, Catalog activation, Strategy promotion and
 LIVE authorization remain separate authorities.
 
+ADR 0117 closes the admitted distribution-to-runtime boundary. A locator-independent Distribution Artifact manifest binds exact wheel
+bytes, source revision, Provider content, asset inventory, implementation fingerprints and tested Core execution identity. The independent
+`packages/onlyalpha-runtime-generation-manager/` component verifies a content-addressed artifact set, installs it into a clean isolated
+environment and recomputes installed Provider, Catalog and implementation closure before producing an immutable RuntimeGeneration.
+
+One append-only hash-chained generation ledger is the durable operational Authority for READY, `ACTIVE_FOR_NEW_WORK`, DRAINING/RETIRED
+and immutable work bindings. Activation and rollback are expected-current compare-and-set transitions; a Run reads the pointer once and
+retains its exact binding. Restart replays the committed facts rather than inspecting newest packages or process order. Historical
+StrategyRevision resolution matches exact RESEARCH/TRADING implementation fingerprints and fails closed when unavailable or ambiguous.
+`CatalogGeneration != RuntimeGeneration`, `StrategyRevision != RuntimeGeneration`, artifact identity excludes its locator, and neither
+release nor activation grants Agent or LIVE authority.
+
 ### Public Example / Private Asset Contract Parity
 
 `examples/onlyalpha-example-alpha` and `examples/onlyalpha-example-strategies` are the public executable reference consumers of the L3

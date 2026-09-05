@@ -37,6 +37,7 @@ dev = [
     "onlyalpha-http-server",
     "onlyalpha-gateway-protocol",
     "onlyalpha-authoring-execution-worker",
+    "onlyalpha-runtime-generation-manager",
     "grpcio-tools==1.73.1",
     "types-grpcio==1.0.0.20250703",
     "types-protobuf==6.30.2.20250809",
@@ -69,6 +70,7 @@ members = [
     "packages/onlyalpha-http-server",
     "packages/onlyalpha-gateway-protocol",
     "packages/onlyalpha-authoring-execution-worker",
+    "packages/onlyalpha-runtime-generation-manager",
 ]
 
 [build-system]
@@ -107,6 +109,7 @@ files = [
     "packages/onlyalpha-http-server/src/onlyalpha_http_server",
     "packages/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol",
     "packages/onlyalpha-authoring-execution-worker/src/onlyalpha_authoring_execution_worker",
+    "packages/onlyalpha-runtime-generation-manager/src/onlyalpha_runtime_generation_manager",
     "plugs/onlyalpha-plugin-binance-spot/src/onlyalpha_plugin_binance_spot",
     "plugs/onlyalpha-plugin-binance-usdm/src/onlyalpha_plugin_binance_usdm",
     "plugs/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance",
@@ -126,6 +129,7 @@ onlyalpha-plugin-targets = { workspace = true }
 onlyalpha-http-server = { workspace = true }
 onlyalpha-gateway-protocol = { workspace = true }
 onlyalpha-authoring-execution-worker = { workspace = true }
+onlyalpha-runtime-generation-manager = { workspace = true }
 onlyalpha-plugin-binance-spot = { workspace = true }
 onlyalpha-plugin-binance-usdm = { workspace = true }
 onlyalpha-plugin-binance = { workspace = true }
@@ -149,6 +153,7 @@ testpaths = [
     "packages/onlyalpha-http-server/tests",
     "packages/onlyalpha-gateway-protocol/tests",
     "packages/onlyalpha-authoring-execution-worker/tests",
+    "packages/onlyalpha-runtime-generation-manager/tests",
 ]
 markers = [
     "unit: isolated unit test",

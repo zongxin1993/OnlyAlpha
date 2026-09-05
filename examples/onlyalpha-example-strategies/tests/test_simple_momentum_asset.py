@@ -4,8 +4,11 @@ import sys
 from pathlib import Path
 
 from onlyalpha_example_strategies import load_strategy_definition, read_strategy_definition
+from onlyalpha_example_strategies.provider import quant_asset_provider
 
+from onlyalpha.quant_assets import only_quant_asset_distribution_artifact_manifest
 from onlyalpha.research.definition import OnlyResearchDefinition
+from onlyalpha.runtime.generation import OnlyCoreExecutionIdentity
 
 ASSET = Path("examples/onlyalpha-example-strategies/simple_momentum/research-definition.json")
 
@@ -43,6 +46,21 @@ def test_installed_resource_and_explicit_checkout_path_are_identical() -> None:
     installed = read_strategy_definition("simple_momentum")
     checkout = read_strategy_definition("simple_momentum", library_root=ASSET.parents[1])
     assert installed == checkout
+
+
+def test_example_strategy_can_bind_the_public_immutable_distribution_contract() -> None:
+    core = OnlyCoreExecutionIdentity("onlyalpha", "0.9.9", "a" * 64)
+    manifest = only_quant_asset_distribution_artifact_manifest(
+        source_repository="OnlyAlpha-example-strategies",
+        source_revision="b" * 40,
+        artifact_logical_name="onlyalpha_example_strategies-0.9.9-py3-none-any.whl",
+        artifact_bytes=b"example strategy wheel",
+        tested_core_execution_fingerprint=core.fingerprint,
+        provider=quant_asset_provider(),
+    )
+    assert manifest.provider_id == "example.strategy.library"
+    assert not manifest.implementations
+    assert manifest.assets[0].content_fingerprint == quant_asset_provider().strategy_assets[0].content_fingerprint
 
 
 def test_strategy_asset_path_fails_closed_on_traversal_or_missing_asset() -> None:

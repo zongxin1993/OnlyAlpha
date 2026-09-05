@@ -133,6 +133,14 @@ class OnlyCalculationRegistry:
             definitions[key] for key in sorted(definitions, key=lambda item: tuple(str(part) for part in item))
         )
 
+    def backend_registrations(self) -> tuple[OnlyCalculationBackendRegistration, ...]:
+        """List exact backend registrations in stable public identity order."""
+
+        return tuple(
+            self._registrations[key]
+            for key in sorted(self._registrations, key=lambda item: tuple(str(part) for part in item))
+        )
+
     def descriptors(self) -> tuple[MappingProxyType[str, object], ...]:
         """Return stable read-only descriptors without provider identity."""
 

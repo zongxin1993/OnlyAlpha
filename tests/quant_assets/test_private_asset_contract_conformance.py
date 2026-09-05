@@ -37,6 +37,7 @@ from onlyalpha.quant_assets import (
     OnlyQuantAssetProvider,
     OnlyQuantAssetProviderManifest,
     only_discover_quant_asset_providers,
+    only_quant_asset_distribution_artifact_manifest,
 )
 from onlyalpha.research.calculation.backend import OnlyResearchCalculationBackendResolver
 from onlyalpha.research.calculation.execution import OnlyResearchCalculationExecutor
@@ -63,6 +64,11 @@ from onlyalpha.research.run.evidence import only_research_admission_resolution_f
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 from onlyalpha.research.sweep.executor import OnlyResearchSweepExecutor
 from onlyalpha.runtime.defaults import only_default_engine_services
+from onlyalpha.runtime.generation import (
+    OnlyCoreExecutionIdentity,
+    OnlyRuntimeGenerationManifest,
+    OnlyRuntimeProviderBinding,
+)
 from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_primitives
 from onlyalpha.strategy.admission import OnlyStrategyTradingAdmissionService
 from onlyalpha.strategy.freeze import OnlyInMemoryStrategyCatalog, OnlyStrategyFreezeRequest, OnlyStrategyFreezeService
@@ -150,6 +156,48 @@ def test_l3_and_l4_subjects_satisfy_the_same_public_provider_contract() -> None:
             reference.semantic_version,
             OnlyCalculationBackendKind.RESEARCH,
         )
+
+
+def test_l3_and_l4_subjects_bind_one_public_artifact_and_runtime_generation_contract() -> None:
+    providers = _providers()
+    selected = (
+        _selected_provider(providers, L3_PROVIDER_ID),
+        _selected_provider(providers, L4_PROVIDER_ID),
+    )
+    catalog = OnlyQuantAssetCatalogGeneration(selected)
+    core = OnlyCoreExecutionIdentity("onlyalpha", "0.9.9", "a" * 64)
+    artifacts = tuple(
+        only_quant_asset_distribution_artifact_manifest(
+            source_repository=SOURCE_REPOSITORY,
+            source_revision=("b" if provider.manifest.layer is OnlyQuantAssetLayer.FACTOR else "c") * 40,
+            artifact_logical_name=(
+                provider.manifest.distribution_name.replace("-", "_")
+                + f"-{provider.manifest.distribution_version}-py3-none-any.whl"
+            ),
+            artifact_bytes=(provider.manifest.provider_id + provider.content_fingerprint).encode(),
+            tested_core_execution_fingerprint=core.fingerprint,
+            provider=provider,
+        )
+        for provider in selected
+    )
+    generation = OnlyRuntimeGenerationManifest(
+        core_execution=core,
+        artifact_manifest_fingerprints=("d" * 64, *(item.manifest_fingerprint for item in artifacts)),
+        artifact_sha256s=(core.artifact_sha256, *(item.artifact_sha256 for item in artifacts)),
+        providers=tuple(
+            OnlyRuntimeProviderBinding(
+                provider.manifest.provider_id,
+                provider.manifest.provider_version,
+                provider.content_fingerprint,
+                artifact.artifact_sha256,
+            )
+            for provider, artifact in zip(selected, artifacts, strict=True)
+        ),
+        catalog_generation_fingerprint=catalog.generation_fingerprint,
+        implementations=tuple(item for artifact in artifacts for item in artifact.implementations),
+    )
+    assert generation.catalog_generation_fingerprint == catalog.generation_fingerprint
+    assert {item.provider_id for item in generation.providers} == {L3_PROVIDER_ID, L4_PROVIDER_ID}
 
 
 def test_l3_subject_binds_an_exact_authoring_execution_generation(tmp_path: Path) -> None:

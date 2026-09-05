@@ -43,3 +43,7 @@ payload = asset.resource_bytes("research-definition.json")
 Any resource change requires a new provider version. A Strategy semantic change also requires a new asset semantic version. The selected
 catalog generation and content hashes are admission inputs. `distribution_version` must equal installed distribution metadata (the workspace
 version tool maintains it for this reference package); verified Freeze remains the point that creates runtime Strategy identity.
+
+An admitted release derives the same public immutable Distribution Artifact manifest used by L3. A clean candidate Runtime
+Generation must rediscover this exact L4 Provider and resource hashes before READY. Activation affects only new authoring work;
+existing Run bindings and frozen StrategyRevisions do not follow the active-generation pointer.
