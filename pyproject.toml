@@ -19,6 +19,7 @@ compose-acceptance = [
 ]
 dev = [
     "build>=1.2",
+    "hatchling>=1.26,<2",
     "mypy>=1.15",
     "packaging>=25",
     "pre-commit>=4.6",

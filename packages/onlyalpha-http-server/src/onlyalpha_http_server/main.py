@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import cast
 
 import uvicorn
+from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry
 
 from onlyalpha.application.product_boundary import only_compose_research_product_boundary
 from onlyalpha.application.strategy_authority import (
@@ -141,6 +142,7 @@ def _compose_backtest_product(
     market_products: OnlyMarketProductFactoryRegistry,
     catalog: OnlyBacktestDeploymentCatalog,
     resources: OnlyBacktestMarketProductResourceRegistry,
+    runtime_generations: OnlyRuntimeGenerationRegistry,
 ) -> tuple[OnlyBacktestCommandService, OnlyBacktestQueryService, OnlyPostgresBacktestStore]:
     semantic_namespace_id = OnlyResearchSemanticStoreIdentity(layout.research_root).load_verified()
     strategies = OnlyFrozenStrategyRevisionStore(layout.research_root)
@@ -164,7 +166,12 @@ def _compose_backtest_product(
         kernel_semantics_version="ONLYALPHA_KERNEL_SEMANTICS@1",
     )
     return (
-        OnlyBacktestCommandService(admission=admission, store=store, now_utc=only_system_utc_now),
+        OnlyBacktestCommandService(
+            admission=admission,
+            store=store,
+            now_utc=only_system_utc_now,
+            runtime_generations=runtime_generations,
+        ),
         OnlyBacktestQueryService(store, evidence),
         store,
     )
@@ -182,6 +189,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         required=True,
         help="verified operator-owned Product configuration document; repeat for each Market Product",
     )
+    parser.add_argument("--runtime-generation-authority-root", type=Path, required=True)
     parser.add_argument(
         "--backtest-market-resource",
         action="append",
@@ -195,6 +203,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     operational_dsn = postgres.operational_dsn(operational_options)
     schema = OnlyPostgresSchemaVerifier(operational_dsn)
     layout = OnlyUserDataLayout(args.user_data_root)
+    runtime_generations = OnlyRuntimeGenerationRegistry(args.runtime_generation_authority_root)
     run_store = OnlyPostgresResearchRunStore(postgres.dsn, operational_options)
     calculations = OnlyCalculationRegistry()
     data_sources = OnlyDataSourceFactoryRegistry()
@@ -276,6 +285,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             admission=admission,
             store=run_store,
             now_utc=only_system_utc_now,
+            runtime_generations=runtime_generations,
         )
         product_boundary = only_compose_research_product_boundary(
             admission=kernel,
@@ -345,6 +355,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 market_products,
                 catalog,
                 resources,
+                runtime_generations,
             )
         app = create_product_app(
             artifact_reader,

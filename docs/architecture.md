@@ -597,7 +597,10 @@ LIVE authorization remain separate authorities.
 ADR 0117 closes the admitted distribution-to-runtime boundary. A locator-independent Distribution Artifact manifest binds exact wheel
 bytes, source revision, Provider content, asset inventory, implementation fingerprints and tested Core execution identity. The independent
 `packages/onlyalpha-runtime-generation-manager/` component verifies a content-addressed artifact set, installs it into a clean isolated
-environment and recomputes installed Provider, Catalog and implementation closure before producing an immutable RuntimeGeneration.
+environment and recomputes installed Provider, Catalog and implementation closure, including Core-owned built-in implementations, before
+producing an immutable RuntimeGeneration. The resulting immutable RuntimeGeneration Validation Evidence is the only proof accepted for a
+`PREPARING → READY` transition. A validated environment carries a non-identity operational seal; a formal Worker must verify that seal,
+the exact retained wheel bytes, installed file hashes and recomputed Provider/Catalog/implementation closure before it becomes claim-capable.
 
 One append-only hash-chained generation ledger is the durable operational Authority for READY, `ACTIVE_FOR_NEW_WORK`, DRAINING/RETIRED
 and immutable work bindings. Activation and rollback are expected-current compare-and-set transitions; a Run reads the pointer once and
@@ -605,6 +608,15 @@ retains its exact binding. Restart replays the committed facts rather than inspe
 StrategyRevision resolution matches exact RESEARCH/TRADING implementation fingerprints and fails closed when unavailable or ambiguous.
 `CatalogGeneration != RuntimeGeneration`, `StrategyRevision != RuntimeGeneration`, artifact identity excludes its locator, and neither
 release nor activation grants Agent or LIVE authority.
+
+Core exposes only the stable `onlyalpha.runtime_generation_work_authority` port and installed entry-point group needed by formal Research
+and Backtest admission/claim paths. The runtime-generation-manager supplies the sole concrete binding/activation Authority; Core workers do
+not import that infrastructure implementation. Formal admission binds the existing Product Run ID before durable queue acceptance, while
+claim predicates select only IDs bound to the process generation and execution rechecks the same immutable binding. Run stores remain the
+Run lifecycle Authorities and never become a second RuntimeGeneration-binding store.
+If a Worker is started without both RuntimeGeneration arguments, it enters an explicit lifecycle-only no-claim composition: health,
+presence and shutdown remain operable, but the authority returns no eligible work and all bind/require operations fail closed. Supplying
+only one argument is invalid; formal claim capability always requires the pair and successful hosted-generation verification.
 
 ### Public Example / Private Asset Contract Parity
 

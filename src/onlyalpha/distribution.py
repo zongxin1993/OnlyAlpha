@@ -21,6 +21,11 @@ class OnlyDistributionArtifactRole(StrEnum):
     SUPPORT = "SUPPORT"
 
 
+class OnlyArtifactSourceProvenanceAuthority(StrEnum):
+    ONLYALPHA_GIT = "ONLYALPHA_GIT"
+    EXTERNAL_RELEASE = "EXTERNAL_RELEASE"
+
+
 @dataclass(frozen=True, order=True, slots=True)
 class OnlyArtifactAssetIdentity:
     kind: str
@@ -80,6 +85,7 @@ class OnlyArtifactCalculationImplementation:
 @dataclass(frozen=True, slots=True)
 class OnlyDistributionArtifactManifest:
     role: OnlyDistributionArtifactRole
+    source_provenance_authority: OnlyArtifactSourceProvenanceAuthority
     source_repository: str
     source_revision: str
     distribution_name: str
@@ -96,7 +102,11 @@ class OnlyDistributionArtifactManifest:
     schema_version: int = 1
 
     def __post_init__(self) -> None:
-        if self.schema_version != 1 or not isinstance(self.role, OnlyDistributionArtifactRole):
+        if (
+            self.schema_version != 1
+            or not isinstance(self.role, OnlyDistributionArtifactRole)
+            or not isinstance(self.source_provenance_authority, OnlyArtifactSourceProvenanceAuthority)
+        ):
             raise ValueError("RUNTIME_GENERATION_ARTIFACT_MANIFEST_INVALID")
         if not all(
             _valid_identity(value)
@@ -109,6 +119,11 @@ class OnlyDistributionArtifactManifest:
             )
         ):
             raise ValueError("RUNTIME_GENERATION_ARTIFACT_MANIFEST_INVALID")
+        if (
+            self.source_provenance_authority is OnlyArtifactSourceProvenanceAuthority.ONLYALPHA_GIT
+            and re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", self.source_revision) is None
+        ):
+            raise ValueError("RUNTIME_GENERATION_SOURCE_PROVENANCE_INVALID")
         normalized = re.sub(r"[-_.]+", "_", self.distribution_name).lower()
         normalized_version = self.distribution_version.replace("-", "_").lower()
         if not self.artifact_logical_name.lower().startswith(f"{normalized}-{normalized_version}-"):
@@ -161,6 +176,7 @@ class OnlyDistributionArtifactManifest:
         result: dict[str, object] = {
             "schema_version": self.schema_version,
             "role": self.role.value,
+            "source_provenance_authority": self.source_provenance_authority.value,
             "source_repository": self.source_repository,
             "source_revision": self.source_revision,
             "distribution_name": self.distribution_name,
@@ -184,6 +200,7 @@ class OnlyDistributionArtifactManifest:
         expected = {
             "schema_version",
             "role",
+            "source_provenance_authority",
             "source_repository",
             "source_revision",
             "distribution_name",
@@ -202,6 +219,9 @@ class OnlyDistributionArtifactManifest:
         _exact(payload, expected)
         result = cls(
             role=OnlyDistributionArtifactRole(_string(payload, "role")),
+            source_provenance_authority=OnlyArtifactSourceProvenanceAuthority(
+                _string(payload, "source_provenance_authority")
+            ),
             source_repository=_string(payload, "source_repository"),
             source_revision=_string(payload, "source_revision"),
             distribution_name=_string(payload, "distribution_name"),

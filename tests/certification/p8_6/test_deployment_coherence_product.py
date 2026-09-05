@@ -137,6 +137,8 @@ def test_wrong_namespace_api_is_not_ready_and_cannot_serve_product_routes(
             str(port),
             "--backtest-product-config",
             str(backtest_product_config),
+            "--runtime-generation-authority-root",
+            str(tmp_path / "runtime-generation-authority"),
         ],
         env=_environment(postgres_dsn),
         text=True,

@@ -7,6 +7,7 @@ from collections.abc import Iterable
 
 from onlyalpha.distribution import (
     OnlyArtifactCalculationImplementation,
+    OnlyArtifactSourceProvenanceAuthority,
     OnlyDistributionArtifactManifest,
     OnlyDistributionArtifactRole,
 )
@@ -24,6 +25,7 @@ def only_calculation_distribution_artifact_manifest(
     artifact_bytes: bytes,
     tested_core_execution_fingerprint: str,
     registrations: Iterable[OnlyCalculationBackendRegistration],
+    source_provenance_authority: OnlyArtifactSourceProvenanceAuthority = OnlyArtifactSourceProvenanceAuthority.ONLYALPHA_GIT,
 ) -> OnlyDistributionArtifactManifest:
     implementations = []
     for registration in registrations:
@@ -44,6 +46,7 @@ def only_calculation_distribution_artifact_manifest(
         raise ValueError("RUNTIME_GENERATION_ARTIFACT_MANIFEST_INVALID")
     return OnlyDistributionArtifactManifest(
         role=OnlyDistributionArtifactRole.CALCULATION,
+        source_provenance_authority=source_provenance_authority,
         source_repository=source_repository,
         source_revision=source_revision,
         distribution_name=distribution_name,

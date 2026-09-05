@@ -2,6 +2,10 @@
 
 from .artifact_store import OnlyLocalImmutableArtifactStore as OnlyLocalImmutableArtifactStore
 from .builder import OnlyRuntimeGenerationBuilder as OnlyRuntimeGenerationBuilder
+from .builder import OnlyValidatedRuntimeGeneration as OnlyValidatedRuntimeGeneration
+from .historical import (
+    OnlyHistoricalExecutableRuntimeGenerationResolver as OnlyHistoricalExecutableRuntimeGenerationResolver,
+)
 from .registry import OnlyGenerationEvent as OnlyGenerationEvent
 from .registry import OnlyGenerationProjection as OnlyGenerationProjection
 from .registry import OnlyGenerationState as OnlyGenerationState

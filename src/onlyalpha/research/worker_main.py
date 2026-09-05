@@ -9,6 +9,10 @@ from datetime import timedelta
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
+from onlyalpha.application.runtime_generation import (
+    OnlyNoClaimRuntimeGenerationWorkAuthority,
+    OnlyRuntimeGenerationWorkAuthority,
+)
 from onlyalpha.application.stop_controller import (
     OnlyApplicationShutdownReason,
     OnlyApplicationStopController,
@@ -54,6 +58,7 @@ from onlyalpha.research.operations.readiness import OnlyResearchRequiredRoot, On
 from onlyalpha.research.result.result_store import OnlyJsonResearchResultStore
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 from onlyalpha.runtime.defaults import only_default_engine_services
+from onlyalpha.runtime.work_binding import only_load_runtime_generation_work_authority
 
 _LOG = logging.getLogger(__name__)
 
@@ -72,6 +77,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--lease-seconds", type=float, default=120.0)
     parser.add_argument("--heartbeat-seconds", type=float, default=30.0)
     parser.add_argument("--max-attempts", type=int, default=3)
+    parser.add_argument("--runtime-generation-authority-root", type=Path)
+    parser.add_argument("--runtime-generation-fingerprint")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -82,6 +89,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     schema = OnlyPostgresSchemaVerifier(operational_dsn)
     schema.assert_compatible()
     layout = OnlyUserDataLayout(args.user_data_root)
+    if (args.runtime_generation_authority_root is None) != (args.runtime_generation_fingerprint is None):
+        parser.error("RuntimeGeneration authority root and fingerprint must be supplied together")
+    process_generation_fingerprint = args.runtime_generation_fingerprint or "0" * 64
+    runtime_generations: OnlyRuntimeGenerationWorkAuthority
+    if args.runtime_generation_authority_root is None:
+        runtime_generations = OnlyNoClaimRuntimeGenerationWorkAuthority()
+    else:
+        runtime_generations = only_load_runtime_generation_work_authority(args.runtime_generation_authority_root)
+        runtime_generations.verify_hosted_generation(process_generation_fingerprint)
     deployment = OnlyResearchDeploymentCoherenceVerifier(
         OnlyResearchSemanticStoreIdentity(layout.research_root),
         OnlyPostgresResearchDeploymentStore(postgres.dsn, operational_options),
@@ -142,7 +158,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     execution_store = OnlyPostgresResearchExecutionStore(postgres.dsn, operational_options)
     operations_store = OnlyPostgresResearchOperationsStore(postgres.dsn, operational_options)
     worker_id = OnlyResearchWorkerInstanceId.new()
-    scheduler = OnlyResearchScheduler(store=execution_store, policy=policy, now_utc=only_system_utc_now)
+    scheduler = OnlyResearchScheduler(
+        store=execution_store,
+        policy=policy,
+        now_utc=only_system_utc_now,
+        runtime_generations=runtime_generations,
+        process_generation_fingerprint=process_generation_fingerprint,
+    )
     reconciler = OnlyResearchCancellationRecoveryReconciler(
         execution_store=execution_store,
         resolver=resolver,
@@ -163,6 +185,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         runtime_executor=OnlyEngineResearchRuntimeExecutor(layout.root, services),
         policy=policy,
         now_utc=only_system_utc_now,
+        runtime_generations=runtime_generations,
+        process_generation_fingerprint=process_generation_fingerprint,
     )
     presence = OnlyResearchWorkerPresenceReporter(
         writer=operations_store,

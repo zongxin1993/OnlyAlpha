@@ -21,6 +21,7 @@ from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore
 from onlyalpha.research.run import OnlyResearchRunId
 from scripts.database import _initialize_deployment
 from tests.research.calculation.support import snapshot
+from tests.runtime_generation_process_support import only_prepare_test_process_generation
 
 pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
 
@@ -74,6 +75,7 @@ def test_real_chromium_product_vertical_survives_refresh_close_and_reopen(
     barrier = tmp_path / "browser-closed.barrier"
     worker_started = tmp_path / "worker-started.barrier"
     evidence_path = tmp_path / "real-browser-evidence.json"
+    generation_root, generation = only_prepare_test_process_generation(tmp_path / "runtime-generation-authority")
     environment = {
         **os.environ,
         "ONLYALPHA_POSTGRES_DSN": postgres_dsn,
@@ -96,6 +98,8 @@ def test_real_chromium_product_vertical_survives_refresh_close_and_reopen(
             str(api_port),
             "--backtest-product-config",
             str(backtest_product_config),
+            "--runtime-generation-authority-root",
+            str(generation_root),
         ],
         env=environment,
         text=True,
@@ -128,7 +132,7 @@ def test_real_chromium_product_vertical_survives_refresh_close_and_reopen(
             [
                 sys.executable,
                 "-m",
-                "onlyalpha.research.worker_main",
+                "tests.runtime_generation_worker_main",
                 "--user-data-root",
                 str(tmp_path),
                 "--polling-seconds",
@@ -137,6 +141,10 @@ def test_real_chromium_product_vertical_survives_refresh_close_and_reopen(
                 "30",
                 "--heartbeat-seconds",
                 "12",
+                "--runtime-generation-authority-root",
+                str(generation_root),
+                "--runtime-generation-fingerprint",
+                generation,
             ],
             env=environment,
             text=True,

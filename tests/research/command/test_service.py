@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import cast
 
 import pytest
+from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry
 
 from onlyalpha.application.product_boundary import (
     OnlyCancelResearchRun,
@@ -47,10 +48,37 @@ from onlyalpha.research.run import (
 )
 from onlyalpha.research.specification import OnlyResearchSpecificationResolver
 from tests.research.specification.support import registry, specification
+from tests.runtime_generation_support import only_ready_test_generation
 
 NOW = datetime(2026, 8, 18, 1, 2, 3, 456789, tzinfo=UTC)
 KEY = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000001")
 OTHER_KEY = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000002")
+
+
+class _RuntimeGenerations:
+    def __init__(self) -> None:
+        self.work: set[str] = set()
+
+    def bind_new_work(self, work_id, **_):  # type: ignore[no-untyped-def]
+        self.work.add(work_id)
+
+    def release_work(self, work_id, **_):  # type: ignore[no-untyped-def]
+        self.work.discard(work_id)
+
+    def require_work_binding(self, work_id):  # type: ignore[no-untyped-def]
+        if work_id not in self.work:
+            raise ValueError("RUNTIME_WORK_GENERATION_UNBOUND")
+
+    def require_work_generation(self, work_id, process_generation_fingerprint):  # type: ignore[no-untyped-def]
+        del process_generation_fingerprint
+        return self.require_work_binding(work_id)
+
+    def work_ids_for_generation(self, process_generation_fingerprint):  # type: ignore[no-untyped-def]
+        del process_generation_fingerprint
+        return tuple(sorted(self.work))
+
+    def verify_hosted_generation(self, generation_fingerprint):  # type: ignore[no-untyped-def]
+        del generation_fingerprint
 
 
 def _provenance(
@@ -158,7 +186,12 @@ class _Store:
 
 
 def _service(
-    store: _Store, dataset: _DatasetStore, *, ids: list[str] | None = None, times: list[datetime] | None = None
+    store: _Store,
+    dataset: _DatasetStore,
+    *,
+    ids: list[str] | None = None,
+    times: list[datetime] | None = None,
+    runtime_generations: object | None = None,
 ) -> OnlyResearchCommandService:
     run_ids = iter(
         ids
@@ -176,7 +209,59 @@ def _service(
         run_id_factory=lambda: OnlyResearchRunId(next(run_ids)),
         authoring_generation_resolver=_AuthoringGenerations(),
     )
-    return OnlyResearchCommandService(admission=admission, store=store, now_utc=lambda: next(clock))  # type: ignore[arg-type]
+    return OnlyResearchCommandService(
+        admission=admission,
+        store=store,
+        now_utc=lambda: next(clock),
+        runtime_generations=runtime_generations or _RuntimeGenerations(),  # type: ignore[arg-type]
+    )  # type: ignore[arg-type]
+
+
+def test_formal_runs_bind_active_generation_across_activation_rollback_and_restart(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    authority = OnlyRuntimeGenerationRegistry(tmp_path / "runtime-authority")
+    g1 = only_ready_test_generation(authority, "a", NOW)
+    g2 = only_ready_test_generation(authority, "b", NOW + timedelta(seconds=1))
+    authority.activate_for_new_work(
+        expected_current=None,
+        target=g1,
+        actor="operator",
+        occurred_at=NOW + timedelta(seconds=2),
+    )
+    store = _Store()
+    service = _service(
+        store,
+        _DatasetStore(),
+        ids=[
+            "00000000-0000-4000-8000-000000000010",
+            "00000000-0000-4000-8000-000000000011",
+            "00000000-0000-4000-8000-000000000012",
+        ],
+        runtime_generations=authority,
+    )
+    r1 = service.submit_research_run(KEY, specification()).run
+    authority.activate_for_new_work(
+        expected_current=g1,
+        target=g2,
+        actor="operator",
+        occurred_at=NOW + timedelta(seconds=3),
+    )
+    r2 = service.submit_research_run(OTHER_KEY, specification()).run
+    authority.activate_for_new_work(
+        expected_current=g2,
+        target=g1,
+        actor="operator",
+        occurred_at=NOW + timedelta(seconds=4),
+    )
+    third = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000003")
+    r3 = service.submit_research_run(third, specification()).run
+
+    restarted = OnlyRuntimeGenerationRegistry(tmp_path / "runtime-authority")
+    assert restarted.require_work_binding(r1.run_id.value).runtime_generation_fingerprint == g1
+    assert restarted.require_work_binding(r2.run_id.value).runtime_generation_fingerprint == g2
+    assert restarted.require_work_binding(r3.run_id.value).runtime_generation_fingerprint == g1
+    with pytest.raises(ValueError, match="RUNTIME_WORK_GENERATION_MISMATCH"):
+        restarted.require_work_generation(r1.run_id.value, g2)
+    assert restarted.require_work_binding(r1.run_id.value).runtime_generation_fingerprint == g1
 
 
 def test_submission_key_requires_canonical_uuid4() -> None:
@@ -190,7 +275,11 @@ def test_command_constructor_record_and_cursor_evidence_fail_closed() -> None:
     run_id = OnlyResearchRunId("00000000-0000-4000-8000-000000000099")
     with pytest.raises(ValueError, match="positive"):
         OnlyResearchCommandService(  # type: ignore[arg-type]
-            admission=object(), store=object(), now_utc=lambda: NOW, cancellation_cas_attempts=0
+            admission=object(),
+            store=object(),
+            now_utc=lambda: NOW,
+            runtime_generations=_RuntimeGenerations(),
+            cancellation_cas_attempts=0,
         )
     with pytest.raises(ValueError, match="record"):
         OnlyResearchSubmissionRecord(cast(object, KEY), "bad", run_id)

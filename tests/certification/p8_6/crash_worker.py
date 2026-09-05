@@ -14,6 +14,7 @@ from onlyalpha.research.artifact.store import OnlyParquetResearchArtifactStore
 from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore
 from onlyalpha.research.result.result_store import OnlyJsonResearchResultStore
 from onlyalpha.research.worker_main import main as worker_main
+from tests.runtime_generation_process_support import only_allow_unsealed_test_process_generation
 
 
 def _block(barrier: Path, boundary: str) -> None:
@@ -40,6 +41,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("boundary", choices=("C1", "C2", "C3", "C4"))
     parser.add_argument("--barrier", type=Path, required=True)
     parser.add_argument("--user-data-root", type=Path, required=True)
+    parser.add_argument("--runtime-generation-authority-root", type=Path, required=True)
+    parser.add_argument("--runtime-generation-fingerprint", required=True)
     args = parser.parse_args(argv)
     if args.boundary == "C1":
         _wrap(
@@ -55,6 +58,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         _wrap(OnlyParquetResearchArtifactStore, "commit", args.barrier, args.boundary, after=False)
     else:
         _wrap(OnlyPostgresResearchExecutionStore, "complete", args.barrier, args.boundary, after=False)
+    only_allow_unsealed_test_process_generation()
     return worker_main(
         [
             "--user-data-root",
@@ -65,6 +69,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             "30",
             "--heartbeat-seconds",
             "12",
+            "--runtime-generation-authority-root",
+            str(args.runtime_generation_authority_root),
+            "--runtime-generation-fingerprint",
+            args.runtime_generation_fingerprint,
         ]
     )
 

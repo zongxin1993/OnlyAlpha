@@ -115,4 +115,6 @@ def test_worker_composition_verifies_descriptor_before_postgres_claim_capability
                 heartbeat_interval=timedelta(seconds=1),
             ),
             now_utc=lambda: datetime(2026, 9, 4, tzinfo=UTC),
+            runtime_generations=object(),  # type: ignore[arg-type]
+            process_generation_fingerprint="f" * 64,
         )

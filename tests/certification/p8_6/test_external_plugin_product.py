@@ -47,6 +47,7 @@ from onlyalpha.runtime.defaults import only_default_engine_services
 from scripts.database import _backup, _initialize_deployment, _restore_test
 from tests.certification.p8_6.support import external_definition
 from tests.research.calculation.support import snapshot
+from tests.runtime_generation_process_support import only_prepare_test_process_generation
 
 pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
 
@@ -121,6 +122,7 @@ def test_external_calculation_runs_through_real_api_worker_engine_and_artifact_q
         "ONLYALPHA_POSTGRES_DSN": postgres_dsn,
         "UV_CACHE_DIR": "/tmp/onlyalpha-uv-cache",
     }
+    generation_root, generation = only_prepare_test_process_generation(tmp_path / "runtime-generation-authority")
     api_command = [
         sys.executable,
         "-m",
@@ -131,11 +133,13 @@ def test_external_calculation_runs_through_real_api_worker_engine_and_artifact_q
         str(port),
         "--backtest-product-config",
         str(backtest_product_config),
+        "--runtime-generation-authority-root",
+        str(generation_root),
     ]
     worker_command = [
         sys.executable,
         "-m",
-        "onlyalpha.research.worker_main",
+        "tests.runtime_generation_worker_main",
         "--user-data-root",
         str(tmp_path),
         "--polling-seconds",
@@ -144,6 +148,10 @@ def test_external_calculation_runs_through_real_api_worker_engine_and_artifact_q
         "30",
         "--heartbeat-seconds",
         "12",
+        "--runtime-generation-authority-root",
+        str(generation_root),
+        "--runtime-generation-fingerprint",
+        generation,
     ]
     api = subprocess.Popen(
         api_command,
@@ -265,6 +273,8 @@ def test_external_calculation_runs_through_real_api_worker_engine_and_artifact_q
             str(port),
             "--backtest-product-config",
             str(backtest_product_config),
+            "--runtime-generation-authority-root",
+            str(restore_root / "runtime-generation-authority"),
         ]
         api = subprocess.Popen(
             restored_api_command,

@@ -191,7 +191,10 @@ class OnlyResearchVerifiedSemanticCompletionProbe:
 
 
 class _CancellationRecoveryStore(Protocol):
-    def load_cancellation_recovery_candidate(self) -> OnlyResearchRun | None: ...
+    def load_cancellation_recovery_candidate(
+        self,
+        eligible_run_ids: tuple[str, ...] | None = None,
+    ) -> OnlyResearchRun | None: ...
 
     def reconcile_cancellation(
         self,
@@ -218,8 +221,8 @@ class OnlyResearchCancellationRecoveryReconciler:
         self._completion_probe = completion_probe
         self._now_utc = now_utc
 
-    def reconcile_once(self) -> OnlyResearchRun | None:
-        run = self._execution_store.load_cancellation_recovery_candidate()
+    def reconcile_once(self, eligible_run_ids: tuple[str, ...] | None = None) -> OnlyResearchRun | None:
+        run = self._execution_store.load_cancellation_recovery_candidate(eligible_run_ids)
         if run is None:
             return None
         if run.state is not OnlyResearchRunState.CANCEL_REQUESTED:

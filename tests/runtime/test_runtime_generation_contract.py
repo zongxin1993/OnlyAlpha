@@ -7,6 +7,7 @@ from onlyalpha_plugin_targets.registration import registrations as target_regist
 from onlyalpha.calculation import only_calculation_distribution_artifact_manifest
 from onlyalpha.quant_assets import only_quant_asset_distribution_artifact_manifest
 from onlyalpha.runtime.generation import (
+    OnlyArtifactSourceProvenanceAuthority,
     OnlyCoreExecutionIdentity,
     OnlyDistributionArtifactManifest,
     OnlyDistributionArtifactRole,
@@ -70,6 +71,7 @@ def test_non_quant_artifact_cannot_claim_provider_identity() -> None:
     with pytest.raises(ValueError, match="RUNTIME_GENERATION_ARTIFACT_MANIFEST_INVALID"):
         OnlyDistributionArtifactManifest(
             role=OnlyDistributionArtifactRole.CORE,
+            source_provenance_authority=OnlyArtifactSourceProvenanceAuthority.ONLYALPHA_GIT,
             source_repository="OnlyAlpha",
             source_revision="1" * 40,
             distribution_name="onlyalpha",
@@ -78,6 +80,21 @@ def test_non_quant_artifact_cannot_claim_provider_identity() -> None:
             artifact_sha256="a" * 64,
             artifact_size=1,
             provider_id="parallel.authority",
+        )
+
+
+def test_onlyalpha_git_provenance_rejects_mutable_source_revision() -> None:
+    with pytest.raises(ValueError, match="RUNTIME_GENERATION_SOURCE_PROVENANCE_INVALID"):
+        OnlyDistributionArtifactManifest(
+            role=OnlyDistributionArtifactRole.CORE,
+            source_provenance_authority=OnlyArtifactSourceProvenanceAuthority.ONLYALPHA_GIT,
+            source_repository="OnlyAlpha",
+            source_revision="master",
+            distribution_name="onlyalpha",
+            distribution_version="0.9.9",
+            artifact_logical_name="onlyalpha-0.9.9-py3-none-any.whl",
+            artifact_sha256="a" * 64,
+            artifact_size=1,
         )
 
 

@@ -94,7 +94,10 @@ class OnlyPostgresResearchExecutionStore:
         lease_duration: timedelta,
         max_attempts: int,
         run_started_at: datetime,
+        eligible_run_ids: tuple[str, ...] | None = None,
     ) -> OnlyResearchExecutionClaim | None:
+        if eligible_run_ids == ():
+            return None
         while True:
             try:
                 return self._claim_next_once(
@@ -103,6 +106,7 @@ class OnlyPostgresResearchExecutionStore:
                     lease_duration=lease_duration,
                     max_attempts=max_attempts,
                     run_started_at=run_started_at,
+                    eligible_run_ids=eligible_run_ids,
                 )
             except (OnlyResearchRunIntegrityError, ValueError):
                 raise
@@ -121,6 +125,7 @@ class OnlyPostgresResearchExecutionStore:
         lease_duration: timedelta,
         max_attempts: int,
         run_started_at: datetime,
+        eligible_run_ids: tuple[str, ...] | None,
     ) -> OnlyResearchExecutionClaim | None:
         with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
             generation = self._authoring_execution_generation_fingerprint
@@ -129,12 +134,16 @@ class OnlyPostgresResearchExecutionStore:
                 if generation is None
                 else "r.authoring_provenance ->> 'execution_generation_fingerprint' = %s"
             )
-            parameters: tuple[object, ...] = (max_attempts,) if generation is None else (generation, max_attempts)
+            generation_parameters: tuple[object, ...] = () if generation is None else (generation,)
+            work_predicate = "TRUE" if eligible_run_ids is None else "r.run_id = ANY(%s)"
+            work_parameters: tuple[object, ...] = () if eligible_run_ids is None else (list(eligible_run_ids),)
+            parameters: tuple[object, ...] = (*generation_parameters, *work_parameters, max_attempts)
             row = connection.execute(
                 f"""
                     SELECT r.* FROM research_run AS r
                     WHERE r.state IN ('QUEUED', 'RUNNING')
                       AND {generation_predicate}
+                      AND {work_predicate}
                       AND NOT EXISTS (
                           SELECT 1 FROM research_run_attempt AS active
                           WHERE active.run_id = r.run_id AND active.state = 'ACTIVE'
@@ -209,16 +218,25 @@ class OnlyPostgresResearchExecutionStore:
         except psycopg.Error as exc:
             raise OnlyResearchExecutionStoreUnavailableError("Heartbeat transaction failed") from exc
 
-    def expire_next(self, *, max_attempts: int, run_finished_at: datetime) -> OnlyResearchRunAttempt | None:
+    def expire_next(
+        self,
+        *,
+        max_attempts: int,
+        run_finished_at: datetime,
+        eligible_run_ids: tuple[str, ...] | None = None,
+    ) -> OnlyResearchRunAttempt | None:
         try:
             with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+                generation_predicate = "TRUE" if eligible_run_ids is None else "run_id = ANY(%s::uuid[])"
                 candidate = connection.execute(
-                    """
+                    f"""
                     SELECT attempt_id FROM research_run_attempt
                     WHERE state = 'ACTIVE' AND lease_expires_at <= clock_timestamp()
+                      AND {generation_predicate}
                     ORDER BY lease_expires_at ASC, run_id ASC, attempt_id ASC
                     FOR UPDATE SKIP LOCKED LIMIT 1
-                    """
+                    """,
+                    () if eligible_run_ids is None else (list(eligible_run_ids),),
                 ).fetchone()
                 if candidate is None:
                     return None
@@ -277,7 +295,10 @@ class OnlyPostgresResearchExecutionStore:
         except psycopg.Error as exc:
             raise OnlyResearchExecutionStoreUnavailableError("Lease expiry transaction failed") from exc
 
-    def load_cancellation_recovery_candidate(self) -> OnlyResearchRun | None:
+    def load_cancellation_recovery_candidate(
+        self,
+        eligible_run_ids: tuple[str, ...] | None = None,
+    ) -> OnlyResearchRun | None:
         """Load one operationally eligible candidate without inspecting semantic Stores."""
         try:
             with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
@@ -287,11 +308,16 @@ class OnlyPostgresResearchExecutionStore:
                     if generation is None
                     else "r.authoring_provenance ->> 'execution_generation_fingerprint' = %s"
                 )
+                runtime_generation_predicate = "TRUE" if eligible_run_ids is None else "r.run_id = ANY(%s::uuid[])"
+                parameters: tuple[object, ...] = () if generation is None else (generation,)
+                if eligible_run_ids is not None:
+                    parameters = (*parameters, list(eligible_run_ids))
                 row = connection.execute(
                     f"""
                     SELECT r.* FROM research_run AS r
                     WHERE r.state = 'CANCEL_REQUESTED'
                       AND {generation_predicate}
+                      AND {runtime_generation_predicate}
                       AND NOT EXISTS (
                           SELECT 1 FROM research_run_attempt AS active
                           WHERE active.run_id = r.run_id AND active.state = 'ACTIVE'
@@ -299,7 +325,7 @@ class OnlyPostgresResearchExecutionStore:
                     ORDER BY r.cancel_requested_at ASC, r.run_id ASC
                     LIMIT 1
                     """,
-                    () if generation is None else (generation,),
+                    parameters,
                 ).fetchone()
         except psycopg.Error as exc:
             raise OnlyResearchExecutionStoreUnavailableError("Cancellation recovery candidate load failed") from exc

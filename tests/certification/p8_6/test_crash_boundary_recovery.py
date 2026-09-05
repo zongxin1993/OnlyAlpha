@@ -39,6 +39,7 @@ from onlyalpha.runtime.result import OnlyRuntimeResultStatus
 from scripts.database import _initialize_deployment
 from tests.research.specification.support import registry, specification
 from tests.runtime.research.support import workload_case
+from tests.runtime_generation_process_support import only_prepare_test_process_generation
 
 pytestmark = [pytest.mark.recovery, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
 
@@ -123,6 +124,10 @@ def test_process_kill_boundaries_reenter_and_converge_exact_semantic_truth(
     )
     run_store = OnlyPostgresResearchRunStore(postgres_dsn)
     run_store.create_queued(queued)
+    generation_root, generation = only_prepare_test_process_generation(
+        tmp_path / "runtime-generation-authority",
+        work_ids=(run_id.value,),
+    )
 
     control_root = tmp_path.parent / f"{tmp_path.name}-control"
     _, control_workload = workload_case(control_root)
@@ -142,6 +147,10 @@ def test_process_kill_boundaries_reenter_and_converge_exact_semantic_truth(
             str(barrier),
             "--user-data-root",
             str(tmp_path),
+            "--runtime-generation-authority-root",
+            str(generation_root),
+            "--runtime-generation-fingerprint",
+            generation,
         ],
         env=_environment(postgres_dsn),
         text=True,
@@ -184,7 +193,7 @@ def test_process_kill_boundaries_reenter_and_converge_exact_semantic_truth(
         [
             sys.executable,
             "-m",
-            "onlyalpha.research.worker_main",
+            "tests.runtime_generation_worker_main",
             "--user-data-root",
             str(tmp_path),
             "--polling-seconds",
@@ -193,6 +202,10 @@ def test_process_kill_boundaries_reenter_and_converge_exact_semantic_truth(
             "30",
             "--heartbeat-seconds",
             "12",
+            "--runtime-generation-authority-root",
+            str(generation_root),
+            "--runtime-generation-fingerprint",
+            generation,
         ],
         env=_environment(postgres_dsn),
         text=True,

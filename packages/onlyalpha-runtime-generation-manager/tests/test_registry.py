@@ -16,6 +16,7 @@ from onlyalpha.runtime.generation import (
     OnlyArtifactCalculationImplementation,
     OnlyCoreExecutionIdentity,
     OnlyRuntimeGenerationManifest,
+    OnlyRuntimeGenerationValidationEvidence,
     OnlyRuntimeProviderBinding,
 )
 from tests.strategy.p9_support import p9_strategy_case
@@ -47,8 +48,32 @@ def _manifest(seed: str, implementations: tuple[str, ...] = ()) -> OnlyRuntimeGe
 def _ready(registry: OnlyRuntimeGenerationRegistry, manifest: OnlyRuntimeGenerationManifest, offset: int) -> str:
     fingerprint = manifest.runtime_generation_fingerprint
     registry.prepare(manifest, actor="operator", occurred_at=NOW + timedelta(seconds=offset))
-    registry.mark_ready(fingerprint, actor="validator", occurred_at=NOW + timedelta(seconds=offset + 1))
+    registry.admit_ready(
+        OnlyRuntimeGenerationValidationEvidence.from_manifest(manifest),
+        actor="validator",
+        occurred_at=NOW + timedelta(seconds=offset + 1),
+    )
     return fingerprint
+
+
+def test_ready_requires_exact_validation_evidence(tmp_path: Path) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    manifest = _manifest("a")
+    registry.prepare(manifest, actor="operator", occurred_at=NOW)
+    with pytest.raises(ValueError, match="RUNTIME_GENERATION_NOT_READY"):
+        registry.activate_for_new_work(
+            expected_current=None,
+            target=manifest.runtime_generation_fingerprint,
+            actor="operator",
+            occurred_at=NOW + timedelta(seconds=1),
+        )
+    mismatched = replace(
+        OnlyRuntimeGenerationValidationEvidence.from_manifest(manifest),
+        catalog_generation_fingerprint="f" * 64,
+    )
+    with pytest.raises(ValueError, match="RUNTIME_GENERATION_VALIDATION_EVIDENCE_MISMATCH"):
+        registry.admit_ready(mismatched, actor="validator", occurred_at=NOW + timedelta(seconds=2))
+    assert registry.projection().state(manifest.runtime_generation_fingerprint) is OnlyGenerationState.PREPARING
 
 
 def test_activation_isolation_rollback_drain_retire_and_restart(tmp_path: Path) -> None:
@@ -85,6 +110,10 @@ def test_activation_isolation_rollback_drain_retire_and_restart(tmp_path: Path) 
     with pytest.raises(ValueError, match="RUNTIME_GENERATION_STILL_REQUIRED"):
         registry.retire(g2, actor="operator", occurred_at=NOW + timedelta(seconds=10))
     registry.release_work("R2", actor="worker", occurred_at=NOW + timedelta(seconds=11))
+    released = registry.require_work_binding("R2")
+    assert released.runtime_generation_fingerprint == g2
+    assert not released.active
+    assert registry.bind_new_work("R2", actor="admission", occurred_at=NOW + timedelta(seconds=12)) == released
     registry.retire(g2, actor="operator", occurred_at=NOW + timedelta(seconds=12))
     assert registry.projection().states[g2] is OnlyGenerationState.RETIRED
 

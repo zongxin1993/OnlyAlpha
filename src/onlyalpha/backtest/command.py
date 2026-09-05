@@ -16,6 +16,7 @@ from onlyalpha.application.product_command_receipt import (
     OnlyProductCommandReceipt,
     only_product_command_fingerprint,
 )
+from onlyalpha.application.runtime_generation import OnlyRuntimeGenerationWorkAuthority
 
 from .admission import OnlyBacktestAdmissionService
 from .errors import OnlyBacktestError, OnlyBacktestErrorPhase
@@ -58,10 +59,12 @@ class OnlyBacktestCommandService:
         admission: OnlyBacktestAdmissionService,
         store: OnlyBacktestCommandStore,
         now_utc: Callable[[], datetime],
+        runtime_generations: OnlyRuntimeGenerationWorkAuthority,
     ) -> None:
         self._admission = admission
         self._store = store
         self._now_utc = now_utc
+        self._runtime_generations = runtime_generations
 
     def submit(
         self,
@@ -71,7 +74,9 @@ class OnlyBacktestCommandService:
         fingerprint = only_product_command_fingerprint({"specification": specification.to_dict()})
         existing = self._store.find_product_command_receipt(command_id)
         if existing is not None:
-            return self._replay_create(existing, fingerprint)
+            replayed = self._replay_create(existing, fingerprint)
+            self._runtime_generations.require_work_binding(replayed.run.run_id.value)
+            return replayed
         resolution = self._admission.resolve(specification)
         queued_at = self._now_utc()
         run = OnlyBacktestRun.queued(
@@ -79,6 +84,11 @@ class OnlyBacktestCommandService:
             specification=specification,
             admission_resolution=resolution,
             queued_at=queued_at,
+        )
+        self._runtime_generations.bind_new_work(
+            run.run_id.value,
+            actor="backtest-product-admission",
+            occurred_at=queued_at,
         )
         prepared = OnlyProductCommandReceipt(
             command_id=command_id,
@@ -90,10 +100,25 @@ class OnlyBacktestCommandService:
             ),
             accepted_at=queued_at,
         )
-        receipt = self._store.create_queued_with_receipt(run, prepared)
+        try:
+            receipt = self._store.create_queued_with_receipt(run, prepared)
+        except Exception:
+            self._runtime_generations.release_work(
+                run.run_id.value,
+                actor="backtest-product-admission-compensation",
+                occurred_at=self._now_utc(),
+            )
+            raise
         if receipt == prepared:
             return OnlyBacktestSubmitOutcome(run, OnlyBacktestSubmissionDisposition.CREATED)
-        return self._replay_create(receipt, fingerprint)
+        self._runtime_generations.release_work(
+            run.run_id.value,
+            actor="backtest-product-admission-concurrency-loser",
+            occurred_at=self._now_utc(),
+        )
+        replayed = self._replay_create(receipt, fingerprint)
+        self._runtime_generations.require_work_binding(replayed.run.run_id.value)
+        return replayed
 
     def cancel(
         self,
@@ -103,7 +128,7 @@ class OnlyBacktestCommandService:
         fingerprint = only_product_command_fingerprint({"run_id": run_id.value})
         existing = self._store.find_product_command_receipt(command_id)
         if existing is not None:
-            return self._replay_cancel(existing, fingerprint, run_id)
+            return self._release_if_terminal(self._replay_cancel(existing, fingerprint, run_id))
         run, receipt = self._store.request_cancellation_with_receipt(
             run_id,
             command_id,
@@ -112,6 +137,15 @@ class OnlyBacktestCommandService:
         )
         if receipt.command_id != command_id:
             raise AssertionError("Backtest cancellation receipt identity differs")
+        return self._release_if_terminal(run)
+
+    def _release_if_terminal(self, run: OnlyBacktestRun) -> OnlyBacktestRun:
+        if run.state in {run.state.COMPLETED, run.state.FAILED, run.state.CANCELLED}:
+            self._runtime_generations.release_work(
+                run.run_id.value,
+                actor="backtest-product-terminal-command",
+                occurred_at=run.finished_at or self._now_utc(),
+            )
         return run
 
     def _replay_create(self, receipt: OnlyProductCommandReceipt, fingerprint: str) -> OnlyBacktestSubmitOutcome:

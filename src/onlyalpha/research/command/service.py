@@ -13,6 +13,7 @@ from onlyalpha.application.product_command_receipt import (
     OnlyProductCommandReceipt,
     only_cancel_research_run_command_fingerprint,
 )
+from onlyalpha.application.runtime_generation import OnlyRuntimeGenerationWorkAuthority
 from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 from onlyalpha.research.run.admission import OnlyResearchRunAdmissionService
 from onlyalpha.research.run.errors import (
@@ -44,6 +45,7 @@ class OnlyResearchCommandService:
         admission: OnlyResearchRunAdmissionService,
         store: OnlyResearchCommandStore,
         now_utc: Callable[[], datetime],
+        runtime_generations: OnlyRuntimeGenerationWorkAuthority,
         cancellation_cas_attempts: int = 3,
     ) -> None:
         if cancellation_cas_attempts < 1:
@@ -51,6 +53,7 @@ class OnlyResearchCommandService:
         self._admission = admission
         self._store = store
         self._now_utc = now_utc
+        self._runtime_generations = runtime_generations
         self._cancellation_cas_attempts = cancellation_cas_attempts
 
     def submit_research_run(
@@ -68,8 +71,14 @@ class OnlyResearchCommandService:
                 kind=OnlyProductCommandKind.CREATE_RESEARCH_RUN,
                 fingerprint=command.command_fingerprint,
             )
+            self._runtime_generations.require_work_binding(run.run_id.value)
             return OnlyResearchSubmitOutcome(OnlyResearchSubmitDisposition.REUSED, run)
         prepared = self._admission.prepare(strict, provenance=provenance)
+        self._runtime_generations.bind_new_work(
+            prepared.run_id.value,
+            actor="research-product-admission",
+            occurred_at=prepared.queued_at,
+        )
         requested = OnlyProductCommandReceipt(
             command_id=submission_key,
             command_kind=OnlyProductCommandKind.CREATE_RESEARCH_RUN,
@@ -80,12 +89,27 @@ class OnlyResearchCommandService:
             ),
             accepted_at=prepared.queued_at,
         )
-        record = self._store.create_queued_with_receipt(prepared, requested)
+        try:
+            record = self._store.create_queued_with_receipt(prepared, requested)
+        except Exception:
+            self._runtime_generations.release_work(
+                prepared.run_id.value,
+                actor="research-product-admission-compensation",
+                occurred_at=self._now_utc(),
+            )
+            raise
         run = self._replay_receipt(
             record,
             kind=OnlyProductCommandKind.CREATE_RESEARCH_RUN,
             fingerprint=command.command_fingerprint,
         )
+        if run.run_id != prepared.run_id:
+            self._runtime_generations.release_work(
+                prepared.run_id.value,
+                actor="research-product-admission-concurrency-loser",
+                occurred_at=self._now_utc(),
+            )
+        self._runtime_generations.require_work_binding(run.run_id.value)
         disposition = (
             OnlyResearchSubmitDisposition.CREATED
             if record.outcome_ref.outcome_id == prepared.run_id.value
@@ -102,11 +126,13 @@ class OnlyResearchCommandService:
             fingerprint = only_cancel_research_run_command_fingerprint(run_id.value)
             existing = self._store.find_product_command_receipt(command_id)
             if existing is not None:
-                return self._replay_receipt(
-                    existing,
-                    kind=OnlyProductCommandKind.CANCEL_RESEARCH_RUN,
-                    fingerprint=fingerprint,
-                    expected_run_id=run_id,
+                return self._release_if_terminal(
+                    self._replay_receipt(
+                        existing,
+                        kind=OnlyProductCommandKind.CANCEL_RESEARCH_RUN,
+                        fingerprint=fingerprint,
+                        expected_run_id=run_id,
+                    )
                 )
             accepted_at = self._now_utc()
             receipt = OnlyProductCommandReceipt(
@@ -120,16 +146,18 @@ class OnlyResearchCommandService:
                 accepted_at=accepted_at,
             )
             actual = self._store.request_cancellation_with_receipt(run_id, receipt)
-            return self._replay_receipt(
-                actual,
-                kind=OnlyProductCommandKind.CANCEL_RESEARCH_RUN,
-                fingerprint=fingerprint,
-                expected_run_id=run_id,
+            return self._release_if_terminal(
+                self._replay_receipt(
+                    actual,
+                    kind=OnlyProductCommandKind.CANCEL_RESEARCH_RUN,
+                    fingerprint=fingerprint,
+                    expected_run_id=run_id,
+                )
             )
         for _ in range(self._cancellation_cas_attempts):
             current = self._store.load(run_id)
             if current.state in {OnlyResearchRunState.CANCEL_REQUESTED, OnlyResearchRunState.CANCELLED}:
-                return current
+                return self._release_if_terminal(current)
             if current.state in {OnlyResearchRunState.COMPLETED, OnlyResearchRunState.FAILED}:
                 raise OnlyResearchCancellationConflictError()
             target = (
@@ -139,10 +167,23 @@ class OnlyResearchCommandService:
             )
             transitioned = current.transition(target, at=self._now_utc())
             try:
-                return self._store.commit_transition(current, transitioned)
+                return self._release_if_terminal(self._store.commit_transition(current, transitioned))
             except OnlyResearchRunRevisionConflictError:
                 continue
         raise OnlyResearchCommandConcurrencyError()
+
+    def _release_if_terminal(self, run: OnlyResearchRun) -> OnlyResearchRun:
+        if run.state in {
+            OnlyResearchRunState.COMPLETED,
+            OnlyResearchRunState.FAILED,
+            OnlyResearchRunState.CANCELLED,
+        }:
+            self._runtime_generations.release_work(
+                run.run_id.value,
+                actor="research-product-terminal-command",
+                occurred_at=run.finished_at or self._now_utc(),
+            )
+        return run
 
     def _replay_receipt(
         self,

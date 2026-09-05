@@ -45,6 +45,7 @@ from onlyalpha.strategy.promotion import (
     OnlyStrategyPromotionStage,
 )
 from tests.research.calculation.support import bars
+from tests.runtime_generation_support import OnlyTestRuntimeGenerationAuthority
 from tests.strategy.test_strategy_freeze import _freeze_case
 
 pytestmark = pytest.mark.integration
@@ -251,6 +252,8 @@ def test_research_evidence_freeze_publishes_one_strategy_for_backtest_and_sim(
             return None
 
     product_store = OnlyInMemoryBacktestExecutionStore((product_run,), now_utc=lambda: _OBSERVED_AT)
+    runtime_generations = OnlyTestRuntimeGenerationAuthority()
+    runtime_generations.bind_new_work(product_run.run_id.value)
     evidence_store = OnlyBacktestEvidenceStore(user_data)
     outcome = OnlyBacktestWorker(
         worker_instance_id=OnlyBacktestWorkerInstanceId.new(),
@@ -259,6 +262,8 @@ def test_research_evidence_freeze_publishes_one_strategy_for_backtest_and_sim(
         executor=_ExecutedBacktest(),  # type: ignore[arg-type]
         evidence=evidence_store,
         lease_control_factory=lambda *_: _Lease(),  # type: ignore[arg-type]
+        runtime_generations=runtime_generations,
+        process_generation_fingerprint=runtime_generations.generation_fingerprint,
     ).run_once()
     assert outcome is not None and outcome.kind is OnlyBacktestWorkerOutcomeKind.COMPLETED
     assert outcome.run is not None and outcome.run.evidence_fingerprint is not None
