@@ -19,6 +19,7 @@ from onlyalpha.research import (
     OnlyJsonResearchSummaryStatisticsResultStore,
     OnlyParquetResearchCalculationResultStore,
     OnlyParquetResearchDatasetSnapshotStore,
+    OnlyParquetResearchFactorPairStatisticsResultStore,
     OnlyParquetResearchStatisticsResultStore,
     OnlyResearchCalculationBackendResolver,
     OnlyResearchCalculationExecutionEvidenceStore,
@@ -29,6 +30,11 @@ from onlyalpha.research import (
     OnlyResearchEffectSummaryDefinition,
     OnlyResearchEffectSummaryExecutor,
     OnlyResearchEffectSummaryPlan,
+    OnlyResearchFactorPairOperand,
+    OnlyResearchFactorPairStatisticsDefinition,
+    OnlyResearchFactorPairStatisticsExecutor,
+    OnlyResearchFactorPairStatisticsMethod,
+    OnlyResearchFactorPairStatisticsPlan,
     OnlyResearchFeatureSeriesReference,
     OnlyResearchJobExecutor,
     OnlyResearchJobPlan,
@@ -128,6 +134,52 @@ def statistics_case(root: Path):
     )
     executor = OnlyResearchStatisticsExecutor(calculation_store, statistics_store)
     return (*case, statistics_store, executor, executor.execute(statistics_plan))
+
+
+def factor_pair_case(
+    root: Path,
+    method: OnlyResearchFactorPairStatisticsMethod = OnlyResearchFactorPairStatisticsMethod.FACTOR_CORRELATION,
+):
+    case = evaluation_case(root)
+    committed_dataset, calculation_store, job, first_plan = case[0], case[2], case[3], case[4]
+    second_graph = factor_graph(direction="LOWER_IS_BETTER")
+    second_plan = OnlyResearchJobPlan(committed_dataset.snapshot_fingerprint, second_graph)
+    first_outcome = job.execute(first_plan)
+    second_outcome = job.execute(second_plan)
+    first_node = next(
+        node
+        for node in first_plan.calculation_graph.ordered_nodes
+        if node.definition.type_id == "example.factor.momentum"
+    )
+    second_node = next(
+        node for node in second_graph.ordered_nodes if node.definition.type_id == "example.factor.momentum"
+    )
+    first_operand = OnlyResearchFactorPairOperand(
+        "a" * 64,
+        OnlyResearchFeatureSeriesReference(
+            first_outcome.calculation_fingerprint, first_node.fingerprint, "factor_value"
+        ),
+    )
+    second_operand = OnlyResearchFactorPairOperand(
+        "b" * 64,
+        OnlyResearchFeatureSeriesReference(
+            second_outcome.calculation_fingerprint, second_node.fingerprint, "factor_value"
+        ),
+    )
+    plan = OnlyResearchFactorPairStatisticsPlan(
+        committed_dataset.snapshot_fingerprint,
+        first_operand,
+        second_operand,
+        OnlyResearchFactorPairStatisticsDefinition(method),
+    )
+    store = OnlyParquetResearchFactorPairStatisticsResultStore(
+        root / "statistics-results",
+        calculation_store,
+        audit_time=lambda: datetime(2026, 9, 5, tzinfo=UTC),
+    )
+    executor = OnlyResearchFactorPairStatisticsExecutor(calculation_store, store)
+    outcome = executor.execute(plan)
+    return (*case, second_plan, plan, store, executor, outcome)
 
 
 def summary_case(root: Path, source_method: OnlyResearchStatisticsMethod = OnlyResearchStatisticsMethod.IC):

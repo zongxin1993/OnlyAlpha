@@ -25,6 +25,7 @@ from .execution import (
     OnlyResearchStatisticsExecutor,
     only_compute_research_statistics,
 )
+from .factor_pair import *  # noqa: F403
 from .plan import OnlyResearchStatisticsPlan
 from .reference import OnlyResearchFeatureSeriesReference, OnlyResearchTargetSeriesReference
 from .result import (
