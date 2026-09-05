@@ -8,12 +8,14 @@ from enum import StrEnum
 from types import MappingProxyType
 
 from ..definition import OnlyResearchStatisticsMethod
+from ..factor_pair.definition import OnlyResearchFactorPairStatisticsMethod
 
 
 class OnlyResearchSummaryKind(StrEnum):
     EFFECT_SUMMARY = "EFFECT_SUMMARY"
     COVERAGE_SUMMARY = "COVERAGE_SUMMARY"
     TEMPORAL_STABILITY = "TEMPORAL_STABILITY"
+    FACTOR_PAIR_EFFECT_SUMMARY = "FACTOR_PAIR_EFFECT_SUMMARY"
 
 
 class OnlyResearchSummaryValueKind(StrEnum):
@@ -26,7 +28,7 @@ class OnlyResearchSummaryMetricDescriptor:
     metric_id: str
     semantic_version: int
     summary_kind: OnlyResearchSummaryKind
-    source_method: OnlyResearchStatisticsMethod
+    source_method: OnlyResearchStatisticsMethod | OnlyResearchFactorPairStatisticsMethod
     field_name: str
     value_kind: OnlyResearchSummaryValueKind
 
@@ -35,8 +37,13 @@ class OnlyResearchSummaryMetricDescriptor:
             raise ValueError("Summary metric semantic version is invalid")
         if not isinstance(self.summary_kind, OnlyResearchSummaryKind):
             raise ValueError("Summary metric result discriminant is invalid")
-        if not isinstance(self.source_method, OnlyResearchStatisticsMethod):
+        if not isinstance(self.source_method, (OnlyResearchStatisticsMethod, OnlyResearchFactorPairStatisticsMethod)):
             raise ValueError("Summary metric source method is invalid")
+        if self.summary_kind is OnlyResearchSummaryKind.FACTOR_PAIR_EFFECT_SUMMARY:
+            if not isinstance(self.source_method, OnlyResearchFactorPairStatisticsMethod):
+                raise ValueError("Factor-Pair Summary metric source method is invalid")
+        elif not isinstance(self.source_method, OnlyResearchStatisticsMethod):
+            raise ValueError("legacy Summary metric source method is invalid")
         if not self.field_name or any(char.isspace() for char in self.field_name):
             raise ValueError("Summary metric field name is invalid")
         if not isinstance(self.value_kind, OnlyResearchSummaryValueKind):
@@ -67,11 +74,17 @@ class OnlyResearchSummaryMetricDescriptor:
         version = payload["semantic_version"]
         if isinstance(version, bool) or not isinstance(version, int):
             raise ValueError("Summary metric semantic_version must be an integer")
+        kind = OnlyResearchSummaryKind(_string(payload, "summary_kind"))
+        method_type = (
+            OnlyResearchFactorPairStatisticsMethod
+            if kind is OnlyResearchSummaryKind.FACTOR_PAIR_EFFECT_SUMMARY
+            else OnlyResearchStatisticsMethod
+        )
         return cls(
             _string(payload, "metric_id"),
             version,
-            OnlyResearchSummaryKind(_string(payload, "summary_kind")),
-            OnlyResearchStatisticsMethod(_string(payload, "source_method")),
+            kind,
+            method_type(_string(payload, "source_method")),
             _string(payload, "field_name"),
             OnlyResearchSummaryValueKind(_string(payload, "value_kind")),
         )
@@ -173,6 +186,24 @@ def _descriptors() -> tuple[OnlyResearchSummaryMetricDescriptor, ...]:
                     value_kind,
                 )
             )
+    for pair_method, prefix in (
+        (OnlyResearchFactorPairStatisticsMethod.FACTOR_CORRELATION, "research.factor_pair.correlation"),
+        (
+            OnlyResearchFactorPairStatisticsMethod.FACTOR_RANK_CORRELATION,
+            "research.factor_pair.rank_correlation",
+        ),
+    ):
+        for field_name in ("mean", "stddev_sample"):
+            result.append(
+                OnlyResearchSummaryMetricDescriptor(
+                    f"{prefix}.{field_name}@1",
+                    1,
+                    OnlyResearchSummaryKind.FACTOR_PAIR_EFFECT_SUMMARY,
+                    pair_method,
+                    field_name,
+                    OnlyResearchSummaryValueKind.DECIMAL,
+                )
+            )
     return tuple(sorted(result, key=lambda descriptor: descriptor.metric_id))
 
 
@@ -237,6 +268,22 @@ def only_research_stability_metric(
     return matches[0]
 
 
+def only_research_factor_pair_effect_metric(
+    source_method: OnlyResearchFactorPairStatisticsMethod,
+    field_name: str,
+) -> OnlyResearchSummaryMetricDescriptor:
+    matches = tuple(
+        descriptor
+        for descriptor in ONLY_RESEARCH_SUMMARY_METRICS
+        if descriptor.summary_kind is OnlyResearchSummaryKind.FACTOR_PAIR_EFFECT_SUMMARY
+        and descriptor.source_method is source_method
+        and descriptor.field_name == field_name
+    )
+    if len(matches) != 1:
+        raise ValueError("unsupported Factor-Pair Effect Summary metric field")
+    return matches[0]
+
+
 def _string(payload: Mapping[str, object], name: str) -> str:
     value = payload[name]
     if not isinstance(value, str):
@@ -251,6 +298,7 @@ __all__ = [
     "OnlyResearchSummaryValueKind",
     "only_research_coverage_metric",
     "only_research_effect_metric",
+    "only_research_factor_pair_effect_metric",
     "only_research_stability_metric",
     "only_research_summary_metric",
 ]

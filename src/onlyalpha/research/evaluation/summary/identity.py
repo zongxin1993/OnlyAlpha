@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from onlyalpha.canonical import only_canonical_fingerprint
 
+from ..factor_pair.reference import OnlyResearchFactorPairOperand
 from ..reference import OnlyResearchFeatureSeriesReference
 from .definition import (
     OnlyResearchCoverageSummaryDefinition,
     OnlyResearchEffectSummaryDefinition,
+    OnlyResearchFactorPairEffectSummaryDefinition,
     OnlyResearchTemporalStabilityDefinition,
 )
 from .temporal import OnlyResearchTemporalSlice
@@ -82,6 +84,27 @@ def only_research_temporal_stability_fingerprint(
     )
 
 
+def only_research_factor_pair_effect_summary_fingerprint(
+    dataset_snapshot_fingerprint: str,
+    first_operand: OnlyResearchFactorPairOperand,
+    second_operand: OnlyResearchFactorPairOperand,
+    source_statistics_fingerprint: str,
+    definition: OnlyResearchFactorPairEffectSummaryDefinition,
+) -> str:
+    return only_canonical_fingerprint(
+        {
+            "schema_version": RESEARCH_SUMMARY_STATISTICS_IDENTITY_SCHEMA_VERSION,
+            "domain": RESEARCH_SUMMARY_STATISTICS_DOMAIN,
+            "summary_kind": definition.summary_kind.value,
+            "dataset_snapshot_fingerprint": dataset_snapshot_fingerprint,
+            "first_operand": first_operand.to_dict(),
+            "second_operand": second_operand.to_dict(),
+            "source_statistics_fingerprint": source_statistics_fingerprint,
+            "definition": definition.to_dict(),
+        }
+    )
+
+
 def only_research_summary_result_content_fingerprint(
     source_statistics_fingerprint: str,
     source_statistics_result_fingerprint: str,
@@ -116,6 +139,7 @@ __all__ = [
     "RESEARCH_SUMMARY_STATISTICS_DOMAIN",
     "only_research_coverage_summary_fingerprint",
     "only_research_effect_summary_fingerprint",
+    "only_research_factor_pair_effect_summary_fingerprint",
     "only_research_temporal_stability_fingerprint",
     "only_research_summary_result_content_fingerprint",
     "only_research_summary_result_fingerprint",

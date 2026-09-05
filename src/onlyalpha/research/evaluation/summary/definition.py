@@ -10,11 +10,13 @@ from enum import StrEnum
 from onlyalpha.calculation import ONLY_DECIMAL_EXECUTION_POLICY_V1, OnlyNumericDefinition
 
 from ..definition import OnlyResearchStatisticsMethod
+from ..factor_pair.definition import OnlyResearchFactorPairStatisticsMethod
 from .metric import OnlyResearchSummaryKind
 
 RESEARCH_EFFECT_SUMMARY_DEFINITION_SCHEMA_VERSION = 1
 RESEARCH_COVERAGE_SUMMARY_DEFINITION_SCHEMA_VERSION = 1
 RESEARCH_TEMPORAL_STABILITY_DEFINITION_SCHEMA_VERSION = 1
+RESEARCH_FACTOR_PAIR_EFFECT_SUMMARY_DEFINITION_SCHEMA_VERSION = 1
 
 
 class OnlyResearchSummarySourceStatusPolicy(StrEnum):
@@ -40,6 +42,86 @@ class OnlyResearchCoverageSemantics(StrEnum):
 
 class OnlyResearchTemporalIntervalAssignment(StrEnum):
     HALF_OPEN_EXPLICIT = "HALF_OPEN_EXPLICIT"
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyResearchFactorPairEffectSummaryDefinition:
+    source_method: OnlyResearchFactorPairStatisticsMethod
+    summary_kind: OnlyResearchSummaryKind = OnlyResearchSummaryKind.FACTOR_PAIR_EFFECT_SUMMARY
+    source_status_policy: OnlyResearchSummarySourceStatusPolicy = OnlyResearchSummarySourceStatusPolicy.VALID_ONLY
+    standard_deviation: OnlyResearchSummaryStandardDeviation = OnlyResearchSummaryStandardDeviation.SAMPLE
+    numeric: OnlyNumericDefinition = OnlyNumericDefinition("DECIMAL", 38, Decimal("0.000000000001"), "ROUND_HALF_EVEN")
+    decimal_execution_policy: str = "onlyalpha.decimal.execution@1"
+    schema_version: int = RESEARCH_FACTOR_PAIR_EFFECT_SUMMARY_DEFINITION_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if self.schema_version != RESEARCH_FACTOR_PAIR_EFFECT_SUMMARY_DEFINITION_SCHEMA_VERSION:
+            raise ValueError("unsupported Factor-Pair Effect Summary Definition schema version")
+        if not isinstance(self.source_method, OnlyResearchFactorPairStatisticsMethod):
+            raise ValueError("Factor-Pair Effect Summary source method is unsupported")
+        if self.summary_kind is not OnlyResearchSummaryKind.FACTOR_PAIR_EFFECT_SUMMARY:
+            raise ValueError("Factor-Pair Effect Summary kind is invalid")
+        if self.source_status_policy is not OnlyResearchSummarySourceStatusPolicy.VALID_ONLY:
+            raise ValueError("Factor-Pair Effect Summary requires VALID_ONLY source policy")
+        if self.standard_deviation is not OnlyResearchSummaryStandardDeviation.SAMPLE:
+            raise ValueError("Factor-Pair Effect Summary requires sample standard deviation")
+        if self.numeric != OnlyNumericDefinition("DECIMAL", 38, Decimal("0.000000000001"), "ROUND_HALF_EVEN"):
+            raise ValueError("Factor-Pair Effect Summary requires Decimal(38), quantum 1e-12, ROUND_HALF_EVEN")
+        policy = ONLY_DECIMAL_EXECUTION_POLICY_V1
+        if self.decimal_execution_policy != f"{policy.policy_id}@{policy.semantic_version}":
+            raise ValueError("Factor-Pair Effect Summary Decimal execution policy is unsupported")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "summary_kind": self.summary_kind.value,
+            "source_method": self.source_method.value,
+            "source_status_policy": self.source_status_policy.value,
+            "standard_deviation": self.standard_deviation.value,
+            "numeric": {
+                "representation": self.numeric.representation,
+                "precision": self.numeric.precision,
+                "output_quantum": format(self.numeric.output_quantum, "f"),
+                "rounding": self.numeric.rounding,
+            },
+            "decimal_execution_policy": self.decimal_execution_policy,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchFactorPairEffectSummaryDefinition:
+        expected = {
+            "schema_version",
+            "summary_kind",
+            "source_method",
+            "source_status_policy",
+            "standard_deviation",
+            "numeric",
+            "decimal_execution_policy",
+        }
+        if set(payload) != expected:
+            raise ValueError("Factor-Pair Effect Summary Definition fields are invalid")
+        numeric = payload["numeric"]
+        if not isinstance(numeric, Mapping) or set(numeric) != {
+            "representation",
+            "precision",
+            "output_quantum",
+            "rounding",
+        }:
+            raise ValueError("Factor-Pair Effect Summary numeric fields are invalid")
+        return cls(
+            source_method=OnlyResearchFactorPairStatisticsMethod(_string(payload, "source_method")),
+            summary_kind=OnlyResearchSummaryKind(_string(payload, "summary_kind")),
+            source_status_policy=OnlyResearchSummarySourceStatusPolicy(_string(payload, "source_status_policy")),
+            standard_deviation=OnlyResearchSummaryStandardDeviation(_string(payload, "standard_deviation")),
+            numeric=OnlyNumericDefinition(
+                _string(numeric, "representation"),
+                _integer(numeric, "precision"),
+                Decimal(_string(numeric, "output_quantum")),
+                _string(numeric, "rounding"),
+            ),
+            decimal_execution_policy=_string(payload, "decimal_execution_policy"),
+            schema_version=_integer(payload, "schema_version"),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -337,6 +419,7 @@ __all__ = [
     "OnlyResearchCoverageSemantics",
     "OnlyResearchCoverageSummaryDefinition",
     "OnlyResearchEffectSummaryDefinition",
+    "OnlyResearchFactorPairEffectSummaryDefinition",
     "OnlyResearchSummaryInformationRatio",
     "OnlyResearchSummarySignRule",
     "OnlyResearchSummarySourceStatusPolicy",

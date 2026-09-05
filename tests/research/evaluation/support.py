@@ -30,6 +30,9 @@ from onlyalpha.research import (
     OnlyResearchEffectSummaryDefinition,
     OnlyResearchEffectSummaryExecutor,
     OnlyResearchEffectSummaryPlan,
+    OnlyResearchFactorPairEffectSummaryDefinition,
+    OnlyResearchFactorPairEffectSummaryExecutor,
+    OnlyResearchFactorPairEffectSummaryPlan,
     OnlyResearchFactorPairOperand,
     OnlyResearchFactorPairStatisticsDefinition,
     OnlyResearchFactorPairStatisticsExecutor,
@@ -180,6 +183,31 @@ def factor_pair_case(
     executor = OnlyResearchFactorPairStatisticsExecutor(calculation_store, store)
     outcome = executor.execute(plan)
     return (*case, second_plan, plan, store, executor, outcome)
+
+
+def factor_pair_effect_case(
+    root: Path,
+    method: OnlyResearchFactorPairStatisticsMethod = OnlyResearchFactorPairStatisticsMethod.FACTOR_CORRELATION,
+):
+    case = factor_pair_case(root, method)
+    source_plan, source_store = case[9], case[10]
+    source = source_store.load_verified(source_plan.statistics_fingerprint)
+    plan = OnlyResearchFactorPairEffectSummaryPlan(
+        source.manifest.dataset_snapshot_fingerprint,
+        source_plan.first_operand,
+        source_plan.second_operand,
+        source.manifest.statistics_fingerprint,
+        source.manifest.statistics_result_fingerprint,
+        OnlyResearchFactorPairEffectSummaryDefinition(method),
+    )
+    summary_store = OnlyJsonResearchSummaryStatisticsResultStore(
+        root / "statistics-results",
+        OnlyParquetResearchStatisticsResultStore(root / "statistics-results", case[2]),
+        factor_pair_source_store=source_store,
+        audit_time=lambda: datetime(2026, 9, 5, tzinfo=UTC),
+    )
+    executor = OnlyResearchFactorPairEffectSummaryExecutor(source_store, summary_store)
+    return (*case, plan, summary_store, executor)
 
 
 def summary_case(root: Path, source_method: OnlyResearchStatisticsMethod = OnlyResearchStatisticsMethod.IC):

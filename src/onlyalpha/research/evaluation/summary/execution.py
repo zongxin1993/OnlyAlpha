@@ -9,6 +9,10 @@ from typing import Protocol
 from onlyalpha.calculation import OnlyNumericDefinition, only_decimal_context, only_quantize_decimal
 
 from ..errors import OnlyResearchEvaluationError, OnlyResearchStatisticsResultStoreError
+from ..factor_pair.result import (
+    OnlyResearchFactorPairStatisticsResult,
+    OnlyResearchFactorPairStatisticStatus,
+)
 from ..result import (
     OnlyResearchStatisticRow,
     OnlyResearchStatisticsDisposition,
@@ -16,16 +20,23 @@ from ..result import (
     OnlyResearchStatisticsResult,
     OnlyResearchStatisticStatus,
 )
-from .metric import only_research_coverage_metric, only_research_effect_metric, only_research_stability_metric
+from .metric import (
+    only_research_coverage_metric,
+    only_research_effect_metric,
+    only_research_factor_pair_effect_metric,
+    only_research_stability_metric,
+)
 from .plan import (
     OnlyResearchCoverageSummaryPlan,
     OnlyResearchEffectSummaryPlan,
+    OnlyResearchFactorPairEffectSummaryPlan,
     OnlyResearchSummaryPlan,
     OnlyResearchTemporalStabilityPlan,
 )
 from .result import (
     OnlyResearchCoverageSummary,
     OnlyResearchEffectSummary,
+    OnlyResearchFactorPairEffectSummary,
     OnlyResearchSummaryStatisticsResult,
     OnlyResearchTemporalSliceEvidence,
     OnlyResearchTemporalSliceValue,
@@ -52,13 +63,26 @@ class OnlyResearchTemporalStabilityExecution:
     summary: OnlyResearchTemporalStabilitySummary
 
 
+@dataclass(frozen=True, slots=True)
+class OnlyResearchFactorPairEffectSummaryExecution:
+    plan: OnlyResearchFactorPairEffectSummaryPlan
+    summary: OnlyResearchFactorPairEffectSummary
+
+
 OnlyResearchSummaryExecution = (
-    OnlyResearchEffectSummaryExecution | OnlyResearchCoverageSummaryExecution | OnlyResearchTemporalStabilityExecution
+    OnlyResearchEffectSummaryExecution
+    | OnlyResearchCoverageSummaryExecution
+    | OnlyResearchTemporalStabilityExecution
+    | OnlyResearchFactorPairEffectSummaryExecution
 )
 
 
 class _LegacyStatisticsResultStore(Protocol):
     def load_verified(self, statistics_fingerprint: str) -> OnlyResearchStatisticsResult: ...
+
+
+class _FactorPairStatisticsResultStore(Protocol):
+    def load_verified(self, statistics_fingerprint: str) -> OnlyResearchFactorPairStatisticsResult: ...
 
 
 class _SummaryStatisticsResultStore(Protocol):
@@ -167,6 +191,40 @@ class OnlyResearchTemporalStabilityExecutor:
         return _outcome(plan, committed, OnlyResearchStatisticsDisposition.EXECUTED)
 
 
+class OnlyResearchFactorPairEffectSummaryExecutor:
+    def __init__(
+        self,
+        source_statistics_result_store: _FactorPairStatisticsResultStore,
+        summary_statistics_result_store: _SummaryStatisticsResultStore,
+    ) -> None:
+        self._source_store = source_statistics_result_store
+        self._summary_store = summary_statistics_result_store
+
+    def execute(self, plan: OnlyResearchFactorPairEffectSummaryPlan) -> OnlyResearchStatisticsOutcome:
+        if not isinstance(plan, OnlyResearchFactorPairEffectSummaryPlan):
+            raise OnlyResearchEvaluationError(
+                "FACTOR_PAIR_EFFECT_SUMMARY_PLAN_INVALID", "execute requires a Factor-Pair Effect Summary Plan"
+            )
+        try:
+            existing = self._summary_store.load_verified(plan.statistics_fingerprint)
+        except OnlyResearchStatisticsResultStoreError as exc:
+            if exc.code != "SUMMARY_STATISTICS_RESULT_NOT_FOUND":
+                raise
+        except Exception as exc:
+            raise OnlyResearchEvaluationError("SUMMARY_STATISTICS_RESULT_REUSE_FAILED", str(exc)) from exc
+        else:
+            return _outcome(plan, existing, OnlyResearchStatisticsDisposition.REUSED)
+        source = _load_factor_pair_source(self._source_store, plan)
+        summary = only_compute_research_factor_pair_effect_summary(source, plan)
+        try:
+            committed = self._summary_store.commit(OnlyResearchFactorPairEffectSummaryExecution(plan, summary))
+        except OnlyResearchStatisticsResultStoreError:
+            raise
+        except Exception as exc:
+            raise OnlyResearchEvaluationError("SUMMARY_STATISTICS_RESULT_COMMIT_FAILED", str(exc)) from exc
+        return _outcome(plan, committed, OnlyResearchStatisticsDisposition.EXECUTED)
+
+
 def only_compute_research_effect_summary(
     source: OnlyResearchStatisticsResult,
     plan: OnlyResearchEffectSummaryPlan,
@@ -262,6 +320,48 @@ def only_compute_research_effect_summary(
         positive_ratio=_scalar(method, "positive_ratio", valid if count else no_values, decimal_value=positive_ratio),
         negative_ratio=_scalar(method, "negative_ratio", valid if count else no_values, decimal_value=negative_ratio),
         zero_ratio=_scalar(method, "zero_ratio", valid if count else no_values, decimal_value=zero_ratio),
+    )
+
+
+def only_compute_research_factor_pair_effect_summary(
+    source: OnlyResearchFactorPairStatisticsResult,
+    plan: OnlyResearchFactorPairEffectSummaryPlan,
+) -> OnlyResearchFactorPairEffectSummary:
+    _validate_factor_pair_source(source, plan)
+    values = tuple(
+        row.statistic_value
+        for row in source.rows
+        if row.status is OnlyResearchFactorPairStatisticStatus.VALID and row.statistic_value is not None
+    )
+    count = len(values)
+    mean_value: Decimal | None = None
+    stddev_value: Decimal | None = None
+    if count:
+        with localcontext(only_decimal_context(plan.definition.numeric)):
+            mean = sum(values, Decimal(0)) / Decimal(count)
+            if count >= 2:
+                variance = sum(((value - mean) ** 2 for value in values), Decimal(0)) / Decimal(count - 1)
+                stddev = variance.sqrt()
+            else:
+                stddev = None
+        mean_value = _publish(plan.definition.numeric, mean)
+        if stddev is not None:
+            stddev_value = _publish(plan.definition.numeric, stddev)
+    valid = OnlyResearchSummaryScalarStatus.VALID
+    return OnlyResearchFactorPairEffectSummary(
+        source_method=plan.definition.source_method,
+        mean=_factor_pair_effect_scalar(
+            plan.definition.source_method,
+            "mean",
+            valid if count else OnlyResearchSummaryScalarStatus.NO_VALID_OBSERVATIONS,
+            decimal_value=mean_value,
+        ),
+        stddev_sample=_factor_pair_effect_scalar(
+            plan.definition.source_method,
+            "stddev_sample",
+            valid if count >= 2 else OnlyResearchSummaryScalarStatus.INSUFFICIENT_OBSERVATIONS,
+            decimal_value=stddev_value,
+        ),
     )
 
 
@@ -539,6 +639,21 @@ def _stability_scalar(
     )
 
 
+def _factor_pair_effect_scalar(
+    method: object,
+    field_name: str,
+    status: OnlyResearchSummaryScalarStatus,
+    *,
+    decimal_value: Decimal | None = None,
+) -> OnlyResearchSummaryScalar:
+    from ..factor_pair.definition import OnlyResearchFactorPairStatisticsMethod
+
+    if not isinstance(method, OnlyResearchFactorPairStatisticsMethod):
+        raise ValueError("Factor-Pair Effect Summary source method is invalid")
+    descriptor = only_research_factor_pair_effect_metric(method, field_name)
+    return OnlyResearchSummaryScalar(descriptor.metric_id, descriptor.value_kind, status, decimal_value=decimal_value)
+
+
 def _publish(numeric: OnlyNumericDefinition, value: Decimal) -> Decimal:
     published = only_quantize_decimal(numeric, value)
     return published.copy_abs() if published.is_zero() else published
@@ -556,6 +671,41 @@ def _load_source(
         raise OnlyResearchEvaluationError(_source_error_prefix(plan) + "_SOURCE_INVALID", str(exc)) from exc
     _validate_source(source, plan)
     return source
+
+
+def _load_factor_pair_source(
+    store: _FactorPairStatisticsResultStore,
+    plan: OnlyResearchFactorPairEffectSummaryPlan,
+) -> OnlyResearchFactorPairStatisticsResult:
+    try:
+        source = store.load_verified(plan.source_statistics_fingerprint)
+    except OnlyResearchStatisticsResultStoreError as exc:
+        raise OnlyResearchEvaluationError("FACTOR_PAIR_EFFECT_SUMMARY_SOURCE_INVALID", exc.code) from exc
+    except Exception as exc:
+        raise OnlyResearchEvaluationError("FACTOR_PAIR_EFFECT_SUMMARY_SOURCE_INVALID", str(exc)) from exc
+    _validate_factor_pair_source(source, plan)
+    return source
+
+
+def _validate_factor_pair_source(
+    source: OnlyResearchFactorPairStatisticsResult,
+    plan: OnlyResearchFactorPairEffectSummaryPlan,
+) -> None:
+    if not isinstance(source, OnlyResearchFactorPairStatisticsResult):
+        raise OnlyResearchEvaluationError(
+            "FACTOR_PAIR_EFFECT_SUMMARY_SOURCE_SCHEMA_UNSUPPORTED", "Factor-Pair Series V1 required"
+        )
+    manifest = source.manifest
+    if manifest.statistics_fingerprint != plan.source_statistics_fingerprint:
+        raise OnlyResearchEvaluationError("FACTOR_PAIR_EFFECT_SUMMARY_SOURCE_IDENTITY_MISMATCH", "logical identity")
+    if manifest.statistics_result_fingerprint != plan.source_statistics_result_fingerprint:
+        raise OnlyResearchEvaluationError("FACTOR_PAIR_EFFECT_SUMMARY_SOURCE_IDENTITY_MISMATCH", "result identity")
+    if manifest.dataset_snapshot_fingerprint != plan.dataset_snapshot_fingerprint:
+        raise OnlyResearchEvaluationError("FACTOR_PAIR_EFFECT_SUMMARY_DATASET_MISMATCH", "source Dataset")
+    if manifest.plan.definition.method is not plan.definition.source_method:
+        raise OnlyResearchEvaluationError("FACTOR_PAIR_EFFECT_SUMMARY_SOURCE_METHOD_MISMATCH", "source method")
+    if manifest.plan.first_operand != plan.first_operand or manifest.plan.second_operand != plan.second_operand:
+        raise OnlyResearchEvaluationError("FACTOR_PAIR_EFFECT_SUMMARY_SUBJECT_MISMATCH", "source operands")
 
 
 def _validate_source(source: OnlyResearchStatisticsResult, plan: OnlyResearchSummaryPlan) -> None:
@@ -582,6 +732,8 @@ def _source_error_prefix(plan: OnlyResearchSummaryPlan) -> str:
         return "COVERAGE_SUMMARY"
     if isinstance(plan, OnlyResearchTemporalStabilityPlan):
         return "TEMPORAL_STABILITY"
+    if isinstance(plan, OnlyResearchFactorPairEffectSummaryPlan):
+        return "FACTOR_PAIR_EFFECT_SUMMARY"
     raise OnlyResearchEvaluationError("SUMMARY_STATISTICS_PLAN_INVALID", "unsupported Summary Plan")
 
 
@@ -604,10 +756,13 @@ __all__ = [
     "OnlyResearchCoverageSummaryExecutor",
     "OnlyResearchEffectSummaryExecution",
     "OnlyResearchEffectSummaryExecutor",
+    "OnlyResearchFactorPairEffectSummaryExecution",
+    "OnlyResearchFactorPairEffectSummaryExecutor",
     "OnlyResearchSummaryExecution",
     "OnlyResearchTemporalStabilityExecution",
     "OnlyResearchTemporalStabilityExecutor",
     "only_compute_research_coverage_summary",
     "only_compute_research_effect_summary",
+    "only_compute_research_factor_pair_effect_summary",
     "only_compute_research_temporal_stability",
 ]

@@ -125,6 +125,7 @@ def test_summary_statistics_has_no_downstream_research_or_product_dependencies()
         "onlyalpha.research.artifact",
         "onlyalpha.research.query",
         "onlyalpha.research.specification",
+        "onlyalpha.research.calculation",
         "onlyalpha.strategy",
         "onlyalpha.runtime",
         "onlyalpha.broker",

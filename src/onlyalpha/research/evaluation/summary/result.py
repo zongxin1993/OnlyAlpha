@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from ..definition import OnlyResearchStatisticsMethod
+from ..factor_pair.definition import OnlyResearchFactorPairStatisticsMethod
 from .identity import (
     RESEARCH_SUMMARY_STATISTICS_DOMAIN,
     RESEARCH_SUMMARY_STATISTICS_RESULT_SCHEMA_VERSION,
@@ -18,9 +19,15 @@ from .metric import (
     OnlyResearchSummaryKind,
     only_research_coverage_metric,
     only_research_effect_metric,
+    only_research_factor_pair_effect_metric,
     only_research_stability_metric,
 )
-from .plan import OnlyResearchSummaryPlan, OnlyResearchTemporalStabilityPlan, only_research_summary_plan_from_dict
+from .plan import (
+    OnlyResearchFactorPairEffectSummaryPlan,
+    OnlyResearchSummaryPlan,
+    OnlyResearchTemporalStabilityPlan,
+    only_research_summary_plan_from_dict,
+)
 from .scalar import OnlyResearchSummaryScalar, OnlyResearchSummaryScalarStatus
 from .temporal import OnlyResearchTemporalSlice
 
@@ -66,6 +73,7 @@ _STABILITY_FIELDS = (
     "max_slice_mean",
     "stddev_of_slice_means",
 )
+_FACTOR_PAIR_EFFECT_FIELDS = ("mean", "stddev_sample")
 
 
 @dataclass(frozen=True, slots=True)
@@ -552,7 +560,76 @@ class OnlyResearchTemporalStabilitySummary:
         )
 
 
-OnlyResearchSummary = OnlyResearchEffectSummary | OnlyResearchCoverageSummary | OnlyResearchTemporalStabilitySummary
+@dataclass(frozen=True, slots=True)
+class OnlyResearchFactorPairEffectSummary:
+    source_method: OnlyResearchFactorPairStatisticsMethod
+    mean: OnlyResearchSummaryScalar
+    stddev_sample: OnlyResearchSummaryScalar
+    summary_kind: OnlyResearchSummaryKind = OnlyResearchSummaryKind.FACTOR_PAIR_EFFECT_SUMMARY
+    schema_version: int = RESEARCH_SUMMARY_STATISTICS_RESULT_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if self.schema_version != RESEARCH_SUMMARY_STATISTICS_RESULT_SCHEMA_VERSION:
+            raise ValueError("Factor-Pair Effect Summary result schema is unsupported")
+        if self.summary_kind is not OnlyResearchSummaryKind.FACTOR_PAIR_EFFECT_SUMMARY:
+            raise ValueError("Factor-Pair Effect Summary result kind is invalid")
+        if not isinstance(self.source_method, OnlyResearchFactorPairStatisticsMethod):
+            raise ValueError("Factor-Pair Effect Summary source method is invalid")
+        for name in _FACTOR_PAIR_EFFECT_FIELDS:
+            scalar = getattr(self, name)
+            if not isinstance(scalar, OnlyResearchSummaryScalar):
+                raise ValueError(f"Factor-Pair Effect Summary {name} scalar is invalid")
+            descriptor = only_research_factor_pair_effect_metric(self.source_method, name)
+            if scalar.metric_id != descriptor.metric_id or scalar.value_kind is not descriptor.value_kind:
+                raise ValueError(f"Factor-Pair Effect Summary {name} metric linkage mismatch")
+        if self.mean.status not in {
+            OnlyResearchSummaryScalarStatus.VALID,
+            OnlyResearchSummaryScalarStatus.NO_VALID_OBSERVATIONS,
+        }:
+            raise ValueError("Factor-Pair Effect Summary mean status is invalid")
+        if self.stddev_sample.status not in {
+            OnlyResearchSummaryScalarStatus.VALID,
+            OnlyResearchSummaryScalarStatus.INSUFFICIENT_OBSERVATIONS,
+        }:
+            raise ValueError("Factor-Pair Effect Summary standard deviation status is invalid")
+        if self.mean.status is OnlyResearchSummaryScalarStatus.NO_VALID_OBSERVATIONS and (
+            self.stddev_sample.status is not OnlyResearchSummaryScalarStatus.INSUFFICIENT_OBSERVATIONS
+        ):
+            raise ValueError("Factor-Pair Effect Summary statuses are inconsistent")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "summary_kind": self.summary_kind.value,
+            "source_method": self.source_method.value,
+            "mean": self.mean.to_dict(),
+            "stddev_sample": self.stddev_sample.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchFactorPairEffectSummary:
+        if set(payload) != {"schema_version", "summary_kind", "source_method", *_FACTOR_PAIR_EFFECT_FIELDS}:
+            raise ValueError("Factor-Pair Effect Summary result fields are invalid")
+        scalars: dict[str, OnlyResearchSummaryScalar] = {}
+        for name in _FACTOR_PAIR_EFFECT_FIELDS:
+            value = payload[name]
+            if not isinstance(value, Mapping) or any(not isinstance(key, str) for key in value):
+                raise ValueError(f"Factor-Pair Effect Summary {name} must be an object")
+            scalars[name] = OnlyResearchSummaryScalar.from_dict(value)
+        return cls(
+            source_method=OnlyResearchFactorPairStatisticsMethod(_string(payload, "source_method")),
+            **scalars,
+            summary_kind=OnlyResearchSummaryKind(_string(payload, "summary_kind")),
+            schema_version=_integer(payload, "schema_version"),
+        )
+
+
+OnlyResearchSummary = (
+    OnlyResearchEffectSummary
+    | OnlyResearchCoverageSummary
+    | OnlyResearchTemporalStabilitySummary
+    | OnlyResearchFactorPairEffectSummary
+)
 
 
 def only_research_summary_from_dict(payload: Mapping[str, object]) -> OnlyResearchSummary:
@@ -569,6 +646,8 @@ def only_research_summary_from_dict(payload: Mapping[str, object]) -> OnlyResear
         return OnlyResearchCoverageSummary.from_dict(payload)
     if kind is OnlyResearchSummaryKind.TEMPORAL_STABILITY:
         return OnlyResearchTemporalStabilitySummary.from_dict(payload)
+    if kind is OnlyResearchSummaryKind.FACTOR_PAIR_EFFECT_SUMMARY:
+        return OnlyResearchFactorPairEffectSummary.from_dict(payload)
     raise ValueError("Summary Statistics payload kind is unsupported")  # pragma: no cover
 
 
@@ -606,7 +685,12 @@ class OnlyResearchSummaryStatisticsResultManifest:
 
         if not isinstance(
             self.plan,
-            (OnlyResearchEffectSummaryPlan, OnlyResearchCoverageSummaryPlan, OnlyResearchTemporalStabilityPlan),
+            (
+                OnlyResearchEffectSummaryPlan,
+                OnlyResearchCoverageSummaryPlan,
+                OnlyResearchTemporalStabilityPlan,
+                OnlyResearchFactorPairEffectSummaryPlan,
+            ),
         ):
             raise ValueError("Summary Statistics Plan is invalid")
         if self.statistics_fingerprint != self.plan.statistics_fingerprint:
@@ -673,7 +757,13 @@ def _manifest_value(value: object) -> object:
     from .plan import OnlyResearchCoverageSummaryPlan, OnlyResearchEffectSummaryPlan
 
     if isinstance(
-        value, (OnlyResearchEffectSummaryPlan, OnlyResearchCoverageSummaryPlan, OnlyResearchTemporalStabilityPlan)
+        value,
+        (
+            OnlyResearchEffectSummaryPlan,
+            OnlyResearchCoverageSummaryPlan,
+            OnlyResearchTemporalStabilityPlan,
+            OnlyResearchFactorPairEffectSummaryPlan,
+        ),
     ):
         return value.to_dict()
     if isinstance(value, datetime):
@@ -719,6 +809,7 @@ def _datetime(payload: Mapping[str, object], name: str) -> datetime:
 __all__ = [
     "OnlyResearchCoverageSummary",
     "OnlyResearchEffectSummary",
+    "OnlyResearchFactorPairEffectSummary",
     "OnlyResearchSummary",
     "OnlyResearchSummaryStatisticsResult",
     "OnlyResearchSummaryStatisticsResultManifest",

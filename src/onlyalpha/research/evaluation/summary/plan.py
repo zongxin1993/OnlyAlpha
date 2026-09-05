@@ -6,15 +6,18 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from ..factor_pair.reference import OnlyResearchFactorPairOperand
 from ..reference import OnlyResearchFeatureSeriesReference
 from .definition import (
     OnlyResearchCoverageSummaryDefinition,
     OnlyResearchEffectSummaryDefinition,
+    OnlyResearchFactorPairEffectSummaryDefinition,
     OnlyResearchTemporalStabilityDefinition,
 )
 from .identity import (
     only_research_coverage_summary_fingerprint,
     only_research_effect_summary_fingerprint,
+    only_research_factor_pair_effect_summary_fingerprint,
     only_research_temporal_stability_fingerprint,
 )
 from .metric import OnlyResearchSummaryKind
@@ -272,8 +275,86 @@ class OnlyResearchTemporalStabilityPlan:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class OnlyResearchFactorPairEffectSummaryPlan:
+    dataset_snapshot_fingerprint: str
+    first_operand: OnlyResearchFactorPairOperand
+    second_operand: OnlyResearchFactorPairOperand
+    source_statistics_fingerprint: str
+    source_statistics_result_fingerprint: str
+    definition: OnlyResearchFactorPairEffectSummaryDefinition
+    schema_version: int = 1
+
+    def __post_init__(self) -> None:
+        if self.schema_version != 1:
+            raise ValueError("unsupported Factor-Pair Effect Summary Plan schema version")
+        for name in (
+            "dataset_snapshot_fingerprint",
+            "source_statistics_fingerprint",
+            "source_statistics_result_fingerprint",
+        ):
+            if _SHA256.fullmatch(getattr(self, name)) is None:
+                raise ValueError(f"Factor-Pair Effect Summary Plan {name} must be a lower-case SHA256")
+        if not isinstance(self.first_operand, OnlyResearchFactorPairOperand) or not isinstance(
+            self.second_operand, OnlyResearchFactorPairOperand
+        ):
+            raise ValueError("Factor-Pair Effect Summary Plan operands are invalid")
+        if not isinstance(self.definition, OnlyResearchFactorPairEffectSummaryDefinition):
+            raise ValueError("Factor-Pair Effect Summary Plan definition is invalid")
+        first, second = sorted((self.first_operand, self.second_operand), key=lambda item: item.canonical_key)
+        object.__setattr__(self, "first_operand", first)
+        object.__setattr__(self, "second_operand", second)
+
+    @property
+    def statistics_fingerprint(self) -> str:
+        return only_research_factor_pair_effect_summary_fingerprint(
+            self.dataset_snapshot_fingerprint,
+            self.first_operand,
+            self.second_operand,
+            self.source_statistics_fingerprint,
+            self.definition,
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "dataset_snapshot_fingerprint": self.dataset_snapshot_fingerprint,
+            "first_operand": self.first_operand.to_dict(),
+            "second_operand": self.second_operand.to_dict(),
+            "source_statistics_fingerprint": self.source_statistics_fingerprint,
+            "source_statistics_result_fingerprint": self.source_statistics_result_fingerprint,
+            "definition": self.definition.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchFactorPairEffectSummaryPlan:
+        expected = {
+            "schema_version",
+            "dataset_snapshot_fingerprint",
+            "first_operand",
+            "second_operand",
+            "source_statistics_fingerprint",
+            "source_statistics_result_fingerprint",
+            "definition",
+        }
+        if set(payload) != expected:
+            raise ValueError("Factor-Pair Effect Summary Plan fields are invalid")
+        return cls(
+            _string(payload, "dataset_snapshot_fingerprint"),
+            OnlyResearchFactorPairOperand.from_dict(_mapping(payload, "first_operand")),
+            OnlyResearchFactorPairOperand.from_dict(_mapping(payload, "second_operand")),
+            _string(payload, "source_statistics_fingerprint"),
+            _string(payload, "source_statistics_result_fingerprint"),
+            OnlyResearchFactorPairEffectSummaryDefinition.from_dict(_mapping(payload, "definition")),
+            _integer(payload, "schema_version"),
+        )
+
+
 OnlyResearchSummaryPlan = (
-    OnlyResearchEffectSummaryPlan | OnlyResearchCoverageSummaryPlan | OnlyResearchTemporalStabilityPlan
+    OnlyResearchEffectSummaryPlan
+    | OnlyResearchCoverageSummaryPlan
+    | OnlyResearchTemporalStabilityPlan
+    | OnlyResearchFactorPairEffectSummaryPlan
 )
 
 
@@ -294,6 +375,8 @@ def only_research_summary_plan_from_dict(payload: Mapping[str, object]) -> OnlyR
         return OnlyResearchCoverageSummaryPlan.from_dict(payload)
     if kind is OnlyResearchSummaryKind.TEMPORAL_STABILITY:
         return OnlyResearchTemporalStabilityPlan.from_dict(payload)
+    if kind is OnlyResearchSummaryKind.FACTOR_PAIR_EFFECT_SUMMARY:
+        return OnlyResearchFactorPairEffectSummaryPlan.from_dict(payload)
     raise ValueError("Summary Statistics Plan kind is unsupported")  # pragma: no cover
 
 
@@ -311,9 +394,17 @@ def _integer(payload: Mapping[str, object], name: str) -> int:
     return value
 
 
+def _mapping(payload: Mapping[str, object], name: str) -> Mapping[str, object]:
+    value = payload[name]
+    if not isinstance(value, Mapping) or any(not isinstance(key, str) for key in value):
+        raise ValueError(f"Factor-Pair Effect Summary Plan {name} must be an object")
+    return value
+
+
 __all__ = [
     "OnlyResearchCoverageSummaryPlan",
     "OnlyResearchEffectSummaryPlan",
+    "OnlyResearchFactorPairEffectSummaryPlan",
     "OnlyResearchSummaryPlan",
     "OnlyResearchTemporalStabilityPlan",
     "only_research_summary_plan_from_dict",

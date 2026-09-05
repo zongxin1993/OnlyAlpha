@@ -5,6 +5,7 @@ from .definition import (
     OnlyResearchCoverageSemantics,
     OnlyResearchCoverageSummaryDefinition,
     OnlyResearchEffectSummaryDefinition,
+    OnlyResearchFactorPairEffectSummaryDefinition,
     OnlyResearchSummaryInformationRatio,
     OnlyResearchSummarySignRule,
     OnlyResearchSummarySourceStatusPolicy,
@@ -17,11 +18,14 @@ from .execution import (
     OnlyResearchCoverageSummaryExecutor,
     OnlyResearchEffectSummaryExecution,
     OnlyResearchEffectSummaryExecutor,
+    OnlyResearchFactorPairEffectSummaryExecution,
+    OnlyResearchFactorPairEffectSummaryExecutor,
     OnlyResearchSummaryExecution,
     OnlyResearchTemporalStabilityExecution,
     OnlyResearchTemporalStabilityExecutor,
     only_compute_research_coverage_summary,
     only_compute_research_effect_summary,
+    only_compute_research_factor_pair_effect_summary,
     only_compute_research_temporal_stability,
 )
 from .family import OnlyResearchStatisticsFamily, only_research_statistics_family
@@ -29,6 +33,7 @@ from .identity import (
     RESEARCH_SUMMARY_STATISTICS_DOMAIN,
     only_research_coverage_summary_fingerprint,
     only_research_effect_summary_fingerprint,
+    only_research_factor_pair_effect_summary_fingerprint,
     only_research_summary_result_content_fingerprint,
     only_research_summary_result_fingerprint,
     only_research_temporal_stability_fingerprint,
@@ -40,12 +45,14 @@ from .metric import (
     OnlyResearchSummaryValueKind,
     only_research_coverage_metric,
     only_research_effect_metric,
+    only_research_factor_pair_effect_metric,
     only_research_stability_metric,
     only_research_summary_metric,
 )
 from .plan import (
     OnlyResearchCoverageSummaryPlan,
     OnlyResearchEffectSummaryPlan,
+    OnlyResearchFactorPairEffectSummaryPlan,
     OnlyResearchSummaryPlan,
     OnlyResearchTemporalStabilityPlan,
     only_research_summary_plan_from_dict,
@@ -54,6 +61,7 @@ from .reader import OnlyResearchStatisticsResultReader
 from .result import (
     OnlyResearchCoverageSummary,
     OnlyResearchEffectSummary,
+    OnlyResearchFactorPairEffectSummary,
     OnlyResearchSummary,
     OnlyResearchSummaryStatisticsResult,
     OnlyResearchSummaryStatisticsResultManifest,

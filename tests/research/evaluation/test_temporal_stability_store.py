@@ -17,35 +17,39 @@ from onlyalpha.research import (
     OnlyResearchSummaryStatisticsResult,
     OnlyResearchTemporalStabilityExecution,
 )
-from tests.research.evaluation.support import coverage_case, stability_case, summary_case
+from tests.research.evaluation.support import coverage_case, factor_pair_effect_case, stability_case, summary_case
 
 
 def _result_root(root: Path, fingerprint: str) -> Path:
     return root / "statistics-results" / "sha256" / fingerprint[:2] / fingerprint
 
 
-def test_shared_store_and_reader_support_all_three_summary_kinds(tmp_path) -> None:
+def test_shared_store_and_reader_support_all_four_summary_kinds(tmp_path) -> None:
     effect = summary_case(tmp_path)
     effect_outcome = effect[13].execute(effect[11])
     coverage = coverage_case(tmp_path)
     coverage_outcome = coverage[13].execute(coverage[11])
     stability = stability_case(tmp_path)
     stability_outcome = stability[13].execute(stability[11])
+    pair = factor_pair_effect_case(tmp_path)
+    pair_outcome = pair[15].execute(pair[13])
     assert (
         len(
             {
                 effect_outcome.statistics_fingerprint,
                 coverage_outcome.statistics_fingerprint,
                 stability_outcome.statistics_fingerprint,
+                pair_outcome.statistics_fingerprint,
             }
         )
-        == 3
+        == 4
     )
-    reader = OnlyResearchStatisticsResultReader(tmp_path / "statistics-results", effect[8], effect[12])
+    reader = OnlyResearchStatisticsResultReader(tmp_path / "statistics-results", effect[8], pair[14], pair[10])
     for fingerprint in (
         effect_outcome.statistics_fingerprint,
         coverage_outcome.statistics_fingerprint,
         stability_outcome.statistics_fingerprint,
+        pair_outcome.statistics_fingerprint,
     ):
         assert isinstance(reader.load_verified(fingerprint), OnlyResearchSummaryStatisticsResult)
 

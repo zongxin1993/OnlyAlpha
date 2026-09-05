@@ -9,15 +9,20 @@ from onlyalpha.research import (
     OnlyResearchCoverageSummaryPlan,
     OnlyResearchEffectSummaryDefinition,
     OnlyResearchEffectSummaryPlan,
+    OnlyResearchFactorPairEffectSummaryDefinition,
+    OnlyResearchFactorPairEffectSummaryPlan,
+    OnlyResearchFactorPairStatisticsMethod,
     OnlyResearchFeatureSeriesReference,
     OnlyResearchStatisticsFamily,
     OnlyResearchStatisticsMethod,
+    OnlyResearchSummaryKind,
     OnlyResearchSummaryMetricDescriptor,
     OnlyResearchSummaryScalar,
     OnlyResearchSummaryScalarStatus,
     OnlyResearchSummaryValueKind,
     only_research_coverage_metric,
     only_research_effect_metric,
+    only_research_factor_pair_effect_metric,
     only_research_statistics_family,
     only_research_summary_from_dict,
     only_research_summary_metric,
@@ -70,7 +75,11 @@ def test_effect_definition_and_plan_round_trip_are_exact_and_versioned() -> None
 def test_metric_registry_is_exact_immutable_and_method_typed() -> None:
     ids = tuple(item.metric_id for item in ONLY_RESEARCH_SUMMARY_METRICS)
     assert ids == tuple(sorted(ids))
-    assert len(ids) == len(set(ids)) == 70
+    assert len(ids) == len(set(ids)) == 74
+    legacy = tuple(
+        item for item in ONLY_RESEARCH_SUMMARY_METRICS if item.summary_kind.value != "FACTOR_PAIR_EFFECT_SUMMARY"
+    )
+    assert len(legacy) == 70
     assert (
         tuple(OnlyResearchSummaryMetricDescriptor.from_dict(item.to_dict()) for item in ONLY_RESEARCH_SUMMARY_METRICS)
         == ONLY_RESEARCH_SUMMARY_METRICS
@@ -98,6 +107,85 @@ def test_metric_registry_is_exact_immutable_and_method_typed() -> None:
     )
     with pytest.raises(ValueError, match="unsupported"):
         only_research_summary_metric("research.factor.ic.mean@2")
+
+
+def test_factor_pair_effect_definition_plan_and_registry_are_exact() -> None:
+    # Operand construction is already pinned by the B3.0.4A contract; use simple exact public values here.
+    from onlyalpha.research import OnlyResearchFactorPairOperand
+
+    first = OnlyResearchFactorPairOperand(
+        "a" * 64, OnlyResearchFeatureSeriesReference("b" * 64, "c" * 64, "factor_value")
+    )
+    second = OnlyResearchFactorPairOperand(
+        "d" * 64, OnlyResearchFeatureSeriesReference("e" * 64, "f" * 64, "factor_value")
+    )
+    definition = OnlyResearchFactorPairEffectSummaryDefinition(
+        OnlyResearchFactorPairStatisticsMethod.FACTOR_CORRELATION
+    )
+    plan = OnlyResearchFactorPairEffectSummaryPlan("1" * 64, first, second, "2" * 64, "3" * 64, definition)
+    swapped = OnlyResearchFactorPairEffectSummaryPlan("1" * 64, second, first, "2" * 64, "3" * 64, definition)
+    assert OnlyResearchFactorPairEffectSummaryDefinition.from_dict(definition.to_dict()) == definition
+    assert OnlyResearchFactorPairEffectSummaryPlan.from_dict(plan.to_dict()) == plan
+    assert swapped.to_dict() == plan.to_dict()
+    assert swapped.statistics_fingerprint == plan.statistics_fingerprint
+    ids = {
+        item.metric_id
+        for item in ONLY_RESEARCH_SUMMARY_METRICS
+        if item.summary_kind.value == "FACTOR_PAIR_EFFECT_SUMMARY"
+    }
+    assert ids == {
+        "research.factor_pair.correlation.mean@1",
+        "research.factor_pair.correlation.stddev_sample@1",
+        "research.factor_pair.rank_correlation.mean@1",
+        "research.factor_pair.rank_correlation.stddev_sample@1",
+    }
+    assert (
+        only_research_factor_pair_effect_metric(
+            OnlyResearchFactorPairStatisticsMethod.FACTOR_CORRELATION, "mean"
+        ).value_kind
+        is OnlyResearchSummaryValueKind.DECIMAL
+    )
+    with pytest.raises(ValueError, match="unsupported"):
+        only_research_factor_pair_effect_metric(
+            OnlyResearchFactorPairStatisticsMethod.FACTOR_CORRELATION, "information_ratio"
+        )
+    for field, value in (
+        ("source_method", "IC"),
+        ("summary_kind", "EFFECT_SUMMARY"),
+        ("source_status_policy", "VALID_ONLY_FOR_EFFECT"),
+        ("standard_deviation", "POPULATION"),
+        ("decimal_execution_policy", "other@1"),
+        ("schema_version", 2),
+    ):
+        payload = definition.to_dict()
+        payload[field] = value
+        with pytest.raises(ValueError):
+            OnlyResearchFactorPairEffectSummaryDefinition.from_dict(payload)
+    bad_numeric = definition.to_dict()
+    bad_numeric["numeric"] = {**bad_numeric["numeric"], "precision": 28}  # type: ignore[dict-item]
+    with pytest.raises(ValueError):
+        OnlyResearchFactorPairEffectSummaryDefinition.from_dict(bad_numeric)
+    assert replace(plan, dataset_snapshot_fingerprint="4" * 64).statistics_fingerprint != plan.statistics_fingerprint
+    assert replace(plan, source_statistics_fingerprint="5" * 64).statistics_fingerprint != plan.statistics_fingerprint
+    assert (
+        replace(plan, source_statistics_result_fingerprint="6" * 64).statistics_fingerprint
+        == plan.statistics_fingerprint
+    )
+    assert only_research_summary_metric("research.factor_pair.correlation.mean@1").source_method is (
+        OnlyResearchFactorPairStatisticsMethod.FACTOR_CORRELATION
+    )
+    pair_descriptor = only_research_summary_metric("research.factor_pair.correlation.mean@1")
+    with pytest.raises(ValueError, match="legacy Summary"):
+        replace(pair_descriptor, summary_kind=OnlyResearchSummaryKind.EFFECT_SUMMARY)
+    legacy_descriptor = only_research_summary_metric("research.factor.ic.mean@1")
+    with pytest.raises(ValueError, match="Factor-Pair Summary"):
+        replace(legacy_descriptor, summary_kind=pair_descriptor.summary_kind)
+    for forbidden in (
+        "research.factor_pair.correlation.ir@1",
+        "research.factor_pair.correlation.mean_abs@1",
+    ):
+        with pytest.raises(ValueError, match="unsupported"):
+            only_research_summary_metric(forbidden)
 
 
 def test_statistics_family_dispatch_is_explicit_and_unknown_schema_fails_closed() -> None:

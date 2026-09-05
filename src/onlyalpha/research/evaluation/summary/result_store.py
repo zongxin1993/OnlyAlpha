@@ -15,22 +15,25 @@ from typing import Protocol
 from onlyalpha.canonical import only_canonical_json
 
 from ..errors import OnlyResearchStatisticsResultStoreError
+from ..factor_pair.result import OnlyResearchFactorPairStatisticsResult
 from ..result import OnlyResearchStatisticsResult
 from .execution import (
     OnlyResearchCoverageSummaryExecution,
     OnlyResearchEffectSummaryExecution,
+    OnlyResearchFactorPairEffectSummaryExecution,
     OnlyResearchSummaryExecution,
     OnlyResearchTemporalStabilityExecution,
     _validate_source,
     only_compute_research_coverage_summary,
     only_compute_research_effect_summary,
+    only_compute_research_factor_pair_effect_summary,
     only_compute_research_temporal_stability,
 )
 from .identity import (
     only_research_summary_result_content_fingerprint,
     only_research_summary_result_fingerprint,
 )
-from .plan import OnlyResearchSummaryPlan
+from .plan import OnlyResearchFactorPairEffectSummaryPlan, OnlyResearchSummaryPlan
 from .result import (
     OnlyResearchSummary,
     OnlyResearchSummaryStatisticsResult,
@@ -43,16 +46,22 @@ class _LegacyStatisticsResultStore(Protocol):
     def load_verified(self, statistics_fingerprint: str) -> OnlyResearchStatisticsResult: ...
 
 
+class _FactorPairStatisticsResultStore(Protocol):
+    def load_verified(self, statistics_fingerprint: str) -> OnlyResearchFactorPairStatisticsResult: ...
+
+
 class OnlyJsonResearchSummaryStatisticsResultStore:
     def __init__(
         self,
         root: Path,
         source_statistics_result_store: _LegacyStatisticsResultStore,
         *,
+        factor_pair_source_store: _FactorPairStatisticsResultStore | None = None,
         audit_time: Callable[[], datetime] | None = None,
     ) -> None:
         self._root = root
         self._source_store = source_statistics_result_store
+        self._factor_pair_source_store = factor_pair_source_store
         self._audit_time = audit_time
 
     def exists(self, statistics_fingerprint: str) -> bool:
@@ -65,6 +74,7 @@ class OnlyJsonResearchSummaryStatisticsResultStore:
                 OnlyResearchEffectSummaryExecution,
                 OnlyResearchCoverageSummaryExecution,
                 OnlyResearchTemporalStabilityExecution,
+                OnlyResearchFactorPairEffectSummaryExecution,
             ),
         ):
             raise OnlyResearchStatisticsResultStoreError(
@@ -125,8 +135,7 @@ class OnlyJsonResearchSummaryStatisticsResultStore:
 
     def _admit(self, execution: OnlyResearchSummaryExecution) -> tuple[OnlyResearchSummary, str, str]:
         try:
-            source = self._source_store.load_verified(execution.plan.source_statistics_fingerprint)
-            _validate_source(source, execution.plan)
+            source = self._load_source(execution.plan)
             expected = _compute_summary(source, execution)
             if execution.summary != expected:
                 raise ValueError("Summary content is not the deterministic source projection")
@@ -176,8 +185,7 @@ class OnlyJsonResearchSummaryStatisticsResultStore:
                 raise ValueError("Summary Statistics path identity mismatch")
             if not summary_path.is_file() or _sha(summary_path) != manifest.summary_byte_sha256:
                 raise ValueError("Summary Statistics byte hash mismatch")
-            source = self._source_store.load_verified(manifest.source_statistics_fingerprint)
-            _validate_source(source, manifest.plan)
+            source = self._load_source(manifest.plan)
             summary = only_research_summary_from_dict(summary_payload)
             expected = _compute_plan_summary(source, manifest.plan)
             if summary != expected:
@@ -194,11 +202,31 @@ class OnlyJsonResearchSummaryStatisticsResultStore:
                 raise ValueError("Summary Statistics Result fingerprint mismatch")
             return OnlyResearchSummaryStatisticsResult(manifest, summary)
         except OnlyResearchStatisticsResultStoreError as exc:
+            if exc.code == "SUMMARY_FACTOR_PAIR_SOURCE_STORE_NOT_CONFIGURED":
+                raise
             raise OnlyResearchStatisticsResultStoreError(
                 "SUMMARY_STATISTICS_RESULT_CORRUPT", f"upstream Statistics invalid: {exc.code}"
             ) from exc
         except Exception as exc:
             raise OnlyResearchStatisticsResultStoreError("SUMMARY_STATISTICS_RESULT_CORRUPT", str(exc)) from exc
+
+    def _load_source(
+        self, plan: OnlyResearchSummaryPlan
+    ) -> OnlyResearchStatisticsResult | OnlyResearchFactorPairStatisticsResult:
+        if isinstance(plan, OnlyResearchFactorPairEffectSummaryPlan):
+            if self._factor_pair_source_store is None:
+                raise OnlyResearchStatisticsResultStoreError(
+                    "SUMMARY_FACTOR_PAIR_SOURCE_STORE_NOT_CONFIGURED",
+                    "Factor-Pair source Store is required for Factor-Pair Effect Summary",
+                )
+            pair_source = self._factor_pair_source_store.load_verified(plan.source_statistics_fingerprint)
+            from .execution import _validate_factor_pair_source
+
+            _validate_factor_pair_source(pair_source, plan)
+            return pair_source
+        legacy_source = self._source_store.load_verified(plan.source_statistics_fingerprint)
+        _validate_source(legacy_source, plan)
+        return legacy_source
 
     def _target(self, fingerprint: str) -> Path:
         if not _valid_sha(fingerprint):
@@ -225,21 +253,34 @@ def _valid_sha(value: str) -> bool:
 
 
 def _compute_summary(
-    source: OnlyResearchStatisticsResult,
+    source: OnlyResearchStatisticsResult | OnlyResearchFactorPairStatisticsResult,
     execution: OnlyResearchSummaryExecution,
 ) -> OnlyResearchSummary:
     return _compute_plan_summary(source, execution.plan)
 
 
-def _compute_plan_summary(source: OnlyResearchStatisticsResult, plan: OnlyResearchSummaryPlan) -> OnlyResearchSummary:
+def _compute_plan_summary(
+    source: OnlyResearchStatisticsResult | OnlyResearchFactorPairStatisticsResult,
+    plan: OnlyResearchSummaryPlan,
+) -> OnlyResearchSummary:
     from .plan import OnlyResearchCoverageSummaryPlan, OnlyResearchEffectSummaryPlan, OnlyResearchTemporalStabilityPlan
 
     if isinstance(plan, OnlyResearchEffectSummaryPlan):
+        if not isinstance(source, OnlyResearchStatisticsResult):
+            raise ValueError("Effect Summary requires legacy Statistics source")
         return only_compute_research_effect_summary(source, plan)
     if isinstance(plan, OnlyResearchCoverageSummaryPlan):
+        if not isinstance(source, OnlyResearchStatisticsResult):
+            raise ValueError("Coverage Summary requires legacy Statistics source")
         return only_compute_research_coverage_summary(source, plan)
     if isinstance(plan, OnlyResearchTemporalStabilityPlan):
+        if not isinstance(source, OnlyResearchStatisticsResult):
+            raise ValueError("Temporal Stability requires legacy Statistics source")
         return only_compute_research_temporal_stability(source, plan)
+    if isinstance(plan, OnlyResearchFactorPairEffectSummaryPlan):
+        if not isinstance(source, OnlyResearchFactorPairStatisticsResult):
+            raise ValueError("Factor-Pair Effect Summary requires Factor-Pair Statistics source")
+        return only_compute_research_factor_pair_effect_summary(source, plan)
     raise ValueError("Summary Statistics Plan kind is unsupported")
 
 
