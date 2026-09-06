@@ -642,11 +642,46 @@ class OnlySearchIterationPlanV1:
 
 
 @dataclass(frozen=True, slots=True)
+class OnlySearchResearchResultReferenceV1:
+    """Exact canonical locator and resulting Research Evidence identity."""
+
+    locator_fingerprint: str
+    result_fingerprint: str
+    schema_version: int = 1
+
+    def __post_init__(self) -> None:
+        if self.schema_version != 1:
+            raise ValueError("unsupported Search Research Result Reference schema")
+        _sha(self.locator_fingerprint, "Research Result locator fingerprint")
+        _sha(self.result_fingerprint, "Research Result identity fingerprint")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "locator_fingerprint": self.locator_fingerprint,
+            "result_fingerprint": self.result_fingerprint,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlySearchResearchResultReferenceV1:
+        _exact(
+            payload,
+            {"schema_version", "locator_fingerprint", "result_fingerprint"},
+            "Search Research Result Reference",
+        )
+        return cls(
+            _sha(payload["locator_fingerprint"], "locator_fingerprint"),
+            _sha(payload["result_fingerprint"], "result_fingerprint"),
+            _integer(payload["schema_version"], "schema_version"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class OnlySearchIterationResultV1:
     iteration_plan_fingerprint: str
     candidate_fingerprint: str | None
     research_attempted: bool
-    research_result_fingerprint: str | None
+    research_result_reference: OnlySearchResearchResultReferenceV1 | None
     qualification_attempted: bool
     qualification_decision_fingerprint: str | None
     disposition: OnlySearchIterationDisposition
@@ -660,22 +695,23 @@ class OnlySearchIterationResultV1:
         _optional_sha(self.candidate_fingerprint, "Candidate fingerprint")
         if not isinstance(self.research_attempted, bool) or not isinstance(self.qualification_attempted, bool):
             raise ValueError("Search Iteration attempted flags must be booleans")
-        _optional_sha(self.research_result_fingerprint, "Research Result fingerprint")
+        if self.research_result_reference is not None and not isinstance(
+            self.research_result_reference, OnlySearchResearchResultReferenceV1
+        ):
+            raise ValueError("Search Research Result reference is invalid")
         _optional_sha(self.qualification_decision_fingerprint, "Qualification Decision fingerprint")
         if not isinstance(self.disposition, OnlySearchIterationDisposition):
             raise ValueError("Search Iteration disposition is invalid")
         if self.failure_code is not None and not isinstance(self.failure_code, OnlySearchFailureCode):
             raise ValueError("Search Iteration failure code is invalid")
-        if self.research_result_fingerprint is not None and not self.research_attempted:
+        if self.research_result_reference is not None and not self.research_attempted:
             raise ValueError("Research Result reference requires research_attempted")
         if self.qualification_decision_fingerprint is not None and not self.qualification_attempted:
             raise ValueError("Qualification Decision reference requires qualification_attempted")
         if self.research_attempted and self.candidate_fingerprint is None:
             raise ValueError("Research attempt requires a Candidate binding")
         if self.qualification_attempted and (
-            self.candidate_fingerprint is None
-            or not self.research_attempted
-            or self.research_result_fingerprint is None
+            self.candidate_fingerprint is None or not self.research_attempted or self.research_result_reference is None
         ):
             raise ValueError("Qualification attempt requires exact Candidate and Research Result bindings")
         if self.disposition in {OnlySearchIterationDisposition.SKIPPED, OnlySearchIterationDisposition.FAILED}:
@@ -685,7 +721,7 @@ class OnlySearchIterationResultV1:
                 (
                     self.candidate_fingerprint is not None,
                     self.research_attempted,
-                    self.research_result_fingerprint is not None,
+                    self.research_result_reference is not None,
                     self.qualification_attempted,
                     self.qualification_decision_fingerprint is not None,
                 )
@@ -701,7 +737,7 @@ class OnlySearchIterationResultV1:
         if self.disposition is OnlySearchIterationDisposition.CANDIDATE_BOUND and (
             self.candidate_fingerprint is None
             or self.research_attempted
-            or self.research_result_fingerprint is not None
+            or self.research_result_reference is not None
             or self.qualification_attempted
             or self.qualification_decision_fingerprint is not None
         ):
@@ -709,7 +745,7 @@ class OnlySearchIterationResultV1:
         if self.disposition is OnlySearchIterationDisposition.RESEARCH_EVIDENCE_RECORDED and (
             self.candidate_fingerprint is None
             or not self.research_attempted
-            or self.research_result_fingerprint is None
+            or self.research_result_reference is None
             or self.qualification_attempted
             or self.qualification_decision_fingerprint is not None
         ):
@@ -717,7 +753,7 @@ class OnlySearchIterationResultV1:
         if self.disposition is OnlySearchIterationDisposition.QUALIFICATION_DECISION_RECORDED and (
             self.candidate_fingerprint is None
             or not self.research_attempted
-            or self.research_result_fingerprint is None
+            or self.research_result_reference is None
             or not self.qualification_attempted
             or self.qualification_decision_fingerprint is None
         ):
@@ -735,7 +771,9 @@ class OnlySearchIterationResultV1:
             "iteration_plan_fingerprint": self.iteration_plan_fingerprint,
             "candidate_fingerprint": self.candidate_fingerprint,
             "research_attempted": self.research_attempted,
-            "research_result_fingerprint": self.research_result_fingerprint,
+            "research_result_reference": (
+                None if self.research_result_reference is None else self.research_result_reference.to_dict()
+            ),
             "qualification_attempted": self.qualification_attempted,
             "qualification_decision_fingerprint": self.qualification_decision_fingerprint,
             "disposition": self.disposition.value,
@@ -754,7 +792,7 @@ class OnlySearchIterationResultV1:
                 "iteration_plan_fingerprint",
                 "candidate_fingerprint",
                 "research_attempted",
-                "research_result_fingerprint",
+                "research_result_reference",
                 "qualification_attempted",
                 "qualification_decision_fingerprint",
                 "disposition",
@@ -768,7 +806,11 @@ class OnlySearchIterationResultV1:
             _sha(payload["iteration_plan_fingerprint"], "iteration_plan_fingerprint"),
             _optional_sha(payload["candidate_fingerprint"], "candidate_fingerprint"),
             _boolean(payload["research_attempted"], "research_attempted"),
-            _optional_sha(payload["research_result_fingerprint"], "research_result_fingerprint"),
+            None
+            if payload["research_result_reference"] is None
+            else OnlySearchResearchResultReferenceV1.from_dict(
+                _mapping(payload["research_result_reference"], "research_result_reference")
+            ),
             _boolean(payload["qualification_attempted"], "qualification_attempted"),
             _optional_sha(payload["qualification_decision_fingerprint"], "qualification_decision_fingerprint"),
             OnlySearchIterationDisposition(_string(payload["disposition"], "disposition")),

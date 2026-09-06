@@ -199,13 +199,23 @@ closed. Consuming only already-committed immutable Results structurally prevents
 iteration_plan_fingerprint
 candidate_fingerprint | null
 research_attempted
-research_result_fingerprint | null
+research_result_reference | null
 qualification_attempted
 qualification_decision_fingerprint | null
 disposition
 failure_code | null
 iteration_result_fingerprint
 ```
+
+`research_result_reference` is `OnlySearchResearchResultReferenceV1` and contains both exact lower-case SHA-256 values:
+
+```text
+locator_fingerprint = Research Result Plan fingerprint used by the canonical Store reader
+result_fingerprint = exact loaded Research Result Evidence identity
+```
+
+The locator and resulting identity are different facts. Neither is derived from the other, and Search persists no parallel legacy
+single-fingerprint field.
 
 Disposition is workflow classification only. V1 uses `SKIPPED`, `FAILED`, `CANDIDATE_BOUND`,
 `RESEARCH_EVIDENCE_RECORDED`, and `QUALIFICATION_DECISION_RECORDED`. It never describes a Factor as good, bad, production,
@@ -245,6 +255,10 @@ request, temporary workspace, worker, display label, UI state, or log message.
 
 ### Exact external-reference verification
 
+An external reference is complete only when it contains enough information to resolve the referenced Authority through its canonical
+exact reader and to verify the returned identity. A syntactically valid fingerprint without this resolution and identity proof is not
+valid evidence.
+
 Where an existing authority has an exact verified reader, Search provenance verifies exact Dataset Snapshot, Catalog Generation,
 Candidate, Research Result, and Qualification Decision references through injected protocols. It does not import producer
 implementation internals, recompute Research contents, or re-execute Qualification.
@@ -254,6 +268,41 @@ It does not invent a generic authority.
 
 A missing, corrupt, identity-mismatched, or unsupported-schema required reference fails closed with a stable domain error. There is no
 fallback to latest, equivalent, nearest, best, or fuzzy resolution.
+
+Research Result verification loads only by `research_result_reference.locator_fingerprint`, requires the loaded manifest's Plan
+fingerprint to equal that locator, requires its Result fingerprint to equal `research_result_reference.result_fingerprint`, requires
+its Dataset to equal the Experiment Dataset, and requires the Search Candidate to occur exactly once in the Result's formal Candidate
+membership.
+
+Qualification provenance is closed only when exact Qualification Research Evidence and its exact FreezeRelation prove the same
+Candidate, Research Result, locator, and Strategy relationships claimed by the Search Iteration. Search therefore loads the exact
+Qualification Decision, selects exactly one Research Evidence reference whose locator and Result identity both equal the Search
+Research Result reference, loads the exact FreezeRelation named by that Evidence's subject binding, and requires:
+
+```text
+loaded FreezeRelation fingerprint == Qualification Evidence subject binding
+FreezeRelation.candidate_fingerprint == Search Iteration Candidate
+FreezeRelation.research_result_fingerprint == Search Research Result identity
+FreezeRelation.strategy_fingerprint == Qualification Decision subject Strategy
+```
+
+Zero or multiple matching Evidence references, an absent subject binding, or a missing, corrupt, or contradictory FreezeRelation fails
+closed. Search does not persist the FreezeRelation fingerprint or Qualification outcome because their existing Authorities already own
+those facts.
+
+The normative cross-Authority proof matrix is:
+
+| Fact | Search representation | Referenced Authority representation | Required invariant |
+|---|---|---|---|
+| Dataset | Experiment Dataset fingerprint | Research Result Dataset fingerprint | equal |
+| Candidate | Iteration Candidate fingerprint | Result Candidate membership | exact unique member |
+| Result locator | Research reference locator | Result Store locator / Plan fingerprint | equal |
+| Result identity | Research reference result | loaded Result fingerprint | equal |
+| Qualification | Decision fingerprint | loaded Decision fingerprint | equal |
+| Qualification Research Result | Search Research reference | Decision Research Evidence | locator and result equal, exactly once |
+| Candidate subject | Search Candidate | FreezeRelation Candidate | equal |
+| Result subject | Search Result identity | FreezeRelation Result | equal |
+| Strategy subject | Decision subject | FreezeRelation Strategy | equal |
 
 ### Persistence
 

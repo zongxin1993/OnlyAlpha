@@ -15,10 +15,11 @@ from onlyalpha.research.experiment import (
     OnlySearchIterationDisposition,
     OnlySearchIterationResultV1,
     OnlySearchRandomnessMode,
+    OnlySearchResearchResultReferenceV1,
 )
 from onlyalpha.research.specification.identity import only_research_candidate_fingerprint
 
-from .support import experiment, fingerprint, plan
+from .support import experiment, fingerprint, plan, research_reference
 
 
 def test_experiment_identity_is_deterministic_and_round_trips() -> None:
@@ -189,6 +190,36 @@ def test_iteration_result_identity_and_failure_without_candidate() -> None:
     assert failed.iteration_result_fingerprint == replace(failed).iteration_result_fingerprint
 
 
+def test_research_result_reference_round_trip_and_both_identities_are_bound() -> None:
+    reference = research_reference()
+    assert OnlySearchResearchResultReferenceV1.from_dict(reference.to_dict()) == reference
+    iteration = plan(experiment().experiment_fingerprint)
+    result = OnlySearchIterationResultV1(
+        iteration.iteration_plan_fingerprint,
+        fingerprint("c"),
+        True,
+        reference,
+        False,
+        None,
+        OnlySearchIterationDisposition.RESEARCH_EVIDENCE_RECORDED,
+        None,
+    )
+    assert (
+        replace(
+            result,
+            research_result_reference=replace(reference, locator_fingerprint=fingerprint("1")),
+        ).iteration_result_fingerprint
+        != result.iteration_result_fingerprint
+    )
+    assert (
+        replace(
+            result,
+            research_result_reference=replace(reference, result_fingerprint=fingerprint("2")),
+        ).iteration_result_fingerprint
+        != result.iteration_result_fingerprint
+    )
+
+
 def test_result_disposition_rejects_inconsistent_authority_references() -> None:
     plan_fingerprint = plan(experiment().experiment_fingerprint).iteration_plan_fingerprint
     with pytest.raises(ValueError, match="Research Result reference"):
@@ -196,7 +227,7 @@ def test_result_disposition_rejects_inconsistent_authority_references() -> None:
             plan_fingerprint,
             fingerprint("1"),
             False,
-            fingerprint("2"),
+            research_reference(),
             False,
             None,
             OnlySearchIterationDisposition.FAILED,
@@ -231,6 +262,7 @@ def test_formal_models_contain_no_second_truth_or_chain_of_thought_fields() -> N
         "sharpe",
         "generic_score",
         "qualification_outcome",
+        "freeze_relation_fingerprint",
         "approved",
         "factor_status",
         "production_factor",

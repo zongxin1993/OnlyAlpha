@@ -26,6 +26,7 @@ from .verification import (
     OnlySearchCandidateReader,
     OnlySearchCatalogGenerationReader,
     OnlySearchDatasetReader,
+    OnlySearchFreezeRelationReader,
     OnlySearchQualificationDecisionReader,
     OnlySearchResearchResultReader,
     verify_search_experiment_references,
@@ -48,6 +49,7 @@ class OnlyJsonSearchProvenanceStore:
         candidates: OnlySearchCandidateReader | None = None,
         research_results: OnlySearchResearchResultReader | None = None,
         qualification_decisions: OnlySearchQualificationDecisionReader | None = None,
+        freeze_relations: OnlySearchFreezeRelationReader | None = None,
     ) -> None:
         self._semantic_root = semantic_root
         self._root = semantic_root / "research" / "search-provenance"
@@ -56,6 +58,7 @@ class OnlyJsonSearchProvenanceStore:
         self._candidates = candidates
         self._research_results = research_results
         self._qualification_decisions = qualification_decisions
+        self._freeze_relations = freeze_relations
 
     def commit_experiment(self, experiment: OnlySearchExperimentManifestV1) -> OnlySearchCommitOutcome:
         if not isinstance(experiment, OnlySearchExperimentManifestV1):
@@ -124,6 +127,7 @@ class OnlyJsonSearchProvenanceStore:
             candidates=self._candidates,
             research_results=self._research_results,
             qualification_decisions=self._qualification_decisions,
+            freeze_relations=self._freeze_relations,
         )
         with self._terminal_result_lock(result.iteration_plan_fingerprint):
             existing_terminal = self._terminal_result_for_plan(result.iteration_plan_fingerprint)
@@ -166,6 +170,7 @@ class OnlyJsonSearchProvenanceStore:
             candidates=self._candidates,
             research_results=self._research_results,
             qualification_decisions=self._qualification_decisions,
+            freeze_relations=self._freeze_relations,
         )
         return result
 

@@ -47,6 +47,9 @@ class OnlySearchResearchResultPlanValue(Protocol):
 
 class OnlySearchResearchResultManifestValue(Protocol):
     @property
+    def research_result_plan_fingerprint(self) -> str: ...
+
+    @property
     def research_result_fingerprint(self) -> str: ...
 
     @property
@@ -62,12 +65,21 @@ class OnlySearchResearchResultValue(Protocol):
 
 
 class OnlySearchResearchResultReader(Protocol):
-    def load_verified(self, research_result_fingerprint: str) -> OnlySearchResearchResultValue: ...
+    def load_verified(self, research_result_locator_fingerprint: str) -> OnlySearchResearchResultValue: ...
 
 
 class OnlySearchQualificationEvidenceValue(Protocol):
     @property
+    def kind(self) -> object: ...
+
+    @property
     def evidence_fingerprint(self) -> str: ...
+
+    @property
+    def locator_fingerprint(self) -> str | None: ...
+
+    @property
+    def subject_binding_fingerprint(self) -> str | None: ...
 
 
 class OnlySearchQualificationDecisionValue(Protocol):
@@ -77,9 +89,30 @@ class OnlySearchQualificationDecisionValue(Protocol):
     @property
     def evidence(self) -> tuple[OnlySearchQualificationEvidenceValue, ...]: ...
 
+    @property
+    def subject_strategy_fingerprint(self) -> str: ...
+
 
 class OnlySearchQualificationDecisionReader(Protocol):
     def load_verified(self, decision_fingerprint: str) -> OnlySearchQualificationDecisionValue: ...
+
+
+class OnlySearchFreezeRelationValue(Protocol):
+    @property
+    def relation_fingerprint(self) -> str: ...
+
+    @property
+    def candidate_fingerprint(self) -> str: ...
+
+    @property
+    def research_result_fingerprint(self) -> str: ...
+
+    @property
+    def strategy_fingerprint(self) -> str: ...
+
+
+class OnlySearchFreezeRelationReader(Protocol):
+    def load_freeze_relation(self, relation_fingerprint: str) -> OnlySearchFreezeRelationValue: ...
 
 
 class OnlySearchExperimentReader(Protocol):
@@ -175,6 +208,7 @@ def verify_search_iteration_result_references(
     candidates: OnlySearchCandidateReader | None,
     research_results: OnlySearchResearchResultReader | None,
     qualification_decisions: OnlySearchQualificationDecisionReader | None,
+    freeze_relations: OnlySearchFreezeRelationReader | None,
 ) -> None:
     """Verify external exact references without recomputing Research or Qualification."""
 
@@ -190,31 +224,37 @@ def verify_search_iteration_result_references(
                 result.candidate_fingerprint,
             ) from exc
 
-    research_result = None
-    if result.research_result_fingerprint is not None:
+    research_reference = result.research_result_reference
+    if research_reference is not None:
         if research_results is None:
             raise OnlySearchProvenanceError(
                 "SEARCH_EXTERNAL_REFERENCE_READER_UNAVAILABLE",
                 "Research Result reader",
             )
         try:
-            research_result = research_results.load_verified(result.research_result_fingerprint)
-            if research_result.manifest.research_result_fingerprint != result.research_result_fingerprint:
+            research_result = research_results.load_verified(research_reference.locator_fingerprint)
+            if research_result.manifest.research_result_plan_fingerprint != research_reference.locator_fingerprint:
+                raise ValueError("Research Result reader returned a different locator")
+            if research_result.manifest.research_result_fingerprint != research_reference.result_fingerprint:
                 raise ValueError("Research Result reader returned a different identity")
-            if research_result.manifest.dataset_snapshot_fingerprint != expected_dataset_snapshot_fingerprint:
-                raise ValueError("Research Result belongs to a different Dataset Snapshot")
-            if result.candidate_fingerprint is not None:
-                candidate_fingerprints = {
-                    item.candidate_fingerprint for item in research_result.manifest.plan.candidates
-                }
-                if result.candidate_fingerprint not in candidate_fingerprints:
-                    raise ValueError("Research Result does not contain the bound Candidate")
-        except OnlySearchProvenanceError:
-            raise
         except Exception as exc:
             raise OnlySearchProvenanceError(
                 "SEARCH_RESEARCH_RESULT_REFERENCE_INVALID",
-                result.research_result_fingerprint,
+                research_reference.locator_fingerprint,
+            ) from exc
+        try:
+            if research_result.manifest.dataset_snapshot_fingerprint != expected_dataset_snapshot_fingerprint:
+                raise ValueError("Research Result belongs to a different Dataset Snapshot")
+            if result.candidate_fingerprint is not None:
+                candidate_fingerprints = tuple(
+                    item.candidate_fingerprint for item in research_result.manifest.plan.candidates
+                )
+                if candidate_fingerprints.count(result.candidate_fingerprint) != 1:
+                    raise ValueError("Research Result Candidate membership is not exact and unique")
+        except Exception as exc:
+            raise OnlySearchProvenanceError(
+                "SEARCH_RESEARCH_RESULT_SUBJECT_MISMATCH",
+                research_reference.result_fingerprint,
             ) from exc
 
     if result.qualification_decision_fingerprint is not None:
@@ -227,17 +267,57 @@ def verify_search_iteration_result_references(
             decision = qualification_decisions.load_verified(result.qualification_decision_fingerprint)
             if decision.decision_fingerprint != result.qualification_decision_fingerprint:
                 raise ValueError("Qualification Decision reader returned a different identity")
-            if result.research_result_fingerprint is not None and all(
-                item.evidence_fingerprint != result.research_result_fingerprint for item in decision.evidence
-            ):
-                raise ValueError("Qualification Decision does not bind the exact Research Result")
-        except OnlySearchProvenanceError:
-            raise
         except Exception as exc:
             raise OnlySearchProvenanceError(
                 "SEARCH_QUALIFICATION_DECISION_REFERENCE_INVALID",
                 result.qualification_decision_fingerprint,
             ) from exc
+        if research_reference is None or result.candidate_fingerprint is None:
+            raise OnlySearchProvenanceError(
+                "SEARCH_QUALIFICATION_DECISION_REFERENCE_INVALID",
+                result.qualification_decision_fingerprint,
+            )
+        if freeze_relations is None:
+            raise OnlySearchProvenanceError(
+                "SEARCH_EXTERNAL_REFERENCE_READER_UNAVAILABLE",
+                "Freeze Relation reader",
+            )
+        try:
+            matches = tuple(
+                item
+                for item in decision.evidence
+                if _evidence_kind(item.kind) == "RESEARCH_RESULT"
+                and item.evidence_fingerprint == research_reference.result_fingerprint
+                and item.locator_fingerprint == research_reference.locator_fingerprint
+            )
+            if len(matches) != 1:
+                raise ValueError("Qualification Decision must contain exactly one matching Research Evidence")
+            subject_binding = matches[0].subject_binding_fingerprint
+            if subject_binding is None:
+                raise ValueError("Qualification Research Evidence requires an exact Freeze relation")
+            relation = freeze_relations.load_freeze_relation(subject_binding)
+            if relation.relation_fingerprint != subject_binding:
+                raise ValueError("Freeze Relation reader returned a different identity")
+        except Exception as exc:
+            raise OnlySearchProvenanceError(
+                "SEARCH_QUALIFICATION_DECISION_REFERENCE_INVALID",
+                result.qualification_decision_fingerprint,
+            ) from exc
+        if (
+            relation.candidate_fingerprint != result.candidate_fingerprint
+            or relation.research_result_fingerprint != research_reference.result_fingerprint
+            or relation.strategy_fingerprint != decision.subject_strategy_fingerprint
+        ):
+            raise OnlySearchProvenanceError(
+                "SEARCH_QUALIFICATION_DECISION_SUBJECT_MISMATCH",
+                result.qualification_decision_fingerprint,
+            )
+
+
+def _evidence_kind(value: object) -> object:
+    """Normalize string enums without importing the Qualification producer contract."""
+
+    return getattr(value, "value", value)
 
 
 __all__ = [name for name in globals() if name.startswith(("OnlySearch", "verify_search"))]

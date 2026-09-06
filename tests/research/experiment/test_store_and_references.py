@@ -18,9 +18,10 @@ from onlyalpha.research.experiment import (
     OnlySearchIterationResultV1,
     OnlySearchProvenanceError,
     OnlySearchProvenanceStoreError,
+    OnlySearchResearchResultReferenceV1,
 )
 
-from .support import experiment, fingerprint, plan
+from .support import experiment, fingerprint, plan, research_reference
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,7 @@ class FakeResearchPlan:
 
 @dataclass(frozen=True)
 class FakeResearchManifest:
+    research_result_plan_fingerprint: str
     research_result_fingerprint: str
     dataset_snapshot_fingerprint: str
     plan: FakeResearchPlan
@@ -87,11 +89,18 @@ class FakeResearchResult:
 
 
 class FakeResearchResultReader:
-    def __init__(self, fingerprint: str, candidate_fingerprint: str, dataset_fingerprint: str) -> None:
+    def __init__(
+        self,
+        locator_fingerprint: str,
+        result_fingerprint: str,
+        candidate_fingerprint: str,
+        dataset_fingerprint: str,
+    ) -> None:
         self.values = {
-            fingerprint: FakeResearchResult(
+            locator_fingerprint: FakeResearchResult(
                 FakeResearchManifest(
-                    fingerprint,
+                    locator_fingerprint,
+                    result_fingerprint,
                     dataset_fingerprint,
                     FakeResearchPlan((FakeCandidate(candidate_fingerprint),)),
                 )
@@ -106,18 +115,70 @@ class FakeResearchResultReader:
 
 @dataclass(frozen=True)
 class FakeEvidence:
+    kind: str
     evidence_fingerprint: str
+    locator_fingerprint: str | None
+    subject_binding_fingerprint: str | None
 
 
 @dataclass(frozen=True)
 class FakeDecision:
     decision_fingerprint: str
     evidence: tuple[FakeEvidence, ...]
+    subject_strategy_fingerprint: str
+
+
+@dataclass(frozen=True)
+class FakeFreezeRelation:
+    relation_fingerprint: str
+    candidate_fingerprint: str
+    research_result_fingerprint: str
+    strategy_fingerprint: str
+
+
+class FakeFreezeRelationReader:
+    def __init__(self, fingerprint: str, relation: FakeFreezeRelation) -> None:
+        self.values = {fingerprint: relation}
+        self.loads = 0
+
+    def load_freeze_relation(self, fingerprint: str) -> FakeFreezeRelation:
+        self.loads += 1
+        return self.values[fingerprint]
 
 
 class FakeDecisionReader:
-    def __init__(self, fingerprint: str, research_result_fingerprint: str) -> None:
-        self.values = {fingerprint: FakeDecision(fingerprint, (FakeEvidence(research_result_fingerprint),))}
+    def __init__(
+        self,
+        decision_fingerprint: str,
+        research_result_locator_fingerprint: str,
+        research_result_fingerprint: str,
+        candidate_fingerprint: str,
+    ) -> None:
+        relation_fingerprint = fingerprint("f")
+        strategy_fingerprint = fingerprint("a")
+        self.values = {
+            decision_fingerprint: FakeDecision(
+                decision_fingerprint,
+                (
+                    FakeEvidence(
+                        "RESEARCH_RESULT",
+                        research_result_fingerprint,
+                        research_result_locator_fingerprint,
+                        relation_fingerprint,
+                    ),
+                ),
+                strategy_fingerprint,
+            )
+        }
+        self.freeze_relations = FakeFreezeRelationReader(
+            relation_fingerprint,
+            FakeFreezeRelation(
+                relation_fingerprint,
+                candidate_fingerprint,
+                research_result_fingerprint,
+                strategy_fingerprint,
+            ),
+        )
         self.loads = 0
 
     def load_verified(self, fingerprint: str) -> FakeDecision:
@@ -129,6 +190,7 @@ def stores(
     root: Path,
     *,
     candidate_fingerprint: str = fingerprint("c"),
+    research_result_locator_fingerprint: str = fingerprint("0"),
     research_result_fingerprint: str = fingerprint("d"),
     decision_fingerprint: str = fingerprint("e"),
 ) -> tuple[
@@ -140,11 +202,17 @@ def stores(
     value = experiment()
     candidates = FakeCandidateReader(candidate_fingerprint)
     research = FakeResearchResultReader(
+        research_result_locator_fingerprint,
         research_result_fingerprint,
         candidate_fingerprint,
         value.dataset_snapshot_fingerprint,
     )
-    decisions = FakeDecisionReader(decision_fingerprint, research_result_fingerprint)
+    decisions = FakeDecisionReader(
+        decision_fingerprint,
+        research_result_locator_fingerprint,
+        research_result_fingerprint,
+        candidate_fingerprint,
+    )
     return (
         OnlyJsonSearchProvenanceStore(
             root,
@@ -153,6 +221,7 @@ def stores(
             candidates=candidates,
             research_results=research,
             qualification_decisions=decisions,
+            freeze_relations=decisions.freeze_relations,
         ),
         candidates,
         research,
@@ -165,7 +234,7 @@ def qualification_result(value: OnlySearchIterationPlanV1) -> OnlySearchIteratio
         value.iteration_plan_fingerprint,
         fingerprint("c"),
         True,
-        fingerprint("d"),
+        research_reference(),
         True,
         fingerprint("e"),
         OnlySearchIterationDisposition.QUALIFICATION_DECISION_RECORDED,
@@ -317,17 +386,19 @@ def test_missing_catalog_dataset_candidate_research_and_qualification_fail_close
     research.values.clear()
     with pytest.raises(OnlySearchProvenanceError, match="SEARCH_RESEARCH_RESULT_REFERENCE_INVALID"):
         store.commit_iteration_result(qualification_result(iteration))
-    research.values[fingerprint("d")] = FakeResearchResult(
+    research.values[fingerprint("0")] = FakeResearchResult(
         FakeResearchManifest(
+            fingerprint("0"),
             fingerprint("d"),
             fingerprint("f"),
             FakeResearchPlan((FakeCandidate(fingerprint("c")),)),
         )
     )
-    with pytest.raises(OnlySearchProvenanceError, match="SEARCH_RESEARCH_RESULT_REFERENCE_INVALID"):
+    with pytest.raises(OnlySearchProvenanceError, match="SEARCH_RESEARCH_RESULT_SUBJECT_MISMATCH"):
         store.commit_iteration_result(qualification_result(iteration))
-    research.values[fingerprint("d")] = FakeResearchResult(
+    research.values[fingerprint("0")] = FakeResearchResult(
         FakeResearchManifest(
+            fingerprint("0"),
             fingerprint("d"),
             search.dataset_snapshot_fingerprint,
             FakeResearchPlan((FakeCandidate(fingerprint("c")),)),
@@ -528,3 +599,144 @@ def test_store_has_no_mutation_or_latest_fuzzy_api(tmp_path: Path) -> None:
         "search_similar_experiment",
     }
     assert forbidden.isdisjoint(dir(store))
+
+
+def _prepared_qualification(
+    root: Path,
+) -> tuple[
+    OnlyJsonSearchProvenanceStore,
+    OnlySearchIterationPlanV1,
+    FakeResearchResultReader,
+    FakeDecisionReader,
+]:
+    store, _, research, decisions = stores(root)
+    search = experiment()
+    iteration = plan(search.experiment_fingerprint)
+    store.commit_experiment(search)
+    store.commit_iteration_plan(iteration)
+    return store, iteration, research, decisions
+
+
+def test_research_reference_requires_exact_locator_and_result_identity(tmp_path: Path) -> None:
+    store, iteration, _, _ = _prepared_qualification(tmp_path / "wrong-result")
+    wrong_result = replace(
+        qualification_result(iteration),
+        research_result_reference=OnlySearchResearchResultReferenceV1(fingerprint("0"), fingerprint("1")),
+    )
+    with pytest.raises(OnlySearchProvenanceError, match="SEARCH_RESEARCH_RESULT_REFERENCE_INVALID"):
+        store.commit_iteration_result(wrong_result)
+
+    store, iteration, research, _ = _prepared_qualification(tmp_path / "wrong-locator")
+    authoritative = research.values[fingerprint("0")]
+    research.values[fingerprint("0")] = FakeResearchResult(
+        replace(authoritative.manifest, research_result_plan_fingerprint=fingerprint("1"))
+    )
+    with pytest.raises(OnlySearchProvenanceError, match="SEARCH_RESEARCH_RESULT_REFERENCE_INVALID"):
+        store.commit_iteration_result(qualification_result(iteration))
+
+
+def test_research_subject_requires_dataset_and_unique_candidate_membership(tmp_path: Path) -> None:
+    store, iteration, research, _ = _prepared_qualification(tmp_path / "candidate-missing")
+    authoritative = research.values[fingerprint("0")]
+    research.values[fingerprint("0")] = FakeResearchResult(
+        replace(authoritative.manifest, plan=FakeResearchPlan((FakeCandidate(fingerprint("1")),)))
+    )
+    with pytest.raises(OnlySearchProvenanceError, match="SEARCH_RESEARCH_RESULT_SUBJECT_MISMATCH"):
+        store.commit_iteration_result(qualification_result(iteration))
+
+    store, iteration, research, _ = _prepared_qualification(tmp_path / "candidate-ambiguous")
+    authoritative = research.values[fingerprint("0")]
+    research.values[fingerprint("0")] = FakeResearchResult(
+        replace(
+            authoritative.manifest,
+            plan=FakeResearchPlan((FakeCandidate(fingerprint("c")), FakeCandidate(fingerprint("c")))),
+        )
+    )
+    with pytest.raises(OnlySearchProvenanceError, match="SEARCH_RESEARCH_RESULT_SUBJECT_MISMATCH"):
+        store.commit_iteration_result(qualification_result(iteration))
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    (
+        (),
+        (FakeEvidence("RESEARCH_RESULT", fingerprint("1"), fingerprint("0"), fingerprint("f")),),
+        (FakeEvidence("RESEARCH_RESULT", fingerprint("d"), fingerprint("1"), fingerprint("f")),),
+        (FakeEvidence("BACKTEST_RESULT", fingerprint("d"), fingerprint("0"), fingerprint("f")),),
+        (FakeEvidence("RESEARCH_RESULT", fingerprint("d"), fingerprint("0"), None),),
+        (
+            FakeEvidence("RESEARCH_RESULT", fingerprint("d"), fingerprint("0"), fingerprint("f")),
+            FakeEvidence("RESEARCH_RESULT", fingerprint("d"), fingerprint("0"), fingerprint("f")),
+        ),
+    ),
+)
+def test_qualification_requires_exactly_one_complete_research_evidence(
+    tmp_path: Path, evidence: tuple[FakeEvidence, ...]
+) -> None:
+    store, iteration, _, decisions = _prepared_qualification(tmp_path)
+    decision = decisions.values[fingerprint("e")]
+    decisions.values[fingerprint("e")] = replace(decision, evidence=evidence)
+    with pytest.raises(OnlySearchProvenanceError, match="SEARCH_QUALIFICATION_DECISION_REFERENCE_INVALID"):
+        store.commit_iteration_result(qualification_result(iteration))
+
+
+def test_missing_or_corrupt_freeze_relation_fails_closed(tmp_path: Path) -> None:
+    store, iteration, _, decisions = _prepared_qualification(tmp_path)
+    decisions.freeze_relations.values.clear()
+    with pytest.raises(OnlySearchProvenanceError, match="SEARCH_QUALIFICATION_DECISION_REFERENCE_INVALID"):
+        store.commit_iteration_result(qualification_result(iteration))
+
+
+def test_qualification_reader_must_return_exact_decision_identity(tmp_path: Path) -> None:
+    store, iteration, _, decisions = _prepared_qualification(tmp_path)
+    decision = decisions.values[fingerprint("e")]
+    decisions.values[fingerprint("e")] = replace(
+        decision,
+        decision_fingerprint=fingerprint("1"),
+    )
+    with pytest.raises(OnlySearchProvenanceError, match="SEARCH_QUALIFICATION_DECISION_REFERENCE_INVALID"):
+        store.commit_iteration_result(qualification_result(iteration))
+
+
+def test_freeze_relation_reader_must_return_exact_relation_identity(tmp_path: Path) -> None:
+    store, iteration, _, decisions = _prepared_qualification(tmp_path)
+    relation = decisions.freeze_relations.values[fingerprint("f")]
+    decisions.freeze_relations.values[fingerprint("f")] = replace(
+        relation,
+        relation_fingerprint=fingerprint("1"),
+    )
+    with pytest.raises(OnlySearchProvenanceError, match="SEARCH_QUALIFICATION_DECISION_REFERENCE_INVALID"):
+        store.commit_iteration_result(qualification_result(iteration))
+
+
+@pytest.mark.parametrize(
+    ("field", "wrong_fingerprint"),
+    (
+        ("candidate_fingerprint", fingerprint("1")),
+        ("research_result_fingerprint", fingerprint("2")),
+        ("strategy_fingerprint", fingerprint("3")),
+    ),
+)
+def test_freeze_relation_must_close_candidate_result_and_strategy(
+    tmp_path: Path, field: str, wrong_fingerprint: str
+) -> None:
+    store, iteration, _, decisions = _prepared_qualification(tmp_path)
+    relation = decisions.freeze_relations.values[fingerprint("f")]
+    decisions.freeze_relations.values[fingerprint("f")] = replace(relation, **{field: wrong_fingerprint})
+    with pytest.raises(OnlySearchProvenanceError, match="SEARCH_QUALIFICATION_DECISION_SUBJECT_MISMATCH"):
+        store.commit_iteration_result(qualification_result(iteration))
+
+
+def test_candidate_substitution_across_same_research_result_fails_closed(tmp_path: Path) -> None:
+    store, iteration, research, decisions = _prepared_qualification(tmp_path)
+    authoritative = research.values[fingerprint("0")]
+    research.values[fingerprint("0")] = FakeResearchResult(
+        replace(
+            authoritative.manifest,
+            plan=FakeResearchPlan((FakeCandidate(fingerprint("b")), FakeCandidate(fingerprint("c")))),
+        )
+    )
+    relation = decisions.freeze_relations.values[fingerprint("f")]
+    decisions.freeze_relations.values[fingerprint("f")] = replace(relation, candidate_fingerprint=fingerprint("b"))
+    with pytest.raises(OnlySearchProvenanceError, match="SEARCH_QUALIFICATION_DECISION_SUBJECT_MISMATCH"):
+        store.commit_iteration_result(qualification_result(iteration))

@@ -13,6 +13,7 @@ from onlyalpha.research.experiment import (
     OnlySearchHypothesisV1,
     OnlySearchIterationPlanV1,
     OnlySearchRandomnessMode,
+    OnlySearchResearchResultReferenceV1,
     OnlySearchSpaceReferenceV1,
     OnlySearchWorkflowBindingV1,
 )
@@ -20,6 +21,15 @@ from onlyalpha.research.experiment import (
 
 def fingerprint(character: str) -> str:
     return character * 64
+
+
+def research_reference(
+    result_character: str = "d", locator_character: str = "0"
+) -> OnlySearchResearchResultReferenceV1:
+    return OnlySearchResearchResultReferenceV1(
+        fingerprint(locator_character),
+        fingerprint(result_character),
+    )
 
 
 def hypothesis() -> OnlySearchHypothesisV1:

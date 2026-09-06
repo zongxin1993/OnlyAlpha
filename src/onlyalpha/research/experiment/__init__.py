@@ -21,6 +21,7 @@ from .model import OnlySearchIterationDisposition as OnlySearchIterationDisposit
 from .model import OnlySearchIterationPlanV1 as OnlySearchIterationPlanV1
 from .model import OnlySearchIterationResultV1 as OnlySearchIterationResultV1
 from .model import OnlySearchRandomnessMode as OnlySearchRandomnessMode
+from .model import OnlySearchResearchResultReferenceV1 as OnlySearchResearchResultReferenceV1
 from .model import OnlySearchSpaceReferenceV1 as OnlySearchSpaceReferenceV1
 from .model import OnlySearchWorkflowBindingV1 as OnlySearchWorkflowBindingV1
 from .store import OnlyJsonSearchProvenanceStore as OnlyJsonSearchProvenanceStore
@@ -30,6 +31,8 @@ from .verification import OnlySearchCatalogGenerationReader as OnlySearchCatalog
 from .verification import OnlySearchCatalogGenerationValue as OnlySearchCatalogGenerationValue
 from .verification import OnlySearchDatasetReader as OnlySearchDatasetReader
 from .verification import OnlySearchExperimentReader as OnlySearchExperimentReader
+from .verification import OnlySearchFreezeRelationReader as OnlySearchFreezeRelationReader
+from .verification import OnlySearchFreezeRelationValue as OnlySearchFreezeRelationValue
 from .verification import OnlySearchIterationPlanReader as OnlySearchIterationPlanReader
 from .verification import OnlySearchIterationResultReader as OnlySearchIterationResultReader
 from .verification import OnlySearchQualificationDecisionReader as OnlySearchQualificationDecisionReader
