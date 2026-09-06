@@ -24,12 +24,14 @@ from .metric import (
     only_research_coverage_metric,
     only_research_effect_metric,
     only_research_factor_pair_effect_metric,
+    only_research_parameter_neighborhood_metric,
     only_research_stability_metric,
 )
 from .plan import (
     OnlyResearchCoverageSummaryPlan,
     OnlyResearchEffectSummaryPlan,
     OnlyResearchFactorPairEffectSummaryPlan,
+    OnlyResearchParameterNeighborhoodSummaryPlan,
     OnlyResearchSummaryPlan,
     OnlyResearchTemporalStabilityPlan,
 )
@@ -37,6 +39,7 @@ from .result import (
     OnlyResearchCoverageSummary,
     OnlyResearchEffectSummary,
     OnlyResearchFactorPairEffectSummary,
+    OnlyResearchParameterNeighborhoodSummary,
     OnlyResearchSummaryStatisticsResult,
     OnlyResearchTemporalSliceEvidence,
     OnlyResearchTemporalSliceValue,
@@ -69,12 +72,20 @@ class OnlyResearchFactorPairEffectSummaryExecution:
     summary: OnlyResearchFactorPairEffectSummary
 
 
+@dataclass(frozen=True, slots=True)
+class OnlyResearchParameterNeighborhoodSummaryExecution:
+    plan: OnlyResearchParameterNeighborhoodSummaryPlan
+    summary: OnlyResearchParameterNeighborhoodSummary
+
+
 OnlyResearchSummaryExecution = (
     OnlyResearchEffectSummaryExecution
     | OnlyResearchCoverageSummaryExecution
     | OnlyResearchTemporalStabilityExecution
     | OnlyResearchFactorPairEffectSummaryExecution
+    | OnlyResearchParameterNeighborhoodSummaryExecution
 )
+_LegacySummaryPlan = OnlyResearchEffectSummaryPlan | OnlyResearchCoverageSummaryPlan | OnlyResearchTemporalStabilityPlan
 
 
 class _LegacyStatisticsResultStore(Protocol):
@@ -225,6 +236,40 @@ class OnlyResearchFactorPairEffectSummaryExecutor:
         return _outcome(plan, committed, OnlyResearchStatisticsDisposition.EXECUTED)
 
 
+class OnlyResearchParameterNeighborhoodSummaryExecutor:
+    def __init__(self, summary_statistics_result_store: _SummaryStatisticsResultStore) -> None:
+        self._summary_store = summary_statistics_result_store
+
+    def execute(self, plan: OnlyResearchParameterNeighborhoodSummaryPlan) -> OnlyResearchStatisticsOutcome:
+        if not isinstance(plan, OnlyResearchParameterNeighborhoodSummaryPlan):
+            raise OnlyResearchEvaluationError(
+                "PARAMETER_NEIGHBORHOOD_SUMMARY_PLAN_INVALID",
+                "execute requires a Parameter Neighborhood Summary Plan",
+            )
+        try:
+            existing = self._summary_store.load_verified(plan.statistics_fingerprint)
+        except OnlyResearchStatisticsResultStoreError as exc:
+            if exc.code != "SUMMARY_STATISTICS_RESULT_NOT_FOUND":
+                raise
+        except Exception as exc:
+            raise OnlyResearchEvaluationError("SUMMARY_STATISTICS_RESULT_REUSE_FAILED", str(exc)) from exc
+        else:
+            if existing.manifest.plan != plan:
+                raise OnlyResearchStatisticsResultStoreError(
+                    "DETERMINISTIC_RESULT_CONFLICT", plan.statistics_fingerprint
+                )
+            return _outcome(plan, existing, OnlyResearchStatisticsDisposition.REUSED)
+        focal, neighbors = _load_neighborhood_sources(self._summary_store, plan)
+        summary = only_compute_research_parameter_neighborhood_summary(focal, neighbors, plan)
+        try:
+            committed = self._summary_store.commit(OnlyResearchParameterNeighborhoodSummaryExecution(plan, summary))
+        except OnlyResearchStatisticsResultStoreError:
+            raise
+        except Exception as exc:
+            raise OnlyResearchEvaluationError("SUMMARY_STATISTICS_RESULT_COMMIT_FAILED", str(exc)) from exc
+        return _outcome(plan, committed, OnlyResearchStatisticsDisposition.EXECUTED)
+
+
 def only_compute_research_effect_summary(
     source: OnlyResearchStatisticsResult,
     plan: OnlyResearchEffectSummaryPlan,
@@ -361,6 +406,103 @@ def only_compute_research_factor_pair_effect_summary(
             "stddev_sample",
             valid if count >= 2 else OnlyResearchSummaryScalarStatus.INSUFFICIENT_OBSERVATIONS,
             decimal_value=stddev_value,
+        ),
+    )
+
+
+def only_compute_research_parameter_neighborhood_summary(
+    focal: OnlyResearchSummaryStatisticsResult,
+    neighbors: tuple[OnlyResearchSummaryStatisticsResult, ...],
+    plan: OnlyResearchParameterNeighborhoodSummaryPlan,
+) -> OnlyResearchParameterNeighborhoodSummary:
+    _validate_neighborhood_sources(focal, neighbors, plan)
+    if not isinstance(focal.summary, OnlyResearchEffectSummary):  # guarded by verification
+        raise OnlyResearchEvaluationError(
+            "PARAMETER_NEIGHBORHOOD_SUMMARY_SOURCE_SCHEMA_UNSUPPORTED", "Effect Summary required"
+        )
+    focal_mean = focal.summary.mean
+    neighbor_means = tuple(
+        item.summary.mean for item in neighbors if isinstance(item.summary, OnlyResearchEffectSummary)
+    )
+    values = tuple(
+        scalar.decimal_value
+        for scalar in neighbor_means
+        if scalar.status is OnlyResearchSummaryScalarStatus.VALID and scalar.decimal_value is not None
+    )
+    valid_count = len(values)
+    invalid_count = sum(
+        scalar.status is OnlyResearchSummaryScalarStatus.NO_VALID_OBSERVATIONS for scalar in neighbor_means
+    )
+    mean_value: Decimal | None = None
+    stddev_value: Decimal | None = None
+    minimum: Decimal | None = None
+    maximum: Decimal | None = None
+    local_range: Decimal | None = None
+    difference: Decimal | None = None
+    if valid_count:
+        with localcontext(only_decimal_context(plan.definition.numeric)):
+            raw_mean = sum(values, Decimal(0)) / Decimal(valid_count)
+            minimum = min(values)
+            maximum = max(values)
+            raw_range = maximum - minimum
+            if valid_count >= 2:
+                variance = sum(((value - raw_mean) ** 2 for value in values), Decimal(0)) / Decimal(valid_count - 1)
+                raw_stddev = variance.sqrt()
+            else:
+                raw_stddev = None
+        mean_value = _publish(plan.definition.numeric, raw_mean)
+        minimum = _publish(plan.definition.numeric, minimum)
+        maximum = _publish(plan.definition.numeric, maximum)
+        local_range = _publish(plan.definition.numeric, raw_range)
+        if raw_stddev is not None:
+            stddev_value = _publish(plan.definition.numeric, raw_stddev)
+        if focal_mean.status is OnlyResearchSummaryScalarStatus.VALID and focal_mean.decimal_value is not None:
+            with localcontext(only_decimal_context(plan.definition.numeric)):
+                raw_difference = focal_mean.decimal_value - mean_value
+            difference = _publish(plan.definition.numeric, raw_difference)
+    valid = OnlyResearchSummaryScalarStatus.VALID
+    absent = OnlyResearchSummaryScalarStatus.NO_VALID_OBSERVATIONS
+    insufficient = OnlyResearchSummaryScalarStatus.INSUFFICIENT_OBSERVATIONS
+    method = plan.definition.source_method
+    return OnlyResearchParameterNeighborhoodSummary(
+        source_metric_id=plan.source_metric_id,
+        focal_value=_neighborhood_scalar(
+            method,
+            "focal_value",
+            focal_mean.status,
+            decimal_value=focal_mean.decimal_value,
+        ),
+        neighbor_count=_neighborhood_scalar(method, "neighbor_count", valid, integer_value=len(neighbors)),
+        valid_neighbor_count=_neighborhood_scalar(method, "valid_neighbor_count", valid, integer_value=valid_count),
+        neighbor_no_valid_observations_count=_neighborhood_scalar(
+            method,
+            "neighbor_no_valid_observations_count",
+            valid,
+            integer_value=invalid_count,
+        ),
+        neighbor_mean=_neighborhood_scalar(
+            method, "neighbor_mean", valid if valid_count else absent, decimal_value=mean_value
+        ),
+        neighbor_min=_neighborhood_scalar(
+            method, "neighbor_min", valid if valid_count else absent, decimal_value=minimum
+        ),
+        neighbor_max=_neighborhood_scalar(
+            method, "neighbor_max", valid if valid_count else absent, decimal_value=maximum
+        ),
+        neighbor_stddev_sample=_neighborhood_scalar(
+            method,
+            "neighbor_stddev_sample",
+            valid if valid_count >= 2 else insufficient,
+            decimal_value=stddev_value,
+        ),
+        local_range=_neighborhood_scalar(
+            method, "local_range", valid if valid_count else absent, decimal_value=local_range
+        ),
+        focal_minus_neighbor_mean=_neighborhood_scalar(
+            method,
+            "focal_minus_neighbor_mean",
+            valid if focal_mean.status is OnlyResearchSummaryScalarStatus.VALID and valid_count else absent,
+            decimal_value=difference,
         ),
     )
 
@@ -654,6 +796,28 @@ def _factor_pair_effect_scalar(
     return OnlyResearchSummaryScalar(descriptor.metric_id, descriptor.value_kind, status, decimal_value=decimal_value)
 
 
+def _neighborhood_scalar(
+    method: object,
+    field_name: str,
+    status: OnlyResearchSummaryScalarStatus,
+    *,
+    integer_value: int | None = None,
+    decimal_value: Decimal | None = None,
+) -> OnlyResearchSummaryScalar:
+    from ..definition import OnlyResearchStatisticsMethod
+
+    if not isinstance(method, OnlyResearchStatisticsMethod):
+        raise ValueError("Parameter Neighborhood Summary source method is invalid")
+    descriptor = only_research_parameter_neighborhood_metric(method, field_name)
+    return OnlyResearchSummaryScalar(
+        descriptor.metric_id,
+        descriptor.value_kind,
+        status,
+        integer_value,
+        decimal_value,
+    )
+
+
 def _publish(numeric: OnlyNumericDefinition, value: Decimal) -> Decimal:
     published = only_quantize_decimal(numeric, value)
     return published.copy_abs() if published.is_zero() else published
@@ -661,7 +825,7 @@ def _publish(numeric: OnlyNumericDefinition, value: Decimal) -> Decimal:
 
 def _load_source(
     store: _LegacyStatisticsResultStore,
-    plan: OnlyResearchSummaryPlan,
+    plan: _LegacySummaryPlan,
 ) -> OnlyResearchStatisticsResult:
     try:
         source = store.load_verified(plan.source_statistics_fingerprint)
@@ -687,6 +851,69 @@ def _load_factor_pair_source(
     return source
 
 
+def _load_neighborhood_sources(
+    store: _SummaryStatisticsResultStore,
+    plan: OnlyResearchParameterNeighborhoodSummaryPlan,
+) -> tuple[OnlyResearchSummaryStatisticsResult, tuple[OnlyResearchSummaryStatisticsResult, ...]]:
+    try:
+        focal = store.load_verified(plan.focal.source_statistics_fingerprint)
+        neighbors = tuple(store.load_verified(item.source_statistics_fingerprint) for item in plan.neighbors)
+    except OnlyResearchStatisticsResultStoreError as exc:
+        raise OnlyResearchEvaluationError("PARAMETER_NEIGHBORHOOD_SUMMARY_SOURCE_INVALID", exc.code) from exc
+    except Exception as exc:
+        raise OnlyResearchEvaluationError("PARAMETER_NEIGHBORHOOD_SUMMARY_SOURCE_INVALID", str(exc)) from exc
+    _validate_neighborhood_sources(focal, neighbors, plan)
+    return focal, neighbors
+
+
+def _validate_neighborhood_sources(
+    focal: OnlyResearchSummaryStatisticsResult,
+    neighbors: tuple[OnlyResearchSummaryStatisticsResult, ...],
+    plan: OnlyResearchParameterNeighborhoodSummaryPlan,
+) -> None:
+    if len(neighbors) != len(plan.neighbors):
+        raise OnlyResearchEvaluationError(
+            "PARAMETER_NEIGHBORHOOD_SUMMARY_SOURCE_IDENTITY_MISMATCH", "neighbor dependency count"
+        )
+    for role, source, binding in (
+        ("focal", focal, plan.focal),
+        *(
+            (f"neighbor[{index}]", source, binding)
+            for index, (source, binding) in enumerate(zip(neighbors, plan.neighbors, strict=True))
+        ),
+    ):
+        if not isinstance(source, OnlyResearchSummaryStatisticsResult) or not isinstance(
+            source.summary, OnlyResearchEffectSummary
+        ):
+            raise OnlyResearchEvaluationError(
+                "PARAMETER_NEIGHBORHOOD_SUMMARY_SOURCE_SCHEMA_UNSUPPORTED", f"{role}: Effect Summary required"
+            )
+        manifest = source.manifest
+        if isinstance(manifest.plan, OnlyResearchParameterNeighborhoodSummaryPlan):
+            raise OnlyResearchEvaluationError(
+                "PARAMETER_NEIGHBORHOOD_SUMMARY_SOURCE_SCHEMA_UNSUPPORTED", f"{role}: Effect Summary required"
+            )
+        if manifest.statistics_fingerprint != binding.source_statistics_fingerprint:
+            raise OnlyResearchEvaluationError(
+                "PARAMETER_NEIGHBORHOOD_SUMMARY_SOURCE_IDENTITY_MISMATCH", f"{role}: logical identity"
+            )
+        if manifest.statistics_result_fingerprint != binding.source_statistics_result_fingerprint:
+            raise OnlyResearchEvaluationError(
+                "PARAMETER_NEIGHBORHOOD_SUMMARY_SOURCE_IDENTITY_MISMATCH", f"{role}: Result identity"
+            )
+        if manifest.dataset_snapshot_fingerprint != plan.dataset_snapshot_fingerprint:
+            raise OnlyResearchEvaluationError("PARAMETER_NEIGHBORHOOD_SUMMARY_DATASET_MISMATCH", role)
+        source_plan = manifest.plan
+        if not isinstance(source_plan, OnlyResearchEffectSummaryPlan):
+            raise OnlyResearchEvaluationError(
+                "PARAMETER_NEIGHBORHOOD_SUMMARY_SOURCE_SCHEMA_UNSUPPORTED", f"{role}: Effect Summary Plan required"
+            )
+        if source_plan.subject_candidate_fingerprint != binding.candidate_fingerprint:
+            raise OnlyResearchEvaluationError("PARAMETER_NEIGHBORHOOD_SUMMARY_CANDIDATE_MISMATCH", role)
+        if source.summary.mean.metric_id != plan.source_metric_id:
+            raise OnlyResearchEvaluationError("PARAMETER_NEIGHBORHOOD_SUMMARY_SOURCE_METRIC_MISMATCH", role)
+
+
 def _validate_factor_pair_source(
     source: OnlyResearchFactorPairStatisticsResult,
     plan: OnlyResearchFactorPairEffectSummaryPlan,
@@ -708,7 +935,7 @@ def _validate_factor_pair_source(
         raise OnlyResearchEvaluationError("FACTOR_PAIR_EFFECT_SUMMARY_SUBJECT_MISMATCH", "source operands")
 
 
-def _validate_source(source: OnlyResearchStatisticsResult, plan: OnlyResearchSummaryPlan) -> None:
+def _validate_source(source: OnlyResearchStatisticsResult, plan: _LegacySummaryPlan) -> None:
     prefix = _source_error_prefix(plan)
     if not isinstance(source, OnlyResearchStatisticsResult):
         raise OnlyResearchEvaluationError(prefix + "_SOURCE_SCHEMA_UNSUPPORTED", "legacy V1 required")
@@ -758,11 +985,14 @@ __all__ = [
     "OnlyResearchEffectSummaryExecutor",
     "OnlyResearchFactorPairEffectSummaryExecution",
     "OnlyResearchFactorPairEffectSummaryExecutor",
+    "OnlyResearchParameterNeighborhoodSummaryExecution",
+    "OnlyResearchParameterNeighborhoodSummaryExecutor",
     "OnlyResearchSummaryExecution",
     "OnlyResearchTemporalStabilityExecution",
     "OnlyResearchTemporalStabilityExecutor",
     "only_compute_research_coverage_summary",
     "only_compute_research_effect_summary",
     "only_compute_research_factor_pair_effect_summary",
+    "only_compute_research_parameter_neighborhood_summary",
     "only_compute_research_temporal_stability",
 ]

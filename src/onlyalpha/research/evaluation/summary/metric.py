@@ -16,6 +16,7 @@ class OnlyResearchSummaryKind(StrEnum):
     COVERAGE_SUMMARY = "COVERAGE_SUMMARY"
     TEMPORAL_STABILITY = "TEMPORAL_STABILITY"
     FACTOR_PAIR_EFFECT_SUMMARY = "FACTOR_PAIR_EFFECT_SUMMARY"
+    PARAMETER_NEIGHBORHOOD_SUMMARY = "PARAMETER_NEIGHBORHOOD_SUMMARY"
 
 
 class OnlyResearchSummaryValueKind(StrEnum):
@@ -135,6 +136,20 @@ _STABILITY_DECIMAL_FIELDS = (
     "max_slice_mean",
     "stddev_of_slice_means",
 )
+_NEIGHBORHOOD_INTEGER_FIELDS = (
+    "neighbor_count",
+    "valid_neighbor_count",
+    "neighbor_no_valid_observations_count",
+)
+_NEIGHBORHOOD_DECIMAL_FIELDS = (
+    "focal_value",
+    "neighbor_mean",
+    "neighbor_min",
+    "neighbor_max",
+    "neighbor_stddev_sample",
+    "local_range",
+    "focal_minus_neighbor_mean",
+)
 
 
 def _descriptors() -> tuple[OnlyResearchSummaryMetricDescriptor, ...]:
@@ -153,6 +168,20 @@ def _descriptors() -> tuple[OnlyResearchSummaryMetricDescriptor, ...]:
                     f"{prefix}.{suffix}@1",
                     1,
                     OnlyResearchSummaryKind.EFFECT_SUMMARY,
+                    method,
+                    field_name,
+                    value_kind,
+                )
+            )
+        for field_name, value_kind in (
+            *((name, OnlyResearchSummaryValueKind.INTEGER) for name in _NEIGHBORHOOD_INTEGER_FIELDS),
+            *((name, OnlyResearchSummaryValueKind.DECIMAL) for name in _NEIGHBORHOOD_DECIMAL_FIELDS),
+        ):
+            result.append(
+                OnlyResearchSummaryMetricDescriptor(
+                    f"research.factor.neighborhood.{prefix.removeprefix('research.factor.')}.{field_name}@1",
+                    1,
+                    OnlyResearchSummaryKind.PARAMETER_NEIGHBORHOOD_SUMMARY,
                     method,
                     field_name,
                     value_kind,
@@ -284,6 +313,22 @@ def only_research_factor_pair_effect_metric(
     return matches[0]
 
 
+def only_research_parameter_neighborhood_metric(
+    source_method: OnlyResearchStatisticsMethod,
+    field_name: str,
+) -> OnlyResearchSummaryMetricDescriptor:
+    matches = tuple(
+        descriptor
+        for descriptor in ONLY_RESEARCH_SUMMARY_METRICS
+        if descriptor.summary_kind is OnlyResearchSummaryKind.PARAMETER_NEIGHBORHOOD_SUMMARY
+        and descriptor.source_method is source_method
+        and descriptor.field_name == field_name
+    )
+    if len(matches) != 1:
+        raise ValueError("unsupported Parameter Neighborhood Summary metric field")
+    return matches[0]
+
+
 def _string(payload: Mapping[str, object], name: str) -> str:
     value = payload[name]
     if not isinstance(value, str):
@@ -299,6 +344,7 @@ __all__ = [
     "only_research_coverage_metric",
     "only_research_effect_metric",
     "only_research_factor_pair_effect_metric",
+    "only_research_parameter_neighborhood_metric",
     "only_research_stability_metric",
     "only_research_summary_metric",
 ]

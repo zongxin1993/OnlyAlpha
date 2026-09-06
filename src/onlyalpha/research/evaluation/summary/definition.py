@@ -17,11 +17,13 @@ RESEARCH_EFFECT_SUMMARY_DEFINITION_SCHEMA_VERSION = 1
 RESEARCH_COVERAGE_SUMMARY_DEFINITION_SCHEMA_VERSION = 1
 RESEARCH_TEMPORAL_STABILITY_DEFINITION_SCHEMA_VERSION = 1
 RESEARCH_FACTOR_PAIR_EFFECT_SUMMARY_DEFINITION_SCHEMA_VERSION = 1
+RESEARCH_PARAMETER_NEIGHBORHOOD_SUMMARY_DEFINITION_SCHEMA_VERSION = 1
 
 
 class OnlyResearchSummarySourceStatusPolicy(StrEnum):
     VALID_ONLY = "VALID_ONLY"
     VALID_ONLY_FOR_EFFECT = "VALID_ONLY_FOR_EFFECT"
+    VALID_ONLY_FOR_NEIGHBOR_AGGREGATES = "VALID_ONLY_FOR_NEIGHBOR_AGGREGATES"
 
 
 class OnlyResearchSummaryStandardDeviation(StrEnum):
@@ -42,6 +44,104 @@ class OnlyResearchCoverageSemantics(StrEnum):
 
 class OnlyResearchTemporalIntervalAssignment(StrEnum):
     HALF_OPEN_EXPLICIT = "HALF_OPEN_EXPLICIT"
+
+
+_NEIGHBORHOOD_SOURCE_METRICS = {
+    "research.factor.ic.mean@1": OnlyResearchStatisticsMethod.IC,
+    "research.factor.rank_ic.mean@1": OnlyResearchStatisticsMethod.RANK_IC,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyResearchParameterNeighborhoodSummaryDefinition:
+    source_metric_id: str
+    summary_kind: OnlyResearchSummaryKind = OnlyResearchSummaryKind.PARAMETER_NEIGHBORHOOD_SUMMARY
+    source_summary_kind: OnlyResearchSummaryKind = OnlyResearchSummaryKind.EFFECT_SUMMARY
+    source_status_policy: OnlyResearchSummarySourceStatusPolicy = (
+        OnlyResearchSummarySourceStatusPolicy.VALID_ONLY_FOR_NEIGHBOR_AGGREGATES
+    )
+    standard_deviation: OnlyResearchSummaryStandardDeviation = OnlyResearchSummaryStandardDeviation.SAMPLE
+    numeric: OnlyNumericDefinition = OnlyNumericDefinition("DECIMAL", 38, Decimal("0.000000000001"), "ROUND_HALF_EVEN")
+    decimal_execution_policy: str = "onlyalpha.decimal.execution@1"
+    schema_version: int = RESEARCH_PARAMETER_NEIGHBORHOOD_SUMMARY_DEFINITION_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if self.schema_version != RESEARCH_PARAMETER_NEIGHBORHOOD_SUMMARY_DEFINITION_SCHEMA_VERSION:
+            raise ValueError("unsupported Parameter Neighborhood Summary Definition schema version")
+        if self.source_metric_id not in _NEIGHBORHOOD_SOURCE_METRICS:
+            raise ValueError("Parameter Neighborhood Summary source metric is unsupported")
+        if self.summary_kind is not OnlyResearchSummaryKind.PARAMETER_NEIGHBORHOOD_SUMMARY:
+            raise ValueError("Parameter Neighborhood Summary kind is invalid")
+        if self.source_summary_kind is not OnlyResearchSummaryKind.EFFECT_SUMMARY:
+            raise ValueError("Parameter Neighborhood Summary requires Effect Summary sources")
+        if self.source_status_policy is not OnlyResearchSummarySourceStatusPolicy.VALID_ONLY_FOR_NEIGHBOR_AGGREGATES:
+            raise ValueError("Parameter Neighborhood Summary source status policy is unsupported")
+        if self.standard_deviation is not OnlyResearchSummaryStandardDeviation.SAMPLE:
+            raise ValueError("Parameter Neighborhood Summary requires sample standard deviation")
+        if self.numeric != OnlyNumericDefinition("DECIMAL", 38, Decimal("0.000000000001"), "ROUND_HALF_EVEN"):
+            raise ValueError("Parameter Neighborhood Summary requires Decimal(38), quantum 1e-12, ROUND_HALF_EVEN")
+        policy = ONLY_DECIMAL_EXECUTION_POLICY_V1
+        if self.decimal_execution_policy != f"{policy.policy_id}@{policy.semantic_version}":
+            raise ValueError("Parameter Neighborhood Summary Decimal execution policy is unsupported")
+
+    @property
+    def source_method(self) -> OnlyResearchStatisticsMethod:
+        return _NEIGHBORHOOD_SOURCE_METRICS[self.source_metric_id]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "summary_kind": self.summary_kind.value,
+            "source_metric_id": self.source_metric_id,
+            "source_summary_kind": self.source_summary_kind.value,
+            "source_status_policy": self.source_status_policy.value,
+            "standard_deviation": self.standard_deviation.value,
+            "numeric": {
+                "representation": self.numeric.representation,
+                "precision": self.numeric.precision,
+                "output_quantum": format(self.numeric.output_quantum, "f"),
+                "rounding": self.numeric.rounding,
+            },
+            "decimal_execution_policy": self.decimal_execution_policy,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchParameterNeighborhoodSummaryDefinition:
+        expected = {
+            "schema_version",
+            "summary_kind",
+            "source_metric_id",
+            "source_summary_kind",
+            "source_status_policy",
+            "standard_deviation",
+            "numeric",
+            "decimal_execution_policy",
+        }
+        if set(payload) != expected:
+            raise ValueError("Parameter Neighborhood Summary Definition fields are invalid")
+        numeric = payload["numeric"]
+        if not isinstance(numeric, Mapping) or set(numeric) != {
+            "representation",
+            "precision",
+            "output_quantum",
+            "rounding",
+        }:
+            raise ValueError("Parameter Neighborhood Summary numeric fields are invalid")
+        return cls(
+            source_metric_id=_string(payload, "source_metric_id"),
+            summary_kind=OnlyResearchSummaryKind(_string(payload, "summary_kind")),
+            source_summary_kind=OnlyResearchSummaryKind(_string(payload, "source_summary_kind")),
+            source_status_policy=OnlyResearchSummarySourceStatusPolicy(_string(payload, "source_status_policy")),
+            standard_deviation=OnlyResearchSummaryStandardDeviation(_string(payload, "standard_deviation")),
+            numeric=OnlyNumericDefinition(
+                _string(numeric, "representation"),
+                _integer(numeric, "precision"),
+                Decimal(_string(numeric, "output_quantum")),
+                _string(numeric, "rounding"),
+            ),
+            decimal_execution_policy=_string(payload, "decimal_execution_policy"),
+            schema_version=_integer(payload, "schema_version"),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -420,6 +520,7 @@ __all__ = [
     "OnlyResearchCoverageSummaryDefinition",
     "OnlyResearchEffectSummaryDefinition",
     "OnlyResearchFactorPairEffectSummaryDefinition",
+    "OnlyResearchParameterNeighborhoodSummaryDefinition",
     "OnlyResearchSummaryInformationRatio",
     "OnlyResearchSummarySignRule",
     "OnlyResearchSummarySourceStatusPolicy",

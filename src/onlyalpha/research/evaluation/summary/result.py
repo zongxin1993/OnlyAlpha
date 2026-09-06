@@ -6,7 +6,9 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, localcontext
+
+from onlyalpha.calculation import OnlyNumericDefinition, only_decimal_context
 
 from ..definition import OnlyResearchStatisticsMethod
 from ..factor_pair.definition import OnlyResearchFactorPairStatisticsMethod
@@ -20,11 +22,14 @@ from .metric import (
     only_research_coverage_metric,
     only_research_effect_metric,
     only_research_factor_pair_effect_metric,
+    only_research_parameter_neighborhood_metric,
     only_research_stability_metric,
 )
 from .plan import (
+    OnlyResearchCoverageSummaryPlan,
+    OnlyResearchEffectSummaryPlan,
     OnlyResearchFactorPairEffectSummaryPlan,
-    OnlyResearchSummaryPlan,
+    OnlyResearchParameterNeighborhoodSummaryPlan,
     OnlyResearchTemporalStabilityPlan,
     only_research_summary_plan_from_dict,
 )
@@ -74,6 +79,24 @@ _STABILITY_FIELDS = (
     "stddev_of_slice_means",
 )
 _FACTOR_PAIR_EFFECT_FIELDS = ("mean", "stddev_sample")
+_SingleSourceSummaryPlan = (
+    OnlyResearchEffectSummaryPlan
+    | OnlyResearchCoverageSummaryPlan
+    | OnlyResearchTemporalStabilityPlan
+    | OnlyResearchFactorPairEffectSummaryPlan
+)
+_NEIGHBORHOOD_FIELDS = (
+    "focal_value",
+    "neighbor_count",
+    "valid_neighbor_count",
+    "neighbor_no_valid_observations_count",
+    "neighbor_mean",
+    "neighbor_min",
+    "neighbor_max",
+    "neighbor_stddev_sample",
+    "local_range",
+    "focal_minus_neighbor_mean",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -624,11 +647,134 @@ class OnlyResearchFactorPairEffectSummary:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class OnlyResearchParameterNeighborhoodSummary:
+    source_metric_id: str
+    focal_value: OnlyResearchSummaryScalar
+    neighbor_count: OnlyResearchSummaryScalar
+    valid_neighbor_count: OnlyResearchSummaryScalar
+    neighbor_no_valid_observations_count: OnlyResearchSummaryScalar
+    neighbor_mean: OnlyResearchSummaryScalar
+    neighbor_min: OnlyResearchSummaryScalar
+    neighbor_max: OnlyResearchSummaryScalar
+    neighbor_stddev_sample: OnlyResearchSummaryScalar
+    local_range: OnlyResearchSummaryScalar
+    focal_minus_neighbor_mean: OnlyResearchSummaryScalar
+    summary_kind: OnlyResearchSummaryKind = OnlyResearchSummaryKind.PARAMETER_NEIGHBORHOOD_SUMMARY
+    schema_version: int = RESEARCH_SUMMARY_STATISTICS_RESULT_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if self.schema_version != RESEARCH_SUMMARY_STATISTICS_RESULT_SCHEMA_VERSION:
+            raise ValueError("Parameter Neighborhood Summary result schema is unsupported")
+        if self.summary_kind is not OnlyResearchSummaryKind.PARAMETER_NEIGHBORHOOD_SUMMARY:
+            raise ValueError("Parameter Neighborhood Summary result kind is invalid")
+        source_method = _neighborhood_source_method(self.source_metric_id)
+        for name in _NEIGHBORHOOD_FIELDS:
+            scalar = getattr(self, name)
+            if not isinstance(scalar, OnlyResearchSummaryScalar):
+                raise ValueError(f"Parameter Neighborhood Summary {name} scalar is invalid")
+            descriptor = only_research_parameter_neighborhood_metric(source_method, name)
+            if scalar.metric_id != descriptor.metric_id or scalar.value_kind is not descriptor.value_kind:
+                raise ValueError(f"Parameter Neighborhood Summary {name} metric linkage mismatch")
+        self._validate_invariants()
+
+    def _validate_invariants(self) -> None:
+        count_fields = (
+            "neighbor_count",
+            "valid_neighbor_count",
+            "neighbor_no_valid_observations_count",
+        )
+        if any(getattr(self, name).status is not OnlyResearchSummaryScalarStatus.VALID for name in count_fields):
+            raise ValueError("Parameter Neighborhood Summary count scalars must be VALID")
+        total = _integer_scalar(self.neighbor_count)
+        valid_count = _integer_scalar(self.valid_neighbor_count)
+        invalid_count = _integer_scalar(self.neighbor_no_valid_observations_count)
+        if total != valid_count + invalid_count:
+            raise ValueError("Parameter Neighborhood Summary neighbor counts are inconsistent")
+        aggregate_status = (
+            OnlyResearchSummaryScalarStatus.VALID
+            if valid_count
+            else OnlyResearchSummaryScalarStatus.NO_VALID_OBSERVATIONS
+        )
+        if any(
+            getattr(self, name).status is not aggregate_status
+            for name in ("neighbor_mean", "neighbor_min", "neighbor_max", "local_range")
+        ):
+            raise ValueError("Parameter Neighborhood Summary aggregate statuses are inconsistent")
+        stddev_status = (
+            OnlyResearchSummaryScalarStatus.VALID
+            if valid_count >= 2
+            else OnlyResearchSummaryScalarStatus.INSUFFICIENT_OBSERVATIONS
+        )
+        if self.neighbor_stddev_sample.status is not stddev_status:
+            raise ValueError("Parameter Neighborhood Summary standard deviation status is inconsistent")
+        if self.focal_value.status not in {
+            OnlyResearchSummaryScalarStatus.VALID,
+            OnlyResearchSummaryScalarStatus.NO_VALID_OBSERVATIONS,
+        }:
+            raise ValueError("Parameter Neighborhood Summary focal status is invalid")
+        difference_status = (
+            OnlyResearchSummaryScalarStatus.VALID
+            if self.focal_value.status is OnlyResearchSummaryScalarStatus.VALID and valid_count
+            else OnlyResearchSummaryScalarStatus.NO_VALID_OBSERVATIONS
+        )
+        if self.focal_minus_neighbor_mean.status is not difference_status:
+            raise ValueError("Parameter Neighborhood Summary focal-minus-mean status is inconsistent")
+        if valid_count:
+            minimum = self.neighbor_min.decimal_value
+            maximum = self.neighbor_max.decimal_value
+            neighbor_mean = self.neighbor_mean.decimal_value
+            local_range = self.local_range.decimal_value
+            if minimum is None or maximum is None or neighbor_mean is None or local_range is None or minimum > maximum:
+                raise ValueError("Parameter Neighborhood Summary neighbor bounds are inconsistent")
+            with localcontext(
+                only_decimal_context(OnlyNumericDefinition("DECIMAL", 38, Decimal("0.000000000001"), "ROUND_HALF_EVEN"))
+            ):
+                expected_range = maximum - minimum
+            if local_range != expected_range or local_range < 0:
+                raise ValueError("Parameter Neighborhood Summary local range is inconsistent")
+            if self.focal_value.decimal_value is not None:
+                with localcontext(
+                    only_decimal_context(
+                        OnlyNumericDefinition("DECIMAL", 38, Decimal("0.000000000001"), "ROUND_HALF_EVEN")
+                    )
+                ):
+                    expected_difference = self.focal_value.decimal_value - neighbor_mean
+                if self.focal_minus_neighbor_mean.decimal_value != expected_difference:
+                    raise ValueError("Parameter Neighborhood Summary focal-minus-mean value is inconsistent")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "summary_kind": self.summary_kind.value,
+            "source_metric_id": self.source_metric_id,
+            **{name: getattr(self, name).to_dict() for name in _NEIGHBORHOOD_FIELDS},
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchParameterNeighborhoodSummary:
+        if set(payload) != {"schema_version", "summary_kind", "source_metric_id", *_NEIGHBORHOOD_FIELDS}:
+            raise ValueError("Parameter Neighborhood Summary result fields are invalid")
+        scalars: dict[str, OnlyResearchSummaryScalar] = {}
+        for name in _NEIGHBORHOOD_FIELDS:
+            value = payload[name]
+            if not isinstance(value, Mapping) or any(not isinstance(key, str) for key in value):
+                raise ValueError(f"Parameter Neighborhood Summary {name} must be an object")
+            scalars[name] = OnlyResearchSummaryScalar.from_dict(value)
+        return cls(
+            source_metric_id=_string(payload, "source_metric_id"),
+            **scalars,
+            summary_kind=OnlyResearchSummaryKind(_string(payload, "summary_kind")),
+            schema_version=_integer(payload, "schema_version"),
+        )
+
+
 OnlyResearchSummary = (
     OnlyResearchEffectSummary
     | OnlyResearchCoverageSummary
     | OnlyResearchTemporalStabilitySummary
     | OnlyResearchFactorPairEffectSummary
+    | OnlyResearchParameterNeighborhoodSummary
 )
 
 
@@ -648,13 +794,15 @@ def only_research_summary_from_dict(payload: Mapping[str, object]) -> OnlyResear
         return OnlyResearchTemporalStabilitySummary.from_dict(payload)
     if kind is OnlyResearchSummaryKind.FACTOR_PAIR_EFFECT_SUMMARY:
         return OnlyResearchFactorPairEffectSummary.from_dict(payload)
+    if kind is OnlyResearchSummaryKind.PARAMETER_NEIGHBORHOOD_SUMMARY:
+        return OnlyResearchParameterNeighborhoodSummary.from_dict(payload)
     raise ValueError("Summary Statistics payload kind is unsupported")  # pragma: no cover
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyResearchSummaryStatisticsResultManifest:
     statistics_fingerprint: str
-    plan: OnlyResearchSummaryPlan
+    plan: _SingleSourceSummaryPlan
     source_statistics_fingerprint: str
     source_statistics_result_fingerprint: str
     dataset_snapshot_fingerprint: str
@@ -720,9 +868,12 @@ class OnlyResearchSummaryStatisticsResultManifest:
         plan = payload["plan"]
         if not isinstance(plan, Mapping) or any(not isinstance(key, str) for key in plan):
             raise ValueError("Summary Statistics manifest plan must be an object")
+        decoded_plan = only_research_summary_plan_from_dict(plan)
+        if isinstance(decoded_plan, OnlyResearchParameterNeighborhoodSummaryPlan):
+            raise ValueError("single-source Summary manifest cannot contain a Neighborhood Plan")
         return cls(
             statistics_fingerprint=_string(payload, "statistics_fingerprint"),
-            plan=only_research_summary_plan_from_dict(plan),
+            plan=decoded_plan,
             source_statistics_fingerprint=_string(payload, "source_statistics_fingerprint"),
             source_statistics_result_fingerprint=_string(payload, "source_statistics_result_fingerprint"),
             dataset_snapshot_fingerprint=_string(payload, "dataset_snapshot_fingerprint"),
@@ -736,8 +887,159 @@ class OnlyResearchSummaryStatisticsResultManifest:
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyResearchSummaryStatisticsDependencyReference:
+    statistics_fingerprint: str
+    statistics_result_fingerprint: str
+
+    def __post_init__(self) -> None:
+        if (
+            _SHA256.fullmatch(self.statistics_fingerprint) is None
+            or _SHA256.fullmatch(self.statistics_result_fingerprint) is None
+        ):
+            raise ValueError("Summary Statistics dependency identities must be lower-case SHA256")
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "statistics_fingerprint": self.statistics_fingerprint,
+            "statistics_result_fingerprint": self.statistics_result_fingerprint,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchSummaryStatisticsDependencyReference:
+        if set(payload) != {"statistics_fingerprint", "statistics_result_fingerprint"}:
+            raise ValueError("Summary Statistics dependency reference fields are invalid")
+        return cls(
+            _string(payload, "statistics_fingerprint"),
+            _string(payload, "statistics_result_fingerprint"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyResearchParameterNeighborhoodSummaryUpstreamReferences:
+    focal: OnlyResearchSummaryStatisticsDependencyReference
+    neighbors: tuple[OnlyResearchSummaryStatisticsDependencyReference, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.focal, OnlyResearchSummaryStatisticsDependencyReference):
+            raise ValueError("Parameter Neighborhood focal dependency is invalid")
+        if not isinstance(self.neighbors, tuple) or any(
+            not isinstance(item, OnlyResearchSummaryStatisticsDependencyReference) for item in self.neighbors
+        ):
+            raise ValueError("Parameter Neighborhood neighbor dependencies are invalid")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "focal": self.focal.to_dict(),
+            "neighbors": [item.to_dict() for item in self.neighbors],
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchParameterNeighborhoodSummaryUpstreamReferences:
+        if set(payload) != {"focal", "neighbors"}:
+            raise ValueError("Parameter Neighborhood upstream reference fields are invalid")
+        focal = payload["focal"]
+        neighbors = payload["neighbors"]
+        if not isinstance(focal, Mapping) or any(not isinstance(key, str) for key in focal):
+            raise ValueError("Parameter Neighborhood focal dependency must be an object")
+        if not isinstance(neighbors, list) or any(
+            not isinstance(item, Mapping) or any(not isinstance(key, str) for key in item) for item in neighbors
+        ):
+            raise ValueError("Parameter Neighborhood neighbor dependencies must be an array")
+        return cls(
+            OnlyResearchSummaryStatisticsDependencyReference.from_dict(focal),
+            tuple(OnlyResearchSummaryStatisticsDependencyReference.from_dict(item) for item in neighbors),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyResearchParameterNeighborhoodSummaryResultManifest:
+    statistics_fingerprint: str
+    plan: OnlyResearchParameterNeighborhoodSummaryPlan
+    dataset_snapshot_fingerprint: str
+    upstream_statistics_references: OnlyResearchParameterNeighborhoodSummaryUpstreamReferences
+    result_content_fingerprint: str
+    statistics_result_fingerprint: str
+    summary_byte_sha256: str
+    created_at: datetime
+    domain: str = RESEARCH_SUMMARY_STATISTICS_DOMAIN
+    schema_version: int = RESEARCH_SUMMARY_STATISTICS_RESULT_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if self.domain != RESEARCH_SUMMARY_STATISTICS_DOMAIN:
+            raise ValueError("Parameter Neighborhood Summary domain is unsupported")
+        if self.schema_version != RESEARCH_SUMMARY_STATISTICS_RESULT_SCHEMA_VERSION:
+            raise ValueError("Parameter Neighborhood Summary Result schema is unsupported")
+        for name in (
+            "statistics_fingerprint",
+            "dataset_snapshot_fingerprint",
+            "result_content_fingerprint",
+            "statistics_result_fingerprint",
+            "summary_byte_sha256",
+        ):
+            if _SHA256.fullmatch(getattr(self, name)) is None:
+                raise ValueError(f"Parameter Neighborhood Summary {name} must be a lower-case SHA256")
+        if not isinstance(self.plan, OnlyResearchParameterNeighborhoodSummaryPlan):
+            raise ValueError("Parameter Neighborhood Summary Plan is invalid")
+        if self.statistics_fingerprint != self.plan.statistics_fingerprint:
+            raise ValueError("Parameter Neighborhood Summary logical identity mismatch")
+        if self.dataset_snapshot_fingerprint != self.plan.dataset_snapshot_fingerprint:
+            raise ValueError("Parameter Neighborhood Summary Dataset identity mismatch")
+        expected = OnlyResearchParameterNeighborhoodSummaryUpstreamReferences(
+            OnlyResearchSummaryStatisticsDependencyReference(
+                self.plan.focal.source_statistics_fingerprint,
+                self.plan.focal.source_statistics_result_fingerprint,
+            ),
+            tuple(
+                OnlyResearchSummaryStatisticsDependencyReference(
+                    item.source_statistics_fingerprint,
+                    item.source_statistics_result_fingerprint,
+                )
+                for item in self.plan.neighbors
+            ),
+        )
+        if self.upstream_statistics_references != expected:
+            raise ValueError("Parameter Neighborhood Summary upstream dependencies mismatch")
+        if (
+            only_research_summary_result_fingerprint(self.statistics_fingerprint, self.result_content_fingerprint)
+            != self.statistics_result_fingerprint
+        ):
+            raise ValueError("Parameter Neighborhood Summary Result identity mismatch")
+        if self.created_at.tzinfo is None or self.created_at.utcoffset() != timedelta(0):
+            raise ValueError("Parameter Neighborhood Summary created_at must be timezone-aware UTC")
+
+    def to_dict(self) -> dict[str, object]:
+        return {item.name: _manifest_value(getattr(self, item.name)) for item in fields(self)}
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchParameterNeighborhoodSummaryResultManifest:
+        expected = {item.name for item in fields(cls)}
+        if set(payload) != expected:
+            raise ValueError("Parameter Neighborhood Summary manifest fields are invalid")
+        plan = payload["plan"]
+        upstream = payload["upstream_statistics_references"]
+        if not isinstance(plan, Mapping) or any(not isinstance(key, str) for key in plan):
+            raise ValueError("Parameter Neighborhood Summary manifest Plan must be an object")
+        if not isinstance(upstream, Mapping) or any(not isinstance(key, str) for key in upstream):
+            raise ValueError("Parameter Neighborhood Summary upstream references must be an object")
+        return cls(
+            statistics_fingerprint=_string(payload, "statistics_fingerprint"),
+            plan=OnlyResearchParameterNeighborhoodSummaryPlan.from_dict(plan),
+            dataset_snapshot_fingerprint=_string(payload, "dataset_snapshot_fingerprint"),
+            upstream_statistics_references=OnlyResearchParameterNeighborhoodSummaryUpstreamReferences.from_dict(
+                upstream
+            ),
+            result_content_fingerprint=_string(payload, "result_content_fingerprint"),
+            statistics_result_fingerprint=_string(payload, "statistics_result_fingerprint"),
+            summary_byte_sha256=_string(payload, "summary_byte_sha256"),
+            created_at=_datetime(payload, "created_at"),
+            domain=_string(payload, "domain"),
+            schema_version=_integer(payload, "schema_version"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyResearchSummaryStatisticsResult:
-    manifest: OnlyResearchSummaryStatisticsResultManifest
+    manifest: OnlyResearchSummaryStatisticsResultManifest | OnlyResearchParameterNeighborhoodSummaryResultManifest
     summary: OnlyResearchSummary
 
     def __post_init__(self) -> None:
@@ -751,6 +1053,10 @@ class OnlyResearchSummaryStatisticsResult:
             )
             if actual != self.manifest.plan.intervals:
                 raise ValueError("Temporal Stability Result intervals do not match Plan")
+        if isinstance(self.manifest.plan, OnlyResearchParameterNeighborhoodSummaryPlan) and not isinstance(
+            self.summary, OnlyResearchParameterNeighborhoodSummary
+        ):
+            raise ValueError("Parameter Neighborhood Plan requires a Parameter Neighborhood payload")
 
 
 def _manifest_value(value: object) -> object:
@@ -763,12 +1069,23 @@ def _manifest_value(value: object) -> object:
             OnlyResearchCoverageSummaryPlan,
             OnlyResearchTemporalStabilityPlan,
             OnlyResearchFactorPairEffectSummaryPlan,
+            OnlyResearchParameterNeighborhoodSummaryPlan,
         ),
     ):
         return value.to_dict()
     if isinstance(value, datetime):
         return value.isoformat()
+    if isinstance(value, OnlyResearchParameterNeighborhoodSummaryUpstreamReferences):
+        return value.to_dict()
     return value
+
+
+def _neighborhood_source_method(metric_id: str) -> OnlyResearchStatisticsMethod:
+    if metric_id == "research.factor.ic.mean@1":
+        return OnlyResearchStatisticsMethod.IC
+    if metric_id == "research.factor.rank_ic.mean@1":
+        return OnlyResearchStatisticsMethod.RANK_IC
+    raise ValueError("Parameter Neighborhood source metric is unsupported")
 
 
 def _required_count(counts: Mapping[str, int | None], name: str) -> int:
@@ -810,9 +1127,13 @@ __all__ = [
     "OnlyResearchCoverageSummary",
     "OnlyResearchEffectSummary",
     "OnlyResearchFactorPairEffectSummary",
+    "OnlyResearchParameterNeighborhoodSummary",
+    "OnlyResearchParameterNeighborhoodSummaryResultManifest",
+    "OnlyResearchParameterNeighborhoodSummaryUpstreamReferences",
     "OnlyResearchSummary",
     "OnlyResearchSummaryStatisticsResult",
     "OnlyResearchSummaryStatisticsResultManifest",
+    "OnlyResearchSummaryStatisticsDependencyReference",
     "OnlyResearchTemporalSliceEvidence",
     "OnlyResearchTemporalSliceValue",
     "OnlyResearchTemporalStabilitySummary",

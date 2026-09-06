@@ -75,9 +75,11 @@ def test_effect_definition_and_plan_round_trip_are_exact_and_versioned() -> None
 def test_metric_registry_is_exact_immutable_and_method_typed() -> None:
     ids = tuple(item.metric_id for item in ONLY_RESEARCH_SUMMARY_METRICS)
     assert ids == tuple(sorted(ids))
-    assert len(ids) == len(set(ids)) == 74
+    assert len(ids) == len(set(ids)) == 94
     legacy = tuple(
-        item for item in ONLY_RESEARCH_SUMMARY_METRICS if item.summary_kind.value != "FACTOR_PAIR_EFFECT_SUMMARY"
+        item
+        for item in ONLY_RESEARCH_SUMMARY_METRICS
+        if item.summary_kind.value not in {"FACTOR_PAIR_EFFECT_SUMMARY", "PARAMETER_NEIGHBORHOOD_SUMMARY"}
     )
     assert len(legacy) == 70
     assert (

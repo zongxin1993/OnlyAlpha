@@ -12,15 +12,18 @@ from .definition import (
     OnlyResearchCoverageSummaryDefinition,
     OnlyResearchEffectSummaryDefinition,
     OnlyResearchFactorPairEffectSummaryDefinition,
+    OnlyResearchParameterNeighborhoodSummaryDefinition,
     OnlyResearchTemporalStabilityDefinition,
 )
 from .identity import (
     only_research_coverage_summary_fingerprint,
     only_research_effect_summary_fingerprint,
     only_research_factor_pair_effect_summary_fingerprint,
+    only_research_parameter_neighborhood_summary_fingerprint,
     only_research_temporal_stability_fingerprint,
 )
 from .metric import OnlyResearchSummaryKind
+from .neighborhood import OnlyResearchParameterNeighborhoodCandidateBinding
 from .temporal import OnlyResearchTemporalSlice
 
 RESEARCH_EFFECT_SUMMARY_PLAN_SCHEMA_VERSION = 1
@@ -350,11 +353,93 @@ class OnlyResearchFactorPairEffectSummaryPlan:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class OnlyResearchParameterNeighborhoodSummaryPlan:
+    dataset_snapshot_fingerprint: str
+    source_metric_id: str
+    focal: OnlyResearchParameterNeighborhoodCandidateBinding
+    neighbors: tuple[OnlyResearchParameterNeighborhoodCandidateBinding, ...]
+    definition: OnlyResearchParameterNeighborhoodSummaryDefinition
+    schema_version: int = 1
+
+    def __post_init__(self) -> None:
+        if self.schema_version != 1:
+            raise ValueError("unsupported Parameter Neighborhood Summary Plan schema version")
+        if _SHA256.fullmatch(self.dataset_snapshot_fingerprint) is None:
+            raise ValueError("Parameter Neighborhood Summary Plan Dataset must be a lower-case SHA256")
+        if not isinstance(self.focal, OnlyResearchParameterNeighborhoodCandidateBinding):
+            raise ValueError("Parameter Neighborhood Summary Plan focal binding is invalid")
+        if not isinstance(self.neighbors, tuple) or any(
+            not isinstance(item, OnlyResearchParameterNeighborhoodCandidateBinding) for item in self.neighbors
+        ):
+            raise ValueError("Parameter Neighborhood Summary Plan neighbors must be a tuple of bindings")
+        if not isinstance(self.definition, OnlyResearchParameterNeighborhoodSummaryDefinition):
+            raise ValueError("Parameter Neighborhood Summary Plan definition is invalid")
+        if self.source_metric_id != self.definition.source_metric_id:
+            raise ValueError("Parameter Neighborhood Summary Plan source metric does not match Definition")
+        candidates = tuple(item.candidate_fingerprint for item in self.neighbors)
+        if self.focal.candidate_fingerprint in candidates:
+            raise ValueError("Parameter Neighborhood focal Candidate cannot be a neighbor")
+        if len(set(candidates)) != len(candidates):
+            raise ValueError("Parameter Neighborhood neighbor Candidates must be unique")
+        if any(
+            item.source_statistics_fingerprint == self.statistics_fingerprint for item in (self.focal, *self.neighbors)
+        ):
+            raise ValueError("Parameter Neighborhood Summary cannot directly reference itself")
+
+    @property
+    def statistics_fingerprint(self) -> str:
+        return only_research_parameter_neighborhood_summary_fingerprint(
+            self.dataset_snapshot_fingerprint,
+            self.source_metric_id,
+            self.focal,
+            self.neighbors,
+            self.definition,
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "dataset_snapshot_fingerprint": self.dataset_snapshot_fingerprint,
+            "source_metric_id": self.source_metric_id,
+            "focal": self.focal.to_dict(),
+            "neighbors": [neighbor.to_dict() for neighbor in self.neighbors],
+            "definition": self.definition.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchParameterNeighborhoodSummaryPlan:
+        expected = {
+            "schema_version",
+            "dataset_snapshot_fingerprint",
+            "source_metric_id",
+            "focal",
+            "neighbors",
+            "definition",
+        }
+        if set(payload) != expected:
+            raise ValueError("Parameter Neighborhood Summary Plan fields are invalid")
+        neighbors = payload["neighbors"]
+        if not isinstance(neighbors, list) or any(
+            not isinstance(item, Mapping) or any(not isinstance(key, str) for key in item) for item in neighbors
+        ):
+            raise ValueError("Parameter Neighborhood Summary Plan neighbors must be an array of objects")
+        return cls(
+            _string(payload, "dataset_snapshot_fingerprint"),
+            _string(payload, "source_metric_id"),
+            OnlyResearchParameterNeighborhoodCandidateBinding.from_dict(_mapping(payload, "focal")),
+            tuple(OnlyResearchParameterNeighborhoodCandidateBinding.from_dict(item) for item in neighbors),
+            OnlyResearchParameterNeighborhoodSummaryDefinition.from_dict(_mapping(payload, "definition")),
+            _integer(payload, "schema_version"),
+        )
+
+
 OnlyResearchSummaryPlan = (
     OnlyResearchEffectSummaryPlan
     | OnlyResearchCoverageSummaryPlan
     | OnlyResearchTemporalStabilityPlan
     | OnlyResearchFactorPairEffectSummaryPlan
+    | OnlyResearchParameterNeighborhoodSummaryPlan
 )
 
 
@@ -377,6 +462,8 @@ def only_research_summary_plan_from_dict(payload: Mapping[str, object]) -> OnlyR
         return OnlyResearchTemporalStabilityPlan.from_dict(payload)
     if kind is OnlyResearchSummaryKind.FACTOR_PAIR_EFFECT_SUMMARY:
         return OnlyResearchFactorPairEffectSummaryPlan.from_dict(payload)
+    if kind is OnlyResearchSummaryKind.PARAMETER_NEIGHBORHOOD_SUMMARY:
+        return OnlyResearchParameterNeighborhoodSummaryPlan.from_dict(payload)
     raise ValueError("Summary Statistics Plan kind is unsupported")  # pragma: no cover
 
 
@@ -405,6 +492,7 @@ __all__ = [
     "OnlyResearchCoverageSummaryPlan",
     "OnlyResearchEffectSummaryPlan",
     "OnlyResearchFactorPairEffectSummaryPlan",
+    "OnlyResearchParameterNeighborhoodSummaryPlan",
     "OnlyResearchSummaryPlan",
     "OnlyResearchTemporalStabilityPlan",
     "only_research_summary_plan_from_dict",

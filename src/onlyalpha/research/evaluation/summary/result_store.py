@@ -21,21 +21,34 @@ from .execution import (
     OnlyResearchCoverageSummaryExecution,
     OnlyResearchEffectSummaryExecution,
     OnlyResearchFactorPairEffectSummaryExecution,
+    OnlyResearchParameterNeighborhoodSummaryExecution,
     OnlyResearchSummaryExecution,
     OnlyResearchTemporalStabilityExecution,
+    _validate_neighborhood_sources,
     _validate_source,
     only_compute_research_coverage_summary,
     only_compute_research_effect_summary,
     only_compute_research_factor_pair_effect_summary,
+    only_compute_research_parameter_neighborhood_summary,
     only_compute_research_temporal_stability,
 )
 from .identity import (
+    only_research_parameter_neighborhood_result_content_fingerprint,
     only_research_summary_result_content_fingerprint,
     only_research_summary_result_fingerprint,
 )
-from .plan import OnlyResearchFactorPairEffectSummaryPlan, OnlyResearchSummaryPlan
+from .plan import (
+    OnlyResearchCoverageSummaryPlan,
+    OnlyResearchEffectSummaryPlan,
+    OnlyResearchFactorPairEffectSummaryPlan,
+    OnlyResearchParameterNeighborhoodSummaryPlan,
+    OnlyResearchTemporalStabilityPlan,
+)
 from .result import (
+    OnlyResearchParameterNeighborhoodSummaryResultManifest,
+    OnlyResearchParameterNeighborhoodSummaryUpstreamReferences,
     OnlyResearchSummary,
+    OnlyResearchSummaryStatisticsDependencyReference,
     OnlyResearchSummaryStatisticsResult,
     OnlyResearchSummaryStatisticsResultManifest,
     only_research_summary_from_dict,
@@ -48,6 +61,20 @@ class _LegacyStatisticsResultStore(Protocol):
 
 class _FactorPairStatisticsResultStore(Protocol):
     def load_verified(self, statistics_fingerprint: str) -> OnlyResearchFactorPairStatisticsResult: ...
+
+
+_SingleSourceSummaryPlan = (
+    OnlyResearchEffectSummaryPlan
+    | OnlyResearchCoverageSummaryPlan
+    | OnlyResearchTemporalStabilityPlan
+    | OnlyResearchFactorPairEffectSummaryPlan
+)
+_SingleSourceSummaryExecution = (
+    OnlyResearchEffectSummaryExecution
+    | OnlyResearchCoverageSummaryExecution
+    | OnlyResearchTemporalStabilityExecution
+    | OnlyResearchFactorPairEffectSummaryExecution
+)
 
 
 class OnlyJsonResearchSummaryStatisticsResultStore:
@@ -75,6 +102,7 @@ class OnlyJsonResearchSummaryStatisticsResultStore:
                 OnlyResearchCoverageSummaryExecution,
                 OnlyResearchTemporalStabilityExecution,
                 OnlyResearchFactorPairEffectSummaryExecution,
+                OnlyResearchParameterNeighborhoodSummaryExecution,
             ),
         ):
             raise OnlyResearchStatisticsResultStoreError(
@@ -96,17 +124,32 @@ class OnlyJsonResearchSummaryStatisticsResultStore:
         try:
             summary_path = stage / "summary.json"
             summary_path.write_text(only_canonical_json(summary.to_dict()), encoding="utf-8")
-            manifest = OnlyResearchSummaryStatisticsResultManifest(
-                statistics_fingerprint=execution.plan.statistics_fingerprint,
-                plan=execution.plan,
-                source_statistics_fingerprint=execution.plan.source_statistics_fingerprint,
-                source_statistics_result_fingerprint=execution.plan.source_statistics_result_fingerprint,
-                dataset_snapshot_fingerprint=execution.plan.dataset_snapshot_fingerprint,
-                result_content_fingerprint=content,
-                statistics_result_fingerprint=result_fingerprint,
-                summary_byte_sha256=_sha(summary_path),
-                created_at=created_at,
+            manifest: (
+                OnlyResearchSummaryStatisticsResultManifest | OnlyResearchParameterNeighborhoodSummaryResultManifest
             )
+            if isinstance(execution, OnlyResearchParameterNeighborhoodSummaryExecution):
+                manifest = OnlyResearchParameterNeighborhoodSummaryResultManifest(
+                    statistics_fingerprint=execution.plan.statistics_fingerprint,
+                    plan=execution.plan,
+                    dataset_snapshot_fingerprint=execution.plan.dataset_snapshot_fingerprint,
+                    upstream_statistics_references=_neighborhood_references(execution.plan),
+                    result_content_fingerprint=content,
+                    statistics_result_fingerprint=result_fingerprint,
+                    summary_byte_sha256=_sha(summary_path),
+                    created_at=created_at,
+                )
+            else:
+                manifest = OnlyResearchSummaryStatisticsResultManifest(
+                    statistics_fingerprint=execution.plan.statistics_fingerprint,
+                    plan=execution.plan,
+                    source_statistics_fingerprint=execution.plan.source_statistics_fingerprint,
+                    source_statistics_result_fingerprint=execution.plan.source_statistics_result_fingerprint,
+                    dataset_snapshot_fingerprint=execution.plan.dataset_snapshot_fingerprint,
+                    result_content_fingerprint=content,
+                    statistics_result_fingerprint=result_fingerprint,
+                    summary_byte_sha256=_sha(summary_path),
+                    created_at=created_at,
+                )
             (stage / "manifest.json").write_text(only_canonical_json(manifest.to_dict()), encoding="utf-8")
             try:
                 self._read_verified(stage, execution.plan.statistics_fingerprint)
@@ -135,17 +178,30 @@ class OnlyJsonResearchSummaryStatisticsResultStore:
 
     def _admit(self, execution: OnlyResearchSummaryExecution) -> tuple[OnlyResearchSummary, str, str]:
         try:
+            if isinstance(execution, OnlyResearchParameterNeighborhoodSummaryExecution):
+                focal, neighbors = self._load_neighborhood_sources(execution.plan)
+                neighborhood_expected = only_compute_research_parameter_neighborhood_summary(
+                    focal, neighbors, execution.plan
+                )
+                if execution.summary != neighborhood_expected:
+                    raise ValueError("Summary content is not the deterministic source projection")
+                content = _neighborhood_content(execution.plan, neighborhood_expected)
+                return (
+                    neighborhood_expected,
+                    content,
+                    only_research_summary_result_fingerprint(execution.plan.statistics_fingerprint, content),
+                )
             source = self._load_source(execution.plan)
-            expected = _compute_summary(source, execution)
-            if execution.summary != expected:
+            regular_expected = _compute_summary(source, execution)
+            if execution.summary != regular_expected:
                 raise ValueError("Summary content is not the deterministic source projection")
             content = only_research_summary_result_content_fingerprint(
                 execution.plan.source_statistics_fingerprint,
                 execution.plan.source_statistics_result_fingerprint,
-                expected.to_dict(),
+                regular_expected.to_dict(),
             )
             return (
-                expected,
+                regular_expected,
                 content,
                 only_research_summary_result_fingerprint(execution.plan.statistics_fingerprint, content),
             )
@@ -180,21 +236,39 @@ class OnlyJsonResearchSummaryStatisticsResultStore:
             summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
             if not isinstance(manifest_payload, dict) or not isinstance(summary_payload, dict):
                 raise ValueError("Summary Statistics JSON roots must be objects")
-            manifest = OnlyResearchSummaryStatisticsResultManifest.from_dict(manifest_payload)
+            definition = manifest_payload.get("plan")
+            if not isinstance(definition, dict):
+                raise ValueError("Summary Statistics manifest Plan must be an object")
+            plan_definition = definition.get("definition")
+            is_neighborhood = (
+                isinstance(plan_definition, dict)
+                and plan_definition.get("summary_kind") == "PARAMETER_NEIGHBORHOOD_SUMMARY"
+            )
+            manifest = (
+                OnlyResearchParameterNeighborhoodSummaryResultManifest.from_dict(manifest_payload)
+                if is_neighborhood
+                else OnlyResearchSummaryStatisticsResultManifest.from_dict(manifest_payload)
+            )
             if manifest.statistics_fingerprint != expected_fingerprint:
                 raise ValueError("Summary Statistics path identity mismatch")
             if not summary_path.is_file() or _sha(summary_path) != manifest.summary_byte_sha256:
                 raise ValueError("Summary Statistics byte hash mismatch")
-            source = self._load_source(manifest.plan)
             summary = only_research_summary_from_dict(summary_payload)
-            expected = _compute_plan_summary(source, manifest.plan)
-            if summary != expected:
+            expected_summary: OnlyResearchSummary
+            if isinstance(manifest, OnlyResearchParameterNeighborhoodSummaryResultManifest):
+                focal, neighbors = self._load_neighborhood_sources(manifest.plan)
+                expected_summary = only_compute_research_parameter_neighborhood_summary(focal, neighbors, manifest.plan)
+                content = _neighborhood_content(manifest.plan, summary)
+            else:
+                source = self._load_source(manifest.plan)
+                expected_summary = _compute_plan_summary(source, manifest.plan)
+                content = only_research_summary_result_content_fingerprint(
+                    manifest.source_statistics_fingerprint,
+                    manifest.source_statistics_result_fingerprint,
+                    summary.to_dict(),
+                )
+            if summary != expected_summary:
                 raise ValueError("Summary Statistics semantic payload mismatch")
-            content = only_research_summary_result_content_fingerprint(
-                manifest.source_statistics_fingerprint,
-                manifest.source_statistics_result_fingerprint,
-                summary.to_dict(),
-            )
             if content != manifest.result_content_fingerprint:
                 raise ValueError("Summary Statistics content fingerprint mismatch")
             result = only_research_summary_result_fingerprint(expected_fingerprint, content)
@@ -211,7 +285,7 @@ class OnlyJsonResearchSummaryStatisticsResultStore:
             raise OnlyResearchStatisticsResultStoreError("SUMMARY_STATISTICS_RESULT_CORRUPT", str(exc)) from exc
 
     def _load_source(
-        self, plan: OnlyResearchSummaryPlan
+        self, plan: _SingleSourceSummaryPlan
     ) -> OnlyResearchStatisticsResult | OnlyResearchFactorPairStatisticsResult:
         if isinstance(plan, OnlyResearchFactorPairEffectSummaryPlan):
             if self._factor_pair_source_store is None:
@@ -227,6 +301,14 @@ class OnlyJsonResearchSummaryStatisticsResultStore:
         legacy_source = self._source_store.load_verified(plan.source_statistics_fingerprint)
         _validate_source(legacy_source, plan)
         return legacy_source
+
+    def _load_neighborhood_sources(
+        self, plan: OnlyResearchParameterNeighborhoodSummaryPlan
+    ) -> tuple[OnlyResearchSummaryStatisticsResult, tuple[OnlyResearchSummaryStatisticsResult, ...]]:
+        focal = self.load_verified(plan.focal.source_statistics_fingerprint)
+        neighbors = tuple(self.load_verified(item.source_statistics_fingerprint) for item in plan.neighbors)
+        _validate_neighborhood_sources(focal, neighbors, plan)
+        return focal, neighbors
 
     def _target(self, fingerprint: str) -> Path:
         if not _valid_sha(fingerprint):
@@ -254,14 +336,14 @@ def _valid_sha(value: str) -> bool:
 
 def _compute_summary(
     source: OnlyResearchStatisticsResult | OnlyResearchFactorPairStatisticsResult,
-    execution: OnlyResearchSummaryExecution,
+    execution: _SingleSourceSummaryExecution,
 ) -> OnlyResearchSummary:
     return _compute_plan_summary(source, execution.plan)
 
 
 def _compute_plan_summary(
     source: OnlyResearchStatisticsResult | OnlyResearchFactorPairStatisticsResult,
-    plan: OnlyResearchSummaryPlan,
+    plan: _SingleSourceSummaryPlan,
 ) -> OnlyResearchSummary:
     from .plan import OnlyResearchCoverageSummaryPlan, OnlyResearchEffectSummaryPlan, OnlyResearchTemporalStabilityPlan
 
@@ -282,6 +364,38 @@ def _compute_plan_summary(
             raise ValueError("Factor-Pair Effect Summary requires Factor-Pair Statistics source")
         return only_compute_research_factor_pair_effect_summary(source, plan)
     raise ValueError("Summary Statistics Plan kind is unsupported")
+
+
+def _neighborhood_references(
+    plan: OnlyResearchParameterNeighborhoodSummaryPlan,
+) -> OnlyResearchParameterNeighborhoodSummaryUpstreamReferences:
+    return OnlyResearchParameterNeighborhoodSummaryUpstreamReferences(
+        OnlyResearchSummaryStatisticsDependencyReference(
+            plan.focal.source_statistics_fingerprint,
+            plan.focal.source_statistics_result_fingerprint,
+        ),
+        tuple(
+            OnlyResearchSummaryStatisticsDependencyReference(
+                item.source_statistics_fingerprint,
+                item.source_statistics_result_fingerprint,
+            )
+            for item in plan.neighbors
+        ),
+    )
+
+
+def _neighborhood_content(
+    plan: OnlyResearchParameterNeighborhoodSummaryPlan,
+    summary: OnlyResearchSummary,
+) -> str:
+    return only_research_parameter_neighborhood_result_content_fingerprint(
+        plan.focal.source_statistics_fingerprint,
+        plan.focal.source_statistics_result_fingerprint,
+        tuple(
+            (item.source_statistics_fingerprint, item.source_statistics_result_fingerprint) for item in plan.neighbors
+        ),
+        summary.to_dict(),
+    )
 
 
 def _sha(path: Path) -> str:
