@@ -18,6 +18,9 @@ from onlyalpha.research import (
     OnlyResearchArtifactOutcome,
     OnlyResearchArtifactStatisticsEntry,
     OnlyResearchArtifactStoreError,
+    OnlyResearchQueryError,
+    OnlyResearchQueryErrorCode,
+    OnlyResearchQueryService,
 )
 from onlyalpha.research.artifact.materializer import OnlyResearchArtifactMaterializer
 from onlyalpha.research.artifact.reader import OnlyResearchArtifactProfileReader
@@ -41,6 +44,8 @@ from tests.research.artifact.support import (
     artifact_target,
     scientific_artifact_case,
     scientific_artifact_target,
+    scientific_artifact_v3_case,
+    scientific_artifact_v3_target,
 )
 from tests.research.result.support import result_case
 
@@ -448,7 +453,7 @@ def test_scientific_materializer_and_staged_commit_preserve_error_taxonomy(tmp_p
     assert staged.value.code == "ARTIFACT_COMMIT_FAILED"
 
 
-def test_profile_reader_dispatches_v1_v2_and_never_hides_scientific_corruption(tmp_path) -> None:
+def test_profile_reader_dispatches_v1_v2_v3_and_never_hides_newer_corruption(tmp_path) -> None:
     _, _, _, _, v1_candidate, v1_store = artifact_case(tmp_path / "v1")
     v1_store.commit(v1_candidate)
     v1 = OnlyResearchArtifactProfileReader(tmp_path / "v1" / "research-artifacts").load_verified(
@@ -474,3 +479,17 @@ def test_profile_reader_dispatches_v1_v2_and_never_hides_scientific_corruption(t
     with pytest.raises(OnlyResearchArtifactStoreError) as corrupt:
         reader.load_verified(identity)
     assert corrupt.value.code == "ARTIFACT_CORRUPT"
+
+    _, v3_candidate, v3_store = scientific_artifact_v3_case(tmp_path / "v3")
+    v3_store.commit(v3_candidate)
+    v3_identity = v3_candidate.result.manifest.research_result_fingerprint
+    v3_reader = OnlyResearchArtifactProfileReader(tmp_path / "v3" / "scientific-artifacts")
+    assert v3_reader.load_verified(v3_identity).manifest.profile == "RESEARCH_SCIENTIFIC_V3"
+    v3_manifest = scientific_artifact_v3_target(tmp_path / "v3", v3_identity) / "artifact_manifest.json"
+    v3_manifest.write_text("[]", encoding="utf-8")
+    with pytest.raises(OnlyResearchArtifactStoreError) as corrupt_v3:
+        v3_reader.load_verified(v3_identity)
+    assert corrupt_v3.value.code == "ARTIFACT_CORRUPT"
+    with pytest.raises(OnlyResearchQueryError) as query_corrupt_v3:
+        OnlyResearchQueryService(v3_reader).list_typed_statistics(v3_identity)
+    assert query_corrupt_v3.value.code is OnlyResearchQueryErrorCode.RESEARCH_ARTIFACT_CORRUPT

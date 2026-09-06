@@ -40,6 +40,9 @@ class OnlyResearchArtifactSummary:
     market_row_count: int = 0
     instrument_ids: tuple[str, ...] = ()
     schema_version: int = RESEARCH_QUERY_SCHEMA_VERSION
+    series_statistics_count: int = 0
+    summary_statistics_count: int = 0
+    statistics_series_row_count: int = 0
 
     def __post_init__(self) -> None:
         for name in (
@@ -63,6 +66,9 @@ class OnlyResearchArtifactSummary:
             "published_series_count",
             "signal_series_count",
             "market_row_count",
+            "series_statistics_count",
+            "summary_statistics_count",
+            "statistics_series_row_count",
         ):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:

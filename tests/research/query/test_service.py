@@ -30,6 +30,9 @@ def test_summary_is_an_exact_immutable_artifact_projection(tmp_path) -> None:
     assert summary.artifact_content_fingerprint == candidate.artifact_content_fingerprint
     assert summary.statistics_count == len(artifact.manifest.statistics_results)
     assert summary.row_count == len(artifact.rows)
+    assert summary.series_statistics_count == summary.statistics_count
+    assert summary.summary_statistics_count == 0
+    assert summary.statistics_series_row_count == summary.row_count
     assert summary.created_at == artifact.manifest.created_at
     with pytest.raises(FrozenInstanceError):
         summary.row_count = 0  # type: ignore[misc]
@@ -187,6 +190,10 @@ def test_scientific_series_and_graph_enforce_exact_artifact_membership(tmp_path)
     service = OnlyResearchQueryService(store)
     identity = candidate.result.manifest.research_result_fingerprint
     artifact = store.load_verified(identity)
+    summary = service.get_artifact_summary(identity)
+    assert summary.series_statistics_count == summary.statistics_count
+    assert summary.summary_statistics_count == 0
+    assert summary.statistics_series_row_count == summary.row_count
     instrument = artifact.market_rows[0].instrument_id
     published = artifact.manifest.plan.published_series[0]
     signal = artifact.manifest.plan.signals[0]

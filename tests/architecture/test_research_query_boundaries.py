@@ -34,6 +34,11 @@ def test_query_is_transport_neutral_and_depends_only_on_artifact_read_contract()
         "onlyalpha.research.dataset",
         "onlyalpha.research.calculation",
         "onlyalpha.research.evaluation.result_store",
+        "onlyalpha.research.evaluation.execution",
+        "onlyalpha.research.evaluation.factor_pair.execution",
+        "onlyalpha.research.evaluation.factor_pair.result_store",
+        "onlyalpha.research.evaluation.summary.execution",
+        "onlyalpha.research.evaluation.summary.result_store",
         "onlyalpha.research.result",
         "fastapi",
         "pydantic",
@@ -103,6 +108,10 @@ def test_query_defines_no_durable_authority_catalog_or_semantic_calculation() ->
         "optimizer",
         "commit(",
         "exists(",
+        "resolve_metric",
+        "meets_threshold",
+        "qualify(",
+        "float(",
     )
     assert not any(token in source for token in forbidden)
     assert "load_verified" in source

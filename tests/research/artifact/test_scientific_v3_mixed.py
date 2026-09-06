@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 from datetime import UTC, datetime
 from decimal import Decimal
+
+import pytest
 
 from onlyalpha.research import (
     OnlyJsonResearchResultStore,
@@ -17,6 +21,9 @@ from onlyalpha.research import (
     OnlyResearchParameterNeighborhoodSummaryDefinition,
     OnlyResearchParameterNeighborhoodSummaryExecutor,
     OnlyResearchParameterNeighborhoodSummaryPlan,
+    OnlyResearchQueryError,
+    OnlyResearchQueryErrorCode,
+    OnlyResearchQueryService,
     OnlyResearchResultAssembler,
     OnlyResearchResultCalculationPlan,
     OnlyResearchResultCandidatePlan,
@@ -31,6 +38,17 @@ from onlyalpha.research import (
     OnlyResearchTemporalStabilityDefinition,
     OnlyResearchTemporalStabilityExecutor,
     OnlyResearchTemporalStabilityPlan,
+    OnlyResearchTypedFactorPairSeriesDescriptor,
+    OnlyResearchTypedStatisticSeriesQuery,
+    OnlyResearchTypedStatisticsShape,
+    OnlyResearchTypedStatisticSummaryQuery,
+)
+from onlyalpha.research.query.typed_model import (
+    OnlyResearchCoverageSummaryProjection,
+    OnlyResearchEffectSummaryProjection,
+    OnlyResearchFactorPairEffectSummaryProjection,
+    OnlyResearchParameterNeighborhoodSummaryProjection,
+    OnlyResearchTemporalStabilitySummaryProjection,
 )
 from tests.research.evaluation.support import factor_pair_effect_case
 
@@ -205,3 +223,158 @@ def test_scientific_v3_complete_mixed_rich_product_verifies_offline(tmp_path) ->
         == loaded.manifest.dataset_snapshot_fingerprint
         for entry in rich_entries
     )
+
+    service = OnlyResearchQueryService(store)
+    identity = loaded.manifest.research_result_fingerprint
+    typed = service.list_typed_statistics(identity)
+    assert tuple(item.statistics_fingerprint for item in typed.statistics) == tuple(sorted(global_statistics))
+    assert len({item.statistics_fingerprint for item in typed.statistics}) == len(global_statistics)
+    assert {item.shape for item in typed.statistics} == {
+        OnlyResearchTypedStatisticsShape.SERIES,
+        OnlyResearchTypedStatisticsShape.SUMMARY,
+    }
+    pair_descriptor = next(
+        item for item in typed.statistics if item.statistics_fingerprint == pair_plan.statistics_fingerprint
+    )
+    assert isinstance(pair_descriptor, OnlyResearchTypedFactorPairSeriesDescriptor)
+    assert pair_descriptor.method == pair_plan.definition.method.value
+    assert pair_descriptor.first_operand.candidate_fingerprint == pair_plan.first_operand.candidate_fingerprint
+    assert pair_descriptor.second_operand.candidate_fingerprint == pair_plan.second_operand.candidate_fingerprint
+
+    artifact_summary = service.get_artifact_summary(identity)
+    assert artifact_summary.row_count == artifact_summary.statistics_series_row_count
+    assert artifact_summary.series_statistics_count + artifact_summary.summary_statistics_count == len(
+        global_statistics
+    )
+    assert artifact_summary.summary_statistics_count == len(loaded.statistics_summaries)
+    assert {
+        item.candidate_fingerprint: item.statistics_fingerprints
+        for item in service.list_candidates(identity).candidates
+    } == {item.candidate_fingerprint: item.statistics_fingerprints for item in loaded.manifest.plan.candidates}
+
+    for series_plan in (ic_plan, rank_plan, pair_plan):
+        expected = tuple(
+            row
+            for row in loaded.statistics_series_rows
+            if row.statistics_fingerprint == series_plan.statistics_fingerprint
+        )
+        pages = []
+        cursor = None
+        while True:
+            page = service.get_typed_statistic_series(
+                OnlyResearchTypedStatisticSeriesQuery(
+                    identity, series_plan.statistics_fingerprint, after_ts_event_ns=cursor, limit=1
+                )
+            )
+            pages.extend(page.points)
+            if not page.has_more:
+                break
+            cursor = page.next_after_ts_event_ns
+        assert tuple((x.ts_event_ns, x.statistic_value, x.sample_count, x.status) for x in pages) == tuple(
+            (x.ts_event_ns, x.statistic_value, x.sample_count, x.status) for x in expected
+        )
+        assert all(point.statistic_value is None or isinstance(point.statistic_value, Decimal) for point in pages)
+        if len(expected) >= 2:
+            filtered = service.get_typed_statistic_series(
+                OnlyResearchTypedStatisticSeriesQuery(
+                    identity,
+                    series_plan.statistics_fingerprint,
+                    from_ts_event_ns=expected[0].ts_event_ns,
+                    to_ts_event_ns=expected[-1].ts_event_ns,
+                    after_ts_event_ns=expected[0].ts_event_ns,
+                )
+            )
+            assert tuple(x.ts_event_ns for x in filtered.points) == tuple(x.ts_event_ns for x in expected[1:-1])
+
+    effect_projection = service.get_typed_statistic_summary(
+        OnlyResearchTypedStatisticSummaryQuery(identity, effects[0].statistics_fingerprint)
+    )
+    coverage_projection = service.get_typed_statistic_summary(
+        OnlyResearchTypedStatisticSummaryQuery(identity, coverage.statistics_fingerprint)
+    )
+    stability_projection = service.get_typed_statistic_summary(
+        OnlyResearchTypedStatisticSummaryQuery(identity, stability.statistics_fingerprint)
+    )
+    pair_effect_projection = service.get_typed_statistic_summary(
+        OnlyResearchTypedStatisticSummaryQuery(identity, pair_effect_plan.statistics_fingerprint)
+    )
+    neighborhood_projection = service.get_typed_statistic_summary(
+        OnlyResearchTypedStatisticSummaryQuery(identity, neighborhood.statistics_fingerprint)
+    )
+    assert isinstance(effect_projection, OnlyResearchEffectSummaryProjection)
+    assert isinstance(coverage_projection, OnlyResearchCoverageSummaryProjection)
+    assert isinstance(stability_projection, OnlyResearchTemporalStabilitySummaryProjection)
+    assert isinstance(pair_effect_projection, OnlyResearchFactorPairEffectSummaryProjection)
+    assert isinstance(neighborhood_projection, OnlyResearchParameterNeighborhoodSummaryProjection)
+    assert (
+        effect_projection.mean.decimal_value
+        == summaries.load_verified(effects[0].statistics_fingerprint).summary.mean.decimal_value
+    )
+    assert type(effect_projection.total_count.integer_value) is int
+    assert (
+        coverage_projection.pair_count_total.integer_value
+        == summaries.load_verified(coverage.statistics_fingerprint).summary.pair_count_total.integer_value
+    )
+    assert tuple((x.start_ts_event_ns, x.end_ts_event_ns) for x in stability_projection.slices) == tuple(
+        (x.start_ts_event_ns, x.end_ts_event_ns)
+        for x in summaries.load_verified(stability.statistics_fingerprint).summary.slices
+    )
+    assert pair_effect_projection.source.statistics_fingerprint == pair_effect_plan.source_statistics_fingerprint
+    assert tuple(item.candidate_fingerprint for item in neighborhood_projection.neighbors) == neighbor_ids
+    assert neighborhood_projection.source_metric_id == metric
+    for scalar in (
+        effect_projection.mean,
+        effect_projection.stddev_sample,
+        coverage_projection.valid_timestamp_ratio,
+        stability_projection.stddev_of_slice_means,
+        pair_effect_projection.mean,
+        neighborhood_projection.neighbor_stddev_sample,
+    ):
+        assert scalar.metric_id
+        assert scalar.status.value
+        if scalar.status.value != "VALID":
+            assert scalar.integer_value is None and scalar.decimal_value is None
+
+    for summary_identity in (effects[0].statistics_fingerprint, neighborhood.statistics_fingerprint):
+        with pytest.raises(OnlyResearchQueryError) as mismatch:
+            service.get_typed_statistic_series(OnlyResearchTypedStatisticSeriesQuery(identity, summary_identity))
+        assert mismatch.value.code is OnlyResearchQueryErrorCode.STATISTICS_SHAPE_MISMATCH
+    for series_identity in (ic_plan.statistics_fingerprint, pair_plan.statistics_fingerprint):
+        with pytest.raises(OnlyResearchQueryError) as mismatch:
+            service.get_typed_statistic_summary(OnlyResearchTypedStatisticSummaryQuery(identity, series_identity))
+        assert mismatch.value.code is OnlyResearchQueryErrorCode.STATISTICS_SHAPE_MISMATCH
+    with pytest.raises(OnlyResearchQueryError) as missing:
+        service.get_typed_statistic_summary(OnlyResearchTypedStatisticSummaryQuery(identity, "f" * 64))
+    assert missing.value.code is OnlyResearchQueryErrorCode.STATISTICS_NOT_FOUND
+
+    script = """
+import sys
+from pathlib import Path
+from onlyalpha.research import (
+    OnlyResearchArtifactProfileReader, OnlyResearchQueryService,
+    OnlyResearchTypedStatisticSeriesQuery, OnlyResearchTypedStatisticSummaryQuery,
+)
+service = OnlyResearchQueryService(OnlyResearchArtifactProfileReader(Path(sys.argv[1])))
+identity, pair, effect, neighborhood = sys.argv[2:]
+assert service.list_typed_statistics(identity).statistics
+assert service.get_typed_statistic_series(OnlyResearchTypedStatisticSeriesQuery(identity, pair)).points
+assert service.get_typed_statistic_summary(OnlyResearchTypedStatisticSummaryQuery(identity, effect)).mean.metric_id
+assert service.get_typed_statistic_summary(OnlyResearchTypedStatisticSummaryQuery(identity, neighborhood)).neighbors
+print("PASS")
+"""
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            script,
+            str(tmp_path / "mixed-artifacts"),
+            identity,
+            pair_plan.statistics_fingerprint,
+            effects[0].statistics_fingerprint,
+            neighborhood.statistics_fingerprint,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.stdout.strip() == "PASS"

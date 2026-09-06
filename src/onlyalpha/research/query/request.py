@@ -57,6 +57,36 @@ class OnlyResearchStatisticSeriesQuery:
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyResearchTypedStatisticSeriesQuery:
+    research_result_fingerprint: str
+    statistics_fingerprint: str
+    from_ts_event_ns: int | None = None
+    to_ts_event_ns: int | None = None
+    after_ts_event_ns: int | None = None
+    limit: int = DEFAULT_PAGE_SIZE
+
+    def __post_init__(self) -> None:
+        OnlyResearchStatisticSeriesQuery(
+            self.research_result_fingerprint,
+            self.statistics_fingerprint,
+            self.from_ts_event_ns,
+            self.to_ts_event_ns,
+            self.after_ts_event_ns,
+            self.limit,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyResearchTypedStatisticSummaryQuery:
+    research_result_fingerprint: str
+    statistics_fingerprint: str
+
+    def __post_init__(self) -> None:
+        only_research_query_sha256(self.research_result_fingerprint, "research_result_fingerprint")
+        only_research_query_sha256(self.statistics_fingerprint, "statistics_fingerprint")
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyResearchScientificSeriesQuery:
     research_result_fingerprint: str
     instrument_id: str | None = None

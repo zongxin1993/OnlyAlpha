@@ -62,6 +62,9 @@ from .request import DEFAULT_PAGE_SIZE as DEFAULT_PAGE_SIZE
 from .request import MAX_PAGE_SIZE as MAX_PAGE_SIZE
 from .request import OnlyResearchScientificSeriesQuery as OnlyResearchScientificSeriesQuery
 from .request import OnlyResearchStatisticSeriesQuery as OnlyResearchStatisticSeriesQuery
+from .request import OnlyResearchTypedStatisticSeriesQuery as OnlyResearchTypedStatisticSeriesQuery
+from .request import OnlyResearchTypedStatisticSummaryQuery as OnlyResearchTypedStatisticSummaryQuery
 from .service import OnlyResearchQueryService as OnlyResearchQueryService
+from .typed_model import *  # noqa: F403
 
 __all__ = [name for name in globals() if name.startswith(("Only", "RESEARCH_QUERY_", "DEFAULT_", "MAX_"))]
