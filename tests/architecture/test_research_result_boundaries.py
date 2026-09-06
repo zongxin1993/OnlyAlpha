@@ -57,6 +57,20 @@ def test_research_result_defines_no_parallel_data_or_trading_authority() -> None
     assert "statistics_result_fingerprint" in source
 
 
+def test_research_result_rich_verification_is_composition_only_and_shared() -> None:
+    root = Path("src/onlyalpha/research/result")
+    verifier = (root / "statistics_verification.py").read_text(encoding="utf-8")
+    assembler = (root / "assembler.py").read_text(encoding="utf-8")
+    store = (root / "result_store.py").read_text(encoding="utf-8")
+
+    assert "verify_rich_statistics_composition" in assembler
+    assert "verify_rich_statistics_composition" in store
+    assert "evaluation.execution" not in verifier
+    assert "compute_research" not in verifier
+    assert "rows" not in verifier
+    assert "scan" not in verifier
+
+
 def test_research_is_activated_and_live_remains_unsupported_after_p7_11() -> None:
     live = OnlyLiveRuntimeFactory().create(None)
     assert OnlyResearchRuntimeFactory().runtime_type == "RESEARCH"

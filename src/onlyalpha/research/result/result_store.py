@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Protocol
 
 from onlyalpha.research.calculation.result import OnlyResearchCalculationResult
-from onlyalpha.research.evaluation.result import OnlyResearchStatisticsResult
 
 from .errors import OnlyResearchResultStoreError
 from .identity import only_research_result_content_fingerprint, only_research_result_fingerprint
@@ -20,10 +19,14 @@ from .result import (
     OnlyResearchResultManifest,
     OnlyResearchResultOutcome,
 )
+from .statistics_verification import (
+    OnlyResearchComposableStatisticsResult,
+    verify_rich_statistics_composition,
+)
 
 
 class _StatisticsResultStore(Protocol):
-    def load_verified(self, statistics_fingerprint: str) -> OnlyResearchStatisticsResult: ...
+    def load_verified(self, statistics_fingerprint: str) -> OnlyResearchComposableStatisticsResult: ...
 
 
 class _CalculationResultStore(Protocol):
@@ -133,8 +136,10 @@ class OnlyJsonResearchResultStore:
         schema_version = getattr(manifest, "schema_version", 1)
         dataset: str | None = None
         actual_references = []
+        verified_statistics: dict[str, OnlyResearchComposableStatisticsResult] = {}
         for reference in manifest.statistics_results:
             upstream = self._statistics_result_store.load_verified(reference.statistics_fingerprint)
+            verified_statistics[reference.statistics_fingerprint] = upstream
             upstream_manifest = upstream.manifest
             if upstream_manifest.statistics_fingerprint != reference.statistics_fingerprint:
                 raise ValueError("Research Result Statistics logical identity mismatch")
@@ -190,6 +195,7 @@ class OnlyJsonResearchResultStore:
                 )
                 if output is None or output.semantic_type != signal_member.role:
                     raise ValueError("Research Result scientific output linkage mismatch")
+            verify_rich_statistics_composition(manifest.plan, verified_statistics, verified_calculations)
         content = only_research_result_content_fingerprint(
             tuple(actual_references), tuple(actual_calculations), schema_version=schema_version
         )

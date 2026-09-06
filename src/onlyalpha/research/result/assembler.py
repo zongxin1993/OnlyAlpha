@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 from typing import Protocol
 
 from onlyalpha.research.calculation.result import OnlyResearchCalculationResult
-from onlyalpha.research.evaluation.result import OnlyResearchStatisticsResult
 
 from .errors import OnlyResearchResultError
 from .identity import (
@@ -22,10 +21,14 @@ from .result import (
     OnlyResearchResultManifest,
     OnlyResearchStatisticsResultReference,
 )
+from .statistics_verification import (
+    OnlyResearchComposableStatisticsResult,
+    verify_rich_statistics_composition,
+)
 
 
 class _StatisticsResultStore(Protocol):
-    def load_verified(self, statistics_fingerprint: str) -> OnlyResearchStatisticsResult: ...
+    def load_verified(self, statistics_fingerprint: str) -> OnlyResearchComposableStatisticsResult: ...
 
 
 class _CalculationResultStore(Protocol):
@@ -49,10 +52,12 @@ class OnlyResearchResultAssembler:
             raise OnlyResearchResultError("RESEARCH_RESULT_INVALID", "Plan contract is invalid")
         references: list[OnlyResearchStatisticsResultReference] = []
         calculation_references: list[OnlyResearchCalculationResultReference] = []
+        statistics: dict[str, OnlyResearchComposableStatisticsResult] = {}
         dataset: str | None = None
         try:
             for statistics_fingerprint in plan.statistics_fingerprints:
                 upstream = self._statistics_result_store.load_verified(statistics_fingerprint)
+                statistics[statistics_fingerprint] = upstream
                 manifest = upstream.manifest
                 if manifest.statistics_fingerprint != statistics_fingerprint:
                     raise ValueError("Statistics logical identity linkage mismatch")
@@ -89,6 +94,7 @@ class OnlyResearchResultAssembler:
                         )
                     )
                 self._verify_scientific_members(plan, calculations)
+                verify_rich_statistics_composition(plan, statistics, calculations)
             created_at = self._audit_timestamp()
             canonical = tuple(sorted(references))
             canonical_calculations = tuple(sorted(calculation_references))
