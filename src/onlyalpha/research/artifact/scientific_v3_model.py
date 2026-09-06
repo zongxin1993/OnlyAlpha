@@ -16,7 +16,12 @@ from onlyalpha.research.evaluation.factor_pair.plan import OnlyResearchFactorPai
 from onlyalpha.research.evaluation.plan import OnlyResearchStatisticsPlan
 from onlyalpha.research.evaluation.summary.family import OnlyResearchStatisticsFamily
 from onlyalpha.research.evaluation.summary.plan import (
+    OnlyResearchCoverageSummaryPlan,
+    OnlyResearchEffectSummaryPlan,
+    OnlyResearchFactorPairEffectSummaryPlan,
+    OnlyResearchParameterNeighborhoodSummaryPlan,
     OnlyResearchSummaryPlan,
+    OnlyResearchTemporalStabilityPlan,
     only_research_summary_plan_from_dict,
 )
 from onlyalpha.research.evaluation.summary.result import OnlyResearchSummary
@@ -118,6 +123,10 @@ class OnlyResearchScientificLegacySeriesCatalogEntryV3:
         _catalog_common(self)
         if self.statistics_family is not OnlyResearchStatisticsFamily.FEATURE_TARGET_CORRELATION_SERIES_V1:
             raise ValueError("Scientific V3 legacy Catalog family mismatch")
+        if self.payload_shape is not OnlyResearchScientificStatisticsShapeV3.SERIES:
+            raise ValueError("Scientific V3 legacy Catalog payload shape mismatch")
+        if not isinstance(self.plan, OnlyResearchStatisticsPlan):
+            raise ValueError("Scientific V3 legacy Catalog Plan type mismatch")
         if self.plan.statistics_fingerprint != self.statistics_fingerprint:
             raise ValueError("Scientific V3 legacy Plan identity mismatch")
         _sha(self.feature_calculation_result_fingerprint)
@@ -150,8 +159,14 @@ class OnlyResearchScientificFactorPairSeriesCatalogEntryV3:
         _catalog_common(self)
         if self.statistics_family is not OnlyResearchStatisticsFamily.FACTOR_PAIR_CORRELATION_SERIES_V1:
             raise ValueError("Scientific V3 Factor-Pair Catalog family mismatch")
+        if self.payload_shape is not OnlyResearchScientificStatisticsShapeV3.SERIES:
+            raise ValueError("Scientific V3 Factor-Pair Catalog payload shape mismatch")
+        if not isinstance(self.plan, OnlyResearchFactorPairStatisticsPlan):
+            raise ValueError("Scientific V3 Factor-Pair Catalog Plan type mismatch")
         if self.plan.statistics_fingerprint != self.statistics_fingerprint:
             raise ValueError("Scientific V3 Factor-Pair Plan identity mismatch")
+        if self.plan.dataset_snapshot_fingerprint != self.dataset_snapshot_fingerprint:
+            raise ValueError("Scientific V3 Factor-Pair Plan Dataset linkage mismatch")
         _sha(self.first_calculation_result_fingerprint)
         _sha(self.second_calculation_result_fingerprint)
         _row_count(self.row_count)
@@ -179,8 +194,23 @@ class OnlyResearchScientificSummaryCatalogEntryV3:
         _catalog_common(self)
         if self.statistics_family is not OnlyResearchStatisticsFamily.SUMMARY_STATISTICS_V1:
             raise ValueError("Scientific V3 Summary Catalog family mismatch")
+        if self.payload_shape is not OnlyResearchScientificStatisticsShapeV3.SUMMARY:
+            raise ValueError("Scientific V3 Summary Catalog payload shape mismatch")
+        if not isinstance(
+            self.plan,
+            (
+                OnlyResearchEffectSummaryPlan,
+                OnlyResearchCoverageSummaryPlan,
+                OnlyResearchTemporalStabilityPlan,
+                OnlyResearchFactorPairEffectSummaryPlan,
+                OnlyResearchParameterNeighborhoodSummaryPlan,
+            ),
+        ):
+            raise ValueError("Scientific V3 Summary Catalog Plan type mismatch")
         if self.plan.statistics_fingerprint != self.statistics_fingerprint:
             raise ValueError("Scientific V3 Summary Plan identity mismatch")
+        if self.plan.dataset_snapshot_fingerprint != self.dataset_snapshot_fingerprint:
+            raise ValueError("Scientific V3 Summary Plan Dataset linkage mismatch")
 
     def to_dict(self) -> dict[str, object]:
         return _catalog_dict(self)

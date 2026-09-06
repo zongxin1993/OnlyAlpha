@@ -11,16 +11,19 @@ from onlyalpha.research.evaluation.factor_pair.identity import (
     only_research_factor_pair_result_content_fingerprint,
     only_research_factor_pair_result_fingerprint,
 )
+from onlyalpha.research.evaluation.factor_pair.plan import OnlyResearchFactorPairStatisticsPlan
 from onlyalpha.research.evaluation.factor_pair.result import (
     OnlyResearchFactorPairStatisticRow,
     OnlyResearchFactorPairStatisticStatus,
 )
+from onlyalpha.research.evaluation.plan import OnlyResearchStatisticsPlan
 from onlyalpha.research.evaluation.reference import OnlyResearchFeatureSeriesReference
 from onlyalpha.research.evaluation.result import OnlyResearchStatisticRow, OnlyResearchStatisticStatus
 from onlyalpha.research.evaluation.result_identity import (
     only_research_statistics_result_content_fingerprint,
     only_research_statistics_result_fingerprint,
 )
+from onlyalpha.research.evaluation.summary.family import OnlyResearchStatisticsFamily
 from onlyalpha.research.evaluation.summary.identity import (
     only_research_parameter_neighborhood_result_content_fingerprint,
     only_research_summary_result_content_fingerprint,
@@ -43,6 +46,7 @@ from .scientific_v3_model import (
     OnlyResearchScientificLegacySeriesCatalogEntryV3,
     OnlyResearchScientificStatisticsCatalogEntryV3,
     OnlyResearchScientificStatisticsSeriesRowV3,
+    OnlyResearchScientificStatisticsShapeV3,
     OnlyResearchScientificStatisticsSummaryV3,
     OnlyResearchScientificSummaryCatalogEntryV3,
 )
@@ -109,6 +113,12 @@ def verify_scientific_artifact_v3_statistics(
         if entry.dataset_snapshot_fingerprint != manifest.dataset_snapshot_fingerprint:
             raise ValueError("Scientific V3 Statistics Dataset linkage mismatch")
         if isinstance(entry, OnlyResearchScientificLegacySeriesCatalogEntryV3):
+            if (
+                entry.statistics_family is not OnlyResearchStatisticsFamily.FEATURE_TARGET_CORRELATION_SERIES_V1
+                or entry.payload_shape is not OnlyResearchScientificStatisticsShapeV3.SERIES
+                or not isinstance(entry.plan, OnlyResearchStatisticsPlan)
+            ):
+                raise ValueError("Scientific V3 legacy Catalog variant mismatch")
             rows = groups.get(fingerprint, [])
             if len(rows) != entry.row_count:
                 raise ValueError("Scientific V3 legacy Series row membership mismatch")
@@ -133,6 +143,14 @@ def verify_scientific_artifact_v3_statistics(
                 calculations,
             )
         elif isinstance(entry, OnlyResearchScientificFactorPairSeriesCatalogEntryV3):
+            if (
+                entry.statistics_family is not OnlyResearchStatisticsFamily.FACTOR_PAIR_CORRELATION_SERIES_V1
+                or entry.payload_shape is not OnlyResearchScientificStatisticsShapeV3.SERIES
+                or not isinstance(entry.plan, OnlyResearchFactorPairStatisticsPlan)
+            ):
+                raise ValueError("Scientific V3 Factor-Pair Catalog variant mismatch")
+            if entry.plan.dataset_snapshot_fingerprint != entry.dataset_snapshot_fingerprint:
+                raise ValueError("Scientific V3 Factor-Pair Plan Dataset linkage mismatch")
             rows = groups.get(fingerprint, [])
             if len(rows) != entry.row_count:
                 raise ValueError("Scientific V3 Factor-Pair Series row membership mismatch")
@@ -158,6 +176,23 @@ def verify_scientific_artifact_v3_statistics(
                 _verify_factor_series(operand.candidate_fingerprint, operand.series, candidates, graph_by_calculation)
                 _verify_calculation_result(operand.series.calculation_fingerprint, result_fp, calculations)
         else:
+            if (
+                entry.statistics_family is not OnlyResearchStatisticsFamily.SUMMARY_STATISTICS_V1
+                or entry.payload_shape is not OnlyResearchScientificStatisticsShapeV3.SUMMARY
+                or not isinstance(
+                    entry.plan,
+                    (
+                        OnlyResearchEffectSummaryPlan,
+                        OnlyResearchCoverageSummaryPlan,
+                        OnlyResearchTemporalStabilityPlan,
+                        OnlyResearchFactorPairEffectSummaryPlan,
+                        OnlyResearchParameterNeighborhoodSummaryPlan,
+                    ),
+                )
+            ):
+                raise ValueError("Scientific V3 Summary Catalog variant mismatch")
+            if entry.plan.dataset_snapshot_fingerprint != entry.dataset_snapshot_fingerprint:
+                raise ValueError("Scientific V3 Summary Plan Dataset linkage mismatch")
             summary = summary_by_fp[fingerprint].summary
             plan = entry.plan
             if summary.summary_kind is not plan.definition.summary_kind:

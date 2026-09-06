@@ -25,6 +25,7 @@ from onlyalpha.research import (
     OnlyResearchResultCandidatePlan,
     OnlyResearchResultPlan,
     OnlyResearchScientificArtifactMaterializerV3,
+    OnlyResearchScientificFactorPairSeriesCatalogEntryV3,
     OnlyResearchScientificLegacySeriesCatalogEntryV3,
     OnlyResearchScientificSection,
     OnlyResearchScientificStatisticsShapeV3,
@@ -64,6 +65,22 @@ def test_scientific_v3_contract_round_trip_and_offline_load(tmp_path) -> None:
     assert store.commit(candidate).disposition is OnlyResearchArtifactDisposition.REUSED
     for entry in loaded.statistics_catalog:
         assert only_research_scientific_catalog_entry_v3_from_dict(entry.to_dict()) == entry
+
+    legacy = loaded.statistics_catalog[0]
+    with pytest.raises(ValueError, match="payload shape mismatch"):
+        replace(legacy, payload_shape=OnlyResearchScientificStatisticsShapeV3.SUMMARY)
+    with pytest.raises(ValueError, match="Plan type mismatch"):
+        replace(legacy, plan=object())  # type: ignore[arg-type]
+    contradictory = legacy.to_dict()
+    contradictory["payload_shape"] = OnlyResearchScientificStatisticsShapeV3.SUMMARY.value
+    with pytest.raises(ValueError, match="payload shape mismatch"):
+        only_research_scientific_catalog_entry_v3_from_dict(contradictory)
+    _mutate_catalog_and_assert_corrupt(
+        store,
+        candidate.result.manifest.research_result_fingerprint,
+        legacy.statistics_fingerprint,
+        payload_shape=OnlyResearchScientificStatisticsShapeV3.SUMMARY,
+    )
 
 
 def test_scientific_v3_namespace_and_encoding_independent_identity(tmp_path) -> None:
@@ -173,6 +190,11 @@ def test_scientific_v3_typed_summary_projects_and_verifies_offline(tmp_path, fac
     summaries = [x for x in loaded.statistics_catalog if isinstance(x, OnlyResearchScientificSummaryCatalogEntryV3)]
     assert len(summaries) == 1
     assert (
+        summaries[0].plan.dataset_snapshot_fingerprint
+        == summaries[0].dataset_snapshot_fingerprint
+        == loaded.manifest.dataset_snapshot_fingerprint
+    )
+    assert (
         loaded.statistics_summaries[0].summary.to_dict()
         == summary_store.load_verified(summary_plan.statistics_fingerprint).summary.to_dict()
     )
@@ -236,6 +258,66 @@ def test_scientific_v3_factor_pair_series_and_effect_verify_both_operands_offlin
         pair_plan.statistics_fingerprint,
         effect_plan.statistics_fingerprint,
     }
+    pair_entry = next(
+        x for x in loaded.statistics_catalog if isinstance(x, OnlyResearchScientificFactorPairSeriesCatalogEntryV3)
+    )
+    effect_entry = next(
+        x for x in loaded.statistics_catalog if isinstance(x, OnlyResearchScientificSummaryCatalogEntryV3)
+    )
+    for entry in (pair_entry, effect_entry):
+        assert (
+            entry.plan.dataset_snapshot_fingerprint
+            == entry.dataset_snapshot_fingerprint
+            == loaded.manifest.dataset_snapshot_fingerprint
+        )
+    with pytest.raises(ValueError, match="payload shape mismatch"):
+        replace(pair_entry, payload_shape=OnlyResearchScientificStatisticsShapeV3.SUMMARY)
+    with pytest.raises(ValueError, match="payload shape mismatch"):
+        replace(effect_entry, payload_shape=OnlyResearchScientificStatisticsShapeV3.SERIES)
+    with pytest.raises(ValueError, match="Plan type mismatch"):
+        replace(pair_entry, plan=effect_entry.plan)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="Plan type mismatch"):
+        replace(effect_entry, plan=pair_entry.plan)  # type: ignore[arg-type]
+    contradictory_pair = pair_entry.to_dict()
+    contradictory_pair["payload_shape"] = OnlyResearchScientificStatisticsShapeV3.SUMMARY.value
+    with pytest.raises(ValueError, match="payload shape mismatch"):
+        only_research_scientific_catalog_entry_v3_from_dict(contradictory_pair)
+    contradictory_effect = effect_entry.to_dict()
+    contradictory_effect["payload_shape"] = OnlyResearchScientificStatisticsShapeV3.SERIES.value
+    with pytest.raises(ValueError, match="payload shape mismatch"):
+        only_research_scientific_catalog_entry_v3_from_dict(contradictory_effect)
+    _mutate_catalog_and_assert_corrupt(
+        store,
+        result.manifest.research_result_fingerprint,
+        pair_entry.statistics_fingerprint,
+        payload_shape=OnlyResearchScientificStatisticsShapeV3.SUMMARY,
+    )
+    _mutate_catalog_and_assert_corrupt(
+        store,
+        result.manifest.research_result_fingerprint,
+        effect_entry.statistics_fingerprint,
+        payload_shape=OnlyResearchScientificStatisticsShapeV3.SERIES,
+    )
+    changed_pair = replace(pair_entry.plan, dataset_snapshot_fingerprint="f" * 64)
+    with pytest.raises(ValueError, match="Plan Dataset linkage mismatch"):
+        replace(pair_entry, plan=changed_pair, statistics_fingerprint=changed_pair.statistics_fingerprint)
+    _mutate_catalog_and_assert_corrupt(
+        store,
+        result.manifest.research_result_fingerprint,
+        pair_entry.statistics_fingerprint,
+        plan_dataset_snapshot_fingerprint=changed_pair.dataset_snapshot_fingerprint,
+        changed_statistics_fingerprint=changed_pair.statistics_fingerprint,
+    )
+    changed_effect = replace(effect_entry.plan, dataset_snapshot_fingerprint="f" * 64)
+    with pytest.raises(ValueError, match="Plan Dataset linkage mismatch"):
+        replace(effect_entry, plan=changed_effect, statistics_fingerprint=changed_effect.statistics_fingerprint)
+    _mutate_catalog_and_assert_corrupt(
+        store,
+        result.manifest.research_result_fingerprint,
+        effect_entry.statistics_fingerprint,
+        plan_dataset_snapshot_fingerprint=changed_effect.dataset_snapshot_fingerprint,
+        changed_statistics_fingerprint=changed_effect.statistics_fingerprint,
+    )
     assert (
         loaded.statistics_summaries[0].summary.to_dict()
         == summary_store.load_verified(effect_plan.statistics_fingerprint).summary.to_dict()
@@ -292,12 +374,31 @@ def test_scientific_v3_parameter_neighborhood_preserves_assignments_and_dependen
     neighborhood = next(
         x for x in loaded.statistics_catalog if x.statistics_fingerprint == neighborhood_plan.statistics_fingerprint
     )
+    assert (
+        neighborhood.plan.dataset_snapshot_fingerprint
+        == neighborhood.dataset_snapshot_fingerprint
+        == loaded.manifest.dataset_snapshot_fingerprint
+    )
     assert neighborhood.plan.to_dict() == neighborhood_plan.to_dict()
     summary = next(
         x for x in loaded.statistics_summaries if x.statistics_fingerprint == neighborhood_plan.statistics_fingerprint
     )
     assert (
         summary.summary.to_dict() == case[12].load_verified(neighborhood_plan.statistics_fingerprint).summary.to_dict()
+    )
+    changed_neighborhood = replace(neighborhood.plan, dataset_snapshot_fingerprint="f" * 64)
+    with pytest.raises(ValueError, match="Plan Dataset linkage mismatch"):
+        replace(
+            neighborhood,
+            plan=changed_neighborhood,
+            statistics_fingerprint=changed_neighborhood.statistics_fingerprint,
+        )
+    _mutate_catalog_and_assert_corrupt(
+        store,
+        result.manifest.research_result_fingerprint,
+        neighborhood.statistics_fingerprint,
+        plan_dataset_snapshot_fingerprint=changed_neighborhood.dataset_snapshot_fingerprint,
+        changed_statistics_fingerprint=changed_neighborhood.statistics_fingerprint,
     )
     _corrupt_summary_scalar_and_assert(store, result.manifest.research_result_fingerprint)
 
@@ -377,6 +478,39 @@ def _repair_section_envelope(root, relative_path: str, semantic_rows) -> None:  
         manifest["research_result_fingerprint"], sections
     )
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def _mutate_catalog_and_assert_corrupt(
+    store,  # type: ignore[no-untyped-def]
+    identity: str,
+    statistics_fingerprint: str,
+    *,
+    payload_shape: OnlyResearchScientificStatisticsShapeV3 | None = None,
+    plan_dataset_snapshot_fingerprint: str | None = None,
+    changed_statistics_fingerprint: str | None = None,
+) -> None:
+    root = store._target(identity)
+    path = root / "statistics_catalog.json"
+    manifest_path = root / "artifact_manifest.json"
+    original_catalog = path.read_bytes()
+    original_manifest = manifest_path.read_bytes()
+    payload = json.loads(original_catalog)
+    entry = next(x for x in payload if x["statistics_fingerprint"] == statistics_fingerprint)
+    if payload_shape is not None:
+        entry["payload_shape"] = payload_shape.value
+    if plan_dataset_snapshot_fingerprint is not None:
+        entry["plan"]["dataset_snapshot_fingerprint"] = plan_dataset_snapshot_fingerprint
+    if changed_statistics_fingerprint is not None:
+        entry["statistics_fingerprint"] = changed_statistics_fingerprint
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    _repair_section_envelope(root, path.name, payload)
+    try:
+        with pytest.raises(OnlyResearchArtifactStoreError) as raised:
+            store.load_verified(identity)
+        assert raised.value.code == "ARTIFACT_CORRUPT"
+    finally:
+        path.write_bytes(original_catalog)
+        manifest_path.write_bytes(original_manifest)
 
 
 def _corrupt_summary_scalar_and_assert(store, identity: str) -> None:  # type: ignore[no-untyped-def]

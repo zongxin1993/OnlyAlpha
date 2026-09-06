@@ -197,3 +197,11 @@ def test_scientific_v3_complete_mixed_rich_product_verifies_offline(tmp_path) ->
 
     assert {x.statistics_fingerprint for x in loaded.statistics_catalog} == set(global_statistics)
     assert len(loaded.statistics_summaries) == 7
+    rich_entries = [x for x in loaded.statistics_catalog if hasattr(x.plan, "dataset_snapshot_fingerprint")]
+    assert rich_entries
+    assert all(
+        entry.plan.dataset_snapshot_fingerprint
+        == entry.dataset_snapshot_fingerprint
+        == loaded.manifest.dataset_snapshot_fingerprint
+        for entry in rich_entries
+    )
