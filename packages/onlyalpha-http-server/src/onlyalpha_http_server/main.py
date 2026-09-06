@@ -62,7 +62,12 @@ from onlyalpha.research.command.query import OnlyResearchRunQueryService
 from onlyalpha.research.command.service import OnlyResearchCommandService
 from onlyalpha.research.dataset import OnlyDatasetEconomicBindingStore, OnlyParquetResearchDatasetSnapshotStore
 from onlyalpha.research.definition.resolver import OnlyResearchDefinitionResolver
+from onlyalpha.research.evaluation.factor_pair.result_store import (
+    OnlyParquetResearchFactorPairStatisticsResultStore,
+)
 from onlyalpha.research.evaluation.result_store import OnlyParquetResearchStatisticsResultStore
+from onlyalpha.research.evaluation.summary.reader import OnlyResearchStatisticsResultReader
+from onlyalpha.research.evaluation.summary.result_store import OnlyJsonResearchSummaryStatisticsResultStore
 from onlyalpha.research.operations.deployment import (
     OnlyResearchDeploymentCoherenceVerifier,
     OnlyResearchFrozenDeploymentCheck,
@@ -350,9 +355,24 @@ def main(argv: Sequence[str] | None = None) -> int:
                 layout.research_calculation_result_root,
                 dataset_store,
             )
-            statistics_results = OnlyParquetResearchStatisticsResultStore(
+            legacy_statistics_results = OnlyParquetResearchStatisticsResultStore(
                 layout.research_statistics_result_root,
                 calculation_results,
+            )
+            factor_pair_statistics_results = OnlyParquetResearchFactorPairStatisticsResultStore(
+                layout.research_statistics_result_root,
+                calculation_results,
+            )
+            summary_statistics_results = OnlyJsonResearchSummaryStatisticsResultStore(
+                layout.research_statistics_result_root,
+                legacy_statistics_results,
+                factor_pair_source_store=factor_pair_statistics_results,
+            )
+            statistics_results = OnlyResearchStatisticsResultReader(
+                layout.research_statistics_result_root,
+                legacy_statistics_results,
+                summary_statistics_results,
+                factor_pair_statistics_results,
             )
             research_results = OnlyJsonResearchResultStore(
                 layout.research_result_root,
@@ -383,6 +403,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 research_results=research_results,
                 backtest_evidence=OnlyBacktestEvidenceStore(layout.root),
                 decisions=qualification_decision_publisher,
+                research_statistics=statistics_results,
             )
             qualification = OnlyQualificationProductService(
                 evaluator=qualification_evaluator,

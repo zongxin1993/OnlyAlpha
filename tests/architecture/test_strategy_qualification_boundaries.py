@@ -29,7 +29,11 @@ def test_qualification_reads_authoritative_manifests_without_runtime_or_raw_data
     forbidden = (
         "onlyalpha.domain.market",
         "onlyalpha.research.dataset",
+        "onlyalpha.research.query",
+        "onlyalpha.research.artifact",
         "onlyalpha.research.evaluation.execution",
+        "onlyalpha.research.evaluation.factor_pair.execution",
+        "onlyalpha.research.evaluation.summary.execution",
         "onlyalpha.backtest.execution",
         "onlyalpha.runtime",
         "onlyalpha.data",
@@ -38,6 +42,13 @@ def test_qualification_reads_authoritative_manifests_without_runtime_or_raw_data
     source = QUALIFICATION.read_text(encoding="utf-8").lower()
     for forbidden_token in ("openai", "deepseek", "random", "latest", "newest", "sleep("):
         assert forbidden_token not in source
+
+
+def test_production_composition_injects_common_typed_statistics_reader_without_new_authority() -> None:
+    composition = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"
+    source = composition.read_text(encoding="utf-8")
+    assert "OnlyResearchStatisticsResultReader(" in source
+    assert "research_statistics=statistics_results" in source
 
 
 def test_decision_publication_is_evaluator_sealed_and_public_store_is_read_only() -> None:

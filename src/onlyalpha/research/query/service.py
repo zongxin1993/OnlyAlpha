@@ -203,9 +203,16 @@ class OnlyResearchQueryService:
         if not isinstance(query, OnlyResearchStatisticSeriesQuery):
             raise OnlyResearchQueryError(OnlyResearchQueryErrorCode.INVALID_QUERY, "series query contract is invalid")
         artifact = self._load(query.research_result_fingerprint)
-        if query.statistics_fingerprint not in {
-            item.statistics_fingerprint for item in artifact.manifest.statistics_results
-        }:
+        legacy_statistics = (
+            {
+                item.statistics_fingerprint
+                for item in artifact.statistics_catalog
+                if isinstance(item, OnlyResearchScientificLegacySeriesCatalogEntryV3)
+            }
+            if isinstance(artifact, OnlyResearchScientificArtifactV3)
+            else {item.statistics_fingerprint for item in artifact.manifest.statistics_results}
+        )
+        if query.statistics_fingerprint not in legacy_statistics:
             raise OnlyResearchQueryError(
                 OnlyResearchQueryErrorCode.STATISTICS_NOT_FOUND,
                 "Statistics identity is not a member of the Research Artifact",

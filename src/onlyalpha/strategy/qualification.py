@@ -9,13 +9,31 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, NoReturn, Protocol
 
 from onlyalpha.canonical import only_canonical_fingerprint
+from onlyalpha.research.evaluation.factor_pair.result import OnlyResearchFactorPairStatisticsResult
+from onlyalpha.research.evaluation.result import OnlyResearchStatisticsResult
+from onlyalpha.research.evaluation.summary.metric import (
+    OnlyResearchSummaryMetricDescriptor,
+    OnlyResearchSummaryValueKind,
+    only_research_summary_metric,
+)
+from onlyalpha.research.evaluation.summary.plan import (
+    OnlyResearchCoverageSummaryPlan,
+    OnlyResearchEffectSummaryPlan,
+    OnlyResearchFactorPairEffectSummaryPlan,
+    OnlyResearchParameterNeighborhoodSummaryPlan,
+    OnlyResearchTemporalStabilityPlan,
+)
+from onlyalpha.research.evaluation.summary.result import OnlyResearchSummaryStatisticsResult
+from onlyalpha.research.evaluation.summary.scalar import OnlyResearchSummaryScalar, OnlyResearchSummaryScalarStatus
+from onlyalpha.research.result.identity import RESEARCH_RESULT_SCIENTIFIC_SCHEMA_VERSION
+from onlyalpha.research.result.plan import OnlyResearchResultCandidatePlan
+from onlyalpha.research.result.result import OnlyResearchResult, OnlyResearchResultManifest
 from onlyalpha.strategy.errors import OnlyQualificationError
 from onlyalpha.strategy.freeze_relation import OnlyStrategyFreezeRelation
 from onlyalpha.strategy.store import OnlyStrategyRevisionReader
 
 if TYPE_CHECKING:
     from onlyalpha.backtest.evidence import OnlyBacktestEvidenceManifest
-    from onlyalpha.research.result.result import OnlyResearchResult
 
 
 class OnlyQualificationGate(StrEnum):
@@ -372,12 +390,22 @@ class _ResearchResultReader(Protocol):
     def load_verified(self, research_result_plan_fingerprint: str) -> OnlyResearchResult: ...
 
 
+class _ResearchStatisticsReader(Protocol):
+    def load_verified(self, statistics_fingerprint: str) -> object: ...
+
+
 class _BacktestEvidenceReader(Protocol):
     def load_verified(self, evidence_fingerprint: str) -> OnlyBacktestEvidenceManifest: ...
 
 
 class _FreezeRelationReader(OnlyStrategyRevisionReader, Protocol):
     def load_freeze_relation(self, relation_fingerprint: str) -> OnlyStrategyFreezeRelation: ...
+
+
+@dataclass(frozen=True, slots=True)
+class _ResearchQualificationContext:
+    manifest: OnlyResearchResultManifest
+    frozen_candidate_fingerprint: str
 
 
 class OnlyQualificationEvaluator:
@@ -391,12 +419,14 @@ class OnlyQualificationEvaluator:
         research_results: _ResearchResultReader,
         backtest_evidence: _BacktestEvidenceReader,
         decisions: OnlyQualificationDecisionAuthority,
+        research_statistics: _ResearchStatisticsReader | None = None,
     ) -> None:
         self._strategies = strategies
         self._policies = policies
         self._research_results = research_results
         self._backtest_evidence = backtest_evidence
         self._decisions = decisions
+        self._research_statistics = research_statistics
 
     def evaluate(
         self,
@@ -414,18 +444,12 @@ class OnlyQualificationEvaluator:
         if len(evidence) != 1 or evidence[0].kind is not expected_kind:
             _fail("QUALIFICATION_EVIDENCE_GATE_MISMATCH", policy.gate.value)
         canonical_evidence = tuple(sorted(evidence))
-        metrics = self._metrics(subject_strategy_fingerprint, canonical_evidence[0])
+        research_context, metrics = self._evidence_context(subject_strategy_fingerprint, canonical_evidence[0])
         results: list[OnlyQualificationCriterionResult] = []
         for criterion in policy.criteria:
             if criterion.evidence_kind is not expected_kind:
                 _fail("QUALIFICATION_EVIDENCE_GATE_MISMATCH", criterion.criterion_id)
-            observed = metrics.get(criterion.metric)
-            if observed is None:
-                supported = criterion.metric in _SUPPORTED_METRICS
-                _fail(
-                    "QUALIFICATION_REQUIRED_EVIDENCE_MISSING" if supported else "QUALIFICATION_POLICY_UNSUPPORTED",
-                    criterion.metric,
-                )
+            observed = self._resolve_metric(criterion.metric, expected_kind, metrics, research_context)
             passed = _compare(observed, criterion.comparison, criterion.threshold)
             results.append(
                 OnlyQualificationCriterionResult(
@@ -485,7 +509,9 @@ class OnlyQualificationEvaluator:
         except Exception as exc:
             _fail("QUALIFICATION_POLICY_NOT_FOUND", f"{policy_id}@{policy_version}", exc)
 
-    def _metrics(self, subject: str, evidence: OnlyQualificationEvidenceReference) -> dict[str, Decimal]:
+    def _evidence_context(
+        self, subject: str, evidence: OnlyQualificationEvidenceReference
+    ) -> tuple[_ResearchQualificationContext | None, dict[str, Decimal]]:
         if evidence.kind is OnlyQualificationEvidenceKind.RESEARCH_RESULT:
             assert evidence.locator_fingerprint is not None
             assert evidence.subject_binding_fingerprint is not None
@@ -505,20 +531,133 @@ class OnlyQualificationEvaluator:
             research_manifest = result.manifest
             if research_manifest.research_result_fingerprint != evidence.evidence_fingerprint:
                 _fail("QUALIFICATION_EVIDENCE_SUBJECT_MISMATCH", evidence.evidence_fingerprint)
-            return {
-                "research.statistics_result_count": Decimal(len(research_manifest.statistics_results)),
-                "research.calculation_result_count": Decimal(len(research_manifest.calculation_results)),
-            }
+            return (
+                _ResearchQualificationContext(research_manifest, relation.candidate_fingerprint),
+                {
+                    "research.statistics_result_count": Decimal(len(research_manifest.statistics_results)),
+                    "research.calculation_result_count": Decimal(len(research_manifest.calculation_results)),
+                },
+            )
         try:
             backtest_manifest = self._backtest_evidence.load_verified(evidence.evidence_fingerprint)
         except Exception as exc:
             _fail("QUALIFICATION_EVIDENCE_NOT_FOUND", evidence.evidence_fingerprint, exc)
         if backtest_manifest.strategy_fingerprint != subject:
             _fail("QUALIFICATION_EVIDENCE_SUBJECT_MISMATCH", evidence.evidence_fingerprint)
-        return {
-            "backtest.artifact_count": Decimal(len(backtest_manifest.artifacts)),
-            "backtest.implementation_count": Decimal(len(backtest_manifest.implementation_fingerprints)),
-        }
+        return (
+            None,
+            {
+                "backtest.artifact_count": Decimal(len(backtest_manifest.artifacts)),
+                "backtest.implementation_count": Decimal(len(backtest_manifest.implementation_fingerprints)),
+            },
+        )
+
+    def _resolve_metric(
+        self,
+        metric: str,
+        evidence_kind: OnlyQualificationEvidenceKind,
+        legacy_metrics: Mapping[str, Decimal],
+        research_context: _ResearchQualificationContext | None,
+    ) -> Decimal:
+        observed = legacy_metrics.get(metric)
+        if observed is not None:
+            return observed
+        if metric in _SUPPORTED_METRICS:
+            _fail("QUALIFICATION_REQUIRED_EVIDENCE_MISSING", metric)
+        try:
+            descriptor = only_research_summary_metric(metric)
+        except ValueError as exc:
+            _fail("QUALIFICATION_POLICY_UNSUPPORTED", metric, exc)
+        if evidence_kind is not OnlyQualificationEvidenceKind.RESEARCH_RESULT or research_context is None:
+            _fail("QUALIFICATION_POLICY_UNSUPPORTED", metric)
+        return self._resolve_rich_research_metric(research_context, descriptor)
+
+    def _resolve_rich_research_metric(
+        self,
+        context: _ResearchQualificationContext,
+        descriptor: OnlyResearchSummaryMetricDescriptor,
+    ) -> Decimal:
+        if self._research_statistics is None:
+            _fail("QUALIFICATION_REQUIRED_EVIDENCE_MISSING", descriptor.metric_id)
+        manifest = context.manifest
+        if manifest.schema_version != RESEARCH_RESULT_SCIENTIFIC_SCHEMA_VERSION:
+            _fail("QUALIFICATION_REQUIRED_EVIDENCE_MISSING", descriptor.metric_id)
+        candidates = tuple(
+            candidate
+            for candidate in manifest.plan.candidates
+            if candidate.candidate_fingerprint == context.frozen_candidate_fingerprint
+        )
+        if not candidates:
+            _fail("QUALIFICATION_EVIDENCE_SUBJECT_MISMATCH", context.frozen_candidate_fingerprint)
+        if len(candidates) != 1:
+            _fail("QUALIFICATION_EVIDENCE_AMBIGUOUS", context.frozen_candidate_fingerprint)
+        candidate = candidates[0]
+        references = {item.statistics_fingerprint: item for item in manifest.statistics_results}
+        if len(references) != len(manifest.statistics_results):
+            _fail("QUALIFICATION_EVIDENCE_CORRUPT", manifest.research_result_fingerprint)
+        matches: list[OnlyResearchSummaryScalar] = []
+        for statistics_fingerprint in candidate.statistics_fingerprints:
+            reference = references.get(statistics_fingerprint)
+            if reference is None:
+                _fail("QUALIFICATION_EVIDENCE_CORRUPT", statistics_fingerprint)
+            try:
+                statistics = self._research_statistics.load_verified(statistics_fingerprint)
+            except Exception as exc:
+                code = str(getattr(exc, "code", ""))
+                classification = (
+                    "QUALIFICATION_EVIDENCE_NOT_FOUND"
+                    if code.endswith("NOT_FOUND")
+                    else "QUALIFICATION_EVIDENCE_CORRUPT"
+                )
+                _fail(classification, statistics_fingerprint, exc)
+            if not isinstance(
+                statistics,
+                (
+                    OnlyResearchStatisticsResult,
+                    OnlyResearchFactorPairStatisticsResult,
+                    OnlyResearchSummaryStatisticsResult,
+                ),
+            ):
+                _fail("QUALIFICATION_EVIDENCE_CORRUPT", statistics_fingerprint)
+            statistics_manifest = statistics.manifest
+            if (
+                statistics_manifest.statistics_fingerprint != statistics_fingerprint
+                or statistics_manifest.statistics_result_fingerprint != reference.statistics_result_fingerprint
+                or statistics_manifest.dataset_snapshot_fingerprint != manifest.dataset_snapshot_fingerprint
+            ):
+                _fail("QUALIFICATION_EVIDENCE_CORRUPT", statistics_fingerprint)
+            if not isinstance(statistics, OnlyResearchSummaryStatisticsResult):
+                continue
+            if not _summary_belongs_to_candidate(statistics, candidate):
+                _fail("QUALIFICATION_EVIDENCE_SUBJECT_MISMATCH", statistics_fingerprint)
+            plan = statistics.manifest.plan
+            if (
+                statistics.summary.summary_kind is not descriptor.summary_kind
+                or plan.definition.source_method is not descriptor.source_method
+            ):
+                continue
+            scalar = getattr(statistics.summary, descriptor.field_name, None)
+            if (
+                not isinstance(scalar, OnlyResearchSummaryScalar)
+                or scalar.metric_id != descriptor.metric_id
+                or scalar.value_kind is not descriptor.value_kind
+            ):
+                _fail("QUALIFICATION_EVIDENCE_CORRUPT", statistics_fingerprint)
+            matches.append(scalar)
+        if not matches:
+            _fail("QUALIFICATION_REQUIRED_EVIDENCE_MISSING", descriptor.metric_id)
+        if len(matches) != 1:
+            _fail("QUALIFICATION_EVIDENCE_AMBIGUOUS", descriptor.metric_id)
+        scalar = matches[0]
+        if scalar.status is not OnlyResearchSummaryScalarStatus.VALID:
+            _fail("QUALIFICATION_REQUIRED_EVIDENCE_INVALID", descriptor.metric_id)
+        if descriptor.value_kind is OnlyResearchSummaryValueKind.INTEGER:
+            if scalar.integer_value is None:
+                _fail("QUALIFICATION_REQUIRED_EVIDENCE_INVALID", descriptor.metric_id)
+            return Decimal(scalar.integer_value)
+        if scalar.decimal_value is None:
+            _fail("QUALIFICATION_REQUIRED_EVIDENCE_INVALID", descriptor.metric_id)
+        return scalar.decimal_value
 
 
 _SUPPORTED_METRICS = {
@@ -527,6 +666,26 @@ _SUPPORTED_METRICS = {
     "backtest.artifact_count",
     "backtest.implementation_count",
 }
+
+
+def _summary_belongs_to_candidate(
+    statistics: OnlyResearchSummaryStatisticsResult,
+    candidate: OnlyResearchResultCandidatePlan,
+) -> bool:
+    plan = statistics.manifest.plan
+    if isinstance(
+        plan,
+        (OnlyResearchEffectSummaryPlan, OnlyResearchCoverageSummaryPlan, OnlyResearchTemporalStabilityPlan),
+    ):
+        return plan.subject_candidate_fingerprint == candidate.candidate_fingerprint
+    if isinstance(plan, OnlyResearchParameterNeighborhoodSummaryPlan):
+        return plan.focal.candidate_fingerprint == candidate.candidate_fingerprint
+    if isinstance(plan, OnlyResearchFactorPairEffectSummaryPlan):
+        return candidate.candidate_fingerprint in {
+            plan.first_operand.candidate_fingerprint,
+            plan.second_operand.candidate_fingerprint,
+        }
+    return False
 
 
 def _evidence_kind(gate: OnlyQualificationGate) -> OnlyQualificationEvidenceKind:

@@ -30,6 +30,7 @@ from onlyalpha.research import (
     OnlyResearchResultPlan,
     OnlyResearchScientificArtifactMaterializerV3,
     OnlyResearchStatisticsDefinition,
+    OnlyResearchStatisticSeriesQuery,
     OnlyResearchStatisticsExecutor,
     OnlyResearchStatisticsMethod,
     OnlyResearchStatisticsPlan,
@@ -229,6 +230,19 @@ def test_scientific_v3_complete_mixed_rich_product_verifies_offline(tmp_path) ->
     typed = service.list_typed_statistics(identity)
     assert tuple(item.statistics_fingerprint for item in typed.statistics) == tuple(sorted(global_statistics))
     assert len({item.statistics_fingerprint for item in typed.statistics}) == len(global_statistics)
+    legacy_catalog = service.list_statistics(identity)
+    assert {item.statistics_fingerprint for item in legacy_catalog.statistics} == {
+        ic_plan.statistics_fingerprint,
+        rank_plan.statistics_fingerprint,
+    }
+    for legacy_plan in (ic_plan, rank_plan):
+        assert service.get_statistic_series(
+            OnlyResearchStatisticSeriesQuery(identity, legacy_plan.statistics_fingerprint)
+        ).points
+    for rich_identity in (pair_plan.statistics_fingerprint, effects[0].statistics_fingerprint):
+        with pytest.raises(OnlyResearchQueryError) as not_found:
+            service.get_statistic_series(OnlyResearchStatisticSeriesQuery(identity, rich_identity))
+        assert not_found.value.code is OnlyResearchQueryErrorCode.STATISTICS_NOT_FOUND
     assert {item.shape for item in typed.statistics} == {
         OnlyResearchTypedStatisticsShape.SERIES,
         OnlyResearchTypedStatisticsShape.SUMMARY,

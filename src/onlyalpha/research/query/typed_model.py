@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
+from typing import Protocol
+
+from onlyalpha.research.evaluation.summary.metric import only_research_summary_metric
 
 from .model import (
     RESEARCH_QUERY_SCHEMA_VERSION,
@@ -106,12 +109,20 @@ class OnlyResearchTypedCandidateBinding:
 
     def __post_init__(self) -> None:
         only_research_query_sha256(self.candidate_fingerprint, "candidate_fingerprint")
-        if (
-            not isinstance(self.assignment, tuple)
-            or self.assignment != tuple(sorted(self.assignment))
-            or len(dict(self.assignment)) != len(self.assignment)
+        if not isinstance(self.assignment, tuple) or any(
+            not isinstance(item, tuple)
+            or len(item) != 2
+            or not isinstance(item[0], str)
+            or not item[0]
+            or any(char.isspace() for char in item[0])
+            for item in self.assignment
         ):
             raise ValueError("typed Candidate assignment must be canonical")
+        names = tuple(name for name, _ in self.assignment)
+        if names != tuple(sorted(names)) or len(set(names)) != len(names):
+            raise ValueError("typed Candidate assignment must be canonical")
+        if any(not _canonical_assignment_scalar(value) for _, value in self.assignment):
+            raise ValueError("typed Candidate assignment contains an invalid canonical scalar")
         if not isinstance(self.source, OnlyResearchTypedStatisticsDependency):
             raise ValueError("typed Candidate source dependency is invalid")
 
@@ -381,6 +392,11 @@ class OnlyResearchTemporalSliceProjection:
         _non_negative(self.valid_timestamp_count, "valid_timestamp_count")
         if self.valid_timestamp_count > self.total_timestamp_count:
             raise ValueError("Temporal slice valid count exceeds total count")
+        if any(
+            not isinstance(value, OnlyResearchTemporalSliceValueProjection)
+            for value in (self.mean, self.stddev_sample, self.information_ratio, self.valid_timestamp_ratio)
+        ):
+            raise ValueError("Temporal slice values are invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -407,6 +423,28 @@ class OnlyResearchEffectSummaryProjection:
     zero_ratio: OnlyResearchTypedScalar
     summary_kind: OnlyResearchTypedSummaryKind = OnlyResearchTypedSummaryKind.EFFECT_SUMMARY
 
+    def __post_init__(self) -> None:
+        _candidate_summary_common(
+            self,
+            OnlyResearchTypedSummaryKind.EFFECT_SUMMARY,
+            (
+                "total_count",
+                "valid_count",
+                "insufficient_observations_count",
+                "zero_variance_feature_count",
+                "zero_variance_target_count",
+                "mean",
+                "stddev_sample",
+                "information_ratio",
+                "positive_count",
+                "negative_count",
+                "zero_count",
+                "positive_ratio",
+                "negative_ratio",
+                "zero_ratio",
+            ),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class OnlyResearchCoverageSummaryProjection:
@@ -427,6 +465,24 @@ class OnlyResearchCoverageSummaryProjection:
     pair_count_min: OnlyResearchTypedScalar
     pair_count_max: OnlyResearchTypedScalar
     summary_kind: OnlyResearchTypedSummaryKind = OnlyResearchTypedSummaryKind.COVERAGE_SUMMARY
+
+    def __post_init__(self) -> None:
+        _candidate_summary_common(
+            self,
+            OnlyResearchTypedSummaryKind.COVERAGE_SUMMARY,
+            (
+                "total_timestamp_count",
+                "valid_timestamp_count",
+                "valid_timestamp_ratio",
+                "insufficient_timestamp_count",
+                "zero_variance_feature_count",
+                "zero_variance_target_count",
+                "pair_count_total",
+                "pair_count_mean",
+                "pair_count_min",
+                "pair_count_max",
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -451,6 +507,34 @@ class OnlyResearchTemporalStabilitySummaryProjection:
     stddev_of_slice_means: OnlyResearchTypedScalar
     summary_kind: OnlyResearchTypedSummaryKind = OnlyResearchTypedSummaryKind.TEMPORAL_STABILITY
 
+    def __post_init__(self) -> None:
+        _candidate_summary_common(
+            self,
+            OnlyResearchTypedSummaryKind.TEMPORAL_STABILITY,
+            (
+                "slice_count",
+                "valid_slice_count",
+                "positive_mean_slice_count",
+                "negative_mean_slice_count",
+                "zero_mean_slice_count",
+                "positive_mean_slice_ratio",
+                "negative_mean_slice_ratio",
+                "zero_mean_slice_ratio",
+                "min_slice_mean",
+                "max_slice_mean",
+                "stddev_of_slice_means",
+            ),
+        )
+        if not isinstance(self.slices, tuple) or any(
+            not isinstance(item, OnlyResearchTemporalSliceProjection) for item in self.slices
+        ):
+            raise ValueError("Temporal Stability slices are invalid")
+        intervals = tuple((item.start_ts_event_ns, item.end_ts_event_ns) for item in self.slices)
+        if intervals != tuple(sorted(intervals)) or any(
+            left[1] > right[0] for left, right in zip(intervals, intervals[1:], strict=False)
+        ):
+            raise ValueError("Temporal Stability slices must be ordered and non-overlapping")
+
 
 @dataclass(frozen=True, slots=True)
 class OnlyResearchFactorPairEffectSummaryProjection:
@@ -463,6 +547,22 @@ class OnlyResearchFactorPairEffectSummaryProjection:
     mean: OnlyResearchTypedScalar
     stddev_sample: OnlyResearchTypedScalar
     summary_kind: OnlyResearchTypedSummaryKind = OnlyResearchTypedSummaryKind.FACTOR_PAIR_EFFECT_SUMMARY
+
+    def __post_init__(self) -> None:
+        _summary_identity(self, OnlyResearchTypedSummaryKind.FACTOR_PAIR_EFFECT_SUMMARY)
+        if (
+            not isinstance(self.first_operand, OnlyResearchTypedFactorOperand)
+            or not isinstance(self.second_operand, OnlyResearchTypedFactorOperand)
+            or not isinstance(self.source, OnlyResearchTypedStatisticsDependency)
+            or self.source_method not in {"FACTOR_CORRELATION", "FACTOR_RANK_CORRELATION"}
+        ):
+            raise ValueError("Factor-Pair Effect Summary metadata is invalid")
+        _typed_scalar_fields(
+            self,
+            ("mean", "stddev_sample"),
+            expected_kind=OnlyResearchTypedSummaryKind.FACTOR_PAIR_EFFECT_SUMMARY,
+            source_method=self.source_method,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -483,6 +583,49 @@ class OnlyResearchParameterNeighborhoodSummaryProjection:
     local_range: OnlyResearchTypedScalar
     focal_minus_neighbor_mean: OnlyResearchTypedScalar
     summary_kind: OnlyResearchTypedSummaryKind = OnlyResearchTypedSummaryKind.PARAMETER_NEIGHBORHOOD_SUMMARY
+
+    def __post_init__(self) -> None:
+        _summary_identity(self, OnlyResearchTypedSummaryKind.PARAMETER_NEIGHBORHOOD_SUMMARY)
+        if (
+            not isinstance(self.source_metric_id, str)
+            or not self.source_metric_id
+            or not isinstance(self.focal, OnlyResearchTypedCandidateBinding)
+            or not isinstance(self.neighbors, tuple)
+            or any(not isinstance(item, OnlyResearchTypedCandidateBinding) for item in self.neighbors)
+        ):
+            raise ValueError("Parameter Neighborhood Summary metadata is invalid")
+        try:
+            source_descriptor = only_research_summary_metric(self.source_metric_id)
+        except ValueError as exc:
+            raise ValueError("Parameter Neighborhood Summary source metric is invalid") from exc
+        if (
+            source_descriptor.summary_kind.value != OnlyResearchTypedSummaryKind.EFFECT_SUMMARY.value
+            or source_descriptor.field_name != "mean"
+            or source_descriptor.source_method.value not in {"IC", "RANK_IC"}
+        ):
+            raise ValueError("Parameter Neighborhood Summary source metric is invalid")
+        neighbor_fingerprints = tuple(item.candidate_fingerprint for item in self.neighbors)
+        if self.focal.candidate_fingerprint in neighbor_fingerprints or len(set(neighbor_fingerprints)) != len(
+            neighbor_fingerprints
+        ):
+            raise ValueError("Parameter Neighborhood Summary Candidate bindings are invalid")
+        _typed_scalar_fields(
+            self,
+            (
+                "focal_value",
+                "neighbor_count",
+                "valid_neighbor_count",
+                "neighbor_no_valid_observations_count",
+                "neighbor_mean",
+                "neighbor_min",
+                "neighbor_max",
+                "neighbor_stddev_sample",
+                "local_range",
+                "focal_minus_neighbor_mean",
+            ),
+            expected_kind=OnlyResearchTypedSummaryKind.PARAMETER_NEIGHBORHOOD_SUMMARY,
+            source_method=source_descriptor.source_method.value,
+        )
 
 
 type OnlyResearchTypedStatisticSummary = (
@@ -505,6 +648,89 @@ def _descriptor_common(value: OnlyResearchTypedStatisticsDescriptor) -> None:
     version = value.statistics_result_schema_version
     if isinstance(version, bool) or not isinstance(version, int) or version <= 0:
         raise ValueError("Statistics result schema version must be positive")
+
+
+class _SummaryProjectionCommon(Protocol):
+    @property
+    def research_result_fingerprint(self) -> str: ...
+
+    @property
+    def statistics_fingerprint(self) -> str: ...
+
+    @property
+    def summary_kind(self) -> OnlyResearchTypedSummaryKind: ...
+
+
+class _CandidateSummaryProjectionCommon(_SummaryProjectionCommon, Protocol):
+    @property
+    def subject_candidate_fingerprint(self) -> str: ...
+
+    @property
+    def subject(self) -> OnlyResearchSeriesReference: ...
+
+    @property
+    def source(self) -> OnlyResearchTypedStatisticsDependency: ...
+
+    @property
+    def source_method(self) -> str: ...
+
+
+def _summary_identity(value: _SummaryProjectionCommon, expected_kind: OnlyResearchTypedSummaryKind) -> None:
+    only_research_query_sha256(value.research_result_fingerprint, "research_result_fingerprint")
+    only_research_query_sha256(value.statistics_fingerprint, "statistics_fingerprint")
+    if value.summary_kind is not expected_kind:
+        raise ValueError("typed Summary discriminant is invalid")
+
+
+def _candidate_summary_common(
+    value: _CandidateSummaryProjectionCommon,
+    expected_kind: OnlyResearchTypedSummaryKind,
+    scalar_fields: tuple[str, ...],
+) -> None:
+    _summary_identity(value, expected_kind)
+    only_research_query_sha256(value.subject_candidate_fingerprint, "subject_candidate_fingerprint")
+    if (
+        not isinstance(value.subject, OnlyResearchSeriesReference)
+        or not isinstance(value.source, OnlyResearchTypedStatisticsDependency)
+        or value.source_method not in {"IC", "RANK_IC"}
+    ):
+        raise ValueError("typed Candidate Summary metadata is invalid")
+    _typed_scalar_fields(
+        value,
+        scalar_fields,
+        expected_kind=expected_kind,
+        source_method=value.source_method,
+    )
+
+
+def _typed_scalar_fields(
+    value: object,
+    names: tuple[str, ...],
+    *,
+    expected_kind: OnlyResearchTypedSummaryKind,
+    source_method: str,
+) -> None:
+    for name in names:
+        scalar = getattr(value, name)
+        if not isinstance(scalar, OnlyResearchTypedScalar):
+            raise ValueError("typed Summary scalar fields are invalid")
+        try:
+            descriptor = only_research_summary_metric(scalar.metric_id)
+        except ValueError as exc:
+            raise ValueError("typed Summary scalar linkage is invalid") from exc
+        if (
+            descriptor.summary_kind.value != expected_kind.value
+            or descriptor.source_method.value != source_method
+            or descriptor.field_name != name
+            or descriptor.value_kind.value != scalar.value_kind.value
+        ):
+            raise ValueError("typed Summary scalar linkage is invalid")
+
+
+def _canonical_assignment_scalar(value: object) -> bool:
+    if value is None or isinstance(value, (bool, int, str)):
+        return True
+    return isinstance(value, Decimal) and value.is_finite()
 
 
 def _non_negative(value: object, name: str) -> None:
