@@ -24,6 +24,14 @@ from .scientific_materializer import (
 )
 from .scientific_model import *  # noqa: F403
 from .scientific_store import OnlyParquetResearchScientificArtifactStore
+from .scientific_v3_materializer import (
+    OnlyResearchScientificArtifactCandidateV3,
+    OnlyResearchScientificArtifactMaterializerV3,
+)
+from .scientific_v3_model import *  # noqa: F403
+from .scientific_v3_store import OnlyParquetResearchScientificArtifactStoreV3
 from .store import OnlyParquetResearchArtifactStore
 
-__all__ = [name for name in globals() if name.startswith(("Only", "only_", "RESEARCH_ARTIFACT_"))]
+__all__ = [
+    name for name in globals() if name.startswith(("Only", "only_", "RESEARCH_ARTIFACT_", "RESEARCH_SCIENTIFIC_"))
+]

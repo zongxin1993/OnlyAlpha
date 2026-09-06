@@ -12,10 +12,13 @@ from onlyalpha.research import (
     OnlyParquetResearchCalculationResultStore,
     OnlyParquetResearchDatasetSnapshotStore,
     OnlyParquetResearchScientificArtifactStore,
+    OnlyParquetResearchScientificArtifactStoreV3,
     OnlyParquetResearchStatisticsResultStore,
     OnlyResearchArtifactMaterializer,
     OnlyResearchDefinitionResolver,
     OnlyResearchScientificArtifactMaterializer,
+    OnlyResearchScientificArtifactMaterializerV3,
+    OnlyResearchStatisticsResultReader,
 )
 from onlyalpha.research.result.result_store import OnlyJsonResearchResultStore
 from tests.research.calculation.support import snapshot
@@ -89,6 +92,55 @@ def scientific_artifact_target(root: Path, research_result_fingerprint: str) -> 
         root
         / "scientific-artifacts"
         / "research-scientific-v2"
+        / "sha256"
+        / research_result_fingerprint[:2]
+        / research_result_fingerprint
+    )
+
+
+def scientific_artifact_v3_case(root: Path):
+    layout = OnlyUserDataLayout(root)
+    datasets = OnlyParquetResearchDatasetSnapshotStore(layout.research_dataset_root)
+    dataset_candidate, partitions = snapshot()
+    committed = datasets.commit(dataset_candidate, partitions)
+
+    class Resolver:
+        def resolve_verified(self, expected):  # type: ignore[no-untyped-def]
+            value = datasets.load_verified_table(committed.snapshot_fingerprint)
+            if value.snapshot.definition != expected:
+                raise ValueError("Dataset mismatch")
+            return value
+
+    resolved = OnlyResearchDefinitionResolver(evaluation_registry(), Resolver()).resolve(
+        definition(committed.definition)
+    )
+    engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("scientific-v3"), root))
+    runtime_id = engine.add_research_workload(resolved.workload)
+    engine.initialize()
+    engine.start()
+    outcome = engine.run_runtime(runtime_id)
+    engine.stop()
+    assert outcome.research_result_fingerprint is not None
+
+    calculations = OnlyParquetResearchCalculationResultStore(layout.research_calculation_result_root, datasets)
+    legacy = OnlyParquetResearchStatisticsResultStore(layout.research_statistics_result_root, calculations)
+    results = OnlyJsonResearchResultStore(layout.research_result_root, legacy, calculations)
+    reader = OnlyResearchStatisticsResultReader(layout.research_statistics_result_root, legacy, legacy)
+    candidate = OnlyResearchScientificArtifactMaterializerV3(results, datasets, calculations, reader).materialize(
+        resolved.workload.result_plan.fingerprint
+    )
+    store = OnlyParquetResearchScientificArtifactStoreV3(
+        root / "scientific-artifacts",
+        audit_time=lambda: datetime(2026, 9, 6, tzinfo=UTC),
+    )
+    return resolved, candidate, store
+
+
+def scientific_artifact_v3_target(root: Path, research_result_fingerprint: str) -> Path:
+    return (
+        root
+        / "scientific-artifacts"
+        / "research-scientific-v3"
         / "sha256"
         / research_result_fingerprint[:2]
         / research_result_fingerprint

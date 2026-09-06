@@ -7,6 +7,7 @@ from pathlib import Path
 from onlyalpha.research.artifact import (
     OnlyParquetResearchArtifactStore,
     OnlyParquetResearchScientificArtifactStore,
+    OnlyParquetResearchScientificArtifactStoreV3,
 )
 from onlyalpha.runtime.live.factory import OnlyLiveRuntimeFactory
 from onlyalpha.runtime.research.factory import OnlyResearchRuntimeFactory
@@ -51,7 +52,11 @@ def test_producer_authorities_do_not_reverse_depend_on_artifact() -> None:
 
 
 def test_portable_store_constructor_and_load_boundary_require_no_upstream_store() -> None:
-    for store in (OnlyParquetResearchArtifactStore, OnlyParquetResearchScientificArtifactStore):
+    for store in (
+        OnlyParquetResearchArtifactStore,
+        OnlyParquetResearchScientificArtifactStore,
+        OnlyParquetResearchScientificArtifactStoreV3,
+    ):
         constructor = inspect.signature(store)
         load = inspect.signature(store.load_verified)
         assert tuple(constructor.parameters) == ("root", "compression", "row_group_size", "audit_time")
@@ -83,3 +88,14 @@ def test_artifact_defines_no_plan_result_or_trading_authority_and_live_remains_u
     live = OnlyLiveRuntimeFactory().create(None)
     assert OnlyResearchRuntimeFactory().runtime_type == "RESEARCH"
     assert not live.supported and live.failure_code == "UNSUPPORTED_RUNTIME_TYPE"
+
+
+def test_scientific_v3_projection_does_not_import_numeric_execution_paths() -> None:
+    forbidden = (
+        "onlyalpha.research.evaluation.execution",
+        "onlyalpha.research.evaluation.factor_pair.execution",
+        "onlyalpha.research.evaluation.summary.execution",
+    )
+    for name in ("scientific_v3_materializer.py", "scientific_v3_verification.py"):
+        imports = _imports(Path("src/onlyalpha/research/artifact") / name)
+        assert not any(value.startswith(forbidden) for value in imports), (name, imports)
