@@ -89,7 +89,12 @@ def test_scientific_v3_namespace_and_encoding_independent_identity(tmp_path) -> 
     first = store.commit(candidate)
     assert "research-scientific-v3" in str(store._target(identity))
 
-    other = type(store)(tmp_path / "other", compression="gzip", row_group_size=1)
+    other = type(store)(
+        tmp_path / "other",
+        compression="gzip",
+        row_group_size=1,
+        audit_time=lambda: datetime(2026, 9, 6, tzinfo=UTC),
+    )
     second = other.commit(candidate)
     assert first.artifact_content_fingerprint == second.artifact_content_fingerprint
     first_loaded = store.load_verified(identity)
@@ -183,7 +188,9 @@ def test_scientific_v3_typed_summary_projects_and_verifies_offline(tmp_path, fac
     artifact_candidate = OnlyResearchScientificArtifactMaterializerV3(results, case[7], case[2], reader).materialize(
         result_plan.fingerprint
     )
-    store = OnlyParquetResearchScientificArtifactStoreV3(tmp_path / "artifacts")
+    store = OnlyParquetResearchScientificArtifactStoreV3(
+        tmp_path / "artifacts", audit_time=lambda: datetime(2026, 9, 6, tzinfo=UTC)
+    )
     store.commit(artifact_candidate)
     loaded = store.load_verified(result.manifest.research_result_fingerprint)
 
@@ -250,7 +257,9 @@ def test_scientific_v3_factor_pair_series_and_effect_verify_both_operands_offlin
     candidate = OnlyResearchScientificArtifactMaterializerV3(results, case[7], case[2], reader).materialize(
         plan.fingerprint
     )
-    store = OnlyParquetResearchScientificArtifactStoreV3(tmp_path / "artifacts")
+    store = OnlyParquetResearchScientificArtifactStoreV3(
+        tmp_path / "artifacts", audit_time=lambda: datetime(2026, 9, 6, tzinfo=UTC)
+    )
     store.commit(candidate)
     loaded = store.load_verified(result.manifest.research_result_fingerprint)
 
@@ -368,7 +377,9 @@ def test_scientific_v3_parameter_neighborhood_preserves_assignments_and_dependen
     artifact_candidate = OnlyResearchScientificArtifactMaterializerV3(results, case[7], case[2], reader).materialize(
         plan.fingerprint
     )
-    store = OnlyParquetResearchScientificArtifactStoreV3(tmp_path / "artifacts")
+    store = OnlyParquetResearchScientificArtifactStoreV3(
+        tmp_path / "artifacts", audit_time=lambda: datetime(2026, 9, 6, tzinfo=UTC)
+    )
     store.commit(artifact_candidate)
     loaded = store.load_verified(result.manifest.research_result_fingerprint)
     neighborhood = next(

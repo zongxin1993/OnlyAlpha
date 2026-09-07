@@ -8,6 +8,7 @@ from .errors import OnlySearchProvenanceError
 from .model import (
     OnlySearchExperimentManifest,
     OnlySearchExperimentManifestV2,
+    OnlySearchExperimentManifestV3,
     OnlySearchIterationPlanV1,
     OnlySearchIterationResultV1,
 )
@@ -68,30 +69,36 @@ class OnlySearchProposalReader(Protocol):
 
 class OnlySearchContextValue(Protocol):
     @property
-    def experiment(self) -> OnlySearchExperimentManifestV2: ...
+    def experiment(self) -> OnlySearchExperimentManifestV2 | OnlySearchExperimentManifestV3: ...
 
 
 class OnlySearchContextReader(Protocol):
-    def resolve_verified_context(self, experiment: OnlySearchExperimentManifestV2) -> OnlySearchContextValue: ...
+    def resolve_verified_context(
+        self, experiment: OnlySearchExperimentManifestV2 | OnlySearchExperimentManifestV3
+    ) -> OnlySearchContextValue: ...
 
     def load_proposal_contextual_verified(
-        self, experiment: OnlySearchExperimentManifestV2, plan: OnlySearchIterationPlanV1
+        self,
+        experiment: OnlySearchExperimentManifestV2 | OnlySearchExperimentManifestV3,
+        plan: OnlySearchIterationPlanV1,
     ) -> object: ...
 
     def load_proposal_occurrence_contextual_verified(
-        self, experiment: OnlySearchExperimentManifestV2, plan: OnlySearchIterationPlanV1
+        self,
+        experiment: OnlySearchExperimentManifestV2 | OnlySearchExperimentManifestV3,
+        plan: OnlySearchIterationPlanV1,
     ) -> object: ...
 
     def verify_iteration_plan_ledger(
         self,
-        experiment: OnlySearchExperimentManifestV2,
+        experiment: OnlySearchExperimentManifestV2 | OnlySearchExperimentManifestV3,
         plan: OnlySearchIterationPlanV1,
         committed_plans: tuple[OnlySearchIterationPlanV1, ...],
     ) -> None: ...
 
     def next_iteration_ordinal(
         self,
-        experiment: OnlySearchExperimentManifestV2,
+        experiment: OnlySearchExperimentManifestV2 | OnlySearchExperimentManifestV3,
         committed_plans: tuple[OnlySearchIterationPlanV1, ...],
     ) -> int: ...
 
@@ -267,8 +274,29 @@ def verify_search_experiment_references(
             experiment.dataset_snapshot_fingerprint,
         ) from exc
     reference = experiment.search_space_reference
-    if reference.search_space_kind == "ONLY_SYMBOLIC_FACTOR_SEARCH_SPACE":
-        if isinstance(experiment, OnlySearchExperimentManifestV2):
+    if isinstance(experiment, OnlySearchExperimentManifestV3):
+        if search_contexts is None:
+            raise OnlySearchProvenanceError(
+                "SEARCH_EXTERNAL_REFERENCE_READER_UNAVAILABLE",
+                "Verified adaptive Search Context reader",
+            )
+        try:
+            context = search_contexts.resolve_verified_context(experiment)
+            if context.experiment.experiment_fingerprint != experiment.experiment_fingerprint:
+                raise ValueError("Verified Search Context belongs to a different Experiment")
+        except OnlySearchProvenanceError:
+            raise
+        except Exception as exc:
+            raise OnlySearchProvenanceError(
+                "SEARCH_CONTEXT_REFERENCE_INVALID",
+                experiment.experiment_fingerprint,
+            ) from exc
+        return
+    if reference.search_space_kind in {
+        "ONLY_SYMBOLIC_FACTOR_SEARCH_SPACE",
+        "ONLY_PARAMETER_FACTOR_SEARCH_SPACE",
+    }:
+        if isinstance(experiment, (OnlySearchExperimentManifestV2, OnlySearchExperimentManifestV3)):
             if search_contexts is None:
                 raise OnlySearchProvenanceError(
                     "SEARCH_EXTERNAL_REFERENCE_READER_UNAVAILABLE",
@@ -319,9 +347,11 @@ def verify_search_iteration_proposal_reference(
 ) -> None:
     """Close method-specific Proposal references once their Authority exists."""
 
-    if plan.proposal_kind != "ONLY_SYMBOLIC_GRAPH_PROPOSAL":
+    if isinstance(experiment, OnlySearchExperimentManifestV3) and plan.proposal_kind != "ONLY_PARAMETER_GRAPH_PROPOSAL":
+        raise OnlySearchProvenanceError("SEARCH_PROPOSAL_REFERENCE_INVALID", plan.proposal_fingerprint)
+    if plan.proposal_kind not in {"ONLY_SYMBOLIC_GRAPH_PROPOSAL", "ONLY_PARAMETER_GRAPH_PROPOSAL"}:
         return
-    if isinstance(experiment, OnlySearchExperimentManifestV2):
+    if isinstance(experiment, (OnlySearchExperimentManifestV2, OnlySearchExperimentManifestV3)):
         if search_contexts is None:
             raise OnlySearchProvenanceError(
                 "SEARCH_EXTERNAL_REFERENCE_READER_UNAVAILABLE",

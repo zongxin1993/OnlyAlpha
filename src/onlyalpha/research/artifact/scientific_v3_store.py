@@ -341,9 +341,13 @@ class OnlyParquetResearchScientificArtifactStoreV3:
         return self._root / "research-scientific-v3" / "sha256" / fingerprint[:2] / fingerprint
 
     def _audit_timestamp(self) -> datetime:
-        value = self._audit_time() if self._audit_time is not None else datetime.now(UTC)
-        if value.tzinfo is None or value.utcoffset() != timedelta(0):
-            raise ValueError("Scientific Artifact V3 audit timestamp must be timezone-aware UTC")
+        if self._audit_time is None:
+            raise OnlyResearchArtifactStoreError("ARTIFACT_INVALID", "audit time authority is required for commit")
+        value = self._audit_time()
+        if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() != timedelta(0):
+            raise OnlyResearchArtifactStoreError(
+                "ARTIFACT_INVALID", "Scientific Artifact V3 audit timestamp must be timezone-aware UTC"
+            )
         return value
 
 

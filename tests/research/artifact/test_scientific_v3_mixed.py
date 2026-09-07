@@ -210,7 +210,9 @@ def test_scientific_v3_complete_mixed_rich_product_verifies_offline(tmp_path) ->
     candidate = OnlyResearchScientificArtifactMaterializerV3(results, case[7], case[2], reader).materialize(
         result_plan.fingerprint
     )
-    store = OnlyParquetResearchScientificArtifactStoreV3(tmp_path / "mixed-artifacts")
+    store = OnlyParquetResearchScientificArtifactStoreV3(
+        tmp_path / "mixed-artifacts", audit_time=lambda: datetime(2026, 9, 6, tzinfo=UTC)
+    )
     store.commit(candidate)
     loaded = store.load_verified(result.manifest.research_result_fingerprint)
 

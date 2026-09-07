@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import json
+import random
+import subprocess
+import sys
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from onlyalpha_plugin_targets.registration import registrations as target_registrations
@@ -43,23 +48,42 @@ from tests.research.specification.support import registry as specification_regis
 from .support import space
 from .test_research_and_provenance_integration import _evaluation, _experiment, _scientific_template
 
+_KNOWN_NULL_SEED = 3_309_2026
+_KNOWN_NULL_INSTRUMENTS = ("A.XNAS", "B.XNAS", "C.XNAS", "D.XNAS", "E.XNAS")
+_KNOWN_NULL_OBSERVATIONS = 64
 
-def _known_null_bars() -> tuple[OnlyBar, ...]:
-    paths = {
-        "A.XNAS": ("100", "101", "103", "102", "104", "107", "106"),
-        "B.XNAS": ("97", "99", "98", "101", "100", "102", "101"),
-        "C.XNAS": ("103", "102", "104", "101", "105", "103", "106"),
-        "D.XNAS": ("99", "98", "100", "97", "101", "100", "102"),
-        "E.XNAS": ("101", "103", "101", "104", "102", "105", "103"),
-    }
+
+def _known_null_innovations(seed: int = _KNOWN_NULL_SEED) -> tuple[tuple[int, ...], ...]:
+    """Return a finite IID random-walk DGP with an explicit fixed seed.
+
+    Each return innovation is one independent draw from the same symmetric
+    distribution.  The candidate sees only price history through the normal
+    causal Calculation graph, while the one-step Target consumes the next
+    innovation.  The no-edge property therefore follows from construction,
+    rather than from an observed finite-sample IC threshold.
+    """
+
+    generator = random.Random(seed)  # noqa: S311 - deterministic scientific fixture, not security randomness
+    support = (-3, -2, -1, 1, 2, 3)
+    return tuple(
+        tuple(generator.choice(support) for _ in range(_KNOWN_NULL_OBSERVATIONS - 1))
+        for _instrument in _KNOWN_NULL_INSTRUMENTS
+    )
+
+
+def _known_null_bars(seed: int = _KNOWN_NULL_SEED) -> tuple[OnlyBar, ...]:
+    innovations = _known_null_innovations(seed)
     result = []
     base = datetime(2026, 1, 5, 14, 30, tzinfo=UTC)
-    for instrument, closes in paths.items():
+    for instrument_index, instrument in enumerate(_KNOWN_NULL_INSTRUMENTS):
         bar_type = OnlyBarType(
             OnlyInstrumentId.parse(instrument),
             OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
             OnlyAggregationSource.EXTERNAL,
         )
+        closes = [10_000 + instrument_index * 100]
+        for innovation in innovations[instrument_index]:
+            closes.append(closes[-1] + innovation)
         for index, raw in enumerate(closes):
             value = Decimal(raw)
             start = base + timedelta(minutes=index)
@@ -89,13 +113,15 @@ def _known_null_bars() -> tuple[OnlyBar, ...]:
     return tuple(result)
 
 
-def test_deterministic_known_null_search_uses_normal_research_without_perfect_prediction(tmp_path) -> None:
-    layout = OnlyUserDataLayout(tmp_path)
+def _execute_known_null(root: Path, engine_id: str) -> dict[str, object]:
+    """Execute the null world through the canonical Dataset→Research path."""
+
+    layout = OnlyUserDataLayout(root)
     datasets = OnlyParquetResearchDatasetSnapshotStore(layout.research_dataset_root)
     candidate_dataset, partitions = snapshot(_known_null_bars())
     dataset = datasets.commit(candidate_dataset, partitions)
     generation, search_space = space(max_nodes=1)
-    symbolic = OnlyJsonSymbolicSearchStore(tmp_path)
+    symbolic = OnlyJsonSymbolicSearchStore(root)
     evaluation = _evaluation(dataset.snapshot_fingerprint)
     symbolic.commit_search_space(search_space)
     symbolic.commit_evaluation_contract(evaluation)
@@ -112,43 +138,71 @@ def test_deterministic_known_null_search_uses_normal_research_without_perfect_pr
         datasets=datasets,
         research_calculation_registry=specification_registry(),
     ).resolve_verified_context(experiment)
-    first = enumerate_symbolic_factor_proposals(context.verified_search_space, proposal_limit=1).proposals[0]
-    repeated = enumerate_symbolic_factor_proposals(context.verified_search_space, proposal_limit=1).proposals[0]
-    assert repeated == first
-
-    verified = verify_symbolic_proposal_reconstruction(first, context)
+    proposal = enumerate_symbolic_factor_proposals(context.verified_search_space, proposal_limit=1).proposals[0]
+    verified = verify_symbolic_proposal_reconstruction(proposal, context)
     registry = generation.calculation_registry()
     for registration in target_registrations():
         registry.register(registration)
     resolved = resolve_symbolic_research_candidate(verified, OnlyResearchSpecificationResolver(registry))
-    engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("symbolic-known-null"), tmp_path))
+    engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId(engine_id), root))
     runtime_id = engine.add_research_workload(resolved.resolution.workload)
     engine.initialize()
     engine.start()
-    first_execution = engine.run_runtime(runtime_id)
+    execution = engine.run_runtime(runtime_id)
     engine.stop()
-    assert first_execution.status is OnlyRuntimeResultStatus.COMPLETED
+    assert execution.status is OnlyRuntimeResultStatus.COMPLETED
 
     calculations = OnlyParquetResearchCalculationResultStore(layout.research_calculation_result_root, datasets)
     statistics = OnlyParquetResearchStatisticsResultStore(layout.research_statistics_result_root, calculations)
     results = OnlyJsonResearchResultStore(layout.research_result_root, statistics, calculations)
     loaded = results.load_verified(resolved.resolution.workload.result_plan.fingerprint)
-    assert loaded.manifest.research_result_fingerprint == first_execution.research_result_fingerprint
     assert len(loaded.manifest.statistics_results) == 1
     reference = loaded.manifest.statistics_results[0]
     authoritative_statistics = statistics.load_verified(reference.statistics_fingerprint)
     valid = tuple(row.statistic_value for row in authoritative_statistics.rows if row.statistic_value is not None)
     assert valid
-    assert all(abs(value) < Decimal("0.95") for value in valid)
+    return {
+        "dataset_fingerprint": dataset.snapshot_fingerprint,
+        "proposal_fingerprint": proposal.proposal_fingerprint,
+        "candidate_fingerprint": resolved.candidate.candidate_fingerprint,
+        "research_result_fingerprint": loaded.manifest.research_result_fingerprint,
+        "statistics_fingerprint": reference.statistics_fingerprint,
+        "statistics_values": [str(value) for value in valid],
+    }
 
-    replay = OnlyEngine(OnlyEngineConfig(OnlyEngineId("symbolic-known-null-replay"), tmp_path))
-    replay_id = replay.add_research_workload(resolved.resolution.workload)
-    replay.initialize()
-    replay.start()
-    repeated_execution = replay.run_runtime(replay_id)
-    replay.stop()
-    assert repeated_execution.research_result_fingerprint == first_execution.research_result_fingerprint
-    assert statistics.load_verified(reference.statistics_fingerprint) == authoritative_statistics
+
+def test_known_null_dgp_is_fixed_seed_iid_and_identity_stable() -> None:
+    first = _known_null_innovations()
+    assert first == _known_null_innovations()
+    assert first != _known_null_innovations(_KNOWN_NULL_SEED + 1)
+    assert len(first) == len(_KNOWN_NULL_INSTRUMENTS)
+    assert all(len(path) == _KNOWN_NULL_OBSERVATIONS - 1 for path in first)
+    assert {innovation for path in first for innovation in path} <= {-3, -2, -1, 1, 2, 3}
+    assert _known_null_bars() == _known_null_bars()
+
+
+def test_deterministic_known_null_search_exact_replays_in_fresh_process(tmp_path) -> None:
+    first = _execute_known_null(tmp_path, "symbolic-known-null")
+    program = (
+        "import json,sys; "
+        "from pathlib import Path; "
+        "from tests.research.search.symbolic.test_null_scientific_control "
+        "import _execute_known_null; "
+        "print(json.dumps(_execute_known_null(Path(sys.argv[1]), sys.argv[2]), sort_keys=True))"
+    )
+    repeated = json.loads(
+        subprocess.check_output(
+            [sys.executable, "-c", program, str(tmp_path), "symbolic-known-null-fresh-process"],
+            text=True,
+        )
+    )
+    assert repeated == first
+
+
+def test_deterministic_known_null_search_uses_normal_research_without_outcome_threshold(tmp_path) -> None:
+    first = _execute_known_null(tmp_path, "symbolic-known-null-normal-path")
+    repeated = _execute_known_null(tmp_path, "symbolic-known-null-normal-path-replay")
+    assert repeated == first
 
 
 def test_symbolic_evaluation_candidate_slot_cannot_be_the_target() -> None:

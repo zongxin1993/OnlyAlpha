@@ -21,6 +21,7 @@ from .model import (
     OnlySearchExperimentManifest,
     OnlySearchExperimentManifestV1,
     OnlySearchExperimentManifestV2,
+    OnlySearchExperimentManifestV3,
     OnlySearchIterationPlanV1,
     OnlySearchIterationResultV1,
     only_search_experiment_manifest_from_dict,
@@ -74,7 +75,10 @@ class OnlyJsonSearchProvenanceStore:
         self._search_contexts = search_contexts
 
     def commit_experiment(self, experiment: OnlySearchExperimentManifest) -> OnlySearchCommitOutcome:
-        if not isinstance(experiment, (OnlySearchExperimentManifestV1, OnlySearchExperimentManifestV2)):
+        if not isinstance(
+            experiment,
+            (OnlySearchExperimentManifestV1, OnlySearchExperimentManifestV2, OnlySearchExperimentManifestV3),
+        ):
             raise OnlySearchProvenanceStoreError("SEARCH_EXPERIMENT_INVALID", "manifest contract is invalid")
         verify_search_experiment_references(
             experiment,
@@ -125,7 +129,9 @@ class OnlyJsonSearchProvenanceStore:
         with self._iteration_plan_lock(plan.experiment_fingerprint):
             existing = self._iteration_plans_for_experiment(plan.experiment_fingerprint)
             ledger_verifier = getattr(self._search_contexts, "verify_iteration_plan_ledger", None)
-            if callable(ledger_verifier) and isinstance(experiment, OnlySearchExperimentManifestV2):
+            if callable(ledger_verifier) and isinstance(
+                experiment, (OnlySearchExperimentManifestV2, OnlySearchExperimentManifestV3)
+            ):
                 try:
                     ledger_verifier(experiment, plan, existing)
                 except Exception as exc:
@@ -152,11 +158,31 @@ class OnlyJsonSearchProvenanceStore:
 
         return self.search_restart_state_verified(experiment_fingerprint)[0]
 
+    def iteration_plans_for_experiment_verified(
+        self, experiment_fingerprint: str
+    ) -> tuple[OnlySearchIterationPlanV1, ...]:
+        """Expose the verified canonical occurrence ledger without a latest query."""
+
+        experiment = self.load_experiment_verified(experiment_fingerprint)
+        with self._iteration_plan_lock(experiment_fingerprint):
+            plans = self._iteration_plans_for_experiment(experiment_fingerprint)
+        if any(plan.experiment_fingerprint != experiment.experiment_fingerprint for plan in plans):
+            raise OnlySearchProvenanceStoreError("SEARCH_ITERATION_PREFIX_CORRUPT", experiment_fingerprint)
+        return tuple(self.load_iteration_plan_verified(plan.iteration_plan_fingerprint) for plan in plans)
+
+    def terminal_result_for_plan_verified(self, plan_fingerprint: str) -> OnlySearchIterationResultV1 | None:
+        """Return the sole terminal Result occurrence, if it has been committed."""
+
+        result = self._terminal_result_for_plan(plan_fingerprint)
+        if result is None:
+            return None
+        return self.load_iteration_result_verified(result.iteration_result_fingerprint)
+
     def search_restart_state_verified(self, experiment_fingerprint: str) -> tuple[int, int, int]:
         """Project restart position and consumed attempt budgets from durable terminal facts."""
 
         experiment = self.load_experiment_verified(experiment_fingerprint)
-        if not isinstance(experiment, OnlySearchExperimentManifestV2):
+        if not isinstance(experiment, (OnlySearchExperimentManifestV2, OnlySearchExperimentManifestV3)):
             raise OnlySearchProvenanceStoreError("SEARCH_ITERATION_LEDGER_UNSUPPORTED", experiment_fingerprint)
         resolver = getattr(self._search_contexts, "next_iteration_ordinal", None)
         if not callable(resolver):
@@ -206,7 +232,9 @@ class OnlyJsonSearchProvenanceStore:
             expected_search_space_fingerprint=experiment.search_space_reference.search_space_fingerprint,
         )
         ledger_verifier = getattr(self._search_contexts, "verify_iteration_plan_ledger", None)
-        if callable(ledger_verifier) and isinstance(experiment, OnlySearchExperimentManifestV2):
+        if callable(ledger_verifier) and isinstance(
+            experiment, (OnlySearchExperimentManifestV2, OnlySearchExperimentManifestV3)
+        ):
             with self._iteration_plan_lock(plan.experiment_fingerprint):
                 try:
                     ledger_verifier(

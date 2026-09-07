@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import cast
 
@@ -414,6 +414,25 @@ def test_scientific_store_helpers_and_admission_fail_closed_at_exact_boundaries(
         type(store)(tmp_path / "no-audit").commit(candidate)
     with pytest.raises(OnlyResearchArtifactStoreError, match="timezone-aware"):
         type(store)(tmp_path / "naive-audit", audit_time=lambda: datetime(2026, 1, 1)).commit(candidate)
+
+
+def test_scientific_v3_store_requires_explicit_utc_audit_time(tmp_path) -> None:
+    _, candidate, store = scientific_artifact_v3_case(tmp_path / "case")
+
+    with pytest.raises(OnlyResearchArtifactStoreError, match="audit time authority") as missing_audit:
+        type(store)(tmp_path / "no-audit").commit(candidate)
+    assert missing_audit.value.code == "ARTIFACT_INVALID"
+
+    with pytest.raises(OnlyResearchArtifactStoreError, match="timezone-aware") as naive_audit:
+        type(store)(tmp_path / "naive-audit", audit_time=lambda: datetime(2026, 1, 1)).commit(candidate)
+    assert naive_audit.value.code == "ARTIFACT_INVALID"
+
+    with pytest.raises(OnlyResearchArtifactStoreError, match="timezone-aware") as non_utc_audit:
+        type(store)(
+            tmp_path / "non-utc-audit",
+            audit_time=lambda: datetime(2026, 1, 1, tzinfo=timezone(timedelta(hours=8))),
+        ).commit(candidate)
+    assert non_utc_audit.value.code == "ARTIFACT_INVALID"
 
 
 def test_scientific_materializer_and_staged_commit_preserve_error_taxonomy(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
