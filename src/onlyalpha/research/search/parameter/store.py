@@ -10,7 +10,7 @@ import uuid
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.research.experiment import OnlySearchCommitDisposition, OnlySearchCommitOutcome
@@ -23,6 +23,9 @@ from .model import (
     OnlyParameterSearchFeedbackDecisionV1,
     OnlyParameterSearchPolicyV1,
 )
+
+if TYPE_CHECKING:
+    from .verification import OnlyVerifiedParameterSearchFeedbackDecisionV1
 
 _T = TypeVar("_T")
 
@@ -85,11 +88,13 @@ class OnlyJsonParameterSearchStore:
 
     def commit_feedback_decision(
         self,
-        value: OnlyParameterSearchFeedbackDecisionV1,
-        *,
-        expected_predecessor_fingerprint: str | None,
+        verified: OnlyVerifiedParameterSearchFeedbackDecisionV1,
     ) -> OnlySearchCommitOutcome:
-        """Publish the decision and advance exactly one Experiment frontier."""
+        """Publish one occurrence-verified decision and advance its frontier."""
+
+        from .verification import require_verified_parameter_feedback_decision
+
+        value, expected_predecessor_fingerprint = require_verified_parameter_feedback_decision(verified)
 
         lock = self._root / "frontiers" / f".{value.experiment_fingerprint}.lock"
         lock.parent.mkdir(parents=True, exist_ok=True)

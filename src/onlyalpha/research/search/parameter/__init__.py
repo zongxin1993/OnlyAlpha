@@ -9,6 +9,7 @@ from .evidence import *
 from .integration import *
 from .model import *
 from .store import *
+from .verification import *
 
 __all__ = [
     name

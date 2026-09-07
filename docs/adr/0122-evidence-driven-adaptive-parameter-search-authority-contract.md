@@ -128,3 +128,28 @@ PBO, FDR, Bonferroni or sealed-holdout policy.
 - Algorithm changes require new implementation identity and semantic changes require a new semantic version and Experiment.
 - Future Bayesian, evolutionary, RL, LLM or multiple-testing methods require separate method/policy contracts and cannot reinterpret V1
   history.
+
+### Authority and recovery closure amendment
+
+The formal adaptive Controller accepts only a verified Parameter Search Context. It derives the complete terminal Result prefix from
+Search Provenance and obtains every scientific scalar by exact traversal through the existing Research Result and Research Statistics
+authorities. The metric-bearing typed Evidence value remains an ephemeral input to the pure deterministic algorithm; it is not accepted
+from a caller by the formal durable workflow and is not a new scientific authority.
+
+Historical Algorithm Manifest verification and current-runtime execution admission are separate. Exact historical Experiment, Manifest,
+Feedback Decision, Plan and Result reads never compare historical bytes with current source. Before any new Feedback Decision is produced,
+the current runtime resource-closure Manifest must exactly equal both the Experiment binding and its exact persisted historical Manifest
+for algorithm ID, semantic version, implementation fingerprint and source revision. A mismatch fails closed as
+`PARAMETER_ALGORITHM_RUNTIME_MISMATCH` without invalidating history.
+
+A Feedback Decision becomes publishable only after contextual and occurrence verification recomputes the pure deterministic function from
+the exact verified Context, complete canonical terminal Result/Evidence prefix, admitted current Algorithm implementation, durable budget
+and exact prior Decision history, then proves full object equality. The Parameter Search Store accepts only that ephemeral verified
+capability. Content addressing, locking and frontier CAS remain storage/coordination mechanisms and cannot authorize a structurally valid
+but semantically fabricated Decision.
+
+Fresh-process recovery continues exclusively from existing durable Search Provenance, Parameter Search, Product Command Receipt,
+Research Run, Research Result and Statistics facts. A committed Decision precedes its Plan batch; missing Plans are recreated exactly,
+stable Plan-derived Product Command identity reuses an existing receipt/run, and completed Research is projected into the missing terminal
+Iteration Result without re-execution. Missing receipt is the only state that permits the existing atomic idempotent submission path;
+conflicting or ambiguous receipt/run identity fails closed and never causes blind retry or mutable optimizer-memory repair.

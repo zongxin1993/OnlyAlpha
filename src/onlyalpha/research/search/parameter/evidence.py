@@ -96,20 +96,26 @@ class OnlyParameterResearchEvidenceReader:
                 raise OnlyParameterSearchError("MISSING_REQUIRED_EVIDENCE", iteration_result_fingerprint)
             research = self._research.load_verified(reference.locator_fingerprint)
             manifest = cast(Any, research.manifest)
-            if manifest.research_result_fingerprint != reference.result_fingerprint:
+            if (
+                manifest.research_result_plan_fingerprint != reference.locator_fingerprint
+                or manifest.research_result_fingerprint != reference.result_fingerprint
+            ):
                 raise ValueError("Research Result identity differs")
             scalars: dict[str, OnlyResearchSummaryScalar] = {}
             for item in manifest.statistics_results:
                 result = self._statistics.load_verified(item.statistics_fingerprint)
                 result_manifest = cast(Any, result.manifest)
-                if result_manifest.statistics_result_fingerprint != item.statistics_result_fingerprint:
+                if (
+                    result_manifest.statistics_fingerprint != item.statistics_fingerprint
+                    or result_manifest.statistics_result_fingerprint != item.statistics_result_fingerprint
+                ):
                     raise ValueError("Statistics Result identity differs")
                 if not isinstance(result, OnlyResearchSummaryStatisticsResult):
                     continue
                 for scalar in _walk_scalars(result.summary):
                     existing = scalars.get(scalar.metric_id)
-                    if existing is not None and existing != scalar:
-                        raise ValueError("duplicate metric identity has conflicting values")
+                    if existing is not None:
+                        raise ValueError("duplicate metric identity is ambiguous")
                     scalars[scalar.metric_id] = scalar
             missing = set(policy.required_metric_ids) - set(scalars)
             if missing:

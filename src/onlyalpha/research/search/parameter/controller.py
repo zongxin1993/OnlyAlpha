@@ -14,9 +14,9 @@ from onlyalpha.research.experiment import (
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 
 from .algorithm import decide_parameter_search_v1
-from .context import OnlyVerifiedParameterSearchContextV1
+from .context import OnlyVerifiedParameterSearchContextV1, admit_current_parameter_algorithm_runtime
 from .errors import OnlyParameterSearchError
-from .evidence import OnlyParameterResearchEvidenceV1
+from .evidence import OnlyParameterResearchEvidenceReader, OnlyParameterResearchEvidenceV1
 from .integration import (
     OnlyParameterResearchCommandService,
     commit_feedback_plan_batch,
@@ -25,6 +25,7 @@ from .integration import (
 )
 from .model import OnlyParameterSearchFeedbackDecisionV1
 from .store import OnlyJsonParameterSearchStore
+from .verification import verify_parameter_feedback_decision_occurrence
 
 
 class OnlyParameterControllerProvenance(Protocol):
@@ -51,14 +52,15 @@ class OnlyParameterSearchControllerV1:
         *,
         parameter_store: OnlyJsonParameterSearchStore,
         provenance: OnlyParameterControllerProvenance,
+        evidence_reader: OnlyParameterResearchEvidenceReader,
     ) -> None:
         self._store = parameter_store
         self._provenance = provenance
+        self._evidence_reader = evidence_reader
 
     def advance(
         self,
         context: OnlyVerifiedParameterSearchContextV1,
-        evidence: tuple[OnlyParameterResearchEvidenceV1, ...],
     ) -> OnlyParameterControllerOutcomeV1:
         experiment = context.experiment
         current = self._store.load_frontier_fingerprint(experiment.experiment_fingerprint)
@@ -72,16 +74,25 @@ class OnlyParameterSearchControllerV1:
             if result is None:
                 raise OnlyParameterSearchError("SEARCH_ROUND_BARRIER_OPEN", plan.iteration_plan_fingerprint)
             terminal_results.append(result)
-        expected_results = {item.iteration_result_fingerprint for item in terminal_results}
-        if {item.iteration_result_fingerprint for item in evidence} != expected_results:
-            raise OnlyParameterSearchError("MISSING_REQUIRED_EVIDENCE", experiment.experiment_fingerprint)
+        runtime = admit_current_parameter_algorithm_runtime(context)
         plans_by_fingerprint = {item.iteration_plan_fingerprint: item for item in committed_plans}
-        results_by_fingerprint = {item.iteration_result_fingerprint: item for item in terminal_results}
-        for item in evidence:
-            result = results_by_fingerprint[item.iteration_result_fingerprint]
+        proposals_by_fingerprint = {item.proposal_fingerprint: item for item in context.proposals}
+        evidence = []
+        for result in terminal_results:
             evidence_plan = plans_by_fingerprint.get(result.iteration_plan_fingerprint)
-            if evidence_plan is None or evidence_plan.proposal_fingerprint != item.proposal.proposal_fingerprint:
-                raise OnlyParameterSearchError("IDENTITY_MISMATCH", item.iteration_result_fingerprint)
+            proposal = (
+                None if evidence_plan is None else proposals_by_fingerprint.get(evidence_plan.proposal_fingerprint)
+            )
+            if proposal is None:
+                raise OnlyParameterSearchError("IDENTITY_MISMATCH", result.iteration_result_fingerprint)
+            evidence.append(
+                self._evidence_reader.load_required(
+                    iteration_result_fingerprint=result.iteration_result_fingerprint,
+                    proposal=proposal,
+                    policy=context.policy,
+                )
+            )
+        evidence_values = tuple(evidence)
         decision_ids: list[str] = []
         for plan in sorted(committed_plans, key=lambda item: item.iteration_index):
             if not decision_ids or decision_ids[-1] != plan.decision_output_fingerprint:
@@ -91,15 +102,22 @@ class OnlyParameterSearchControllerV1:
             experiment_fingerprint=experiment.experiment_fingerprint,
             proposals=context.proposals,
             policy=context.policy,
-            algorithm_implementation_fingerprint=context.historical_algorithm_manifest.implementation_fingerprint,
+            algorithm_implementation_fingerprint=runtime.implementation_fingerprint,
             budget=experiment.search_budget,
-            evidence=evidence,
+            evidence=evidence_values,
             prior_decisions=prior,
         )
-        predecessor = prior[-1].feedback_decision_fingerprint if prior else None
+        verified = verify_parameter_feedback_decision_occurrence(
+            context=context,
+            provenance=self._provenance,
+            evidence_reader=self._evidence_reader,
+            decisions=self._store,
+            candidate_decision=decision,
+        )
+        predecessor = verified.predecessor_fingerprint
         if current is not None and current != decision.feedback_decision_fingerprint and current != predecessor:
             raise OnlyParameterSearchError("PARAMETER_FEEDBACK_FRONTIER_CONFLICT", current)
-        self._store.commit_feedback_decision(decision, expected_predecessor_fingerprint=predecessor)
+        self._store.commit_feedback_decision(verified)
         plans = commit_feedback_plan_batch(decision, context.proposals, self._provenance)
         return OnlyParameterControllerOutcomeV1(decision, plans)
 
@@ -158,11 +176,12 @@ class OnlyParameterSearchControllerV1:
         evidence: tuple[OnlyParameterResearchEvidenceV1, ...],
         prior_decisions: tuple[OnlyParameterSearchFeedbackDecisionV1, ...] = (),
     ) -> OnlyParameterSearchFeedbackDecisionV1:
+        runtime = admit_current_parameter_algorithm_runtime(context)
         reproduced = decide_parameter_search_v1(
             experiment_fingerprint=context.experiment.experiment_fingerprint,
             proposals=context.proposals,
             policy=context.policy,
-            algorithm_implementation_fingerprint=context.historical_algorithm_manifest.implementation_fingerprint,
+            algorithm_implementation_fingerprint=runtime.implementation_fingerprint,
             budget=context.experiment.search_budget,
             evidence=evidence,
             prior_decisions=prior_decisions,

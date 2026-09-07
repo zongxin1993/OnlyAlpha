@@ -36,6 +36,8 @@ def only_deterministic_coarse_to_fine_implementation() -> OnlyParameterSearchAlg
         "research/search/parameter/evidence.py",
         "research/search/parameter/integration.py",
         "research/search/parameter/controller.py",
+        "research/search/parameter/context.py",
+        "research/search/parameter/verification.py",
         "research/sweep/planning.py",
         "research/sweep/materialization.py",
         "calculation/definition.py",

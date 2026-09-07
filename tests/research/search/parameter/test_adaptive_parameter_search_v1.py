@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import fields, replace
+from datetime import UTC, datetime
 from decimal import Decimal
+from inspect import signature
 from threading import Barrier, Thread
 from types import SimpleNamespace
 from typing import Any, cast
@@ -10,6 +12,15 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+import onlyalpha.research.search.parameter.algorithm as parameter_algorithm
+from onlyalpha.research import (
+    OnlyJsonResearchResultStore,
+    OnlyResearchResultAssembler,
+    OnlyResearchResultCalculationPlan,
+    OnlyResearchResultCandidatePlan,
+    OnlyResearchResultPlan,
+    OnlyResearchStatisticsResultReader,
+)
 from onlyalpha.research.command.errors import OnlyResearchSubmissionConflictError
 from onlyalpha.research.evaluation.definition import OnlyResearchStatisticsMethod
 from onlyalpha.research.evaluation.summary.metric import only_research_effect_metric
@@ -27,21 +38,24 @@ from onlyalpha.research.experiment import (
     OnlySearchExperimentManifestV2,
     OnlySearchExperimentManifestV3,
     OnlySearchHypothesisV1,
+    OnlySearchIterationDisposition,
+    OnlySearchIterationResultV1,
     OnlySearchPolicyReferenceV1,
     OnlySearchRandomnessMode,
+    OnlySearchResearchResultReferenceV1,
     OnlySearchSpaceReferenceV1,
     OnlySearchWorkflowBindingV1,
 )
 from onlyalpha.research.run.model import OnlyResearchRunState
 from onlyalpha.research.search.parameter import (
     DETERMINISTIC_COARSE_TO_FINE_ALGORITHM_ID,
-    DETERMINISTIC_COARSE_TO_FINE_ALGORITHM_SEMANTIC_VERSION,
     PARAMETER_SEARCH_POLICY_KIND,
     PARAMETER_SEARCH_SPACE_KIND,
     OnlyJsonParameterSearchStore,
     OnlyParameterFactorSearchSpaceV1,
     OnlyParameterFeedbackDecisionKind,
     OnlyParameterObjectiveDirection,
+    OnlyParameterResearchEvidenceReader,
     OnlyParameterResearchEvidenceV1,
     OnlyParameterSearchAlgorithmManifestV1,
     OnlyParameterSearchControllerV1,
@@ -49,15 +63,16 @@ from onlyalpha.research.search.parameter import (
     OnlyParameterSearchFeedbackDecisionV1,
     OnlyParameterSearchPolicyV1,
     OnlyParameterSearchStopReason,
-    OnlyParameterSearchStoreError,
     OnlyParameterTieBreakerV1,
     OnlyResolvedParameterResearchCandidateV1,
     OnlyVerifiedParameterSearchContextV1,
     decide_parameter_search_v1,
     materialize_parameter_proposals,
+    only_deterministic_coarse_to_fine_implementation,
     plans_for_feedback_decision,
     reconcile_parameter_research_plan,
     resolve_parameter_research_candidate,
+    verify_parameter_feedback_decision_occurrence,
 )
 from onlyalpha.research.search.symbolic.evaluation import (
     SYMBOLIC_EVALUATION_CONTRACT_KIND,
@@ -70,6 +85,7 @@ from onlyalpha.research.specification.model import (
     OnlyResearchSpecification,
 )
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
+from tests.research.evaluation.support import summary_case
 from tests.research.specification.support import registry as specification_registry
 from tests.research.specification.support import specification
 from tests.research.sweep.support import definition, registry
@@ -145,12 +161,7 @@ def _decide(evidence=(), prior=(), policy=None):  # type: ignore[no-untyped-def]
 
 
 def _manifest(policy: OnlyParameterSearchPolicyV1) -> OnlySearchExperimentManifestV3:
-    algorithm = OnlyParameterSearchAlgorithmManifestV1(
-        DETERMINISTIC_COARSE_TO_FINE_ALGORITHM_ID,
-        DETERMINISTIC_COARSE_TO_FINE_ALGORITHM_SEMANTIC_VERSION,
-        "revision",
-        ("d" * 64,),
-    )
+    algorithm = only_deterministic_coarse_to_fine_implementation()
     space = _space()
     return OnlySearchExperimentManifestV3(
         OnlySearchHypothesisV1("finite adaptive parameter hypothesis"),
@@ -176,12 +187,7 @@ def _manifest(policy: OnlyParameterSearchPolicyV1) -> OnlySearchExperimentManife
 def _context() -> OnlyVerifiedParameterSearchContextV1:
     policy = _policy()
     experiment = _manifest(policy)
-    algorithm = OnlyParameterSearchAlgorithmManifestV1(
-        DETERMINISTIC_COARSE_TO_FINE_ALGORITHM_ID,
-        DETERMINISTIC_COARSE_TO_FINE_ALGORITHM_SEMANTIC_VERSION,
-        "revision",
-        ("d" * 64,),
-    )
+    algorithm = only_deterministic_coarse_to_fine_implementation()
     return OnlyVerifiedParameterSearchContextV1(
         experiment,
         _space(),
@@ -193,6 +199,52 @@ def _context() -> OnlyVerifiedParameterSearchContextV1:
         _proposals(),
         cast(Any, None),
     )
+
+
+def _decision_for_context(context: OnlyVerifiedParameterSearchContextV1 | None = None):  # type: ignore[no-untyped-def]
+    current = context or _context()
+    return decide_parameter_search_v1(
+        experiment_fingerprint=current.experiment.experiment_fingerprint,
+        proposals=current.proposals,
+        policy=current.policy,
+        algorithm_implementation_fingerprint=current.historical_algorithm_manifest.implementation_fingerprint,
+        budget=current.experiment.search_budget,
+        evidence=(),
+    )
+
+
+def _completed_initial_round(context: OnlyVerifiedParameterSearchContextV1):  # type: ignore[no-untyped-def]
+    initial = _decision_for_context(context)
+    plans = plans_for_feedback_decision(initial, context.proposals)
+    proposal_by_fingerprint = {item.proposal_fingerprint: item for item in context.proposals}
+    results = []
+    evidence = []
+    for index, plan in enumerate(plans):
+        result = OnlySearchIterationResultV1(
+            plan.iteration_plan_fingerprint,
+            f"{index + 10:064x}",
+            True,
+            OnlySearchResearchResultReferenceV1(f"{index + 20:064x}", f"{index + 30:064x}"),
+            False,
+            None,
+            OnlySearchIterationDisposition.RESEARCH_EVIDENCE_RECORDED,
+            None,
+        )
+        proposal = proposal_by_fingerprint[plan.proposal_fingerprint]
+        results.append(result)
+        evidence.append(
+            OnlyParameterResearchEvidenceV1(
+                result.iteration_result_fingerprint,
+                proposal,
+                {
+                    _METRIC: _scalar(_METRIC, f"0.{index + 1:012d}"),
+                    _TIE: _scalar(_TIE, f"0.{index + 1:012d}"),
+                },
+                True,
+                True,
+            )
+        )
+    return initial, plans, tuple(results), tuple(evidence)
 
 
 class _Provenance:
@@ -217,6 +269,63 @@ class _Provenance:
 
     def commit_iteration_result(self, value):  # type: ignore[no-untyped-def]
         self.results[value.iteration_plan_fingerprint] = value
+
+
+class _EvidenceReader:
+    def __init__(self, values=()):  # type: ignore[no-untyped-def]
+        self.values = {item.iteration_result_fingerprint: item for item in values}
+
+    def load_required(self, *, iteration_result_fingerprint, proposal, policy):  # type: ignore[no-untyped-def]
+        del policy
+        value = self.values[iteration_result_fingerprint]
+        assert value.proposal == proposal
+        return value
+
+
+class _DecisionReader:
+    def __init__(self, values=()):  # type: ignore[no-untyped-def]
+        self.values = {item.feedback_decision_fingerprint: item for item in values}
+
+    def load_feedback_decision_intrinsic_verified(self, fingerprint):  # type: ignore[no-untyped-def]
+        return self.values[fingerprint]
+
+
+class _ExactValues:
+    def __init__(self, values):  # type: ignore[no-untyped-def]
+        self._values = values
+
+    def load_iteration_result_verified(self, fingerprint):  # type: ignore[no-untyped-def]
+        return self._values[fingerprint]
+
+    def load_iteration_plan_verified(self, fingerprint):  # type: ignore[no-untyped-def]
+        return self._values[fingerprint]
+
+    def load_verified(self, fingerprint):  # type: ignore[no-untyped-def]
+        return self._values[fingerprint]
+
+
+def _verified(
+    decision: OnlyParameterSearchFeedbackDecisionV1,
+    *,
+    context: OnlyVerifiedParameterSearchContextV1 | None = None,
+    plans=(),  # type: ignore[no-untyped-def]
+    results=(),  # type: ignore[no-untyped-def]
+    evidence=(),  # type: ignore[no-untyped-def]
+    prior=(),  # type: ignore[no-untyped-def]
+):  # type: ignore[no-untyped-def]
+    current = context or _context()
+    provenance = _Provenance()
+    for plan in plans:
+        provenance.commit_iteration_plan(plan)
+    for result in results:
+        provenance.commit_iteration_result(result)
+    return verify_parameter_feedback_decision_occurrence(
+        context=current,
+        provenance=cast(Any, provenance),
+        evidence_reader=cast(Any, _EvidenceReader(evidence)),
+        decisions=cast(Any, _DecisionReader(prior)),
+        candidate_decision=decision,
+    )
 
 
 def test_at_b1_b2_b3_b5_deterministic_decision_ignores_load_and_completion_order() -> None:
@@ -291,30 +400,160 @@ def test_at_b9_v1_v2_readers_and_identity_are_unchanged() -> None:
     assert OnlySearchExperimentManifestV3.from_dict(v3.to_dict()) == v3
 
 
-def test_at_b10_b22_concurrent_frontier_is_put_once(tmp_path) -> None:
+def test_at_16_17_identical_verified_decisions_converge_to_created_and_reused(tmp_path) -> None:
     store = OnlyJsonParameterSearchStore(tmp_path)
-    proposals = _proposals()
-    first = _decide()
-    competing = replace(first, ordered_next_proposal_fingerprints=(proposals[1].proposal_fingerprint,))
+    first = _decision_for_context()
+    verified = _verified(first)
     barrier = Barrier(2)
     outcomes: list[object] = []
 
-    def commit(value: OnlyParameterSearchFeedbackDecisionV1) -> None:
+    def commit() -> None:
         barrier.wait()
         try:
-            outcomes.append(store.commit_feedback_decision(value, expected_predecessor_fingerprint=None))
+            outcomes.append(store.commit_feedback_decision(verified))
         except Exception as exc:  # exact observed concurrency outcome
             outcomes.append(exc)
 
-    threads = [Thread(target=commit, args=(item,)) for item in (first, competing)]
+    threads = [Thread(target=commit) for _ in range(2)]
     for thread in threads:
         thread.start()
     for thread in threads:
         thread.join()
-    assert sum(not isinstance(item, Exception) for item in outcomes) == 1
-    assert sum(isinstance(item, OnlyParameterSearchStoreError) for item in outcomes) == 1
-    committed = store.load_feedback_decision_intrinsic_verified(store.load_frontier_fingerprint(_SHA) or "")
-    assert committed in {first, competing}
+    assert not any(isinstance(item, Exception) for item in outcomes)
+    assert {item.disposition.value for item in outcomes} == {"CREATED", "REUSED"}  # type: ignore[attr-defined]
+    committed = store.load_feedback_decision_intrinsic_verified(
+        store.load_frontier_fingerprint(first.experiment_fingerprint) or ""
+    )
+    assert committed == first
+
+
+def test_at_01_formal_controller_has_no_metric_bearing_argument() -> None:
+    assert tuple(signature(OnlyParameterSearchControllerV1.advance).parameters) == ("self", "context")
+    assert tuple(signature(OnlyParameterSearchControllerV1.__init__).parameters) == (
+        "self",
+        "parameter_store",
+        "provenance",
+        "evidence_reader",
+    )
+    verifier_parameters = signature(verify_parameter_feedback_decision_occurrence).parameters
+    assert not {"current_algorithm", "committed_plans", "terminal_results", "evidence", "prior_decisions"} & set(
+        verifier_parameters
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        lambda value, proposals, results: replace(
+            value,
+            ordered_next_proposal_fingerprints=(proposals[-1].proposal_fingerprint,),
+        ),
+        lambda value, proposals, results: replace(
+            value,
+            selected_anchor_iteration_result_fingerprint=results[0].iteration_result_fingerprint,
+        ),
+        lambda value, proposals, results: replace(
+            value,
+            ordered_input_iteration_result_fingerprints=tuple(
+                reversed(value.ordered_input_iteration_result_fingerprints)
+            ),
+        ),
+        lambda value, proposals, results: replace(value, start_iteration_index=value.start_iteration_index + 1),
+    ),
+)
+def test_at_12_15_semantically_fabricated_feedback_decision_is_rejected(mutation) -> None:  # type: ignore[no-untyped-def]
+    context = _context()
+    initial, plans, results, evidence = _completed_initial_round(context)
+    exact = decide_parameter_search_v1(
+        experiment_fingerprint=context.experiment.experiment_fingerprint,
+        proposals=context.proposals,
+        policy=context.policy,
+        algorithm_implementation_fingerprint=context.historical_algorithm_manifest.implementation_fingerprint,
+        budget=context.experiment.search_budget,
+        evidence=evidence,
+        prior_decisions=(initial,),
+    )
+    fabricated = mutation(exact, context.proposals, results)
+    assert fabricated != exact
+    with pytest.raises(OnlyParameterSearchError, match="PARAMETER_FEEDBACK_OCCURRENCE_MISMATCH"):
+        _verified(
+            fabricated,
+            context=context,
+            plans=plans,
+            results=results,
+            evidence=evidence,
+            prior=(initial,),
+        )
+
+
+def test_at_11_exact_algorithm_decision_is_occurrence_verified() -> None:
+    context = _context()
+    decision = _decision_for_context(context)
+    assert _verified(decision, context=context).decision == decision
+
+
+def test_at_02_formal_controller_derives_metrics_from_its_authority_reader(tmp_path) -> None:
+    context = _context()
+    initial, plans, results, evidence = _completed_initial_round(context)
+    store = OnlyJsonParameterSearchStore(tmp_path)
+    store.commit_feedback_decision(_verified(initial, context=context))
+    provenance = _Provenance()
+    for plan in plans:
+        provenance.commit_iteration_plan(plan)
+    for result in results:
+        provenance.commit_iteration_result(result)
+    outcome = OnlyParameterSearchControllerV1(
+        parameter_store=store,
+        provenance=provenance,
+        evidence_reader=cast(Any, _EvidenceReader(evidence)),
+    ).advance(context)
+    expected = decide_parameter_search_v1(
+        experiment_fingerprint=context.experiment.experiment_fingerprint,
+        proposals=context.proposals,
+        policy=context.policy,
+        algorithm_implementation_fingerprint=context.historical_algorithm_manifest.implementation_fingerprint,
+        budget=context.experiment.search_budget,
+        evidence=evidence,
+        prior_decisions=(initial,),
+    )
+    assert outcome.decision == expected
+
+
+def test_unverified_structurally_valid_decision_cannot_enter_store(tmp_path) -> None:
+    decision = _decision_for_context()
+    with pytest.raises(OnlyParameterSearchError, match="PARAMETER_FEEDBACK_DECISION_UNVERIFIED"):
+        OnlyJsonParameterSearchStore(tmp_path).commit_feedback_decision(cast(Any, decision))
+
+
+def test_at_07_10_current_runtime_mismatch_blocks_execution_not_historical_load(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    context = _context()
+    decision, plans, results, evidence = _completed_initial_round(context)
+    store = OnlyJsonParameterSearchStore(tmp_path)
+    store.commit_feedback_decision(_verified(decision, context=context))
+    changed = replace(
+        context.historical_algorithm_manifest,
+        ordered_resource_sha256=("f" * 64,),
+    )
+    monkeypatch.setattr(parameter_algorithm, "only_deterministic_coarse_to_fine_implementation", lambda: changed)
+    provenance = _Provenance()
+    for plan in plans:
+        provenance.commit_iteration_plan(plan)
+    for result in results:
+        provenance.commit_iteration_result(result)
+    controller = OnlyParameterSearchControllerV1(
+        parameter_store=store,
+        provenance=provenance,
+        evidence_reader=cast(Any, _EvidenceReader(evidence)),
+    )
+    assert store.load_feedback_decision_intrinsic_verified(decision.feedback_decision_fingerprint) == decision
+    with pytest.raises(OnlyParameterSearchError, match="PARAMETER_ALGORITHM_RUNTIME_MISMATCH"):
+        controller.advance(context)
+    assert (
+        store.load_frontier_fingerprint(context.experiment.experiment_fingerprint)
+        == decision.feedback_decision_fingerprint
+    )
+    with pytest.raises(OnlyParameterSearchError, match="PARAMETER_ALGORITHM_RUNTIME_MISMATCH"):
+        controller.certify_historical_reproduction(context, decision, ())
 
 
 def test_parameter_authority_store_exact_round_trip_and_reuse(tmp_path) -> None:
@@ -365,8 +604,124 @@ def test_at_b14_b24_b25_failure_is_unavailable_not_a_score() -> None:
     assert failed.metric_scalars == {}
 
 
+def _real_research_evidence_case(root, *, result_identity: str | None = None):  # type: ignore[no-untyped-def]
+    case = summary_case(root)
+    summary_plan, summary_store, summary_executor = case[11], case[12], case[13]
+    summary_executor.execute(summary_plan)
+    summary = summary_store.load_verified(summary_plan.statistics_fingerprint)
+    source = summary_plan.source_statistics_fingerprint
+    calculation = case[2].load_verified(summary_plan.subject.calculation_fingerprint).manifest
+    member = OnlyResearchResultCalculationPlan(
+        calculation.calculation_fingerprint,
+        calculation.calculation_graph_fingerprint,
+    )
+    candidate = OnlyResearchResultCandidatePlan(
+        summary_plan.subject_candidate_fingerprint,
+        "feature",
+        (),
+        member.calculation_fingerprint,
+        member.graph_fingerprint,
+        (summary_plan.statistics_fingerprint,),
+    )
+    result_plan = OnlyResearchResultPlan(
+        (source, summary_plan.statistics_fingerprint),
+        2,
+        summary_plan.dataset_snapshot_fingerprint,
+        (member,),
+        (candidate,),
+    )
+    statistics = OnlyResearchStatisticsResultReader(root / "statistics-results", case[8], summary_store)
+    assembled = OnlyResearchResultAssembler(
+        statistics,
+        calculation_result_store=case[2],
+        audit_time=lambda: datetime(2026, 9, 7, tzinfo=UTC),
+    ).assemble(result_plan)
+    results = OnlyJsonResearchResultStore(root / "research-results", statistics, case[2])
+    results.commit(assembled)
+    context = _context()
+    decision = _decision_for_context(context)
+    plan = plans_for_feedback_decision(decision, context.proposals)[0]
+    iteration = OnlySearchIterationResultV1(
+        plan.iteration_plan_fingerprint,
+        candidate.candidate_fingerprint,
+        True,
+        OnlySearchResearchResultReferenceV1(
+            result_plan.fingerprint,
+            result_identity or assembled.manifest.research_result_fingerprint,
+        ),
+        False,
+        None,
+        OnlySearchIterationDisposition.RESEARCH_EVIDENCE_RECORDED,
+        None,
+    )
+    reader = OnlyParameterResearchEvidenceReader(
+        iteration_results=cast(Any, _ExactValues({iteration.iteration_result_fingerprint: iteration})),
+        iteration_plans=cast(Any, _ExactValues({plan.iteration_plan_fingerprint: plan})),
+        research_results=results,
+        statistics_results=statistics,
+    )
+    return context, plan, iteration, reader, summary
+
+
+def test_at_02_06_evidence_reader_uses_exact_research_and_statistics_authorities(tmp_path) -> None:
+    context, plan, iteration, reader, _summary = _real_research_evidence_case(tmp_path)
+    proposal = next(item for item in context.proposals if item.proposal_fingerprint == plan.proposal_fingerprint)
+    evidence = reader.load_required(
+        iteration_result_fingerprint=iteration.iteration_result_fingerprint,
+        proposal=proposal,
+        policy=_policy(ordered_tie_breakers=()),
+    )
+    assert evidence.available
+    assert evidence.metric_scalars[_METRIC].metric_id == _METRIC
+    assert evidence.metric_scalars[_TIE].metric_id == _TIE
+
+
+def test_at_03_tampered_research_result_reference_fails_closed(tmp_path) -> None:
+    context, plan, iteration, reader, _summary = _real_research_evidence_case(
+        tmp_path,
+        result_identity="f" * 64,
+    )
+    proposal = next(item for item in context.proposals if item.proposal_fingerprint == plan.proposal_fingerprint)
+    with pytest.raises(OnlyParameterSearchError, match="CORRUPT_REFERENCE"):
+        reader.load_required(
+            iteration_result_fingerprint=iteration.iteration_result_fingerprint,
+            proposal=proposal,
+            policy=context.policy,
+        )
+
+
+def test_at_04_tampered_statistics_identity_fails_closed(tmp_path) -> None:
+    context, plan, iteration, _reader, summary = _real_research_evidence_case(tmp_path)
+    proposal = next(item for item in context.proposals if item.proposal_fingerprint == plan.proposal_fingerprint)
+    statistics = _ExactValues({"f" * 64: replace(summary)})
+    research = SimpleNamespace(
+        manifest=SimpleNamespace(
+            research_result_plan_fingerprint=iteration.research_result_reference.locator_fingerprint,
+            research_result_fingerprint=iteration.research_result_reference.result_fingerprint,
+            statistics_results=(
+                SimpleNamespace(
+                    statistics_fingerprint="f" * 64,
+                    statistics_result_fingerprint=summary.manifest.statistics_result_fingerprint,
+                ),
+            ),
+        )
+    )
+    reader = OnlyParameterResearchEvidenceReader(
+        iteration_results=cast(Any, _ExactValues({iteration.iteration_result_fingerprint: iteration})),
+        iteration_plans=cast(Any, _ExactValues({plan.iteration_plan_fingerprint: plan})),
+        research_results=cast(Any, _ExactValues({iteration.research_result_reference.locator_fingerprint: research})),
+        statistics_results=cast(Any, statistics),
+    )
+    with pytest.raises(OnlyParameterSearchError, match="CORRUPT_REFERENCE"):
+        reader.load_required(
+            iteration_result_fingerprint=iteration.iteration_result_fingerprint,
+            proposal=proposal,
+            policy=context.policy,
+        )
+
+
 def test_at_b16_b17_feedback_batch_resumes_exact_plans() -> None:
-    decision = _decide()
+    decision = _decision_for_context()
     plans = plans_for_feedback_decision(decision, _proposals())
     assert tuple(item.iteration_index for item in plans) == (0, 1, 2)
     assert {item.decision_output_fingerprint for item in plans} == {decision.feedback_decision_fingerprint}
@@ -380,7 +735,8 @@ def test_at_b15_b16_b17_controller_restart_completes_exact_partial_batch(tmp_pat
     uninterrupted = OnlyParameterSearchControllerV1(
         parameter_store=uninterrupted_store,
         provenance=uninterrupted_provenance,
-    ).advance(context, ())
+        evidence_reader=cast(Any, _EvidenceReader()),
+    ).advance(context)
     store = OnlyJsonParameterSearchStore(tmp_path)
     provenance = _Provenance()
     decision = decide_parameter_search_v1(
@@ -391,12 +747,16 @@ def test_at_b15_b16_b17_controller_restart_completes_exact_partial_batch(tmp_pat
         budget=context.experiment.search_budget,
         evidence=(),
     )
-    store.commit_feedback_decision(decision, expected_predecessor_fingerprint=None)
+    store.commit_feedback_decision(_verified(decision, context=context))
     exact = plans_for_feedback_decision(decision, context.proposals)
     provenance.commit_iteration_plan(exact[0])
-    controller = OnlyParameterSearchControllerV1(parameter_store=store, provenance=provenance)
+    controller = OnlyParameterSearchControllerV1(
+        parameter_store=store,
+        provenance=provenance,
+        evidence_reader=cast(Any, _EvidenceReader()),
+    )
     with pytest.raises(OnlyParameterSearchError, match="SEARCH_ROUND_BARRIER_OPEN"):
-        controller.advance(context, ())
+        controller.advance(context)
     assert tuple(provenance.plans.values()) == exact
     assert uninterrupted.decision == decision
     assert uninterrupted.plans == exact
@@ -487,10 +847,10 @@ def test_at_b21_b23_full_terminal_prefix_is_canonical_input() -> None:
 def test_at_b26_b27_missing_and_mismatched_evidence_fail_closed() -> None:
     proposals = _proposals()
     missing = OnlyParameterResearchEvidenceV1("1" * 64, proposals[0], {_METRIC: _scalar(_METRIC, "0.1")}, True, True)
-    with pytest.raises(Exception, match="MISSING_REQUIRED_EVIDENCE"):
+    with pytest.raises(OnlyParameterSearchError, match="MISSING_REQUIRED_EVIDENCE"):
         _decide((missing,))
     foreign = replace(proposals[0], search_space_fingerprint="f" * 64)
-    with pytest.raises(Exception, match="outside Search Space"):
+    with pytest.raises(OnlyParameterSearchError, match="outside Search Space"):
         _decide((_evidence(foreign, "0.100000000000"),))
 
 
@@ -502,11 +862,11 @@ def test_at_b28_b29_b30_history_load_is_independent_of_current_algorithm(tmp_pat
     changed = OnlyParameterSearchAlgorithmManifestV1(DETERMINISTIC_COARSE_TO_FINE_ALGORITHM_ID, "2", "new", ("2" * 64,))
     store.commit_algorithm_manifest(historical)
     store.commit_algorithm_manifest(changed)
-    decision = _decide()
-    store.commit_feedback_decision(decision, expected_predecessor_fingerprint=None)
+    decision = _decision_for_context()
+    store.commit_feedback_decision(_verified(decision))
     assert store.load_feedback_decision_intrinsic_verified(decision.feedback_decision_fingerprint) == decision
     assert historical.implementation_fingerprint != changed.implementation_fingerprint
-    assert _decide() == decision
+    assert store.load_feedback_decision_intrinsic_verified(decision.feedback_decision_fingerprint) == decision
 
 
 def test_at_b31_b32_b33_exact_coarse_to_fine_and_exhaustion() -> None:

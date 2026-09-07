@@ -70,6 +70,34 @@ class OnlyVerifiedParameterSearchContextV1:
     calculation_registry: OnlyCalculationRegistry
 
 
+def admit_current_parameter_algorithm_runtime(
+    context: OnlyVerifiedParameterSearchContextV1,
+) -> OnlyParameterSearchAlgorithmManifestV1:
+    """Admit current executable code separately from historical identity reads."""
+
+    from .algorithm import only_deterministic_coarse_to_fine_implementation
+
+    current = only_deterministic_coarse_to_fine_implementation()
+    experiment = context.experiment
+    historical = context.historical_algorithm_manifest
+    binding = experiment.search_algorithm_binding
+    if (
+        current.algorithm_id != binding.algorithm_id
+        or current.algorithm_semantic_version != binding.algorithm_semantic_version
+        or current.implementation_fingerprint != binding.implementation_fingerprint
+        or current.source_revision != binding.source_revision
+        or current.algorithm_id != historical.algorithm_id
+        or current.algorithm_semantic_version != historical.algorithm_semantic_version
+        or current.implementation_fingerprint != historical.implementation_fingerprint
+        or current.source_revision != historical.source_revision
+    ):
+        raise OnlyParameterSearchError(
+            "PARAMETER_ALGORITHM_RUNTIME_MISMATCH",
+            experiment.experiment_fingerprint,
+        )
+    return current
+
+
 class OnlyParameterSearchContextResolver:
     def __init__(
         self,
@@ -78,11 +106,13 @@ class OnlyParameterSearchContextResolver:
         evaluations: OnlyParameterEvaluationReader,
         catalogs: OnlyParameterCatalogReader,
         datasets: OnlyParameterDatasetReader,
+        research_calculation_registry: OnlyCalculationRegistry | None = None,
     ) -> None:
         self._store = parameter_store
         self._evaluations = evaluations
         self._catalogs = catalogs
         self._datasets = datasets
+        self._research_calculation_registry = research_calculation_registry
 
     def resolve_verified_context(
         self, experiment: OnlySearchExperimentManifestV3
@@ -102,8 +132,11 @@ class OnlyParameterSearchContextResolver:
         catalog = self._catalogs.generation(experiment.catalog_generation_fingerprint)
         dataset = self._datasets.load_verified_table(experiment.dataset_snapshot_fingerprint)
         self._verify_bindings(experiment, space, policy, historical, evaluation, catalog, dataset)
-        registry = catalog.calculation_registry()
-        self._verify_candidate_authority(space, catalog, registry)
+        catalog_registry = catalog.calculation_registry()
+        self._verify_candidate_authority(space, catalog, catalog_registry)
+        registry = self._research_calculation_registry or catalog_registry
+        if registry is not catalog_registry:
+            self._verify_catalog_registry_parity(catalog_registry, registry)
         try:
             OnlyResearchSpecificationResolver(registry).verify_deferred_calculation_template(
                 dataset_snapshot_fingerprint=evaluation.dataset_snapshot_fingerprint,
@@ -120,7 +153,7 @@ class OnlyParameterSearchContextResolver:
         proposals = materialize_parameter_proposals(space, registry)
         for proposal in proposals:
             stored = self._store.load_proposal_intrinsic_verified(proposal.proposal_fingerprint)
-            if stored != proposal:
+            if stored.proposal_fingerprint != proposal.proposal_fingerprint or stored.to_dict() != proposal.to_dict():
                 raise OnlyParameterSearchError("IDENTITY_MISMATCH", proposal.proposal_fingerprint)
         return OnlyVerifiedParameterSearchContextV1(
             experiment, space, policy, evaluation, catalog, dataset, historical, proposals, registry
@@ -200,6 +233,32 @@ class OnlyParameterSearchContextResolver:
             or plan.parent_iteration_result_fingerprint != decision.selected_anchor_iteration_result_fingerprint
         ):
             raise OnlyParameterSearchError("SEARCH_INVALID_PROPOSAL", plan.proposal_fingerprint)
+
+    @staticmethod
+    def _verify_catalog_registry_parity(
+        catalog_registry: OnlyCalculationRegistry,
+        research_registry: OnlyCalculationRegistry,
+    ) -> None:
+        """An expanded Research registry may add dependencies, never replace Catalog authority."""
+
+        try:
+            for expected in catalog_registry.backend_registrations():
+                definition = expected.type_definition
+                actual = research_registry.resolve(
+                    definition.kind,
+                    definition.type_id,
+                    definition.semantic_version,
+                    expected.backend,
+                )
+                if (
+                    actual.type_definition != expected.type_definition
+                    or actual.implementation_manifest != expected.implementation_manifest
+                    or actual.state_capability != expected.state_capability
+                    or actual.checkpoint_schema_version != expected.checkpoint_schema_version
+                ):
+                    raise ValueError("expanded Research registry replaced a Catalog registration")
+        except Exception as exc:
+            raise OnlyParameterSearchError("SEARCH_COMPONENT_NOT_IN_CATALOG", "expanded Research registry") from exc
 
     @staticmethod
     def _verify_candidate_authority(
