@@ -47,8 +47,7 @@ def test_compose_production_and_test_overrides_have_distinct_safety_contracts() 
             "max-file": "5",
         }
         assert "ports" not in test["services"][service]
-    assert test["services"]["postgres16-upgrade-source"]["image"].startswith("postgres:16.10@sha256:")
-    assert "ports" not in test["services"]["postgres16-upgrade-source"]
+    assert {name for name in test["services"] if "postgres" in name} == {"postgres"}
     assert test["networks"]["database"]["internal"] is True
 
 
@@ -66,7 +65,6 @@ def test_acceptance_runs_inside_compose_against_private_service_dns() -> None:
     assert environment["ONLYALPHA_TEST_CLICKHOUSE_URL"] == "http://onlyalpha-clickhouse:8123"
     assert set(acceptance["depends_on"]) == {
         "postgres",
-        "postgres16-upgrade-source",
         "clickhouse",
     }
 

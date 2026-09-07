@@ -25,7 +25,10 @@ from .integration import (
 )
 from .model import OnlyParameterSearchFeedbackDecisionV1
 from .store import OnlyJsonParameterSearchStore
-from .verification import verify_parameter_feedback_decision_occurrence
+from .verification import (
+    verify_parameter_feedback_decision_occurrence,
+    verify_parameter_feedback_frontier_for_execution,
+)
 
 
 class OnlyParameterControllerProvenance(Protocol):
@@ -64,8 +67,15 @@ class OnlyParameterSearchControllerV1:
     ) -> OnlyParameterControllerOutcomeV1:
         experiment = context.experiment
         current = self._store.load_frontier_fingerprint(experiment.experiment_fingerprint)
+        runtime = admit_current_parameter_algorithm_runtime(context)
         if current is not None:
-            durable_frontier = self._store.load_feedback_decision_intrinsic_verified(current)
+            durable_frontier = verify_parameter_feedback_frontier_for_execution(
+                context=context,
+                provenance=self._provenance,
+                evidence_reader=self._evidence_reader,
+                decisions=self._store,
+                frontier_fingerprint=current,
+            )
             commit_feedback_plan_batch(durable_frontier, context.proposals, self._provenance)
         committed_plans = self._provenance.iteration_plans_for_experiment_verified(experiment.experiment_fingerprint)
         terminal_results = []
@@ -74,7 +84,6 @@ class OnlyParameterSearchControllerV1:
             if result is None:
                 raise OnlyParameterSearchError("SEARCH_ROUND_BARRIER_OPEN", plan.iteration_plan_fingerprint)
             terminal_results.append(result)
-        runtime = admit_current_parameter_algorithm_runtime(context)
         plans_by_fingerprint = {item.iteration_plan_fingerprint: item for item in committed_plans}
         proposals_by_fingerprint = {item.proposal_fingerprint: item for item in context.proposals}
         evidence = []
@@ -165,6 +174,7 @@ class OnlyParameterSearchControllerV1:
                     resolved=resolved,
                     provenance=self._provenance,
                     commands=commands,
+                    policy=context.policy,
                 )
             )
         return tuple(outcomes)

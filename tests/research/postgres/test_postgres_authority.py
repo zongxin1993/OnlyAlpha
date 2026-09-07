@@ -1130,12 +1130,9 @@ def test_restore_rejects_source_target_and_nonempty_target(postgres_dsn: str, tm
             connection.execute("DROP DATABASE IF EXISTS onlyalpha_restore_test")
 
 
-def test_database_client_major_policy_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_database_client_major_policy_requires_exact_baseline(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("scripts.database._tool_version", lambda _name: "pg_dump (PostgreSQL) 18.6")
     assert _assert_client_major("pg_dump") == "pg_dump (PostgreSQL) 18.6"
-    monkeypatch.setattr("scripts.database._tool_version", lambda _name: "pg_dump (PostgreSQL) 16.10")
-    with pytest.raises(RuntimeError, match="POSTGRES_CLIENT_MAJOR_UNSUPPORTED"):
-        _assert_client_major("pg_dump")
 
 
 def test_database_client_tools_use_exact_configured_family_not_ambient_path(

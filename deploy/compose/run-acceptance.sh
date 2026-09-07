@@ -21,5 +21,5 @@ trap cleanup EXIT
 cd "${repository_root}"
 docker compose --env-file "${environment_file}" "${compose_files[@]}" build acceptance
 docker compose --env-file "${environment_file}" "${compose_files[@]}" up -d --wait \
-  postgres postgres16-upgrade-source clickhouse
+  postgres clickhouse
 docker compose --env-file "${environment_file}" "${compose_files[@]}" run --rm acceptance

@@ -28,6 +28,8 @@ from onlyalpha.research import (
     OnlyParquetResearchCalculationResultStore,
     OnlyParquetResearchDatasetSnapshotStore,
     OnlyParquetResearchStatisticsResultStore,
+    OnlyResearchEffectSummaryExecutor,
+    OnlyResearchResultAssembler,
     OnlyResearchStatisticsResultReader,
 )
 from onlyalpha.research.command import OnlyResearchCommandService
@@ -56,6 +58,8 @@ from onlyalpha.research.search.parameter import (
     OnlyJsonParameterSearchStore,
     OnlyParameterFactorSearchSpaceV1,
     OnlyParameterObjectiveDirection,
+    OnlyParameterResearchCommandGatewayV1,
+    OnlyParameterResearchEvidenceFinalizerV1,
     OnlyParameterResearchEvidenceReader,
     OnlyParameterSearchContextResolver,
     OnlyParameterSearchControllerV1,
@@ -270,8 +274,9 @@ def _runtime_generations(root: Path) -> OnlyRuntimeGenerationRegistry:
     return authority
 
 
-def _commands(root: Path, dsn: str) -> OnlyResearchCommandService:
-    _layout, datasets, _statistics, _research, _parameters, _evaluations, _contexts, _provenance = _topology(root)
+def _commands(root: Path, dsn: str) -> OnlyParameterResearchCommandGatewayV1:
+    layout, datasets, calculations, statistics_store, summaries, statistics_reader, research = _stores(root)
+    del layout
     store = OnlyPostgresResearchRunStore(dsn)
     admission = OnlyResearchRunAdmissionService(
         resolver=OnlyResearchSpecificationResolver(research_registry()),
@@ -279,12 +284,22 @@ def _commands(root: Path, dsn: str) -> OnlyResearchCommandService:
         run_store=store,
         now_utc=lambda: _NOW + timedelta(seconds=2),
     )
-    return OnlyResearchCommandService(
+    commands = OnlyResearchCommandService(
         admission=admission,
         store=store,
         now_utc=lambda: _NOW + timedelta(seconds=2),
         runtime_generations=_runtime_generations(root),
     )
+    finalizer = OnlyParameterResearchEvidenceFinalizerV1(
+        research_results=research,
+        summary_executor=OnlyResearchEffectSummaryExecutor(statistics_store, summaries),
+        result_assembler=OnlyResearchResultAssembler(
+            statistics_reader,
+            calculation_result_store=calculations,
+            audit_time=lambda: _NOW + timedelta(seconds=5),
+        ),
+    )
+    return OnlyParameterResearchCommandGatewayV1(commands, finalizer)
 
 
 def _recover_plan_batch(root: Path) -> None:
@@ -350,9 +365,14 @@ def _snapshot(root: Path, dsn: str) -> dict[str, object]:
     frontier = parameters.load_frontier_fingerprint(context.experiment.experiment_fingerprint)
     assert frontier is not None
     decision = parameters.load_feedback_decision_intrinsic_verified(frontier)
+    decision_fingerprints = list(dict.fromkeys(item.decision_output_fingerprint for item in plans))
+    if not decision_fingerprints or decision_fingerprints[-1] != frontier:
+        decision_fingerprints.append(frontier)
+    decisions = tuple(parameters.load_feedback_decision_intrinsic_verified(item) for item in decision_fingerprints)
     with psycopg.connect(dsn) as connection:
         receipt_count = connection.execute("SELECT count(*) FROM product_command_receipt").fetchone()[0]
         run_count = connection.execute("SELECT count(*) FROM research_run").fetchone()[0]
+        execution_attempt_count = connection.execute("SELECT count(*) FROM research_run_attempt").fetchone()[0]
     research_ids = tuple(item.research_result_reference.result_fingerprint for item in results if item is not None)
     statistic_ids = []
     _layout, _datasets, _calculations, _statistics, _summaries, _statistics_reader, research = _stores(root)
@@ -364,16 +384,22 @@ def _snapshot(root: Path, dsn: str) -> dict[str, object]:
         "experiment": context.experiment.experiment_fingerprint,
         "policy": context.policy.policy_fingerprint,
         "space": context.search_space.search_space_fingerprint,
-        "decisions": tuple(dict.fromkeys(item.decision_output_fingerprint for item in plans)),
+        "algorithm": context.historical_algorithm_manifest.implementation_fingerprint,
+        "decisions": tuple(decision_fingerprints),
+        "decision_payloads": tuple(item.to_dict() for item in decisions),
         "plans": tuple(item.iteration_plan_fingerprint for item in plans),
         "proposals": tuple(item.proposal_fingerprint for item in context.proposals),
         "candidates": tuple(item.candidate_fingerprint for item in results if item is not None),
         "research": research_ids,
         "statistics": tuple(statistic_ids),
         "frontier": decision.feedback_decision_fingerprint,
+        "final_decision_kind": decision.decision_kind.value,
+        "final_stop_reason": None if decision.stop_reason is None else decision.stop_reason.value,
+        "proposal_budget_consumed": len(plans),
         "budget": provenance.search_restart_state_verified(context.experiment.experiment_fingerprint),
         "receipt_count": receipt_count,
         "run_count": run_count,
+        "execution_attempt_count": execution_attempt_count,
     }
 
 
@@ -410,6 +436,10 @@ def _run_stage(root: Path, dsn: str, stage: str) -> dict[str, object] | None:
         else:
             assert all(item is not None for item in outcomes)
             return _snapshot(root, dsn)
+    elif stage == "advance":
+        context, _parameters, _provenance, _evidence = _context_and_authorities(root)
+        _controller(root).advance(context)
+        return _snapshot(root, dsn)
     elif stage == "execute":
         _execute_research(root, dsn)
     else:  # pragma: no cover - internal test command guard
@@ -446,6 +476,8 @@ def _continuous(root: Path, dsn: str) -> dict[str, object]:
     assert _reconcile(root, dsn) == (None, None)
     _execute_research(root, dsn)
     assert all(item is not None for item in _reconcile(root, dsn))
+    context, _parameters, _provenance, _evidence = _context_and_authorities(root)
+    _controller(root).advance(context)
     return _snapshot(root, dsn)
 
 
@@ -459,7 +491,10 @@ def test_at_18_24_real_authority_fresh_process_recovery_is_exact(postgres_dsn: s
         stage: _fresh_stage(recovered_root, postgres_dsn, stage)
         for stage in ("initialize-partial", "recover-plans", "submit", "replay", "execute")
     }
-    recovered = _fresh_stage(recovered_root, postgres_dsn, "project")
+    projected = _fresh_stage(recovered_root, postgres_dsn, "project")
+    assert projected is not None and len(projected["decisions"]) == 1
+    assert _fresh_stage(recovered_root, postgres_dsn, "project") == projected
+    recovered = _fresh_stage(recovered_root, postgres_dsn, "advance")
 
     assert recovered == continuous
     assert states == {
@@ -505,4 +540,11 @@ def test_at_18_24_real_authority_fresh_process_recovery_is_exact(postgres_dsn: s
         },
     }
     assert continuous["receipt_count"] == continuous["run_count"] == 2
+    assert continuous["execution_attempt_count"] == 2
+    assert len(continuous["decisions"]) == 2
+    assert len(continuous["decision_payloads"]) == 2
+    assert len(continuous["research"]) == 2
+    assert len(continuous["statistics"]) == 4
+    assert continuous["final_decision_kind"] == "STOP"
+    assert continuous["final_stop_reason"] == "NO_ELIGIBLE_EVIDENCE"
     assert continuous["budget"] == [2, 2, 0]

@@ -153,3 +153,30 @@ Research Run, Research Result and Statistics facts. A committed Decision precede
 stable Plan-derived Product Command identity reuses an existing receipt/run, and completed Research is projected into the missing terminal
 Iteration Result without re-execution. Missing receipt is the only state that permits the existing atomic idempotent submission path;
 conflicting or ambiguous receipt/run identity fails closed and never causes blind retry or mutable optimizer-memory repair.
+
+### Final historical-execution closure amendment
+
+Historical readability is distinct from current execution eligibility. Exact historical Experiment, Feedback Decision, Plan and Result
+loads remain independent of the currently installed implementation and never rewrite historical bytes. Before a persisted Feedback
+Decision may authorize Plan recovery, Research submission or another adaptive transition, the Controller must first admit the current
+runtime, reproduce the relevant Decision chain from the exact durable Result/Evidence prefix, and prove that already committed Plans are
+exactly a canonical prefix of each frozen Decision batch.
+
+The loss of the ephemeral verified-commit capability at a process boundary does not create a persisted verification flag, migration
+record or second authority. Execution eligibility is reconstructed from the existing durable authorities on every read-to-act path. A
+runtime implementation mismatch therefore leaves history readable but fails closed before any new Plan, receipt, Run or budget
+consumption.
+
+For V1 successful Research, the completed Run's immutable Research Result remains the exact execution output and is never rewritten.
+The parameter Evidence finalizer resolves the Policy's registered Effect Summary metric descriptors, requires one unambiguous matching
+base Statistics source in that Result, invokes the existing Research Summary Statistics Authority, and uses the existing Research Result
+Assembler to publish a separate immutable Evidence-composition Result containing both the source and derived Summary references. The
+Iteration Result references this composition Result. Its Summary Plan binds the exact source Statistics logical and result identities,
+while the Plan-derived Product Command identity retains the causal link to the completed Run. Re-entry is content-addressed and
+idempotent. Unsupported, mixed, non-Effect or ambiguous metric/source contracts fail closed; supporting another Summary family requires
+an explicit versioned extension and cannot reinterpret V1.
+
+Fresh-process adaptive recovery is complete only after terminal Iteration Results traverse the authoritative Evidence reader and produce
+the same next Feedback Decision or durable STOP as uninterrupted execution. Equality covers the ordered Decision/Plan/Proposal/Candidate/
+Research/Statistics identities and payloads, frontier, final STOP semantics, all durable budget consumption, Product Command receipts,
+Research Runs and execution attempts; recovery may introduce no duplicate occurrence or attempt.

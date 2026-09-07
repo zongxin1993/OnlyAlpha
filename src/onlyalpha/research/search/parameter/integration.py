@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
-from typing import Protocol
+from dataclasses import dataclass, replace
+from typing import Any, Protocol, cast
 
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId
 from onlyalpha.research.command.errors import OnlyResearchSubmissionConflictError
 from onlyalpha.research.command.model import OnlyResearchSubmitOutcome
+from onlyalpha.research.evaluation.definition import OnlyResearchStatisticsMethod
+from onlyalpha.research.evaluation.summary.definition import OnlyResearchEffectSummaryDefinition
+from onlyalpha.research.evaluation.summary.metric import (
+    OnlyResearchSummaryKind,
+    only_research_summary_metric,
+)
+from onlyalpha.research.evaluation.summary.plan import OnlyResearchEffectSummaryPlan
 from onlyalpha.research.experiment import (
     OnlySearchFailureCode,
     OnlySearchIterationDisposition,
@@ -16,8 +23,9 @@ from onlyalpha.research.experiment import (
     OnlySearchIterationResultV1,
     OnlySearchResearchResultReferenceV1,
 )
+from onlyalpha.research.result.plan import OnlyResearchResultPlan
 from onlyalpha.research.run.errors import OnlyResearchRunIntegrityError
-from onlyalpha.research.run.model import OnlyResearchRunState
+from onlyalpha.research.run.model import OnlyResearchRun, OnlyResearchRunState
 from onlyalpha.research.search.symbolic.materialization import research_specification_from_candidate_graph
 from onlyalpha.research.specification.model import OnlyResearchSpecification
 from onlyalpha.research.specification.resolver import (
@@ -33,6 +41,7 @@ from .model import (
     PARAMETER_PROPOSAL_SCHEMA_VERSION,
     OnlyParameterGraphProposalV1,
     OnlyParameterSearchFeedbackDecisionV1,
+    OnlyParameterSearchPolicyV1,
 )
 
 
@@ -52,9 +61,40 @@ class OnlyParameterResearchCommandService(Protocol):
         provenance: object | None = None,
     ) -> OnlyResearchSubmitOutcome: ...
 
+    def finalize_parameter_evidence(
+        self,
+        *,
+        run: OnlyResearchRun,
+        resolved: OnlyResolvedParameterResearchCandidateV1,
+        policy: OnlyParameterSearchPolicyV1,
+    ) -> OnlySearchResearchResultReferenceV1: ...
+
 
 class OnlyParameterRunReader(Protocol):
     def load(self, run_id: object) -> object: ...
+
+
+class _ParameterResearchResultStore(Protocol):
+    def load_verified(self, locator_fingerprint: str) -> object: ...
+
+    def commit(self, value: object) -> object: ...
+
+
+class _ParameterSummaryExecutor(Protocol):
+    def execute(self, plan: OnlyResearchEffectSummaryPlan) -> object: ...
+
+
+class _ParameterResultAssembler(Protocol):
+    def assemble(self, plan: OnlyResearchResultPlan) -> object: ...
+
+
+class _ParameterResearchSubmitter(Protocol):
+    def submit_research_run(
+        self,
+        submission_key: OnlyProductCommandId,
+        specification: object,
+        provenance: object | None = None,
+    ) -> OnlyResearchSubmitOutcome: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +103,138 @@ class OnlyResolvedParameterResearchCandidateV1:
     specification: OnlyResearchSpecification
     resolution: OnlyResearchSpecificationResolution
     candidate: OnlyResearchCandidateLineage
+
+
+class OnlyParameterResearchEvidenceFinalizerV1:
+    """Compose exact Summary Evidence from a completed normal Research Result."""
+
+    def __init__(
+        self,
+        *,
+        research_results: _ParameterResearchResultStore,
+        summary_executor: _ParameterSummaryExecutor,
+        result_assembler: _ParameterResultAssembler,
+    ) -> None:
+        self._research_results = research_results
+        self._summary_executor = summary_executor
+        self._result_assembler = result_assembler
+
+    def finalize(
+        self,
+        *,
+        run: OnlyResearchRun,
+        resolved: OnlyResolvedParameterResearchCandidateV1,
+        policy: OnlyParameterSearchPolicyV1,
+    ) -> OnlySearchResearchResultReferenceV1:
+        if run.state is not OnlyResearchRunState.COMPLETED or run.research_result_fingerprint is None:
+            raise OnlyParameterSearchError("AMBIGUOUS_ATTEMPT_STATE", run.run_id.value)
+        if not isinstance(policy, OnlyParameterSearchPolicyV1):
+            raise OnlyParameterSearchError("PARAMETER_EVIDENCE_POLICY_INVALID")
+        try:
+            descriptors = tuple(only_research_summary_metric(item) for item in policy.required_metric_ids)
+        except ValueError as exc:
+            raise OnlyParameterSearchError("PARAMETER_EVIDENCE_METRIC_SET_UNSUPPORTED") from exc
+        summary_contracts = {(item.summary_kind, item.source_method) for item in descriptors}
+        if len(summary_contracts) != 1:
+            raise OnlyParameterSearchError("PARAMETER_EVIDENCE_METRIC_SET_UNSUPPORTED")
+        summary_kind, source_method = next(iter(summary_contracts))
+        if summary_kind is not OnlyResearchSummaryKind.EFFECT_SUMMARY or not isinstance(
+            source_method, OnlyResearchStatisticsMethod
+        ):
+            raise OnlyParameterSearchError("PARAMETER_EVIDENCE_METRIC_SET_UNSUPPORTED")
+
+        base_plan = resolved.resolution.workload.result_plan
+        base_result = self._research_results.load_verified(base_plan.fingerprint)
+        base_manifest = cast(Any, base_result).manifest
+        if (
+            base_manifest.research_result_plan_fingerprint != base_plan.fingerprint
+            or base_manifest.research_result_fingerprint != run.research_result_fingerprint
+        ):
+            raise OnlyParameterSearchError("AMBIGUOUS_ATTEMPT_STATE", run.run_id.value)
+        source_plans = tuple(
+            item
+            for item in resolved.resolution.workload.statistics_plans
+            if item.definition.method is source_method
+            and item.feature.calculation_fingerprint == resolved.candidate.calculation_fingerprint
+        )
+        if len(source_plans) != 1:
+            raise OnlyParameterSearchError("PARAMETER_EVIDENCE_SOURCE_AMBIGUOUS", run.run_id.value)
+        source_plan = source_plans[0]
+        source_references = tuple(
+            item
+            for item in base_manifest.statistics_results
+            if item.statistics_fingerprint == source_plan.statistics_fingerprint
+        )
+        if len(source_references) != 1:
+            raise OnlyParameterSearchError("PARAMETER_EVIDENCE_SOURCE_AMBIGUOUS", run.run_id.value)
+        candidate_fingerprint = resolved.candidate.candidate_fingerprint
+        if candidate_fingerprint is None:
+            raise OnlyParameterSearchError("CANDIDATE_BINDING_FAILED", resolved.proposal.proposal_fingerprint)
+        summary_plan = OnlyResearchEffectSummaryPlan(
+            base_manifest.dataset_snapshot_fingerprint,
+            candidate_fingerprint,
+            source_plan.feature,
+            source_plan.statistics_fingerprint,
+            source_references[0].statistics_result_fingerprint,
+            OnlyResearchEffectSummaryDefinition(source_method),
+        )
+        self._summary_executor.execute(summary_plan)
+
+        candidates = tuple(
+            replace(
+                item,
+                statistics_fingerprints=tuple(
+                    sorted({*item.statistics_fingerprints, summary_plan.statistics_fingerprint})
+                ),
+            )
+            if item.candidate_fingerprint == candidate_fingerprint
+            else item
+            for item in base_plan.candidates
+        )
+        if sum(item.candidate_fingerprint == candidate_fingerprint for item in candidates) != 1:
+            raise OnlyParameterSearchError("PARAMETER_EVIDENCE_SOURCE_AMBIGUOUS", candidate_fingerprint)
+        evidence_plan = replace(
+            base_plan,
+            statistics_fingerprints=tuple(
+                sorted({*base_plan.statistics_fingerprints, summary_plan.statistics_fingerprint})
+            ),
+            candidates=candidates,
+        )
+        assembled = self._result_assembler.assemble(evidence_plan)
+        self._research_results.commit(assembled)
+        exact = self._research_results.load_verified(evidence_plan.fingerprint)
+        manifest = cast(Any, exact).manifest
+        if manifest.research_result_plan_fingerprint != evidence_plan.fingerprint:
+            raise OnlyParameterSearchError("CORRUPT_REFERENCE", evidence_plan.fingerprint)
+        return OnlySearchResearchResultReferenceV1(
+            evidence_plan.fingerprint,
+            manifest.research_result_fingerprint,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyParameterResearchCommandGatewayV1:
+    """Normal Product Command plus deterministic Research-Evidence composition."""
+
+    commands: _ParameterResearchSubmitter
+    evidence_finalizer: OnlyParameterResearchEvidenceFinalizerV1
+
+    def submit_research_run(
+        self,
+        submission_key: OnlyProductCommandId,
+        specification: object,
+        provenance: object | None = None,
+    ) -> OnlyResearchSubmitOutcome:
+        return self.commands.submit_research_run(submission_key, specification, provenance)
+
+    def finalize_parameter_evidence(
+        self,
+        *,
+        run: OnlyResearchRun,
+        resolved: OnlyResolvedParameterResearchCandidateV1,
+        policy: OnlyParameterSearchPolicyV1,
+    ) -> OnlySearchResearchResultReferenceV1:
+        return self.evidence_finalizer.finalize(run=run, resolved=resolved, policy=policy)
 
 
 def resolve_parameter_research_candidate(
@@ -145,6 +317,7 @@ def reconcile_parameter_research_plan(
     resolved: OnlyResolvedParameterResearchCandidateV1,
     provenance: OnlyParameterProvenanceWriter,
     commands: OnlyParameterResearchCommandService,
+    policy: OnlyParameterSearchPolicyV1,
 ) -> OnlySearchIterationResultV1 | None:
     """Reconcile exact Product Command/Run facts; active states remain behind the barrier."""
 
@@ -164,16 +337,12 @@ def reconcile_parameter_research_plan(
     if run.state in {OnlyResearchRunState.QUEUED, OnlyResearchRunState.RUNNING, OnlyResearchRunState.CANCEL_REQUESTED}:
         return None
     if run.state is OnlyResearchRunState.COMPLETED:
-        if run.research_result_fingerprint is None:
-            raise OnlyParameterSearchError("AMBIGUOUS_ATTEMPT_STATE", plan.iteration_plan_fingerprint)
+        reference = commands.finalize_parameter_evidence(run=run, resolved=resolved, policy=policy)
         result = OnlySearchIterationResultV1(
             plan.iteration_plan_fingerprint,
             candidate_fingerprint,
             True,
-            OnlySearchResearchResultReferenceV1(
-                resolved.resolution.workload.result_plan.fingerprint,
-                run.research_result_fingerprint,
-            ),
+            reference,
             False,
             None,
             OnlySearchIterationDisposition.RESEARCH_EVIDENCE_RECORDED,
