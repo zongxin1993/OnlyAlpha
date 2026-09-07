@@ -6,6 +6,8 @@ import sys
 from dataclasses import replace
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from onlyalpha.calculation import OnlyCalculationKind, OnlyCalculationTypeReference
 from onlyalpha.research.search.symbolic import (
@@ -118,3 +120,33 @@ print(json.dumps({"proposals": [x.proposal_fingerprint for x in result.proposals
     second = json.loads(subprocess.check_output([sys.executable, "-c", program], text=True))
     assert first == second
     assert first["proposals"] and first["graphs"]
+
+
+@settings(max_examples=12, deadline=None)
+@given(
+    proposal_limit=st.integers(min_value=1, max_value=12),
+    max_nodes=st.integers(min_value=1, max_value=3),
+    reverse=st.booleans(),
+)
+def test_canonical_input_permutations_preserve_every_generated_prefix(
+    proposal_limit: int,
+    max_nodes: int,
+    reverse: bool,
+) -> None:
+    generation, search_space = space(max_nodes=max_nodes, reverse=reverse)
+    canonical_generation, canonical_space = space(max_nodes=max_nodes, reverse=False)
+    actual = enumerate_symbolic_factor_proposals(
+        verify_symbolic_search_space(search_space, generation, verified_dataset()),
+        proposal_limit=proposal_limit,
+    )
+    canonical = enumerate_symbolic_factor_proposals(
+        verify_symbolic_search_space(canonical_space, canonical_generation, verified_dataset()),
+        proposal_limit=proposal_limit,
+    )
+    expanded = enumerate_symbolic_factor_proposals(
+        verify_symbolic_search_space(canonical_space, canonical_generation, verified_dataset()),
+        proposal_limit=proposal_limit + 1,
+    )
+
+    assert actual == canonical
+    assert canonical.proposals == expanded.proposals[:proposal_limit]

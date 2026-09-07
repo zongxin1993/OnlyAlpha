@@ -138,14 +138,31 @@ def run_symbolic_search_workflow(
                 "SEARCH_ENUMERATION_REPRODUCTION_MISMATCH",
                 stored_enumeration.enumeration_result_fingerprint,
             )
-    next_ordinal_reader = getattr(provenance, "next_iteration_ordinal_verified", None)
-    next_ordinal = next_ordinal_reader(experiment.experiment_fingerprint) if callable(next_ordinal_reader) else 0
+    restart_state_reader = getattr(provenance, "search_restart_state_verified", None)
+    if callable(restart_state_reader):
+        restart_state = restart_state_reader(experiment.experiment_fingerprint)
+        if (
+            not isinstance(restart_state, tuple)
+            or len(restart_state) != 3
+            or any(isinstance(value, bool) or not isinstance(value, int) for value in restart_state)
+        ):
+            raise OnlySymbolicSearchError("SEARCH_RESTART_STATE_INVALID", experiment.experiment_fingerprint)
+        next_ordinal, research_count, qualification_count = restart_state
+    else:
+        next_ordinal_reader = getattr(provenance, "next_iteration_ordinal_verified", None)
+        next_ordinal = next_ordinal_reader(experiment.experiment_fingerprint) if callable(next_ordinal_reader) else 0
+        if next_ordinal:
+            raise OnlySymbolicSearchError("SEARCH_BUDGET_ACCOUNTING_UNAVAILABLE", experiment.experiment_fingerprint)
     if (
         isinstance(next_ordinal, bool)
         or not isinstance(next_ordinal, int)
         or not 0 <= next_ordinal <= len(enumeration.proposals)
+        or research_count < 0
+        or qualification_count < 0
+        or research_count > experiment.search_budget.research_evaluation_limit
+        or qualification_count > experiment.search_budget.qualification_attempt_limit
     ):
-        raise OnlySymbolicSearchError("SEARCH_ITERATION_PREFIX_CORRUPT", experiment.experiment_fingerprint)
+        raise OnlySymbolicSearchError("SEARCH_RESTART_STATE_INVALID", experiment.experiment_fingerprint)
     for index, proposal in enumerate(enumeration.proposals[next_ordinal:], start=next_ordinal):
         verified_proposal = verify_symbolic_proposal_reconstruction(proposal, context)
         plan = OnlySearchIterationPlanV1(

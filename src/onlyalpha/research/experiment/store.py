@@ -150,6 +150,11 @@ class OnlyJsonSearchProvenanceStore:
     def next_iteration_ordinal_verified(self, experiment_fingerprint: str) -> int:
         """Derive restart position from the canonical committed Plan prefix."""
 
+        return self.search_restart_state_verified(experiment_fingerprint)[0]
+
+    def search_restart_state_verified(self, experiment_fingerprint: str) -> tuple[int, int, int]:
+        """Project restart position and consumed attempt budgets from durable terminal facts."""
+
         experiment = self.load_experiment_verified(experiment_fingerprint)
         if not isinstance(experiment, OnlySearchExperimentManifestV2):
             raise OnlySearchProvenanceStoreError("SEARCH_ITERATION_LEDGER_UNSUPPORTED", experiment_fingerprint)
@@ -162,10 +167,27 @@ class OnlyJsonSearchProvenanceStore:
                 ordinal = resolver(experiment, plans)
                 if isinstance(ordinal, bool) or not isinstance(ordinal, int) or ordinal < 0:
                     raise ValueError("Search Context returned an invalid next ordinal")
-                return ordinal
             except Exception as exc:
                 code = getattr(exc, "code", "SEARCH_ITERATION_PREFIX_CORRUPT")
                 raise OnlySearchProvenanceStoreError(code, experiment_fingerprint) from exc
+        research_attempts = 0
+        qualification_attempts = 0
+        for plan in plans:
+            terminal = self._terminal_result_for_plan(plan.iteration_plan_fingerprint)
+            if terminal is None:
+                raise OnlySearchProvenanceStoreError(
+                    "SEARCH_ITERATION_TERMINAL_RESULT_MISSING",
+                    plan.iteration_plan_fingerprint,
+                )
+            verified = self.load_iteration_result_verified(terminal.iteration_result_fingerprint)
+            research_attempts += int(verified.research_attempted)
+            qualification_attempts += int(verified.qualification_attempted)
+        if (
+            research_attempts > experiment.search_budget.research_evaluation_limit
+            or qualification_attempts > experiment.search_budget.qualification_attempt_limit
+        ):
+            raise OnlySearchProvenanceStoreError("SEARCH_BUDGET_HISTORY_INVALID", experiment_fingerprint)
+        return ordinal, research_attempts, qualification_attempts
 
     def load_iteration_plan_verified(self, iteration_plan_fingerprint: str) -> OnlySearchIterationPlanV1:
         plan = self._load(

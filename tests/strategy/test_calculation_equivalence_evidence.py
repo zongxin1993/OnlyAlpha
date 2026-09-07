@@ -1,3 +1,6 @@
+import pickle
+import subprocess
+import sys
 from dataclasses import replace
 from decimal import Decimal
 from inspect import signature
@@ -6,16 +9,26 @@ import pytest
 from onlyalpha_plugin_indicators.registration import TYPES, registrations, resolve_definition
 
 from onlyalpha.application import OnlyCalculationEquivalenceCertificationApplicationService
-from onlyalpha.application.calculation_equivalence import _required_certification_horizon
+from onlyalpha.application.calculation_equivalence import (
+    _CertificationRequest,
+    _execute_research,
+    _execute_trading,
+    _materialize_corpus,
+    _plain,
+    _required_certification_horizon,
+)
 from onlyalpha.calculation import (
     OnlyCalculationBackendKind,
     OnlyCalculationEquivalenceError,
     OnlyCalculationEquivalenceEvidenceV2Store,
     OnlyCalculationNodeDefinition,
     OnlyCalculationRegistry,
+    OnlyCalculationStateCapability,
     only_required_calculation_equivalence_profile,
 )
+from onlyalpha.indicator.identifiers import OnlyIndicatorId
 from onlyalpha.strategy.equivalence import OnlyLegacyCalculationEquivalenceEvidenceV1Reader
+from onlyalpha.strategy.execution import only_invoke_trading_calculation
 from tests.strategy.p9_support import p9_strategy_case
 
 
@@ -226,3 +239,87 @@ def test_exact_parameters_change_state_horizon_corpus_and_evidence(tmp_path) -> 
     long_evidence = service.certify(long)
     assert short_evidence.corpus_fingerprint != long_evidence.corpus_fingerprint
     assert short_evidence.evidence_fingerprint != long_evidence.evidence_fingerprint
+
+
+def test_checkpointable_certified_backend_matches_batch_cold_and_restored_continuation() -> None:
+    registry = OnlyCalculationRegistry()
+    for registration in registrations():
+        registry.register(registration)
+    resolved = resolve_definition(
+        next(item for item in TYPES if item.type_id.endswith(".rolling_return")),
+        {"period": 20},
+    )
+    research = registry.resolve(
+        resolved.kind,
+        resolved.type_id,
+        resolved.semantic_version,
+        OnlyCalculationBackendKind.RESEARCH,
+    )
+    trading = registry.resolve(
+        resolved.kind,
+        resolved.type_id,
+        resolved.semantic_version,
+        OnlyCalculationBackendKind.TRADING,
+    )
+    assert trading.state_capability is OnlyCalculationStateCapability.CHECKPOINTABLE
+    profile = only_required_calculation_equivalence_profile(resolved)
+    corpus = _materialize_corpus(resolved, profile)
+    research_rows = _execute_research(resolved, research, corpus)
+    assert _execute_trading(resolved, trading, corpus) == research_rows
+
+    restored_rows = []
+    factory = trading.provider
+    continuation_program = """
+import pickle
+import sys
+
+from onlyalpha.application.calculation_equivalence import _CertificationRequest, _plain
+from onlyalpha.calculation import OnlyCalculationBackendKind, OnlyCalculationDefinition, OnlyCalculationRegistry
+from onlyalpha.indicator.identifiers import OnlyIndicatorId
+from onlyalpha.strategy.execution import only_invoke_trading_calculation
+from onlyalpha_plugin_indicators.registration import registrations
+
+definition_payload, bars, input_rows, checkpoint = pickle.load(sys.stdin.buffer)
+resolved = OnlyCalculationDefinition.from_dict(definition_payload)
+registry = OnlyCalculationRegistry()
+for registration in registrations():
+    registry.register(registration)
+trading = registry.resolve(
+    resolved.kind,
+    resolved.type_id,
+    resolved.semantic_version,
+    OnlyCalculationBackendKind.TRADING,
+)
+request = _CertificationRequest(OnlyIndicatorId("restore-rolling-return"), bars[0].bar_type)
+instance = trading.provider.create(resolved, request)
+instance.restore_checkpoint(checkpoint)
+rows = []
+for bar, inputs in zip(bars, input_rows, strict=True):
+    outputs = only_invoke_trading_calculation(instance, resolved.outputs, bar, inputs)
+    rows.append(tuple((name, _plain(outputs[name])) for name in sorted(outputs)))
+pickle.dump(rows, sys.stdout.buffer)
+"""
+    for case in corpus:
+        split = min(_required_certification_horizon(resolved).minimum_observations + 1, len(case.bars) - 1)
+        request = _CertificationRequest(OnlyIndicatorId("restore-rolling-return"), case.bars[0].bar_type)
+        instance = factory.create(resolved, request)
+        for index, bar in enumerate(case.bars[:split]):
+            inputs = {name: value[index].as_py() for name, value in case.inputs.items()}
+            outputs = only_invoke_trading_calculation(instance, resolved.outputs, bar, inputs)
+            restored_rows.append(
+                (case.case_id, index, tuple((name, _plain(outputs[name])) for name in sorted(outputs)))
+            )
+        assert instance.checkpoint_schema_version == trading.checkpoint_schema_version
+        checkpoint = instance.capture_checkpoint()
+        continuation_inputs = tuple(
+            {name: value[index].as_py() for name, value in case.inputs.items()}
+            for index in range(split, len(case.bars))
+        )
+        continuation = pickle.loads(
+            subprocess.check_output(
+                [sys.executable, "-c", continuation_program],
+                input=pickle.dumps((dict(resolved.to_dict()), case.bars[split:], continuation_inputs, checkpoint)),
+            )
+        )
+        restored_rows.extend((case.case_id, index, outputs) for index, outputs in enumerate(continuation, start=split))
+    assert tuple(restored_rows) == research_rows
