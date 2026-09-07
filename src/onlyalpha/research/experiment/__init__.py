@@ -35,10 +35,15 @@ from .verification import OnlySearchFreezeRelationReader as OnlySearchFreezeRela
 from .verification import OnlySearchFreezeRelationValue as OnlySearchFreezeRelationValue
 from .verification import OnlySearchIterationPlanReader as OnlySearchIterationPlanReader
 from .verification import OnlySearchIterationResultReader as OnlySearchIterationResultReader
+from .verification import OnlySearchProposalReader as OnlySearchProposalReader
+from .verification import OnlySearchProposalValue as OnlySearchProposalValue
 from .verification import OnlySearchQualificationDecisionReader as OnlySearchQualificationDecisionReader
 from .verification import OnlySearchResearchResultReader as OnlySearchResearchResultReader
+from .verification import OnlySearchSpaceReader as OnlySearchSpaceReader
+from .verification import OnlySearchSpaceValue as OnlySearchSpaceValue
 from .verification import verify_search_experiment_references as verify_search_experiment_references
 from .verification import verify_search_iteration_lineage as verify_search_iteration_lineage
+from .verification import verify_search_iteration_proposal_reference as verify_search_iteration_proposal_reference
 from .verification import verify_search_iteration_result_references as verify_search_iteration_result_references
 
 __all__ = [name for name in globals() if name.startswith(("OnlySearch", "OnlyJsonSearch", "SEARCH_", "verify_search"))]

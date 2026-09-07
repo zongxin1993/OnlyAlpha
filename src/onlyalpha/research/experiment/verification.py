@@ -31,6 +31,36 @@ class OnlySearchDatasetReader(Protocol):
     def load_verified_table(self, snapshot_fingerprint: str) -> OnlySearchVerifiedDatasetValue: ...
 
 
+class OnlySearchSpaceValue(Protocol):
+    @property
+    def schema_version(self) -> int: ...
+
+    @property
+    def search_space_fingerprint(self) -> str: ...
+
+    @property
+    def catalog_generation_fingerprint(self) -> str: ...
+
+
+class OnlySearchSpaceReader(Protocol):
+    def load_search_space_verified(self, fingerprint: str) -> OnlySearchSpaceValue: ...
+
+
+class OnlySearchProposalValue(Protocol):
+    @property
+    def schema_version(self) -> int: ...
+
+    @property
+    def proposal_fingerprint(self) -> str: ...
+
+    @property
+    def search_space_fingerprint(self) -> str: ...
+
+
+class OnlySearchProposalReader(Protocol):
+    def load_proposal_verified(self, fingerprint: str) -> OnlySearchProposalValue: ...
+
+
 class OnlySearchCandidateValue(Protocol):
     @property
     def candidate_fingerprint(self) -> str: ...
@@ -178,6 +208,7 @@ def verify_search_experiment_references(
     *,
     catalogs: OnlySearchCatalogGenerationReader,
     datasets: OnlySearchDatasetReader,
+    search_spaces: OnlySearchSpaceReader | None = None,
 ) -> None:
     """Verify exact Catalog Generation and Dataset Snapshot bindings."""
 
@@ -198,6 +229,60 @@ def verify_search_experiment_references(
         raise OnlySearchProvenanceError(
             "SEARCH_DATASET_SNAPSHOT_REFERENCE_INVALID",
             experiment.dataset_snapshot_fingerprint,
+        ) from exc
+    reference = experiment.search_space_reference
+    if reference.search_space_kind == "ONLY_SYMBOLIC_FACTOR_SEARCH_SPACE":
+        if search_spaces is None:
+            raise OnlySearchProvenanceError(
+                "SEARCH_EXTERNAL_REFERENCE_READER_UNAVAILABLE",
+                "Symbolic Search Space reader",
+            )
+        try:
+            value = search_spaces.load_search_space_verified(reference.search_space_fingerprint)
+            if (
+                value.schema_version != reference.search_space_schema_version
+                or value.search_space_fingerprint != reference.search_space_fingerprint
+                or value.catalog_generation_fingerprint != experiment.catalog_generation_fingerprint
+            ):
+                raise ValueError("Symbolic Search Space reader returned a different identity")
+        except OnlySearchProvenanceError:
+            raise
+        except Exception as exc:
+            raise OnlySearchProvenanceError(
+                "SEARCH_SPACE_REFERENCE_INVALID",
+                reference.search_space_fingerprint,
+            ) from exc
+
+
+def verify_search_iteration_proposal_reference(
+    plan: OnlySearchIterationPlanV1,
+    *,
+    proposals: OnlySearchProposalReader | None,
+    expected_search_space_fingerprint: str,
+) -> None:
+    """Close method-specific Proposal references once their Authority exists."""
+
+    if plan.proposal_kind != "ONLY_SYMBOLIC_GRAPH_PROPOSAL":
+        return
+    if proposals is None:
+        raise OnlySearchProvenanceError(
+            "SEARCH_EXTERNAL_REFERENCE_READER_UNAVAILABLE",
+            "Symbolic Proposal reader",
+        )
+    try:
+        proposal = proposals.load_proposal_verified(plan.proposal_fingerprint)
+        if (
+            proposal.schema_version != plan.proposal_schema_version
+            or proposal.proposal_fingerprint != plan.proposal_fingerprint
+            or proposal.search_space_fingerprint != expected_search_space_fingerprint
+        ):
+            raise ValueError("Symbolic Proposal reader returned a different identity")
+    except OnlySearchProvenanceError:
+        raise
+    except Exception as exc:
+        raise OnlySearchProvenanceError(
+            "SEARCH_PROPOSAL_REFERENCE_INVALID",
+            plan.proposal_fingerprint,
         ) from exc
 
 

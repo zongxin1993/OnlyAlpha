@@ -27,10 +27,13 @@ from .verification import (
     OnlySearchCatalogGenerationReader,
     OnlySearchDatasetReader,
     OnlySearchFreezeRelationReader,
+    OnlySearchProposalReader,
     OnlySearchQualificationDecisionReader,
     OnlySearchResearchResultReader,
+    OnlySearchSpaceReader,
     verify_search_experiment_references,
     verify_search_iteration_lineage,
+    verify_search_iteration_proposal_reference,
     verify_search_iteration_result_references,
 )
 
@@ -50,6 +53,8 @@ class OnlyJsonSearchProvenanceStore:
         research_results: OnlySearchResearchResultReader | None = None,
         qualification_decisions: OnlySearchQualificationDecisionReader | None = None,
         freeze_relations: OnlySearchFreezeRelationReader | None = None,
+        search_spaces: OnlySearchSpaceReader | None = None,
+        proposals: OnlySearchProposalReader | None = None,
     ) -> None:
         self._semantic_root = semantic_root
         self._root = semantic_root / "research" / "search-provenance"
@@ -59,11 +64,15 @@ class OnlyJsonSearchProvenanceStore:
         self._research_results = research_results
         self._qualification_decisions = qualification_decisions
         self._freeze_relations = freeze_relations
+        self._search_spaces = search_spaces
+        self._proposals = proposals
 
     def commit_experiment(self, experiment: OnlySearchExperimentManifestV1) -> OnlySearchCommitOutcome:
         if not isinstance(experiment, OnlySearchExperimentManifestV1):
             raise OnlySearchProvenanceStoreError("SEARCH_EXPERIMENT_INVALID", "manifest contract is invalid")
-        verify_search_experiment_references(experiment, catalogs=self._catalogs, datasets=self._datasets)
+        verify_search_experiment_references(
+            experiment, catalogs=self._catalogs, datasets=self._datasets, search_spaces=self._search_spaces
+        )
         if experiment.parent_experiment_fingerprint is not None:
             if experiment.parent_experiment_fingerprint == experiment.experiment_fingerprint:
                 raise OnlySearchProvenanceStoreError(
@@ -86,7 +95,9 @@ class OnlyJsonSearchProvenanceStore:
             OnlySearchExperimentManifestV1.from_dict,
             "SEARCH_EXPERIMENT",
         )
-        verify_search_experiment_references(experiment, catalogs=self._catalogs, datasets=self._datasets)
+        verify_search_experiment_references(
+            experiment, catalogs=self._catalogs, datasets=self._datasets, search_spaces=self._search_spaces
+        )
         self._verify_parent_experiment_chain(experiment)
         return experiment
 
@@ -94,6 +105,12 @@ class OnlyJsonSearchProvenanceStore:
         if not isinstance(plan, OnlySearchIterationPlanV1):
             raise OnlySearchProvenanceStoreError("SEARCH_ITERATION_PLAN_INVALID", "Plan contract is invalid")
         verify_search_iteration_lineage(plan, experiments=self, plans=self._raw, results=self._raw)
+        experiment = self.load_experiment_verified(plan.experiment_fingerprint)
+        verify_search_iteration_proposal_reference(
+            plan,
+            proposals=self._proposals,
+            expected_search_space_fingerprint=experiment.search_space_reference.search_space_fingerprint,
+        )
         if plan.parent_iteration_result_fingerprint is not None:
             self.load_iteration_result_verified(plan.parent_iteration_result_fingerprint)
         return self._commit(
@@ -112,6 +129,12 @@ class OnlyJsonSearchProvenanceStore:
             "SEARCH_ITERATION_PLAN",
         )
         verify_search_iteration_lineage(plan, experiments=self, plans=self._raw, results=self._raw)
+        experiment = self.load_experiment_verified(plan.experiment_fingerprint)
+        verify_search_iteration_proposal_reference(
+            plan,
+            proposals=self._proposals,
+            expected_search_space_fingerprint=experiment.search_space_reference.search_space_fingerprint,
+        )
         if plan.parent_iteration_result_fingerprint is not None:
             self.load_iteration_result_verified(plan.parent_iteration_result_fingerprint)
         return plan
@@ -186,7 +209,9 @@ class OnlyJsonSearchProvenanceStore:
                 raise OnlySearchProvenanceStoreError("SEARCH_EXPERIMENT_PARENT_CYCLE", parent_fingerprint)
             seen.add(parent_fingerprint)
             parent = self._raw.load_experiment_verified(parent_fingerprint)
-            verify_search_experiment_references(parent, catalogs=self._catalogs, datasets=self._datasets)
+            verify_search_experiment_references(
+                parent, catalogs=self._catalogs, datasets=self._datasets, search_spaces=self._search_spaces
+            )
             parent_fingerprint = parent.parent_experiment_fingerprint
 
     def _terminal_result_for_plan(self, plan_fingerprint: str) -> OnlySearchIterationResultV1 | None:
