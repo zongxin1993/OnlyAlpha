@@ -23,6 +23,7 @@ from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
 from onlyalpha.canonical import only_canonical_fingerprint
 
 SYMBOLIC_SEARCH_SPACE_SCHEMA_VERSION = 1
+SYMBOLIC_SEARCH_SPACE_CONTEXT_SCHEMA_VERSION = 2
 SYMBOLIC_PROPOSAL_SCHEMA_VERSION = 1
 SYMBOLIC_SEARCH_SPACE_KIND = "ONLY_SYMBOLIC_FACTOR_SEARCH_SPACE"
 SYMBOLIC_PROPOSAL_KIND = "ONLY_SYMBOLIC_GRAPH_PROPOSAL"
@@ -209,6 +210,51 @@ class OnlySymbolicExternalSourceTerminalV1:
         return value
 
 
+@dataclass(frozen=True, slots=True, order=True)
+class OnlySymbolicExternalSourceReferenceV1:
+    source_id: str
+    source_contract_fingerprint: str
+    schema_version: int = 1
+
+    def __post_init__(self) -> None:
+        if self.schema_version != 1:
+            raise ValueError("SEARCH_EXTERNAL_SOURCE_REFERENCE_INVALID")
+        _identifier(self.source_id, "source_id")
+        _sha(self.source_contract_fingerprint, "source_contract_fingerprint")
+
+    @property
+    def terminal_fingerprint(self) -> str:
+        return only_canonical_fingerprint(
+            {"domain": "onlyalpha.research.symbolic-source-reference", **self.to_dict(include_fingerprint=False)}
+        )
+
+    def to_dict(self, *, include_fingerprint: bool = True) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "schema_version": self.schema_version,
+            "source_id": self.source_id,
+            "source_contract_fingerprint": self.source_contract_fingerprint,
+        }
+        if include_fingerprint:
+            payload["terminal_fingerprint"] = self.terminal_fingerprint
+        return payload
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlySymbolicExternalSourceReferenceV1:
+        _exact(
+            payload,
+            {"schema_version", "source_id", "source_contract_fingerprint", "terminal_fingerprint"},
+            "external source reference",
+        )
+        value = cls(
+            _identifier(payload["source_id"], "source_id"),
+            _sha(payload["source_contract_fingerprint"], "source_contract_fingerprint"),
+            _integer(payload["schema_version"], "schema_version"),
+        )
+        if payload["terminal_fingerprint"] != value.terminal_fingerprint:
+            raise ValueError("external source reference identity differs")
+        return value
+
+
 @dataclass(frozen=True, slots=True)
 class OnlySymbolicCandidateOutputContractV1:
     component_instance_fingerprint: str
@@ -368,6 +414,115 @@ class OnlySymbolicFactorSearchSpaceV1:
         if payload["search_space_fingerprint"] != value.search_space_fingerprint:
             raise ValueError("Symbolic Search Space identity differs")
         return value
+
+
+@dataclass(frozen=True, slots=True)
+class OnlySymbolicFactorSearchSpaceV2:
+    """Search Space with exact references to the Dataset Source Authority."""
+
+    catalog_generation_fingerprint: str
+    component_instances: tuple[OnlySymbolicComponentInstanceV1, ...]
+    external_source_terminals: tuple[OnlySymbolicExternalSourceReferenceV1, ...]
+    candidate_output_contract: OnlySymbolicCandidateOutputContractV1
+    complexity_constraints: OnlySymbolicComplexityConstraintsV1
+    schema_version: int = SYMBOLIC_SEARCH_SPACE_CONTEXT_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if self.schema_version != SYMBOLIC_SEARCH_SPACE_CONTEXT_SCHEMA_VERSION:
+            raise ValueError("SEARCH_SPACE_SCHEMA_UNSUPPORTED")
+        _sha(self.catalog_generation_fingerprint, "Catalog Generation fingerprint")
+        if not self.component_instances or any(
+            not isinstance(item, OnlySymbolicComponentInstanceV1) for item in self.component_instances
+        ):
+            raise ValueError("SEARCH_SPACE_COMPONENTS_INVALID")
+        if not self.external_source_terminals or any(
+            not isinstance(item, OnlySymbolicExternalSourceReferenceV1) for item in self.external_source_terminals
+        ):
+            raise ValueError("SEARCH_SPACE_TERMINALS_INVALID")
+        if not isinstance(self.candidate_output_contract, OnlySymbolicCandidateOutputContractV1) or not isinstance(
+            self.complexity_constraints, OnlySymbolicComplexityConstraintsV1
+        ):
+            raise ValueError("SEARCH_SPACE_INVALID")
+        components = tuple(sorted(self.component_instances, key=lambda item: item.component_instance_fingerprint))
+        terminals = tuple(sorted(self.external_source_terminals, key=lambda item: item.terminal_fingerprint))
+        if len({item.component_instance_fingerprint for item in components}) != len(components):
+            raise ValueError("SEARCH_SPACE_COMPONENT_DUPLICATE")
+        if len({item.source_id for item in terminals}) != len(terminals):
+            raise ValueError("SEARCH_SPACE_TERMINAL_DUPLICATE")
+        if self.candidate_output_contract.component_instance_fingerprint not in {
+            item.component_instance_fingerprint for item in components
+        }:
+            raise ValueError("SEARCH_CANDIDATE_OUTPUT_INVALID")
+        object.__setattr__(self, "component_instances", components)
+        object.__setattr__(self, "external_source_terminals", terminals)
+
+    @property
+    def search_space_fingerprint(self) -> str:
+        return only_canonical_fingerprint(
+            {"domain": "onlyalpha.research.symbolic-factor-search-space", **self.to_dict(include_fingerprint=False)}
+        )
+
+    def to_dict(self, *, include_fingerprint: bool = True) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "schema_version": self.schema_version,
+            "catalog_generation_fingerprint": self.catalog_generation_fingerprint,
+            "component_instances": [item.to_dict() for item in self.component_instances],
+            "external_source_terminals": [item.to_dict() for item in self.external_source_terminals],
+            "candidate_output_contract": self.candidate_output_contract.to_dict(),
+            "complexity_constraints": self.complexity_constraints.to_dict(),
+        }
+        if include_fingerprint:
+            payload["search_space_fingerprint"] = self.search_space_fingerprint
+        return payload
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlySymbolicFactorSearchSpaceV2:
+        _exact(
+            payload,
+            {
+                "schema_version",
+                "catalog_generation_fingerprint",
+                "component_instances",
+                "external_source_terminals",
+                "candidate_output_contract",
+                "complexity_constraints",
+                "search_space_fingerprint",
+            },
+            "Symbolic Search Space V2",
+        )
+        value = cls(
+            _sha(payload["catalog_generation_fingerprint"], "catalog_generation_fingerprint"),
+            tuple(
+                OnlySymbolicComponentInstanceV1.from_dict(_mapping(item, "component instance"))
+                for item in _array(payload["component_instances"], "component_instances")
+            ),
+            tuple(
+                OnlySymbolicExternalSourceReferenceV1.from_dict(_mapping(item, "external source reference"))
+                for item in _array(payload["external_source_terminals"], "external_source_terminals")
+            ),
+            OnlySymbolicCandidateOutputContractV1.from_dict(
+                _mapping(payload["candidate_output_contract"], "candidate_output_contract")
+            ),
+            OnlySymbolicComplexityConstraintsV1.from_dict(
+                _mapping(payload["complexity_constraints"], "complexity_constraints")
+            ),
+            _integer(payload["schema_version"], "schema_version"),
+        )
+        if payload["search_space_fingerprint"] != value.search_space_fingerprint:
+            raise ValueError("Symbolic Search Space V2 identity differs")
+        return value
+
+
+OnlySymbolicFactorSearchSpace = OnlySymbolicFactorSearchSpaceV1 | OnlySymbolicFactorSearchSpaceV2
+
+
+def only_symbolic_search_space_from_dict(payload: Mapping[str, object]) -> OnlySymbolicFactorSearchSpace:
+    version = _integer(payload.get("schema_version"), "schema_version")
+    if version == SYMBOLIC_SEARCH_SPACE_SCHEMA_VERSION:
+        return OnlySymbolicFactorSearchSpaceV1.from_dict(payload)
+    if version == SYMBOLIC_SEARCH_SPACE_CONTEXT_SCHEMA_VERSION:
+        return OnlySymbolicFactorSearchSpaceV2.from_dict(payload)
+    raise ValueError("SEARCH_SPACE_SCHEMA_UNSUPPORTED")
 
 
 @dataclass(frozen=True, slots=True, order=True)

@@ -11,6 +11,7 @@ from typing import cast
 from onlyalpha.canonical import only_canonical_fingerprint
 
 SEARCH_EXPERIMENT_SCHEMA_VERSION = 1
+SEARCH_EXPERIMENT_CONTEXT_SCHEMA_VERSION = 2
 SEARCH_HYPOTHESIS_SCHEMA_VERSION = 1
 SEARCH_ITERATION_PLAN_SCHEMA_VERSION = 1
 SEARCH_ITERATION_RESULT_SCHEMA_VERSION = 1
@@ -51,6 +52,7 @@ class OnlySearchFailureCode(StrEnum):
     RESEARCH_EXECUTION_FAILED = "RESEARCH_EXECUTION_FAILED"
     RESEARCH_EVIDENCE_UNAVAILABLE = "RESEARCH_EVIDENCE_UNAVAILABLE"
     QUALIFICATION_NOT_ATTEMPTED = "QUALIFICATION_NOT_ATTEMPTED"
+    QUALIFICATION_EXECUTION_FAILED = "QUALIFICATION_EXECUTION_FAILED"
     DECISION_PROVENANCE_INVALID = "DECISION_PROVENANCE_INVALID"
 
 
@@ -298,6 +300,43 @@ class OnlySearchSpaceReferenceV1:
             _string(payload["search_space_kind"], "search_space_kind"),
             _integer(payload["search_space_schema_version"], "search_space_schema_version"),
             _sha(payload["search_space_fingerprint"], "search_space_fingerprint"),
+            _integer(payload["schema_version"], "schema_version"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class OnlySearchEvaluationContextReferenceV1:
+    evaluation_kind: str
+    evaluation_schema_version: int
+    evaluation_fingerprint: str
+    schema_version: int = 1
+
+    def __post_init__(self) -> None:
+        if self.schema_version != 1:
+            raise ValueError("unsupported Search Evaluation Context Reference schema")
+        _identifier(self.evaluation_kind, "evaluation_kind")
+        _positive_integer(self.evaluation_schema_version, "evaluation_schema_version")
+        _sha(self.evaluation_fingerprint, "evaluation_fingerprint")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "evaluation_kind": self.evaluation_kind,
+            "evaluation_schema_version": self.evaluation_schema_version,
+            "evaluation_fingerprint": self.evaluation_fingerprint,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlySearchEvaluationContextReferenceV1:
+        _exact(
+            payload,
+            {"schema_version", "evaluation_kind", "evaluation_schema_version", "evaluation_fingerprint"},
+            "Search Evaluation Context Reference",
+        )
+        return cls(
+            _string(payload["evaluation_kind"], "evaluation_kind"),
+            _integer(payload["evaluation_schema_version"], "evaluation_schema_version"),
+            _sha(payload["evaluation_fingerprint"], "evaluation_fingerprint"),
             _integer(payload["schema_version"], "schema_version"),
         )
 
@@ -551,6 +590,139 @@ class OnlySearchExperimentManifestV1:
 
 
 @dataclass(frozen=True, slots=True)
+class OnlySearchExperimentManifestV2:
+    """Forward-only Search Experiment contract with exact Evaluation binding."""
+
+    hypothesis: OnlySearchHypothesisV1
+    search_algorithm_binding: OnlySearchAlgorithmBindingV1
+    search_space_reference: OnlySearchSpaceReferenceV1
+    evaluation_context_reference: OnlySearchEvaluationContextReferenceV1
+    randomness_mode: OnlySearchRandomnessMode
+    seed: int | None
+    search_budget: OnlySearchBudgetV1
+    catalog_generation_fingerprint: str
+    dataset_snapshot_fingerprint: str
+    workflow_binding: OnlySearchWorkflowBindingV1
+    decision_engine_binding: OnlySearchDecisionEngineBindingV1
+    parent_experiment_fingerprint: str | None = None
+    schema_version: int = SEARCH_EXPERIMENT_CONTEXT_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if self.schema_version != SEARCH_EXPERIMENT_CONTEXT_SCHEMA_VERSION:
+            raise ValueError("unsupported Search Experiment Manifest V2 schema")
+        if not isinstance(self.hypothesis, OnlySearchHypothesisV1):
+            raise ValueError("Search Experiment hypothesis is invalid")
+        if not isinstance(self.search_algorithm_binding, OnlySearchAlgorithmBindingV1):
+            raise ValueError("Search Experiment algorithm binding is invalid")
+        if not isinstance(self.search_space_reference, OnlySearchSpaceReferenceV1):
+            raise ValueError("Search Experiment search-space reference is invalid")
+        if not isinstance(self.evaluation_context_reference, OnlySearchEvaluationContextReferenceV1):
+            raise ValueError("Search Experiment evaluation-context reference is invalid")
+        if not isinstance(self.randomness_mode, OnlySearchRandomnessMode):
+            raise ValueError("Search Experiment randomness mode is invalid")
+        if self.randomness_mode is OnlySearchRandomnessMode.NONE:
+            if self.seed is not None:
+                raise ValueError("NONE randomness mode requires a null seed")
+        elif isinstance(self.seed, bool) or not isinstance(self.seed, int):
+            raise ValueError("SEEDED randomness mode requires an exact integer seed")
+        if not isinstance(self.search_budget, OnlySearchBudgetV1):
+            raise ValueError("Search Experiment budget is invalid")
+        _sha(self.catalog_generation_fingerprint, "Catalog Generation fingerprint")
+        _sha(self.dataset_snapshot_fingerprint, "Dataset Snapshot fingerprint")
+        if not isinstance(self.workflow_binding, OnlySearchWorkflowBindingV1):
+            raise ValueError("Search Experiment workflow binding is invalid")
+        if not isinstance(self.decision_engine_binding, OnlySearchDecisionEngineBindingV1):
+            raise ValueError("Search Experiment decision-engine binding is invalid")
+        _optional_sha(self.parent_experiment_fingerprint, "parent Experiment fingerprint")
+
+    @property
+    def experiment_fingerprint(self) -> str:
+        return only_canonical_fingerprint(
+            {"domain": "onlyalpha.research.search-experiment", **self.to_dict(include_fingerprint=False)}
+        )
+
+    def to_dict(self, *, include_fingerprint: bool = True) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "schema_version": self.schema_version,
+            "parent_experiment_fingerprint": self.parent_experiment_fingerprint,
+            "hypothesis": self.hypothesis.to_dict(),
+            "search_algorithm_binding": self.search_algorithm_binding.to_dict(),
+            "search_space_reference": self.search_space_reference.to_dict(),
+            "evaluation_context_reference": self.evaluation_context_reference.to_dict(),
+            "randomness_mode": self.randomness_mode.value,
+            "seed": self.seed,
+            "search_budget": self.search_budget.to_dict(),
+            "catalog_generation_fingerprint": self.catalog_generation_fingerprint,
+            "dataset_snapshot_fingerprint": self.dataset_snapshot_fingerprint,
+            "workflow_binding": self.workflow_binding.to_dict(),
+            "decision_engine_binding": self.decision_engine_binding.to_dict(),
+        }
+        if include_fingerprint:
+            payload["experiment_fingerprint"] = self.experiment_fingerprint
+        return payload
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlySearchExperimentManifestV2:
+        _exact(
+            payload,
+            {
+                "schema_version",
+                "parent_experiment_fingerprint",
+                "hypothesis",
+                "search_algorithm_binding",
+                "search_space_reference",
+                "evaluation_context_reference",
+                "randomness_mode",
+                "seed",
+                "search_budget",
+                "catalog_generation_fingerprint",
+                "dataset_snapshot_fingerprint",
+                "workflow_binding",
+                "decision_engine_binding",
+                "experiment_fingerprint",
+            },
+            "Search Experiment Manifest V2",
+        )
+        seed = payload["seed"]
+        experiment = cls(
+            OnlySearchHypothesisV1.from_dict(_mapping(payload["hypothesis"], "hypothesis")),
+            OnlySearchAlgorithmBindingV1.from_dict(
+                _mapping(payload["search_algorithm_binding"], "search_algorithm_binding")
+            ),
+            OnlySearchSpaceReferenceV1.from_dict(_mapping(payload["search_space_reference"], "search_space_reference")),
+            OnlySearchEvaluationContextReferenceV1.from_dict(
+                _mapping(payload["evaluation_context_reference"], "evaluation_context_reference")
+            ),
+            OnlySearchRandomnessMode(_string(payload["randomness_mode"], "randomness_mode")),
+            None if seed is None else _integer(seed, "seed"),
+            OnlySearchBudgetV1.from_dict(_mapping(payload["search_budget"], "search_budget")),
+            _sha(payload["catalog_generation_fingerprint"], "catalog_generation_fingerprint"),
+            _sha(payload["dataset_snapshot_fingerprint"], "dataset_snapshot_fingerprint"),
+            OnlySearchWorkflowBindingV1.from_dict(_mapping(payload["workflow_binding"], "workflow_binding")),
+            OnlySearchDecisionEngineBindingV1.from_dict(
+                _mapping(payload["decision_engine_binding"], "decision_engine_binding")
+            ),
+            _optional_sha(payload["parent_experiment_fingerprint"], "parent_experiment_fingerprint"),
+            _integer(payload["schema_version"], "schema_version"),
+        )
+        if payload["experiment_fingerprint"] != experiment.experiment_fingerprint:
+            raise ValueError("Search Experiment V2 identity differs")
+        return experiment
+
+
+OnlySearchExperimentManifest = OnlySearchExperimentManifestV1 | OnlySearchExperimentManifestV2
+
+
+def only_search_experiment_manifest_from_dict(payload: Mapping[str, object]) -> OnlySearchExperimentManifest:
+    version = _integer(payload.get("schema_version"), "schema_version")
+    if version == SEARCH_EXPERIMENT_SCHEMA_VERSION:
+        return OnlySearchExperimentManifestV1.from_dict(payload)
+    if version == SEARCH_EXPERIMENT_CONTEXT_SCHEMA_VERSION:
+        return OnlySearchExperimentManifestV2.from_dict(payload)
+    raise ValueError("unsupported Search Experiment Manifest schema")
+
+
+@dataclass(frozen=True, slots=True)
 class OnlySearchIterationPlanV1:
     experiment_fingerprint: str
     iteration_index: int
@@ -714,6 +886,19 @@ class OnlySearchIterationResultV1:
             self.candidate_fingerprint is None or not self.research_attempted or self.research_result_reference is None
         ):
             raise ValueError("Qualification attempt requires exact Candidate and Research Result bindings")
+        if self.failure_code is OnlySearchFailureCode.QUALIFICATION_NOT_ATTEMPTED and self.qualification_attempted:
+            raise ValueError("QUALIFICATION_NOT_ATTEMPTED contradicts qualification_attempted")
+        if self.qualification_attempted and self.qualification_decision_fingerprint is None:
+            if self.failure_code is not OnlySearchFailureCode.QUALIFICATION_EXECUTION_FAILED:
+                raise ValueError("failed Qualification attempt requires QUALIFICATION_EXECUTION_FAILED")
+        if (
+            self.failure_code is OnlySearchFailureCode.QUALIFICATION_EXECUTION_FAILED
+            and not self.qualification_attempted
+        ):
+            raise ValueError("QUALIFICATION_EXECUTION_FAILED requires qualification_attempted")
+        if self.research_attempted and self.research_result_reference is None and not self.qualification_attempted:
+            if self.failure_code is not OnlySearchFailureCode.RESEARCH_EXECUTION_FAILED:
+                raise ValueError("failed Research attempt requires RESEARCH_EXECUTION_FAILED")
         if self.disposition in {OnlySearchIterationDisposition.SKIPPED, OnlySearchIterationDisposition.FAILED}:
             if self.failure_code is None:
                 raise ValueError("failed/skipped Search Iteration requires a failure code")

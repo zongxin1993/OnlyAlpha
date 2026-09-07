@@ -1,7 +1,7 @@
 # ADR 0121: Deterministic Symbolic Factor Search Authority Contract
 
 - Status: Accepted
-- Date: 2026-09-07
+- Date: 2026-09-07 (amended 2026-09-07 for Authority-Graph closure)
 - Decision maker: repository owner through the B3.2 implementation authorization
 - Related: ADR 0069, 0095, 0110, 0112, 0115, 0118, 0119, 0120
 
@@ -191,6 +191,168 @@ Search neither reads raw Parquet nor computes metrics.
 An exact Research Result may be sent to the existing Qualification evaluator within budget. Search records only its exact
 QualificationDecision reference through ADR 0120 and never copies PASS/FAIL. The closure-patch Candidate/Research locator/Result/
 FreezeRelation subject chain remains mandatory. Qualification has no path back into enumeration.
+
+### Authority-Graph closure amendment
+
+The initial B3.2 implementation exposed three incomplete proof boundaries: its Research evaluation input existed only as a runtime
+template; symbolic terminals copied Dataset-source output semantics; and Proposal loads proved their own bytes and descriptors but did
+not reconstruct Calculation definitions through the exact Catalog authority. The following forward-only rules close those boundaries.
+
+#### Complete Search Experiment identity
+
+`OnlySearchExperimentManifestV1` remains byte-for-byte readable with its original identity and meaning. No field is added to schema
+version 1. B3.2 formal execution requires `OnlySearchExperimentManifestV2`, which adds exactly one
+`OnlySearchEvaluationContextReferenceV1`:
+
+```text
+evaluation_kind
+evaluation_schema_version
+evaluation_fingerprint
+```
+
+The V2 Experiment fingerprint canonically includes schema, parent Experiment, Hypothesis, algorithm binding, Search Space reference,
+Evaluation reference, randomness/seed, all three budget dimensions, Catalog Generation, Dataset Snapshot, workflow and decision-engine
+binding. Consequently the same Experiment identity means the same Hypothesis, Catalog, Dataset, Search Space, Research Evaluation
+Contract, algorithm semantics and implementation, randomness contract, budget and workflow provenance. Any change to those inputs creates
+a different Experiment. V1 remains valid provenance for B3.1 readers, but the B3.2 workflow rejects it because it has no exact Evaluation
+binding.
+
+#### Immutable Research Evaluation Contract authority
+
+`OnlySymbolicResearchEvaluationContractV1` is an immutable, content-addressed scientific input. It owns only the fixed portion of one
+symbolic-search Research evaluation plus a replaceable Candidate slot:
+
+```text
+schema_version
+dataset_snapshot_fingerprint
+candidate_calculation_id
+fixed non-Candidate Calculation specifications
+fixed Target and Statistics request membership
+fixed scientific Evidence membership
+Candidate-output interpretation and binding policy
+evaluation_contract_fingerprint
+```
+
+It stores no metric or Result. It is not a second Research Specification authority. Deterministic materialization inserts one exact,
+contextually verified Proposal graph/output into the Candidate slot and produces a normal `OnlyResearchSpecification`; the existing
+`OnlyResearchSpecificationResolver` remains the sole Specification, Workload and ADR 0095 Candidate identity constructor. Dataset,
+Target, Statistics and Evidence membership remain fixed, and only the Candidate graph/output selectors may vary according to the frozen
+binding policy.
+
+Evaluation identity is the canonical SHA-256 of the complete semantic payload. Its Store supports only exact
+`commit_evaluation_contract` and `load_evaluation_contract_intrinsic_verified`, put-once `REUSED`/`CONFLICT`, canonical bytes and
+fail-closed unknown-schema/corruption behavior. Experiment contextual resolution exact-loads the referenced Evaluation and requires its
+Dataset fingerprint to equal the Experiment Dataset fingerprint.
+
+#### Dataset Source Contract identity and symbolic terminal reference
+
+The existing Research Dataset source-binding module remains the sole source-semantics authority. Its
+`OnlyResearchDatasetSourceContractV1` binds:
+
+```text
+schema_version
+source_id
+column
+data_type
+canonical semantic_roles
+dimensions
+unit
+source_contract_fingerprint
+```
+
+The fingerprint is canonical SHA-256 over that complete generic contract; it excludes Dataset table bytes and Snapshot-specific facts.
+The accepted Search Space V1 reader and identity remain unchanged for historical intrinsic reads. Search Space V2 replaces its terminal
+member forward-only with `OnlySymbolicExternalSourceReferenceV1`, containing only `schema_version`, `source_id` and
+`source_contract_fingerprint`. It persists no data type, semantic role/type, dimensions, unit or nullability. Formal B3.2 execution and
+contextual readers require Search Space V2; V1 cannot certify Source-Authority closure.
+
+Contextual Search Space verification exact-resolves `source_id`, requires the authoritative Source Contract fingerprint to match, and
+derives an ephemeral Calculation-compatible output projection. Snapshot-specific nullability and Arrow compatibility are verified from
+the exact Experiment Dataset Snapshot plus the generic Source Contract. A source name or cached output descriptor alone is never trusted.
+
+#### Intrinsic and contextual proof boundaries
+
+Intrinsic verification proves only canonical bytes, schema, own fingerprint and internal structure. The symbolic Store therefore exposes
+`load_search_space_intrinsic_verified`, `load_proposal_intrinsic_verified`, and
+`load_evaluation_contract_intrinsic_verified`; compatibility aliases must not be presented to B3.1 as contextual readers.
+
+`OnlySymbolicSearchContextResolver` owns no durable facts. It exact-loads and proves:
+
+```text
+Experiment V2 <-> Catalog Generation / Dataset Snapshot / Search Space / Evaluation / Algorithm implementation
+Search Space <-> Catalog component/backend/parameters / Source Contracts / exact L3 Factor bridge
+Evaluation <-> Dataset and fixed Research semantics
+```
+
+Only then does it return the ephemeral `OnlyVerifiedSymbolicSearchContextV1`. The B3.2 workflow consumes this verified context instead of
+independently supplied semantic objects. Thin B3.1 Search Space and Proposal readers may satisfy ADR 0120 protocols only after contextual
+closure; the intrinsic Store alone is not such an Authority.
+
+#### Algorithm implementation authority
+
+The running deterministic enumerator exposes an immutable `OnlySymbolicSearchAlgorithmImplementationV1` containing its exact algorithm
+ID, semantic version, implementation fingerprint and source revision. The implementation fingerprint is derived from an explicit manifest
+of the actual executable/source-package resources; an arbitrary caller-supplied SHA is not runtime proof. Context resolution requires all
+four fields to equal the Experiment algorithm binding. Changing ordering semantics requires a new algorithm semantic version.
+
+#### Proposal reconstruction proof
+
+After intrinsic Proposal load, `OnlySymbolicProposalVerifier` locates every node's exact Component Instance in the verified Search Space,
+uses the exact Catalog Calculation Registry to call `rematerialize_definition(type_reference, normalized_parameters, input_bindings)`, and
+requires the authoritative Definition fingerprint to equal the persisted node Definition fingerprint. It then reconstructs
+`OnlyCalculationGraphDefinition`, requires the reconstructed Graph fingerprint to equal the persisted Proposal Graph fingerprint, verifies
+the exact admitted Factor candidate node/output, and recomputes complexity from the reconstructed Graph.
+
+Success returns only an ephemeral `OnlyVerifiedSymbolicProposalV1` containing the intrinsic Proposal, Verified Search Context,
+authoritatively rematerialized Graph, exact candidate node/output and canonical complexity. Research materialization accepts this verified
+Proposal, never a bare persisted Proposal. Descriptor equality is not reconstruction proof.
+
+#### Qualification attempt state
+
+The Accepted V1 failure vocabulary is not reinterpreted. It is extended append-only with `QUALIFICATION_EXECUTION_FAILED`. Valid terminal
+states are:
+
+```text
+NOT_REQUESTED:     attempted=false, decision=null
+ATTEMPTED_FAILED:  attempted=true,  decision=null, failure=QUALIFICATION_EXECUTION_FAILED
+DECISION_RECORDED: attempted=true,  decision=exact, failure=null
+```
+
+`qualification_attempted=true` with `QUALIFICATION_NOT_ATTEMPTED` is invalid. Equivalent contradictory Research attempt combinations are
+also rejected.
+
+#### Exact enumeration completion
+
+For total unique Proposal count `T` and requested limit `N`, the result is exact:
+
+```text
+N < T:  proposal_limit_reached=true,  search_space_exhausted=false
+N = T:  proposal_limit_reached=true,  search_space_exhausted=true
+N > T:  proposal_limit_reached=false, search_space_exhausted=true
+```
+
+The enumerator may continue the same deterministic structural traversal far enough to distinguish `N = T` from `N < T`; it must not
+change ordering. `proposal_limit` bounds emitted formal Proposals, not every internal legal/illegal construction attempt in a structural
+layer. A future bound on internal expansion requires a separately versioned algorithm if it changes the deterministic prefix.
+
+#### Semantic closure matrix
+
+| Object | Own identity | External dependencies | Required proof |
+|---|---|---|---|
+| Experiment V2 | Experiment fingerprint | Search Space, Evaluation, Algorithm, Catalog, Dataset | all exact |
+| Search Space | Search Space fingerprint | Catalog, Source Contracts, Dataset compatibility | component/source/bridge exact |
+| Evaluation | Evaluation fingerprint | Dataset and existing Research semantics | Candidate slot, Target, Statistics and Evidence fixed |
+| Proposal | Proposal fingerprint | Search Space, Catalog and Calculation Registry | every node and Graph reconstructed exactly |
+| Graph | Graph fingerprint | Calculation authority | canonical definitions and bindings exact |
+| Candidate | ADR 0095 Candidate fingerprint | normal Research Specification | existing Resolver only |
+| Research Result | Research Result fingerprint | Candidate and Dataset | existing exact closure |
+| Qualification | QualificationDecision fingerprint | Research Result and FreezeRelation | existing exact closure |
+
+Every row requires a positive proof test and a semantic-contradiction test. A fresh process given only one terminal Iteration Result
+fingerprint plus Authority roots/configuration must traverse and verify the complete chain through Plan, Experiment V2, Evaluation,
+Search Space, Algorithm, Catalog, Dataset, Source Contracts, Proposal reconstruction, normal Specification/Candidate, Research Result,
+Qualification Decision and FreezeRelation. It must not receive the original Evaluation/Proposal/Candidate/Research/Qualification objects,
+recompute Research, re-evaluate Qualification, or reconstruct missing durable semantic inputs with a helper.
 
 ### Structured failure boundary
 

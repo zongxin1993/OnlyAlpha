@@ -21,30 +21,8 @@ from onlyalpha.research.sweep.template import (
 )
 
 from .errors import OnlySymbolicSearchError
-from .model import OnlySymbolicGraphProposalV1
-
-
-@dataclass(frozen=True, slots=True)
-class OnlySymbolicResearchEvaluationTemplateV1:
-    """One fixed normal Research Specification with a replaceable Candidate graph."""
-
-    specification: OnlyResearchSpecification
-    candidate_calculation_id: str
-    schema_version: int = 1
-
-    def __post_init__(self) -> None:
-        if self.schema_version != 1 or not self.candidate_calculation_id:
-            raise ValueError("SEARCH_EVALUATION_TEMPLATE_INVALID")
-        matches = tuple(
-            item for item in self.specification.calculations if item.calculation_id == self.candidate_calculation_id
-        )
-        if len(matches) != 1:
-            raise ValueError("SEARCH_EVALUATION_TEMPLATE_INVALID")
-        if (
-            self.specification.evidence is None
-            or self.specification.evidence.candidate_calculation_id != self.candidate_calculation_id
-        ):
-            raise ValueError("SEARCH_EVALUATION_TEMPLATE_INVALID")
+from .evaluation import OnlySymbolicResearchEvaluationContractV1
+from .verification import OnlyVerifiedSymbolicProposalV1
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,13 +33,15 @@ class OnlySymbolicResearchMaterializationV1:
 
 
 def proposal_to_research_graph_template(
-    proposal: OnlySymbolicGraphProposalV1,
+    verified_proposal: OnlyVerifiedSymbolicProposalV1,
 ) -> tuple[OnlyResearchGraphTemplate, str, str]:
     """Losslessly project a canonical Graph through the existing template vocabulary."""
 
-    node_ids = {node.fingerprint: f"node_{node.fingerprint}" for node in proposal.graph.nodes}
+    proposal = verified_proposal.proposal
+    graph = verified_proposal.graph
+    node_ids = {node.fingerprint: f"node_{node.fingerprint}" for node in graph.nodes}
     nodes = []
-    for node in proposal.graph.ordered_nodes:
+    for node in graph.ordered_nodes:
         definition = node.definition
         bindings = tuple(
             OnlyResearchTemplateInputBinding(
@@ -88,15 +68,15 @@ def proposal_to_research_graph_template(
 
 
 def materialize_symbolic_research_specification(
-    template: OnlySymbolicResearchEvaluationTemplateV1,
-    proposal: OnlySymbolicGraphProposalV1,
+    evaluation: OnlySymbolicResearchEvaluationContractV1,
+    verified_proposal: OnlyVerifiedSymbolicProposalV1,
 ) -> OnlySymbolicResearchMaterializationV1:
-    graph_template, candidate_node_id, candidate_output_name = proposal_to_research_graph_template(proposal)
-    candidate_id = template.candidate_calculation_id
-    calculations = tuple(
-        OnlyResearchCalculationSpec(candidate_id, graph_template) if item.calculation_id == candidate_id else item
-        for item in template.specification.calculations
-    )
+    context = verified_proposal.context
+    if getattr(context, "evaluation_contract", None) != evaluation:
+        raise OnlySymbolicSearchError("SEARCH_EVALUATION_CONTEXT_MISMATCH", evaluation.evaluation_contract_fingerprint)
+    graph_template, candidate_node_id, candidate_output_name = proposal_to_research_graph_template(verified_proposal)
+    candidate_id = evaluation.candidate_calculation_id
+    calculations = (*evaluation.fixed_calculations, OnlyResearchCalculationSpec(candidate_id, graph_template))
 
     def selector(value: OnlyResearchSeriesSelector) -> OnlyResearchSeriesSelector:
         if value.calculation_id != candidate_id:
@@ -110,11 +90,9 @@ def materialize_symbolic_research_specification(
             item.definition,
             item.expansion,
         )
-        for item in template.specification.statistics
+        for item in evaluation.statistics
     )
-    evidence = template.specification.evidence
-    if evidence is None:  # guarded by the template contract
-        raise OnlySymbolicSearchError("SEARCH_EVALUATION_TEMPLATE_INVALID", "scientific evidence is required")
+    evidence = evaluation.evidence
     signals = evidence.signals
     materialized_evidence = OnlyResearchScientificEvidenceSpec(
         candidate_id,
@@ -126,11 +104,11 @@ def materialize_symbolic_research_specification(
         ),
     )
     specification = OnlyResearchSpecification(
-        template.specification.dataset_snapshot_fingerprint,
+        evaluation.dataset_snapshot_fingerprint,
         calculations,
         statistics,
         materialized_evidence,
-        template.specification.schema_version,
+        evaluation.research_specification_schema_version,
     )
     return OnlySymbolicResearchMaterializationV1(specification, candidate_node_id, candidate_output_name)
 

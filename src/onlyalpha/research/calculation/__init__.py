@@ -8,6 +8,7 @@ from .backend import (
 )
 from .binding import (
     OnlyResearchDatasetSourceContract,
+    OnlyResearchDatasetSourceContractV1,
     only_bind_research_dataset_source,
     only_research_dataset_source_contract,
     only_research_dataset_source_contracts,

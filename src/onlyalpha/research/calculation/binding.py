@@ -7,47 +7,91 @@ from dataclasses import dataclass
 import pyarrow as pa  # type: ignore[import-untyped]
 
 from onlyalpha.calculation import PREDICATE_OPERAND_SEMANTIC_TYPE, OnlyCalculationDataType, OnlyInputDefinition
+from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.research.dataset.schema import OnlyResearchBarDatasetSchema
 
 from .errors import OnlyResearchCalculationError
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyResearchDatasetSourceContract:
+class OnlyResearchDatasetSourceContractV1:
     column: str
     data_type: OnlyCalculationDataType
     semantic_roles: frozenset[str]
     dimensions: tuple[str, ...] = ("TIME",)
     unit: str | None = None
+    source_id: str = ""
+    schema_version: int = 1
+
+    def __post_init__(self) -> None:
+        # Preserve the pre-V1 public positional constructor while giving the
+        # formal bar-source contract its canonical identifier.
+        if not self.source_id:
+            object.__setattr__(self, "source_id", f"bar.{self.column}")
+        if self.schema_version != 1 or any(character.isspace() for character in self.source_id):
+            raise ValueError("RESEARCH_SOURCE_CONTRACT_INVALID")
+        if not self.column or not self.semantic_roles or not self.dimensions:
+            raise ValueError("RESEARCH_SOURCE_CONTRACT_INVALID")
+
+    @property
+    def source_contract_fingerprint(self) -> str:
+        return only_canonical_fingerprint(
+            {
+                "domain": "onlyalpha.research.dataset-source-contract",
+                "schema_version": self.schema_version,
+                "source_id": self.source_id,
+                "column": self.column,
+                "data_type": self.data_type.value,
+                "semantic_roles": sorted(self.semantic_roles),
+                "dimensions": list(self.dimensions),
+                "unit": self.unit,
+            }
+        )
+
+
+# Compatibility name for producer-side callers; the authority itself is explicitly V1.
+OnlyResearchDatasetSourceContract = OnlyResearchDatasetSourceContractV1
 
 
 _SOURCES = {
-    "bar.open": OnlyResearchDatasetSourceContract(
-        "open", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "PRICE"})
+    "bar.open": OnlyResearchDatasetSourceContractV1(
+        "open", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "PRICE"}), source_id="bar.open"
     ),
-    "bar.high": OnlyResearchDatasetSourceContract(
-        "high", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "PRICE"})
+    "bar.high": OnlyResearchDatasetSourceContractV1(
+        "high", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "PRICE"}), source_id="bar.high"
     ),
-    "bar.low": OnlyResearchDatasetSourceContract(
-        "low", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "PRICE"})
+    "bar.low": OnlyResearchDatasetSourceContractV1(
+        "low", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "PRICE"}), source_id="bar.low"
     ),
-    "bar.close": OnlyResearchDatasetSourceContract(
-        "close", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "PRICE"})
+    "bar.close": OnlyResearchDatasetSourceContractV1(
+        "close", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "PRICE"}), source_id="bar.close"
     ),
-    "bar.volume": OnlyResearchDatasetSourceContract(
-        "volume", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "QUANTITY"})
+    "bar.volume": OnlyResearchDatasetSourceContractV1(
+        "volume", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "QUANTITY"}), source_id="bar.volume"
     ),
-    "bar.quote_volume": OnlyResearchDatasetSourceContract(
-        "quote_volume", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "QUANTITY"})
+    "bar.quote_volume": OnlyResearchDatasetSourceContractV1(
+        "quote_volume",
+        OnlyCalculationDataType.DECIMAL,
+        frozenset({"NUMERIC_SERIES", "QUANTITY"}),
+        source_id="bar.quote_volume",
     ),
-    "bar.turnover_amount": OnlyResearchDatasetSourceContract(
-        "turnover_amount", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "MONEY"})
+    "bar.turnover_amount": OnlyResearchDatasetSourceContractV1(
+        "turnover_amount",
+        OnlyCalculationDataType.DECIMAL,
+        frozenset({"NUMERIC_SERIES", "MONEY"}),
+        source_id="bar.turnover_amount",
     ),
-    "bar.trade_count": OnlyResearchDatasetSourceContract(
-        "trade_count", OnlyCalculationDataType.INTEGER, frozenset({"NUMERIC_SERIES", "COUNT"})
+    "bar.trade_count": OnlyResearchDatasetSourceContractV1(
+        "trade_count",
+        OnlyCalculationDataType.INTEGER,
+        frozenset({"NUMERIC_SERIES", "COUNT"}),
+        source_id="bar.trade_count",
     ),
-    "bar.open_interest": OnlyResearchDatasetSourceContract(
-        "open_interest", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "QUANTITY"})
+    "bar.open_interest": OnlyResearchDatasetSourceContractV1(
+        "open_interest",
+        OnlyCalculationDataType.DECIMAL,
+        frozenset({"NUMERIC_SERIES", "QUANTITY"}),
+        source_id="bar.open_interest",
     ),
 }
 
@@ -96,6 +140,7 @@ def only_bind_research_dataset_source(
 
 __all__ = [
     "OnlyResearchDatasetSourceContract",
+    "OnlyResearchDatasetSourceContractV1",
     "only_bind_research_dataset_source",
     "only_research_dataset_source_contract",
     "only_research_dataset_source_contracts",

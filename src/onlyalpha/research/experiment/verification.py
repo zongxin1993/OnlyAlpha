@@ -5,7 +5,12 @@ from __future__ import annotations
 from typing import Protocol
 
 from .errors import OnlySearchProvenanceError
-from .model import OnlySearchExperimentManifestV1, OnlySearchIterationPlanV1, OnlySearchIterationResultV1
+from .model import (
+    OnlySearchExperimentManifest,
+    OnlySearchExperimentManifestV2,
+    OnlySearchIterationPlanV1,
+    OnlySearchIterationResultV1,
+)
 
 
 class OnlySearchCatalogGenerationValue(Protocol):
@@ -59,6 +64,19 @@ class OnlySearchProposalValue(Protocol):
 
 class OnlySearchProposalReader(Protocol):
     def load_proposal_verified(self, fingerprint: str) -> OnlySearchProposalValue: ...
+
+
+class OnlySearchContextValue(Protocol):
+    @property
+    def experiment(self) -> OnlySearchExperimentManifestV2: ...
+
+
+class OnlySearchContextReader(Protocol):
+    def resolve_verified_context(self, experiment: OnlySearchExperimentManifestV2) -> OnlySearchContextValue: ...
+
+    def load_proposal_contextual_verified(
+        self, experiment: OnlySearchExperimentManifestV2, plan: OnlySearchIterationPlanV1
+    ) -> object: ...
 
 
 class OnlySearchCandidateValue(Protocol):
@@ -146,7 +164,7 @@ class OnlySearchFreezeRelationReader(Protocol):
 
 
 class OnlySearchExperimentReader(Protocol):
-    def load_experiment_verified(self, experiment_fingerprint: str) -> OnlySearchExperimentManifestV1: ...
+    def load_experiment_verified(self, experiment_fingerprint: str) -> OnlySearchExperimentManifest: ...
 
 
 class OnlySearchIterationPlanReader(Protocol):
@@ -204,11 +222,12 @@ def verify_search_iteration_lineage(
 
 
 def verify_search_experiment_references(
-    experiment: OnlySearchExperimentManifestV1,
+    experiment: OnlySearchExperimentManifest,
     *,
     catalogs: OnlySearchCatalogGenerationReader,
     datasets: OnlySearchDatasetReader,
     search_spaces: OnlySearchSpaceReader | None = None,
+    search_contexts: OnlySearchContextReader | None = None,
 ) -> None:
     """Verify exact Catalog Generation and Dataset Snapshot bindings."""
 
@@ -232,6 +251,24 @@ def verify_search_experiment_references(
         ) from exc
     reference = experiment.search_space_reference
     if reference.search_space_kind == "ONLY_SYMBOLIC_FACTOR_SEARCH_SPACE":
+        if isinstance(experiment, OnlySearchExperimentManifestV2):
+            if search_contexts is None:
+                raise OnlySearchProvenanceError(
+                    "SEARCH_EXTERNAL_REFERENCE_READER_UNAVAILABLE",
+                    "Verified Symbolic Search Context reader",
+                )
+            try:
+                context = search_contexts.resolve_verified_context(experiment)
+                if context.experiment.experiment_fingerprint != experiment.experiment_fingerprint:
+                    raise ValueError("Verified Search Context belongs to a different Experiment")
+            except OnlySearchProvenanceError:
+                raise
+            except Exception as exc:
+                raise OnlySearchProvenanceError(
+                    "SEARCH_CONTEXT_REFERENCE_INVALID",
+                    experiment.experiment_fingerprint,
+                ) from exc
+            return
         if search_spaces is None:
             raise OnlySearchProvenanceError(
                 "SEARCH_EXTERNAL_REFERENCE_READER_UNAVAILABLE",
@@ -257,12 +294,25 @@ def verify_search_experiment_references(
 def verify_search_iteration_proposal_reference(
     plan: OnlySearchIterationPlanV1,
     *,
+    experiment: OnlySearchExperimentManifest,
     proposals: OnlySearchProposalReader | None,
+    search_contexts: OnlySearchContextReader | None,
     expected_search_space_fingerprint: str,
 ) -> None:
     """Close method-specific Proposal references once their Authority exists."""
 
     if plan.proposal_kind != "ONLY_SYMBOLIC_GRAPH_PROPOSAL":
+        return
+    if isinstance(experiment, OnlySearchExperimentManifestV2):
+        if search_contexts is None:
+            raise OnlySearchProvenanceError(
+                "SEARCH_EXTERNAL_REFERENCE_READER_UNAVAILABLE",
+                "Verified Symbolic Proposal reader",
+            )
+        try:
+            search_contexts.load_proposal_contextual_verified(experiment, plan)
+        except Exception as exc:
+            raise OnlySearchProvenanceError("SEARCH_PROPOSAL_REFERENCE_INVALID", plan.proposal_fingerprint) from exc
         return
     if proposals is None:
         raise OnlySearchProvenanceError(

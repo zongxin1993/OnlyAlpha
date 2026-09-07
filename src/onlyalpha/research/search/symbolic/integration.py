@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from onlyalpha.research.experiment import (
-    OnlySearchExperimentManifestV1,
     OnlySearchFailureCode,
     OnlySearchIterationDisposition,
     OnlySearchIterationPlanV1,
@@ -19,17 +18,15 @@ from onlyalpha.research.specification.resolver import (
     OnlyResearchSpecificationResolver,
 )
 
+from .context import OnlyVerifiedSymbolicSearchContextV1
 from .enumeration import OnlySymbolicEnumerationResultV1, enumerate_symbolic_factor_proposals
 from .errors import OnlySymbolicSearchError
-from .materialization import (
-    OnlySymbolicResearchEvaluationTemplateV1,
-    materialize_symbolic_research_specification,
-)
-from .model import SYMBOLIC_PROPOSAL_KIND, SYMBOLIC_PROPOSAL_SCHEMA_VERSION, OnlySymbolicGraphProposalV1
+from .materialization import materialize_symbolic_research_specification
+from .model import SYMBOLIC_PROPOSAL_KIND, SYMBOLIC_PROPOSAL_SCHEMA_VERSION
 from .store import OnlyJsonSymbolicSearchStore
 from .verification import (
-    OnlyVerifiedSymbolicSearchSpaceV1,
-    verify_symbolic_experiment_binding,
+    OnlyVerifiedSymbolicProposalV1,
+    verify_symbolic_proposal_reconstruction,
 )
 
 
@@ -57,7 +54,7 @@ class OnlySymbolicQualificationExecutor(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class OnlySymbolicResolvedResearchCandidateV1:
-    proposal: OnlySymbolicGraphProposalV1
+    proposal: OnlyVerifiedSymbolicProposalV1
     resolution: OnlyResearchSpecificationResolution
     candidate: OnlyResearchCandidateLineage
 
@@ -70,44 +67,45 @@ class OnlySymbolicWorkflowResultV1:
 
 
 def resolve_symbolic_research_candidate(
-    proposal: OnlySymbolicGraphProposalV1,
-    template: OnlySymbolicResearchEvaluationTemplateV1,
+    proposal: OnlyVerifiedSymbolicProposalV1,
     resolver: OnlyResearchSpecificationResolver,
 ) -> OnlySymbolicResolvedResearchCandidateV1:
     """Use the sole existing Research resolver and Candidate constructor."""
 
-    materialized = materialize_symbolic_research_specification(template, proposal)
+    context = proposal.context
+    evaluation = getattr(context, "evaluation_contract", None)
+    if evaluation is None:
+        raise OnlySymbolicSearchError("SEARCH_CONTEXT_INVALID", "Evaluation Contract is unavailable")
+    materialized = materialize_symbolic_research_specification(evaluation, proposal)
     resolution = resolver.resolve(materialized.specification)
     candidates = tuple(
         item
         for item in resolution.candidates
-        if item.calculation_id == template.candidate_calculation_id and item.candidate_fingerprint is not None
+        if item.calculation_id == evaluation.candidate_calculation_id and item.candidate_fingerprint is not None
     )
     if len(candidates) != 1:
         raise OnlySymbolicSearchError("CANDIDATE_BINDING_FAILED", "normal Resolver did not produce one Candidate")
     candidate = candidates[0]
-    if candidate.graph_fingerprint != proposal.graph_fingerprint:
+    if candidate.graph_fingerprint != proposal.proposal.graph_fingerprint:
         raise OnlySymbolicSearchError("CANDIDATE_BINDING_FAILED", "normal Resolver graph identity differs")
     return OnlySymbolicResolvedResearchCandidateV1(proposal, resolution, candidate)
 
 
 def run_symbolic_search_workflow(
     *,
-    experiment: OnlySearchExperimentManifestV1,
-    verified_space: OnlyVerifiedSymbolicSearchSpaceV1,
+    context: OnlyVerifiedSymbolicSearchContextV1,
     symbolic_store: OnlyJsonSymbolicSearchStore,
     provenance: OnlySymbolicProvenanceWriter,
-    evaluation_template: OnlySymbolicResearchEvaluationTemplateV1,
     resolver: OnlyResearchSpecificationResolver,
     research_executor: OnlySymbolicResearchExecutor | None = None,
     qualification_executor: OnlySymbolicQualificationExecutor | None = None,
 ) -> OnlySymbolicWorkflowResultV1:
     """Run a bounded non-adaptive stream; evaluators can never affect enumeration."""
 
-    verify_symbolic_experiment_binding(experiment, verified_space.search_space)
-    if evaluation_template.specification.dataset_snapshot_fingerprint != experiment.dataset_snapshot_fingerprint:
-        raise OnlySymbolicSearchError("SEARCH_EVALUATION_TEMPLATE_INVALID", "Dataset binding differs")
+    experiment = context.experiment
+    verified_space = context.verified_search_space
     symbolic_store.commit_search_space(verified_space.search_space)
+    symbolic_store.commit_evaluation_contract(context.evaluation_contract)
     enumeration = enumerate_symbolic_factor_proposals(
         verified_space,
         proposal_limit=experiment.search_budget.proposal_limit,
@@ -120,6 +118,7 @@ def run_symbolic_search_workflow(
     # Enumeration is complete before the first downstream execution. This is the structural non-adaptive barrier.
     for index, proposal in enumerate(enumeration.proposals):
         symbolic_store.commit_proposal(proposal)
+        verified_proposal = verify_symbolic_proposal_reconstruction(proposal, context)
         plan = OnlySearchIterationPlanV1(
             experiment.experiment_fingerprint,
             index,
@@ -133,7 +132,7 @@ def run_symbolic_search_workflow(
         provenance.commit_iteration_plan(plan)
         plans.append(plan)
         try:
-            resolved = resolve_symbolic_research_candidate(proposal, evaluation_template, resolver)
+            resolved = resolve_symbolic_research_candidate(verified_proposal, resolver)
         except Exception:
             result = OnlySearchIterationResultV1(
                 plan.iteration_plan_fingerprint,
@@ -210,7 +209,7 @@ def run_symbolic_search_workflow(
                 True,
                 None,
                 OnlySearchIterationDisposition.FAILED,
-                OnlySearchFailureCode.QUALIFICATION_NOT_ATTEMPTED,
+                OnlySearchFailureCode.QUALIFICATION_EXECUTION_FAILED,
             )
         else:
             result = OnlySearchIterationResultV1(

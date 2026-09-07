@@ -113,10 +113,10 @@ def enumerate_symbolic_factor_proposals(
             (
                 _AvailableOutput(
                     (),
-                    OnlyCalculationReference(None, terminal.output.name, terminal.source),
-                    terminal.output,
+                    OnlyCalculationReference(None, output.name, reference.source_id),
+                    output,
                 )
-                for terminal in space.external_source_terminals
+                for reference, _contract, output in verified_space.source_contracts
             ),
             key=lambda item: item.sort_key,
         )
@@ -200,11 +200,12 @@ def enumerate_symbolic_factor_proposals(
                             all_candidates.append(proposal)
         available_by_count[requested_count] = tuple(sorted(produced.values(), key=lambda item: item.sort_key))
         ordered = tuple(sorted(all_candidates, key=lambda item: _proposal_order(item, verified_space)))
-        if len(ordered) >= proposal_limit:
-            return OnlySymbolicEnumerationResultV1(ordered[:proposal_limit], False, True)
-
     ordered = tuple(sorted(all_candidates, key=lambda item: _proposal_order(item, verified_space)))
-    return OnlySymbolicEnumerationResultV1(ordered, True, len(ordered) >= proposal_limit)
+    return OnlySymbolicEnumerationResultV1(
+        ordered[:proposal_limit],
+        len(ordered) <= proposal_limit,
+        len(ordered) >= proposal_limit,
+    )
 
 
 def _proposal_order(

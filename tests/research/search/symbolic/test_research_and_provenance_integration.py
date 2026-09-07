@@ -3,10 +3,9 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 from onlyalpha_plugin_targets.registration import registrations as target_registrations
@@ -30,7 +29,8 @@ from onlyalpha.research.experiment import (
     OnlySearchBudgetV1,
     OnlySearchDecisionEngineBindingV1,
     OnlySearchDecisionMode,
-    OnlySearchExperimentManifestV1,
+    OnlySearchEvaluationContextReferenceV1,
+    OnlySearchExperimentManifestV2,
     OnlySearchHypothesisV1,
     OnlySearchIterationDisposition,
     OnlySearchIterationPlanV1,
@@ -44,17 +44,21 @@ from onlyalpha.research.experiment import (
 from onlyalpha.research.search.symbolic import (
     DETERMINISTIC_ENUMERATION_ALGORITHM_ID,
     DETERMINISTIC_ENUMERATION_ALGORITHM_SEMANTIC_VERSION,
+    SYMBOLIC_EVALUATION_CONTRACT_KIND,
+    SYMBOLIC_EVALUATION_CONTRACT_SCHEMA_VERSION,
     SYMBOLIC_PROPOSAL_KIND,
     SYMBOLIC_PROPOSAL_SCHEMA_VERSION,
+    SYMBOLIC_SEARCH_SPACE_CONTEXT_SCHEMA_VERSION,
     SYMBOLIC_SEARCH_SPACE_KIND,
-    SYMBOLIC_SEARCH_SPACE_SCHEMA_VERSION,
     OnlyJsonSymbolicSearchStore,
-    OnlySymbolicResearchEvaluationTemplateV1,
+    OnlySymbolicResearchEvaluationContractV1,
+    OnlySymbolicSearchContextResolver,
     OnlySymbolicSearchError,
     enumerate_symbolic_factor_proposals,
+    only_deterministic_enumeration_implementation,
     resolve_symbolic_research_candidate,
     run_symbolic_search_workflow,
-    verify_symbolic_search_space,
+    verify_symbolic_proposal_reconstruction,
 )
 from onlyalpha.research.specification.identity import only_research_candidate_fingerprint
 from onlyalpha.research.specification.model import (
@@ -79,45 +83,52 @@ from onlyalpha.strategy.qualification_store import (
     OnlyQualificationPolicyStore,
     _only_compose_qualification_decision_authority,
 )
+from onlyalpha.strategy.store import (
+    OnlyFrozenStrategyRevisionStore,
+    _only_authorize_frozen_strategy_publication,
+    _only_compose_frozen_strategy_authority,
+)
 from tests.research.calculation.support import snapshot
 from tests.research.specification.support import specification
+from tests.strategy.p9_support import p9_strategy_case
 
-from .support import space
-
-
-@dataclass(frozen=True)
-class _Snapshot:
-    snapshot_fingerprint: str
-
-
-@dataclass(frozen=True)
-class _Dataset:
-    snapshot: _Snapshot
+from .support import space, verified_dataset
 
 
 class _Datasets:
     def __init__(self, fingerprint: str) -> None:
-        self.value = _Dataset(_Snapshot(fingerprint))
+        self.value = verified_dataset(fingerprint)
 
-    def load_verified_table(self, fingerprint: str) -> _Dataset:
+    def load_verified_table(self, fingerprint: str) -> object:
         if fingerprint != self.value.snapshot.snapshot_fingerprint:
             raise KeyError(fingerprint)
         return self.value
 
 
-def _experiment(search_space_fingerprint: str, catalog_fingerprint: str, dataset_fingerprint: str):
-    return OnlySearchExperimentManifestV1(
+def _experiment(
+    search_space_fingerprint: str,
+    catalog_fingerprint: str,
+    dataset_fingerprint: str,
+    evaluation_fingerprint: str,
+):
+    algorithm = only_deterministic_enumeration_implementation()
+    return OnlySearchExperimentManifestV2(
         OnlySearchHypothesisV1("A fixed admitted momentum bridge can compose exact reusable calculations."),
         OnlySearchAlgorithmBindingV1(
             DETERMINISTIC_ENUMERATION_ALGORITHM_ID,
             DETERMINISTIC_ENUMERATION_ALGORITHM_SEMANTIC_VERSION,
-            "1" * 64,
-            "b3.2",
+            algorithm.implementation_fingerprint,
+            algorithm.source_revision,
         ),
         OnlySearchSpaceReferenceV1(
             SYMBOLIC_SEARCH_SPACE_KIND,
-            SYMBOLIC_SEARCH_SPACE_SCHEMA_VERSION,
+            SYMBOLIC_SEARCH_SPACE_CONTEXT_SCHEMA_VERSION,
             search_space_fingerprint,
+        ),
+        OnlySearchEvaluationContextReferenceV1(
+            SYMBOLIC_EVALUATION_CONTRACT_KIND,
+            SYMBOLIC_EVALUATION_CONTRACT_SCHEMA_VERSION,
+            evaluation_fingerprint,
         ),
         OnlySearchRandomnessMode.NONE,
         None,
@@ -127,6 +138,34 @@ def _experiment(search_space_fingerprint: str, catalog_fingerprint: str, dataset
         OnlySearchWorkflowBindingV1("symbolic.factor.search", "1"),
         OnlySearchDecisionEngineBindingV1(OnlySearchDecisionMode.DETERMINISTIC),
     )
+
+
+def _evaluation(dataset: str) -> OnlySymbolicResearchEvaluationContractV1:
+    return OnlySymbolicResearchEvaluationContractV1.from_specification(_scientific_template(dataset), "feature")
+
+
+def _verified_context(
+    root: Path,
+    generation,  # type: ignore[no-untyped-def]
+    search_space,  # type: ignore[no-untyped-def]
+    dataset: str,
+):
+    symbolic = OnlyJsonSymbolicSearchStore(root)
+    evaluation = _evaluation(dataset)
+    symbolic.commit_search_space(search_space)
+    symbolic.commit_evaluation_contract(evaluation)
+    experiment = _experiment(
+        search_space.search_space_fingerprint,
+        generation.generation_fingerprint,
+        dataset,
+        evaluation.evaluation_contract_fingerprint,
+    )
+    context_resolver = OnlySymbolicSearchContextResolver(
+        symbolic_store=symbolic,
+        catalogs=OnlyQuantAssetCatalogManager(generation),
+        datasets=_Datasets(dataset),
+    )
+    return symbolic, experiment, context_resolver.resolve_verified_context(experiment), context_resolver
 
 
 def _scientific_template(dataset: str) -> OnlyResearchSpecification:
@@ -146,21 +185,16 @@ def _scientific_template(dataset: str) -> OnlyResearchSpecification:
 
 def test_b31_search_space_and_proposal_references_exact_load(tmp_path) -> None:
     generation, search_space = space(max_nodes=1)
-    symbolic = OnlyJsonSymbolicSearchStore(tmp_path)
-    symbolic.commit_search_space(search_space)
     dataset = "a" * 64
-    experiment = _experiment(search_space.search_space_fingerprint, generation.generation_fingerprint, dataset)
+    symbolic, experiment, context, context_resolver = _verified_context(tmp_path, generation, search_space, dataset)
     provenance = OnlyJsonSearchProvenanceStore(
         tmp_path,
         catalogs=OnlyQuantAssetCatalogManager(generation),
         datasets=_Datasets(dataset),
-        search_spaces=symbolic,
-        proposals=symbolic,
+        search_contexts=context_resolver,
     )
     provenance.commit_experiment(experiment)
-    proposal = enumerate_symbolic_factor_proposals(
-        verify_symbolic_search_space(search_space, generation), proposal_limit=1
-    ).proposals[0]
+    proposal = enumerate_symbolic_factor_proposals(context.verified_search_space, proposal_limit=1).proposals[0]
     symbolic.commit_proposal(proposal)
     plan = OnlySearchIterationPlanV1(
         experiment.experiment_fingerprint,
@@ -180,7 +214,13 @@ def test_b31_search_space_and_proposal_references_exact_load(tmp_path) -> None:
 def test_b31_missing_symbolic_authority_fails_closed(tmp_path) -> None:
     generation, search_space = space(max_nodes=1)
     dataset = "a" * 64
-    experiment = _experiment(search_space.search_space_fingerprint, generation.generation_fingerprint, dataset)
+    evaluation = _evaluation(dataset)
+    experiment = _experiment(
+        search_space.search_space_fingerprint,
+        generation.generation_fingerprint,
+        dataset,
+        evaluation.evaluation_contract_fingerprint,
+    )
     provenance = OnlyJsonSearchProvenanceStore(
         tmp_path,
         catalogs=OnlyQuantAssetCatalogManager(generation),
@@ -191,19 +231,20 @@ def test_b31_missing_symbolic_authority_fails_closed(tmp_path) -> None:
     assert error.value.code == "SEARCH_EXTERNAL_REFERENCE_READER_UNAVAILABLE"
 
 
-def test_proposal_uses_normal_resolver_candidate_identity_and_fixed_template() -> None:
+def test_proposal_uses_normal_resolver_candidate_identity_and_fixed_template(tmp_path) -> None:
     generation, search_space = space(max_nodes=1)
-    proposal = enumerate_symbolic_factor_proposals(
-        verify_symbolic_search_space(search_space, generation), proposal_limit=1
-    ).proposals[0]
+    symbolic, _experiment_value, context, _context_resolver = _verified_context(
+        tmp_path, generation, search_space, "a" * 64
+    )
+    proposal = enumerate_symbolic_factor_proposals(context.verified_search_space, proposal_limit=1).proposals[0]
+    symbolic.commit_proposal(proposal)
+    verified_proposal = verify_symbolic_proposal_reconstruction(proposal, context)
     registry = generation.calculation_registry()
     assert isinstance(registry, OnlyCalculationRegistry)
     for registration in target_registrations():
         registry.register(registration)
-    template = OnlySymbolicResearchEvaluationTemplateV1(_scientific_template("a" * 64), "feature")
     resolved = resolve_symbolic_research_candidate(
-        proposal,
-        template,
+        verified_proposal,
         OnlyResearchSpecificationResolver(registry),
     )
     candidate = resolved.candidate
@@ -224,18 +265,28 @@ def test_valid_proposal_executes_through_normal_research_runtime_and_immutable_r
     candidate_dataset, partitions = snapshot()
     dataset = datasets.commit(candidate_dataset, partitions)
     generation, search_space = space(max_nodes=1)
-    proposal = enumerate_symbolic_factor_proposals(
-        verify_symbolic_search_space(search_space, generation), proposal_limit=1
-    ).proposals[0]
+    symbolic = OnlyJsonSymbolicSearchStore(tmp_path)
+    evaluation = _evaluation(dataset.snapshot_fingerprint)
+    symbolic.commit_search_space(search_space)
+    symbolic.commit_evaluation_contract(evaluation)
+    experiment = _experiment(
+        search_space.search_space_fingerprint,
+        generation.generation_fingerprint,
+        dataset.snapshot_fingerprint,
+        evaluation.evaluation_contract_fingerprint,
+    )
+    context = OnlySymbolicSearchContextResolver(
+        symbolic_store=symbolic,
+        catalogs=OnlyQuantAssetCatalogManager(generation),
+        datasets=datasets,
+    ).resolve_verified_context(experiment)
+    proposal = enumerate_symbolic_factor_proposals(context.verified_search_space, proposal_limit=1).proposals[0]
+    verified_proposal = verify_symbolic_proposal_reconstruction(proposal, context)
     registry = generation.calculation_registry()
     for registration in target_registrations():
         registry.register(registration)
     resolved = resolve_symbolic_research_candidate(
-        proposal,
-        OnlySymbolicResearchEvaluationTemplateV1(
-            _scientific_template(dataset.snapshot_fingerprint),
-            "feature",
-        ),
+        verified_proposal,
         OnlyResearchSpecificationResolver(registry),
     )
 
@@ -300,13 +351,13 @@ class _FakeQualification:
 
 def test_workflow_enforces_separate_budgets_and_downstream_outcomes_are_non_adaptive(tmp_path) -> None:
     generation, search_space = space(max_nodes=2)
-    verified = verify_symbolic_search_space(search_space, generation)
-    experiment = _experiment(search_space.search_space_fingerprint, generation.generation_fingerprint, "a" * 64)
+    _symbolic, _experiment_value, context, _context_resolver = _verified_context(
+        tmp_path / "context", generation, search_space, "a" * 64
+    )
     registry = generation.calculation_registry()
     for registration in target_registrations():
         registry.register(registration)
     resolver = OnlyResearchSpecificationResolver(registry)
-    template = OnlySymbolicResearchEvaluationTemplateV1(_scientific_template("a" * 64), "feature")
 
     sequences = []
     for name, decision in (("pass", "e" * 64), ("fail", "f" * 64)):
@@ -314,11 +365,9 @@ def test_workflow_enforces_separate_budgets_and_downstream_outcomes_are_non_adap
         research = _FakeResearch()
         qualification = _FakeQualification(decision)
         outcome = run_symbolic_search_workflow(
-            experiment=experiment,
-            verified_space=verified,
+            context=context,
             symbolic_store=OnlyJsonSymbolicSearchStore(tmp_path / name),
             provenance=provenance,
-            evaluation_template=template,
             resolver=resolver,
             research_executor=research,
             qualification_executor=qualification,
@@ -333,30 +382,27 @@ def test_workflow_enforces_separate_budgets_and_downstream_outcomes_are_non_adap
 
 def test_workflow_rejects_mismatched_algorithm_and_randomness_bindings(tmp_path) -> None:
     generation, search_space = space(max_nodes=1)
-    verified = verify_symbolic_search_space(search_space, generation)
-    experiment = _experiment(search_space.search_space_fingerprint, generation.generation_fingerprint, "a" * 64)
+    symbolic, experiment, _context, _context_resolver = _verified_context(tmp_path, generation, search_space, "a" * 64)
     registry = generation.calculation_registry()
     for registration in target_registrations():
         registry.register(registration)
-    common = {
-        "verified_space": verified,
-        "symbolic_store": OnlyJsonSymbolicSearchStore(tmp_path),
-        "provenance": _CollectingProvenance(),
-        "evaluation_template": OnlySymbolicResearchEvaluationTemplateV1(_scientific_template("a" * 64), "feature"),
-        "resolver": OnlyResearchSpecificationResolver(registry),
-    }
+    context_resolver = OnlySymbolicSearchContextResolver(
+        symbolic_store=symbolic,
+        catalogs=OnlyQuantAssetCatalogManager(generation),
+        datasets=_Datasets("a" * 64),
+    )
 
     wrong_algorithm = replace(
         experiment,
         search_algorithm_binding=replace(experiment.search_algorithm_binding, algorithm_semantic_version="2"),
     )
     with pytest.raises(OnlySymbolicSearchError) as algorithm_error:
-        run_symbolic_search_workflow(experiment=wrong_algorithm, **common)
-    assert algorithm_error.value.code == "SEARCH_ALGORITHM_INVALID"
+        context_resolver.resolve_verified_context(wrong_algorithm)
+    assert algorithm_error.value.code in {"SEARCH_ALGORITHM_INVALID", "SEARCH_ALGORITHM_IMPLEMENTATION_MISMATCH"}
 
     seeded = replace(experiment, randomness_mode=OnlySearchRandomnessMode.SEEDED, seed=7)
     with pytest.raises(OnlySymbolicSearchError) as randomness_error:
-        run_symbolic_search_workflow(experiment=seeded, **common)
+        context_resolver.resolve_verified_context(seeded)
     assert randomness_error.value.code == "SEARCH_RANDOMNESS_INVALID"
 
     model_assisted = replace(
@@ -371,7 +417,7 @@ def test_workflow_rejects_mismatched_algorithm_and_randomness_bindings(tmp_path)
         ),
     )
     with pytest.raises(OnlySymbolicSearchError) as decision_error:
-        run_symbolic_search_workflow(experiment=model_assisted, **common)
+        context_resolver.resolve_verified_context(model_assisted)
     assert decision_error.value.code == "SEARCH_DECISION_ENGINE_INVALID"
 
 
@@ -391,25 +437,32 @@ def _fresh_process_e2e(root: Path, terminal_result_fingerprint: str | None = Non
         candidate_dataset, partitions = snapshot()
         dataset = datasets.commit(candidate_dataset, partitions)
         symbolic.commit_search_space(search_space)
+        evaluation = _evaluation(dataset.snapshot_fingerprint)
+        symbolic.commit_evaluation_contract(evaluation)
         experiment = _experiment(
             search_space.search_space_fingerprint,
             generation.generation_fingerprint,
             dataset.snapshot_fingerprint,
+            evaluation.evaluation_contract_fingerprint,
         )
+        context_resolver = OnlySymbolicSearchContextResolver(
+            symbolic_store=symbolic,
+            catalogs=catalog_manager,
+            datasets=datasets,
+        )
+        context = context_resolver.resolve_verified_context(experiment)
         research_results = _result_reader(layout, datasets)
         provenance = OnlyJsonSearchProvenanceStore(
             root,
             catalogs=catalog_manager,
             datasets=datasets,
             research_results=research_results,
-            search_spaces=symbolic,
-            proposals=symbolic,
+            search_contexts=context_resolver,
         )
         provenance.commit_experiment(experiment)
-        proposal = enumerate_symbolic_factor_proposals(
-            verify_symbolic_search_space(search_space, generation), proposal_limit=1
-        ).proposals[0]
+        proposal = enumerate_symbolic_factor_proposals(context.verified_search_space, proposal_limit=1).proposals[0]
         symbolic.commit_proposal(proposal)
+        verified_proposal = verify_symbolic_proposal_reconstruction(proposal, context)
         plan = OnlySearchIterationPlanV1(
             experiment.experiment_fingerprint,
             0,
@@ -425,11 +478,7 @@ def _fresh_process_e2e(root: Path, terminal_result_fingerprint: str | None = Non
         for registration in target_registrations():
             registry.register(registration)
         resolved = resolve_symbolic_research_candidate(
-            proposal,
-            OnlySymbolicResearchEvaluationTemplateV1(
-                _scientific_template(dataset.snapshot_fingerprint),
-                "feature",
-            ),
+            verified_proposal,
             OnlyResearchSpecificationResolver(registry),
         )
         engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("symbolic-fresh-process"), root))
@@ -441,18 +490,75 @@ def _fresh_process_e2e(root: Path, terminal_result_fingerprint: str | None = Non
         assert execution.status is OnlyRuntimeResultStatus.COMPLETED
         assert execution.research_result_fingerprint is not None
         assert resolved.candidate.candidate_fingerprint is not None
+        revision = p9_strategy_case(root / "strategy-authoring").revision
+        strategy_reader, strategy_publisher = _only_compose_frozen_strategy_authority(root)
+        relation = OnlyStrategyFreezeRelation(
+            str(revision.strategy_fingerprint),
+            resolved.candidate.candidate_fingerprint,
+            execution.research_result_fingerprint,
+            ("1" * 64,),
+            "2" * 64,
+            ("3" * 64,),
+        )
+        strategy_publisher.publish_verified(_only_authorize_frozen_strategy_publication(revision, relation))
+        policies = OnlyQualificationPolicyStore(root)
+        policy = OnlyQualificationPolicyRevision(
+            "symbolic-fresh-process-gate",
+            "1",
+            OnlyQualificationGate.RESEARCH_TO_BACKTEST,
+            (
+                OnlyQualificationCriterion(
+                    "has-statistics",
+                    OnlyQualificationEvidenceKind.RESEARCH_RESULT,
+                    "research.statistics_result_count",
+                    "GE",
+                    Decimal(1),
+                ),
+            ),
+        )
+        policies.put(policy)
+        decision_reader, decision_publisher = _only_compose_qualification_decision_authority(root)
+        research_reference = OnlySearchResearchResultReferenceV1(
+            resolved.resolution.workload.result_plan.fingerprint,
+            execution.research_result_fingerprint,
+        )
+        decision = OnlyQualificationEvaluator(
+            strategies=strategy_reader,
+            policies=policies,
+            research_results=research_results,
+            backtest_evidence=OnlyBacktestEvidenceStore(root),
+            decisions=decision_publisher,
+        ).evaluate(
+            subject_strategy_fingerprint=str(revision.strategy_fingerprint),
+            policy_id=policy.policy_id,
+            policy_version=policy.policy_version,
+            evidence=(
+                OnlyQualificationEvidenceReference(
+                    OnlyQualificationEvidenceKind.RESEARCH_RESULT,
+                    research_reference.result_fingerprint,
+                    research_reference.locator_fingerprint,
+                    relation.relation_fingerprint,
+                ),
+            ),
+        )
         terminal = OnlySearchIterationResultV1(
             plan.iteration_plan_fingerprint,
             resolved.candidate.candidate_fingerprint,
             True,
-            OnlySearchResearchResultReferenceV1(
-                resolved.resolution.workload.result_plan.fingerprint,
-                execution.research_result_fingerprint,
-            ),
-            False,
+            research_reference,
+            True,
+            decision.decision_fingerprint,
+            OnlySearchIterationDisposition.QUALIFICATION_DECISION_RECORDED,
             None,
-            OnlySearchIterationDisposition.RESEARCH_EVIDENCE_RECORDED,
-            None,
+        )
+        provenance = OnlyJsonSearchProvenanceStore(
+            root,
+            catalogs=catalog_manager,
+            datasets=datasets,
+            research_results=research_results,
+            qualification_decisions=decision_reader,
+            freeze_relations=strategy_reader,
+            search_contexts=context_resolver,
         )
         provenance.commit_iteration_result(terminal)
     else:
@@ -465,28 +571,40 @@ def _fresh_process_e2e(root: Path, terminal_result_fingerprint: str | None = Non
             def load_verified_table(self, fingerprint: str):  # type: ignore[no-untyped-def]
                 return datasets.load_verified_table(fingerprint)
 
+        strategy_reader = OnlyFrozenStrategyRevisionStore(root)
+        decision_reader, _decision_publisher = _only_compose_qualification_decision_authority(root)
+        context_reader = OnlySymbolicSearchContextResolver(
+            symbolic_store=symbolic,
+            catalogs=catalog_manager,
+            datasets=_ExactDatasetReader(),
+        )
         provenance = OnlyJsonSearchProvenanceStore(
             root,
             catalogs=catalog_manager,
             datasets=_ExactDatasetReader(),
             research_results=research_results,
-            search_spaces=symbolic,
-            proposals=symbolic,
+            qualification_decisions=decision_reader,
+            freeze_relations=strategy_reader,
+            search_contexts=context_reader,
         )
         terminal = provenance.load_iteration_result_verified(terminal_result_fingerprint)
         plan = provenance.load_iteration_plan_verified(terminal.iteration_plan_fingerprint)
         experiment = provenance.load_experiment_verified(plan.experiment_fingerprint)
-        proposal = symbolic.load_proposal_verified(plan.proposal_fingerprint)
-        loaded_space = symbolic.load_search_space_verified(experiment.search_space_reference.search_space_fingerprint)
+        assert isinstance(experiment, OnlySearchExperimentManifestV2)
+        context_resolver = OnlySymbolicSearchContextResolver(
+            symbolic_store=symbolic,
+            catalogs=catalog_manager,
+            datasets=_ExactDatasetReader(),
+        )
+        context = context_resolver.resolve_verified_context(experiment)
+        verified_proposal = context_resolver.load_proposal_contextual_verified(experiment, plan)
+        proposal = verified_proposal.proposal
+        loaded_space = context.verified_search_space.search_space
         registry = generation.calculation_registry()
         for registration in target_registrations():
             registry.register(registration)
         resolved = resolve_symbolic_research_candidate(
-            proposal,
-            OnlySymbolicResearchEvaluationTemplateV1(
-                _scientific_template(experiment.dataset_snapshot_fingerprint),
-                "feature",
-            ),
+            verified_proposal,
             OnlyResearchSpecificationResolver(registry),
         )
         assert loaded_space == search_space
@@ -505,6 +623,15 @@ def _fresh_process_e2e(root: Path, terminal_result_fingerprint: str | None = Non
         if terminal.research_result_reference is not None
         else "",
         "iteration_result": terminal.iteration_result_fingerprint,
+        "qualification": terminal.qualification_decision_fingerprint or "",
+        "freeze_relation": relation.relation_fingerprint
+        if terminal_result_fingerprint is None
+        else next(
+            item.subject_binding_fingerprint
+            for item in decision_reader.load_verified(terminal.qualification_decision_fingerprint).evidence
+            if item.kind is OnlyQualificationEvidenceKind.RESEARCH_RESULT
+        )
+        or "",
     }
 
 
@@ -524,79 +651,24 @@ def test_fresh_process_reconstructs_experiment_to_research_result_from_authority
     assert first == second
 
 
-@dataclass(slots=True)
-class _QualificationStrategies:
-    strategy_fingerprint: str
-    relation: OnlyStrategyFreezeRelation
-
-    def load_verified(self, fingerprint: str):  # type: ignore[no-untyped-def]
-        if fingerprint != self.strategy_fingerprint:
-            raise KeyError(fingerprint)
-        return SimpleNamespace(strategy_fingerprint=fingerprint)
-
-    def load_freeze_relation(self, fingerprint: str) -> OnlyStrategyFreezeRelation:
-        if fingerprint != self.relation.relation_fingerprint:
-            raise KeyError(fingerprint)
-        return self.relation
-
-
 def test_existing_qualification_and_b31_subject_chain_close_without_copying_outcome(tmp_path) -> None:
     chain = _fresh_process_e2e(tmp_path)
     layout = OnlyUserDataLayout(tmp_path)
     datasets = OnlyParquetResearchDatasetSnapshotStore(layout.research_dataset_root)
     research_results = _result_reader(layout, datasets)
-    strategy_fingerprint = "8" * 64
-    relation = OnlyStrategyFreezeRelation(
-        strategy_fingerprint,
-        chain["candidate"],
-        chain["research"],
-        ("1" * 64,),
-        "2" * 64,
-        ("3" * 64,),
-    )
-    strategies = _QualificationStrategies(strategy_fingerprint, relation)
-    policies = OnlyQualificationPolicyStore(tmp_path / "semantic")
-    policy = OnlyQualificationPolicyRevision(
-        "symbolic-research-gate",
-        "1",
-        OnlyQualificationGate.RESEARCH_TO_BACKTEST,
-        (
-            OnlyQualificationCriterion(
-                "has-statistics",
-                OnlyQualificationEvidenceKind.RESEARCH_RESULT,
-                "research.statistics_result_count",
-                "GE",
-                Decimal(1),
-            ),
-        ),
-    )
-    policies.put(policy)
-    decision_reader, decision_publisher = _only_compose_qualification_decision_authority(tmp_path / "semantic")
-    evidence = (
-        OnlyQualificationEvidenceReference(
-            OnlyQualificationEvidenceKind.RESEARCH_RESULT,
-            chain["research"],
-            chain["locator"],
-            relation.relation_fingerprint,
-        ),
-    )
-    decision = OnlyQualificationEvaluator(
-        strategies=strategies,  # type: ignore[arg-type]
-        policies=policies,
-        research_results=research_results,
-        backtest_evidence=OnlyBacktestEvidenceStore(tmp_path),
-        decisions=decision_publisher,
-    ).evaluate(
-        subject_strategy_fingerprint=strategy_fingerprint,
-        policy_id=policy.policy_id,
-        policy_version=policy.policy_version,
-        evidence=evidence,
-    )
+    strategies = OnlyFrozenStrategyRevisionStore(tmp_path)
+    decision_reader, _decision_publisher = _only_compose_qualification_decision_authority(tmp_path)
+    decision = decision_reader.load_verified(chain["qualification"])
     assert decision.outcome is OnlyQualificationOutcome.APPROVED
 
     generation, search_space = space(max_nodes=1)
     symbolic = OnlyJsonSymbolicSearchStore(tmp_path)
     catalog_manager = OnlyQuantAssetCatalogManager(generation)
+    context_resolver = OnlySymbolicSearchContextResolver(
+        symbolic_store=symbolic,
+        catalogs=catalog_manager,
+        datasets=datasets,
+    )
     provenance = OnlyJsonSearchProvenanceStore(
         tmp_path,
         catalogs=catalog_manager,
@@ -604,33 +676,8 @@ def test_existing_qualification_and_b31_subject_chain_close_without_copying_outc
         research_results=research_results,
         qualification_decisions=decision_reader,
         freeze_relations=strategies,
-        search_spaces=symbolic,
-        proposals=symbolic,
+        search_contexts=context_resolver,
     )
-    first_result = provenance.load_iteration_result_verified(chain["iteration_result"])
-    first_plan = provenance.load_iteration_plan_verified(first_result.iteration_plan_fingerprint)
-    qualification_plan = OnlySearchIterationPlanV1(
-        first_plan.experiment_fingerprint,
-        1,
-        first_plan.proposal_kind,
-        first_plan.proposal_schema_version,
-        first_plan.proposal_fingerprint,
-        (),
-        (),
-        first_plan.decision_output_fingerprint,
-    )
-    provenance.commit_iteration_plan(qualification_plan)
-    qualification_result = OnlySearchIterationResultV1(
-        qualification_plan.iteration_plan_fingerprint,
-        chain["candidate"],
-        True,
-        OnlySearchResearchResultReferenceV1(chain["locator"], chain["research"]),
-        True,
-        decision.decision_fingerprint,
-        OnlySearchIterationDisposition.QUALIFICATION_DECISION_RECORDED,
-        None,
-    )
-    provenance.commit_iteration_result(qualification_result)
-    loaded = provenance.load_iteration_result_verified(qualification_result.iteration_result_fingerprint)
+    loaded = provenance.load_iteration_result_verified(chain["iteration_result"])
     assert loaded.qualification_decision_fingerprint == decision.decision_fingerprint
     assert "APPROVED" not in loaded.to_dict().values()

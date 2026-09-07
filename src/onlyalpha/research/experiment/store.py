@@ -18,13 +18,17 @@ from .errors import OnlySearchProvenanceError, OnlySearchProvenanceStoreError
 from .model import (
     OnlySearchCommitDisposition,
     OnlySearchCommitOutcome,
+    OnlySearchExperimentManifest,
     OnlySearchExperimentManifestV1,
+    OnlySearchExperimentManifestV2,
     OnlySearchIterationPlanV1,
     OnlySearchIterationResultV1,
+    only_search_experiment_manifest_from_dict,
 )
 from .verification import (
     OnlySearchCandidateReader,
     OnlySearchCatalogGenerationReader,
+    OnlySearchContextReader,
     OnlySearchDatasetReader,
     OnlySearchFreezeRelationReader,
     OnlySearchProposalReader,
@@ -55,6 +59,7 @@ class OnlyJsonSearchProvenanceStore:
         freeze_relations: OnlySearchFreezeRelationReader | None = None,
         search_spaces: OnlySearchSpaceReader | None = None,
         proposals: OnlySearchProposalReader | None = None,
+        search_contexts: OnlySearchContextReader | None = None,
     ) -> None:
         self._semantic_root = semantic_root
         self._root = semantic_root / "research" / "search-provenance"
@@ -66,12 +71,17 @@ class OnlyJsonSearchProvenanceStore:
         self._freeze_relations = freeze_relations
         self._search_spaces = search_spaces
         self._proposals = proposals
+        self._search_contexts = search_contexts
 
-    def commit_experiment(self, experiment: OnlySearchExperimentManifestV1) -> OnlySearchCommitOutcome:
-        if not isinstance(experiment, OnlySearchExperimentManifestV1):
+    def commit_experiment(self, experiment: OnlySearchExperimentManifest) -> OnlySearchCommitOutcome:
+        if not isinstance(experiment, (OnlySearchExperimentManifestV1, OnlySearchExperimentManifestV2)):
             raise OnlySearchProvenanceStoreError("SEARCH_EXPERIMENT_INVALID", "manifest contract is invalid")
         verify_search_experiment_references(
-            experiment, catalogs=self._catalogs, datasets=self._datasets, search_spaces=self._search_spaces
+            experiment,
+            catalogs=self._catalogs,
+            datasets=self._datasets,
+            search_spaces=self._search_spaces,
+            search_contexts=self._search_contexts,
         )
         if experiment.parent_experiment_fingerprint is not None:
             if experiment.parent_experiment_fingerprint == experiment.experiment_fingerprint:
@@ -84,19 +94,23 @@ class OnlyJsonSearchProvenanceStore:
             "experiments",
             experiment.experiment_fingerprint,
             experiment,
-            OnlySearchExperimentManifestV1.from_dict,
+            only_search_experiment_manifest_from_dict,
             "SEARCH_EXPERIMENT",
         )
 
-    def load_experiment_verified(self, experiment_fingerprint: str) -> OnlySearchExperimentManifestV1:
+    def load_experiment_verified(self, experiment_fingerprint: str) -> OnlySearchExperimentManifest:
         experiment = self._load(
             "experiments",
             experiment_fingerprint,
-            OnlySearchExperimentManifestV1.from_dict,
+            only_search_experiment_manifest_from_dict,
             "SEARCH_EXPERIMENT",
         )
         verify_search_experiment_references(
-            experiment, catalogs=self._catalogs, datasets=self._datasets, search_spaces=self._search_spaces
+            experiment,
+            catalogs=self._catalogs,
+            datasets=self._datasets,
+            search_spaces=self._search_spaces,
+            search_contexts=self._search_contexts,
         )
         self._verify_parent_experiment_chain(experiment)
         return experiment
@@ -108,7 +122,9 @@ class OnlyJsonSearchProvenanceStore:
         experiment = self.load_experiment_verified(plan.experiment_fingerprint)
         verify_search_iteration_proposal_reference(
             plan,
+            experiment=experiment,
             proposals=self._proposals,
+            search_contexts=self._search_contexts,
             expected_search_space_fingerprint=experiment.search_space_reference.search_space_fingerprint,
         )
         if plan.parent_iteration_result_fingerprint is not None:
@@ -132,7 +148,9 @@ class OnlyJsonSearchProvenanceStore:
         experiment = self.load_experiment_verified(plan.experiment_fingerprint)
         verify_search_iteration_proposal_reference(
             plan,
+            experiment=experiment,
             proposals=self._proposals,
+            search_contexts=self._search_contexts,
             expected_search_space_fingerprint=experiment.search_space_reference.search_space_fingerprint,
         )
         if plan.parent_iteration_result_fingerprint is not None:
@@ -201,7 +219,7 @@ class OnlyJsonSearchProvenanceStore:
     def _raw(self) -> _RawSearchProvenanceReader:
         return _RawSearchProvenanceReader(self)
 
-    def _verify_parent_experiment_chain(self, experiment: OnlySearchExperimentManifestV1) -> None:
+    def _verify_parent_experiment_chain(self, experiment: OnlySearchExperimentManifest) -> None:
         seen = {experiment.experiment_fingerprint}
         parent_fingerprint = experiment.parent_experiment_fingerprint
         while parent_fingerprint is not None:
@@ -210,7 +228,11 @@ class OnlyJsonSearchProvenanceStore:
             seen.add(parent_fingerprint)
             parent = self._raw.load_experiment_verified(parent_fingerprint)
             verify_search_experiment_references(
-                parent, catalogs=self._catalogs, datasets=self._datasets, search_spaces=self._search_spaces
+                parent,
+                catalogs=self._catalogs,
+                datasets=self._datasets,
+                search_spaces=self._search_spaces,
+                search_contexts=self._search_contexts,
             )
             parent_fingerprint = parent.parent_experiment_fingerprint
 
@@ -381,11 +403,11 @@ class _RawSearchProvenanceReader:
     def __init__(self, store: OnlyJsonSearchProvenanceStore) -> None:
         self._store = store
 
-    def load_experiment_verified(self, fingerprint: str) -> OnlySearchExperimentManifestV1:
+    def load_experiment_verified(self, fingerprint: str) -> OnlySearchExperimentManifest:
         return self._store._load(
             "experiments",
             fingerprint,
-            OnlySearchExperimentManifestV1.from_dict,
+            only_search_experiment_manifest_from_dict,
             "SEARCH_EXPERIMENT",
         )
 

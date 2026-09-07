@@ -10,12 +10,21 @@ from onlyalpha.calculation import (
     OnlyCalculationBackendKind,
     OnlyCalculationKind,
     OnlyCalculationTypeDefinition,
+    OnlyCalculationTypeReference,
+    OnlyOutputDefinition,
 )
+from onlyalpha.calculation.compatibility import only_calculation_output_compatibility
+from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition, OnlyCalculationNodeDefinition
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration, OnlyQuantAssetLayer, OnlyQuantAssetProvider
+from onlyalpha.research.calculation.binding import (
+    OnlyResearchDatasetSourceContractV1,
+    only_research_dataset_source_contract,
+)
+from onlyalpha.research.dataset.ports import OnlyVerifiedResearchDataset
 from onlyalpha.research.experiment import (
     OnlySearchDecisionMode,
-    OnlySearchExperimentManifestV1,
+    OnlySearchExperimentManifestV2,
     OnlySearchIterationPlanV1,
     OnlySearchRandomnessMode,
 )
@@ -26,28 +35,36 @@ from .model import (
     DETERMINISTIC_ENUMERATION_ALGORITHM_SEMANTIC_VERSION,
     SYMBOLIC_PROPOSAL_KIND,
     SYMBOLIC_PROPOSAL_SCHEMA_VERSION,
+    SYMBOLIC_SEARCH_SPACE_CONTEXT_SCHEMA_VERSION,
     SYMBOLIC_SEARCH_SPACE_KIND,
-    SYMBOLIC_SEARCH_SPACE_SCHEMA_VERSION,
     OnlySymbolicComponentInstanceV1,
-    OnlySymbolicFactorSearchSpaceV1,
+    OnlySymbolicExternalSourceReferenceV1,
+    OnlySymbolicFactorSearchSpaceV2,
     OnlySymbolicGraphProposalV1,
 )
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyVerifiedSymbolicSearchSpaceV1:
-    search_space: OnlySymbolicFactorSearchSpaceV1
+    search_space: OnlySymbolicFactorSearchSpaceV2
     catalog_generation: OnlyQuantAssetCatalogGeneration
     calculation_registry: OnlyCalculationRegistry
     component_types: tuple[tuple[OnlySymbolicComponentInstanceV1, OnlyCalculationTypeDefinition], ...]
     factor_bridge: OnlySymbolicComponentInstanceV1
+    source_contracts: tuple[
+        tuple[OnlySymbolicExternalSourceReferenceV1, OnlyResearchDatasetSourceContractV1, OnlyOutputDefinition], ...
+    ]
 
 
 def verify_symbolic_search_space(
-    search_space: OnlySymbolicFactorSearchSpaceV1,
+    search_space: OnlySymbolicFactorSearchSpaceV2,
     catalog_generation: OnlyQuantAssetCatalogGeneration,
+    verified_dataset: OnlyVerifiedResearchDataset,
 ) -> OnlyVerifiedSymbolicSearchSpaceV1:
-    """Prove an exact finite Search Space against one immutable Catalog Generation."""
+    """Contextually prove Search Space against Catalog, Source contracts and exact Dataset."""
+
+    if not isinstance(search_space, OnlySymbolicFactorSearchSpaceV2):
+        raise OnlySymbolicSearchError("SEARCH_SPACE_SCHEMA_UNSUPPORTED", "B3.2 requires Search Space V2")
 
     if catalog_generation.generation_fingerprint != search_space.catalog_generation_fingerprint:
         raise OnlySymbolicSearchError(
@@ -122,23 +139,58 @@ def verify_symbolic_search_space(
         raise OnlySymbolicSearchError(
             "SEARCH_CANDIDATE_OUTPUT_INVALID", "Factor bridge output is not a formal Factor value/score"
         )
+    source_contracts = []
+    try:
+        snapshot = verified_dataset.snapshot
+        table = verified_dataset.table
+        schema = snapshot.dataset_schema
+    except AttributeError as exc:
+        raise OnlySymbolicSearchError("SEARCH_DATASET_INVALID", "verified Dataset payload is incomplete") from exc
+    for source_reference in search_space.external_source_terminals:
+        contract = only_research_dataset_source_contract(source_reference.source_id)
+        if contract is None:
+            raise OnlySymbolicSearchError("SEARCH_SOURCE_CONTRACT_NOT_FOUND", source_reference.source_id)
+        if contract.source_contract_fingerprint != source_reference.source_contract_fingerprint:
+            raise OnlySymbolicSearchError("SEARCH_SOURCE_CONTRACT_MISMATCH", source_reference.source_id)
+        try:
+            authoritative_field = schema.arrow_schema.field(contract.column)
+            table_field = table.schema.field(contract.column)
+        except (KeyError, ValueError) as exc:
+            raise OnlySymbolicSearchError("SEARCH_SOURCE_DATASET_INCOMPATIBLE", source_reference.source_id) from exc
+        if authoritative_field != table_field:
+            raise OnlySymbolicSearchError("SEARCH_SOURCE_DATASET_INCOMPATIBLE", source_reference.source_id)
+        semantic_type = (
+            "NUMERIC_SERIES" if "NUMERIC_SERIES" in contract.semantic_roles else min(contract.semantic_roles)
+        )
+        projection = OnlyOutputDefinition(
+            "value",
+            contract.data_type,
+            authoritative_field.nullable,
+            contract.dimensions,
+            semantic_type,
+            contract.unit,
+        )
+        source_contracts.append((source_reference, contract, projection))
     return OnlyVerifiedSymbolicSearchSpaceV1(
         search_space,
         catalog_generation,
         registry,
         tuple(sorted(resolved, key=lambda item: item[0].component_instance_fingerprint)),
         bridges[0],
+        tuple(source_contracts),
     )
 
 
 def verify_symbolic_experiment_binding(
-    experiment: OnlySearchExperimentManifestV1,
-    search_space: OnlySymbolicFactorSearchSpaceV1,
+    experiment: OnlySearchExperimentManifestV2,
+    search_space: OnlySymbolicFactorSearchSpaceV2,
 ) -> None:
+    if not isinstance(experiment, OnlySearchExperimentManifestV2):
+        raise OnlySymbolicSearchError("SEARCH_EXPERIMENT_SCHEMA_UNSUPPORTED", "B3.2 requires Experiment V2")
     reference = experiment.search_space_reference
     if (
         reference.search_space_kind != SYMBOLIC_SEARCH_SPACE_KIND
-        or reference.search_space_schema_version != SYMBOLIC_SEARCH_SPACE_SCHEMA_VERSION
+        or reference.search_space_schema_version != SYMBOLIC_SEARCH_SPACE_CONTEXT_SCHEMA_VERSION
         or reference.search_space_fingerprint != search_space.search_space_fingerprint
         or experiment.catalog_generation_fingerprint != search_space.catalog_generation_fingerprint
     ):
@@ -181,7 +233,7 @@ def verify_symbolic_iteration_proposal_binding(
 
 def verify_symbolic_proposal_space_closure(
     proposal: OnlySymbolicGraphProposalV1,
-    search_space: OnlySymbolicFactorSearchSpaceV1,
+    search_space: OnlySymbolicFactorSearchSpaceV2,
 ) -> None:
     """Prove a persisted Proposal contains only its Space and exact candidate bridge."""
 
@@ -245,6 +297,106 @@ def verify_symbolic_proposal_space_closure(
         raise OnlySymbolicSearchError(
             "SEARCH_CANDIDATE_OUTPUT_INVALID", "Proposal candidate output differs from Search Space"
         )
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyVerifiedSymbolicProposalV1:
+    proposal: OnlySymbolicGraphProposalV1
+    context: object
+    graph: OnlyCalculationGraphDefinition
+    candidate_node: OnlyCalculationNodeDefinition
+    candidate_output: OnlyOutputDefinition
+    complexity: object
+
+
+def verify_symbolic_proposal_reconstruction(
+    proposal: OnlySymbolicGraphProposalV1,
+    context: object,
+) -> OnlyVerifiedSymbolicProposalV1:
+    """Reconstruct every persisted Definition through the exact Catalog Registry."""
+
+    verified_space = getattr(context, "verified_search_space", None)
+    if not isinstance(verified_space, OnlyVerifiedSymbolicSearchSpaceV1):
+        raise OnlySymbolicSearchError("SEARCH_CONTEXT_INVALID", "Verified Search Context is required")
+    verify_symbolic_proposal_space_closure(proposal, verified_space.search_space)
+    components = {
+        (
+            item.type_reference.kind,
+            item.type_reference.type_id,
+            item.type_reference.semantic_version,
+            tuple(item.normalized_parameters.items()),
+        ): item
+        for item, _ in verified_space.component_types
+    }
+    reconstructed = []
+    source_outputs = {
+        (reference.source_id, output.name): output for reference, _contract, output in verified_space.source_contracts
+    }
+    for node in proposal.graph.ordered_nodes:
+        definition = node.definition
+        key = (
+            definition.kind,
+            definition.type_id,
+            definition.semantic_version,
+            tuple(definition.parameters.items()),
+        )
+        component = components.get(key)
+        if component is None:
+            raise OnlySymbolicSearchError("SEARCH_PROPOSAL_RECONSTRUCTION_FAILED", "component is outside Search Space")
+        input_contracts = {item.name: item for item in definition.inputs}
+        for name, binding in definition.input_bindings.items():
+            if binding.source is None:
+                continue
+            source_output = source_outputs.get((binding.source, binding.output_name))
+            if (
+                source_output is None
+                or not only_calculation_output_compatibility(source_output, input_contracts[name]).compatible
+            ):
+                raise OnlySymbolicSearchError("SEARCH_PROPOSAL_SOURCE_BINDING_MISMATCH", node.fingerprint)
+        try:
+            authoritative = verified_space.calculation_registry.rematerialize_definition(
+                OnlyCalculationTypeReference(
+                    definition.kind,
+                    definition.type_id,
+                    definition.semantic_version,
+                ),
+                component.normalized_parameters,
+                definition.input_bindings,
+            )
+        except (TypeError, ValueError) as exc:
+            raise OnlySymbolicSearchError("SEARCH_PROPOSAL_RECONSTRUCTION_FAILED", node.fingerprint) from exc
+        if authoritative.fingerprint != definition.fingerprint:
+            raise OnlySymbolicSearchError("SEARCH_PROPOSAL_DEFINITION_MISMATCH", node.fingerprint)
+        reconstructed.append(OnlyCalculationNodeDefinition(authoritative, node.alias))
+    try:
+        graph = OnlyCalculationGraphDefinition(tuple(reconstructed))
+    except (TypeError, ValueError) as exc:
+        raise OnlySymbolicSearchError("SEARCH_PROPOSAL_RECONSTRUCTION_FAILED", proposal.proposal_fingerprint) from exc
+    if graph.fingerprint != proposal.graph_fingerprint:
+        raise OnlySymbolicSearchError("SEARCH_PROPOSAL_GRAPH_MISMATCH", proposal.proposal_fingerprint)
+    candidate = next(
+        (item for item in graph.nodes if item.fingerprint == proposal.candidate_output_reference.node_fingerprint),
+        None,
+    )
+    output = (
+        None
+        if candidate is None
+        else next(
+            (
+                item
+                for item in candidate.definition.outputs
+                if item.name == proposal.candidate_output_reference.output_name
+            ),
+            None,
+        )
+    )
+    if candidate is None or output is None:
+        raise OnlySymbolicSearchError("SEARCH_CANDIDATE_OUTPUT_INVALID", proposal.proposal_fingerprint)
+    # Local import avoids making the persistence/model layer depend on enumeration.
+    from .enumeration import symbolic_graph_complexity
+
+    complexity = symbolic_graph_complexity(graph, verified_space)
+    return OnlyVerifiedSymbolicProposalV1(proposal, context, graph, candidate, output, complexity)
 
 
 __all__ = [name for name in globals() if name.startswith(("OnlyVerified", "verify_symbolic"))]

@@ -16,8 +16,14 @@ from onlyalpha.canonical import only_canonical_json
 from onlyalpha.research.experiment import OnlySearchCommitDisposition, OnlySearchCommitOutcome
 
 from .errors import OnlySymbolicSearchStoreError
-from .model import OnlySymbolicFactorSearchSpaceV1, OnlySymbolicGraphProposalV1
-from .verification import verify_symbolic_proposal_space_closure
+from .evaluation import OnlySymbolicResearchEvaluationContractV1
+from .model import (
+    OnlySymbolicFactorSearchSpace,
+    OnlySymbolicFactorSearchSpaceV1,
+    OnlySymbolicFactorSearchSpaceV2,
+    OnlySymbolicGraphProposalV1,
+    only_symbolic_search_space_from_dict,
+)
 
 _T = TypeVar("_T")
 
@@ -29,28 +35,23 @@ class OnlyJsonSymbolicSearchStore:
         self._semantic_root = semantic_root
         self._root = semantic_root / "research" / "symbolic-search"
 
-    def commit_search_space(self, value: OnlySymbolicFactorSearchSpaceV1) -> OnlySearchCommitOutcome:
-        if not isinstance(value, OnlySymbolicFactorSearchSpaceV1):
+    def commit_search_space(self, value: OnlySymbolicFactorSearchSpace) -> OnlySearchCommitOutcome:
+        if not isinstance(value, (OnlySymbolicFactorSearchSpaceV1, OnlySymbolicFactorSearchSpaceV2)):
             raise OnlySymbolicSearchStoreError("SEARCH_SPACE_INVALID", "contract is invalid")
         return self._commit(
             "spaces",
             value.search_space_fingerprint,
             value.to_dict(),
-            OnlySymbolicFactorSearchSpaceV1.from_dict,
+            only_symbolic_search_space_from_dict,
             "SEARCH_SPACE",
         )
 
-    def load_search_space_verified(self, fingerprint: str) -> OnlySymbolicFactorSearchSpaceV1:
-        return self._load("spaces", fingerprint, OnlySymbolicFactorSearchSpaceV1.from_dict, "SEARCH_SPACE")
+    def load_search_space_intrinsic_verified(self, fingerprint: str) -> OnlySymbolicFactorSearchSpace:
+        return self._load("spaces", fingerprint, only_symbolic_search_space_from_dict, "SEARCH_SPACE")
 
     def commit_proposal(self, value: OnlySymbolicGraphProposalV1) -> OnlySearchCommitOutcome:
         if not isinstance(value, OnlySymbolicGraphProposalV1):
             raise OnlySymbolicSearchStoreError("SEARCH_PROPOSAL_INVALID", "contract is invalid")
-        search_space = self.load_search_space_verified(value.search_space_fingerprint)
-        try:
-            verify_symbolic_proposal_space_closure(value, search_space)
-        except Exception as exc:
-            raise OnlySymbolicSearchStoreError("SEARCH_PROPOSAL_INVALID", value.proposal_fingerprint) from exc
         return self._commit(
             "proposals",
             value.proposal_fingerprint,
@@ -59,8 +60,27 @@ class OnlyJsonSymbolicSearchStore:
             "SEARCH_PROPOSAL",
         )
 
-    def load_proposal_verified(self, fingerprint: str) -> OnlySymbolicGraphProposalV1:
+    def load_proposal_intrinsic_verified(self, fingerprint: str) -> OnlySymbolicGraphProposalV1:
         return self._load("proposals", fingerprint, OnlySymbolicGraphProposalV1.from_dict, "SEARCH_PROPOSAL")
+
+    def commit_evaluation_contract(self, value: OnlySymbolicResearchEvaluationContractV1) -> OnlySearchCommitOutcome:
+        if not isinstance(value, OnlySymbolicResearchEvaluationContractV1):
+            raise OnlySymbolicSearchStoreError("SEARCH_EVALUATION_INVALID", "contract is invalid")
+        return self._commit(
+            "evaluations",
+            value.evaluation_contract_fingerprint,
+            value.to_dict(),
+            OnlySymbolicResearchEvaluationContractV1.from_dict,
+            "SEARCH_EVALUATION",
+        )
+
+    def load_evaluation_contract_intrinsic_verified(self, fingerprint: str) -> OnlySymbolicResearchEvaluationContractV1:
+        return self._load(
+            "evaluations",
+            fingerprint,
+            OnlySymbolicResearchEvaluationContractV1.from_dict,
+            "SEARCH_EVALUATION",
+        )
 
     def _commit(
         self,
@@ -136,12 +156,15 @@ class OnlyJsonSymbolicSearchStore:
                 raise ValueError("symbolic authority bytes are non-canonical")
             value = parser(payload)
             typed_value = cast(Any, value)
-            actual = typed_value.search_space_fingerprint if category == "spaces" else typed_value.proposal_fingerprint
+            actual = (
+                typed_value.search_space_fingerprint
+                if category == "spaces"
+                else typed_value.proposal_fingerprint
+                if category == "proposals"
+                else typed_value.evaluation_contract_fingerprint
+            )
             if actual != fingerprint:
                 raise ValueError("symbolic authority path identity differs")
-            if category == "proposals":
-                search_space = self.load_search_space_verified(typed_value.search_space_fingerprint)
-                verify_symbolic_proposal_space_closure(typed_value, search_space)
             return value
         except OnlySymbolicSearchStoreError:
             raise
