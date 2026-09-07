@@ -229,7 +229,7 @@ def test_dataset_source_role_order_does_not_change_identity() -> None:
 def test_evaluation_fixed_semantics_close_through_normal_research_authority(tmp_path) -> None:
     generation, search_space = space(max_nodes=1)
     store, experiment, context, resolver = _verified_context(tmp_path, generation, search_space, "a" * 64)
-    assert context.verified_evaluation.witness_resolution.workload.statistics_plans
+    assert context.verified_evaluation.fixed_resolution.fixed_statistics_selector_count
     evaluation = _evaluation("a" * 64)
     fixed = evaluation.fixed_calculations[0]
     node = fixed.graph_template.nodes[0]

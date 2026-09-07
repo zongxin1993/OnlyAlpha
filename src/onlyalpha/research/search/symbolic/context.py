@@ -10,7 +10,7 @@ from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration
 from onlyalpha.research.dataset.ports import OnlyVerifiedResearchDataset
 from onlyalpha.research.experiment import OnlySearchExperimentManifestV2, OnlySearchIterationPlanV1
 from onlyalpha.research.specification.resolver import (
-    OnlyResearchSpecificationResolution,
+    OnlyResearchDeferredTemplateResolution,
     OnlyResearchSpecificationResolver,
 )
 
@@ -18,23 +18,24 @@ from .algorithm import (
     OnlySymbolicSearchAlgorithmImplementationManifestV1,
     only_deterministic_enumeration_implementation,
 )
-from .enumeration import enumerate_symbolic_factor_proposals
+from .enumeration_result import OnlySymbolicEnumerationResultV1
 from .errors import OnlySymbolicSearchError
 from .evaluation import (
     SYMBOLIC_EVALUATION_CONTRACT_KIND,
     SYMBOLIC_EVALUATION_CONTRACT_SCHEMA_VERSION,
     OnlySymbolicResearchEvaluationContractV1,
 )
-from .materialization import materialize_symbolic_research_specification
+from .historical import (
+    OnlyVerifiedSymbolicEnumerationResultV1,
+    load_symbolic_enumeration_result_historical_verified,
+    verify_symbolic_historical_iteration_occurrence,
+)
 from .model import OnlySymbolicFactorSearchSpaceV2
 from .store import OnlyJsonSymbolicSearchStore
 from .verification import (
     OnlyVerifiedSymbolicProposalV1,
     OnlyVerifiedSymbolicSearchSpaceV1,
     verify_symbolic_experiment_binding,
-    verify_symbolic_iteration_historical_binding,
-    verify_symbolic_iteration_occurrence,
-    verify_symbolic_proposal_reconstruction,
     verify_symbolic_search_space,
 )
 
@@ -50,7 +51,7 @@ class OnlySymbolicDatasetReader(Protocol):
 @dataclass(frozen=True, slots=True)
 class OnlyVerifiedSymbolicEvaluationContextV1:
     evaluation_contract: OnlySymbolicResearchEvaluationContractV1
-    witness_resolution: OnlyResearchSpecificationResolution
+    fixed_resolution: OnlyResearchDeferredTemplateResolution
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,36 +80,31 @@ class OnlyExecutableSymbolicSearchContextV1:
     runtime_algorithm_manifest: OnlySymbolicSearchAlgorithmImplementationManifestV1
 
 
-@dataclass(frozen=True, slots=True)
-class _EvaluationWitnessContext:
-    verified_search_space: OnlyVerifiedSymbolicSearchSpaceV1
-    evaluation_contract: OnlySymbolicResearchEvaluationContractV1
-
-
 def verify_symbolic_evaluation_context(
     evaluation: OnlySymbolicResearchEvaluationContractV1,
     verified_search_space: OnlyVerifiedSymbolicSearchSpaceV1,
     research_calculation_registry: OnlyCalculationRegistry,
 ) -> OnlyVerifiedSymbolicEvaluationContextV1:
-    """Close fixed Evaluation semantics through the normal Research resolver."""
+    """Close fixed Evaluation semantics without executing a Search Algorithm."""
 
     try:
-        enumeration = enumerate_symbolic_factor_proposals(verified_search_space, proposal_limit=1)
-        if not enumeration.proposals:
-            raise ValueError("Search Space has no admitted Candidate witness")
-        witness_context = _EvaluationWitnessContext(verified_search_space, evaluation)
-        verified_proposal = verify_symbolic_proposal_reconstruction(enumeration.proposals[0], witness_context)
-        specification = materialize_symbolic_research_specification(evaluation, verified_proposal).specification
-        resolution = OnlyResearchSpecificationResolver(research_calculation_registry).resolve(specification)
+        if not isinstance(verified_search_space, OnlyVerifiedSymbolicSearchSpaceV1):
+            raise ValueError("Verified Search Space is required")
+        resolution = OnlyResearchSpecificationResolver(
+            research_calculation_registry
+        ).verify_deferred_calculation_template(
+            dataset_snapshot_fingerprint=evaluation.dataset_snapshot_fingerprint,
+            fixed_calculations=evaluation.fixed_calculations,
+            statistics=evaluation.statistics,
+            evidence=evaluation.evidence,
+            deferred_calculation_id=evaluation.candidate_calculation_id,
+        )
     except Exception as exc:
         raise OnlySymbolicSearchError(
             "SEARCH_EVALUATION_CONTEXT_INVALID", evaluation.evaluation_contract_fingerprint
         ) from exc
-    candidate = tuple(
-        item for item in resolution.candidates if item.calculation_id == evaluation.candidate_calculation_id
-    )
     fixed_ids = {item.calculation_id for item in evaluation.fixed_calculations}
-    if len(candidate) != 1 or fixed_ids - {item.calculation_id for item in resolution.candidates}:
+    if fixed_ids - {item.calculation_id for item in resolution.fixed_candidates}:
         raise OnlySymbolicSearchError("SEARCH_EVALUATION_CONTEXT_INVALID", evaluation.evaluation_contract_fingerprint)
     return OnlyVerifiedSymbolicEvaluationContextV1(evaluation, resolution)
 
@@ -220,6 +216,23 @@ class OnlySymbolicSearchContextResolver:
     ) -> OnlyExecutableSymbolicSearchContextV1:
         return admit_current_symbolic_algorithm_runtime(context, self._runtime_algorithm)
 
+    def certify_current_runtime_enumeration_reproduction(
+        self, experiment: OnlySearchExperimentManifestV2
+    ) -> OnlySymbolicEnumerationResultV1:
+        """Re-enumerate only after runtime admission and compare with durable output."""
+
+        from .execution import enumerate_symbolic_executable_context
+
+        context = self.resolve_verified_context(experiment)
+        executable = self.admit_current_runtime(context)
+        _execution, reproduced = enumerate_symbolic_executable_context(executable)
+        stored = load_symbolic_enumeration_result_historical_verified(experiment, context, self._symbolic_store).result
+        if reproduced != stored:
+            raise OnlySymbolicSearchError(
+                "SEARCH_ENUMERATION_REPRODUCTION_MISMATCH", stored.enumeration_result_fingerprint
+            )
+        return reproduced
+
     def load_search_space_contextual_verified(
         self, experiment: OnlySearchExperimentManifestV2
     ) -> OnlySymbolicFactorSearchSpaceV2:
@@ -231,18 +244,63 @@ class OnlySymbolicSearchContextResolver:
         plan: OnlySearchIterationPlanV1,
     ) -> OnlyVerifiedSymbolicProposalV1:
         context = self.resolve_verified_context(experiment)
-        proposal = self._symbolic_store.load_proposal_intrinsic_verified(plan.proposal_fingerprint)
-        return verify_symbolic_iteration_historical_binding(experiment, plan, proposal, context)
+        return verify_symbolic_historical_iteration_occurrence(experiment, plan, context, self._symbolic_store)
 
     def load_proposal_occurrence_contextual_verified(
         self,
         experiment: OnlySearchExperimentManifestV2,
         plan: OnlySearchIterationPlanV1,
     ) -> OnlyVerifiedSymbolicProposalV1:
+        """Compatibility adapter: occurrence is now a durable historical proof."""
+
         context = self.resolve_verified_context(experiment)
-        self.admit_current_runtime(context)
-        proposal = self._symbolic_store.load_proposal_intrinsic_verified(plan.proposal_fingerprint)
-        return verify_symbolic_iteration_occurrence(experiment, plan, proposal, context)
+        return verify_symbolic_historical_iteration_occurrence(experiment, plan, context, self._symbolic_store)
+
+    def load_enumeration_result_contextual_verified(
+        self, experiment: OnlySearchExperimentManifestV2
+    ) -> OnlyVerifiedSymbolicEnumerationResultV1:
+        context = self.resolve_verified_context(experiment)
+        return load_symbolic_enumeration_result_historical_verified(experiment, context, self._symbolic_store)
+
+    @staticmethod
+    def verify_iteration_plan_ledger(
+        experiment: OnlySearchExperimentManifestV2,
+        plan: OnlySearchIterationPlanV1,
+        committed_plans: tuple[OnlySearchIterationPlanV1, ...],
+    ) -> None:
+        """Require the deterministic symbolic ledger to remain one contiguous prefix."""
+
+        relevant = tuple(
+            item for item in committed_plans if item.experiment_fingerprint == experiment.experiment_fingerprint
+        )
+        by_ordinal: dict[int, OnlySearchIterationPlanV1] = {}
+        for existing in relevant:
+            occupant = by_ordinal.get(existing.iteration_index)
+            if occupant is not None and occupant != existing:
+                raise OnlySymbolicSearchError("SEARCH_ITERATION_ORDINAL_CONFLICT", str(existing.iteration_index))
+            by_ordinal[existing.iteration_index] = existing
+        if set(by_ordinal) != set(range(len(by_ordinal))):
+            raise OnlySymbolicSearchError("SEARCH_ITERATION_PREFIX_CORRUPT", experiment.experiment_fingerprint)
+        occupant = by_ordinal.get(plan.iteration_index)
+        if occupant is not None:
+            if occupant != plan:
+                raise OnlySymbolicSearchError("SEARCH_ITERATION_ORDINAL_CONFLICT", str(plan.iteration_index))
+            return
+        if plan.iteration_index != len(by_ordinal):
+            raise OnlySymbolicSearchError("SEARCH_ITERATION_PREFIX_GAP", str(plan.iteration_index))
+
+    @staticmethod
+    def next_iteration_ordinal(
+        experiment: OnlySearchExperimentManifestV2,
+        committed_plans: tuple[OnlySearchIterationPlanV1, ...],
+    ) -> int:
+        relevant = tuple(
+            item for item in committed_plans if item.experiment_fingerprint == experiment.experiment_fingerprint
+        )
+        ordinals = {item.iteration_index for item in relevant}
+        if len(ordinals) != len(relevant) or ordinals != set(range(len(relevant))):
+            raise OnlySymbolicSearchError("SEARCH_ITERATION_PREFIX_CORRUPT", experiment.experiment_fingerprint)
+        return len(relevant)
 
 
 __all__ = [name for name in globals() if name.startswith(("Only", "admit_", "verify_"))]

@@ -1,7 +1,7 @@
 # ADR 0121: Deterministic Symbolic Factor Search Authority Contract
 
 - Status: Accepted
-- Date: 2026-09-07 (amended 2026-09-07 for Authority-Graph and Final closure)
+- Date: 2026-09-07 (amended 2026-09-07 for Authority-Graph, Final, and Historical-Proof closure)
 - Decision maker: repository owner through the B3.2 implementation authorization
 - Related: ADR 0069, 0095, 0110, 0112, 0115, 0118, 0119, 0120
 
@@ -414,6 +414,109 @@ fingerprint plus Authority roots/configuration must traverse and verify the comp
 Search Space, Algorithm, Catalog, Dataset, Source Contracts, Proposal reconstruction, normal Specification/Candidate, Research Result,
 Qualification Decision and FreezeRelation. It must not receive the original Evaluation/Proposal/Candidate/Research/Qualification objects,
 recompute Research, re-evaluate Qualification, or reconstruct missing durable semantic inputs with a helper.
+
+### Historical-proof closure amendment
+
+The prior Final-closure design used a currently executed deterministic enumeration as both an Evaluation witness and the proof that a
+persisted Plan occurred at one exact ordinal. That verifier could reject otherwise intact historical facts after the installed Search
+implementation changed. A verifier execution may decide whether a new fact is acceptable; the verifier execution is not itself the
+durable historical fact. Algorithm implementation identity likewise proves which implementation was used, not the ordered output that
+one exact Experiment produced.
+
+#### Candidate-independent historical Evaluation verification
+
+Historical/contextual verification of `OnlySymbolicResearchEvaluationContractV1` is independent of Search Algorithm execution. It
+produces an ephemeral verified Evaluation Template that proves, through the existing Research/Calculation authorities:
+
+```text
+exact Dataset binding
+fixed Calculation type/version/RESEARCH backend/parameter/GraphTemplate legality
+fixed Target node/output and TARGET semantics
+Statistics definition, expansion, and all fixed selectors
+scientific Evidence fixed selectors
+Candidate slot and replacement-policy structure
+```
+
+It invokes neither deterministic enumeration nor Proposal construction and contains no Candidate witness. Candidate-dependent feature,
+published-series, and signal selectors are deliberately deferred. After one exact Proposal has been historically proved and
+authoritatively reconstructed, materialization binds its exact Factor graph/output into the slot and the normal
+`OnlyResearchSpecificationResolver` remains the sole final authority for Candidate identity, Candidate-dependent selectors, Statistics
+plans, Evidence lineages, and Workload. Symbolic Search does not copy or reimplement those complete Research semantics.
+
+#### Durable Enumeration Result Authority
+
+`OnlySymbolicEnumerationResultV1` is the immutable ordered-output Authority for one exact deterministic B3.2 Experiment and its exact
+proposal budget. It contains exactly:
+
+```text
+schema_version
+experiment_fingerprint
+algorithm_implementation_fingerprint
+search_space_fingerprint
+proposal_limit
+ordered_proposal_fingerprints
+proposal_limit_reached
+search_space_exhausted
+enumeration_result_fingerprint
+```
+
+It contains Proposal references, not Proposal semantic payloads, and contains no Research metric/result, Qualification outcome, time,
+host, worker, or latency. Its result identity is the canonical SHA-256 of all preceding semantic fields in the Enumeration Result domain.
+The Experiment fingerprint is its exact Store locator and is not the Result identity. One Experiment accepts at most one result:
+
+```text
+first exact commit                         -> CREATED
+same exact result recommit                 -> REUSED
+same Experiment locator, different result -> CONFLICT
+```
+
+Canonical bytes, exact schema, safe non-symlink paths, put-once publication, corruption detection, and exact verified loading are
+mandatory. There is no latest/fuzzy/equivalent lookup. Before contextual acceptance or use, the verifier proves the Result's exact
+Experiment, historical Algorithm implementation, Search Space, proposal budget, unique ordered Proposal references, Proposal Authority
+records, Proposal-to-Search-Space binding, and exact completion flags.
+
+For total unique Proposal count `T` and requested limit `N`, the persisted completion facts retain Deterministic Enumeration V1 meaning:
+
+```text
+N < T: proposal_limit_reached=true,  search_space_exhausted=false
+N = T: proposal_limit_reached=true,  search_space_exhausted=true
+N > T: proposal_limit_reached=false, search_space_exhausted=true
+```
+
+#### Historical occurrence and runtime reproduction
+
+Historical occurrence proof is exclusively:
+
+```text
+Plan -> Experiment-located Enumeration Result -> ordered fingerprint at Plan.iteration_index
+     -> exact Proposal Authority -> authoritative Proposal reconstruction
+```
+
+It never admits or calls the current enumerator. The earlier re-enumerating occurrence verifier is retained only as an execution-time
+reproduction certification boundary. After the current runtime Manifest exactly matches the historical Manifest, it re-enumerates the
+exact Experiment, rebuilds an Enumeration Result, and requires complete equality with the stored Result. A mismatch fails closed as
+`SEARCH_ENUMERATION_REPRODUCTION_MISMATCH`. A different current runtime blocks execution/continuation with
+`SEARCH_ALGORITHM_RUNTIME_MISMATCH`, while historical Experiment, Evaluation, Manifest, Enumeration Result, Plan occurrence, Research,
+Qualification, and FreezeRelation reads remain valid.
+
+#### Contiguous deterministic iteration ledger
+
+For Deterministic Enumeration V1, `iteration_index` is the Enumeration Result ordinal. Committed formal symbolic Plan ordinals for one
+Experiment are always a contiguous prefix:
+
+```text
+{}
+{0}
+{0,1}
+...
+{0,1,...,n}
+```
+
+Before `Plan[n]` is committed, the existing ordinals must be exactly `{0, ..., n-1}` and the stored Enumeration Result fingerprint at
+ordinal `n` must equal the Plan Proposal fingerprint. `(Experiment, ordinal)` has at most one Plan occupant; an identical recommit may be
+`REUSED`, while a different occupant is a conflict. Missing, duplicate, corrupt, or gapped prefix state fails closed. A crash may leave
+only a valid partial prefix; recovery derives `next_ordinal = prefix_length`. No mutable cursor, progress record, or second ledger truth is
+introduced.
 
 ### Structured failure boundary
 

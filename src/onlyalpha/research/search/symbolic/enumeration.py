@@ -28,7 +28,7 @@ class OnlySymbolicGraphComplexityV1:
 
 
 @dataclass(frozen=True, slots=True)
-class OnlySymbolicEnumerationResultV1:
+class OnlySymbolicEnumerationExecutionV1:
     proposals: tuple[OnlySymbolicGraphProposalV1, ...]
     search_space_exhausted: bool
     proposal_limit_reached: bool
@@ -103,7 +103,7 @@ def enumerate_symbolic_factor_proposals(
     verified_space: OnlyVerifiedSymbolicSearchSpaceV1,
     *,
     proposal_limit: int,
-) -> OnlySymbolicEnumerationResultV1:
+) -> OnlySymbolicEnumerationExecutionV1:
     """Emit the exact deterministic prefix; downstream outcomes are not accepted inputs."""
 
     if isinstance(proposal_limit, bool) or not isinstance(proposal_limit, int) or proposal_limit <= 0:
@@ -211,7 +211,7 @@ def enumerate_symbolic_factor_proposals(
         available_by_count[requested_count] = tuple(sorted(produced.values(), key=lambda item: item.sort_key))
         ordered = tuple(sorted(all_candidates, key=lambda item: _proposal_order(item, verified_space)))
     ordered = tuple(sorted(all_candidates, key=lambda item: _proposal_order(item, verified_space)))
-    return OnlySymbolicEnumerationResultV1(
+    return OnlySymbolicEnumerationExecutionV1(
         ordered[:proposal_limit],
         len(ordered) <= proposal_limit,
         len(ordered) >= proposal_limit,
@@ -284,7 +284,7 @@ def _node_component_key(node: OnlyCalculationNodeDefinition) -> tuple[object, ..
 
 
 __all__ = [
-    "OnlySymbolicEnumerationResultV1",
+    "OnlySymbolicEnumerationExecutionV1",
     "OnlySymbolicGraphComplexityV1",
     "enumerate_symbolic_factor_proposals",
     "symbolic_graph_complexity",

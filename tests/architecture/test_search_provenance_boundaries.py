@@ -8,6 +8,7 @@ from typing import get_type_hints
 from onlyalpha.research.search.symbolic import (
     OnlyExecutableSymbolicSearchContextV1,
     OnlyJsonSymbolicSearchStore,
+    OnlySymbolicEnumerationResultV1,
     OnlySymbolicExternalSourceReferenceV1,
     OnlyVerifiedSymbolicEvaluationContextV1,
     OnlyVerifiedSymbolicProposalV1,
@@ -81,6 +82,20 @@ def test_terminal_is_reference_only_and_materialization_requires_verified_propos
     assert annotation is OnlyVerifiedSymbolicProposalV1
 
 
+def test_enumeration_result_is_reference_only_and_locator_is_not_result_identity() -> None:
+    assert {item.name for item in fields(OnlySymbolicEnumerationResultV1)} == {
+        "experiment_fingerprint",
+        "algorithm_implementation_fingerprint",
+        "search_space_fingerprint",
+        "proposal_limit",
+        "ordered_proposal_fingerprints",
+        "proposal_limit_reached",
+        "search_space_exhausted",
+        "schema_version",
+    }
+    assert "proposals" not in {item.name for item in fields(OnlySymbolicEnumerationResultV1)}
+
+
 def test_historical_context_runtime_admission_and_evaluation_projection_are_distinct() -> None:
     historical = {item.name for item in fields(OnlyVerifiedSymbolicSearchContextV1)}
     executable = {item.name for item in fields(OnlyExecutableSymbolicSearchContextV1)}
@@ -88,7 +103,7 @@ def test_historical_context_runtime_admission_and_evaluation_projection_are_dist
     assert "historical_algorithm_manifest" in historical
     assert "runtime_algorithm_manifest" not in historical
     assert executable == {"historical_context", "runtime_algorithm_manifest"}
-    assert evaluation == {"evaluation_contract", "witness_resolution"}
+    assert evaluation == {"evaluation_contract", "fixed_resolution"}
 
 
 def test_generic_b31_does_not_import_symbolic_enumerator_or_research_qualification() -> None:
@@ -103,3 +118,12 @@ def test_occurrence_verifier_has_no_research_or_qualification_dependency() -> No
     tree = ast.parse(Path("src/onlyalpha/research/search/symbolic/verification.py").read_text(encoding="utf-8"))
     imported = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module is not None}
     assert not any("qualification" in name or "research.result" in name for name in imported)
+
+
+def test_historical_symbolic_modules_do_not_import_enumeration_execution() -> None:
+    for relative in ("historical.py", "context.py"):
+        tree = ast.parse(Path("src/onlyalpha/research/search/symbolic", relative).read_text(encoding="utf-8"))
+        imports = {
+            node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module is not None
+        }
+        assert "enumeration" not in imports

@@ -45,6 +45,7 @@ from onlyalpha.research.workload import OnlyResearchWorkloadPlan
 from .errors import OnlyResearchSpecificationError, OnlyResearchSpecificationPhase
 from .identity import only_research_candidate_fingerprint
 from .model import (
+    OnlyResearchCalculationSpec,
     OnlyResearchScientificEvidenceSpec,
     OnlyResearchSeriesSelector,
     OnlyResearchSpecification,
@@ -101,6 +102,19 @@ class OnlyResearchSpecificationResolution:
     signals: tuple[OnlyResearchSignalLineage, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class OnlyResearchDeferredTemplateResolution:
+    """Candidate-independent proof of fixed Research template semantics."""
+
+    dataset_snapshot_fingerprint: str
+    deferred_calculation_id: str
+    fixed_candidates: tuple[OnlyResearchCandidateLineage, ...]
+    fixed_statistics_selector_count: int
+    deferred_statistics_selector_count: int
+    fixed_evidence_selector_count: int
+    deferred_evidence_selector_count: int
+
+
 class OnlyResearchSpecificationResolver:
     def __init__(self, calculation_registry: OnlyCalculationRegistry, *, max_cells: int | None = None) -> None:
         if not isinstance(calculation_registry, OnlyCalculationRegistry):
@@ -112,6 +126,104 @@ class OnlyResearchSpecificationResolver:
         self._materializer = OnlyResearchGraphTemplateMaterializer(calculation_registry)
         self._sweep_planner = OnlyResearchSweepPlanner(calculation_registry, max_cells=max_cells)
 
+    def verify_deferred_calculation_template(
+        self,
+        *,
+        dataset_snapshot_fingerprint: str,
+        fixed_calculations: tuple[OnlyResearchCalculationSpec, ...],
+        statistics: tuple[OnlyResearchStatisticsSpec, ...],
+        evidence: OnlyResearchScientificEvidenceSpec,
+        deferred_calculation_id: str,
+    ) -> OnlyResearchDeferredTemplateResolution:
+        """Verify fixed semantics while deliberately deferring one exact Calculation slot."""
+
+        if any(not isinstance(item, OnlyResearchCalculationSpec) for item in fixed_calculations):
+            self._fail(
+                OnlyResearchSpecificationPhase.SCHEMA,
+                "RESEARCH_SPEC_INVALID",
+                "fixed Calculation template contains an invalid member",
+            )
+        _direct_jobs, _sweeps, candidates = self._resolve_calculations(
+            dataset_snapshot_fingerprint,
+            fixed_calculations,
+        )
+        fixed_statistics = 0
+        deferred_statistics = 0
+        fixed_statistics_fingerprints: list[str] = []
+        for item in statistics:
+            feature_deferred = item.feature.calculation_id == deferred_calculation_id
+            target_deferred = item.target.calculation_id == deferred_calculation_id
+            if target_deferred:
+                self._fail(
+                    OnlyResearchSpecificationPhase.SERIES_RESOLUTION,
+                    "RESEARCH_SPEC_TARGET_SEMANTIC_INVALID",
+                    "deferred Candidate slot cannot be a Target",
+                )
+            target = self._select(candidates, item.target, feature=False)
+            fixed_statistics += 1
+            if feature_deferred:
+                deferred_statistics += 1
+                continue
+            feature = self._select(candidates, item.feature, feature=True)
+            fixed_statistics += 1
+            for feature_candidate, target_candidate in self._broadcast(feature, target):
+                fixed_statistics_fingerprints.append(
+                    self._statistics_plan(item, feature_candidate, target_candidate).statistics_fingerprint
+                )
+        if len(fixed_statistics_fingerprints) != len(set(fixed_statistics_fingerprints)):
+            self._fail(
+                OnlyResearchSpecificationPhase.STATISTICS_RESOLUTION,
+                "RESEARCH_SPEC_DUPLICATE_STATISTICS",
+                "fixed Statistics Specifications resolve to the same Statistics identity",
+            )
+
+        if evidence.candidate_calculation_id != deferred_calculation_id:
+            self._fail(
+                OnlyResearchSpecificationPhase.SERIES_RESOLUTION,
+                "RESEARCH_SPEC_CANDIDATE_CALCULATION_UNKNOWN",
+                "scientific Evidence does not bind the deferred Candidate slot",
+            )
+        fixed_evidence = 0
+        deferred_evidence = 0
+        for selector in evidence.published_series:
+            if selector.calculation_id == deferred_calculation_id:
+                deferred_evidence += 1
+                continue
+            selected = self._resolve_selector(candidates, selector)
+            if len(selected) != 1:
+                self._fail(
+                    OnlyResearchSpecificationPhase.SERIES_RESOLUTION,
+                    "RESEARCH_SPEC_PUBLISHED_SERIES_AMBIGUOUS",
+                    f"fixed calculation_id {selector.calculation_id!r} resolves to {len(selected)} lineages",
+                )
+            node = next(item for item in selected[0][0].graph.nodes if item.fingerprint == selected[0][1])
+            if node.definition.kind is OnlyCalculationKind.PREDICATE:
+                self._fail(
+                    OnlyResearchSpecificationPhase.SERIES_RESOLUTION,
+                    "RESEARCH_SPEC_PUBLISHED_SERIES_KIND_FORBIDDEN",
+                    "internal PREDICATE outputs cannot be published as generic scientific series",
+                )
+            fixed_evidence += 1
+        for signal_selector in (evidence.signals.eligibility, evidence.signals.entry, evidence.signals.exit):
+            if signal_selector is None:
+                continue
+            if signal_selector.calculation_id != deferred_calculation_id:
+                self._fail(
+                    OnlyResearchSpecificationPhase.SERIES_RESOLUTION,
+                    "RESEARCH_SPEC_SIGNAL_CANDIDATE_MISMATCH",
+                    "signal selectors must bind the deferred Candidate slot",
+                )
+            deferred_evidence += 1
+        return OnlyResearchDeferredTemplateResolution(
+            dataset_snapshot_fingerprint,
+            deferred_calculation_id,
+            tuple(item for key in sorted(candidates) for item in candidates[key]),
+            fixed_statistics,
+            deferred_statistics,
+            fixed_evidence,
+            deferred_evidence,
+        )
+
     def resolve(self, specification: OnlyResearchSpecification) -> OnlyResearchSpecificationResolution:
         if not isinstance(specification, OnlyResearchSpecification):
             self._fail(
@@ -119,65 +231,12 @@ class OnlyResearchSpecificationResolver:
                 "RESEARCH_SPEC_INVALID",
                 "resolve requires a Research Specification",
             )
-        direct_jobs: list[OnlyResearchJobPlan] = []
-        sweeps: list[OnlyResearchSweepPlan] = []
-        candidates: dict[str, list[OnlyResearchCandidateLineage]] = {}
-        for calculation in specification.calculations:
-            self._admit_types(calculation.graph_template.nodes)
-            if calculation.sweep_dimensions:
-                definition = OnlyResearchSweepDefinition(
-                    specification.dataset_snapshot_fingerprint,
-                    calculation.graph_template,
-                    calculation.sweep_dimensions,
-                )
-                try:
-                    sweep = self._sweep_planner.plan(definition)
-                except OnlyResearchSweepError as exc:
-                    code = (
-                        "RESEARCH_SPEC_SWEEP_CARDINALITY_EXCEEDED"
-                        if exc.code == "SWEEP_CARDINALITY_EXCEEDED"
-                        else "RESEARCH_SPEC_SWEEP_INVALID"
-                    )
-                    self._fail(OnlyResearchSpecificationPhase.SWEEP_RESOLUTION, code, str(exc), exc)
-                sweeps.append(sweep)
-                lineages = []
-                for cell in sweep.cells:
-                    evidence = self._materializer.materialize(
-                        calculation.graph_template, {item.target: item.value for item in cell.assignment}
-                    )
-                    lineages.append(
-                        OnlyResearchCandidateLineage(
-                            calculation.calculation_id,
-                            cell.assignment_by_key,
-                            evidence.graph,
-                            evidence.graph.fingerprint,
-                            cell.calculation_fingerprint,
-                            evidence.node_fingerprints,
-                        )
-                    )
-                candidates[calculation.calculation_id] = lineages
-            else:
-                try:
-                    evidence = self._materializer.materialize(calculation.graph_template)
-                    job = OnlyResearchJobPlan(specification.dataset_snapshot_fingerprint, evidence.graph)
-                except (OnlyResearchSweepError, TypeError, ValueError) as exc:
-                    self._fail(
-                        OnlyResearchSpecificationPhase.GRAPH_RESOLUTION,
-                        "RESEARCH_SPEC_GRAPH_MATERIALIZATION_FAILED",
-                        str(exc),
-                        exc,
-                    )
-                direct_jobs.append(job)
-                candidates[calculation.calculation_id] = [
-                    OnlyResearchCandidateLineage(
-                        calculation.calculation_id,
-                        {},
-                        evidence.graph,
-                        evidence.graph.fingerprint,
-                        job.calculation_fingerprint,
-                        evidence.node_fingerprints,
-                    )
-                ]
+        direct_job_values, sweep_values, candidates = self._resolve_calculations(
+            specification.dataset_snapshot_fingerprint,
+            specification.calculations,
+        )
+        direct_jobs = list(direct_job_values)
+        sweeps = list(sweep_values)
 
         published_series: tuple[OnlyResearchPublishedSeriesLineage, ...] = ()
         signals: tuple[OnlyResearchSignalLineage, ...] = ()
@@ -312,6 +371,77 @@ class OnlyResearchSpecificationResolver:
             published_series,
             signals,
         )
+
+    def _resolve_calculations(
+        self,
+        dataset_snapshot_fingerprint: str,
+        calculations: tuple[OnlyResearchCalculationSpec, ...],
+    ) -> tuple[
+        tuple[OnlyResearchJobPlan, ...],
+        tuple[OnlyResearchSweepPlan, ...],
+        dict[str, list[OnlyResearchCandidateLineage]],
+    ]:
+        direct_jobs: list[OnlyResearchJobPlan] = []
+        sweeps: list[OnlyResearchSweepPlan] = []
+        candidates: dict[str, list[OnlyResearchCandidateLineage]] = {}
+        for calculation in calculations:
+            self._admit_types(calculation.graph_template.nodes)
+            if calculation.sweep_dimensions:
+                definition = OnlyResearchSweepDefinition(
+                    dataset_snapshot_fingerprint,
+                    calculation.graph_template,
+                    calculation.sweep_dimensions,
+                )
+                try:
+                    sweep = self._sweep_planner.plan(definition)
+                except OnlyResearchSweepError as exc:
+                    code = (
+                        "RESEARCH_SPEC_SWEEP_CARDINALITY_EXCEEDED"
+                        if exc.code == "SWEEP_CARDINALITY_EXCEEDED"
+                        else "RESEARCH_SPEC_SWEEP_INVALID"
+                    )
+                    self._fail(OnlyResearchSpecificationPhase.SWEEP_RESOLUTION, code, str(exc), exc)
+                sweeps.append(sweep)
+                lineages = []
+                for cell in sweep.cells:
+                    evidence = self._materializer.materialize(
+                        calculation.graph_template, {item.target: item.value for item in cell.assignment}
+                    )
+                    lineages.append(
+                        OnlyResearchCandidateLineage(
+                            calculation.calculation_id,
+                            cell.assignment_by_key,
+                            evidence.graph,
+                            evidence.graph.fingerprint,
+                            cell.calculation_fingerprint,
+                            evidence.node_fingerprints,
+                        )
+                    )
+                candidates[calculation.calculation_id] = lineages
+            else:
+                try:
+                    evidence = self._materializer.materialize(calculation.graph_template)
+                    job = OnlyResearchJobPlan(dataset_snapshot_fingerprint, evidence.graph)
+                except (OnlyResearchSweepError, TypeError, ValueError) as exc:
+                    self._fail(
+                        OnlyResearchSpecificationPhase.GRAPH_RESOLUTION,
+                        "RESEARCH_SPEC_GRAPH_MATERIALIZATION_FAILED",
+                        str(exc),
+                        exc,
+                    )
+                direct_jobs.append(job)
+                candidates[calculation.calculation_id] = [
+                    OnlyResearchCandidateLineage(
+                        calculation.calculation_id,
+                        {},
+                        evidence.graph,
+                        evidence.graph.fingerprint,
+                        job.calculation_fingerprint,
+                        evidence.node_fingerprints,
+                    )
+                ]
+
+        return tuple(direct_jobs), tuple(sweeps), candidates
 
     def _resolve_published_series(
         self,

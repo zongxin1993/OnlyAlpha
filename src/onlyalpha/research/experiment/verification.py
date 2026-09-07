@@ -82,6 +82,19 @@ class OnlySearchContextReader(Protocol):
         self, experiment: OnlySearchExperimentManifestV2, plan: OnlySearchIterationPlanV1
     ) -> object: ...
 
+    def verify_iteration_plan_ledger(
+        self,
+        experiment: OnlySearchExperimentManifestV2,
+        plan: OnlySearchIterationPlanV1,
+        committed_plans: tuple[OnlySearchIterationPlanV1, ...],
+    ) -> None: ...
+
+    def next_iteration_ordinal(
+        self,
+        experiment: OnlySearchExperimentManifestV2,
+        committed_plans: tuple[OnlySearchIterationPlanV1, ...],
+    ) -> int: ...
+
 
 class OnlySearchCandidateValue(Protocol):
     @property

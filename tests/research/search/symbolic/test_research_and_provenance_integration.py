@@ -54,6 +54,8 @@ from onlyalpha.research.search.symbolic import (
     OnlySymbolicResearchEvaluationContractV1,
     OnlySymbolicSearchContextResolver,
     OnlySymbolicSearchError,
+    build_symbolic_enumeration_result,
+    commit_symbolic_enumeration_result_verified,
     enumerate_symbolic_factor_proposals,
     only_deterministic_enumeration_implementation,
     resolve_symbolic_research_candidate,
@@ -168,7 +170,19 @@ def _verified_context(
         datasets=_Datasets(dataset),
         research_calculation_registry=specification_registry(),
     )
-    return symbolic, experiment, context_resolver.resolve_verified_context(experiment), context_resolver
+    context = context_resolver.resolve_verified_context(experiment)
+    enumeration = enumerate_symbolic_factor_proposals(
+        context.verified_search_space,
+        proposal_limit=experiment.search_budget.proposal_limit,
+    )
+    for proposal in enumeration.proposals:
+        symbolic.commit_proposal(proposal)
+    commit_symbolic_enumeration_result_verified(
+        build_symbolic_enumeration_result(experiment, enumeration),
+        context,
+        symbolic,
+    )
+    return symbolic, experiment, context, context_resolver
 
 
 def _scientific_template(dataset: str) -> OnlyResearchSpecification:
@@ -468,8 +482,18 @@ def _fresh_process_e2e(root: Path, terminal_result_fingerprint: str | None = Non
             search_contexts=context_resolver,
         )
         provenance.commit_experiment(experiment)
-        proposal = enumerate_symbolic_factor_proposals(context.verified_search_space, proposal_limit=1).proposals[0]
-        symbolic.commit_proposal(proposal)
+        enumeration = enumerate_symbolic_factor_proposals(
+            context.verified_search_space,
+            proposal_limit=experiment.search_budget.proposal_limit,
+        )
+        for enumerated_proposal in enumeration.proposals:
+            symbolic.commit_proposal(enumerated_proposal)
+        commit_symbolic_enumeration_result_verified(
+            build_symbolic_enumeration_result(experiment, enumeration),
+            context,
+            symbolic,
+        )
+        proposal = enumeration.proposals[0]
         verified_proposal = verify_symbolic_proposal_reconstruction(proposal, context)
         plan = OnlySearchIterationPlanV1(
             experiment.experiment_fingerprint,
@@ -620,8 +644,10 @@ def _fresh_process_e2e(root: Path, terminal_result_fingerprint: str | None = Non
         assert loaded_space == search_space
         assert resolved.candidate.candidate_fingerprint == terminal.candidate_fingerprint
     assert terminal is not None
+    enumeration_result = context_resolver.load_enumeration_result_contextual_verified(experiment).result
     return {
         "experiment": experiment.experiment_fingerprint,
+        "enumeration_result": enumeration_result.enumeration_result_fingerprint,
         "space": search_space.search_space_fingerprint,
         "proposal": proposal.proposal_fingerprint,
         "graph": proposal.graph_fingerprint,
@@ -719,8 +745,11 @@ def test_runtime_upgrade_preserves_terminal_history_but_blocks_reenumeration(tmp
         symbolic.load_algorithm_implementation_manifest_intrinsic_verified(historical.implementation_fingerprint)
         == historical
     )
+    assert upgraded_reader.load_proposal_occurrence_contextual_verified(
+        experiment, plan
+    ).proposal.proposal_fingerprint == (plan.proposal_fingerprint)
     with pytest.raises(OnlySymbolicSearchError, match="SEARCH_ALGORITHM_RUNTIME_MISMATCH"):
-        upgraded_reader.load_proposal_occurrence_contextual_verified(experiment, plan)
+        upgraded_reader.certify_current_runtime_enumeration_reproduction(experiment)
 
 
 def test_existing_qualification_and_b31_subject_chain_close_without_copying_outcome(tmp_path) -> None:

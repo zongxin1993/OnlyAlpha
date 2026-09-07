@@ -19,8 +19,13 @@ from onlyalpha.research.specification.resolver import (
 )
 
 from .context import OnlyVerifiedSymbolicSearchContextV1, admit_current_symbolic_algorithm_runtime
-from .enumeration import OnlySymbolicEnumerationResultV1, enumerate_symbolic_factor_proposals
-from .errors import OnlySymbolicSearchError
+from .enumeration import OnlySymbolicEnumerationExecutionV1, enumerate_symbolic_factor_proposals
+from .errors import OnlySymbolicSearchError, OnlySymbolicSearchStoreError
+from .execution import build_symbolic_enumeration_result
+from .historical import (
+    commit_symbolic_enumeration_result_verified,
+    load_symbolic_enumeration_result_historical_verified,
+)
 from .materialization import materialize_symbolic_research_specification
 from .model import SYMBOLIC_PROPOSAL_KIND, SYMBOLIC_PROPOSAL_SCHEMA_VERSION
 from .store import OnlyJsonSymbolicSearchStore
@@ -61,7 +66,7 @@ class OnlySymbolicResolvedResearchCandidateV1:
 
 @dataclass(frozen=True, slots=True)
 class OnlySymbolicWorkflowResultV1:
-    enumeration: OnlySymbolicEnumerationResultV1
+    enumeration: OnlySymbolicEnumerationExecutionV1
     iteration_plans: tuple[OnlySearchIterationPlanV1, ...]
     iteration_results: tuple[OnlySearchIterationResultV1, ...]
 
@@ -117,8 +122,31 @@ def run_symbolic_search_workflow(
     qualification_count = 0
 
     # Enumeration is complete before the first downstream execution. This is the structural non-adaptive barrier.
-    for index, proposal in enumerate(enumeration.proposals):
-        symbolic_store.commit_proposal(proposal)
+    durable_enumeration = build_symbolic_enumeration_result(experiment, enumeration)
+    try:
+        stored_enumeration = symbolic_store.load_enumeration_result_verified(experiment.experiment_fingerprint)
+    except OnlySymbolicSearchStoreError as exc:
+        if exc.code != "SEARCH_ENUMERATION_RESULT_NOT_FOUND":
+            raise
+        for proposal in enumeration.proposals:
+            symbolic_store.commit_proposal(proposal)
+        commit_symbolic_enumeration_result_verified(durable_enumeration, context, symbolic_store)
+    else:
+        historical = load_symbolic_enumeration_result_historical_verified(experiment, context, symbolic_store).result
+        if historical != stored_enumeration or historical != durable_enumeration:
+            raise OnlySymbolicSearchError(
+                "SEARCH_ENUMERATION_REPRODUCTION_MISMATCH",
+                stored_enumeration.enumeration_result_fingerprint,
+            )
+    next_ordinal_reader = getattr(provenance, "next_iteration_ordinal_verified", None)
+    next_ordinal = next_ordinal_reader(experiment.experiment_fingerprint) if callable(next_ordinal_reader) else 0
+    if (
+        isinstance(next_ordinal, bool)
+        or not isinstance(next_ordinal, int)
+        or not 0 <= next_ordinal <= len(enumeration.proposals)
+    ):
+        raise OnlySymbolicSearchError("SEARCH_ITERATION_PREFIX_CORRUPT", experiment.experiment_fingerprint)
+    for index, proposal in enumerate(enumeration.proposals[next_ordinal:], start=next_ordinal):
         verified_proposal = verify_symbolic_proposal_reconstruction(proposal, context)
         plan = OnlySearchIterationPlanV1(
             experiment.experiment_fingerprint,

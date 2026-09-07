@@ -120,23 +120,52 @@ class OnlyJsonSearchProvenanceStore:
             raise OnlySearchProvenanceStoreError("SEARCH_ITERATION_PLAN_INVALID", "Plan contract is invalid")
         verify_search_iteration_lineage(plan, experiments=self, plans=self._raw, results=self._raw)
         experiment = self.load_experiment_verified(plan.experiment_fingerprint)
-        verify_search_iteration_proposal_reference(
-            plan,
-            experiment=experiment,
-            proposals=self._proposals,
-            search_contexts=self._search_contexts,
-            expected_search_space_fingerprint=experiment.search_space_reference.search_space_fingerprint,
-            require_occurrence=True,
-        )
         if plan.parent_iteration_result_fingerprint is not None:
             self.load_iteration_result_verified(plan.parent_iteration_result_fingerprint)
-        return self._commit(
-            "iteration-plans",
-            plan.iteration_plan_fingerprint,
-            plan,
-            OnlySearchIterationPlanV1.from_dict,
-            "SEARCH_ITERATION_PLAN",
-        )
+        with self._iteration_plan_lock(plan.experiment_fingerprint):
+            existing = self._iteration_plans_for_experiment(plan.experiment_fingerprint)
+            ledger_verifier = getattr(self._search_contexts, "verify_iteration_plan_ledger", None)
+            if callable(ledger_verifier) and isinstance(experiment, OnlySearchExperimentManifestV2):
+                try:
+                    ledger_verifier(experiment, plan, existing)
+                except Exception as exc:
+                    code = getattr(exc, "code", "SEARCH_ITERATION_LEDGER_INVALID")
+                    raise OnlySearchProvenanceStoreError(code, plan.iteration_plan_fingerprint) from exc
+            verify_search_iteration_proposal_reference(
+                plan,
+                experiment=experiment,
+                proposals=self._proposals,
+                search_contexts=self._search_contexts,
+                expected_search_space_fingerprint=experiment.search_space_reference.search_space_fingerprint,
+                require_occurrence=True,
+            )
+            return self._commit(
+                "iteration-plans",
+                plan.iteration_plan_fingerprint,
+                plan,
+                OnlySearchIterationPlanV1.from_dict,
+                "SEARCH_ITERATION_PLAN",
+            )
+
+    def next_iteration_ordinal_verified(self, experiment_fingerprint: str) -> int:
+        """Derive restart position from the canonical committed Plan prefix."""
+
+        experiment = self.load_experiment_verified(experiment_fingerprint)
+        if not isinstance(experiment, OnlySearchExperimentManifestV2):
+            raise OnlySearchProvenanceStoreError("SEARCH_ITERATION_LEDGER_UNSUPPORTED", experiment_fingerprint)
+        resolver = getattr(self._search_contexts, "next_iteration_ordinal", None)
+        if not callable(resolver):
+            raise OnlySearchProvenanceStoreError("SEARCH_ITERATION_LEDGER_UNSUPPORTED", experiment_fingerprint)
+        with self._iteration_plan_lock(experiment_fingerprint):
+            plans = self._iteration_plans_for_experiment(experiment_fingerprint)
+            try:
+                ordinal = resolver(experiment, plans)
+                if isinstance(ordinal, bool) or not isinstance(ordinal, int) or ordinal < 0:
+                    raise ValueError("Search Context returned an invalid next ordinal")
+                return ordinal
+            except Exception as exc:
+                code = getattr(exc, "code", "SEARCH_ITERATION_PREFIX_CORRUPT")
+                raise OnlySearchProvenanceStoreError(code, experiment_fingerprint) from exc
 
     def load_iteration_plan_verified(self, iteration_plan_fingerprint: str) -> OnlySearchIterationPlanV1:
         plan = self._load(
@@ -154,6 +183,18 @@ class OnlyJsonSearchProvenanceStore:
             search_contexts=self._search_contexts,
             expected_search_space_fingerprint=experiment.search_space_reference.search_space_fingerprint,
         )
+        ledger_verifier = getattr(self._search_contexts, "verify_iteration_plan_ledger", None)
+        if callable(ledger_verifier) and isinstance(experiment, OnlySearchExperimentManifestV2):
+            with self._iteration_plan_lock(plan.experiment_fingerprint):
+                try:
+                    ledger_verifier(
+                        experiment,
+                        plan,
+                        self._iteration_plans_for_experiment(plan.experiment_fingerprint),
+                    )
+                except Exception as exc:
+                    code = getattr(exc, "code", "SEARCH_ITERATION_LEDGER_INVALID")
+                    raise OnlySearchProvenanceStoreError(code, plan.iteration_plan_fingerprint) from exc
         if plan.parent_iteration_result_fingerprint is not None:
             self.load_iteration_result_verified(plan.parent_iteration_result_fingerprint)
         return plan
@@ -267,6 +308,56 @@ class OnlyJsonSearchProvenanceStore:
         except Exception as exc:
             raise OnlySearchProvenanceStoreError("SEARCH_ITERATION_RESULT_CORRUPT", plan_fingerprint) from exc
         return found
+
+    def _iteration_plans_for_experiment(self, experiment_fingerprint: str) -> tuple[OnlySearchIterationPlanV1, ...]:
+        authority = self._root / "iteration-plans" / "sha256"
+        if not authority.exists():
+            return ()
+        self._require_safe_path(authority)
+        if not authority.is_dir():
+            raise OnlySearchProvenanceStoreError("SEARCH_ITERATION_PLAN_CORRUPT", "authority root")
+        found = []
+        try:
+            for prefix in authority.iterdir():
+                if prefix.is_symlink() or not prefix.is_dir() or len(prefix.name) != 2:
+                    raise ValueError("unexpected Plan prefix")
+                for target in prefix.iterdir():
+                    if target.name.startswith(".stage-"):
+                        continue
+                    plan = self._load(
+                        "iteration-plans",
+                        target.name,
+                        OnlySearchIterationPlanV1.from_dict,
+                        "SEARCH_ITERATION_PLAN",
+                    )
+                    if plan.experiment_fingerprint == experiment_fingerprint:
+                        found.append(plan)
+        except OnlySearchProvenanceStoreError:
+            raise
+        except Exception as exc:
+            raise OnlySearchProvenanceStoreError("SEARCH_ITERATION_PLAN_CORRUPT", experiment_fingerprint) from exc
+        return tuple(sorted(found, key=lambda item: (item.iteration_index, item.iteration_plan_fingerprint)))
+
+    @contextmanager
+    def _iteration_plan_lock(self, experiment_fingerprint: str) -> Iterator[None]:
+        lock_root = self._root / ".locks" / "iteration-plans"
+        self._require_safe_path(lock_root)
+        lock_root.mkdir(parents=True, exist_ok=True)
+        lock_path = lock_root / f"{experiment_fingerprint}.lock"
+        self._require_safe_path(lock_path)
+        flags = os.O_RDWR | os.O_CREAT
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        try:
+            descriptor = os.open(lock_path, flags, 0o600)
+        except Exception as exc:
+            raise OnlySearchProvenanceStoreError("SEARCH_ITERATION_PLAN_COMMIT_FAILED", experiment_fingerprint) from exc
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
 
     @contextmanager
     def _terminal_result_lock(self, plan_fingerprint: str) -> Iterator[None]:

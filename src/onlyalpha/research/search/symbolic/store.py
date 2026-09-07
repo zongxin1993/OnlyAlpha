@@ -16,6 +16,7 @@ from onlyalpha.canonical import only_canonical_json
 from onlyalpha.research.experiment import OnlySearchCommitDisposition, OnlySearchCommitOutcome
 
 from .algorithm import OnlySymbolicSearchAlgorithmImplementationManifestV1
+from .enumeration_result import OnlySymbolicEnumerationResultV1
 from .errors import OnlySymbolicSearchStoreError
 from .evaluation import OnlySymbolicResearchEvaluationContractV1
 from .model import (
@@ -106,6 +107,38 @@ class OnlyJsonSymbolicSearchStore:
             "SEARCH_ALGORITHM_MANIFEST",
         )
 
+    def commit_enumeration_result(
+        self,
+        value: OnlySymbolicEnumerationResultV1,
+        *,
+        context: object,
+    ) -> OnlySearchCommitOutcome:
+        """Publish one exact ordered stream at its Experiment locator."""
+
+        if not isinstance(value, OnlySymbolicEnumerationResultV1):
+            raise OnlySymbolicSearchStoreError("SEARCH_ENUMERATION_RESULT_INVALID", "contract is invalid")
+        from .historical import verify_symbolic_enumeration_result
+
+        verify_symbolic_enumeration_result(value, context, self)
+        outcome = self._commit(
+            "enumeration-results",
+            value.experiment_fingerprint,
+            value.to_dict(),
+            OnlySymbolicEnumerationResultV1.from_dict,
+            "SEARCH_ENUMERATION_RESULT",
+        )
+        return OnlySearchCommitOutcome(outcome.disposition, value.enumeration_result_fingerprint)
+
+    def load_enumeration_result_verified(self, experiment_fingerprint: str) -> OnlySymbolicEnumerationResultV1:
+        """Load by exact Experiment locator; locator and Result identity stay distinct."""
+
+        return self._load(
+            "enumeration-results",
+            experiment_fingerprint,
+            OnlySymbolicEnumerationResultV1.from_dict,
+            "SEARCH_ENUMERATION_RESULT",
+        )
+
     def _commit(
         self,
         category: str,
@@ -187,6 +220,8 @@ class OnlyJsonSymbolicSearchStore:
                 if category == "proposals"
                 else typed_value.evaluation_contract_fingerprint
                 if category == "evaluations"
+                else typed_value.experiment_fingerprint
+                if category == "enumeration-results"
                 else typed_value.implementation_fingerprint
             )
             if actual != fingerprint:
