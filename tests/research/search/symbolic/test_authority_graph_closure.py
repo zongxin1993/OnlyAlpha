@@ -204,7 +204,7 @@ def test_experiment_v2_binds_evaluation_and_runtime_algorithm_exactly(tmp_path) 
             implementation_fingerprint="f" * 64,
         ),
     )
-    with pytest.raises(OnlySymbolicSearchError, match="SEARCH_ALGORITHM_IMPLEMENTATION_MISMATCH"):
+    with pytest.raises(OnlySymbolicSearchError, match="SEARCH_ALGORITHM_MANIFEST_REFERENCE_INVALID"):
         resolver.resolve_verified_context(wrong)
 
 

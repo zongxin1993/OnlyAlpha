@@ -55,6 +55,8 @@ class _AvailableOutput:
             self.reference.source or "",
             self.reference.output_name,
             self.output.name,
+            self.output.semantic_type,
+            self.output.unit or "",
         )
 
 
@@ -113,10 +115,18 @@ def enumerate_symbolic_factor_proposals(
             (
                 _AvailableOutput(
                     (),
-                    OnlyCalculationReference(None, output.name, reference.source_id),
-                    output,
+                    OnlyCalculationReference(None, "value", reference.source_id),
+                    OnlyOutputDefinition(
+                        "value",
+                        contract.data_type,
+                        nullable,
+                        contract.dimensions,
+                        semantic_role,
+                        contract.unit,
+                    ),
                 )
-                for reference, _contract, output in verified_space.source_contracts
+                for reference, contract, nullable in verified_space.source_contracts
+                for semantic_role in sorted(contract.semantic_roles)
             ),
             key=lambda item: item.sort_key,
         )

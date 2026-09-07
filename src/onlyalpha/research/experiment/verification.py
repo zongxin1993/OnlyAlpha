@@ -78,6 +78,10 @@ class OnlySearchContextReader(Protocol):
         self, experiment: OnlySearchExperimentManifestV2, plan: OnlySearchIterationPlanV1
     ) -> object: ...
 
+    def load_proposal_occurrence_contextual_verified(
+        self, experiment: OnlySearchExperimentManifestV2, plan: OnlySearchIterationPlanV1
+    ) -> object: ...
+
 
 class OnlySearchCandidateValue(Protocol):
     @property
@@ -298,6 +302,7 @@ def verify_search_iteration_proposal_reference(
     proposals: OnlySearchProposalReader | None,
     search_contexts: OnlySearchContextReader | None,
     expected_search_space_fingerprint: str,
+    require_occurrence: bool = False,
 ) -> None:
     """Close method-specific Proposal references once their Authority exists."""
 
@@ -310,7 +315,10 @@ def verify_search_iteration_proposal_reference(
                 "Verified Symbolic Proposal reader",
             )
         try:
-            search_contexts.load_proposal_contextual_verified(experiment, plan)
+            if require_occurrence:
+                search_contexts.load_proposal_occurrence_contextual_verified(experiment, plan)
+            else:
+                search_contexts.load_proposal_contextual_verified(experiment, plan)
         except Exception as exc:
             raise OnlySearchProvenanceError("SEARCH_PROPOSAL_REFERENCE_INVALID", plan.proposal_fingerprint) from exc
         return

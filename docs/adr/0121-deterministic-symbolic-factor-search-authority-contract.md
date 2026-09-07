@@ -1,7 +1,7 @@
 # ADR 0121: Deterministic Symbolic Factor Search Authority Contract
 
 - Status: Accepted
-- Date: 2026-09-07 (amended 2026-09-07 for Authority-Graph closure)
+- Date: 2026-09-07 (amended 2026-09-07 for Authority-Graph and Final closure)
 - Decision maker: repository owner through the B3.2 implementation authorization
 - Related: ADR 0069, 0095, 0110, 0112, 0115, 0118, 0119, 0120
 
@@ -334,6 +334,67 @@ N > T:  proposal_limit_reached=false, search_space_exhausted=true
 The enumerator may continue the same deterministic structural traversal far enough to distinguish `N = T` from `N < T`; it must not
 change ordering. `proposal_limit` bounds emitted formal Proposals, not every internal legal/illegal construction attempt in a structural
 layer. A future bound on internal expansion requires a separately versioned algorithm if it changes the deterministic prefix.
+
+### Final-closure amendment: occurrence and durable Algorithm authority
+
+The Authority-Graph closure is complete only when a legal Proposal is also proved to be the exact deterministic occurrence authorized
+by its Experiment. For Deterministic Enumeration V1 the method-specific occurrence function is:
+
+```text
+Occurrence(Verified Search Context, Experiment.proposal_limit, iteration_index)
+→ exact Proposal
+```
+
+Verification re-enumerates the exact deterministic budget prefix, requires
+`0 <= iteration_index < len(prefix)`, and requires the Proposal fingerprint at that ordinal to equal the Plan Proposal fingerprint.
+An ordinal at or beyond `proposal_limit`, or a legal Proposal that exists only outside that prefix, fails closed. The B3.1 contextual
+adapter invokes this symbolic verifier; generic B3.1 remains protocol-driven and does not import the symbolic enumerator.
+
+The same verifier freezes B3.2 as non-adaptive. A B3.2 Plan has no parent Result, no decision-input context, no tool-result context, and
+its decision-output fingerprint equals its Proposal fingerprint. Parent feedback, model/tool decisions, Research results,
+Qualification results and downstream completion order are not occurrence inputs and belong to later work.
+
+`OnlySymbolicResearchEvaluationContractV1` is contextually verified before a Verified Search Context can exist. The verifier uses a
+canonical admitted Candidate witness only to materialize the normal Research Specification and delegates type/version/backend,
+parameter normalization, GraphTemplate binding, output, Target, Statistics expansion and scientific Evidence selector validation to
+the existing `OnlyResearchSpecificationResolver` and Calculation Registry. Search owns no parallel Research semantics. The resulting
+`OnlyVerifiedSymbolicEvaluationContextV1` is ephemeral and carries the exact Evaluation Contract plus its authoritative fixed-semantic
+resolution; it is not durable duplicate truth. Candidate selectors may vary only through the existing frozen replacement policy, while
+every non-Candidate selector must resolve to one exact fixed Calculation node/output.
+
+Algorithm implementation provenance is a durable historical authority, distinct from current-runtime admission. The immutable
+`OnlySymbolicSearchAlgorithmImplementationManifestV1` records the exact algorithm ID and semantic version, meaningful source revision,
+ordered logical resource identities and byte SHA-256 values, and distribution/package provenance when applicable. Its implementation
+fingerprint is the content address of that complete executable manifest; no separate redundant manifest identity is introduced. The
+resource boundary includes deterministic enumeration and ordering, Search Space/proposal verification, Calculation compatibility and
+Graph canonicalization, Registry rematerialization, Catalog reconstruction, and Dataset Source compatibility when those resources can
+change the emitted sequence.
+
+The Manifest Store is canonical-JSON, content-addressed and put-once. Exact identical recommit is `REUSED`; conflicting content,
+non-canonical bytes, unknown schema, missing resources, corruption or fuzzy/latest lookup fails closed. An Experiment historical binding
+resolves exactly to its stored Manifest and proves algorithm ID, semantic version, implementation fingerprint and source revision without
+comparing current runtime bytes:
+
+```text
+Experiment → exact stored historical Manifest A → historical verification PASS
+```
+
+Execution and any occurrence re-enumeration are separate admission boundaries. They derive the current runtime Manifest B and require
+its complete implementation identity to equal historical A:
+
+```text
+runtime B == historical A → executable context
+runtime B != historical A → SEARCH_ALGORITHM_RUNTIME_MISMATCH
+```
+
+An upgrade therefore cannot make an old Experiment or Manifest intrinsically unreadable, while it cannot silently execute or
+re-enumerate historical semantics using different code. Fresh-process verification receives Authority roots/configuration for Catalog
+reconstruction; those roots are explicit inputs, not a durable Catalog duplicate and not permission to select a current/latest Catalog.
+
+Dataset Source contracts retain all canonical semantic roles. Search never collapses a multi-role source into one scalar semantic type.
+For each prospective Calculation input it creates only an ephemeral projection for that expected role and requires the role to belong to
+the authoritative Source Contract, reusing the Research predicate-operand exception. Thus one `bar.close` contract may validly satisfy
+both `NUMERIC_SERIES` and `PRICE`, while `QUANTITY` fails; semantic-role ordering does not change Source Contract identity.
 
 #### Semantic closure matrix
 

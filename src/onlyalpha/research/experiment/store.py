@@ -126,6 +126,7 @@ class OnlyJsonSearchProvenanceStore:
             proposals=self._proposals,
             search_contexts=self._search_contexts,
             expected_search_space_fingerprint=experiment.search_space_reference.search_space_fingerprint,
+            require_occurrence=True,
         )
         if plan.parent_iteration_result_fingerprint is not None:
             self.load_iteration_result_verified(plan.parent_iteration_result_fingerprint)

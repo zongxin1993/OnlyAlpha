@@ -18,7 +18,7 @@ from onlyalpha.research.specification.resolver import (
     OnlyResearchSpecificationResolver,
 )
 
-from .context import OnlyVerifiedSymbolicSearchContextV1
+from .context import OnlyVerifiedSymbolicSearchContextV1, admit_current_symbolic_algorithm_runtime
 from .enumeration import OnlySymbolicEnumerationResultV1, enumerate_symbolic_factor_proposals
 from .errors import OnlySymbolicSearchError
 from .materialization import materialize_symbolic_research_specification
@@ -103,6 +103,7 @@ def run_symbolic_search_workflow(
     """Run a bounded non-adaptive stream; evaluators can never affect enumeration."""
 
     experiment = context.experiment
+    admit_current_symbolic_algorithm_runtime(context)
     verified_space = context.verified_search_space
     symbolic_store.commit_search_space(verified_space.search_space)
     symbolic_store.commit_evaluation_contract(context.evaluation_contract)

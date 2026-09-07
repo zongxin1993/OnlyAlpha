@@ -12,6 +12,7 @@ from .binding import (
     only_bind_research_dataset_source,
     only_research_dataset_source_contract,
     only_research_dataset_source_contracts,
+    only_research_dataset_source_output,
 )
 from .errors import OnlyResearchCalculationError, OnlyResearchCalculationResultStoreError
 from .execution import (

@@ -6,7 +6,12 @@ from dataclasses import dataclass
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
-from onlyalpha.calculation import PREDICATE_OPERAND_SEMANTIC_TYPE, OnlyCalculationDataType, OnlyInputDefinition
+from onlyalpha.calculation import (
+    PREDICATE_OPERAND_SEMANTIC_TYPE,
+    OnlyCalculationDataType,
+    OnlyInputDefinition,
+    OnlyOutputDefinition,
+)
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.research.dataset.schema import OnlyResearchBarDatasetSchema
 
@@ -122,20 +127,46 @@ def only_bind_research_dataset_source(
         raise OnlyResearchCalculationError("RESEARCH_INPUT_INCOMPATIBLE", f"missing column {contract.column}")
     if table.schema.field(contract.column) != field:
         raise OnlyResearchCalculationError("RESEARCH_INPUT_INCOMPATIBLE", f"wrong Arrow field {contract.column}")
+    only_research_dataset_source_output(contract, expected, nullable=field.nullable)
+    return table.column(contract.column)
+
+
+def only_research_dataset_source_output(
+    contract: OnlyResearchDatasetSourceContractV1,
+    expected: OnlyInputDefinition,
+    *,
+    nullable: bool,
+) -> OnlyOutputDefinition:
+    """Project one authoritative Source role for one exact Calculation input."""
+
+    if not isinstance(contract, OnlyResearchDatasetSourceContractV1):
+        raise OnlyResearchCalculationError("RESEARCH_SOURCE_CONTRACT_INVALID", "source contract")
     if expected.data_type is not contract.data_type:
-        raise OnlyResearchCalculationError("RESEARCH_INPUT_INCOMPATIBLE", f"{source} data_type")
-    if field.nullable and not expected.nullable:
-        raise OnlyResearchCalculationError("RESEARCH_INPUT_INCOMPATIBLE", f"{source} nullability")
+        raise OnlyResearchCalculationError("RESEARCH_INPUT_INCOMPATIBLE", f"{contract.source_id} data_type")
+    if nullable and not expected.nullable:
+        raise OnlyResearchCalculationError("RESEARCH_INPUT_INCOMPATIBLE", f"{contract.source_id} nullability")
     if expected.dimensions != contract.dimensions:
-        raise OnlyResearchCalculationError("RESEARCH_INPUT_INCOMPATIBLE", f"{source} dimensions")
+        raise OnlyResearchCalculationError("RESEARCH_INPUT_INCOMPATIBLE", f"{contract.source_id} dimensions")
     if (
         expected.semantic_type != PREDICATE_OPERAND_SEMANTIC_TYPE
         and expected.semantic_type not in contract.semantic_roles
     ):
-        raise OnlyResearchCalculationError("RESEARCH_INPUT_INCOMPATIBLE", f"{source} semantic_type")
+        raise OnlyResearchCalculationError("RESEARCH_INPUT_INCOMPATIBLE", f"{contract.source_id} semantic_type")
     if expected.semantic_type != PREDICATE_OPERAND_SEMANTIC_TYPE and expected.unit != contract.unit:
-        raise OnlyResearchCalculationError("RESEARCH_INPUT_INCOMPATIBLE", f"{source} unit")
-    return table.column(contract.column)
+        raise OnlyResearchCalculationError("RESEARCH_INPUT_INCOMPATIBLE", f"{contract.source_id} unit")
+    semantic_type = (
+        min(contract.semantic_roles)
+        if expected.semantic_type == PREDICATE_OPERAND_SEMANTIC_TYPE
+        else expected.semantic_type
+    )
+    return OnlyOutputDefinition(
+        "value",
+        contract.data_type,
+        nullable,
+        contract.dimensions,
+        semantic_type,
+        contract.unit,
+    )
 
 
 __all__ = [
@@ -144,4 +175,5 @@ __all__ = [
     "only_bind_research_dataset_source",
     "only_research_dataset_source_contract",
     "only_research_dataset_source_contracts",
+    "only_research_dataset_source_output",
 ]

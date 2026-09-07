@@ -89,6 +89,7 @@ from onlyalpha.strategy.store import (
     _only_compose_frozen_strategy_authority,
 )
 from tests.research.calculation.support import snapshot
+from tests.research.specification.support import registry as specification_registry
 from tests.research.specification.support import specification
 from tests.strategy.p9_support import p9_strategy_case
 
@@ -154,6 +155,7 @@ def _verified_context(
     evaluation = _evaluation(dataset)
     symbolic.commit_search_space(search_space)
     symbolic.commit_evaluation_contract(evaluation)
+    symbolic.commit_algorithm_implementation_manifest(only_deterministic_enumeration_implementation())
     experiment = _experiment(
         search_space.search_space_fingerprint,
         generation.generation_fingerprint,
@@ -164,6 +166,7 @@ def _verified_context(
         symbolic_store=symbolic,
         catalogs=OnlyQuantAssetCatalogManager(generation),
         datasets=_Datasets(dataset),
+        research_calculation_registry=specification_registry(),
     )
     return symbolic, experiment, context_resolver.resolve_verified_context(experiment), context_resolver
 
@@ -269,6 +272,7 @@ def test_valid_proposal_executes_through_normal_research_runtime_and_immutable_r
     evaluation = _evaluation(dataset.snapshot_fingerprint)
     symbolic.commit_search_space(search_space)
     symbolic.commit_evaluation_contract(evaluation)
+    symbolic.commit_algorithm_implementation_manifest(only_deterministic_enumeration_implementation())
     experiment = _experiment(
         search_space.search_space_fingerprint,
         generation.generation_fingerprint,
@@ -279,6 +283,7 @@ def test_valid_proposal_executes_through_normal_research_runtime_and_immutable_r
         symbolic_store=symbolic,
         catalogs=OnlyQuantAssetCatalogManager(generation),
         datasets=datasets,
+        research_calculation_registry=specification_registry(),
     ).resolve_verified_context(experiment)
     proposal = enumerate_symbolic_factor_proposals(context.verified_search_space, proposal_limit=1).proposals[0]
     verified_proposal = verify_symbolic_proposal_reconstruction(proposal, context)
@@ -390,6 +395,7 @@ def test_workflow_rejects_mismatched_algorithm_and_randomness_bindings(tmp_path)
         symbolic_store=symbolic,
         catalogs=OnlyQuantAssetCatalogManager(generation),
         datasets=_Datasets("a" * 64),
+        research_calculation_registry=specification_registry(),
     )
 
     wrong_algorithm = replace(
@@ -439,6 +445,7 @@ def _fresh_process_e2e(root: Path, terminal_result_fingerprint: str | None = Non
         symbolic.commit_search_space(search_space)
         evaluation = _evaluation(dataset.snapshot_fingerprint)
         symbolic.commit_evaluation_contract(evaluation)
+        symbolic.commit_algorithm_implementation_manifest(only_deterministic_enumeration_implementation())
         experiment = _experiment(
             search_space.search_space_fingerprint,
             generation.generation_fingerprint,
@@ -449,6 +456,7 @@ def _fresh_process_e2e(root: Path, terminal_result_fingerprint: str | None = Non
             symbolic_store=symbolic,
             catalogs=catalog_manager,
             datasets=datasets,
+            research_calculation_registry=specification_registry(),
         )
         context = context_resolver.resolve_verified_context(experiment)
         research_results = _result_reader(layout, datasets)
@@ -577,6 +585,7 @@ def _fresh_process_e2e(root: Path, terminal_result_fingerprint: str | None = Non
             symbolic_store=symbolic,
             catalogs=catalog_manager,
             datasets=_ExactDatasetReader(),
+            research_calculation_registry=specification_registry(),
         )
         provenance = OnlyJsonSearchProvenanceStore(
             root,
@@ -595,9 +604,10 @@ def _fresh_process_e2e(root: Path, terminal_result_fingerprint: str | None = Non
             symbolic_store=symbolic,
             catalogs=catalog_manager,
             datasets=_ExactDatasetReader(),
+            research_calculation_registry=specification_registry(),
         )
         context = context_resolver.resolve_verified_context(experiment)
-        verified_proposal = context_resolver.load_proposal_contextual_verified(experiment, plan)
+        verified_proposal = context_resolver.load_proposal_occurrence_contextual_verified(experiment, plan)
         proposal = verified_proposal.proposal
         loaded_space = context.verified_search_space.search_space
         registry = generation.calculation_registry()
@@ -651,6 +661,68 @@ def test_fresh_process_reconstructs_experiment_to_research_result_from_authority
     assert first == second
 
 
+def test_runtime_upgrade_preserves_terminal_history_but_blocks_reenumeration(tmp_path) -> None:
+    chain = _fresh_process_e2e(tmp_path)
+    layout = OnlyUserDataLayout(tmp_path)
+    datasets = OnlyParquetResearchDatasetSnapshotStore(layout.research_dataset_root)
+    generation, _search_space = space(max_nodes=1)
+    symbolic = OnlyJsonSymbolicSearchStore(tmp_path)
+    catalog_manager = OnlyQuantAssetCatalogManager(generation)
+    research_results = _result_reader(layout, datasets)
+    strategies = OnlyFrozenStrategyRevisionStore(tmp_path)
+    decisions, _publisher = _only_compose_qualification_decision_authority(tmp_path)
+    runtime_a_reader = OnlySymbolicSearchContextResolver(
+        symbolic_store=symbolic,
+        catalogs=catalog_manager,
+        datasets=datasets,
+        research_calculation_registry=specification_registry(),
+    )
+    provenance_a = OnlyJsonSearchProvenanceStore(
+        tmp_path,
+        catalogs=catalog_manager,
+        datasets=datasets,
+        research_results=research_results,
+        qualification_decisions=decisions,
+        freeze_relations=strategies,
+        search_contexts=runtime_a_reader,
+    )
+    terminal = provenance_a.load_iteration_result_verified(chain["iteration_result"])
+    plan = provenance_a.load_iteration_plan_verified(terminal.iteration_plan_fingerprint)
+    experiment = provenance_a.load_experiment_verified(plan.experiment_fingerprint)
+    assert isinstance(experiment, OnlySearchExperimentManifestV2)
+    historical = symbolic.load_algorithm_implementation_manifest_intrinsic_verified(
+        experiment.search_algorithm_binding.implementation_fingerprint
+    )
+    runtime_b = replace(
+        historical,
+        resources=(replace(historical.resources[0], byte_sha256="f" * 64), *historical.resources[1:]),
+    )
+    upgraded_reader = OnlySymbolicSearchContextResolver(
+        symbolic_store=symbolic,
+        catalogs=catalog_manager,
+        datasets=datasets,
+        research_calculation_registry=specification_registry(),
+        algorithm_implementation=runtime_b,
+    )
+    provenance_b = OnlyJsonSearchProvenanceStore(
+        tmp_path,
+        catalogs=catalog_manager,
+        datasets=datasets,
+        research_results=research_results,
+        qualification_decisions=decisions,
+        freeze_relations=strategies,
+        search_contexts=upgraded_reader,
+    )
+    assert provenance_b.load_iteration_result_verified(chain["iteration_result"]) == terminal
+    assert provenance_b.load_experiment_verified(experiment.experiment_fingerprint) == experiment
+    assert (
+        symbolic.load_algorithm_implementation_manifest_intrinsic_verified(historical.implementation_fingerprint)
+        == historical
+    )
+    with pytest.raises(OnlySymbolicSearchError, match="SEARCH_ALGORITHM_RUNTIME_MISMATCH"):
+        upgraded_reader.load_proposal_occurrence_contextual_verified(experiment, plan)
+
+
 def test_existing_qualification_and_b31_subject_chain_close_without_copying_outcome(tmp_path) -> None:
     chain = _fresh_process_e2e(tmp_path)
     layout = OnlyUserDataLayout(tmp_path)
@@ -668,6 +740,7 @@ def test_existing_qualification_and_b31_subject_chain_close_without_copying_outc
         symbolic_store=symbolic,
         catalogs=catalog_manager,
         datasets=datasets,
+        research_calculation_registry=specification_registry(),
     )
     provenance = OnlyJsonSearchProvenanceStore(
         tmp_path,

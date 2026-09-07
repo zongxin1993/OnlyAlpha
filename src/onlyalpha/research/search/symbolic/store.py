@@ -15,6 +15,7 @@ from typing import Any, TypeVar, cast
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.research.experiment import OnlySearchCommitDisposition, OnlySearchCommitOutcome
 
+from .algorithm import OnlySymbolicSearchAlgorithmImplementationManifestV1
 from .errors import OnlySymbolicSearchStoreError
 from .evaluation import OnlySymbolicResearchEvaluationContractV1
 from .model import (
@@ -80,6 +81,29 @@ class OnlyJsonSymbolicSearchStore:
             fingerprint,
             OnlySymbolicResearchEvaluationContractV1.from_dict,
             "SEARCH_EVALUATION",
+        )
+
+    def commit_algorithm_implementation_manifest(
+        self, value: OnlySymbolicSearchAlgorithmImplementationManifestV1
+    ) -> OnlySearchCommitOutcome:
+        if not isinstance(value, OnlySymbolicSearchAlgorithmImplementationManifestV1):
+            raise OnlySymbolicSearchStoreError("SEARCH_ALGORITHM_MANIFEST_INVALID", "contract is invalid")
+        return self._commit(
+            "algorithm-manifests",
+            value.implementation_fingerprint,
+            value.to_dict(),
+            OnlySymbolicSearchAlgorithmImplementationManifestV1.from_dict,
+            "SEARCH_ALGORITHM_MANIFEST",
+        )
+
+    def load_algorithm_implementation_manifest_intrinsic_verified(
+        self, fingerprint: str
+    ) -> OnlySymbolicSearchAlgorithmImplementationManifestV1:
+        return self._load(
+            "algorithm-manifests",
+            fingerprint,
+            OnlySymbolicSearchAlgorithmImplementationManifestV1.from_dict,
+            "SEARCH_ALGORITHM_MANIFEST",
         )
 
     def _commit(
@@ -162,6 +186,8 @@ class OnlyJsonSymbolicSearchStore:
                 else typed_value.proposal_fingerprint
                 if category == "proposals"
                 else typed_value.evaluation_contract_fingerprint
+                if category == "evaluations"
+                else typed_value.implementation_fingerprint
             )
             if actual != fingerprint:
                 raise ValueError("symbolic authority path identity differs")

@@ -20,6 +20,7 @@ from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration, OnlyQuantAss
 from onlyalpha.research.calculation.binding import (
     OnlyResearchDatasetSourceContractV1,
     only_research_dataset_source_contract,
+    only_research_dataset_source_output,
 )
 from onlyalpha.research.dataset.ports import OnlyVerifiedResearchDataset
 from onlyalpha.research.experiment import (
@@ -52,7 +53,7 @@ class OnlyVerifiedSymbolicSearchSpaceV1:
     component_types: tuple[tuple[OnlySymbolicComponentInstanceV1, OnlyCalculationTypeDefinition], ...]
     factor_bridge: OnlySymbolicComponentInstanceV1
     source_contracts: tuple[
-        tuple[OnlySymbolicExternalSourceReferenceV1, OnlyResearchDatasetSourceContractV1, OnlyOutputDefinition], ...
+        tuple[OnlySymbolicExternalSourceReferenceV1, OnlyResearchDatasetSourceContractV1, bool], ...
     ]
 
 
@@ -159,18 +160,7 @@ def verify_symbolic_search_space(
             raise OnlySymbolicSearchError("SEARCH_SOURCE_DATASET_INCOMPATIBLE", source_reference.source_id) from exc
         if authoritative_field != table_field:
             raise OnlySymbolicSearchError("SEARCH_SOURCE_DATASET_INCOMPATIBLE", source_reference.source_id)
-        semantic_type = (
-            "NUMERIC_SERIES" if "NUMERIC_SERIES" in contract.semantic_roles else min(contract.semantic_roles)
-        )
-        projection = OnlyOutputDefinition(
-            "value",
-            contract.data_type,
-            authoritative_field.nullable,
-            contract.dimensions,
-            semantic_type,
-            contract.unit,
-        )
-        source_contracts.append((source_reference, contract, projection))
+        source_contracts.append((source_reference, contract, authoritative_field.nullable))
     return OnlyVerifiedSymbolicSearchSpaceV1(
         search_space,
         catalog_generation,
@@ -229,6 +219,60 @@ def verify_symbolic_iteration_proposal_binding(
         or proposal.search_space_fingerprint != expected_search_space_fingerprint
     ):
         raise OnlySymbolicSearchError("SEARCH_INVALID_PROPOSAL", "Iteration/Proposal exact binding differs")
+
+
+def verify_symbolic_iteration_occurrence(
+    experiment: OnlySearchExperimentManifestV2,
+    plan: OnlySearchIterationPlanV1,
+    proposal: OnlySymbolicGraphProposalV1,
+    context: object,
+) -> OnlyVerifiedSymbolicProposalV1:
+    """Prove one Plan is the exact deterministic Proposal occurrence at its ordinal."""
+
+    verified = verify_symbolic_iteration_historical_binding(experiment, plan, proposal, context)
+    verified_space = context.verified_search_space  # type: ignore[attr-defined]
+    assert isinstance(verified_space, OnlyVerifiedSymbolicSearchSpaceV1)
+    proposal_limit = experiment.search_budget.proposal_limit
+    # Local import preserves the generic verification/model boundary.
+    from .enumeration import enumerate_symbolic_factor_proposals
+
+    expected = enumerate_symbolic_factor_proposals(verified_space, proposal_limit=proposal_limit)
+    if plan.iteration_index >= len(expected.proposals):
+        raise OnlySymbolicSearchError("SEARCH_OCCURRENCE_ORDINAL_INVALID", plan.iteration_plan_fingerprint)
+    if expected.proposals[plan.iteration_index].proposal_fingerprint != plan.proposal_fingerprint:
+        raise OnlySymbolicSearchError("SEARCH_OCCURRENCE_PROPOSAL_MISMATCH", plan.iteration_plan_fingerprint)
+    return verified
+
+
+def verify_symbolic_iteration_historical_binding(
+    experiment: OnlySearchExperimentManifestV2,
+    plan: OnlySearchIterationPlanV1,
+    proposal: OnlySymbolicGraphProposalV1,
+    context: object,
+) -> OnlyVerifiedSymbolicProposalV1:
+    """Verify durable Plan/Proposal semantics without admitting current execution."""
+
+    verified_space = getattr(context, "verified_search_space", None)
+    if not isinstance(verified_space, OnlyVerifiedSymbolicSearchSpaceV1):
+        raise OnlySymbolicSearchError("SEARCH_CONTEXT_INVALID", "Verified Search Context is required")
+    if plan.experiment_fingerprint != experiment.experiment_fingerprint:
+        raise OnlySymbolicSearchError("SEARCH_OCCURRENCE_EXPERIMENT_MISMATCH", plan.iteration_plan_fingerprint)
+    if plan.parent_iteration_result_fingerprint is not None:
+        raise OnlySymbolicSearchError("SEARCH_OCCURRENCE_PARENT_FORBIDDEN", plan.iteration_plan_fingerprint)
+    if plan.decision_input_context_fingerprints:
+        raise OnlySymbolicSearchError("SEARCH_OCCURRENCE_DECISION_CONTEXT_FORBIDDEN", plan.iteration_plan_fingerprint)
+    if plan.decision_tool_result_fingerprints:
+        raise OnlySymbolicSearchError("SEARCH_OCCURRENCE_TOOL_CONTEXT_FORBIDDEN", plan.iteration_plan_fingerprint)
+    if plan.decision_output_fingerprint != plan.proposal_fingerprint:
+        raise OnlySymbolicSearchError("SEARCH_OCCURRENCE_DECISION_OUTPUT_MISMATCH", plan.iteration_plan_fingerprint)
+    if plan.iteration_index >= experiment.search_budget.proposal_limit:
+        raise OnlySymbolicSearchError("SEARCH_OCCURRENCE_OUTSIDE_BUDGET", plan.iteration_plan_fingerprint)
+    verify_symbolic_iteration_proposal_binding(
+        plan,
+        proposal,
+        expected_search_space_fingerprint=verified_space.search_space.search_space_fingerprint,
+    )
+    return verify_symbolic_proposal_reconstruction(proposal, context)
 
 
 def verify_symbolic_proposal_space_closure(
@@ -329,8 +373,8 @@ def verify_symbolic_proposal_reconstruction(
         for item, _ in verified_space.component_types
     }
     reconstructed = []
-    source_outputs = {
-        (reference.source_id, output.name): output for reference, _contract, output in verified_space.source_contracts
+    source_contracts = {
+        reference.source_id: (contract, nullable) for reference, contract, nullable in verified_space.source_contracts
     }
     for node in proposal.graph.ordered_nodes:
         definition = node.definition
@@ -347,11 +391,16 @@ def verify_symbolic_proposal_reconstruction(
         for name, binding in definition.input_bindings.items():
             if binding.source is None:
                 continue
-            source_output = source_outputs.get((binding.source, binding.output_name))
-            if (
-                source_output is None
-                or not only_calculation_output_compatibility(source_output, input_contracts[name]).compatible
-            ):
+            source_contract = source_contracts.get(binding.source)
+            if source_contract is None or binding.output_name != "value":
+                raise OnlySymbolicSearchError("SEARCH_PROPOSAL_SOURCE_BINDING_MISMATCH", node.fingerprint)
+            try:
+                source_output = only_research_dataset_source_output(
+                    source_contract[0], input_contracts[name], nullable=source_contract[1]
+                )
+            except Exception as exc:
+                raise OnlySymbolicSearchError("SEARCH_PROPOSAL_SOURCE_BINDING_MISMATCH", node.fingerprint) from exc
+            if not only_calculation_output_compatibility(source_output, input_contracts[name]).compatible:
                 raise OnlySymbolicSearchError("SEARCH_PROPOSAL_SOURCE_BINDING_MISMATCH", node.fingerprint)
         try:
             authoritative = verified_space.calculation_registry.rematerialize_definition(
