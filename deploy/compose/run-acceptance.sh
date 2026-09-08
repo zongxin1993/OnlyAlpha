@@ -19,7 +19,11 @@ cleanup() {
 trap cleanup EXIT
 
 cd "${repository_root}"
+if [[ -z "${ONLYALPHA_BUILD_SOURCE_REVISION:-}" ]]; then
+  ONLYALPHA_BUILD_SOURCE_REVISION="$(git rev-parse HEAD)"
+  export ONLYALPHA_BUILD_SOURCE_REVISION
+fi
 docker compose --env-file "${environment_file}" "${compose_files[@]}" build acceptance
 docker compose --env-file "${environment_file}" "${compose_files[@]}" up -d --wait \
-  postgres clickhouse
+  postgres postgres16-upgrade-source clickhouse
 docker compose --env-file "${environment_file}" "${compose_files[@]}" run --rm acceptance

@@ -2,6 +2,7 @@
 set -euo pipefail
 
 deploy_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+repository_root="$(CDPATH= cd -- "${deploy_dir}/../.." && pwd)"
 environment_file="${ONLYALPHA_COMPOSE_ENV_FILE:-${deploy_dir}/.env}"
 compose_files=(-f "${deploy_dir}/compose.yaml" -f "${deploy_dir}/compose.production.yaml")
 
@@ -18,6 +19,11 @@ fi
 if grep -Eq '^ONLYALPHA_POSTGRES_DSN=.*<url-encoded-password>' "${environment_file}"; then
   echo "production PostgreSQL DSN must replace the URL-encoded password placeholder" >&2
   exit 2
+fi
+
+if [[ -z "${ONLYALPHA_BUILD_SOURCE_REVISION:-}" ]]; then
+  ONLYALPHA_BUILD_SOURCE_REVISION="$(git -C "${repository_root}" rev-parse HEAD)"
+  export ONLYALPHA_BUILD_SOURCE_REVISION
 fi
 
 docker compose --env-file "${environment_file}" "${compose_files[@]}" config --quiet

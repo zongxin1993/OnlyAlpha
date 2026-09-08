@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import hashlib
-import subprocess
 from decimal import Decimal
 from functools import cmp_to_key
 from pathlib import Path
 
+from onlyalpha.build_provenance import only_packaged_build_provenance
 from onlyalpha.calculation.definition import only_calculation_scalar_sort_key
 from onlyalpha.research.experiment import OnlySearchBudgetV1
 
@@ -29,7 +29,6 @@ def only_deterministic_coarse_to_fine_implementation() -> OnlyParameterSearchAlg
     """Bind the exact executable resource closure of algorithm semantic version 1."""
 
     package_root = Path(__file__).resolve().parents[3]
-    repository_root = package_root.parents[1]
     resources = (
         "research/search/parameter/algorithm.py",
         "research/search/parameter/model.py",
@@ -42,6 +41,7 @@ def only_deterministic_coarse_to_fine_implementation() -> OnlyParameterSearchAlg
         "research/sweep/materialization.py",
         "calculation/definition.py",
         "calculation/graph.py",
+        "build_provenance.py",
     )
     identities = []
     for relative_path in resources:
@@ -50,14 +50,8 @@ def only_deterministic_coarse_to_fine_implementation() -> OnlyParameterSearchAlg
             raise ValueError(f"PARAMETER_ALGORITHM_RESOURCE_INVALID: {relative_path}")
         identities.append(hashlib.sha256(relative_path.encode() + b"\0" + path.read_bytes()).hexdigest())
     try:
-        revision = subprocess.run(
-            ("git", "-C", str(repository_root), "rev-parse", "HEAD"),
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        ).stdout.strip()
-    except (FileNotFoundError, subprocess.SubprocessError) as exc:
+        revision = only_packaged_build_provenance().source_revision
+    except ValueError as exc:
         raise ValueError("PARAMETER_ALGORITHM_SOURCE_REVISION_UNAVAILABLE") from exc
     return OnlyParameterSearchAlgorithmManifestV1("DETERMINISTIC_COARSE_TO_FINE", "1", revision, tuple(identities))
 

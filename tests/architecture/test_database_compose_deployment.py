@@ -47,7 +47,8 @@ def test_compose_production_and_test_overrides_have_distinct_safety_contracts() 
             "max-file": "5",
         }
         assert "ports" not in test["services"][service]
-    assert {name for name in test["services"] if "postgres" in name} == {"postgres"}
+    assert test["services"]["postgres16-upgrade-source"]["image"].startswith("postgres:16.10@sha256:")
+    assert "ports" not in test["services"]["postgres16-upgrade-source"]
     assert test["networks"]["database"]["internal"] is True
 
 
@@ -58,6 +59,7 @@ def test_acceptance_runs_inside_compose_against_private_service_dns() -> None:
         "context": "../..",
         "dockerfile": "deploy/compose/Dockerfile.acceptance",
         "target": "acceptance",
+        "args": {"ONLYALPHA_BUILD_SOURCE_REVISION": "${ONLYALPHA_BUILD_SOURCE_REVISION:-}"},
     }
     assert acceptance["restart"] == "no"
     environment = acceptance["environment"]
@@ -65,6 +67,7 @@ def test_acceptance_runs_inside_compose_against_private_service_dns() -> None:
     assert environment["ONLYALPHA_TEST_CLICKHOUSE_URL"] == "http://onlyalpha-clickhouse:8123"
     assert set(acceptance["depends_on"]) == {
         "postgres",
+        "postgres16-upgrade-source",
         "clickhouse",
     }
 
@@ -75,8 +78,12 @@ def test_acceptance_runs_inside_compose_against_private_service_dns() -> None:
     assert "--no-dev --group compose-acceptance" in dockerfile
     assert "--no-editable" not in dockerfile
     assert "UV_NO_SYNC=1" in dockerfile
+    assert "python scripts/embed_build_provenance.py" in dockerfile
+    assert "apt-get install git" not in dockerfile
+    assert "COPY .git" not in dockerfile
 
     dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
+    assert ".git" in dockerignore.splitlines()
     assert "**/.env" in dockerignore
     assert "**/.env.*" in dockerignore
 
@@ -92,6 +99,10 @@ def test_compose_templates_keep_production_secrets_out_and_acceptance_is_canonic
     assert "docker compose" in runner
     assert "run --rm acceptance" in runner
     assert "uv run" not in runner
+    assert 'ONLYALPHA_BUILD_SOURCE_REVISION="$(git rev-parse HEAD)"' in runner
+
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert 'path = "hatch_build.py"' in pyproject
 
     container_runner = (DEPLOY / "container-acceptance.sh").read_text(encoding="utf-8")
     assert "scripts/test_suite.py research-postgres" in container_runner
@@ -111,6 +122,7 @@ def test_production_entrypoint_can_only_use_the_base_and_production_override() -
     assert 'compose.yaml" -f "${deploy_dir}/compose.production.yaml' in deployment
     assert "compose.test.yaml" not in deployment
     assert "PASSWORD=(change-me)?" in deployment
+    assert 'ONLYALPHA_BUILD_SOURCE_REVISION="$(git -C "${repository_root}" rev-parse HEAD)"' in deployment
     assert "config --quiet" in deployment
     assert "pull" in deployment
     assert "up -d --wait" in deployment

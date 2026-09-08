@@ -168,13 +168,14 @@ runtime implementation mismatch therefore leaves history readable but fails clos
 consumption.
 
 For V1 successful Research, the completed Run's immutable Research Result remains the exact execution output and is never rewritten.
-The parameter Evidence finalizer resolves the Policy's registered Effect Summary metric descriptors, requires one unambiguous matching
-base Statistics source in that Result, invokes the existing Research Summary Statistics Authority, and uses the existing Research Result
-Assembler to publish a separate immutable Evidence-composition Result containing both the source and derived Summary references. The
-Iteration Result references this composition Result. Its Summary Plan binds the exact source Statistics logical and result identities,
-while the Plan-derived Product Command identity retains the causal link to the completed Run. Re-entry is content-addressed and
-idempotent. Unsupported, mixed, non-Effect or ambiguous metric/source contracts fail closed; supporting another Summary family requires
-an explicit versioned extension and cannot reinterpret V1.
+The parameter Evidence finalizer resolves the Policy's registered Effect Summary metric descriptors, groups them by their registered
+Statistics source method, requires one unambiguous matching base Statistics source for each group in that Result, and invokes each
+existing Research Summary Statistics Authority once. The existing Research Result Assembler publishes one separate immutable
+Evidence-composition Result containing all exact source and derived Summary references. The Iteration Result references this composition
+Result. Every Summary Plan binds its exact source Statistics logical and result identities, while the Plan-derived Product Command
+identity retains the causal link to the completed Run. Re-entry is content-addressed and idempotent. An unsupported Summary family or an
+ambiguous/missing registered source fails closed; supporting another Summary family requires an explicit versioned extension and cannot
+reinterpret V1.
 
 Fresh-process adaptive recovery is complete only after terminal Iteration Results traverse the authoritative Evidence reader and produce
 the same next Feedback Decision or durable STOP as uninterrupted execution. Equality covers the ordered Decision/Plan/Proposal/Candidate/

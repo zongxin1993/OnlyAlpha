@@ -134,14 +134,18 @@ class OnlyParameterResearchEvidenceFinalizerV1:
             descriptors = tuple(only_research_summary_metric(item) for item in policy.required_metric_ids)
         except ValueError as exc:
             raise OnlyParameterSearchError("PARAMETER_EVIDENCE_METRIC_SET_UNSUPPORTED") from exc
-        summary_contracts = {(item.summary_kind, item.source_method) for item in descriptors}
-        if len(summary_contracts) != 1:
-            raise OnlyParameterSearchError("PARAMETER_EVIDENCE_METRIC_SET_UNSUPPORTED")
-        summary_kind, source_method = next(iter(summary_contracts))
-        if summary_kind is not OnlyResearchSummaryKind.EFFECT_SUMMARY or not isinstance(
-            source_method, OnlyResearchStatisticsMethod
+        if any(
+            item.summary_kind is not OnlyResearchSummaryKind.EFFECT_SUMMARY
+            or not isinstance(item.source_method, OnlyResearchStatisticsMethod)
+            for item in descriptors
         ):
             raise OnlyParameterSearchError("PARAMETER_EVIDENCE_METRIC_SET_UNSUPPORTED")
+        source_methods = tuple(
+            sorted(
+                {cast(OnlyResearchStatisticsMethod, item.source_method) for item in descriptors},
+                key=lambda item: item.value,
+            )
+        )
 
         base_plan = resolved.resolution.workload.result_plan
         base_result = self._research_results.load_verified(base_plan.fingerprint)
@@ -151,41 +155,44 @@ class OnlyParameterResearchEvidenceFinalizerV1:
             or base_manifest.research_result_fingerprint != run.research_result_fingerprint
         ):
             raise OnlyParameterSearchError("AMBIGUOUS_ATTEMPT_STATE", run.run_id.value)
-        source_plans = tuple(
-            item
-            for item in resolved.resolution.workload.statistics_plans
-            if item.definition.method is source_method
-            and item.feature.calculation_fingerprint == resolved.candidate.calculation_fingerprint
-        )
-        if len(source_plans) != 1:
-            raise OnlyParameterSearchError("PARAMETER_EVIDENCE_SOURCE_AMBIGUOUS", run.run_id.value)
-        source_plan = source_plans[0]
-        source_references = tuple(
-            item
-            for item in base_manifest.statistics_results
-            if item.statistics_fingerprint == source_plan.statistics_fingerprint
-        )
-        if len(source_references) != 1:
-            raise OnlyParameterSearchError("PARAMETER_EVIDENCE_SOURCE_AMBIGUOUS", run.run_id.value)
         candidate_fingerprint = resolved.candidate.candidate_fingerprint
         if candidate_fingerprint is None:
             raise OnlyParameterSearchError("CANDIDATE_BINDING_FAILED", resolved.proposal.proposal_fingerprint)
-        summary_plan = OnlyResearchEffectSummaryPlan(
-            base_manifest.dataset_snapshot_fingerprint,
-            candidate_fingerprint,
-            source_plan.feature,
-            source_plan.statistics_fingerprint,
-            source_references[0].statistics_result_fingerprint,
-            OnlyResearchEffectSummaryDefinition(source_method),
-        )
-        self._summary_executor.execute(summary_plan)
+        summary_plans = []
+        for source_method in source_methods:
+            source_plans = tuple(
+                item
+                for item in resolved.resolution.workload.statistics_plans
+                if item.definition.method is source_method
+                and item.feature.calculation_fingerprint == resolved.candidate.calculation_fingerprint
+            )
+            if len(source_plans) != 1:
+                raise OnlyParameterSearchError("PARAMETER_EVIDENCE_SOURCE_AMBIGUOUS", run.run_id.value)
+            source_plan = source_plans[0]
+            source_references = tuple(
+                item
+                for item in base_manifest.statistics_results
+                if item.statistics_fingerprint == source_plan.statistics_fingerprint
+            )
+            if len(source_references) != 1:
+                raise OnlyParameterSearchError("PARAMETER_EVIDENCE_SOURCE_AMBIGUOUS", run.run_id.value)
+            summary_plan = OnlyResearchEffectSummaryPlan(
+                base_manifest.dataset_snapshot_fingerprint,
+                candidate_fingerprint,
+                source_plan.feature,
+                source_plan.statistics_fingerprint,
+                source_references[0].statistics_result_fingerprint,
+                OnlyResearchEffectSummaryDefinition(source_method),
+            )
+            self._summary_executor.execute(summary_plan)
+            summary_plans.append(summary_plan)
+
+        summary_fingerprints = {item.statistics_fingerprint for item in summary_plans}
 
         candidates = tuple(
             replace(
                 item,
-                statistics_fingerprints=tuple(
-                    sorted({*item.statistics_fingerprints, summary_plan.statistics_fingerprint})
-                ),
+                statistics_fingerprints=tuple(sorted({*item.statistics_fingerprints, *summary_fingerprints})),
             )
             if item.candidate_fingerprint == candidate_fingerprint
             else item
@@ -195,9 +202,7 @@ class OnlyParameterResearchEvidenceFinalizerV1:
             raise OnlyParameterSearchError("PARAMETER_EVIDENCE_SOURCE_AMBIGUOUS", candidate_fingerprint)
         evidence_plan = replace(
             base_plan,
-            statistics_fingerprints=tuple(
-                sorted({*base_plan.statistics_fingerprints, summary_plan.statistics_fingerprint})
-            ),
+            statistics_fingerprints=tuple(sorted({*base_plan.statistics_fingerprints, *summary_fingerprints})),
             candidates=candidates,
         )
         assembled = self._result_assembler.assemble(evidence_plan)

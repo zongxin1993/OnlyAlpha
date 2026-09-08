@@ -4,6 +4,7 @@ from dataclasses import fields, replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from inspect import signature
+from pathlib import Path
 from threading import Barrier, Thread
 from types import SimpleNamespace
 from typing import Any, cast
@@ -16,15 +17,19 @@ import onlyalpha.research.search.parameter.algorithm as parameter_algorithm
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.research import (
     OnlyJsonResearchResultStore,
+    OnlyJsonResearchSummaryStatisticsResultStore,
+    OnlyResearchEffectSummaryExecutor,
     OnlyResearchResultAssembler,
     OnlyResearchResultCalculationPlan,
     OnlyResearchResultCandidatePlan,
     OnlyResearchResultPlan,
+    OnlyResearchStatisticsDefinition,
+    OnlyResearchStatisticsPlan,
     OnlyResearchStatisticsResultReader,
 )
 from onlyalpha.research.command.errors import OnlyResearchSubmissionConflictError
 from onlyalpha.research.evaluation.definition import OnlyResearchStatisticsMethod
-from onlyalpha.research.evaluation.summary.metric import only_research_effect_metric
+from onlyalpha.research.evaluation.summary.metric import only_research_coverage_metric, only_research_effect_metric
 from onlyalpha.research.evaluation.summary.scalar import (
     OnlyResearchSummaryScalar,
     OnlyResearchSummaryScalarStatus,
@@ -88,7 +93,7 @@ from onlyalpha.research.specification.model import (
     OnlyResearchSpecification,
 )
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
-from tests.research.evaluation.support import summary_case
+from tests.research.evaluation.support import statistics_case, summary_case
 from tests.research.specification.support import registry as specification_registry
 from tests.research.specification.support import specification
 from tests.research.sweep.support import definition, registry
@@ -187,8 +192,8 @@ def _manifest(policy: OnlyParameterSearchPolicyV1) -> OnlySearchExperimentManife
     )
 
 
-def _context() -> OnlyVerifiedParameterSearchContextV1:
-    policy = _policy()
+def _context(policy: OnlyParameterSearchPolicyV1 | None = None) -> OnlyVerifiedParameterSearchContextV1:
+    policy = policy or _policy()
     experiment = _manifest(policy)
     algorithm = only_deterministic_coarse_to_fine_implementation()
     return OnlyVerifiedParameterSearchContextV1(
@@ -605,6 +610,13 @@ def test_at_h1_h2_runtime_admission_precedes_partial_plan_recovery(tmp_path, mon
     with pytest.raises(OnlyParameterSearchError, match="PARAMETER_ALGORITHM_RUNTIME_MISMATCH"):
         controller.advance(context)
     assert tuple(provenance.plans.values()) == exact[:1]
+    with pytest.raises(OnlyParameterSearchError, match="PARAMETER_ALGORITHM_RUNTIME_MISMATCH"):
+        controller.reconcile_open_plans(
+            context,
+            resolver=cast(Any, object()),
+            commands=cast(Any, object()),
+        )
+    assert tuple(provenance.plans.values()) == exact[:1]
 
 
 def test_at_h3_fabricated_legacy_frontier_exact_loads_but_cannot_authorize_work(tmp_path) -> None:
@@ -742,6 +754,86 @@ def test_parameter_authority_store_exact_round_trip_and_reuse(tmp_path) -> None:
         assert commit(value).disposition.value == "CREATED"
         assert commit(value).disposition.value == "REUSED"
         assert load(fingerprint) == value
+
+
+def test_parameter_runtime_identity_is_offline_and_does_not_require_git(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PATH", "")
+    manifest = only_deterministic_coarse_to_fine_implementation()
+    assert len(manifest.source_revision) == 40
+    assert manifest.source_revision.isalnum()
+
+
+def test_missing_packaged_build_provenance_fails_before_new_work(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _context()
+    provenance = _Provenance()
+    store = OnlyJsonParameterSearchStore(tmp_path)
+
+    def unavailable() -> object:
+        raise ValueError("ONLYALPHA_BUILD_PROVENANCE_UNAVAILABLE")
+
+    monkeypatch.setattr(parameter_algorithm, "only_packaged_build_provenance", unavailable)
+    controller = OnlyParameterSearchControllerV1(
+        parameter_store=store,
+        provenance=provenance,
+        evidence_reader=cast(Any, _EvidenceReader()),
+    )
+    with pytest.raises(ValueError, match="PARAMETER_ALGORITHM_SOURCE_REVISION_UNAVAILABLE"):
+        controller.advance(context)
+    assert provenance.plans == {}
+    assert store.load_frontier_fingerprint(context.experiment.experiment_fingerprint) is None
+
+
+def test_tampered_packaged_revision_blocks_new_work(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _context()
+    provenance = _Provenance()
+    store = OnlyJsonParameterSearchStore(tmp_path)
+    monkeypatch.setattr(
+        parameter_algorithm,
+        "only_packaged_build_provenance",
+        lambda: SimpleNamespace(source_revision="f" * 40),
+    )
+    controller = OnlyParameterSearchControllerV1(
+        parameter_store=store,
+        provenance=provenance,
+        evidence_reader=cast(Any, _EvidenceReader()),
+    )
+    with pytest.raises(OnlyParameterSearchError, match="PARAMETER_ALGORITHM_RUNTIME_MISMATCH"):
+        controller.advance(context)
+    assert provenance.plans == {}
+    assert store.load_frontier_fingerprint(context.experiment.experiment_fingerprint) is None
+
+
+def test_tampered_algorithm_resource_blocks_new_work(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _context()
+    provenance = _Provenance()
+    store = OnlyJsonParameterSearchStore(tmp_path)
+    original_read_bytes = Path.read_bytes
+
+    def tampered_read_bytes(path: Path) -> bytes:
+        content = original_read_bytes(path)
+        return content + b"\n# tampered\n" if path.name == "algorithm.py" else content
+
+    monkeypatch.setattr(Path, "read_bytes", tampered_read_bytes)
+    controller = OnlyParameterSearchControllerV1(
+        parameter_store=store,
+        provenance=provenance,
+        evidence_reader=cast(Any, _EvidenceReader()),
+    )
+    with pytest.raises(OnlyParameterSearchError, match="PARAMETER_ALGORITHM_RUNTIME_MISMATCH"):
+        controller.advance(context)
+    assert provenance.plans == {}
+    assert store.load_frontier_fingerprint(context.experiment.experiment_fingerprint) is None
 
 
 def test_at_b11_b12_b13_policy_changes_change_experiment_identity() -> None:
@@ -977,18 +1069,139 @@ def test_at_b18_completed_run_reconciles_exact_terminal_iteration_result() -> No
     assert provenance.results[plan.iteration_plan_fingerprint] == result
 
 
-def test_completed_run_rejects_mixed_parameter_evidence_metric_sources_before_composition() -> None:
+def test_completed_run_composes_registered_mixed_parameter_evidence_sources_once(tmp_path) -> None:
     mixed_policy = replace(
         _policy(),
         ordered_tie_breakers=(
             OnlyParameterTieBreakerV1(
                 only_research_effect_metric(
                     OnlyResearchStatisticsMethod.RANK_IC,
-                    "information_ratio",
+                    "mean",
                 ).metric_id,
                 OnlyParameterObjectiveDirection.MAXIMIZE,
             ),
         ),
+    )
+    case = statistics_case(tmp_path)
+    ic_plan = case[6]
+    source_store = case[8]
+    source_executor = case[9]
+    rank_plan = OnlyResearchStatisticsPlan(
+        ic_plan.feature,
+        ic_plan.target,
+        OnlyResearchStatisticsDefinition(OnlyResearchStatisticsMethod.RANK_IC),
+    )
+    source_executor.execute(rank_plan)
+    summary_store = OnlyJsonResearchSummaryStatisticsResultStore(
+        tmp_path / "statistics-results",
+        source_store,
+        audit_time=lambda: datetime(2026, 9, 8, tzinfo=UTC),
+    )
+    summary_executor = OnlyResearchEffectSummaryExecutor(source_store, summary_store)
+    statistics = OnlyResearchStatisticsResultReader(tmp_path / "statistics-results", source_store, summary_store)
+    result_assembler = OnlyResearchResultAssembler(
+        statistics,
+        calculation_result_store=case[2],
+        audit_time=lambda: datetime(2026, 9, 8, tzinfo=UTC),
+    )
+    calculation = case[2].load_verified(ic_plan.feature.calculation_fingerprint).manifest
+    member = OnlyResearchResultCalculationPlan(
+        calculation.calculation_fingerprint,
+        calculation.calculation_graph_fingerprint,
+    )
+    candidate = OnlyResearchResultCandidatePlan(
+        "c" * 64,
+        "feature",
+        (),
+        member.calculation_fingerprint,
+        member.graph_fingerprint,
+        tuple(sorted((ic_plan.statistics_fingerprint, rank_plan.statistics_fingerprint))),
+    )
+    base_plan = OnlyResearchResultPlan(
+        tuple(sorted((ic_plan.statistics_fingerprint, rank_plan.statistics_fingerprint))),
+        2,
+        case[0].snapshot_fingerprint,
+        (member,),
+        (candidate,),
+    )
+    base_result = result_assembler.assemble(base_plan)
+    results = OnlyJsonResearchResultStore(tmp_path / "research-results", statistics, case[2])
+    results.commit(base_result)
+    finalizer = OnlyParameterResearchEvidenceFinalizerV1(
+        research_results=results,
+        summary_executor=summary_executor,
+        result_assembler=result_assembler,
+    )
+    run = SimpleNamespace(
+        state=OnlyResearchRunState.COMPLETED,
+        research_result_fingerprint=base_result.manifest.research_result_fingerprint,
+        run_id=SimpleNamespace(value="run-1"),
+    )
+    resolved = SimpleNamespace(
+        proposal=_proposals()[0],
+        candidate=SimpleNamespace(
+            candidate_fingerprint=candidate.candidate_fingerprint,
+            calculation_fingerprint=candidate.calculation_fingerprint,
+        ),
+        resolution=SimpleNamespace(
+            workload=SimpleNamespace(
+                result_plan=base_plan,
+                statistics_plans=(ic_plan, rank_plan),
+            )
+        ),
+    )
+
+    reference = finalizer.finalize(run=cast(Any, run), resolved=cast(Any, resolved), policy=mixed_policy)
+    repeated = finalizer.finalize(run=cast(Any, run), resolved=cast(Any, resolved), policy=mixed_policy)
+    assert repeated == reference
+    composition = results.load_verified(reference.locator_fingerprint)
+    source_fingerprints = {ic_plan.statistics_fingerprint, rank_plan.statistics_fingerprint}
+    summary_fingerprints = {
+        item.statistics_fingerprint
+        for item in composition.manifest.statistics_results
+        if item.statistics_fingerprint not in source_fingerprints
+    }
+    assert len(summary_fingerprints) == 2
+    assert {
+        summary_store.load_verified(fingerprint).manifest.plan.definition.source_method
+        for fingerprint in summary_fingerprints
+    } == {OnlyResearchStatisticsMethod.IC, OnlyResearchStatisticsMethod.RANK_IC}
+
+    decision = _decision_for_context(_context(mixed_policy))
+    plan = plans_for_feedback_decision(decision, _proposals())[0]
+    iteration = OnlySearchIterationResultV1(
+        plan.iteration_plan_fingerprint,
+        candidate.candidate_fingerprint,
+        True,
+        reference,
+        False,
+        None,
+        OnlySearchIterationDisposition.RESEARCH_EVIDENCE_RECORDED,
+        None,
+    )
+    reader = OnlyParameterResearchEvidenceReader(
+        iteration_results=cast(Any, _ExactValues({iteration.iteration_result_fingerprint: iteration})),
+        iteration_plans=cast(Any, _ExactValues({plan.iteration_plan_fingerprint: plan})),
+        research_results=results,
+        statistics_results=statistics,
+    )
+    evidence = reader.load_required(
+        iteration_result_fingerprint=iteration.iteration_result_fingerprint,
+        proposal=_proposals()[0],
+        policy=mixed_policy,
+    )
+    assert evidence.available
+    assert set(mixed_policy.required_metric_ids) <= set(evidence.metric_scalars)
+
+
+def test_completed_run_rejects_unsupported_summary_family_before_composition() -> None:
+    unsupported_policy = replace(
+        _policy(),
+        primary_metric_selector=only_research_coverage_metric(
+            OnlyResearchStatisticsMethod.IC,
+            "valid_timestamp_ratio",
+        ).metric_id,
+        ordered_tie_breakers=(),
     )
     finalizer = OnlyParameterResearchEvidenceFinalizerV1(
         research_results=cast(Any, object()),
@@ -1000,12 +1213,11 @@ def test_completed_run_rejects_mixed_parameter_evidence_metric_sources_before_co
         research_result_fingerprint="a" * 64,
         run_id=SimpleNamespace(value="run-1"),
     )
-
     with pytest.raises(OnlyParameterSearchError, match="PARAMETER_EVIDENCE_METRIC_SET_UNSUPPORTED"):
         finalizer.finalize(
             run=cast(Any, run),
             resolved=cast(Any, object()),
-            policy=mixed_policy,
+            policy=unsupported_policy,
         )
 
 

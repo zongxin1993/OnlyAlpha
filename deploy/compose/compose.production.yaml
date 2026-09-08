@@ -32,6 +32,8 @@ services:
       context: ../..
       dockerfile: deploy/compose/Dockerfile.acceptance
       target: operator
+      args:
+        ONLYALPHA_BUILD_SOURCE_REVISION: ${ONLYALPHA_BUILD_SOURCE_REVISION:-}
     profiles:
       - tools
     restart: "no"
@@ -55,6 +57,8 @@ services:
       context: ../..
       dockerfile: deploy/compose/Dockerfile.acceptance
       target: operator
+      args:
+        ONLYALPHA_BUILD_SOURCE_REVISION: ${ONLYALPHA_BUILD_SOURCE_REVISION:-}
     profiles:
       - binance-certification
     restart: "no"

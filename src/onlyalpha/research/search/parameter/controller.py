@@ -139,6 +139,19 @@ class OnlyParameterSearchControllerV1:
     ) -> tuple[OnlySearchIterationResultV1 | None, ...]:
         """Drive each exact occurrence to terminal or retain the active barrier."""
 
+        frontier = self._store.load_frontier_fingerprint(context.experiment.experiment_fingerprint)
+        if frontier is None:
+            plans = self._provenance.iteration_plans_for_experiment_verified(context.experiment.experiment_fingerprint)
+            if plans:
+                raise OnlyParameterSearchError("PARAMETER_FEEDBACK_HISTORY_UNVERIFIED", "missing frontier")
+            return ()
+        verify_parameter_feedback_frontier_for_execution(
+            context=context,
+            provenance=self._provenance,
+            evidence_reader=self._evidence_reader,
+            decisions=self._store,
+            frontier_fingerprint=frontier,
+        )
         plans = self._provenance.iteration_plans_for_experiment_verified(context.experiment.experiment_fingerprint)
         by_fingerprint = {item.proposal_fingerprint: item for item in context.proposals}
         outcomes: list[OnlySearchIterationResultV1 | None] = []

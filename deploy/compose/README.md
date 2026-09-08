@@ -27,6 +27,7 @@ Database versions are intentionally exact:
 ```text
 PostgreSQL 18.6
 ClickHouse 26.3.x image family pinned as clickhouse/clickhouse-server:26.3
+PostgreSQL 16.10 only in the test override as an upgrade source
 ```
 
 ## Production deployment
@@ -222,7 +223,7 @@ docker compose \
   --env-file deploy/compose/.env.test.example \
   -f deploy/compose/compose.yaml \
   -f deploy/compose/compose.test.yaml \
-  up -d --wait postgres clickhouse
+  up -d --wait postgres postgres16-upgrade-source clickhouse
 
 docker compose \
   --env-file deploy/compose/.env.test.example \
