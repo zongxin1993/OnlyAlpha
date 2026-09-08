@@ -16,9 +16,15 @@ from onlyalpha_runtime_generation_manager import (
     OnlyHistoricalExecutableRuntimeGenerationResolver,
     OnlyLocalImmutableArtifactStore,
     OnlyRuntimeGenerationBuilder,
+    OnlyRuntimeGenerationRegistry,
 )
+from onlyalpha_runtime_generation_manager.catalog_context import OnlyRuntimeGenerationExactCatalogDescriptorReader
 from onlyalpha_runtime_generation_manager.hosted import _verify_installed_wheel
 
+from onlyalpha.application.catalog_context import (
+    OnlyExactCatalogContextQueryService,
+    OnlyExactCatalogContextUnavailable,
+)
 from onlyalpha.calculation.artifact import only_calculation_distribution_artifact_manifest
 from onlyalpha.quant_assets import (
     OnlyQuantAssetCatalogGeneration,
@@ -192,6 +198,22 @@ def test_builder_installs_exact_public_example_in_clean_environment_and_is_deter
     assert first.manifest.catalog_generation_fingerprint == catalog.generation_fingerprint
     assert first.validation_evidence.verifies(first.manifest)
     assert first.manifest.runtime_generation_fingerprint == second.manifest.runtime_generation_fingerprint
+    authority_root = tmp_path / "exact-catalog-authority"
+    authority = OnlyRuntimeGenerationRegistry(authority_root)
+    authority.prepare(first.manifest, actor="operator", occurred_at=NOW)
+    authority.admit_ready(first.validation_evidence, actor="validator", occurred_at=NOW)
+    fresh_reader = OnlyRuntimeGenerationExactCatalogDescriptorReader(
+        OnlyRuntimeGenerationRegistry(authority_root),
+        builder,
+        tmp_path / "exact-catalog-environments",
+    )
+    exact_context = OnlyExactCatalogContextQueryService(fresh_reader).get_exact_catalog_context(
+        catalog.generation_fingerprint
+    )
+    assert exact_context.catalog_generation_fingerprint == catalog.generation_fingerprint
+    assert exact_context == OnlyExactCatalogContextQueryService(fresh_reader).get_exact_catalog_context(
+        catalog.generation_fingerprint
+    )
     hosted = subprocess.run(
         [
             str(tmp_path / "runtime-a" / "bin" / "python"),
@@ -252,6 +274,11 @@ def test_builder_installs_exact_public_example_in_clean_environment_and_is_deter
 
     artifact_path, _ = store._paths(strategy_artifact.artifact_sha256)
     artifact_path.write_bytes(b"corrupt")
+    with pytest.raises(OnlyExactCatalogContextUnavailable):
+        OnlyExactCatalogContextQueryService(fresh_reader).get_exact_catalog_context(catalog.generation_fingerprint)
+    artifact_path.unlink()
+    with pytest.raises(OnlyExactCatalogContextUnavailable):
+        OnlyExactCatalogContextQueryService(fresh_reader).get_exact_catalog_context(catalog.generation_fingerprint)
     with pytest.raises(ValueError, match="HISTORICAL_IMPLEMENTATION_UNAVAILABLE"):
         OnlyHistoricalExecutableRuntimeGenerationResolver(  # type: ignore[arg-type]
             _HistoricalManifest(),

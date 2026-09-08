@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
+from onlyalpha.application.catalog_context import (
+    OnlyExactCatalogContextQueryService,
+    OnlyExactCatalogContextV1,
+)
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId
 from onlyalpha.kernel.command import (
     OnlyProductCommand,
@@ -49,6 +54,11 @@ class OnlyListResearchRuns(OnlyProductQuery):
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyGetExactCatalogContext(OnlyProductQuery):
+    catalog_generation_fingerprint: str
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyResearchProductBoundary:
     commands: OnlyProductCommandDispatcher
     queries: OnlyProductQueryDispatcher
@@ -59,6 +69,7 @@ def only_compose_research_product_boundary(
     admission: OnlyProductMutationAdmission,
     commands: OnlyResearchCommandService,
     queries: OnlyResearchRunQueryService,
+    exact_catalog_context: OnlyExactCatalogContextQueryService | None = None,
 ) -> OnlyResearchProductBoundary:
     """Freeze the one legal Research Product binding topology."""
 
@@ -78,6 +89,18 @@ def only_compose_research_product_boundary(
     def list_runs(query: OnlyListResearchRuns) -> OnlyResearchRunPage:
         return queries.list_runs(limit=query.limit, cursor=query.cursor)
 
+    def get_exact_catalog_context(query: OnlyGetExactCatalogContext) -> OnlyExactCatalogContextV1:
+        if exact_catalog_context is None:  # excluded from bindings below
+            raise RuntimeError("EXACT_CATALOG_CONTEXT_UNAVAILABLE")
+        return exact_catalog_context.get_exact_catalog_context(query.catalog_generation_fingerprint)
+
+    query_bindings: tuple[OnlyProductQueryBinding[Any, Any], ...] = (
+        OnlyProductQueryBinding(OnlyGetResearchRun, get),
+        OnlyProductQueryBinding(OnlyListResearchRuns, list_runs),
+    )
+    if exact_catalog_context is not None:
+        query_bindings += (OnlyProductQueryBinding(OnlyGetExactCatalogContext, get_exact_catalog_context),)
+
     return OnlyResearchProductBoundary(
         commands=OnlyProductCommandDispatcher(
             admission,
@@ -86,12 +109,7 @@ def only_compose_research_product_boundary(
                 OnlyProductCommandBinding(OnlyCancelResearchRun, cancel),
             ),
         ),
-        queries=OnlyProductQueryDispatcher(
-            (
-                OnlyProductQueryBinding(OnlyGetResearchRun, get),
-                OnlyProductQueryBinding(OnlyListResearchRuns, list_runs),
-            )
-        ),
+        queries=OnlyProductQueryDispatcher(query_bindings),
     )
 
 

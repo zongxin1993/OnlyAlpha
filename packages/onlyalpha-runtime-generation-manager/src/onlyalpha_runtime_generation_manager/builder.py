@@ -9,7 +9,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.distribution import (
@@ -93,6 +93,13 @@ print(only_canonical_json({
     "implementation_distributions": implementation_distributions,
     "implementations": implementations,
 }))
+"""
+
+_CATALOG_PROBE = r"""
+from onlyalpha.canonical import only_canonical_json
+from onlyalpha.quant_assets import only_discover_quant_asset_providers
+
+print(only_canonical_json(only_discover_quant_asset_providers().descriptor()))
 """
 
 _HOSTED_GENERATION_SEAL = "onlyalpha-runtime-generation-validation.json"
@@ -358,6 +365,35 @@ class OnlyRuntimeGenerationBuilder:
         except Exception:
             shutil.rmtree(environment_root, ignore_errors=True)
             raise
+
+    def rebuild_catalog_descriptor(
+        self,
+        *,
+        expected_manifest: OnlyRuntimeGenerationManifest,
+        environment_root: Path,
+    ) -> dict[str, object]:
+        """Reconstruct and probe exact Catalog metadata without importing it in this process."""
+
+        self.rebuild_validated(expected_manifest=expected_manifest, environment_root=environment_root)
+        probed = subprocess.run(
+            [str(self._environment_python(environment_root)), "-I", "-c", _CATALOG_PROBE],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=self._isolated_environment(),
+        )
+        if probed.returncode != 0:
+            raise ValueError("RUNTIME_GENERATION_CATALOG_MISMATCH")
+        try:
+            descriptor: Any = json.loads(probed.stdout)
+        except json.JSONDecodeError as exc:
+            raise ValueError("RUNTIME_GENERATION_CATALOG_MISMATCH") from exc
+        if (
+            not isinstance(descriptor, dict)
+            or descriptor.get("generation_fingerprint") != expected_manifest.catalog_generation_fingerprint
+        ):
+            raise ValueError("RUNTIME_GENERATION_CATALOG_MISMATCH")
+        return cast(dict[str, object], descriptor)
 
     @staticmethod
     def _core_identity(artifacts: tuple[OnlyDistributionArtifactManifest, ...]) -> OnlyCoreExecutionIdentity:

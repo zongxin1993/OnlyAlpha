@@ -22,3 +22,10 @@ def test_core_does_not_import_the_concrete_runtime_generation_component() -> Non
     root = Path(__file__).resolve().parents[3] / "src/onlyalpha"
     source = "\n".join(path.read_text(encoding="utf-8") for path in root.rglob("*.py"))
     assert "onlyalpha_runtime_generation_manager" not in source
+
+
+def test_exact_catalog_context_core_has_no_infrastructure_or_http_dependencies() -> None:
+    module = Path(__file__).resolve().parents[3] / "src/onlyalpha/application/catalog_context.py"
+    source = module.read_text(encoding="utf-8")
+    for forbidden in ("onlyalpha_runtime_generation_manager", "fastapi", "psycopg", "subprocess", "tempfile"):
+        assert forbidden not in source
