@@ -90,6 +90,22 @@ def load_symbolic_enumeration_result_historical_verified(
     return verify_symbolic_enumeration_result(result, context, store)
 
 
+def load_optional_symbolic_enumeration_result_historical_verified(
+    experiment: OnlySearchExperimentManifestV2,
+    context: object,
+    store: OnlySymbolicHistoricalStore,
+) -> OnlyVerifiedSymbolicEnumerationResultV1 | None:
+    """Return absence only for exact NOT_FOUND from the owning Symbolic Store."""
+
+    try:
+        result = store.load_enumeration_result_verified(experiment.experiment_fingerprint)
+    except OnlySymbolicSearchStoreError as exc:
+        if exc.code == "SEARCH_ENUMERATION_RESULT_NOT_FOUND":
+            return None
+        raise
+    return verify_symbolic_enumeration_result(result, context, store)
+
+
 def commit_symbolic_enumeration_result_verified(
     result: OnlySymbolicEnumerationResultV1,
     context: object,

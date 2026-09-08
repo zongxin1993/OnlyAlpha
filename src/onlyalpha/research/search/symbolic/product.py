@@ -13,7 +13,10 @@ from onlyalpha.application.search_product import (
     OnlySearchMethodV1,
     OnlySearchProductCapabilityUnsupported,
     OnlySearchProductEffectConflict,
+    OnlySearchProductEffectStateV1,
+    OnlySearchProductMethodUnsupported,
     OnlySearchProductSemanticFactCorrupt,
+    OnlySearchResearchRunReader,
     OnlySearchSubmitCommandV1,
     OnlySearchTerminalKindV1,
     OnlySearchTerminalProjectionV1,
@@ -44,7 +47,10 @@ from .evaluation import (
     SYMBOLIC_EVALUATION_CONTRACT_KIND,
     OnlySymbolicResearchEvaluationContractV1,
 )
-from .historical import load_symbolic_enumeration_result_historical_verified
+from .historical import (
+    load_optional_symbolic_enumeration_result_historical_verified,
+    load_symbolic_enumeration_result_historical_verified,
+)
 from .integration import OnlySymbolicResolvedResearchCandidateV1
 from .model import SYMBOLIC_SEARCH_SPACE_KIND, OnlySymbolicFactorSearchSpaceV2
 from .store import OnlyJsonSymbolicSearchStore
@@ -118,16 +124,23 @@ class OnlySymbolicSearchProductAdapterV1:
         resolver: OnlyResearchSpecificationResolver,
         research_commands: OnlySymbolicResearchCommandService,
         product_receipts: OnlyProductCommandReceiptAuthority | None = None,
+        research_runs: OnlySearchResearchRunReader | None = None,
     ) -> None:
         self._store = symbolic_store
         self._provenance = provenance
         self._contexts = contexts
         self._resolver = resolver
         self._research_commands = research_commands
+        if (product_receipts is None) != (research_runs is None):
+            raise ValueError("Research Receipt and Run Authorities must be configured together")
+        self._product_receipts = product_receipts
+        self._research_runs = research_runs
         self._controller = OnlySymbolicSearchControllerV1(
             symbolic_store=symbolic_store,
             provenance=provenance,
+            resolver=resolver,
             product_receipts=product_receipts,
+            research_runs=research_runs,
         )
 
     def derive_submit_experiment(self, command: OnlySearchSubmitCommandV1) -> OnlySearchExperimentManifestV2:
@@ -201,15 +214,12 @@ class OnlySymbolicSearchProductAdapterV1:
         self._provenance.commit_experiment(experiment)  # type: ignore[attr-defined]
         exact = self.load_experiment_verified(experiment.experiment_fingerprint)
         self.verify_submit(command, exact)
-        # Submit is intentionally Experiment-only: no Enumeration and no Plan.
-        if self._provenance.iteration_plans_for_experiment_verified(exact.experiment_fingerprint):
-            raise OnlySearchProductEffectConflict(exact.experiment_fingerprint)
         return exact
 
     def load_experiment_verified(self, experiment_fingerprint: str) -> OnlySearchExperimentManifestV2:
         experiment = self._provenance.load_experiment_verified(experiment_fingerprint)  # type: ignore[attr-defined]
         if not isinstance(experiment, OnlySearchExperimentManifestV2):
-            raise OnlySearchProductSemanticFactCorrupt(experiment_fingerprint)
+            raise OnlySearchProductMethodUnsupported(experiment_fingerprint)
         self._contexts.resolve_verified_context(experiment)
         return experiment
 
@@ -237,6 +247,14 @@ class OnlySymbolicSearchProductAdapterV1:
             resolver=self._resolver,
             commands=self._research_commands,
         )
+
+    def assess_advance_effect(self, command: OnlyAdvanceSearchExperimentV1) -> OnlySearchProductEffectStateV1:
+        expected = command.expected_state
+        if not isinstance(expected, OnlySymbolicExpectedStateV1):
+            return OnlySearchProductEffectStateV1.CONFLICT_OR_STALE
+        experiment = self.load_experiment_verified(command.experiment_fingerprint)
+        context = self._contexts.resolve_verified_context(experiment)
+        return self._controller.assess_effect(context, command.operation, expected)
 
     def verify_advance_effect(self, command: OnlyAdvanceSearchExperimentV1) -> None:
         expected = command.expected_state
@@ -322,14 +340,10 @@ class OnlySymbolicSearchProductAdapterV1:
         results = tuple(
             self._provenance.terminal_result_for_plan_verified(item.iteration_plan_fingerprint) for item in plans
         )
-        try:
-            enumeration = load_symbolic_enumeration_result_historical_verified(experiment, context, self._store).result
-        except Exception as exc:
-            if "NOT_FOUND" not in str(getattr(exc, "code", "")) and "REFERENCE_INVALID" not in str(
-                getattr(exc, "code", "")
-            ):
-                raise
-            enumeration = None
+        verified_enumeration = load_optional_symbolic_enumeration_result_historical_verified(
+            experiment, context, self._store
+        )
+        enumeration = None if verified_enumeration is None else verified_enumeration.result
         return OnlySearchIterationLedgerProjectionV1(
             self.method,
             experiment_fingerprint,

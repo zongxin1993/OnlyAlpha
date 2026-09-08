@@ -7,6 +7,7 @@ from pathlib import Path
 from onlyalpha.application.search_product import (
     OnlyAdvanceSearchExperimentV1,
     OnlyParameterExpectedStateV1,
+    OnlySearchResearchRunReader,
     OnlySubmitParameterSearchExperimentV1,
     OnlySubmitSymbolicSearchExperimentV1,
     OnlySymbolicExpectedStateV1,
@@ -76,3 +77,34 @@ def test_search_stores_have_no_product_command_retry_index() -> None:
     )
     assert "ProductCommandId" not in source
     assert "product_command_id" not in source.lower()
+
+
+def test_search_research_run_dereference_is_transport_neutral_and_exact() -> None:
+    assert getattr(OnlySearchResearchRunReader, "_is_protocol", False)
+    paths = (
+        Path("src/onlyalpha/research/search/symbolic/product.py"),
+        Path("src/onlyalpha/research/search/symbolic/controller.py"),
+        Path("src/onlyalpha/research/search/parameter/product.py"),
+    )
+    imports = set().union(*(_imports(path) for path in paths))
+    assert not any(name.startswith("onlyalpha.persistence.postgres") for name in imports)
+    source = "\n".join(path.read_text(encoding="utf-8") for path in paths)
+    assert "only_load_search_research_run_exact" in source
+    assert "expected_specification=" in source
+
+
+def test_symbolic_enumeration_absence_does_not_catch_contextual_verification_failures() -> None:
+    controller = Path("src/onlyalpha/research/search/symbolic/controller.py").read_text(encoding="utf-8")
+    product = Path("src/onlyalpha/research/search/symbolic/product.py").read_text(encoding="utf-8")
+    historical = Path("src/onlyalpha/research/search/symbolic/historical.py").read_text(encoding="utf-8")
+    assert "_enumeration_absent" not in controller
+    assert '"REFERENCE_INVALID"' not in controller
+    assert '"REFERENCE_INVALID"' not in product
+    assert 'exc.code == "SEARCH_ENUMERATION_RESULT_NOT_FOUND"' in historical
+
+
+def test_generic_product_service_orchestrates_explicit_effect_assessment_only() -> None:
+    source = Path("src/onlyalpha/application/search_product.py").read_text(encoding="utf-8")
+    assert "assessment = adapter.assess_advance_effect(command)" in source
+    assert "OnlySearchProductEffectStateV1.PARTIAL_EXACT_EFFECT" in source
+    assert "adapter.verify_advance_effect(command)" in source

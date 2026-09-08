@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import replace
 from datetime import UTC, datetime
 from threading import Barrier, Thread
@@ -28,6 +29,7 @@ from onlyalpha.application.search_product import (
     OnlySearchProductCapabilityUnsupported,
     OnlySearchProductCommandConflict,
     OnlySearchProductCommandServiceV1,
+    OnlySearchProductEffectStateV1,
     OnlySearchProductExpectedStateMismatch,
     OnlySearchProductQueryServiceV1,
     OnlySearchProductReceiptCorrupt,
@@ -35,6 +37,7 @@ from onlyalpha.application.search_product import (
     OnlySubmitSymbolicSearchExperimentV1,
     OnlySymbolicExpectedStateV1,
 )
+from onlyalpha.canonical import only_canonical_json
 from onlyalpha.quant_assets import OnlyQuantAssetCatalogManager
 from onlyalpha.research.command.model import OnlyResearchSubmitDisposition
 from onlyalpha.research.experiment import (
@@ -46,10 +49,11 @@ from onlyalpha.research.experiment import (
     OnlySearchResearchResultReferenceV1,
     OnlySearchWorkflowBindingV1,
 )
-from onlyalpha.research.run.model import OnlyResearchRunState
+from onlyalpha.research.run.model import OnlyResearchRun, OnlyResearchRunId, OnlyResearchRunState
 from onlyalpha.research.search.parameter import parameter_submission_key
 from onlyalpha.research.search.symbolic import (
     OnlyJsonSymbolicSearchStore,
+    OnlySymbolicEnumerationResultV1,
     OnlySymbolicResearchEvaluationContractV1,
     OnlySymbolicSearchContextResolver,
     OnlySymbolicSearchProductAdapterV1,
@@ -100,14 +104,14 @@ class _Commands:
         self.results = results
         self.state = OnlyResearchRunState.QUEUED
         self.calls = 0
+        self.runs: dict[OnlyResearchRunId, OnlyResearchRun] = {}
 
     def submit_symbolic_research(self, *, plan, resolved):  # type: ignore[no-untyped-def]
-        del resolved
         from onlyalpha.research.search.symbolic import symbolic_submission_key
 
         self.calls += 1
         command_id = symbolic_submission_key(plan)
-        run_id = OnlyProductCommandId("12345678-1234-4234-8234-123456789abc")
+        run_id = OnlyResearchRunId(command_id.value)
         admission = OnlyProductCommandAdmissionV1(
             command_id,
             self.authority.research_kind,
@@ -124,18 +128,39 @@ class _Commands:
                 datetime(2026, 9, 8, tzinfo=UTC),
             ),
         )
-        run = SimpleNamespace(
+        run = OnlyResearchRun.queued(
             run_id=run_id,
-            state=self.state,
-            research_result_fingerprint="8" * 64 if self.state is OnlyResearchRunState.COMPLETED else None,
+            specification=resolved.specification,
+            canonical_specification_payload=only_canonical_json(resolved.specification.to_dict()),
+            admission_resolution_fingerprint="6" * 64,
+            queued_at=datetime(2026, 9, 8, tzinfo=UTC),
         )
+        if self.state is not OnlyResearchRunState.QUEUED:
+            run = run.transition(OnlyResearchRunState.RUNNING, at=datetime(2026, 9, 8, 0, 0, 1, tzinfo=UTC))
+        if self.state is OnlyResearchRunState.COMPLETED:
+            result_fingerprint = hashlib.sha256(
+                cast(str, resolved.candidate.candidate_fingerprint).encode()
+            ).hexdigest()
+            run = run.transition(
+                OnlyResearchRunState.COMPLETED,
+                at=datetime(2026, 9, 8, 0, 0, 2, tzinfo=UTC),
+                research_result_fingerprint=result_fingerprint,
+                artifact_content_fingerprint="5" * 64,
+            )
+        self.runs[run_id] = run
         return SimpleNamespace(disposition=OnlyResearchSubmitDisposition.REUSED, run=run)
+
+    def get_run(self, run_id: OnlyResearchRunId) -> OnlyResearchRun:
+        return self.runs[run_id]
 
     def research_result_reference(self, *, outcome, resolved):  # type: ignore[no-untyped-def]
         del outcome
         candidate = resolved.candidate.candidate_fingerprint
         assert candidate is not None
-        reference = OnlySearchResearchResultReferenceV1("7" * 64, "8" * 64)
+        reference = OnlySearchResearchResultReferenceV1(
+            hashlib.sha256(f"locator:{candidate}".encode()).hexdigest(),
+            hashlib.sha256(candidate.encode()).hexdigest(),
+        )
         self.results.add(reference.locator_fingerprint, reference.result_fingerprint, candidate)
         return reference
 
@@ -198,6 +223,18 @@ def _command_id() -> OnlyProductCommandId:
     return OnlyProductCommandId(str(uuid4()))
 
 
+def _reconcile_expected(state: OnlySymbolicExpectedStateV1, plan_fingerprint: str):
+    return OnlySymbolicExpectedStateV1(
+        state.experiment_fingerprint,
+        state.enumeration_result_fingerprint,
+        state.ordered_plan_states,
+        state.next_iteration_ordinal,
+        state.research_attempt_count,
+        state.qualification_attempt_count,
+        plan_fingerprint,
+    )
+
+
 def _case(tmp_path, *, authority=None):  # type: ignore[no-untyped-def]
     generation, search_space = space(max_nodes=3)
     dataset = "a" * 64
@@ -227,6 +264,7 @@ def _case(tmp_path, *, authority=None):  # type: ignore[no-untyped-def]
         resolver=OnlyResearchSpecificationResolver(specification_registry()),
         research_commands=commands,
         product_receipts=authority,
+        research_runs=commands,
     )
     service = OnlySearchProductCommandServiceV1(
         command_admissions=authority,
@@ -514,3 +552,236 @@ def test_search_commands_and_queries_use_existing_product_dispatchers(tmp_path) 
         boundary.queries.dispatch(OnlyGetSearchExperimentV1(created.experiment.experiment_fingerprint)).experiment
         == created.experiment
     )
+
+
+def test_symbolic_submit_receipt_recovery_is_monotonic_after_later_progress(tmp_path) -> None:
+    service, query, authority, commands, submit = _case(tmp_path)
+    same_intent = replace(submit, command_id=_command_id())
+    experiment = service.submit(submit).experiment.experiment_fingerprint
+    assert service.submit(same_intent).experiment.experiment_fingerprint == experiment
+    initial = query.get_ledger(OnlyGetSearchIterationLedgerV1(experiment))
+    advance = OnlyAdvanceSearchExperimentV1(
+        _command_id(),
+        OnlySearchMethodV1.SYMBOLIC,
+        OnlySearchBoundedOperationV1.ADVANCE_ONE_SYMBOLIC_OCCURRENCE,
+        initial.expected_state,
+    )
+    progressed = service.advance(advance)
+    before = (len(progressed.ledger.plans), commands.calls)
+
+    del authority.receipts[submit.command_id]
+    repaired = service.submit(submit)
+    assert repaired.replayed is False
+    assert (len(repaired.ledger.plans), commands.calls) == before
+    assert repaired.experiment.experiment_fingerprint == experiment
+
+    commands.state = OnlyResearchRunState.COMPLETED
+    while True:
+        ledger = query.get_ledger(OnlyGetSearchIterationLedgerV1(experiment))
+        enumeration = cast(OnlySymbolicEnumerationResultV1, ledger.enumeration_result)
+        open_plan = next(
+            (plan for plan, result in zip(ledger.plans, ledger.results, strict=True) if result is None),
+            None,
+        )
+        if open_plan is not None:
+            state = cast(OnlySymbolicExpectedStateV1, ledger.expected_state)
+            service.advance(
+                OnlyAdvanceSearchExperimentV1(
+                    _command_id(),
+                    OnlySearchMethodV1.SYMBOLIC,
+                    OnlySearchBoundedOperationV1.RECONCILE_ONE_SYMBOLIC_OCCURRENCE,
+                    _reconcile_expected(state, open_plan.iteration_plan_fingerprint),
+                )
+            )
+            continue
+        if len(ledger.plans) == len(enumeration.ordered_proposal_fingerprints):
+            break
+        service.advance(
+            OnlyAdvanceSearchExperimentV1(
+                _command_id(),
+                OnlySearchMethodV1.SYMBOLIC,
+                OnlySearchBoundedOperationV1.ADVANCE_ONE_SYMBOLIC_OCCURRENCE,
+                ledger.expected_state,
+            )
+        )
+
+    terminal_count = len(query.get_ledger(OnlyGetSearchIterationLedgerV1(experiment)).plans)
+    del authority.receipts[same_intent.command_id]
+    terminal_repair = service.submit(same_intent)
+    assert len(terminal_repair.ledger.plans) == terminal_count
+    assert all(item is not None for item in terminal_repair.ledger.results)
+
+
+def test_symbolic_enumeration_absence_is_only_exact_store_not_found(tmp_path) -> None:
+    service, query, authority, _commands, submit = _case(tmp_path)
+    created = service.submit(submit)
+    experiment = created.experiment.experiment_fingerprint
+    initial = cast(OnlySymbolicExpectedStateV1, created.ledger.expected_state)
+    assert initial.enumeration_result_fingerprint is None
+
+    target = tmp_path / "research/symbolic-search/enumeration-results/sha256" / experiment[:2] / experiment
+    target.mkdir(parents=True)
+    (target / "manifest.json").write_text("{}\n", encoding="utf-8")
+    advance = OnlyAdvanceSearchExperimentV1(
+        _command_id(),
+        OnlySearchMethodV1.SYMBOLIC,
+        OnlySearchBoundedOperationV1.ADVANCE_ONE_SYMBOLIC_OCCURRENCE,
+        initial,
+    )
+    with pytest.raises(Exception, match="SEARCH_ENUMERATION_RESULT_CORRUPT"):
+        query.get_ledger(OnlyGetSearchIterationLedgerV1(experiment))
+    with pytest.raises(Exception, match="SEARCH_ENUMERATION_RESULT_CORRUPT"):
+        service.advance(advance)
+    assert (
+        query._adapters[OnlySearchMethodV1.SYMBOLIC]._provenance.iteration_plans_for_experiment_verified(  # type: ignore[attr-defined]
+            experiment
+        )
+        == ()
+    )
+    assert advance.command_id not in authority.receipts
+
+
+def test_contextually_invalid_enumeration_never_becomes_absent_or_is_replaced(tmp_path) -> None:
+    service, query, authority, _commands, submit = _case(tmp_path)
+    experiment = service.submit(submit).experiment.experiment_fingerprint
+    initial = query.get_ledger(OnlyGetSearchIterationLedgerV1(experiment))
+    advanced = service.advance(
+        OnlyAdvanceSearchExperimentV1(
+            _command_id(),
+            OnlySearchMethodV1.SYMBOLIC,
+            OnlySearchBoundedOperationV1.ADVANCE_ONE_SYMBOLIC_OCCURRENCE,
+            initial.expected_state,
+        )
+    )
+    enumeration = cast(OnlySymbolicEnumerationResultV1, advanced.ledger.enumeration_result)
+    invalid = replace(enumeration, algorithm_implementation_fingerprint="b" * 64)
+    manifest = (
+        tmp_path / "research/symbolic-search/enumeration-results/sha256" / experiment[:2] / experiment / "manifest.json"
+    )
+    manifest.write_text(only_canonical_json(invalid.to_dict()), encoding="utf-8")
+    plan_root = tmp_path / "research/search-provenance/iteration-plans/sha256"
+    before_plan_paths = tuple(sorted(plan_root.glob("*/*/manifest.json")))
+    command = OnlyAdvanceSearchExperimentV1(
+        _command_id(),
+        OnlySearchMethodV1.SYMBOLIC,
+        OnlySearchBoundedOperationV1.ADVANCE_ONE_SYMBOLIC_OCCURRENCE,
+        advanced.ledger.expected_state,
+    )
+    with pytest.raises(Exception, match="SEARCH_"):
+        query.get_ledger(OnlyGetSearchIterationLedgerV1(experiment))
+    with pytest.raises(Exception, match="SEARCH_"):
+        service.advance(command)
+    assert tuple(sorted(plan_root.glob("*/*/manifest.json"))) == before_plan_paths
+    assert command.command_id not in authority.receipts
+
+
+def test_unsafe_enumeration_path_fails_closed_without_reenumeration(tmp_path) -> None:
+    service, query, authority, _commands, submit = _case(tmp_path)
+    created = service.submit(submit)
+    experiment = created.experiment.experiment_fingerprint
+    target = tmp_path / "research/symbolic-search/enumeration-results/sha256" / experiment[:2] / experiment
+    target.parent.mkdir(parents=True)
+    unsafe = tmp_path / "unsafe-enumeration-target"
+    unsafe.mkdir()
+    (unsafe / "manifest.json").write_text("{}", encoding="utf-8")
+    target.symlink_to(unsafe, target_is_directory=True)
+    command = OnlyAdvanceSearchExperimentV1(
+        _command_id(),
+        OnlySearchMethodV1.SYMBOLIC,
+        OnlySearchBoundedOperationV1.ADVANCE_ONE_SYMBOLIC_OCCURRENCE,
+        created.ledger.expected_state,
+    )
+    with pytest.raises(Exception, match="SEARCH_SYMBOLIC_UNSAFE_PATH"):
+        query.get_ledger(OnlyGetSearchIterationLedgerV1(experiment))
+    with pytest.raises(Exception, match="SEARCH_SYMBOLIC_UNSAFE_PATH"):
+        service.advance(command)
+    assert command.command_id not in authority.receipts
+    assert not tuple((tmp_path / "research/search-provenance/iteration-plans").glob("**/manifest.json"))
+
+
+def test_dangling_and_mismatched_research_runs_fail_before_search_result_or_outer_receipt(tmp_path) -> None:
+    service, query, authority, commands, submit = _case(tmp_path)
+    experiment = service.submit(submit).experiment.experiment_fingerprint
+    advanced = service.advance(
+        OnlyAdvanceSearchExperimentV1(
+            _command_id(),
+            OnlySearchMethodV1.SYMBOLIC,
+            OnlySearchBoundedOperationV1.ADVANCE_ONE_SYMBOLIC_OCCURRENCE,
+            query.get_ledger(OnlyGetSearchIterationLedgerV1(experiment)).expected_state,
+        )
+    )
+    state = cast(OnlySymbolicExpectedStateV1, advanced.ledger.expected_state)
+    plan = advanced.ledger.plans[0]
+    inner_id = symbolic_submission_key(plan)
+    authority.admit_exact(OnlyProductCommandAdmissionV1(inner_id, authority.research_kind, "9" * 64))
+    authority.put_verified_receipt(
+        OnlyProductCommandReceipt(
+            inner_id,
+            authority.research_kind,
+            "9" * 64,
+            OnlyProductCommandOutcomeRef(OnlyProductCommandOutcomeKind.RESEARCH_RUN, inner_id.value),
+            datetime(2026, 9, 8, tzinfo=UTC),
+        )
+    )
+    dangling = OnlyAdvanceSearchExperimentV1(
+        _command_id(),
+        OnlySearchMethodV1.SYMBOLIC,
+        OnlySearchBoundedOperationV1.RECONCILE_ONE_SYMBOLIC_OCCURRENCE,
+        _reconcile_expected(state, plan.iteration_plan_fingerprint),
+    )
+    with pytest.raises(OnlySearchProductSemanticFactCorrupt):
+        service.advance(dangling)
+    assert dangling.command_id not in authority.receipts
+    assert advanced.ledger.results == (None,)
+
+    del authority.receipts[inner_id]
+    del authority.admissions[inner_id]
+    commands.state = OnlyResearchRunState.QUEUED
+    service.advance(
+        OnlyAdvanceSearchExperimentV1(
+            _command_id(),
+            OnlySearchMethodV1.SYMBOLIC,
+            OnlySearchBoundedOperationV1.RECONCILE_ONE_SYMBOLIC_OCCURRENCE,
+            _reconcile_expected(state, plan.iteration_plan_fingerprint),
+        )
+    )
+    observed = cast(
+        OnlySymbolicExpectedStateV1,
+        query.get_ledger(OnlyGetSearchIterationLedgerV1(experiment)).expected_state,
+    )
+    correct = commands.runs[OnlyResearchRunId(inner_id.value)]
+    commands.runs[OnlyResearchRunId(inner_id.value)] = replace(
+        correct,
+        run_id=OnlyResearchRunId("00000000-0000-4000-8000-000000000999"),
+    )
+    mismatched = OnlyAdvanceSearchExperimentV1(
+        _command_id(),
+        OnlySearchMethodV1.SYMBOLIC,
+        OnlySearchBoundedOperationV1.RECONCILE_ONE_SYMBOLIC_OCCURRENCE,
+        _reconcile_expected(observed, plan.iteration_plan_fingerprint),
+    )
+    with pytest.raises(OnlySearchProductSemanticFactCorrupt):
+        service.advance(mismatched)
+    assert mismatched.command_id not in authority.receipts
+    assert (
+        query._adapters[OnlySearchMethodV1.SYMBOLIC]._provenance.terminal_result_for_plan_verified(  # type: ignore[attr-defined]
+            plan.iteration_plan_fingerprint
+        )
+        is None
+    )
+
+
+def test_symbolic_effect_assessment_distinguishes_pre_and_complete(tmp_path) -> None:
+    service, query, _authority, _commands, submit = _case(tmp_path)
+    experiment = service.submit(submit).experiment.experiment_fingerprint
+    adapter = query._adapters[OnlySearchMethodV1.SYMBOLIC]  # type: ignore[attr-defined]
+    initial = query.get_ledger(OnlyGetSearchIterationLedgerV1(experiment)).expected_state
+    command = OnlyAdvanceSearchExperimentV1(
+        _command_id(),
+        OnlySearchMethodV1.SYMBOLIC,
+        OnlySearchBoundedOperationV1.ADVANCE_ONE_SYMBOLIC_OCCURRENCE,
+        initial,
+    )
+    assert adapter.assess_advance_effect(command) is OnlySearchProductEffectStateV1.EXACT_PRE_STATE
+    service.advance(command)
+    assert adapter.assess_advance_effect(command) is OnlySearchProductEffectStateV1.COMPLETE_EXACT_EFFECT

@@ -14,12 +14,16 @@ from onlyalpha.application.search_product import (
     OnlySearchMethodV1,
     OnlySearchPlanExpectedStateV1,
     OnlySearchProductEffectConflict,
+    OnlySearchProductEffectStateV1,
     OnlySearchProductExpectedStateMismatch,
+    OnlySearchProductMethodUnsupported,
     OnlySearchProductSemanticFactCorrupt,
+    OnlySearchResearchRunReader,
     OnlySearchSubmitCommandV1,
     OnlySearchTerminalKindV1,
     OnlySearchTerminalProjectionV1,
     OnlySubmitParameterSearchExperimentV1,
+    only_load_search_research_run_exact,
 )
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.research.experiment import (
@@ -47,6 +51,7 @@ from .integration import (
     commit_feedback_plan_batch,
     parameter_submission_key,
     plans_for_feedback_decision,
+    resolve_parameter_research_candidate,
 )
 from .model import (
     PARAMETER_SEARCH_POLICY_KIND,
@@ -82,6 +87,7 @@ class OnlyParameterSearchProductAdapterV1:
         resolver: OnlyResearchSpecificationResolver,
         research_commands: OnlyParameterResearchCommandService,
         product_receipts: OnlyProductCommandReceiptAuthority | None = None,
+        research_runs: OnlySearchResearchRunReader | None = None,
     ) -> None:
         self._store = parameter_store
         self._evaluations = evaluation_store
@@ -91,7 +97,10 @@ class OnlyParameterSearchProductAdapterV1:
         self._evidence_reader = evidence_reader
         self._resolver = resolver
         self._research_commands = research_commands
+        if (product_receipts is None) != (research_runs is None):
+            raise ValueError("Research Receipt and Run Authorities must be configured together")
         self._product_receipts = product_receipts
+        self._research_runs = research_runs
         self._controller = OnlyParameterSearchControllerV1(
             parameter_store=parameter_store,
             provenance=provenance,
@@ -172,16 +181,12 @@ class OnlyParameterSearchProductAdapterV1:
         self._provenance.commit_experiment(experiment)
         exact = self.load_experiment_verified(experiment.experiment_fingerprint)
         self.verify_submit(command, exact)
-        if self._provenance.iteration_plans_for_experiment_verified(exact.experiment_fingerprint):
-            raise OnlySearchProductEffectConflict(exact.experiment_fingerprint)
-        if self._store.load_frontier_fingerprint(exact.experiment_fingerprint) is not None:
-            raise OnlySearchProductEffectConflict(exact.experiment_fingerprint)
         return exact
 
     def load_experiment_verified(self, experiment_fingerprint: str) -> OnlySearchExperimentManifestV3:
         experiment = self._provenance.load_experiment_verified(experiment_fingerprint)
         if not isinstance(experiment, OnlySearchExperimentManifestV3):
-            raise OnlySearchProductSemanticFactCorrupt(experiment_fingerprint)
+            raise OnlySearchProductMethodUnsupported(experiment_fingerprint)
         self._contexts.resolve_verified_context(experiment)
         return experiment
 
@@ -228,6 +233,22 @@ class OnlyParameterSearchProductAdapterV1:
             )
             if receipt is not None and receipt.outcome_ref.kind is not OnlyProductCommandOutcomeKind.RESEARCH_RUN:
                 raise OnlySearchProductEffectConflict(plan.iteration_plan_fingerprint)
+            if receipt is not None:
+                if self._research_runs is None or self._product_receipts is None:
+                    raise OnlySearchProductEffectConflict(plan.iteration_plan_fingerprint)
+                proposal = next(
+                    (item for item in context.proposals if item.proposal_fingerprint == plan.proposal_fingerprint),
+                    None,
+                )
+                if proposal is None:
+                    raise OnlySearchProductEffectConflict(plan.iteration_plan_fingerprint)
+                resolved = resolve_parameter_research_candidate(context, proposal, self._resolver)
+                only_load_search_research_run_exact(
+                    command_id=command_id,
+                    receipts=self._product_receipts,
+                    runs=self._research_runs,
+                    expected_specification=resolved.specification,
+                )
             states.append(
                 OnlySearchPlanExpectedStateV1(
                     plan.iteration_plan_fingerprint,
@@ -307,6 +328,74 @@ class OnlyParameterSearchProductAdapterV1:
             self._reconcile_or_recover(context, expected, actual)
             return
         raise OnlySearchProductExpectedStateMismatch(command.operation.value)
+
+    def assess_advance_effect(self, command: OnlyAdvanceSearchExperimentV1) -> OnlySearchProductEffectStateV1:
+        expected = command.expected_state
+        if not isinstance(expected, OnlyParameterExpectedStateV1):
+            return OnlySearchProductEffectStateV1.CONFLICT_OR_STALE
+        actual = self.expected_state(command.experiment_fingerprint)
+        if command.operation is OnlySearchBoundedOperationV1.ADVANCE_ONE_PARAMETER_DECISION:
+            if any(item.result_fingerprint is None for item in expected.frontier_plan_states):
+                raise OnlySearchProductExpectedStateMismatch("open Parameter batch requires reconciliation")
+            if actual == expected:
+                return OnlySearchProductEffectStateV1.EXACT_PRE_STATE
+            decisions = actual.ordered_feedback_decision_fingerprints
+            prefix = expected.ordered_feedback_decision_fingerprints
+            if decisions[: len(prefix)] != prefix or len(decisions) <= len(prefix):
+                return OnlySearchProductEffectStateV1.CONFLICT_OR_STALE
+            effect = self._store.load_feedback_decision_intrinsic_verified(decisions[len(prefix)])
+            context = self._contexts.resolve_verified_context(
+                self.load_experiment_verified(command.experiment_fingerprint)
+            )
+            if (
+                effect.experiment_fingerprint != command.experiment_fingerprint
+                or effect.start_iteration_index != expected.proposal_count
+            ):
+                return OnlySearchProductEffectStateV1.CONFLICT_OR_STALE
+            exact_plans = plans_for_feedback_decision(effect, context.proposals)
+            committed = {
+                item.iteration_plan_fingerprint
+                for item in self._provenance.iteration_plans_for_experiment_verified(command.experiment_fingerprint)
+            }
+            present = sum(item.iteration_plan_fingerprint in committed for item in exact_plans)
+            if present == len(exact_plans):
+                return OnlySearchProductEffectStateV1.COMPLETE_EXACT_EFFECT
+            if len(decisions) == len(prefix) + 1:
+                return OnlySearchProductEffectStateV1.PARTIAL_EXACT_EFFECT
+            return OnlySearchProductEffectStateV1.CONFLICT_OR_STALE
+        if command.operation is OnlySearchBoundedOperationV1.RECONCILE_OPEN_PARAMETER_BATCH:
+            if not expected.frontier_plan_states or all(
+                item.result_fingerprint is not None for item in expected.frontier_plan_states
+            ):
+                raise OnlySearchProductExpectedStateMismatch("Parameter reconcile requires an open Plan")
+            if actual == expected:
+                return OnlySearchProductEffectStateV1.EXACT_PRE_STATE
+            prefix = expected.ordered_feedback_decision_fingerprints
+            if actual.ordered_feedback_decision_fingerprints[: len(prefix)] != prefix:
+                return OnlySearchProductEffectStateV1.CONFLICT_OR_STALE
+            actual_by_plan = {item.plan_fingerprint: item for item in actual.frontier_plan_states}
+            witnessed = 0
+            unchanged = 0
+            for before in expected.frontier_plan_states:
+                if before.result_fingerprint is not None:
+                    continue
+                after = actual_by_plan.get(before.plan_fingerprint)
+                if after is None:
+                    if self._provenance.terminal_result_for_plan_verified(before.plan_fingerprint) is None:
+                        return OnlySearchProductEffectStateV1.CONFLICT_OR_STALE
+                    witnessed += 1
+                elif after == before:
+                    unchanged += 1
+                elif after.result_fingerprint is not None or after.research_product_command_id is not None:
+                    witnessed += 1
+                else:
+                    return OnlySearchProductEffectStateV1.CONFLICT_OR_STALE
+            if witnessed and not unchanged:
+                return OnlySearchProductEffectStateV1.COMPLETE_EXACT_EFFECT
+            if witnessed:
+                return OnlySearchProductEffectStateV1.PARTIAL_EXACT_EFFECT
+            return OnlySearchProductEffectStateV1.CONFLICT_OR_STALE
+        return OnlySearchProductEffectStateV1.CONFLICT_OR_STALE
 
     def verify_advance_effect(self, command: OnlyAdvanceSearchExperimentV1) -> None:
         expected = command.expected_state

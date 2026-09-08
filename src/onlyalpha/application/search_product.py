@@ -37,6 +37,7 @@ from onlyalpha.research.experiment import (
     OnlySearchWorkflowBindingV1,
 )
 from onlyalpha.research.experiment.model import OnlySearchExperimentManifest
+from onlyalpha.research.run.model import OnlyResearchRun, OnlyResearchRunId
 
 
 def _sha(value: object, field: str) -> str:
@@ -513,6 +514,8 @@ class OnlySearchProductMethodAdapter(Protocol):
 
     def apply_advance(self, command: OnlyAdvanceSearchExperimentV1) -> None: ...
 
+    def assess_advance_effect(self, command: OnlyAdvanceSearchExperimentV1) -> OnlySearchProductEffectStateV1: ...
+
     def verify_advance_effect(self, command: OnlyAdvanceSearchExperimentV1) -> None: ...
 
     def ledger(self, experiment_fingerprint: str) -> OnlySearchIterationLedgerProjectionV1: ...
@@ -554,7 +557,7 @@ class OnlySearchProductQueryServiceV1:
             try:
                 found.append((method, adapter, adapter.load_experiment_verified(experiment_fingerprint)))
             except Exception as exc:
-                if _is_not_found(exc) or isinstance(exc, OnlySearchProductSemanticFactCorrupt):
+                if _is_not_found(exc) or isinstance(exc, OnlySearchProductMethodUnsupported):
                     continue
                 raise
         if len(found) != 1:
@@ -610,7 +613,14 @@ class OnlySearchProductCommandServiceV1:
             experiment = self._verify_advance_receipt(adapter, command, admission, receipt)
             return self._response(adapter, receipt, experiment, replayed=True)
         experiment = adapter.load_experiment_verified(command.experiment_fingerprint)
-        adapter.apply_advance(command)
+        assessment = adapter.assess_advance_effect(command)
+        if assessment is OnlySearchProductEffectStateV1.CONFLICT_OR_STALE:
+            raise OnlySearchProductEffectConflict(command.experiment_fingerprint)
+        if assessment in {
+            OnlySearchProductEffectStateV1.EXACT_PRE_STATE,
+            OnlySearchProductEffectStateV1.PARTIAL_EXACT_EFFECT,
+        }:
+            adapter.apply_advance(command)
         adapter.verify_advance_effect(command)
         exact = adapter.load_experiment_verified(experiment.experiment_fingerprint)
         receipt = self._put_receipt(admission, exact.experiment_fingerprint)
@@ -758,9 +768,40 @@ def _adapter_map(
     return MappingProxyType(values)
 
 
+class OnlySearchResearchRunReader(Protocol):
+    """Transport-neutral exact reader for the owning Research Run Authority."""
+
+    def get_run(self, run_id: OnlyResearchRunId) -> OnlyResearchRun: ...
+
+
+def only_load_search_research_run_exact(
+    *,
+    command_id: OnlyProductCommandId,
+    receipts: OnlyProductCommandReceiptAuthority,
+    runs: OnlySearchResearchRunReader,
+    expected_specification: object | None = None,
+) -> OnlyResearchRun | None:
+    """Resolve a verified Product Receipt through the owning Research Run Authority."""
+
+    receipt = receipts.load_verified_receipt(command_id)
+    if receipt is None:
+        return None
+    if receipt.outcome_ref.kind is not OnlyProductCommandOutcomeKind.RESEARCH_RUN:
+        raise OnlySearchProductSemanticFactCorrupt(command_id.value)
+    try:
+        expected_id = OnlyResearchRunId(receipt.outcome_ref.outcome_id)
+        loaded = runs.get_run(expected_id)
+    except Exception as exc:
+        raise OnlySearchProductSemanticFactCorrupt(receipt.outcome_ref.outcome_id) from exc
+    if not isinstance(loaded, OnlyResearchRun) or loaded.run_id != expected_id:
+        raise OnlySearchProductSemanticFactCorrupt(receipt.outcome_ref.outcome_id)
+    if expected_specification is not None and loaded.specification != expected_specification:
+        raise OnlySearchProductSemanticFactCorrupt(receipt.outcome_ref.outcome_id)
+    return loaded
+
+
 def _is_not_found(exc: Exception) -> bool:
-    code = str(getattr(exc, "code", ""))
-    return code.endswith("_NOT_FOUND") or "NOT_FOUND" in str(exc)
+    return getattr(exc, "code", None) == "SEARCH_EXPERIMENT_NOT_FOUND"
 
 
 __all__ = [name for name in globals() if name.startswith("Only")]

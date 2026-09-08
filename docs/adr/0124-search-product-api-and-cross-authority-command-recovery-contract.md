@@ -303,6 +303,20 @@ method-specific expected-state and effect witnesses for Advance
 
 Missing, corrupt, unsupported, dangling, or mismatched facts fail closed. Repair-by-replacement is forbidden.
 
+### Exact cross-Authority fact clarification
+
+Cross-Authority recovery proof terminates at the Authority that owns each claimed semantic fact. The following rules are normative:
+
+1. Later legal Search descendants never invalidate an already exact-proven Submit Experiment effect. Submit historical proof ends
+   after exact-loading the intended Experiment and verifying all method resources bound by that Experiment; the absence of later
+   Plans, Enumeration, Feedback Decisions, frontier, or terminal facts is only a fresh-execution side-effect bound.
+2. An optional fact is `ABSENT` only when its owning Authority returns the exact canonical `NOT_FOUND` result for the exact locator.
+   Contextual verification failure, corruption, non-canonical bytes, unsafe paths, schema errors, dependency unavailability, and
+   reference mismatch are `UNVERIFIABLE`, never absence, and fail closed.
+3. A Product Receipt outcome reference is never sufficient semantic-effect proof by itself. Recovery must exact-load the referenced
+   fact from its owning Authority and require exact identity equality. In particular, a Research Product Receipt used by Search must
+   exact-resolve its referenced Research Run through the Research Run Authority before it may witness reconciliation.
+
 ### Submit crash and retry model
 
 Submit derives the exact Search Experiment identity before publication from the complete canonical semantic inputs. It then follows:
