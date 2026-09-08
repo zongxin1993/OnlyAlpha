@@ -323,16 +323,28 @@ Call Plans, Tool Call Results, Agent Decisions and Agent-to-Search Launch Record
 must be durable before it can cause formal work, an unknown model outcome fails closed without automatic re-call, and historical replay
 uses the recorded result rather than invoking the model again.
 
-One successful first cycle launches exactly one child ADR 0121/0122 Search Experiment and no Session may launch more than one.
-`REUSE_EXISTING` uses a singleton deterministic ADR 0121 child restricted to the exact registered semantics; it creates no parallel
-reuse engine or identity. The cycle reads authoritative Evidence, persists one Next Experiment Proposal and stops. A pre-launch
-capability gap or invalid/policy-blocked input terminates fail closed without pretending the cycle completed. The child Search Experiment
-retains its own identity and deterministic internal Authority. Agent lineage stays in the Agent Launch Record and never enters B3.2/B3.3
-Plan, Feedback Decision or algorithm inputs. The next proposal is not automatically executed.
+Every workflow, prompt, structured-output schema, Tool Policy, Role Policy and model-execution-policy fingerprint resolves exact typed
+content through one immutable Agent Orchestration Resource Authority. Historical facts remain exact-loadable after upgrades. Current
+code may continue or reproduce a Session only when its derived workflow implementation manifest exactly matches the Session-bound
+manifest; mismatch fails closed without invalidating history.
 
-The current Product API already supplies Discovery, Definition Resolve, Research Run and Research Evidence operations. Future B3.4
-implementation must add exact-Catalog-context and Search command/query operations as projections/adapters over existing Authorities;
-it must not create an Agent-specific Search engine, Research runtime, Candidate, Result store or direct database/Core-internal path.
+Every Agent-visible Product API invocation, including Catalog queries and pure resolve calls, requires a durable Tool Call Plan before
+I/O and an exact validated Tool Call Result afterward. One successful first cycle follows exactly one mutually exclusive bounded formal
+evaluation path: `REUSE_EXISTING` performs Catalog/Definition Resolve followed by direct Research Run submit/query and Evidence query
+with zero child Search Experiments; `SYMBOLIC_SEARCH` launches one bounded ADR 0121 child; `PARAMETER_SEARCH` launches one bounded ADR
+0122 child. No Session may launch more than one child Search. `CAPABILITY_GAP` performs no evaluation and terminates pre-launch.
+
+The cycle reads authoritative Evidence, persists one Next Experiment Proposal and stops. A capability gap or invalid/policy-blocked
+input terminates fail closed without pretending the cycle completed. A Symbolic/Parameter child Search Experiment retains its own
+identity and deterministic internal Authority. Agent lineage stays in the optional Agent Launch Record and never enters B3.2/B3.3 Plan,
+Feedback Decision or algorithm inputs. Direct REUSE has no Launch Record and creates no reuse-specific Authority. The next proposal is
+not automatically executed.
+
+The current Product API already supplies Discovery, Definition Resolve, idempotent Research Run submission/query and Research Evidence
+operations; that existing chain is sufficient for direct REUSE and does not require Symbolic Search submission. Future B3.4
+implementation must add exact-Catalog-context and Search command/query operations as projections/adapters over existing Authorities for
+the Search branches; it must not create an Agent-specific Search engine, Research runtime, Candidate, Result store or direct
+database/Core-internal path.
 
 ## 10. Research evidence is machine-readable authority
 

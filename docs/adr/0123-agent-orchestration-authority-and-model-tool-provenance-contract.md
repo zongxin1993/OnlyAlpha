@@ -98,6 +98,105 @@ All new immutable objects use the existing canonical JSON and lower-case SHA-256
 decision-affecting semantic field and excludes wall-clock time, host, PID, path, HTTP metadata, display state, logs, secret material,
 and operational cost telemetry.
 
+### Final contract closure: immutable orchestration resource Authority
+
+The first design used workflow, prompt, schema, tool-policy, role-policy, and model-execution-policy fingerprints as bindings but did
+not require each fingerprint to resolve exact historical content. A bare digest cannot prove replay. This amendment introduces one
+conceptual authority:
+
+```text
+Agent Orchestration Immutable Resource Authority
+```
+
+It is the sole Authority for every immutable Agent orchestration resource. It does not create one Authority per resource kind and does
+not own any Catalog, Dataset, Search, Research, Evidence, Qualification, Admission, Promotion, Strategy, or LIVE fact.
+
+`OnlyAgentOrchestrationResourceV1` is a strict discriminated envelope containing:
+
+```text
+schema_version = 1
+resource_kind
+resource_schema_version
+resource_semantic_version
+canonical_payload
+resource_fingerprint
+```
+
+`resource_kind` is exactly one of:
+
+```text
+AGENT_WORKFLOW_IMPLEMENTATION_MANIFEST
+PROMPT_TEMPLATE
+STRUCTURED_OUTPUT_SCHEMA
+TOOL_POLICY
+ROLE_POLICY
+MODEL_EXECUTION_POLICY
+```
+
+The Authority computes `resource_fingerprint` from the resource kind, both versions, and complete canonical payload; it never accepts
+a caller-trusted digest as proof. Its one typed Store is content-addressed, put-once, canonical-byte verified, and exposes exact commit
+and `load_resource_verified(resource_kind, resource_fingerprint)` semantics. A reader requires the expected kind and schema, recomputes
+the fingerprint, validates the complete type-specific payload, and returns exact immutable content. Missing content, a kind/schema or
+fingerprint mismatch, non-canonical bytes, conflicting content, unsafe path, or unknown version fails closed as
+`AGENT_ORCHESTRATION_RESOURCE_MISSING` or `AGENT_ORCHESTRATION_RESOURCE_MISMATCH`.
+
+There is no latest, current, nearest, equivalent, fallback, Store scan, caller-supplied SHA admission, or reconstruction from the
+currently installed package. Identical recommit returns `REUSED`; history is never overwritten.
+
+Type-specific payloads freeze:
+
+- `PROMPT_TEMPLATE`: exact canonical template text/bytes, template format/version, declared ordered variables, and rendering semantics,
+  sufficient to answer which template a historical Model Call bound without current package code;
+- `STRUCTURED_OUTPUT_SCHEMA`: exact canonical strict schema, schema dialect/version, root type, unknown-field rejection, enums, and
+  reference-field rules used to validate the historical response;
+- `TOOL_POLICY`: complete ordered allowed tool classes, operation constraints, query/command classification, identity requirements,
+  and explicit forbidden capabilities;
+- `ROLE_POLICY`: exact role identity, responsibility boundary, permitted prompt/schema/model-policy bindings, tool subset, input/output
+  contracts, and terminal behavior;
+- `MODEL_EXECUTION_POLICY`: exact setting names and semantics, supported/required/absent provider settings, retry rules, no-fallback
+  rule, output handling, and secret exclusion;
+- `AGENT_WORKFLOW_IMPLEMENTATION_MANIFEST`: the executable resource closure defined below.
+
+Every resource fingerprint already named by Brief, Session, Model Call Plan, Tool Call Plan, or Agent Decision is henceforth an exact
+typed reference into this single Authority. A syntactically valid SHA without exact verified resolution is invalid provenance.
+
+### Agent Workflow Implementation Manifest and runtime admission
+
+`OnlyAgentWorkflowImplementationManifestV1` is the payload of the workflow resource and binds:
+
+```text
+workflow_id
+workflow_semantic_version
+source_revision
+ordered logical executable/source/package resources with byte SHA-256
+distribution/package provenance when applicable
+implementation_fingerprint
+```
+
+The ordered closure includes every executable resource capable of changing Brief admission, role sequencing, resource resolution,
+Model/Tool Plan construction, structured validation, Agent Decision transformation, budget accounting, recovery classification, and
+the one-cycle terminal outcome. `implementation_fingerprint` is derived from the complete ordered semantic manifest fields preceding
+it—workflow ID/version, source revision, resource closure, and distribution/package provenance—and explicitly excludes the
+`implementation_fingerprint` field itself. The outer orchestration `resource_fingerprint` then covers the complete canonical payload,
+including that computed implementation fingerprint. Neither fingerprint is an arbitrary constructor argument or a digest of only a
+package version.
+
+Historical exact-load and current execution admission are separate:
+
+```text
+Session → exact stored historical workflow resource A → historical verification PASS
+
+current runtime derives workflow resource B
+B == A → continuation/reproduction eligible
+B != A → AGENT_WORKFLOW_RUNTIME_MISMATCH
+```
+
+Historical Briefs, Sessions, resources, Plans, Results, Decisions, and observed responses exact-load without importing or comparing the
+currently installed workflow. A code upgrade therefore cannot invalidate history. Before current code may continue a Session, rebuild
+a missing downstream Decision, reproduce a historical transformation, invoke another Tool, or publish a new Session fact, it derives
+its manifest from actual explicit runtime resources and must equal the Session-bound historical manifest in full. A mismatch blocks
+execution but does not mutate or invalidate any historical fact.
+
 ### Agent Research Brief V1
 
 `OnlyAgentResearchBriefV1` is the immutable, structured entry point. It binds exactly:
@@ -151,6 +250,7 @@ agent_workflow_id
 agent_workflow_semantic_version
 agent_workflow_implementation_fingerprint
 agent_workflow_source_revision
+workflow_implementation_resource_fingerprint
 tool_policy_fingerprint
 ordered_role_policy_fingerprints
 session_fingerprint
@@ -161,9 +261,11 @@ roles. These roles are not independent Authorities or services. The exact workfl
 deterministic downstream replay. A package upgrade does not invalidate historical facts, but a different implementation cannot claim
 to reproduce or continue a historical Session unless its complete binding matches.
 
-The Session-level `tool_policy_fingerprint` freezes the complete V1 allowlist for the Session and every Model/Tool Call Plan must equal
-it. Session progress and terminal state are derived from its immutable occurrence facts. A mutable `session.status` field, in-memory
-conversation, or provider thread is never the sole truth.
+`workflow_implementation_resource_fingerprint` exact-loads one workflow resource whose ID, semantic version, implementation fingerprint,
+and source revision must equal the duplicated searchable bindings above; disagreement fails closed. `tool_policy_fingerprint` and every
+ordered role-policy fingerprint exact-load the matching typed resource. The Session-level Tool Policy freezes the complete V1 allowlist
+and every Model/Tool Call Plan must bind that same exact resource. Session progress and terminal state are derived from its immutable
+occurrence facts. A mutable `session.status` field, in-memory conversation, or provider thread is never the sole truth.
 
 ### Catalog-first Search Router V1
 
@@ -213,25 +315,26 @@ the expected single-cycle terminal boundary. It is planning provenance, not a Re
 exact reused capability references, the complete child Symbolic/Parameter Search configuration references, or the structured
 capability-gap references required by that action. Contradictory or extra action payload fields are invalid.
 
-`OnlyAgentNextExperimentProposalV1` binds the exact completed child Search terminal fact, exact Research Result/Statistics references
-consumed by the Evidence Analyst, structured observations that make no new numeric claim, and one proposed follow-up Brief delta. The
-delta is advisory data only and cannot mutate the current Brief or become a command.
+`OnlyAgentNextExperimentProposalV1` binds the exact completed evaluation path: either the child Search terminal fact or the direct
+REUSE Research Run/Result references, plus exact Research Statistics references consumed by the Evidence Analyst, structured
+observations that make no new numeric claim, and one proposed follow-up Brief delta. The delta is advisory data only and cannot mutate
+the current Brief or become a command.
 
 Each Decision binds the Session, role, ordinal, exact ordered Model Call Result and Tool Call Result inputs, exact immutable context
 references, decision schema/version, structured payload fingerprint, workflow implementation fingerprint, and decision fingerprint.
 Unknown fields, unknown enum values, approximate references, or inputs outside the Session fail closed.
 
-`OnlyAgentSearchDirectiveV1` contains one router action and the exact configuration/reference needed by that action. A Search action
-may configure only a bounded child ADR 0121 or ADR 0122 Experiment whose Catalog, Dataset, and Evaluation bindings equal the Brief.
-`REUSE_EXISTING` names an exact Catalog capability. `CAPABILITY_GAP` carries structured missing-capability references and causes no
-Tool Plan for formal work.
+`OnlyAgentSearchDirectiveV1` contains one router action and the exact configuration/reference needed by that action. Symbolic and
+Parameter actions may configure only a bounded child ADR 0121 or ADR 0122 Experiment whose Catalog, Dataset, and Evaluation bindings
+equal the Brief. `REUSE_EXISTING` names an exact admitted capability or exact already-resolved graph from the bound Catalog and proceeds
+through normal Research without a Search Experiment. `CAPABILITY_GAP` carries structured missing-capability references and causes no
+formal evaluation.
 
-For `REUSE_EXISTING`, the successful V1 execution form is one singleton deterministic ADR 0121 child Experiment. Its verified Search
-Space is restricted to the exact already-registered Factor/Candidate graph and its required exact inputs, its deterministic Enumeration
-contains exactly that one Proposal, and its proposal limit is one. This reuses ADR 0121's existing Space, Proposal, Enumeration,
-Candidate, Research, and Result authorities; it creates no reuse-specific Search method or identity. The Agent invokes it through the
-allowed `SYMBOLIC_SEARCH` tool class. If the claimed exact registered semantics cannot form that verified singleton ADR 0121 context,
-the directive is invalid rather than silently falling through to another route.
+The earlier singleton ADR 0121 mapping for `REUSE_EXISTING` is superseded and rejected. REUSE never constructs a Symbolic Search Space,
+Proposal, Enumeration, Iteration, or Search Experiment and never invokes the `SYMBOLIC_SEARCH` tool class. A Brief whose allowed methods
+are exactly `{REUSE_EXISTING}` can complete with only Catalog, Definition Resolve, Research Run, and Research Evidence tool permissions.
+If the exact capability/graph cannot be verified and the frozen Router semantics permit `CAPABILITY_GAP`, the Session records that
+terminal outcome; otherwise it fails closed. It never silently falls through to Symbolic or Parameter Search.
 
 `OnlyAgentNextExperimentProposalV1` is advisory, immutable authoring output. B3.4 V1 persists it and ends the Session. It has no
 automatic execution transition, command identity, Search Experiment identity, Qualification effect, Promotion effect, or LIVE
@@ -246,6 +349,7 @@ schema_version = 1
 agent_session_fingerprint
 call_ordinal
 logical_role
+role_policy_fingerprint
 provider_id
 model_id
 model_version
@@ -259,6 +363,11 @@ parent_agent_decision_fingerprint | null
 retry_of_plan_fingerprint | null
 model_call_plan_fingerprint
 ```
+
+The role, prompt-template, structured-output-schema, Tool Policy, and model-execution-policy fingerprints must exact-load their matching
+typed resources through the Agent Orchestration Immutable Resource Authority before the Plan may be committed or invoked. The role
+policy must belong to the Session's ordered role-policy set and all cross-resource bindings must agree. A bare or unresolved fingerprint
+fails closed before external I/O.
 
 `response_affecting_settings` is a strict, versioned structure containing every applicable provider setting, including temperature,
 top-p, maximum output tokens, provider-supported seed, and any other response-affecting provider option. Unsupported or absent values
@@ -339,11 +448,12 @@ Every Session binds an exact allowlist policy. B3.4 V1 permits only these tool c
 ```text
 EXACT_CATALOG_CONTEXT_QUERY
 RESEARCH_DEFINITION_RESOLVE
+RESEARCH_RUN_SUBMIT
+RESEARCH_RUN_QUERY
+RESEARCH_EVIDENCE_QUERY
 SYMBOLIC_SEARCH
 PARAMETER_SEARCH
 SEARCH_QUERY
-RESEARCH_RUN_QUERY
-RESEARCH_EVIDENCE_QUERY
 ```
 
 It explicitly forbids:
@@ -362,8 +472,9 @@ PROMOTION
 ASSET_ADMISSION
 ```
 
-`OnlyAgentToolCallPlanV1` is the sole tool-invocation occurrence Authority and is committed before a command that can create formal
-work. It binds:
+`OnlyAgentToolCallPlanV1` is the sole tool-invocation occurrence Authority. It must be committed before every Agent-visible invocation,
+including exact queries, pure resolve calls, Search commands, Research commands, and Evidence queries. Read-only I/O is not exempt. It
+binds:
 
 ```text
 schema_version = 1
@@ -374,6 +485,7 @@ tool_class
 product_api_major
 product_api_contract_fingerprint
 operation_identity
+canonical_validated_request
 canonical_request_fingerprint
 exact_identity_inputs
 product_command_id_or_idempotency_key | null
@@ -381,9 +493,26 @@ tool_policy_fingerprint
 tool_call_plan_fingerprint
 ```
 
+`canonical_validated_request` or an exact immutable request-object reference preserves enough content to reconstruct the identical
+request; its complete canonical bytes must match `canonical_request_fingerprint`. The Plan's Tool Policy fingerprint exact-loads the
+Session-bound Tool Policy resource, admits the tool class and operation, and verifies the query/command classification before commit.
+
 `operation_identity` is a stable Product API operation identity. A Tool Plan can address only the canonical versioned Product API;
 it cannot contain a database operation, Store path, internal Python callable, Engine object, Worker lease, arbitrary URL, shell, or
 Broker credential. Command operations must freeze the owning Product API's required command/idempotency identity before dispatch.
+
+The universal occurrence order is:
+
+```text
+commit Tool Call Plan
+→ invoke exact Product API operation
+→ validate exact response
+→ commit Tool Call Result
+```
+
+No response may enter a Model Call context or Agent Decision unless this complete occurrence chain exists. `tool_call_limit` counts all
+committed Tool Call Plans, Query and Command alike. Re-executing the same eligible Plan during type-specific recovery is the same
+occurrence and consumes no second Tool budget unit; a genuinely new Plan consumes one.
 
 ### Tool Call Result V1 and Product-command recovery
 
@@ -393,34 +522,53 @@ Broker credential. Command operations must freeze the owning Product API's requi
 schema_version = 1
 tool_call_plan_fingerprint
 outcome
+observed_response_storage_kind | null
+canonical_validated_response | null
+exact_immutable_response_reference | null
 canonical_response_fingerprint | null
 owning_authority_references
 failure_code | null
 tool_call_result_fingerprint
 ```
 
-Tool Result outcome is exactly `SUCCEEDED`, `FAILED`, or `RESULT_INVALID`. `SUCCEEDED` requires a canonical response fingerprint and
-the operation's complete exact owning-authority references. Failure/invalid outcomes require the matching stable failure and cannot
-authorize a downstream Decision. An ambiguous command transport outcome remains an unresolved Plan while reconciliation uses its
-same Product Command identity; it is not converted into a false terminal Result.
+Tool Result outcome is exactly `SUCCEEDED`, `FAILED`, or `RESULT_INVALID`. `SUCCEEDED` requires either the complete canonical validated
+response or an exact immutable response-object reference, never both; `observed_response_storage_kind` discriminates that one-of choice.
+It also requires the matching canonical response fingerprint and the operation's complete exact owning-authority references. The Result
+reader exact-loads the chosen content and recomputes and verifies the response fingerprint before use. Failure/invalid
+outcomes require the matching stable failure and cannot authorize a downstream Decision. An ambiguous command transport outcome remains
+an unresolved Plan while reconciliation uses its same Product Command identity; it is not converted into a false terminal Result.
 
-The Result records the exact response projection and exact identities/references returned by the owning API. It does not copy Search
-ledgers, Research metrics, Qualification outcomes, or Catalog content into a second Authority. Before use, references are resolved
-through their canonical exact readers and the returned identities must match. Invalid, ambiguous, missing, corrupt, or policy-disallowed
-results fail closed as `AGENT_TOOL_RESULT_INVALID` or `AGENT_POLICY_VIOLATION`.
+The Result preserves the exact historical response projection that entered a later Model Call or Agent Decision, including exact
+receipt/resource/revision identities returned by the owning API. For a response backed by mutable operational state, this is the
+validated commit-time projection and its exact revision, receipt, or immutable owning reference; historical loading verifies the
+stored projection and those references and never compares it blindly with the owning API's latest mutable projection.
 
-For a query, a failed/unknown transport response may be repeated only as a new query occurrence or reconciled according to its exact
-read semantics; it cannot fabricate a prior result. For a command with an ambiguous HTTP outcome, recovery reuses the same committed
-Tool Call Plan and the same owning Product Command/idempotency identity to query or replay the owning API's idempotent admission path.
-That is reconciliation of one occurrence, not permission to submit a new work identity. Conflicting receipt/resource identity fails
-closed. No process-local assumption or blind new command is permitted.
+This projection is occurrence provenance, not a second Catalog, Search, Research, Evidence, Qualification, or Run Authority. It does
+not silently copy an owning ledger or metric into Agent ownership. Exact references remain governed by their canonical readers, and
+the response identities must agree with the Tool Plan and owning Product API. Invalid, ambiguous, missing, corrupt, mismatched, or
+policy-disallowed results fail closed as `AGENT_TOOL_RESULT_INVALID` or `AGENT_POLICY_VIOLATION`.
 
-### Agent Session and child Search Experiment
+Recovery is frozen by occurrence type:
 
-An Agent Session may launch at most one child Search Experiment in V1. A successful V1 cycle launches exactly one; a
-pre-launch `CAPABILITY_GAP`, invalid model/tool result, policy violation, or exhausted budget terminates fail closed without pretending
-the cycle completed. Before launch, the Model Result, Agent Search Directive, and Tool Call Plan are durable. The child Experiment is
-created through the future Product API using the existing ADR 0120/0121/0122 authorities.
+1. A probabilistic Model Plan with unknown outcome is terminal `AGENT_MODEL_CALL_OUTCOME_UNKNOWN`; retry requires a new Model Plan and
+   is not historical replay.
+2. An exact immutable, side-effect-free query with no terminal Result may re-execute the same Tool Plan and byte-identical validated
+   request. It remains one occurrence, consumes no additional Tool budget, and must converge on the same exact-addressed authority
+   content. A query whose contract can observe changing state cannot use same-Plan replay; ambiguity fails closed, and any later fresh
+   observation requires a new Tool Plan.
+3. An idempotent command with an ambiguous transport outcome reuses the same Tool Plan and the same Product Command ID/idempotency key
+   to query or replay the owning API's idempotent admission path. This reconciles one occurrence and never authorizes a new work identity.
+
+Conflicting response, receipt, or resource identity fails closed. No process-local assumption, blind retry, or fabricated prior result
+is permitted.
+
+### Agent Session and optional child Search Experiment
+
+An Agent Session chooses exactly one mutually exclusive Router path. `SYMBOLIC_SEARCH` or `PARAMETER_SEARCH` may launch at most one
+child Search Experiment in V1. `REUSE_EXISTING` launches none and instead performs one direct normal Research evaluation through the
+existing Product API. `CAPABILITY_GAP` launches and evaluates nothing. Invalid model/tool result, policy violation, or exhausted budget
+terminates fail closed without pretending the cycle completed. Before any Search launch or direct Research submission, the Model
+Result, Agent Search Directive, and corresponding Tool Call Plan are durable.
 
 `OnlyAgentExperimentLaunchRecordV1` binds:
 
@@ -433,10 +581,19 @@ child_search_experiment_fingerprint
 experiment_launch_record_fingerprint
 ```
 
-The Launch Record is the exclusive Agent-to-child lineage Authority. It neither changes nor enters the child Search Experiment's own
-identity. Agent Decision, Model Call, and Tool Call fingerprints must not be injected into B3.2/B3.3 internal Plan, Feedback Decision,
-algorithm, Proposal, or decision-input/tool-result context. The child preserves its own Search hypothesis, Search Space, Evaluation,
-Catalog, Dataset, algorithm, budget, and internal decision Authority.
+The Launch Record exists only for an actual Symbolic or Parameter child Search and is the exclusive Agent-to-child lineage Authority.
+It neither changes nor enters the child Search Experiment's own identity. Agent Decision, Model Call, and Tool Call fingerprints must
+not be injected into B3.2/B3.3 internal Plan, Feedback Decision, algorithm, Proposal, or decision-input/tool-result context. The child
+preserves its own Search hypothesis, Search Space, Evaluation, Catalog, Dataset, algorithm, budget, and internal decision Authority.
+
+REUSE has no Launch Record and no new direct-Research launch Authority. Its durable causality is:
+
+```text
+Agent Decision
+→ Tool Call Plan(RESEARCH_RUN_SUBMIT, exact Specification, Product Command ID/idempotency key)
+→ Tool Call Result(exact receipt/Run references)
+→ exact Research Run/Result/Evidence references
+```
 
 Correct authority direction is:
 
@@ -454,10 +611,10 @@ inputs remain only the exact durable Result/Evidence prefix admitted by ADR 0122
 
 ### Immutable persistence contract
 
-Every Brief, Session Manifest, Model Call Plan/Result, Tool Call Plan/Result, Agent Decision, and Experiment Launch Record is canonical,
-content-addressed, put-once, exact-load verified, and append-only. Identical recommit returns `REUSED`; different content under an
-occupied identity, a second different terminal Result for one Plan, a conflicting ordinal, unsafe path, non-canonical bytes, unknown
-schema, or fingerprint mismatch fails closed and never overwrites history.
+Every orchestration resource, Brief, Session Manifest, Model Call Plan/Result, Tool Call Plan/Result, Agent Decision, and applicable
+Experiment Launch Record is canonical, content-addressed, put-once, exact-load verified, and append-only. Identical recommit returns
+`REUSED`; different content under an occupied identity, a second different terminal Result for one Plan, a conflicting ordinal, unsafe
+path, non-canonical bytes, unknown schema, or fingerprint mismatch fails closed and never overwrites history.
 
 One Model Call Plan has at most one terminal Model Call Result. One Tool Call Plan has at most one terminal Tool Call Result. Session
 model/tool/decision ordinals are contiguous per occurrence kind, and recovery derives the next ordinal from the verified immutable
@@ -465,23 +622,28 @@ prefix. Stores expose no update, delete/recreate, latest, nearest, fuzzy, best, 
 
 ### One-cycle B3.4 V1
 
-The complete successful V1 cycle is exactly:
+The complete successful V1 cycle follows exactly one bounded formal evaluation path:
 
 ```text
 Structured Research Brief
 → Research Planner
 → Catalog-first Search Router
 → Factor Designer
-→ exactly one bounded child Search/Research Experiment
+→ exactly one of:
+   REUSE_EXISTING: zero child Search Experiments + one direct Research evaluation
+   SYMBOLIC_SEARCH: one bounded ADR 0121 child Search Experiment
+   PARAMETER_SEARCH: one bounded ADR 0122 child Search Experiment
 → authoritative Evidence
 → Evidence Analyst
 → persisted Next Experiment Proposal
 → Session COMPLETE
 ```
 
-The child Experiment uses its own ADR 0120 Search budget. The Session uses its separate Agent budget with
-`child_experiment_limit = 1`. The Next Experiment Proposal is not automatically executed. Continuing research requires a new explicitly
-admitted Session/Brief occurrence under a future contract; V1 has no autonomous loop.
+The three successful branches are mutually exclusive as derived from the durable Router Decision, Tool Plans/Results, optional Launch
+Record, and owning Search/Research facts. A child Experiment uses its own ADR 0120 Search budget. The Session's separate
+`child_experiment_limit = 1` bounds only the Symbolic/Parameter branches and remains zero-consumed for REUSE. The Next Experiment
+Proposal is not automatically executed. Continuing research requires a new explicitly admitted Session/Brief occurrence under a future
+contract; V1 has no autonomous loop.
 
 `AGENT_CAPABILITY_GAP` is the one Router-defined pre-launch terminal exception. It persists the structured `CAPABILITY_GAP` Decision,
 creates no Tool Call Plan for formal work and no Launch Record, and terminates the Session fail closed. It is not `Session COMPLETE`,
@@ -515,13 +677,15 @@ Research Result, and qualification outcomes by QualificationDecision.
 | Tool invocation occurrence | Agent Tool Call Plan |
 | Tool exact result/reference | Agent Tool Call Result |
 | Agent orchestration decision | Agent Decision provenance |
-| Agent-to-Search launch linkage | Agent Experiment Launch Record |
+| Immutable workflow/prompt/schema/policy resources | Agent Orchestration Immutable Resource Authority |
+| Agent-to-Search launch linkage, when a Search child exists | Agent Experiment Launch Record |
 | Search hypothesis/iteration/proposal provenance | ADR 0120 Search Provenance |
 | Symbolic Search semantics and ordered output | ADR 0121 |
 | Parameter adaptive Search semantics and STOP | ADR 0122 |
 | Catalog contents | Catalog Generation |
 | Dataset | Dataset Snapshot |
 | Candidate identity | Calculation / Research Resolver |
+| Research Run identity, admission, and state | Research Product Command / Run Authority |
 | Scientific numeric facts | Research Statistics |
 | Evidence membership | Research Result |
 | Qualification PASS/FAIL | QualificationDecision |
@@ -529,7 +693,9 @@ Research Result, and qualification outcomes by QualificationDecision.
 | Promotion | Promotion Authority |
 | LIVE activation/change/material risk authorization | Explicit Human LIVE Authority |
 
-No Agent fact changes the meaning or content of a referenced Authority.
+No Agent fact changes the meaning or content of a referenced Authority. There is no REUSE Authority: REUSE is a Router action whose
+direct Research work and results remain owned by the existing Research Product Command, Run, Result, and Statistics authorities. The
+orchestration resource Authority owns only immutable orchestration resources and no Product fact.
 
 ### Exact Catalog Context projection
 
@@ -581,6 +747,7 @@ implemented by this decision.
 |---|---|---|---|---|---|---|---|
 | Exact Catalog Context Query | Query / missing | Existing Catalog Generation plus existing capability authorities; projection owns no source fact | exact Catalog Generation fingerprint and projection schema version | exact generation plus ordered verified projection and projection fingerprint | same exact inputs return byte-equivalent canonical projection | missing/corrupt/mismatched generation or capability fails closed; re-query exact generation, never latest | B3.4.1 |
 | Research Definition Resolve | Command-like pure resolve / existing | Existing Research Definition/Specification Resolver | exact authoring Definition and frozen Dataset/Catalog-relevant references | resolved Definition, exact Specification and Candidate fingerprints | deterministic same input; creates no Run | schema/semantic/reference failure is final; correct input creates a new request | existing, reused in B3.4.3 |
+| Research Run Submit | Command / existing | Existing Research Product Command / Run Authority | UUID4 Idempotency-Key plus exact resolved Research Specification and required execution bindings | durable command receipt and exact canonical Run ID/reference | same key plus same canonical intent converges; conflicting intent fails closed | reconcile/query or replay admission with the same key; never create a second Run identity | existing, required by REUSE in B3.4.3 |
 | Symbolic Search Submit | Command / missing | ADR 0120 Experiment plus ADR 0121 Space/Evaluation/Algorithm/Enumeration authorities | Product Command ID, exact Brief-derived Catalog/Dataset/Evaluation, Search Space, algorithm and Search budgets, deterministic decision binding | Product receipt and exact Search Experiment fingerprint | same command ID plus same canonical intent converges; conflicting intent fails closed | reconcile receipt/Experiment by same command ID; no duplicate Experiment or Agent-specific store | B3.4.1 |
 | Parameter Search Submit | Command / missing | ADR 0120 Experiment plus ADR 0122 Space/Policy/Algorithm authorities | Product Command ID, exact Brief-derived Catalog/Dataset/Evaluation, Search Space, Search Policy, algorithm and budgets | Product receipt and exact Search Experiment fingerprint | same command ID plus same canonical intent converges; conflict fails closed | reconcile receipt/Experiment by same command ID; no duplicate Experiment | B3.4.1 |
 | Search Advance/Reconcile | Command / missing | ADR 0121 execution or ADR 0122 Controller plus existing Product Command/Research Run authorities | Product Command ID, exact Experiment fingerprint, expected durable frontier/ledger references and requested bounded action | receipt plus exact created/reused Plan, Result, Feedback Decision, STOP, or owning Run references | expected-frontier CAS and same command ID/intent converge; stale/conflicting frontier fails | reconstruct eligibility from exact durable authorities; reconcile existing Run receipt; never blind resubmit or skip barrier | B3.4.1 |
@@ -593,6 +760,11 @@ implemented by this decision.
 Commands must return only after their durable owning intent/receipt boundary. HTTP transport owns no Search transition. Advance does not
 mean an Agent can mutate a ledger; it asks the canonical method controller to perform the one transition admitted by exact current
 facts. Query operations expose exact existing Authorities and no mutable generic Search status.
+
+The REUSE branch uses `Exact Catalog Context Query → Research Definition Resolve → Research Run Submit → Research Run Query → Research
+Evidence Query`; only the first exact historical Catalog projection is a future B3.4.1 surface, while the remaining Product operations
+already exist. REUSE does not require or permit `Symbolic Search Submit`. Symbolic and Parameter branches alone use their corresponding
+Search submission and launch linkage.
 
 ### Product API and security boundary
 
@@ -636,6 +808,9 @@ naming rule and a separately accepted boundary decision. No path is created by B
 B3.4 workflow failures are:
 
 ```text
+AGENT_ORCHESTRATION_RESOURCE_MISSING
+AGENT_ORCHESTRATION_RESOURCE_MISMATCH
+AGENT_WORKFLOW_RUNTIME_MISMATCH
 AGENT_MODEL_CALL_FAILED
 AGENT_MODEL_CALL_OUTCOME_UNKNOWN
 AGENT_MODEL_RESPONSE_INVALID
@@ -657,26 +832,35 @@ Fresh-process recovery derives the next legal action from exact durable facts:
 
 ```text
 Research Brief + Session Manifest
++ exact immutable orchestration resources
 + committed Model Call Plans/Results
 + committed Tool Call Plans/Results
 + Agent Decisions
-+ Experiment Launch Record
-+ exact child Search/Research facts
++ optional Experiment Launch Record
++ exact direct Research or child Search/Research facts
 → one legal next action or terminal failure
 ```
 
 Rules:
 
-1. A Plan without a known exact model response terminates as `AGENT_MODEL_CALL_OUTCOME_UNKNOWN`; no model re-call occurs.
-2. A valid Result without its downstream Decision permits deterministic Decision reconstruction only with the exact historical
-   workflow implementation.
-3. A durable Tool Plan with ambiguous command response reconciles the same owning Product Command identity.
-4. A Tool Result without a Launch Record may reconstruct the exact launch linkage only after verifying the child Experiment identity.
-5. An existing Launch Record consumes the sole child budget; restart cannot launch another child.
-6. Search and Research recovery remain owned by ADR 0121/0122 and existing Run/Attempt authorities.
-7. A completed Evidence input without a Next Experiment Proposal may deterministically reconstruct that proposal from exact inputs;
+1. Historical verification exact-loads the Session-bound workflow, prompt, schema, Tool, Role, and model-policy resources without
+   importing or comparing current code. Before continuation or deterministic reproduction, the current runtime must derive and pass
+   exact workflow-manifest admission; mismatch is `AGENT_WORKFLOW_RUNTIME_MISMATCH`.
+2. A Model Plan without a known exact response terminates as `AGENT_MODEL_CALL_OUTCOME_UNKNOWN`; historical replay never re-calls the
+   model. A retry, if a later contract permits one, is a new Model Plan.
+3. A valid Result without its downstream Decision permits deterministic Decision reconstruction only after runtime admission against
+   the exact historical workflow implementation and exact resource closure.
+4. An eligible exact immutable, side-effect-free query without a Result may re-execute the same Tool Plan and request as one occurrence;
+   a non-immutable query ambiguity fails closed and a later observation requires a new Tool Plan.
+5. A durable idempotent-command Tool Plan with ambiguous response reconciles the same owning Product Command identity/idempotency key.
+6. On Symbolic/Parameter paths, a Tool Result without a Launch Record may reconstruct the exact launch linkage only after verifying the
+   child Experiment identity. An existing Launch Record consumes the sole child budget; restart cannot launch another child.
+7. On REUSE, absence of a Launch Record is required. Recovery follows the exact Research submit receipt, Run, Result, and Evidence
+   facts; it must not create a Search Experiment or a new Research command identity.
+8. Search and Research recovery remain owned by ADR 0121/0122 and existing Product Command, Run, and Attempt authorities.
+9. A completed Evidence input without a Next Experiment Proposal may deterministically reconstruct that proposal from exact inputs;
    it may not execute it.
-8. Missing, conflicting, corrupt, unsupported, or implementation-mismatched facts fail closed; recovery never guesses.
+10. Missing, conflicting, corrupt, unsupported, resource-mismatched, or runtime-mismatched facts fail closed; recovery never guesses.
 
 ### Compatibility with ADR 0120, 0121, and 0122
 
@@ -690,16 +874,18 @@ contiguous ledger, and historical/runtime separation. No model output changes it
 ADR 0122 retains immutable Search Policy, deterministic Feedback Decision, Research Evidence reader, Product Command identity, durable
 budget accounting, and STOP Authority. Agent commentary and model scores are not algorithm inputs.
 
-No existing schema, identity, Store, Product route, or OpenAPI document changes in B3.4.0.
+This closure changes neither ADR 0121 nor ADR 0122. In particular, direct REUSE Research is not an amendment to either Search method.
+No existing implementation schema, identity, Store, Product route, or OpenAPI document changes in B3.4.0.
 
 ## Consequences
 
 - A probabilistic model can influence which bounded experiment is selected without becoming a scientific fact or policy authority.
-- Every model/tool occurrence that causes formal work has immutable, versioned, exact provenance.
+- Every model and Agent-visible Tool occurrence, including queries, has immutable, versioned, exact provenance.
 - Crash/restart never requires silently regenerating a model response or guessing whether work exists.
-- One Session chooses at most one child Experiment, while B3.2/B3.3 retain internal deterministic Authority.
+- One Session chooses exactly one bounded evaluation path; only Symbolic/Parameter may create at most one child Experiment, while
+  direct REUSE creates none and B3.2/B3.3 retain internal deterministic Authority.
 - A narrow future Product API can expose Search without database, Store, filesystem, or Core-internal bypass.
-- B3.4 V1 stops after one Experiment and one unexecuted Next Experiment Proposal.
+- B3.4 V1 stops after one bounded formal evaluation path and one unexecuted Next Experiment Proposal.
 - The design adds durable provenance and API work to later phases but does not implement an Orchestrator, model integration, Search API,
   or Agent runtime now.
 
@@ -714,6 +900,9 @@ No existing schema, identity, Store, Product route, or OpenAPI document changes 
 - Silent provider/model fallback, retry-until-valid, heuristic prose extraction, or chain-of-thought persistence.
 - Mutable conversation/session state as sole recovery truth.
 - Approximate/latest Catalog resolution or a projection that becomes a second Catalog Authority.
+- Bare workflow, prompt, schema, or policy fingerprints that cannot exact-load typed immutable content.
+- Treating `REUSE_EXISTING` as a singleton ADR 0121 Symbolic Search Experiment.
+- Invoking a query or resolve operation before committing its Tool Call Plan.
 - Direct SQL, JSON Store, Parquet, filesystem, Python, shell, Git, package installation, Broker, Promotion, Admission, or LIVE tools.
 - Automatically executing the Next Experiment Proposal.
 - Changing B3.2 to `MODEL_ASSISTED` because an Agent selected it.
