@@ -82,7 +82,9 @@ precondition:
 
 phase 1:
   create product_command_admission without changing Receipt meaning
-  transactionally backfill one V1 Admission from every existing Receipt
+  transactionally backfill one V1 Admission from every durable pre-global
+  Product Command identity binding, including unfinished workflow admissions
+  without Receipts
   identical retry/restart is a no-op; any conflict aborts the migration
 
 phase 2:
@@ -93,6 +95,13 @@ phase 3:
   after every supported writer is Admission-aware, enforce that each Receipt
   has exactly one matching Admission and reject Admission-bypassing writers
 ```
+
+Migration completeness for a newly introduced sole semantic Authority is defined over the union of every durable legacy fact that
+previously carried or constrained that identity, including nonterminal/in-flight facts; a terminal outcome projection alone is not a
+complete migration source. For the current Product Command history, the known legacy binding sources are
+`product_command_receipt`, `strategy_freeze_command_admission`, and `qualification_command_admission`. Their exact
+`command_id`/kind/canonical-fingerprint bindings must converge to one global Admission or migration fails closed without selecting a
+winner. The workflow Admission rows remain separate recovery Authorities and are not rewritten or completed by this backfill.
 
 The migration never rewrites or deletes a Receipt or business fact. Before phase-3 enforcement, rollback may restore the old binary
 while leaving the additive Admission rows intact. After enforcement, an Admission-unaware binary is incompatible and startup/mutation

@@ -130,6 +130,7 @@ M18 = "0018_a0_backtest_worker_presence"
 M19 = "0019_research_authoring_provenance"
 M20 = "0020_strategy_qualification_authority"
 M21 = "0021_product_command_admission_authority"
+M22 = "0022_product_command_legacy_admission_closure"
 CURRENT_MIGRATIONS = current_migrations()
 EXECUTION_EVIDENCE = ("e" * 64,)
 
@@ -598,8 +599,8 @@ def test_m19_preserves_legacy_runs_as_explicitly_unbound_provenance(postgres_dsn
     )
 
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
-    assert tuple(item.migration_id for item in authority.plan()) == (M19, M20, M21)
-    assert authority.migrate() == (M19, M20, M21)
+    assert tuple(item.migration_id for item in authority.plan()) == (M19, M20, M21, M22)
+    assert authority.migrate() == (M19, M20, M21, M22)
     assert OnlyPostgresResearchRunStore(postgres_dsn).load(legacy.run_id) == legacy
     assert OnlyPostgresResearchRunStore(postgres_dsn).load(legacy.run_id).authoring_provenance is None
 
