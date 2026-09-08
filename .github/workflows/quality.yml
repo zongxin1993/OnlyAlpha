@@ -211,22 +211,8 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
-      postgres16-upgrade-source:
-        image: postgres:16.10@sha256:21f6013073bc6b92830a2129570e2f5ec42a6c734b5a985a41e83aa58f54c3c1
-        env:
-          POSTGRES_USER: onlyalpha
-          POSTGRES_PASSWORD: onlyalpha_test
-          POSTGRES_DB: onlyalpha_test
-        ports:
-          - 5433:5432
-        options: >-
-          --health-cmd "pg_isready -U onlyalpha -d onlyalpha_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 12
     env:
       ONLYALPHA_TEST_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha_test@127.0.0.1:5432/onlyalpha_test
-      ONLYALPHA_TEST_POSTGRES16_DSN: postgresql://onlyalpha:onlyalpha_test@127.0.0.1:5433/onlyalpha_test
       ONLYALPHA_POSTGRES_CLIENT_BIN_DIR: /usr/lib/postgresql/18/bin
     steps:
       - uses: actions/checkout@v6

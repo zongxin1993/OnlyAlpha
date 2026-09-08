@@ -74,8 +74,8 @@ state/timestamp/failure combinations and mandatory completed references. `psycop
 typed explicit transactions and parameters without introducing ORM, migration framework, async framework or pool authority.
 
 `scripts/database.py` is the explicit operator boundary for status, read-only plan, forward migrate, backup and restore-test. DSN is
-environment-injected and redacted; passwords are not printed or passed in PostgreSQL client command arguments. Tested PostgreSQL 16.10 is
-the CI/test authority, not a guess about user production deployment.
+environment-injected and redacted; passwords are not printed or passed in PostgreSQL client command arguments. The current server,
+deployment and CI baseline is governed by ADR 0102.
 
 ## Consequences
 

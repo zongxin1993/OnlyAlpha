@@ -80,13 +80,11 @@ class OnlyPostgresConfig:
         return (options or OnlyPostgresOperationalConnectionOptions()).apply(self.dsn)
 
 
-def only_assert_postgres_test_database(dsn: str, *, restore: bool = False, upgrade: bool = False) -> str:
-    if restore and upgrade:
-        raise ValueError("POSTGRES_TEST_DATABASE_PURPOSE_AMBIGUOUS")
+def only_assert_postgres_test_database(dsn: str, *, restore: bool = False) -> str:
     database = urlsplit(dsn).path.removeprefix("/")
-    suffix = "_restore_test" if restore else "_upgrade_test" if upgrade else "_test"
+    suffix = "_restore_test" if restore else "_test"
     if not database or not database.endswith(suffix):
-        purpose = "restore-test" if restore else "upgrade-test" if upgrade else "integration-test"
+        purpose = "restore-test" if restore else "integration-test"
         raise RuntimeError(f"POSTGRES_{purpose.upper().replace('-', '_')}_DATABASE_REQUIRED")
     return database
 

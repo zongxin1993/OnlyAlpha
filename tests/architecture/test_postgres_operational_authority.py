@@ -7,6 +7,50 @@ import pytest
 
 pytestmark = pytest.mark.architecture
 
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_active_postgres_surfaces_cannot_reintroduce_legacy_major_support() -> None:
+    roots = (
+        ROOT / ".github/workflows",
+        ROOT / "deploy",
+        ROOT / "src/onlyalpha/persistence/postgres",
+        ROOT / "tests/research/postgres",
+        ROOT / "tests/architecture",
+    )
+    files = [ROOT / "scripts/database.py"]
+    files.extend(
+        ROOT / name
+        for name in (
+            "docs/adr/0089-research-run-operational-authority-and-postgresql-constitution.md",
+            "docs/adr/0102-postgresql-18-production-baseline-and-upgrade-policy.md",
+        )
+    )
+    for root in roots:
+        files.extend(path for path in root.rglob("*") if path.is_file() and "__pycache__" not in path.parts)
+    forbidden = (
+        "postgres" + ":16",
+        "postgres" + "16",
+        "POSTGRES" + "16",
+        "POSTGRES_" + "16",
+        "upgrade" + "-test",
+        "upgrade_" + "test",
+        "upgrade" + "-source",
+        "upgrade_" + "source",
+        "major_" + "upgrade",
+        "major-" + "upgrade",
+        "16" + "→18",
+        "16" + " -> 18",
+    )
+    violations = {
+        str(path.relative_to(ROOT)): token
+        for path in files
+        if path.suffix not in {".pyc", ".png", ".jpg", ".woff2"}
+        for token in forbidden
+        if token in path.read_text(encoding="utf-8")
+    }
+    assert violations == {}
+
 
 def test_postgres_schema_is_control_catalog_authority_not_high_volume_semantic_store() -> None:
     migrations = tuple(sorted(Path("database/postgres/migrations").glob("*.sql")))
@@ -190,6 +234,7 @@ def test_application_startup_cannot_migrate_or_repair_postgres() -> None:
     assert 'if args.command == "migrate"' in operator
     assert "pg_dump" in operator and "pg_restore" in operator
     assert "--target-dsn-env" in operator
+    assert 'commands.add_parser("' + "upgrade" + '-test")' not in operator
     assert 'ONLYALPHA_POSTGRES_CLIENT_BIN_DIR_ENV = "ONLYALPHA_POSTGRES_CLIENT_BIN_DIR"' in operator
     assert "shutil.which" not in operator
 

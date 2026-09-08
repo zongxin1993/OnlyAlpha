@@ -34,17 +34,6 @@ class OnlyPostgresMarketDataCatalog:
         self._dsn = OnlyPostgresConfig(dsn).operational_dsn()
         self._now = now
 
-    @classmethod
-    def _legacy_upgrade_test_source(
-        cls, dsn: str, *, now: Callable[[], datetime] = only_system_utc_now
-    ) -> OnlyPostgresMarketDataCatalog:
-        """Construct only the isolated PostgreSQL 16 logical-upgrade test source."""
-        OnlyPostgresSchemaVerifier(dsn).assert_compatible()
-        value = cls.__new__(cls)
-        value._dsn = OnlyPostgresConfig(dsn).operational_dsn()
-        value._now = now
-        return value
-
     def commit_durable_segments(self, segments: tuple[OnlyIngestSegment, ...]) -> None:
         if not segments or len({item.segment_id for item in segments}) != len(segments):
             raise ValueError("POSTGRES_DURABLE_SEGMENT_SET_INVALID")
