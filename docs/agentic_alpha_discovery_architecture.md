@@ -307,6 +307,33 @@ Trading Kernel mutable managers
 
 This keeps Agent failure isolated from core authority.
 
+ADR 0123 freezes the first bounded Agent-orchestration authority above this surface. A future Agent Session starts from one immutable
+structured Research Brief with exact Catalog Generation, Dataset Snapshot and Evaluation Context bindings. Its Catalog-first router has
+exactly four outcomes:
+
+```text
+REUSE_EXISTING
+SYMBOLIC_SEARCH
+PARAMETER_SEARCH
+CAPABILITY_GAP
+```
+
+`CAPABILITY_GAP` stops and proposes follow-up work; it does not generate Python. Model Call Plans, validated Model Call Results, Tool
+Call Plans, Tool Call Results, Agent Decisions and Agent-to-Search Launch Records are separate immutable provenance facts. A model result
+must be durable before it can cause formal work, an unknown model outcome fails closed without automatic re-call, and historical replay
+uses the recorded result rather than invoking the model again.
+
+One successful first cycle launches exactly one child ADR 0121/0122 Search Experiment and no Session may launch more than one.
+`REUSE_EXISTING` uses a singleton deterministic ADR 0121 child restricted to the exact registered semantics; it creates no parallel
+reuse engine or identity. The cycle reads authoritative Evidence, persists one Next Experiment Proposal and stops. A pre-launch
+capability gap or invalid/policy-blocked input terminates fail closed without pretending the cycle completed. The child Search Experiment
+retains its own identity and deterministic internal Authority. Agent lineage stays in the Agent Launch Record and never enters B3.2/B3.3
+Plan, Feedback Decision or algorithm inputs. The next proposal is not automatically executed.
+
+The current Product API already supplies Discovery, Definition Resolve, Research Run and Research Evidence operations. Future B3.4
+implementation must add exact-Catalog-context and Search command/query operations as projections/adapters over existing Authorities;
+it must not create an Agent-specific Search engine, Research runtime, Candidate, Result store or direct database/Core-internal path.
+
 ## 10. Research evidence is machine-readable authority
 
 The Agent may interpret OnlyAlpha evidence but must not recreate it independently.
