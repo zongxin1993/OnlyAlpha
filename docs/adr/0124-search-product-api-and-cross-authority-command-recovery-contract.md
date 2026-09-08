@@ -1,15 +1,17 @@
 # ADR 0124: Search Product API and Cross-Authority Command Recovery Contract
 
 - Status: Accepted
-- Date: 2026-09-08
-- Decision maker: repository owner through the B3.4.1-A design authorization
+- Date: 2026-09-08 (amended 2026-09-08 for immutable Admission and monotonic historical-effect recovery)
+- Decision maker: repository owner through the B3.4.1-A design and final recovery authorization
 - Related: ADR 0104, 0120, 0121, 0122, 0123
 
 ## Context
 
 OnlyAlpha already has a transport-neutral Product Command/Query boundary for Research, one global UUID4
-`OnlyProductCommandId`, and one PostgreSQL `product_command_receipt` retry-binding Authority. It also has immutable,
-content-addressed Search Experiment provenance, deterministic Symbolic Search, and deterministic adaptive Parameter Search.
+`OnlyProductCommandId`, and immutable PostgreSQL Product Command Receipt records. The ADR 0104 amendment now requires a distinct
+immutable PostgreSQL Product Command Admission for identity binding and narrows Receipt to accepted-outcome/replay binding; its schema
+migration and implementation remain deferred. OnlyAlpha also has immutable, content-addressed Search Experiment provenance,
+deterministic Symbolic Search, and deterministic adaptive Parameter Search.
 Parameter Search already submits its Research work through the normal Research Product Command with a stable Plan-derived
 Product Command ID. Symbolic Search still depends on an abstract Research executor.
 
@@ -24,7 +26,10 @@ Search semantic facts and Product Command Receipts have different persistence au
 Search Experiment / Space / Policy / Enumeration / Feedback / Plan / Result
 -> immutable content-addressed Search Authorities
 
-Product Command ID -> accepted outcome binding
+Product Command ID -> command kind + canonical fingerprint
+-> PostgreSQL product_command_admission
+
+exact admitted Product Command -> accepted outcome binding
 -> PostgreSQL product_command_receipt
 ```
 
@@ -47,7 +52,8 @@ Product API = typed external adapter over existing Search Authorities
 This decision is an additive Product boundary over existing Authorities. It does not reinterpret an existing identity, persisted
 schema, Search algorithm, Research semantic, or Product receipt:
 
-- ADR 0104 remains the Product Command identity and retry-binding contract.
+- ADR 0104 remains the Product Command identity contract: immutable PostgreSQL Admission is the sole command ID/kind/fingerprint
+  binding Authority, while immutable PostgreSQL Receipt is the sole accepted-outcome/replay binding Authority.
 - ADR 0120 remains the sole Search Experiment and Iteration provenance Authority.
 - ADR 0121 remains the sole Symbolic Search Space, Proposal, enumeration, occurrence, and completion Authority.
 - ADR 0122 remains the sole Parameter Search Space, Policy, Feedback Decision, frontier, adaptive transition, and STOP Authority.
@@ -55,9 +61,9 @@ schema, Search algorithm, Research semantic, or Product receipt:
 - Research Run remains the Research operational Authority.
 - Research Result and Research Statistics remain the scientific Evidence Authorities.
 
-ADR 0104's same-database commands continue to commit their accepted business effect and Receipt in one PostgreSQL transaction.
-Search facts are not in that database, so this decision adds the cross-authority semantic-re-entry rule below without weakening
-the atomic path for Research, Backtest, Strategy, or Qualification commands.
+ADR 0104's same-database commands continue to commit Admission, accepted business effect, and Receipt in one PostgreSQL transaction.
+Search facts are not in that database, so Search commands commit Admission before semantic work and use the cross-authority
+semantic-re-entry rule below without weakening the atomic path for Research, Backtest, Strategy, or Qualification commands.
 
 This ADR freezes architecture only. It adds no Product code, route, DTO, OpenAPI operation, enum, migration, Search adapter, query
 service, Catalog projection implementation, Agent provenance, Agent runtime, or model integration.
@@ -66,7 +72,8 @@ service, Catalog projection implementation, Agent provenance, Agent runtime, or 
 
 | Fact | Sole Authority | Product representation |
 |---|---|---|
-| external command occurrence and retry binding | `OnlyProductCommandId` plus PostgreSQL `product_command_receipt` | command ID, kind, canonical operational fingerprint, outcome reference |
+| external command identity binding | `OnlyProductCommandId` plus PostgreSQL `product_command_admission` | command ID, kind, canonical operational fingerprint |
+| accepted Product outcome and replay binding | PostgreSQL `product_command_receipt` | exact Admission reference plus outcome reference |
 | Search hypothesis and Experiment/Iteration provenance | ADR 0120 Search Provenance | exact reference/projection only |
 | Symbolic space, Proposal order, occurrence, and completion | ADR 0121 Symbolic Search | exact reference/projection only |
 | Parameter policy, adaptive decision, frontier, and STOP | ADR 0122 Parameter Search | exact reference/projection only |
@@ -83,6 +90,7 @@ The identities remain distinct:
 
 ```text
 Product Command ID
+!= Product Command Admission
 != Product Command Receipt
 != Search Experiment
 != Search Iteration Plan / Result
@@ -153,8 +161,11 @@ generic SearchTransition identity. Exact transition facts returned by an adapter
 as applicable, Enumeration Result, Plan, Iteration Result, Product Receipt, Research Run, Feedback Decision, frontier, and STOP
 references. Those references retain their owning Authorities.
 
-A Receipt proves the accepted Product outcome binding. It does not make a running Search immutable, snapshot its complete ledger,
-or authorize a second transition during replay.
+An Admission certifies the immutable binding between one Product Command ID, its command kind, and its canonical command fingerprint.
+It does not certify that a semantic effect occurred. A Receipt certifies the accepted binding between that exact admitted Product
+Command and its authoritative semantic outcome. It does not certify that the system is still at the command's immediate post-state,
+make a running Search immutable, snapshot its complete ledger, or authorize a second transition during replay. Later legitimate Search
+progress cannot invalidate recovery of an earlier missing Receipt whose exact effect remains durably and uniquely provable.
 
 ### Canonical command fingerprint
 
@@ -215,16 +226,23 @@ complete method-specific expected durable state
 request schema version
 ```
 
-The adapter must normalize and validate the complete intent before looking up or creating a Receipt. A reused Product Command ID
-with a different command kind or canonical command fingerprint is `SEARCH_PRODUCT_COMMAND_CONFLICT` and produces zero new work.
+The adapter must normalize and validate the complete intent before looking up or creating an Admission or Receipt. A reused Product
+Command ID with a different command kind or canonical command fingerprint is `SEARCH_PRODUCT_COMMAND_CONFLICT` and produces zero new
+work, even when its Receipt is missing, because the immutable Admission retains the original binding.
 
 Product Command ID, HTTP idempotency key, route, timestamp, client/actor identity, and Agent lineage never enter the Search
 Experiment, Plan, Result, Proposal, Enumeration, Feedback Decision, algorithm, or Search Policy fingerprint.
 
-### Product Receipt is the sole retry-binding Authority
+### Product Admission and Receipt Authorities
 
-PostgreSQL `product_command_receipt` remains the only mapping from Product Command ID to accepted Search outcome. Search Stores own
-semantic facts only and must not expose or persist a Product Command ID to Search result index.
+PostgreSQL `product_command_admission` is the sole mapping from Product Command ID to command kind and canonical command fingerprint.
+PostgreSQL `product_command_receipt` is the sole mapping from an exact admitted command to its accepted Search outcome. Admission owns
+intent binding; Receipt owns outcome/replay binding. Neither duplicates the other's fact, and Search Stores own semantic facts only and
+must not expose or persist a Product Command ID to Search result index.
+
+An Admission is immutable, insert-once, and committed before any cross-authority Search effect. Admission without Receipt means only
+that one exact command intent was reserved; it is not a success record, mutable operation state, lease, execution permission, or proof
+of an effect. A Receipt must exact-match the Admission's command ID, kind, and fingerprint before its outcome may be trusted.
 
 The following are forbidden:
 
@@ -234,10 +252,12 @@ search_request_table
 agent_search_receipt
 Product Command ID field in a Search manifest
 Search Store lookup by Product Command ID
+mutable Product Command Admission state
 ```
 
-Semantic re-entry by recomputing an exact Search identity from canonical intent is not a second retry Authority. It is verification
-against the existing semantic Authority before the one Product Receipt is completed.
+Semantic re-entry by deriving an exact Search identity/effect from the admitted canonical intent is not a second Product Authority.
+It verifies existing Search semantic Authority before the one Product Receipt is completed. Search history never binds Product Command
+ID; only Admission does so.
 
 ### Common cross-authority protocol
 
@@ -245,32 +265,35 @@ Every mutating Search adapter follows this order:
 
 ```text
 1. validate and canonicalize complete Product intent
-2. look up Product Receipt by OnlyProductCommandId
-3. if Receipt exists, verify and replay without invoking a Search transition
-4. if Receipt is absent, derive the exact pre-state and exact semantic effect admitted by the intent
-5. commit or exact-verify immutable method resources
-6. commit or exact-verify the Search Experiment/transition facts through owning Search APIs
-7. exact-load and cross-verify the complete semantic outcome/effect
-8. insert Product Receipt in PostgreSQL
-9. on Receipt uniqueness loss, roll back only the Receipt transaction, reload the winner, and cross-verify it
-10. return a typed projection over exact owning facts
+2. insert-or-exact-load immutable Product Command Admission by OnlyProductCommandId
+3. reject any Admission command-kind or canonical-fingerprint mismatch
+4. look up Product Receipt and, if present, verify it against Admission and replay without a Search transition
+5. if Receipt is absent, derive the exact pre-state and exact semantic effect admitted by the frozen Admission intent
+6. commit or exact-verify immutable method resources
+7. commit or exact-verify the Search Experiment/transition facts through owning Search APIs
+8. exact-load and cross-verify the complete semantic outcome/effect
+9. insert Product Receipt in PostgreSQL, requiring its exact Admission
+10. on Receipt uniqueness loss, roll back only the Receipt transaction, reload the winner, and cross-verify Admission and outcome
+11. return a typed projection over exact owning facts
 ```
 
 Search Store commits are content-addressed, put-once, exact-load verified, and conflict detecting. A same-identity/same-content commit
 is `REUSED`; a same locator or identity with different content fails closed. PostgreSQL Receipt insertion is unique by global Product
 Command ID. No correctness step depends on process memory, time, filesystem order, or response delivery.
 
-Two concurrent executions of the same canonical command may both reach semantic commit, but the owning put-once/CAS/ledger rules can
-admit only the same deterministic effect. Exactly one Receipt row wins; every loser reloads and verifies the same row. Different
-Product Command IDs with identical canonical intent may bind the same content-addressed Experiment or the same uniquely admitted
-transition; they cannot create two semantic effects.
+Two concurrent executions first converge on one immutable Admission. A different kind/fingerprint loser fails before semantic work.
+Same-intent contenders may both reach semantic commit, but the owning put-once/CAS/ledger rules can admit only the same deterministic
+effect. Exactly one Receipt row wins; every loser reloads and verifies the same Admission and Receipt. Different Product Command IDs
+with identical canonical intent may bind the same content-addressed Experiment or the same uniquely admitted transition; they cannot
+create two semantic effects.
 
 Before creating or replaying a Receipt, the adapter verifies all of:
 
 ```text
-Receipt Product Command ID
-Receipt command kind
-Receipt canonical command fingerprint
+Admission Product Command ID
+Admission command kind
+Admission canonical command fingerprint
+Receipt exact match to Admission
 Receipt outcome kind and exact Experiment fingerprint
 exact Search Experiment manifest
 method discriminant and schema
@@ -285,6 +308,8 @@ Missing, corrupt, unsupported, dangling, or mismatched facts fail closed. Repair
 Submit derives the exact Search Experiment identity before publication from the complete canonical semantic inputs. It then follows:
 
 ```text
+commit/verify immutable Product Command Admission
+->
 derive exact Experiment and method-resource identities
 -> commit/verify immutable method-specific resources
 -> commit/verify Search Experiment
@@ -300,14 +325,17 @@ Crash cases are:
 
 | Crash state | Retry behavior |
 |---|---|
-| no semantic fact and no Receipt | repeat deterministic admission, create/reuse one exact Experiment, then create one Receipt |
-| some immutable method resources, no Experiment, no Receipt | exact-load/verify resources, finish the same Experiment, then create one Receipt |
-| Experiment committed, Receipt absent | recompute exact intended Experiment identity, exact-load and fully verify it and its method context, then create the missing Receipt |
-| Receipt exists | verify kind, command fingerprint, outcome, Experiment, and method context; return without creating semantic work |
-| Receipt points to missing/corrupt/wrong-kind/wrong-Experiment fact | fail closed; never create a replacement Experiment |
+| no Admission, semantic fact, or Receipt | commit one immutable Admission; create/reuse one exact Experiment; create one Receipt |
+| Admission exists, no semantic fact and no Receipt | verify exact Admission; repeat deterministic semantic admission; create/reuse one exact Experiment; create one Receipt |
+| Admission conflicts with retry kind/fingerprint | `SEARCH_PRODUCT_COMMAND_CONFLICT`; zero semantic work and no Receipt repair |
+| some immutable method resources, no Experiment or Receipt | verify Admission and resources; finish the same Experiment; create one Receipt |
+| Experiment committed, Receipt absent | verify Admission; recompute exact intended Experiment identity; exact-load and fully verify it and its method context; create the missing Receipt |
+| Receipt exists | verify Admission, Receipt, outcome, Experiment, and method context; return without creating semantic work |
+| Receipt lacks/mismatches Admission or points to missing/corrupt/wrong-kind/wrong-Experiment fact | fail closed; never create replacement truth |
 
-Product Command ID is unnecessary to find the semantic Experiment in the critical third case because the complete canonical intent
-deterministically recomputes the Experiment identity. Search remains semantic truth; the Receipt remains retry binding.
+Product Command ID is unnecessary to find the semantic Experiment after Search commit because the Admission's complete canonical intent
+deterministically recomputes the Experiment identity. Search remains semantic truth; Admission remains command-intent binding; Receipt
+remains accepted-outcome/replay binding.
 
 ### Advance means one bounded canonical method action
 
@@ -370,48 +398,105 @@ for reconciliation: exact Product Receipt / Research Run references or explicit 
 Every collection is canonically ordered by semantic occurrence order. Filesystem enumeration, completion order, object insertion
 order, and current process state are invalid inputs.
 
-Before new work, the adapter compares expected state with exact actual state. If actual is neither the expected pre-state nor the
-unique fully verified post-state/effect admitted from that pre-state and command intent, the result is
-`SEARCH_PRODUCT_STALE_EXPECTED_STATE` with zero new work.
+Current-State Admission and Historical-Effect Proof are distinct:
 
-The post-state exception is essential for response-loss recovery. It is not a latest-state fallback: the adapter must prove the
-exact effect that this immutable expected state and requested operation deterministically admit. A state that advanced past that
-effect, contains a different occupant, has an unproven gap, or has a conflicting Receipt/Run remains stale or corrupt and fails
-closed.
+```text
+Current-State Admission
+!=
+Historical-Effect Proof
+
+Current-State Admission
+-> decides whether NEW semantic work may execute
+
+Historical-Effect Proof
+-> decides whether a MISSING Product Receipt may be reconstructed
+   for an effect already durably present
+```
+
+Before new work, the adapter must prove that exact actual current state equals the expected pre-state. Immediate post-state or a later
+state never admits new work for the old command. For an admitted command whose Receipt is missing, the adapter may conceptually evaluate
+this ephemeral verifier over existing Authority-owned facts:
+
+```text
+HistoricalEffectIncluded(
+    admitted_canonical_command_intent,
+    expected_pre_state,
+    durable_search_history
+)
+-> exact verified effect | NOT_PRESENT | CONFLICT
+```
+
+This verifier creates no persisted `SearchTransition`, `CommandEffect`, `EffectReceipt`, or `EffectIndex`, and Search Stores gain no
+Product Command lookup. It derives the one effect uniquely admitted by the immutable Admission intent and expected pre-state, then
+exact-loads existing history to prove that effect's occurrence and lineage.
+
+Search history is append-only and the proof is monotonic: if exact immutable effect `E` is uniquely admitted from pre-state `P` and
+intent `I`, and valid history `H'` is a verified extension of `H` containing `E`, then:
+
+```text
+HistoricalEffectIncluded(I, P, H)  = E
+implies
+HistoricalEffectIncluded(I, P, H') = E
+```
+
+unless `H'` reveals corruption or conflict in `E`'s own lineage. A newer current state is not stale by itself.
+`SEARCH_PRODUCT_STALE_EXPECTED_STATE` means current state differs from the expected pre-state and the exact intended historical effect
+cannot be uniquely proven. A different occupant, unproven gap, invalid descendant lineage, or conflicting Product/Research fact remains
+stale or corrupt and fails closed with zero new work.
 
 ### Advance crash, retry, and concurrency
 
-For a Receipt-absent Advance command:
+For an exact-admitted, Receipt-absent Advance command, exactly one of these branches applies:
 
 ```text
-expected pre-state == actual
--> ask owning method for exactly one bounded action
+current == expected pre-state
+-> execute exactly one admitted bounded action under the owning lock/CAS/put-once boundary
 -> exact-verify its effect witnesses
 -> commit Receipt(SEARCH_EXPERIMENT)
+
+current != expected pre-state
++ exact historical effect is uniquely proven in immutable history
+-> execute nothing
+-> commit missing Receipt(SEARCH_EXPERIMENT)
+
+otherwise
+-> fail closed
+-> zero new work
 ```
 
-If the Search effect commits but the Receipt is lost:
+The historical branch includes both the immediate post-state and any later verified descendant state containing the exact effect. It
+invokes no Search transition or Research submission and consumes no Plan, Feedback Decision, Research Run, attempt, or Search budget.
+This permits command A's Receipt to be repaired after A's durable effect, a lost Receipt, and valid later command B progress; B's
+Receipt and later descendants do not replace the exact proof required for A. Admission A preserves A's identity binding throughout.
 
-```text
-retry same Product Command ID + kind + canonical intent
--> actual must equal the uniquely admitted verified post-state/effect
--> do not invoke the method again
--> commit missing Receipt
-```
+If the Receipt already exists, the adapter validates Admission, Receipt, and their exact match and does not invoke `advance()`,
+`reconcile_open_plans()`, a Symbolic workflow, or a Research submit operation. It exact-loads the Experiment and projects the
+authoritative transition facts identified by the command's expected-state-to-effect proof.
 
-If the Receipt already exists, the adapter validates it and does not invoke `advance()`, `reconcile_open_plans()`, a Symbolic
-workflow, or a Research submit operation. It exact-loads the Experiment and projects the authoritative transition facts identified
-by the command's expected-state-to-effect proof.
+For Symbolic Search, historical inclusion exact-verifies the Search Experiment, Enumeration Result, expected iteration ordinal, exact
+Plan occupant, Proposal fingerprint admitted by the deterministic occurrence proof, Plan fingerprint, and all parent/decision fields
+required by ADR 0121. If Research submission occurred, it also verifies the stable Plan-derived Research Product Command ID, exact
+Product Admission/Receipt and Research Run references, and exact terminal Iteration Result when applicable. Later ordinals are valid
+descendants only after the contiguous prefix and exact old occurrence verify. An absent or different ordinal occupant, Proposal or Plan
+mismatch, failed deterministic occurrence proof, ledger gap, Research identity/reference conflict, corruption, or schema mismatch is
+`NOT_PRESENT` or `CONFLICT`, never successful recovery.
 
-For Symbolic Search, the exact Plan occupant at the expected next ordinal, its Proposal reference, and its terminal/Run facts are the
-effect witnesses. For Parameter Search Advance, the exact Feedback Decision, predecessor frontier, and complete canonical Plan batch
-are the effect witnesses. For Parameter reconciliation, the existing Plan-derived Product Command Receipts, Research Runs, and any
-terminal Iteration Results are the effect witnesses.
+For Parameter Search Advance, historical inclusion exact-verifies the expected predecessor/frontier, Policy, ordered Evidence and
+Plan/Result barrier, algorithm/runtime binding, exact Feedback Decision, and its complete canonical Plan batch. The current V1 Decision
+has no literal persisted `predecessor` field: predecessor/descendant lineage is derived and verified from the Experiment's
+`start_iteration_index`, ordered input Iteration Result prefix, Plans grouped by `decision_output_fingerprint`, the exact batch from
+`plans_for_feedback_decision`, and the terminal/latest frontier. A later frontier is acceptable only when this exact durable chain
+contains the Decision and its batch; “the current frontier is newer” or ancestry alone is insufficient. Historical verification
+exact-loads immutable facts and does not require current runtime execution admission when no new work is requested.
+
+For Parameter reconciliation, witnesses are limited to the exact expected batch's Plan-derived Product Admissions/Commands, Product
+Receipts, Research Runs, and terminal Iteration Results that the bounded reconciliation could legally produce. A later unrelated batch
+cannot satisfy the old command. All missing, conflicting, or ambiguous witnesses fail closed.
 
 Content addressing, the Symbolic contiguous-ledger lock, the Parameter frontier CAS, per-Plan terminal uniqueness, normal Product
-Command Receipt uniqueness, and stable Plan-derived Research command identity provide the concurrency boundaries. A stale caller can
-never create new work. Repeating one accepted Advance Product Command can never advance another ordinal, produce another Feedback
-Decision, submit another Research Run identity, or consume more budget.
+Command Admission/Receipt uniqueness, and stable Plan-derived Research command identity provide the concurrency boundaries. A stale
+caller can never create new work. Repeating one accepted Advance Product Command can never advance another ordinal, produce another
+Feedback Decision, submit another Research Run identity, or consume more budget.
 
 The expected precondition and exact proposed effect must cross the owning method's existing lock/CAS/put-once boundary together.
 An adapter may not check state, release the concurrency boundary, and later ask the method to derive a new `next` value from a newer
@@ -437,9 +522,9 @@ Parameter Search derivation contract, frozen here as `SEARCH_PLAN_RESEARCH_COMMA
 
 The derivation is deterministic and contains no clock, random UUID generation, process counter, worker, or retry input. Because a
 UUID4 encoding has fewer effective bits than SHA-256, collision safety is fail-closed rather than a false claim of mathematical
-injectivity: the global Receipt stores the complete canonical Research submission fingerprint, and any derived UUID collision across
-different Plans/specifications is a Product Command conflict that creates no second Run. Changing this derivation requires a new
-explicit derivation version and cannot reinterpret existing Plan submissions.
+injectivity: the global Admission stores the complete canonical Research submission fingerprint and the Receipt must match it, so any
+derived UUID collision across different Plans/specifications is a Product Command conflict that creates no second Run. Changing this
+derivation requires a new explicit derivation version and cannot reinterpret existing Plan submissions.
 
 The required chain is:
 
@@ -447,6 +532,7 @@ The required chain is:
 immutable Symbolic Iteration Plan
 -> SEARCH_PLAN_RESEARCH_COMMAND_ID_V1
 -> normal Research Product Command
+-> Product Command Admission
 -> Product Command Receipt / Research Run
 -> Run reconciliation
 -> exact Research Result reference
@@ -628,9 +714,9 @@ application boundary. HTTP remains in `packages/onlyalpha-http-server/`; the fir
 The dependency map is:
 
 ```text
-B3.4.1-A ADR 0124 contract freeze
+B3.4.1-A ADR 0104/0124 contract freeze
 -> B3.4.1-B Exact Catalog Context implementation
--> B3.4.1-C Product Command vocabulary and Receipt migration
+-> B3.4.1-C Product Command vocabulary and Admission/Receipt migration
 -> B3.4.1-D Symbolic / Parameter Product adapters
 -> B3.4.1-E HTTP / DTO / OpenAPI
 -> B3.4.1-F fresh-process / concurrency / recovery closure
@@ -642,17 +728,21 @@ This map records dependencies only. It does not authorize a later phase.
 
 1. **AT-01:** Product operations are typed adapters over ADR 0120/0121/0122; no Product-owned Search fact exists.
 2. **AT-02:** Every mutating operation uses only `OnlyProductCommandId` as external command identity.
-3. **AT-03:** PostgreSQL `product_command_receipt` is the sole retry-binding Authority.
-4. **AT-04:** Search Stores contain no Product Command retry mapping.
-5. **AT-05:** Search-commit/Receipt-loss retry recomputes, exact-loads, and verifies the same Experiment before creating one Receipt.
-6. **AT-06:** A dangling, corrupt, wrong-kind, or wrong-Experiment Receipt fails closed and never causes replacement truth.
+3. **AT-03:** PostgreSQL Admission is the sole command ID/kind/fingerprint binding Authority; PostgreSQL Receipt is the sole
+   accepted-outcome/replay binding Authority.
+4. **AT-04:** Search Stores contain no Product Command Admission, Receipt, or Product Command retry mapping.
+5. **AT-05:** Search-commit/Receipt-loss retry verifies immutable Admission, then recomputes, exact-loads, and verifies the same
+   Experiment/effect before creating one Receipt.
+6. **AT-06:** A missing, dangling, corrupt, or mismatched Admission/Receipt pair fails closed and never causes replacement truth.
 7. **AT-07:** Product Command ID and transport/Agent lineage are excluded from Search semantic identity.
 8. **AT-08:** Symbolic Product code cannot alter enumeration, Proposal, Graph, or Candidate semantics.
 9. **AT-09:** Parameter Product code delegates to ADR 0122 and cannot construct Feedback Decision or STOP.
 10. **AT-10:** Symbolic Research execution must use the normal Research Product Command with `SEARCH_PLAN_RESEARCH_COMMAND_ID_V1`.
 11. **AT-11:** Advance includes complete method-specific expected durable state; no generic mutable version is introduced.
-12. **AT-12:** Any state other than the exact pre-state or unique verified post-effect is stale/conflicting and produces zero work.
-13. **AT-13:** Receipt-first replay plus exact post-effect verification prevents the same command from performing another transition.
+12. **AT-12:** Only exact current pre-state admits new work; immediate or later verified history containing the exact effect permits
+    only zero-execution Receipt repair; every other state is stale/conflicting.
+13. **AT-13:** Admission-first identity validation, Receipt replay, and exact historical-effect verification prevent one command from
+    changing intent or performing another transition.
 14. **AT-14:** Search Experiment Query is exact-addressed and has no current/latest fallback.
 15. **AT-15:** Ledger order comes from Symbolic ordinal or Parameter decision/batch occurrence, never filesystem order.
 16. **AT-16:** Terminal query distinguishes `NON_TERMINAL` from exact Symbolic completion and Parameter STOP.
@@ -660,30 +750,52 @@ This map records dependencies only. It does not authorize a later phase.
 18. **AT-18:** Exact Catalog Context is a verified projection and never a second Catalog Authority.
 19. **AT-19:** No generic mutable Search status/job table is introduced.
 20. **AT-20:** REUSE remains direct Research and does not submit Search.
-21. **AT-21:** B3.4.1-A changes architecture documentation only and stops before implementation.
+21. **AT-21:** This amendment changes architecture documentation only and stops before implementation.
+
+### Final recovery closure scenarios
+
+1. **Recovery AT-01 — immediate post-state:** effect `E1` is durable, its Receipt is lost, and no later progress exists. Retry
+   verifies Admission and `E1`, commits the missing Receipt, and creates zero duplicate effect.
+2. **Recovery AT-02 — later progress:** command A durably commits `E1`, loses Receipt A, and command B validly commits `E2` and
+   Receipt B. Retrying A proves `E1` in immutable history, executes no Search work, and commits Receipt A.
+3. **Recovery AT-03 — multiple descendants:** after `E1 -> E2 -> E3 -> E4`, retrying the command for `E1` proves the exact immutable
+   occurrence and verified descendant lineage; later descendants do not invalidate it.
+4. **Recovery AT-04 — Symbolic later ordinal:** after the exact ordinal `N` occurrence loses its Receipt and valid `N+1` and `N+2`
+   occurrences exist, retry proves ordinal `N`'s exact Plan/Proposal occurrence and repairs the Receipt.
+5. **Recovery AT-05 — Parameter later frontier:** after `F0 -> F1` loses its Receipt and valid `F1 -> F2 -> F3` progress exists,
+   retry proves the exact derived predecessor relation, Decision, Plan batch, and descendant chain before repairing the Receipt.
+6. **Recovery AT-06 — conflicting historical occupant:** a different occupant at the expected effect position is `CONFLICT`; the
+   adapter creates no Receipt and performs no new work.
+7. **Recovery AT-07 — missing effect:** a newer current state without proof of the exact intended effect fails closed.
+8. **Recovery AT-08 — same Product ID, different intent:** the immutable Admission conflicts before historical proof, even when
+   Receipt is missing and a semantic effect exists; no Receipt is repaired.
+9. **Recovery AT-09 — no Search retry index:** Search Stores retain no `ProductCommandId -> effect` mapping. Admission and Receipt
+   remain separate PostgreSQL Product Authorities for command identity and accepted outcome respectively.
+10. **Recovery AT-10 — no extra budget:** historical Receipt recovery creates zero Plan, Feedback Decision, Research Run, attempt,
+    Search transition, or additional budget consumption.
 
 ## Bounded independent review
 
 | Review | Answer | Blocking rationale |
 |---|---|---|
-| IR-01 Does Product API own a Search semantic fact? | No | all outputs are exact references/projections |
-| IR-02 Is there more than one Search Product retry-binding Authority? | No | only PostgreSQL Receipt maps Product Command ID to outcome |
-| IR-03 Can Product Command ID alter Experiment identity? | No | it is explicitly excluded |
-| IR-04 Can Search-commit/Receipt-loss produce a duplicate Experiment? | No | deterministic identity plus put-once exact re-entry converges |
-| IR-05 Can a dangling Receipt trigger replacement truth? | No | it is a fail-closed integrity error |
-| IR-06 Does the design require 2PC/distributed transactions? | No | deterministic semantic re-entry closes the gap |
-| IR-07 Can HTTP construct Symbolic Proposals or Parameter Feedback Decisions? | No | HTTP is a thin Product adapter |
-| IR-08 Can Advance execute without exact method state? | No | expected durable state is mandatory |
-| IR-09 Can stale caller state create work? | No | only exact pre-state can create; unique post-effect only repairs Receipt |
-| IR-10 Can one Product Command perform two transitions? | No | existing Receipt short-circuits; post-effect retry never reinvokes method |
-| IR-11 Can future Symbolic execution bypass Research Product Command? | No | normal Product Command and Plan-derived ID are mandatory |
-| IR-12 Does Product own Research Result or metrics? | No | Result/Statistics remain sole Authorities |
-| IR-13 Does Exact Catalog present current-only data as historical exact? | No | exact proof or narrower schema/failure is required |
-| IR-14 Does an exact query use latest/current fallback? | No | exact identities are mandatory |
-| IR-15 Is REUSE independent of Symbolic Search? | Yes | it remains direct Research |
-| IR-16 Does the design modify ADR 0121/0122 semantics? | No | adapters delegate to them |
-| IR-17 Did B3.4.1-A leak into implementation? | No | this ADR is the only repository change |
-| IR-18 Is Constitution Impact NO? | Yes | the design strengthens existing invariants |
+| IR-01 Does missing-Receipt recovery require current state to equal the immediate post-state? | No | immediate or verified later history containing the exact effect permits zero-execution repair |
+| IR-02 Can later valid progress make an earlier durable exact effect unrecoverable? | No | monotonic inclusion preserves proof unless its own lineage conflicts |
+| IR-03 Can an old retry execute a new transition after current state advances? | No | only exact current pre-state admits new work |
+| IR-04 Does recovery prove the exact effect rather than mere ancestry? | Yes | admitted intent, pre-state, occurrence, and lineage all verify |
+| IR-05 Is the exact Symbolic ordinal/Plan/Proposal occurrence verified? | Yes | ADR 0121 occurrence and contiguous-ledger witnesses are mandatory |
+| IR-06 Is the exact Parameter predecessor Decision and Plan batch verified? | Yes | lineage is derived from existing facts and the complete batch is checked |
+| IR-07 Are descendants accepted only after exact lineage verification? | Yes | a newer frontier or ledger alone proves nothing |
+| IR-08 Can a conflicting historical occupant be successful recovery? | No | it is `CONFLICT` and fails closed |
+| IR-09 Can historical proof bypass Product Command identity conflict? | No | immutable Admission is verified first, including when Receipt is missing |
+| IR-10 Does the correction create a ProductCommandId index in Search Stores? | No | Admission is Product-side; Search history remains semantic evidence only |
+| IR-11 Does Receipt recovery create Search/Research work or consume budget? | No | the historical branch has zero execution and budget effects |
+| IR-12 Does the correction change ADR 0121 or ADR 0122 semantics? | No | it consumes their existing facts and verification rules |
+| IR-13 Does historical repair require current runtime execution admission? | No | historical readability is separate from current execution eligibility |
+| IR-14 Is exact current expected precondition mandatory before new work? | Yes | no other state admits execution |
+| IR-15 Does the task remain design-only? | Yes | only ADR 0104 and ADR 0124 are amended |
+| IR-16 Is Constitution Impact `NO`? | Yes | each distinct formal fact retains one explicit Authority |
+| IR-17 Can Admission alone certify success or authorize blind retry? | No | only Receipt certifies outcome; execution still requires exact state proof |
+| IR-18 Can Receipt disagree with Admission? | No | mismatch is an integrity conflict and fails closed |
 
 Bounded review result: Critical = 0; High = 0.
 
@@ -705,6 +817,7 @@ These projects are design references, not normative or runtime dependencies.
 
 - Product Command ID or Agent lineage inside Search identity.
 - Search-specific idempotency key or second Receipt Store.
+- Mutable Product Command Admission, admission lifecycle state, or treating Admission as accepted outcome.
 - Generic Search job/status/current-state database.
 - HTTP response or cached response body as outcome Authority.
 - A generic SearchTransition identity created only for transport.
@@ -718,14 +831,15 @@ These projects are design references, not normative or runtime dependencies.
 
 ## Consequences
 
-An external deterministic client can eventually create or advance one exact Search through a versioned Product boundary. Response
-loss between Search commit and Receipt commit converges without a distributed transaction because canonical intent recomputes the
-same semantic identity/effect. A corrupt cross-authority reference blocks instead of creating replacement truth. Method-specific
+An external deterministic client can eventually create or advance one exact Search through a versioned Product boundary. Immutable
+Admission preserves strict Product identity before Search work. Response loss between Search commit and Receipt commit converges
+without a distributed transaction because the admitted canonical intent recomputes the same semantic identity/effect, including from
+later verified descendant history. A corrupt cross-authority reference blocks instead of creating replacement truth. Method-specific
 expected state prevents stale work and makes one Advance command incapable of consuming two transitions or budgets.
 
-The approach requires later Product adapter logic to perform stronger cross-authority verification and requires a PostgreSQL Receipt
-vocabulary migration. Exact Catalog Context can initially expose only capability families with genuine historical exact proof. These
-costs preserve one Authority per fact, deterministic recovery, and the narrow Agent/API boundary.
+The approach requires later Product adapter logic to perform stronger cross-authority verification and requires a PostgreSQL
+Admission/Receipt vocabulary migration. Exact Catalog Context can initially expose only capability families with genuine historical
+exact proof. These costs preserve one Authority per distinct fact, deterministic recovery, and the narrow Agent/API boundary.
 
 ## Out of scope
 
@@ -733,7 +847,7 @@ costs preserve one Authority per fact, deterministic recovery, and the narrow Ag
 Product API implementation, Search service classes, or query services
 Exact Catalog Context projection implementation
 HTTP routes, DTOs, OpenAPI, generated clients, or URL selection
-Product enum changes or PostgreSQL migration
+Product enum changes or PostgreSQL Admission/Receipt migration
 Symbolic Research Command Gateway implementation
 Parameter adapter/controller changes
 Search pagination implementation
@@ -745,9 +859,10 @@ B3.4.1-B and every later phase
 
 Constitution Impact: **NO**.
 
-This decision strengthens Uniqueness and Single Authority by retaining ADR 0104 and ADR 0120/0121/0122 ownership; Determinism by
-canonical complete intents, exact expected state, and semantic re-entry; Recoverability by closing every Search/Receipt crash point;
-Fail-Closed behavior by rejecting stale, dangling, corrupt, or mismatched cross-authority facts; Reproducibility and Traceability by
-exact method, Experiment, Plan, Research, and Evidence references; and Explicit Boundaries by requiring the Product API while denying
-HTTP, Agent, database, and Product projection semantic ownership. It changes no Trading Kernel semantics, remains market-agnostic,
-grants no Agent or LIVE Authority, and requires no Constitution change.
+This decision strengthens Uniqueness and Single Authority by assigning Product command-intent binding only to Admission,
+accepted-outcome binding only to Receipt, and Search semantics only to ADR 0120/0121/0122; Determinism by canonical complete intents,
+exact expected state, and semantic re-entry; Recoverability by closing every Admission/Search/Receipt crash point; Fail-Closed behavior
+by rejecting stale, dangling, corrupt, or mismatched cross-authority facts; Reproducibility and Traceability by exact method,
+Experiment, Plan, Research, and Evidence references; and Explicit Boundaries by requiring the Product API while denying HTTP, Agent,
+database, and Product projection Search-semantic ownership. It changes no Trading Kernel semantics, remains market-agnostic, grants no
+Agent or LIVE Authority, and requires no Constitution change.
