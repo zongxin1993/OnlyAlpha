@@ -13,6 +13,9 @@ from .migration import OnlyPostgresSchemaStatus as OnlyPostgresSchemaStatus
 from .migration import OnlyPostgresSchemaVerdict as OnlyPostgresSchemaVerdict
 from .migration import OnlyPostgresSchemaVerifier as OnlyPostgresSchemaVerifier
 from .migration import only_discover_postgres_migrations as only_discover_postgres_migrations
+from .product_command_authority import (
+    OnlyPostgresProductCommandAuthority as OnlyPostgresProductCommandAuthority,
+)
 from .research_deployment_store import (
     OnlyPostgresResearchDeploymentStore as OnlyPostgresResearchDeploymentStore,
 )

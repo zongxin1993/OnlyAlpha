@@ -34,6 +34,9 @@ class OnlyProductCommandKind(StrEnum):
     CREATE_BACKTEST_RUN = "CREATE_BACKTEST_RUN"
     CANCEL_BACKTEST_RUN = "CANCEL_BACKTEST_RUN"
     EVALUATE_QUALIFICATION = "EVALUATE_QUALIFICATION"
+    CREATE_SYMBOLIC_SEARCH_EXPERIMENT = "CREATE_SYMBOLIC_SEARCH_EXPERIMENT"
+    CREATE_PARAMETER_SEARCH_EXPERIMENT = "CREATE_PARAMETER_SEARCH_EXPERIMENT"
+    ADVANCE_SEARCH_EXPERIMENT = "ADVANCE_SEARCH_EXPERIMENT"
 
 
 class OnlyProductCommandOutcomeKind(StrEnum):
@@ -42,6 +45,31 @@ class OnlyProductCommandOutcomeKind(StrEnum):
     STRATEGY_PROMOTION = "STRATEGY_PROMOTION"
     BACKTEST_RUN = "BACKTEST_RUN"
     QUALIFICATION_DECISION = "QUALIFICATION_DECISION"
+    SEARCH_EXPERIMENT = "SEARCH_EXPERIMENT"
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyProductCommandAdmissionV1:
+    """Immutable global binding from Product Command ID to exact operational intent."""
+
+    command_id: OnlyProductCommandId
+    command_kind: OnlyProductCommandKind
+    command_fingerprint: str
+    schema_version: int = 1
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.command_id, OnlyProductCommandId):
+            raise ValueError("Product Command Admission ID is invalid")
+        if not isinstance(self.command_kind, OnlyProductCommandKind):
+            raise ValueError("Product Command Admission kind is invalid")
+        if (
+            not isinstance(self.command_fingerprint, str)
+            or len(self.command_fingerprint) != 64
+            or any(char not in "0123456789abcdef" for char in self.command_fingerprint)
+        ):
+            raise ValueError("Product Command Admission fingerprint must be a lower-case SHA256")
+        if self.schema_version != 1:
+            raise ValueError("Product Command Admission schema version is unsupported")
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,11 +87,11 @@ class OnlyProductCommandOutcomeRef:
             try:
                 parsed = uuid.UUID(self.outcome_id)
             except (AttributeError, TypeError, ValueError) as exc:
-                raise ValueError("Research Run outcome ID must be a canonical UUID4") from exc
+                raise ValueError("Product Command outcome ID must be a canonical UUID4") from exc
             if parsed.version != 4 or str(parsed) != self.outcome_id:
                 raise ValueError("Product Run outcome ID must be a canonical UUID4")
         elif len(self.outcome_id) != 64 or any(char not in "0123456789abcdef" for char in self.outcome_id):
-            raise ValueError("Strategy outcome ID must be a lower-case SHA256")
+            raise ValueError("Product Command outcome ID must be a lower-case SHA256")
 
 
 @dataclass(frozen=True, slots=True)

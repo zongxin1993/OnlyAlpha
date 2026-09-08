@@ -11,7 +11,12 @@ import psycopg
 from psycopg import sql
 from psycopg.rows import dict_row
 
+from onlyalpha.application.product_command_authority import (
+    OnlyProductCommandAuthorityUnavailableError,
+    OnlyProductCommandConflictError,
+)
 from onlyalpha.application.product_command_receipt import (
+    OnlyProductCommandAdmissionV1,
     OnlyProductCommandId,
     OnlyProductCommandKind,
     OnlyProductCommandOutcomeKind,
@@ -39,6 +44,7 @@ from onlyalpha.research.run.model import (
 from onlyalpha.research.specification.model import OnlyResearchSpecification
 
 from .config import OnlyPostgresOperationalConnectionOptions
+from .product_command_authority import OnlyPostgresProductCommandAuthority
 
 _COLUMNS = (
     "run_id",
@@ -110,16 +116,9 @@ class OnlyPostgresResearchRunStore:
 
     def find_product_command_receipt(self, command_id: OnlyProductCommandId) -> OnlyProductCommandReceipt | None:
         try:
-            with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
-                row = connection.execute(
-                    "SELECT * FROM product_command_receipt WHERE command_id = %s",
-                    (command_id.value,),
-                ).fetchone()
-        except psycopg.Error as exc:
+            return OnlyPostgresProductCommandAuthority(self._dsn).load_verified_receipt(command_id)
+        except OnlyProductCommandAuthorityUnavailableError as exc:
             raise OnlyResearchRunStoreUnavailableError("Product Command Receipt load failed") from exc
-        if row is None:
-            return None
-        return self._decode_receipt(cast(Mapping[str, object], row))
 
     def create_queued_with_receipt(
         self,
@@ -141,9 +140,25 @@ class OnlyPostgresResearchRunStore:
         )
         try:
             with psycopg.connect(self._dsn) as connection:
+                authority = OnlyPostgresProductCommandAuthority
+                authority.insert_or_verify_admission(
+                    connection,
+                    OnlyProductCommandAdmissionV1(
+                        receipt.command_id,
+                        receipt.command_kind,
+                        receipt.command_fingerprint,
+                    ),
+                )
+                existing = authority.load_verified_receipt_in_transaction(connection, receipt.command_id)
+                if existing is not None:
+                    return existing
                 connection.execute(run_query, self._values(run))
                 self._insert_receipt(connection, receipt)
             return receipt
+        except OnlyProductCommandConflictError as exc:
+            raise OnlyResearchRunIntegrityError(
+                f"Product Command identity already exists: {receipt.command_id}"
+            ) from exc
         except psycopg.errors.UniqueViolation as exc:
             existing = self.find_product_command_receipt(receipt.command_id)
             if existing is None:
@@ -165,12 +180,18 @@ class OnlyPostgresResearchRunStore:
             raise OnlyResearchRunIntegrityError("Cancel Research Run receipt does not bind the target Run")
         try:
             with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
-                existing_row = connection.execute(
-                    "SELECT * FROM product_command_receipt WHERE command_id = %s",
-                    (receipt.command_id.value,),
-                ).fetchone()
-                if existing_row is not None:
-                    return self._decode_receipt(cast(Mapping[str, object], existing_row))
+                authority = OnlyPostgresProductCommandAuthority
+                authority.insert_or_verify_admission(
+                    connection,
+                    OnlyProductCommandAdmissionV1(
+                        receipt.command_id,
+                        receipt.command_kind,
+                        receipt.command_fingerprint,
+                    ),
+                )
+                existing = authority.load_verified_receipt_in_transaction(connection, receipt.command_id)
+                if existing is not None:
+                    return existing
                 row = connection.execute(
                     "SELECT * FROM research_run WHERE run_id = %s FOR UPDATE",
                     (run_id.value,),
@@ -208,6 +229,10 @@ class OnlyPostgresResearchRunStore:
                         )
                 self._insert_receipt(connection, receipt)
             return receipt
+        except OnlyProductCommandConflictError as exc:
+            raise OnlyResearchRunIntegrityError(
+                f"Product Command identity already exists: {receipt.command_id}"
+            ) from exc
         except (OnlyResearchCancellationConflictError, OnlyResearchRunNotFoundError):
             raise
         except psycopg.errors.UniqueViolation as exc:
@@ -300,20 +325,7 @@ class OnlyPostgresResearchRunStore:
 
     @staticmethod
     def _insert_receipt(connection: psycopg.Connection[object], receipt: OnlyProductCommandReceipt) -> None:
-        connection.execute(
-            "INSERT INTO product_command_receipt "
-            "(command_id, command_kind, command_fingerprint, outcome_kind, outcome_id, accepted_at, schema_version) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-            (
-                receipt.command_id.value,
-                receipt.command_kind.value,
-                receipt.command_fingerprint,
-                receipt.outcome_ref.kind.value,
-                receipt.outcome_ref.outcome_id,
-                receipt.accepted_at,
-                receipt.schema_version,
-            ),
-        )
+        OnlyPostgresProductCommandAuthority.insert_verified_receipt(connection, receipt)
 
     @staticmethod
     def _decode_receipt(row: Mapping[str, object]) -> OnlyProductCommandReceipt:

@@ -15,6 +15,7 @@ from onlyalpha.persistence.postgres import (
     OnlyPostgresResearchDeploymentStore,
 )
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
+from onlyalpha.persistence.postgres.research_run_store import OnlyPostgresResearchRunStore
 from onlyalpha.persistence.postgres.strategy_product_store import OnlyPostgresStrategyProductStore
 from onlyalpha.persistence.postgres.strategy_store import OnlyPostgresStrategyStore
 from onlyalpha.research.operations.deployment import (
@@ -23,7 +24,7 @@ from onlyalpha.research.operations.deployment import (
     OnlyResearchSemanticStoreId,
 )
 from onlyalpha.strategy.errors import OnlyQualificationError, OnlyStrategyFreezeError, OnlyStrategyPromotionError
-from onlyalpha.strategy.freeze import OnlyStrategyFreezeRecord
+from onlyalpha.strategy.freeze import OnlyStrategyFreezeRecord, OnlyStrategyFreezeRequest
 from onlyalpha.strategy.promotion import (
     OnlyStrategyPromotionDecision,
     OnlyStrategyPromotionRecord,
@@ -40,6 +41,7 @@ from onlyalpha.strategy.qualification import (
     OnlyQualificationOutcome,
 )
 from tests.research.postgres.migration_support import copy_migrations_through
+from tests.research.postgres.test_postgres_authority import _queued
 
 pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
 NOW = datetime(2026, 8, 24, tzinfo=UTC)
@@ -95,6 +97,32 @@ def test_strategy_projection_conflict_and_missing_relation_fail_closed(postgres_
     assert store.find_freeze_relation("b" * 64, "c" * 64, "a" * 64) is None
     with pytest.raises(OnlyStrategyFreezeError, match="STRATEGY_PROJECTION_CONFLICT"):
         store.ensure_strategy("a" * 64, 2)
+
+
+def test_freeze_workflow_admission_is_distinct_and_exactly_bound_to_global_admission(
+    postgres_dsn: str,
+) -> None:
+    store = _product_store(postgres_dsn)
+    run = OnlyPostgresResearchRunStore(postgres_dsn).create_queued(_queued("00000000-0000-4000-8000-000000000941"))
+    command_id = OnlyProductCommandId("00000000-0000-4000-8000-000000000942")
+    request = OnlyStrategyFreezeRequest(run.run_id, "a" * 64, "operator")
+    prepared = store.prepare_freeze_admission(command_id, "b" * 64, request, NOW)
+    assert prepared.request == request
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute(
+            """SELECT command_kind, command_fingerprint FROM product_command_admission
+            WHERE command_id = %s""",
+            (command_id.value,),
+        ).fetchone() == ("FREEZE_STRATEGY", "b" * 64)
+        assert connection.execute(
+            "SELECT count(*) FROM strategy_freeze_command_admission WHERE command_id = %s",
+            (command_id.value,),
+        ).fetchone() == (1,)
+        assert connection.execute(
+            "SELECT count(*) FROM product_command_receipt WHERE command_id = %s",
+            (command_id.value,),
+        ).fetchone() == (0,)
+    assert store.load_freeze_admission(command_id) == prepared
 
 
 def test_raw_strategy_promotion_append_is_retired_after_qualification_authority(postgres_dsn: str) -> None:

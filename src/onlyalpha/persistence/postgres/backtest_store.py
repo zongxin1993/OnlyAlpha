@@ -11,7 +11,12 @@ import psycopg
 from psycopg import sql
 from psycopg.rows import dict_row
 
+from onlyalpha.application.product_command_authority import (
+    OnlyProductCommandAuthorityUnavailableError,
+    OnlyProductCommandConflictError,
+)
 from onlyalpha.application.product_command_receipt import (
+    OnlyProductCommandAdmissionV1,
     OnlyProductCommandId,
     OnlyProductCommandKind,
     OnlyProductCommandOutcomeKind,
@@ -46,6 +51,7 @@ from onlyalpha.backtest.model import (
 from onlyalpha.canonical import only_canonical_json
 
 from .config import OnlyPostgresOperationalConnectionOptions
+from .product_command_authority import OnlyPostgresProductCommandAuthority
 
 _COLUMNS = (
     "run_id",
@@ -134,14 +140,9 @@ class OnlyPostgresBacktestStore:
 
     def find_product_command_receipt(self, command_id: OnlyProductCommandId) -> OnlyProductCommandReceipt | None:
         try:
-            with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
-                row = connection.execute(
-                    "SELECT * FROM product_command_receipt WHERE command_id = %s",
-                    (command_id.value,),
-                ).fetchone()
-        except psycopg.Error as exc:
+            return OnlyPostgresProductCommandAuthority(self._dsn).load_verified_receipt(command_id)
+        except OnlyProductCommandAuthorityUnavailableError as exc:
             raise OnlyBacktestStoreUnavailableError("Product Command Receipt load failed") from exc
-        return None if row is None else _decode_receipt(cast(Mapping[str, object], row))
 
     def create_queued_with_receipt(
         self,
@@ -163,9 +164,34 @@ class OnlyPostgresBacktestStore:
         )
         try:
             with psycopg.connect(self._dsn) as connection:
+                authority = OnlyPostgresProductCommandAuthority
+                authority.insert_or_verify_admission(
+                    connection,
+                    OnlyProductCommandAdmissionV1(
+                        receipt.command_id,
+                        receipt.command_kind,
+                        receipt.command_fingerprint,
+                    ),
+                )
+                existing = authority.load_verified_receipt_in_transaction(connection, receipt.command_id)
+                if existing is not None:
+                    _assert_receipt_binding(
+                        existing,
+                        receipt.command_fingerprint,
+                        OnlyProductCommandKind.CREATE_BACKTEST_RUN,
+                        OnlyProductCommandOutcomeKind.BACKTEST_RUN,
+                        None,
+                    )
+                    return existing
                 connection.execute(query, _values(run))
                 _insert_receipt(connection, receipt)
             return receipt
+        except OnlyProductCommandConflictError as exc:
+            raise OnlyBacktestError(
+                OnlyBacktestErrorPhase.COMMAND,
+                "PRODUCT_COMMAND_CONFLICT",
+                receipt.command_id.value,
+            ) from exc
         except psycopg.errors.UniqueViolation as exc:
             existing = self.find_product_command_receipt(receipt.command_id)
             if existing is None:
@@ -200,14 +226,22 @@ class OnlyPostgresBacktestStore:
         command_fingerprint: str,
         at: datetime,
     ) -> tuple[OnlyBacktestRun, OnlyProductCommandReceipt]:
+        requested_receipt = OnlyProductCommandReceipt(
+            command_id=command_id,
+            command_kind=OnlyProductCommandKind.CANCEL_BACKTEST_RUN,
+            command_fingerprint=command_fingerprint,
+            outcome_ref=OnlyProductCommandOutcomeRef(OnlyProductCommandOutcomeKind.BACKTEST_RUN, run_id.value),
+            accepted_at=at,
+        )
         try:
             with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
-                existing_row = connection.execute(
-                    "SELECT * FROM product_command_receipt WHERE command_id = %s FOR UPDATE",
-                    (command_id.value,),
-                ).fetchone()
-                if existing_row is not None:
-                    receipt = _decode_receipt(cast(Mapping[str, object], existing_row))
+                authority = OnlyPostgresProductCommandAuthority
+                authority.insert_or_verify_admission(
+                    connection,
+                    OnlyProductCommandAdmissionV1(command_id, requested_receipt.command_kind, command_fingerprint),
+                )
+                receipt = authority.load_verified_receipt_in_transaction(connection, command_id)
+                if receipt is not None:
                     _assert_receipt_binding(
                         receipt,
                         command_fingerprint,
@@ -215,7 +249,13 @@ class OnlyPostgresBacktestStore:
                         OnlyProductCommandOutcomeKind.BACKTEST_RUN,
                         run_id.value,
                     )
-                    return self.load(run_id), receipt
+                    existing_run = connection.execute(
+                        "SELECT * FROM backtest_run WHERE run_id = %s",
+                        (run_id.value,),
+                    ).fetchone()
+                    if existing_run is None:
+                        raise OnlyBacktestIntegrityError("BACKTEST_RECEIPT_CORRUPT", run_id.value)
+                    return _decode_run(cast(Mapping[str, object], existing_run)), receipt
                 row = connection.execute(
                     "SELECT * FROM backtest_run WHERE run_id = %s FOR UPDATE",
                     (run_id.value,),
@@ -233,15 +273,14 @@ class OnlyPostgresBacktestStore:
                     raise OnlyBacktestStateConflictError(f"Backtest is terminal: {current.state.value}")
                 if updated != current:
                     _update_run(connection, current, updated)
-                receipt = OnlyProductCommandReceipt(
-                    command_id=command_id,
-                    command_kind=OnlyProductCommandKind.CANCEL_BACKTEST_RUN,
-                    command_fingerprint=command_fingerprint,
-                    outcome_ref=OnlyProductCommandOutcomeRef(OnlyProductCommandOutcomeKind.BACKTEST_RUN, run_id.value),
-                    accepted_at=at,
-                )
-                _insert_receipt(connection, receipt)
-            return updated, receipt
+                _insert_receipt(connection, requested_receipt)
+            return updated, requested_receipt
+        except OnlyProductCommandConflictError as exc:
+            raise OnlyBacktestError(
+                OnlyBacktestErrorPhase.COMMAND,
+                "PRODUCT_COMMAND_CONFLICT",
+                command_id.value,
+            ) from exc
         except (OnlyBacktestNotFoundError, OnlyBacktestStateConflictError):
             raise
         except psycopg.errors.UniqueViolation as exc:
@@ -649,20 +688,7 @@ def _lock_owned_attempt(connection, claim: OnlyBacktestExecutionClaim) -> Mappin
 
 
 def _insert_receipt(connection, receipt: OnlyProductCommandReceipt) -> None:  # type: ignore[no-untyped-def]
-    connection.execute(
-        """INSERT INTO product_command_receipt
-        (command_id, command_kind, command_fingerprint, outcome_kind, outcome_id, accepted_at, schema_version)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-        (
-            receipt.command_id.value,
-            receipt.command_kind.value,
-            receipt.command_fingerprint,
-            receipt.outcome_ref.kind.value,
-            receipt.outcome_ref.outcome_id,
-            receipt.accepted_at,
-            receipt.schema_version,
-        ),
-    )
+    OnlyPostgresProductCommandAuthority.insert_verified_receipt(connection, receipt)
 
 
 def _assert_receipt_binding(

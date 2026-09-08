@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 from onlyalpha.application.product_command_receipt import (
+    OnlyProductCommandAdmissionV1,
     OnlyProductCommandId,
     OnlyProductCommandKind,
     OnlyProductCommandOutcomeKind,
@@ -99,3 +100,36 @@ def test_cancel_fingerprint_depends_only_on_exact_target_run() -> None:
     expected = only_cancel_research_run_command_fingerprint(RUN_ID)
     assert expected == only_canonical_fingerprint({"run_id": RUN_ID})
     assert expected != only_cancel_research_run_command_fingerprint("00000000-0000-4000-8000-000000000511")
+
+
+def test_product_command_admission_v1_is_exact_and_contains_only_identity_binding() -> None:
+    admission = OnlyProductCommandAdmissionV1(
+        COMMAND_ID,
+        OnlyProductCommandKind.CREATE_RESEARCH_RUN,
+        "a" * 64,
+    )
+    assert admission.schema_version == 1
+    assert set(admission.__dataclass_fields__) == {
+        "command_id",
+        "command_kind",
+        "command_fingerprint",
+        "schema_version",
+    }
+    with pytest.raises(ValueError, match="lower-case SHA256"):
+        OnlyProductCommandAdmissionV1(COMMAND_ID, OnlyProductCommandKind.CREATE_RESEARCH_RUN, "A" * 64)
+    with pytest.raises(ValueError, match="schema version"):
+        OnlyProductCommandAdmissionV1(COMMAND_ID, OnlyProductCommandKind.CREATE_RESEARCH_RUN, "a" * 64, 2)
+    with pytest.raises(ValueError, match="kind"):
+        OnlyProductCommandAdmissionV1(COMMAND_ID, "CREATE_RESEARCH_RUN", "a" * 64)  # type: ignore[arg-type]
+
+
+def test_search_product_vocabulary_is_representation_only_and_uses_sha256_outcome() -> None:
+    assert {
+        OnlyProductCommandKind.CREATE_SYMBOLIC_SEARCH_EXPERIMENT,
+        OnlyProductCommandKind.CREATE_PARAMETER_SEARCH_EXPERIMENT,
+        OnlyProductCommandKind.ADVANCE_SEARCH_EXPERIMENT,
+    } <= set(OnlyProductCommandKind)
+    expected = OnlyProductCommandOutcomeRef(OnlyProductCommandOutcomeKind.SEARCH_EXPERIMENT, "b" * 64)
+    assert expected.outcome_id == "b" * 64
+    with pytest.raises(ValueError, match="lower-case SHA256"):
+        OnlyProductCommandOutcomeRef(OnlyProductCommandOutcomeKind.SEARCH_EXPERIMENT, COMMAND_ID.value)

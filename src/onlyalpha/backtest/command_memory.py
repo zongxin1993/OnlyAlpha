@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from onlyalpha.application.product_command_receipt import (
+    OnlyProductCommandAdmissionV1,
     OnlyProductCommandId,
     OnlyProductCommandReceipt,
 )
@@ -16,15 +17,21 @@ from .model import OnlyBacktestRun, OnlyBacktestRunId
 class OnlyInMemoryBacktestCommandStore(OnlyBacktestCommandStore):
     def __init__(self) -> None:
         self.runs: dict[OnlyBacktestRunId, OnlyBacktestRun] = {}
+        self.admissions: dict[OnlyProductCommandId, OnlyProductCommandAdmissionV1] = {}
         self.receipts: dict[OnlyProductCommandId, OnlyProductCommandReceipt] = {}
 
     def find_product_command_receipt(self, command_id: OnlyProductCommandId) -> OnlyProductCommandReceipt | None:
-        return self.receipts.get(command_id)
+        receipt = self.receipts.get(command_id)
+        if receipt is None:
+            return None
+        self._verify_receipt(receipt)
+        return receipt
 
     def create_queued_with_receipt(
         self, run: OnlyBacktestRun, receipt: OnlyProductCommandReceipt
     ) -> OnlyProductCommandReceipt:
-        existing = self.receipts.get(receipt.command_id)
+        self._admit(receipt)
+        existing = self.find_product_command_receipt(receipt.command_id)
         if existing is not None:
             return existing
         self.runs[run.run_id] = run
@@ -54,7 +61,15 @@ class OnlyInMemoryBacktestCommandStore(OnlyBacktestCommandStore):
 
         from .model import OnlyBacktestRunState
 
-        existing = self.receipts.get(command_id)
+        requested = OnlyProductCommandReceipt(
+            command_id,
+            OnlyProductCommandKind.CANCEL_BACKTEST_RUN,
+            command_fingerprint,
+            OnlyProductCommandOutcomeRef(OnlyProductCommandOutcomeKind.BACKTEST_RUN, run_id.value),
+            at,
+        )
+        self._admit(requested)
+        existing = self.find_product_command_receipt(command_id)
         if existing is not None:
             return self.load(run_id), existing
         current = self.load(run_id)
@@ -65,15 +80,32 @@ class OnlyInMemoryBacktestCommandStore(OnlyBacktestCommandStore):
         else:
             updated = current
         self.runs[run_id] = updated
-        receipt = OnlyProductCommandReceipt(
-            command_id,
-            OnlyProductCommandKind.CANCEL_BACKTEST_RUN,
-            command_fingerprint,
-            OnlyProductCommandOutcomeRef(OnlyProductCommandOutcomeKind.BACKTEST_RUN, run_id.value),
-            at,
-        )
+        receipt = requested
         self.receipts[command_id] = receipt
         return updated, receipt
+
+    def _admit(self, receipt: OnlyProductCommandReceipt) -> None:
+        from .command import _conflict
+
+        requested = OnlyProductCommandAdmissionV1(
+            receipt.command_id,
+            receipt.command_kind,
+            receipt.command_fingerprint,
+        )
+        existing = self.admissions.get(receipt.command_id)
+        if existing is not None and existing != requested:
+            _conflict("Product Command ID is already bound to another intent")
+        self.admissions.setdefault(receipt.command_id, requested)
+
+    def _verify_receipt(self, receipt: OnlyProductCommandReceipt) -> None:
+        from .command import _conflict
+
+        admission = self.admissions.get(receipt.command_id)
+        if admission is None or (
+            admission.command_kind is not receipt.command_kind
+            or admission.command_fingerprint != receipt.command_fingerprint
+        ):
+            _conflict("Product Command Receipt does not exact-match Admission")
 
 
 __all__ = ["OnlyInMemoryBacktestCommandStore"]
