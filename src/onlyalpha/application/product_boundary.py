@@ -10,6 +10,20 @@ from onlyalpha.application.catalog_context import (
     OnlyExactCatalogContextV1,
 )
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId
+from onlyalpha.application.search_product import (
+    OnlyAdvanceSearchExperimentV1,
+    OnlyGetSearchExperimentV1,
+    OnlyGetSearchIterationLedgerV1,
+    OnlyGetSearchTerminalDecisionV1,
+    OnlySearchExperimentProjectionV1,
+    OnlySearchIterationLedgerProjectionV1,
+    OnlySearchProductCommandServiceV1,
+    OnlySearchProductOutcomeV1,
+    OnlySearchProductQueryServiceV1,
+    OnlySearchTerminalProjectionV1,
+    OnlySubmitParameterSearchExperimentV1,
+    OnlySubmitSymbolicSearchExperimentV1,
+)
 from onlyalpha.kernel.command import (
     OnlyProductCommand,
     OnlyProductCommandBinding,
@@ -70,6 +84,8 @@ def only_compose_research_product_boundary(
     commands: OnlyResearchCommandService,
     queries: OnlyResearchRunQueryService,
     exact_catalog_context: OnlyExactCatalogContextQueryService | None = None,
+    search_commands: OnlySearchProductCommandServiceV1 | None = None,
+    search_queries: OnlySearchProductQueryServiceV1 | None = None,
 ) -> OnlyResearchProductBoundary:
     """Freeze the one legal Research Product binding topology."""
 
@@ -94,20 +110,64 @@ def only_compose_research_product_boundary(
             raise RuntimeError("EXACT_CATALOG_CONTEXT_UNAVAILABLE")
         return exact_catalog_context.get_exact_catalog_context(query.catalog_generation_fingerprint)
 
+    def submit_symbolic(command: OnlySubmitSymbolicSearchExperimentV1) -> OnlySearchProductOutcomeV1:
+        if search_commands is None:  # excluded from bindings below
+            raise RuntimeError("SEARCH_PRODUCT_AUTHORITY_UNAVAILABLE")
+        return search_commands.submit(command)
+
+    def submit_parameter(command: OnlySubmitParameterSearchExperimentV1) -> OnlySearchProductOutcomeV1:
+        if search_commands is None:  # excluded from bindings below
+            raise RuntimeError("SEARCH_PRODUCT_AUTHORITY_UNAVAILABLE")
+        return search_commands.submit(command)
+
+    def advance_search(command: OnlyAdvanceSearchExperimentV1) -> OnlySearchProductOutcomeV1:
+        if search_commands is None:  # excluded from bindings below
+            raise RuntimeError("SEARCH_PRODUCT_AUTHORITY_UNAVAILABLE")
+        return search_commands.advance(command)
+
+    def get_search_experiment(query: OnlyGetSearchExperimentV1) -> OnlySearchExperimentProjectionV1:
+        if search_queries is None:  # excluded from bindings below
+            raise RuntimeError("SEARCH_PRODUCT_AUTHORITY_UNAVAILABLE")
+        return search_queries.get_experiment(query)
+
+    def get_search_ledger(query: OnlyGetSearchIterationLedgerV1) -> OnlySearchIterationLedgerProjectionV1:
+        if search_queries is None:  # excluded from bindings below
+            raise RuntimeError("SEARCH_PRODUCT_AUTHORITY_UNAVAILABLE")
+        return search_queries.get_ledger(query)
+
+    def get_search_terminal(query: OnlyGetSearchTerminalDecisionV1) -> OnlySearchTerminalProjectionV1:
+        if search_queries is None:  # excluded from bindings below
+            raise RuntimeError("SEARCH_PRODUCT_AUTHORITY_UNAVAILABLE")
+        return search_queries.get_terminal(query)
+
     query_bindings: tuple[OnlyProductQueryBinding[Any, Any], ...] = (
         OnlyProductQueryBinding(OnlyGetResearchRun, get),
         OnlyProductQueryBinding(OnlyListResearchRuns, list_runs),
     )
     if exact_catalog_context is not None:
         query_bindings += (OnlyProductQueryBinding(OnlyGetExactCatalogContext, get_exact_catalog_context),)
+    if search_queries is not None:
+        query_bindings += (
+            OnlyProductQueryBinding(OnlyGetSearchExperimentV1, get_search_experiment),
+            OnlyProductQueryBinding(OnlyGetSearchIterationLedgerV1, get_search_ledger),
+            OnlyProductQueryBinding(OnlyGetSearchTerminalDecisionV1, get_search_terminal),
+        )
+
+    command_bindings: tuple[OnlyProductCommandBinding[Any, Any], ...] = (
+        OnlyProductCommandBinding(OnlyCreateResearchRun, create),
+        OnlyProductCommandBinding(OnlyCancelResearchRun, cancel),
+    )
+    if search_commands is not None:
+        command_bindings += (
+            OnlyProductCommandBinding(OnlySubmitSymbolicSearchExperimentV1, submit_symbolic),
+            OnlyProductCommandBinding(OnlySubmitParameterSearchExperimentV1, submit_parameter),
+            OnlyProductCommandBinding(OnlyAdvanceSearchExperimentV1, advance_search),
+        )
 
     return OnlyResearchProductBoundary(
         commands=OnlyProductCommandDispatcher(
             admission,
-            (
-                OnlyProductCommandBinding(OnlyCreateResearchRun, create),
-                OnlyProductCommandBinding(OnlyCancelResearchRun, cancel),
-            ),
+            command_bindings,
         ),
         queries=OnlyProductQueryDispatcher(query_bindings),
     )

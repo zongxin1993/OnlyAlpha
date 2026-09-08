@@ -12,6 +12,7 @@ from onlyalpha.research.experiment import (
     OnlySearchIterationResultV1,
     OnlySearchResearchResultReferenceV1,
 )
+from onlyalpha.research.specification.model import OnlyResearchSpecification
 from onlyalpha.research.specification.resolver import (
     OnlyResearchCandidateLineage,
     OnlyResearchSpecificationResolution,
@@ -60,6 +61,7 @@ class OnlySymbolicQualificationExecutor(Protocol):
 @dataclass(frozen=True, slots=True)
 class OnlySymbolicResolvedResearchCandidateV1:
     proposal: OnlyVerifiedSymbolicProposalV1
+    specification: OnlyResearchSpecification
     resolution: OnlyResearchSpecificationResolution
     candidate: OnlyResearchCandidateLineage
 
@@ -93,7 +95,12 @@ def resolve_symbolic_research_candidate(
     candidate = candidates[0]
     if candidate.graph_fingerprint != proposal.proposal.graph_fingerprint:
         raise OnlySymbolicSearchError("CANDIDATE_BINDING_FAILED", "normal Resolver graph identity differs")
-    return OnlySymbolicResolvedResearchCandidateV1(proposal, resolution, candidate)
+    return OnlySymbolicResolvedResearchCandidateV1(
+        proposal,
+        materialized.specification,
+        resolution,
+        candidate,
+    )
 
 
 def run_symbolic_search_workflow(

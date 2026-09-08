@@ -8,6 +8,7 @@ from .errors import *
 from .evidence import *
 from .integration import *
 from .model import *
+from .product import *
 from .store import *
 from .verification import *
 

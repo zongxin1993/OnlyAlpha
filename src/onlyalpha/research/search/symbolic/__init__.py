@@ -3,6 +3,7 @@
 
 from .algorithm import *
 from .context import *
+from .controller import *
 from .enumeration import *
 from .enumeration_result import *
 from .errors import *
@@ -12,6 +13,7 @@ from .historical import *
 from .integration import *
 from .materialization import *
 from .model import *
+from .product import *
 from .store import *
 from .verification import *
 
