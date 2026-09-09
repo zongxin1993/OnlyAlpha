@@ -5,7 +5,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime
 
+from onlyalpha.application.product_command_authority import (
+    OnlyProductCommandAdmissionAuthority,
+    OnlyProductCommandAuthorityUnavailableError,
+    OnlyProductCommandConflictError,
+)
 from onlyalpha.application.product_command_receipt import (
+    OnlyProductCommandAdmissionV1,
     OnlyProductCommandId,
     OnlyProductCommandKind,
     OnlyProductCommandOutcomeKind,
@@ -30,10 +36,12 @@ from .errors import (
     OnlyResearchSubmissionConflictError,
 )
 from .model import (
+    OnlyDerivedResearchSubmitCommandV2,
     OnlyResearchSubmissionKey,
     OnlyResearchSubmitCommand,
     OnlyResearchSubmitDisposition,
     OnlyResearchSubmitOutcome,
+    only_derived_research_run_id,
 )
 from .store import OnlyResearchCommandStore
 
@@ -46,6 +54,7 @@ class OnlyResearchCommandService:
         store: OnlyResearchCommandStore,
         now_utc: Callable[[], datetime],
         runtime_generations: OnlyRuntimeGenerationWorkAuthority,
+        command_admissions: OnlyProductCommandAdmissionAuthority | None = None,
         cancellation_cas_attempts: int = 3,
     ) -> None:
         if cancellation_cas_attempts < 1:
@@ -54,6 +63,7 @@ class OnlyResearchCommandService:
         self._store = store
         self._now_utc = now_utc
         self._runtime_generations = runtime_generations
+        self._command_admissions = command_admissions
         self._cancellation_cas_attempts = cancellation_cas_attempts
 
     def submit_research_run(
@@ -65,7 +75,17 @@ class OnlyResearchCommandService:
         parent_runtime_work_id: str | None = None,
     ) -> OnlyResearchSubmitOutcome:
         strict = OnlyResearchSpecification.from_dict(specification.to_dict())
-        command = OnlyResearchSubmitCommand(submission_key, strict, provenance)
+        command: OnlyResearchSubmitCommand | OnlyDerivedResearchSubmitCommandV2
+        if parent_runtime_work_id is None:
+            command = OnlyResearchSubmitCommand(submission_key, strict, provenance)
+        else:
+            command = OnlyDerivedResearchSubmitCommandV2(
+                submission_key,
+                strict,
+                parent_runtime_work_id,
+                provenance,
+            )
+            self._admit_derived_command(command)
         existing = self._store.find_product_command_receipt(submission_key)
         if existing is not None:
             run = self._replay_receipt(
@@ -75,14 +95,21 @@ class OnlyResearchCommandService:
             )
             self._require_expected_binding(run.run_id.value, parent_runtime_work_id)
             return OnlyResearchSubmitOutcome(OnlyResearchSubmitDisposition.REUSED, run)
-        prepared = self._admission.prepare(strict, provenance=provenance)
         if parent_runtime_work_id is None:
+            # Preserve the standalone admission call contract exactly; the new
+            # exact identity seam belongs only to derived formal work.
+            prepared = self._admission.prepare(strict, provenance=provenance)
             self._runtime_generations.bind_new_work(
                 prepared.run_id.value,
                 actor="research-product-admission",
                 occurred_at=prepared.queued_at,
             )
         else:
+            prepared = self._admission.prepare(
+                strict,
+                provenance=provenance,
+                exact_run_id=only_derived_research_run_id(submission_key),
+            )
             self._runtime_generations.bind_derived_work(
                 parent_runtime_work_id,
                 prepared.run_id.value,
@@ -102,18 +129,19 @@ class OnlyResearchCommandService:
         try:
             record = self._store.create_queued_with_receipt(prepared, requested)
         except Exception:
-            self._runtime_generations.release_work(
-                prepared.run_id.value,
-                actor="research-product-admission-compensation",
-                occurred_at=self._now_utc(),
-            )
+            if parent_runtime_work_id is None:
+                self._runtime_generations.release_work(
+                    prepared.run_id.value,
+                    actor="research-product-admission-compensation",
+                    occurred_at=self._now_utc(),
+                )
             raise
         run = self._replay_receipt(
             record,
             kind=OnlyProductCommandKind.CREATE_RESEARCH_RUN,
             fingerprint=command.command_fingerprint,
         )
-        if run.run_id != prepared.run_id:
+        if run.run_id != prepared.run_id and parent_runtime_work_id is None:
             self._runtime_generations.release_work(
                 prepared.run_id.value,
                 actor="research-product-admission-concurrency-loser",
@@ -132,13 +160,29 @@ class OnlyResearchCommandService:
         if parent_runtime_work_id is None:
             return
         parent = self._runtime_generations.require_work_binding(parent_runtime_work_id)
-        if (
-            getattr(child, "active", None) is not True
-            or getattr(parent, "active", None) is not True
-            or getattr(parent, "runtime_generation_fingerprint", None)
-            != getattr(child, "runtime_generation_fingerprint", None)
+        if getattr(parent, "runtime_generation_fingerprint", None) != getattr(
+            child, "runtime_generation_fingerprint", None
         ):
             raise ValueError("RUNTIME_DERIVED_WORK_GENERATION_BINDING_CONFLICT")
+
+    def _admit_derived_command(self, command: OnlyDerivedResearchSubmitCommandV2) -> None:
+        authority = self._command_admissions
+        if authority is None:
+            raise OnlyResearchRunIntegrityError("Derived Research Product Admission Authority is unavailable")
+        requested = OnlyProductCommandAdmissionV1(
+            command.submission_key,
+            OnlyProductCommandKind.CREATE_RESEARCH_RUN,
+            command.command_fingerprint,
+        )
+        try:
+            authority.admit_exact(requested)
+            actual = authority.load_admission(command.submission_key)
+        except OnlyProductCommandConflictError as exc:
+            raise OnlyResearchSubmissionConflictError() from exc
+        except OnlyProductCommandAuthorityUnavailableError as exc:
+            raise OnlyResearchRunIntegrityError("Derived Research Product Admission Authority is unavailable") from exc
+        if actual != requested:
+            raise OnlyResearchSubmissionConflictError()
 
     def request_research_run_cancellation(
         self,

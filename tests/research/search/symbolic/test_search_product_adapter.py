@@ -38,6 +38,8 @@ from onlyalpha.application.search_product import (
     OnlySearchRuntimeGenerationBindingConflict,
     OnlySearchRuntimeGenerationInvalid,
     OnlySearchRuntimeGenerationUnbound,
+    OnlySubmitParameterSearchExperimentV1,
+    OnlySubmitParameterSearchExperimentV2,
     OnlySubmitSymbolicSearchExperimentV1,
     OnlySubmitSymbolicSearchExperimentV2,
     OnlySymbolicExpectedStateV1,
@@ -45,7 +47,10 @@ from onlyalpha.application.search_product import (
 )
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.quant_assets import OnlyQuantAssetCatalogManager
-from onlyalpha.research.command.model import OnlyResearchSubmitDisposition
+from onlyalpha.research.command.model import (
+    OnlyResearchSubmitDisposition,
+    only_derived_research_run_id,
+)
 from onlyalpha.research.experiment import (
     OnlyJsonSearchProvenanceStore,
     OnlySearchBudgetV1,
@@ -106,9 +111,15 @@ class _Results:
 
 
 class _Commands:
-    def __init__(self, authority: _ProductAuthority, results: _Results) -> None:
+    def __init__(
+        self,
+        authority: _ProductAuthority,
+        results: _Results,
+        runtime_generations: OnlyTestRuntimeGenerationAuthority,
+    ) -> None:
         self.authority = authority
         self.results = results
+        self.runtime_generations = runtime_generations
         self.state = OnlyResearchRunState.QUEUED
         self.calls = 0
         self.runs: dict[OnlyResearchRunId, OnlyResearchRun] = {}
@@ -118,7 +129,21 @@ class _Commands:
 
         self.calls += 1
         command_id = symbolic_submission_key(plan)
-        run_id = OnlyResearchRunId(command_id.value)
+        existing_receipt = self.authority.receipts.get(command_id)
+        if existing_receipt is not None:
+            run = self.runs[OnlyResearchRunId(existing_receipt.outcome_ref.outcome_id)]
+            child = self.runtime_generations.require_work_binding(run.run_id.value)
+            parent = self.runtime_generations.require_work_binding(
+                only_search_experiment_work_id(plan.experiment_fingerprint)
+            )
+            if child.runtime_generation_fingerprint != parent.runtime_generation_fingerprint:
+                raise ValueError("RUNTIME_DERIVED_WORK_GENERATION_BINDING_CONFLICT")
+            return SimpleNamespace(disposition=OnlyResearchSubmitDisposition.REUSED, run=run)
+        run_id = only_derived_research_run_id(command_id)
+        self.runtime_generations.bind_derived_work(
+            only_search_experiment_work_id(plan.experiment_fingerprint),
+            run_id.value,
+        )
         admission = OnlyProductCommandAdmissionV1(
             command_id,
             self.authority.research_kind,
@@ -155,7 +180,25 @@ class _Commands:
                 artifact_content_fingerprint="5" * 64,
             )
         self.runs[run_id] = run
+        if self.state is OnlyResearchRunState.COMPLETED:
+            self.runtime_generations.release_work(run_id.value)
         return SimpleNamespace(disposition=OnlyResearchSubmitDisposition.REUSED, run=run)
+
+    def complete_and_release(self) -> None:
+        for run_id, current in tuple(self.runs.items()):
+            if current.state is not OnlyResearchRunState.QUEUED:
+                continue
+            completed = current.transition(
+                OnlyResearchRunState.RUNNING,
+                at=datetime(2026, 9, 8, 0, 0, 1, tzinfo=UTC),
+            ).transition(
+                OnlyResearchRunState.COMPLETED,
+                at=datetime(2026, 9, 8, 0, 0, 2, tzinfo=UTC),
+                research_result_fingerprint="e" * 64,
+                artifact_content_fingerprint="5" * 64,
+            )
+            self.runs[run_id] = completed
+            self.runtime_generations.release_work(run_id.value)
 
     def get_run(self, run_id: OnlyResearchRunId) -> OnlyResearchRun:
         return self.runs[run_id]
@@ -267,7 +310,7 @@ def _case(tmp_path, *, authority=None, runtime_generations=None):  # type: ignor
         generation_fingerprint="f" * 64,
         catalog_generation_fingerprint=generation.generation_fingerprint,
     )
-    commands = _Commands(authority, results)
+    commands = _Commands(authority, results, runtime_generations)
     adapter = OnlySymbolicSearchProductAdapterV1(
         symbolic_store=symbolic,
         provenance=cast(object, provenance),
@@ -358,6 +401,7 @@ def test_submit_and_bounded_symbolic_advance_reconcile_recovery(tmp_path) -> Non
     assert commands.calls == 1
 
     commands.state = OnlyResearchRunState.COMPLETED
+    commands.complete_and_release()
     observed = query.get_ledger(OnlyGetSearchIterationLedgerV1(experiment)).expected_state
     observed = cast(OnlySymbolicExpectedStateV1, observed)
     terminal_reconcile = OnlyAdvanceSearchExperimentV1(
@@ -376,6 +420,13 @@ def test_submit_and_bounded_symbolic_advance_reconcile_recovery(tmp_path) -> Non
     )
     terminal = service.advance(terminal_reconcile)
     assert terminal.ledger.results[0] is not None
+    child_id = terminal.ledger.expected_state.ordered_plan_states[0].research_receipt_outcome_id
+    assert child_id is not None
+    assert commands.runtime_generations.require_work_binding(child_id).active is False
+    terminal_run_id = only_derived_research_run_id(symbolic_submission_key(plan)).value
+    historical = service._runtime_generations.require_work_binding(terminal_run_id)  # type: ignore[attr-defined]
+    assert historical.active is False
+    assert terminal.ledger.results[0].research_attempted is True
 
     next_advance = OnlyAdvanceSearchExperimentV1(
         _command_id(),
@@ -744,7 +795,7 @@ def test_exact_search_experiment_query_fails_closed_for_unknown_identity(tmp_pat
 
 
 def test_search_commands_and_queries_use_existing_product_dispatchers(tmp_path) -> None:
-    service, query, _authority, _commands, submit = _case(tmp_path)
+    service, query, authority, _commands, submit = _case(tmp_path)
 
     class _Ready:
         calls = 0
@@ -760,6 +811,12 @@ def test_search_commands_and_queries_use_existing_product_dispatchers(tmp_path) 
         search_commands=service,
         search_queries=query,
     )
+    assert {
+        OnlySubmitSymbolicSearchExperimentV1,
+        OnlySubmitSymbolicSearchExperimentV2,
+        OnlySubmitParameterSearchExperimentV1,
+        OnlySubmitParameterSearchExperimentV2,
+    } <= set(boundary.commands._handlers)  # type: ignore[attr-defined]
 
     created = boundary.commands.dispatch(submit)
     assert ready.calls == 1
@@ -767,6 +824,33 @@ def test_search_commands_and_queries_use_existing_product_dispatchers(tmp_path) 
         boundary.queries.dispatch(OnlyGetSearchExperimentV1(created.experiment.experiment_fingerprint)).experiment
         == created.experiment
     )
+
+    historical = OnlySubmitSymbolicSearchExperimentV1(
+        _command_id(),
+        submit.hypothesis,
+        submit.search_space,
+        submit.evaluation_contract,
+        submit.search_budget,
+        submit.algorithm_manifest,
+        submit.workflow_binding,
+        submit.decision_engine_binding,
+        submit.catalog_generation_fingerprint,
+        submit.dataset_snapshot_fingerprint,
+    )
+    authority.admit_exact(
+        OnlyProductCommandAdmissionV1(
+            historical.command_id,
+            OnlyProductCommandKind.CREATE_SYMBOLIC_SEARCH_EXPERIMENT,
+            historical.command_fingerprint,
+        )
+    )
+    assert boundary.commands.dispatch(historical).experiment == created.experiment
+
+    fresh_v1 = replace(historical, command_id=_command_id())
+    before = len(authority.receipts)
+    with pytest.raises(OnlySearchRuntimeGenerationUnbound):
+        boundary.commands.dispatch(fresh_v1)
+    assert len(authority.receipts) == before
 
 
 def test_symbolic_submit_receipt_recovery_is_monotonic_after_later_progress(tmp_path) -> None:
@@ -791,6 +875,7 @@ def test_symbolic_submit_receipt_recovery_is_monotonic_after_later_progress(tmp_
     assert repaired.experiment.experiment_fingerprint == experiment
 
     commands.state = OnlyResearchRunState.COMPLETED
+    commands.complete_and_release()
     while True:
         ledger = query.get_ledger(OnlyGetSearchIterationLedgerV1(experiment))
         enumeration = cast(OnlySymbolicEnumerationResultV1, ledger.enumeration_result)
@@ -964,8 +1049,9 @@ def test_dangling_and_mismatched_research_runs_fail_before_search_result_or_oute
         OnlySymbolicExpectedStateV1,
         query.get_ledger(OnlyGetSearchIterationLedgerV1(experiment)).expected_state,
     )
-    correct = commands.runs[OnlyResearchRunId(inner_id.value)]
-    commands.runs[OnlyResearchRunId(inner_id.value)] = replace(
+    deterministic_run_id = only_derived_research_run_id(inner_id)
+    correct = commands.runs[deterministic_run_id]
+    commands.runs[deterministic_run_id] = replace(
         correct,
         run_id=OnlyResearchRunId("00000000-0000-4000-8000-000000000999"),
     )

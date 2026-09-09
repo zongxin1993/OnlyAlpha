@@ -289,13 +289,14 @@ def test_exact_and_derived_binding_fail_closed_after_release(tmp_path: Path) -> 
             occurred_at=NOW + timedelta(seconds=6),
         )
     registry.release_work(parent.work_id, actor="search", occurred_at=NOW + timedelta(seconds=7))
-    with pytest.raises(ValueError, match="RUNTIME_WORK_GENERATION_UNBOUND"):
-        registry.bind_work_exact(
-            parent.work_id,
-            generation,
-            actor="search-retry",
-            occurred_at=NOW + timedelta(seconds=8),
-        )
+    historical = registry.bind_work_exact(
+        parent.work_id,
+        generation,
+        actor="search-retry",
+        occurred_at=NOW + timedelta(seconds=8),
+    )
+    assert historical.runtime_generation_fingerprint == generation
+    assert historical.active is False
 
 
 def test_concurrent_activation_has_one_durable_winner(tmp_path: Path) -> None:

@@ -25,6 +25,7 @@ class OnlyTestRuntimeGenerationAuthority:
         self.catalog_generation_fingerprint = catalog_generation_fingerprint
         self.available_generations = {generation_fingerprint: catalog_generation_fingerprint}
         self.bindings: dict[str, str] = {}
+        self.inactive_work_ids: set[str] = set()
 
     def activate(self, generation_fingerprint: str, *, catalog_generation_fingerprint: str | None = None) -> None:
         catalog = catalog_generation_fingerprint or self.catalog_generation_fingerprint
@@ -48,8 +49,10 @@ class OnlyTestRuntimeGenerationAuthority:
         if parent_work_id not in self.bindings:
             raise ValueError("RUNTIME_DERIVED_PARENT_GENERATION_UNBOUND")
         parent = self.bindings[parent_work_id]
+        if child_work_id not in self.bindings and parent_work_id in self.inactive_work_ids:
+            raise ValueError("RUNTIME_DERIVED_PARENT_GENERATION_UNBOUND")
         existing = self.bindings.setdefault(child_work_id, parent)
-        if existing != parent:
+        if existing != parent or child_work_id in self.inactive_work_ids:
             raise ValueError("RUNTIME_DERIVED_WORK_GENERATION_BINDING_CONFLICT")
         return self.require_work_binding(child_work_id)
 
@@ -67,8 +70,10 @@ class OnlyTestRuntimeGenerationAuthority:
         )
 
     def release_work(self, work_id: str, **_: object) -> object:
-        self.bindings.pop(work_id, None)
-        return object()
+        if work_id not in self.bindings:
+            raise KeyError(work_id)
+        self.inactive_work_ids.add(work_id)
+        return self.require_work_binding(work_id)
 
     def require_work_binding(self, work_id: str) -> object:
         if work_id not in self.bindings:
@@ -76,16 +81,22 @@ class OnlyTestRuntimeGenerationAuthority:
         return SimpleNamespace(
             work_id=work_id,
             runtime_generation_fingerprint=self.bindings[work_id],
-            active=True,
+            active=work_id not in self.inactive_work_ids,
         )
 
     def require_work_generation(self, work_id: str, process_generation_fingerprint: str) -> object:
-        if self.bindings.get(work_id) != process_generation_fingerprint:
+        if self.bindings.get(work_id) != process_generation_fingerprint or work_id in self.inactive_work_ids:
             raise ValueError("RUNTIME_WORK_GENERATION_MISMATCH")
         return object()
 
     def work_ids_for_generation(self, process_generation_fingerprint: str) -> tuple[str, ...]:
-        return tuple(sorted(key for key, value in self.bindings.items() if value == process_generation_fingerprint))
+        return tuple(
+            sorted(
+                key
+                for key, value in self.bindings.items()
+                if value == process_generation_fingerprint and key not in self.inactive_work_ids
+            )
+        )
 
     def verify_hosted_generation(self, generation_fingerprint: str) -> None:
         if generation_fingerprint != self.generation_fingerprint:

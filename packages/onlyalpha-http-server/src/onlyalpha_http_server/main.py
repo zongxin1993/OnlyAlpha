@@ -49,6 +49,7 @@ from onlyalpha.persistence.postgres import (
     OnlyPostgresConfig,
     OnlyPostgresKernelAuthorityGuard,
     OnlyPostgresOperationalConnectionOptions,
+    OnlyPostgresProductCommandAuthority,
     OnlyPostgresResearchDeploymentStore,
     OnlyPostgresResearchRunStore,
     OnlyPostgresSchemaVerifier,
@@ -324,6 +325,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             store=run_store,
             now_utc=only_system_utc_now,
             runtime_generations=runtime_generations,
+            command_admissions=OnlyPostgresProductCommandAuthority(postgres.dsn, operational_options),
         )
         product_boundary = only_compose_research_product_boundary(
             admission=kernel,

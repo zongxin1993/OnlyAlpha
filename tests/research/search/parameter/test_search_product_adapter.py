@@ -7,9 +7,11 @@ from uuid import uuid4
 
 import pytest
 
+from onlyalpha.application.product_boundary import only_compose_research_product_boundary
 from onlyalpha.application.product_command_receipt import (
     OnlyProductCommandAdmissionV1,
     OnlyProductCommandId,
+    OnlyProductCommandKind,
     OnlyProductCommandOutcomeKind,
     OnlyProductCommandOutcomeRef,
     OnlyProductCommandReceipt,
@@ -25,6 +27,7 @@ from onlyalpha.application.search_product import (
     OnlySearchProductExpectedStateMismatch,
     OnlySearchProductQueryServiceV1,
     OnlySearchProductSemanticFactCorrupt,
+    OnlySubmitParameterSearchExperimentV1,
     OnlySubmitParameterSearchExperimentV2,
 )
 from onlyalpha.canonical import only_canonical_json
@@ -372,6 +375,52 @@ def test_parameter_submit_is_exact_experiment_only_and_identity_excludes_command
         runtime_generation_fingerprint=submit.runtime_generation_fingerprint,
     )
     assert same_intent.command_fingerprint == submit.command_fingerprint
+
+
+def test_parameter_v1_historical_replay_uses_canonical_product_boundary(tmp_path) -> None:
+    service, query, authority, _runs, _commands, submit, _adapter = _product_case(tmp_path)
+
+    class _Ready:
+        def assert_mutation_ready(self) -> None:
+            pass
+
+    boundary = only_compose_research_product_boundary(
+        admission=_Ready(),
+        commands=cast(object, object()),
+        queries=cast(object, object()),
+        search_commands=service,
+        search_queries=query,
+    )
+    created = boundary.commands.dispatch(submit)
+    historical = OnlySubmitParameterSearchExperimentV1(
+        OnlyProductCommandId(str(uuid4())),
+        submit.hypothesis,
+        submit.search_space,
+        submit.evaluation_contract,
+        submit.search_policy,
+        submit.search_budget,
+        submit.algorithm_manifest,
+        submit.workflow_binding,
+        submit.decision_engine_binding,
+        submit.catalog_generation_fingerprint,
+        submit.dataset_snapshot_fingerprint,
+    )
+    authority.admit_exact(
+        OnlyProductCommandAdmissionV1(
+            historical.command_id,
+            OnlyProductCommandKind.CREATE_PARAMETER_SEARCH_EXPERIMENT,
+            historical.command_fingerprint,
+        )
+    )
+
+    replay = boundary.commands.dispatch(historical)
+
+    assert replay.experiment == created.experiment
+    fresh = replace(historical, command_id=OnlyProductCommandId(str(uuid4())))
+    before = len(authority.receipts)
+    with pytest.raises(Exception, match="Search Submit V1 cannot admit new executable work"):
+        boundary.commands.dispatch(fresh)
+    assert len(authority.receipts) == before
 
 
 def test_parameter_partial_effect_retry_completes_same_decision_in_fresh_adapter(tmp_path) -> None:

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
+import re
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -18,6 +21,7 @@ from onlyalpha.research.specification.model import OnlyResearchSpecification
 from .errors import OnlyResearchRunCursorError
 
 OnlyResearchSubmissionKey = OnlyProductCommandId
+_SEARCH_EXPERIMENT_WORK_ID = re.compile(r"^search-experiment:[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +37,53 @@ class OnlyResearchSubmitCommand:
         if self.authoring_provenance is not None:
             payload["authoring_provenance"] = self.authoring_provenance.identity_dict()
         return only_canonical_fingerprint(payload)
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyDerivedResearchSubmitCommandV2:
+    """Complete Product operational intent for Search-derived Research work."""
+
+    submission_key: OnlyResearchSubmissionKey
+    specification: OnlyResearchSpecification
+    parent_runtime_work_id: str
+    authoring_provenance: OnlyResearchAuthoringProvenance | None = None
+    schema_version: int = 2
+
+    def __post_init__(self) -> None:
+        if self.schema_version != 2 or not isinstance(self.submission_key, OnlyProductCommandId):
+            raise ValueError("Derived Research Submit command is invalid")
+        if not isinstance(self.specification, OnlyResearchSpecification):
+            raise ValueError("Derived Research specification is invalid")
+        if (
+            not isinstance(self.parent_runtime_work_id, str)
+            or _SEARCH_EXPERIMENT_WORK_ID.fullmatch(self.parent_runtime_work_id) is None
+        ):
+            raise ValueError("Derived Research parent work identity is invalid")
+        if self.authoring_provenance is not None and not isinstance(
+            self.authoring_provenance, OnlyResearchAuthoringProvenance
+        ):
+            raise ValueError("Derived Research authoring provenance is invalid")
+
+    @property
+    def command_fingerprint(self) -> str:
+        payload: dict[str, object] = {
+            "schema_version": self.schema_version,
+            "specification": self.specification.to_dict(),
+            "parent_runtime_work_id": self.parent_runtime_work_id,
+        }
+        if self.authoring_provenance is not None:
+            payload["authoring_provenance"] = self.authoring_provenance.identity_dict()
+        return only_canonical_fingerprint(payload)
+
+
+def only_derived_research_run_id(command_id: OnlyProductCommandId) -> OnlyResearchRunId:
+    """Deterministically name one derived Run from its immutable Product identity."""
+
+    if not isinstance(command_id, OnlyProductCommandId):
+        raise ValueError("Derived Research Product Command ID is invalid")
+    payload = b"ONLYALPHA_DERIVED_RESEARCH_RUN_ID_V1\x1f" + command_id.value.encode("ascii")
+    raw = hashlib.sha256(payload).digest()[:16]
+    return OnlyResearchRunId(str(uuid.UUID(bytes=raw, version=4)))
 
 
 class OnlyResearchSubmitDisposition(StrEnum):

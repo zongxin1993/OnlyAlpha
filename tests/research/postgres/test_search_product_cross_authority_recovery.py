@@ -17,13 +17,18 @@ from onlyalpha.application.search_product import (
     OnlySearchProductSemanticFactCorrupt,
     OnlySubmitParameterSearchExperimentV2,
     only_load_search_research_run_exact,
+    only_search_experiment_work_id,
 )
 from onlyalpha.persistence.postgres import (
     OnlyPostgresProductCommandAuthority,
     OnlyPostgresResearchRunStore,
 )
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
-from onlyalpha.research.command.query import OnlyResearchRunQueryService
+from onlyalpha.research.command import (
+    OnlyResearchCommandService,
+    OnlyResearchRunQueryService,
+    only_derived_research_run_id,
+)
 from onlyalpha.research.experiment import (
     OnlySearchBudgetV1,
     OnlySearchDecisionEngineBindingV1,
@@ -31,6 +36,7 @@ from onlyalpha.research.experiment import (
     OnlySearchHypothesisV1,
     OnlySearchWorkflowBindingV1,
 )
+from onlyalpha.research.run import OnlyResearchRunAdmissionService
 from onlyalpha.research.search.parameter import (
     OnlyParameterFactorSearchSpaceV1,
     OnlyParameterObjectiveDirection,
@@ -63,6 +69,7 @@ from .test_parameter_search_recovery import (
     _PRIMARY,
     _TIE,
     _commands,
+    _runtime_generations,
     _stores,
     _topology,
 )
@@ -70,6 +77,79 @@ from .test_parameter_search_recovery import (
 pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
 
 _NOW = datetime(2026, 9, 8, tzinfo=UTC)
+
+
+def test_derived_binding_crash_before_real_postgres_commit_recovers_exact_run(
+    postgres_dsn: str,
+    tmp_path,
+) -> None:  # type: ignore[no-untyped-def]
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    _layout, datasets, _calculations, _statistics, _summaries, _reader, _results = _stores(tmp_path)
+    candidate, partitions = snapshot()
+    dataset = datasets.commit(candidate, partitions)
+    exact_specification = specification(dataset.snapshot_fingerprint)
+    durable_store = OnlyPostgresResearchRunStore(postgres_dsn)
+    product_authority = OnlyPostgresProductCommandAuthority(postgres_dsn)
+    runtime_generations = _runtime_generations(tmp_path)
+    generation = runtime_generations.projection().active_for_new_work
+    assert generation is not None
+    parent = only_search_experiment_work_id("d" * 64)
+    runtime_generations.bind_work_exact(parent, generation, actor="search", occurred_at=_NOW)
+
+    class _CrashBeforePostgresCommit:
+        def find_product_command_receipt(self, command_id):  # type: ignore[no-untyped-def]
+            return durable_store.find_product_command_receipt(command_id)
+
+        def create_queued_with_receipt(self, run, receipt):  # type: ignore[no-untyped-def]
+            del run, receipt
+            raise RuntimeError("injected crash before Research PostgreSQL commit")
+
+    admission = OnlyResearchRunAdmissionService(
+        resolver=OnlyResearchSpecificationResolver(research_registry()),
+        dataset_store=datasets,
+        run_store=durable_store,
+        now_utc=lambda: _NOW,
+    )
+    command_id = OnlyProductCommandId("00000000-0000-4000-8000-0000000000e1")
+    crashing = OnlyResearchCommandService(
+        admission=admission,
+        store=_CrashBeforePostgresCommit(),  # type: ignore[arg-type]
+        now_utc=lambda: _NOW,
+        runtime_generations=runtime_generations,
+        command_admissions=product_authority,
+    )
+    with pytest.raises(RuntimeError, match="injected crash"):
+        crashing.submit_research_run(
+            command_id,
+            exact_specification,
+            parent_runtime_work_id=parent,
+        )
+
+    expected_run_id = only_derived_research_run_id(command_id)
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute("SELECT count(*) FROM research_run").fetchone() == (0,)
+        assert connection.execute("SELECT count(*) FROM product_command_receipt").fetchone() == (0,)
+        assert connection.execute("SELECT count(*) FROM product_command_admission").fetchone() == (1,)
+    assert set(runtime_generations.projection().work_bindings) == {parent, expected_run_id.value}
+
+    restarted = OnlyResearchCommandService(
+        admission=admission,
+        store=durable_store,
+        now_utc=lambda: _NOW,
+        runtime_generations=runtime_generations,
+        command_admissions=OnlyPostgresProductCommandAuthority(postgres_dsn),
+    )
+    recovered = restarted.submit_research_run(
+        command_id,
+        exact_specification,
+        parent_runtime_work_id=parent,
+    )
+    assert recovered.run.run_id == expected_run_id
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute("SELECT count(*) FROM research_run").fetchone() == (1,)
+        assert connection.execute("SELECT count(*) FROM product_command_receipt").fetchone() == (1,)
+        assert connection.execute("SELECT count(*) FROM product_command_admission").fetchone() == (1,)
+    assert set(runtime_generations.projection().work_bindings) == {parent, expected_run_id.value}
 
 
 def test_symbolic_fresh_service_repairs_real_postgres_receipt_from_json_effect(

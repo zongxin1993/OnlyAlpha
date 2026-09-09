@@ -707,18 +707,23 @@ class OnlySearchProductCommandServiceV1:
                     command.catalog_generation_fingerprint,
                 )
             admission = self._admit(command.command_id, kind, command.command_fingerprint)
-            manifest = self._require_runtime_generation(command.runtime_generation_fingerprint)
-            self._require_manifest_match(
-                manifest,
+            binding = self._bind_search_exact(
+                expected.experiment_fingerprint,
                 command.runtime_generation_fingerprint,
-                command.catalog_generation_fingerprint,
+                require_active=existing_admission is None,
             )
-            self._bind_search_exact(expected.experiment_fingerprint, command.runtime_generation_fingerprint)
+            if getattr(binding, "active", None) is True:
+                manifest = self._require_runtime_generation(command.runtime_generation_fingerprint)
+                self._require_manifest_match(
+                    manifest,
+                    command.runtime_generation_fingerprint,
+                    command.catalog_generation_fingerprint,
+                )
         else:
             if existing_admission is None:
                 raise OnlySearchRuntimeGenerationUnbound("Search Submit V1 cannot admit new executable work")
             admission = self._admit(command.command_id, kind, command.command_fingerprint)
-            self._require_search_binding(expected.experiment_fingerprint)
+            self._require_search_historical_binding(expected.experiment_fingerprint)
         receipt = self._load_receipt(admission)
         if receipt is not None:
             experiment = self._verify_receipt(adapter, command, expected.experiment_fingerprint, admission, receipt)
@@ -772,7 +777,13 @@ class OnlySearchProductCommandServiceV1:
         except Exception as exc:
             self._raise_runtime_generation_error(exc, generation_fingerprint)
 
-    def _bind_search_exact(self, experiment_fingerprint: str, generation_fingerprint: str) -> object:
+    def _bind_search_exact(
+        self,
+        experiment_fingerprint: str,
+        generation_fingerprint: str,
+        *,
+        require_active: bool,
+    ) -> object:
         work_id = only_search_experiment_work_id(experiment_fingerprint)
         try:
             binding = self._runtime_generations.bind_work_exact(
@@ -786,7 +797,7 @@ class OnlySearchProductCommandServiceV1:
         if (
             getattr(binding, "work_id", None) != work_id
             or getattr(binding, "runtime_generation_fingerprint", None) != generation_fingerprint
-            or getattr(binding, "active", None) is not True
+            or (require_active and getattr(binding, "active", None) is not True)
         ):
             raise OnlySearchRuntimeGenerationInvalid(experiment_fingerprint)
         return binding
@@ -807,6 +818,14 @@ class OnlySearchProductCommandServiceV1:
         if getattr(binding, "active", True) is not True:
             raise OnlySearchRuntimeGenerationUnbound(experiment_fingerprint)
         return binding
+
+    def _require_search_historical_binding(self, experiment_fingerprint: str) -> object:
+        try:
+            return self._runtime_generations.require_work_binding(
+                only_search_experiment_work_id(experiment_fingerprint)
+            )
+        except Exception as exc:
+            self._raise_runtime_generation_error(exc, experiment_fingerprint)
 
     @staticmethod
     def _require_manifest_match(

@@ -329,14 +329,15 @@ class OnlyRuntimeGenerationRegistry:
             raise ValueError("RUNTIME_WORK_ID_INVALID")
         with self._locked():
             projection, events = self._replay()
-            self._load_exact_generation(projection, runtime_generation_fingerprint)
             existing = projection.work_bindings.get(work_id)
             if existing is not None:
-                if not existing.active:
-                    raise ValueError("RUNTIME_WORK_GENERATION_UNBOUND")
                 if existing.runtime_generation_fingerprint != runtime_generation_fingerprint:
                     raise ValueError("RUNTIME_WORK_GENERATION_BINDING_CONFLICT")
+                # Exact replay verifies the immutable historical assignment.  A
+                # release revokes execution eligibility; it does not erase or
+                # reactivate that assignment.
                 return existing
+            self._load_exact_generation(projection, runtime_generation_fingerprint)
             self._append(
                 self._event(
                     events,
@@ -367,16 +368,18 @@ class OnlyRuntimeGenerationRegistry:
                 parent = projection.work_bindings[parent_work_id]
             except KeyError as exc:
                 raise ValueError("RUNTIME_DERIVED_PARENT_GENERATION_UNBOUND") from exc
-            if not parent.active:
-                raise ValueError("RUNTIME_DERIVED_PARENT_GENERATION_UNBOUND")
-            self._load_exact_generation(projection, parent.runtime_generation_fingerprint)
             existing = projection.work_bindings.get(child_work_id)
             if existing is not None:
                 if not existing.active:
                     raise ValueError("RUNTIME_DERIVED_WORK_GENERATION_BINDING_CONFLICT")
                 if existing.runtime_generation_fingerprint != parent.runtime_generation_fingerprint:
                     raise ValueError("RUNTIME_DERIVED_WORK_GENERATION_BINDING_CONFLICT")
+                # Admission-without-Receipt recovery may finish the already-bound
+                # child after the parent itself stops accepting new descendants.
                 return existing
+            if not parent.active:
+                raise ValueError("RUNTIME_DERIVED_PARENT_GENERATION_UNBOUND")
+            self._load_exact_generation(projection, parent.runtime_generation_fingerprint)
             self._append(
                 self._event(
                     events,

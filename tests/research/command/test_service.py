@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 from datetime import UTC, datetime, timedelta
+from threading import Barrier, Lock, Thread
 from typing import cast
 
 import pytest
@@ -14,7 +15,13 @@ from onlyalpha.application.product_boundary import (
     OnlyListResearchRuns,
     only_compose_research_product_boundary,
 )
+from onlyalpha.application.product_command_authority import (
+    OnlyProductCommandConflictError,
+    OnlyProductCommandPutDisposition,
+)
 from onlyalpha.application.product_command_receipt import (
+    OnlyProductCommandAdmissionV1,
+    OnlyProductCommandId,
     OnlyProductCommandKind,
     OnlyProductCommandReceipt,
 )
@@ -22,6 +29,7 @@ from onlyalpha.application.search_product import only_search_experiment_work_id
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.kernel import OnlyAlphaKernelHost
 from onlyalpha.research.command import (
+    OnlyDerivedResearchSubmitCommandV2,
     OnlyResearchCancellationConflictError,
     OnlyResearchCommandConcurrencyError,
     OnlyResearchCommandService,
@@ -32,7 +40,9 @@ from onlyalpha.research.command import (
     OnlyResearchSubmissionConflictError,
     OnlyResearchSubmissionKey,
     OnlyResearchSubmissionRecord,
+    OnlyResearchSubmitCommand,
     OnlyResearchSubmitDisposition,
+    only_derived_research_run_id,
 )
 from onlyalpha.research.provenance import (
     OnlyResearchAuthoringProvenance,
@@ -85,6 +95,26 @@ class _RuntimeGenerations:
 
     def verify_hosted_generation(self, generation_fingerprint):  # type: ignore[no-untyped-def]
         del generation_fingerprint
+
+
+class _ProductAdmissions:
+    def __init__(self) -> None:
+        self.values: dict[OnlyProductCommandId, OnlyProductCommandAdmissionV1] = {}
+        self.lock = Lock()
+
+    def admit_exact(self, admission):  # type: ignore[no-untyped-def]
+        with self.lock:
+            existing = self.values.get(admission.command_id)
+            if existing is not None:
+                if existing != admission:
+                    raise OnlyProductCommandConflictError(admission.command_id.value)
+                return OnlyProductCommandPutDisposition.REUSED
+            self.values[admission.command_id] = admission
+            return OnlyProductCommandPutDisposition.CREATED
+
+    def load_admission(self, command_id):  # type: ignore[no-untyped-def]
+        with self.lock:
+            return self.values.get(command_id)
 
 
 def _provenance(
@@ -198,6 +228,7 @@ def _service(
     ids: list[str] | None = None,
     times: list[datetime] | None = None,
     runtime_generations: object | None = None,
+    command_admissions: object | None = None,
 ) -> OnlyResearchCommandService:
     run_ids = iter(
         ids
@@ -220,6 +251,7 @@ def _service(
         store=store,
         now_utc=lambda: next(clock),
         runtime_generations=runtime_generations or _RuntimeGenerations(),  # type: ignore[arg-type]
+        command_admissions=command_admissions or _ProductAdmissions(),  # type: ignore[arg-type]
     )  # type: ignore[arg-type]
 
 
@@ -325,7 +357,8 @@ def test_search_derived_research_prebound_to_another_generation_fails_before_run
     authority.activate_for_new_work(
         expected_current=g1, target=g2, actor="operator", occurred_at=NOW + timedelta(seconds=4)
     )
-    child_id = "00000000-0000-4000-8000-000000000030"
+    derived_key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000006")
+    child_id = only_derived_research_run_id(derived_key).value
     authority.bind_new_work(child_id, actor="conflicting-root", occurred_at=NOW + timedelta(seconds=5))
     store = _Store()
     service = _service(
@@ -336,12 +369,286 @@ def test_search_derived_research_prebound_to_another_generation_fails_before_run
     )
     with pytest.raises(ValueError, match="RUNTIME_DERIVED_WORK_GENERATION_BINDING_CONFLICT"):
         service.submit_research_run(
-            OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000006"),
+            derived_key,
             specification(),
             parent_runtime_work_id=parent,
         )
     assert store.runs == {}
     assert store.receipts == {}
+
+
+def test_derived_identity_and_parent_operational_intent_are_deterministic() -> None:
+    first_parent = only_search_experiment_work_id("a" * 64)
+    second_parent = only_search_experiment_work_id("b" * 64)
+    first = OnlyDerivedResearchSubmitCommandV2(KEY, specification(), first_parent)
+    same = OnlyDerivedResearchSubmitCommandV2(KEY, specification(), first_parent)
+    changed_parent = OnlyDerivedResearchSubmitCommandV2(KEY, specification(), second_parent)
+
+    assert first.command_fingerprint == same.command_fingerprint
+    assert first.command_fingerprint != changed_parent.command_fingerprint
+    assert only_derived_research_run_id(KEY) == only_derived_research_run_id(KEY)
+    assert only_derived_research_run_id(KEY) != only_derived_research_run_id(OTHER_KEY)
+    assert OnlyResearchSubmitCommand(KEY, specification()).command_fingerprint == (
+        "221f9baaf1fe4c15ba25d9ccb4cb9e6e02722ee17b046e4a8ed66a2a0f3c0c08"
+    )
+
+
+def test_derived_binding_crash_before_run_commit_recovers_same_run_without_orphan(tmp_path) -> None:
+    class CrashOnceStore(_Store):
+        crash = True
+
+        def create_queued_with_receipt(self, run, receipt):  # type: ignore[no-untyped-def]
+            if self.crash:
+                self.crash = False
+                raise RuntimeError("injected crash after Runtime binding")
+            return super().create_queued_with_receipt(run, receipt)
+
+    authority = OnlyRuntimeGenerationRegistry(tmp_path / "runtime-authority")
+    generation = only_ready_test_generation(authority, "a", NOW)
+    authority.activate_for_new_work(
+        expected_current=None,
+        target=generation,
+        actor="operator",
+        occurred_at=NOW + timedelta(seconds=1),
+    )
+    parent = only_search_experiment_work_id("3" * 64)
+    authority.bind_work_exact(parent, generation, actor="search", occurred_at=NOW + timedelta(seconds=2))
+    store = CrashOnceStore()
+    admissions = _ProductAdmissions()
+    service = _service(
+        store,
+        _DatasetStore(),
+        runtime_generations=authority,
+        command_admissions=admissions,
+    )
+    derived_key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000007")
+    expected_run_id = only_derived_research_run_id(derived_key)
+
+    with pytest.raises(RuntimeError, match="injected crash"):
+        service.submit_research_run(derived_key, specification(), parent_runtime_work_id=parent)
+    assert store.runs == {}
+    assert store.receipts == {}
+    assert set(authority.projection().work_bindings) == {parent, expected_run_id.value}
+
+    recovered = service.submit_research_run(
+        derived_key,
+        specification(),
+        parent_runtime_work_id=parent,
+    )
+    assert recovered.run.run_id == expected_run_id
+    assert tuple(store.runs) == (expected_run_id,)
+    assert tuple(store.receipts) == (derived_key,)
+    assert set(authority.projection().work_bindings) == {parent, expected_run_id.value}
+
+
+def test_derived_retry_conflicts_on_different_parent_even_when_generation_matches(tmp_path) -> None:
+    class AlwaysCrashStore(_Store):
+        def create_queued_with_receipt(self, run, receipt):  # type: ignore[no-untyped-def]
+            raise RuntimeError("injected crash after Runtime binding")
+
+    authority = OnlyRuntimeGenerationRegistry(tmp_path / "runtime-authority")
+    generation = only_ready_test_generation(authority, "a", NOW)
+    authority.activate_for_new_work(
+        expected_current=None,
+        target=generation,
+        actor="operator",
+        occurred_at=NOW + timedelta(seconds=1),
+    )
+    parents = tuple(only_search_experiment_work_id(value * 64) for value in ("4", "5"))
+    for offset, parent in enumerate(parents, start=2):
+        authority.bind_work_exact(parent, generation, actor="search", occurred_at=NOW + timedelta(seconds=offset))
+    admissions = _ProductAdmissions()
+    service = _service(
+        AlwaysCrashStore(),
+        _DatasetStore(),
+        runtime_generations=authority,
+        command_admissions=admissions,
+    )
+    derived_key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000008")
+    with pytest.raises(RuntimeError, match="injected crash"):
+        service.submit_research_run(derived_key, specification(), parent_runtime_work_id=parents[0])
+    with pytest.raises(OnlyResearchSubmissionConflictError):
+        service.submit_research_run(derived_key, specification(), parent_runtime_work_id=parents[1])
+    assert (
+        admissions.values[derived_key].command_fingerprint
+        == OnlyDerivedResearchSubmitCommandV2(
+            derived_key,
+            specification(),
+            parents[0],
+        ).command_fingerprint
+    )
+
+
+def test_terminal_derived_replay_uses_historical_inactive_binding(tmp_path) -> None:
+    authority = OnlyRuntimeGenerationRegistry(tmp_path / "runtime-authority")
+    generation = only_ready_test_generation(authority, "a", NOW)
+    authority.activate_for_new_work(
+        expected_current=None,
+        target=generation,
+        actor="operator",
+        occurred_at=NOW + timedelta(seconds=1),
+    )
+    parent = only_search_experiment_work_id("6" * 64)
+    authority.bind_work_exact(parent, generation, actor="search", occurred_at=NOW + timedelta(seconds=2))
+    store = _Store()
+    service = _service(store, _DatasetStore(), runtime_generations=authority)
+    derived_key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000009")
+    created = service.submit_research_run(derived_key, specification(), parent_runtime_work_id=parent).run
+    completed = created.transition(OnlyResearchRunState.RUNNING, at=NOW + timedelta(seconds=3)).transition(
+        OnlyResearchRunState.COMPLETED,
+        at=NOW + timedelta(seconds=4),
+        research_result_fingerprint="e" * 64,
+        artifact_content_fingerprint="f" * 64,
+    )
+    store.runs[created.run_id] = completed
+    authority.release_work(created.run_id.value, actor="worker", occurred_at=NOW + timedelta(seconds=5))
+
+    replayed = service.submit_research_run(
+        derived_key,
+        specification(),
+        parent_runtime_work_id=parent,
+    )
+    assert replayed.disposition is OnlyResearchSubmitDisposition.REUSED
+    assert replayed.run == completed
+    assert authority.require_work_binding(created.run_id.value).active is False
+
+
+def test_new_derived_work_requires_active_parent_but_bound_recovery_does_not(tmp_path) -> None:
+    class CrashOnceStore(_Store):
+        crash = True
+
+        def create_queued_with_receipt(self, run, receipt):  # type: ignore[no-untyped-def]
+            if self.crash:
+                self.crash = False
+                raise RuntimeError("injected crash after Runtime binding")
+            return super().create_queued_with_receipt(run, receipt)
+
+    authority = OnlyRuntimeGenerationRegistry(tmp_path / "runtime-authority")
+    generation = only_ready_test_generation(authority, "a", NOW)
+    authority.activate_for_new_work(
+        expected_current=None,
+        target=generation,
+        actor="operator",
+        occurred_at=NOW + timedelta(seconds=1),
+    )
+    parent = only_search_experiment_work_id("7" * 64)
+    authority.bind_work_exact(parent, generation, actor="search", occurred_at=NOW + timedelta(seconds=2))
+    store = CrashOnceStore()
+    service = _service(store, _DatasetStore(), runtime_generations=authority)
+    recovery_key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-00000000000a")
+    with pytest.raises(RuntimeError, match="injected crash"):
+        service.submit_research_run(recovery_key, specification(), parent_runtime_work_id=parent)
+    authority.release_work(parent, actor="search", occurred_at=NOW + timedelta(seconds=3))
+    assert service.submit_research_run(
+        recovery_key,
+        specification(),
+        parent_runtime_work_id=parent,
+    ).run.run_id == only_derived_research_run_id(recovery_key)
+
+    new_key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-00000000000b")
+    with pytest.raises(ValueError, match="RUNTIME_DERIVED_PARENT_GENERATION_UNBOUND"):
+        service.submit_research_run(new_key, specification(), parent_runtime_work_id=parent)
+    assert only_derived_research_run_id(new_key).value not in authority.projection().work_bindings
+
+
+def test_concurrent_same_derived_command_converges_on_one_run_and_receipt(tmp_path) -> None:
+    gate = Barrier(2)
+    commit_lock = Lock()
+
+    class RacingStore(_Store):
+        def create_queued_with_receipt(self, run, receipt):  # type: ignore[no-untyped-def]
+            gate.wait()
+            with commit_lock:
+                return super().create_queued_with_receipt(run, receipt)
+
+    authority = OnlyRuntimeGenerationRegistry(tmp_path / "runtime-authority")
+    generation = only_ready_test_generation(authority, "a", NOW)
+    authority.activate_for_new_work(
+        expected_current=None,
+        target=generation,
+        actor="operator",
+        occurred_at=NOW + timedelta(seconds=1),
+    )
+    parent = only_search_experiment_work_id("8" * 64)
+    authority.bind_work_exact(parent, generation, actor="search", occurred_at=NOW + timedelta(seconds=2))
+    store = RacingStore()
+    service = _service(store, _DatasetStore(), runtime_generations=authority)
+    derived_key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-00000000000c")
+    outcomes: list[OnlyResearchRun] = []
+
+    def submit() -> None:
+        outcomes.append(
+            service.submit_research_run(
+                derived_key,
+                specification(),
+                parent_runtime_work_id=parent,
+            ).run
+        )
+
+    threads = (Thread(target=submit), Thread(target=submit))
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    expected = only_derived_research_run_id(derived_key)
+    assert [item.run_id for item in outcomes] == [expected, expected]
+    assert tuple(store.runs) == (expected,)
+    assert tuple(store.receipts) == (derived_key,)
+    assert set(authority.projection().work_bindings) == {parent, expected.value}
+
+
+def test_concurrent_same_key_different_parent_has_one_product_intent_winner(tmp_path) -> None:
+    admission_gate = Barrier(2)
+
+    class RacingAdmissions(_ProductAdmissions):
+        def admit_exact(self, admission):  # type: ignore[no-untyped-def]
+            admission_gate.wait()
+            return super().admit_exact(admission)
+
+    authority = OnlyRuntimeGenerationRegistry(tmp_path / "runtime-authority")
+    generation = only_ready_test_generation(authority, "a", NOW)
+    authority.activate_for_new_work(
+        expected_current=None,
+        target=generation,
+        actor="operator",
+        occurred_at=NOW + timedelta(seconds=1),
+    )
+    parents = tuple(only_search_experiment_work_id(value * 64) for value in ("9", "a"))
+    for offset, parent in enumerate(parents, start=2):
+        authority.bind_work_exact(parent, generation, actor="search", occurred_at=NOW + timedelta(seconds=offset))
+    store = _Store()
+    service = _service(
+        store,
+        _DatasetStore(),
+        runtime_generations=authority,
+        command_admissions=RacingAdmissions(),
+    )
+    derived_key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-00000000000d")
+    outcomes: list[str] = []
+
+    def submit(parent: str) -> None:
+        try:
+            result = service.submit_research_run(
+                derived_key,
+                specification(),
+                parent_runtime_work_id=parent,
+            )
+            outcomes.append(result.run.run_id.value)
+        except OnlyResearchSubmissionConflictError:
+            outcomes.append("CONFLICT")
+
+    threads = tuple(Thread(target=submit, args=(parent,)) for parent in parents)
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    expected = only_derived_research_run_id(derived_key)
+    assert sorted(outcomes) == sorted([expected.value, "CONFLICT"])
+    assert tuple(store.runs) == (expected,)
+    assert tuple(store.receipts) == (derived_key,)
+    assert set(authority.projection().work_bindings) == {*parents, expected.value}
 
 
 def test_submission_key_requires_canonical_uuid4() -> None:

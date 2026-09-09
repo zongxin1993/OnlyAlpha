@@ -50,7 +50,11 @@ class OnlyResearchRunAdmissionService:
         return self._run_store.create_queued(self.prepare(specification, provenance=provenance))
 
     def prepare(
-        self, specification: OnlyResearchSpecification, *, provenance: OnlyResearchAuthoringProvenance | None = None
+        self,
+        specification: OnlyResearchSpecification,
+        *,
+        provenance: OnlyResearchAuthoringProvenance | None = None,
+        exact_run_id: OnlyResearchRunId | None = None,
     ) -> OnlyResearchRun:
         """Prepare a QUEUED Run without making a durable acknowledgement."""
 
@@ -59,7 +63,7 @@ class OnlyResearchRunAdmissionService:
             resolution = self._resolve(strict, provenance)
             self._dataset_store.load_verified_table(strict.dataset_snapshot_fingerprint)
             run = OnlyResearchRun.queued(
-                run_id=self._run_id_factory(),
+                run_id=self._run_id_factory() if exact_run_id is None else exact_run_id,
                 specification=strict,
                 canonical_specification_payload=only_canonical_json(strict.to_dict()),
                 admission_resolution_fingerprint=only_research_admission_resolution_fingerprint(resolution),

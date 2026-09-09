@@ -1,7 +1,7 @@
 # ADR 0125: Search Runtime Generation Formal-Work Binding and Derived-Work Inheritance
 
 - Status: Accepted
-- Date: 2026-09-09
+- Date: 2026-09-09 (amended 2026-09-09 for derived-work admission and historical-binding recovery)
 - Decision maker: repository owner through the PRE-E.A implementation authorization
 - Related: ADR 0104, 0116, 0117, 0120, 0121, 0122, 0123, 0124
 
@@ -110,6 +110,50 @@ binding equals the parent generation. Standalone Research supplies no parent and
 Runtime Generation does not enter Research Specification, Research Result, Candidate, Search Plan, or Search Experiment scientific
 identity.
 
+Search-derived Research uses a forward-only Product operational command schema whose canonical intent includes the exact parent formal
+work ID. The parent must be the canonical `search-experiment:<experiment_fingerprint>` identity. Historical standalone Research command
+bytes and fingerprints remain unchanged. Reusing one Product Command ID with another parent conflicts even when both parents bind the
+same Runtime Generation; generation equality cannot substitute for causal lineage.
+
+Before any derived Runtime binding, the complete Product intent is admitted by the existing Product Command Admission Authority. The
+child Research Run ID is a domain-separated deterministic UUID4 derived only from that immutable Product Command ID. The normal Research
+Run Admission service may receive this exact internally precomputed ID; standalone admission retains its existing Run-ID factory. Thus a
+crash after `child -> generation` binding but before the atomic Research Run/Receipt commit retries the same child ID, exact-reuses the
+same binding, and cannot strand a random alternate child.
+
+The derived sequence is:
+
+```text
+canonical derived Product intent including parent work
+-> immutable Product Admission
+-> deterministic child Research Run ID
+-> active parent verification for a new child
+-> exact derived child binding
+-> normal Research Run + Product Receipt commit
+-> exact Product / Run / historical child binding / historical parent binding verification
+```
+
+An already admitted and already bound child may finish Run/Receipt recovery after its parent becomes inactive, provided both historical
+bindings still name the same generation. A genuinely new child always requires an active parent.
+
+### Historical binding and execution eligibility
+
+`RuntimeWorkReleased` ends execution eligibility; it does not erase `work -> generation` history. Historical exact reads and identical
+exact-bind replay return the immutable assignment with `active=false`. They never reactivate work, and a released work ID can never bind
+another generation. Worker claim and execution continue to use active-only `work_ids_for_generation()` and
+`require_work_generation()` fencing.
+
+Derived Product Receipt replay exact-loads the Research Run and verifies historical child and parent bindings plus generation equality.
+It does not require the terminal child to be active. Search reconciliation can therefore project a completed Research Result after the
+Worker releases the child's execution eligibility.
+
+### Historical Search Submit compatibility
+
+Admission capability and historical replay capability are distinct. The canonical Product dispatcher recognizes Search Submit V1 and
+V2. A V1 command without an existing exact Product Admission cannot create executable Search work. A V1 command with an exact Admission
+and historical Search Runtime binding may recover or replay through the canonical Product boundary, including when that binding is
+inactive. V2 remains the only normal new-Search admission path. Neither rule changes V1 command bytes or fingerprints.
+
 ### Legacy Search and retention
 
 Exact Search Experiment, ledger, and terminal queries read scientific facts without requiring a Runtime binding. Advance and Reconcile
@@ -154,6 +198,9 @@ separate terminal-plus-derived-work release proof is designed.
 - Reinterpreting `RuntimeWorkBound` so historical events no longer mean active-at-bind.
 - Bypassing the normal Research Product Command for Search-derived Research.
 - Premature Search binding release before terminal and descendant-work closure is proved.
+- Random derived Research Run IDs followed by compensating orphan cleanup.
+- Parent lineage inferred from generation equality or persisted in a new Work Lineage Authority.
+- Treating release as deletion of historical binding or reactivating released work for replay.
 
 ## Constitution consistency
 

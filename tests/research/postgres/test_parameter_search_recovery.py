@@ -18,6 +18,7 @@ from onlyalpha.engine import OnlyEngineConfig
 from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
+    OnlyPostgresProductCommandAuthority,
     OnlyPostgresResearchExecutionStore,
     OnlyPostgresResearchRunStore,
 )
@@ -299,6 +300,7 @@ def _commands(root: Path, dsn: str) -> OnlyParameterResearchCommandGatewayV1:
         store=store,
         now_utc=lambda: _NOW + timedelta(seconds=2),
         runtime_generations=_runtime_generations(root),
+        command_admissions=OnlyPostgresProductCommandAuthority(dsn),
     )
     finalizer = OnlyParameterResearchEvidenceFinalizerV1(
         research_results=research,
@@ -364,6 +366,11 @@ def _execute_research(root: Path, dsn: str) -> None:
             research_result_fingerprint=outcome.research_result_fingerprint,
             artifact_content_fingerprint=outcome.artifact_content_fingerprint,
             calculation_execution_evidence_fingerprints=outcome.calculation_execution_evidence_fingerprints,
+        )
+        _runtime_generations(root).release_work(
+            run_id.value,
+            actor="research-worker",
+            occurred_at=_NOW + timedelta(seconds=5),
         )
 
 
