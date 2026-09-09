@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import pytest
 
+import onlyalpha.research.search.parameter.controller as parameter_controller
 from onlyalpha.application.product_boundary import only_compose_research_product_boundary
 from onlyalpha.application.product_command_receipt import (
     OnlyProductCommandAdmissionV1,
@@ -51,6 +52,7 @@ from onlyalpha.research.search.parameter import (
     OnlyParameterResearchEvidenceV1,
     OnlyParameterSearchProductAdapterV1,
     commit_feedback_plan_batch,
+    decide_parameter_search_v1,
     materialize_parameter_proposals,
     only_deterministic_coarse_to_fine_implementation,
     parameter_submission_key,
@@ -76,6 +78,26 @@ from .test_adaptive_parameter_search_v1 import (
     _space,
     _verified,
 )
+
+
+class _ExactTestGenerationExecution:
+    """Test-only exact-generation stand-in; production uses the isolated host."""
+
+    def derive_decision(self, runtime_generation_fingerprint, context, evidence, prior):  # type: ignore[no-untyped-def]
+        assert runtime_generation_fingerprint == "f" * 64
+        return decide_parameter_search_v1(
+            experiment_fingerprint=context.experiment.experiment_fingerprint,
+            proposals=context.proposals,
+            policy=context.policy,
+            algorithm_implementation_fingerprint=(context.historical_algorithm_manifest.implementation_fingerprint),
+            budget=context.experiment.search_budget,
+            evidence=evidence,
+            prior_decisions=prior,
+        )
+
+    def verify_resolved_research(self, runtime_generation_fingerprint, context, proposal, resolved):  # type: ignore[no-untyped-def]
+        assert runtime_generation_fingerprint == "f" * 64
+        assert proposal.graph_fingerprint == resolved.candidate.graph_fingerprint
 
 
 class _Contexts:
@@ -143,6 +165,7 @@ def _adapter(  # type: ignore[no-untyped-def]
         evidence_reader=cast(object, evidence_reader),
         resolver=OnlyResearchSpecificationResolver(specification_registry()),
         research_commands=cast(object, commands),
+        generation_execution=cast(object, _ExactTestGenerationExecution()),
         product_receipts=cast(object, product_receipts),
         research_runs=cast(object, research_runs),
     )
@@ -288,7 +311,10 @@ def _command(expected: OnlyParameterExpectedStateV1, operation: OnlySearchBounde
 def test_parameter_advance_is_one_decision_batch_and_reconcile_creates_no_decision(tmp_path) -> None:
     context, provenance, store, commands, adapter = _adapter(tmp_path)
     initial = adapter.expected_state(context.experiment.experiment_fingerprint)
-    adapter.apply_advance(_command(initial, OnlySearchBoundedOperationV1.ADVANCE_ONE_PARAMETER_DECISION))
+    adapter.apply_advance(
+        _command(initial, OnlySearchBoundedOperationV1.ADVANCE_ONE_PARAMETER_DECISION),
+        "f" * 64,
+    )
     advanced = adapter.expected_state(context.experiment.experiment_fingerprint)
     assert len(advanced.ordered_feedback_decision_fingerprints) == 1
     assert len(provenance.plans) == len(advanced.frontier_plan_states) > 0
@@ -298,14 +324,36 @@ def test_parameter_advance_is_one_decision_batch_and_reconcile_creates_no_decisi
         OnlySearchProductExpectedStateMismatch,
         match="open Parameter batch requires reconciliation",
     ):
-        adapter.apply_advance(_command(advanced, OnlySearchBoundedOperationV1.ADVANCE_ONE_PARAMETER_DECISION))
+        adapter.apply_advance(
+            _command(advanced, OnlySearchBoundedOperationV1.ADVANCE_ONE_PARAMETER_DECISION),
+            "f" * 64,
+        )
     frontier = advanced.frontier_fingerprint
-    adapter.apply_advance(_command(advanced, OnlySearchBoundedOperationV1.RECONCILE_OPEN_PARAMETER_BATCH))
+    adapter.apply_advance(
+        _command(advanced, OnlySearchBoundedOperationV1.RECONCILE_OPEN_PARAMETER_BATCH),
+        "f" * 64,
+    )
     reconciled = adapter.expected_state(context.experiment.experiment_fingerprint)
     assert reconciled.frontier_fingerprint == frontier
     assert len(reconciled.ordered_feedback_decision_fingerprints) == 1
     assert all(item.result_fingerprint is not None for item in reconciled.frontier_plan_states)
     assert commands.calls == 0
+
+
+def test_product_hosted_parameter_advance_never_admits_current_algorithm(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    service, query, _authority, _runs, _commands, submit, _adapter_value = _product_case(tmp_path)
+    created = service.submit(submit)
+    monkeypatch.setattr(
+        parameter_controller,
+        "admit_current_parameter_algorithm_runtime",
+        lambda context: (_ for _ in ()).throw(AssertionError("current algorithm used")),
+    )
+    service.advance(
+        _command(
+            query.get_ledger(OnlyGetSearchIterationLedgerV1(created.experiment.experiment_fingerprint)).expected_state,
+            OnlySearchBoundedOperationV1.ADVANCE_ONE_PARAMETER_DECISION,
+        )
+    )
 
 
 def test_parameter_submit_is_exact_experiment_only_and_identity_excludes_command_id(tmp_path) -> None:
@@ -437,7 +485,10 @@ def test_parameter_partial_effect_retry_completes_same_decision_in_fresh_adapter
         provenance=provenance,
         store=store,
     )
-    restarted.apply_advance(_command(expected, OnlySearchBoundedOperationV1.ADVANCE_ONE_PARAMETER_DECISION))
+    restarted.apply_advance(
+        _command(expected, OnlySearchBoundedOperationV1.ADVANCE_ONE_PARAMETER_DECISION),
+        "f" * 64,
+    )
     assert len(provenance.plans) == len(exact_plans)
     assert restarted.expected_state(context.experiment.experiment_fingerprint).frontier_fingerprint == (
         decision.feedback_decision_fingerprint
@@ -473,11 +524,14 @@ def test_stale_open_batch_advance_cannot_claim_a_later_decision(tmp_path) -> Non
     for result in results:
         provenance.commit_iteration_result(result)
     completed = adapter.expected_state(context.experiment.experiment_fingerprint)
-    adapter.apply_advance(_command(completed, OnlySearchBoundedOperationV1.ADVANCE_ONE_PARAMETER_DECISION))
+    adapter.apply_advance(
+        _command(completed, OnlySearchBoundedOperationV1.ADVANCE_ONE_PARAMETER_DECISION),
+        "f" * 64,
+    )
     after_later_advance = adapter.expected_state(context.experiment.experiment_fingerprint)
 
     with pytest.raises(OnlySearchProductExpectedStateMismatch):
-        adapter.apply_advance(stale_illegal)
+        adapter.apply_advance(stale_illegal, "f" * 64)
     assert adapter.expected_state(context.experiment.experiment_fingerprint) == after_later_advance
 
 
@@ -501,7 +555,10 @@ def test_parameter_old_advance_effect_remains_exactly_provable_after_later_front
     for result in results:
         provenance.commit_iteration_result(result)
     completed = adapter.expected_state(context.experiment.experiment_fingerprint)
-    adapter.apply_advance(_command(completed, OnlySearchBoundedOperationV1.ADVANCE_ONE_PARAMETER_DECISION))
+    adapter.apply_advance(
+        _command(completed, OnlySearchBoundedOperationV1.ADVANCE_ONE_PARAMETER_DECISION),
+        "f" * 64,
+    )
 
     adapter.verify_advance_effect(first_advance)
 
@@ -627,12 +684,12 @@ def test_parameter_effect_assessment_distinguishes_pre_partial_complete(tmp_path
     )
     expected = adapter.expected_state(experiment.experiment_fingerprint)
     command = _command(expected, OnlySearchBoundedOperationV1.ADVANCE_ONE_PARAMETER_DECISION)
-    assert adapter.assess_advance_effect(command) is OnlySearchProductEffectStateV1.EXACT_PRE_STATE
+    assert adapter.assess_advance_effect(command, "f" * 64) is OnlySearchProductEffectStateV1.EXACT_PRE_STATE
     decision = _decision_for_context(adapter._contexts.context)  # type: ignore[attr-defined]
     adapter._store.commit_feedback_decision(_verified(decision, context=adapter._contexts.context))  # type: ignore[attr-defined]
     exact = commit_feedback_plan_batch(decision, adapter._contexts.context.proposals, adapter._provenance)  # type: ignore[attr-defined]
     adapter._provenance.plans = {exact[0].iteration_plan_fingerprint: exact[0]}  # type: ignore[attr-defined]
-    assert adapter.assess_advance_effect(command) is OnlySearchProductEffectStateV1.PARTIAL_EXACT_EFFECT
+    assert adapter.assess_advance_effect(command, "f" * 64) is OnlySearchProductEffectStateV1.PARTIAL_EXACT_EFFECT
     service.advance(command)
     assert command.command_id in authority.receipts
-    assert adapter.assess_advance_effect(command) is OnlySearchProductEffectStateV1.COMPLETE_EXACT_EFFECT
+    assert adapter.assess_advance_effect(command, "f" * 64) is OnlySearchProductEffectStateV1.COMPLETE_EXACT_EFFECT

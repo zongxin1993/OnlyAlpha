@@ -29,3 +29,28 @@ def test_exact_catalog_context_core_has_no_infrastructure_or_http_dependencies()
     source = module.read_text(encoding="utf-8")
     for forbidden in ("onlyalpha_runtime_generation_manager", "fastapi", "psycopg", "subprocess", "tempfile"):
         assert forbidden not in source
+
+
+def test_search_execution_boundary_is_bounded_and_cannot_load_history_into_parent() -> None:
+    repository = Path(__file__).resolve().parents[3]
+    contract = (repository / "src/onlyalpha/application/search_generation_execution.py").read_text(encoding="utf-8")
+    manager_root = Path(__file__).resolve().parents[1] / "src/onlyalpha_runtime_generation_manager"
+    manager = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (manager_root / "host_manager.py", manager_root / "search_worker.py")
+    )
+    for forbidden in ("subprocess", "importlib", "sys.path", "socket", "psycopg"):
+        assert forbidden not in contract
+    for forbidden in (
+        "CALL_PYTHON",
+        "EXEC_MODULE",
+        "INVOKE_FUNCTION",
+        "shell=True",
+        "eval(",
+        "exec(",
+        "importlib.reload",
+        "sys.path",
+        "ACTIVE_FOR_NEW_WORK",
+        "get_latest",
+    ):
+        assert forbidden not in manager

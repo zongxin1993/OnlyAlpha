@@ -49,6 +49,7 @@ from .evaluation import (
     SYMBOLIC_EVALUATION_CONTRACT_KIND,
     OnlySymbolicResearchEvaluationContractV1,
 )
+from .execution import OnlyHostedSymbolicGenerationExecutionV1
 from .historical import (
     load_optional_symbolic_enumeration_result_historical_verified,
     load_symbolic_enumeration_result_historical_verified,
@@ -128,6 +129,7 @@ class OnlySymbolicSearchProductAdapterV1:
         contexts: OnlySymbolicSearchContextResolver,
         resolver: OnlyResearchSpecificationResolver,
         research_commands: OnlySymbolicResearchCommandService,
+        generation_execution: OnlyHostedSymbolicGenerationExecutionV1,
         product_receipts: OnlyProductCommandReceiptAuthority | None = None,
         research_runs: OnlySearchResearchRunReader | None = None,
     ) -> None:
@@ -144,6 +146,7 @@ class OnlySymbolicSearchProductAdapterV1:
             symbolic_store=symbolic_store,
             provenance=provenance,
             resolver=resolver,
+            generation_execution=generation_execution,
             product_receipts=product_receipts,
             research_runs=research_runs,
         )
@@ -239,7 +242,11 @@ class OnlySymbolicSearchProductAdapterV1:
             raise OnlySearchProductSemanticFactCorrupt(getattr(experiment, "experiment_fingerprint", "unknown"))
         self._contexts.resolve_verified_context(experiment)
 
-    def apply_advance(self, command: OnlyAdvanceSearchExperimentV1) -> None:
+    def apply_advance(
+        self,
+        command: OnlyAdvanceSearchExperimentV1,
+        runtime_generation_fingerprint: str,
+    ) -> None:
         expected = command.expected_state
         if not isinstance(expected, OnlySymbolicExpectedStateV1):
             raise OnlySearchProductSemanticFactCorrupt(command.experiment_fingerprint)
@@ -251,15 +258,20 @@ class OnlySymbolicSearchProductAdapterV1:
             expected,
             resolver=self._resolver,
             commands=self._research_commands,
+            runtime_generation_fingerprint=runtime_generation_fingerprint,
         )
 
-    def assess_advance_effect(self, command: OnlyAdvanceSearchExperimentV1) -> OnlySearchProductEffectStateV1:
+    def assess_advance_effect(
+        self,
+        command: OnlyAdvanceSearchExperimentV1,
+        runtime_generation_fingerprint: str,
+    ) -> OnlySearchProductEffectStateV1:
         expected = command.expected_state
         if not isinstance(expected, OnlySymbolicExpectedStateV1):
             return OnlySearchProductEffectStateV1.CONFLICT_OR_STALE
         experiment = self.load_experiment_verified(command.experiment_fingerprint)
         context = self._contexts.resolve_verified_context(experiment)
-        return self._controller.assess_effect(context, command.operation, expected)
+        return self._controller.assess_effect(context, command.operation, expected, runtime_generation_fingerprint)
 
     def verify_advance_effect(self, command: OnlyAdvanceSearchExperimentV1) -> None:
         expected = command.expected_state

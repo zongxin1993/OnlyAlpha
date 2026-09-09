@@ -14,6 +14,7 @@ import pytest
 from onlyalpha_example_strategies.provider import quant_asset_provider
 from onlyalpha_runtime_generation_manager import (
     OnlyHistoricalExecutableRuntimeGenerationResolver,
+    OnlyHistoricalGenerationHostManager,
     OnlyLocalImmutableArtifactStore,
     OnlyRuntimeGenerationBuilder,
     OnlyRuntimeGenerationRegistry,
@@ -202,6 +203,51 @@ def test_builder_installs_exact_public_example_in_clean_environment_and_is_deter
     authority = OnlyRuntimeGenerationRegistry(authority_root)
     authority.prepare(first.manifest, actor="operator", occurred_at=NOW)
     authority.admit_ready(first.validation_evidence, actor="validator", occurred_at=NOW)
+    generation = first.manifest.runtime_generation_fingerprint
+    host = OnlyHistoricalGenerationHostManager(
+        registry=OnlyRuntimeGenerationRegistry(authority_root),
+        builder=builder,
+        cache_root=tmp_path / "historical-search-hosts",
+    )
+    worker = host.acquire(generation)
+    assert worker.handshake.runtime_generation_fingerprint == generation
+    assert host.acquire(generation) is worker
+    worker.process.kill()
+    worker.process.wait(timeout=5)
+    restarted = host.acquire(generation)
+    assert restarted is not worker
+    assert restarted.handshake == worker.handshake
+    host.evict(generation, delete_environment=True)
+    rebuilt = host.acquire(generation)
+    assert rebuilt.handshake == worker.handshake
+    parent_modules = set(sys.modules)
+    packaging_wheel = _installed_distribution_wheel("packaging", tmp_path / "support-wheel-g2")
+    packaging_artifact = _plain_artifact(
+        packaging_wheel,
+        role=OnlyDistributionArtifactRole.SUPPORT,
+        authority=OnlyArtifactSourceProvenanceAuthority.EXTERNAL_RELEASE,
+        repository="PyPA-packaging",
+        revision=f"release-{metadata.version('packaging')}",
+    )
+    store.put_once(packaging_artifact, packaging_wheel.read_bytes())
+    second_generation = builder.build_validated(
+        artifacts=(*artifacts, packaging_artifact),
+        expected_catalog=catalog,
+        environment_root=tmp_path / "runtime-g2-proof",
+    )
+    g2 = second_generation.manifest.runtime_generation_fingerprint
+    assert g2 != generation
+    assert second_generation.manifest.catalog_generation_fingerprint == (first.manifest.catalog_generation_fingerprint)
+    authority.prepare(second_generation.manifest, actor="operator", occurred_at=NOW)
+    authority.admit_ready(second_generation.validation_evidence, actor="validator", occurred_at=NOW)
+    g1_worker = host.acquire(generation)
+    g2_worker = host.acquire(g2)
+    assert g1_worker.process.pid != g2_worker.process.pid
+    assert g1_worker.handshake.runtime_generation_fingerprint == generation
+    assert g2_worker.handshake.runtime_generation_fingerprint == g2
+    assert g1_worker.handshake.catalog_generation_fingerprint == (g2_worker.handshake.catalog_generation_fingerprint)
+    assert set(sys.modules) == parent_modules
+    host.close()
     fresh_reader = OnlyRuntimeGenerationExactCatalogDescriptorReader(
         OnlyRuntimeGenerationRegistry(authority_root),
         builder,

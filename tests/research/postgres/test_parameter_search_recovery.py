@@ -472,7 +472,7 @@ def _fresh_stage(root: Path, dsn: str, stage: str) -> dict[str, object] | None:
         "print(json.dumps(value))"
     )
     environment = dict(os.environ)
-    environment["ONLYALPHA_TEST_POSTGRES_DSN"] = dsn
+    environment["ONLYALPHA_POSTGRES_DSN"] = dsn
     value = subprocess.check_output(
         [sys.executable, "-c", program, str(root), dsn, stage],
         text=True,

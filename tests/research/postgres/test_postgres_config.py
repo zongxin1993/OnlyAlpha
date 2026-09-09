@@ -74,15 +74,15 @@ def test_postgres_config_requires_dsn_and_environment_authority(
     with pytest.raises(ValueError, match="PostgreSQL DSN is required"):
         OnlyPostgresConfig("")
 
-    monkeypatch.delenv("ONLYALPHA_TEST_POSTGRES_DSN", raising=False)
-    with pytest.raises(ValueError, match="ONLYALPHA_TEST_POSTGRES_DSN is required"):
-        OnlyPostgresConfig.from_environment("ONLYALPHA_TEST_POSTGRES_DSN")
+    monkeypatch.delenv("ONLYALPHA_POSTGRES_DSN", raising=False)
+    with pytest.raises(ValueError, match="ONLYALPHA_POSTGRES_DSN is required"):
+        OnlyPostgresConfig.from_environment()
 
     monkeypatch.setenv(
-        "ONLYALPHA_TEST_POSTGRES_DSN",
+        "ONLYALPHA_POSTGRES_DSN",
         "postgresql://onlyalpha:super-secret@localhost/onlyalpha",
     )
-    config = OnlyPostgresConfig.from_environment("ONLYALPHA_TEST_POSTGRES_DSN")
+    config = OnlyPostgresConfig.from_environment()
     assert config.dsn.endswith("@localhost/onlyalpha")
     assert repr(config) == "OnlyPostgresConfig(dsn=<redacted>)"
     assert "super-secret" not in repr(config)

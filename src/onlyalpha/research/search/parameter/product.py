@@ -47,6 +47,7 @@ from onlyalpha.research.specification.resolver import OnlyResearchSpecificationR
 from .context import OnlyParameterSearchContextResolver, OnlyVerifiedParameterSearchContextV1
 from .controller import OnlyParameterControllerProvenance, OnlyParameterSearchControllerV1
 from .evidence import OnlyParameterResearchEvidenceReader
+from .execution import OnlyHostedParameterGenerationExecutionV1
 from .integration import (
     OnlyParameterResearchCommandService,
     commit_feedback_plan_batch,
@@ -87,6 +88,7 @@ class OnlyParameterSearchProductAdapterV1:
         evidence_reader: OnlyParameterResearchEvidenceReader,
         resolver: OnlyResearchSpecificationResolver,
         research_commands: OnlyParameterResearchCommandService,
+        generation_execution: OnlyHostedParameterGenerationExecutionV1,
         product_receipts: OnlyProductCommandReceiptAuthority | None = None,
         research_runs: OnlySearchResearchRunReader | None = None,
     ) -> None:
@@ -106,6 +108,7 @@ class OnlyParameterSearchProductAdapterV1:
             parameter_store=parameter_store,
             provenance=provenance,
             evidence_reader=evidence_reader,
+            generation_execution=generation_execution,
         )
 
     def derive_submit_experiment(self, command: OnlySearchSubmitCommandV1) -> OnlySearchExperimentManifestV3:
@@ -309,7 +312,11 @@ class OnlyParameterSearchProductAdapterV1:
             prior_plans.extend(exact_batch)
         return decisions
 
-    def apply_advance(self, command: OnlyAdvanceSearchExperimentV1) -> None:
+    def apply_advance(
+        self,
+        command: OnlyAdvanceSearchExperimentV1,
+        runtime_generation_fingerprint: str,
+    ) -> None:
         expected = command.expected_state
         if not isinstance(expected, OnlyParameterExpectedStateV1):
             raise OnlySearchProductSemanticFactCorrupt(command.experiment_fingerprint)
@@ -319,18 +326,23 @@ class OnlyParameterSearchProductAdapterV1:
         if command.operation is OnlySearchBoundedOperationV1.ADVANCE_ONE_PARAMETER_DECISION:
             if any(item.result_fingerprint is None for item in expected.frontier_plan_states):
                 raise OnlySearchProductExpectedStateMismatch("open Parameter batch requires reconciliation")
-            self._advance_or_recover(context, expected, actual)
+            self._advance_or_recover(context, expected, actual, runtime_generation_fingerprint)
             return
         if command.operation is OnlySearchBoundedOperationV1.RECONCILE_OPEN_PARAMETER_BATCH:
             if not expected.frontier_plan_states or all(
                 item.result_fingerprint is not None for item in expected.frontier_plan_states
             ):
                 raise OnlySearchProductExpectedStateMismatch("Parameter reconcile requires an open Plan")
-            self._reconcile_or_recover(context, expected, actual)
+            self._reconcile_or_recover(context, expected, actual, runtime_generation_fingerprint)
             return
         raise OnlySearchProductExpectedStateMismatch(command.operation.value)
 
-    def assess_advance_effect(self, command: OnlyAdvanceSearchExperimentV1) -> OnlySearchProductEffectStateV1:
+    def assess_advance_effect(
+        self,
+        command: OnlyAdvanceSearchExperimentV1,
+        runtime_generation_fingerprint: str,
+    ) -> OnlySearchProductEffectStateV1:
+        del runtime_generation_fingerprint
         expected = command.expected_state
         if not isinstance(expected, OnlyParameterExpectedStateV1):
             return OnlySearchProductEffectStateV1.CONFLICT_OR_STALE
@@ -443,9 +455,15 @@ class OnlyParameterSearchProductAdapterV1:
             return
         raise OnlySearchProductEffectConflict(command.operation.value)
 
-    def _advance_or_recover(self, context, expected, actual) -> None:  # type: ignore[no-untyped-def]
+    def _advance_or_recover(
+        self,
+        context: OnlyVerifiedParameterSearchContextV1,
+        expected: OnlyParameterExpectedStateV1,
+        actual: OnlyParameterExpectedStateV1,
+        runtime_generation_fingerprint: str,
+    ) -> None:
         if actual == expected:
-            self._controller.advance(context)
+            self._controller.advance_in_generation(context, runtime_generation_fingerprint)
             return
         decisions = actual.ordered_feedback_decision_fingerprints
         prefix = expected.ordered_feedback_decision_fingerprints
@@ -478,7 +496,13 @@ class OnlyParameterSearchProductAdapterV1:
         elif any(plan.iteration_plan_fingerprint not in committed for plan in exact_plans):
             raise OnlySearchProductEffectConflict(effect_fingerprint)
 
-    def _reconcile_or_recover(self, context, expected, actual) -> None:  # type: ignore[no-untyped-def]
+    def _reconcile_or_recover(
+        self,
+        context: OnlyVerifiedParameterSearchContextV1,
+        expected: OnlyParameterExpectedStateV1,
+        actual: OnlyParameterExpectedStateV1,
+        runtime_generation_fingerprint: str,
+    ) -> None:
         if expected.frontier_fingerprint is None:
             raise OnlySearchProductExpectedStateMismatch("Parameter reconcile requires a frontier")
         if actual == expected:
@@ -486,6 +510,7 @@ class OnlyParameterSearchProductAdapterV1:
                 context,
                 resolver=self._resolver,
                 commands=self._research_commands,
+                runtime_generation_fingerprint=runtime_generation_fingerprint,
             )
             return
         if actual.ordered_feedback_decision_fingerprints[: len(expected.ordered_feedback_decision_fingerprints)] != (
@@ -511,6 +536,7 @@ class OnlyParameterSearchProductAdapterV1:
                 context,
                 resolver=self._resolver,
                 commands=self._research_commands,
+                runtime_generation_fingerprint=runtime_generation_fingerprint,
             )
 
     def ledger(self, experiment_fingerprint: str) -> OnlySearchIterationLedgerProjectionV1:

@@ -82,6 +82,48 @@ def verify_parameter_feedback_decision_occurrence(
     )
 
 
+def verify_hosted_parameter_feedback_decision_occurrence(
+    *,
+    context: OnlyVerifiedParameterSearchContextV1,
+    provenance: _ParameterOccurrenceProvenance,
+    decisions: _ParameterDecisionReader,
+    candidate_decision: OnlyParameterSearchFeedbackDecisionV1,
+) -> OnlyVerifiedParameterSearchFeedbackDecisionV1:
+    """Seal an exact-worker result without re-executing current parent code."""
+
+    ordered_plans = _ordered_plans(context, provenance)
+    input_results = []
+    decision_ids: list[str] = []
+    for plan in ordered_plans:
+        result = provenance.terminal_result_for_plan_verified(plan.iteration_plan_fingerprint)
+        if result is None:
+            raise OnlyParameterSearchError("SEARCH_ROUND_BARRIER_OPEN", plan.iteration_plan_fingerprint)
+        input_results.append(result.iteration_result_fingerprint)
+        if not decision_ids or decision_ids[-1] != plan.decision_output_fingerprint:
+            decision_ids.append(plan.decision_output_fingerprint)
+    prior = tuple(decisions.load_feedback_decision_intrinsic_verified(item) for item in decision_ids)
+    predecessor = prior[-1].feedback_decision_fingerprint if prior else None
+    known_proposals = {item.proposal_fingerprint for item in context.proposals}
+    if (
+        candidate_decision.experiment_fingerprint != context.experiment.experiment_fingerprint
+        or candidate_decision.search_policy_fingerprint != context.policy.policy_fingerprint
+        or candidate_decision.algorithm_implementation_fingerprint
+        != context.historical_algorithm_manifest.implementation_fingerprint
+        or candidate_decision.start_iteration_index != len(ordered_plans)
+        or candidate_decision.ordered_input_iteration_result_fingerprints != tuple(input_results)
+        or any(item not in known_proposals for item in candidate_decision.ordered_next_proposal_fingerprints)
+    ):
+        raise OnlyParameterSearchError(
+            "PARAMETER_FEEDBACK_OCCURRENCE_MISMATCH",
+            candidate_decision.feedback_decision_fingerprint,
+        )
+    return OnlyVerifiedParameterSearchFeedbackDecisionV1(
+        candidate_decision,
+        predecessor,
+        _VERIFIED_FEEDBACK_DECISION_SEAL,
+    )
+
+
 def verify_parameter_feedback_frontier_for_execution(
     *,
     context: OnlyVerifiedParameterSearchContextV1,

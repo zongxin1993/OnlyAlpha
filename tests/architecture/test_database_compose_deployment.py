@@ -69,7 +69,7 @@ def test_acceptance_runs_inside_compose_against_private_service_dns() -> None:
     }
     assert acceptance["restart"] == "no"
     environment = acceptance["environment"]
-    assert "@onlyalpha-postgres:5432/onlyalpha_test" in environment["ONLYALPHA_TEST_POSTGRES_DSN"]
+    assert "@onlyalpha-postgres:5432/onlyalpha_test" in environment["ONLYALPHA_POSTGRES_DSN"]
     assert environment["ONLYALPHA_TEST_CLICKHOUSE_URL"] == "http://onlyalpha-clickhouse:8123"
     assert set(acceptance["depends_on"]) == {
         "postgres",
@@ -99,7 +99,6 @@ def test_compose_templates_keep_production_secrets_out_and_acceptance_is_canonic
     runner = (DEPLOY / "run-acceptance.sh").read_text(encoding="utf-8")
     assert "change-me" in production
     assert "onlyalpha_test" not in production
-    assert "ONLYALPHA_TEST_POSTGRES_DSN=" not in test
     assert "ONLYALPHA_TEST_CLICKHOUSE_URL=" not in test
     assert "docker compose" in runner
     assert "run --rm acceptance" in runner

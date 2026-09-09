@@ -803,7 +803,7 @@ from onlyalpha.persistence.postgres import OnlyPostgresResearchRunStore
 from onlyalpha.research.command import OnlyResearchSubmissionKey
 from tests.research.postgres.test_postgres_authority import _create_receipt, _queued
 
-dsn = os.environ["ONLYALPHA_TEST_POSTGRES_DSN"]
+dsn = os.environ["ONLYALPHA_POSTGRES_DSN"]
 run = _queued("00000000-0000-4000-8000-000000000413")
 key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000404")
 OnlyPostgresResearchRunStore(dsn).create_queued_with_receipt(run, _create_receipt(key, run))
@@ -811,7 +811,7 @@ Path(sys.argv[1]).write_text("K5_CREATE_COMMITTED", encoding="utf-8")
 Event().wait()
 """
     environment = dict(os.environ)
-    environment["ONLYALPHA_TEST_POSTGRES_DSN"] = postgres_dsn
+    environment["ONLYALPHA_POSTGRES_DSN"] = postgres_dsn
     child = subprocess.Popen([sys.executable, "-c", script, str(marker)], cwd=Path.cwd(), env=environment)
     deadline = time.monotonic() + 10
     while not marker.is_file() and child.poll() is None and time.monotonic() < deadline:

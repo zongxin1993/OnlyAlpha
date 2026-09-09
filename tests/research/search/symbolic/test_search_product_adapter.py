@@ -68,6 +68,8 @@ from onlyalpha.research.search.symbolic import (
     OnlySymbolicResearchEvaluationContractV1,
     OnlySymbolicSearchContextResolver,
     OnlySymbolicSearchProductAdapterV1,
+    build_symbolic_enumeration_result,
+    enumerate_symbolic_factor_proposals,
     only_deterministic_enumeration_implementation,
     symbolic_submission_key,
 )
@@ -87,6 +89,22 @@ class _Candidates:
         if fingerprint not in self.values:
             raise KeyError(fingerprint)
         return SimpleNamespace(candidate_fingerprint=fingerprint)
+
+
+class _ExactTestGenerationExecution:
+    """Test-only exact-generation stand-in; production uses the isolated host."""
+
+    def derive_enumeration(self, runtime_generation_fingerprint, context):  # type: ignore[no-untyped-def]
+        assert runtime_generation_fingerprint == "f" * 64
+        execution = enumerate_symbolic_factor_proposals(
+            context.verified_search_space,
+            proposal_limit=context.experiment.search_budget.proposal_limit,
+        )
+        return execution, build_symbolic_enumeration_result(context.experiment, execution)
+
+    def verify_resolved_research(self, runtime_generation_fingerprint, context, proposal, resolved):  # type: ignore[no-untyped-def]
+        assert runtime_generation_fingerprint == "f" * 64
+        assert proposal.graph_fingerprint == resolved.candidate.graph_fingerprint
 
 
 class _Results:
@@ -317,6 +335,7 @@ def _case(tmp_path, *, authority=None, runtime_generations=None):  # type: ignor
         contexts=contexts,
         resolver=OnlyResearchSpecificationResolver(specification_registry()),
         research_commands=commands,
+        generation_execution=cast(object, _ExactTestGenerationExecution()),
         product_receipts=authority,
         research_runs=commands,
     )
@@ -369,6 +388,10 @@ def test_submit_and_bounded_symbolic_advance_reconcile_recovery(tmp_path) -> Non
     replay = service.advance(advance)
     assert replay.replayed
     assert len(replay.ledger.plans) == 1
+    service._runtime_generations.activate(  # type: ignore[attr-defined]
+        "d" * 64,
+        catalog_generation_fingerprint=submit.catalog_generation_fingerprint,
+    )
 
     illegal_open_advance = OnlyAdvanceSearchExperimentV1(
         _command_id(),
@@ -426,6 +449,7 @@ def test_submit_and_bounded_symbolic_advance_reconcile_recovery(tmp_path) -> Non
     terminal_run_id = only_derived_research_run_id(symbolic_submission_key(plan)).value
     historical = service._runtime_generations.require_work_binding(terminal_run_id)  # type: ignore[attr-defined]
     assert historical.active is False
+    assert historical.runtime_generation_fingerprint == submit.runtime_generation_fingerprint
     assert terminal.ledger.results[0].research_attempted is True
 
     next_advance = OnlyAdvanceSearchExperimentV1(
@@ -1083,6 +1107,6 @@ def test_symbolic_effect_assessment_distinguishes_pre_and_complete(tmp_path) -> 
         OnlySearchBoundedOperationV1.ADVANCE_ONE_SYMBOLIC_OCCURRENCE,
         initial,
     )
-    assert adapter.assess_advance_effect(command) is OnlySearchProductEffectStateV1.EXACT_PRE_STATE
+    assert adapter.assess_advance_effect(command, "f" * 64) is OnlySearchProductEffectStateV1.EXACT_PRE_STATE
     service.advance(command)
-    assert adapter.assess_advance_effect(command) is OnlySearchProductEffectStateV1.COMPLETE_EXACT_EFFECT
+    assert adapter.assess_advance_effect(command, "f" * 64) is OnlySearchProductEffectStateV1.COMPLETE_EXACT_EFFECT

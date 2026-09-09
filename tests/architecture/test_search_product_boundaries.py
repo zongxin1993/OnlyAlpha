@@ -136,6 +136,7 @@ def test_symbolic_enumeration_absence_does_not_catch_contextual_verification_fai
 
 def test_generic_product_service_orchestrates_explicit_effect_assessment_only() -> None:
     source = Path("src/onlyalpha/application/search_product.py").read_text(encoding="utf-8")
-    assert "assessment = adapter.assess_advance_effect(command)" in source
+    assert "assessment = adapter.assess_advance_effect(command, generation_fingerprint)" in source
+    assert "adapter.apply_advance(command, generation_fingerprint)" in source
     assert "OnlySearchProductEffectStateV1.PARTIAL_EXACT_EFFECT" in source
     assert "adapter.verify_advance_effect(command)" in source

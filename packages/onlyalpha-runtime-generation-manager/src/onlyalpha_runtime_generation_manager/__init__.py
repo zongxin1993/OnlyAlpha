@@ -6,6 +6,7 @@ from .builder import OnlyValidatedRuntimeGeneration as OnlyValidatedRuntimeGener
 from .historical import (
     OnlyHistoricalExecutableRuntimeGenerationResolver as OnlyHistoricalExecutableRuntimeGenerationResolver,
 )
+from .host_manager import OnlyHistoricalGenerationHostManager as OnlyHistoricalGenerationHostManager
 from .registry import OnlyGenerationEvent as OnlyGenerationEvent
 from .registry import OnlyGenerationProjection as OnlyGenerationProjection
 from .registry import OnlyGenerationState as OnlyGenerationState

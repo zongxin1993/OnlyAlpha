@@ -117,6 +117,11 @@ database port is published to the host. Run the complete acceptance entrypoint:
 deploy/compose/run-acceptance.sh
 ```
 
+The acceptance container receives the same canonical `ONLYALPHA_POSTGRES_DSN`
+configuration name used by the product. Compose constructs its local test value
+from `.env.test.example` and private service DNS; there is no separate test-only
+PostgreSQL connection-variable path.
+
 The script builds the pinned acceptance image, starts the merged base/test
 deployment, waits for health, and runs these lanes inside the Compose network:
 

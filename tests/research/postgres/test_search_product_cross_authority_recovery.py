@@ -253,6 +253,7 @@ def test_symbolic_fresh_service_repairs_real_postgres_receipt_from_json_effect(
         contexts=base._contexts,  # type: ignore[attr-defined]
         resolver=base._resolver,  # type: ignore[attr-defined]
         research_commands=commands,
+        generation_execution=base._controller._generation_execution,  # type: ignore[attr-defined]
         product_receipts=authority,
         research_runs=runs,
     )
@@ -275,6 +276,7 @@ def test_symbolic_fresh_service_repairs_real_postgres_receipt_from_json_effect(
         contexts=base2._contexts,  # type: ignore[attr-defined]
         resolver=base2._resolver,  # type: ignore[attr-defined]
         research_commands=commands2,
+        generation_execution=base2._controller._generation_execution,  # type: ignore[attr-defined]
         product_receipts=OnlyPostgresProductCommandAuthority(postgres_dsn),
         research_runs=OnlyResearchRunQueryService(OnlyPostgresResearchRunStore(postgres_dsn)),
     )
@@ -307,6 +309,7 @@ def _parameter_adapter(root, dsn, authority):  # type: ignore[no-untyped-def]
         ),
         resolver=OnlyResearchSpecificationResolver(research_registry()),
         research_commands=_commands(root, dsn),
+        generation_execution=object(),  # submit/replay test performs no Search execution
         product_receipts=authority,
         research_runs=OnlyResearchRunQueryService(OnlyPostgresResearchRunStore(dsn)),
     )

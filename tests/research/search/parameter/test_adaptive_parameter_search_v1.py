@@ -470,6 +470,7 @@ def test_at_01_formal_controller_has_no_metric_bearing_argument() -> None:
         "parameter_store",
         "provenance",
         "evidence_reader",
+        "generation_execution",
     )
     verifier_parameters = signature(verify_parameter_feedback_decision_occurrence).parameters
     assert not {"current_algorithm", "committed_plans", "terminal_results", "evidence", "prior_decisions"} & set(

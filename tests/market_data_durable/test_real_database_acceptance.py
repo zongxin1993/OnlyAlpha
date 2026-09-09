@@ -59,9 +59,9 @@ def _clickhouse(database: str) -> OnlyClickHouseClient:
 
 
 def test_combined_real_database_authority_recovery_and_maintenance(tmp_path: Path) -> None:
-    postgres_dsn = os.environ.get("ONLYALPHA_TEST_POSTGRES_DSN")
+    postgres_dsn = os.environ.get("ONLYALPHA_POSTGRES_DSN")
     if not postgres_dsn:
-        pytest.fail("ONLYALPHA_TEST_POSTGRES_DSN is required")
+        pytest.fail("ONLYALPHA_POSTGRES_DSN is required")
     only_assert_postgres_test_database(postgres_dsn)
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
         connection.execute("DROP SCHEMA public CASCADE")

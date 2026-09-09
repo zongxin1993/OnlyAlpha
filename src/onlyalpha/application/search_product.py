@@ -25,6 +25,14 @@ from onlyalpha.application.product_command_receipt import (
     only_product_command_fingerprint,
 )
 from onlyalpha.application.runtime_generation import OnlyRuntimeGenerationWorkAuthority
+from onlyalpha.application.search_generation_execution import (
+    OnlyHistoricalGenerationArtifactMissing,
+    OnlyHistoricalGenerationCapabilityUnsupported,
+    OnlyHistoricalGenerationExecutionError,
+    OnlyHistoricalGenerationNotFound,
+    OnlyHistoricalGenerationUnavailable,
+    OnlyHistoricalGenerationWorkerUnavailable,
+)
 from onlyalpha.kernel.command import OnlyProductCommand
 from onlyalpha.kernel.query import OnlyProductQuery
 from onlyalpha.research.experiment import (
@@ -618,9 +626,17 @@ class OnlySearchProductMethodAdapter(Protocol):
         experiment: OnlySearchExperimentManifestV2 | OnlySearchExperimentManifestV3,
     ) -> None: ...
 
-    def apply_advance(self, command: OnlyAdvanceSearchExperimentV1) -> None: ...
+    def apply_advance(
+        self,
+        command: OnlyAdvanceSearchExperimentV1,
+        runtime_generation_fingerprint: str,
+    ) -> None: ...
 
-    def assess_advance_effect(self, command: OnlyAdvanceSearchExperimentV1) -> OnlySearchProductEffectStateV1: ...
+    def assess_advance_effect(
+        self,
+        command: OnlyAdvanceSearchExperimentV1,
+        runtime_generation_fingerprint: str,
+    ) -> OnlySearchProductEffectStateV1: ...
 
     def verify_advance_effect(self, command: OnlyAdvanceSearchExperimentV1) -> None: ...
 
@@ -737,7 +753,10 @@ class OnlySearchProductCommandServiceV1:
 
     def advance(self, command: OnlyAdvanceSearchExperimentV1) -> OnlySearchProductOutcomeV1:
         adapter = self._adapter(command.method)
-        self._require_search_binding(command.experiment_fingerprint)
+        binding = self._require_search_binding(command.experiment_fingerprint)
+        generation_fingerprint = getattr(binding, "runtime_generation_fingerprint", None)
+        if not isinstance(generation_fingerprint, str):
+            raise OnlySearchRuntimeGenerationInvalid(command.experiment_fingerprint)
         admission = self._admit(
             command.command_id,
             OnlyProductCommandKind.ADVANCE_SEARCH_EXPERIMENT,
@@ -748,14 +767,20 @@ class OnlySearchProductCommandServiceV1:
             experiment = self._verify_advance_receipt(adapter, command, admission, receipt)
             return self._response(adapter, receipt, experiment, replayed=True)
         experiment = adapter.load_experiment_verified(command.experiment_fingerprint)
-        assessment = adapter.assess_advance_effect(command)
+        try:
+            assessment = adapter.assess_advance_effect(command, generation_fingerprint)
+        except OnlyHistoricalGenerationExecutionError as exc:
+            self._raise_generation_execution_error(exc, generation_fingerprint)
         if assessment is OnlySearchProductEffectStateV1.CONFLICT_OR_STALE:
             raise OnlySearchProductEffectConflict(command.experiment_fingerprint)
         if assessment in {
             OnlySearchProductEffectStateV1.EXACT_PRE_STATE,
             OnlySearchProductEffectStateV1.PARTIAL_EXACT_EFFECT,
         }:
-            adapter.apply_advance(command)
+            try:
+                adapter.apply_advance(command, generation_fingerprint)
+            except OnlyHistoricalGenerationExecutionError as exc:
+                self._raise_generation_execution_error(exc, generation_fingerprint)
         adapter.verify_advance_effect(command)
         exact = adapter.load_experiment_verified(experiment.experiment_fingerprint)
         receipt = self._put_receipt(admission, exact.experiment_fingerprint)
@@ -861,6 +886,26 @@ class OnlySearchProductCommandServiceV1:
         }
         error_type = mapping.get(code, OnlySearchRuntimeGenerationInvalid)
         raise error_type(detail) from exc
+
+    @staticmethod
+    def _raise_generation_execution_error(
+        exc: OnlyHistoricalGenerationExecutionError,
+        generation_fingerprint: str,
+    ) -> NoReturn:
+        if isinstance(exc, OnlyHistoricalGenerationNotFound):
+            raise OnlySearchRuntimeGenerationNotFound(generation_fingerprint) from exc
+        if isinstance(
+            exc,
+            (
+                OnlyHistoricalGenerationArtifactMissing,
+                OnlyHistoricalGenerationUnavailable,
+                OnlyHistoricalGenerationWorkerUnavailable,
+            ),
+        ):
+            raise OnlySearchRuntimeGenerationUnavailable(f"{generation_fingerprint}:{exc.code}") from exc
+        if isinstance(exc, OnlyHistoricalGenerationCapabilityUnsupported):
+            raise OnlySearchProductCapabilityUnsupported(f"{generation_fingerprint}:{exc.code}") from exc
+        raise OnlySearchRuntimeGenerationInvalid(f"{generation_fingerprint}:{exc.code}") from exc
 
     def _adapter(self, method: OnlySearchMethodV1) -> OnlySearchProductMethodAdapter:
         try:
