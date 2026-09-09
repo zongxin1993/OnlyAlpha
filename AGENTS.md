@@ -578,3 +578,38 @@ report `PRIVATE_ASSET_COMPATIBILITY_CERTIFICATION_PENDING`; never claim compatib
 When a private repository needs a new Core capability, it must first be expressible through a public OnlyAlpha contract, demonstrated by
 the corresponding public example, and consumed by the private repository through that same contract. Hidden private-only Core integration
 paths are forbidden and must fail closed as `EXAMPLE_CONTRACT_COVERAGE_REQUIRED` until public contract/example coverage exists.
+
+## External engineering evidence and upstream failure research
+
+External projects, upstream documentation, issues, pull requests and incident reports are engineering evidence only; they never supersede `PROJECT_CONSTITUTION.md`, OnlyAlpha Architecture / Contracts / Accepted ADRs, current Task Contract or current implementation truth.
+
+Before freezing architecture or a repository-aware plan, Codex / Agent MUST use first-principles reasoning first and then consult relevant curated material under `docs/engineering/` when mature external references exist for the affected domain.
+
+For high-risk work, a new domain, provider/venue semantics, unresolved correctness defects, or a new certification boundary, planning MUST inspect relevant upstream issue/bug history when such evidence is available. The research is bounded by the real Impact Scope and MUST NOT become an open-ended ecosystem audit.
+
+The required transformation is:
+
+```text
+external design / issue / incident evidence
+→ applicable generalized lesson or failure pattern
+→ OnlyAlpha invariant / failure semantic
+→ regression, differential or fault-injection test
+```
+
+Borrow failure modes and invariants, not patches. A third-party retry, timeout, sleep, mutable status model, evaluator, runtime choice or component graph is never adopted merely because a mature project uses it.
+
+When external evidence materially affects a high-risk plan, the plan should explicitly record:
+
+```text
+Relevant references
+Applicable design lessons
+Applicable historical failure patterns
+Rejected reference approaches
+OnlyAlpha invariants / tests derived from the evidence
+```
+
+Routine planning SHOULD consult `docs/engineering/reference_registry.md` and `docs/engineering/failure_patterns/` before live upstream research. Live research is required only when risk, novelty, provider change or unresolved defects justify it.
+
+A confirmed applicable external failure SHOULD become an executable OnlyAlpha regression/fault test when deterministic reproduction is practical. Documentation such as "be careful with reconnect" is not an adequate substitute for a test when the failure can be mechanically proved.
+
+The detailed method is defined in `docs/engineering/open_source_engineering_evidence.md`. These reference documents remain advisory engineering knowledge and MUST NOT become a second architecture, quality, Research, execution or certification Authority.
