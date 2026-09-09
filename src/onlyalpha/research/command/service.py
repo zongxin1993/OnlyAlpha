@@ -76,6 +76,7 @@ class OnlyResearchCommandService:
     ) -> OnlyResearchSubmitOutcome:
         strict = OnlyResearchSpecification.from_dict(specification.to_dict())
         command: OnlyResearchSubmitCommand | OnlyDerivedResearchSubmitCommandV2
+        expected_run_id: OnlyResearchRunId | None = None
         if parent_runtime_work_id is None:
             command = OnlyResearchSubmitCommand(submission_key, strict, provenance)
         else:
@@ -85,6 +86,7 @@ class OnlyResearchCommandService:
                 parent_runtime_work_id,
                 provenance,
             )
+            expected_run_id = only_derived_research_run_id(submission_key)
             self._admit_derived_command(command)
         existing = self._store.find_product_command_receipt(submission_key)
         if existing is not None:
@@ -92,6 +94,7 @@ class OnlyResearchCommandService:
                 existing,
                 kind=OnlyProductCommandKind.CREATE_RESEARCH_RUN,
                 fingerprint=command.command_fingerprint,
+                expected_run_id=expected_run_id,
             )
             self._require_expected_binding(run.run_id.value, parent_runtime_work_id)
             return OnlyResearchSubmitOutcome(OnlyResearchSubmitDisposition.REUSED, run)
@@ -105,10 +108,11 @@ class OnlyResearchCommandService:
                 occurred_at=prepared.queued_at,
             )
         else:
+            assert expected_run_id is not None
             prepared = self._admission.prepare(
                 strict,
                 provenance=provenance,
-                exact_run_id=only_derived_research_run_id(submission_key),
+                exact_run_id=expected_run_id,
             )
             self._runtime_generations.bind_derived_work(
                 parent_runtime_work_id,
@@ -140,6 +144,7 @@ class OnlyResearchCommandService:
             record,
             kind=OnlyProductCommandKind.CREATE_RESEARCH_RUN,
             fingerprint=command.command_fingerprint,
+            expected_run_id=expected_run_id,
         )
         if run.run_id != prepared.run_id and parent_runtime_work_id is None:
             self._runtime_generations.release_work(

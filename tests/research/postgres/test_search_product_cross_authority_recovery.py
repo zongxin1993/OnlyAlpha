@@ -11,6 +11,9 @@ from onlyalpha.application.product_command_receipt import (
     OnlyProductCommandAdmissionV1,
     OnlyProductCommandId,
     OnlyProductCommandKind,
+    OnlyProductCommandOutcomeKind,
+    OnlyProductCommandOutcomeRef,
+    OnlyProductCommandReceipt,
 )
 from onlyalpha.application.search_product import (
     OnlySearchProductCommandServiceV1,
@@ -25,8 +28,10 @@ from onlyalpha.persistence.postgres import (
 )
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from onlyalpha.research.command import (
+    OnlyDerivedResearchSubmitCommandV2,
     OnlyResearchCommandService,
     OnlyResearchRunQueryService,
+    OnlyResearchSubmissionConflictError,
     only_derived_research_run_id,
 )
 from onlyalpha.research.experiment import (
@@ -36,7 +41,11 @@ from onlyalpha.research.experiment import (
     OnlySearchHypothesisV1,
     OnlySearchWorkflowBindingV1,
 )
-from onlyalpha.research.run import OnlyResearchRunAdmissionService
+from onlyalpha.research.run import (
+    OnlyResearchRunAdmissionService,
+    OnlyResearchRunId,
+    OnlyResearchRunNotFoundError,
+)
 from onlyalpha.research.search.parameter import (
     OnlyParameterFactorSearchSpaceV1,
     OnlyParameterObjectiveDirection,
@@ -150,6 +159,83 @@ def test_derived_binding_crash_before_real_postgres_commit_recovers_exact_run(
         assert connection.execute("SELECT count(*) FROM product_command_receipt").fetchone() == (1,)
         assert connection.execute("SELECT count(*) FROM product_command_admission").fetchone() == (1,)
     assert set(runtime_generations.projection().work_bindings) == {parent, expected_run_id.value}
+
+
+def test_real_postgres_wrong_derived_receipt_identity_fails_closed_without_repair(
+    postgres_dsn: str,
+    tmp_path,
+) -> None:  # type: ignore[no-untyped-def]
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    _layout, datasets, _calculations, _statistics, _summaries, _reader, _results = _stores(tmp_path)
+    candidate, partitions = snapshot()
+    dataset = datasets.commit(candidate, partitions)
+    exact_specification = specification(dataset.snapshot_fingerprint)
+    durable_store = OnlyPostgresResearchRunStore(postgres_dsn)
+    product_authority = OnlyPostgresProductCommandAuthority(postgres_dsn)
+    runtime_generations = _runtime_generations(tmp_path)
+    generation = runtime_generations.projection().active_for_new_work
+    assert generation is not None
+    parent = only_search_experiment_work_id("e" * 64)
+    runtime_generations.bind_work_exact(parent, generation, actor="search", occurred_at=_NOW)
+    admission = OnlyResearchRunAdmissionService(
+        resolver=OnlyResearchSpecificationResolver(research_registry()),
+        dataset_store=datasets,
+        run_store=durable_store,
+        now_utc=lambda: _NOW,
+    )
+    wrong_run_id = OnlyResearchRunId("00000000-0000-4000-8000-0000000000e2")
+    wrong_run = admission.prepare(exact_specification, exact_run_id=wrong_run_id)
+    durable_store.create_queued(wrong_run)
+    runtime_generations.bind_derived_work(
+        parent,
+        wrong_run_id.value,
+        actor="corrupt-fixture",
+        occurred_at=_NOW,
+    )
+    command_id = OnlyProductCommandId("00000000-0000-4000-8000-0000000000e3")
+    command = OnlyDerivedResearchSubmitCommandV2(command_id, exact_specification, parent)
+    product_authority.admit_exact(
+        OnlyProductCommandAdmissionV1(
+            command_id,
+            OnlyProductCommandKind.CREATE_RESEARCH_RUN,
+            command.command_fingerprint,
+        )
+    )
+    wrong_receipt = OnlyProductCommandReceipt(
+        command_id,
+        OnlyProductCommandKind.CREATE_RESEARCH_RUN,
+        command.command_fingerprint,
+        OnlyProductCommandOutcomeRef(OnlyProductCommandOutcomeKind.RESEARCH_RUN, wrong_run_id.value),
+        _NOW,
+    )
+    product_authority.put_verified_receipt(wrong_receipt)
+    expected_run_id = only_derived_research_run_id(command_id)
+    bindings_before = dict(runtime_generations.projection().work_bindings)
+
+    service = OnlyResearchCommandService(
+        admission=admission,
+        store=durable_store,
+        now_utc=lambda: _NOW,
+        runtime_generations=runtime_generations,
+        command_admissions=product_authority,
+    )
+    with pytest.raises(OnlyResearchSubmissionConflictError):
+        service.submit_research_run(
+            command_id,
+            exact_specification,
+            parent_runtime_work_id=parent,
+        )
+
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute("SELECT run_id::text FROM research_run ORDER BY run_id").fetchall() == [
+            (wrong_run_id.value,)
+        ]
+        assert connection.execute("SELECT count(*) FROM product_command_admission").fetchone() == (1,)
+        assert connection.execute("SELECT count(*) FROM product_command_receipt").fetchone() == (1,)
+    assert product_authority.load_verified_receipt(command_id) == wrong_receipt
+    assert dict(runtime_generations.projection().work_bindings) == bindings_before
+    with pytest.raises(OnlyResearchRunNotFoundError):
+        durable_store.load(expected_run_id)
 
 
 def test_symbolic_fresh_service_repairs_real_postgres_receipt_from_json_effect(
