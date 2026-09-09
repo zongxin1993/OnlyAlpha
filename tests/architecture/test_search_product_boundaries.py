@@ -9,7 +9,9 @@ from onlyalpha.application.search_product import (
     OnlyParameterExpectedStateV1,
     OnlySearchResearchRunReader,
     OnlySubmitParameterSearchExperimentV1,
+    OnlySubmitParameterSearchExperimentV2,
     OnlySubmitSymbolicSearchExperimentV1,
+    OnlySubmitSymbolicSearchExperimentV2,
     OnlySymbolicExpectedStateV1,
 )
 
@@ -31,6 +33,8 @@ def test_search_product_commands_cannot_carry_agent_or_transport_identity() -> N
     for model in (
         OnlySubmitSymbolicSearchExperimentV1,
         OnlySubmitParameterSearchExperimentV1,
+        OnlySubmitSymbolicSearchExperimentV2,
+        OnlySubmitParameterSearchExperimentV2,
         OnlyAdvanceSearchExperimentV1,
     ):
         names = {item.name for item in fields(model)}
@@ -42,6 +46,33 @@ def test_search_product_commands_cannot_carry_agent_or_transport_identity() -> N
             "url",
             "headers",
         }
+
+
+def test_runtime_generation_is_product_v2_operational_intent_not_search_semantic_identity() -> None:
+    assert "runtime_generation_fingerprint" not in {item.name for item in fields(OnlySubmitSymbolicSearchExperimentV1)}
+    assert "runtime_generation_fingerprint" not in {item.name for item in fields(OnlySubmitParameterSearchExperimentV1)}
+    assert "runtime_generation_fingerprint" in {item.name for item in fields(OnlySubmitSymbolicSearchExperimentV2)}
+    assert "runtime_generation_fingerprint" in {item.name for item in fields(OnlySubmitParameterSearchExperimentV2)}
+    source = Path("src/onlyalpha/research/experiment/model.py").read_text(encoding="utf-8")
+    assert "runtime_generation_fingerprint" not in source
+
+
+def test_search_runtime_binding_has_one_authority_and_no_host_or_transport_scope() -> None:
+    application = Path("src/onlyalpha/application/search_product.py").read_text(encoding="utf-8")
+    runtime = Path("src/onlyalpha/application/runtime_generation.py").read_text(encoding="utf-8")
+    symbolic = Path("src/onlyalpha/research/search/symbolic/product.py").read_text(encoding="utf-8")
+    parameter = Path("src/onlyalpha/research/search/parameter/integration.py").read_text(encoding="utf-8")
+    assert "bind_work_exact" in application and "bind_work_exact" in runtime
+    assert "bind_derived_work" in runtime
+    assert "parent_runtime_work_id=" in symbolic
+    assert "parent_runtime_work_id=" in parameter
+    for forbidden in (
+        "SearchExecutionBindingStore",
+        "search_runtime_generation_map",
+        "subprocess",
+        "fastapi",
+    ):
+        assert forbidden not in application
 
 
 def test_expected_state_is_method_specific_and_has_no_generic_transition_version() -> None:

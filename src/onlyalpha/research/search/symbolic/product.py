@@ -21,7 +21,9 @@ from onlyalpha.application.search_product import (
     OnlySearchTerminalKindV1,
     OnlySearchTerminalProjectionV1,
     OnlySubmitSymbolicSearchExperimentV1,
+    OnlySubmitSymbolicSearchExperimentV2,
     OnlySymbolicExpectedStateV1,
+    only_search_experiment_work_id,
 )
 from onlyalpha.research.command.model import OnlyResearchSubmitOutcome
 from onlyalpha.research.experiment import (
@@ -62,6 +64,8 @@ class _ResearchSubmitter(Protocol):
         submission_key: object,
         specification: object,
         provenance: object | None = None,
+        *,
+        parent_runtime_work_id: str | None = None,
     ) -> OnlyResearchSubmitOutcome: ...
 
 
@@ -89,6 +93,7 @@ class OnlySymbolicResearchCommandGatewayV1:
         return self.commands.submit_research_run(
             symbolic_submission_key(plan),
             resolved.specification,
+            parent_runtime_work_id=only_search_experiment_work_id(plan.experiment_fingerprint),
         )
 
     def research_result_reference(
@@ -144,7 +149,7 @@ class OnlySymbolicSearchProductAdapterV1:
         )
 
     def derive_submit_experiment(self, command: OnlySearchSubmitCommandV1) -> OnlySearchExperimentManifestV2:
-        if not isinstance(command, OnlySubmitSymbolicSearchExperimentV1):
+        if not isinstance(command, (OnlySubmitSymbolicSearchExperimentV1, OnlySubmitSymbolicSearchExperimentV2)):
             raise OnlySearchProductSemanticFactCorrupt("Symbolic Submit command type differs")
         space = command.search_space
         evaluation = command.evaluation_contract
@@ -200,9 +205,9 @@ class OnlySymbolicSearchProductAdapterV1:
         command: OnlySearchSubmitCommandV1,
         experiment: OnlySearchExperimentManifest,
     ) -> OnlySearchExperimentManifestV2:
-        if not isinstance(command, OnlySubmitSymbolicSearchExperimentV1) or not isinstance(
-            experiment, OnlySearchExperimentManifestV2
-        ):
+        if not isinstance(
+            command, (OnlySubmitSymbolicSearchExperimentV1, OnlySubmitSymbolicSearchExperimentV2)
+        ) or not isinstance(experiment, OnlySearchExperimentManifestV2):
             raise OnlySearchProductSemanticFactCorrupt("Symbolic Submit shape differs")
         self._store.commit_search_space(cast(OnlySymbolicFactorSearchSpaceV2, command.search_space))
         self._store.commit_evaluation_contract(

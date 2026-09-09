@@ -24,6 +24,7 @@ from onlyalpha.application.search_product import (
     OnlyAdvanceSearchExperimentV1,
     OnlyGetSearchExperimentV1,
     OnlyGetSearchIterationLedgerV1,
+    OnlyGetSearchTerminalDecisionV1,
     OnlySearchBoundedOperationV1,
     OnlySearchMethodV1,
     OnlySearchProductCapabilityUnsupported,
@@ -34,8 +35,13 @@ from onlyalpha.application.search_product import (
     OnlySearchProductQueryServiceV1,
     OnlySearchProductReceiptCorrupt,
     OnlySearchProductSemanticFactCorrupt,
+    OnlySearchRuntimeGenerationBindingConflict,
+    OnlySearchRuntimeGenerationInvalid,
+    OnlySearchRuntimeGenerationUnbound,
     OnlySubmitSymbolicSearchExperimentV1,
+    OnlySubmitSymbolicSearchExperimentV2,
     OnlySymbolicExpectedStateV1,
+    only_search_experiment_work_id,
 )
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.quant_assets import OnlyQuantAssetCatalogManager
@@ -62,6 +68,7 @@ from onlyalpha.research.search.symbolic import (
 )
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 from tests.research.specification.support import registry as specification_registry
+from tests.runtime_generation_support import OnlyTestRuntimeGenerationAuthority
 
 from .support import space, verified_dataset
 from .test_research_and_provenance_integration import _scientific_template
@@ -235,7 +242,7 @@ def _reconcile_expected(state: OnlySymbolicExpectedStateV1, plan_fingerprint: st
     )
 
 
-def _case(tmp_path, *, authority=None):  # type: ignore[no-untyped-def]
+def _case(tmp_path, *, authority=None, runtime_generations=None):  # type: ignore[no-untyped-def]
     generation, search_space = space(max_nodes=3)
     dataset = "a" * 64
     symbolic = OnlyJsonSymbolicSearchStore(tmp_path)
@@ -256,6 +263,10 @@ def _case(tmp_path, *, authority=None):  # type: ignore[no-untyped-def]
         search_contexts=contexts,
     )
     authority = authority or _ProductAuthority()
+    runtime_generations = runtime_generations or OnlyTestRuntimeGenerationAuthority(
+        generation_fingerprint="f" * 64,
+        catalog_generation_fingerprint=generation.generation_fingerprint,
+    )
     commands = _Commands(authority, results)
     adapter = OnlySymbolicSearchProductAdapterV1(
         symbolic_store=symbolic,
@@ -269,12 +280,13 @@ def _case(tmp_path, *, authority=None):  # type: ignore[no-untyped-def]
     service = OnlySearchProductCommandServiceV1(
         command_admissions=authority,
         command_receipts=authority,
+        runtime_generations=runtime_generations,
         adapters=(adapter,),
         now_utc=lambda: datetime(2026, 9, 8, tzinfo=UTC),
     )
     query = OnlySearchProductQueryServiceV1((adapter,))
     evaluation = OnlySymbolicResearchEvaluationContractV1.from_specification(_scientific_template(dataset), "feature")
-    submit = OnlySubmitSymbolicSearchExperimentV1(
+    submit = OnlySubmitSymbolicSearchExperimentV2(
         _command_id(),
         OnlySearchHypothesisV1("bounded Product symbolic hypothesis"),
         search_space,
@@ -285,6 +297,7 @@ def _case(tmp_path, *, authority=None):  # type: ignore[no-untyped-def]
         OnlySearchDecisionEngineBindingV1(OnlySearchDecisionMode.DETERMINISTIC),
         generation.generation_fingerprint,
         dataset,
+        runtime_generation_fingerprint=runtime_generations.generation_fingerprint,
     )
     return service, query, authority, commands, submit
 
@@ -387,7 +400,7 @@ def test_submit_and_bounded_symbolic_advance_reconcile_recovery(tmp_path) -> Non
 
 def test_search_command_fingerprint_excludes_product_identity_and_conflicts_before_search(tmp_path) -> None:
     service, query, authority, _commands, submit = _case(tmp_path)
-    same_intent = OnlySubmitSymbolicSearchExperimentV1(
+    same_intent = OnlySubmitSymbolicSearchExperimentV2(
         _command_id(),
         submit.hypothesis,
         submit.search_space,
@@ -398,6 +411,7 @@ def test_search_command_fingerprint_excludes_product_identity_and_conflicts_befo
         submit.decision_engine_binding,
         submit.catalog_generation_fingerprint,
         submit.dataset_snapshot_fingerprint,
+        runtime_generation_fingerprint=submit.runtime_generation_fingerprint,
     )
     assert same_intent.command_fingerprint == submit.command_fingerprint
     # Admission-only recovery performs the exact same Submit and no iteration work.
@@ -417,7 +431,7 @@ def test_search_command_fingerprint_excludes_product_identity_and_conflicts_befo
     repaired = service.submit(submit)
     assert repaired.experiment == first.experiment
     assert repaired.ledger.plans == ()
-    conflict = OnlySubmitSymbolicSearchExperimentV1(
+    conflict = OnlySubmitSymbolicSearchExperimentV2(
         submit.command_id,
         OnlySearchHypothesisV1("different intent"),
         submit.search_space,
@@ -428,9 +442,209 @@ def test_search_command_fingerprint_excludes_product_identity_and_conflicts_befo
         submit.decision_engine_binding,
         submit.catalog_generation_fingerprint,
         submit.dataset_snapshot_fingerprint,
+        runtime_generation_fingerprint=submit.runtime_generation_fingerprint,
     )
     with pytest.raises(OnlySearchProductCommandConflict):
         service.submit(conflict)
+
+
+def test_submit_v1_fingerprint_is_frozen_and_v2_separates_science_from_runtime_identity(tmp_path) -> None:
+    service, query, _authority, _commands, submit = _case(tmp_path)
+    v1 = OnlySubmitSymbolicSearchExperimentV1(
+        _command_id(),
+        submit.hypothesis,
+        submit.search_space,
+        submit.evaluation_contract,
+        submit.search_budget,
+        submit.algorithm_manifest,
+        submit.workflow_binding,
+        submit.decision_engine_binding,
+        submit.catalog_generation_fingerprint,
+        submit.dataset_snapshot_fingerprint,
+    )
+    assert v1.command_fingerprint == "1ef8a1a55ab2d8021ff14391d81b7edde3e32cf1ce3528c35f1681564acb2e7b"
+    with pytest.raises(OnlySearchRuntimeGenerationUnbound):
+        service.submit(v1)
+
+    other_generation = replace(submit, command_id=_command_id(), runtime_generation_fingerprint="d" * 64)
+    adapter = query._adapters[OnlySearchMethodV1.SYMBOLIC]  # type: ignore[attr-defined]
+    assert adapter.derive_submit_experiment(submit).experiment_fingerprint == (
+        adapter.derive_submit_experiment(other_generation).experiment_fingerprint
+    )
+    assert submit.command_fingerprint != other_generation.command_fingerprint
+    experiment = adapter.derive_submit_experiment(submit).experiment_fingerprint
+    assert only_search_experiment_work_id(experiment) == f"search-experiment:{experiment}"
+    service.submit(submit)
+    service._runtime_generations.activate(  # type: ignore[attr-defined]
+        other_generation.runtime_generation_fingerprint,
+        catalog_generation_fingerprint=submit.catalog_generation_fingerprint,
+    )
+    with pytest.raises(OnlySearchRuntimeGenerationBindingConflict):
+        service.submit(other_generation)
+
+
+def test_legacy_unbound_search_queries_but_product_mutation_fails_closed(tmp_path) -> None:
+    service, query, _authority, _commands, submit = _case(tmp_path)
+    created = service.submit(submit)
+    experiment = created.experiment.experiment_fingerprint
+    initial = query.get_ledger(OnlyGetSearchIterationLedgerV1(experiment))
+    first = service.advance(
+        OnlyAdvanceSearchExperimentV1(
+            _command_id(),
+            OnlySearchMethodV1.SYMBOLIC,
+            OnlySearchBoundedOperationV1.ADVANCE_ONE_SYMBOLIC_OCCURRENCE,
+            initial.expected_state,
+        )
+    )
+    service._runtime_generations.bindings.clear()  # type: ignore[attr-defined]
+
+    assert query.get_experiment(OnlyGetSearchExperimentV1(experiment)).experiment == created.experiment
+    ledger = query.get_ledger(OnlyGetSearchIterationLedgerV1(experiment))
+    assert query.get_terminal(OnlyGetSearchTerminalDecisionV1(experiment)).experiment_fingerprint == experiment
+    advance = OnlyAdvanceSearchExperimentV1(
+        _command_id(),
+        OnlySearchMethodV1.SYMBOLIC,
+        OnlySearchBoundedOperationV1.ADVANCE_ONE_SYMBOLIC_OCCURRENCE,
+        ledger.expected_state,
+    )
+    with pytest.raises(OnlySearchRuntimeGenerationUnbound):
+        service.advance(advance)
+    reconcile = OnlyAdvanceSearchExperimentV1(
+        _command_id(),
+        OnlySearchMethodV1.SYMBOLIC,
+        OnlySearchBoundedOperationV1.RECONCILE_ONE_SYMBOLIC_OCCURRENCE,
+        _reconcile_expected(
+            cast(OnlySymbolicExpectedStateV1, ledger.expected_state),
+            first.ledger.plans[0].iteration_plan_fingerprint,
+        ),
+    )
+    with pytest.raises(OnlySearchRuntimeGenerationUnbound):
+        service.advance(reconcile)
+
+
+def test_historical_v1_admission_with_exact_binding_recovers_without_generation_guess(tmp_path) -> None:
+    service, query, authority, _commands, submit = _case(tmp_path)
+    historical = OnlySubmitSymbolicSearchExperimentV1(
+        _command_id(),
+        submit.hypothesis,
+        submit.search_space,
+        submit.evaluation_contract,
+        submit.search_budget,
+        submit.algorithm_manifest,
+        submit.workflow_binding,
+        submit.decision_engine_binding,
+        submit.catalog_generation_fingerprint,
+        submit.dataset_snapshot_fingerprint,
+    )
+    adapter = query._adapters[historical.method]  # type: ignore[attr-defined]
+    experiment = adapter.derive_submit_experiment(historical)
+    authority.admit_exact(
+        OnlyProductCommandAdmissionV1(
+            historical.command_id,
+            OnlyProductCommandKind.CREATE_SYMBOLIC_SEARCH_EXPERIMENT,
+            historical.command_fingerprint,
+        )
+    )
+    service._runtime_generations.bind_work_exact(  # type: ignore[attr-defined]
+        only_search_experiment_work_id(experiment.experiment_fingerprint),
+        submit.runtime_generation_fingerprint,
+    )
+
+    recovered = service.submit(historical)
+
+    assert recovered.experiment == experiment
+    assert historical.command_id in authority.receipts
+
+
+def test_admitted_submit_recovers_original_generation_after_activation_switch(tmp_path) -> None:
+    service, _query, authority, _commands, submit = _case(tmp_path)
+    authority.admit_exact(
+        OnlyProductCommandAdmissionV1(
+            submit.command_id,
+            OnlyProductCommandKind.CREATE_SYMBOLIC_SEARCH_EXPERIMENT,
+            submit.command_fingerprint,
+        )
+    )
+    service._runtime_generations.activate(  # type: ignore[attr-defined]
+        "d" * 64,
+        catalog_generation_fingerprint=submit.catalog_generation_fingerprint,
+    )
+    recovered = service.submit(submit)
+    work_id = only_search_experiment_work_id(recovered.experiment.experiment_fingerprint)
+    assert service._runtime_generations.bindings[work_id] == submit.runtime_generation_fingerprint  # type: ignore[attr-defined]
+
+
+def test_concurrent_product_admission_and_runtime_binding_converge_on_same_search(tmp_path) -> None:
+    admission_barrier = Barrier(2)
+    binding_barrier = Barrier(2)
+
+    class RacingProductAuthority(_ProductAuthority):
+        def admit_exact(self, admission):  # type: ignore[no-untyped-def]
+            admission_barrier.wait()
+            return super().admit_exact(admission)
+
+    class RacingRuntimeAuthority(OnlyTestRuntimeGenerationAuthority):
+        def bind_work_exact(self, work_id, runtime_generation_fingerprint, **context):  # type: ignore[no-untyped-def]
+            binding_barrier.wait()
+            return super().bind_work_exact(work_id, runtime_generation_fingerprint, **context)
+
+    generation, _ = space(max_nodes=3)
+    authority = RacingProductAuthority()
+    runtime = RacingRuntimeAuthority(catalog_generation_fingerprint=generation.generation_fingerprint)
+    service, _query, _authority, _commands, submit = _case(
+        tmp_path,
+        authority=authority,
+        runtime_generations=runtime,
+    )
+    other = replace(submit, command_id=_command_id())
+    outcomes: list[object] = []
+    failures: list[BaseException] = []
+
+    def execute(command):  # type: ignore[no-untyped-def]
+        try:
+            outcomes.append(service.submit(command))
+        except BaseException as exc:
+            failures.append(exc)
+
+    threads = (Thread(target=execute, args=(submit,)), Thread(target=execute, args=(other,)))
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert failures == []
+    assert len(outcomes) == 2
+    fingerprints = {outcome.experiment.experiment_fingerprint for outcome in outcomes}  # type: ignore[union-attr]
+    assert len(fingerprints) == 1
+    experiment_fingerprint = fingerprints.pop()
+    assert runtime.bindings == {
+        only_search_experiment_work_id(experiment_fingerprint): submit.runtime_generation_fingerprint
+    }
+    assert set(authority.receipts) == {submit.command_id, other.command_id}
+
+
+def test_submit_rejects_non_exact_runtime_authority_results_before_search_effect(tmp_path) -> None:
+    class InvalidBindingAuthority(OnlyTestRuntimeGenerationAuthority):
+        def bind_work_exact(self, work_id, runtime_generation_fingerprint, **context):  # type: ignore[no-untyped-def]
+            super().bind_work_exact(work_id, runtime_generation_fingerprint, **context)
+            return SimpleNamespace(
+                work_id=work_id,
+                runtime_generation_fingerprint="0" * 64,
+                active=True,
+            )
+
+    generation, _ = space(max_nodes=3)
+    runtime = InvalidBindingAuthority(catalog_generation_fingerprint=generation.generation_fingerprint)
+    service, query, authority, _commands, submit = _case(tmp_path, runtime_generations=runtime)
+    expected = query._adapters[submit.method].derive_submit_experiment(submit)  # type: ignore[attr-defined]
+
+    with pytest.raises(OnlySearchRuntimeGenerationInvalid):
+        service.submit(submit)
+
+    assert submit.command_id in authority.admissions
+    assert submit.command_id not in authority.receipts
+    with pytest.raises(OnlySearchProductSemanticFactCorrupt):
+        query.get_experiment(OnlyGetSearchExperimentV1(expected.experiment_fingerprint))
 
 
 def test_symbolic_factor_qualification_workflow_is_unsupported_and_creates_no_effect(tmp_path) -> None:
@@ -512,6 +726,7 @@ def test_fresh_symbolic_product_service_repairs_committed_effect_from_durable_au
     restarted, restarted_query, _authority2, _commands2, _submit2 = _case(
         tmp_path,
         authority=authority,
+        runtime_generations=service._runtime_generations,  # type: ignore[attr-defined]
     )
     repaired = restarted.advance(command)
     assert len(repaired.ledger.plans) == 1

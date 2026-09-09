@@ -42,6 +42,7 @@ class _EventKind(StrEnum):
     REJECTED = "GenerationRejected"
     RETIRED = "GenerationRetired"
     WORK_BOUND = "RuntimeWorkBound"
+    EXACT_WORK_BOUND = "RuntimeExactWorkBound"
     WORK_RELEASED = "RuntimeWorkReleased"
 
 
@@ -70,7 +71,11 @@ class OnlyGenerationEvent:
         for value in (self.previous_event_fingerprint, self.expected_current):
             if value is not None:
                 _sha(value, "RUNTIME_GENERATION_EVENT_INVALID")
-        if self.kind in {_EventKind.WORK_BOUND.value, _EventKind.WORK_RELEASED.value}:
+        if self.kind in {
+            _EventKind.WORK_BOUND.value,
+            _EventKind.EXACT_WORK_BOUND.value,
+            _EventKind.WORK_RELEASED.value,
+        }:
             if self.work_id is None or not self.work_id.strip():
                 raise ValueError("RUNTIME_GENERATION_EVENT_INVALID")
         elif self.work_id is not None:
@@ -294,6 +299,96 @@ class OnlyRuntimeGenerationRegistry:
             self._append(self._event(events, _EventKind.WORK_BOUND, active, actor, occurred_at, work_id=work_id))
             return OnlyRuntimeWorkBinding(work_id, active, True)
 
+    def require_new_work_generation(self, runtime_generation_fingerprint: str) -> OnlyRuntimeGenerationManifest:
+        """Verify one exact generation is the generation currently eligible for root work."""
+
+        with self._locked(shared=True):
+            projection, _ = self._replay()
+            if projection.active_for_new_work != runtime_generation_fingerprint:
+                raise ValueError("RUNTIME_GENERATION_NOT_ELIGIBLE_FOR_NEW_WORK")
+            return self._load_exact_generation(projection, runtime_generation_fingerprint)
+
+    def require_runtime_generation(self, runtime_generation_fingerprint: str) -> OnlyRuntimeGenerationManifest:
+        """Exact-load one validated generation that remains available for bound work."""
+
+        with self._locked(shared=True):
+            projection, _ = self._replay()
+            return self._load_exact_generation(projection, runtime_generation_fingerprint)
+
+    def bind_work_exact(
+        self,
+        work_id: str,
+        runtime_generation_fingerprint: str,
+        *,
+        actor: str,
+        occurred_at: datetime,
+    ) -> OnlyRuntimeWorkBinding:
+        """Bind one work identity to an admitted exact generation without reading activation."""
+
+        if not work_id.strip():
+            raise ValueError("RUNTIME_WORK_ID_INVALID")
+        with self._locked():
+            projection, events = self._replay()
+            self._load_exact_generation(projection, runtime_generation_fingerprint)
+            existing = projection.work_bindings.get(work_id)
+            if existing is not None:
+                if not existing.active:
+                    raise ValueError("RUNTIME_WORK_GENERATION_UNBOUND")
+                if existing.runtime_generation_fingerprint != runtime_generation_fingerprint:
+                    raise ValueError("RUNTIME_WORK_GENERATION_BINDING_CONFLICT")
+                return existing
+            self._append(
+                self._event(
+                    events,
+                    _EventKind.EXACT_WORK_BOUND,
+                    runtime_generation_fingerprint,
+                    actor,
+                    occurred_at,
+                    work_id=work_id,
+                )
+            )
+            return OnlyRuntimeWorkBinding(work_id, runtime_generation_fingerprint, True)
+
+    def bind_derived_work(
+        self,
+        parent_work_id: str,
+        child_work_id: str,
+        *,
+        actor: str,
+        occurred_at: datetime,
+    ) -> OnlyRuntimeWorkBinding:
+        """Bind child work to the exact immutable generation of its formal parent."""
+
+        if not parent_work_id.strip() or not child_work_id.strip() or parent_work_id == child_work_id:
+            raise ValueError("RUNTIME_DERIVED_WORK_ID_INVALID")
+        with self._locked():
+            projection, events = self._replay()
+            try:
+                parent = projection.work_bindings[parent_work_id]
+            except KeyError as exc:
+                raise ValueError("RUNTIME_DERIVED_PARENT_GENERATION_UNBOUND") from exc
+            if not parent.active:
+                raise ValueError("RUNTIME_DERIVED_PARENT_GENERATION_UNBOUND")
+            self._load_exact_generation(projection, parent.runtime_generation_fingerprint)
+            existing = projection.work_bindings.get(child_work_id)
+            if existing is not None:
+                if not existing.active:
+                    raise ValueError("RUNTIME_DERIVED_WORK_GENERATION_BINDING_CONFLICT")
+                if existing.runtime_generation_fingerprint != parent.runtime_generation_fingerprint:
+                    raise ValueError("RUNTIME_DERIVED_WORK_GENERATION_BINDING_CONFLICT")
+                return existing
+            self._append(
+                self._event(
+                    events,
+                    _EventKind.EXACT_WORK_BOUND,
+                    parent.runtime_generation_fingerprint,
+                    actor,
+                    occurred_at,
+                    work_id=child_work_id,
+                )
+            )
+            return OnlyRuntimeWorkBinding(child_work_id, parent.runtime_generation_fingerprint, True)
+
     def release_work(self, work_id: str, *, actor: str, occurred_at: datetime) -> OnlyRuntimeWorkBinding:
         with self._locked():
             projection, events = self._replay()
@@ -457,6 +552,19 @@ class OnlyRuntimeGenerationRegistry:
                 if active != generation or event.work_id in bindings:
                     raise ValueError("RUNTIME_GENERATION_EVENT_ORDER_INVALID")
                 bindings[event.work_id] = OnlyRuntimeWorkBinding(event.work_id, generation, True)
+            elif kind is _EventKind.EXACT_WORK_BOUND:
+                assert event.work_id is not None
+                if (
+                    lifecycle[generation]
+                    not in {
+                        OnlyGenerationState.READY,
+                        OnlyGenerationState.ACTIVE_FOR_NEW_WORK,
+                        OnlyGenerationState.DRAINING,
+                    }
+                    or event.work_id in bindings
+                ):
+                    raise ValueError("RUNTIME_GENERATION_EVENT_ORDER_INVALID")
+                bindings[event.work_id] = OnlyRuntimeWorkBinding(event.work_id, generation, True)
             elif kind is _EventKind.WORK_RELEASED:
                 assert event.work_id is not None
                 binding = bindings.get(event.work_id)
@@ -480,6 +588,27 @@ class OnlyRuntimeGenerationRegistry:
             ),
             events,
         )
+
+    def _load_exact_generation(
+        self,
+        projection: OnlyGenerationProjection,
+        generation_fingerprint: str,
+    ) -> OnlyRuntimeGenerationManifest:
+        try:
+            state = projection.state(generation_fingerprint)
+        except KeyError as exc:
+            raise ValueError("RUNTIME_GENERATION_NOT_FOUND") from exc
+        if state not in {
+            OnlyGenerationState.READY,
+            OnlyGenerationState.ACTIVE_FOR_NEW_WORK,
+            OnlyGenerationState.DRAINING,
+        }:
+            raise ValueError("RUNTIME_GENERATION_UNAVAILABLE")
+        manifest = self.load_manifest(generation_fingerprint)
+        evidence = self.load_validation_evidence(generation_fingerprint)
+        if not evidence.verifies(manifest):
+            raise ValueError("RUNTIME_GENERATION_VALIDATION_EVIDENCE_MISMATCH")
+        return manifest
 
     def _read_events(self) -> tuple[OnlyGenerationEvent, ...]:
         if not self._ledger.exists():

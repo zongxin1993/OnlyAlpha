@@ -118,6 +118,186 @@ def test_activation_isolation_rollback_drain_retire_and_restart(tmp_path: Path) 
     assert registry.projection().states[g2] is OnlyGenerationState.RETIRED
 
 
+def test_exact_and_derived_work_binding_replay_conflict_and_draining_recovery(tmp_path: Path) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    g1 = _ready(registry, _manifest("a"), 0)
+    g2 = _ready(registry, _manifest("b"), 2)
+    registry.activate_for_new_work(
+        expected_current=None, target=g1, actor="operator", occurred_at=NOW + timedelta(seconds=4)
+    )
+    root = registry.bind_work_exact(
+        "search-experiment:" + "1" * 64,
+        g1,
+        actor="search-admission",
+        occurred_at=NOW + timedelta(seconds=5),
+    )
+    assert (
+        registry.bind_work_exact(
+            root.work_id,
+            g1,
+            actor="search-retry",
+            occurred_at=NOW + timedelta(seconds=6),
+        )
+        == root
+    )
+    with pytest.raises(ValueError, match="RUNTIME_WORK_GENERATION_BINDING_CONFLICT"):
+        registry.bind_work_exact(
+            root.work_id,
+            g2,
+            actor="conflict",
+            occurred_at=NOW + timedelta(seconds=7),
+        )
+    registry.activate_for_new_work(
+        expected_current=g1, target=g2, actor="operator", occurred_at=NOW + timedelta(seconds=8)
+    )
+    child = registry.bind_derived_work(
+        root.work_id,
+        "00000000-0000-4000-8000-000000000123",
+        actor="derived-research",
+        occurred_at=NOW + timedelta(seconds=9),
+    )
+    assert child.runtime_generation_fingerprint == g1
+    assert (
+        registry.bind_derived_work(
+            root.work_id,
+            child.work_id,
+            actor="derived-retry",
+            occurred_at=NOW + timedelta(seconds=10),
+        )
+        == child
+    )
+    assert registry.require_new_work_generation(g2).runtime_generation_fingerprint == g2
+    with pytest.raises(ValueError, match="RUNTIME_GENERATION_NOT_ELIGIBLE_FOR_NEW_WORK"):
+        registry.require_new_work_generation(g1)
+
+
+def test_derived_binding_conflicts_with_prebound_current_generation(tmp_path: Path) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    g1 = _ready(registry, _manifest("a"), 0)
+    g2 = _ready(registry, _manifest("b"), 2)
+    registry.activate_for_new_work(
+        expected_current=None, target=g1, actor="operator", occurred_at=NOW + timedelta(seconds=4)
+    )
+    parent = registry.bind_new_work("search:" + "1" * 64, actor="root", occurred_at=NOW + timedelta(seconds=5))
+    registry.activate_for_new_work(
+        expected_current=g1, target=g2, actor="operator", occurred_at=NOW + timedelta(seconds=6)
+    )
+    registry.bind_new_work("child", actor="standalone", occurred_at=NOW + timedelta(seconds=7))
+    with pytest.raises(ValueError, match="RUNTIME_DERIVED_WORK_GENERATION_BINDING_CONFLICT"):
+        registry.bind_derived_work(
+            parent.work_id,
+            "child",
+            actor="derived",
+            occurred_at=NOW + timedelta(seconds=8),
+        )
+
+
+def test_concurrent_exact_binding_has_one_generation_winner(tmp_path: Path) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    g1 = _ready(registry, _manifest("a"), 0)
+    g2 = _ready(registry, _manifest("b"), 2)
+    registry.activate_for_new_work(
+        expected_current=None, target=g1, actor="operator", occurred_at=NOW + timedelta(seconds=4)
+    )
+    registry.activate_for_new_work(
+        expected_current=g1, target=g2, actor="operator", occurred_at=NOW + timedelta(seconds=5)
+    )
+    barrier = Barrier(3)
+    outcomes: list[str] = []
+
+    def bind(generation: str, offset: int) -> None:
+        barrier.wait()
+        try:
+            result = registry.bind_work_exact(
+                "contended-search",
+                generation,
+                actor=f"actor-{offset}",
+                occurred_at=NOW + timedelta(seconds=offset),
+            )
+            outcomes.append(result.runtime_generation_fingerprint)
+        except ValueError as exc:
+            outcomes.append(str(exc))
+
+    threads = (Thread(target=bind, args=(g1, 6)), Thread(target=bind, args=(g2, 7)))
+    for thread in threads:
+        thread.start()
+    barrier.wait()
+    for thread in threads:
+        thread.join()
+    assert outcomes.count("RUNTIME_WORK_GENERATION_BINDING_CONFLICT") == 1
+    winner = registry.require_work_binding("contended-search").runtime_generation_fingerprint
+    assert winner in {g1, g2}
+    assert winner in outcomes
+
+
+def test_concurrent_derived_binding_replays_one_exact_child_generation(tmp_path: Path) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    generation = _ready(registry, _manifest("a"), 0)
+    registry.activate_for_new_work(
+        expected_current=None,
+        target=generation,
+        actor="operator",
+        occurred_at=NOW + timedelta(seconds=2),
+    )
+    parent = registry.bind_new_work("search-parent", actor="root", occurred_at=NOW + timedelta(seconds=3))
+    barrier = Barrier(3)
+    outcomes: list[str] = []
+
+    def bind(offset: int) -> None:
+        barrier.wait()
+        result = registry.bind_derived_work(
+            parent.work_id,
+            "derived-child",
+            actor=f"derived-{offset}",
+            occurred_at=NOW + timedelta(seconds=offset),
+        )
+        outcomes.append(result.runtime_generation_fingerprint)
+
+    threads = (Thread(target=bind, args=(4,)), Thread(target=bind, args=(5,)))
+    for thread in threads:
+        thread.start()
+    barrier.wait()
+    for thread in threads:
+        thread.join()
+
+    assert outcomes == [generation, generation]
+    assert registry.work_ids_for_generation(generation).count("derived-child") == 1
+
+
+def test_exact_and_derived_binding_fail_closed_after_release(tmp_path: Path) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    generation = _ready(registry, _manifest("a"), 0)
+    registry.activate_for_new_work(
+        expected_current=None,
+        target=generation,
+        actor="operator",
+        occurred_at=NOW + timedelta(seconds=2),
+    )
+    parent = registry.bind_new_work("search-parent", actor="root", occurred_at=NOW + timedelta(seconds=3))
+    registry.bind_derived_work(
+        parent.work_id,
+        "derived-child",
+        actor="derived",
+        occurred_at=NOW + timedelta(seconds=4),
+    )
+    registry.release_work("derived-child", actor="worker", occurred_at=NOW + timedelta(seconds=5))
+    with pytest.raises(ValueError, match="RUNTIME_DERIVED_WORK_GENERATION_BINDING_CONFLICT"):
+        registry.bind_derived_work(
+            parent.work_id,
+            "derived-child",
+            actor="derived-retry",
+            occurred_at=NOW + timedelta(seconds=6),
+        )
+    registry.release_work(parent.work_id, actor="search", occurred_at=NOW + timedelta(seconds=7))
+    with pytest.raises(ValueError, match="RUNTIME_WORK_GENERATION_UNBOUND"):
+        registry.bind_work_exact(
+            parent.work_id,
+            generation,
+            actor="search-retry",
+            occurred_at=NOW + timedelta(seconds=8),
+        )
+
+
 def test_concurrent_activation_has_one_durable_winner(tmp_path: Path) -> None:
     registry = OnlyRuntimeGenerationRegistry(tmp_path)
     g0 = _ready(registry, _manifest("a"), 0)

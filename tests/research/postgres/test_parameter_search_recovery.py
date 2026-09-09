@@ -12,6 +12,7 @@ import psycopg
 import pytest
 from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry
 
+from onlyalpha.application.search_product import only_search_experiment_work_id
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngineConfig
 from onlyalpha.engine.engine import OnlyEngine
@@ -207,6 +208,15 @@ def _initialize(root: Path, *, partial_plan_batch: bool) -> None:
     for proposal in materialize_parameter_proposals(space, research_registry()):
         parameters.commit_proposal(proposal)
     provenance.commit_experiment(experiment)
+    runtime_generations = _runtime_generations(root)
+    generation_fingerprint = runtime_generations.projection().active_for_new_work
+    assert generation_fingerprint is not None
+    runtime_generations.bind_work_exact(
+        only_search_experiment_work_id(experiment.experiment_fingerprint),
+        generation_fingerprint,
+        actor="parameter-search-test-admission",
+        occurred_at=_NOW + timedelta(seconds=1),
+    )
     context = contexts.resolve_verified_context(experiment)
     if not partial_plan_batch:
         _controller(root).advance(context)

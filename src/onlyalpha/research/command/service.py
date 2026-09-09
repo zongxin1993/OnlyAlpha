@@ -61,6 +61,8 @@ class OnlyResearchCommandService:
         submission_key: OnlyResearchSubmissionKey,
         specification: OnlyResearchSpecification,
         provenance: OnlyResearchAuthoringProvenance | None = None,
+        *,
+        parent_runtime_work_id: str | None = None,
     ) -> OnlyResearchSubmitOutcome:
         strict = OnlyResearchSpecification.from_dict(specification.to_dict())
         command = OnlyResearchSubmitCommand(submission_key, strict, provenance)
@@ -71,14 +73,22 @@ class OnlyResearchCommandService:
                 kind=OnlyProductCommandKind.CREATE_RESEARCH_RUN,
                 fingerprint=command.command_fingerprint,
             )
-            self._runtime_generations.require_work_binding(run.run_id.value)
+            self._require_expected_binding(run.run_id.value, parent_runtime_work_id)
             return OnlyResearchSubmitOutcome(OnlyResearchSubmitDisposition.REUSED, run)
         prepared = self._admission.prepare(strict, provenance=provenance)
-        self._runtime_generations.bind_new_work(
-            prepared.run_id.value,
-            actor="research-product-admission",
-            occurred_at=prepared.queued_at,
-        )
+        if parent_runtime_work_id is None:
+            self._runtime_generations.bind_new_work(
+                prepared.run_id.value,
+                actor="research-product-admission",
+                occurred_at=prepared.queued_at,
+            )
+        else:
+            self._runtime_generations.bind_derived_work(
+                parent_runtime_work_id,
+                prepared.run_id.value,
+                actor="research-product-derived-admission",
+                occurred_at=prepared.queued_at,
+            )
         requested = OnlyProductCommandReceipt(
             command_id=submission_key,
             command_kind=OnlyProductCommandKind.CREATE_RESEARCH_RUN,
@@ -109,13 +119,26 @@ class OnlyResearchCommandService:
                 actor="research-product-admission-concurrency-loser",
                 occurred_at=self._now_utc(),
             )
-        self._runtime_generations.require_work_binding(run.run_id.value)
+        self._require_expected_binding(run.run_id.value, parent_runtime_work_id)
         disposition = (
             OnlyResearchSubmitDisposition.CREATED
             if record.outcome_ref.outcome_id == prepared.run_id.value
             else OnlyResearchSubmitDisposition.REUSED
         )
         return OnlyResearchSubmitOutcome(disposition, run)
+
+    def _require_expected_binding(self, run_id: str, parent_runtime_work_id: str | None) -> None:
+        child = self._runtime_generations.require_work_binding(run_id)
+        if parent_runtime_work_id is None:
+            return
+        parent = self._runtime_generations.require_work_binding(parent_runtime_work_id)
+        if (
+            getattr(child, "active", None) is not True
+            or getattr(parent, "active", None) is not True
+            or getattr(parent, "runtime_generation_fingerprint", None)
+            != getattr(child, "runtime_generation_fingerprint", None)
+        ):
+            raise ValueError("RUNTIME_DERIVED_WORK_GENERATION_BINDING_CONFLICT")
 
     def request_research_run_cancellation(
         self,

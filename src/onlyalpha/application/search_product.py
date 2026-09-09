@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Protocol, cast
+from typing import NoReturn, Protocol, cast
 
 from onlyalpha.application.product_command_authority import (
     OnlyProductCommandAdmissionAuthority,
@@ -24,6 +24,7 @@ from onlyalpha.application.product_command_receipt import (
     OnlyProductCommandReceipt,
     only_product_command_fingerprint,
 )
+from onlyalpha.application.runtime_generation import OnlyRuntimeGenerationWorkAuthority
 from onlyalpha.kernel.command import OnlyProductCommand
 from onlyalpha.kernel.query import OnlyProductQuery
 from onlyalpha.research.experiment import (
@@ -94,6 +95,34 @@ class OnlySearchProductSemanticFactCorrupt(OnlySearchProductError):
 
 class OnlySearchProductAuthorityUnavailable(OnlySearchProductError):
     code = "SEARCH_PRODUCT_AUTHORITY_UNAVAILABLE"
+
+
+class OnlySearchRuntimeGenerationUnbound(OnlySearchProductError):
+    code = "SEARCH_RUNTIME_GENERATION_UNBOUND"
+
+
+class OnlySearchRuntimeGenerationBindingConflict(OnlySearchProductError):
+    code = "SEARCH_RUNTIME_GENERATION_BINDING_CONFLICT"
+
+
+class OnlySearchRuntimeGenerationNotFound(OnlySearchProductError):
+    code = "SEARCH_RUNTIME_GENERATION_NOT_FOUND"
+
+
+class OnlySearchRuntimeGenerationUnavailable(OnlySearchProductError):
+    code = "SEARCH_RUNTIME_GENERATION_UNAVAILABLE"
+
+
+class OnlySearchRuntimeGenerationInvalid(OnlySearchProductError):
+    code = "SEARCH_RUNTIME_GENERATION_INVALID"
+
+
+class OnlySearchRuntimeGenerationNotEligibleForNewWork(OnlySearchProductError):
+    code = "SEARCH_RUNTIME_GENERATION_NOT_ELIGIBLE_FOR_NEW_WORK"
+
+
+class OnlySearchRuntimeGenerationDerivedBindingConflict(OnlySearchProductError):
+    code = "SEARCH_RUNTIME_GENERATION_DERIVED_BINDING_CONFLICT"
 
 
 class OnlySearchMethodV1(StrEnum):
@@ -363,8 +392,8 @@ class OnlySubmitParameterSearchExperimentV1(OnlyProductCommand):
         _sha(self.dataset_snapshot_fingerprint, "dataset_snapshot_fingerprint")
         if self.parent_experiment_fingerprint is not None:
             _sha(self.parent_experiment_fingerprint, "parent_experiment_fingerprint")
-        for value in (self.search_space, self.evaluation_contract, self.search_policy, self.algorithm_manifest):
-            _resource_payload(value)
+        for resource in (self.search_space, self.evaluation_contract, self.search_policy, self.algorithm_manifest):
+            _resource_payload(resource)
 
     def intent_dict(self) -> dict[str, object]:
         return {
@@ -388,7 +417,84 @@ class OnlySubmitParameterSearchExperimentV1(OnlyProductCommand):
         return only_product_command_fingerprint(self.intent_dict())
 
 
-OnlySearchSubmitCommandV1 = OnlySubmitSymbolicSearchExperimentV1 | OnlySubmitParameterSearchExperimentV1
+@dataclass(frozen=True, slots=True)
+class OnlySubmitSymbolicSearchExperimentV2(OnlySubmitSymbolicSearchExperimentV1):
+    runtime_generation_fingerprint: str = ""
+    schema_version: int = 2
+
+    def __post_init__(self) -> None:
+        if self.schema_version != 2 or not isinstance(self.command_id, OnlyProductCommandId):
+            raise ValueError("Symbolic Submit V2 command is invalid")
+        if not isinstance(self.hypothesis, OnlySearchHypothesisV1):
+            raise ValueError("Symbolic Submit V2 hypothesis is invalid")
+        if not isinstance(self.search_budget, OnlySearchBudgetV1):
+            raise ValueError("Symbolic Submit V2 budget is invalid")
+        if not isinstance(self.workflow_binding, OnlySearchWorkflowBindingV1):
+            raise ValueError("Symbolic Submit V2 workflow binding is invalid")
+        if not isinstance(self.decision_engine_binding, OnlySearchDecisionEngineBindingV1):
+            raise ValueError("Symbolic Submit V2 decision binding is invalid")
+        for value, field in (
+            (self.catalog_generation_fingerprint, "catalog_generation_fingerprint"),
+            (self.dataset_snapshot_fingerprint, "dataset_snapshot_fingerprint"),
+            (self.runtime_generation_fingerprint, "runtime_generation_fingerprint"),
+        ):
+            _sha(value, field)
+        if self.parent_experiment_fingerprint is not None:
+            _sha(self.parent_experiment_fingerprint, "parent_experiment_fingerprint")
+        _resource_payload(self.search_space)
+        _resource_payload(self.evaluation_contract)
+        _resource_payload(self.algorithm_manifest)
+
+    def intent_dict(self) -> dict[str, object]:
+        result = OnlySubmitSymbolicSearchExperimentV1.intent_dict(self)
+        result["runtime_generation_fingerprint"] = self.runtime_generation_fingerprint
+        return result
+
+
+@dataclass(frozen=True, slots=True)
+class OnlySubmitParameterSearchExperimentV2(OnlySubmitParameterSearchExperimentV1):
+    runtime_generation_fingerprint: str = ""
+    schema_version: int = 2
+
+    def __post_init__(self) -> None:
+        if self.schema_version != 2 or not isinstance(self.command_id, OnlyProductCommandId):
+            raise ValueError("Parameter Submit V2 command is invalid")
+        if not isinstance(self.hypothesis, OnlySearchHypothesisV1):
+            raise ValueError("Parameter Submit V2 hypothesis is invalid")
+        if not isinstance(self.search_budget, OnlySearchBudgetV1):
+            raise ValueError("Parameter Submit V2 budget is invalid")
+        if not isinstance(self.workflow_binding, OnlySearchWorkflowBindingV1):
+            raise ValueError("Parameter Submit V2 workflow binding is invalid")
+        if not isinstance(self.decision_engine_binding, OnlySearchDecisionEngineBindingV1):
+            raise ValueError("Parameter Submit V2 decision binding is invalid")
+        for value, field in (
+            (self.catalog_generation_fingerprint, "catalog_generation_fingerprint"),
+            (self.dataset_snapshot_fingerprint, "dataset_snapshot_fingerprint"),
+            (self.runtime_generation_fingerprint, "runtime_generation_fingerprint"),
+        ):
+            _sha(value, field)
+        if self.parent_experiment_fingerprint is not None:
+            _sha(self.parent_experiment_fingerprint, "parent_experiment_fingerprint")
+        for resource in (self.search_space, self.evaluation_contract, self.search_policy, self.algorithm_manifest):
+            _resource_payload(resource)
+
+    def intent_dict(self) -> dict[str, object]:
+        result = OnlySubmitParameterSearchExperimentV1.intent_dict(self)
+        result["runtime_generation_fingerprint"] = self.runtime_generation_fingerprint
+        return result
+
+
+OnlySearchSubmitCommandV1 = (
+    OnlySubmitSymbolicSearchExperimentV1
+    | OnlySubmitParameterSearchExperimentV1
+    | OnlySubmitSymbolicSearchExperimentV2
+    | OnlySubmitParameterSearchExperimentV2
+)
+
+
+def only_search_experiment_work_id(experiment_fingerprint: str) -> str:
+    _sha(experiment_fingerprint, "experiment_fingerprint")
+    return f"search-experiment:{experiment_fingerprint}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -573,11 +679,13 @@ class OnlySearchProductCommandServiceV1:
         *,
         command_admissions: OnlyProductCommandAdmissionAuthority,
         command_receipts: OnlyProductCommandReceiptAuthority,
+        runtime_generations: OnlyRuntimeGenerationWorkAuthority,
         adapters: tuple[OnlySearchProductMethodAdapter, ...],
         now_utc: Callable[[], datetime],
     ) -> None:
         self._admissions = command_admissions
         self._receipts = command_receipts
+        self._runtime_generations = runtime_generations
         self._adapters = _adapter_map(adapters)
         self._now_utc = now_utc
 
@@ -589,7 +697,28 @@ class OnlySearchProductCommandServiceV1:
             if command.method is OnlySearchMethodV1.SYMBOLIC
             else OnlyProductCommandKind.CREATE_PARAMETER_SEARCH_EXPERIMENT
         )
-        admission = self._admit(command.command_id, kind, command.command_fingerprint)
+        existing_admission = self._load_admission(command.command_id)
+        if isinstance(command, (OnlySubmitSymbolicSearchExperimentV2, OnlySubmitParameterSearchExperimentV2)):
+            if existing_admission is None:
+                manifest = self._require_new_work_generation(command.runtime_generation_fingerprint)
+                self._require_manifest_match(
+                    manifest,
+                    command.runtime_generation_fingerprint,
+                    command.catalog_generation_fingerprint,
+                )
+            admission = self._admit(command.command_id, kind, command.command_fingerprint)
+            manifest = self._require_runtime_generation(command.runtime_generation_fingerprint)
+            self._require_manifest_match(
+                manifest,
+                command.runtime_generation_fingerprint,
+                command.catalog_generation_fingerprint,
+            )
+            self._bind_search_exact(expected.experiment_fingerprint, command.runtime_generation_fingerprint)
+        else:
+            if existing_admission is None:
+                raise OnlySearchRuntimeGenerationUnbound("Search Submit V1 cannot admit new executable work")
+            admission = self._admit(command.command_id, kind, command.command_fingerprint)
+            self._require_search_binding(expected.experiment_fingerprint)
         receipt = self._load_receipt(admission)
         if receipt is not None:
             experiment = self._verify_receipt(adapter, command, expected.experiment_fingerprint, admission, receipt)
@@ -603,6 +732,7 @@ class OnlySearchProductCommandServiceV1:
 
     def advance(self, command: OnlyAdvanceSearchExperimentV1) -> OnlySearchProductOutcomeV1:
         adapter = self._adapter(command.method)
+        self._require_search_binding(command.experiment_fingerprint)
         admission = self._admit(
             command.command_id,
             OnlyProductCommandKind.ADVANCE_SEARCH_EXPERIMENT,
@@ -625,6 +755,93 @@ class OnlySearchProductCommandServiceV1:
         exact = adapter.load_experiment_verified(experiment.experiment_fingerprint)
         receipt = self._put_receipt(admission, exact.experiment_fingerprint)
         return self._response(adapter, receipt, exact, replayed=False)
+
+    def _load_admission(self, command_id: OnlyProductCommandId) -> OnlyProductCommandAdmissionV1 | None:
+        try:
+            return self._admissions.load_admission(command_id)
+        except Exception as exc:
+            if isinstance(exc, OnlyProductCommandAuthorityUnavailableError) or getattr(exc, "code", "") == (
+                "PRODUCT_COMMAND_AUTHORITY_UNAVAILABLE"
+            ):
+                raise OnlySearchProductAuthorityUnavailable(command_id.value) from exc
+            raise OnlySearchProductReceiptCorrupt(command_id.value) from exc
+
+    def _require_new_work_generation(self, generation_fingerprint: str) -> object:
+        try:
+            return self._runtime_generations.require_new_work_generation(generation_fingerprint)
+        except Exception as exc:
+            self._raise_runtime_generation_error(exc, generation_fingerprint)
+
+    def _bind_search_exact(self, experiment_fingerprint: str, generation_fingerprint: str) -> object:
+        work_id = only_search_experiment_work_id(experiment_fingerprint)
+        try:
+            binding = self._runtime_generations.bind_work_exact(
+                work_id,
+                generation_fingerprint,
+                actor="search-product-admission",
+                occurred_at=self._now(),
+            )
+        except Exception as exc:
+            self._raise_runtime_generation_error(exc, experiment_fingerprint)
+        if (
+            getattr(binding, "work_id", None) != work_id
+            or getattr(binding, "runtime_generation_fingerprint", None) != generation_fingerprint
+            or getattr(binding, "active", None) is not True
+        ):
+            raise OnlySearchRuntimeGenerationInvalid(experiment_fingerprint)
+        return binding
+
+    def _require_runtime_generation(self, generation_fingerprint: str) -> object:
+        try:
+            return self._runtime_generations.require_runtime_generation(generation_fingerprint)
+        except Exception as exc:
+            self._raise_runtime_generation_error(exc, generation_fingerprint)
+
+    def _require_search_binding(self, experiment_fingerprint: str) -> object:
+        try:
+            binding = self._runtime_generations.require_work_binding(
+                only_search_experiment_work_id(experiment_fingerprint)
+            )
+        except Exception as exc:
+            self._raise_runtime_generation_error(exc, experiment_fingerprint)
+        if getattr(binding, "active", True) is not True:
+            raise OnlySearchRuntimeGenerationUnbound(experiment_fingerprint)
+        return binding
+
+    @staticmethod
+    def _require_manifest_match(
+        manifest: object,
+        generation_fingerprint: str,
+        catalog_fingerprint: str,
+    ) -> None:
+        if (
+            getattr(manifest, "runtime_generation_fingerprint", None) != generation_fingerprint
+            or getattr(manifest, "catalog_generation_fingerprint", None) != catalog_fingerprint
+        ):
+            raise OnlySearchRuntimeGenerationInvalid(generation_fingerprint)
+
+    def _now(self) -> datetime:
+        value = self._now_utc()
+        if not isinstance(value, datetime):
+            raise OnlySearchProductAuthorityUnavailable("now_utc returned a non-datetime value")
+        return value
+
+    @staticmethod
+    def _raise_runtime_generation_error(exc: Exception, detail: str) -> NoReturn:
+        code = str(exc)
+        mapping: dict[str, type[OnlySearchProductError]] = {
+            "RUNTIME_WORK_GENERATION_UNBOUND": OnlySearchRuntimeGenerationUnbound,
+            "RUNTIME_DERIVED_PARENT_GENERATION_UNBOUND": OnlySearchRuntimeGenerationUnbound,
+            "RUNTIME_WORK_GENERATION_BINDING_CONFLICT": OnlySearchRuntimeGenerationBindingConflict,
+            "RUNTIME_DERIVED_WORK_GENERATION_BINDING_CONFLICT": OnlySearchRuntimeGenerationDerivedBindingConflict,
+            "RUNTIME_GENERATION_NOT_FOUND": OnlySearchRuntimeGenerationNotFound,
+            "RUNTIME_GENERATION_UNAVAILABLE": OnlySearchRuntimeGenerationUnavailable,
+            "RUNTIME_GENERATION_NOT_ELIGIBLE_FOR_NEW_WORK": OnlySearchRuntimeGenerationNotEligibleForNewWork,
+            "RUNTIME_GENERATION_VALIDATION_EVIDENCE_MISMATCH": OnlySearchRuntimeGenerationInvalid,
+            "RUNTIME_GENERATION_MANIFEST_MISMATCH": OnlySearchRuntimeGenerationInvalid,
+        }
+        error_type = mapping.get(code, OnlySearchRuntimeGenerationInvalid)
+        raise error_type(detail) from exc
 
     def _adapter(self, method: OnlySearchMethodV1) -> OnlySearchProductMethodAdapter:
         try:

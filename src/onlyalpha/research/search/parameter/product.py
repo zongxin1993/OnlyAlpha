@@ -23,6 +23,7 @@ from onlyalpha.application.search_product import (
     OnlySearchTerminalKindV1,
     OnlySearchTerminalProjectionV1,
     OnlySubmitParameterSearchExperimentV1,
+    OnlySubmitParameterSearchExperimentV2,
     only_load_search_research_run_exact,
 )
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
@@ -108,7 +109,7 @@ class OnlyParameterSearchProductAdapterV1:
         )
 
     def derive_submit_experiment(self, command: OnlySearchSubmitCommandV1) -> OnlySearchExperimentManifestV3:
-        if not isinstance(command, OnlySubmitParameterSearchExperimentV1):
+        if not isinstance(command, (OnlySubmitParameterSearchExperimentV1, OnlySubmitParameterSearchExperimentV2)):
             raise OnlySearchProductSemanticFactCorrupt("Parameter Submit command type differs")
         space = command.search_space
         evaluation = command.evaluation_contract
@@ -165,9 +166,9 @@ class OnlyParameterSearchProductAdapterV1:
         command: OnlySearchSubmitCommandV1,
         experiment: OnlySearchExperimentManifest,
     ) -> OnlySearchExperimentManifestV3:
-        if not isinstance(command, OnlySubmitParameterSearchExperimentV1) or not isinstance(
-            experiment, OnlySearchExperimentManifestV3
-        ):
+        if not isinstance(
+            command, (OnlySubmitParameterSearchExperimentV1, OnlySubmitParameterSearchExperimentV2)
+        ) or not isinstance(experiment, OnlySearchExperimentManifestV3):
             raise OnlySearchProductSemanticFactCorrupt("Parameter Submit shape differs")
         space = cast(OnlyParameterFactorSearchSpaceV1, command.search_space)
         self._store.commit_search_space(space)

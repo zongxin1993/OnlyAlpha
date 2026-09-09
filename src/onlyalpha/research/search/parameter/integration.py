@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Protocol, cast
 
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId
+from onlyalpha.application.search_product import only_search_experiment_work_id
 from onlyalpha.research.command.errors import OnlyResearchSubmissionConflictError
 from onlyalpha.research.command.model import OnlyResearchSubmitOutcome
 from onlyalpha.research.evaluation.definition import OnlyResearchStatisticsMethod
@@ -59,6 +60,8 @@ class OnlyParameterResearchCommandService(Protocol):
         submission_key: OnlyProductCommandId,
         specification: object,
         provenance: object | None = None,
+        *,
+        parent_runtime_work_id: str | None = None,
     ) -> OnlyResearchSubmitOutcome: ...
 
     def finalize_parameter_evidence(
@@ -94,6 +97,8 @@ class _ParameterResearchSubmitter(Protocol):
         submission_key: OnlyProductCommandId,
         specification: object,
         provenance: object | None = None,
+        *,
+        parent_runtime_work_id: str | None = None,
     ) -> OnlyResearchSubmitOutcome: ...
 
 
@@ -229,8 +234,15 @@ class OnlyParameterResearchCommandGatewayV1:
         submission_key: OnlyProductCommandId,
         specification: object,
         provenance: object | None = None,
+        *,
+        parent_runtime_work_id: str | None = None,
     ) -> OnlyResearchSubmitOutcome:
-        return self.commands.submit_research_run(submission_key, specification, provenance)
+        return self.commands.submit_research_run(
+            submission_key,
+            specification,
+            provenance,
+            parent_runtime_work_id=parent_runtime_work_id,
+        )
 
     def finalize_parameter_evidence(
         self,
@@ -330,7 +342,11 @@ def reconcile_parameter_research_plan(
     if existing is not None:
         return existing
     try:
-        outcome = commands.submit_research_run(parameter_submission_key(plan), resolved.specification)
+        outcome = commands.submit_research_run(
+            parameter_submission_key(plan),
+            resolved.specification,
+            parent_runtime_work_id=only_search_experiment_work_id(plan.experiment_fingerprint),
+        )
     except (OnlyResearchSubmissionConflictError, OnlyResearchRunIntegrityError) as exc:
         raise OnlyParameterSearchError("AMBIGUOUS_ATTEMPT_STATE", plan.iteration_plan_fingerprint) from exc
     except Exception:

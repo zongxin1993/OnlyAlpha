@@ -18,6 +18,7 @@ from onlyalpha.application.product_command_receipt import (
     OnlyProductCommandKind,
     OnlyProductCommandReceipt,
 )
+from onlyalpha.application.search_product import only_search_experiment_work_id
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.kernel import OnlyAlphaKernelHost
 from onlyalpha.research.command import (
@@ -61,6 +62,11 @@ class _RuntimeGenerations:
 
     def bind_new_work(self, work_id, **_):  # type: ignore[no-untyped-def]
         self.work.add(work_id)
+
+    def bind_derived_work(self, parent_work_id, child_work_id, **_):  # type: ignore[no-untyped-def]
+        if parent_work_id not in self.work:
+            raise ValueError("RUNTIME_DERIVED_PARENT_GENERATION_UNBOUND")
+        self.work.add(child_work_id)
 
     def release_work(self, work_id, **_):  # type: ignore[no-untyped-def]
         self.work.discard(work_id)
@@ -262,6 +268,80 @@ def test_formal_runs_bind_active_generation_across_activation_rollback_and_resta
     with pytest.raises(ValueError, match="RUNTIME_WORK_GENERATION_MISMATCH"):
         restarted.require_work_generation(r1.run_id.value, g2)
     assert restarted.require_work_binding(r1.run_id.value).runtime_generation_fingerprint == g1
+
+
+def test_search_derived_research_inherits_parent_generation_while_standalone_uses_active(tmp_path) -> None:
+    authority = OnlyRuntimeGenerationRegistry(tmp_path / "runtime-authority")
+    g1 = only_ready_test_generation(authority, "a", NOW)
+    g2 = only_ready_test_generation(authority, "b", NOW + timedelta(seconds=1))
+    authority.activate_for_new_work(
+        expected_current=None, target=g1, actor="operator", occurred_at=NOW + timedelta(seconds=2)
+    )
+    parent = only_search_experiment_work_id("1" * 64)
+    authority.bind_work_exact(parent, g1, actor="search", occurred_at=NOW + timedelta(seconds=3))
+    authority.activate_for_new_work(
+        expected_current=g1, target=g2, actor="operator", occurred_at=NOW + timedelta(seconds=4)
+    )
+    store = _Store()
+    service = _service(
+        store,
+        _DatasetStore(),
+        ids=[
+            "00000000-0000-4000-8000-000000000020",
+            "00000000-0000-4000-8000-000000000021",
+        ],
+        runtime_generations=authority,
+    )
+    derived_key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000004")
+    derived = service.submit_research_run(
+        derived_key,
+        specification(),
+        parent_runtime_work_id=parent,
+    ).run
+    assert authority.require_work_binding(derived.run_id.value).runtime_generation_fingerprint == g1
+    assert (
+        service.submit_research_run(
+            derived_key,
+            specification(),
+            parent_runtime_work_id=parent,
+        ).run
+        == derived
+    )
+
+    standalone_key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000005")
+    standalone = service.submit_research_run(standalone_key, specification()).run
+    assert authority.require_work_binding(standalone.run_id.value).runtime_generation_fingerprint == g2
+
+
+def test_search_derived_research_prebound_to_another_generation_fails_before_run_commit(tmp_path) -> None:
+    authority = OnlyRuntimeGenerationRegistry(tmp_path / "runtime-authority")
+    g1 = only_ready_test_generation(authority, "a", NOW)
+    g2 = only_ready_test_generation(authority, "b", NOW + timedelta(seconds=1))
+    authority.activate_for_new_work(
+        expected_current=None, target=g1, actor="operator", occurred_at=NOW + timedelta(seconds=2)
+    )
+    parent = only_search_experiment_work_id("2" * 64)
+    authority.bind_work_exact(parent, g1, actor="search", occurred_at=NOW + timedelta(seconds=3))
+    authority.activate_for_new_work(
+        expected_current=g1, target=g2, actor="operator", occurred_at=NOW + timedelta(seconds=4)
+    )
+    child_id = "00000000-0000-4000-8000-000000000030"
+    authority.bind_new_work(child_id, actor="conflicting-root", occurred_at=NOW + timedelta(seconds=5))
+    store = _Store()
+    service = _service(
+        store,
+        _DatasetStore(),
+        ids=[child_id],
+        runtime_generations=authority,
+    )
+    with pytest.raises(ValueError, match="RUNTIME_DERIVED_WORK_GENERATION_BINDING_CONFLICT"):
+        service.submit_research_run(
+            OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000006"),
+            specification(),
+            parent_runtime_work_id=parent,
+        )
+    assert store.runs == {}
+    assert store.receipts == {}
 
 
 def test_submission_key_requires_canonical_uuid4() -> None:

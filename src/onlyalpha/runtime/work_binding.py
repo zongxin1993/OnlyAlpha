@@ -19,6 +19,10 @@ def only_load_runtime_generation_work_authority(root: Path) -> OnlyRuntimeGenera
     authority = factory(root)
     required = (
         "bind_new_work",
+        "bind_work_exact",
+        "bind_derived_work",
+        "require_new_work_generation",
+        "require_runtime_generation",
         "release_work",
         "require_work_binding",
         "require_work_generation",

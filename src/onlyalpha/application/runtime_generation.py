@@ -9,6 +9,28 @@ from typing import NoReturn, Protocol
 class OnlyRuntimeGenerationWorkAuthority(Protocol):
     def bind_new_work(self, work_id: str, *, actor: str, occurred_at: datetime) -> object: ...
 
+    def bind_work_exact(
+        self,
+        work_id: str,
+        runtime_generation_fingerprint: str,
+        *,
+        actor: str,
+        occurred_at: datetime,
+    ) -> object: ...
+
+    def bind_derived_work(
+        self,
+        parent_work_id: str,
+        child_work_id: str,
+        *,
+        actor: str,
+        occurred_at: datetime,
+    ) -> object: ...
+
+    def require_new_work_generation(self, runtime_generation_fingerprint: str) -> object: ...
+
+    def require_runtime_generation(self, runtime_generation_fingerprint: str) -> object: ...
+
     def release_work(self, work_id: str, *, actor: str, occurred_at: datetime) -> object: ...
 
     def require_work_generation(self, work_id: str, process_generation_fingerprint: str) -> object: ...
@@ -29,6 +51,36 @@ class OnlyNoClaimRuntimeGenerationWorkAuthority:
 
     def bind_new_work(self, work_id: str, *, actor: str, occurred_at: datetime) -> object:
         del work_id, actor, occurred_at
+        self._unavailable()
+
+    def bind_work_exact(
+        self,
+        work_id: str,
+        runtime_generation_fingerprint: str,
+        *,
+        actor: str,
+        occurred_at: datetime,
+    ) -> object:
+        del work_id, runtime_generation_fingerprint, actor, occurred_at
+        self._unavailable()
+
+    def bind_derived_work(
+        self,
+        parent_work_id: str,
+        child_work_id: str,
+        *,
+        actor: str,
+        occurred_at: datetime,
+    ) -> object:
+        del parent_work_id, child_work_id, actor, occurred_at
+        self._unavailable()
+
+    def require_new_work_generation(self, runtime_generation_fingerprint: str) -> object:
+        del runtime_generation_fingerprint
+        self._unavailable()
+
+    def require_runtime_generation(self, runtime_generation_fingerprint: str) -> object:
+        del runtime_generation_fingerprint
         self._unavailable()
 
     def release_work(self, work_id: str, *, actor: str, occurred_at: datetime) -> object:

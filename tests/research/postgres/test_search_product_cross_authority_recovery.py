@@ -15,7 +15,7 @@ from onlyalpha.application.product_command_receipt import (
 from onlyalpha.application.search_product import (
     OnlySearchProductCommandServiceV1,
     OnlySearchProductSemanticFactCorrupt,
-    OnlySubmitParameterSearchExperimentV1,
+    OnlySubmitParameterSearchExperimentV2,
     only_load_search_research_run_exact,
 )
 from onlyalpha.persistence.postgres import (
@@ -57,6 +57,7 @@ from tests.research.search.symbolic.test_search_product_adapter import _case
 from tests.research.specification.support import registry as research_registry
 from tests.research.specification.support import specification
 from tests.research.sweep.support import definition
+from tests.runtime_generation_support import OnlyTestRuntimeGenerationAuthority
 
 from .test_parameter_search_recovery import (
     _PRIMARY,
@@ -77,7 +78,7 @@ def test_symbolic_fresh_service_repairs_real_postgres_receipt_from_json_effect(
 ) -> None:  # type: ignore[no-untyped-def]
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     authority = OnlyPostgresProductCommandAuthority(postgres_dsn)
-    _service, query, _memory_authority, commands, submit = _case(tmp_path)
+    service, query, _memory_authority, commands, submit = _case(tmp_path)
     base = query._adapters[submit.method]  # type: ignore[attr-defined]
     runs = OnlyResearchRunQueryService(OnlyPostgresResearchRunStore(postgres_dsn))
     adapter = OnlySymbolicSearchProductAdapterV1(
@@ -114,6 +115,7 @@ def test_symbolic_fresh_service_repairs_real_postgres_receipt_from_json_effect(
     restarted = OnlySearchProductCommandServiceV1(
         command_admissions=OnlyPostgresProductCommandAuthority(postgres_dsn),
         command_receipts=OnlyPostgresProductCommandAuthority(postgres_dsn),
+        runtime_generations=service._runtime_generations,  # type: ignore[attr-defined]
         adapters=(restarted_adapter,),
         now_utc=lambda: _NOW,
     )
@@ -184,7 +186,11 @@ def test_parameter_fresh_service_repairs_real_postgres_receipt_from_json_effect(
         2,
     )
     evaluation = OnlySymbolicResearchEvaluationContractV1.from_specification(scientific, "feature")
-    submit = OnlySubmitParameterSearchExperimentV1(
+    runtime_generations = OnlyTestRuntimeGenerationAuthority(
+        generation_fingerprint="f" * 64,
+        catalog_generation_fingerprint=catalog_generation.generation_fingerprint,
+    )
+    submit = OnlySubmitParameterSearchExperimentV2(
         OnlyProductCommandId(str(uuid4())),
         OnlySearchHypothesisV1("real durable Parameter Product recovery"),
         search_space,
@@ -196,6 +202,7 @@ def test_parameter_fresh_service_repairs_real_postgres_receipt_from_json_effect(
         OnlySearchDecisionEngineBindingV1(OnlySearchDecisionMode.DETERMINISTIC),
         catalog_generation.generation_fingerprint,
         dataset.snapshot_fingerprint,
+        runtime_generation_fingerprint=runtime_generations.generation_fingerprint,
     )
     adapter = _parameter_adapter(tmp_path, postgres_dsn, authority)
     expected = adapter.derive_submit_experiment(submit)
@@ -215,6 +222,7 @@ def test_parameter_fresh_service_repairs_real_postgres_receipt_from_json_effect(
     restarted = OnlySearchProductCommandServiceV1(
         command_admissions=restarted_authority,
         command_receipts=restarted_authority,
+        runtime_generations=runtime_generations,
         adapters=(restarted_adapter,),
         now_utc=lambda: _NOW,
     )

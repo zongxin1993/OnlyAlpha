@@ -25,7 +25,7 @@ from onlyalpha.application.search_product import (
     OnlySearchProductExpectedStateMismatch,
     OnlySearchProductQueryServiceV1,
     OnlySearchProductSemanticFactCorrupt,
-    OnlySubmitParameterSearchExperimentV1,
+    OnlySubmitParameterSearchExperimentV2,
 )
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.research.command.model import OnlyResearchSubmitDisposition, OnlyResearchSubmitOutcome
@@ -61,6 +61,7 @@ from onlyalpha.research.specification.resolver import OnlyResearchSpecificationR
 from tests.research.search.symbolic.test_research_and_provenance_integration import _scientific_template
 from tests.research.search.symbolic.test_search_product_adapter import _ProductAuthority
 from tests.research.specification.support import registry as specification_registry
+from tests.runtime_generation_support import OnlyTestRuntimeGenerationAuthority
 
 from .test_adaptive_parameter_search_v1 import (
     _completed_initial_round,
@@ -101,8 +102,10 @@ class _DurableProvenance(_Provenance):
 class _ResearchCommands:
     calls = 0
 
-    def submit_research_run(self, submission_key, specification, provenance=None):  # type: ignore[no-untyped-def]
-        del submission_key, specification, provenance
+    def submit_research_run(  # type: ignore[no-untyped-def]
+        self, submission_key, specification, provenance=None, *, parent_runtime_work_id=None
+    ):
+        del submission_key, specification, provenance, parent_runtime_work_id
         self.calls += 1
         raise AssertionError("Parameter candidate binding must fail before the fake Research gateway")
 
@@ -157,8 +160,10 @@ class _ProductResearchCommands:
         self.runs = runs
         self.calls = 0
 
-    def submit_research_run(self, submission_key, specification, provenance=None):  # type: ignore[no-untyped-def]
-        del provenance
+    def submit_research_run(  # type: ignore[no-untyped-def]
+        self, submission_key, specification, provenance=None, *, parent_runtime_work_id=None
+    ):
+        del provenance, parent_runtime_work_id
         self.calls += 1
         admission = OnlyProductCommandAdmissionV1(
             submission_key,
@@ -211,7 +216,11 @@ def _product_case(tmp_path):  # type: ignore[no-untyped-def]
         _scientific_template(dataset),
         "feature",
     )
-    submit = OnlySubmitParameterSearchExperimentV1(
+    runtime_generations = OnlyTestRuntimeGenerationAuthority(
+        generation_fingerprint="f" * 64,
+        catalog_generation_fingerprint=search_space.catalog_generation_fingerprint,
+    )
+    submit = OnlySubmitParameterSearchExperimentV2(
         OnlyProductCommandId(str(uuid4())),
         OnlySearchHypothesisV1("bounded Product parameter recovery"),
         search_space,
@@ -223,6 +232,7 @@ def _product_case(tmp_path):  # type: ignore[no-untyped-def]
         OnlySearchDecisionEngineBindingV1(OnlySearchDecisionMode.DETERMINISTIC),
         search_space.catalog_generation_fingerprint,
         dataset,
+        runtime_generation_fingerprint=runtime_generations.generation_fingerprint,
     )
     _context0, _provenance0, _store0, _commands0, deriver = _adapter(tmp_path)
     experiment = deriver.derive_submit_experiment(submit)
@@ -256,6 +266,7 @@ def _product_case(tmp_path):  # type: ignore[no-untyped-def]
     service = OnlySearchProductCommandServiceV1(
         command_admissions=authority,
         command_receipts=authority,
+        runtime_generations=runtime_generations,
         adapters=(adapter,),
         now_utc=lambda: datetime(2026, 9, 8, tzinfo=UTC),
     )
@@ -303,7 +314,7 @@ def test_parameter_submit_is_exact_experiment_only_and_identity_excludes_command
         _scientific_template(dataset),
         "feature",
     )
-    submit = OnlySubmitParameterSearchExperimentV1(
+    submit = OnlySubmitParameterSearchExperimentV2(
         OnlyProductCommandId(str(uuid4())),
         OnlySearchHypothesisV1("bounded Product parameter hypothesis"),
         search_space,
@@ -315,6 +326,7 @@ def test_parameter_submit_is_exact_experiment_only_and_identity_excludes_command
         OnlySearchDecisionEngineBindingV1(OnlySearchDecisionMode.DETERMINISTIC),
         search_space.catalog_generation_fingerprint,
         dataset,
+        runtime_generation_fingerprint="f" * 64,
     )
     _context0, _provenance0, _store0, _commands0, deriver = _adapter(tmp_path)
     experiment = deriver.derive_submit_experiment(submit)
@@ -345,7 +357,7 @@ def test_parameter_submit_is_exact_experiment_only_and_identity_excludes_command
     assert provenance.plans == {}
     assert store.load_frontier_fingerprint(experiment.experiment_fingerprint) is None
     assert commands.calls == 0
-    same_intent = OnlySubmitParameterSearchExperimentV1(
+    same_intent = OnlySubmitParameterSearchExperimentV2(
         OnlyProductCommandId(str(uuid4())),
         submit.hypothesis,
         submit.search_space,
@@ -357,6 +369,7 @@ def test_parameter_submit_is_exact_experiment_only_and_identity_excludes_command
         submit.decision_engine_binding,
         submit.catalog_generation_fingerprint,
         submit.dataset_snapshot_fingerprint,
+        runtime_generation_fingerprint=submit.runtime_generation_fingerprint,
     )
     assert same_intent.command_fingerprint == submit.command_fingerprint
 
@@ -559,6 +572,10 @@ def test_parameter_research_receipt_must_exact_resolve_owning_run(tmp_path) -> N
 def test_parameter_effect_assessment_distinguishes_pre_partial_complete(tmp_path) -> None:
     service, _query, authority, _runs, _commands, _submit, adapter = _product_case(tmp_path)
     experiment = adapter.load_experiment_verified(adapter._contexts.context.experiment.experiment_fingerprint)  # type: ignore[attr-defined]
+    service._runtime_generations.bind_work_exact(  # type: ignore[attr-defined]
+        f"search-experiment:{experiment.experiment_fingerprint}",
+        "f" * 64,
+    )
     expected = adapter.expected_state(experiment.experiment_fingerprint)
     command = _command(expected, OnlySearchBoundedOperationV1.ADVANCE_ONE_PARAMETER_DECISION)
     assert adapter.assess_advance_effect(command) is OnlySearchProductEffectStateV1.EXACT_PRE_STATE

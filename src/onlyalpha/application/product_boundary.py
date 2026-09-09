@@ -21,8 +21,8 @@ from onlyalpha.application.search_product import (
     OnlySearchProductOutcomeV1,
     OnlySearchProductQueryServiceV1,
     OnlySearchTerminalProjectionV1,
-    OnlySubmitParameterSearchExperimentV1,
-    OnlySubmitSymbolicSearchExperimentV1,
+    OnlySubmitParameterSearchExperimentV2,
+    OnlySubmitSymbolicSearchExperimentV2,
 )
 from onlyalpha.kernel.command import (
     OnlyProductCommand,
@@ -110,12 +110,12 @@ def only_compose_research_product_boundary(
             raise RuntimeError("EXACT_CATALOG_CONTEXT_UNAVAILABLE")
         return exact_catalog_context.get_exact_catalog_context(query.catalog_generation_fingerprint)
 
-    def submit_symbolic(command: OnlySubmitSymbolicSearchExperimentV1) -> OnlySearchProductOutcomeV1:
+    def submit_symbolic(command: OnlySubmitSymbolicSearchExperimentV2) -> OnlySearchProductOutcomeV1:
         if search_commands is None:  # excluded from bindings below
             raise RuntimeError("SEARCH_PRODUCT_AUTHORITY_UNAVAILABLE")
         return search_commands.submit(command)
 
-    def submit_parameter(command: OnlySubmitParameterSearchExperimentV1) -> OnlySearchProductOutcomeV1:
+    def submit_parameter(command: OnlySubmitParameterSearchExperimentV2) -> OnlySearchProductOutcomeV1:
         if search_commands is None:  # excluded from bindings below
             raise RuntimeError("SEARCH_PRODUCT_AUTHORITY_UNAVAILABLE")
         return search_commands.submit(command)
@@ -159,8 +159,8 @@ def only_compose_research_product_boundary(
     )
     if search_commands is not None:
         command_bindings += (
-            OnlyProductCommandBinding(OnlySubmitSymbolicSearchExperimentV1, submit_symbolic),
-            OnlyProductCommandBinding(OnlySubmitParameterSearchExperimentV1, submit_parameter),
+            OnlyProductCommandBinding(OnlySubmitSymbolicSearchExperimentV2, submit_symbolic),
+            OnlyProductCommandBinding(OnlySubmitParameterSearchExperimentV2, submit_parameter),
             OnlyProductCommandBinding(OnlyAdvanceSearchExperimentV1, advance_search),
         )
 
