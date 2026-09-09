@@ -4,7 +4,7 @@
 
 This document defines a long-lived engineering method for using mature open-source projects as external engineering evidence during OnlyAlpha design, planning, review and test design.
 
-It is subordinate to:
+Its normative authority is subordinate to:
 
 ```text
 PROJECT_CONSTITUTION.md
@@ -14,9 +14,9 @@ Architecture / public Contracts
 Accepted ADRs
         ↓
 Current Task Contract
-        ↓
-Current implementation truth
 ```
+
+Current source, tests and executable behavior remain **observational implementation truth** for what the repository actually implements now; this document cannot reinterpret that truth or use external precedent to override it.
 
 Open-source projects, upstream documentation, issues, pull requests and bug reports are **advisory engineering evidence only**. They never become OnlyAlpha product, semantic, research, execution, persistence, promotion or quality Authority.
 
