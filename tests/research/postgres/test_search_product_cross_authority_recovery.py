@@ -50,9 +50,12 @@ from onlyalpha.research.search.parameter import (
     OnlyParameterFactorSearchSpaceV1,
     OnlyParameterObjectiveDirection,
     OnlyParameterResearchEvidenceReader,
+    OnlyParameterSearchContextResolver,
     OnlyParameterSearchPolicyV1,
     OnlyParameterSearchProductAdapterV1,
     OnlyParameterTieBreakerV1,
+    decide_parameter_search_v1,
+    materialize_parameter_proposals,
     only_deterministic_coarse_to_fine_implementation,
 )
 from onlyalpha.research.search.symbolic import (
@@ -67,6 +70,7 @@ from onlyalpha.research.specification.model import (
 )
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 from tests.research.calculation.support import snapshot
+from tests.research.search.parameter.test_search_product_adapter import _ExactTestGenerationExecution
 from tests.research.search.symbolic.support import catalog
 from tests.research.search.symbolic.test_search_product_adapter import _case
 from tests.research.specification.support import registry as research_registry
@@ -78,6 +82,7 @@ from .test_parameter_search_recovery import (
     _PRIMARY,
     _TIE,
     _commands,
+    _ExactRuntimeAdmissionResolver,
     _runtime_generations,
     _stores,
     _topology,
@@ -126,6 +131,7 @@ def test_derived_binding_crash_before_real_postgres_commit_recovers_exact_run(
         now_utc=lambda: _NOW,
         runtime_generations=runtime_generations,
         command_admissions=product_authority,
+        runtime_generation_resolver=_ExactRuntimeAdmissionResolver(runtime_generations),
     )
     with pytest.raises(RuntimeError, match="injected crash"):
         crashing.submit_research_run(
@@ -147,6 +153,7 @@ def test_derived_binding_crash_before_real_postgres_commit_recovers_exact_run(
         now_utc=lambda: _NOW,
         runtime_generations=runtime_generations,
         command_admissions=OnlyPostgresProductCommandAuthority(postgres_dsn),
+        runtime_generation_resolver=_ExactRuntimeAdmissionResolver(runtime_generations),
     )
     recovered = restarted.submit_research_run(
         command_id,
@@ -293,6 +300,51 @@ def test_symbolic_fresh_service_repairs_real_postgres_receipt_from_json_effect(
     assert authority.load_verified_receipt(submit.command_id) == repaired.receipt
 
 
+class _PostgresParameterExecution(_ExactTestGenerationExecution):
+    """Explicit deterministic semantic fake; this test certifies PG recovery only."""
+
+    def __init__(self) -> None:
+        pass
+
+    def derive_decision(self, generation, context, evidence, prior):  # type: ignore[no-untyped-def]
+        assert generation == "f" * 64
+        exact_catalog = catalog()
+        calculation_registry = research_registry()
+        OnlyParameterSearchContextResolver._verify_bindings(
+            context.experiment,
+            context.search_space,
+            context.policy,
+            context.historical_algorithm_manifest,
+            context.evaluation_contract,
+            exact_catalog,
+            context.verified_dataset,
+        )
+        OnlyParameterSearchContextResolver._verify_candidate_authority(
+            context.search_space,
+            exact_catalog,
+            calculation_registry,
+        )
+        evaluation = context.evaluation_contract
+        OnlyResearchSpecificationResolver(calculation_registry).verify_deferred_calculation_template(
+            dataset_snapshot_fingerprint=evaluation.dataset_snapshot_fingerprint,
+            fixed_calculations=evaluation.fixed_calculations,
+            statistics=evaluation.statistics,
+            evidence=evaluation.evidence,
+            deferred_calculation_id=evaluation.candidate_calculation_id,
+        )
+        proposals = materialize_parameter_proposals(context.search_space, calculation_registry)
+        decision = decide_parameter_search_v1(
+            experiment_fingerprint=context.experiment.experiment_fingerprint,
+            proposals=proposals,
+            policy=context.policy,
+            algorithm_implementation_fingerprint=context.historical_algorithm_manifest.implementation_fingerprint,
+            budget=context.experiment.search_budget,
+            evidence=evidence,
+            prior_decisions=prior,
+        )
+        return decision, proposals
+
+
 def _parameter_adapter(root, dsn, authority):  # type: ignore[no-untyped-def]
     _layout, _datasets, statistics, research, parameters, evaluations, contexts, provenance = _topology(root)
     return OnlyParameterSearchProductAdapterV1(
@@ -309,7 +361,7 @@ def _parameter_adapter(root, dsn, authority):  # type: ignore[no-untyped-def]
         ),
         resolver=OnlyResearchSpecificationResolver(research_registry()),
         research_commands=_commands(root, dsn),
-        generation_execution=object(),  # submit/replay test performs no Search execution
+        generation_execution=_PostgresParameterExecution(),
         product_receipts=authority,
         research_runs=OnlyResearchRunQueryService(OnlyPostgresResearchRunStore(dsn)),
     )

@@ -39,6 +39,34 @@ Command submission and every durable Search commit. The generation worker owns o
 Registry, Resolver and Search Algorithm computation/verification. It has no Search Store, Product Receipt or PostgreSQL mutation
 authority. Database polling or writes are not worker IPC.
 
+Historical ownership extends through Search-derived Research admission. Parent Search
+contexts contain canonical historical facts only; Catalog/Registry construction,
+executable Space/Evaluation verification, Proposal materialization, Resolver and
+algorithm computation occur exclusively under the exact bound generation. Historical
+queries and receipt repair validate durable identities and occurrence lineage, not
+current-runtime executable compatibility.
+
+A fact-only projection never authorizes a new Experiment, Enumeration or Feedback
+Decision. Hosted publication requires an ephemeral verified computation capability
+bound to the exact Experiment and, for computed outputs, the exact output fingerprint.
+The capability is not stored and does not replace the owning append-only fact. Parent
+Research DTO checks compare canonical fields and references, not generation-specific
+template-node naming conventions; Specification-local IDs may be consistently renamed.
+
+For derived Research, the normal Product Command freezes intent before exact-loading
+the parent work binding and asking G for admission resolution evidence. The existing
+Run Admission service validates that canonical evidence against the Specification,
+independently verifies the Dataset Authority, prepares the deterministic Run identity,
+and retains the existing child-binding and atomic Run/Receipt commit sequence. The
+strict data-only evidence projection preserves the historical V1/V2 admission
+fingerprint bytes; the Research Worker still independently re-resolves and fails on
+semantic drift. Evidence is computation, not client intent or a new durable Authority.
+
+Standalone admission keeps its local resolver. Authoring admission keeps its distinct
+Authoring Execution Generation verification. If a derived command also carries
+authoring provenance, that existing verification must agree exactly with the Runtime
+Generation evidence; neither generation identity replaces the other.
+
 ### Process and artifact boundary
 
 One Runtime Generation uses one clean environment and one isolated worker interpreter. Different generation fingerprints never share an
@@ -59,7 +87,16 @@ DERIVE_SYMBOLIC_ENUMERATION
 DERIVE_PARAMETER_DECISION
 RESOLVE_SYMBOLIC_RESEARCH
 RESOLVE_PARAMETER_RESEARCH
+RESOLVE_RESEARCH_ADMISSION
 ```
+
+`RESOLVE_RESEARCH_ADMISSION` is an additive capability: its request contains the
+canonical Specification and exact Dataset Authority locator; its response contains
+only the strict canonical admission evidence. A retained worker that does not advertise
+the capability fails closed; no current-runtime fallback or artifact rewrite is allowed.
+Search Research-resolution responses carry canonical Result Plan and Statistics Plan
+projections needed by existing Research reconciliation Authorities, never a Resolver
+resolution object or executable Workload.
 
 Requests bind schema version, contract version, exact Runtime Generation, operation kind and canonical operation payload. Success binds
 the same identities plus canonical result payload and its fingerprint. Failures use a closed typed error vocabulary. Unknown fields,
@@ -90,6 +127,10 @@ capabilities are distinct typed failures; none falls back to current code.
 - Python subprocess guidance: use an argument sequence without a shell; manage pipes so a child cannot deadlock on unconsumed output.
 - Python isolated-mode guidance: `-I` ignores ambient Python environment and user-site influence.
 - PyPA repeatable-install guidance: explicit artifacts, exact versions/hashes and `--no-deps` prevent undeclared dependency resolution.
+- [CPython gh-117378 fix](https://github.com/python/cpython/pull/126632): forkserver preload and spawned work can observe different
+  inherited import paths. OnlyAlpha derives the stronger invariant that a separate process is insufficient unless its executable inputs
+  are independently exact; tests trap parent resolvers and use isolated, artifact-built workers. Inheriting or patching `PYTHONPATH`
+  is rejected as an OnlyAlpha historical-generation solution.
 - AlphaGen/Qlib/RD-Agent remain advisory examples of search/evaluator and workflow separation; none becomes an OnlyAlpha Authority.
 
 OnlyAlpha derives tests for strict protocol parsing, no arbitrary invocation, exact handshake, artifact/RECORD corruption, worker death,

@@ -23,10 +23,13 @@ from onlyalpha.application.runtime_generation import OnlyRuntimeGenerationWorkAu
 from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 from onlyalpha.research.run.admission import OnlyResearchRunAdmissionService
 from onlyalpha.research.run.errors import (
+    OnlyResearchRunAdmissionError,
     OnlyResearchRunIntegrityError,
     OnlyResearchRunNotFoundError,
     OnlyResearchRunRevisionConflictError,
 )
+from onlyalpha.research.run.evidence import OnlyResearchAdmissionResolutionEvidence
+from onlyalpha.research.run.generation import OnlyResearchRuntimeGenerationResolver
 from onlyalpha.research.run.model import OnlyResearchRun, OnlyResearchRunId, OnlyResearchRunState
 from onlyalpha.research.specification.model import OnlyResearchSpecification
 
@@ -55,6 +58,7 @@ class OnlyResearchCommandService:
         now_utc: Callable[[], datetime],
         runtime_generations: OnlyRuntimeGenerationWorkAuthority,
         command_admissions: OnlyProductCommandAdmissionAuthority | None = None,
+        runtime_generation_resolver: OnlyResearchRuntimeGenerationResolver | None = None,
         cancellation_cas_attempts: int = 3,
     ) -> None:
         if cancellation_cas_attempts < 1:
@@ -64,6 +68,7 @@ class OnlyResearchCommandService:
         self._now_utc = now_utc
         self._runtime_generations = runtime_generations
         self._command_admissions = command_admissions
+        self._runtime_generation_resolver = runtime_generation_resolver
         self._cancellation_cas_attempts = cancellation_cas_attempts
 
     def submit_research_run(
@@ -109,10 +114,29 @@ class OnlyResearchCommandService:
             )
         else:
             assert expected_run_id is not None
+            parent = self._runtime_generations.require_work_binding(parent_runtime_work_id)
+            generation = getattr(parent, "runtime_generation_fingerprint", None)
+            if not isinstance(generation, str):
+                raise OnlyResearchRunAdmissionError(
+                    "Parent Runtime binding has no exact generation",
+                    code="RESEARCH_RUNTIME_GENERATION_RESOLUTION_MISMATCH",
+                )
+            if self._runtime_generation_resolver is None:
+                raise OnlyResearchRunAdmissionError(
+                    "Exact Runtime generation admission resolver is unavailable",
+                    code="RESEARCH_RUNTIME_GENERATION_RESOLUTION_UNAVAILABLE",
+                )
+            evidence = self._runtime_generation_resolver.resolve(generation, strict)
+            if not isinstance(evidence, OnlyResearchAdmissionResolutionEvidence):
+                raise OnlyResearchRunAdmissionError(
+                    "Exact generation resolver did not return admission evidence",
+                    code="RESEARCH_ADMISSION_EVIDENCE_INVALID",
+                )
             prepared = self._admission.prepare(
                 strict,
                 provenance=provenance,
                 exact_run_id=expected_run_id,
+                exact_admission_evidence=evidence,
             )
             self._runtime_generations.bind_derived_work(
                 parent_runtime_work_id,

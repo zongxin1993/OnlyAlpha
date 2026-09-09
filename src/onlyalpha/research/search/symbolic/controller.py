@@ -34,17 +34,19 @@ from onlyalpha.research.experiment import (
 from onlyalpha.research.run.model import OnlyResearchRunState
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 
-from .context import OnlyVerifiedSymbolicSearchContextV1
+from .context import OnlyHistoricalSymbolicSearchFactsV1
 from .enumeration_result import OnlySymbolicEnumerationResultV1
-from .execution import OnlyHostedSymbolicGenerationExecutionV1
+from .execution import (
+    OnlyHostedResolvedResearchV1,
+    OnlyHostedSymbolicGenerationExecutionV1,
+    load_hosted_research_run_historical,
+)
 from .historical import (
-    commit_symbolic_enumeration_result_verified,
     load_optional_symbolic_enumeration_result_historical_verified,
     load_symbolic_enumeration_result_historical_verified,
     verify_symbolic_historical_iteration_occurrence,
 )
-from .integration import OnlySymbolicResolvedResearchCandidateV1, resolve_symbolic_research_candidate
-from .model import SYMBOLIC_PROPOSAL_KIND, SYMBOLIC_PROPOSAL_SCHEMA_VERSION
+from .model import SYMBOLIC_PROPOSAL_KIND, SYMBOLIC_PROPOSAL_SCHEMA_VERSION, OnlySymbolicGraphProposalV1
 from .store import OnlyJsonSymbolicSearchStore
 
 
@@ -65,14 +67,14 @@ class OnlySymbolicResearchCommandService(Protocol):
         self,
         *,
         plan: OnlySearchIterationPlanV1,
-        resolved: OnlySymbolicResolvedResearchCandidateV1,
+        resolved: OnlyHostedResolvedResearchV1,
     ) -> OnlyResearchSubmitOutcome: ...
 
     def research_result_reference(
         self,
         *,
         outcome: OnlyResearchSubmitOutcome,
-        resolved: OnlySymbolicResolvedResearchCandidateV1,
+        resolved: OnlyHostedResolvedResearchV1,
     ) -> OnlySearchResearchResultReferenceV1: ...
 
 
@@ -104,7 +106,7 @@ class OnlySymbolicSearchControllerV1:
 
     def expected_state(
         self,
-        context: OnlyVerifiedSymbolicSearchContextV1,
+        context: OnlyHistoricalSymbolicSearchFactsV1,
         *,
         target_plan_fingerprint: str | None = None,
     ) -> OnlySymbolicExpectedStateV1:
@@ -146,12 +148,13 @@ class OnlySymbolicSearchControllerV1:
                 if self._research_runs is None or self._product_receipts is None:
                     raise OnlySearchProductEffectConflict(plan.iteration_plan_fingerprint)
                 proposal = verify_symbolic_historical_iteration_occurrence(experiment, plan, context, self._store)
-                resolved = resolve_symbolic_research_candidate(proposal, self._resolver)
-                only_load_search_research_run_exact(
+                load_hosted_research_run_historical(
+                    plan=plan,
                     command_id=command_id,
                     receipts=self._product_receipts,
                     runs=self._research_runs,
-                    expected_specification=resolved.specification,
+                    evaluation=context.evaluation_contract,
+                    proposal=proposal,
                 )
             states.append(
                 OnlySearchPlanExpectedStateV1(
@@ -175,7 +178,7 @@ class OnlySymbolicSearchControllerV1:
 
     def assess_effect(
         self,
-        context: OnlyVerifiedSymbolicSearchContextV1,
+        context: OnlyHistoricalSymbolicSearchFactsV1,
         operation: OnlySearchBoundedOperationV1,
         expected: OnlySymbolicExpectedStateV1,
         runtime_generation_fingerprint: str,
@@ -240,7 +243,7 @@ class OnlySymbolicSearchControllerV1:
 
     def advance_one(
         self,
-        context: OnlyVerifiedSymbolicSearchContextV1,
+        context: OnlyHistoricalSymbolicSearchFactsV1,
         expected: OnlySymbolicExpectedStateV1,
         runtime_generation_fingerprint: str,
     ) -> OnlySymbolicControllerOutcomeV1:
@@ -279,7 +282,7 @@ class OnlySymbolicSearchControllerV1:
 
     def reconcile_one(
         self,
-        context: OnlyVerifiedSymbolicSearchContextV1,
+        context: OnlyHistoricalSymbolicSearchFactsV1,
         expected: OnlySymbolicExpectedStateV1,
         *,
         resolver: OnlyResearchSpecificationResolver,
@@ -321,26 +324,12 @@ class OnlySymbolicSearchControllerV1:
         if expected.research_attempt_count >= context.experiment.search_budget.research_evaluation_limit:
             raise OnlySearchProductCapabilityUnsupported("Symbolic Research budget is exhausted")
         proposal = verify_symbolic_historical_iteration_occurrence(context.experiment, plan, context, self._store)
-        try:
-            resolved = resolve_symbolic_research_candidate(proposal, resolver)
-        except Exception:
-            result = OnlySearchIterationResultV1(
-                plan.iteration_plan_fingerprint,
-                None,
-                False,
-                None,
-                False,
-                None,
-                OnlySearchIterationDisposition.FAILED,
-                OnlySearchFailureCode.CANDIDATE_BINDING_FAILED,
-            )
-            self._provenance.commit_iteration_result(result)
-            return OnlySymbolicControllerOutcomeV1(plan, result)
-        self._generation_execution.verify_resolved_research(
+        if not isinstance(proposal, OnlySymbolicGraphProposalV1):
+            raise OnlySearchProductEffectConflict(plan.proposal_fingerprint)
+        resolved = self._generation_execution.resolve_research(
             runtime_generation_fingerprint,
             context,
-            proposal.proposal,
-            resolved,
+            proposal,
         )
         outcome = commands.submit_symbolic_research(plan=plan, resolved=resolved)
         run = outcome.run
@@ -353,7 +342,7 @@ class OnlySymbolicSearchControllerV1:
             )
             if exact_run is None or exact_run != run:
                 raise OnlySearchProductEffectConflict(plan.iteration_plan_fingerprint)
-        candidate = resolved.candidate.candidate_fingerprint
+        candidate = resolved.candidate_fingerprint
         if candidate is None:
             raise OnlySearchProductEffectConflict(plan.iteration_plan_fingerprint)
         if run.state in {
@@ -392,7 +381,7 @@ class OnlySymbolicSearchControllerV1:
 
     def apply(
         self,
-        context: OnlyVerifiedSymbolicSearchContextV1,
+        context: OnlyHistoricalSymbolicSearchFactsV1,
         operation: OnlySearchBoundedOperationV1,
         expected: OnlySymbolicExpectedStateV1,
         *,
@@ -414,11 +403,16 @@ class OnlySymbolicSearchControllerV1:
 
     def _intended_plan(
         self,
-        context: OnlyVerifiedSymbolicSearchContextV1,
+        context: OnlyHistoricalSymbolicSearchFactsV1,
         expected: OnlySymbolicExpectedStateV1,
         runtime_generation_fingerprint: str,
     ) -> OnlySearchIterationPlanV1:
-        if expected.enumeration_result_fingerprint is None:
+        historical = load_optional_symbolic_enumeration_result_historical_verified(
+            context.experiment, context, self._store
+        )
+        if historical is not None:
+            enumeration = historical.result
+        elif expected.enumeration_result_fingerprint is None:
             _execution, enumeration = self._generation_execution.derive_enumeration(
                 runtime_generation_fingerprint,
                 context,
@@ -448,21 +442,26 @@ class OnlySymbolicSearchControllerV1:
 
     def _ensure_enumeration(
         self,
-        context: OnlyVerifiedSymbolicSearchContextV1,
+        context: OnlyHistoricalSymbolicSearchFactsV1,
         runtime_generation_fingerprint: str,
     ) -> OnlySymbolicEnumerationResultV1:
-        execution, result = self._generation_execution.derive_enumeration(
+        historical = load_optional_symbolic_enumeration_result_historical_verified(
+            context.experiment, context, self._store
+        )
+        if historical is not None:
+            return historical.result
+        execution, result, proof = self._generation_execution.derive_verified_enumeration(
             runtime_generation_fingerprint,
             context,
         )
         for proposal in execution.proposals:
             self._store.commit_proposal(proposal)
-        commit_symbolic_enumeration_result_verified(result, context, self._store)
+        self._store.commit_enumeration_result(result, context=context, hosted_admission=proof)
         return load_symbolic_enumeration_result_historical_verified(context.experiment, context, self._store).result
 
     def _commit_exact_occurrence(
         self,
-        context: OnlyVerifiedSymbolicSearchContextV1,
+        context: OnlyHistoricalSymbolicSearchFactsV1,
         expected: OnlySymbolicExpectedStateV1,
         plan: OnlySearchIterationPlanV1,
         runtime_generation_fingerprint: str,

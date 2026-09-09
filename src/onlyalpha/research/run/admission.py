@@ -20,7 +20,7 @@ from onlyalpha.research.specification.resolver import (
 )
 
 from .errors import OnlyResearchRunAdmissionError
-from .evidence import only_research_admission_resolution_fingerprint
+from .evidence import OnlyResearchAdmissionResolutionEvidence, only_research_admission_resolution_fingerprint
 from .generation import OnlyResearchAuthoringGenerationResolver
 from .model import OnlyResearchRun, OnlyResearchRunId
 from .store import OnlyResearchRunStore
@@ -55,18 +55,47 @@ class OnlyResearchRunAdmissionService:
         *,
         provenance: OnlyResearchAuthoringProvenance | None = None,
         exact_run_id: OnlyResearchRunId | None = None,
+        exact_admission_evidence: OnlyResearchAdmissionResolutionEvidence | None = None,
     ) -> OnlyResearchRun:
         """Prepare a QUEUED Run without making a durable acknowledgement."""
 
         try:
             strict = OnlyResearchSpecification.from_dict(specification.to_dict())
-            resolution = self._resolve(strict, provenance)
+            if exact_admission_evidence is None:
+                evidence = OnlyResearchAdmissionResolutionEvidence.from_resolution(self._resolve(strict, provenance))
+            else:
+                # Internal Product orchestration only: never part of Product/API intent.
+                if exact_run_id is None or not isinstance(
+                    exact_admission_evidence, OnlyResearchAdmissionResolutionEvidence
+                ):
+                    raise OnlyResearchRunAdmissionError(
+                        "Exact Runtime evidence requires a derived Run identity",
+                        code="RESEARCH_ADMISSION_EVIDENCE_INVALID",
+                    )
+                evidence = OnlyResearchAdmissionResolutionEvidence.from_dict(exact_admission_evidence.to_dict())
+                if evidence.specification_fingerprint != strict.specification_fingerprint:
+                    raise OnlyResearchRunAdmissionError(
+                        "Admission evidence names another Specification",
+                        code="RESEARCH_ADMISSION_EVIDENCE_SPECIFICATION_MISMATCH",
+                    )
+                if provenance is not None:
+                    # A Run may already carry both independent generation bindings.
+                    # Preserve authoring provenance admission, but never replace the
+                    # exact Runtime computation with its result or a current Resolver.
+                    authoring = OnlyResearchAdmissionResolutionEvidence.from_resolution(
+                        self._resolve(strict, provenance)
+                    )
+                    if authoring.fingerprint != evidence.fingerprint:
+                        raise OnlyResearchRunAdmissionError(
+                            "Authoring and exact Runtime generation admission semantics differ",
+                            code="RESEARCH_EXECUTION_GENERATION_MISMATCH",
+                        )
             self._dataset_store.load_verified_table(strict.dataset_snapshot_fingerprint)
             run = OnlyResearchRun.queued(
                 run_id=self._run_id_factory() if exact_run_id is None else exact_run_id,
                 specification=strict,
                 canonical_specification_payload=only_canonical_json(strict.to_dict()),
-                admission_resolution_fingerprint=only_research_admission_resolution_fingerprint(resolution),
+                admission_resolution_fingerprint=evidence.fingerprint,
                 queued_at=self._now_utc(),
                 authoring_provenance=provenance,
             )

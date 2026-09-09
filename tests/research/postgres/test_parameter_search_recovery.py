@@ -54,6 +54,7 @@ from onlyalpha.research.experiment import (
 )
 from onlyalpha.research.run import OnlyResearchRunId
 from onlyalpha.research.run.admission import OnlyResearchRunAdmissionService
+from onlyalpha.research.run.evidence import OnlyResearchAdmissionResolutionEvidence
 from onlyalpha.research.search.parameter import (
     PARAMETER_SEARCH_POLICY_KIND,
     PARAMETER_SEARCH_SPACE_KIND,
@@ -285,6 +286,25 @@ def _runtime_generations(root: Path) -> OnlyRuntimeGenerationRegistry:
     return authority
 
 
+class _ExactRuntimeAdmissionResolver:
+    """Controlled semantic fake for PostgreSQL ownership/recovery tests only.
+
+    Real isolated generation execution is proved by the separate process lane.
+    This port exact-verifies the requested generation and never selects current.
+    """
+
+    def __init__(self, authority: OnlyRuntimeGenerationRegistry) -> None:
+        self.authority = authority
+
+    def resolve(
+        self, generation: str, specification: OnlyResearchSpecification
+    ) -> OnlyResearchAdmissionResolutionEvidence:
+        self.authority.require_runtime_generation(generation)
+        return OnlyResearchAdmissionResolutionEvidence.from_resolution(
+            OnlyResearchSpecificationResolver(research_registry()).resolve(specification)
+        )
+
+
 def _commands(root: Path, dsn: str) -> OnlyParameterResearchCommandGatewayV1:
     layout, datasets, calculations, statistics_store, summaries, statistics_reader, research = _stores(root)
     del layout
@@ -301,6 +321,7 @@ def _commands(root: Path, dsn: str) -> OnlyParameterResearchCommandGatewayV1:
         now_utc=lambda: _NOW + timedelta(seconds=2),
         runtime_generations=_runtime_generations(root),
         command_admissions=OnlyPostgresProductCommandAuthority(dsn),
+        runtime_generation_resolver=_ExactRuntimeAdmissionResolver(_runtime_generations(root)),
     )
     finalizer = OnlyParameterResearchEvidenceFinalizerV1(
         research_results=research,

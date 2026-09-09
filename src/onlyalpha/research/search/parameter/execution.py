@@ -11,10 +11,13 @@ from onlyalpha.application.search_generation_execution import (
     OnlyHistoricalGenerationExecutionMismatch,
     OnlySearchGenerationExecutionPort,
     OnlySearchGenerationExecutionRequestV1,
+    OnlySearchGenerationExecutionResponseV1,
     OnlySearchGenerationOperationV1,
 )
+from onlyalpha.research.experiment.store import OnlyHostedSearchAdmission, _hosted_search_admission
+from onlyalpha.research.search.symbolic.execution import OnlyHostedResolvedResearchV1, decode_hosted_research
 
-from .context import OnlyVerifiedParameterSearchContextV1
+from .context import OnlyHistoricalParameterSearchFactsV1, OnlyVerifiedParameterSearchContextV1
 from .evidence import OnlyParameterResearchEvidenceV1
 from .model import OnlyParameterGraphProposalV1, OnlyParameterSearchFeedbackDecisionV1
 
@@ -24,13 +27,47 @@ class OnlyHostedParameterGenerationExecutionV1:
     execution: OnlySearchGenerationExecutionPort
     dataset_store_root: Path
 
+    def admit_experiment(
+        self,
+        runtime_generation_fingerprint: str,
+        context: OnlyHistoricalParameterSearchFactsV1,
+    ) -> tuple[
+        OnlyHostedSearchAdmission, OnlyParameterSearchFeedbackDecisionV1, tuple[OnlyParameterGraphProposalV1, ...]
+    ]:
+        decision, proposals = self.derive_decision(runtime_generation_fingerprint, context, (), ())
+        return (
+            _hosted_search_admission(context.experiment.experiment_fingerprint, runtime_generation_fingerprint),
+            decision,
+            proposals,
+        )
+
+    def derive_verified_decision(
+        self,
+        runtime_generation_fingerprint: str,
+        context: OnlyVerifiedParameterSearchContextV1 | OnlyHistoricalParameterSearchFactsV1,
+        evidence: tuple[OnlyParameterResearchEvidenceV1, ...],
+        prior_decisions: tuple[OnlyParameterSearchFeedbackDecisionV1, ...],
+    ) -> tuple[
+        OnlyParameterSearchFeedbackDecisionV1, tuple[OnlyParameterGraphProposalV1, ...], OnlyHostedSearchAdmission
+    ]:
+        decision, proposals = self.derive_decision(runtime_generation_fingerprint, context, evidence, prior_decisions)
+        return (
+            decision,
+            proposals,
+            _hosted_search_admission(
+                context.experiment.experiment_fingerprint,
+                runtime_generation_fingerprint,
+                decision.feedback_decision_fingerprint,
+            ),
+        )
+
     def derive_decision(
         self,
         runtime_generation_fingerprint: str,
-        context: OnlyVerifiedParameterSearchContextV1,
+        context: OnlyVerifiedParameterSearchContextV1 | OnlyHistoricalParameterSearchFactsV1,
         evidence: tuple[OnlyParameterResearchEvidenceV1, ...],
         prior_decisions: tuple[OnlyParameterSearchFeedbackDecisionV1, ...],
-    ) -> OnlyParameterSearchFeedbackDecisionV1:
+    ) -> tuple[OnlyParameterSearchFeedbackDecisionV1, tuple[OnlyParameterGraphProposalV1, ...]]:
         response = self.execution.execute(
             OnlySearchGenerationExecutionRequestV1(
                 runtime_generation_fingerprint,
@@ -47,7 +84,13 @@ class OnlyHostedParameterGenerationExecutionV1:
                 },
             )
         )
+        response = OnlySearchGenerationExecutionResponseV1.from_dict(response.to_dict())
         payload = response.result_payload
+        if (
+            response.runtime_generation_fingerprint != runtime_generation_fingerprint
+            or response.operation_kind is not OnlySearchGenerationOperationV1.DERIVE_PARAMETER_DECISION
+        ):
+            raise OnlyHistoricalGenerationExecutionMismatch("Parameter response generation/operation differs")
         if set(payload) != {
             "algorithm_implementation_fingerprint",
             "catalog_generation_fingerprint",
@@ -63,21 +106,32 @@ class OnlyHostedParameterGenerationExecutionV1:
             payload["algorithm_implementation_fingerprint"]
             != context.historical_algorithm_manifest.implementation_fingerprint
             or payload["catalog_generation_fingerprint"] != context.experiment.catalog_generation_fingerprint
-            or raw_proposals != [item.to_dict() for item in context.proposals]
         ):
             raise OnlyHistoricalGenerationExecutionMismatch("Parameter execution identity differs")
         decision = OnlyParameterSearchFeedbackDecisionV1.from_dict(cast(Mapping[str, object], raw_decision))
+        proposals = tuple(
+            OnlyParameterGraphProposalV1.from_dict(cast(Mapping[str, object], item))
+            for item in raw_proposals
+            if isinstance(item, Mapping)
+        )
+        if (
+            len(proposals) != len(raw_proposals)
+            or tuple(item.ordinal for item in proposals) != tuple(range(len(proposals)))
+            or len({item.proposal_fingerprint for item in proposals}) != len(proposals)
+            or any(item.search_space_fingerprint != context.search_space.search_space_fingerprint for item in proposals)
+            or any(item not in proposals for item in context.proposals)
+        ):
+            raise OnlyHistoricalGenerationExecutionMismatch("Parameter Proposal identities differ")
         if decision.experiment_fingerprint != context.experiment.experiment_fingerprint:
             raise OnlyHistoricalGenerationExecutionMismatch("Parameter Experiment identity differs")
-        return decision
+        return decision, proposals
 
-    def verify_resolved_research(
+    def resolve_research(
         self,
         runtime_generation_fingerprint: str,
-        context: OnlyVerifiedParameterSearchContextV1,
+        context: OnlyVerifiedParameterSearchContextV1 | OnlyHistoricalParameterSearchFactsV1,
         proposal: OnlyParameterGraphProposalV1,
-        resolved: object,
-    ) -> None:
+    ) -> OnlyHostedResolvedResearchV1:
         response = self.execution.execute(
             OnlySearchGenerationExecutionRequestV1(
                 runtime_generation_fingerprint,
@@ -88,25 +142,13 @@ class OnlyHostedParameterGenerationExecutionV1:
                 },
             )
         )
-        payload = response.result_payload
-        if set(payload) != {
-            "proposal_fingerprint",
-            "specification",
-            "candidate_fingerprint",
-            "calculation_fingerprint",
-        }:
-            raise OnlyHistoricalGenerationExecutionMismatch("Research resolution fields differ")
-        specification = getattr(resolved, "specification", None)
-        candidate = getattr(resolved, "candidate", None)
+        response = OnlySearchGenerationExecutionResponseV1.from_dict(response.to_dict())
         if (
-            payload["proposal_fingerprint"] != proposal.proposal_fingerprint
-            or not isinstance(payload["specification"], Mapping)
-            or specification is None
-            or payload["specification"] != specification.to_dict()
-            or payload["candidate_fingerprint"] != getattr(candidate, "candidate_fingerprint", None)
-            or payload["calculation_fingerprint"] != getattr(candidate, "calculation_fingerprint", None)
+            response.runtime_generation_fingerprint != runtime_generation_fingerprint
+            or response.operation_kind is not OnlySearchGenerationOperationV1.RESOLVE_PARAMETER_RESEARCH
         ):
-            raise OnlyHistoricalGenerationExecutionMismatch("Research resolution identity differs")
+            raise OnlyHistoricalGenerationExecutionMismatch("Parameter Research response generation/operation differs")
+        return decode_hosted_research(response.result_payload, context.evaluation_contract, proposal)
 
 
 def _evidence_payload(value: OnlyParameterResearchEvidenceV1) -> dict[str, object]:

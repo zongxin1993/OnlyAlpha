@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, cast
 
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration
@@ -75,6 +75,16 @@ class OnlyVerifiedSymbolicSearchContextV1:
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyHistoricalSymbolicSearchFactsV1:
+    """Intrinsic immutable inputs, never an executable-context certification."""
+
+    experiment: OnlySearchExperimentManifestV2
+    search_space: OnlySymbolicFactorSearchSpaceV2
+    evaluation_contract: OnlySymbolicResearchEvaluationContractV1
+    historical_algorithm_manifest: OnlySymbolicSearchAlgorithmImplementationManifestV1
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyExecutableSymbolicSearchContextV1:
     historical_context: OnlyVerifiedSymbolicSearchContextV1
     runtime_algorithm_manifest: OnlySymbolicSearchAlgorithmImplementationManifestV1
@@ -139,6 +149,48 @@ class OnlySymbolicSearchContextResolver:
         self._datasets = datasets
         self._research_registry = research_calculation_registry
         self._runtime_algorithm = algorithm_implementation
+
+    def resolve_historical_facts(
+        self, experiment: OnlySearchExperimentManifestV2
+    ) -> OnlyHistoricalSymbolicSearchFactsV1:
+        if not isinstance(experiment, OnlySearchExperimentManifestV2):
+            raise OnlySymbolicSearchError("SEARCH_EXPERIMENT_SCHEMA_UNSUPPORTED", "requires Experiment V2")
+        space = self._symbolic_store.load_search_space_intrinsic_verified(
+            experiment.search_space_reference.search_space_fingerprint
+        )
+        if not isinstance(space, OnlySymbolicFactorSearchSpaceV2):
+            raise OnlySymbolicSearchError("SEARCH_SPACE_SCHEMA_UNSUPPORTED", "requires Space V2")
+        verify_symbolic_experiment_binding(experiment, space)
+        evaluation = self._symbolic_store.load_evaluation_contract_intrinsic_verified(
+            experiment.evaluation_context_reference.evaluation_fingerprint
+        )
+        reference = experiment.evaluation_context_reference
+        if (
+            reference.evaluation_kind != SYMBOLIC_EVALUATION_CONTRACT_KIND
+            or reference.evaluation_schema_version != evaluation.schema_version
+            or reference.evaluation_fingerprint != evaluation.evaluation_contract_fingerprint
+            or evaluation.dataset_snapshot_fingerprint != experiment.dataset_snapshot_fingerprint
+        ):
+            raise OnlySymbolicSearchError("SEARCH_EVALUATION_REFERENCE_INVALID", reference.evaluation_fingerprint)
+        binding = experiment.search_algorithm_binding
+        historical = self._symbolic_store.load_algorithm_implementation_manifest_intrinsic_verified(
+            binding.implementation_fingerprint
+        )
+        if (
+            binding.algorithm_id != historical.algorithm_id
+            or binding.algorithm_semantic_version != historical.algorithm_semantic_version
+            or binding.implementation_fingerprint != historical.implementation_fingerprint
+            or binding.source_revision != historical.source_revision
+        ):
+            raise OnlySymbolicSearchError("SEARCH_ALGORITHM_MANIFEST_REFERENCE_INVALID", binding.algorithm_id)
+        return OnlyHistoricalSymbolicSearchFactsV1(experiment, space, evaluation, historical)
+
+    def load_proposal_historical_verified(
+        self, experiment: OnlySearchExperimentManifestV2, plan: OnlySearchIterationPlanV1
+    ) -> object:
+        return verify_symbolic_historical_iteration_occurrence(
+            experiment, plan, self.resolve_historical_facts(experiment), self._symbolic_store
+        )
 
     def resolve_verified_context(
         self, experiment: OnlySearchExperimentManifestV2
@@ -244,7 +296,10 @@ class OnlySymbolicSearchContextResolver:
         plan: OnlySearchIterationPlanV1,
     ) -> OnlyVerifiedSymbolicProposalV1:
         context = self.resolve_verified_context(experiment)
-        return verify_symbolic_historical_iteration_occurrence(experiment, plan, context, self._symbolic_store)
+        return cast(
+            OnlyVerifiedSymbolicProposalV1,
+            verify_symbolic_historical_iteration_occurrence(experiment, plan, context, self._symbolic_store),
+        )
 
     def load_proposal_occurrence_contextual_verified(
         self,
@@ -254,7 +309,10 @@ class OnlySymbolicSearchContextResolver:
         """Compatibility adapter: occurrence is now a durable historical proof."""
 
         context = self.resolve_verified_context(experiment)
-        return verify_symbolic_historical_iteration_occurrence(experiment, plan, context, self._symbolic_store)
+        return cast(
+            OnlyVerifiedSymbolicProposalV1,
+            verify_symbolic_historical_iteration_occurrence(experiment, plan, context, self._symbolic_store),
+        )
 
     def load_enumeration_result_contextual_verified(
         self, experiment: OnlySearchExperimentManifestV2
@@ -301,6 +359,9 @@ class OnlySymbolicSearchContextResolver:
         if len(ordinals) != len(relevant) or ordinals != set(range(len(relevant))):
             raise OnlySymbolicSearchError("SEARCH_ITERATION_PREFIX_CORRUPT", experiment.experiment_fingerprint)
         return len(relevant)
+
+    verify_iteration_plan_historical_ledger = verify_iteration_plan_ledger
+    next_historical_iteration_ordinal = next_iteration_ordinal
 
 
 __all__ = [name for name in globals() if name.startswith(("Only", "admit_", "verify_"))]

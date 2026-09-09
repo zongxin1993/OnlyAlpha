@@ -24,7 +24,6 @@ from onlyalpha.application.search_product import (
     OnlySearchTerminalProjectionV1,
     OnlySubmitParameterSearchExperimentV1,
     OnlySubmitParameterSearchExperimentV2,
-    only_load_search_research_run_exact,
 )
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.research.experiment import (
@@ -37,14 +36,16 @@ from onlyalpha.research.experiment import (
     OnlySearchSpaceReferenceV1,
 )
 from onlyalpha.research.experiment.model import OnlySearchExperimentManifest
+from onlyalpha.research.experiment.store import OnlyHostedSearchAdmission, OnlyJsonSearchProvenanceStore
 from onlyalpha.research.search.symbolic.evaluation import (
     SYMBOLIC_EVALUATION_CONTRACT_KIND,
     OnlySymbolicResearchEvaluationContractV1,
 )
+from onlyalpha.research.search.symbolic.execution import load_hosted_research_run_historical
 from onlyalpha.research.search.symbolic.store import OnlyJsonSymbolicSearchStore
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 
-from .context import OnlyParameterSearchContextResolver, OnlyVerifiedParameterSearchContextV1
+from .context import OnlyHistoricalParameterSearchFactsV1, OnlyParameterSearchContextResolver
 from .controller import OnlyParameterControllerProvenance, OnlyParameterSearchControllerV1
 from .evidence import OnlyParameterResearchEvidenceReader
 from .execution import OnlyHostedParameterGenerationExecutionV1
@@ -53,7 +54,6 @@ from .integration import (
     commit_feedback_plan_batch,
     parameter_submission_key,
     plans_for_feedback_decision,
-    resolve_parameter_research_candidate,
 )
 from .model import (
     PARAMETER_SEARCH_POLICY_KIND,
@@ -63,13 +63,14 @@ from .model import (
     OnlyParameterSearchAlgorithmManifestV1,
     OnlyParameterSearchFeedbackDecisionV1,
     OnlyParameterSearchPolicyV1,
-    materialize_parameter_proposals,
 )
 from .store import OnlyJsonParameterSearchStore
 
 
 class _ParameterProvenance(OnlyParameterControllerProvenance, Protocol):
-    def commit_experiment(self, value: OnlySearchExperimentManifestV3) -> object: ...
+    def commit_experiment(
+        self, value: OnlySearchExperimentManifestV3, *, hosted_admission: OnlyHostedSearchAdmission | None = None
+    ) -> object: ...
 
     def load_experiment_verified(self, fingerprint: str) -> object: ...
 
@@ -92,6 +93,8 @@ class OnlyParameterSearchProductAdapterV1:
         product_receipts: OnlyProductCommandReceiptAuthority | None = None,
         research_runs: OnlySearchResearchRunReader | None = None,
     ) -> None:
+        if isinstance(provenance, OnlyJsonSearchProvenanceStore):
+            provenance = provenance.historical_fact_view()
         self._store = parameter_store
         self._evaluations = evaluation_store
         self._provenance = provenance
@@ -100,6 +103,7 @@ class OnlyParameterSearchProductAdapterV1:
         self._evidence_reader = evidence_reader
         self._resolver = resolver
         self._research_commands = research_commands
+        self._generation_execution = generation_execution
         if (product_receipts is None) != (research_runs is None):
             raise ValueError("Research Receipt and Run Authorities must be configured together")
         self._product_receipts = product_receipts
@@ -168,11 +172,23 @@ class OnlyParameterSearchProductAdapterV1:
         self,
         command: OnlySearchSubmitCommandV1,
         experiment: OnlySearchExperimentManifest,
+        *,
+        runtime_generation_fingerprint: str | None = None,
     ) -> OnlySearchExperimentManifestV3:
         if not isinstance(
             command, (OnlySubmitParameterSearchExperimentV1, OnlySubmitParameterSearchExperimentV2)
         ) or not isinstance(experiment, OnlySearchExperimentManifestV3):
             raise OnlySearchProductSemanticFactCorrupt("Parameter Submit shape differs")
+        if runtime_generation_fingerprint is None and isinstance(command, OnlySubmitParameterSearchExperimentV2):
+            runtime_generation_fingerprint = command.runtime_generation_fingerprint
+        if isinstance(command, OnlySubmitParameterSearchExperimentV2) and (
+            runtime_generation_fingerprint != command.runtime_generation_fingerprint
+        ):
+            raise OnlySearchProductSemanticFactCorrupt("Parameter Submit Runtime binding differs")
+        if runtime_generation_fingerprint is None:
+            exact = self.load_experiment_verified(experiment.experiment_fingerprint)
+            self.verify_submit(command, exact)
+            return exact
         space = cast(OnlyParameterFactorSearchSpaceV1, command.search_space)
         self._store.commit_search_space(space)
         self._store.commit_policy(cast(OnlyParameterSearchPolicyV1, command.search_policy))
@@ -180,18 +196,29 @@ class OnlyParameterSearchProductAdapterV1:
         self._evaluations.commit_evaluation_contract(
             cast(OnlySymbolicResearchEvaluationContractV1, command.evaluation_contract)
         )
-        for proposal in materialize_parameter_proposals(space, self._registry):
+        facts = self._contexts.resolve_historical_facts(experiment)
+        admission, _, proposals = self._generation_execution.admit_experiment(runtime_generation_fingerprint, facts)
+        for proposal in proposals:
             self._store.commit_proposal(proposal)
-        self._provenance.commit_experiment(experiment)
+        self._provenance.commit_experiment(experiment, hosted_admission=admission)
         exact = self.load_experiment_verified(experiment.experiment_fingerprint)
         self.verify_submit(command, exact)
         return exact
+
+    def _facts(self, experiment: OnlySearchExperimentManifestV3) -> OnlyHistoricalParameterSearchFactsV1:
+        plans = self._provenance.iteration_plans_for_experiment_verified(experiment.experiment_fingerprint)
+        fingerprints = {item.proposal_fingerprint for item in plans}
+        frontier = self._store.load_frontier_fingerprint(experiment.experiment_fingerprint)
+        if frontier is not None:
+            decision = self._store.load_feedback_decision_intrinsic_verified(frontier)
+            fingerprints.update(decision.ordered_next_proposal_fingerprints)
+        return self._contexts.resolve_historical_facts(experiment, tuple(sorted(fingerprints)))
 
     def load_experiment_verified(self, experiment_fingerprint: str) -> OnlySearchExperimentManifestV3:
         experiment = self._provenance.load_experiment_verified(experiment_fingerprint)
         if not isinstance(experiment, OnlySearchExperimentManifestV3):
             raise OnlySearchProductMethodUnsupported(experiment_fingerprint)
-        self._contexts.resolve_verified_context(experiment)
+        self._facts(experiment)
         return experiment
 
     def verify_submit(self, command: OnlySearchSubmitCommandV1, experiment: object) -> None:
@@ -199,11 +226,11 @@ class OnlyParameterSearchProductAdapterV1:
             self.derive_submit_experiment(command)
         ):
             raise OnlySearchProductSemanticFactCorrupt(getattr(experiment, "experiment_fingerprint", "unknown"))
-        self._contexts.resolve_verified_context(experiment)
+        self._facts(experiment)
 
     def expected_state(self, experiment_fingerprint: str) -> OnlyParameterExpectedStateV1:
         experiment = self.load_experiment_verified(experiment_fingerprint)
-        context = self._contexts.resolve_verified_context(experiment)
+        context = self._facts(experiment)
         plans = tuple(
             sorted(
                 self._provenance.iteration_plans_for_experiment_verified(experiment_fingerprint),
@@ -246,12 +273,13 @@ class OnlyParameterSearchProductAdapterV1:
                 )
                 if proposal is None:
                     raise OnlySearchProductEffectConflict(plan.iteration_plan_fingerprint)
-                resolved = resolve_parameter_research_candidate(context, proposal, self._resolver)
-                only_load_search_research_run_exact(
+                load_hosted_research_run_historical(
+                    plan=plan,
                     command_id=command_id,
                     receipts=self._product_receipts,
                     runs=self._research_runs,
-                    expected_specification=resolved.specification,
+                    evaluation=context.evaluation_contract,
+                    proposal=proposal,
                 )
             states.append(
                 OnlySearchPlanExpectedStateV1(
@@ -273,7 +301,7 @@ class OnlyParameterSearchProductAdapterV1:
 
     def _historical_decision_chain(
         self,
-        context: OnlyVerifiedParameterSearchContextV1,
+        context: OnlyHistoricalParameterSearchFactsV1,
         plans: tuple[OnlySearchIterationPlanV1, ...],
         decision_ids: tuple[str, ...],
         frontier: str | None,
@@ -321,7 +349,7 @@ class OnlyParameterSearchProductAdapterV1:
         if not isinstance(expected, OnlyParameterExpectedStateV1):
             raise OnlySearchProductSemanticFactCorrupt(command.experiment_fingerprint)
         experiment = self.load_experiment_verified(command.experiment_fingerprint)
-        context = self._contexts.resolve_verified_context(experiment)
+        context = self._facts(experiment)
         actual = self.expected_state(command.experiment_fingerprint)
         if command.operation is OnlySearchBoundedOperationV1.ADVANCE_ONE_PARAMETER_DECISION:
             if any(item.result_fingerprint is None for item in expected.frontier_plan_states):
@@ -357,9 +385,7 @@ class OnlyParameterSearchProductAdapterV1:
             if decisions[: len(prefix)] != prefix or len(decisions) <= len(prefix):
                 return OnlySearchProductEffectStateV1.CONFLICT_OR_STALE
             effect = self._store.load_feedback_decision_intrinsic_verified(decisions[len(prefix)])
-            context = self._contexts.resolve_verified_context(
-                self.load_experiment_verified(command.experiment_fingerprint)
-            )
+            context = self._facts(self.load_experiment_verified(command.experiment_fingerprint))
             if (
                 effect.experiment_fingerprint != command.experiment_fingerprint
                 or effect.start_iteration_index != expected.proposal_count
@@ -423,9 +449,7 @@ class OnlyParameterSearchProductAdapterV1:
             if decisions[: len(prefix)] != prefix or len(decisions) <= len(prefix):
                 raise OnlySearchProductEffectConflict(command.experiment_fingerprint)
             effect = self._store.load_feedback_decision_intrinsic_verified(decisions[len(prefix)])
-            context = self._contexts.resolve_verified_context(
-                self.load_experiment_verified(command.experiment_fingerprint)
-            )
+            context = self._facts(self.load_experiment_verified(command.experiment_fingerprint))
             exact_plans = plans_for_feedback_decision(effect, context.proposals)
             committed = {
                 item.iteration_plan_fingerprint
@@ -457,7 +481,7 @@ class OnlyParameterSearchProductAdapterV1:
 
     def _advance_or_recover(
         self,
-        context: OnlyVerifiedParameterSearchContextV1,
+        context: OnlyHistoricalParameterSearchFactsV1,
         expected: OnlyParameterExpectedStateV1,
         actual: OnlyParameterExpectedStateV1,
         runtime_generation_fingerprint: str,
@@ -470,6 +494,11 @@ class OnlyParameterSearchProductAdapterV1:
         if decisions[: len(prefix)] != prefix or len(decisions) <= len(prefix):
             raise OnlySearchProductExpectedStateMismatch(context.experiment.experiment_fingerprint)
         effect_fingerprint = decisions[len(prefix)]
+        if actual.frontier_fingerprint is None:
+            raise OnlySearchProductEffectConflict(effect_fingerprint)
+        self._controller.verify_historical_frontier_in_generation(
+            context, runtime_generation_fingerprint, actual.frontier_fingerprint
+        )
         effect = self._store.load_feedback_decision_intrinsic_verified(effect_fingerprint)
         if (
             effect.experiment_fingerprint != context.experiment.experiment_fingerprint
@@ -498,7 +527,7 @@ class OnlyParameterSearchProductAdapterV1:
 
     def _reconcile_or_recover(
         self,
-        context: OnlyVerifiedParameterSearchContextV1,
+        context: OnlyHistoricalParameterSearchFactsV1,
         expected: OnlyParameterExpectedStateV1,
         actual: OnlyParameterExpectedStateV1,
         runtime_generation_fingerprint: str,

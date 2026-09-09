@@ -614,6 +614,8 @@ class OnlySearchProductMethodAdapter(Protocol):
         self,
         command: OnlySearchSubmitCommandV1,
         experiment: OnlySearchExperimentManifest,
+        *,
+        runtime_generation_fingerprint: str | None = None,
     ) -> OnlySearchExperimentManifestV2 | OnlySearchExperimentManifestV3: ...
 
     def load_experiment_verified(
@@ -739,12 +741,15 @@ class OnlySearchProductCommandServiceV1:
             if existing_admission is None:
                 raise OnlySearchRuntimeGenerationUnbound("Search Submit V1 cannot admit new executable work")
             admission = self._admit(command.command_id, kind, command.command_fingerprint)
-            self._require_search_historical_binding(expected.experiment_fingerprint)
+            binding = self._require_search_historical_binding(expected.experiment_fingerprint)
         receipt = self._load_receipt(admission)
         if receipt is not None:
             experiment = self._verify_receipt(adapter, command, expected.experiment_fingerprint, admission, receipt)
             return self._response(adapter, receipt, experiment, replayed=True)
-        experiment = adapter.commit_submit(command, expected)
+        generation_fingerprint = getattr(binding, "runtime_generation_fingerprint", None)
+        if not isinstance(generation_fingerprint, str):
+            raise OnlySearchRuntimeGenerationInvalid(expected.experiment_fingerprint)
+        experiment = adapter.commit_submit(command, expected, runtime_generation_fingerprint=generation_fingerprint)
         adapter.verify_submit(command, experiment)
         if experiment.experiment_fingerprint != expected.experiment_fingerprint:
             raise OnlySearchProductSemanticFactCorrupt(experiment.experiment_fingerprint)

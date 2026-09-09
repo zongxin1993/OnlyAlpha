@@ -252,8 +252,31 @@ def verify_search_experiment_references(
     datasets: OnlySearchDatasetReader,
     search_spaces: OnlySearchSpaceReader | None = None,
     search_contexts: OnlySearchContextReader | None = None,
+    historical_fact_reads: bool = False,
 ) -> None:
     """Verify exact Catalog Generation and Dataset Snapshot bindings."""
+
+    # Method historical readers verify immutable references without importing or
+    # reconstructing historical executable Catalogs in the Product interpreter.
+    # Executable admission is separately proved by the exact-generation adapter.
+    fact_reader = getattr(search_contexts, "resolve_historical_facts", None)
+    if (
+        historical_fact_reads
+        and isinstance(experiment, (OnlySearchExperimentManifestV2, OnlySearchExperimentManifestV3))
+        and callable(fact_reader)
+    ):
+        try:
+            facts = fact_reader(experiment)
+            if facts.experiment != experiment:
+                raise ValueError("historical facts belong to another Experiment")
+            dataset = datasets.load_verified_table(experiment.dataset_snapshot_fingerprint)
+            if dataset.snapshot.snapshot_fingerprint != experiment.dataset_snapshot_fingerprint:
+                raise ValueError("Dataset identity differs")
+        except Exception as exc:
+            raise OnlySearchProvenanceError(
+                "SEARCH_CONTEXT_REFERENCE_INVALID", experiment.experiment_fingerprint
+            ) from exc
+        return
 
     try:
         catalog = catalogs.generation(experiment.catalog_generation_fingerprint)
@@ -344,6 +367,7 @@ def verify_search_iteration_proposal_reference(
     search_contexts: OnlySearchContextReader | None,
     expected_search_space_fingerprint: str,
     require_occurrence: bool = False,
+    historical_fact_reads: bool = False,
 ) -> None:
     """Close method-specific Proposal references once their Authority exists."""
 
@@ -358,7 +382,10 @@ def verify_search_iteration_proposal_reference(
                 "Verified Symbolic Proposal reader",
             )
         try:
-            if require_occurrence:
+            historical_reader = getattr(search_contexts, "load_proposal_historical_verified", None)
+            if historical_fact_reads and callable(historical_reader):
+                historical_reader(experiment, plan)
+            elif require_occurrence:
                 search_contexts.load_proposal_occurrence_contextual_verified(experiment, plan)
             else:
                 search_contexts.load_proposal_contextual_verified(experiment, plan)

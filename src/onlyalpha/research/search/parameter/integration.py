@@ -27,6 +27,7 @@ from onlyalpha.research.experiment import (
 from onlyalpha.research.result.plan import OnlyResearchResultPlan
 from onlyalpha.research.run.errors import OnlyResearchRunIntegrityError
 from onlyalpha.research.run.model import OnlyResearchRun, OnlyResearchRunState
+from onlyalpha.research.search.symbolic.execution import OnlyHostedResolvedResearchV1
 from onlyalpha.research.search.symbolic.materialization import research_specification_from_candidate_graph
 from onlyalpha.research.specification.model import OnlyResearchSpecification
 from onlyalpha.research.specification.resolver import (
@@ -68,7 +69,7 @@ class OnlyParameterResearchCommandService(Protocol):
         self,
         *,
         run: OnlyResearchRun,
-        resolved: OnlyResolvedParameterResearchCandidateV1,
+        resolved: OnlyResolvedParameterResearchCandidateV1 | OnlyHostedResolvedResearchV1,
         policy: OnlyParameterSearchPolicyV1,
     ) -> OnlySearchResearchResultReferenceV1: ...
 
@@ -128,7 +129,7 @@ class OnlyParameterResearchEvidenceFinalizerV1:
         self,
         *,
         run: OnlyResearchRun,
-        resolved: OnlyResolvedParameterResearchCandidateV1,
+        resolved: OnlyResolvedParameterResearchCandidateV1 | OnlyHostedResolvedResearchV1,
         policy: OnlyParameterSearchPolicyV1,
     ) -> OnlySearchResearchResultReferenceV1:
         if run.state is not OnlyResearchRunState.COMPLETED or run.research_result_fingerprint is None:
@@ -152,7 +153,11 @@ class OnlyParameterResearchEvidenceFinalizerV1:
             )
         )
 
-        base_plan = resolved.resolution.workload.result_plan
+        base_plan = (
+            resolved.result_plan
+            if isinstance(resolved, OnlyHostedResolvedResearchV1)
+            else resolved.resolution.workload.result_plan
+        )
         base_result = self._research_results.load_verified(base_plan.fingerprint)
         base_manifest = cast(Any, base_result).manifest
         if (
@@ -160,16 +165,36 @@ class OnlyParameterResearchEvidenceFinalizerV1:
             or base_manifest.research_result_fingerprint != run.research_result_fingerprint
         ):
             raise OnlyParameterSearchError("AMBIGUOUS_ATTEMPT_STATE", run.run_id.value)
-        candidate_fingerprint = resolved.candidate.candidate_fingerprint
+        candidate_fingerprint = (
+            resolved.candidate_fingerprint
+            if isinstance(resolved, OnlyHostedResolvedResearchV1)
+            else resolved.candidate.candidate_fingerprint
+        )
         if candidate_fingerprint is None:
-            raise OnlyParameterSearchError("CANDIDATE_BINDING_FAILED", resolved.proposal.proposal_fingerprint)
+            raise OnlyParameterSearchError(
+                "CANDIDATE_BINDING_FAILED",
+                (
+                    resolved.proposal_fingerprint
+                    if isinstance(resolved, OnlyHostedResolvedResearchV1)
+                    else resolved.proposal.proposal_fingerprint
+                ),
+            )
         summary_plans = []
         for source_method in source_methods:
             source_plans = tuple(
                 item
-                for item in resolved.resolution.workload.statistics_plans
+                for item in (
+                    resolved.statistics_plans
+                    if isinstance(resolved, OnlyHostedResolvedResearchV1)
+                    else resolved.resolution.workload.statistics_plans
+                )
                 if item.definition.method is source_method
-                and item.feature.calculation_fingerprint == resolved.candidate.calculation_fingerprint
+                and item.feature.calculation_fingerprint
+                == (
+                    resolved.calculation_fingerprint
+                    if isinstance(resolved, OnlyHostedResolvedResearchV1)
+                    else resolved.candidate.calculation_fingerprint
+                )
             )
             if len(source_plans) != 1:
                 raise OnlyParameterSearchError("PARAMETER_EVIDENCE_SOURCE_AMBIGUOUS", run.run_id.value)
@@ -248,7 +273,7 @@ class OnlyParameterResearchCommandGatewayV1:
         self,
         *,
         run: OnlyResearchRun,
-        resolved: OnlyResolvedParameterResearchCandidateV1,
+        resolved: OnlyResolvedParameterResearchCandidateV1 | OnlyHostedResolvedResearchV1,
         policy: OnlyParameterSearchPolicyV1,
     ) -> OnlySearchResearchResultReferenceV1:
         return self.evidence_finalizer.finalize(run=run, resolved=resolved, policy=policy)
@@ -331,7 +356,7 @@ def parameter_submission_key(plan: OnlySearchIterationPlanV1) -> OnlyProductComm
 def reconcile_parameter_research_plan(
     *,
     plan: OnlySearchIterationPlanV1,
-    resolved: OnlyResolvedParameterResearchCandidateV1,
+    resolved: OnlyResolvedParameterResearchCandidateV1 | OnlyHostedResolvedResearchV1,
     provenance: OnlyParameterProvenanceWriter,
     commands: OnlyParameterResearchCommandService,
     policy: OnlyParameterSearchPolicyV1,
@@ -352,7 +377,11 @@ def reconcile_parameter_research_plan(
     except Exception:
         raise
     run = outcome.run
-    candidate_fingerprint = resolved.candidate.candidate_fingerprint
+    candidate_fingerprint = (
+        resolved.candidate_fingerprint
+        if isinstance(resolved, OnlyHostedResolvedResearchV1)
+        else resolved.candidate.candidate_fingerprint
+    )
     if candidate_fingerprint is None:
         raise OnlyParameterSearchError("CANDIDATE_BINDING_FAILED", plan.proposal_fingerprint)
     if run.state in {OnlyResearchRunState.QUEUED, OnlyResearchRunState.RUNNING, OnlyResearchRunState.CANCEL_REQUESTED}:

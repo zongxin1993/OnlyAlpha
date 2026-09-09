@@ -112,12 +112,23 @@ class OnlyJsonSymbolicSearchStore:
         value: OnlySymbolicEnumerationResultV1,
         *,
         context: object,
+        hosted_admission: object | None = None,
     ) -> OnlySearchCommitOutcome:
         """Publish one exact ordered stream at its Experiment locator."""
 
         if not isinstance(value, OnlySymbolicEnumerationResultV1):
             raise OnlySymbolicSearchStoreError("SEARCH_ENUMERATION_RESULT_INVALID", "contract is invalid")
+        from onlyalpha.research.experiment.store import OnlyHostedSearchAdmission, require_hosted_search_computation
+
+        from .context import OnlyHistoricalSymbolicSearchFactsV1
         from .historical import verify_symbolic_enumeration_result
+
+        if isinstance(context, OnlyHistoricalSymbolicSearchFactsV1):
+            require_hosted_search_computation(
+                hosted_admission if isinstance(hosted_admission, OnlyHostedSearchAdmission) else None,
+                value.experiment_fingerprint,
+                value.enumeration_result_fingerprint,
+            )
 
         verify_symbolic_enumeration_result(value, context, self)
         outcome = self._commit(

@@ -32,7 +32,12 @@ from onlyalpha.application.search_product import (
     OnlySubmitParameterSearchExperimentV2,
 )
 from onlyalpha.canonical import only_canonical_json
-from onlyalpha.research.command.model import OnlyResearchSubmitDisposition, OnlyResearchSubmitOutcome
+from onlyalpha.research.command.model import (
+    OnlyDerivedResearchSubmitCommandV2,
+    OnlyResearchSubmitDisposition,
+    OnlyResearchSubmitOutcome,
+    only_derived_research_run_id,
+)
 from onlyalpha.research.experiment import (
     OnlySearchBudgetV1,
     OnlySearchDecisionEngineBindingV1,
@@ -83,21 +88,60 @@ from .test_adaptive_parameter_search_v1 import (
 class _ExactTestGenerationExecution:
     """Test-only exact-generation stand-in; production uses the isolated host."""
 
+    def __init__(self, executable_context):  # type: ignore[no-untyped-def]
+        self.context = executable_context
+
+    def admit_experiment(self, runtime_generation_fingerprint, context):  # type: ignore[no-untyped-def]
+        from onlyalpha.research.experiment.store import _hosted_search_admission
+
+        decision, proposals = self.derive_decision(runtime_generation_fingerprint, context, (), ())
+        return (
+            _hosted_search_admission(context.experiment.experiment_fingerprint, runtime_generation_fingerprint),
+            decision,
+            proposals,
+        )
+
+    def derive_verified_decision(self, runtime_generation_fingerprint, context, evidence, prior):  # type: ignore[no-untyped-def]
+        from onlyalpha.research.experiment.store import _hosted_search_admission
+
+        decision, proposals = self.derive_decision(runtime_generation_fingerprint, context, evidence, prior)
+        proof = _hosted_search_admission(
+            context.experiment.experiment_fingerprint,
+            runtime_generation_fingerprint,
+            decision.feedback_decision_fingerprint,
+        )
+        return decision, proposals, proof
+
     def derive_decision(self, runtime_generation_fingerprint, context, evidence, prior):  # type: ignore[no-untyped-def]
         assert runtime_generation_fingerprint == "f" * 64
-        return decide_parameter_search_v1(
+        proposals = self.context.proposals
+        decision = decide_parameter_search_v1(
             experiment_fingerprint=context.experiment.experiment_fingerprint,
-            proposals=context.proposals,
+            proposals=proposals,
             policy=context.policy,
             algorithm_implementation_fingerprint=(context.historical_algorithm_manifest.implementation_fingerprint),
             budget=context.experiment.search_budget,
             evidence=evidence,
             prior_decisions=prior,
         )
+        return decision, proposals
 
-    def verify_resolved_research(self, runtime_generation_fingerprint, context, proposal, resolved):  # type: ignore[no-untyped-def]
+    def resolve_research(self, runtime_generation_fingerprint, context, proposal):  # type: ignore[no-untyped-def]
+        from onlyalpha.research.search.parameter.integration import resolve_parameter_research_candidate
+        from onlyalpha.research.search.symbolic.execution import OnlyHostedResolvedResearchV1
+
         assert runtime_generation_fingerprint == "f" * 64
-        assert proposal.graph_fingerprint == resolved.candidate.graph_fingerprint
+        resolved = resolve_parameter_research_candidate(
+            self.context, proposal, OnlyResearchSpecificationResolver(specification_registry())
+        )
+        return OnlyHostedResolvedResearchV1(
+            specification=resolved.specification,
+            proposal_fingerprint=proposal.proposal_fingerprint,
+            candidate_fingerprint=resolved.candidate.candidate_fingerprint,
+            calculation_fingerprint=resolved.candidate.calculation_fingerprint,
+            result_plan=resolved.resolution.workload.result_plan,
+            statistics_plans=resolved.resolution.workload.statistics_plans,
+        )
 
 
 class _Contexts:
@@ -108,6 +152,22 @@ class _Contexts:
         if experiment != self.context.experiment:
             raise ValueError("Experiment differs")
         return self.context
+
+    def resolve_historical_facts(self, experiment, proposal_fingerprints=()):  # type: ignore[no-untyped-def]
+        from onlyalpha.research.search.parameter.context import OnlyHistoricalParameterSearchFactsV1
+
+        if experiment != self.context.experiment:
+            raise ValueError("Experiment differs")
+        context = self.context
+        return OnlyHistoricalParameterSearchFactsV1(
+            experiment,
+            context.search_space,
+            context.policy,
+            context.evaluation_contract,
+            context.verified_dataset,
+            context.historical_algorithm_manifest,
+            tuple(item for item in context.proposals if item.proposal_fingerprint in proposal_fingerprints),
+        )
 
 
 class _DurableProvenance(_Provenance):
@@ -120,8 +180,9 @@ class _DurableProvenance(_Provenance):
             raise KeyError(fingerprint)
         return self.experiment
 
-    def commit_experiment(self, value):  # type: ignore[no-untyped-def]
+    def commit_experiment(self, value, *, hosted_admission=None):  # type: ignore[no-untyped-def]
         assert value == self.experiment
+        assert hosted_admission.experiment_fingerprint == value.experiment_fingerprint
 
 
 class _ResearchCommands:
@@ -165,7 +226,7 @@ def _adapter(  # type: ignore[no-untyped-def]
         evidence_reader=cast(object, evidence_reader),
         resolver=OnlyResearchSpecificationResolver(specification_registry()),
         research_commands=cast(object, commands),
-        generation_execution=cast(object, _ExactTestGenerationExecution()),
+        generation_execution=cast(object, _ExactTestGenerationExecution(context)),
         product_receipts=cast(object, product_receipts),
         research_runs=cast(object, research_runs),
     )
@@ -189,28 +250,32 @@ class _ProductResearchCommands:
     def submit_research_run(  # type: ignore[no-untyped-def]
         self, submission_key, specification, provenance=None, *, parent_runtime_work_id=None
     ):
-        del provenance, parent_runtime_work_id
+        del provenance
         self.calls += 1
+        fingerprint = OnlyDerivedResearchSubmitCommandV2(
+            submission_key, specification, parent_runtime_work_id
+        ).command_fingerprint
+        run_id = only_derived_research_run_id(submission_key)
         admission = OnlyProductCommandAdmissionV1(
             submission_key,
             self.authority.research_kind,
-            "9" * 64,
+            fingerprint,
         )
         self.authority.admit_exact(admission)
         self.authority.put_verified_receipt(
             OnlyProductCommandReceipt(
                 submission_key,
                 self.authority.research_kind,
-                "9" * 64,
+                fingerprint,
                 OnlyProductCommandOutcomeRef(
                     OnlyProductCommandOutcomeKind.RESEARCH_RUN,
-                    submission_key.value,
+                    run_id.value,
                 ),
                 datetime(2026, 9, 8, tzinfo=UTC),
             )
         )
         run = OnlyResearchRun.queued(
-            run_id=OnlyResearchRunId(submission_key.value),
+            run_id=run_id,
             specification=specification,
             canonical_specification_payload=only_canonical_json(specification.to_dict()),
             admission_resolution_fingerprint="6" * 64,
@@ -342,6 +407,13 @@ def test_parameter_advance_is_one_decision_batch_and_reconcile_creates_no_decisi
 
 def test_product_hosted_parameter_advance_never_admits_current_algorithm(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     service, query, _authority, _runs, _commands, submit, _adapter_value = _product_case(tmp_path)
+
+    def forbidden(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("PARENT_CANNOT_EXECUTE_HISTORICAL_G1")
+
+    monkeypatch.setattr(_adapter_value._contexts, "resolve_verified_context", forbidden)
+    monkeypatch.setattr(_adapter_value._resolver, "resolve", forbidden)
+    monkeypatch.setattr(_adapter_value._registry, "resolve_type", forbidden)
     created = service.submit(submit)
     monkeypatch.setattr(
         parameter_controller,
@@ -354,6 +426,82 @@ def test_product_hosted_parameter_advance_never_admits_current_algorithm(tmp_pat
             OnlySearchBoundedOperationV1.ADVANCE_ONE_PARAMETER_DECISION,
         )
     )
+
+
+def test_parameter_historical_facts_never_load_parent_catalog_or_registry(tmp_path) -> None:
+    from types import SimpleNamespace
+
+    from onlyalpha.research.search.parameter.context import OnlyParameterSearchContextResolver
+
+    service, _query, _authority, _runs, _commands, submit, adapter = _product_case(tmp_path)
+    experiment = service.submit(submit).experiment
+
+    class ForbiddenCatalog:
+        calls = 0
+
+        def generation(self, fingerprint):  # type: ignore[no-untyped-def]
+            self.calls += 1
+            raise AssertionError("PARENT_CANNOT_EXECUTE_HISTORICAL_G1")
+
+    class DatasetAuthority:
+        def load_verified_table(self, fingerprint):  # type: ignore[no-untyped-def]
+            assert fingerprint == experiment.dataset_snapshot_fingerprint
+            return SimpleNamespace(snapshot=SimpleNamespace(snapshot_fingerprint=fingerprint))
+
+    catalogs = ForbiddenCatalog()
+    contexts = OnlyParameterSearchContextResolver(
+        parameter_store=adapter._store,
+        evaluations=adapter._evaluations,
+        catalogs=catalogs,
+        datasets=cast(object, DatasetAuthority()),
+        research_calculation_registry=cast(object, object()),
+    )
+    facts = contexts.resolve_historical_facts(experiment)
+    assert facts.experiment == experiment
+    assert facts.proposals == ()
+    assert not hasattr(facts, "calculation_registry")
+    assert not hasattr(facts, "catalog_generation")
+    assert catalogs.calls == 0
+
+
+@pytest.mark.parametrize("corruption", ["generation", "operation", "proposal_order", "payload_after_hash"])
+def test_parameter_hosted_response_rejects_wrong_identity(tmp_path, corruption) -> None:  # type: ignore[no-untyped-def]
+    from onlyalpha.application.search_generation_execution import (
+        OnlyHistoricalGenerationExecutionMismatch,
+        OnlySearchGenerationExecutionResponseV1,
+        OnlySearchGenerationOperationV1,
+    )
+    from onlyalpha.research.search.parameter.execution import OnlyHostedParameterGenerationExecutionV1
+
+    context = _context()
+    decision = _decision_for_context(context)
+    proposals = context.proposals if corruption != "proposal_order" else tuple(reversed(context.proposals))
+    payload = {
+        "algorithm_implementation_fingerprint": context.historical_algorithm_manifest.implementation_fingerprint,
+        "catalog_generation_fingerprint": context.experiment.catalog_generation_fingerprint,
+        "decision": decision.to_dict(),
+        "proposals": [item.to_dict() for item in proposals],
+    }
+
+    class Execution:
+        def execute(self, request):  # type: ignore[no-untyped-def]
+            response = OnlySearchGenerationExecutionResponseV1(
+                "a" * 64 if corruption == "generation" else request.runtime_generation_fingerprint,
+                OnlySearchGenerationOperationV1.RESOLVE_PARAMETER_RESEARCH
+                if corruption == "operation"
+                else request.operation_kind,
+                payload,
+            )
+            if corruption == "payload_after_hash":
+                response.result_payload["proposals"].reverse()
+            return response
+
+    # This unit contract test supplies a canonical evaluation; no runtime is executed.
+    _, _, _, _, _, _, adapter = _product_case(tmp_path)
+    context = replace(context, evaluation_contract=adapter._contexts.context.evaluation_contract)
+    hosted = OnlyHostedParameterGenerationExecutionV1(Execution(), tmp_path)
+    with pytest.raises(OnlyHistoricalGenerationExecutionMismatch):
+        hosted.derive_decision("f" * 64, context, (), ())
 
 
 def test_parameter_submit_is_exact_experiment_only_and_identity_excludes_command_id(tmp_path) -> None:
@@ -469,6 +617,76 @@ def test_parameter_v1_historical_replay_uses_canonical_product_boundary(tmp_path
     with pytest.raises(Exception, match="Search Submit V1 cannot admit new executable work"):
         boundary.commands.dispatch(fresh)
     assert len(authority.receipts) == before
+
+
+@pytest.mark.parametrize("proof_kind", ["missing", "unsealed", "wrong_computation", "wrong_experiment"])
+def test_parameter_facts_cannot_authorize_unproved_feedback_decision(tmp_path, proof_kind) -> None:  # type: ignore[no-untyped-def]
+    from onlyalpha.research.experiment.store import OnlyHostedSearchAdmission, _hosted_search_admission
+    from onlyalpha.research.search.parameter.verification import verify_hosted_parameter_feedback_decision_occurrence
+
+    context, provenance, store, _commands, adapter = _adapter(tmp_path)
+    facts = adapter._contexts.resolve_historical_facts(
+        context.experiment, tuple(item.proposal_fingerprint for item in context.proposals)
+    )
+    decision = _decision_for_context(context)
+    proof = None
+    if proof_kind == "unsealed":
+        proof = OnlyHostedSearchAdmission(
+            context.experiment.experiment_fingerprint, "f" * 64, object(), decision.feedback_decision_fingerprint
+        )
+    elif proof_kind == "wrong_computation":
+        proof = _hosted_search_admission(context.experiment.experiment_fingerprint, "f" * 64, "a" * 64)
+    elif proof_kind == "wrong_experiment":
+        proof = _hosted_search_admission("a" * 64, "f" * 64, decision.feedback_decision_fingerprint)
+    with pytest.raises(Exception, match="SEARCH_COMPUTATION_UNVERIFIED"):
+        verify_hosted_parameter_feedback_decision_occurrence(
+            context=facts,
+            provenance=provenance,
+            decisions=store,
+            candidate_decision=decision,
+            hosted_admission=proof,
+        )
+    assert store.load_frontier_fingerprint(context.experiment.experiment_fingerprint) is None
+    assert not provenance.plans
+
+
+def test_parameter_v1_admitted_pending_commit_uses_exact_bound_worker(tmp_path) -> None:
+    service, _query, authority, _runs, commands, submit, adapter = _product_case(tmp_path)
+    historical = OnlySubmitParameterSearchExperimentV1(
+        submit.command_id,
+        submit.hypothesis,
+        submit.search_space,
+        submit.evaluation_contract,
+        submit.search_policy,
+        submit.search_budget,
+        submit.algorithm_manifest,
+        submit.workflow_binding,
+        submit.decision_engine_binding,
+        submit.catalog_generation_fingerprint,
+        submit.dataset_snapshot_fingerprint,
+    )
+    experiment = adapter.derive_submit_experiment(historical)
+    authority.admit_exact(
+        OnlyProductCommandAdmissionV1(
+            historical.command_id,
+            OnlyProductCommandKind.CREATE_PARAMETER_SEARCH_EXPERIMENT,
+            historical.command_fingerprint,
+        )
+    )
+    service._runtime_generations.bind_work_exact(
+        f"search-experiment:{experiment.experiment_fingerprint}",
+        submit.runtime_generation_fingerprint,
+    )
+    with pytest.raises(Exception, match="PARAMETER_SEARCH_SPACE_NOT_FOUND"):
+        adapter._store.load_search_space_intrinsic_verified(submit.search_space.search_space_fingerprint)
+    recovered = service.submit(historical)
+    assert recovered.experiment == experiment
+    assert (
+        adapter._store.load_search_space_intrinsic_verified(submit.search_space.search_space_fingerprint)
+        == submit.search_space
+    )
+    assert adapter._store.load_frontier_fingerprint(experiment.experiment_fingerprint) is None
+    assert commands.calls == 0
 
 
 def test_parameter_partial_effect_retry_completes_same_decision_in_fresh_adapter(tmp_path) -> None:

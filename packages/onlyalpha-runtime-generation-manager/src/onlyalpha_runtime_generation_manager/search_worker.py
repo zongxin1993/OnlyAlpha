@@ -30,6 +30,7 @@ from onlyalpha.research.calculation.predicate import only_register_research_pred
 from onlyalpha.research.dataset.parquet_store import OnlyParquetResearchDatasetSnapshotStore
 from onlyalpha.research.evaluation.summary.scalar import OnlyResearchSummaryScalar
 from onlyalpha.research.experiment import OnlySearchExperimentManifestV2, OnlySearchExperimentManifestV3
+from onlyalpha.research.run.evidence import OnlyResearchAdmissionResolutionEvidence
 from onlyalpha.research.search.parameter.algorithm import decide_parameter_search_v1
 from onlyalpha.research.search.parameter.context import (
     OnlyParameterSearchContextResolver,
@@ -66,12 +67,14 @@ from onlyalpha.research.search.symbolic.verification import (
     verify_symbolic_experiment_binding,
     verify_symbolic_search_space,
 )
+from onlyalpha.research.specification.model import OnlyResearchSpecification
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 from onlyalpha.runtime.generation import OnlyRuntimeGenerationValidationEvidence
 
 from .hosted import only_verify_hosted_runtime_generation
 
 _CAPABILITIES = (
+    OnlySearchGenerationOperationV1.RESOLVE_RESEARCH_ADMISSION,
     OnlySearchGenerationOperationV1.DERIVE_PARAMETER_DECISION,
     OnlySearchGenerationOperationV1.DERIVE_SYMBOLIC_ENUMERATION,
     OnlySearchGenerationOperationV1.RESOLVE_PARAMETER_RESEARCH,
@@ -138,6 +141,17 @@ def main() -> int:
 
 
 def _execute(request: OnlySearchGenerationExecutionRequestV1) -> Mapping[str, object]:
+    if request.operation_kind is OnlySearchGenerationOperationV1.RESOLVE_RESEARCH_ADMISSION:
+        payload = request.request_payload
+        _exact(payload, {"specification", "dataset_store_root"})
+        specification = OnlyResearchSpecification.from_dict(_mapping(payload["specification"], "specification"))
+        OnlyParquetResearchDatasetSnapshotStore(Path(_string(payload, "dataset_store_root"))).load_verified_table(
+            specification.dataset_snapshot_fingerprint
+        )
+        resolution = OnlyResearchSpecificationResolver(
+            _calculation_registry(only_discover_quant_asset_providers().calculation_registry())
+        ).resolve(specification)
+        return {"admission_evidence": OnlyResearchAdmissionResolutionEvidence.from_resolution(resolution).to_dict()}
     if request.operation_kind is OnlySearchGenerationOperationV1.DERIVE_SYMBOLIC_ENUMERATION:
         return _derive_symbolic(request.request_payload)
     if request.operation_kind is OnlySearchGenerationOperationV1.DERIVE_PARAMETER_DECISION:
@@ -168,6 +182,17 @@ def _derive_symbolic(payload: Mapping[str, object]) -> Mapping[str, object]:
     historical = OnlySymbolicSearchAlgorithmImplementationManifestV1.from_dict(
         _mapping(payload["algorithm_manifest"], "algorithm_manifest")
     )
+    reference = experiment.evaluation_context_reference
+    binding = experiment.search_algorithm_binding
+    if (
+        reference.evaluation_fingerprint != evaluation.evaluation_contract_fingerprint
+        or reference.evaluation_schema_version != evaluation.schema_version
+        or evaluation.dataset_snapshot_fingerprint != experiment.dataset_snapshot_fingerprint
+        or binding.algorithm_id != historical.algorithm_id
+        or binding.algorithm_semantic_version != historical.algorithm_semantic_version
+        or binding.source_revision != historical.source_revision
+    ):
+        raise OnlyHistoricalGenerationExecutionMismatch("Symbolic context references differ")
     catalog = only_discover_quant_asset_providers()
     dataset = OnlyParquetResearchDatasetSnapshotStore(Path(_string(payload, "dataset_store_root"))).load_verified_table(
         experiment.dataset_snapshot_fingerprint
@@ -373,6 +398,8 @@ def _resolved_research(
         "specification": materialized.specification.to_dict(),
         "candidate_fingerprint": candidates[0].candidate_fingerprint,
         "calculation_fingerprint": candidates[0].calculation_fingerprint,
+        "result_plan": resolution.workload.result_plan.to_dict(),
+        "statistics_plans": [item.to_dict() for item in resolution.workload.statistics_plans],
     }
 
 

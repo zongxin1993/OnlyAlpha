@@ -1155,6 +1155,17 @@ def test_completed_run_composes_registered_mixed_parameter_evidence_sources_once
     reference = finalizer.finalize(run=cast(Any, run), resolved=cast(Any, resolved), policy=mixed_policy)
     repeated = finalizer.finalize(run=cast(Any, run), resolved=cast(Any, resolved), policy=mixed_policy)
     assert repeated == reference
+    from onlyalpha.research.search.symbolic.execution import OnlyHostedResolvedResearchV1
+
+    hosted = OnlyHostedResolvedResearchV1(
+        specification=cast(Any, None),
+        proposal_fingerprint=_proposals()[0].proposal_fingerprint,
+        candidate_fingerprint=candidate.candidate_fingerprint,
+        calculation_fingerprint=candidate.calculation_fingerprint,
+        result_plan=base_plan,
+        statistics_plans=(ic_plan, rank_plan),
+    )
+    assert finalizer.finalize(run=cast(Any, run), resolved=hosted, policy=mixed_policy) == reference
     composition = results.load_verified(reference.locator_fingerprint)
     source_fingerprints = {ic_plan.statistics_fingerprint, rank_plan.statistics_fingerprint}
     summary_fingerprints = {

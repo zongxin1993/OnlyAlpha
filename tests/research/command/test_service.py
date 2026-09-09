@@ -59,6 +59,7 @@ from onlyalpha.research.run import (
     OnlyResearchRunRevisionConflictError,
     OnlyResearchRunState,
 )
+from onlyalpha.research.run.evidence import OnlyResearchAdmissionResolutionEvidence
 from onlyalpha.research.specification import OnlyResearchSpecificationResolver
 from tests.research.specification.support import registry, specification
 from tests.runtime_generation_support import only_ready_test_generation
@@ -223,6 +224,16 @@ class _Store:
         return tuple(ordered[:limit])
 
 
+class _RuntimeAdmissionResolver:
+    """Explicit deterministic port fake for Command/Authority contract tests."""
+
+    def resolve(self, generation, spec):  # type: ignore[no-untyped-def]
+        assert len(generation) == 64
+        return OnlyResearchAdmissionResolutionEvidence.from_resolution(
+            OnlyResearchSpecificationResolver(registry()).resolve(spec)
+        )
+
+
 def _service(
     store: _Store,
     dataset: _DatasetStore,
@@ -254,6 +265,7 @@ def _service(
         now_utc=lambda: next(clock),
         runtime_generations=runtime_generations or _RuntimeGenerations(),  # type: ignore[arg-type]
         command_admissions=command_admissions or _ProductAdmissions(),  # type: ignore[arg-type]
+        runtime_generation_resolver=_RuntimeAdmissionResolver(),
     )  # type: ignore[arg-type]
 
 

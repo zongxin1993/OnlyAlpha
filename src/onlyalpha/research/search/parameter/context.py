@@ -58,6 +58,19 @@ class OnlyParameterEvaluationReader(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyHistoricalParameterSearchFactsV1:
+    """Intrinsic durable inputs; deliberately contains no executable Catalog or Registry."""
+
+    experiment: OnlySearchExperimentManifestV3
+    search_space: OnlyParameterFactorSearchSpaceV1
+    policy: OnlyParameterSearchPolicyV1
+    evaluation_contract: OnlySymbolicResearchEvaluationContractV1
+    verified_dataset: OnlyVerifiedResearchDataset
+    historical_algorithm_manifest: OnlyParameterSearchAlgorithmManifestV1
+    proposals: tuple[OnlyParameterGraphProposalV1, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyVerifiedParameterSearchContextV1:
     experiment: OnlySearchExperimentManifestV3
     search_space: OnlyParameterFactorSearchSpaceV1
@@ -113,6 +126,30 @@ class OnlyParameterSearchContextResolver:
         self._catalogs = catalogs
         self._datasets = datasets
         self._research_calculation_registry = research_calculation_registry
+
+    def resolve_historical_facts(
+        self,
+        experiment: OnlySearchExperimentManifestV3,
+        proposal_fingerprints: tuple[str, ...] = (),
+    ) -> OnlyHistoricalParameterSearchFactsV1:
+        space = self._store.load_search_space_intrinsic_verified(
+            experiment.search_space_reference.search_space_fingerprint
+        )
+        policy = self._store.load_policy_intrinsic_verified(experiment.search_policy_reference.policy_fingerprint)
+        algorithm = self._store.load_algorithm_manifest_intrinsic_verified(
+            experiment.search_algorithm_binding.implementation_fingerprint
+        )
+        evaluation = self._evaluations.load_evaluation_contract_intrinsic_verified(
+            experiment.evaluation_context_reference.evaluation_fingerprint
+        )
+        dataset = self._datasets.load_verified_table(experiment.dataset_snapshot_fingerprint)
+        self._verify_bindings(experiment, space, policy, algorithm, evaluation, None, dataset)
+        proposals = tuple(self._store.load_proposal_intrinsic_verified(item) for item in proposal_fingerprints)
+        if any(item.search_space_fingerprint != space.search_space_fingerprint for item in proposals):
+            raise OnlyParameterSearchError("SEARCH_INVALID_PROPOSAL", experiment.experiment_fingerprint)
+        return OnlyHistoricalParameterSearchFactsV1(
+            experiment, space, policy, evaluation, dataset, algorithm, proposals
+        )
 
     def resolve_verified_context(
         self, experiment: OnlySearchExperimentManifestV3
@@ -207,9 +244,57 @@ class OnlyParameterSearchContextResolver:
             raise OnlyParameterSearchError("SEARCH_ITERATION_PREFIX_CORRUPT", experiment.experiment_fingerprint)
         return len(indices)
 
+    def load_proposal_historical_verified(
+        self,
+        experiment: OnlySearchExperimentManifestV3,
+        plan: OnlySearchIterationPlanV1,
+    ) -> OnlyParameterGraphProposalV1:
+        context = self.resolve_historical_facts(experiment)
+        proposal = self._store.load_proposal_intrinsic_verified(plan.proposal_fingerprint)
+        self._verify_occurrence(context, plan, proposal)
+        return proposal
+
+    def load_proposal_occurrence_historical_verified(
+        self,
+        experiment: OnlySearchExperimentManifestV3,
+        plan: OnlySearchIterationPlanV1,
+    ) -> OnlyParameterGraphProposalV1:
+        return self.load_proposal_historical_verified(experiment, plan)
+
+    def verify_iteration_plan_historical_ledger(
+        self,
+        experiment: OnlySearchExperimentManifestV3,
+        plan: OnlySearchIterationPlanV1,
+        committed_plans: tuple[OnlySearchIterationPlanV1, ...],
+    ) -> None:
+        context = self.resolve_historical_facts(experiment)
+        proposal = self._store.load_proposal_intrinsic_verified(plan.proposal_fingerprint)
+        self._verify_occurrence(context, plan, proposal)
+        merged = {item.iteration_plan_fingerprint: item for item in (*committed_plans, plan)}
+        ordered = tuple(sorted(merged.values(), key=lambda item: item.iteration_index))
+        if tuple(item.iteration_index for item in ordered) != tuple(range(len(ordered))):
+            raise OnlyParameterSearchError("SEARCH_ITERATION_PREFIX_CORRUPT", experiment.experiment_fingerprint)
+        if len({item.proposal_fingerprint for item in ordered}) != len(ordered):
+            raise OnlyParameterSearchError("SEARCH_ITERATION_PROPOSAL_DUPLICATE", experiment.experiment_fingerprint)
+
+    def next_historical_iteration_ordinal(
+        self,
+        experiment: OnlySearchExperimentManifestV3,
+        committed_plans: tuple[OnlySearchIterationPlanV1, ...],
+    ) -> int:
+        if not committed_plans:
+            return 0
+        for plan in committed_plans:
+            proposal = self._store.load_proposal_intrinsic_verified(plan.proposal_fingerprint)
+            self._verify_occurrence(self.resolve_historical_facts(experiment), plan, proposal)
+        indices = tuple(sorted(item.iteration_index for item in committed_plans))
+        if indices != tuple(range(len(indices))):
+            raise OnlyParameterSearchError("SEARCH_ITERATION_PREFIX_CORRUPT", experiment.experiment_fingerprint)
+        return len(indices)
+
     def _verify_occurrence(
         self,
-        context: OnlyVerifiedParameterSearchContextV1,
+        context: OnlyVerifiedParameterSearchContextV1 | OnlyHistoricalParameterSearchFactsV1,
         plan: OnlySearchIterationPlanV1,
         proposal: OnlyParameterGraphProposalV1,
     ) -> None:
@@ -315,7 +400,7 @@ class OnlyParameterSearchContextResolver:
         policy: OnlyParameterSearchPolicyV1,
         algorithm: OnlyParameterSearchAlgorithmManifestV1,
         evaluation: OnlySymbolicResearchEvaluationContractV1,
-        catalog: OnlyQuantAssetCatalogGeneration,
+        catalog: OnlyQuantAssetCatalogGeneration | None,
         dataset: OnlyVerifiedResearchDataset,
     ) -> None:
         if (
@@ -336,7 +421,7 @@ class OnlyParameterSearchContextResolver:
             or experiment.evaluation_context_reference.evaluation_fingerprint
             != evaluation.evaluation_contract_fingerprint
             or experiment.catalog_generation_fingerprint != space.catalog_generation_fingerprint
-            or catalog.generation_fingerprint != experiment.catalog_generation_fingerprint
+            or (catalog is not None and catalog.generation_fingerprint != experiment.catalog_generation_fingerprint)
             or dataset.snapshot.snapshot_fingerprint != experiment.dataset_snapshot_fingerprint
             or evaluation.dataset_snapshot_fingerprint != experiment.dataset_snapshot_fingerprint
             or space.sweep_definition.dataset_snapshot_fingerprint != experiment.dataset_snapshot_fingerprint

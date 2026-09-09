@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Protocol
 
 from onlyalpha.research.experiment import (
@@ -11,15 +11,21 @@ from onlyalpha.research.experiment import (
     OnlySearchIterationPlanV1,
     OnlySearchIterationResultV1,
 )
+from onlyalpha.research.search.symbolic.execution import OnlyHostedResolvedResearchV1
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 
 from .algorithm import decide_parameter_search_v1
-from .context import OnlyVerifiedParameterSearchContextV1, admit_current_parameter_algorithm_runtime
+from .context import (
+    OnlyHistoricalParameterSearchFactsV1,
+    OnlyVerifiedParameterSearchContextV1,
+    admit_current_parameter_algorithm_runtime,
+)
 from .errors import OnlyParameterSearchError
 from .evidence import OnlyParameterResearchEvidenceReader, OnlyParameterResearchEvidenceV1
 from .execution import OnlyHostedParameterGenerationExecutionV1
 from .integration import (
     OnlyParameterResearchCommandService,
+    OnlyResolvedParameterResearchCandidateV1,
     commit_feedback_plan_batch,
     reconcile_parameter_research_plan,
     resolve_parameter_research_candidate,
@@ -75,7 +81,7 @@ class OnlyParameterSearchControllerV1:
 
     def advance_in_generation(
         self,
-        context: OnlyVerifiedParameterSearchContextV1,
+        context: OnlyHistoricalParameterSearchFactsV1,
         runtime_generation_fingerprint: str,
     ) -> OnlyParameterControllerOutcomeV1:
         """Production historical path using the exact PRE-E.A-bound generation."""
@@ -84,17 +90,22 @@ class OnlyParameterSearchControllerV1:
 
     def _advance(
         self,
-        context: OnlyVerifiedParameterSearchContextV1,
+        context: OnlyVerifiedParameterSearchContextV1 | OnlyHistoricalParameterSearchFactsV1,
         *,
         runtime_generation_fingerprint: str | None,
     ) -> OnlyParameterControllerOutcomeV1:
         experiment = context.experiment
+        if runtime_generation_fingerprint is None:
+            assert isinstance(context, OnlyVerifiedParameterSearchContextV1)
         current = self._store.load_frontier_fingerprint(experiment.experiment_fingerprint)
         current_runtime = (
-            admit_current_parameter_algorithm_runtime(context) if runtime_generation_fingerprint is None else None
+            admit_current_parameter_algorithm_runtime(context)
+            if isinstance(context, OnlyVerifiedParameterSearchContextV1) and runtime_generation_fingerprint is None
+            else None
         )
         if current is not None:
             if runtime_generation_fingerprint is None:
+                assert isinstance(context, OnlyVerifiedParameterSearchContextV1)
                 durable_frontier = verify_parameter_feedback_frontier_for_execution(
                     context=context,
                     provenance=self._provenance,
@@ -103,14 +114,7 @@ class OnlyParameterSearchControllerV1:
                     frontier_fingerprint=current,
                 )
             else:
-                durable_frontier = self._store.load_feedback_decision_intrinsic_verified(current)
-                if (
-                    durable_frontier.experiment_fingerprint != experiment.experiment_fingerprint
-                    or durable_frontier.search_policy_fingerprint != context.policy.policy_fingerprint
-                    or durable_frontier.algorithm_implementation_fingerprint
-                    != context.historical_algorithm_manifest.implementation_fingerprint
-                ):
-                    raise OnlyParameterSearchError("PARAMETER_FEEDBACK_HISTORY_UNVERIFIED", current)
+                durable_frontier = self._verify_hosted_frontier(context, runtime_generation_fingerprint, current)
             commit_feedback_plan_batch(durable_frontier, context.proposals, self._provenance)
         committed_plans = self._provenance.iteration_plans_for_experiment_verified(experiment.experiment_fingerprint)
         terminal_results = []
@@ -159,13 +163,17 @@ class OnlyParameterSearchControllerV1:
                     "HISTORICAL_GENERATION_CAPABILITY_UNSUPPORTED",
                     runtime_generation_fingerprint,
                 )
-            decision = self._generation_execution.derive_decision(
+            decision, proposals, hosted_admission = self._generation_execution.derive_verified_decision(
                 runtime_generation_fingerprint,
                 context,
                 evidence_values,
                 prior,
             )
+            for proposal in proposals:
+                self._store.commit_proposal(proposal)
+            context = replace(context, proposals=proposals)
         if runtime_generation_fingerprint is None:
+            assert isinstance(context, OnlyVerifiedParameterSearchContextV1)
             verified = verify_parameter_feedback_decision_occurrence(
                 context=context,
                 provenance=self._provenance,
@@ -179,6 +187,7 @@ class OnlyParameterSearchControllerV1:
                 provenance=self._provenance,
                 decisions=self._store,
                 candidate_decision=decision,
+                hosted_admission=hosted_admission,
             )
         predecessor = verified.predecessor_fingerprint
         if current is not None and current != decision.feedback_decision_fingerprint and current != predecessor:
@@ -187,9 +196,68 @@ class OnlyParameterSearchControllerV1:
         plans = commit_feedback_plan_batch(decision, context.proposals, self._provenance)
         return OnlyParameterControllerOutcomeV1(decision, plans)
 
+    def verify_historical_frontier_in_generation(
+        self,
+        context: OnlyHistoricalParameterSearchFactsV1,
+        generation: str,
+        frontier: str,
+    ) -> OnlyParameterSearchFeedbackDecisionV1:
+        return self._verify_hosted_frontier(context, generation, frontier)
+
+    def _verify_hosted_frontier(
+        self,
+        context: OnlyVerifiedParameterSearchContextV1 | OnlyHistoricalParameterSearchFactsV1,
+        generation: str,
+        frontier: str,
+    ) -> OnlyParameterSearchFeedbackDecisionV1:
+        from .integration import plans_for_feedback_decision
+
+        if self._generation_execution is None:
+            raise OnlyParameterSearchError("HISTORICAL_GENERATION_CAPABILITY_UNSUPPORTED", generation)
+        plans = tuple(
+            sorted(
+                self._provenance.iteration_plans_for_experiment_verified(context.experiment.experiment_fingerprint),
+                key=lambda item: item.iteration_index,
+            )
+        )
+        ids = list(dict.fromkeys(item.decision_output_fingerprint for item in plans))
+        if not ids or ids[-1] != frontier:
+            ids.append(frontier)
+        prior: list[OnlyParameterSearchFeedbackDecisionV1] = []
+        by_fp = {item.proposal_fingerprint: item for item in context.proposals}
+        for fingerprint in ids:
+            decision = self._store.load_feedback_decision_intrinsic_verified(fingerprint)
+            evidence = []
+            prefix = plans[: decision.start_iteration_index]
+            if len(prefix) != decision.start_iteration_index:
+                raise OnlyParameterSearchError("PARAMETER_FEEDBACK_HISTORY_UNVERIFIED", fingerprint)
+            for plan in prefix:
+                result = self._provenance.terminal_result_for_plan_verified(plan.iteration_plan_fingerprint)
+                proposal = by_fp.get(plan.proposal_fingerprint)
+                if result is None or proposal is None:
+                    raise OnlyParameterSearchError("PARAMETER_FEEDBACK_HISTORY_UNVERIFIED", fingerprint)
+                evidence.append(
+                    self._evidence_reader.load_required(
+                        iteration_result_fingerprint=result.iteration_result_fingerprint,
+                        proposal=proposal,
+                        policy=context.policy,
+                    )
+                )
+            reproduced, proposals = self._generation_execution.derive_decision(
+                generation, context, tuple(evidence), tuple(prior)
+            )
+            if reproduced != decision:
+                raise OnlyParameterSearchError("PARAMETER_FEEDBACK_HISTORY_UNVERIFIED", fingerprint)
+            batch = plans_for_feedback_decision(decision, proposals)
+            actual = tuple(item for item in plans if item.decision_output_fingerprint == fingerprint)
+            if actual != batch[: len(actual)] or (fingerprint != frontier and actual != batch):
+                raise OnlyParameterSearchError("SEARCH_ITERATION_PREFIX_CORRUPT", fingerprint)
+            prior.append(decision)
+        return prior[-1]
+
     def reconcile_open_plans(
         self,
-        context: OnlyVerifiedParameterSearchContextV1,
+        context: OnlyVerifiedParameterSearchContextV1 | OnlyHistoricalParameterSearchFactsV1,
         *,
         resolver: OnlyResearchSpecificationResolver,
         commands: OnlyParameterResearchCommandService,
@@ -203,16 +271,21 @@ class OnlyParameterSearchControllerV1:
             if plans:
                 raise OnlyParameterSearchError("PARAMETER_FEEDBACK_HISTORY_UNVERIFIED", "missing frontier")
             return ()
-        verify_parameter_feedback_frontier_for_execution(
-            context=context,
-            provenance=self._provenance,
-            evidence_reader=self._evidence_reader,
-            decisions=self._store,
-            frontier_fingerprint=frontier,
-        )
+        if runtime_generation_fingerprint is None:
+            assert isinstance(context, OnlyVerifiedParameterSearchContextV1)
+            verify_parameter_feedback_frontier_for_execution(
+                context=context,
+                provenance=self._provenance,
+                evidence_reader=self._evidence_reader,
+                decisions=self._store,
+                frontier_fingerprint=frontier,
+            )
+        else:
+            self._verify_hosted_frontier(context, runtime_generation_fingerprint, frontier)
         plans = self._provenance.iteration_plans_for_experiment_verified(context.experiment.experiment_fingerprint)
         by_fingerprint = {item.proposal_fingerprint: item for item in context.proposals}
         outcomes: list[OnlySearchIterationResultV1 | None] = []
+        resolved: OnlyResolvedParameterResearchCandidateV1 | OnlyHostedResolvedResearchV1
         for plan in plans:
             terminal = self._provenance.terminal_result_for_plan_verified(plan.iteration_plan_fingerprint)
             if terminal is not None:
@@ -222,7 +295,17 @@ class OnlyParameterSearchControllerV1:
             if proposal is None:
                 raise OnlyParameterSearchError("SEARCH_INVALID_PROPOSAL", plan.proposal_fingerprint)
             try:
-                resolved = resolve_parameter_research_candidate(context, proposal, resolver)
+                if runtime_generation_fingerprint is None:
+                    assert isinstance(context, OnlyVerifiedParameterSearchContextV1)
+                    resolved = resolve_parameter_research_candidate(context, proposal, resolver)
+                else:
+                    if self._generation_execution is None:
+                        raise OnlyParameterSearchError(
+                            "HISTORICAL_GENERATION_CAPABILITY_UNSUPPORTED", runtime_generation_fingerprint
+                        )
+                    resolved = self._generation_execution.resolve_research(
+                        runtime_generation_fingerprint, context, proposal
+                    )
             except OnlyParameterSearchError as exc:
                 if exc.code != "CANDIDATE_BINDING_FAILED":
                     raise
@@ -239,18 +322,6 @@ class OnlyParameterSearchControllerV1:
                 self._provenance.commit_iteration_result(result)
                 outcomes.append(result)
                 continue
-            if runtime_generation_fingerprint is not None:
-                if self._generation_execution is None:
-                    raise OnlyParameterSearchError(
-                        "HISTORICAL_GENERATION_CAPABILITY_UNSUPPORTED",
-                        runtime_generation_fingerprint,
-                    )
-                self._generation_execution.verify_resolved_research(
-                    runtime_generation_fingerprint,
-                    context,
-                    proposal,
-                    resolved,
-                )
             outcomes.append(
                 reconcile_parameter_research_plan(
                     plan=plan,

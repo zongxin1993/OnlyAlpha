@@ -9,6 +9,7 @@ import shutil
 import uuid
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
 
@@ -43,6 +44,37 @@ from .verification import (
 )
 
 _T = TypeVar("_T")
+_HOSTED_ADMISSION_SEAL = object()
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyHostedSearchAdmission:
+    """Ephemeral exact-worker admission capability, never a persisted fact."""
+
+    experiment_fingerprint: str
+    runtime_generation_fingerprint: str
+    _seal: object
+    computation_fingerprint: str | None = None
+
+
+def _hosted_search_admission(
+    experiment_fingerprint: str, runtime_generation_fingerprint: str, computation_fingerprint: str | None = None
+) -> OnlyHostedSearchAdmission:
+    return OnlyHostedSearchAdmission(
+        experiment_fingerprint, runtime_generation_fingerprint, _HOSTED_ADMISSION_SEAL, computation_fingerprint
+    )
+
+
+def require_hosted_search_computation(
+    value: OnlyHostedSearchAdmission | None, experiment_fingerprint: str, computation_fingerprint: str
+) -> None:
+    if (
+        not isinstance(value, OnlyHostedSearchAdmission)
+        or value._seal is not _HOSTED_ADMISSION_SEAL
+        or value.experiment_fingerprint != experiment_fingerprint
+        or value.computation_fingerprint != computation_fingerprint
+    ):
+        raise OnlySearchProvenanceStoreError("SEARCH_COMPUTATION_UNVERIFIED", computation_fingerprint)
 
 
 class OnlyJsonSearchProvenanceStore:
@@ -73,19 +105,54 @@ class OnlyJsonSearchProvenanceStore:
         self._search_spaces = search_spaces
         self._proposals = proposals
         self._search_contexts = search_contexts
+        self._historical_fact_reads = False
 
-    def commit_experiment(self, experiment: OnlySearchExperimentManifest) -> OnlySearchCommitOutcome:
+    def historical_fact_view(self) -> OnlyJsonSearchProvenanceStore:
+        """Same durable Authority and locks, with observation-only context checks.
+
+        Hosted Product adapters own exact-G executable admission before publishing
+        new Search computations. Current-runtime certification retains its reader.
+        """
+        from copy import copy
+
+        view = copy(self)
+        view._historical_fact_reads = True
+        return view
+
+    def commit_experiment(
+        self, experiment: OnlySearchExperimentManifest, *, hosted_admission: OnlyHostedSearchAdmission | None = None
+    ) -> OnlySearchCommitOutcome:
         if not isinstance(
             experiment,
             (OnlySearchExperimentManifestV1, OnlySearchExperimentManifestV2, OnlySearchExperimentManifestV3),
         ):
             raise OnlySearchProvenanceStoreError("SEARCH_EXPERIMENT_INVALID", "manifest contract is invalid")
+        if self._historical_fact_reads:
+            try:
+                existing = self._raw.load_experiment_verified(experiment.experiment_fingerprint)
+            except OnlySearchProvenanceStoreError as exc:
+                if exc.code != "SEARCH_EXPERIMENT_NOT_FOUND":
+                    raise
+                if (
+                    not isinstance(hosted_admission, OnlyHostedSearchAdmission)
+                    or hosted_admission._seal is not _HOSTED_ADMISSION_SEAL
+                    or hosted_admission.experiment_fingerprint != experiment.experiment_fingerprint
+                ):
+                    raise OnlySearchProvenanceStoreError(
+                        "SEARCH_EXPERIMENT_UNVERIFIED", experiment.experiment_fingerprint
+                    ) from exc
+            else:
+                if existing != experiment:
+                    raise OnlySearchProvenanceStoreError(
+                        "SEARCH_EXPERIMENT_CONFLICT", experiment.experiment_fingerprint
+                    )
         verify_search_experiment_references(
             experiment,
             catalogs=self._catalogs,
             datasets=self._datasets,
             search_spaces=self._search_spaces,
             search_contexts=self._search_contexts,
+            historical_fact_reads=self._historical_fact_reads,
         )
         if experiment.parent_experiment_fingerprint is not None:
             if experiment.parent_experiment_fingerprint == experiment.experiment_fingerprint:
@@ -115,6 +182,7 @@ class OnlyJsonSearchProvenanceStore:
             datasets=self._datasets,
             search_spaces=self._search_spaces,
             search_contexts=self._search_contexts,
+            historical_fact_reads=self._historical_fact_reads,
         )
         self._verify_parent_experiment_chain(experiment)
         return experiment
@@ -128,7 +196,13 @@ class OnlyJsonSearchProvenanceStore:
             self.load_iteration_result_verified(plan.parent_iteration_result_fingerprint)
         with self._iteration_plan_lock(plan.experiment_fingerprint):
             existing = self._iteration_plans_for_experiment(plan.experiment_fingerprint)
-            ledger_verifier = getattr(self._search_contexts, "verify_iteration_plan_ledger", None)
+            ledger_verifier = getattr(
+                self._search_contexts,
+                "verify_iteration_plan_historical_ledger"
+                if self._historical_fact_reads
+                else "verify_iteration_plan_ledger",
+                None,
+            )
             if callable(ledger_verifier) and isinstance(
                 experiment, (OnlySearchExperimentManifestV2, OnlySearchExperimentManifestV3)
             ):
@@ -144,6 +218,7 @@ class OnlyJsonSearchProvenanceStore:
                 search_contexts=self._search_contexts,
                 expected_search_space_fingerprint=experiment.search_space_reference.search_space_fingerprint,
                 require_occurrence=True,
+                historical_fact_reads=self._historical_fact_reads,
             )
             return self._commit(
                 "iteration-plans",
@@ -184,7 +259,11 @@ class OnlyJsonSearchProvenanceStore:
         experiment = self.load_experiment_verified(experiment_fingerprint)
         if not isinstance(experiment, (OnlySearchExperimentManifestV2, OnlySearchExperimentManifestV3)):
             raise OnlySearchProvenanceStoreError("SEARCH_ITERATION_LEDGER_UNSUPPORTED", experiment_fingerprint)
-        resolver = getattr(self._search_contexts, "next_iteration_ordinal", None)
+        resolver = getattr(
+            self._search_contexts,
+            "next_historical_iteration_ordinal" if self._historical_fact_reads else "next_iteration_ordinal",
+            None,
+        )
         if not callable(resolver):
             raise OnlySearchProvenanceStoreError("SEARCH_ITERATION_LEDGER_UNSUPPORTED", experiment_fingerprint)
         with self._iteration_plan_lock(experiment_fingerprint):
@@ -230,8 +309,15 @@ class OnlyJsonSearchProvenanceStore:
             proposals=self._proposals,
             search_contexts=self._search_contexts,
             expected_search_space_fingerprint=experiment.search_space_reference.search_space_fingerprint,
+            historical_fact_reads=self._historical_fact_reads,
         )
-        ledger_verifier = getattr(self._search_contexts, "verify_iteration_plan_ledger", None)
+        ledger_verifier = getattr(
+            self._search_contexts,
+            "verify_iteration_plan_historical_ledger"
+            if self._historical_fact_reads
+            else "verify_iteration_plan_ledger",
+            None,
+        )
         if callable(ledger_verifier) and isinstance(
             experiment, (OnlySearchExperimentManifestV2, OnlySearchExperimentManifestV3)
         ):
@@ -325,6 +411,7 @@ class OnlyJsonSearchProvenanceStore:
                 datasets=self._datasets,
                 search_spaces=self._search_spaces,
                 search_contexts=self._search_contexts,
+                historical_fact_reads=self._historical_fact_reads,
             )
             parent_fingerprint = parent.parent_experiment_fingerprint
 

@@ -6,9 +6,14 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from onlyalpha.research.experiment import OnlySearchIterationPlanV1, OnlySearchIterationResultV1
+from onlyalpha.research.experiment.store import OnlyHostedSearchAdmission, require_hosted_search_computation
 
 from .algorithm import decide_parameter_search_v1
-from .context import OnlyVerifiedParameterSearchContextV1, admit_current_parameter_algorithm_runtime
+from .context import (
+    OnlyHistoricalParameterSearchFactsV1,
+    OnlyVerifiedParameterSearchContextV1,
+    admit_current_parameter_algorithm_runtime,
+)
 from .errors import OnlyParameterSearchError
 from .evidence import OnlyParameterResearchEvidenceReader, OnlyParameterResearchEvidenceV1
 from .integration import plans_for_feedback_decision
@@ -84,12 +89,20 @@ def verify_parameter_feedback_decision_occurrence(
 
 def verify_hosted_parameter_feedback_decision_occurrence(
     *,
-    context: OnlyVerifiedParameterSearchContextV1,
+    context: OnlyVerifiedParameterSearchContextV1 | OnlyHistoricalParameterSearchFactsV1,
     provenance: _ParameterOccurrenceProvenance,
     decisions: _ParameterDecisionReader,
     candidate_decision: OnlyParameterSearchFeedbackDecisionV1,
+    hosted_admission: OnlyHostedSearchAdmission | None = None,
 ) -> OnlyVerifiedParameterSearchFeedbackDecisionV1:
     """Seal an exact-worker result without re-executing current parent code."""
+
+    if isinstance(context, OnlyHistoricalParameterSearchFactsV1):
+        require_hosted_search_computation(
+            hosted_admission,
+            context.experiment.experiment_fingerprint,
+            candidate_decision.feedback_decision_fingerprint,
+        )
 
     ordered_plans = _ordered_plans(context, provenance)
     input_results = []
@@ -169,7 +182,7 @@ def verify_parameter_feedback_frontier_for_execution(
 
 
 def _ordered_plans(
-    context: OnlyVerifiedParameterSearchContextV1,
+    context: OnlyVerifiedParameterSearchContextV1 | OnlyHistoricalParameterSearchFactsV1,
     provenance: _ParameterOccurrenceProvenance,
 ) -> tuple[OnlySearchIterationPlanV1, ...]:
     plans = tuple(

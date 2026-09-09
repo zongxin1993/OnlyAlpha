@@ -48,6 +48,7 @@ from onlyalpha.application.search_product import (
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.quant_assets import OnlyQuantAssetCatalogManager
 from onlyalpha.research.command.model import (
+    OnlyDerivedResearchSubmitCommandV2,
     OnlyResearchSubmitDisposition,
     only_derived_research_run_id,
 )
@@ -94,17 +95,67 @@ class _Candidates:
 class _ExactTestGenerationExecution:
     """Test-only exact-generation stand-in; production uses the isolated host."""
 
+    def admit_experiment(self, runtime_generation_fingerprint, context):  # type: ignore[no-untyped-def]
+        from onlyalpha.research.experiment.store import _hosted_search_admission
+
+        self.derive_enumeration(runtime_generation_fingerprint, context)
+        return _hosted_search_admission(context.experiment.experiment_fingerprint, runtime_generation_fingerprint)
+
+    def _executable_context(self, facts):  # type: ignore[no-untyped-def]
+        from onlyalpha.research.search.symbolic.context import (
+            OnlyVerifiedSymbolicSearchContextV1,
+            verify_symbolic_evaluation_context,
+        )
+        from onlyalpha.research.search.symbolic.verification import verify_symbolic_search_space
+
+        catalog, _ = space(max_nodes=3)
+        dataset = verified_dataset(facts.experiment.dataset_snapshot_fingerprint)
+        verified_space = verify_symbolic_search_space(facts.search_space, catalog, dataset)
+        evaluation = verify_symbolic_evaluation_context(
+            facts.evaluation_contract, verified_space, specification_registry()
+        )
+        return OnlyVerifiedSymbolicSearchContextV1(
+            facts.experiment, verified_space, evaluation, catalog, dataset, facts.historical_algorithm_manifest
+        )
+
+    def derive_verified_enumeration(self, runtime_generation_fingerprint, context):  # type: ignore[no-untyped-def]
+        from onlyalpha.research.experiment.store import _hosted_search_admission
+
+        execution, result = self.derive_enumeration(runtime_generation_fingerprint, context)
+        proof = _hosted_search_admission(
+            context.experiment.experiment_fingerprint,
+            runtime_generation_fingerprint,
+            result.enumeration_result_fingerprint,
+        )
+        return execution, result, proof
+
     def derive_enumeration(self, runtime_generation_fingerprint, context):  # type: ignore[no-untyped-def]
         assert runtime_generation_fingerprint == "f" * 64
+        context = self._executable_context(context)
         execution = enumerate_symbolic_factor_proposals(
             context.verified_search_space,
             proposal_limit=context.experiment.search_budget.proposal_limit,
         )
         return execution, build_symbolic_enumeration_result(context.experiment, execution)
 
-    def verify_resolved_research(self, runtime_generation_fingerprint, context, proposal, resolved):  # type: ignore[no-untyped-def]
+    def resolve_research(self, runtime_generation_fingerprint, context, proposal):  # type: ignore[no-untyped-def]
+        from onlyalpha.research.search.symbolic.execution import OnlyHostedResolvedResearchV1
+        from onlyalpha.research.search.symbolic.integration import resolve_symbolic_research_candidate
+        from onlyalpha.research.search.symbolic.verification import verify_symbolic_proposal_reconstruction
+
         assert runtime_generation_fingerprint == "f" * 64
-        assert proposal.graph_fingerprint == resolved.candidate.graph_fingerprint
+        resolved = resolve_symbolic_research_candidate(
+            verify_symbolic_proposal_reconstruction(proposal, self._executable_context(context)),
+            OnlyResearchSpecificationResolver(specification_registry()),
+        )
+        return OnlyHostedResolvedResearchV1(
+            specification=resolved.specification,
+            proposal_fingerprint=proposal.proposal_fingerprint,
+            candidate_fingerprint=resolved.candidate.candidate_fingerprint,
+            calculation_fingerprint=resolved.candidate.calculation_fingerprint,
+            result_plan=resolved.resolution.workload.result_plan,
+            statistics_plans=resolved.resolution.workload.statistics_plans,
+        )
 
 
 class _Results:
@@ -158,6 +209,9 @@ class _Commands:
                 raise ValueError("RUNTIME_DERIVED_WORK_GENERATION_BINDING_CONFLICT")
             return SimpleNamespace(disposition=OnlyResearchSubmitDisposition.REUSED, run=run)
         run_id = only_derived_research_run_id(command_id)
+        fingerprint = OnlyDerivedResearchSubmitCommandV2(
+            command_id, resolved.specification, only_search_experiment_work_id(plan.experiment_fingerprint)
+        ).command_fingerprint
         self.runtime_generations.bind_derived_work(
             only_search_experiment_work_id(plan.experiment_fingerprint),
             run_id.value,
@@ -165,7 +219,7 @@ class _Commands:
         admission = OnlyProductCommandAdmissionV1(
             command_id,
             self.authority.research_kind,
-            "9" * 64,
+            fingerprint,
         )
         self.authority.admissions.setdefault(command_id, admission)
         self.authority.receipts.setdefault(
@@ -173,7 +227,7 @@ class _Commands:
             OnlyProductCommandReceipt(
                 command_id,
                 self.authority.research_kind,
-                "9" * 64,
+                fingerprint,
                 OnlyProductCommandOutcomeRef(OnlyProductCommandOutcomeKind.RESEARCH_RUN, run_id.value),
                 datetime(2026, 9, 8, tzinfo=UTC),
             ),
@@ -188,9 +242,7 @@ class _Commands:
         if self.state is not OnlyResearchRunState.QUEUED:
             run = run.transition(OnlyResearchRunState.RUNNING, at=datetime(2026, 9, 8, 0, 0, 1, tzinfo=UTC))
         if self.state is OnlyResearchRunState.COMPLETED:
-            result_fingerprint = hashlib.sha256(
-                cast(str, resolved.candidate.candidate_fingerprint).encode()
-            ).hexdigest()
+            result_fingerprint = hashlib.sha256(cast(str, resolved.candidate_fingerprint).encode()).hexdigest()
             run = run.transition(
                 OnlyResearchRunState.COMPLETED,
                 at=datetime(2026, 9, 8, 0, 0, 2, tzinfo=UTC),
@@ -223,7 +275,7 @@ class _Commands:
 
     def research_result_reference(self, *, outcome, resolved):  # type: ignore[no-untyped-def]
         del outcome
-        candidate = resolved.candidate.candidate_fingerprint
+        candidate = resolved.candidate_fingerprint
         assert candidate is not None
         reference = OnlySearchResearchResultReferenceV1(
             hashlib.sha256(f"locator:{candidate}".encode()).hexdigest(),
@@ -362,6 +414,83 @@ def _case(tmp_path, *, authority=None, runtime_generations=None):  # type: ignor
         runtime_generation_fingerprint=runtime_generations.generation_fingerprint,
     )
     return service, query, authority, commands, submit
+
+
+def test_historical_fact_view_cannot_publish_new_experiment_without_hosted_admission(tmp_path) -> None:
+    service, query, _authority, _commands, submit = _case(tmp_path)
+    created = service.submit(submit)
+    adapter = query._adapters[OnlySearchMethodV1.SYMBOLIC]
+    new_experiment = replace(created.experiment, hypothesis=OnlySearchHypothesisV1("unadmitted scientific intent"))
+    with pytest.raises(Exception, match="SEARCH_EXPERIMENT_UNVERIFIED"):
+        adapter._provenance.commit_experiment(new_experiment)
+    assert adapter._provenance.load_experiment_verified(created.experiment.experiment_fingerprint) == created.experiment
+
+
+def test_symbolic_parent_executable_traps_do_not_block_search_research(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    service, query, _authority, commands, submit = _case(tmp_path)
+    adapter = query._adapters[OnlySearchMethodV1.SYMBOLIC]
+
+    def forbidden(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("PARENT_CANNOT_EXECUTE_HISTORICAL_G1")
+
+    monkeypatch.setattr(adapter._contexts, "resolve_verified_context", forbidden)
+    monkeypatch.setattr(adapter._contexts._catalogs, "generation", forbidden)
+    monkeypatch.setattr(adapter._resolver, "resolve", forbidden)
+    created = service.submit(submit)
+    advanced = service.advance(
+        OnlyAdvanceSearchExperimentV1(
+            _command_id(),
+            OnlySearchMethodV1.SYMBOLIC,
+            OnlySearchBoundedOperationV1.ADVANCE_ONE_SYMBOLIC_OCCURRENCE,
+            created.ledger.expected_state,
+        )
+    )
+    plan = advanced.ledger.plans[0]
+    state = cast(OnlySymbolicExpectedStateV1, advanced.ledger.expected_state)
+    service.advance(
+        OnlyAdvanceSearchExperimentV1(
+            _command_id(),
+            OnlySearchMethodV1.SYMBOLIC,
+            OnlySearchBoundedOperationV1.RECONCILE_ONE_SYMBOLIC_OCCURRENCE,
+            _reconcile_expected(state, plan.iteration_plan_fingerprint),
+        )
+    )
+    assert commands.calls == 1
+    assert len(query.get_ledger(OnlyGetSearchIterationLedgerV1(created.experiment.experiment_fingerprint)).plans) == 1
+
+
+@pytest.mark.parametrize("corruption", ["candidate", "proposal", "dataset", "statistics"])
+def test_hosted_research_dto_rejects_identity_corruption(tmp_path, corruption) -> None:  # type: ignore[no-untyped-def]
+    from onlyalpha.application.search_generation_execution import OnlyHistoricalGenerationExecutionMismatch
+    from onlyalpha.research.search.symbolic.execution import decode_hosted_research
+
+    service, query, _authority, _commands, submit = _case(tmp_path)
+    created = service.submit(submit)
+    adapter = query._adapters[OnlySearchMethodV1.SYMBOLIC]
+    facts = adapter._contexts.resolve_historical_facts(created.experiment)
+    worker = _ExactTestGenerationExecution()
+    execution, _ = worker.derive_enumeration("f" * 64, facts)
+    proposal = execution.proposals[0]
+    resolved = worker.resolve_research("f" * 64, facts, proposal)
+    payload = {
+        "proposal_fingerprint": proposal.proposal_fingerprint,
+        "specification": resolved.specification.to_dict(),
+        "candidate_fingerprint": resolved.candidate_fingerprint,
+        "calculation_fingerprint": resolved.calculation_fingerprint,
+        "result_plan": resolved.result_plan.to_dict(),
+        "statistics_plans": [item.to_dict() for item in resolved.statistics_plans],
+    }
+    assert decode_hosted_research(payload, facts.evaluation_contract, proposal) == resolved
+    if corruption == "candidate":
+        payload["candidate_fingerprint"] = "b" * 64
+    elif corruption == "proposal":
+        payload["proposal_fingerprint"] = "c" * 64
+    elif corruption == "dataset":
+        payload["specification"] = replace(resolved.specification, dataset_snapshot_fingerprint="d" * 64).to_dict()
+    else:
+        payload["statistics_plans"] = []
+    with pytest.raises(OnlyHistoricalGenerationExecutionMismatch):
+        decode_hosted_research(payload, facts.evaluation_contract, proposal)
 
 
 def test_submit_and_bounded_symbolic_advance_reconcile_recovery(tmp_path) -> None:

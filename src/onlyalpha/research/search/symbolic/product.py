@@ -49,12 +49,11 @@ from .evaluation import (
     SYMBOLIC_EVALUATION_CONTRACT_KIND,
     OnlySymbolicResearchEvaluationContractV1,
 )
-from .execution import OnlyHostedSymbolicGenerationExecutionV1
+from .execution import OnlyHostedResolvedResearchV1, OnlyHostedSymbolicGenerationExecutionV1
 from .historical import (
     load_optional_symbolic_enumeration_result_historical_verified,
     load_symbolic_enumeration_result_historical_verified,
 )
-from .integration import OnlySymbolicResolvedResearchCandidateV1
 from .model import SYMBOLIC_SEARCH_SPACE_KIND, OnlySymbolicFactorSearchSpaceV2
 from .store import OnlyJsonSymbolicSearchStore
 
@@ -85,7 +84,7 @@ class OnlySymbolicResearchCommandGatewayV1:
         self,
         *,
         plan: object,
-        resolved: OnlySymbolicResolvedResearchCandidateV1,
+        resolved: OnlyHostedResolvedResearchV1,
     ) -> OnlyResearchSubmitOutcome:
         from onlyalpha.research.experiment import OnlySearchIterationPlanV1
 
@@ -101,11 +100,11 @@ class OnlySymbolicResearchCommandGatewayV1:
         self,
         *,
         outcome: OnlyResearchSubmitOutcome,
-        resolved: OnlySymbolicResolvedResearchCandidateV1,
+        resolved: OnlyHostedResolvedResearchV1,
     ) -> OnlySearchResearchResultReferenceV1:
         run = outcome.run
         result_fingerprint = run.research_result_fingerprint
-        locator = resolved.resolution.workload.result_plan.fingerprint
+        locator = resolved.research_result_plan_fingerprint
         if result_fingerprint is None:
             raise OnlySearchProductSemanticFactCorrupt(run.run_id.value)
         exact = self.research_results.load_verified(locator)
@@ -134,10 +133,13 @@ class OnlySymbolicSearchProductAdapterV1:
         research_runs: OnlySearchResearchRunReader | None = None,
     ) -> None:
         self._store = symbolic_store
-        self._provenance = provenance
+        fact_view = getattr(provenance, "historical_fact_view", None)
+        provenance = fact_view() if callable(fact_view) else provenance
+        self._provenance: OnlySymbolicControllerProvenance = provenance
         self._contexts = contexts
         self._resolver = resolver
         self._research_commands = research_commands
+        self._generation_execution = generation_execution
         if (product_receipts is None) != (research_runs is None):
             raise ValueError("Research Receipt and Run Authorities must be configured together")
         self._product_receipts = product_receipts
@@ -207,6 +209,8 @@ class OnlySymbolicSearchProductAdapterV1:
         self,
         command: OnlySearchSubmitCommandV1,
         experiment: OnlySearchExperimentManifest,
+        *,
+        runtime_generation_fingerprint: str | None = None,
     ) -> OnlySearchExperimentManifestV2:
         if not isinstance(
             command, (OnlySubmitSymbolicSearchExperimentV1, OnlySubmitSymbolicSearchExperimentV2)
@@ -219,7 +223,25 @@ class OnlySymbolicSearchProductAdapterV1:
         self._store.commit_algorithm_implementation_manifest(
             cast(OnlySymbolicSearchAlgorithmImplementationManifestV1, command.algorithm_manifest)
         )
-        self._provenance.commit_experiment(experiment)  # type: ignore[attr-defined]
+        admission = None
+        if (
+            isinstance(command, OnlySubmitSymbolicSearchExperimentV2)
+            and runtime_generation_fingerprint is not None
+            and runtime_generation_fingerprint != command.runtime_generation_fingerprint
+        ):
+            raise OnlySearchProductSemanticFactCorrupt("Submit bound generation differs")
+        selected = runtime_generation_fingerprint or (
+            command.runtime_generation_fingerprint
+            if isinstance(command, OnlySubmitSymbolicSearchExperimentV2)
+            else None
+        )
+        if selected is not None:
+            # Full generation-specific admission is computation only: Submit must
+            # not publish the Enumeration or any Plan.
+            admission = self._generation_execution.admit_experiment(
+                selected, self._contexts.resolve_historical_facts(experiment)
+            )
+        self._provenance.commit_experiment(experiment, hosted_admission=admission)  # type: ignore[attr-defined]
         exact = self.load_experiment_verified(experiment.experiment_fingerprint)
         self.verify_submit(command, exact)
         return exact
@@ -228,7 +250,7 @@ class OnlySymbolicSearchProductAdapterV1:
         experiment = self._provenance.load_experiment_verified(experiment_fingerprint)  # type: ignore[attr-defined]
         if not isinstance(experiment, OnlySearchExperimentManifestV2):
             raise OnlySearchProductMethodUnsupported(experiment_fingerprint)
-        self._contexts.resolve_verified_context(experiment)
+        self._contexts.resolve_historical_facts(experiment)
         return experiment
 
     def verify_submit(
@@ -240,7 +262,7 @@ class OnlySymbolicSearchProductAdapterV1:
             self.derive_submit_experiment(command)
         ):
             raise OnlySearchProductSemanticFactCorrupt(getattr(experiment, "experiment_fingerprint", "unknown"))
-        self._contexts.resolve_verified_context(experiment)
+        self._contexts.resolve_historical_facts(experiment)
 
     def apply_advance(
         self,
@@ -251,7 +273,7 @@ class OnlySymbolicSearchProductAdapterV1:
         if not isinstance(expected, OnlySymbolicExpectedStateV1):
             raise OnlySearchProductSemanticFactCorrupt(command.experiment_fingerprint)
         experiment = self.load_experiment_verified(command.experiment_fingerprint)
-        context = self._contexts.resolve_verified_context(experiment)
+        context = self._contexts.resolve_historical_facts(experiment)
         self._controller.apply(
             context,
             command.operation,
@@ -270,7 +292,7 @@ class OnlySymbolicSearchProductAdapterV1:
         if not isinstance(expected, OnlySymbolicExpectedStateV1):
             return OnlySearchProductEffectStateV1.CONFLICT_OR_STALE
         experiment = self.load_experiment_verified(command.experiment_fingerprint)
-        context = self._contexts.resolve_verified_context(experiment)
+        context = self._contexts.resolve_historical_facts(experiment)
         return self._controller.assess_effect(context, command.operation, expected, runtime_generation_fingerprint)
 
     def verify_advance_effect(self, command: OnlyAdvanceSearchExperimentV1) -> None:
@@ -278,7 +300,7 @@ class OnlySymbolicSearchProductAdapterV1:
         if not isinstance(expected, OnlySymbolicExpectedStateV1):
             raise OnlySearchProductSemanticFactCorrupt(command.experiment_fingerprint)
         experiment = self.load_experiment_verified(command.experiment_fingerprint)
-        context = self._contexts.resolve_verified_context(experiment)
+        context = self._contexts.resolve_historical_facts(experiment)
         actual = self._controller.expected_state(
             context,
             target_plan_fingerprint=expected.target_plan_fingerprint,
@@ -347,7 +369,7 @@ class OnlySymbolicSearchProductAdapterV1:
 
     def ledger(self, experiment_fingerprint: str) -> OnlySearchIterationLedgerProjectionV1:
         experiment = self.load_experiment_verified(experiment_fingerprint)
-        context = self._contexts.resolve_verified_context(experiment)
+        context = self._contexts.resolve_historical_facts(experiment)
         plans = tuple(
             sorted(
                 self._provenance.iteration_plans_for_experiment_verified(experiment_fingerprint),
