@@ -1,18 +1,22 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 import yaml
 
 from scripts.quality_policy import load_quality_policy
 from scripts.test_suite import RELEASE_STATIC_COMMANDS
+from tests.certification.p8_6 import conftest as p8_6_conftest
 
 POLICY = load_quality_policy()
 CANONICAL_STATIC_COMMAND = "uv run python scripts/test_suite.py release-static"
 CANONICAL_GATEWAY_COMMAND = (
     'uv run python scripts/gateway_protocol.py verify-lane --base "${{ steps.baseline.outputs.sha }}"'
 )
+CANONICAL_POSTGRES_DSN = "postgresql://onlyalpha:onlyalpha_test@127.0.0.1:5432/onlyalpha_test"
+OBSOLETE_TEST_POSTGRES_DSN_NAME = "ONLYALPHA_TEST_" + "POSTGRES_DSN"
 
 
 def _workflow() -> dict[str, dict[str, object]]:
@@ -143,6 +147,59 @@ def test_functional_postgres_web_and_broad_lanes_remain_active() -> None:
     assert "market-data-clickhouse" not in jobs
     for command in ("static", "unit", "build", "e2e"):
         assert f"uv run python scripts/web_suite.py {command}" in _runs(jobs["web"])
+
+
+def test_research_product_closure_uses_the_canonical_test_database_identity() -> None:
+    job = _workflow()["research-product-closure"]
+    env = job.get("env")
+    assert isinstance(env, dict)
+    assert env.get("ONLYALPHA_POSTGRES_DSN") == CANONICAL_POSTGRES_DSN
+    assert OBSOLETE_TEST_POSTGRES_DSN_NAME not in env
+
+    for path in (Path(".github/workflows/quality.yml"), Path(".env.example")):
+        assert OBSOLETE_TEST_POSTGRES_DSN_NAME not in path.read_text(encoding="utf-8")
+
+
+def test_p8_6_postgres_fixture_fails_closed_without_the_canonical_dsn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ONLYALPHA_POSTGRES_DSN", raising=False)
+    connect = MagicMock()
+    monkeypatch.setattr(p8_6_conftest.psycopg, "connect", connect)
+
+    with pytest.raises(pytest.fail.Exception, match="ONLYALPHA_POSTGRES_DSN is required"):
+        p8_6_conftest.postgres_dsn.__wrapped__()
+    connect.assert_not_called()
+
+
+def test_p8_6_postgres_fixture_rejects_production_before_schema_reset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONLYALPHA_POSTGRES_DSN", "postgresql://onlyalpha:secret@database/onlyalpha")
+    connect = MagicMock()
+    monkeypatch.setattr(p8_6_conftest.psycopg, "connect", connect)
+
+    with pytest.raises(RuntimeError, match="POSTGRES_INTEGRATION_TEST_DATABASE_REQUIRED"):
+        p8_6_conftest.postgres_dsn.__wrapped__()
+    connect.assert_not_called()
+
+
+def test_p8_6_postgres_fixture_allows_test_database_and_resets_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dsn = "postgresql://onlyalpha:secret@database/onlyalpha_test"
+    monkeypatch.setenv("ONLYALPHA_POSTGRES_DSN", dsn)
+    connection = MagicMock()
+    connect = MagicMock()
+    connect.return_value.__enter__.return_value = connection
+    monkeypatch.setattr(p8_6_conftest.psycopg, "connect", connect)
+
+    assert p8_6_conftest.postgres_dsn.__wrapped__() == dsn
+    connect.assert_called_once_with(dsn, autocommit=True)
+    assert [call.args[0] for call in connection.execute.call_args_list] == [
+        "DROP SCHEMA public CASCADE",
+        "CREATE SCHEMA public",
+    ]
 
 
 def test_gateway_protocol_history_is_scoped_to_protocol_compatibility() -> None:

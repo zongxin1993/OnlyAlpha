@@ -212,7 +212,7 @@ jobs:
           --health-timeout 5s
           --health-retries 12
     env:
-      ONLYALPHA_TEST_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha_test@127.0.0.1:5432/onlyalpha_test
+      ONLYALPHA_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha_test@127.0.0.1:5432/onlyalpha_test
       ONLYALPHA_POSTGRES_CLIENT_BIN_DIR: /usr/lib/postgresql/18/bin
     steps:
       - uses: actions/checkout@v6
