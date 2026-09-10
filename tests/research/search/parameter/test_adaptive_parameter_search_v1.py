@@ -98,7 +98,7 @@ from tests.research.specification.support import registry as specification_regis
 from tests.research.specification.support import specification
 from tests.research.sweep.support import definition, registry
 
-pytestmark = pytest.mark.usefixtures("packaged_build_provenance_reader")
+pytestmark = pytest.mark.usefixtures("source_checkout_parameter_build_provenance_stub")
 
 _SHA = "a" * 64
 _ALGORITHM_SHA = "b" * 64
@@ -763,9 +763,10 @@ def test_parameter_runtime_identity_is_offline_and_does_not_require_git(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("PATH", "")
-    manifest = only_deterministic_coarse_to_fine_implementation()
-    assert len(manifest.source_revision) == 40
-    assert manifest.source_revision.isalnum()
+    first = only_deterministic_coarse_to_fine_implementation()
+    second = only_deterministic_coarse_to_fine_implementation()
+    assert first == second
+    assert first.source_revision == "1" * 40
 
 
 def test_missing_packaged_build_provenance_fails_before_new_work(

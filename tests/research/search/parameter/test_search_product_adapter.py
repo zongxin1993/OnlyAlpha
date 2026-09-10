@@ -84,7 +84,7 @@ from .test_adaptive_parameter_search_v1 import (
     _verified,
 )
 
-pytestmark = pytest.mark.usefixtures("packaged_build_provenance_reader")
+pytestmark = pytest.mark.usefixtures("source_checkout_parameter_build_provenance_stub")
 
 
 class _ExactTestGenerationExecution:

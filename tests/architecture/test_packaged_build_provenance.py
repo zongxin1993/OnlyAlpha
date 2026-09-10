@@ -159,6 +159,19 @@ def test_build_api_separates_git_origin_from_carrier_and_has_no_ambient_override
     assert set(inspect.signature(read_git_build_source_revision).parameters) == {"repository_root"}
 
 
+@pytest.mark.parametrize(
+    "relative_path",
+    (
+        "tests/research/postgres/test_parameter_search_recovery.py",
+        "tests/research/postgres/test_search_product_cross_authority_recovery.py",
+    ),
+)
+def test_real_postgres_recovery_does_not_bind_source_checkout_provenance_stub(relative_path: str) -> None:
+    source = (ROOT / relative_path).read_text(encoding="utf-8")
+    assert "source_checkout_parameter_build_provenance_stub" not in source
+    assert "packaged_build_provenance_reader" not in source
+
+
 def test_malformed_packaged_build_provenance_fails_closed() -> None:
     with pytest.raises(ValueError, match="ONLYALPHA_BUILD_PROVENANCE_INVALID"):
         OnlyPackagedBuildProvenanceV1(

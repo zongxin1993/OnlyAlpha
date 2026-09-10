@@ -34,8 +34,8 @@ settings.load_profile(os.getenv("HYPOTHESIS_PROFILE", "dev"))
 
 
 @pytest.fixture
-def packaged_build_provenance_reader(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Give source-checkout tests an explicit test-only packaged-provenance reader."""
+def source_checkout_parameter_build_provenance_stub(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give Parameter Search source-checkout tests one deterministic test provenance."""
 
     import onlyalpha.research.search.parameter.algorithm as parameter_algorithm
 

@@ -36,7 +36,7 @@ from tests.research.search.symbolic.test_research_and_provenance_integration imp
 from tests.research.specification.support import registry
 from tests.research.sweep.support import definition
 
-pytestmark = pytest.mark.usefixtures("packaged_build_provenance_reader")
+pytestmark = pytest.mark.usefixtures("source_checkout_parameter_build_provenance_stub")
 
 
 def test_worker_executes_real_symbolic_catalog_registry_resolver_and_algorithm(tmp_path) -> None:  # type: ignore[no-untyped-def]
