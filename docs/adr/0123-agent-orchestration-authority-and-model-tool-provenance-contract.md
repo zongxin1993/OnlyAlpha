@@ -1,7 +1,7 @@
 # ADR 0123: Agent Orchestration Authority and Model/Tool Provenance Contract
 
 - Status: Accepted
-- Date: 2026-09-08
+- Date: 2026-09-08 (amended 2026-09-10 for Agent Launch Tool Result identity closure)
 - Decision maker: repository owner through the B3.4.0 design authorization
 - Related: ADR 0091, 0103, 0108, 0118, 0119, 0120, 0121, 0122
 
@@ -576,12 +576,17 @@ Result, Agent Search Directive, and corresponding Tool Call Plan are durable.
 schema_version = 1
 agent_session_fingerprint
 agent_decision_fingerprint
-tool_call_fingerprint
+tool_call_result_fingerprint
 child_search_experiment_fingerprint
 experiment_launch_record_fingerprint
 ```
 
 The Launch Record exists only for an actual Symbolic or Parameter child Search and is the exclusive Agent-to-child lineage Authority.
+`tool_call_result_fingerprint` is the exact successful Tool Call Result occurrence whose verified owning-Authority response proves the
+child Search Experiment identity. A Tool Call Plan records intent only and is insufficient to prove that the child exists. Historical
+Launch verification therefore exact-loads the Result, requires `outcome = SUCCEEDED`, exact-loads its Plan, verifies that the Plan was
+authorized by the bound Search Directive, and requires the Result's owning Search reference to equal
+`child_search_experiment_fingerprint`.
 It neither changes nor enters the child Search Experiment's own identity. Agent Decision, Model Call, and Tool Call fingerprints must
 not be injected into B3.2/B3.3 internal Plan, Feedback Decision, algorithm, Proposal, or decision-input/tool-result context. The child
 preserves its own Search hypothesis, Search Space, Evaluation, Catalog, Dataset, algorithm, budget, and internal decision Authority.

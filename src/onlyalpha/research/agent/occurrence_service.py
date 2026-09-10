@@ -522,6 +522,20 @@ class OnlyAgentModelOccurrenceServiceV1:
                 raise OnlyAgentContextError("AGENT_MODEL_RESPONSE_INVALID", plan_fingerprint)
         return result
 
+    def load_result_by_fingerprint_verified(self, result_fingerprint: str) -> OnlyAgentModelCallResultV1:
+        result = self._store.load_result_verified(result_fingerprint)
+        exact = self.load_result_verified(result.model_call_plan_fingerprint)
+        if exact.model_call_result_fingerprint != result_fingerprint:
+            raise OnlyAgentContextError("AGENT_MODEL_CALL_RESULT_INVALID", result_fingerprint)
+        return exact
+
+    def load_plan_by_session_ordinal_verified(self, session_fingerprint: str, ordinal: int) -> OnlyAgentModelCallPlanV1:
+        plan = self._store.load_plan_by_session_ordinal_verified(session_fingerprint, ordinal)
+        return self.load_plan_verified(plan.model_call_plan_fingerprint)
+
+    def result_exists(self, plan_fingerprint: str) -> bool:
+        return self._store.result_exists(plan_fingerprint)
+
     def _require_prepared(self, prepared: OnlyPreparedAgentModelCallV1) -> OnlyAgentModelCallPlanV1:
         if not isinstance(prepared, OnlyPreparedAgentModelCallV1) or prepared._service_token is not self._token:
             raise OnlyAgentContextError("AGENT_MODEL_CALL_PLAN_INVALID", "Invocation was not prepared by this service")
@@ -895,6 +909,20 @@ class OnlyAgentToolOccurrenceServiceV1:
             if only_canonical_fingerprint(validated) != result.canonical_response_fingerprint:
                 raise OnlyAgentContextError("AGENT_TOOL_RESULT_INVALID", plan_fingerprint)
         return result
+
+    def load_result_by_fingerprint_verified(self, result_fingerprint: str) -> OnlyAgentToolCallResultV1:
+        result = self._store.load_result_verified(result_fingerprint)
+        exact = self.load_result_verified(result.tool_call_plan_fingerprint)
+        if exact.tool_call_result_fingerprint != result_fingerprint:
+            raise OnlyAgentContextError("AGENT_TOOL_CALL_RESULT_INVALID", result_fingerprint)
+        return exact
+
+    def load_plan_by_session_ordinal_verified(self, session_fingerprint: str, ordinal: int) -> OnlyAgentToolCallPlanV1:
+        plan = self._store.load_plan_by_session_ordinal_verified(session_fingerprint, ordinal)
+        return self.load_plan_verified(plan.tool_call_plan_fingerprint)
+
+    def result_exists(self, plan_fingerprint: str) -> bool:
+        return self._store.result_exists(plan_fingerprint)
 
     def _require_prepared(
         self, prepared: OnlyPreparedAgentToolCallV1

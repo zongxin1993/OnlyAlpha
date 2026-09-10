@@ -269,6 +269,14 @@ class OnlyJsonAgentModelOccurrenceStore(_OccurrenceStoreHelpers):
             raise OnlyAgentContextStoreError("AGENT_MODEL_CALL_RESULT_CONFLICT", plan_fingerprint)
         return result
 
+    def load_result_verified(self, result_fingerprint: str) -> OnlyAgentModelCallResultV1:
+        return self._results.load(
+            result_fingerprint,
+            OnlyAgentModelCallResultV1.from_dict,
+            "AGENT_MODEL_CALL_RESULT_INVALID",
+            "AGENT_MODEL_CALL_RESULT_CONFLICT",
+        )
+
     def result_exists(self, plan_fingerprint: str) -> bool:
         key = _OccurrenceLocatorV1.expected_fingerprint(
             _OccurrenceLocatorKind.MODEL_RESULT_BY_PLAN, plan_fingerprint, None
@@ -398,6 +406,14 @@ class OnlyJsonAgentToolOccurrenceStore(_OccurrenceStoreHelpers):
         if result.tool_call_plan_fingerprint != plan_fingerprint:
             raise OnlyAgentContextStoreError("AGENT_TOOL_CALL_RESULT_CONFLICT", plan_fingerprint)
         return result
+
+    def load_result_verified(self, result_fingerprint: str) -> OnlyAgentToolCallResultV1:
+        return self._results.load(
+            result_fingerprint,
+            OnlyAgentToolCallResultV1.from_dict,
+            "AGENT_TOOL_CALL_RESULT_INVALID",
+            "AGENT_TOOL_CALL_RESULT_CONFLICT",
+        )
 
     def result_exists(self, plan_fingerprint: str) -> bool:
         key = _OccurrenceLocatorV1.expected_fingerprint(

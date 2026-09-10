@@ -91,6 +91,16 @@ class _OnlyJsonPutOnceStore:
                 raise OnlyAgentContextStoreError(mismatch_code, fingerprint) from exc
         return OnlyAgentCommitOutcome(OnlyAgentCommitDisposition.CREATED, fingerprint)
 
+    @contextmanager
+    def coordination_lock(self, fingerprint: str, missing_code: str) -> Iterator[None]:
+        """Serialize a compound publication under one exact semantic identity."""
+
+        target = self._target(fingerprint, missing_code)
+        lock = target.parent / f".{fingerprint}.coordination.lock"
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        with self._locked(lock):
+            yield
+
     def load(
         self,
         fingerprint: str,
@@ -265,6 +275,9 @@ def _payload(value: object) -> Mapping[str, object]:
 
 def _identity(value: object) -> str:
     for name in (
+        "locator_fingerprint",
+        "decision_fingerprint",
+        "experiment_launch_record_fingerprint",
         "session_fingerprint",
         "resource_fingerprint",
         "research_brief_fingerprint",
@@ -272,7 +285,6 @@ def _identity(value: object) -> str:
         "tool_call_result_fingerprint",
         "model_call_plan_fingerprint",
         "tool_call_plan_fingerprint",
-        "locator_fingerprint",
     ):
         identity = getattr(value, name, None)
         if isinstance(identity, str):

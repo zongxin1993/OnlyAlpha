@@ -39,11 +39,10 @@ def test_agent_context_core_has_no_provider_transport_execution_or_provenance_di
         assert "packages/onlyalpha-agent-orchestrator" not in source
 
 
-def test_agent_occurrence_foundation_has_no_next_action_or_generic_call_authority() -> None:
+def test_agent_application_has_no_generic_call_or_mutable_progress_authority() -> None:
     root = Path(__file__).resolve().parents[2] / "src" / "onlyalpha" / "research" / "agent"
     source = "\n".join(path.read_text(encoding="utf-8") for path in root.glob("*.py"))
     for forbidden in (
-        "class OnlyAgentDecisionV1",
         "class GenericCallPlan",
         "class GenericCallResult",
         "class GenericExternalCallStore",
@@ -58,6 +57,38 @@ def test_agent_occurrence_foundation_has_no_next_action_or_generic_call_authorit
         "TEST_MODEL_RETRY_AUTHORIZED",
         "class OnlyAgentModelRetryAuthorization",
         "load_model_retry_authorization_verified",
+        "session.status",
+        "session.current_step",
+        "session.next_action",
+    ):
+        assert forbidden not in source
+
+
+def test_decision_and_launch_store_commits_are_application_service_only() -> None:
+    root = Path(__file__).resolve().parents[2] / "src" / "onlyalpha"
+    allowed = {"research/agent/application.py"}
+    for method in (".commit_decision(", ".commit_launch_record("):
+        callsites = {
+            path.relative_to(root).as_posix()
+            for path in root.rglob("*.py")
+            if path.name != "decision_store.py" and method in path.read_text(encoding="utf-8")
+        }
+        assert callsites == allowed
+
+    import onlyalpha.research.agent as agent_api
+
+    assert "OnlyJsonAgentDecisionStore" not in agent_api.__all__
+    assert "OnlyJsonAgentExperimentLaunchStore" not in agent_api.__all__
+
+
+def test_agent_decision_and_launch_do_not_leak_into_search_identity() -> None:
+    search_root = Path(__file__).resolve().parents[2] / "src" / "onlyalpha" / "research" / "search"
+    source = "\n".join(path.read_text(encoding="utf-8") for path in search_root.rglob("*.py"))
+    for forbidden in (
+        "agent_decision_fingerprint",
+        "agent_session_fingerprint",
+        "tool_call_result_fingerprint",
+        "experiment_launch_record_fingerprint",
     ):
         assert forbidden not in source
 
