@@ -13,6 +13,7 @@ A failure pattern is **not** an external patch and is **not** a new product Auth
 Use stable domain-prefixed identifiers:
 
 ```text
+FP-DOMAIN-xxx    Canonical domain / market-rule boundary leakage
 FP-DATA-xxx      Market Data / Tick / Replay
 FP-BROKER-xxx    Order / Fill / Reconciliation
 FP-CALC-xxx      Calculation / Streaming / Checkpoint
@@ -88,10 +89,15 @@ Good candidates include demonstrated failures such as:
 - snapshot/delta races;
 - timeout after venue acceptance causing duplicate submit;
 - partial-fill recovery divergence;
+- reconnect changing logical order identity because identity was tied to a session;
 - retry causing a second external side effect;
 - checkpoint/restart calculation drift;
 - batch/streaming semantic divergence;
+- authoritative historical data being mutated by a derived transform;
+- corporate-action or vendor-history revisions silently changing old research inputs;
+- provider/market rules leaking into canonical Instrument semantics;
 - DST/timezone boundary errors;
+- invalid provider timestamps crossing into canonical facts;
 - point-in-time / look-ahead leakage;
 - warmup / NaN handling producing invalid scientific evidence;
 - WAL or manifest crash-boundary ambiguity;
@@ -122,6 +128,7 @@ reproduced correctness defect
 → provider / venue specification defining dangerous semantics
 → production incident / postmortem
 → open issue with strong reproduction
+→ operational documentation describing a concrete failure mechanism
 → design discussion
 ```
 
@@ -139,6 +146,20 @@ Failure evidence
 ```
 
 For high-risk patterns, documentation alone is insufficient when a deterministic reproduction or controlled fault test can be built.
+
+When a high-risk plan identifies an external defect as applicable, the plan/implementation must either:
+
+```text
+convert it into an existing/new OnlyAlpha invariant + executable protection
+```
+
+or explicitly explain why the failure mechanism is not applicable under the exact OnlyAlpha boundary being changed. Merely citing the upstream issue is not enough.
+
+## Consumption rule
+
+Before implementing or reviewing high-risk behavior, use the current Task Contract/Impact Scope to select only the failure-pattern domains that can actually apply. The implementer and reviewer should inspect those records before changing the affected state machine, provider adapter, persistence protocol, Research semantics or public contract.
+
+Do not turn this into a repository-wide checklist for every small change. The library is a risk-directed engineering input.
 
 ## Example skeleton
 
