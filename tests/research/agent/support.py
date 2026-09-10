@@ -138,9 +138,14 @@ def make_context(root: Path) -> ContextFixture:
     schema = resource(
         OnlyAgentOrchestrationResourceKind.STRUCTURED_OUTPUT_SCHEMA,
         OnlyAgentStructuredOutputSchemaPayloadV1(
-            "JSON_SCHEMA",
-            "2020.12",
-            {"additionalProperties": False, "required": ["action"], "type": "object"},
+            "ONLYALPHA_STRICT_STRUCTURED_OUTPUT",
+            "1.0.0",
+            {
+                "additionalProperties": False,
+                "properties": {"action": {"enum": ["PLAN", "STOP"], "type": "string"}},
+                "required": ["action"],
+                "type": "object",
+            },
             "object",
             True,
             "EXACT_DECLARED_ENUMS",
@@ -163,21 +168,34 @@ def make_context(root: Path) -> ContextFixture:
             ("api_key", "credentials", "secret_locator"),
         ),
     )
-    allowed_tools = (
-        OnlyAgentToolClass.EXACT_CATALOG_CONTEXT_QUERY,
-        OnlyAgentToolClass.RESEARCH_RUN_SUBMIT,
-    )
+    allowed_tools = tuple(sorted(OnlyAgentToolClass, key=lambda item: item.value))
+    classifications = {
+        OnlyAgentToolClass.EXACT_CATALOG_CONTEXT_QUERY: OnlyAgentOperationClassification.QUERY,
+        OnlyAgentToolClass.RESEARCH_DEFINITION_RESOLVE: OnlyAgentOperationClassification.PURE_RESOLVE,
+        OnlyAgentToolClass.RESEARCH_RUN_SUBMIT: OnlyAgentOperationClassification.COMMAND,
+        OnlyAgentToolClass.RESEARCH_RUN_QUERY: OnlyAgentOperationClassification.QUERY,
+        OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY: OnlyAgentOperationClassification.QUERY,
+        OnlyAgentToolClass.SYMBOLIC_SEARCH: OnlyAgentOperationClassification.COMMAND,
+        OnlyAgentToolClass.PARAMETER_SEARCH: OnlyAgentOperationClassification.COMMAND,
+        OnlyAgentToolClass.SEARCH_QUERY: OnlyAgentOperationClassification.QUERY,
+    }
     tool_policy = resource(
         OnlyAgentOrchestrationResourceKind.TOOL_POLICY,
         OnlyAgentToolPolicyPayloadV1(
             allowed_tools,
-            (
-                OnlyAgentToolOperationConstraintV1(
-                    "catalog.exact-context.v1",
-                    OnlyAgentToolClass.EXACT_CATALOG_CONTEXT_QUERY,
-                    OnlyAgentOperationClassification.QUERY,
-                    ("catalog_generation_fingerprint",),
-                ),
+            tuple(
+                sorted(
+                    (
+                        OnlyAgentToolOperationConstraintV1(
+                            f"{tool_class.value.lower()}.v1",
+                            tool_class,
+                            classifications[tool_class],
+                            ("id",),
+                        )
+                        for tool_class in allowed_tools
+                    ),
+                    key=lambda item: item.operation_identity,
+                )
             ),
             ("ARBITRARY_HTTP", "BROKER", "DIRECT_DATABASE", "GIT", "LIVE", "SHELL"),
         ),

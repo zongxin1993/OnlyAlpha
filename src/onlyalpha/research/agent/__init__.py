@@ -2,6 +2,8 @@
 
 from .errors import *  # noqa: F403
 from .model import *  # noqa: F403
+from .occurrence import *  # noqa: F403
+from .occurrence_service import *  # noqa: F403
 from .store import *  # noqa: F403
 from .verification import *  # noqa: F403
 from .workflow import *  # noqa: F403
@@ -9,5 +11,7 @@ from .workflow import *  # noqa: F403
 __all__ = [
     name
     for name in globals()
-    if name.startswith(("OnlyAgent", "OnlyJsonAgent", "OnlyVerifiedAgent", "admit_", "derive_", "verify_"))
+    if name.startswith(
+        ("OnlyAgent", "OnlyJsonAgent", "OnlyPreparedAgent", "OnlyVerifiedAgent", "admit_", "derive_", "verify_")
+    )
 ]

@@ -142,6 +142,13 @@ class _OnlyJsonPutOnceStore:
                 raise OnlyAgentContextStoreError("AGENT_CONTEXT_UNSAFE_PATH", str(target))
             current = current.parent
 
+    def exists(self, fingerprint: str, missing_code: str) -> bool:
+        target = self._target(fingerprint, missing_code)
+        if not target.exists():
+            return False
+        self._require_safe(target)
+        return True
+
     @staticmethod
     @contextmanager
     def _locked(path: Path) -> Iterator[None]:
@@ -257,7 +264,16 @@ def _payload(value: object) -> Mapping[str, object]:
 
 
 def _identity(value: object) -> str:
-    for name in ("session_fingerprint", "resource_fingerprint", "research_brief_fingerprint"):
+    for name in (
+        "session_fingerprint",
+        "resource_fingerprint",
+        "research_brief_fingerprint",
+        "model_call_result_fingerprint",
+        "tool_call_result_fingerprint",
+        "model_call_plan_fingerprint",
+        "tool_call_plan_fingerprint",
+        "locator_fingerprint",
+    ):
         identity = getattr(value, name, None)
         if isinstance(identity, str):
             return identity
