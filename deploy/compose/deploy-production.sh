@@ -21,10 +21,13 @@ if grep -Eq '^ONLYALPHA_POSTGRES_DSN=.*<url-encoded-password>' "${environment_fi
   exit 2
 fi
 
-if [[ -z "${ONLYALPHA_BUILD_SOURCE_REVISION:-}" ]]; then
-  ONLYALPHA_BUILD_SOURCE_REVISION="$(git -C "${repository_root}" rev-parse HEAD)"
-  export ONLYALPHA_BUILD_SOURCE_REVISION
+actual_revision="$(git -C "${repository_root}" rev-parse HEAD)"
+if [[ -n "${ONLYALPHA_BUILD_SOURCE_REVISION:-}" && "${ONLYALPHA_BUILD_SOURCE_REVISION}" != "${actual_revision}" ]]; then
+  echo "ONLYALPHA_BUILD_SOURCE_REVISION conflicts with the repository Git HEAD" >&2
+  exit 2
 fi
+ONLYALPHA_BUILD_SOURCE_REVISION="${actual_revision}"
+export ONLYALPHA_BUILD_SOURCE_REVISION
 
 docker compose --env-file "${environment_file}" "${compose_files[@]}" config --quiet
 docker compose --env-file "${environment_file}" "${compose_files[@]}" build operator

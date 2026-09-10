@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
 from onlyalpha_runtime_generation_manager.search_worker import (
     _derive_parameter,
     _derive_symbolic,
@@ -34,6 +35,8 @@ from tests.research.search.symbolic.test_research_and_provenance_integration imp
 )
 from tests.research.specification.support import registry
 from tests.research.sweep.support import definition
+
+pytestmark = pytest.mark.usefixtures("packaged_build_provenance_reader")
 
 
 def test_worker_executes_real_symbolic_catalog_registry_resolver_and_algorithm(tmp_path) -> None:  # type: ignore[no-untyped-def]

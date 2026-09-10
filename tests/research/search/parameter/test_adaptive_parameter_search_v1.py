@@ -98,6 +98,8 @@ from tests.research.specification.support import registry as specification_regis
 from tests.research.specification.support import specification
 from tests.research.sweep.support import definition, registry
 
+pytestmark = pytest.mark.usefixtures("packaged_build_provenance_reader")
+
 _SHA = "a" * 64
 _ALGORITHM_SHA = "b" * 64
 _METRIC = only_research_effect_metric(OnlyResearchStatisticsMethod.IC, "mean").metric_id

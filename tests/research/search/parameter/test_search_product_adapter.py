@@ -84,6 +84,8 @@ from .test_adaptive_parameter_search_v1 import (
     _verified,
 )
 
+pytestmark = pytest.mark.usefixtures("packaged_build_provenance_reader")
+
 
 class _ExactTestGenerationExecution:
     """Test-only exact-generation stand-in; production uses the isolated host."""

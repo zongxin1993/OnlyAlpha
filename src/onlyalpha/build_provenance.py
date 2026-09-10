@@ -36,6 +36,16 @@ class OnlyPackagedBuildProvenanceV1:
         ):
             raise ValueError("ONLYALPHA_BUILD_PROVENANCE_INVALID")
 
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "distribution_name": self.distribution_name,
+            "distribution_version": self.distribution_version,
+            "schema_version": self.schema_version,
+            "source_provenance_authority": self.source_provenance_authority.value,
+            "source_repository": self.source_repository,
+            "source_revision": self.source_revision,
+        }
+
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> OnlyPackagedBuildProvenanceV1:
         if set(payload) != {
@@ -80,7 +90,7 @@ def only_packaged_build_provenance() -> OnlyPackagedBuildProvenanceV1:
     """Load exact build provenance without consulting Git, a network, or mutable state."""
 
     try:
-        raw = resources.files("onlyalpha").joinpath(_RESOURCE).read_text(encoding="utf-8")
+        raw = resources.files("onlyalpha").joinpath(_RESOURCE).read_bytes()
     except (FileNotFoundError, ModuleNotFoundError, OSError) as exc:
         raise ValueError("ONLYALPHA_BUILD_PROVENANCE_UNAVAILABLE") from exc
     try:
@@ -90,6 +100,9 @@ def only_packaged_build_provenance() -> OnlyPackagedBuildProvenanceV1:
     if not isinstance(payload, dict) or any(not isinstance(key, str) for key in payload):
         raise ValueError("ONLYALPHA_BUILD_PROVENANCE_INVALID")
     value = OnlyPackagedBuildProvenanceV1.from_dict(cast(dict[str, object], payload))
+    canonical = (json.dumps(value.to_dict(), sort_keys=True, separators=(",", ":")) + "\n").encode()
+    if raw != canonical:
+        raise ValueError("ONLYALPHA_BUILD_PROVENANCE_INVALID")
     try:
         installed_version = metadata.version(value.distribution_name)
     except metadata.PackageNotFoundError as exc:

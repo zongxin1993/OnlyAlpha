@@ -4,6 +4,7 @@ from dataclasses import replace
 
 import pytest
 
+import onlyalpha.research.agent.workflow as workflow_module
 from onlyalpha.research.agent import (
     OnlyAgentBudgetV1,
     OnlyAgentContextError,
@@ -97,7 +98,7 @@ def test_set_semantics_require_canonical_order(tmp_path) -> None:
 
 
 @pytest.mark.parametrize("change", ["bytes", "revision", "semantic_version", "distribution"])
-def test_runtime_admission_requires_complete_exact_manifest(tmp_path, change: str) -> None:
+def test_runtime_admission_requires_complete_exact_manifest(monkeypatch, tmp_path, change: str) -> None:
     context = make_context(tmp_path)
     workflow = context.resources[-1]
     historical = workflow.canonical_payload
@@ -112,11 +113,11 @@ def test_runtime_admission_requires_complete_exact_manifest(tmp_path, change: st
         revision="2" * 40 if change == "revision" else "1" * 40,
         version="0.9.10" if change == "distribution" else "0.9.9",
     )
+    monkeypatch.setattr(workflow_module, "only_packaged_build_provenance", lambda: provenance)
     current = derive_agent_workflow_implementation_manifest(
         workflow_id="ONLYALPHA_AGENT_V1",
         workflow_semantic_version="2.0.0" if change == "semantic_version" else "1.0.0",
         runtime_resources=resources,
-        build_provenance=provenance,
     )
     assert historical != current
     with pytest.raises(OnlyAgentContextError) as raised:
@@ -124,9 +125,10 @@ def test_runtime_admission_requires_complete_exact_manifest(tmp_path, change: st
     assert raised.value.code == "AGENT_WORKFLOW_RUNTIME_MISMATCH"
 
 
-def test_runtime_admission_passes_exact_manifest_and_does_not_affect_history(tmp_path) -> None:
+def test_runtime_admission_passes_exact_manifest_and_does_not_affect_history(monkeypatch, tmp_path) -> None:
     context = make_context(tmp_path)
     workflow = context.resources[-1]
+    monkeypatch.setattr(workflow_module, "only_packaged_build_provenance", packaged_provenance)
     current = derive_agent_workflow_implementation_manifest(
         workflow_id="ONLYALPHA_AGENT_V1",
         workflow_semantic_version="1.0.0",
@@ -137,12 +139,12 @@ def test_runtime_admission_passes_exact_manifest_and_does_not_affect_history(tmp
                 b"def workflow(): return 'v1'\n",
             ),
         ),
-        build_provenance=packaged_provenance(),
     )
     admit_agent_workflow_runtime(workflow, current)
 
 
-def test_workflow_derivation_consumes_packaged_offline_build_provenance() -> None:
+def test_workflow_derivation_consumes_packaged_offline_build_provenance(monkeypatch) -> None:
+    monkeypatch.setattr(workflow_module, "only_packaged_build_provenance", packaged_provenance)
     manifest = derive_agent_workflow_implementation_manifest(
         workflow_id="ONLYALPHA_AGENT_V1",
         workflow_semantic_version="1.0.0",
@@ -157,3 +159,23 @@ def test_workflow_derivation_consumes_packaged_offline_build_provenance() -> Non
     assert len(manifest.source_revision) == 40
     assert manifest.distribution_provenance[0].distribution_name == "onlyalpha"
     assert manifest.distribution_provenance[0].source_revision == manifest.source_revision
+
+
+def test_workflow_derivation_fails_closed_without_packaged_provenance(monkeypatch) -> None:
+    def unavailable():
+        raise ValueError("ONLYALPHA_BUILD_PROVENANCE_UNAVAILABLE")
+
+    monkeypatch.setattr(workflow_module, "only_packaged_build_provenance", unavailable)
+    with pytest.raises(OnlyAgentContextError) as raised:
+        derive_agent_workflow_implementation_manifest(
+            workflow_id="ONLYALPHA_AGENT_V1",
+            workflow_semantic_version="1.0.0",
+            runtime_resources=(
+                OnlyAgentRuntimeResourceV1(
+                    "onlyalpha.agent.workflow",
+                    OnlyAgentWorkflowResourceKind.SOURCE,
+                    b"explicit runtime bytes",
+                ),
+            ),
+        )
+    assert raised.value.code == "BUILD_PROVENANCE_PREREQUISITE"

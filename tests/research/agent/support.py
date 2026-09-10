@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +9,7 @@ from onlyalpha.build_provenance import OnlyPackagedBuildProvenanceV1
 from onlyalpha.distribution import OnlyArtifactSourceProvenanceAuthority
 from onlyalpha.research.agent import (
     OnlyAgentBudgetV1,
+    OnlyAgentDistributionProvenanceV1,
     OnlyAgentEvaluationContextReferenceV1,
     OnlyAgentModelExecutionPolicyPayloadV1,
     OnlyAgentModelSettingRuleV1,
@@ -19,7 +21,6 @@ from onlyalpha.research.agent import (
     OnlyAgentResearchBriefReferenceReadersV1,
     OnlyAgentResearchBriefV1,
     OnlyAgentRolePolicyPayloadV1,
-    OnlyAgentRuntimeResourceV1,
     OnlyAgentSearchMethod,
     OnlyAgentSessionManifestV1,
     OnlyAgentStructuredHypothesisV1,
@@ -27,8 +28,9 @@ from onlyalpha.research.agent import (
     OnlyAgentToolClass,
     OnlyAgentToolOperationConstraintV1,
     OnlyAgentToolPolicyPayloadV1,
+    OnlyAgentWorkflowExecutableResourceV1,
+    OnlyAgentWorkflowImplementationManifestV1,
     OnlyAgentWorkflowResourceKind,
-    derive_agent_workflow_implementation_manifest,
 )
 
 SOURCE_REVISION = "1" * 40
@@ -194,17 +196,19 @@ def make_context(root: Path) -> ContextFixture:
             "RETURN_OR_FAIL_CLOSED",
         ),
     )
-    manifest = derive_agent_workflow_implementation_manifest(
-        workflow_id="ONLYALPHA_AGENT_V1",
-        workflow_semantic_version="1.0.0",
-        runtime_resources=(
-            OnlyAgentRuntimeResourceV1(
+    provenance = packaged_provenance()
+    manifest = OnlyAgentWorkflowImplementationManifestV1(
+        "ONLYALPHA_AGENT_V1",
+        "1.0.0",
+        provenance.source_revision,
+        (
+            OnlyAgentWorkflowExecutableResourceV1(
                 "onlyalpha.agent.workflow",
                 OnlyAgentWorkflowResourceKind.SOURCE,
-                b"def workflow(): return 'v1'\n",
+                hashlib.sha256(b"def workflow(): return 'v1'\n").hexdigest(),
             ),
         ),
-        build_provenance=packaged_provenance(),
+        (OnlyAgentDistributionProvenanceV1.from_packaged(provenance),),
     )
     workflow = resource(
         OnlyAgentOrchestrationResourceKind.AGENT_WORKFLOW_IMPLEMENTATION_MANIFEST,

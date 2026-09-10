@@ -88,7 +88,13 @@ from .test_parameter_search_recovery import (
     _topology,
 )
 
-pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.external,
+    pytest.mark.requires_network,
+    pytest.mark.postgres,
+    pytest.mark.usefixtures("packaged_build_provenance_reader"),
+]
 
 _NOW = datetime(2026, 9, 8, tzinfo=UTC)
 

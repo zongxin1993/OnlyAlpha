@@ -16,13 +16,16 @@ cleanup() {
     docker compose --env-file "${environment_file}" "${compose_files[@]}" stop
   fi
 }
-trap cleanup EXIT
 
 cd "${repository_root}"
-if [[ -z "${ONLYALPHA_BUILD_SOURCE_REVISION:-}" ]]; then
-  ONLYALPHA_BUILD_SOURCE_REVISION="$(git rev-parse HEAD)"
-  export ONLYALPHA_BUILD_SOURCE_REVISION
+actual_revision="$(git -C "${repository_root}" rev-parse HEAD)"
+if [[ -n "${ONLYALPHA_BUILD_SOURCE_REVISION:-}" && "${ONLYALPHA_BUILD_SOURCE_REVISION}" != "${actual_revision}" ]]; then
+  echo "ONLYALPHA_BUILD_SOURCE_REVISION conflicts with the repository Git HEAD" >&2
+  exit 2
 fi
+ONLYALPHA_BUILD_SOURCE_REVISION="${actual_revision}"
+export ONLYALPHA_BUILD_SOURCE_REVISION
+trap cleanup EXIT
 docker compose --env-file "${environment_file}" "${compose_files[@]}" build acceptance
 docker compose --env-file "${environment_file}" "${compose_files[@]}" up -d --wait \
   postgres clickhouse

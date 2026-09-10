@@ -15,8 +15,8 @@ class CustomBuildHook(BuildHookInterface[Any]):
         del version
         root = Path(self.root)
         generator = run_path(str(root / "scripts" / "embed_build_provenance.py"), run_name="onlyalpha_build_provenance")
-        resolve = cast(Callable[[Path], str], generator["resolve_build_source_revision"])
-        write = cast(Callable[[Path, Path, str], Path], generator["write_build_provenance"])
+        resolve = cast(Callable[[Path], bytes], generator["resolve_build_provenance_bytes"])
+        write = cast(Callable[[Path, Path, bytes], Path], generator["write_build_provenance"])
         generated = root / "build" / "onlyalpha-build-provenance" / "_build_provenance.json"
         write(root, generated, resolve(root))
         destination = (
@@ -25,3 +25,7 @@ class CustomBuildHook(BuildHookInterface[Any]):
             else "src/onlyalpha/_build_provenance.json"
         )
         build_data["force_include"][str(generated)] = destination
+        if self.target_name == "sdist":
+            build_data["force_include"][str(generated.with_name("_build_provenance.sha256"))] = (
+                "src/onlyalpha/_build_provenance.sha256"
+            )

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -103,7 +105,10 @@ def test_compose_templates_keep_production_secrets_out_and_acceptance_is_canonic
     assert "docker compose" in runner
     assert "run --rm acceptance" in runner
     assert "uv run" not in runner
-    assert 'ONLYALPHA_BUILD_SOURCE_REVISION="$(git rev-parse HEAD)"' in runner
+    assert 'actual_revision="$(git -C "${repository_root}" rev-parse HEAD)"' in runner
+    assert '"${ONLYALPHA_BUILD_SOURCE_REVISION}" != "${actual_revision}"' in runner
+    assert 'ONLYALPHA_BUILD_SOURCE_REVISION="${actual_revision}"' in runner
+    assert "conflicts with the repository Git HEAD" in runner
 
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert 'path = "hatch_build.py"' in pyproject
@@ -126,7 +131,10 @@ def test_production_entrypoint_can_only_use_the_base_and_production_override() -
     assert 'compose.yaml" -f "${deploy_dir}/compose.production.yaml' in deployment
     assert "compose.test.yaml" not in deployment
     assert "PASSWORD=(change-me)?" in deployment
-    assert 'ONLYALPHA_BUILD_SOURCE_REVISION="$(git -C "${repository_root}" rev-parse HEAD)"' in deployment
+    assert 'actual_revision="$(git -C "${repository_root}" rev-parse HEAD)"' in deployment
+    assert '"${ONLYALPHA_BUILD_SOURCE_REVISION}" != "${actual_revision}"' in deployment
+    assert 'ONLYALPHA_BUILD_SOURCE_REVISION="${actual_revision}"' in deployment
+    assert "conflicts with the repository Git HEAD" in deployment
     assert "config --quiet" in deployment
     assert "pull" in deployment
     assert "up -d --wait" in deployment
@@ -144,3 +152,57 @@ def test_production_entrypoint_can_only_use_the_base_and_production_override() -
     assert "run --rm operator" in operator_runner
     assert "compose.test.yaml" not in operator_runner
     assert "<url-encoded-password>" in operator_runner
+
+
+@pytest.mark.parametrize("wrapper", ["run-acceptance.sh", "deploy-production.sh"])
+@pytest.mark.parametrize(
+    ("preset", "expected_code"),
+    [(None, 0), ("1" * 40, 0), ("2" * 40, 2)],
+)
+def test_compose_wrappers_derive_and_guard_revision_transport(
+    tmp_path: Path,
+    wrapper: str,
+    preset: str | None,
+    expected_code: int,
+) -> None:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    log = tmp_path / "docker.log"
+    git = fake_bin / "git"
+    git.write_text("#!/bin/sh\nprintf '%s\\n' '1111111111111111111111111111111111111111'\n", encoding="utf-8")
+    git.chmod(0o700)
+    docker = fake_bin / "docker"
+    docker.write_text(
+        f"#!/bin/sh\nprintf '%s|%s\\n' \"$ONLYALPHA_BUILD_SOURCE_REVISION\" \"$*\" >> '{log}'\n",
+        encoding="utf-8",
+    )
+    docker.chmod(0o700)
+    environment = os.environ.copy()
+    environment["PATH"] = f"{fake_bin}:{environment['PATH']}"
+    if preset is None:
+        environment.pop("ONLYALPHA_BUILD_SOURCE_REVISION", None)
+    else:
+        environment["ONLYALPHA_BUILD_SOURCE_REVISION"] = preset
+    if wrapper == "deploy-production.sh":
+        env_file = tmp_path / "production.env"
+        env_file.write_text(
+            "ONLYALPHA_POSTGRES_PASSWORD=secure\n"
+            "ONLYALPHA_CLICKHOUSE_PASSWORD=secure\n"
+            "ONLYALPHA_POSTGRES_DSN=postgresql://onlyalpha:secure@postgres:5432/onlyalpha\n",
+            encoding="utf-8",
+        )
+        environment["ONLYALPHA_COMPOSE_ENV_FILE"] = str(env_file)
+    completed = subprocess.run(
+        [str(DEPLOY / wrapper)],
+        text=True,
+        capture_output=True,
+        check=False,
+        env=environment,
+    )
+    assert completed.returncode == expected_code, completed.stdout + completed.stderr
+    invocations = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+    if expected_code == 0:
+        assert invocations and all(item.startswith("1" * 40 + "|") for item in invocations)
+    else:
+        assert "conflicts with the repository Git HEAD" in completed.stderr
+        assert not any(" build " in f" {item} " for item in invocations)

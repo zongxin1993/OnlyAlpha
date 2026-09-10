@@ -97,7 +97,13 @@ from tests.research.specification.support import specification
 from tests.research.sweep.support import definition
 from tests.runtime_generation_support import only_ready_test_generation
 
-pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.external,
+    pytest.mark.requires_network,
+    pytest.mark.postgres,
+    pytest.mark.usefixtures("packaged_build_provenance_reader"),
+]
 
 _NOW = datetime(2026, 9, 7, 1, 2, 3, tzinfo=UTC)
 _PRIMARY = only_research_effect_metric(OnlyResearchStatisticsMethod.IC, "mean").metric_id

@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 
-from onlyalpha.build_provenance import OnlyPackagedBuildProvenanceV1, only_packaged_build_provenance
+from onlyalpha.build_provenance import only_packaged_build_provenance
 
 from .errors import OnlyAgentContextError
 from .model import (
@@ -39,12 +39,11 @@ def derive_agent_workflow_implementation_manifest(
     workflow_id: str,
     workflow_semantic_version: str,
     runtime_resources: tuple[OnlyAgentRuntimeResourceV1, ...],
-    build_provenance: OnlyPackagedBuildProvenanceV1 | None = None,
 ) -> OnlyAgentWorkflowImplementationManifestV1:
     """Derive identity only from explicit bytes plus packaged offline provenance."""
 
     try:
-        provenance = build_provenance or only_packaged_build_provenance()
+        provenance = only_packaged_build_provenance()
     except Exception as exc:
         raise OnlyAgentContextError("BUILD_PROVENANCE_PREREQUISITE", str(exc)) from exc
     if not runtime_resources or len({item.logical_resource_identity for item in runtime_resources}) != len(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import inspect
 from pathlib import Path
 
 import pytest
@@ -55,3 +56,11 @@ def test_agent_session_contract_has_no_mutable_status_or_runtime_occurrence_fiel
             "agent_decision",
         }
     )
+
+
+def test_agent_workflow_manifest_derivation_has_no_provenance_override() -> None:
+    from onlyalpha.research.agent import derive_agent_workflow_implementation_manifest
+
+    parameters = set(inspect.signature(derive_agent_workflow_implementation_manifest).parameters)
+    assert parameters == {"workflow_id", "workflow_semantic_version", "runtime_resources"}
+    assert not parameters.intersection({"build_provenance", "source_revision", "distribution_provenance"})
