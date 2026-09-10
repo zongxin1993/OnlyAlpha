@@ -316,8 +316,10 @@ exact reused capability references, the complete child Symbolic/Parameter Search
 capability-gap references required by that action. Contradictory or extra action payload fields are invalid.
 
 `OnlyAgentNextExperimentProposalV1` binds the exact completed evaluation path: either the child Search terminal fact or the direct
-REUSE Research Run/Result references, plus exact Research Statistics references consumed by the Evidence Analyst, structured
-observations that make no new numeric claim, and one proposed follow-up Brief delta. The delta is advisory data only and cannot mutate
+REUSE Research Run/Result references, plus exact Research Statistics references consumed by the Evidence Analyst,
+`OnlyAgentEvidenceObservationV1` categorical observations whose closed code and mandatory supporting Research Statistics references
+make no new numeric claim, and one proposed follow-up Brief delta. Free prose and Agent-owned metric values are not formal observation
+identity. The delta is advisory data only and cannot mutate
 the current Brief or become a command.
 
 Each Decision binds the Session, role, ordinal, exact ordered Model Call Result and Tool Call Result inputs, exact immutable context
@@ -649,6 +651,12 @@ Record, and owning Search/Research facts. A child Experiment uses its own ADR 01
 `child_experiment_limit = 1` bounds only the Symbolic/Parameter branches and remains zero-consumed for REUSE. The Next Experiment
 Proposal is not automatically executed. Continuing research requires a new explicitly admitted Session/Brief occurrence under a future
 contract; V1 has no autonomous loop.
+
+Tool-class and Product-operation permission is only a coarse gate. Before a Tool Plan is committed, the exact canonical request and its
+identity-reference closure must additionally be verified against the authorizing Decision's immutable semantic scope and, for an
+advance/reconcile or mutable observation, the owning Search/Research Authority's exact current projection. The reducer knows the Agent
+grammar but never derives Search terminal/frontier state or Research Run progress from Tool ordinals. It composes those owning projections
+into one transient next action; it does not persist a cursor or copy domain state.
 
 `AGENT_CAPABILITY_GAP` is the one Router-defined pre-launch terminal exception. It persists the structured `CAPABILITY_GAP` Decision,
 creates no Tool Call Plan for formal work and no Launch Record, and terminates the Session fail closed. It is not `Session COMPLETE`,

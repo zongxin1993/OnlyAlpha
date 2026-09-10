@@ -88,6 +88,70 @@ class OnlyAgentEvaluationPathKind(StrEnum):
     CHILD_SEARCH = "CHILD_SEARCH"
 
 
+class OnlyAgentEvidenceObservationCodeV1(StrEnum):
+    EFFECT_DIRECTION_SUPPORTS_HYPOTHESIS = "EFFECT_DIRECTION_SUPPORTS_HYPOTHESIS"
+    WEAK_TEMPORAL_STABILITY = "WEAK_TEMPORAL_STABILITY"
+    LIMITED_COVERAGE = "LIMITED_COVERAGE"
+    HIGH_REDUNDANCY = "HIGH_REDUNDANCY"
+    ROBUSTNESS_UNCERTAIN = "ROBUSTNESS_UNCERTAIN"
+    FOLLOW_UP_RECOMMENDED = "FOLLOW_UP_RECOMMENDED"
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyAgentEvidenceObservationV1:
+    observation_code: OnlyAgentEvidenceObservationCodeV1
+    supporting_authority_references: tuple[OnlyAgentContextReferenceV1, ...]
+    categorical_assessment: str | None = None
+    schema_version: int = 1
+
+    def __post_init__(self) -> None:
+        if (
+            self.schema_version != 1
+            or not isinstance(self.observation_code, OnlyAgentEvidenceObservationCodeV1)
+            or not self.supporting_authority_references
+            or len(self.supporting_authority_references) != len(set(self.supporting_authority_references))
+            or any(
+                reference.reference_kind != "RESEARCH_STATISTICS" or reference.reference_schema_version != 1
+                for reference in self.supporting_authority_references
+            )
+        ):
+            raise ValueError("AGENT_EVIDENCE_OBSERVATION_INVALID")
+        if self.categorical_assessment is not None:
+            _identifier(self.categorical_assessment, "categorical_assessment")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "observation_code": self.observation_code.value,
+            "supporting_authority_references": [
+                reference.to_dict() for reference in self.supporting_authority_references
+            ],
+            "categorical_assessment": self.categorical_assessment,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyAgentEvidenceObservationV1:
+        _exact(
+            payload,
+            {
+                "schema_version",
+                "observation_code",
+                "supporting_authority_references",
+                "categorical_assessment",
+            },
+            "Evidence Observation",
+        )
+        assessment = payload["categorical_assessment"]
+        if assessment is not None and not isinstance(assessment, str):
+            raise ValueError("AGENT_EVIDENCE_OBSERVATION_INVALID")
+        return cls(
+            OnlyAgentEvidenceObservationCodeV1(_string(payload["observation_code"], "observation_code")),
+            _references(payload["supporting_authority_references"], "supporting evidence", non_empty=True),
+            assessment,
+            _integer(payload["schema_version"], "schema_version"),
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class OnlyAgentResearchPlanV1:
     research_brief_fingerprint: str
@@ -167,6 +231,10 @@ class OnlyAgentReuseDirectiveV1:
             or not isinstance(self.research_definition_reference, OnlyAgentContextReferenceV1)
         ):
             raise ValueError("AGENT_SEARCH_DIRECTIVE_INVALID")
+        if self.research_definition_reference.reference_kind != "RESEARCH_DEFINITION" or (
+            self.research_definition_reference.reference_schema_version != 1
+        ):
+            raise ValueError("AGENT_SEARCH_DIRECTIVE_INVALID")
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -208,6 +276,16 @@ class OnlyAgentSymbolicSearchDirectiveV1:
                 self.algorithm_reference,
                 self.search_budget_reference,
             )
+        ):
+            raise ValueError("AGENT_SEARCH_DIRECTIVE_INVALID")
+        expected = (
+            (self.search_space_reference, "SYMBOLIC_SEARCH_SPACE"),
+            (self.evaluation_reference, "RESEARCH_EVALUATION"),
+            (self.algorithm_reference, "SEARCH_ALGORITHM"),
+            (self.search_budget_reference, "SEARCH_BUDGET"),
+        )
+        if any(
+            reference.reference_kind != kind or reference.reference_schema_version != 1 for reference, kind in expected
         ):
             raise ValueError("AGENT_SEARCH_DIRECTIVE_INVALID")
 
@@ -265,6 +343,17 @@ class OnlyAgentParameterSearchDirectiveV1:
                 self.algorithm_reference,
                 self.search_budget_reference,
             )
+        ):
+            raise ValueError("AGENT_SEARCH_DIRECTIVE_INVALID")
+        expected = (
+            (self.search_space_reference, "PARAMETER_SEARCH_SPACE"),
+            (self.evaluation_reference, "RESEARCH_EVALUATION"),
+            (self.search_policy_reference, "SEARCH_POLICY"),
+            (self.algorithm_reference, "SEARCH_ALGORITHM"),
+            (self.search_budget_reference, "SEARCH_BUDGET"),
+        )
+        if any(
+            reference.reference_kind != kind or reference.reference_schema_version != 1 for reference, kind in expected
         ):
             raise ValueError("AGENT_SEARCH_DIRECTIVE_INVALID")
 
@@ -461,7 +550,7 @@ class OnlyAgentNextExperimentProposalV1:
     completed_path_reference: OnlyAgentContextReferenceV1
     research_result_references: tuple[OnlyAgentContextReferenceV1, ...]
     research_statistics_references: tuple[OnlyAgentContextReferenceV1, ...]
-    qualitative_observations: tuple[str, ...]
+    qualitative_observations: tuple[OnlyAgentEvidenceObservationV1, ...]
     proposed_follow_up_brief_delta: OnlyAgentFollowUpBriefDeltaV1
     schema_version: int = 1
 
@@ -481,8 +570,10 @@ class OnlyAgentNextExperimentProposalV1:
             or not isinstance(self.proposed_follow_up_brief_delta, OnlyAgentFollowUpBriefDeltaV1)
         ):
             raise ValueError("AGENT_NEXT_EXPERIMENT_PROPOSAL_INVALID")
-        for observation in self.qualitative_observations:
-            _string(observation, "qualitative observation")
+        if any(
+            not isinstance(observation, OnlyAgentEvidenceObservationV1) for observation in self.qualitative_observations
+        ):
+            raise ValueError("AGENT_NEXT_EXPERIMENT_PROPOSAL_INVALID")
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -491,7 +582,7 @@ class OnlyAgentNextExperimentProposalV1:
             "completed_path_reference": self.completed_path_reference.to_dict(),
             "research_result_references": [item.to_dict() for item in self.research_result_references],
             "research_statistics_references": [item.to_dict() for item in self.research_statistics_references],
-            "qualitative_observations": list(self.qualitative_observations),
+            "qualitative_observations": [item.to_dict() for item in self.qualitative_observations],
             "proposed_follow_up_brief_delta": self.proposed_follow_up_brief_delta.to_dict(),
         }
 
@@ -517,7 +608,10 @@ class OnlyAgentNextExperimentProposalV1:
             ),
             _references(payload["research_result_references"], "Research Result", non_empty=True),
             _references(payload["research_statistics_references"], "Research Statistics", non_empty=True),
-            _strings(payload["qualitative_observations"], "qualitative observation", non_empty=True),
+            tuple(
+                OnlyAgentEvidenceObservationV1.from_dict(_mapping(item, "qualitative observation"))
+                for item in _array(payload["qualitative_observations"], "qualitative_observations")
+            ),
             OnlyAgentFollowUpBriefDeltaV1.from_dict(
                 _mapping(payload["proposed_follow_up_brief_delta"], "proposed_follow_up_brief_delta")
             ),

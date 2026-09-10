@@ -12,6 +12,7 @@ from .application import (
     OnlyAgentModelOccurrenceReaderV1,
     OnlyAgentToolOccurrenceReaderV1,
 )
+from .authority_state import OnlyAgentResearchStateReader, OnlyAgentSearchStateReader
 from .decision import (
     OnlyAgentDecisionKind,
     OnlyAgentRouterAction,
@@ -20,7 +21,12 @@ from .decision import (
 from .decision_store import OnlyJsonAgentDecisionStore
 from .errors import OnlyAgentContextError
 from .model import OnlyAgentToolClass
-from .occurrence import OnlyAgentModelCallOutcome, OnlyAgentToolCallOutcome
+from .occurrence import (
+    OnlyAgentModelCallOutcome,
+    OnlyAgentToolCallOutcome,
+    OnlyAgentToolCallResultV1,
+    OnlyAgentToolRecoveryClass,
+)
 from .occurrence_service import OnlyAgentSessionContextReader
 
 
@@ -35,6 +41,8 @@ class OnlyAgentNextActionKind(StrEnum):
     PREPARE_MODEL_CALL = "PREPARE_MODEL_CALL"
     DERIVE_DECISION = "DERIVE_DECISION"
     PREPARE_TOOL_CALL = "PREPARE_TOOL_CALL"
+    PREPARE_NEW_TOOL_OBSERVATION = "PREPARE_NEW_TOOL_OBSERVATION"
+    PREPARE_AUTHORITY_TOOL_CALL = "PREPARE_AUTHORITY_TOOL_CALL"
     RECOVER_MODEL_OUTCOME_UNKNOWN = "RECOVER_MODEL_OUTCOME_UNKNOWN"
     RECOVER_TOOL_OCCURRENCE = "RECOVER_TOOL_OCCURRENCE"
     RECONSTRUCT_LAUNCH_RECORD = "RECONSTRUCT_LAUNCH_RECORD"
@@ -51,6 +59,7 @@ class OnlyAgentNextActionV1:
     tool_class: OnlyAgentToolClass | None = None
     occurrence_fingerprint: str | None = None
     failure_code: str | None = None
+    operation_identity: str | None = None
     schema_version: int = 1
 
     def __post_init__(self) -> None:
@@ -62,17 +71,20 @@ class OnlyAgentNextActionV1:
             self.tool_class,
             self.occurrence_fingerprint,
             self.failure_code,
+            self.operation_identity,
         )
         expected = {
-            OnlyAgentNextActionKind.PREPARE_MODEL_CALL: (True, False, False, False, False),
-            OnlyAgentNextActionKind.DERIVE_DECISION: (False, True, False, False, False),
-            OnlyAgentNextActionKind.PREPARE_TOOL_CALL: (False, False, True, False, False),
-            OnlyAgentNextActionKind.RECOVER_MODEL_OUTCOME_UNKNOWN: (False, False, False, True, False),
-            OnlyAgentNextActionKind.RECOVER_TOOL_OCCURRENCE: (False, False, False, True, False),
-            OnlyAgentNextActionKind.RECONSTRUCT_LAUNCH_RECORD: (False, False, False, True, False),
-            OnlyAgentNextActionKind.TERMINAL_COMPLETE: (False, False, False, False, False),
-            OnlyAgentNextActionKind.TERMINAL_CAPABILITY_GAP: (False, False, False, False, False),
-            OnlyAgentNextActionKind.TERMINAL_FAILURE: (False, False, False, False, True),
+            OnlyAgentNextActionKind.PREPARE_MODEL_CALL: (True, False, False, False, False, False),
+            OnlyAgentNextActionKind.DERIVE_DECISION: (False, True, False, False, False, False),
+            OnlyAgentNextActionKind.PREPARE_TOOL_CALL: (False, False, True, False, False, False),
+            OnlyAgentNextActionKind.PREPARE_NEW_TOOL_OBSERVATION: (False, False, True, False, False, False),
+            OnlyAgentNextActionKind.PREPARE_AUTHORITY_TOOL_CALL: (False, False, True, False, False, True),
+            OnlyAgentNextActionKind.RECOVER_MODEL_OUTCOME_UNKNOWN: (False, False, False, True, False, False),
+            OnlyAgentNextActionKind.RECOVER_TOOL_OCCURRENCE: (False, False, False, True, False, False),
+            OnlyAgentNextActionKind.RECONSTRUCT_LAUNCH_RECORD: (False, False, False, True, False, False),
+            OnlyAgentNextActionKind.TERMINAL_COMPLETE: (False, False, False, False, False, False),
+            OnlyAgentNextActionKind.TERMINAL_CAPABILITY_GAP: (False, False, False, False, False, False),
+            OnlyAgentNextActionKind.TERMINAL_FAILURE: (False, False, False, False, True, False),
         }[self.action_kind]
         if tuple(item is not None for item in fields) != expected:
             raise ValueError("AGENT_NEXT_ACTION_INVALID")
@@ -86,6 +98,10 @@ class OnlyAgentNextActionV1:
         ):
             raise ValueError("AGENT_NEXT_ACTION_INVALID")
         if self.failure_code is not None and not self.failure_code:
+            raise ValueError("AGENT_NEXT_ACTION_INVALID")
+        if self.operation_identity is not None and (
+            not self.operation_identity or any(item.isspace() for item in self.operation_identity)
+        ):
             raise ValueError("AGENT_NEXT_ACTION_INVALID")
 
 
@@ -128,6 +144,8 @@ class OnlyAgentSessionReducerV1:
         decision_service: OnlyAgentDecisionApplicationServiceV1,
         decision_store: OnlyJsonAgentDecisionStore,
         launch_service: OnlyAgentExperimentLaunchServiceV1,
+        search_states: OnlyAgentSearchStateReader | None = None,
+        research_states: OnlyAgentResearchStateReader | None = None,
     ) -> None:
         self._sessions = sessions
         self._models = models
@@ -135,6 +153,8 @@ class OnlyAgentSessionReducerV1:
         self._decisions = decision_service
         self._decision_store = decision_store
         self._launches = launch_service
+        self._search_states = search_states
+        self._research_states = research_states
 
     def derive(self, session_fingerprint: str) -> OnlyAgentDerivedSessionStateV1:
         context = self._sessions.load_session_manifest_verified(session_fingerprint)
@@ -172,12 +192,15 @@ class OnlyAgentSessionReducerV1:
                     self._corrupt("continuation after terminal Model failure")
                 return self._failed(session_fingerprint, cast(str, model_result.failure_code))
 
-        tool_results = []
+        tool_results: dict[int, OnlyAgentToolCallResultV1] = {}
         for ordinal in range(tool_count):
             tool_plan = self._tools.load_plan_by_session_ordinal_verified(session_fingerprint, ordinal)
             if not self._tools.result_exists(tool_plan.tool_call_plan_fingerprint):
+                recovery_class = self._tools.recovery_class(tool_plan.tool_call_plan_fingerprint)
+                if recovery_class is OnlyAgentToolRecoveryClass.MUTABLE_OBSERVATION_QUERY:
+                    continue
                 if ordinal != tool_count - 1:
-                    self._corrupt("Tool occurrence gap")
+                    self._corrupt("non-mutable Tool occurrence gap")
                 return self._active(
                     session_fingerprint,
                     OnlyAgentNextActionV1(
@@ -186,7 +209,7 @@ class OnlyAgentSessionReducerV1:
                     ),
                 )
             tool_result = self._tools.load_result_verified(tool_plan.tool_call_plan_fingerprint)
-            tool_results.append(tool_result)
+            tool_results[ordinal] = tool_result
             if tool_result.outcome is not OnlyAgentToolCallOutcome.SUCCEEDED:
                 allowed_model_count = 1 if ordinal == 0 else 3
                 allowed_decision_count = 1 if ordinal == 0 else 2
@@ -267,25 +290,67 @@ class OnlyAgentSessionReducerV1:
 
         if model_count < 3:
             self._corrupt("missing Factor Designer result")
-        expected_tools = self._branch_tools(directive.router_action)
-        if tool_count > len(expected_tools):
-            self._corrupt("extra branch Tool occurrence")
-        for ordinal, expected_class in enumerate(expected_tools[:tool_count]):
-            branch_plan = self._tools.load_plan_by_session_ordinal_verified(session_fingerprint, ordinal)
-            expected_decision = plan_decision if ordinal == 0 else directive_decision
-            if (
-                branch_plan.tool_class is not expected_class
-                or branch_plan.authorizing_agent_decision_fingerprint != expected_decision.decision_fingerprint
-            ):
-                self._corrupt("branch Tool mismatch")
-
         is_search = directive.router_action in {
             OnlyAgentRouterAction.SYMBOLIC_SEARCH,
             OnlyAgentRouterAction.PARAMETER_SEARCH,
         }
+        if decision_count == 3:
+            final = self._decisions.load_decision_by_session_ordinal_verified(session_fingerprint, 2)
+            if (
+                final.decision_kind is not OnlyAgentDecisionKind.NEXT_EXPERIMENT_PROPOSAL
+                or model_count != 4
+                or (is_search and not launch_exists)
+                or len(tool_results) != tool_count
+                or final.ordered_tool_call_result_fingerprints
+                != tuple(tool_results[ordinal].tool_call_result_fingerprint for ordinal in range(tool_count))
+            ):
+                self._corrupt("Next Proposal closure")
+            return OnlyAgentDerivedSessionStateV1(session_fingerprint, OnlyAgentDerivedSessionStatus.COMPLETE, None)
+        branch_plans = []
+        for ordinal in range(1, tool_count):
+            branch_plan = self._tools.load_plan_by_session_ordinal_verified(session_fingerprint, ordinal)
+            if branch_plan.authorizing_agent_decision_fingerprint != directive_decision.decision_fingerprint:
+                self._corrupt("branch Tool mismatch")
+            branch_plans.append(branch_plan)
+
         if not is_search and launch_exists:
             self._corrupt("REUSE with Launch")
-        if is_search and tool_count >= 2 and not launch_exists:
+        submit_class = {
+            OnlyAgentRouterAction.SYMBOLIC_SEARCH: OnlyAgentToolClass.SYMBOLIC_SEARCH,
+            OnlyAgentRouterAction.PARAMETER_SEARCH: OnlyAgentToolClass.PARAMETER_SEARCH,
+        }.get(directive.router_action)
+        if is_search and not branch_plans:
+            return self._prepare_tool(
+                session_fingerprint, cast(OnlyAgentToolClass, submit_class), tool_count, budget.tool_call_limit
+            )
+        if is_search and branch_plans[0].tool_class is not submit_class:
+            self._corrupt("Search submit branch")
+        if is_search:
+            allowed_search = {
+                cast(OnlyAgentToolClass, submit_class),
+                OnlyAgentToolClass.SEARCH_QUERY,
+                OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY,
+            }
+            evidence_ordinals = [
+                plan.tool_call_ordinal
+                for plan in branch_plans
+                if plan.tool_class is OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY
+            ]
+            observation_ordinals = [
+                plan.tool_call_ordinal for plan in branch_plans if plan.tool_class is OnlyAgentToolClass.SEARCH_QUERY
+            ]
+            if (
+                any(plan.tool_class not in allowed_search for plan in branch_plans)
+                or sum(plan.tool_class is submit_class for plan in branch_plans) != 1
+                or len(evidence_ordinals) > 1
+                or (
+                    evidence_ordinals and (not observation_ordinals or evidence_ordinals[0] < max(observation_ordinals))
+                )
+            ):
+                self._corrupt("Search Tool grammar")
+        if is_search and 1 not in tool_results:
+            self._corrupt("Search submit has no successful Result")
+        if is_search and not launch_exists:
             submit_result = tool_results[1]
             return self._active(
                 session_fingerprint,
@@ -294,12 +359,120 @@ class OnlyAgentSessionReducerV1:
                     occurrence_fingerprint=submit_result.tool_call_result_fingerprint,
                 ),
             )
-        if is_search and tool_count < 2 and launch_exists:
-            self._corrupt("Launch before Search submit Result")
-        if tool_count < len(expected_tools):
+        if is_search:
+            launch = self._launches.load_launch_record_by_session_verified(session_fingerprint)
+            if self._search_states is None:
+                return self._failed(session_fingerprint, "AGENT_SEARCH_FAILED")
+            try:
+                authority = self._search_states.load_search_state_verified(launch.child_search_experiment_fingerprint)
+            except Exception:
+                return self._failed(session_fingerprint, "AGENT_SEARCH_FAILED")
+            if authority.terminal.terminal_kind.value == "NON_TERMINAL":
+                if evidence_ordinals:
+                    self._corrupt("Evidence before Search terminal")
+                operation = authority.next_bounded_operation
+                assert operation is not None
+                if tool_count >= budget.tool_call_limit:
+                    return self._failed(session_fingerprint, "AGENT_BUDGET_EXHAUSTED")
+                return self._active(
+                    session_fingerprint,
+                    OnlyAgentNextActionV1(
+                        OnlyAgentNextActionKind.PREPARE_AUTHORITY_TOOL_CALL,
+                        tool_class=cast(OnlyAgentToolClass, submit_class),
+                        operation_identity=operation.value,
+                    ),
+                )
+            observations = [plan for plan in branch_plans[1:] if plan.tool_class is OnlyAgentToolClass.SEARCH_QUERY]
+            if not observations:
+                return self._prepare_new_observation(
+                    session_fingerprint, OnlyAgentToolClass.SEARCH_QUERY, tool_count, budget.tool_call_limit
+                )
+        else:
+            allowed = {
+                OnlyAgentToolClass.RESEARCH_DEFINITION_RESOLVE,
+                OnlyAgentToolClass.RESEARCH_RUN_SUBMIT,
+                OnlyAgentToolClass.RESEARCH_RUN_QUERY,
+                OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY,
+            }
+            if any(plan.tool_class not in allowed for plan in branch_plans):
+                self._corrupt("REUSE Tool branch")
+            resolved = next(
+                (plan for plan in branch_plans if plan.tool_class is OnlyAgentToolClass.RESEARCH_DEFINITION_RESOLVE),
+                None,
+            )
+            if resolved is None:
+                return self._prepare_tool(
+                    session_fingerprint,
+                    OnlyAgentToolClass.RESEARCH_DEFINITION_RESOLVE,
+                    tool_count,
+                    budget.tool_call_limit,
+                )
+            submitted = next(
+                (plan for plan in branch_plans if plan.tool_class is OnlyAgentToolClass.RESEARCH_RUN_SUBMIT), None
+            )
+            if submitted is None:
+                return self._prepare_tool(
+                    session_fingerprint,
+                    OnlyAgentToolClass.RESEARCH_RUN_SUBMIT,
+                    tool_count,
+                    budget.tool_call_limit,
+                )
+            resolve_ordinals = [
+                plan.tool_call_ordinal
+                for plan in branch_plans
+                if plan.tool_class is OnlyAgentToolClass.RESEARCH_DEFINITION_RESOLVE
+            ]
+            submit_ordinals = [
+                plan.tool_call_ordinal
+                for plan in branch_plans
+                if plan.tool_class is OnlyAgentToolClass.RESEARCH_RUN_SUBMIT
+            ]
+            observation_ordinals = [
+                plan.tool_call_ordinal
+                for plan in branch_plans
+                if plan.tool_class is OnlyAgentToolClass.RESEARCH_RUN_QUERY
+            ]
+            evidence_ordinals = [
+                plan.tool_call_ordinal
+                for plan in branch_plans
+                if plan.tool_class is OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY
+            ]
+            if (
+                len(resolve_ordinals) != 1
+                or len(submit_ordinals) != 1
+                or resolve_ordinals[0] > submit_ordinals[0]
+                or len(evidence_ordinals) > 1
+                or (
+                    evidence_ordinals and (not observation_ordinals or evidence_ordinals[0] < max(observation_ordinals))
+                )
+            ):
+                self._corrupt("REUSE Tool grammar")
+            if self._research_states is None:
+                return self._failed(session_fingerprint, "AGENT_SEARCH_FAILED")
+            submit_ordinal = submitted.tool_call_ordinal
+            result = tool_results.get(submit_ordinal)
+            if result is None:
+                self._corrupt("Research submit has no successful Result")
+            references = result.owning_authority_references
+            if len(references) != 1:
+                self._corrupt("Research Run identity is ambiguous")
+            try:
+                run = self._research_states.load_research_run_verified(references[0])
+            except Exception:
+                return self._failed(session_fingerprint, "AGENT_SEARCH_FAILED")
+            if run.state.value in {"FAILED", "CANCELLED", "CANCEL_REQUESTED"}:
+                return self._failed(session_fingerprint, "AGENT_SEARCH_FAILED")
+            observations = [plan for plan in branch_plans if plan.tool_class is OnlyAgentToolClass.RESEARCH_RUN_QUERY]
+            if run.state.value != "COMPLETED" or not observations:
+                return self._prepare_new_observation(
+                    session_fingerprint, OnlyAgentToolClass.RESEARCH_RUN_QUERY, tool_count, budget.tool_call_limit
+                )
+
+        evidence = [plan for plan in branch_plans if plan.tool_class is OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY]
+        if not evidence:
             return self._prepare_tool(
                 session_fingerprint,
-                expected_tools[tool_count],
+                OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY,
                 tool_count,
                 budget.tool_call_limit,
             )
@@ -308,44 +481,11 @@ class OnlyAgentSessionReducerV1:
             return self._prepare_model(session_fingerprint, "EVIDENCE_ANALYST", model_count, budget.model_call_limit)
         if model_count == 4 and decision_count == 2:
             return self._derive_decision(session_fingerprint, OnlyAgentDecisionKind.NEXT_EXPERIMENT_PROPOSAL)
-        if decision_count == 3:
-            final = self._decisions.load_decision_by_session_ordinal_verified(session_fingerprint, 2)
-            if (
-                final.decision_kind is not OnlyAgentDecisionKind.NEXT_EXPERIMENT_PROPOSAL
-                or model_count != 4
-                or (is_search and not launch_exists)
-            ):
-                self._corrupt("Next Proposal closure")
-            return OnlyAgentDerivedSessionStateV1(session_fingerprint, OnlyAgentDerivedSessionStatus.COMPLETE, None)
         self._corrupt("ambiguous non-terminal prefix")
 
     @staticmethod
     def _decision_count_before_model(ordinal: int) -> int:
         return 0 if ordinal == 0 else 1 if ordinal <= 2 else 2
-
-    @staticmethod
-    def _branch_tools(action: OnlyAgentRouterAction) -> tuple[OnlyAgentToolClass, ...]:
-        suffix = {
-            OnlyAgentRouterAction.REUSE_EXISTING: (
-                OnlyAgentToolClass.RESEARCH_DEFINITION_RESOLVE,
-                OnlyAgentToolClass.RESEARCH_RUN_SUBMIT,
-                OnlyAgentToolClass.RESEARCH_RUN_QUERY,
-                OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY,
-            ),
-            OnlyAgentRouterAction.SYMBOLIC_SEARCH: (
-                OnlyAgentToolClass.SYMBOLIC_SEARCH,
-                OnlyAgentToolClass.SEARCH_QUERY,
-                OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY,
-            ),
-            OnlyAgentRouterAction.PARAMETER_SEARCH: (
-                OnlyAgentToolClass.PARAMETER_SEARCH,
-                OnlyAgentToolClass.SEARCH_QUERY,
-                OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY,
-            ),
-        }.get(action)
-        if suffix is None:
-            raise OnlyAgentContextError("AGENT_HISTORY_CONTRADICTORY", action.value)
-        return (OnlyAgentToolClass.EXACT_CATALOG_CONTEXT_QUERY, *suffix)
 
     @staticmethod
     def _active(session: str, action: OnlyAgentNextActionV1) -> OnlyAgentDerivedSessionStateV1:
@@ -367,6 +507,19 @@ class OnlyAgentSessionReducerV1:
         return self._active(
             session,
             OnlyAgentNextActionV1(OnlyAgentNextActionKind.PREPARE_TOOL_CALL, tool_class=tool_class),
+        )
+
+    def _prepare_new_observation(
+        self, session: str, tool_class: OnlyAgentToolClass, consumed: int, limit: int
+    ) -> OnlyAgentDerivedSessionStateV1:
+        if consumed >= limit:
+            return self._failed(session, "AGENT_BUDGET_EXHAUSTED")
+        return self._active(
+            session,
+            OnlyAgentNextActionV1(
+                OnlyAgentNextActionKind.PREPARE_NEW_TOOL_OBSERVATION,
+                tool_class=tool_class,
+            ),
         )
 
     def _derive_decision(self, session: str, kind: OnlyAgentDecisionKind) -> OnlyAgentDerivedSessionStateV1:

@@ -92,6 +92,9 @@ class Decisions:
             tuple(f"{item.value.lower()}.v1" for item in OnlyAgentToolClass),
         )
 
+    def verify_tool_intent_authorized(self, **_kwargs) -> None:  # type: ignore[no-untyped-def]
+        return None
+
 
 RECOVERY = {
     OnlyAgentToolClass.EXACT_CATALOG_CONTEXT_QUERY: OnlyAgentToolRecoveryClass.IMMUTABLE_EXACT_QUERY,
@@ -1125,6 +1128,8 @@ class References:
         if reference != OnlyAgentContextReferenceV1("CATALOG_GENERATION", 1, "a" * 64): raise LookupError(reference)
 class Decisions:
     def load_decision_authorization_verified(self, fingerprint): raise LookupError(fingerprint)
+
+    def verify_tool_intent_authorized(self, **_kwargs): raise LookupError(_kwargs)  # type: ignore[no-untyped-def]
 external = External()
 readers = OnlyAgentResearchBriefReferenceReadersV1(external, external, external)
 resources = OnlyJsonAgentOrchestrationResourceStore(root)

@@ -1,6 +1,7 @@
 """Public immutable Agent decision-context foundation."""
 
 from .application import *  # noqa: F403
+from .authority_state import *  # noqa: F403
 from .decision import *  # noqa: F403
 from .errors import *  # noqa: F403
 from .model import *  # noqa: F403

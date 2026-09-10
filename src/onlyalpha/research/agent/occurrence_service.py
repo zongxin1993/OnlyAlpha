@@ -60,7 +60,19 @@ class OnlyAgentDecisionAuthorizationV1:
     permitted_operation_identities: tuple[str, ...]
 
 
-class OnlyAgentDecisionOccurrenceReader(Protocol):
+class OnlyAgentDecisionToolIntentVerifier(Protocol):
+    def verify_tool_intent_authorized(
+        self,
+        *,
+        decision_fingerprint: str,
+        tool_class: OnlyAgentToolClass,
+        operation_identity: str,
+        canonical_validated_request: Mapping[str, object],
+        exact_identity_inputs: tuple[OnlyAgentContextReferenceV1, ...],
+    ) -> None: ...
+
+
+class OnlyAgentDecisionOccurrenceReader(OnlyAgentDecisionToolIntentVerifier, Protocol):
     def load_decision_authorization_verified(self, decision_fingerprint: str) -> OnlyAgentDecisionAuthorizationV1: ...
 
 
@@ -688,6 +700,18 @@ class OnlyAgentToolOccurrenceServiceV1:
                 raise OnlyAgentContextError(
                     "AGENT_TOOL_CALL_PLAN_INVALID", "Exact identity input is unresolved"
                 ) from exc
+        try:
+            self._decisions.verify_tool_intent_authorized(
+                decision_fingerprint=decision.decision_fingerprint,
+                tool_class=tool_class,
+                operation_identity=operation_identity,
+                canonical_validated_request=cast(Mapping[str, object], validated),
+                exact_identity_inputs=exact_identity_inputs,
+            )
+        except OnlyAgentContextError:
+            raise
+        except Exception as exc:
+            raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity) from exc
         if self._store.budget_consumed(session_fingerprint) >= context.research_brief.agent_budget.tool_call_limit:
             raise OnlyAgentContextError("AGENT_BUDGET_EXHAUSTED", "Tool call budget")
         plan = OnlyAgentToolCallPlanV1(
@@ -832,6 +856,16 @@ class OnlyAgentToolOccurrenceServiceV1:
     def budget_consumed(self, session_fingerprint: str) -> int:
         return self._store.budget_consumed(session_fingerprint)
 
+    def recovery_class(self, plan_fingerprint: str) -> OnlyAgentToolRecoveryClass:
+        plan = self.load_plan_verified(plan_fingerprint)
+        return _load_product_operation_contract(
+            self._contracts,
+            product_api_major=plan.product_api_major,
+            product_api_contract_fingerprint=plan.product_api_contract_fingerprint,
+            operation_identity=plan.operation_identity,
+            tool_class=plan.tool_class,
+        ).recovery_class
+
     def load_plan_verified(self, plan_fingerprint: str) -> OnlyAgentToolCallPlanV1:
         plan = self._store.load_plan_verified(plan_fingerprint)
         context = self._sessions.load_session_manifest_verified(plan.agent_session_fingerprint)
@@ -879,6 +913,18 @@ class OnlyAgentToolOccurrenceServiceV1:
         )
         for reference in plan.exact_identity_inputs:
             self._references.verify_exact_reference(reference)
+        try:
+            self._decisions.verify_tool_intent_authorized(
+                decision_fingerprint=decision.decision_fingerprint,
+                tool_class=plan.tool_class,
+                operation_identity=plan.operation_identity,
+                canonical_validated_request=cast(Mapping[str, object], validated),
+                exact_identity_inputs=plan.exact_identity_inputs,
+            )
+        except OnlyAgentContextError:
+            raise
+        except Exception as exc:
+            raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", plan.operation_identity) from exc
         return plan
 
     def load_result_verified(self, plan_fingerprint: str) -> OnlyAgentToolCallResultV1:

@@ -213,3 +213,18 @@ def test_agent_workflow_manifest_derivation_has_no_provenance_override() -> None
     parameters = set(inspect.signature(derive_agent_workflow_implementation_manifest).parameters)
     assert parameters == {"workflow_id", "workflow_semantic_version", "runtime_resources"}
     assert not parameters.intersection({"build_provenance", "source_revision", "distribution_provenance"})
+
+
+def test_agent_reducer_and_evidence_do_not_duplicate_owning_authorities() -> None:
+    from onlyalpha.research.agent import OnlyAgentEvidenceObservationV1
+
+    root = Path(__file__).resolve().parents[2] / "src" / "onlyalpha" / "research" / "agent"
+    reducer = (root / "session_state.py").read_text(encoding="utf-8")
+    application = (root / "application.py").read_text(encoding="utf-8")
+    assert "_branch_tools" not in reducer
+    assert "_reconstruct_historical_decision" not in application
+    assert "class AgentSearchState" not in reducer
+    assert "class AgentResearchRunState" not in reducer
+    assert not set(OnlyAgentEvidenceObservationV1.__dataclass_fields__).intersection(
+        {"ic", "rank_ic", "sharpe", "coverage_ratio", "correlation", "stability_score"}
+    )
