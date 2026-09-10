@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-This document defines a long-lived engineering method for using mature open-source projects as external engineering evidence during OnlyAlpha design, planning, review and test design.
+This document defines a long-lived engineering method for using mature open-source projects as external engineering evidence during OnlyAlpha design, planning, implementation, review and test design.
 
 Its normative authority is subordinate to:
 
@@ -91,6 +91,28 @@ Live upstream issue research is required when one or more of these are true:
 
 This keeps the method useful without turning every small change into a broad web-research task.
 
+### OA-REF-6 — External learning must become protection or an explicit rejection
+
+For high-risk work, merely linking an external project or issue is not an engineering outcome.
+
+When an external failure mechanism is applicable, it should become an OnlyAlpha-native invariant and, when mechanically testable, an executable regression/differential/fault test. When it is not applicable, the plan should state why the exact OnlyAlpha boundary makes the failure irrelevant.
+
+The required decision is therefore:
+
+```text
+external evidence
+    ↓
+applicable? ── NO ──→ explicit non-applicability / rejected approach
+    │
+   YES
+    ↓
+OnlyAlpha invariant
+    ↓
+protection + test
+```
+
+This prevents external research from becoming passive documentation that does not improve correctness.
+
 ## 2. Planning workflow
 
 For architecture analysis and repository-aware planning, use this sequence when external evidence is applicable:
@@ -111,7 +133,36 @@ For architecture analysis and repository-aware planning, use this sequence when 
 
 The task remains governed by OnlyAlpha's own Task Contract and Authority hierarchy.
 
-## 3. Required planning output for high-risk design
+## 3. Implementation and review workflow
+
+A plan that used external engineering evidence does not complete the obligation by citing references. Before modifying the affected high-risk boundary, the implementer should inspect the selected failure-pattern records and verify that the Task Contract contains the required protection/test implications.
+
+During implementation:
+
+```text
+Task Contract / Impact Scope
+        ↓
+selected failure-pattern records
+        ↓
+current source/tests at the affected boundary
+        ↓
+smallest OnlyAlpha-native protection
+        ↓
+required regression/differential/fault evidence
+```
+
+If implementation exposes a new directly relevant upstream-style failure mechanism that the plan did not cover, the scope may expand only to the nearest stable boundary required to preserve correctness. It must not become an open-ended external audit.
+
+During bounded Independent Review, reviewers should ask both:
+
+```text
+Did the implementation satisfy the frozen OnlyAlpha contract?
+Did it accidentally reintroduce a known applicable failure pattern?
+```
+
+External projects still do not become acceptance Authority; the Task Contract and OnlyAlpha tests remain authoritative for the current change.
+
+## 4. Required planning output for high-risk design
 
 When external evidence materially affects a high-risk plan, the plan should include a bounded section with this shape:
 
@@ -136,7 +187,7 @@ OnlyAlpha invariants / tests derived from the evidence:
 
 This section is evidence for the plan, not a new acceptance or architecture Authority.
 
-## 4. Reference selection
+## 5. Reference selection
 
 References should be selected by domain rather than popularity.
 
@@ -144,19 +195,21 @@ Examples of current reference domains include:
 
 | Domain | Useful reference families |
 |---|---|
-| Trading Kernel / event-driven runtime | NautilusTrader, LEAN |
-| Factor / Calculation expression systems | Qlib, AlphaGen |
-| Agent research loops | RD-Agent, Vibe-Trading |
-| Factor analysis / Research evidence | Alphalens-family tools, factor quality-control projects |
-| Large candidate evaluation | vectorbt-style vectorized execution |
-| Portfolio / risk research | skfolio, Riskfolio-Lib |
-| Market-data replay / Tick protocols | Tardis and venue-native specifications |
+| Trading Kernel / event-driven runtime | NautilusTrader, Barter-rs, WonderTrader, VeighNa, LEAN |
+| China provider / gateway | VeighNa, TqSdk, QUANTAXIS, OpenCTP/CTPBee, RedTorch |
+| Factor / Calculation expression systems | Qlib, AlphaGen, KunQuant, AKQuant |
+| Agent research loops | RD-Agent, Vibe-Trading, AlphaEvo, AlphaSift, QuantMind |
+| Factor analysis / Research evidence | Alphalens-family tools, AlphaPurify, factor quality-control projects |
+| Large candidate evaluation | vectorbt, KunQuant-style shared graph execution |
+| Portfolio / risk research | skfolio, Riskfolio-Lib, Macrosynergy |
+| Market-data replay / Tick protocols | Tardis, TqSdk and venue-native specifications |
 | Calendars / sessions | exchange_calendars and market-specific reference data |
-| Research integrity | PIT / look-ahead / null-control / multiple-testing projects |
+| Research integrity | PIT / look-ahead / information-state / null-control / multiple-testing projects, Macrosynergy, QF-Lib |
+| Product/Web comparison | ZVT, QuantMind and other API-first quant workspaces |
 
 This list is intentionally non-authoritative and may evolve. A reference is useful because of a specific demonstrated capability or failure history, not because its name appears in this document.
 
-## 5. Issue and bug research discipline
+## 6. Issue and bug research discipline
 
 When searching upstream issue history, prefer problem-oriented terms such as:
 
@@ -186,6 +239,12 @@ overflow
 memory leak
 schema drift
 retry
+mutation
+adjustment
+corporate action
+session identity
+resubscribe
+stale state
 ```
 
 Closed issues can be especially valuable because they often contain the complete chain:
@@ -199,7 +258,7 @@ symptom
 
 Do not promote community preference, style debate or performance fashion into an OnlyAlpha rule unless it reveals a concrete problem relevant to the current task.
 
-## 6. Converting external failures into OnlyAlpha tests
+## 7. Converting external failures into OnlyAlpha tests
 
 External evidence is most valuable when it becomes executable protection.
 
@@ -238,9 +297,20 @@ Test:
 continuous(events) == checkpoint_restart(events)
 ```
 
+```text
+Upstream symptom:
+a historical adjustment mutates a cached source object and a repeated identical query changes result
+
+OnlyAlpha invariant:
+derived transforms cannot mutate authoritative source facts
+
+Test:
+same immutable source + same transform, repeated twice → same output and unchanged source fingerprint
+```
+
 A document note such as "be careful with reconnect" is not a substitute for a regression test when the failure is reproducible and relevant.
 
-## 7. Failure-pattern traceability
+## 8. Failure-pattern traceability
 
 Long-lived failure knowledge should use this conceptual chain:
 
@@ -258,7 +328,7 @@ Certification evidence (when applicable)
 
 Failure-pattern records must not copy third-party issue text wholesale. Record the generalized technical lesson, source references and the OnlyAlpha-specific protection.
 
-## 8. What must not be copied into OnlyAlpha
+## 9. What must not be copied into OnlyAlpha
 
 Do not mechanically copy:
 
@@ -269,13 +339,14 @@ Do not mechanically copy:
 - arbitrary retry / sleep / timeout behavior;
 - a language/runtime choice merely because a reference project uses it;
 - RL, multi-agent or microservice architecture merely because a research project demonstrates it;
+- aggregate `score` / `confidence` / `champion` labels as a replacement for typed Evidence + Qualification;
 - issue-specific patches that do not follow OnlyAlpha determinism, identity and recovery rules.
 
 The governing question is always:
 
 > What invariant was the external project trying to protect, and what is the correct OnlyAlpha-native way to protect it?
 
-## 9. Repository organization
+## 10. Repository organization
 
 Curated material belongs under:
 
@@ -289,7 +360,7 @@ docs/engineering/
 
 These documents are engineering knowledge and planning input. They must not contain task completion status, CI snapshots or claims that an external project is an OnlyAlpha Authority.
 
-## 10. Review rule
+## 11. Review rule
 
 During bounded Independent Review of a high-risk change, reviewers should check whether the task ignored a directly relevant known failure pattern already recorded in the repository.
 
