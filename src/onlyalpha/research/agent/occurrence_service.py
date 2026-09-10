@@ -6,7 +6,6 @@ import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import Protocol, cast
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
@@ -63,47 +62,6 @@ class OnlyAgentDecisionAuthorizationV1:
 
 class OnlyAgentDecisionOccurrenceReader(Protocol):
     def load_decision_authorization_verified(self, decision_fingerprint: str) -> OnlyAgentDecisionAuthorizationV1: ...
-
-
-class OnlyAgentModelRetryAuthorizationKind(StrEnum):
-    HUMAN = "HUMAN"
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyAgentModelRetryAuthorizationV1:
-    authorization_fingerprint: str
-    agent_session_fingerprint: str
-    workflow_implementation_fingerprint: str
-    retry_of_plan_fingerprint: str
-    retry_plan_fingerprint: str
-    retry_call_ordinal: int
-    model_execution_policy_fingerprint: str
-    authorization_kind: OnlyAgentModelRetryAuthorizationKind
-
-    def __post_init__(self) -> None:
-        for value in (
-            self.authorization_fingerprint,
-            self.agent_session_fingerprint,
-            self.workflow_implementation_fingerprint,
-            self.retry_of_plan_fingerprint,
-            self.retry_plan_fingerprint,
-            self.model_execution_policy_fingerprint,
-        ):
-            if not isinstance(value, str) or len(value) != 64 or any(item not in "0123456789abcdef" for item in value):
-                raise ValueError("AGENT_MODEL_RETRY_AUTHORIZATION_INVALID")
-        if (
-            isinstance(self.retry_call_ordinal, bool)
-            or not isinstance(self.retry_call_ordinal, int)
-            or self.retry_call_ordinal < 0
-            or self.authorization_kind is not OnlyAgentModelRetryAuthorizationKind.HUMAN
-        ):
-            raise ValueError("AGENT_MODEL_RETRY_AUTHORIZATION_INVALID")
-
-
-class OnlyAgentModelRetryAuthorizationReader(Protocol):
-    def load_model_retry_authorization_verified(
-        self, authorization_fingerprint: str
-    ) -> OnlyAgentModelRetryAuthorizationV1: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -325,14 +283,12 @@ class OnlyAgentModelOccurrenceServiceV1:
         resources: OnlyAgentOrchestrationResourceReader,
         references: OnlyAgentExactReferenceReader,
         decisions: OnlyAgentDecisionOccurrenceReader,
-        retry_authorizations: OnlyAgentModelRetryAuthorizationReader,
         store: OnlyJsonAgentModelOccurrenceStore,
     ) -> None:
         self._sessions = sessions
         self._resources = resources
         self._references = references
         self._decisions = decisions
-        self._retry_authorizations = retry_authorizations
         self._store = store
         self._token = object()
 
@@ -360,6 +316,11 @@ class OnlyAgentModelOccurrenceServiceV1:
             session_fingerprint=session_fingerprint,
             current_workflow_manifest=current_workflow_manifest,
         )
+        if retry_of_plan_fingerprint is not None:
+            raise OnlyAgentContextError(
+                "AGENT_POLICY_VIOLATION",
+                "B3.4 V1 defines NO_AUTOMATIC_RETRY and no independent retry-authorization Authority is admitted",
+            )
         role = _role(context, role_policy_fingerprint, logical_role)
         if prompt_template_fingerprint not in role.allowed_prompt_template_fingerprints:
             raise OnlyAgentContextError("AGENT_MODEL_CALL_PLAN_INVALID", "Prompt is not allowed by Role Policy")
@@ -378,7 +339,11 @@ class OnlyAgentModelOccurrenceServiceV1:
             OnlyAgentOrchestrationResourceKind.MODEL_EXECUTION_POLICY, model_execution_policy_fingerprint
         )
         policy = policy_resource.canonical_payload
-        if not isinstance(policy, OnlyAgentModelExecutionPolicyPayloadV1) or not policy.no_fallback:
+        if (
+            not isinstance(policy, OnlyAgentModelExecutionPolicyPayloadV1)
+            or not policy.no_fallback
+            or policy.retry_semantics != "NO_AUTOMATIC_RETRY"
+        ):
             raise OnlyAgentContextError("AGENT_MODEL_CALL_PLAN_INVALID", "Model Policy is invalid")
         self._verify_settings(policy, response_affecting_settings)
         if context.session.tool_policy_fingerprint != context.tool_policy_resource.resource_fingerprint:
@@ -409,16 +374,6 @@ class OnlyAgentModelOccurrenceServiceV1:
             parent_agent_decision_fingerprint,
             retry_of_plan_fingerprint,
         )
-        if retry_of_plan_fingerprint is not None:
-            self._verify_retry(
-                session_fingerprint,
-                retry_of_plan_fingerprint,
-                plan.model_call_plan_fingerprint,
-                call_ordinal,
-                model_execution_policy_fingerprint,
-                parent_agent_decision_fingerprint,
-                policy,
-            )
         outcome = self._store.commit_plan(plan)
         if outcome.disposition is OnlyAgentCommitDisposition.REUSED:
             raise OnlyAgentContextError(
@@ -531,7 +486,10 @@ class OnlyAgentModelOccurrenceServiceV1:
             OnlyAgentOrchestrationResourceKind.MODEL_EXECUTION_POLICY, plan.model_execution_policy_fingerprint
         )
         policy = policy_resource.canonical_payload
-        if not isinstance(policy, OnlyAgentModelExecutionPolicyPayloadV1):
+        if (
+            not isinstance(policy, OnlyAgentModelExecutionPolicyPayloadV1)
+            or policy.retry_semantics != "NO_AUTOMATIC_RETRY"
+        ):
             raise OnlyAgentContextError("AGENT_MODEL_CALL_PLAN_INVALID", plan_fingerprint)
         self._verify_settings(policy, plan.response_affecting_settings)
         for reference in plan.ordered_context_references:
@@ -539,14 +497,9 @@ class OnlyAgentModelOccurrenceServiceV1:
         if plan.parent_agent_decision_fingerprint is not None:
             _verify_decision(self._decisions, plan.parent_agent_decision_fingerprint, context.session)
         if plan.retry_of_plan_fingerprint is not None:
-            self._verify_retry(
+            self._verify_retry_lineage(
                 plan.agent_session_fingerprint,
                 plan.retry_of_plan_fingerprint,
-                plan.model_call_plan_fingerprint,
-                plan.call_ordinal,
-                plan.model_execution_policy_fingerprint,
-                plan.parent_agent_decision_fingerprint,
-                policy,
             )
         return plan
 
@@ -582,36 +535,11 @@ class OnlyAgentModelOccurrenceServiceV1:
         )
         return exact
 
-    def _verify_retry(
+    def _verify_retry_lineage(
         self,
         session_fingerprint: str,
         retry_of: str,
-        retry_plan_fingerprint: str,
-        retry_call_ordinal: int,
-        model_execution_policy_fingerprint: str,
-        authorization_fingerprint: str | None,
-        policy: OnlyAgentModelExecutionPolicyPayloadV1,
     ) -> None:
-        if policy.retry_semantics != "NO_AUTOMATIC_RETRY" or authorization_fingerprint is None:
-            raise OnlyAgentContextError("AGENT_POLICY_VIOLATION", "Explicit retry authorization is required")
-        try:
-            authorization = self._retry_authorizations.load_model_retry_authorization_verified(
-                authorization_fingerprint
-            )
-        except Exception as exc:
-            raise OnlyAgentContextError("AGENT_POLICY_VIOLATION", "Retry authorization is unresolved") from exc
-        context = self._sessions.load_session_manifest_verified(session_fingerprint)
-        if (
-            authorization.authorization_fingerprint != authorization_fingerprint
-            or authorization.agent_session_fingerprint != session_fingerprint
-            or authorization.workflow_implementation_fingerprint
-            != context.session.agent_workflow_implementation_fingerprint
-            or authorization.retry_of_plan_fingerprint != retry_of
-            or authorization.retry_plan_fingerprint != retry_plan_fingerprint
-            or authorization.retry_call_ordinal != retry_call_ordinal
-            or authorization.model_execution_policy_fingerprint != model_execution_policy_fingerprint
-        ):
-            raise OnlyAgentContextError("AGENT_POLICY_VIOLATION", "Retry authorization binding differs")
         seen: set[str] = set()
         current: str | None = retry_of
         while current is not None:

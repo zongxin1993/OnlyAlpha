@@ -56,8 +56,38 @@ def test_agent_occurrence_foundation_has_no_next_action_or_generic_call_authorit
         "requests.Session",
         "retry_authorized=True",
         "TEST_MODEL_RETRY_AUTHORIZED",
+        "class OnlyAgentModelRetryAuthorization",
+        "load_model_retry_authorization_verified",
     ):
         assert forbidden not in source
+
+
+def test_agent_occurrence_foundation_exposes_no_retry_pseudo_authority_or_bypass() -> None:
+    import onlyalpha.research.agent as agent
+
+    forbidden_public_names = (
+        "OnlyAgentModelRetryAuthorizationKind",
+        "OnlyAgentModelRetryAuthorizationV1",
+        "OnlyAgentModelRetryAuthorizationReader",
+    )
+    assert not any(hasattr(agent, name) for name in forbidden_public_names)
+
+    root = Path(__file__).resolve().parents[2] / "src" / "onlyalpha" / "research" / "agent"
+    forbidden_parameters = {
+        "authorized",
+        "retry_authorized",
+        "retry_authorization_fingerprint",
+        "human_authorization_fingerprint",
+    }
+    for path in root.glob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        parameters = {
+            argument.arg
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            for argument in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs)
+        }
+        assert not parameters.intersection(forbidden_parameters), path
 
 
 def test_model_and_tool_occurrences_remain_distinct_public_authorities() -> None:
@@ -74,6 +104,25 @@ def test_model_and_tool_occurrences_remain_distinct_public_authorities() -> None
     )
     assert "product_api_contract_fingerprint" not in OnlyAgentModelCallPlanV1.__dataclass_fields__
     assert "model_id" not in OnlyAgentToolCallPlanV1.__dataclass_fields__
+    assert set(OnlyAgentModelCallPlanV1.__dataclass_fields__) == {
+        "schema_version",
+        "agent_session_fingerprint",
+        "call_ordinal",
+        "logical_role",
+        "role_policy_fingerprint",
+        "provider_id",
+        "model_id",
+        "model_version",
+        "prompt_template_fingerprint",
+        "structured_output_schema_fingerprint",
+        "tool_policy_fingerprint",
+        "model_execution_policy_fingerprint",
+        "response_affecting_settings",
+        "ordered_context_references",
+        "parent_agent_decision_fingerprint",
+        "retry_of_plan_fingerprint",
+        "model_call_plan_fingerprint",
+    }
     assert set(OnlyAgentToolCallPlanV1.__dataclass_fields__) == {
         "schema_version",
         "agent_session_fingerprint",

@@ -21,8 +21,6 @@ from onlyalpha.research.agent import (
     OnlyAgentModelCallPlanV1,
     OnlyAgentModelCallResultV1,
     OnlyAgentModelOccurrenceServiceV1,
-    OnlyAgentModelRetryAuthorizationKind,
-    OnlyAgentModelRetryAuthorizationV1,
     OnlyAgentModelSettingBindingV1,
     OnlyAgentModelSettingState,
     OnlyAgentObservedResponseStorageKind,
@@ -82,10 +80,6 @@ class ExactReferences:
 class Decisions:
     def __init__(self, context: ContextFixture) -> None:
         self.context = context
-        self.retry_of_plan_fingerprint: str | None = None
-        self.retry_plan_fingerprint: str | None = None
-        self.retry_call_ordinal = 1
-        self.retry_session_fingerprint = context.session.session_fingerprint
 
     def load_decision_authorization_verified(self, fingerprint: str) -> OnlyAgentDecisionAuthorizationV1:
         if fingerprint != DECISION:
@@ -97,39 +91,6 @@ class Decisions:
             tuple(OnlyAgentToolClass),
             tuple(f"{item.value.lower()}.v1" for item in OnlyAgentToolClass),
         )
-
-    def load_model_retry_authorization_verified(self, fingerprint: str) -> OnlyAgentModelRetryAuthorizationV1:
-        if fingerprint != DECISION or self.retry_of_plan_fingerprint is None or self.retry_plan_fingerprint is None:
-            raise LookupError(fingerprint)
-        return OnlyAgentModelRetryAuthorizationV1(
-            DECISION,
-            self.retry_session_fingerprint,
-            self.context.session.agent_workflow_implementation_fingerprint,
-            self.retry_of_plan_fingerprint,
-            self.retry_plan_fingerprint,
-            self.retry_call_ordinal,
-            self.context.resources[2].resource_fingerprint,
-            OnlyAgentModelRetryAuthorizationKind.HUMAN,
-        )
-
-    def authorize_retry(
-        self,
-        prior: OnlyAgentModelCallPlanV1,
-        *,
-        retry_of_plan_fingerprint: str | None = None,
-        provider_id: str | None = None,
-    ) -> None:
-        retry_of = retry_of_plan_fingerprint or prior.model_call_plan_fingerprint
-        candidate = replace(
-            prior,
-            call_ordinal=self.retry_call_ordinal,
-            provider_id=prior.provider_id if provider_id is None else provider_id,
-            parent_agent_decision_fingerprint=DECISION,
-            retry_of_plan_fingerprint=retry_of,
-            model_call_plan_fingerprint="",
-        )
-        self.retry_of_plan_fingerprint = retry_of
-        self.retry_plan_fingerprint = candidate.model_call_plan_fingerprint
 
 
 RECOVERY = {
@@ -258,7 +219,6 @@ def _services(root: Path, *, product_contracts=None):  # type: ignore[no-untyped
         resources=resources,
         references=references,
         decisions=decisions,
-        retry_authorizations=decisions,
         store=model_store,
     )
     tool = OnlyAgentToolOccurrenceServiceV1(
@@ -547,8 +507,8 @@ def test_model_unknown_recovery_requires_current_runtime_but_history_remains_rea
     assert result.outcome is OnlyAgentModelCallOutcome.OUTCOME_UNKNOWN
 
 
-def test_model_unknown_is_terminal_and_retry_is_new_occurrence(tmp_path) -> None:
-    context, model, _, store, _, reference, _, _, authorizations = _services(tmp_path)
+def test_model_unknown_is_terminal_and_retry_fails_closed_before_commit(tmp_path) -> None:
+    context, model, _, store, _, reference, _, _, _ = _services(tmp_path)
     first = _prepare_model(model, context, reference)
     unknown = model.recover_outcome_unknown(
         first.plan.model_call_plan_fingerprint,
@@ -560,7 +520,7 @@ def test_model_unknown_is_terminal_and_retry_is_new_occurrence(tmp_path) -> None
     assert resend.value.code == "AGENT_MODEL_CALL_PLAN_CONFLICT"
     with pytest.raises(OnlyAgentContextError):
         model.record_failed(first)
-    with pytest.raises(OnlyAgentContextError) as unauthorized:
+    with pytest.raises(OnlyAgentContextError) as blocked:
         _prepare_model(
             model,
             context,
@@ -568,111 +528,80 @@ def test_model_unknown_is_terminal_and_retry_is_new_occurrence(tmp_path) -> None
             ordinal=1,
             retry_of_plan_fingerprint=first.plan.model_call_plan_fingerprint,
         )
-    assert unauthorized.value.code == "AGENT_POLICY_VIOLATION"
-    authorizations.authorize_retry(first.plan)
-    retry = _prepare_model(
+    assert blocked.value.code == "AGENT_POLICY_VIOLATION"
+    assert "NO_AUTOMATIC_RETRY" in str(blocked.value)
+    assert store.budget_consumed(context.session.session_fingerprint) == 1
+    with pytest.raises(OnlyAgentContextError):
+        store.load_plan_by_session_ordinal_verified(context.session.session_fingerprint, 1)
+
+
+def test_agent_decision_does_not_authorize_model_retry(tmp_path) -> None:
+    context, model, _, store, _, reference, _, _, _ = _services(tmp_path)
+    first = _prepare_model(model, context, reference)
+    model.recover_outcome_unknown(
+        first.plan.model_call_plan_fingerprint,
+        current_workflow_manifest=context.resources[-1].canonical_payload,
+    )
+    with pytest.raises(OnlyAgentContextError) as blocked:
+        _prepare_model(
+            model,
+            context,
+            reference,
+            ordinal=1,
+            parent_agent_decision_fingerprint=DECISION,
+            retry_of_plan_fingerprint=first.plan.model_call_plan_fingerprint,
+        )
+    assert blocked.value.code == "AGENT_POLICY_VIOLATION"
+    assert store.budget_consumed(context.session.session_fingerprint) == 1
+    with pytest.raises(OnlyAgentContextError):
+        store.load_plan_by_session_ordinal_verified(context.session.session_fingerprint, 1)
+
+
+def test_normal_parent_decision_model_call_and_initial_planner_call_succeed(tmp_path) -> None:
+    context, model, _, store, _, reference, _, _, _ = _services(tmp_path)
+    initial = _prepare_model(model, context, reference)
+    assert initial.plan.parent_agent_decision_fingerprint is None
+    assert initial.plan.retry_of_plan_fingerprint is None
+    with pytest.raises(OnlyAgentContextError) as invalid_parent:
+        _prepare_model(
+            model,
+            context,
+            reference,
+            ordinal=1,
+            parent_agent_decision_fingerprint="9" * 64,
+        )
+    assert invalid_parent.value.code == "AGENT_DECISION_REFERENCE_INVALID"
+    assert store.budget_consumed(context.session.session_fingerprint) == 1
+    child = _prepare_model(
         model,
         context,
         reference,
         ordinal=1,
         parent_agent_decision_fingerprint=DECISION,
-        retry_of_plan_fingerprint=first.plan.model_call_plan_fingerprint,
     )
-    assert retry.plan.call_ordinal == 1
-    assert retry.plan.retry_of_plan_fingerprint == first.plan.model_call_plan_fingerprint
-    assert retry.plan.model_call_plan_fingerprint != first.plan.model_call_plan_fingerprint
+    assert child.plan.parent_agent_decision_fingerprint == DECISION
+    assert child.plan.retry_of_plan_fingerprint is None
     assert store.budget_consumed(context.session.session_fingerprint) == 2
 
 
-def test_model_retry_missing_cross_session_and_tampered_cycle_fail_closed(tmp_path) -> None:
-    context, model, _, store, _, reference, _, _, authorizations = _services(tmp_path)
+def test_model_plan_retry_lineage_round_trips_without_enabling_service_admission(tmp_path) -> None:
+    context, model, _, store, _, reference, _, _, _ = _services(tmp_path)
     first = _prepare_model(model, context, reference)
     model.recover_outcome_unknown(
         first.plan.model_call_plan_fingerprint,
         current_workflow_manifest=context.resources[-1].canonical_payload,
     )
-    authorizations.authorize_retry(first.plan, retry_of_plan_fingerprint="9" * 64)
-    with pytest.raises(OnlyAgentContextError):
-        _prepare_model(
-            model,
-            context,
-            reference,
-            ordinal=1,
-            parent_agent_decision_fingerprint=DECISION,
-            retry_of_plan_fingerprint="9" * 64,
-        )
-
-    cross = replace(
+    historical = replace(
         first.plan,
-        agent_session_fingerprint="8" * 64,
+        call_ordinal=1,
+        retry_of_plan_fingerprint=first.plan.model_call_plan_fingerprint,
         model_call_plan_fingerprint="",
     )
-    store.commit_plan(cross)
-    store.commit_result(
-        OnlyAgentModelCallResultV1(
-            cross.model_call_plan_fingerprint,
-            OnlyAgentModelCallOutcome.FAILED,
-            failure_code="AGENT_MODEL_CALL_FAILED",
-        )
-    )
-    with pytest.raises(OnlyAgentContextError) as cross_session:
-        authorizations.authorize_retry(first.plan, retry_of_plan_fingerprint=cross.model_call_plan_fingerprint)
-        _prepare_model(
-            model,
-            context,
-            reference,
-            ordinal=1,
-            parent_agent_decision_fingerprint=DECISION,
-            retry_of_plan_fingerprint=cross.model_call_plan_fingerprint,
-        )
-    assert cross_session.value.code == "AGENT_MODEL_CALL_PLAN_INVALID"
-
-    path = _manifest(tmp_path, "model-calls/plans", first.plan.model_call_plan_fingerprint)
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    payload["retry_of_plan_fingerprint"] = first.plan.model_call_plan_fingerprint
-    path.write_text(only_canonical_json(payload), encoding="utf-8")
-    with pytest.raises(OnlyAgentContextError):
-        store.load_plan_verified(first.plan.model_call_plan_fingerprint)
-
-
-def test_model_retry_authorization_must_bind_session_prior_plan_ordinal_and_policy(tmp_path) -> None:
-    context, model, _, _, _, reference, _, _, authorizations = _services(tmp_path)
-    first = _prepare_model(model, context, reference)
-    model.recover_outcome_unknown(
-        first.plan.model_call_plan_fingerprint,
-        current_workflow_manifest=context.resources[-1].canonical_payload,
-    )
-    authorizations.authorize_retry(first.plan)
-    attempts = (
-        ("retry_session_fingerprint", "8" * 64),
-        ("retry_of_plan_fingerprint", "9" * 64),
-        ("retry_call_ordinal", 2),
-    )
-    for field, wrong_value in attempts:
-        original = getattr(authorizations, field)
-        setattr(authorizations, field, wrong_value)
-        with pytest.raises(OnlyAgentContextError) as blocked:
-            _prepare_model(
-                model,
-                context,
-                reference,
-                ordinal=1,
-                parent_agent_decision_fingerprint=DECISION,
-                retry_of_plan_fingerprint=first.plan.model_call_plan_fingerprint,
-            )
-        assert blocked.value.code == "AGENT_POLICY_VIOLATION"
-        setattr(authorizations, field, original)
-    with pytest.raises(OnlyAgentContextError) as different_occurrence:
-        _prepare_model(
-            model,
-            context,
-            reference,
-            ordinal=1,
-            provider_id="provider-b",
-            parent_agent_decision_fingerprint=DECISION,
-            retry_of_plan_fingerprint=first.plan.model_call_plan_fingerprint,
-        )
-    assert different_occurrence.value.code == "AGENT_POLICY_VIOLATION"
+    reconstructed = OnlyAgentModelCallPlanV1.from_dict(json.loads(only_canonical_json(historical.to_dict())))
+    assert reconstructed == historical
+    assert reconstructed.retry_of_plan_fingerprint == first.plan.model_call_plan_fingerprint
+    store.commit_plan(historical)
+    assert model.load_plan_verified(historical.model_call_plan_fingerprint) == historical
 
 
 def test_model_known_failure_is_distinct_from_unknown(tmp_path) -> None:
@@ -1196,7 +1125,6 @@ class References:
         if reference != OnlyAgentContextReferenceV1("CATALOG_GENERATION", 1, "a" * 64): raise LookupError(reference)
 class Decisions:
     def load_decision_authorization_verified(self, fingerprint): raise LookupError(fingerprint)
-    def load_model_retry_authorization_verified(self, fingerprint): raise LookupError(fingerprint)
 external = External()
 readers = OnlyAgentResearchBriefReferenceReadersV1(external, external, external)
 resources = OnlyJsonAgentOrchestrationResourceStore(root)
@@ -1208,7 +1136,7 @@ mismatched_plan = plan_store.load_plan_verified(sys.argv[3])
 context = sessions.load_session_manifest_verified(same_plan.agent_session_fingerprint)
 manifest = context.workflow_resource.canonical_payload
 decisions = Decisions()
-service = OnlyAgentModelOccurrenceServiceV1(sessions=sessions, resources=resources, references=References(), decisions=decisions, retry_authorizations=decisions, store=plan_store)
+service = OnlyAgentModelOccurrenceServiceV1(sessions=sessions, resources=resources, references=References(), decisions=decisions, store=plan_store)
 try:
     service.recover_outcome_unknown(mismatched_plan.model_call_plan_fingerprint, current_workflow_manifest=replace(manifest, workflow_semantic_version="2.0.0", implementation_fingerprint=""))
 except Exception as exc:
