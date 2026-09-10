@@ -436,7 +436,6 @@ class OnlyAgentToolCallPlanV1:
     product_api_major: int
     product_api_contract_fingerprint: str
     operation_identity: str
-    recovery_class: OnlyAgentToolRecoveryClass
     canonical_validated_request: Mapping[str, object]
     canonical_request_fingerprint: str = ""
     exact_identity_inputs: tuple[OnlyAgentContextReferenceV1, ...] = ()
@@ -456,9 +455,7 @@ class OnlyAgentToolCallPlanV1:
         ):
             _sha(value, field)
         _identifier(self.operation_identity, "operation_identity")
-        if not isinstance(self.tool_class, OnlyAgentToolClass) or not isinstance(
-            self.recovery_class, OnlyAgentToolRecoveryClass
-        ):
+        if not isinstance(self.tool_class, OnlyAgentToolClass):
             raise ValueError("AGENT_TOOL_CALL_PLAN_INVALID")
         if not isinstance(self.exact_identity_inputs, tuple) or any(
             not isinstance(item, OnlyAgentContextReferenceV1) for item in self.exact_identity_inputs
@@ -491,7 +488,6 @@ class OnlyAgentToolCallPlanV1:
             "product_api_major": self.product_api_major,
             "product_api_contract_fingerprint": self.product_api_contract_fingerprint,
             "operation_identity": self.operation_identity,
-            "recovery_class": self.recovery_class.value,
             "canonical_validated_request": _thaw(self.canonical_validated_request),
             "canonical_request_fingerprint": self.canonical_request_fingerprint,
             "exact_identity_inputs": [item.to_dict() for item in self.exact_identity_inputs],
@@ -515,7 +511,6 @@ class OnlyAgentToolCallPlanV1:
                 "product_api_major",
                 "product_api_contract_fingerprint",
                 "operation_identity",
-                "recovery_class",
                 "canonical_validated_request",
                 "canonical_request_fingerprint",
                 "exact_identity_inputs",
@@ -534,7 +529,6 @@ class OnlyAgentToolCallPlanV1:
             _integer(payload["product_api_major"], "product_api_major"),
             _sha(payload["product_api_contract_fingerprint"], "product_api_contract_fingerprint"),
             _string(payload["operation_identity"], "operation_identity"),
-            OnlyAgentToolRecoveryClass(_string(payload["recovery_class"], "recovery_class")),
             _mapping(payload["canonical_validated_request"], "canonical_validated_request"),
             _sha(payload["canonical_request_fingerprint"], "canonical_request_fingerprint"),
             tuple(
@@ -704,11 +698,12 @@ def validate_agent_strict_schema(schema: Mapping[str, object], *, root_type: str
         "enum",
         "items",
         "x-onlyalpha-reference-kind",
+        "x-onlyalpha-reference-schema-version",
     }
     if not set(schema).issubset(allowed_keywords):
         raise ValueError("AGENT_STRUCTURED_SCHEMA_UNSUPPORTED")
     expected_type = schema.get("type")
-    supported_types = {"object", "array", "string", "integer", "number", "boolean", "null"}
+    supported_types = {"object", "array", "string", "integer", "boolean", "null"}
     if not isinstance(expected_type, str) or expected_type not in supported_types:
         raise ValueError("AGENT_STRUCTURED_SCHEMA_UNSUPPORTED")
     if root_type is not None and expected_type != root_type:
@@ -718,9 +713,19 @@ def validate_agent_strict_schema(schema: Mapping[str, object], *, root_type: str
         if not isinstance(enum_values, (list, tuple)) or not enum_values:
             raise ValueError("AGENT_STRUCTURED_SCHEMA_UNSUPPORTED")
     reference_kind = schema.get("x-onlyalpha-reference-kind")
+    reference_schema_version = schema.get("x-onlyalpha-reference-schema-version")
     if reference_kind is not None:
-        if expected_type != "string" or not isinstance(reference_kind, str) or not reference_kind:
+        if (
+            expected_type != "string"
+            or not isinstance(reference_kind, str)
+            or not reference_kind
+            or isinstance(reference_schema_version, bool)
+            or not isinstance(reference_schema_version, int)
+            or reference_schema_version <= 0
+        ):
             raise ValueError("AGENT_STRUCTURED_SCHEMA_UNSUPPORTED")
+    elif reference_schema_version is not None:
+        raise ValueError("AGENT_STRUCTURED_SCHEMA_UNSUPPORTED")
     if expected_type == "object":
         properties = schema.get("properties", {})
         required = schema.get("required", [])
@@ -735,7 +740,7 @@ def validate_agent_strict_schema(schema: Mapping[str, object], *, root_type: str
             raise ValueError("AGENT_STRUCTURED_SCHEMA_UNSUPPORTED")
         if not set(required).issubset(properties) or any(not isinstance(key, str) for key in properties):
             raise ValueError("AGENT_STRUCTURED_SCHEMA_UNSUPPORTED")
-        if "items" in schema or reference_kind is not None:
+        if "items" in schema or reference_kind is not None or reference_schema_version is not None:
             raise ValueError("AGENT_STRUCTURED_SCHEMA_UNSUPPORTED")
         for key, property_schema in properties.items():
             validate_agent_strict_schema(_mapping(property_schema, f"schema property {key}"))
@@ -743,7 +748,13 @@ def validate_agent_strict_schema(schema: Mapping[str, object], *, root_type: str
     if expected_type == "array":
         if "items" not in schema or any(
             keyword in schema
-            for keyword in ("properties", "required", "additionalProperties", "x-onlyalpha-reference-kind")
+            for keyword in (
+                "properties",
+                "required",
+                "additionalProperties",
+                "x-onlyalpha-reference-kind",
+                "x-onlyalpha-reference-schema-version",
+            )
         ):
             raise ValueError("AGENT_STRUCTURED_SCHEMA_UNSUPPORTED")
         validate_agent_strict_schema(_mapping(schema["items"], "array item schema"))
@@ -763,8 +774,11 @@ def _validate_agent_strict_value(
         raise ValueError("AGENT_MODEL_RESPONSE_INVALID")
     reference_kind = schema.get("x-onlyalpha-reference-kind")
     if reference_kind is not None:
+        reference_schema_version = cast(int, schema["x-onlyalpha-reference-schema-version"])
         if not isinstance(value, str) or not any(
-            item.reference_kind == reference_kind and item.reference_fingerprint == value
+            item.reference_kind == reference_kind
+            and item.reference_schema_version == reference_schema_version
+            and item.reference_fingerprint == value
             for item in allowed_context_references
         ):
             raise ValueError("AGENT_MODEL_RESPONSE_INVALID")
@@ -795,7 +809,6 @@ def _validate_agent_strict_value(
     matches_type = (
         (expected_type == "string" and isinstance(value, str))
         or (expected_type == "integer" and isinstance(value, int) and not isinstance(value, bool))
-        or (expected_type == "number" and isinstance(value, (int, float)) and not isinstance(value, bool))
         or (expected_type == "boolean" and isinstance(value, bool))
         or (expected_type == "null" and value is None)
     )

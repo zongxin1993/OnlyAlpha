@@ -54,6 +54,8 @@ def test_agent_occurrence_foundation_has_no_next_action_or_generic_call_authorit
         "SearchRouter",
         "httpx.Client",
         "requests.Session",
+        "retry_authorized=True",
+        "TEST_MODEL_RETRY_AUTHORIZED",
     ):
         assert forbidden not in source
 
@@ -72,6 +74,23 @@ def test_model_and_tool_occurrences_remain_distinct_public_authorities() -> None
     )
     assert "product_api_contract_fingerprint" not in OnlyAgentModelCallPlanV1.__dataclass_fields__
     assert "model_id" not in OnlyAgentToolCallPlanV1.__dataclass_fields__
+    assert set(OnlyAgentToolCallPlanV1.__dataclass_fields__) == {
+        "schema_version",
+        "agent_session_fingerprint",
+        "tool_call_ordinal",
+        "authorizing_agent_decision_fingerprint",
+        "tool_class",
+        "product_api_major",
+        "product_api_contract_fingerprint",
+        "operation_identity",
+        "canonical_validated_request",
+        "canonical_request_fingerprint",
+        "exact_identity_inputs",
+        "product_command_id_or_idempotency_key",
+        "tool_policy_fingerprint",
+        "tool_call_plan_fingerprint",
+    }
+    assert "recovery_class" not in OnlyAgentToolCallPlanV1.__dataclass_fields__
 
 
 def test_occurrence_store_commit_boundary_is_not_reexported_or_bypassed_in_production() -> None:

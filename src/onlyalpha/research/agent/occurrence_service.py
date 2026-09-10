@@ -6,6 +6,7 @@ import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Protocol, cast
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
@@ -37,6 +38,7 @@ from .occurrence import (
     OnlyAgentToolCallPlanV1,
     OnlyAgentToolCallResultV1,
     OnlyAgentToolRecoveryClass,
+    _frozen_object,
     validate_agent_strict_schema,
     validate_agent_strict_value,
 )
@@ -61,6 +63,47 @@ class OnlyAgentDecisionAuthorizationV1:
 
 class OnlyAgentDecisionOccurrenceReader(Protocol):
     def load_decision_authorization_verified(self, decision_fingerprint: str) -> OnlyAgentDecisionAuthorizationV1: ...
+
+
+class OnlyAgentModelRetryAuthorizationKind(StrEnum):
+    HUMAN = "HUMAN"
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyAgentModelRetryAuthorizationV1:
+    authorization_fingerprint: str
+    agent_session_fingerprint: str
+    workflow_implementation_fingerprint: str
+    retry_of_plan_fingerprint: str
+    retry_plan_fingerprint: str
+    retry_call_ordinal: int
+    model_execution_policy_fingerprint: str
+    authorization_kind: OnlyAgentModelRetryAuthorizationKind
+
+    def __post_init__(self) -> None:
+        for value in (
+            self.authorization_fingerprint,
+            self.agent_session_fingerprint,
+            self.workflow_implementation_fingerprint,
+            self.retry_of_plan_fingerprint,
+            self.retry_plan_fingerprint,
+            self.model_execution_policy_fingerprint,
+        ):
+            if not isinstance(value, str) or len(value) != 64 or any(item not in "0123456789abcdef" for item in value):
+                raise ValueError("AGENT_MODEL_RETRY_AUTHORIZATION_INVALID")
+        if (
+            isinstance(self.retry_call_ordinal, bool)
+            or not isinstance(self.retry_call_ordinal, int)
+            or self.retry_call_ordinal < 0
+            or self.authorization_kind is not OnlyAgentModelRetryAuthorizationKind.HUMAN
+        ):
+            raise ValueError("AGENT_MODEL_RETRY_AUTHORIZATION_INVALID")
+
+
+class OnlyAgentModelRetryAuthorizationReader(Protocol):
+    def load_model_retry_authorization_verified(
+        self, authorization_fingerprint: str
+    ) -> OnlyAgentModelRetryAuthorizationV1: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,12 +132,15 @@ class OnlyAgentProductOperationContractV1:
             or not isinstance(self.request_schema, Mapping)
             or not isinstance(self.response_schema, Mapping)
             or not isinstance(self.requires_product_command_id, bool)
+            or not isinstance(self.allowed_owning_reference_kinds, tuple)
             or any(
-                not item or any(character.isspace() for character in item)
+                not isinstance(item, str) or not item or any(character.isspace() for character in item)
                 for item in self.allowed_owning_reference_kinds
             )
         ):
             raise ValueError("AGENT_PRODUCT_API_CONTRACT_MISMATCH")
+        object.__setattr__(self, "request_schema", _frozen_object(self.request_schema, "request_schema"))
+        object.__setattr__(self, "response_schema", _frozen_object(self.response_schema, "response_schema"))
 
 
 class OnlyAgentProductApiContractReader(Protocol):
@@ -120,14 +166,30 @@ class OnlyAgentExactResponseReferenceReader(Protocol):
 @dataclass(frozen=True, slots=True)
 class OnlyPreparedAgentModelCallV1:
     plan: OnlyAgentModelCallPlanV1
+    _current_workflow_manifest: OnlyAgentWorkflowImplementationManifestV1
     _service_token: object
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyPreparedAgentToolCallV1:
     plan: OnlyAgentToolCallPlanV1
+    recovery_class: OnlyAgentToolRecoveryClass
     recovery: bool
+    _current_workflow_manifest: OnlyAgentWorkflowImplementationManifestV1
     _service_token: object
+
+
+def _admit_occurrence_mutation(
+    sessions: OnlyAgentSessionContextReader,
+    *,
+    session_fingerprint: str,
+    current_workflow_manifest: OnlyAgentWorkflowImplementationManifestV1,
+) -> OnlyVerifiedAgentDecisionContextV1:
+    """Verify immutable Session history and exact current runtime before any new fact."""
+
+    context = sessions.load_session_manifest_verified(session_fingerprint)
+    admit_agent_workflow_runtime(context.workflow_resource, current_workflow_manifest)
+    return context
 
 
 def _role(
@@ -176,6 +238,85 @@ def _verify_supported_model_schema(resource: object) -> OnlyAgentStructuredOutpu
     return resource
 
 
+def _request_reference_closure(value: object, schema: Mapping[str, object]) -> tuple[OnlyAgentContextReferenceV1, ...]:
+    reference_kind = schema.get("x-onlyalpha-reference-kind")
+    if isinstance(reference_kind, str):
+        return (
+            OnlyAgentContextReferenceV1(
+                reference_kind,
+                cast(int, schema["x-onlyalpha-reference-schema-version"]),
+                cast(str, value),
+            ),
+        )
+    if schema["type"] == "object":
+        request = cast(Mapping[str, object], value)
+        properties = cast(Mapping[str, object], schema.get("properties", {}))
+        return tuple(
+            reference
+            for key in sorted(request)
+            for reference in _request_reference_closure(request[key], cast(Mapping[str, object], properties[key]))
+        )
+    if schema["type"] == "array":
+        return tuple(
+            reference
+            for item in cast(tuple[object, ...], value)
+            for reference in _request_reference_closure(item, cast(Mapping[str, object], schema["items"]))
+        )
+    return ()
+
+
+def _verify_tool_request_identity_closure(
+    *,
+    validated_request: Mapping[str, object],
+    request_schema: Mapping[str, object],
+    identity_requirements: tuple[str, ...],
+    exact_identity_inputs: tuple[OnlyAgentContextReferenceV1, ...],
+) -> None:
+    properties = cast(Mapping[str, object], request_schema.get("properties", {}))
+    for requirement in identity_requirements:
+        property_schema = properties.get(requirement)
+        if requirement not in validated_request or not isinstance(property_schema, Mapping):
+            raise OnlyAgentContextError("AGENT_TOOL_CALL_PLAN_INVALID", f"Missing identity input {requirement}")
+        if (
+            "x-onlyalpha-reference-kind" not in property_schema
+            or "x-onlyalpha-reference-schema-version" not in property_schema
+        ):
+            raise OnlyAgentContextError(
+                "AGENT_PRODUCT_API_CONTRACT_MISMATCH",
+                f"Identity input {requirement} lacks typed Authority semantics",
+            )
+    derived = _request_reference_closure(validated_request, request_schema)
+    if derived != exact_identity_inputs:
+        raise OnlyAgentContextError(
+            "AGENT_TOOL_CALL_PLAN_INVALID", "Request identity and exact reference closure differ"
+        )
+
+
+def _load_product_operation_contract(
+    reader: OnlyAgentProductApiContractReader,
+    *,
+    product_api_major: int,
+    product_api_contract_fingerprint: str,
+    operation_identity: str,
+    tool_class: OnlyAgentToolClass,
+) -> OnlyAgentProductOperationContractV1:
+    try:
+        contract = reader.load_operation_verified(
+            product_api_major, product_api_contract_fingerprint, operation_identity
+        )
+    except Exception as exc:
+        raise OnlyAgentContextError("AGENT_PRODUCT_API_CONTRACT_MISMATCH", operation_identity) from exc
+    if (
+        not isinstance(contract, OnlyAgentProductOperationContractV1)
+        or contract.product_api_major != product_api_major
+        or contract.product_api_contract_fingerprint != product_api_contract_fingerprint
+        or contract.operation_identity != operation_identity
+        or contract.tool_class is not tool_class
+    ):
+        raise OnlyAgentContextError("AGENT_PRODUCT_API_CONTRACT_MISMATCH", operation_identity)
+    return contract
+
+
 class OnlyAgentModelOccurrenceServiceV1:
     def __init__(
         self,
@@ -184,12 +325,14 @@ class OnlyAgentModelOccurrenceServiceV1:
         resources: OnlyAgentOrchestrationResourceReader,
         references: OnlyAgentExactReferenceReader,
         decisions: OnlyAgentDecisionOccurrenceReader,
+        retry_authorizations: OnlyAgentModelRetryAuthorizationReader,
         store: OnlyJsonAgentModelOccurrenceStore,
     ) -> None:
         self._sessions = sessions
         self._resources = resources
         self._references = references
         self._decisions = decisions
+        self._retry_authorizations = retry_authorizations
         self._store = store
         self._token = object()
 
@@ -212,8 +355,11 @@ class OnlyAgentModelOccurrenceServiceV1:
         parent_agent_decision_fingerprint: str | None = None,
         retry_of_plan_fingerprint: str | None = None,
     ) -> OnlyPreparedAgentModelCallV1:
-        context = self._sessions.load_session_manifest_verified(session_fingerprint)
-        admit_agent_workflow_runtime(context.workflow_resource, current_workflow_manifest)
+        context = _admit_occurrence_mutation(
+            self._sessions,
+            session_fingerprint=session_fingerprint,
+            current_workflow_manifest=current_workflow_manifest,
+        )
         role = _role(context, role_policy_fingerprint, logical_role)
         if prompt_template_fingerprint not in role.allowed_prompt_template_fingerprints:
             raise OnlyAgentContextError("AGENT_MODEL_CALL_PLAN_INVALID", "Prompt is not allowed by Role Policy")
@@ -246,8 +392,6 @@ class OnlyAgentModelOccurrenceServiceV1:
             _verify_decision(self._decisions, parent_agent_decision_fingerprint, context.session)
         if self._store.budget_consumed(session_fingerprint) >= context.research_brief.agent_budget.model_call_limit:
             raise OnlyAgentContextError("AGENT_BUDGET_EXHAUSTED", "Model call budget")
-        if retry_of_plan_fingerprint is not None:
-            self._verify_retry(session_fingerprint, retry_of_plan_fingerprint, policy)
         plan = OnlyAgentModelCallPlanV1(
             session_fingerprint,
             call_ordinal,
@@ -265,6 +409,16 @@ class OnlyAgentModelOccurrenceServiceV1:
             parent_agent_decision_fingerprint,
             retry_of_plan_fingerprint,
         )
+        if retry_of_plan_fingerprint is not None:
+            self._verify_retry(
+                session_fingerprint,
+                retry_of_plan_fingerprint,
+                plan.model_call_plan_fingerprint,
+                call_ordinal,
+                model_execution_policy_fingerprint,
+                parent_agent_decision_fingerprint,
+                policy,
+            )
         outcome = self._store.commit_plan(plan)
         if outcome.disposition is OnlyAgentCommitDisposition.REUSED:
             raise OnlyAgentContextError(
@@ -272,7 +426,7 @@ class OnlyAgentModelOccurrenceServiceV1:
                 "Existing Model Plan must be recovered, never prepared for re-invocation",
             )
         exact = self._store.load_plan_verified(plan.model_call_plan_fingerprint)
-        return OnlyPreparedAgentModelCallV1(exact, self._token)
+        return OnlyPreparedAgentModelCallV1(exact, current_workflow_manifest, self._token)
 
     def record_returned(self, prepared: OnlyPreparedAgentModelCallV1, response: object) -> OnlyAgentModelCallResultV1:
         plan = self._require_prepared(prepared)
@@ -326,10 +480,20 @@ class OnlyAgentModelOccurrenceServiceV1:
         self._store.commit_result(result)
         return result
 
-    def recover_outcome_unknown(self, plan_fingerprint: str) -> OnlyAgentModelCallResultV1:
+    def recover_outcome_unknown(
+        self,
+        plan_fingerprint: str,
+        *,
+        current_workflow_manifest: OnlyAgentWorkflowImplementationManifestV1,
+    ) -> OnlyAgentModelCallResultV1:
         plan = self.load_plan_verified(plan_fingerprint)
         if self._store.result_exists(plan_fingerprint):
             return self._store.load_result_for_plan_verified(plan_fingerprint)
+        _admit_occurrence_mutation(
+            self._sessions,
+            session_fingerprint=plan.agent_session_fingerprint,
+            current_workflow_manifest=current_workflow_manifest,
+        )
         result = OnlyAgentModelCallResultV1(
             plan.model_call_plan_fingerprint,
             OnlyAgentModelCallOutcome.OUTCOME_UNKNOWN,
@@ -375,7 +539,15 @@ class OnlyAgentModelOccurrenceServiceV1:
         if plan.parent_agent_decision_fingerprint is not None:
             _verify_decision(self._decisions, plan.parent_agent_decision_fingerprint, context.session)
         if plan.retry_of_plan_fingerprint is not None:
-            self._verify_retry(plan.agent_session_fingerprint, plan.retry_of_plan_fingerprint, policy)
+            self._verify_retry(
+                plan.agent_session_fingerprint,
+                plan.retry_of_plan_fingerprint,
+                plan.model_call_plan_fingerprint,
+                plan.call_ordinal,
+                plan.model_execution_policy_fingerprint,
+                plan.parent_agent_decision_fingerprint,
+                policy,
+            )
         return plan
 
     def load_result_verified(self, plan_fingerprint: str) -> OnlyAgentModelCallResultV1:
@@ -403,13 +575,43 @@ class OnlyAgentModelOccurrenceServiceV1:
         exact = self._store.load_plan_verified(prepared.plan.model_call_plan_fingerprint)
         if exact != prepared.plan or self._store.result_exists(exact.model_call_plan_fingerprint):
             raise OnlyAgentContextError("AGENT_MODEL_CALL_PLAN_CONFLICT", exact.model_call_plan_fingerprint)
+        _admit_occurrence_mutation(
+            self._sessions,
+            session_fingerprint=exact.agent_session_fingerprint,
+            current_workflow_manifest=prepared._current_workflow_manifest,
+        )
         return exact
 
     def _verify_retry(
-        self, session_fingerprint: str, retry_of: str, policy: OnlyAgentModelExecutionPolicyPayloadV1
+        self,
+        session_fingerprint: str,
+        retry_of: str,
+        retry_plan_fingerprint: str,
+        retry_call_ordinal: int,
+        model_execution_policy_fingerprint: str,
+        authorization_fingerprint: str | None,
+        policy: OnlyAgentModelExecutionPolicyPayloadV1,
     ) -> None:
-        if policy.retry_semantics == "FORBIDDEN":
-            raise OnlyAgentContextError("AGENT_MODEL_CALL_PLAN_INVALID", "Retry is forbidden")
+        if policy.retry_semantics != "NO_AUTOMATIC_RETRY" or authorization_fingerprint is None:
+            raise OnlyAgentContextError("AGENT_POLICY_VIOLATION", "Explicit retry authorization is required")
+        try:
+            authorization = self._retry_authorizations.load_model_retry_authorization_verified(
+                authorization_fingerprint
+            )
+        except Exception as exc:
+            raise OnlyAgentContextError("AGENT_POLICY_VIOLATION", "Retry authorization is unresolved") from exc
+        context = self._sessions.load_session_manifest_verified(session_fingerprint)
+        if (
+            authorization.authorization_fingerprint != authorization_fingerprint
+            or authorization.agent_session_fingerprint != session_fingerprint
+            or authorization.workflow_implementation_fingerprint
+            != context.session.agent_workflow_implementation_fingerprint
+            or authorization.retry_of_plan_fingerprint != retry_of
+            or authorization.retry_plan_fingerprint != retry_plan_fingerprint
+            or authorization.retry_call_ordinal != retry_call_ordinal
+            or authorization.model_execution_policy_fingerprint != model_execution_policy_fingerprint
+        ):
+            raise OnlyAgentContextError("AGENT_POLICY_VIOLATION", "Retry authorization binding differs")
         seen: set[str] = set()
         current: str | None = retry_of
         while current is not None:
@@ -419,7 +621,9 @@ class OnlyAgentModelOccurrenceServiceV1:
             prior = self._store.load_plan_verified(current)
             if prior.agent_session_fingerprint != session_fingerprint or not self._store.result_exists(current):
                 raise OnlyAgentContextError("AGENT_MODEL_CALL_PLAN_INVALID", "Retry lineage is not terminal in Session")
-            self._store.load_result_for_plan_verified(current)
+            result = self._store.load_result_for_plan_verified(current)
+            if current == retry_of and result.outcome is not OnlyAgentModelCallOutcome.OUTCOME_UNKNOWN:
+                raise OnlyAgentContextError("AGENT_MODEL_CALL_PLAN_INVALID", "Prior outcome is not retry-eligible")
             current = prior.retry_of_plan_fingerprint
 
     @staticmethod
@@ -480,8 +684,11 @@ class OnlyAgentToolOccurrenceServiceV1:
         exact_identity_inputs: tuple[OnlyAgentContextReferenceV1, ...],
         product_command_id_or_idempotency_key: str | None,
     ) -> OnlyPreparedAgentToolCallV1:
-        context = self._sessions.load_session_manifest_verified(session_fingerprint)
-        admit_agent_workflow_runtime(context.workflow_resource, current_workflow_manifest)
+        context = _admit_occurrence_mutation(
+            self._sessions,
+            session_fingerprint=session_fingerprint,
+            current_workflow_manifest=current_workflow_manifest,
+        )
         decision = _verify_decision(self._decisions, authorizing_agent_decision_fingerprint, context.session)
         if (
             tool_class not in decision.permitted_tool_classes
@@ -500,30 +707,38 @@ class OnlyAgentToolOccurrenceServiceV1:
             or constraints[0].tool_class is not tool_class
         ):
             raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity)
+        contract = _load_product_operation_contract(
+            self._contracts,
+            product_api_major=product_api_major,
+            product_api_contract_fingerprint=product_api_contract_fingerprint,
+            operation_identity=operation_identity,
+            tool_class=tool_class,
+        )
         try:
-            contract = self._contracts.load_operation_verified(
-                product_api_major, product_api_contract_fingerprint, operation_identity
-            )
+            validate_agent_strict_schema(contract.request_schema, root_type="object")
+            validate_agent_strict_schema(contract.response_schema, root_type="object")
         except Exception as exc:
-            raise OnlyAgentContextError("AGENT_PRODUCT_API_CONTRACT_MISMATCH", operation_identity) from exc
-        if (
-            contract.product_api_major != product_api_major
-            or contract.product_api_contract_fingerprint != product_api_contract_fingerprint
-            or contract.operation_identity != operation_identity
-            or contract.tool_class is not tool_class
-        ):
-            raise OnlyAgentContextError("AGENT_PRODUCT_API_CONTRACT_MISMATCH", operation_identity)
+            raise OnlyAgentContextError(
+                "AGENT_PRODUCT_API_CONTRACT_MISMATCH", "Product request/response schema is unsupported"
+            ) from exc
         if contract.requires_product_command_id != (product_command_id_or_idempotency_key is not None):
             raise OnlyAgentContextError("AGENT_TOOL_CALL_PLAN_INVALID", "Product Command identity requirement differs")
         try:
-            validated = validate_agent_strict_value(canonical_request, contract.request_schema)
+            validated = validate_agent_strict_value(
+                canonical_request,
+                contract.request_schema,
+                allowed_context_references=exact_identity_inputs,
+            )
         except Exception as exc:
             raise OnlyAgentContextError("AGENT_TOOL_CALL_PLAN_INVALID", "Request is not canonical") from exc
         if not isinstance(validated, Mapping):
             raise OnlyAgentContextError("AGENT_TOOL_CALL_PLAN_INVALID", "Request root must be an object")
-        for requirement in constraints[0].identity_requirements:
-            if requirement not in validated:
-                raise OnlyAgentContextError("AGENT_TOOL_CALL_PLAN_INVALID", f"Missing identity input {requirement}")
+        _verify_tool_request_identity_closure(
+            validated_request=cast(Mapping[str, object], validated),
+            request_schema=contract.request_schema,
+            identity_requirements=constraints[0].identity_requirements,
+            exact_identity_inputs=exact_identity_inputs,
+        )
         for reference in exact_identity_inputs:
             try:
                 self._references.verify_exact_reference(reference)
@@ -541,7 +756,6 @@ class OnlyAgentToolOccurrenceServiceV1:
             product_api_major,
             product_api_contract_fingerprint,
             operation_identity,
-            contract.recovery_class,
             cast(Mapping[str, object], validated),
             exact_identity_inputs=exact_identity_inputs,
             product_command_id_or_idempotency_key=product_command_id_or_idempotency_key,
@@ -554,7 +768,11 @@ class OnlyAgentToolOccurrenceServiceV1:
                 "Existing Tool Plan must use its recovery classification",
             )
         return OnlyPreparedAgentToolCallV1(
-            self._store.load_plan_verified(plan.tool_call_plan_fingerprint), False, self._token
+            self._store.load_plan_verified(plan.tool_call_plan_fingerprint),
+            contract.recovery_class,
+            False,
+            current_workflow_manifest,
+            self._token,
         )
 
     def prepare_recovery(
@@ -566,21 +784,27 @@ class OnlyAgentToolOccurrenceServiceV1:
         plan = self.load_plan_verified(plan_fingerprint)
         if self._store.result_exists(plan_fingerprint):
             raise OnlyAgentContextError("AGENT_TOOL_CALL_PLAN_CONFLICT", "Tool occurrence is terminal")
-        context = self._sessions.load_session_manifest_verified(plan.agent_session_fingerprint)
-        admit_agent_workflow_runtime(context.workflow_resource, current_workflow_manifest)
-        if plan.recovery_class is OnlyAgentToolRecoveryClass.MUTABLE_OBSERVATION_QUERY:
+        _admit_occurrence_mutation(
+            self._sessions,
+            session_fingerprint=plan.agent_session_fingerprint,
+            current_workflow_manifest=current_workflow_manifest,
+        )
+        contract = _load_product_operation_contract(
+            self._contracts,
+            product_api_major=plan.product_api_major,
+            product_api_contract_fingerprint=plan.product_api_contract_fingerprint,
+            operation_identity=plan.operation_identity,
+            tool_class=plan.tool_class,
+        )
+        recovery_class = contract.recovery_class
+        if recovery_class is OnlyAgentToolRecoveryClass.MUTABLE_OBSERVATION_QUERY:
             raise OnlyAgentContextError("AGENT_TOOL_MUTABLE_OBSERVATION_REQUIRES_NEW_PLAN", plan_fingerprint)
         if (
-            plan.recovery_class is OnlyAgentToolRecoveryClass.IDEMPOTENT_COMMAND
+            recovery_class is OnlyAgentToolRecoveryClass.IDEMPOTENT_COMMAND
             and plan.product_command_id_or_idempotency_key is None
         ):
             raise OnlyAgentContextError("AGENT_TOOL_CALL_PLAN_INVALID", "Command identity is absent")
-        contract = self._contracts.load_operation_verified(
-            plan.product_api_major, plan.product_api_contract_fingerprint, plan.operation_identity
-        )
-        if contract.recovery_class is not plan.recovery_class:
-            raise OnlyAgentContextError("AGENT_PRODUCT_API_CONTRACT_MISMATCH", plan.operation_identity)
-        return OnlyPreparedAgentToolCallV1(plan, True, self._token)
+        return OnlyPreparedAgentToolCallV1(plan, recovery_class, True, current_workflow_manifest, self._token)
 
     def record_inline_success(
         self,
@@ -686,14 +910,31 @@ class OnlyAgentToolOccurrenceServiceV1:
             or constraints[0].tool_class is not plan.tool_class
         ):
             raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", plan.operation_identity)
-        contract = self._contracts.load_operation_verified(
-            plan.product_api_major, plan.product_api_contract_fingerprint, plan.operation_identity
+        contract = _load_product_operation_contract(
+            self._contracts,
+            product_api_major=plan.product_api_major,
+            product_api_contract_fingerprint=plan.product_api_contract_fingerprint,
+            operation_identity=plan.operation_identity,
+            tool_class=plan.tool_class,
         )
-        if contract.tool_class is not plan.tool_class or contract.recovery_class is not plan.recovery_class:
-            raise OnlyAgentContextError("AGENT_PRODUCT_API_CONTRACT_MISMATCH", plan.operation_identity)
-        validated = validate_agent_strict_value(plan.canonical_validated_request, contract.request_schema)
+        try:
+            validate_agent_strict_schema(contract.request_schema, root_type="object")
+            validate_agent_strict_schema(contract.response_schema, root_type="object")
+            validated = validate_agent_strict_value(
+                plan.canonical_validated_request,
+                contract.request_schema,
+                allowed_context_references=plan.exact_identity_inputs,
+            )
+        except Exception as exc:
+            raise OnlyAgentContextError("AGENT_TOOL_CALL_PLAN_INVALID", plan_fingerprint) from exc
         if only_canonical_fingerprint(validated) != plan.canonical_request_fingerprint:
             raise OnlyAgentContextError("AGENT_TOOL_CALL_PLAN_INVALID", plan_fingerprint)
+        _verify_tool_request_identity_closure(
+            validated_request=cast(Mapping[str, object], validated),
+            request_schema=contract.request_schema,
+            identity_requirements=constraints[0].identity_requirements,
+            exact_identity_inputs=plan.exact_identity_inputs,
+        )
         for reference in plan.exact_identity_inputs:
             self._references.verify_exact_reference(reference)
         return plan
@@ -701,8 +942,12 @@ class OnlyAgentToolOccurrenceServiceV1:
     def load_result_verified(self, plan_fingerprint: str) -> OnlyAgentToolCallResultV1:
         plan = self.load_plan_verified(plan_fingerprint)
         result = self._store.load_result_for_plan_verified(plan_fingerprint)
-        contract = self._contracts.load_operation_verified(
-            plan.product_api_major, plan.product_api_contract_fingerprint, plan.operation_identity
+        contract = _load_product_operation_contract(
+            self._contracts,
+            product_api_major=plan.product_api_major,
+            product_api_contract_fingerprint=plan.product_api_contract_fingerprint,
+            operation_identity=plan.operation_identity,
+            tool_class=plan.tool_class,
         )
         if result.outcome is OnlyAgentToolCallOutcome.SUCCEEDED:
             self._verify_owning_references(contract, result.owning_authority_references)
@@ -731,11 +976,20 @@ class OnlyAgentToolOccurrenceServiceV1:
         plan = self._store.load_plan_verified(prepared.plan.tool_call_plan_fingerprint)
         if plan != prepared.plan or self._store.result_exists(plan.tool_call_plan_fingerprint):
             raise OnlyAgentContextError("AGENT_TOOL_CALL_RESULT_CONFLICT", plan.tool_call_plan_fingerprint)
-        contract = self._contracts.load_operation_verified(
-            plan.product_api_major, plan.product_api_contract_fingerprint, plan.operation_identity
+        contract = _load_product_operation_contract(
+            self._contracts,
+            product_api_major=plan.product_api_major,
+            product_api_contract_fingerprint=plan.product_api_contract_fingerprint,
+            operation_identity=plan.operation_identity,
+            tool_class=plan.tool_class,
         )
-        if contract.recovery_class is not plan.recovery_class or contract.tool_class is not plan.tool_class:
+        if contract.recovery_class is not prepared.recovery_class or contract.tool_class is not plan.tool_class:
             raise OnlyAgentContextError("AGENT_PRODUCT_API_CONTRACT_MISMATCH", plan.operation_identity)
+        _admit_occurrence_mutation(
+            self._sessions,
+            session_fingerprint=plan.agent_session_fingerprint,
+            current_workflow_manifest=prepared._current_workflow_manifest,
+        )
         return plan, contract
 
     def _verify_owning_references(
