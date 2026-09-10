@@ -58,6 +58,7 @@ class OnlyTestLane(StrEnum):
     RESEARCH_JOB = "research-job"
     RESEARCH_SWEEP = "research-sweep"
     RESEARCH_DATASET = "research-dataset"
+    RESEARCH_AGENT = "research-agent"
     PRIVATE_ASSET_CONTRACT = "private-asset-contract"
     FAST = "fast"
     INTEGRATION = "integration"
@@ -314,6 +315,15 @@ LANES = {
         ),
         "not external",
         "4",
+        "worksteal",
+    ),
+    OnlyTestLane.RESEARCH_AGENT: Lane(
+        (
+            "tests/research/agent",
+            "tests/architecture/test_agent_orchestration_boundaries.py",
+        ),
+        "not external",
+        "2",
         "worksteal",
     ),
     OnlyTestLane.PRIVATE_ASSET_CONTRACT: Lane(
@@ -598,6 +608,7 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             OnlyTestLane.RESEARCH_CALCULATION: ("src/onlyalpha/research/calculation",),
             OnlyTestLane.CALCULATION: ("plugs/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators",),
             OnlyTestLane.RESEARCH_DATASET: ("src/onlyalpha/research/dataset",),
+            OnlyTestLane.RESEARCH_AGENT: ("src/onlyalpha/research/agent",),
         }.get(name, ("src/onlyalpha",))
         coverage_output = (
             "research-definition-coverage"
@@ -634,6 +645,8 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             if name is OnlyTestLane.CALCULATION
             else "research-dataset-coverage"
             if name is OnlyTestLane.RESEARCH_DATASET
+            else "research-agent-coverage"
+            if name is OnlyTestLane.RESEARCH_AGENT
             else "coverage"
         )
         command.extend(
@@ -700,6 +713,8 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
                 if name is OnlyTestLane.RESEARCH_CALCULATION
                 else "research-dataset-coverage.json"
                 if name is OnlyTestLane.RESEARCH_DATASET
+                else "research-agent-coverage.json"
+                if name is OnlyTestLane.RESEARCH_AGENT
                 else "coverage.json"
             )
         )

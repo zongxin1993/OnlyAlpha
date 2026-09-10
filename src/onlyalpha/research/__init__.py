@@ -1,5 +1,6 @@
 """Runtime-independent Research foundations."""
 
+from onlyalpha.research.agent import *  # noqa: F403
 from onlyalpha.research.artifact import *  # noqa: F403
 from onlyalpha.research.calculation import *  # noqa: F403
 from onlyalpha.research.dataset import *  # noqa: F403
