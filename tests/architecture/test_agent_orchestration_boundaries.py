@@ -8,6 +8,8 @@ import pytest
 
 pytestmark = pytest.mark.architecture
 
+ROOT = Path(__file__).resolve().parents[2]
+
 
 def test_agent_context_core_has_no_provider_transport_execution_or_provenance_discovery_dependencies() -> None:
     root = Path(__file__).resolve().parents[2] / "src" / "onlyalpha" / "research" / "agent"
@@ -246,3 +248,50 @@ def test_historical_fact_verifiers_do_not_derive_inputs_from_the_current_session
 
     signature = inspect.signature(OnlyAgentDecisionApplicationServiceV1.verify_historical_tool_intent)
     assert "tool_call_ordinal" in signature.parameters
+
+
+def test_agent_orchestrator_component_dependency_and_authority_boundary() -> None:
+    orchestrator = ROOT / "packages/onlyalpha-agent-orchestrator/src/onlyalpha_agent_orchestrator"
+    forbidden_import_roots = {
+        "psycopg",
+        "sqlalchemy",
+        "httpx",
+        "requests",
+        "openai",
+        "anthropic",
+        "onlyalpha.research.agent.store",
+        "onlyalpha.research.agent.occurrence_store",
+        "onlyalpha.research.agent.decision_store",
+        "onlyalpha.research.search",
+    }
+    for path in orchestrator.glob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        imports = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names} | {
+            node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
+        }
+        assert not {
+            imported
+            for imported in imports
+            if any(imported == item or imported.startswith(item + ".") for item in forbidden_import_roots)
+        }, path
+
+    source = "\n".join(path.read_text(encoding="utf-8") for path in orchestrator.glob("*.py"))
+    for forbidden in (
+        "session.status",
+        "session.current_step",
+        "session.next_action",
+        "workflow_cursor",
+        "runtime_resume_point",
+        "last_successful_agent_step",
+        "class OrchestratorManifest",
+        "class AgentRuntimeHash",
+        "importlib.reload",
+        "sys.path",
+        "retry(",
+    ):
+        assert forbidden not in source
+
+
+def test_core_does_not_import_agent_orchestrator_component() -> None:
+    for path in (ROOT / "src/onlyalpha").rglob("*.py"):
+        assert "onlyalpha_agent_orchestrator" not in path.read_text(encoding="utf-8"), path
