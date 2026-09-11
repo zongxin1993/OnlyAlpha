@@ -96,10 +96,37 @@ print(only_canonical_json({
 """
 
 _CATALOG_PROBE = r"""
-from onlyalpha.canonical import only_canonical_json
+from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 from onlyalpha.quant_assets import only_discover_quant_asset_providers
+from onlyalpha.research.calculation.binding import only_research_dataset_source_contracts
+from onlyalpha.research.evaluation.capability import only_research_statistics_capabilities
 
-print(only_canonical_json(only_discover_quant_asset_providers().descriptor()))
+dataset_fields = []
+for source_id, item in only_research_dataset_source_contracts():
+    dataset_fields.append({
+        "source_id": source_id, "column": item.column, "data_type": item.data_type.value,
+        "semantic_roles": sorted(item.semantic_roles), "dimensions": list(item.dimensions), "unit": item.unit,
+        "source_contract_fingerprint": item.source_contract_fingerprint,
+    })
+statistics = []
+for item in only_research_statistics_capabilities():
+    value = {
+        "statistic_type": item.method.value,
+        "variable_kinds": sorted(value.value for value in item.variable_kinds),
+        "variable_semantic_roles": sorted(item.variable_semantic_types),
+        "target_semantic_roles": sorted(item.target_semantic_types),
+        "target_required": item.target_required, "executable": item.executable,
+    }
+    value["capability_fingerprint"] = only_canonical_fingerprint({
+        "domain": "onlyalpha.research.statistics-capability", **value,
+    })
+    statistics.append(value)
+print(only_canonical_json({
+    "catalog": only_discover_quant_asset_providers().descriptor(),
+    "dataset_fields": dataset_fields,
+    "registered_universes": [],
+    "statistics": statistics,
+}))
 """
 
 _HOSTED_GENERATION_SEAL = "onlyalpha-runtime-generation-validation.json"
@@ -374,6 +401,27 @@ class OnlyRuntimeGenerationBuilder:
     ) -> dict[str, object]:
         """Reconstruct and probe exact Catalog metadata without importing it in this process."""
 
+        return cast(
+            dict[str, object],
+            self.rebuild_catalog_context_bundle(expected_manifest=expected_manifest, environment_root=environment_root)[
+                "catalog"
+            ],
+        )
+
+    def verify_exact_artifacts(self, expected_manifest: OnlyRuntimeGenerationManifest) -> None:
+        """Verify that every artifact bound by an exact Runtime Generation still exists unchanged."""
+
+        for artifact_sha256 in expected_manifest.artifact_sha256s:
+            self.artifact_store.fetch_exact(artifact_sha256)
+
+    def rebuild_catalog_context_bundle(
+        self,
+        *,
+        expected_manifest: OnlyRuntimeGenerationManifest,
+        environment_root: Path,
+    ) -> dict[str, object]:
+        """Reconstruct exact Catalog and Research capability facts in the isolated generation."""
+
         self.rebuild_validated(expected_manifest=expected_manifest, environment_root=environment_root)
         probed = subprocess.run(
             [str(self._environment_python(environment_root)), "-I", "-c", _CATALOG_PROBE],
@@ -385,15 +433,16 @@ class OnlyRuntimeGenerationBuilder:
         if probed.returncode != 0:
             raise ValueError("RUNTIME_GENERATION_CATALOG_MISMATCH")
         try:
-            descriptor: Any = json.loads(probed.stdout)
+            bundle: Any = json.loads(probed.stdout)
         except json.JSONDecodeError as exc:
             raise ValueError("RUNTIME_GENERATION_CATALOG_MISMATCH") from exc
         if (
-            not isinstance(descriptor, dict)
-            or descriptor.get("generation_fingerprint") != expected_manifest.catalog_generation_fingerprint
+            not isinstance(bundle, dict)
+            or not isinstance(bundle.get("catalog"), dict)
+            or bundle["catalog"].get("generation_fingerprint") != expected_manifest.catalog_generation_fingerprint
         ):
             raise ValueError("RUNTIME_GENERATION_CATALOG_MISMATCH")
-        return cast(dict[str, object], descriptor)
+        return cast(dict[str, object], bundle)
 
     @staticmethod
     def _core_identity(artifacts: tuple[OnlyDistributionArtifactManifest, ...]) -> OnlyCoreExecutionIdentity:

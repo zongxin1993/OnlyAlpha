@@ -15,8 +15,7 @@ from ..runtime import OnlyAgentExternalIoPermit, assert_external_io_permit
 
 class OnlyHttpDispatchClassification(StrEnum):
     DEFINITE_NOT_DISPATCHED = "DEFINITE_NOT_DISPATCHED"
-    COMPLETE_RESPONSE_RECEIVED = "COMPLETE_RESPONSE_RECEIVED"
-    DEFINITE_PROVIDER_FAILURE = "DEFINITE_PROVIDER_FAILURE"
+    RESPONSE_RECEIVED = "RESPONSE_RECEIVED"
     POSSIBLY_DISPATCHED_RESPONSE_UNAVAILABLE = "POSSIBLY_DISPATCHED_RESPONSE_UNAVAILABLE"
 
 
@@ -58,10 +57,7 @@ class OnlyHttpTransportOutcomeV1:
     response: OnlyHttpResponseV1 | None = None
 
     def __post_init__(self) -> None:
-        complete = self.classification in {
-            OnlyHttpDispatchClassification.COMPLETE_RESPONSE_RECEIVED,
-            OnlyHttpDispatchClassification.DEFINITE_PROVIDER_FAILURE,
-        }
+        complete = self.classification is OnlyHttpDispatchClassification.RESPONSE_RECEIVED
         if complete != (self.response is not None):
             raise ValueError("AGENT_HTTP_OUTCOME_INVALID")
 
@@ -129,20 +125,14 @@ class OnlyRawHttpTransportV1:
                 body = response.read(self._maximum_response_bytes + 1)
                 if len(body) > self._maximum_response_bytes:
                     return OnlyHttpTransportOutcomeV1(
-                        OnlyHttpDispatchClassification.DEFINITE_PROVIDER_FAILURE,
-                        OnlyHttpResponseV1(response.status, tuple(response.getheaders()), b""),
+                        OnlyHttpDispatchClassification.POSSIBLY_DISPATCHED_RESPONSE_UNAVAILABLE,
                     )
             except (TimeoutError, OSError, ssl.SSLError, http.client.HTTPException):
                 return OnlyHttpTransportOutcomeV1(
                     OnlyHttpDispatchClassification.POSSIBLY_DISPATCHED_RESPONSE_UNAVAILABLE
                 )
             result = OnlyHttpResponseV1(response.status, tuple(response.getheaders()), body)
-            classification = (
-                OnlyHttpDispatchClassification.COMPLETE_RESPONSE_RECEIVED
-                if 200 <= response.status < 300
-                else OnlyHttpDispatchClassification.DEFINITE_PROVIDER_FAILURE
-            )
-            return OnlyHttpTransportOutcomeV1(classification, result)
+            return OnlyHttpTransportOutcomeV1(OnlyHttpDispatchClassification.RESPONSE_RECEIVED, result)
         finally:
             connection.close()
 

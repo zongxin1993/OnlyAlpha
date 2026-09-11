@@ -92,6 +92,15 @@ def test_canonical_contract_is_complete_and_drives_the_frozen_recovery_matrix() 
         OnlyAgentToolClass.PARAMETER_SEARCH: {OnlyAgentToolRecoveryClass.IDEMPOTENT_COMMAND},
         OnlyAgentToolClass.SEARCH_QUERY: {OnlyAgentToolRecoveryClass.MUTABLE_OBSERVATION_QUERY},
     }
+    exact = contract.load_operation_verified(
+        2, contract.fingerprint, _operation_id(document, "EXACT_CATALOG_CONTEXT_QUERY")
+    )
+    assert {
+        "ordered_calculation_capabilities",
+        "ordered_registered_universes",
+        "ordered_dataset_field_contracts",
+        "ordered_statistics_capabilities",
+    }.issubset(set(cast(list[str], exact.response_schema["required"])))
 
 
 def _operation_id(document: dict[str, object], tool_class: str, contains: str = "") -> str:
@@ -147,7 +156,7 @@ def test_wire_projection_comes_only_from_plan_and_canonical_contract() -> None:
     )
     request = contract.wire_request_verified(catalog, config)
     assert request.method == "GET"
-    assert request.url == f"https://product.invalid/api/v2/research/catalog-context/{'a' * 64}"
+    assert request.url == f"https://product.invalid/api/v2/research/catalog-context/exact/{'a' * 64}"
     assert request.body == b""
     assert "product-secret" not in repr(request)
 
@@ -264,6 +273,10 @@ def _missing_command_response_identity(document):  # type: ignore[no-untyped-def
     del operation["responses"]["202"]["headers"]["Idempotency-Key"]
 
 
+def _missing_command_effect_semantics(document):  # type: ignore[no-untyped-def]
+    del _agent_operation(document, "RESEARCH_RUN_SUBMIT")[EXTENSION]["response_effect_semantics"]
+
+
 @pytest.mark.parametrize(
     "mutate",
     [
@@ -282,6 +295,7 @@ def _missing_command_response_identity(document):  # type: ignore[no-untyped-def
         _mutable_replay_safe,
         _wrong_owner_kind,
         _missing_command_response_identity,
+        _missing_command_effect_semantics,
     ],
 )
 def test_contract_semantic_corruption_fails_closed(
@@ -295,7 +309,7 @@ def test_contract_semantic_corruption_fails_closed(
 
 
 class _IdempotentProductServer:
-    def __init__(self, command_id: str) -> None:
+    def __init__(self, command_id: str, *, first_mode: str = "close", response_body: bytes = b"{}") -> None:
         self.command_id = command_id
         self.request_count = 0
         self.observed_command_ids: list[str | None] = []
@@ -309,11 +323,11 @@ class _IdempotentProductServer:
                 outer.request_count += 1
                 outer.observed_command_ids.append(self.headers.get("Idempotency-Key"))
                 outer.observed_requests.append((self.command, self.path, body))
-                if outer.request_count == 1:
+                if outer.request_count == 1 and first_mode == "close":
                     self.connection.shutdown(socket.SHUT_RDWR)
                     self.connection.close()
                     return
-                response = b"{}"
+                response = response_body
                 self.send_response(202)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(response)))
@@ -384,7 +398,7 @@ def test_lost_product_command_response_reconciles_with_same_exact_command_identi
         first = adapter.invoke(plan, _io_permit(plan.agent_session_fingerprint))
         assert first.classification is OnlyHttpDispatchClassification.POSSIBLY_DISPATCHED_RESPONSE_UNAVAILABLE
         second = adapter.invoke(plan, _io_permit(plan.agent_session_fingerprint))
-        assert second.classification is OnlyHttpDispatchClassification.COMPLETE_RESPONSE_RECEIVED
+        assert second.classification is OnlyHttpDispatchClassification.RESPONSE_RECEIVED
         assert server.request_count == 2
         assert server.observed_command_ids == [command_id, command_id]
         assert server.observed_requests[0] == server.observed_requests[1]
@@ -427,5 +441,40 @@ def test_raw_transport_rejects_fake_or_consumed_io_capability_before_network() -
         with pytest.raises(OnlyAgentContextError, match="AGENT_POLICY_VIOLATION"):
             transport.send(request, permit)
         assert server.request_count == 1
+    finally:
+        server.close()
+
+
+def test_oversized_post_dispatch_response_is_effect_ambiguous() -> None:
+    command_id = "00000000-0000-4000-8000-000000000124"
+    server = _IdempotentProductServer(command_id, first_mode="response", response_body=b"x" * 32)
+    try:
+        contract = OnlyProductApiContractV2(CONTRACT)
+        operation_id = _operation_id(_document(), "SYMBOLIC_SEARCH", "advance")
+        plan = _plan(
+            contract,
+            operation_id,
+            OnlyAgentToolClass.SYMBOLIC_SEARCH,
+            {
+                "schema_version": 1,
+                "method": "SYMBOLIC",
+                "operation": "ADVANCE_ONE_SYMBOLIC_OCCURRENCE",
+                "experiment_fingerprint": "a" * 64,
+                "expected_state": {},
+            },
+            command_id=command_id,
+        )
+        adapter = OnlyContractDrivenProductApiAdapterV1(
+            OnlyProductApiEndpointConfigV1(server.base_url, "product-secret", CONTRACT),
+            OnlyRawHttpTransportV1(
+                connect_timeout_seconds=1,
+                read_timeout_seconds=1,
+                verify_tls=True,
+                ca_bundle_path=None,
+                maximum_response_bytes=8,
+            ),
+        )
+        outcome = adapter.invoke(plan, _io_permit(plan.agent_session_fingerprint))
+        assert outcome.classification is OnlyHttpDispatchClassification.POSSIBLY_DISPATCHED_RESPONSE_UNAVAILABLE
     finally:
         server.close()

@@ -3,6 +3,9 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from onlyalpha_http_server.research.catalog_context_routes import create_exact_catalog_context_router
+from onlyalpha_http_server.research.catalog_context_schema import (
+    LEGACY_EXACT_CATALOG_CONTEXT_PROJECTION_SCHEMA_FINGERPRINT,
+)
 from onlyalpha_http_server.search.routes import create_search_router
 from onlyalpha_http_server.search.schema import (
     SearchCommandResponseDto,
@@ -19,6 +22,9 @@ class _CatalogProjection:
     catalog_generation_fingerprint = SHA
     ordered_providers: tuple[object, ...] = ()
     ordered_calculation_capabilities: tuple[object, ...] = ()
+    ordered_registered_universes: tuple[object, ...] = ()
+    ordered_dataset_field_contracts: tuple[object, ...] = ()
+    ordered_statistics_capabilities: tuple[object, ...] = ()
     projection_schema_fingerprint = "b" * 64
     projection_fingerprint = "c" * 64
 
@@ -28,6 +34,9 @@ class _CatalogProjection:
             "catalog_generation_fingerprint": self.catalog_generation_fingerprint,
             "ordered_providers": [],
             "ordered_calculation_capabilities": [],
+            "ordered_registered_universes": [],
+            "ordered_dataset_field_contracts": [],
+            "ordered_statistics_capabilities": [],
             "projection_schema_fingerprint": self.projection_schema_fingerprint,
             "projection_fingerprint": self.projection_fingerprint,
         }
@@ -108,10 +117,21 @@ def test_exact_catalog_surface_has_no_latest_current_or_fallback_semantics() -> 
     response = client.get(f"/api/v2/research/catalog-context/{SHA}")
     assert response.status_code == 200
     assert response.json()["catalog_generation_fingerprint"] == SHA
+    assert (
+        response.json()["projection_schema_fingerprint"] == LEGACY_EXACT_CATALOG_CONTEXT_PROJECTION_SCHEMA_FINGERPRINT
+    )
     assert catalog.requested == [SHA]
+    complete = client.get(f"/api/v2/research/catalog-context/exact/{SHA}")
+    assert complete.status_code == 200
+    assert complete.json()["projection_schema_fingerprint"] != response.json()["projection_schema_fingerprint"]
+    assert set(complete.json()) >= {
+        "ordered_registered_universes",
+        "ordered_dataset_field_contracts",
+        "ordered_statistics_capabilities",
+    }
     for alias in ("latest", "current", "fallback"):
         assert client.get(f"/api/v2/research/catalog-context/{alias}").status_code == 422
-    assert catalog.requested == [SHA]
+    assert catalog.requested == [SHA, SHA]
 
 
 def test_search_query_is_exact_and_commands_echo_the_same_product_command_id() -> None:

@@ -22,7 +22,7 @@ from .adapters.openai_compatible import (
     OnlyModelAdapterOutcomeKind,
     OnlyOpenAICompatibleModelAdapterV1,
 )
-from .adapters.product_api import OnlyContractDrivenProductApiAdapterV1
+from .adapters.product_api import OnlyContractDrivenProductApiAdapterV1, OnlyProductResponseEffect
 from .adapters.transport import OnlyHttpDispatchClassification
 from .runtime import (
     OnlyAgentRuntimeExecutionPermit,
@@ -111,15 +111,23 @@ def execute_external_tool_occurrence(
             OnlyToolExternalExecutionDisposition.AMBIGUOUS_NON_TERMINAL,
             None,
         )
-    if transport.classification in {
-        OnlyHttpDispatchClassification.DEFINITE_NOT_DISPATCHED,
-        OnlyHttpDispatchClassification.DEFINITE_PROVIDER_FAILURE,
-    }:
+    if transport.classification is OnlyHttpDispatchClassification.DEFINITE_NOT_DISPATCHED:
         return OnlyToolExternalExecutionOutcomeV1(
             OnlyToolExternalExecutionDisposition.TERMINAL_RESULT,
             occurrences.record_failed(prepared),
         )
     assert transport.response is not None
+    effect = adapter.contract.response_effect_verified(prepared.plan, transport.response.status_code)
+    if effect is OnlyProductResponseEffect.EFFECT_UNKNOWN:
+        return OnlyToolExternalExecutionOutcomeV1(
+            OnlyToolExternalExecutionDisposition.AMBIGUOUS_NON_TERMINAL,
+            None,
+        )
+    if effect is OnlyProductResponseEffect.DEFINITIVE_PRE_ADMISSION_REJECTION:
+        return OnlyToolExternalExecutionOutcomeV1(
+            OnlyToolExternalExecutionDisposition.TERMINAL_RESULT,
+            occurrences.record_failed(prepared),
+        )
     try:
         decoded = json.loads(transport.response.body)
         if not isinstance(decoded, dict):

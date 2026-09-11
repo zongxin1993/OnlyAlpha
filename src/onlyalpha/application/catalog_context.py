@@ -65,6 +65,180 @@ class OnlyExactCatalogGenerationDescriptorReader(Protocol):
     ) -> Mapping[str, object]: ...
 
 
+class OnlyExactDatasetFieldContractReader(Protocol):
+    def load_exact_dataset_field_contracts(
+        self, catalog_generation_fingerprint: str
+    ) -> Sequence[OnlyExactDatasetFieldContractV1]: ...
+
+
+class OnlyExactRegisteredUniverseReader(Protocol):
+    def load_exact_registered_universes(
+        self, catalog_generation_fingerprint: str
+    ) -> Sequence[OnlyExactRegisteredUniverseV1]: ...
+
+
+class OnlyExactStatisticsCapabilityReader(Protocol):
+    def load_exact_statistics_capabilities(
+        self, catalog_generation_fingerprint: str
+    ) -> Sequence[OnlyExactStatisticsCapabilityV1]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyExactDatasetFieldContractV1:
+    catalog_generation_fingerprint: str
+    source_id: str
+    column: str
+    data_type: str
+    semantic_roles: tuple[str, ...]
+    dimensions: tuple[str, ...]
+    unit: str | None
+    source_contract_fingerprint: str
+
+    def __post_init__(self) -> None:
+        _require_sha(self.catalog_generation_fingerprint)
+        _require_sha(self.source_contract_fingerprint)
+        if (
+            not self.source_id
+            or not self.column
+            or not self.data_type
+            or not self.semantic_roles
+            or not self.dimensions
+        ):
+            raise OnlyExactCatalogContextCorrupt
+        if self.semantic_roles != tuple(sorted(set(self.semantic_roles))):
+            raise OnlyExactCatalogContextCorrupt
+
+    @property
+    def sort_key(self) -> tuple[str, str]:
+        return self.source_id, self.source_contract_fingerprint
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "catalog_generation_fingerprint": self.catalog_generation_fingerprint,
+            "source_id": self.source_id,
+            "column": self.column,
+            "data_type": self.data_type,
+            "semantic_roles": list(self.semantic_roles),
+            "dimensions": list(self.dimensions),
+            "unit": self.unit,
+            "source_contract_fingerprint": self.source_contract_fingerprint,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, object]) -> OnlyExactDatasetFieldContractV1:
+        _require_exact_fields(value, set(_DATASET_FIELD_FIELDS))
+        return cls(
+            _string(value, "catalog_generation_fingerprint"),
+            _string(value, "source_id"),
+            _string(value, "column"),
+            _string(value, "data_type"),
+            _string_sequence(value, "semantic_roles"),
+            _string_sequence(value, "dimensions"),
+            _optional_string(value, "unit"),
+            _string(value, "source_contract_fingerprint"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyExactRegisteredUniverseV1:
+    catalog_generation_fingerprint: str
+    registered_id: str
+    kind: str
+    universe_fingerprint: str
+
+    def __post_init__(self) -> None:
+        _require_sha(self.catalog_generation_fingerprint)
+        _require_sha(self.universe_fingerprint)
+        if not self.registered_id or not self.kind:
+            raise OnlyExactCatalogContextCorrupt
+
+    @property
+    def sort_key(self) -> tuple[str, str]:
+        return self.kind, self.registered_id
+
+    def to_dict(self) -> dict[str, object]:
+        return {name: getattr(self, name) for name in _UNIVERSE_FIELDS}
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, object]) -> OnlyExactRegisteredUniverseV1:
+        _require_exact_fields(value, set(_UNIVERSE_FIELDS))
+        return cls(*(_string(value, name) for name in _UNIVERSE_FIELDS))
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyExactStatisticsCapabilityV1:
+    catalog_generation_fingerprint: str
+    statistic_type: str
+    variable_kinds: tuple[str, ...]
+    variable_semantic_roles: tuple[str, ...]
+    target_semantic_roles: tuple[str, ...]
+    target_required: bool
+    executable: bool
+    capability_fingerprint: str
+
+    def __post_init__(self) -> None:
+        _require_sha(self.catalog_generation_fingerprint)
+        _require_sha(self.capability_fingerprint)
+        if not self.statistic_type or not self.variable_kinds or not self.variable_semantic_roles:
+            raise OnlyExactCatalogContextCorrupt
+        for value in (self.variable_kinds, self.variable_semantic_roles, self.target_semantic_roles):
+            if value != tuple(sorted(set(value))):
+                raise OnlyExactCatalogContextCorrupt
+
+    @property
+    def sort_key(self) -> tuple[str, str]:
+        return self.statistic_type, self.capability_fingerprint
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "catalog_generation_fingerprint": self.catalog_generation_fingerprint,
+            "statistic_type": self.statistic_type,
+            "variable_kinds": list(self.variable_kinds),
+            "variable_semantic_roles": list(self.variable_semantic_roles),
+            "target_semantic_roles": list(self.target_semantic_roles),
+            "target_required": self.target_required,
+            "executable": self.executable,
+            "capability_fingerprint": self.capability_fingerprint,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, object]) -> OnlyExactStatisticsCapabilityV1:
+        _require_exact_fields(value, set(_STATISTICS_FIELDS))
+        return cls(
+            _string(value, "catalog_generation_fingerprint"),
+            _string(value, "statistic_type"),
+            _string_sequence(value, "variable_kinds"),
+            _string_sequence(value, "variable_semantic_roles"),
+            _string_sequence(value, "target_semantic_roles"),
+            _boolean(value, "target_required"),
+            _boolean(value, "executable"),
+            _string(value, "capability_fingerprint"),
+        )
+
+
+_DATASET_FIELD_FIELDS = (
+    "catalog_generation_fingerprint",
+    "source_id",
+    "column",
+    "data_type",
+    "semantic_roles",
+    "dimensions",
+    "unit",
+    "source_contract_fingerprint",
+)
+_UNIVERSE_FIELDS = ("catalog_generation_fingerprint", "registered_id", "kind", "universe_fingerprint")
+_STATISTICS_FIELDS = (
+    "catalog_generation_fingerprint",
+    "statistic_type",
+    "variable_kinds",
+    "variable_semantic_roles",
+    "target_semantic_roles",
+    "target_required",
+    "executable",
+    "capability_fingerprint",
+)
+
+
 @dataclass(frozen=True, slots=True)
 class OnlyExactCatalogProviderV1:
     provider_id: str
@@ -258,6 +432,9 @@ _PROJECTION_SCHEMA_DESCRIPTOR: Mapping[str, object] = MappingProxyType(
             "catalog_generation_fingerprint",
             "ordered_providers",
             "ordered_calculation_capabilities",
+            "ordered_registered_universes",
+            "ordered_dataset_field_contracts",
+            "ordered_statistics_capabilities",
             "projection_schema_fingerprint",
             "projection_fingerprint",
         ),
@@ -282,6 +459,9 @@ _PROJECTION_SCHEMA_DESCRIPTOR: Mapping[str, object] = MappingProxyType(
             "state_capability",
             "checkpoint_schema_version",
         ),
+        "registered_universe_fields": _UNIVERSE_FIELDS,
+        "dataset_field_contract_fields": _DATASET_FIELD_FIELDS,
+        "statistics_capability_fields": _STATISTICS_FIELDS,
         "calculation_type_descriptor_fields": (
             "kind",
             "type_id",
@@ -318,6 +498,9 @@ _PROJECTION_SCHEMA_DESCRIPTOR: Mapping[str, object] = MappingProxyType(
             "semantic_version",
             "backend",
         ),
+        "registered_universe_order": ("kind", "registered_id"),
+        "dataset_field_contract_order": ("source_id", "source_contract_fingerprint"),
+        "statistics_capability_order": ("statistic_type", "capability_fingerprint"),
         "layer_discriminants": tuple(item.value for item in OnlyQuantAssetLayer),
         "calculation_kind_discriminants": tuple(item.value for item in OnlyCalculationKind),
         "backend_discriminants": tuple(item.value for item in OnlyCalculationBackendKind),
@@ -337,6 +520,9 @@ class OnlyExactCatalogContextV1:
     catalog_generation_fingerprint: str
     ordered_providers: tuple[OnlyExactCatalogProviderV1, ...]
     ordered_calculation_capabilities: tuple[OnlyExactCatalogCalculationCapabilityV1, ...]
+    ordered_registered_universes: tuple[OnlyExactRegisteredUniverseV1, ...]
+    ordered_dataset_field_contracts: tuple[OnlyExactDatasetFieldContractV1, ...]
+    ordered_statistics_capabilities: tuple[OnlyExactStatisticsCapabilityV1, ...]
     schema_version: int = EXACT_CATALOG_CONTEXT_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -355,6 +541,17 @@ class OnlyExactCatalogContextV1:
             self.ordered_calculation_capabilities
         ):
             raise OnlyExactCatalogContextCorrupt
+        for values in (
+            self.ordered_registered_universes,
+            self.ordered_dataset_field_contracts,
+            self.ordered_statistics_capabilities,
+        ):
+            if values != tuple(sorted(values, key=lambda item: item.sort_key)):
+                raise OnlyExactCatalogContextCorrupt
+            if len({item.sort_key for item in values}) != len(values):
+                raise OnlyExactCatalogContextCorrupt
+            if any(item.catalog_generation_fingerprint != self.catalog_generation_fingerprint for item in values):
+                raise OnlyExactCatalogContextCorrupt
 
     @property
     def projection_schema_fingerprint(self) -> str:
@@ -375,6 +572,9 @@ class OnlyExactCatalogContextV1:
             "catalog_generation_fingerprint": self.catalog_generation_fingerprint,
             "ordered_providers": [item.to_dict() for item in self.ordered_providers],
             "ordered_calculation_capabilities": [item.to_dict() for item in self.ordered_calculation_capabilities],
+            "ordered_registered_universes": [item.to_dict() for item in self.ordered_registered_universes],
+            "ordered_dataset_field_contracts": [item.to_dict() for item in self.ordered_dataset_field_contracts],
+            "ordered_statistics_capabilities": [item.to_dict() for item in self.ordered_statistics_capabilities],
             "projection_schema_fingerprint": self.projection_schema_fingerprint,
         }
         if include_projection_fingerprint:
@@ -393,6 +593,9 @@ class OnlyExactCatalogContextV1:
                 "catalog_generation_fingerprint",
                 "ordered_providers",
                 "ordered_calculation_capabilities",
+                "ordered_registered_universes",
+                "ordered_dataset_field_contracts",
+                "ordered_statistics_capabilities",
                 "projection_schema_fingerprint",
                 "projection_fingerprint",
             },
@@ -404,10 +607,16 @@ class OnlyExactCatalogContextV1:
             raise OnlyExactCatalogContextSchemaUnsupported
         providers = _mapping_sequence(payload, "ordered_providers")
         capabilities = _mapping_sequence(payload, "ordered_calculation_capabilities")
+        universes = _mapping_sequence(payload, "ordered_registered_universes")
+        fields = _mapping_sequence(payload, "ordered_dataset_field_contracts")
+        statistics = _mapping_sequence(payload, "ordered_statistics_capabilities")
         result = cls(
             _string(payload, "catalog_generation_fingerprint"),
             tuple(OnlyExactCatalogProviderV1.from_dict(item) for item in providers),
             tuple(OnlyExactCatalogCalculationCapabilityV1.from_dict(item) for item in capabilities),
+            tuple(OnlyExactRegisteredUniverseV1.from_dict(item) for item in universes),
+            tuple(OnlyExactDatasetFieldContractV1.from_dict(item) for item in fields),
+            tuple(OnlyExactStatisticsCapabilityV1.from_dict(item) for item in statistics),
             schema_version,
         )
         if _string(payload, "projection_fingerprint") != result.projection_fingerprint:
@@ -416,23 +625,50 @@ class OnlyExactCatalogContextV1:
 
 
 class OnlyExactCatalogContextQueryService:
-    def __init__(self, reader: OnlyExactCatalogGenerationDescriptorReader) -> None:
-        self._reader = reader
+    def __init__(
+        self,
+        catalog_reader: OnlyExactCatalogGenerationDescriptorReader,
+        dataset_fields: OnlyExactDatasetFieldContractReader,
+        universes: OnlyExactRegisteredUniverseReader,
+        statistics: OnlyExactStatisticsCapabilityReader,
+    ) -> None:
+        self._catalog_reader = catalog_reader
+        self._dataset_fields = dataset_fields
+        self._universes = universes
+        self._statistics = statistics
 
     def get_exact_catalog_context(self, catalog_generation_fingerprint: str) -> OnlyExactCatalogContextV1:
         _require_sha(catalog_generation_fingerprint)
         try:
-            descriptor = self._reader.load_verified_catalog_descriptor(catalog_generation_fingerprint)
+            descriptor = self._catalog_reader.load_verified_catalog_descriptor(catalog_generation_fingerprint)
         except OnlyExactCatalogContextError:
             raise
         except Exception as exc:
             raise OnlyExactCatalogContextUnavailable from exc
-        return only_project_exact_catalog_context(catalog_generation_fingerprint, descriptor)
+        try:
+            datasets = tuple(self._dataset_fields.load_exact_dataset_field_contracts(catalog_generation_fingerprint))
+            universes = tuple(self._universes.load_exact_registered_universes(catalog_generation_fingerprint))
+            statistics = tuple(self._statistics.load_exact_statistics_capabilities(catalog_generation_fingerprint))
+        except OnlyExactCatalogContextError:
+            raise
+        except Exception as exc:
+            raise OnlyExactCatalogContextUnavailable from exc
+        return only_project_exact_catalog_context(
+            catalog_generation_fingerprint,
+            descriptor,
+            dataset_field_contracts=datasets,
+            registered_universes=universes,
+            statistics_capabilities=statistics,
+        )
 
 
 def only_project_exact_catalog_context(
     catalog_generation_fingerprint: str,
     descriptor: Mapping[str, object],
+    *,
+    dataset_field_contracts: Sequence[OnlyExactDatasetFieldContractV1],
+    registered_universes: Sequence[OnlyExactRegisteredUniverseV1],
+    statistics_capabilities: Sequence[OnlyExactStatisticsCapabilityV1],
 ) -> OnlyExactCatalogContextV1:
     """Verify one canonical Catalog descriptor and derive its metadata-only projection."""
 
@@ -460,6 +696,9 @@ def only_project_exact_catalog_context(
         stored_generation,
         ordered_providers,
         tuple(sorted(capabilities, key=lambda item: item.sort_key)),
+        tuple(sorted(registered_universes, key=lambda item: item.sort_key)),
+        tuple(sorted(dataset_field_contracts, key=lambda item: item.sort_key)),
+        tuple(sorted(statistics_capabilities, key=lambda item: item.sort_key)),
     )
 
 
@@ -715,6 +954,31 @@ def _integer(payload: Mapping[str, object], name: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool):
         raise OnlyExactCatalogContextCorrupt
     return value
+
+
+def _boolean(payload: Mapping[str, object], name: str) -> bool:
+    value = payload[name]
+    if not isinstance(value, bool):
+        raise OnlyExactCatalogContextCorrupt
+    return value
+
+
+def _optional_string(payload: Mapping[str, object], name: str) -> str | None:
+    value = payload[name]
+    if value is not None and not isinstance(value, str):
+        raise OnlyExactCatalogContextCorrupt
+    return value
+
+
+def _string_sequence(payload: Mapping[str, object], name: str) -> tuple[str, ...]:
+    value = payload[name]
+    if (
+        not isinstance(value, Sequence)
+        or isinstance(value, (str, bytes, bytearray))
+        or any(not isinstance(item, str) for item in value)
+    ):
+        raise OnlyExactCatalogContextCorrupt
+    return tuple(value)
 
 
 def _mapping(payload: Mapping[str, object], name: str) -> Mapping[str, object]:

@@ -81,9 +81,9 @@ class OnlyOpenAICompatibleModelAdapterV1:
             return OnlyModelAdapterOutcomeV1(OnlyModelAdapterOutcomeKind.FAILED)
         if outcome.classification is OnlyHttpDispatchClassification.POSSIBLY_DISPATCHED_RESPONSE_UNAVAILABLE:
             return OnlyModelAdapterOutcomeV1(OnlyModelAdapterOutcomeKind.OUTCOME_UNKNOWN)
-        if outcome.classification is OnlyHttpDispatchClassification.DEFINITE_PROVIDER_FAILURE:
-            return OnlyModelAdapterOutcomeV1(OnlyModelAdapterOutcomeKind.FAILED)
         assert outcome.response is not None
+        if not 200 <= outcome.response.status_code < 300:
+            return OnlyModelAdapterOutcomeV1(OnlyModelAdapterOutcomeKind.FAILED)
         try:
             envelope = json.loads(outcome.response.body)
             if not isinstance(envelope, dict) or set(envelope).isdisjoint({"choices"}):

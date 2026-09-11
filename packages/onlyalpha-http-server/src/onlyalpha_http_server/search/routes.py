@@ -54,24 +54,35 @@ def _operation(
     command: bool,
     identities: list[str],
 ) -> dict[str, object]:
-    return {
-        "x-onlyalpha-agent-operation": {
-            "schema_version": 1,
-            "tool_class": tool_class,
-            "recovery_class": recovery_class,
-            "requires_product_command_id": command,
-            "product_command_id_transport": {"in": "header", "name": "Idempotency-Key"} if command else None,
-            "identity_requirements": identities,
-            "owning_authority_references": [
-                {
-                    "reference_kind": "SEARCH_EXPERIMENT",
-                    "reference_schema_version": 1,
-                    "locator_kind": "SHA256",
-                    "response_field": "experiment_fingerprint",
-                }
-            ],
-        }
+    metadata: dict[str, object] = {
+        "schema_version": 1,
+        "tool_class": tool_class,
+        "recovery_class": recovery_class,
+        "requires_product_command_id": command,
+        "product_command_id_transport": {"in": "header", "name": "Idempotency-Key"} if command else None,
+        "identity_requirements": identities,
+        "owning_authority_references": [
+            {
+                "reference_kind": "SEARCH_EXPERIMENT",
+                "reference_schema_version": 1,
+                "locator_kind": "SHA256",
+                "response_field": "experiment_fingerprint",
+            }
+        ],
     }
+    if command:
+        metadata["response_effect_semantics"] = {
+            "202": "COMMITTED_RESPONSE",
+            "400": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+            "404": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+            "409": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+            "422": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+            "500": "EFFECT_UNKNOWN",
+            "502": "EFFECT_UNKNOWN",
+            "503": "EFFECT_UNKNOWN",
+            "504": "EFFECT_UNKNOWN",
+        }
+    return {"x-onlyalpha-agent-operation": metadata}
 
 
 def create_search_router(service: OnlySearchProductHttpBoundary) -> APIRouter:

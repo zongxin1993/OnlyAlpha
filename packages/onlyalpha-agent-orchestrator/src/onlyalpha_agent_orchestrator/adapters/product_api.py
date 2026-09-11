@@ -7,6 +7,7 @@ import json
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, cast
@@ -39,10 +40,17 @@ _EXTENSION_FIELDS = {
     "product_command_id_transport",
     "identity_requirements",
     "owning_authority_references",
+    "response_effect_semantics",
 }
 _OWNER_FIELDS = {"reference_kind", "reference_schema_version", "locator_kind", "response_field"}
 _COMMAND_TRANSPORT_FIELDS = {"in", "name"}
 _HTTP_METHODS = {"delete", "get", "patch", "post", "put"}
+
+
+class OnlyProductResponseEffect(StrEnum):
+    COMMITTED_RESPONSE = "COMMITTED_RESPONSE"
+    DEFINITIVE_PRE_ADMISSION_REJECTION = "DEFINITIVE_PRE_ADMISSION_REJECTION"
+    EFFECT_UNKNOWN = "EFFECT_UNKNOWN"
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +68,7 @@ class _WireOperation:
     query_fields: tuple[str, ...]
     body_fields: tuple[str, ...]
     owner_rules: tuple[_OwningReferenceRule, ...]
+    response_effect_semantics: Mapping[int, OnlyProductResponseEffect]
 
 
 class OnlyProductApiContractV2:
@@ -200,6 +209,15 @@ class OnlyProductApiContractV2:
             )
         return tuple(references)
 
+    def response_effect_verified(self, plan: OnlyAgentToolCallPlanV1, status_code: int) -> OnlyProductResponseEffect:
+        operation = self._operation_for_plan(plan)
+        effect = operation.response_effect_semantics.get(status_code)
+        if effect is not None:
+            return effect
+        if operation.contract.recovery_class is OnlyAgentToolRecoveryClass.IDEMPOTENT_COMMAND:
+            return OnlyProductResponseEffect.EFFECT_UNKNOWN
+        return OnlyProductResponseEffect.DEFINITIVE_PRE_ADMISSION_REJECTION
+
     def _operation_for_plan(self, plan: OnlyAgentToolCallPlanV1) -> _WireOperation:
         contract = self.load_operation_verified(
             plan.product_api_major,
@@ -252,12 +270,9 @@ class OnlyProductApiContractV2:
         metadata: Mapping[str, Any],
     ) -> _WireOperation:
         metadata_fields = set(metadata)
+        base_fields = _EXTENSION_FIELDS - {"product_command_id_transport", "response_effect_semantics"}
         if (
-            metadata_fields
-            not in (
-                _EXTENSION_FIELDS,
-                _EXTENSION_FIELDS - {"product_command_id_transport"},
-            )
+            metadata_fields not in (base_fields, base_fields | {"product_command_id_transport"}, _EXTENSION_FIELDS)
             or metadata.get("schema_version") != 1
         ):
             raise ValueError("AGENT_PRODUCT_API_CONTRACT_MISMATCH")
@@ -268,6 +283,7 @@ class OnlyProductApiContractV2:
             raise ValueError("AGENT_PRODUCT_API_CONTRACT_MISMATCH") from exc
         requires_command = metadata["requires_product_command_id"]
         transport = metadata.get("product_command_id_transport")
+        raw_effects = metadata.get("response_effect_semantics")
         if not isinstance(requires_command, bool):
             raise ValueError("AGENT_PRODUCT_API_CONTRACT_MISMATCH")
         command_transport: tuple[str, str] | None = None
@@ -279,6 +295,20 @@ class OnlyProductApiContractV2:
                 raise ValueError("AGENT_PRODUCT_API_CONTRACT_MISMATCH")
         elif transport is not None:
             raise ValueError("AGENT_PRODUCT_API_CONTRACT_MISMATCH")
+        effects: dict[int, OnlyProductResponseEffect] = {}
+        if raw_effects is not None:
+            if not isinstance(raw_effects, dict) or not raw_effects:
+                raise ValueError("AGENT_PRODUCT_API_CONTRACT_MISMATCH")
+            try:
+                effects = {
+                    int(status): OnlyProductResponseEffect(effect)
+                    for status, effect in raw_effects.items()
+                    if isinstance(status, str) and len(status) == 3 and status.isdigit()
+                }
+            except (TypeError, ValueError) as exc:
+                raise ValueError("AGENT_PRODUCT_API_CONTRACT_MISMATCH") from exc
+            if len(effects) != len(raw_effects):
+                raise ValueError("AGENT_PRODUCT_API_CONTRACT_MISMATCH")
         identities = metadata["identity_requirements"]
         owner_values = metadata["owning_authority_references"]
         if (
@@ -317,6 +347,10 @@ class OnlyProductApiContractV2:
             _validate_reference_rule(rule)
             owner_rules.append(rule)
         if recovery is OnlyAgentToolRecoveryClass.IDEMPOTENT_COMMAND and not requires_command:
+            raise ValueError("AGENT_PRODUCT_API_CONTRACT_MISMATCH")
+        if recovery is OnlyAgentToolRecoveryClass.IDEMPOTENT_COMMAND and (
+            not effects or OnlyProductResponseEffect.COMMITTED_RESPONSE not in effects.values()
+        ):
             raise ValueError("AGENT_PRODUCT_API_CONTRACT_MISMATCH")
         if recovery is OnlyAgentToolRecoveryClass.MUTABLE_OBSERVATION_QUERY and operation.get(
             "x-onlyalpha-replay-safe", False
@@ -372,6 +406,7 @@ class OnlyProductApiContractV2:
             tuple(query_fields),
             tuple(body_fields),
             tuple(owner_rules),
+            MappingProxyType(effects),
         )
 
     def _request_schema(

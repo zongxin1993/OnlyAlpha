@@ -293,7 +293,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v2/research/catalog-context/{catalog_generation_fingerprint}": {
+    "/api/v2/research/catalog-context/exact/{catalog_generation_fingerprint}": {
         parameters: {
             query?: never;
             header?: never;
@@ -301,6 +301,26 @@ export interface paths {
             cookie?: never;
         };
         /** Get Exact Catalog Context */
+        get: operations["get_complete_exact_catalog_context_v2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/catalog-context/{catalog_generation_fingerprint}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Legacy Catalog Context
+         * @deprecated
+         */
         get: operations["get_exact_catalog_context_v2"];
         put?: never;
         post?: never;
@@ -940,8 +960,11 @@ export interface components {
              */
             ordered_fact_policy: "ORDERED_FACTS_V1";
         };
-        /** ExactCatalogContextResponseDto */
-        ExactCatalogContextResponseDto: {
+        /**
+         * ExactCatalogContextLegacyResponseDto
+         * @description Frozen compatibility projection; not sufficient for Agent decisions.
+         */
+        ExactCatalogContextLegacyResponseDto: {
             /** Catalog Generation Fingerprint */
             catalog_generation_fingerprint: string;
             /** Ordered Calculation Capabilities */
@@ -950,6 +973,40 @@ export interface components {
             }[];
             /** Ordered Providers */
             ordered_providers: {
+                [key: string]: components["schemas"]["JsonValue"];
+            }[];
+            /** Projection Fingerprint */
+            projection_fingerprint: string;
+            /** Projection Schema Fingerprint */
+            projection_schema_fingerprint: string;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** ExactCatalogContextResponseDto */
+        ExactCatalogContextResponseDto: {
+            /** Catalog Generation Fingerprint */
+            catalog_generation_fingerprint: string;
+            /** Ordered Calculation Capabilities */
+            ordered_calculation_capabilities: {
+                [key: string]: components["schemas"]["JsonValue"];
+            }[];
+            /** Ordered Dataset Field Contracts */
+            ordered_dataset_field_contracts: {
+                [key: string]: components["schemas"]["JsonValue"];
+            }[];
+            /** Ordered Providers */
+            ordered_providers: {
+                [key: string]: components["schemas"]["JsonValue"];
+            }[];
+            /** Ordered Registered Universes */
+            ordered_registered_universes: {
+                [key: string]: components["schemas"]["JsonValue"];
+            }[];
+            /** Ordered Statistics Capabilities */
+            ordered_statistics_capabilities: {
                 [key: string]: components["schemas"]["JsonValue"];
             }[];
             /** Projection Fingerprint */
@@ -3738,7 +3795,7 @@ export interface operations {
             };
         };
     };
-    get_exact_catalog_context_v2: {
+    get_complete_exact_catalog_context_v2: {
         parameters: {
             query?: never;
             header?: never;
@@ -3756,6 +3813,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExactCatalogContextResponseDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_exact_catalog_context_v2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                catalog_generation_fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExactCatalogContextLegacyResponseDto"];
                 };
             };
             /** @description Validation Error */

@@ -253,13 +253,13 @@ def test_builder_installs_exact_public_example_in_clean_environment_and_is_deter
         builder,
         tmp_path / "exact-catalog-environments",
     )
-    exact_context = OnlyExactCatalogContextQueryService(fresh_reader).get_exact_catalog_context(
-        catalog.generation_fingerprint
-    )
+    exact_context = OnlyExactCatalogContextQueryService(
+        fresh_reader, fresh_reader, fresh_reader, fresh_reader
+    ).get_exact_catalog_context(catalog.generation_fingerprint)
     assert exact_context.catalog_generation_fingerprint == catalog.generation_fingerprint
-    assert exact_context == OnlyExactCatalogContextQueryService(fresh_reader).get_exact_catalog_context(
-        catalog.generation_fingerprint
-    )
+    assert exact_context == OnlyExactCatalogContextQueryService(
+        fresh_reader, fresh_reader, fresh_reader, fresh_reader
+    ).get_exact_catalog_context(catalog.generation_fingerprint)
     hosted = subprocess.run(
         [
             str(tmp_path / "runtime-a" / "bin" / "python"),
@@ -321,10 +321,14 @@ def test_builder_installs_exact_public_example_in_clean_environment_and_is_deter
     artifact_path, _ = store._paths(strategy_artifact.artifact_sha256)
     artifact_path.write_bytes(b"corrupt")
     with pytest.raises(OnlyExactCatalogContextUnavailable):
-        OnlyExactCatalogContextQueryService(fresh_reader).get_exact_catalog_context(catalog.generation_fingerprint)
+        OnlyExactCatalogContextQueryService(
+            fresh_reader, fresh_reader, fresh_reader, fresh_reader
+        ).get_exact_catalog_context(catalog.generation_fingerprint)
     artifact_path.unlink()
     with pytest.raises(OnlyExactCatalogContextUnavailable):
-        OnlyExactCatalogContextQueryService(fresh_reader).get_exact_catalog_context(catalog.generation_fingerprint)
+        OnlyExactCatalogContextQueryService(
+            fresh_reader, fresh_reader, fresh_reader, fresh_reader
+        ).get_exact_catalog_context(catalog.generation_fingerprint)
     with pytest.raises(ValueError, match="HISTORICAL_IMPLEMENTATION_UNAVAILABLE"):
         OnlyHistoricalExecutableRuntimeGenerationResolver(  # type: ignore[arg-type]
             _HistoricalManifest(),

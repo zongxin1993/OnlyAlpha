@@ -149,6 +149,17 @@ def create_run_router(product: OnlyResearchProductBoundary) -> APIRouter:
                         "response_field": "run.run_id",
                     }
                 ],
+                "response_effect_semantics": {
+                    "202": "COMMITTED_RESPONSE",
+                    "400": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+                    "404": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+                    "409": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+                    "422": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+                    "500": "EFFECT_UNKNOWN",
+                    "502": "EFFECT_UNKNOWN",
+                    "503": "EFFECT_UNKNOWN",
+                    "504": "EFFECT_UNKNOWN",
+                },
             }
         },
     )

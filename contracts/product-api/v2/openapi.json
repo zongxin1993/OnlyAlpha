@@ -465,16 +465,14 @@
         "title": "BacktestRuntimeOptionsDto",
         "type": "object"
       },
-      "ExactCatalogContextResponseDto": {
+      "ExactCatalogContextLegacyResponseDto": {
         "additionalProperties": false,
+        "description": "Frozen compatibility projection; not sufficient for Agent decisions.",
         "properties": {
           "catalog_generation_fingerprint": {
             "pattern": "^[0-9a-f]{64}$",
             "title": "Catalog Generation Fingerprint",
-            "type": "string",
-            "x-onlyalpha-reference-kind": "CATALOG_GENERATION",
-            "x-onlyalpha-reference-locator-kind": "SHA256",
-            "x-onlyalpha-reference-schema-version": 1
+            "type": "string"
           },
           "ordered_calculation_capabilities": {
             "items": {
@@ -517,6 +515,97 @@
           "catalog_generation_fingerprint",
           "ordered_providers",
           "ordered_calculation_capabilities",
+          "projection_schema_fingerprint",
+          "projection_fingerprint"
+        ],
+        "title": "ExactCatalogContextLegacyResponseDto",
+        "type": "object"
+      },
+      "ExactCatalogContextResponseDto": {
+        "additionalProperties": false,
+        "properties": {
+          "catalog_generation_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Catalog Generation Fingerprint",
+            "type": "string",
+            "x-onlyalpha-reference-kind": "CATALOG_GENERATION",
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-schema-version": 1
+          },
+          "ordered_calculation_capabilities": {
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "title": "Ordered Calculation Capabilities",
+            "type": "array"
+          },
+          "ordered_dataset_field_contracts": {
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "title": "Ordered Dataset Field Contracts",
+            "type": "array"
+          },
+          "ordered_providers": {
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "title": "Ordered Providers",
+            "type": "array"
+          },
+          "ordered_registered_universes": {
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "title": "Ordered Registered Universes",
+            "type": "array"
+          },
+          "ordered_statistics_capabilities": {
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "title": "Ordered Statistics Capabilities",
+            "type": "array"
+          },
+          "projection_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Projection Fingerprint",
+            "type": "string"
+          },
+          "projection_schema_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Projection Schema Fingerprint",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "catalog_generation_fingerprint",
+          "ordered_providers",
+          "ordered_calculation_capabilities",
+          "ordered_registered_universes",
+          "ordered_dataset_field_contracts",
+          "ordered_statistics_capabilities",
           "projection_schema_fingerprint",
           "projection_fingerprint"
         ],
@@ -6800,9 +6889,9 @@
         ]
       }
     },
-    "/api/v2/research/catalog-context/{catalog_generation_fingerprint}": {
+    "/api/v2/research/catalog-context/exact/{catalog_generation_fingerprint}": {
       "get": {
-        "operationId": "get_exact_catalog_context_v2",
+        "operationId": "get_complete_exact_catalog_context_v2",
         "parameters": [
           {
             "in": "path",
@@ -6861,6 +6950,53 @@
           "schema_version": 1,
           "tool_class": "EXACT_CATALOG_CONTEXT_QUERY"
         }
+      }
+    },
+    "/api/v2/research/catalog-context/{catalog_generation_fingerprint}": {
+      "get": {
+        "deprecated": true,
+        "operationId": "get_exact_catalog_context_v2",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "catalog_generation_fingerprint",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Catalog Generation Fingerprint",
+              "type": "string",
+              "x-onlyalpha-reference-kind": "CATALOG_GENERATION",
+              "x-onlyalpha-reference-locator-kind": "SHA256",
+              "x-onlyalpha-reference-schema-version": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExactCatalogContextLegacyResponseDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Legacy Catalog Context",
+        "tags": [
+          "exact-catalog-context"
+        ]
       }
     },
     "/api/v2/research/catalog/calculations": {
@@ -7361,6 +7497,17 @@
           },
           "recovery_class": "IDEMPOTENT_COMMAND",
           "requires_product_command_id": true,
+          "response_effect_semantics": {
+            "202": "COMMITTED_RESPONSE",
+            "400": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+            "404": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+            "409": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+            "422": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+            "500": "EFFECT_UNKNOWN",
+            "502": "EFFECT_UNKNOWN",
+            "503": "EFFECT_UNKNOWN",
+            "504": "EFFECT_UNKNOWN"
+          },
           "schema_version": 1,
           "tool_class": "RESEARCH_RUN_SUBMIT"
         }
@@ -8145,6 +8292,17 @@
           },
           "recovery_class": "IDEMPOTENT_COMMAND",
           "requires_product_command_id": true,
+          "response_effect_semantics": {
+            "202": "COMMITTED_RESPONSE",
+            "400": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+            "404": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+            "409": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+            "422": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+            "500": "EFFECT_UNKNOWN",
+            "502": "EFFECT_UNKNOWN",
+            "503": "EFFECT_UNKNOWN",
+            "504": "EFFECT_UNKNOWN"
+          },
           "schema_version": 1,
           "tool_class": "PARAMETER_SEARCH"
         }
@@ -8276,6 +8434,17 @@
           },
           "recovery_class": "IDEMPOTENT_COMMAND",
           "requires_product_command_id": true,
+          "response_effect_semantics": {
+            "202": "COMMITTED_RESPONSE",
+            "400": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+            "404": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+            "409": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+            "422": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+            "500": "EFFECT_UNKNOWN",
+            "502": "EFFECT_UNKNOWN",
+            "503": "EFFECT_UNKNOWN",
+            "504": "EFFECT_UNKNOWN"
+          },
           "schema_version": 1,
           "tool_class": "PARAMETER_SEARCH"
         }
@@ -8409,6 +8578,17 @@
           },
           "recovery_class": "IDEMPOTENT_COMMAND",
           "requires_product_command_id": true,
+          "response_effect_semantics": {
+            "202": "COMMITTED_RESPONSE",
+            "400": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+            "404": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+            "409": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+            "422": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+            "500": "EFFECT_UNKNOWN",
+            "502": "EFFECT_UNKNOWN",
+            "503": "EFFECT_UNKNOWN",
+            "504": "EFFECT_UNKNOWN"
+          },
           "schema_version": 1,
           "tool_class": "SYMBOLIC_SEARCH"
         }
@@ -8540,6 +8720,17 @@
           },
           "recovery_class": "IDEMPOTENT_COMMAND",
           "requires_product_command_id": true,
+          "response_effect_semantics": {
+            "202": "COMMITTED_RESPONSE",
+            "400": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+            "404": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+            "409": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+            "422": "DEFINITIVE_PRE_ADMISSION_REJECTION",
+            "500": "EFFECT_UNKNOWN",
+            "502": "EFFECT_UNKNOWN",
+            "503": "EFFECT_UNKNOWN",
+            "504": "EFFECT_UNKNOWN"
+          },
           "schema_version": 1,
           "tool_class": "SYMBOLIC_SEARCH"
         }

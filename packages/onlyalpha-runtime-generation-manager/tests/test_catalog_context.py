@@ -69,7 +69,7 @@ class _Builder:
         self.unavailable = unavailable or set()
         self.calls: list[str] = []
 
-    def rebuild_catalog_descriptor(
+    def rebuild_catalog_context_bundle(
         self,
         *,
         expected_manifest: OnlyRuntimeGenerationManifest,
@@ -80,7 +80,15 @@ class _Builder:
         self.calls.append(fingerprint)
         if fingerprint in self.unavailable:
             raise ValueError("RUNTIME_GENERATION_ARTIFACT_MISMATCH")
-        return self.descriptors[fingerprint]
+        return {
+            "catalog": self.descriptors[fingerprint],
+            "dataset_fields": [],
+            "registered_universes": [],
+            "statistics": [],
+        }
+
+    def verify_exact_artifacts(self, expected_manifest: OnlyRuntimeGenerationManifest) -> None:
+        del expected_manifest
 
 
 def _reader(
@@ -115,13 +123,15 @@ def test_retired_generation_is_exact_after_activation_switch_and_fresh_reader_re
         first_runtime: first_catalog.descriptor(),
         second_runtime: second_catalog.descriptor(),
     }
+    before_reader = _reader(registry, _Builder(descriptors), tmp_path / "environments-a")
     before = OnlyExactCatalogContextQueryService(
-        _reader(registry, _Builder(descriptors), tmp_path / "environments-a")
+        before_reader, before_reader, before_reader, before_reader
     ).get_exact_catalog_context(first_catalog.generation_fingerprint)
 
     fresh_registry = OnlyRuntimeGenerationRegistry(tmp_path / "authority")
+    after_reader = _reader(fresh_registry, _Builder(descriptors), tmp_path / "environments-b")
     after = OnlyExactCatalogContextQueryService(
-        _reader(fresh_registry, _Builder(descriptors), tmp_path / "environments-b")
+        after_reader, after_reader, after_reader, after_reader
     ).get_exact_catalog_context(first_catalog.generation_fingerprint)
 
     assert before == after
@@ -143,8 +153,9 @@ def test_multiple_runtime_generations_for_one_catalog_converge_and_ignore_runtim
     }
     builder = _Builder(descriptors)
 
+    context_reader = _reader(registry, builder, tmp_path / "environments")
     context = OnlyExactCatalogContextQueryService(
-        _reader(registry, builder, tmp_path / "environments")
+        context_reader, context_reader, context_reader, context_reader
     ).get_exact_catalog_context(catalog.generation_fingerprint)
 
     assert builder.calls == sorted((first_runtime, second_runtime))
