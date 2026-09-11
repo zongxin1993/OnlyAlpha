@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import onlyalpha_agent_orchestrator.runtime as runtime_module
 import pytest
@@ -15,8 +16,12 @@ from onlyalpha_agent_orchestrator import (
     assert_current_runtime_admitted_for_session,
     build_current_agent_workflow_implementation_manifest,
     build_current_agent_workflow_runtime_resources,
+    execute_after_runtime_admission,
 )
 from onlyalpha_agent_orchestrator.closure import _build_agent_workflow_runtime_resources
+from onlyalpha_agent_orchestrator.provenance import (
+    OnlyAgentOrchestratorPackagedBuildProvenanceV1,
+)
 
 import onlyalpha.research.agent.workflow as workflow_module
 from onlyalpha.build_provenance import OnlyPackagedBuildProvenanceV1
@@ -38,6 +43,29 @@ def _provenance(revision: str = "1" * 40) -> OnlyPackagedBuildProvenanceV1:
         revision,
         "onlyalpha",
         "0.9.9",
+    )
+
+
+def _orchestrator_provenance(
+    revision: str = "1" * 40,
+    version: str = "0.9.9",
+) -> OnlyAgentOrchestratorPackagedBuildProvenanceV1:
+    return OnlyAgentOrchestratorPackagedBuildProvenanceV1(
+        OnlyArtifactSourceProvenanceAuthority.ONLYALPHA_GIT,
+        "OnlyAlpha",
+        revision,
+        "onlyalpha-agent-orchestrator",
+        version,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _fixed_packaged_provenance(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(workflow_module, "only_packaged_build_provenance", _provenance)
+    monkeypatch.setattr(
+        runtime_module,
+        "only_agent_orchestrator_packaged_build_provenance",
+        _orchestrator_provenance,
     )
 
 
@@ -76,6 +104,22 @@ class _ResourceReader:
         return self.resource
 
 
+class _SessionReader:
+    def __init__(
+        self,
+        resource: OnlyAgentOrchestrationResourceV1,
+        session_fingerprint: str = "1" * 64,
+    ) -> None:
+        self.context = SimpleNamespace(
+            session=SimpleNamespace(session_fingerprint=session_fingerprint),
+            workflow_resource=resource,
+        )
+
+    def load_session_manifest_verified(self, session_fingerprint):  # type: ignore[no-untyped-def]
+        assert session_fingerprint == self.context.session.session_fingerprint
+        return self.context
+
+
 def test_production_closure_loads_exact_packaged_bytes_and_is_canonically_ordered() -> None:
     resources = build_current_agent_workflow_runtime_resources()
     identities = tuple(item.logical_resource_identity for item in resources)
@@ -87,15 +131,17 @@ def test_production_closure_loads_exact_packaged_bytes_and_is_canonically_ordere
 
 
 def test_manifest_is_deterministic_across_fresh_packaged_resource_construction(monkeypatch) -> None:
-    monkeypatch.setattr(workflow_module, "only_packaged_build_provenance", _provenance)
     first = build_current_agent_workflow_implementation_manifest()
     second = build_current_agent_workflow_implementation_manifest()
     assert first == second
     assert first.implementation_fingerprint == second.implementation_fingerprint
+    assert tuple(item.distribution_name for item in first.distribution_provenance) == (
+        "onlyalpha",
+        "onlyalpha-agent-orchestrator",
+    )
 
 
 def test_resource_loading_and_manifest_identity_are_absolute_path_independent(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(workflow_module, "only_packaged_build_provenance", _provenance)
     roots = (tmp_path / "checkout-a", tmp_path / "different" / "installed-b")
     for root in roots:
         for spec in ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1:
@@ -109,7 +155,13 @@ def test_resource_loading_and_manifest_identity_are_absolute_path_independent(mo
             lambda package, name: (root / package.replace(".", "/") / name).read_bytes(),
         )
 
-    assert _manifest(load(roots[0])) == _manifest(load(roots[1]))
+    manifests = []
+    for root in roots:
+        monkeypatch.setattr(
+            runtime_module, "build_current_agent_workflow_runtime_resources", lambda root=root: load(root)
+        )
+        manifests.append(build_current_agent_workflow_implementation_manifest())
+    assert manifests[0] == manifests[1]
 
 
 @pytest.mark.parametrize(
@@ -170,12 +222,16 @@ def test_noncanonical_declaration_order_fails_closed() -> None:
     assert raised.value.code == "AGENT_ORCHESTRATION_RESOURCE_MISMATCH"
 
 
-def test_unrelated_file_does_not_change_manifest(monkeypatch) -> None:
-    monkeypatch.setattr(workflow_module, "only_packaged_build_provenance", _provenance)
+def test_undeclared_resource_does_not_change_executable_identity_under_fixed_provenance(monkeypatch) -> None:
     content = _bytes_by_locator()
-    before = _manifest(_runtime_resources(content=content))
+    monkeypatch.setattr(
+        runtime_module,
+        "build_current_agent_workflow_runtime_resources",
+        lambda: _runtime_resources(content=content),
+    )
+    before = build_current_agent_workflow_implementation_manifest()
     content[("onlyalpha_agent_orchestrator", "operator_cli_formatting.py")] = b"unrelated mutation"
-    after = _manifest(_runtime_resources(content=content))
+    after = build_current_agent_workflow_implementation_manifest()
     assert before == after
 
 
@@ -217,7 +273,6 @@ def test_unsupported_resource_kind_is_rejected() -> None:
 
 
 def test_exact_historical_manifest_is_admitted(monkeypatch) -> None:
-    monkeypatch.setattr(workflow_module, "only_packaged_build_provenance", _provenance)
     current = build_current_agent_workflow_implementation_manifest()
     historical = OnlyAgentOrchestrationResourceV1(
         OnlyAgentOrchestrationResourceKind.AGENT_WORKFLOW_IMPLEMENTATION_MANIFEST,
@@ -225,11 +280,39 @@ def test_exact_historical_manifest_is_admitted(monkeypatch) -> None:
         "1.0.0",
         current,
     )
-    assert_current_runtime_admitted_for_session(historical.resource_fingerprint, _ResourceReader(historical))
+    assert_current_runtime_admitted_for_session(
+        historical.resource_fingerprint,
+        _ResourceReader(historical),
+    )
 
 
-def test_mismatch_blocks_before_hypothetical_external_side_effect(monkeypatch) -> None:
-    monkeypatch.setattr(workflow_module, "only_packaged_build_provenance", _provenance)
+def test_runtime_admission_boundary_runs_matching_continuation_exactly_once(monkeypatch) -> None:
+    current = build_current_agent_workflow_implementation_manifest()
+    historical = OnlyAgentOrchestrationResourceV1(
+        OnlyAgentOrchestrationResourceKind.AGENT_WORKFLOW_IMPLEMENTATION_MANIFEST,
+        1,
+        "1.0.0",
+        current,
+    )
+    calls = 0
+
+    def continuation(admitted):  # type: ignore[no-untyped-def]
+        nonlocal calls
+        calls += 1
+        assert admitted.agent_session_fingerprint == "1" * 64
+        assert admitted.historical_workflow_resource_fingerprint == historical.resource_fingerprint
+        return admitted.workflow_implementation_fingerprint
+
+    result = execute_after_runtime_admission(
+        "1" * 64,
+        _SessionReader(historical),  # type: ignore[arg-type]
+        continuation,
+    )
+    assert result == current.implementation_fingerprint
+    assert calls == 1
+
+
+def test_mismatch_blocks_admission_continuation(monkeypatch) -> None:
     historical_manifest = _manifest(_runtime_resources())
     historical = OnlyAgentOrchestrationResourceV1(
         OnlyAgentOrchestrationResourceKind.AGENT_WORKFLOW_IMPLEMENTATION_MANIFEST,
@@ -246,12 +329,102 @@ def test_mismatch_blocks_before_hypothetical_external_side_effect(monkeypatch) -
         )
     )
     monkeypatch.setattr(runtime_module, "build_current_agent_workflow_implementation_manifest", lambda: current)
-    side_effects: list[str] = []
+    calls = 0
+
+    def continuation(_admitted):  # type: ignore[no-untyped-def]
+        nonlocal calls
+        calls += 1
+
     with pytest.raises(OnlyAgentContextError) as raised:
-        assert_current_runtime_admitted_for_session(historical.resource_fingerprint, _ResourceReader(historical))
-        side_effects.append("external model/tool/product call")
+        execute_after_runtime_admission(
+            "1" * 64,
+            _SessionReader(historical),  # type: ignore[arg-type]
+            continuation,
+        )
     assert raised.value.code == "AGENT_WORKFLOW_RUNTIME_MISMATCH"
-    assert side_effects == []
+    assert calls == 0
+
+
+@pytest.mark.parametrize(
+    "failure",
+    ("missing_historical", "invalid_historical", "session_mismatch", "current_load"),
+)
+def test_admission_failures_never_reach_continuation(monkeypatch, failure: str) -> None:
+    current = build_current_agent_workflow_implementation_manifest()
+    historical = OnlyAgentOrchestrationResourceV1(
+        OnlyAgentOrchestrationResourceKind.AGENT_WORKFLOW_IMPLEMENTATION_MANIFEST,
+        1,
+        "1.0.0",
+        current,
+    )
+    reader: object = _SessionReader(historical)
+    if failure == "missing_historical":
+        reader = SimpleNamespace(
+            load_session_manifest_verified=lambda *_args: (_ for _ in ()).throw(
+                OnlyAgentContextError("AGENT_ORCHESTRATION_RESOURCE_MISSING", "historical workflow")
+            )
+        )
+    elif failure == "invalid_historical":
+        reader = SimpleNamespace(
+            load_session_manifest_verified=lambda *_args: SimpleNamespace(
+                session=SimpleNamespace(session_fingerprint="1" * 64),
+                workflow_resource=SimpleNamespace(
+                    resource_kind="INVALID",
+                    canonical_payload=current,
+                    resource_fingerprint="0" * 64,
+                ),
+            )
+        )
+    elif failure == "session_mismatch":
+        reader = SimpleNamespace(
+            load_session_manifest_verified=lambda *_args: SimpleNamespace(
+                session=SimpleNamespace(session_fingerprint="2" * 64),
+                workflow_resource=historical,
+            )
+        )
+    else:
+        monkeypatch.setattr(
+            runtime_module,
+            "build_current_agent_workflow_implementation_manifest",
+            lambda: (_ for _ in ()).throw(
+                OnlyAgentContextError("AGENT_ORCHESTRATION_RESOURCE_MISSING", "current workflow")
+            ),
+        )
+    calls = 0
+
+    def continuation(_admitted):  # type: ignore[no-untyped-def]
+        nonlocal calls
+        calls += 1
+
+    with pytest.raises(OnlyAgentContextError):
+        execute_after_runtime_admission(
+            "1" * 64,
+            reader,  # type: ignore[arg-type]
+            continuation,
+        )
+    assert calls == 0
+
+
+def test_orchestrator_provenance_mismatch_fails_closed(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runtime_module,
+        "only_agent_orchestrator_packaged_build_provenance",
+        lambda: _orchestrator_provenance("2" * 40),
+    )
+    with pytest.raises(OnlyAgentContextError) as raised:
+        build_current_agent_workflow_implementation_manifest()
+    assert raised.value.code == "BUILD_PROVENANCE_PREREQUISITE"
+
+
+def test_orchestrator_distribution_version_changes_manifest_identity(monkeypatch) -> None:
+    first = build_current_agent_workflow_implementation_manifest()
+    monkeypatch.setattr(
+        runtime_module,
+        "only_agent_orchestrator_packaged_build_provenance",
+        lambda: _orchestrator_provenance(version="0.9.10"),
+    )
+    second = build_current_agent_workflow_implementation_manifest()
+    assert first.implementation_fingerprint != second.implementation_fingerprint
 
 
 def test_operational_secret_is_not_semantic_serialized_or_represented(monkeypatch) -> None:

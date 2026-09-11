@@ -10,6 +10,31 @@ pytestmark = pytest.mark.architecture
 
 ROOT = Path(__file__).resolve().parents[2]
 
+_AGENT_WORKFLOW_STDLIB_IMPORTS = {
+    "__future__",
+    "collections.abc",
+    "contextlib",
+    "dataclasses",
+    "datetime",
+    "decimal",
+    "enum",
+    "fcntl",
+    "hashlib",
+    "importlib",
+    "json",
+    "os",
+    "pathlib",
+    "re",
+    "shutil",
+    "types",
+    "typing",
+    "uuid",
+}
+_AGENT_WORKFLOW_VERIFIED_PUBLIC_BOUNDARIES = {
+    "onlyalpha.application.search_product",
+    "onlyalpha.research.run",
+}
+
 
 def test_agent_context_core_has_no_provider_transport_execution_or_provenance_discovery_dependencies() -> None:
     root = Path(__file__).resolve().parents[2] / "src" / "onlyalpha" / "research" / "agent"
@@ -259,6 +284,7 @@ def test_agent_orchestrator_component_dependency_and_authority_boundary() -> Non
         "requests",
         "openai",
         "anthropic",
+        "subprocess",
         "onlyalpha.research.agent.store",
         "onlyalpha.research.agent.occurrence_store",
         "onlyalpha.research.agent.decision_store",
@@ -288,6 +314,7 @@ def test_agent_orchestrator_component_dependency_and_authority_boundary() -> Non
         "importlib.reload",
         "sys.path",
         "retry(",
+        "git rev-parse",
     ):
         assert forbidden not in source
 
@@ -295,3 +322,65 @@ def test_agent_orchestrator_component_dependency_and_authority_boundary() -> Non
 def test_core_does_not_import_agent_orchestrator_component() -> None:
     for path in (ROOT / "src/onlyalpha").rglob("*.py"):
         assert "onlyalpha_agent_orchestrator" not in path.read_text(encoding="utf-8"), path
+
+
+def test_agent_workflow_direct_semantic_dependencies_are_closed_or_explicit_boundaries() -> None:
+    """A new direct semantic import cannot silently escape the reviewed closure."""
+
+    from onlyalpha_agent_orchestrator.closure import ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1
+
+    closed_modules = {
+        item.package
+        if item.relative_name == "__init__.py"
+        else f"{item.package}.{item.relative_name.removesuffix('.py')}"
+        for item in ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1
+    }
+    for item in ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1:
+        if item.relative_name == "__init__.py":
+            continue
+        path = (
+            ROOT / "packages/onlyalpha-agent-orchestrator/src" / item.package.replace(".", "/") / item.relative_name
+            if item.package == "onlyalpha_agent_orchestrator"
+            else ROOT / "src" / item.package.replace(".", "/") / item.relative_name
+        )
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported = {alias.name for alias in node.names}
+            elif isinstance(node, ast.ImportFrom):
+                if node.level:
+                    parent = item.package.split(".")
+                    base = parent[: len(parent) - node.level + 1]
+                    imported = {".".join((*base, *(node.module or "").split("."))).rstrip(".")}
+                else:
+                    imported = {node.module or ""}
+            else:
+                continue
+            assert all(
+                dependency in closed_modules
+                or dependency in _AGENT_WORKFLOW_STDLIB_IMPORTS
+                or dependency in _AGENT_WORKFLOW_VERIFIED_PUBLIC_BOUNDARIES
+                for dependency in imported
+            ), (path, imported)
+
+
+def test_agent_semantic_modules_do_not_import_search_types_through_package_reexports() -> None:
+    agent_root = ROOT / "src/onlyalpha/research/agent"
+    for relative_name in ("application.py", "model.py", "semantic_translation.py"):
+        source = (agent_root / relative_name).read_text(encoding="utf-8")
+        assert "from onlyalpha.research.experiment import" not in source
+        assert "from onlyalpha.research.experiment.model import" in source
+
+
+def test_every_executed_workflow_package_initializer_is_explicitly_closed() -> None:
+    from onlyalpha_agent_orchestrator.closure import ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1
+
+    identities = {item.logical_resource_identity for item in ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1}
+    assert {
+        "onlyalpha.__init__.py",
+        "onlyalpha.application.__init__.py",
+        "onlyalpha.research.__init__.py",
+        "onlyalpha.research.agent.__init__.py",
+        "onlyalpha.research.experiment.__init__.py",
+        "onlyalpha.agent.orchestrator.__init__.py",
+    } <= identities

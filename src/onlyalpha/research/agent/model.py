@@ -12,7 +12,7 @@ from typing import cast
 
 from onlyalpha.build_provenance import OnlyPackagedBuildProvenanceV1
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_payload
-from onlyalpha.research.experiment import OnlySearchEvaluationContextReferenceV1
+from onlyalpha.research.experiment.model import OnlySearchEvaluationContextReferenceV1
 
 _SHA = re.compile(r"^[0-9a-f]{64}$")
 _GIT_REVISION = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")

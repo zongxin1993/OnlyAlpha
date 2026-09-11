@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from onlyalpha.canonical import only_canonical_fingerprint
-from onlyalpha.research.experiment import (
+from onlyalpha.research.experiment.model import (
     OnlySearchDecisionEngineBindingV1,
     OnlySearchDecisionMode,
     OnlySearchHypothesisSourceKind,

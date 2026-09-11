@@ -77,6 +77,59 @@ def test_unknown_production_path_fails_closed_to_full_local() -> None:
     assert {reason.rule for reason in plan.impact.reasons} == {"manual-impact-review-required"}
 
 
+def test_agent_orchestrator_change_selects_canonical_package_and_shared_agent_proof() -> None:
+    plan = _plan("packages/onlyalpha-agent-orchestrator/src/onlyalpha_agent_orchestrator/runtime.py")
+
+    assert plan.impact.lanes == (
+        OnlyTestLane.ARCHITECTURE,
+        OnlyTestLane.RESEARCH_AGENT,
+        OnlyTestLane.AGENT_ORCHESTRATOR,
+    )
+    assert {reason.rule for reason in plan.impact.reasons} == {"agent-orchestrator"}
+    assert plan.impact.static_plan is not None
+    assert plan.impact.static_plan.ruff_targets == (
+        "packages/onlyalpha-agent-orchestrator/src/onlyalpha_agent_orchestrator/runtime.py",
+    )
+
+
+def test_shared_agent_contract_change_selects_orchestrator_consumer() -> None:
+    plan = _plan("src/onlyalpha/research/agent/workflow.py")
+
+    assert plan.impact.lanes == (
+        OnlyTestLane.ARCHITECTURE,
+        OnlyTestLane.RESEARCH_AGENT,
+        OnlyTestLane.AGENT_ORCHESTRATOR,
+    )
+    assert {reason.rule for reason in plan.impact.reasons} == {"research-agent"}
+    assert plan.impact.static_plan is not None
+    assert plan.impact.static_plan.mypy_targets == ("src/onlyalpha/research/agent",)
+
+
+def test_agent_orchestrator_build_metadata_selects_targeted_package_build() -> None:
+    plan = _plan("packages/onlyalpha-agent-orchestrator/pyproject.toml")
+
+    assert OnlyTestLane.AGENT_ORCHESTRATOR in plan.impact.lanes
+    assert plan.impact.static_plan is not None
+    assert plan.impact.static_plan.version_sync_required is True
+    assert plan.impact.static_plan.build_targets == ("onlyalpha-agent-orchestrator",)
+
+
+def test_agent_specific_architecture_guards_do_not_expand_to_unrelated_fast_or_integration_lanes() -> None:
+    plan = _plan(
+        "tests/architecture/test_agent_orchestration_boundaries.py",
+        "tests/architecture/test_agent_verification.py",
+        "tests/architecture/test_test_lane_contract.py",
+    )
+
+    assert set(plan.impact.lanes) == {
+        OnlyTestLane.ARCHITECTURE,
+        OnlyTestLane.RESEARCH_AGENT,
+        OnlyTestLane.AGENT_ORCHESTRATOR,
+    }
+    assert OnlyTestLane.FAST not in plan.impact.lanes
+    assert OnlyTestLane.INTEGRATION not in plan.impact.lanes
+
+
 def test_research_result_change_is_scoped_to_its_lane_and_static_targets() -> None:
     plan = _plan("src/onlyalpha/research/result/result_store.py", "tests/research/result/test_result_store.py")
 

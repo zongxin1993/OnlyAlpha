@@ -8,18 +8,22 @@ from .closure import (
 from .runtime import (
     ONLY_AGENT_WORKFLOW_ID,
     ONLY_AGENT_WORKFLOW_SEMANTIC_VERSION,
+    OnlyAgentAdmittedRuntimeV1,
     OnlyAgentOrchestratorOperationalConfigV1,
     assert_current_runtime_admitted_for_session,
     build_current_agent_workflow_implementation_manifest,
+    execute_after_runtime_admission,
 )
 
 __all__ = [
     "ONLY_AGENT_WORKFLOW_ID",
     "ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1",
     "ONLY_AGENT_WORKFLOW_SEMANTIC_VERSION",
+    "OnlyAgentAdmittedRuntimeV1",
     "OnlyAgentOrchestratorOperationalConfigV1",
     "OnlyAgentWorkflowResourceSpecV1",
     "assert_current_runtime_admitted_for_session",
     "build_current_agent_workflow_implementation_manifest",
     "build_current_agent_workflow_runtime_resources",
+    "execute_after_runtime_admission",
 ]

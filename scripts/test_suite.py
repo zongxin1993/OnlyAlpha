@@ -59,6 +59,7 @@ class OnlyTestLane(StrEnum):
     RESEARCH_SWEEP = "research-sweep"
     RESEARCH_DATASET = "research-dataset"
     RESEARCH_AGENT = "research-agent"
+    AGENT_ORCHESTRATOR = "agent-orchestrator"
     PRIVATE_ASSET_CONTRACT = "private-asset-contract"
     FAST = "fast"
     INTEGRATION = "integration"
@@ -326,6 +327,16 @@ LANES = {
         "2",
         "worksteal",
     ),
+    OnlyTestLane.AGENT_ORCHESTRATOR: Lane(
+        (
+            "packages/onlyalpha-agent-orchestrator/tests",
+            "tests/research/agent/test_identity_and_workflow.py",
+            "tests/architecture/test_agent_orchestration_boundaries.py",
+        ),
+        "not external",
+        "2",
+        "worksteal",
+    ),
     OnlyTestLane.PRIVATE_ASSET_CONTRACT: Lane(
         (
             "tests/quant_assets/test_private_asset_contract_conformance.py",
@@ -474,6 +485,7 @@ RELEASE_LANES = (
     OnlyTestLane.RESEARCH_CALCULATION,
     OnlyTestLane.CALCULATION,
     OnlyTestLane.RESEARCH_DATASET,
+    OnlyTestLane.AGENT_ORCHESTRATOR,
     OnlyTestLane.PRIVATE_ASSET_CONTRACT,
     OnlyTestLane.CORE_FULL,
     OnlyTestLane.RECOVERY,

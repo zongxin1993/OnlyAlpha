@@ -7,7 +7,7 @@ from dataclasses import fields
 from typing import Protocol, cast
 
 from onlyalpha.canonical import only_canonical_fingerprint
-from onlyalpha.research.experiment import (
+from onlyalpha.research.experiment.model import (
     OnlySearchDecisionMode,
     OnlySearchExperimentManifestV2,
     OnlySearchExperimentManifestV3,

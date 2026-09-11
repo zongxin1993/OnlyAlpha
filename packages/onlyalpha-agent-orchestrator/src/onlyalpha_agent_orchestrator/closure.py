@@ -38,6 +38,7 @@ class OnlyAgentWorkflowResourceSpecV1:
 # The declaration is canonically ordered by logical identity. This file is itself
 # a required resource, so any add/remove/replace/reorder edit changes its exact hash.
 ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1 = (
+    OnlyAgentWorkflowResourceSpecV1("onlyalpha.__init__.py", "onlyalpha", "__init__.py"),
     OnlyAgentWorkflowResourceSpecV1(
         "onlyalpha.agent.orchestrator.__init__.py", "onlyalpha_agent_orchestrator", "__init__.py"
     ),
@@ -45,14 +46,20 @@ ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1 = (
         "onlyalpha.agent.orchestrator.closure.py", "onlyalpha_agent_orchestrator", "closure.py"
     ),
     OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha.agent.orchestrator.provenance.py", "onlyalpha_agent_orchestrator", "provenance.py"
+    ),
+    OnlyAgentWorkflowResourceSpecV1(
         "onlyalpha.agent.orchestrator.runtime.py", "onlyalpha_agent_orchestrator", "runtime.py"
     ),
+    OnlyAgentWorkflowResourceSpecV1("onlyalpha.application.__init__.py", "onlyalpha.application", "__init__.py"),
     OnlyAgentWorkflowResourceSpecV1(
         "onlyalpha.application.product_command_receipt.py", "onlyalpha.application", "product_command_receipt.py"
     ),
     OnlyAgentWorkflowResourceSpecV1("onlyalpha.build_provenance.py", "onlyalpha", "build_provenance.py"),
     OnlyAgentWorkflowResourceSpecV1("onlyalpha.canonical.py", "onlyalpha", "canonical.py"),
     OnlyAgentWorkflowResourceSpecV1("onlyalpha.distribution.py", "onlyalpha", "distribution.py"),
+    OnlyAgentWorkflowResourceSpecV1("onlyalpha.research.__init__.py", "onlyalpha.research", "__init__.py"),
+    OnlyAgentWorkflowResourceSpecV1("onlyalpha.research.agent.__init__.py", "onlyalpha.research.agent", "__init__.py"),
     OnlyAgentWorkflowResourceSpecV1(
         "onlyalpha.research.agent.application.py", "onlyalpha.research.agent", "application.py"
     ),
@@ -85,6 +92,9 @@ ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1 = (
         "onlyalpha.research.agent.verification.py", "onlyalpha.research.agent", "verification.py"
     ),
     OnlyAgentWorkflowResourceSpecV1("onlyalpha.research.agent.workflow.py", "onlyalpha.research.agent", "workflow.py"),
+    OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha.research.experiment.__init__.py", "onlyalpha.research.experiment", "__init__.py"
+    ),
     OnlyAgentWorkflowResourceSpecV1(
         "onlyalpha.research.experiment.model.py", "onlyalpha.research.experiment", "model.py"
     ),

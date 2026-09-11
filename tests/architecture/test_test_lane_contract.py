@@ -102,6 +102,16 @@ def test_research_job_lane_owns_application_contract_and_architecture_gate() -> 
     assert '"research-job-coverage"' in source
 
 
+def test_agent_orchestrator_lane_mechanically_owns_package_and_shared_contract_tests() -> None:
+    lane = LANES[OnlyTestLane.AGENT_ORCHESTRATOR]
+    assert lane.paths == (
+        "packages/onlyalpha-agent-orchestrator/tests",
+        "tests/research/agent/test_identity_and_workflow.py",
+        "tests/architecture/test_agent_orchestration_boundaries.py",
+    )
+    assert lane.expression == "not external"
+
+
 def test_research_factor_lane_owns_semantics_execution_architecture_and_full_coverage() -> None:
     lane = LANES[OnlyTestLane.RESEARCH_FACTOR]
     assert "tests/research/factor" in lane.paths

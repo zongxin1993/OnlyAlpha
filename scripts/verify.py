@@ -192,6 +192,7 @@ IMPACT_RULES = (
             "tests/architecture/test_quality_policy_contract.py",
             "tests/architecture/test_dependency_audit_contract.py",
             "tests/architecture/test_task_acceptance_policy.py",
+            "tests/architecture/test_agent_verification.py",
         ),
         (OnlyTestLane.ARCHITECTURE,),
         STATIC,
@@ -559,6 +560,45 @@ IMPACT_RULES = (
         "Binance Spot Market Product/DataSource composition affects provider-neutral trading consumers",
     ),
     VerificationImpactRule(
+        "research-agent",
+        ("src/onlyalpha/research/agent/", "tests/research/agent/"),
+        ("tests/architecture/test_agent_orchestration_boundaries.py",),
+        (
+            OnlyTestLane.ARCHITECTURE,
+            OnlyTestLane.RESEARCH_AGENT,
+            OnlyTestLane.AGENT_ORCHESTRATOR,
+        ),
+        STATIC,
+        VerificationEscalation.COMPONENT,
+        "Shared Agent contracts require Core and independent Orchestrator conformance",
+    ),
+    VerificationImpactRule(
+        "agent-orchestrator",
+        ("packages/onlyalpha-agent-orchestrator/",),
+        (),
+        (
+            OnlyTestLane.ARCHITECTURE,
+            OnlyTestLane.RESEARCH_AGENT,
+            OnlyTestLane.AGENT_ORCHESTRATOR,
+        ),
+        STATIC,
+        VerificationEscalation.COMPONENT,
+        "Agent Orchestrator changes require package, shared Agent contract and architecture proof",
+    ),
+    VerificationImpactRule(
+        "agent-orchestrator-build",
+        (),
+        (
+            "packages/onlyalpha-agent-orchestrator/pyproject.toml",
+            "packages/onlyalpha-agent-orchestrator/hatch_build.py",
+            "packages/onlyalpha-agent-orchestrator/provenance_build.py",
+        ),
+        (OnlyTestLane.AGENT_ORCHESTRATOR,),
+        STATIC,
+        VerificationEscalation.COMPONENT,
+        "Orchestrator build metadata and provenance hooks require a targeted package build",
+    ),
+    VerificationImpactRule(
         "strategy-product",
         ("src/onlyalpha/strategy/", "tests/strategy/", "src/onlyalpha/cluster/factory.py"),
         ("tests/architecture/test_p9_strategy_authority.py", "src/onlyalpha/config/models.py"),
@@ -570,7 +610,12 @@ IMPACT_RULES = (
     VerificationImpactRule(
         "package-metadata",
         (),
-        ("pyproject.toml", "uv.lock", "packages/onlyalpha-http-server/pyproject.toml"),
+        (
+            "pyproject.toml",
+            "uv.lock",
+            "packages/onlyalpha-http-server/pyproject.toml",
+            "packages/onlyalpha-agent-orchestrator/pyproject.toml",
+        ),
         (),
         STATIC,
         VerificationEscalation.COMPONENT,
@@ -592,6 +637,9 @@ IMPACT_RULES = (
             "tests/architecture/test_research_query_boundaries.py",
             "tests/architecture/test_quality_policy_contract.py",
             "tests/architecture/test_task_acceptance_policy.py",
+            "tests/architecture/test_agent_orchestration_boundaries.py",
+            "tests/architecture/test_agent_verification.py",
+            "tests/architecture/test_test_lane_contract.py",
         ),
     ),
     VerificationImpactRule(
@@ -668,12 +716,20 @@ def _static_plan(
         path
         for changed in change_set.changed_paths
         for path in changed.impact_paths()
-        if path in {"pyproject.toml", "uv.lock", "packages/onlyalpha-http-server/pyproject.toml"}
+        if path
+        in {
+            "pyproject.toml",
+            "uv.lock",
+            "packages/onlyalpha-http-server/pyproject.toml",
+            "packages/onlyalpha-agent-orchestrator/pyproject.toml",
+        }
     }
     version_sync_required = "package-metadata" in rules
     build_targets = (
         ("onlyalpha", "onlyalpha-http-server")
         if "packages/onlyalpha-http-server/pyproject.toml" in metadata_paths
+        else ("onlyalpha-agent-orchestrator",)
+        if "agent-orchestrator-build" in rules
         else ("onlyalpha",)
         if metadata_paths
         else ()
@@ -715,6 +771,7 @@ def _static_plan(
         "research-job": ("src/onlyalpha/research/job",),
         "research-calculation": ("src/onlyalpha/research/calculation",),
         "research-dataset": ("src/onlyalpha/research/dataset",),
+        "research-agent": ("src/onlyalpha/research/agent",),
     }
     mypy_targets = tuple(sorted({target for rule in rules for target in typed_roots.get(rule, ())}))
     architecture = any(
