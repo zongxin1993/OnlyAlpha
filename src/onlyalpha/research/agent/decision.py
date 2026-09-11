@@ -101,7 +101,6 @@ class OnlyAgentEvidenceObservationCodeV1(StrEnum):
 class OnlyAgentEvidenceObservationV1:
     observation_code: OnlyAgentEvidenceObservationCodeV1
     supporting_authority_references: tuple[OnlyAgentContextReferenceV1, ...]
-    categorical_assessment: str | None = None
     schema_version: int = 1
 
     def __post_init__(self) -> None:
@@ -116,8 +115,6 @@ class OnlyAgentEvidenceObservationV1:
             )
         ):
             raise ValueError("AGENT_EVIDENCE_OBSERVATION_INVALID")
-        if self.categorical_assessment is not None:
-            _identifier(self.categorical_assessment, "categorical_assessment")
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -126,7 +123,6 @@ class OnlyAgentEvidenceObservationV1:
             "supporting_authority_references": [
                 reference.to_dict() for reference in self.supporting_authority_references
             ],
-            "categorical_assessment": self.categorical_assessment,
         }
 
     @classmethod
@@ -137,17 +133,12 @@ class OnlyAgentEvidenceObservationV1:
                 "schema_version",
                 "observation_code",
                 "supporting_authority_references",
-                "categorical_assessment",
             },
             "Evidence Observation",
         )
-        assessment = payload["categorical_assessment"]
-        if assessment is not None and not isinstance(assessment, str):
-            raise ValueError("AGENT_EVIDENCE_OBSERVATION_INVALID")
         return cls(
             OnlyAgentEvidenceObservationCodeV1(_string(payload["observation_code"], "observation_code")),
             _references(payload["supporting_authority_references"], "supporting evidence", non_empty=True),
-            assessment,
             _integer(payload["schema_version"], "schema_version"),
         )
 

@@ -40,6 +40,8 @@ from onlyalpha.research.agent import (
     OnlyAgentNextExperimentProposalV1,
     OnlyAgentObservedResponseStorageKind,
     OnlyAgentParameterSearchDirectiveV1,
+    OnlyAgentProductOperationContractV1,
+    OnlyAgentProductRequestSemanticProjectionV1,
     OnlyAgentResearchPlanV1,
     OnlyAgentReuseDirectiveV1,
     OnlyAgentRolePolicyPayloadV1,
@@ -54,6 +56,7 @@ from onlyalpha.research.agent import (
     OnlyAgentToolCallPlanV1,
     OnlyAgentToolCallResultV1,
     OnlyAgentToolClass,
+    OnlyAgentToolOccurrenceServiceV1,
     OnlyAgentToolRecoveryClass,
     OnlyVerifiedAgentDecisionContextV1,
 )
@@ -61,6 +64,7 @@ from onlyalpha.research.agent.decision_store import (
     OnlyJsonAgentDecisionStore,
     OnlyJsonAgentExperimentLaunchStore,
 )
+from onlyalpha.research.agent.occurrence_store import OnlyJsonAgentToolOccurrenceStore
 from onlyalpha.research.command.query import OnlyResearchRunQueryService
 from onlyalpha.research.experiment import (
     OnlySearchAlgorithmBindingV1,
@@ -86,8 +90,97 @@ from tests.research.search.symbolic.test_search_product_adapter import (
 from tests.research.search.symbolic.test_search_product_adapter import (
     _command_id as product_command_id,
 )
+from tests.research.search.symbolic.test_search_product_adapter import (
+    _reconcile_expected as symbolic_reconcile_expected,
+)
 
 from .support import ContextFixture, make_context, packaged_provenance, resource
+
+
+class SemanticProductContracts:
+    def __init__(self, exact: tuple[OnlyAgentContextReferenceV1, ...]) -> None:
+        self._exact = exact
+        properties: dict[str, object] = {
+            "hypothesis": {
+                "additionalProperties": False,
+                "properties": {
+                    key: (
+                        {"type": "integer"}
+                        if key == "schema_version"
+                        else {"type": "array", "items": {"type": "string"}}
+                        if key in {"universe_assumptions", "falsification_criteria"}
+                        else {"type": "string"}
+                    )
+                    for key in (
+                        "schema_version",
+                        "hypothesis_id",
+                        "statement",
+                        "rationale",
+                        "expected_relationship",
+                        "universe_assumptions",
+                        "falsification_criteria",
+                    )
+                },
+                "required": [
+                    "schema_version",
+                    "hypothesis_id",
+                    "statement",
+                    "rationale",
+                    "expected_relationship",
+                    "universe_assumptions",
+                    "falsification_criteria",
+                ],
+                "type": "object",
+            }
+        }
+        for index, reference in enumerate(exact):
+            properties["id" if index == 0 else f"identity_{index}"] = {
+                "type": "string",
+                "x-onlyalpha-reference-kind": reference.reference_kind,
+                "x-onlyalpha-reference-schema-version": reference.reference_schema_version,
+            }
+        self.schema = {
+            "additionalProperties": False,
+            "properties": properties,
+            "required": list(properties),
+            "type": "object",
+        }
+
+    def load_operation_verified(self, major: int, fingerprint: str, operation: str):  # type: ignore[no-untyped-def]
+        assert major == 2 and fingerprint == "d" * 64 and operation == "symbolic_search.v1"
+        return OnlyAgentProductOperationContractV1(
+            2,
+            "d" * 64,
+            operation,
+            OnlyAgentToolClass.SYMBOLIC_SEARCH,
+            OnlyAgentToolRecoveryClass.IDEMPOTENT_COMMAND,
+            self.schema,
+            {"additionalProperties": False, "properties": {}, "required": [], "type": "object"},
+            True,
+            ("SEARCH_EXPERIMENT",),
+        )
+
+    def project_request_semantics_verified(self, **kwargs):  # type: ignore[no-untyped-def]
+        request = kwargs["canonical_validated_request"]
+        return OnlyAgentProductRequestSemanticProjectionV1(
+            kwargs["operation_identity"],
+            {
+                "method": "SYMBOLIC",
+                "hypothesis": request["hypothesis"],
+                "search_space_fingerprint": self._exact[0].reference_fingerprint,
+                "evaluation_fingerprint": self._exact[1].reference_fingerprint,
+                "algorithm_fingerprint": self._exact[2].reference_fingerprint,
+                "search_budget_fingerprint": self._exact[3].reference_fingerprint,
+                "catalog_generation_fingerprint": self._exact[4].reference_fingerprint,
+                "dataset_snapshot_fingerprint": self._exact[5].reference_fingerprint,
+                "workflow_binding": {"workflow_id": "SYMBOLIC_RESEARCH"},
+                "decision_engine_binding": {"mode": "DETERMINISTIC"},
+                "parent_experiment_fingerprint": None,
+            },
+        )
+
+    def verify_response_binding(self, plan, response, references):  # type: ignore[no-untyped-def]
+        del plan, response, references
 
 
 def ref(kind: str, fingerprint: str) -> OnlyAgentContextReferenceV1:
@@ -268,7 +361,7 @@ def decision_context(tmp_path: Path) -> tuple[ContextFixture, OnlyVerifiedAgentD
     brief = replace(
         fixture.brief,
         allowed_search_methods=tuple(sorted(OnlyAgentSearchMethod, key=lambda item: item.value)),
-        agent_budget=OnlyAgentBudgetV1(4, 6),
+        agent_budget=OnlyAgentBudgetV1(4, 10),
         research_brief_fingerprint="",
     )
     session = OnlyAgentSessionManifestV1(
@@ -1320,7 +1413,6 @@ def test_typed_evidence_observation_is_closed_and_reference_backed() -> None:
     observation = OnlyAgentEvidenceObservationV1(
         OnlyAgentEvidenceObservationCodeV1.LIMITED_COVERAGE,
         (statistics,),
-        "FOLLOW_UP_REQUIRED",
     )
     assert OnlyAgentEvidenceObservationV1.from_dict(observation.to_dict()) == observation
     unknown = observation.to_dict()
@@ -1336,6 +1428,10 @@ def test_typed_evidence_observation_is_closed_and_reference_backed() -> None:
             OnlyAgentEvidenceObservationCodeV1.LIMITED_COVERAGE,
             (ref("RESEARCH_RESULT", "2" * 64),),
         )
+    arbitrary = observation.to_dict()
+    arbitrary["categorical_assessment"] = "FOLLOW_UP_REQUIRED"
+    with pytest.raises(ValueError):
+        OnlyAgentEvidenceObservationV1.from_dict(arbitrary)
 
 
 def test_decision_exact_intent_rejects_independently_valid_search_b(tmp_path: Path) -> None:
@@ -1351,24 +1447,103 @@ def test_decision_exact_intent_rejects_independently_valid_search_b(tmp_path: Pa
         ref("CATALOG_GENERATION", context.research_brief.catalog_generation_fingerprint),
         ref("DATASET_SNAPSHOT", context.research_brief.dataset_snapshot_fingerprint),
     )
-    application.verify_tool_intent_authorized(
+    semantics = {
+        "method": "SYMBOLIC",
+        "hypothesis": context.research_brief.hypothesis.to_dict(),
+        "search_space_fingerprint": exact[0].reference_fingerprint,
+        "evaluation_fingerprint": exact[1].reference_fingerprint,
+        "algorithm_fingerprint": exact[2].reference_fingerprint,
+        "search_budget_fingerprint": exact[3].reference_fingerprint,
+        "catalog_generation_fingerprint": exact[4].reference_fingerprint,
+        "dataset_snapshot_fingerprint": exact[5].reference_fingerprint,
+        "workflow_binding": {"workflow_id": "SYMBOLIC_RESEARCH"},
+        "decision_engine_binding": {"mode": "DETERMINISTIC"},
+        "parent_experiment_fingerprint": None,
+    }
+    application.verify_historical_tool_intent(
         decision_fingerprint=decision.decision_fingerprint,
         tool_class=OnlyAgentToolClass.SYMBOLIC_SEARCH,
         operation_identity="symbolic_search.v1",
-        canonical_validated_request={"id": payload.search_space_reference.reference_fingerprint},
+        semantic_projection=OnlyAgentProductRequestSemanticProjectionV1("symbolic_search.v1", semantics),
         exact_identity_inputs=exact,
     )
     search_b = tuple(
         ref(item.reference_kind, "f" * 64) if item is payload.search_space_reference else item for item in exact
     )
     with pytest.raises(OnlyAgentContextError, match="AGENT_TOOL_OPERATION_NOT_ALLOWED"):
-        application.verify_tool_intent_authorized(
+        changed_semantics = dict(semantics)
+        changed_semantics["search_space_fingerprint"] = "f" * 64
+        application.verify_historical_tool_intent(
             decision_fingerprint=decision.decision_fingerprint,
             tool_class=OnlyAgentToolClass.SYMBOLIC_SEARCH,
             operation_identity="symbolic_search.v1",
-            canonical_validated_request={"id": "f" * 64},
+            semantic_projection=OnlyAgentProductRequestSemanticProjectionV1("symbolic_search.v1", changed_semantics),
             exact_identity_inputs=search_b,
         )
+
+
+def test_real_tool_occurrence_rejects_changed_non_reference_semantics_before_commit(tmp_path: Path) -> None:
+    fixture, context, models, tools, _store, application = service(tmp_path)
+    decision, _ = derive_directive(fixture, context, models, tools, application, OnlyAgentRouterAction.SYMBOLIC_SEARCH)
+    payload = decision.structured_payload.action_payload  # type: ignore[union-attr]
+    assert isinstance(payload, OnlyAgentSymbolicSearchDirectiveV1)
+    exact = (
+        payload.search_space_reference,
+        payload.evaluation_reference,
+        payload.algorithm_reference,
+        payload.search_budget_reference,
+        ref("CATALOG_GENERATION", context.research_brief.catalog_generation_fingerprint),
+        ref("DATASET_SNAPSHOT", context.research_brief.dataset_snapshot_fingerprint),
+    )
+    contracts = SemanticProductContracts(exact)
+    occurrence = OnlyAgentToolOccurrenceServiceV1(
+        sessions=Sessions(context),
+        decisions=application,
+        product_contracts=contracts,
+        references=References(),
+        response_references=References(),
+        store=OnlyJsonAgentToolOccurrenceStore(tmp_path / "semantic-tool"),
+    )
+    request: dict[str, object] = {"hypothesis": context.research_brief.hypothesis.to_dict()}
+    request.update(
+        {
+            "id" if index == 0 else f"identity_{index}": reference.reference_fingerprint
+            for index, reference in enumerate(exact)
+        }
+    )
+    prepared = occurrence.prepare_tool_call(
+        session_fingerprint=context.session.session_fingerprint,
+        current_workflow_manifest=fixture.resources[-1].canonical_payload,  # type: ignore[arg-type]
+        tool_call_ordinal=0,
+        authorizing_agent_decision_fingerprint=decision.decision_fingerprint,
+        tool_class=OnlyAgentToolClass.SYMBOLIC_SEARCH,
+        product_api_major=2,
+        product_api_contract_fingerprint="d" * 64,
+        operation_identity="symbolic_search.v1",
+        canonical_request=request,
+        exact_identity_inputs=exact,
+        product_command_id_or_idempotency_key="00000000-0000-4000-8000-000000000001",
+    )
+    assert prepared.plan.tool_call_ordinal == 0
+    changed = dict(request)
+    changed_hypothesis = dict(context.research_brief.hypothesis.to_dict())
+    changed_hypothesis["statement"] = "A different semantic hypothesis."
+    changed["hypothesis"] = changed_hypothesis
+    with pytest.raises(OnlyAgentContextError, match="AGENT_TOOL_OPERATION_NOT_ALLOWED"):
+        occurrence.prepare_tool_call(
+            session_fingerprint=context.session.session_fingerprint,
+            current_workflow_manifest=fixture.resources[-1].canonical_payload,  # type: ignore[arg-type]
+            tool_call_ordinal=1,
+            authorizing_agent_decision_fingerprint=decision.decision_fingerprint,
+            tool_class=OnlyAgentToolClass.SYMBOLIC_SEARCH,
+            product_api_major=2,
+            product_api_contract_fingerprint="d" * 64,
+            operation_identity="symbolic_search.v1",
+            canonical_request=changed,
+            exact_identity_inputs=exact,
+            product_command_id_or_idempotency_key="00000000-0000-4000-8000-000000000002",
+        )
+    assert occurrence.budget_consumed(context.session.session_fingerprint) == 1
 
 
 def test_reuse_mutable_observation_loss_allows_new_plan_and_later_result(tmp_path: Path) -> None:
@@ -1435,7 +1610,73 @@ def test_reuse_mutable_observation_loss_allows_new_plan_and_later_result(tmp_pat
         research_states=run_states,
     ).derive(context.session.session_fingerprint)
     assert completed.next_action is not None
-    assert completed.next_action.tool_class is OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY
+    assert completed.next_action.action_kind is OnlyAgentNextActionKind.PREPARE_NEW_TOOL_OBSERVATION
+    terminal_plan, terminal_result = tool_occurrence(
+        context,
+        ordinal=5,
+        decision=directive.decision_fingerprint,
+        tool_class=OnlyAgentToolClass.RESEARCH_RUN_QUERY,
+        owner=branch[1][1],
+    )
+    terminal_path = ref("RESEARCH_RUN_RESULT", "3" * 64)
+    terminal_result = replace(
+        terminal_result,
+        owning_authority_references=(terminal_path,),
+        tool_call_result_fingerprint="",
+    )
+    tools.add(terminal_plan, terminal_result)
+    observed = reducer.derive(context.session.session_fingerprint)
+    assert observed.next_action is not None
+    assert observed.next_action.tool_class is OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY
+    statistics = ref("RESEARCH_STATISTICS", "5" * 64)
+    evidence_plan, evidence_result = tool_occurrence(
+        context,
+        ordinal=6,
+        decision=directive.decision_fingerprint,
+        tool_class=OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY,
+        owner=terminal_path,
+    )
+    research_result = ref("RESEARCH_RESULT", "4" * 64)
+    evidence_result = replace(
+        evidence_result,
+        owning_authority_references=(research_result, statistics),
+        tool_call_result_fingerprint="",
+    )
+    tools.add(evidence_plan, evidence_result)
+    proposal = OnlyAgentNextExperimentProposalV1(
+        OnlyAgentEvaluationPathKind.DIRECT_REUSE_RESEARCH,
+        terminal_path,
+        (research_result,),
+        (statistics,),
+        (
+            OnlyAgentEvidenceObservationV1(
+                OnlyAgentEvidenceObservationCodeV1.FOLLOW_UP_RECOMMENDED,
+                (statistics,),
+            ),
+        ),
+        OnlyAgentFollowUpBriefDeltaV1("refine", "evidence", ("narrow scope",)),
+    )
+    analyst_plan, analyst_result = model_occurrence(
+        fixture,
+        context,
+        ordinal=3,
+        role="EVIDENCE_ANALYST",
+        role_fingerprint=context.session.ordered_role_policy_fingerprints[3],
+        refs=(terminal_path, research_result, statistics),
+        output=proposal.to_dict(),
+        parent=directive.decision_fingerprint,
+    )
+    models.add(analyst_plan, analyst_result)
+    final, _ = application.derive_next_experiment_proposal(
+        session_fingerprint=context.session.session_fingerprint,
+        evidence_analyst_model_result_fingerprint=analyst_result.model_call_result_fingerprint,
+        current_workflow_manifest=fixture.resources[-1].canonical_payload,  # type: ignore[arg-type]
+    )
+    assert lost.tool_call_plan_fingerprint not in {
+        tools.load_result_by_fingerprint_verified(item).tool_call_plan_fingerprint
+        for item in final.ordered_tool_call_result_fingerprints
+    }
+    assert reducer.derive(context.session.session_fingerprint).status is OnlyAgentDerivedSessionStatus.COMPLETE
 
 
 def test_reducer_composes_real_symbolic_product_nonterminal_and_reconcile(
@@ -1529,6 +1770,85 @@ def test_reducer_composes_real_symbolic_product_nonterminal_and_reconcile(
     reconcile = reducer.derive(context.session.session_fingerprint)
     assert reconcile.next_action is not None
     assert reconcile.next_action.operation_identity == OnlySearchBoundedOperationV1.RECONCILE_ONE_SYMBOLIC_OCCURRENCE
+
+    nonterminal_plan, nonterminal_result = tool_occurrence(
+        context,
+        ordinal=2,
+        decision=directive.decision_fingerprint,
+        tool_class=OnlyAgentToolClass.SEARCH_QUERY,
+        owner=ref(
+            "SEARCH_TERMINAL_PROJECTION",
+            only_canonical_fingerprint(
+                {
+                    "method": created.terminal.method.value,
+                    "experiment_fingerprint": created.terminal.experiment_fingerprint,
+                    "terminal_kind": created.terminal.terminal_kind.value,
+                    "stop_reason": created.terminal.stop_reason,
+                }
+            ),
+        ),
+    )
+    tools.add(nonterminal_plan, nonterminal_result)
+
+    for _ in range(10):
+        ledger = search_queries.get_ledger(OnlyGetSearchIterationLedgerV1(child.experiment_fingerprint))
+        if ledger.results and ledger.results[-1] is None:
+            _runs.state = OnlyResearchRunState.COMPLETED
+            _runs.complete_and_release()
+            search_commands.advance(
+                OnlyAdvanceSearchExperimentV1(
+                    product_command_id(),
+                    OnlySearchMethodV1.SYMBOLIC,
+                    OnlySearchBoundedOperationV1.RECONCILE_ONE_SYMBOLIC_OCCURRENCE,
+                    symbolic_reconcile_expected(
+                        ledger.expected_state,
+                        ledger.plans[-1].iteration_plan_fingerprint,
+                    ),
+                )
+            )
+        else:
+            current_terminal = search_queries.get_terminal(
+                OnlyGetSearchTerminalDecisionV1(child.experiment_fingerprint)
+            )
+            if current_terminal.terminal_kind is not OnlySearchTerminalKindV1.NON_TERMINAL:
+                break
+            search_commands.advance(
+                OnlyAdvanceSearchExperimentV1(
+                    product_command_id(),
+                    OnlySearchMethodV1.SYMBOLIC,
+                    OnlySearchBoundedOperationV1.ADVANCE_ONE_SYMBOLIC_OCCURRENCE,
+                    ledger.expected_state,
+                )
+            )
+    else:
+        raise AssertionError("real Symbolic Product did not reach its bounded terminal projection")
+
+    requires_terminal_observation = reducer.derive(context.session.session_fingerprint)
+    assert requires_terminal_observation.next_action is not None
+    assert requires_terminal_observation.next_action.action_kind is OnlyAgentNextActionKind.PREPARE_NEW_TOOL_OBSERVATION
+    assert requires_terminal_observation.next_action.tool_class is OnlyAgentToolClass.SEARCH_QUERY
+
+    terminal = search_queries.get_terminal(OnlyGetSearchTerminalDecisionV1(child.experiment_fingerprint))
+    terminal_projection_fingerprint = only_canonical_fingerprint(
+        {
+            "method": terminal.method.value,
+            "experiment_fingerprint": terminal.experiment_fingerprint,
+            "terminal_kind": terminal.terminal_kind.value,
+            "stop_reason": terminal.stop_reason,
+        }
+    )
+    terminal_plan, terminal_result = tool_occurrence(
+        context,
+        ordinal=3,
+        decision=directive.decision_fingerprint,
+        tool_class=OnlyAgentToolClass.SEARCH_QUERY,
+        owner=ref("SEARCH_TERMINAL_PROJECTION", terminal_projection_fingerprint),
+    )
+    tools.add(terminal_plan, terminal_result)
+    evidence = reducer.derive(context.session.session_fingerprint)
+    assert evidence.next_action is not None
+    assert evidence.next_action.action_kind is OnlyAgentNextActionKind.PREPARE_TOOL_CALL
+    assert evidence.next_action.tool_class is OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY
 
 
 def test_reducer_composes_real_parameter_product_frontier(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

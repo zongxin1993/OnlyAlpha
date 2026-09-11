@@ -25,6 +25,7 @@ from onlyalpha.research.agent import (
     OnlyAgentModelSettingState,
     OnlyAgentObservedResponseStorageKind,
     OnlyAgentProductOperationContractV1,
+    OnlyAgentProductRequestSemanticProjectionV1,
     OnlyAgentToolCallOutcome,
     OnlyAgentToolCallPlanV1,
     OnlyAgentToolCallResultV1,
@@ -92,7 +93,10 @@ class Decisions:
             tuple(f"{item.value.lower()}.v1" for item in OnlyAgentToolClass),
         )
 
-    def verify_tool_intent_authorized(self, **_kwargs) -> None:  # type: ignore[no-untyped-def]
+    def verify_historical_tool_intent(self, **_kwargs) -> None:  # type: ignore[no-untyped-def]
+        return None
+
+    def admit_new_tool_intent(self, **_kwargs) -> None:  # type: ignore[no-untyped-def]
         return None
 
 
@@ -169,6 +173,18 @@ class ProductContracts:
             raise ValueError("response differs from exact owning Product fact")
         if tuple(item.reference_kind for item in owning_authority_references) != ("PRODUCT_FACT",):
             raise ValueError("owning Authority mismatch")
+
+    def project_request_semantics_verified(
+        self,
+        *,
+        product_api_major: int,
+        product_api_contract_fingerprint: str,
+        operation_identity: str,
+        canonical_validated_request,
+    ):  # type: ignore[no-untyped-def]
+        if product_api_major != 2 or product_api_contract_fingerprint != CONTRACT:
+            raise LookupError(operation_identity)
+        return OnlyAgentProductRequestSemanticProjectionV1(operation_identity, canonical_validated_request)
 
 
 def _commit_context(root: Path):  # type: ignore[no-untyped-def]
@@ -1129,7 +1145,8 @@ class References:
 class Decisions:
     def load_decision_authorization_verified(self, fingerprint): raise LookupError(fingerprint)
 
-    def verify_tool_intent_authorized(self, **_kwargs): raise LookupError(_kwargs)  # type: ignore[no-untyped-def]
+    def verify_historical_tool_intent(self, **_kwargs): raise LookupError(_kwargs)  # type: ignore[no-untyped-def]
+    def admit_new_tool_intent(self, **_kwargs): raise LookupError(_kwargs)  # type: ignore[no-untyped-def]
 external = External()
 readers = OnlyAgentResearchBriefReferenceReadersV1(external, external, external)
 resources = OnlyJsonAgentOrchestrationResourceStore(root)

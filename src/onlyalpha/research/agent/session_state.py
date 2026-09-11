@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Never, cast
 
+from onlyalpha.canonical import only_canonical_fingerprint
+
 from .application import (
     OnlyAgentDecisionApplicationServiceV1,
     OnlyAgentExperimentLaunchServiceV1,
@@ -295,14 +297,16 @@ class OnlyAgentSessionReducerV1:
             OnlyAgentRouterAction.PARAMETER_SEARCH,
         }
         if decision_count == 3:
-            final = self._decisions.load_decision_by_session_ordinal_verified(session_fingerprint, 2)
+            try:
+                final = self._decisions.load_decision_by_session_ordinal_verified(session_fingerprint, 2)
+                consumed_results = self._decisions._consumed_tool_results(context)
+            except Exception as exc:
+                raise OnlyAgentContextError("AGENT_HISTORY_CONTRADICTORY", "Tool Result closure") from exc
             if (
                 final.decision_kind is not OnlyAgentDecisionKind.NEXT_EXPERIMENT_PROPOSAL
                 or model_count != 4
                 or (is_search and not launch_exists)
-                or len(tool_results) != tool_count
-                or final.ordered_tool_call_result_fingerprints
-                != tuple(tool_results[ordinal].tool_call_result_fingerprint for ordinal in range(tool_count))
+                or final.ordered_tool_call_result_fingerprints != consumed_results
             ):
                 self._corrupt("Next Proposal closure")
             return OnlyAgentDerivedSessionStateV1(session_fingerprint, OnlyAgentDerivedSessionStatus.COMPLETE, None)
@@ -312,6 +316,22 @@ class OnlyAgentSessionReducerV1:
             if branch_plan.authorizing_agent_decision_fingerprint != directive_decision.decision_fingerprint:
                 self._corrupt("branch Tool mismatch")
             branch_plans.append(branch_plan)
+
+        for index, branch_plan in enumerate(branch_plans):
+            if self._tools.result_exists(branch_plan.tool_call_plan_fingerprint):
+                continue
+            if self._tools.recovery_class(branch_plan.tool_call_plan_fingerprint) is not (
+                OnlyAgentToolRecoveryClass.MUTABLE_OBSERVATION_QUERY
+            ):
+                self._corrupt("open non-mutable branch occurrence")
+            target = self._observation_target(branch_plan)
+            if not any(self._observation_target(later) == target for later in branch_plans[index + 1 :]):
+                return self._prepare_new_observation(
+                    session_fingerprint,
+                    branch_plan.tool_class,
+                    tool_count,
+                    budget.tool_call_limit,
+                )
 
         if not is_search and launch_exists:
             self._corrupt("REUSE with Launch")
@@ -383,7 +403,17 @@ class OnlyAgentSessionReducerV1:
                     ),
                 )
             observations = [plan for plan in branch_plans[1:] if plan.tool_class is OnlyAgentToolClass.SEARCH_QUERY]
-            if not observations:
+            successful_observations = [
+                (plan, tool_results[plan.tool_call_ordinal])
+                for plan in observations
+                if plan.tool_call_ordinal in tool_results
+            ]
+            terminal_observed = bool(successful_observations) and any(
+                reference.reference_kind == "SEARCH_TERMINAL_PROJECTION"
+                and reference.reference_fingerprint in self._terminal_search_fact_fingerprints(authority.terminal)
+                for reference in successful_observations[-1][1].owning_authority_references
+            )
+            if not terminal_observed:
                 return self._prepare_new_observation(
                     session_fingerprint, OnlyAgentToolClass.SEARCH_QUERY, tool_count, budget.tool_call_limit
                 )
@@ -463,7 +493,15 @@ class OnlyAgentSessionReducerV1:
             if run.state.value in {"FAILED", "CANCELLED", "CANCEL_REQUESTED"}:
                 return self._failed(session_fingerprint, "AGENT_SEARCH_FAILED")
             observations = [plan for plan in branch_plans if plan.tool_class is OnlyAgentToolClass.RESEARCH_RUN_QUERY]
-            if run.state.value != "COMPLETED" or not observations:
+            successful_run_observations = [
+                tool_results[plan.tool_call_ordinal] for plan in observations if plan.tool_call_ordinal in tool_results
+            ]
+            terminal_observed = bool(successful_run_observations) and any(
+                reference.reference_kind == "RESEARCH_RUN_RESULT"
+                and reference.reference_fingerprint == run.research_result_fingerprint
+                for reference in successful_run_observations[-1].owning_authority_references
+            )
+            if run.state.value != "COMPLETED" or not terminal_observed:
                 return self._prepare_new_observation(
                     session_fingerprint, OnlyAgentToolClass.RESEARCH_RUN_QUERY, tool_count, budget.tool_call_limit
                 )
@@ -486,6 +524,43 @@ class OnlyAgentSessionReducerV1:
     @staticmethod
     def _decision_count_before_model(ordinal: int) -> int:
         return 0 if ordinal == 0 else 1 if ordinal <= 2 else 2
+
+    @staticmethod
+    def _terminal_search_fact_fingerprints(terminal) -> set[str]:  # type: ignore[no-untyped-def]
+        result = {
+            only_canonical_fingerprint(
+                {
+                    "method": terminal.method.value,
+                    "experiment_fingerprint": terminal.experiment_fingerprint,
+                    "terminal_kind": terminal.terminal_kind.value,
+                    "stop_reason": terminal.stop_reason,
+                }
+            )
+        }
+        fact = terminal.terminal_fact
+        for name in (
+            "terminal_fingerprint",
+            "iteration_result_fingerprint",
+            "feedback_decision_fingerprint",
+            "enumeration_result_fingerprint",
+        ):
+            value = getattr(fact, name, None)
+            if isinstance(value, str):
+                result.add(value)
+        return result
+
+    @staticmethod
+    def _observation_target(plan) -> tuple[object, ...]:  # type: ignore[no-untyped-def]
+        return (
+            plan.tool_class,
+            plan.operation_identity,
+            plan.authorizing_agent_decision_fingerprint,
+            tuple(
+                reference
+                for reference in plan.exact_identity_inputs
+                if reference.reference_kind != "SEARCH_EXPECTED_STATE"
+            ),
+        )
 
     @staticmethod
     def _active(session: str, action: OnlyAgentNextActionV1) -> OnlyAgentDerivedSessionStateV1:

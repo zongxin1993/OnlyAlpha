@@ -47,7 +47,11 @@ from .occurrence import (
     OnlyAgentToolCallPlanV1,
     OnlyAgentToolCallResultV1,
 )
-from .occurrence_service import OnlyAgentDecisionAuthorizationV1, OnlyAgentSessionContextReader
+from .occurrence_service import (
+    OnlyAgentDecisionAuthorizationV1,
+    OnlyAgentProductRequestSemanticProjectionV1,
+    OnlyAgentSessionContextReader,
+)
 from .store import OnlyAgentCommitOutcome
 from .verification import OnlyVerifiedAgentDecisionContextV1
 from .workflow import admit_agent_workflow_runtime
@@ -358,7 +362,7 @@ class OnlyAgentDecisionApplicationServiceV1:
         if analyst_plan.ordered_context_references != expected_context:
             raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", "Evidence Analyst context")
         self._verify_evidence_closure(context, payload)
-        tool_results = self._terminal_tool_result_prefix(context)
+        tool_results = self._consumed_tool_results(context)
         decision = self._decision(
             context,
             ordinal=2,
@@ -431,28 +435,28 @@ class OnlyAgentDecisionApplicationServiceV1:
             operations,
         )
 
-    def verify_tool_intent_authorized(
+    def verify_historical_tool_intent(
         self,
         *,
         decision_fingerprint: str,
         tool_class: OnlyAgentToolClass,
         operation_identity: str,
-        canonical_validated_request: Mapping[str, object],
+        semantic_projection: OnlyAgentProductRequestSemanticProjectionV1,
         exact_identity_inputs: tuple[OnlyAgentContextReferenceV1, ...],
     ) -> None:
-        """Prove that a canonical Product request remains inside the exact Decision scope."""
+        """Verify a stored intent using immutable facts only."""
 
-        del canonical_validated_request
         authorization = self.load_decision_authorization_verified(decision_fingerprint)
         if (
             tool_class not in authorization.permitted_tool_classes
             or operation_identity not in authorization.permitted_operation_identities
+            or semantic_projection.operation_identity != operation_identity
         ):
             raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity)
         decision = self.load_decision_verified(decision_fingerprint)
         context = self._sessions.load_session_manifest_verified(decision.agent_session_fingerprint)
         supplied = set(exact_identity_inputs)
-        required: set[OnlyAgentContextReferenceV1]
+        required: set[OnlyAgentContextReferenceV1] = set()
         if decision.decision_kind is OnlyAgentDecisionKind.RESEARCH_PLAN:
             required = {_reference("CATALOG_GENERATION", context.research_brief.catalog_generation_fingerprint)}
         elif decision.decision_kind is OnlyAgentDecisionKind.SEARCH_DIRECTIVE:
@@ -465,7 +469,7 @@ class OnlyAgentDecisionApplicationServiceV1:
             elif tool_class is OnlyAgentToolClass.RESEARCH_RUN_SUBMIT:
                 if not isinstance(payload, OnlyAgentReuseDirectiveV1):
                     raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity)
-                resolved = {
+                required = {
                     reference
                     for ordinal in range(self._tools.budget_consumed(decision.agent_session_fingerprint))
                     for plan in (
@@ -477,9 +481,8 @@ class OnlyAgentDecisionApplicationServiceV1:
                         plan.tool_call_plan_fingerprint
                     ).owning_authority_references
                 }
-                if not resolved:
+                if not required:
                     raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity)
-                required = resolved
             elif tool_class in {OnlyAgentToolClass.SYMBOLIC_SEARCH, OnlyAgentToolClass.PARAMETER_SEARCH}:
                 if not isinstance(payload, (OnlyAgentSymbolicSearchDirectiveV1, OnlyAgentParameterSearchDirectiveV1)):
                     raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity)
@@ -494,42 +497,26 @@ class OnlyAgentDecisionApplicationServiceV1:
                         _reference("DATASET_SNAPSHOT", context.research_brief.dataset_snapshot_fingerprint),
                     }
                 )
-                if configuration.issubset(supplied):
-                    required = configuration
-                else:
-                    prior_children = {
-                        reference
-                        for ordinal in range(self._tools.budget_consumed(decision.agent_session_fingerprint))
-                        for plan in (
-                            self._tools.load_plan_by_session_ordinal_verified(
-                                decision.agent_session_fingerprint, ordinal
-                            ),
-                        )
-                        if plan.tool_class
-                        in {
-                            OnlyAgentToolClass.SYMBOLIC_SEARCH,
-                            OnlyAgentToolClass.PARAMETER_SEARCH,
-                        }
-                        and self._tools.result_exists(plan.tool_call_plan_fingerprint)
-                        for reference in self._tools.load_result_verified(
-                            plan.tool_call_plan_fingerprint
-                        ).owning_authority_references
-                        if reference.reference_kind == "SEARCH_EXPERIMENT"
-                    }
-                    if len(prior_children) != 1 or self._search_states is None:
-                        raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity)
-                    child = next(iter(prior_children))
-                    authority = self._search_states.load_search_state_verified(child.reference_fingerprint)
-                    expected_state = _reference(
-                        "SEARCH_EXPECTED_STATE", only_canonical_fingerprint(authority.expected_state.to_dict())
+                prior_children = {
+                    reference
+                    for ordinal in range(self._tools.budget_consumed(decision.agent_session_fingerprint))
+                    for plan in (
+                        self._tools.load_plan_by_session_ordinal_verified(decision.agent_session_fingerprint, ordinal),
                     )
-                    expected_operation = authority.next_bounded_operation
-                    if expected_operation is None or operation_identity not in {
-                        expected_operation.value,
-                        f"search.{expected_operation.value.lower()}.v1",
-                    }:
-                        raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity)
-                    required = {child, expected_state}
+                    if plan.tool_class
+                    in {
+                        OnlyAgentToolClass.SYMBOLIC_SEARCH,
+                        OnlyAgentToolClass.PARAMETER_SEARCH,
+                    }
+                    and self._tools.result_exists(plan.tool_call_plan_fingerprint)
+                    for reference in self._tools.load_result_verified(
+                        plan.tool_call_plan_fingerprint
+                    ).owning_authority_references
+                    if reference.reference_kind == "SEARCH_EXPERIMENT"
+                }
+                required = configuration if configuration.issubset(supplied) else prior_children
+                if not required:
+                    raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity)
             else:
                 # Query/reconcile intent must bind a concrete owning fact produced by the
                 # already-authorized path; a bare caller-selected identity is not enough.
@@ -574,6 +561,140 @@ class OnlyAgentDecisionApplicationServiceV1:
             raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity)
         if not required.issubset(supplied):
             raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity)
+        self._verify_projected_semantics(
+            context=context,
+            decision=decision,
+            tool_class=tool_class,
+            projection=semantic_projection,
+            exact_identity_inputs=exact_identity_inputs,
+        )
+
+    def admit_new_tool_intent(
+        self,
+        *,
+        decision_fingerprint: str,
+        tool_class: OnlyAgentToolClass,
+        operation_identity: str,
+        semantic_projection: OnlyAgentProductRequestSemanticProjectionV1,
+        exact_identity_inputs: tuple[OnlyAgentContextReferenceV1, ...],
+    ) -> None:
+        """Admit new work, adding current owning-Authority constraints when needed."""
+
+        self.verify_historical_tool_intent(
+            decision_fingerprint=decision_fingerprint,
+            tool_class=tool_class,
+            operation_identity=operation_identity,
+            semantic_projection=semantic_projection,
+            exact_identity_inputs=exact_identity_inputs,
+        )
+        if tool_class not in {OnlyAgentToolClass.SYMBOLIC_SEARCH, OnlyAgentToolClass.PARAMETER_SEARCH}:
+            return
+        children = tuple(
+            reference for reference in exact_identity_inputs if reference.reference_kind == "SEARCH_EXPERIMENT"
+        )
+        expected_states = tuple(
+            reference for reference in exact_identity_inputs if reference.reference_kind == "SEARCH_EXPECTED_STATE"
+        )
+        if not children and not expected_states:
+            return
+        if len(children) != 1 or len(expected_states) != 1 or self._search_states is None:
+            raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity)
+        authority = self._search_states.load_search_state_verified(children[0].reference_fingerprint)
+        expected = only_canonical_fingerprint(authority.expected_state.to_dict())
+        operation = authority.next_bounded_operation
+        if (
+            expected_states[0].reference_fingerprint != expected
+            or operation is None
+            or operation_identity not in {operation.value, f"search.{operation.value.lower()}.v1"}
+            or semantic_projection.semantic_bindings["child_experiment_fingerprint"]
+            != children[0].reference_fingerprint
+            or semantic_projection.semantic_bindings["expected_search_state_fingerprint"] != expected
+            or semantic_projection.semantic_bindings["bounded_operation"] != operation.value
+        ):
+            raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity)
+
+    @staticmethod
+    def _verify_projected_semantics(
+        *,
+        context: OnlyVerifiedAgentDecisionContextV1,
+        decision: OnlyAgentDecisionV1,
+        tool_class: OnlyAgentToolClass,
+        projection: OnlyAgentProductRequestSemanticProjectionV1,
+        exact_identity_inputs: tuple[OnlyAgentContextReferenceV1, ...],
+    ) -> None:
+        bindings = projection.semantic_bindings
+        expected_scalars = {
+            "catalog_generation_fingerprint": context.research_brief.catalog_generation_fingerprint,
+            "dataset_snapshot_fingerprint": context.research_brief.dataset_snapshot_fingerprint,
+        }
+        for name, expected in expected_scalars.items():
+            if name in bindings and bindings[name] != expected:
+                raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", projection.operation_identity)
+        if "hypothesis" in bindings and only_canonical_fingerprint(
+            bindings["hypothesis"]
+        ) != only_canonical_fingerprint(context.research_brief.hypothesis.to_dict()):
+            raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", projection.operation_identity)
+        if "parent_experiment_fingerprint" in bindings and bindings["parent_experiment_fingerprint"] is not None:
+            raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", projection.operation_identity)
+        if isinstance(bindings.get("decision_engine_binding"), Mapping):
+            mode = cast(Mapping[str, object], bindings["decision_engine_binding"]).get("mode")
+            if mode != "DETERMINISTIC":
+                raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", projection.operation_identity)
+        if decision.decision_kind is OnlyAgentDecisionKind.SEARCH_DIRECTIVE:
+            directive = cast(OnlyAgentSearchDirectiveV1, decision.structured_payload)
+            expected_method = {
+                OnlyAgentRouterAction.SYMBOLIC_SEARCH: {"SYMBOLIC", "SYMBOLIC_SEARCH"},
+                OnlyAgentRouterAction.PARAMETER_SEARCH: {"PARAMETER", "PARAMETER_SEARCH"},
+            }.get(directive.router_action)
+            if expected_method is not None and "method" in bindings and bindings["method"] not in expected_method:
+                raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", projection.operation_identity)
+            directive_payload = directive.action_payload
+            if tool_class in {OnlyAgentToolClass.SYMBOLIC_SEARCH, OnlyAgentToolClass.PARAMETER_SEARCH} and isinstance(
+                directive_payload,
+                (OnlyAgentSymbolicSearchDirectiveV1, OnlyAgentParameterSearchDirectiveV1),
+            ):
+                children = tuple(
+                    reference for reference in exact_identity_inputs if reference.reference_kind == "SEARCH_EXPERIMENT"
+                )
+                if not children:
+                    required = {
+                        "method",
+                        "hypothesis",
+                        "search_space_fingerprint",
+                        "evaluation_fingerprint",
+                        "algorithm_fingerprint",
+                        "search_budget_fingerprint",
+                        "catalog_generation_fingerprint",
+                        "dataset_snapshot_fingerprint",
+                        "workflow_binding",
+                        "decision_engine_binding",
+                        "parent_experiment_fingerprint",
+                    }
+                    if isinstance(directive_payload, OnlyAgentParameterSearchDirectiveV1):
+                        required.add("search_policy_fingerprint")
+                    if not required.issubset(bindings):
+                        raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", projection.operation_identity)
+                    expected_bindings = {
+                        "search_space_fingerprint": directive_payload.search_space_reference.reference_fingerprint,
+                        "evaluation_fingerprint": directive_payload.evaluation_reference.reference_fingerprint,
+                        "algorithm_fingerprint": directive_payload.algorithm_reference.reference_fingerprint,
+                        "search_budget_fingerprint": directive_payload.search_budget_reference.reference_fingerprint,
+                    }
+                    if isinstance(directive_payload, OnlyAgentParameterSearchDirectiveV1):
+                        expected_bindings["search_policy_fingerprint"] = (
+                            directive_payload.search_policy_reference.reference_fingerprint
+                        )
+                    if any(bindings[name] != value for name, value in expected_bindings.items()):
+                        raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", projection.operation_identity)
+                else:
+                    required = {
+                        "method",
+                        "child_experiment_fingerprint",
+                        "expected_search_state_fingerprint",
+                        "bounded_operation",
+                    }
+                    if not required.issubset(bindings):
+                        raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", projection.operation_identity)
 
     def _admit(
         self, session_fingerprint: str, manifest: OnlyAgentWorkflowImplementationManifestV1
@@ -622,7 +743,149 @@ class OnlyAgentDecisionApplicationServiceV1:
                 raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", fingerprint)
         for reference in decision.ordered_context_references:
             self._references.verify_exact_reference(reference)
-        return
+        if decision.decision_kind is OnlyAgentDecisionKind.RESEARCH_PLAN:
+            result, plan = self._returned_model(
+                decision.ordered_model_call_result_fingerprints[0],
+                context,
+                expected_role="RESEARCH_PLANNER",
+                expected_call_ordinal=0,
+                expected_parent=None,
+            )
+            del result
+            planner_context = (_reference("AGENT_RESEARCH_BRIEF", context.research_brief.research_brief_fingerprint),)
+            research_plan_payload = cast(OnlyAgentResearchPlanV1, decision.structured_payload)
+            frozen_roles = tuple(
+                cast(OnlyAgentRolePolicyPayloadV1, resource.canonical_payload).logical_role_id
+                for resource in context.ordered_role_policy_resources
+            )
+            permitted = set(research_plan_payload.permitted_router_actions)
+            brief_permitted = {
+                OnlyAgentRouterAction(method.value) for method in context.research_brief.allowed_search_methods
+            } | {OnlyAgentRouterAction.CAPABILITY_GAP}
+            if (
+                plan.ordered_context_references != planner_context
+                or decision.ordered_context_references != planner_context
+                or research_plan_payload.research_brief_fingerprint != context.research_brief.research_brief_fingerprint
+                or research_plan_payload.ordered_logical_role_sequence != frozen_roles
+                or permitted != brief_permitted
+                or research_plan_payload.agent_budget != context.research_brief.agent_budget
+                or research_plan_payload.terminal_boundary != "ONE_EVALUATION_PATH_THEN_ADVISORY_PROPOSAL"
+            ):
+                raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", decision.decision_fingerprint)
+            return
+
+        plan_decision = self.load_decision_by_session_ordinal_verified(context.session.session_fingerprint, 0)
+        if decision.decision_kind is OnlyAgentDecisionKind.SEARCH_DIRECTIVE:
+            directive = cast(OnlyAgentSearchDirectiveV1, decision.structured_payload)
+            catalog_result, _ = self._succeeded_tool(
+                decision.ordered_tool_call_result_fingerprints[0],
+                context,
+                OnlyAgentToolClass.EXACT_CATALOG_CONTEXT_QUERY,
+                plan_decision.decision_fingerprint,
+            )
+            if (
+                directive.exact_catalog_context_tool_result_fingerprint != catalog_result.tool_call_result_fingerprint
+                or sum(
+                    reference.reference_fingerprint == context.research_brief.catalog_generation_fingerprint
+                    for reference in catalog_result.owning_authority_references
+                )
+                != 1
+            ):
+                raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", decision.decision_fingerprint)
+            router_result, router_plan = self._returned_model(
+                decision.ordered_model_call_result_fingerprints[0],
+                context,
+                expected_role="SEARCH_ROUTER",
+                expected_call_ordinal=1,
+                expected_parent=plan_decision.decision_fingerprint,
+            )
+            expected_router_context = (
+                _reference("AGENT_RESEARCH_BRIEF", context.research_brief.research_brief_fingerprint),
+                _reference("AGENT_TOOL_CALL_RESULT", catalog_result.tool_call_result_fingerprint),
+            )
+            router_output = cast(Mapping[str, object], router_result.validated_structured_output)
+            if router_output.get("router_action") != directive.router_action.value:
+                raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", decision.decision_fingerprint)
+            executable = directive.router_action is not OnlyAgentRouterAction.CAPABILITY_GAP
+            if router_plan.ordered_context_references != expected_router_context or executable != (
+                len(decision.ordered_model_call_result_fingerprints) == 2
+            ):
+                raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", decision.decision_fingerprint)
+            directive_context = list(expected_router_context)
+            if executable:
+                designer_result, designer_plan = self._returned_model(
+                    decision.ordered_model_call_result_fingerprints[1],
+                    context,
+                    expected_role="FACTOR_DESIGNER",
+                    expected_call_ordinal=2,
+                    expected_parent=plan_decision.decision_fingerprint,
+                )
+                designer_context = (
+                    *expected_router_context,
+                    _reference("AGENT_MODEL_CALL_RESULT", router_result.model_call_result_fingerprint),
+                )
+                if designer_plan.ordered_context_references != designer_context:
+                    raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", decision.decision_fingerprint)
+                designer_output = cast(Mapping[str, object], designer_result.validated_structured_output)
+                if (
+                    set(designer_output) != {"action_payload"}
+                    or _action_payload(designer_output["action_payload"], directive.router_action)
+                    != directive.action_payload
+                ):
+                    raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", decision.decision_fingerprint)
+                directive_context.append(designer_context[-1])
+                if (
+                    OnlyAgentSearchMethod(directive.router_action.value)
+                    not in context.research_brief.allowed_search_methods
+                ):
+                    raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", decision.decision_fingerprint)
+            elif (
+                set(router_output) != {"router_action", "action_payload"}
+                or _action_payload(router_output["action_payload"], directive.router_action) != directive.action_payload
+            ):
+                raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", decision.decision_fingerprint)
+            if decision.ordered_context_references != tuple(directive_context):
+                raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", decision.decision_fingerprint)
+            self._verify_action_references(directive.action_payload, context)
+            return
+
+        directive_decision = self.load_decision_by_session_ordinal_verified(context.session.session_fingerprint, 1)
+        directive = cast(OnlyAgentSearchDirectiveV1, directive_decision.structured_payload)
+        proposal_payload = cast(OnlyAgentNextExperimentProposalV1, decision.structured_payload)
+        analyst_result, analyst_plan = self._returned_model(
+            decision.ordered_model_call_result_fingerprints[0],
+            context,
+            expected_role="EVIDENCE_ANALYST",
+            expected_call_ordinal=3,
+            expected_parent=directive_decision.decision_fingerprint,
+        )
+        try:
+            historical_payload = OnlyAgentNextExperimentProposalV1.from_dict(
+                cast(Mapping[str, object], _plain_json(analyst_result.validated_structured_output))
+            )
+        except Exception as exc:
+            raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", decision.decision_fingerprint) from exc
+        analyst_context = (
+            proposal_payload.completed_path_reference,
+            *proposal_payload.research_result_references,
+            *proposal_payload.research_statistics_references,
+        )
+        expected_path = (
+            OnlyAgentEvaluationPathKind.DIRECT_REUSE_RESEARCH
+            if directive.router_action is OnlyAgentRouterAction.REUSE_EXISTING
+            else OnlyAgentEvaluationPathKind.CHILD_SEARCH
+        )
+        if (
+            directive.router_action is OnlyAgentRouterAction.CAPABILITY_GAP
+            or historical_payload != proposal_payload
+            or proposal_payload.evaluation_path_kind is not expected_path
+            or analyst_plan.ordered_context_references != analyst_context
+            or decision.ordered_context_references != analyst_context
+        ):
+            raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", decision.decision_fingerprint)
+        self._verify_evidence_closure(context, proposal_payload)
+        if decision.ordered_tool_call_result_fingerprints != self._consumed_tool_results(context):
+            raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", decision.decision_fingerprint)
 
     def _derive_decision_from_exact_inputs(
         self,
@@ -793,7 +1056,7 @@ class OnlyAgentDecisionApplicationServiceV1:
         if analyst_plan.ordered_context_references != evidence_context:
             raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", "Evidence Analyst context")
         self._verify_evidence_closure(context, payload)
-        tool_results = self._terminal_tool_result_prefix(context)
+        tool_results = self._consumed_tool_results(context)
         return self._decision(
             context,
             ordinal=2,
@@ -815,11 +1078,13 @@ class OnlyAgentDecisionApplicationServiceV1:
     ) -> tuple[OnlyAgentModelCallResultV1, OnlyAgentModelCallPlanV1]:
         result = self._models.load_result_by_fingerprint_verified(result_fingerprint)
         plan = self._models.load_plan_verified(result.model_call_plan_fingerprint)
+        expected_role_fingerprint, _ = _role(context, expected_role)
         if (
             result.outcome is not OnlyAgentModelCallOutcome.RETURNED
             or result.validated_structured_output is None
             or plan.agent_session_fingerprint != context.session.session_fingerprint
             or plan.logical_role != expected_role
+            or plan.role_policy_fingerprint != expected_role_fingerprint
             or plan.call_ordinal != expected_call_ordinal
             or plan.parent_agent_decision_fingerprint != expected_parent
         ):
@@ -864,15 +1129,46 @@ class OnlyAgentDecisionApplicationServiceV1:
         ):
             raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", "Evaluation binding")
 
-    def _terminal_tool_result_prefix(self, context: OnlyVerifiedAgentDecisionContextV1) -> tuple[str, ...]:
+    @staticmethod
+    def _observation_target(plan: OnlyAgentToolCallPlanV1) -> tuple[object, ...]:
+        return (
+            plan.tool_class,
+            plan.operation_identity,
+            plan.authorizing_agent_decision_fingerprint,
+            tuple(
+                reference
+                for reference in plan.exact_identity_inputs
+                if reference.reference_kind != "SEARCH_EXPECTED_STATE"
+            ),
+        )
+
+    def _consumed_tool_results(self, context: OnlyVerifiedAgentDecisionContextV1) -> tuple[str, ...]:
+        """Return successful Results consumed by Decision #2, tolerating superseded mutable gaps."""
+
+        plans = tuple(
+            self._tools.load_plan_by_session_ordinal_verified(context.session.session_fingerprint, ordinal)
+            for ordinal in range(self._tools.budget_consumed(context.session.session_fingerprint))
+        )
+        latest_mutable: dict[tuple[object, ...], int] = {}
+        for plan in plans:
+            if self._tools.recovery_class(plan.tool_call_plan_fingerprint).value == "MUTABLE_OBSERVATION_QUERY":
+                latest_mutable[self._observation_target(plan)] = plan.tool_call_ordinal
         results: list[str] = []
-        for ordinal in range(self._tools.budget_consumed(context.session.session_fingerprint)):
-            plan = self._tools.load_plan_by_session_ordinal_verified(context.session.session_fingerprint, ordinal)
+        for plan in plans:
+            mutable = self._tools.recovery_class(plan.tool_call_plan_fingerprint).value == "MUTABLE_OBSERVATION_QUERY"
             if not self._tools.result_exists(plan.tool_call_plan_fingerprint):
-                raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", "Open Tool occurrence")
+                if (
+                    not mutable
+                    or latest_mutable.get(self._observation_target(plan), plan.tool_call_ordinal)
+                    <= plan.tool_call_ordinal
+                ):
+                    raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", "Open Tool occurrence")
+                continue
             result = self._tools.load_result_verified(plan.tool_call_plan_fingerprint)
             if result.outcome is not OnlyAgentToolCallOutcome.SUCCEEDED:
                 raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", "Failed Tool occurrence")
+            if mutable and latest_mutable[self._observation_target(plan)] != plan.tool_call_ordinal:
+                continue
             results.append(result.tool_call_result_fingerprint)
         return tuple(results)
 
@@ -889,7 +1185,9 @@ class OnlyAgentDecisionApplicationServiceV1:
         for ordinal in range(count):
             plan = self._tools.load_plan_by_session_ordinal_verified(context.session.session_fingerprint, ordinal)
             if not self._tools.result_exists(plan.tool_call_plan_fingerprint):
-                raise OnlyAgentContextError("AGENT_EVIDENCE_UNAVAILABLE", "Open Tool occurrence")
+                if self._tools.recovery_class(plan.tool_call_plan_fingerprint).value != "MUTABLE_OBSERVATION_QUERY":
+                    raise OnlyAgentContextError("AGENT_EVIDENCE_UNAVAILABLE", "Open Tool occurrence")
+                continue
             plans.append(plan)
             results.append(self._tools.load_result_verified(plan.tool_call_plan_fingerprint))
         if (
@@ -926,9 +1224,10 @@ class OnlyAgentDecisionApplicationServiceV1:
             OnlyAgentEvaluationPathKind.DIRECT_REUSE_RESEARCH: OnlyAgentToolClass.RESEARCH_RUN_QUERY,
             OnlyAgentEvaluationPathKind.CHILD_SEARCH: OnlyAgentToolClass.SEARCH_QUERY,
         }[payload.evaluation_path_kind]
-        if (
-            plans[-2].tool_class is not expected_path_tool
-            or results[-2].owning_authority_references.count(payload.completed_path_reference) != 1
+        if not any(
+            plan.tool_class is expected_path_tool
+            and result.owning_authority_references.count(payload.completed_path_reference) == 1
+            for plan, result in zip(plans[:-1], results[:-1], strict=True)
         ):
             raise OnlyAgentContextError("AGENT_EVIDENCE_UNAVAILABLE", "Authoritative terminal path closure")
 

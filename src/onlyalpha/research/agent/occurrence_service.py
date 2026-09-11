@@ -60,14 +60,41 @@ class OnlyAgentDecisionAuthorizationV1:
     permitted_operation_identities: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class OnlyAgentProductRequestSemanticProjectionV1:
+    """Transient Product-owned projection used only for Tool-intent authorization."""
+
+    operation_identity: str
+    semantic_bindings: Mapping[str, object]
+
+    def __post_init__(self) -> None:
+        if not self.operation_identity or any(character.isspace() for character in self.operation_identity):
+            raise ValueError("AGENT_PRODUCT_API_CONTRACT_MISMATCH")
+        object.__setattr__(
+            self,
+            "semantic_bindings",
+            _frozen_object(self.semantic_bindings, "semantic_bindings"),
+        )
+
+
 class OnlyAgentDecisionToolIntentVerifier(Protocol):
-    def verify_tool_intent_authorized(
+    def verify_historical_tool_intent(
         self,
         *,
         decision_fingerprint: str,
         tool_class: OnlyAgentToolClass,
         operation_identity: str,
-        canonical_validated_request: Mapping[str, object],
+        semantic_projection: OnlyAgentProductRequestSemanticProjectionV1,
+        exact_identity_inputs: tuple[OnlyAgentContextReferenceV1, ...],
+    ) -> None: ...
+
+    def admit_new_tool_intent(
+        self,
+        *,
+        decision_fingerprint: str,
+        tool_class: OnlyAgentToolClass,
+        operation_identity: str,
+        semantic_projection: OnlyAgentProductRequestSemanticProjectionV1,
         exact_identity_inputs: tuple[OnlyAgentContextReferenceV1, ...],
     ) -> None: ...
 
@@ -127,6 +154,15 @@ class OnlyAgentProductApiContractReader(Protocol):
         canonical_response: Mapping[str, object],
         owning_authority_references: tuple[OnlyAgentContextReferenceV1, ...],
     ) -> None: ...
+
+    def project_request_semantics_verified(
+        self,
+        *,
+        product_api_major: int,
+        product_api_contract_fingerprint: str,
+        operation_identity: str,
+        canonical_validated_request: Mapping[str, object],
+    ) -> OnlyAgentProductRequestSemanticProjectionV1: ...
 
 
 class OnlyAgentExactResponseReferenceReader(Protocol):
@@ -701,11 +737,17 @@ class OnlyAgentToolOccurrenceServiceV1:
                     "AGENT_TOOL_CALL_PLAN_INVALID", "Exact identity input is unresolved"
                 ) from exc
         try:
-            self._decisions.verify_tool_intent_authorized(
+            projection = self._contracts.project_request_semantics_verified(
+                product_api_major=product_api_major,
+                product_api_contract_fingerprint=product_api_contract_fingerprint,
+                operation_identity=operation_identity,
+                canonical_validated_request=cast(Mapping[str, object], validated),
+            )
+            self._decisions.admit_new_tool_intent(
                 decision_fingerprint=decision.decision_fingerprint,
                 tool_class=tool_class,
                 operation_identity=operation_identity,
-                canonical_validated_request=cast(Mapping[str, object], validated),
+                semantic_projection=projection,
                 exact_identity_inputs=exact_identity_inputs,
             )
         except OnlyAgentContextError:
@@ -914,11 +956,17 @@ class OnlyAgentToolOccurrenceServiceV1:
         for reference in plan.exact_identity_inputs:
             self._references.verify_exact_reference(reference)
         try:
-            self._decisions.verify_tool_intent_authorized(
+            projection = self._contracts.project_request_semantics_verified(
+                product_api_major=plan.product_api_major,
+                product_api_contract_fingerprint=plan.product_api_contract_fingerprint,
+                operation_identity=plan.operation_identity,
+                canonical_validated_request=cast(Mapping[str, object], validated),
+            )
+            self._decisions.verify_historical_tool_intent(
                 decision_fingerprint=decision.decision_fingerprint,
                 tool_class=plan.tool_class,
                 operation_identity=plan.operation_identity,
-                canonical_validated_request=cast(Mapping[str, object], validated),
+                semantic_projection=projection,
                 exact_identity_inputs=plan.exact_identity_inputs,
             )
         except OnlyAgentContextError:
