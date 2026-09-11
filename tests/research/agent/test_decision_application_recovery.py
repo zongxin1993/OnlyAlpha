@@ -28,6 +28,8 @@ from onlyalpha.research.agent import (
     OnlyAgentEvaluationPathKind,
     OnlyAgentEvidenceObservationCodeV1,
     OnlyAgentEvidenceObservationV1,
+    OnlyAgentExactAuthorityReference,
+    OnlyAgentExactAuthorityReferenceV2,
     OnlyAgentExperimentLaunchRecordV1,
     OnlyAgentExperimentLaunchServiceV1,
     OnlyAgentFollowUpBriefDeltaV1,
@@ -42,7 +44,9 @@ from onlyalpha.research.agent import (
     OnlyAgentParameterSearchDirectiveV1,
     OnlyAgentProductOperationContractV1,
     OnlyAgentProductRequestSemanticProjectionV1,
+    OnlyAgentReferenceLocatorKind,
     OnlyAgentResearchPlanV1,
+    OnlyAgentResearchRunAuthorityReaderV1,
     OnlyAgentReuseDirectiveV1,
     OnlyAgentRolePolicyPayloadV1,
     OnlyAgentRouterAction,
@@ -362,12 +366,11 @@ class ResearchRunStore:
 
 
 class ProductResearchStates:
-    def __init__(self, query: OnlyResearchRunQueryService, run_id) -> None:  # type: ignore[no-untyped-def]
-        self.query = query
-        self.run_id = run_id
+    def __init__(self, query: OnlyResearchRunQueryService) -> None:
+        self.reader = OnlyAgentResearchRunAuthorityReaderV1(query)
 
-    def load_research_run_verified(self, _reference):  # type: ignore[no-untyped-def]
-        return self.query.get_run(self.run_id)
+    def load_research_run_verified(self, reference):  # type: ignore[no-untyped-def]
+        return self.reader.load_research_run_verified(reference)
 
 
 def decision_context(tmp_path: Path) -> tuple[ContextFixture, OnlyVerifiedAgentDecisionContextV1]:
@@ -455,7 +458,7 @@ def tool_occurrence(
     ordinal: int,
     decision: str,
     tool_class: OnlyAgentToolClass,
-    owner: OnlyAgentContextReferenceV1,
+    owner: OnlyAgentExactAuthorityReference,
 ) -> tuple[OnlyAgentToolCallPlanV1, OnlyAgentToolCallResultV1]:
     plan = OnlyAgentToolCallPlanV1(
         context.session.session_fingerprint,
@@ -465,11 +468,11 @@ def tool_occurrence(
         2,
         "d" * 64,
         f"{tool_class.value.lower()}.v1",
-        {"id": owner.reference_fingerprint},
+        {"id": owner.locator_value},
         exact_identity_inputs=(owner,),
         tool_policy_fingerprint=context.session.tool_policy_fingerprint,
     )
-    response = {"identity": owner.reference_fingerprint}
+    response = {"identity": owner.locator_value}
     result = OnlyAgentToolCallResultV1(
         plan.tool_call_plan_fingerprint,
         OnlyAgentToolCallOutcome.SUCCEEDED,
@@ -1635,9 +1638,18 @@ def test_real_tool_occurrence_rejects_changed_non_reference_semantics_before_com
 def test_reuse_mutable_observation_loss_allows_new_plan_and_later_result(tmp_path: Path) -> None:
     fixture, context, models, tools, store, application = service(tmp_path)
     directive, _ = derive_directive(fixture, context, models, tools, application, OnlyAgentRouterAction.REUSE_EXISTING)
+    run_store = ResearchRunStore(
+        queued_research_run().transition(OnlyResearchRunState.RUNNING, at=RUN_NOW + timedelta(seconds=1))
+    )
+    run_reference = OnlyAgentExactAuthorityReferenceV2(
+        "RESEARCH_RUN",
+        1,
+        OnlyAgentReferenceLocatorKind.UUID4,
+        run_store.run.run_id.value,
+    )
     branch = (
         (OnlyAgentToolClass.RESEARCH_DEFINITION_RESOLVE, ref("RESEARCH_DEFINITION", "1" * 64)),
-        (OnlyAgentToolClass.RESEARCH_RUN_SUBMIT, ref("RESEARCH_RUN", "2" * 64)),
+        (OnlyAgentToolClass.RESEARCH_RUN_SUBMIT, run_reference),
     )
     for ordinal, (tool_class, owner) in enumerate(branch, start=1):
         plan, result = tool_occurrence(
@@ -1656,10 +1668,7 @@ def test_reuse_mutable_observation_loss_allows_new_plan_and_later_result(tmp_pat
         owner=branch[1][1],
     )
     tools.add(lost)
-    run_store = ResearchRunStore(
-        queued_research_run().transition(OnlyResearchRunState.RUNNING, at=RUN_NOW + timedelta(seconds=1))
-    )
-    run_states = ProductResearchStates(OnlyResearchRunQueryService(run_store), run_store.run.run_id)
+    run_states = ProductResearchStates(OnlyResearchRunQueryService(run_store))
     reducer = OnlyAgentSessionReducerV1(
         sessions=Sessions(context),
         models=models,

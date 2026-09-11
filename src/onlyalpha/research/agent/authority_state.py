@@ -11,9 +11,15 @@ if TYPE_CHECKING:
         OnlySearchExpectedStateV1,
         OnlySearchTerminalProjectionV1,
     )
+    from onlyalpha.research.command.query import OnlyResearchRunQueryService
     from onlyalpha.research.run import OnlyResearchRun
 
-from .occurrence import OnlyAgentContextReferenceV1
+from .errors import OnlyAgentContextError
+from .occurrence import (
+    OnlyAgentExactAuthorityReference,
+    OnlyAgentExactAuthorityReferenceV2,
+    OnlyAgentReferenceLocatorKind,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,7 +43,35 @@ class OnlyAgentSearchStateReader(Protocol):
 
 
 class OnlyAgentResearchStateReader(Protocol):
-    def load_research_run_verified(self, run_reference: OnlyAgentContextReferenceV1) -> OnlyResearchRun: ...
+    def load_research_run_verified(self, run_reference: OnlyAgentExactAuthorityReference) -> OnlyResearchRun: ...
+
+
+class OnlyAgentResearchRunAuthorityReaderV1:
+    """Exact Agent read adapter over the canonical Research Run Query Authority."""
+
+    def __init__(self, queries: OnlyResearchRunQueryService) -> None:
+        self._queries = queries
+
+    def load_research_run_verified(self, run_reference: OnlyAgentExactAuthorityReference) -> OnlyResearchRun:
+        from onlyalpha.research.run import OnlyResearchRunId
+
+        if (
+            not isinstance(run_reference, OnlyAgentExactAuthorityReferenceV2)
+            or run_reference.reference_kind != "RESEARCH_RUN"
+            or run_reference.reference_schema_version != 1
+            or run_reference.locator_kind is not OnlyAgentReferenceLocatorKind.UUID4
+        ):
+            raise OnlyAgentContextError("AGENT_EXACT_AUTHORITY_REFERENCE_INVALID", "RESEARCH_RUN")
+        try:
+            run_id = OnlyResearchRunId(run_reference.locator_value)
+            run = self._queries.get_run(run_id)
+        except Exception as exc:
+            if isinstance(exc, OnlyAgentContextError):
+                raise
+            raise OnlyAgentContextError("AGENT_EXACT_AUTHORITY_REFERENCE_INVALID", "RESEARCH_RUN") from exc
+        if run.run_id != run_id:
+            raise OnlyAgentContextError("AGENT_EXACT_AUTHORITY_REFERENCE_INVALID", "RESEARCH_RUN")
+        return run
 
 
 __all__ = [name for name in globals() if name.startswith("OnlyAgent")]

@@ -26,6 +26,7 @@ from .occurrence import (
     ONLYAGENT_STRICT_SCHEMA_DIALECT,
     ONLYAGENT_STRICT_SCHEMA_DIALECT_VERSION,
     OnlyAgentContextReferenceV1,
+    OnlyAgentExactAuthorityReference,
     OnlyAgentExactReferenceReader,
     OnlyAgentModelCallOutcome,
     OnlyAgentModelCallPlanV1,
@@ -38,6 +39,7 @@ from .occurrence import (
     OnlyAgentToolCallResultV1,
     OnlyAgentToolRecoveryClass,
     _frozen_object,
+    only_agent_exact_reference_from_schema,
     validate_agent_strict_schema,
     validate_agent_strict_value,
 )
@@ -85,7 +87,7 @@ class OnlyAgentDecisionToolIntentVerifier(Protocol):
         tool_class: OnlyAgentToolClass,
         operation_identity: str,
         semantic_projection: OnlyAgentProductRequestSemanticProjectionV1,
-        exact_identity_inputs: tuple[OnlyAgentContextReferenceV1, ...],
+        exact_identity_inputs: tuple[OnlyAgentExactAuthorityReference, ...],
         tool_call_ordinal: int,
     ) -> None: ...
 
@@ -96,7 +98,7 @@ class OnlyAgentDecisionToolIntentVerifier(Protocol):
         tool_class: OnlyAgentToolClass,
         operation_identity: str,
         semantic_projection: OnlyAgentProductRequestSemanticProjectionV1,
-        exact_identity_inputs: tuple[OnlyAgentContextReferenceV1, ...],
+        exact_identity_inputs: tuple[OnlyAgentExactAuthorityReference, ...],
         tool_call_ordinal: int,
     ) -> None: ...
 
@@ -154,7 +156,7 @@ class OnlyAgentProductApiContractReader(Protocol):
         self,
         plan: OnlyAgentToolCallPlanV1,
         canonical_response: Mapping[str, object],
-        owning_authority_references: tuple[OnlyAgentContextReferenceV1, ...],
+        owning_authority_references: tuple[OnlyAgentExactAuthorityReference, ...],
     ) -> None: ...
 
     def project_request_semantics_verified(
@@ -168,7 +170,7 @@ class OnlyAgentProductApiContractReader(Protocol):
 
 
 class OnlyAgentExactResponseReferenceReader(Protocol):
-    def load_exact_response_verified(self, reference: OnlyAgentContextReferenceV1) -> Mapping[str, object]: ...
+    def load_exact_response_verified(self, reference: OnlyAgentExactAuthorityReference) -> Mapping[str, object]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,16 +248,12 @@ def _verify_supported_model_schema(resource: object) -> OnlyAgentStructuredOutpu
     return resource
 
 
-def _request_reference_closure(value: object, schema: Mapping[str, object]) -> tuple[OnlyAgentContextReferenceV1, ...]:
+def _request_reference_closure(
+    value: object, schema: Mapping[str, object]
+) -> tuple[OnlyAgentExactAuthorityReference, ...]:
     reference_kind = schema.get("x-onlyalpha-reference-kind")
     if isinstance(reference_kind, str):
-        return (
-            OnlyAgentContextReferenceV1(
-                reference_kind,
-                cast(int, schema["x-onlyalpha-reference-schema-version"]),
-                cast(str, value),
-            ),
-        )
+        return (only_agent_exact_reference_from_schema(value, schema),)
     if schema["type"] == "object":
         request = cast(Mapping[str, object], value)
         properties = cast(Mapping[str, object], schema.get("properties", {}))
@@ -278,7 +276,7 @@ def _verify_tool_request_identity_closure(
     validated_request: Mapping[str, object],
     request_schema: Mapping[str, object],
     identity_requirements: tuple[str, ...],
-    exact_identity_inputs: tuple[OnlyAgentContextReferenceV1, ...],
+    exact_identity_inputs: tuple[OnlyAgentExactAuthorityReference, ...],
 ) -> None:
     properties = cast(Mapping[str, object], request_schema.get("properties", {}))
     for requirement in identity_requirements:
@@ -673,7 +671,7 @@ class OnlyAgentToolOccurrenceServiceV1:
         product_api_contract_fingerprint: str,
         operation_identity: str,
         canonical_request: Mapping[str, object],
-        exact_identity_inputs: tuple[OnlyAgentContextReferenceV1, ...],
+        exact_identity_inputs: tuple[OnlyAgentExactAuthorityReference, ...],
         product_command_id_or_idempotency_key: str | None,
     ) -> OnlyPreparedAgentToolCallV1:
         context = _admit_occurrence_mutation(
@@ -821,7 +819,7 @@ class OnlyAgentToolOccurrenceServiceV1:
         self,
         prepared: OnlyPreparedAgentToolCallV1,
         response: Mapping[str, object],
-        owning_authority_references: tuple[OnlyAgentContextReferenceV1, ...],
+        owning_authority_references: tuple[OnlyAgentExactAuthorityReference, ...],
     ) -> OnlyAgentToolCallResultV1:
         plan, contract = self._require_prepared(prepared)
         try:
@@ -851,8 +849,8 @@ class OnlyAgentToolOccurrenceServiceV1:
     def record_exact_reference_success(
         self,
         prepared: OnlyPreparedAgentToolCallV1,
-        response_reference: OnlyAgentContextReferenceV1,
-        owning_authority_references: tuple[OnlyAgentContextReferenceV1, ...],
+        response_reference: OnlyAgentExactAuthorityReference,
+        owning_authority_references: tuple[OnlyAgentExactAuthorityReference, ...],
     ) -> OnlyAgentToolCallResultV1:
         plan, contract = self._require_prepared(prepared)
         try:
@@ -1049,7 +1047,7 @@ class OnlyAgentToolOccurrenceServiceV1:
     def _verify_owning_references(
         self,
         contract: OnlyAgentProductOperationContractV1,
-        references: tuple[OnlyAgentContextReferenceV1, ...],
+        references: tuple[OnlyAgentExactAuthorityReference, ...],
     ) -> None:
         if tuple(item.reference_kind for item in references) != contract.allowed_owning_reference_kinds:
             raise OnlyAgentContextError("AGENT_TOOL_RESULT_INVALID", "Owning Authority reference closure differs")

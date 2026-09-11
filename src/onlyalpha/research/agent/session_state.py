@@ -410,7 +410,7 @@ class OnlyAgentSessionReducerV1:
             ]
             terminal_observed = bool(successful_observations) and any(
                 reference.reference_kind == "SEARCH_TERMINAL_PROJECTION"
-                and reference.reference_fingerprint in self._terminal_search_fact_fingerprints(authority.terminal)
+                and reference.locator_value in self._terminal_search_fact_fingerprints(authority.terminal)
                 for reference in successful_observations[-1][1].owning_authority_references
             )
             if not terminal_observed:
@@ -498,7 +498,7 @@ class OnlyAgentSessionReducerV1:
             ]
             terminal_observed = bool(successful_run_observations) and any(
                 reference.reference_kind == "RESEARCH_RUN_RESULT"
-                and reference.reference_fingerprint == run.research_result_fingerprint
+                and reference.locator_value == run.research_result_fingerprint
                 for reference in successful_run_observations[-1].owning_authority_references
             )
             if run.state.value != "COMPLETED" or not terminal_observed:

@@ -25,6 +25,7 @@ __all__ = [
             "admit_",
             "derive_",
             "expected_",
+            "only_agent_",
             "translate_",
             "verify_",
         )

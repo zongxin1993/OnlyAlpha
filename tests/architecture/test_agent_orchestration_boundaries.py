@@ -337,6 +337,31 @@ def test_core_does_not_import_agent_orchestrator_component() -> None:
         assert "onlyalpha_agent_orchestrator" not in path.read_text(encoding="utf-8"), path
 
 
+def test_research_run_identity_does_not_depend_on_agent_or_gain_a_synthetic_sha_authority() -> None:
+    run_root = ROOT / "src/onlyalpha/research/run"
+    production_roots = (ROOT / "src/onlyalpha", ROOT / "packages")
+    for path in run_root.rglob("*.py"):
+        assert "onlyalpha.research.agent" not in path.read_text(encoding="utf-8"), path
+
+    forbidden_definitions = {
+        "ResearchRunFingerprint",
+        "ResearchRunShaIdentity",
+        "UUIDToFingerprint",
+        "AgentReferenceMapping",
+        "ReferenceTranslationStore",
+    }
+    defined: set[str] = set()
+    for root in production_roots:
+        for path in root.rglob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            defined.update(
+                node.name
+                for node in ast.walk(tree)
+                if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+            )
+    assert not forbidden_definitions.intersection(defined)
+
+
 def test_agent_workflow_direct_semantic_dependencies_are_closed_or_explicit_boundaries() -> None:
     """A new direct semantic import cannot silently escape the reviewed closure."""
 

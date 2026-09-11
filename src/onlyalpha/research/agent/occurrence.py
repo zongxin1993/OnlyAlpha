@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -134,6 +135,36 @@ class OnlyAgentObservedResponseStorageKind(StrEnum):
 ONLYAGENT_STRICT_SCHEMA_DIALECT = "ONLYALPHA_STRICT_STRUCTURED_OUTPUT"
 ONLYAGENT_STRICT_SCHEMA_DIALECT_VERSION = "1.0.0"
 
+ONLYAGENT_REFERENCE_KIND_EXTENSION = "x-onlyalpha-reference-kind"
+ONLYAGENT_REFERENCE_SCHEMA_VERSION_EXTENSION = "x-onlyalpha-reference-schema-version"
+ONLYAGENT_REFERENCE_LOCATOR_KIND_EXTENSION = "x-onlyalpha-reference-locator-kind"
+
+
+class OnlyAgentReferenceLocatorKind(StrEnum):
+    SHA256 = "SHA256"
+    UUID4 = "UUID4"
+
+
+def only_agent_expected_locator_kind(reference_kind: str) -> OnlyAgentReferenceLocatorKind:
+    """Return the frozen locator domain owned by one admitted Authority kind."""
+
+    _identifier(reference_kind, "reference_kind")
+    if reference_kind == "RESEARCH_RUN":
+        return OnlyAgentReferenceLocatorKind.UUID4
+    return OnlyAgentReferenceLocatorKind.SHA256
+
+
+def _uuid4(value: object, context: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{context} must be a canonical lower-case UUID4")
+    try:
+        parsed = uuid.UUID(value)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValueError(f"{context} must be a canonical lower-case UUID4") from exc
+    if parsed.version != 4 or str(parsed) != value:
+        raise ValueError(f"{context} must be a canonical lower-case UUID4")
+    return value
+
 
 @dataclass(frozen=True, slots=True, order=True)
 class OnlyAgentContextReferenceV1:
@@ -158,6 +189,14 @@ class OnlyAgentContextReferenceV1:
             "reference_fingerprint": self.reference_fingerprint,
         }
 
+    @property
+    def locator_kind(self) -> OnlyAgentReferenceLocatorKind:
+        return OnlyAgentReferenceLocatorKind.SHA256
+
+    @property
+    def locator_value(self) -> str:
+        return self.reference_fingerprint
+
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> OnlyAgentContextReferenceV1:
         _exact(payload, {"reference_kind", "reference_schema_version", "reference_fingerprint"}, "Context Reference")
@@ -166,6 +205,171 @@ class OnlyAgentContextReferenceV1:
             _integer(payload["reference_schema_version"], "reference_schema_version"),
             _sha(payload["reference_fingerprint"], "reference_fingerprint"),
         )
+
+
+@dataclass(frozen=True, slots=True, order=True)
+class OnlyAgentExactAuthorityReferenceV2:
+    reference_kind: str
+    reference_schema_version: int
+    locator_kind: OnlyAgentReferenceLocatorKind
+    locator_value: str
+    schema_version: int = 2
+
+    def __post_init__(self) -> None:
+        _identifier(self.reference_kind, "reference_kind")
+        if (
+            self.schema_version != 2
+            or isinstance(self.reference_schema_version, bool)
+            or not isinstance(self.reference_schema_version, int)
+            or self.reference_schema_version <= 0
+            or not isinstance(self.locator_kind, OnlyAgentReferenceLocatorKind)
+            or self.locator_kind is not only_agent_expected_locator_kind(self.reference_kind)
+        ):
+            raise ValueError("AGENT_EXACT_AUTHORITY_REFERENCE_INVALID")
+        if self.locator_kind is OnlyAgentReferenceLocatorKind.SHA256:
+            _sha(self.locator_value, "locator_value")
+        else:
+            _uuid4(self.locator_value, "locator_value")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "reference_kind": self.reference_kind,
+            "reference_schema_version": self.reference_schema_version,
+            "locator_kind": self.locator_kind.value,
+            "locator_value": self.locator_value,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyAgentExactAuthorityReferenceV2:
+        _exact(
+            payload,
+            {
+                "schema_version",
+                "reference_kind",
+                "reference_schema_version",
+                "locator_kind",
+                "locator_value",
+            },
+            "Exact Authority Reference V2",
+        )
+        return cls(
+            _string(payload["reference_kind"], "reference_kind"),
+            _integer(payload["reference_schema_version"], "reference_schema_version"),
+            OnlyAgentReferenceLocatorKind(_string(payload["locator_kind"], "locator_kind")),
+            _string(payload["locator_value"], "locator_value"),
+            _integer(payload["schema_version"], "schema_version"),
+        )
+
+
+OnlyAgentExactAuthorityReference = OnlyAgentContextReferenceV1 | OnlyAgentExactAuthorityReferenceV2
+
+
+def only_agent_exact_authority_reference_from_dict(
+    payload: Mapping[str, object],
+) -> OnlyAgentExactAuthorityReference:
+    """Parse the nested reference union without reinterpreting historical V1 bytes."""
+
+    if "schema_version" in payload:
+        return OnlyAgentExactAuthorityReferenceV2.from_dict(payload)
+    return OnlyAgentContextReferenceV1.from_dict(payload)
+
+
+def only_agent_reference_sort_key(reference: OnlyAgentExactAuthorityReference) -> tuple[str, int, str, str]:
+    if isinstance(reference, OnlyAgentContextReferenceV1):
+        return (
+            reference.reference_kind,
+            reference.reference_schema_version,
+            reference.locator_kind.value,
+            reference.locator_value,
+        )
+    if isinstance(reference, OnlyAgentExactAuthorityReferenceV2):
+        return (
+            reference.reference_kind,
+            reference.reference_schema_version,
+            reference.locator_kind.value,
+            reference.locator_value,
+        )
+    raise TypeError("Exact Authority Reference is invalid")
+
+
+def only_agent_reference_kind(reference: OnlyAgentExactAuthorityReference) -> str:
+    if isinstance(reference, (OnlyAgentContextReferenceV1, OnlyAgentExactAuthorityReferenceV2)):
+        return reference.reference_kind
+    raise TypeError("Exact Authority Reference is invalid")
+
+
+def only_agent_reference_schema_version(reference: OnlyAgentExactAuthorityReference) -> int:
+    if isinstance(reference, (OnlyAgentContextReferenceV1, OnlyAgentExactAuthorityReferenceV2)):
+        return reference.reference_schema_version
+    raise TypeError("Exact Authority Reference is invalid")
+
+
+def only_agent_reference_locator_kind(
+    reference: OnlyAgentExactAuthorityReference,
+) -> OnlyAgentReferenceLocatorKind:
+    if isinstance(reference, (OnlyAgentContextReferenceV1, OnlyAgentExactAuthorityReferenceV2)):
+        return reference.locator_kind
+    raise TypeError("Exact Authority Reference is invalid")
+
+
+def only_agent_reference_locator_value(reference: OnlyAgentExactAuthorityReference) -> str:
+    if isinstance(reference, (OnlyAgentContextReferenceV1, OnlyAgentExactAuthorityReferenceV2)):
+        return reference.locator_value
+    raise TypeError("Exact Authority Reference is invalid")
+
+
+def only_agent_reference_schema_extensions(
+    reference_kind: str,
+    reference_schema_version: int,
+    locator_kind: OnlyAgentReferenceLocatorKind,
+) -> dict[str, object]:
+    """Materialize the shared strict schema vocabulary for one exact locator."""
+
+    if (
+        isinstance(reference_schema_version, bool)
+        or not isinstance(reference_schema_version, int)
+        or reference_schema_version <= 0
+        or not isinstance(locator_kind, OnlyAgentReferenceLocatorKind)
+        or locator_kind is not only_agent_expected_locator_kind(reference_kind)
+    ):
+        raise ValueError("AGENT_EXACT_AUTHORITY_REFERENCE_INVALID")
+    return {
+        ONLYAGENT_REFERENCE_KIND_EXTENSION: reference_kind,
+        ONLYAGENT_REFERENCE_SCHEMA_VERSION_EXTENSION: reference_schema_version,
+        ONLYAGENT_REFERENCE_LOCATOR_KIND_EXTENSION: locator_kind.value,
+    }
+
+
+def only_agent_exact_reference_from_schema(
+    locator_value: object,
+    schema: Mapping[str, object],
+) -> OnlyAgentExactAuthorityReference:
+    """Derive a typed reference only from persisted schema locator semantics."""
+
+    reference_kind = schema.get(ONLYAGENT_REFERENCE_KIND_EXTENSION)
+    reference_schema_version = schema.get(ONLYAGENT_REFERENCE_SCHEMA_VERSION_EXTENSION)
+    locator_kind = schema.get(ONLYAGENT_REFERENCE_LOCATOR_KIND_EXTENSION)
+    if (
+        not isinstance(reference_kind, str)
+        or isinstance(reference_schema_version, bool)
+        or not isinstance(reference_schema_version, int)
+    ):
+        raise ValueError("AGENT_EXACT_AUTHORITY_REFERENCE_INVALID")
+    if locator_kind is None:
+        return OnlyAgentContextReferenceV1(
+            reference_kind, reference_schema_version, _sha(locator_value, "locator_value")
+        )
+    try:
+        typed_locator_kind = OnlyAgentReferenceLocatorKind(_string(locator_kind, "locator_kind"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("AGENT_EXACT_AUTHORITY_REFERENCE_INVALID") from exc
+    return OnlyAgentExactAuthorityReferenceV2(
+        reference_kind,
+        reference_schema_version,
+        typed_locator_kind,
+        _string(locator_value, "locator_value"),
+    )
 
 
 @dataclass(frozen=True, slots=True, order=True)
@@ -438,7 +642,7 @@ class OnlyAgentToolCallPlanV1:
     operation_identity: str
     canonical_validated_request: Mapping[str, object]
     canonical_request_fingerprint: str = ""
-    exact_identity_inputs: tuple[OnlyAgentContextReferenceV1, ...] = ()
+    exact_identity_inputs: tuple[OnlyAgentExactAuthorityReference, ...] = ()
     product_command_id_or_idempotency_key: str | None = None
     tool_policy_fingerprint: str = ""
     tool_call_plan_fingerprint: str = ""
@@ -458,7 +662,7 @@ class OnlyAgentToolCallPlanV1:
         if not isinstance(self.tool_class, OnlyAgentToolClass):
             raise ValueError("AGENT_TOOL_CALL_PLAN_INVALID")
         if not isinstance(self.exact_identity_inputs, tuple) or any(
-            not isinstance(item, OnlyAgentContextReferenceV1) for item in self.exact_identity_inputs
+            not isinstance(item, OnlyAgentExactAuthorityReference) for item in self.exact_identity_inputs
         ):
             raise ValueError("AGENT_TOOL_CALL_PLAN_INVALID")
         frozen = _frozen_object(self.canonical_validated_request, "canonical_validated_request")
@@ -532,7 +736,7 @@ class OnlyAgentToolCallPlanV1:
             _mapping(payload["canonical_validated_request"], "canonical_validated_request"),
             _sha(payload["canonical_request_fingerprint"], "canonical_request_fingerprint"),
             tuple(
-                OnlyAgentContextReferenceV1.from_dict(_mapping(item, "identity input"))
+                only_agent_exact_authority_reference_from_dict(_mapping(item, "identity input"))
                 for item in _array(payload["exact_identity_inputs"], "exact_identity_inputs")
             ),
             None if command is None else _string(command, "product command ID"),
@@ -548,9 +752,9 @@ class OnlyAgentToolCallResultV1:
     outcome: OnlyAgentToolCallOutcome
     observed_response_storage_kind: OnlyAgentObservedResponseStorageKind | None = None
     canonical_validated_response: Mapping[str, object] | None = None
-    exact_immutable_response_reference: OnlyAgentContextReferenceV1 | None = None
+    exact_immutable_response_reference: OnlyAgentExactAuthorityReference | None = None
     canonical_response_fingerprint: str | None = None
-    owning_authority_references: tuple[OnlyAgentContextReferenceV1, ...] = ()
+    owning_authority_references: tuple[OnlyAgentExactAuthorityReference, ...] = ()
     failure_code: str | None = None
     tool_call_result_fingerprint: str = ""
     schema_version: int = 1
@@ -560,7 +764,11 @@ class OnlyAgentToolCallResultV1:
             raise ValueError("AGENT_TOOL_RESULT_INVALID")
         _sha(self.tool_call_plan_fingerprint, "tool_call_plan_fingerprint")
         if not isinstance(self.owning_authority_references, tuple) or any(
-            not isinstance(item, OnlyAgentContextReferenceV1) for item in self.owning_authority_references
+            not isinstance(item, OnlyAgentExactAuthorityReference) for item in self.owning_authority_references
+        ):
+            raise ValueError("AGENT_TOOL_RESULT_INVALID")
+        if self.exact_immutable_response_reference is not None and not isinstance(
+            self.exact_immutable_response_reference, OnlyAgentExactAuthorityReference
         ):
             raise ValueError("AGENT_TOOL_RESULT_INVALID")
         if self.outcome is OnlyAgentToolCallOutcome.SUCCEEDED:
@@ -655,10 +863,10 @@ class OnlyAgentToolCallResultV1:
             None if response is None else _mapping(response, "canonical_validated_response"),
             None
             if reference is None
-            else OnlyAgentContextReferenceV1.from_dict(_mapping(reference, "response reference")),
+            else only_agent_exact_authority_reference_from_dict(_mapping(reference, "response reference")),
             _optional_sha(payload["canonical_response_fingerprint"], "canonical_response_fingerprint"),
             tuple(
-                OnlyAgentContextReferenceV1.from_dict(_mapping(item, "owning reference"))
+                only_agent_exact_authority_reference_from_dict(_mapping(item, "owning reference"))
                 for item in _array(payload["owning_authority_references"], "owning references")
             ),
             None if failure is None else _string(failure, "failure_code"),
@@ -668,14 +876,14 @@ class OnlyAgentToolCallResultV1:
 
 
 class OnlyAgentExactReferenceReader(Protocol):
-    def verify_exact_reference(self, reference: OnlyAgentContextReferenceV1) -> None: ...
+    def verify_exact_reference(self, reference: OnlyAgentExactAuthorityReference) -> None: ...
 
 
 def validate_agent_strict_value(
     value: object,
     schema: Mapping[str, object],
     *,
-    allowed_context_references: tuple[OnlyAgentContextReferenceV1, ...] = (),
+    allowed_context_references: tuple[OnlyAgentExactAuthorityReference, ...] = (),
 ) -> object:
     """Validate the deliberately narrow OnlyAlpha strict structured-output subset."""
 
@@ -699,6 +907,7 @@ def validate_agent_strict_schema(schema: Mapping[str, object], *, root_type: str
         "items",
         "x-onlyalpha-reference-kind",
         "x-onlyalpha-reference-schema-version",
+        "x-onlyalpha-reference-locator-kind",
     }
     if not set(schema).issubset(allowed_keywords):
         raise ValueError("AGENT_STRUCTURED_SCHEMA_UNSUPPORTED")
@@ -714,6 +923,7 @@ def validate_agent_strict_schema(schema: Mapping[str, object], *, root_type: str
             raise ValueError("AGENT_STRUCTURED_SCHEMA_UNSUPPORTED")
     reference_kind = schema.get("x-onlyalpha-reference-kind")
     reference_schema_version = schema.get("x-onlyalpha-reference-schema-version")
+    reference_locator_kind = schema.get("x-onlyalpha-reference-locator-kind")
     if reference_kind is not None:
         if (
             expected_type != "string"
@@ -724,7 +934,18 @@ def validate_agent_strict_schema(schema: Mapping[str, object], *, root_type: str
             or reference_schema_version <= 0
         ):
             raise ValueError("AGENT_STRUCTURED_SCHEMA_UNSUPPORTED")
-    elif reference_schema_version is not None:
+        expected_locator_kind = only_agent_expected_locator_kind(reference_kind)
+        if reference_locator_kind is None:
+            if expected_locator_kind is not OnlyAgentReferenceLocatorKind.SHA256:
+                raise ValueError("AGENT_STRUCTURED_SCHEMA_UNSUPPORTED")
+        else:
+            try:
+                locator_kind = OnlyAgentReferenceLocatorKind(_string(reference_locator_kind, "locator_kind"))
+            except (TypeError, ValueError) as exc:
+                raise ValueError("AGENT_STRUCTURED_SCHEMA_UNSUPPORTED") from exc
+            if locator_kind is not expected_locator_kind:
+                raise ValueError("AGENT_STRUCTURED_SCHEMA_UNSUPPORTED")
+    elif reference_schema_version is not None or reference_locator_kind is not None:
         raise ValueError("AGENT_STRUCTURED_SCHEMA_UNSUPPORTED")
     if expected_type == "object":
         properties = schema.get("properties", {})
@@ -740,7 +961,12 @@ def validate_agent_strict_schema(schema: Mapping[str, object], *, root_type: str
             raise ValueError("AGENT_STRUCTURED_SCHEMA_UNSUPPORTED")
         if not set(required).issubset(properties) or any(not isinstance(key, str) for key in properties):
             raise ValueError("AGENT_STRUCTURED_SCHEMA_UNSUPPORTED")
-        if "items" in schema or reference_kind is not None or reference_schema_version is not None:
+        if (
+            "items" in schema
+            or reference_kind is not None
+            or reference_schema_version is not None
+            or reference_locator_kind is not None
+        ):
             raise ValueError("AGENT_STRUCTURED_SCHEMA_UNSUPPORTED")
         for key, property_schema in properties.items():
             validate_agent_strict_schema(_mapping(property_schema, f"schema property {key}"))
@@ -754,6 +980,7 @@ def validate_agent_strict_schema(schema: Mapping[str, object], *, root_type: str
                 "additionalProperties",
                 "x-onlyalpha-reference-kind",
                 "x-onlyalpha-reference-schema-version",
+                "x-onlyalpha-reference-locator-kind",
             )
         ):
             raise ValueError("AGENT_STRUCTURED_SCHEMA_UNSUPPORTED")
@@ -767,7 +994,7 @@ def _validate_agent_strict_value(
     value: object,
     schema: Mapping[str, object],
     *,
-    allowed_context_references: tuple[OnlyAgentContextReferenceV1, ...],
+    allowed_context_references: tuple[OnlyAgentExactAuthorityReference, ...],
 ) -> object:
     expected_type = cast(str, schema["type"])
     if "enum" in schema and value not in cast(Sequence[object], schema["enum"]):
@@ -775,10 +1002,23 @@ def _validate_agent_strict_value(
     reference_kind = schema.get("x-onlyalpha-reference-kind")
     if reference_kind is not None:
         reference_schema_version = cast(int, schema["x-onlyalpha-reference-schema-version"])
+        locator_kind = OnlyAgentReferenceLocatorKind(
+            _string(
+                schema.get("x-onlyalpha-reference-locator-kind", OnlyAgentReferenceLocatorKind.SHA256.value),
+                "locator_kind",
+            )
+        )
         if not isinstance(value, str) or not any(
             item.reference_kind == reference_kind
             and item.reference_schema_version == reference_schema_version
-            and item.reference_fingerprint == value
+            and (
+                isinstance(item, OnlyAgentContextReferenceV1)
+                and locator_kind is OnlyAgentReferenceLocatorKind.SHA256
+                and item.reference_fingerprint == value
+                or isinstance(item, OnlyAgentExactAuthorityReferenceV2)
+                and item.locator_kind is locator_kind
+                and item.locator_value == value
+            )
             for item in allowed_context_references
         ):
             raise ValueError("AGENT_MODEL_RESPONSE_INVALID")
@@ -820,5 +1060,8 @@ def _validate_agent_strict_value(
 __all__ = [
     name
     for name in globals()
-    if name.startswith("OnlyAgent") or name.startswith("ONLYAGENT_") or name.startswith("validate_agent")
+    if name.startswith("OnlyAgent")
+    or name.startswith("ONLYAGENT_")
+    or name.startswith("only_agent_")
+    or name.startswith("validate_agent")
 ]

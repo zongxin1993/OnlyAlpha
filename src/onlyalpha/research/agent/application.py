@@ -40,6 +40,7 @@ from .model import (
 )
 from .occurrence import (
     OnlyAgentContextReferenceV1,
+    OnlyAgentExactAuthorityReference,
     OnlyAgentModelCallOutcome,
     OnlyAgentModelCallPlanV1,
     OnlyAgentModelCallResultV1,
@@ -96,11 +97,11 @@ class OnlyAgentToolOccurrenceReaderV1(Protocol):
 
 
 class OnlyAgentExactContextReaderV1(Protocol):
-    def verify_exact_reference(self, reference: OnlyAgentContextReferenceV1) -> None: ...
+    def verify_exact_reference(self, reference: OnlyAgentExactAuthorityReference) -> None: ...
 
     def verify_completed_evaluation_path(
         self,
-        reference: OnlyAgentContextReferenceV1,
+        reference: OnlyAgentExactAuthorityReference,
         path_kind: OnlyAgentEvaluationPathKind,
     ) -> None: ...
 
@@ -245,7 +246,7 @@ class OnlyAgentDecisionApplicationServiceV1:
             plan_decision.decision_fingerprint,
         )
         if not any(
-            item.reference_fingerprint == context.research_brief.catalog_generation_fingerprint
+            item.locator_value == context.research_brief.catalog_generation_fingerprint
             for item in catalog_result.owning_authority_references
         ):
             raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", "Catalog Generation binding")
@@ -448,7 +449,7 @@ class OnlyAgentDecisionApplicationServiceV1:
         tool_class: OnlyAgentToolClass,
         operation_identity: str,
         semantic_projection: OnlyAgentProductRequestSemanticProjectionV1,
-        exact_identity_inputs: tuple[OnlyAgentContextReferenceV1, ...],
+        exact_identity_inputs: tuple[OnlyAgentExactAuthorityReference, ...],
         tool_call_ordinal: int,
     ) -> None:
         """Verify a stored intent using immutable facts only."""
@@ -463,7 +464,7 @@ class OnlyAgentDecisionApplicationServiceV1:
         decision = self.load_decision_verified(decision_fingerprint)
         context = self._sessions.load_session_manifest_verified(decision.agent_session_fingerprint)
         supplied = set(exact_identity_inputs)
-        required: set[OnlyAgentContextReferenceV1] = set()
+        required: set[OnlyAgentExactAuthorityReference] = set()
         if decision.decision_kind is OnlyAgentDecisionKind.RESEARCH_PLAN:
             required = {_reference("CATALOG_GENERATION", context.research_brief.catalog_generation_fingerprint)}
         elif decision.decision_kind is OnlyAgentDecisionKind.SEARCH_DIRECTIVE:
@@ -496,7 +497,7 @@ class OnlyAgentDecisionApplicationServiceV1:
                 configuration = {
                     value
                     for value in (getattr(payload, field.name) for field in fields(payload))
-                    if isinstance(value, OnlyAgentContextReferenceV1)
+                    if isinstance(value, OnlyAgentExactAuthorityReference)
                 }
                 configuration.update(
                     {
@@ -513,7 +514,7 @@ class OnlyAgentDecisionApplicationServiceV1:
                     if (
                         len(runtime_references) != 1
                         or not isinstance(runtime_generation, str)
-                        or runtime_references[0].reference_fingerprint != runtime_generation
+                        or runtime_references[0].locator_value != runtime_generation
                     ):
                         raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity)
                     configuration.add(runtime_references[0])
@@ -574,8 +575,7 @@ class OnlyAgentDecisionApplicationServiceV1:
             "RESEARCH_EVALUATION": context.research_brief.evaluation_context_reference.evaluation_fingerprint,
         }
         if any(
-            reference.reference_kind in brief_kinds
-            and reference.reference_fingerprint != brief_kinds[reference.reference_kind]
+            reference.reference_kind in brief_kinds and reference.locator_value != brief_kinds[reference.reference_kind]
             for reference in supplied
         ):
             raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity)
@@ -596,7 +596,7 @@ class OnlyAgentDecisionApplicationServiceV1:
         tool_class: OnlyAgentToolClass,
         operation_identity: str,
         semantic_projection: OnlyAgentProductRequestSemanticProjectionV1,
-        exact_identity_inputs: tuple[OnlyAgentContextReferenceV1, ...],
+        exact_identity_inputs: tuple[OnlyAgentExactAuthorityReference, ...],
         tool_call_ordinal: int,
     ) -> None:
         """Admit new work, adding current owning-Authority constraints when needed."""
@@ -628,15 +628,14 @@ class OnlyAgentDecisionApplicationServiceV1:
             return
         if len(children) != 1 or len(expected_states) != 1 or self._search_states is None:
             raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity)
-        authority = self._search_states.load_search_state_verified(children[0].reference_fingerprint)
+        authority = self._search_states.load_search_state_verified(children[0].locator_value)
         expected = only_canonical_fingerprint(authority.expected_state.to_dict())
         operation = authority.next_bounded_operation
         if (
-            expected_states[0].reference_fingerprint != expected
+            expected_states[0].locator_value != expected
             or operation is None
             or operation_identity not in {operation.value, f"search.{operation.value.lower()}.v1"}
-            or semantic_projection.semantic_bindings["child_experiment_fingerprint"]
-            != children[0].reference_fingerprint
+            or semantic_projection.semantic_bindings["child_experiment_fingerprint"] != children[0].locator_value
             or semantic_projection.semantic_bindings["expected_search_state_fingerprint"] != expected
             or semantic_projection.semantic_bindings["bounded_operation"] != operation.value
         ):
@@ -649,7 +648,7 @@ class OnlyAgentDecisionApplicationServiceV1:
         decision: OnlyAgentDecisionV1,
         tool_class: OnlyAgentToolClass,
         projection: OnlyAgentProductRequestSemanticProjectionV1,
-        exact_identity_inputs: tuple[OnlyAgentContextReferenceV1, ...],
+        exact_identity_inputs: tuple[OnlyAgentExactAuthorityReference, ...],
     ) -> None:
         bindings = projection.semantic_bindings
         expected_scalars = {
@@ -793,7 +792,7 @@ class OnlyAgentDecisionApplicationServiceV1:
             if (
                 directive.exact_catalog_context_tool_result_fingerprint != catalog_result.tool_call_result_fingerprint
                 or sum(
-                    reference.reference_fingerprint == context.research_brief.catalog_generation_fingerprint
+                    reference.locator_value == context.research_brief.catalog_generation_fingerprint
                     for reference in catalog_result.owning_authority_references
                 )
                 != 1
@@ -969,7 +968,7 @@ class OnlyAgentDecisionApplicationServiceV1:
                 plan_decision.decision_fingerprint,
             )
             if not any(
-                item.reference_fingerprint == context.research_brief.catalog_generation_fingerprint
+                item.locator_value == context.research_brief.catalog_generation_fingerprint
                 for item in catalog_result.owning_authority_references
             ):
                 raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", "Catalog Generation binding")
@@ -1135,19 +1134,18 @@ class OnlyAgentDecisionApplicationServiceV1:
         self, payload: OnlyAgentSearchDirectivePayloadV1, context: OnlyVerifiedAgentDecisionContextV1
     ) -> None:
         values = tuple(getattr(payload, field.name) for field in fields(payload))
-        references = tuple(value for value in values if isinstance(value, OnlyAgentContextReferenceV1)) + tuple(
+        references = tuple(value for value in values if isinstance(value, OnlyAgentExactAuthorityReference)) + tuple(
             item
             for value in values
             if isinstance(value, tuple)
             for item in value
-            if isinstance(item, OnlyAgentContextReferenceV1)
+            if isinstance(item, OnlyAgentExactAuthorityReference)
         )
         for reference in references:
             self._references.verify_exact_reference(reference)
         evaluation = getattr(payload, "evaluation_reference", None)
-        if isinstance(evaluation, OnlyAgentContextReferenceV1) and (
-            evaluation.reference_fingerprint
-            != context.research_brief.evaluation_context_reference.evaluation_fingerprint
+        if isinstance(evaluation, OnlyAgentExactAuthorityReference) and (
+            evaluation.locator_value != context.research_brief.evaluation_context_reference.evaluation_fingerprint
         ):
             raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", "Evaluation binding")
 
@@ -1279,16 +1277,14 @@ class OnlyAgentDecisionApplicationServiceV1:
             raise OnlyAgentContextError("AGENT_EXPERIMENT_LAUNCH_INVALID", "Directive is not executable Search")
         expected_budget_fingerprint = only_canonical_fingerprint(child.search_budget.to_dict())
         common_invalid = (
-            payload.search_space_reference.reference_fingerprint
-            != child.search_space_reference.search_space_fingerprint
-            or payload.algorithm_reference.reference_fingerprint
-            != child.search_algorithm_binding.implementation_fingerprint
-            or payload.search_budget_reference.reference_fingerprint != expected_budget_fingerprint
+            payload.search_space_reference.locator_value != child.search_space_reference.search_space_fingerprint
+            or payload.algorithm_reference.locator_value != child.search_algorithm_binding.implementation_fingerprint
+            or payload.search_budget_reference.locator_value != expected_budget_fingerprint
             or child.decision_engine_binding.mode is not OnlySearchDecisionMode.DETERMINISTIC
         )
         policy_invalid = isinstance(payload, OnlyAgentParameterSearchDirectiveV1) and (
             not isinstance(child, OnlySearchExperimentManifestV3)
-            or payload.search_policy_reference.reference_fingerprint != child.search_policy_reference.policy_fingerprint
+            or payload.search_policy_reference.locator_value != child.search_policy_reference.policy_fingerprint
         )
         if common_invalid or policy_invalid:
             raise OnlyAgentContextError("AGENT_EXPERIMENT_LAUNCH_INVALID", "Child configuration differs")
@@ -1407,7 +1403,7 @@ class OnlyAgentExperimentLaunchServiceV1:
             or plan.authorizing_agent_decision_fingerprint != launch.agent_decision_fingerprint
             or plan.tool_class is not expected[0]
             or sum(
-                reference.reference_fingerprint == launch.child_search_experiment_fingerprint
+                reference.locator_value == launch.child_search_experiment_fingerprint
                 for reference in result.owning_authority_references
             )
             != 1

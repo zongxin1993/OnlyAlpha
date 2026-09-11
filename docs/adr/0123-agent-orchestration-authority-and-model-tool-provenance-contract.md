@@ -98,6 +98,26 @@ All new immutable objects use the existing canonical JSON and lower-case SHA-256
 decision-affecting semantic field and excludes wall-clock time, host, PID, path, HTTP metadata, display state, logs, secret material,
 and operational cost telemetry.
 
+#### Amendment: typed exact Authority locators (2026-09-11)
+
+The SHA-256 convention above governs immutable Agent fact fingerprints; it does not redefine every owning Authority's locator domain.
+An Agent exact reference binds the referenced Authority's canonical typed locator. Initial admitted locator kinds are exactly
+`SHA256` and `UUID4`. Reference kind, reference schema version, locator kind, and canonical locator value all participate in the
+serialized reference and therefore in every containing new Agent fact's identity.
+
+Historical `OnlyAgentContextReferenceV1` remains the immutable three-field SHA-only representation. Its bytes, fingerprints, parsing,
+and meaning are unchanged. New typed references use a discriminated V2 nested representation; they never store a UUID in
+`reference_fingerprint` and never rewrite V1 facts. New SHA references may use V2 when required by their owning contract.
+
+`RESEARCH_RUN` accepts only `UUID4` and preserves `OnlyResearchRunId` as its sole canonical entity identity. Other currently admitted
+Agent reference kinds remain SHA-owned. A Research Run reference is verified by passing its UUID4 locator to the canonical Research
+Run Query Authority and requiring the returned Run ID to equal it. No Run digest, UUID-to-SHA conversion, mapping store, or second Run
+identity is introduced.
+
+Research Run mutability does not alter this locator: a later revision is a new observation under a new Tool Call Plan using the same
+Run UUID. Each Tool Result preserves its exact validated historical projection and revision/reference bindings; historical validation
+does not compare that projection with the current latest Run state.
+
 ### Final contract closure: immutable orchestration resource Authority
 
 The first design used workflow, prompt, schema, tool-policy, role-policy, and model-execution-policy fingerprints as bindings but did
@@ -498,6 +518,8 @@ tool_call_plan_fingerprint
 `canonical_validated_request` or an exact immutable request-object reference preserves enough content to reconstruct the identical
 request; its complete canonical bytes must match `canonical_request_fingerprint`. The Plan's Tool Policy fingerprint exact-loads the
 Session-bound Tool Policy resource, admits the tool class and operation, and verifies the query/command classification before commit.
+`exact_identity_inputs` is a strictly discriminated union of historical V1 SHA references and new V2 typed-locator references. The
+outer Tool Call Plan V1 format remains unchanged; historical V1 nested payloads produce byte-identical Plan identities.
 
 `operation_identity` is a stable Product API operation identity. A Tool Plan can address only the canonical versioned Product API;
 it cannot contain a database operation, Store path, internal Python callable, Engine object, Worker lease, arbitrary URL, shell, or
@@ -539,6 +561,8 @@ It also requires the matching canonical response fingerprint and the operation's
 reader exact-loads the chosen content and recomputes and verifies the response fingerprint before use. Failure/invalid
 outcomes require the matching stable failure and cannot authorize a downstream Decision. An ambiguous command transport outcome remains
 an unresolved Plan while reconciliation uses its same Product Command identity; it is not converted into a false terminal Result.
+The two reference-bearing Result fields use the same strictly discriminated V1/V2 nested union; this evolution does not reinterpret or
+rewrite any historical Tool Result V1 payload.
 
 The Result preserves the exact historical response projection that entered a later Model Call or Agent Decision, including exact
 receipt/resource/revision identities returned by the owning API. For a response backed by mutable operational state, this is the
