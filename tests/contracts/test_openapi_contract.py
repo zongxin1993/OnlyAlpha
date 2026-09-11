@@ -447,6 +447,7 @@ def test_current_v2_schema_vocabulary_is_fully_governed() -> None:
         "anyOf",
         "const",
         "default",
+        "description",
         "discriminator",
         "enum",
         "items",
