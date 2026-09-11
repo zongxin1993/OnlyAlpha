@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, JsonValue, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from onlyalpha.research.command.model import OnlyResearchRunPage, OnlyResearchSubmitOutcome
 from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
@@ -65,7 +65,13 @@ class ResearchRunFailureDto(_RunDto):
 
 class ResearchRunDto(_RunDto):
     schema_version: Literal[2] = RESEARCH_API_SCHEMA_VERSION
-    run_id: str
+    run_id: str = Field(
+        json_schema_extra={
+            "x-onlyalpha-reference-kind": "RESEARCH_RUN",
+            "x-onlyalpha-reference-schema-version": 1,
+            "x-onlyalpha-reference-locator-kind": "UUID4",
+        }
+    )
     revision: str
     state: str
     specification_schema_version: int

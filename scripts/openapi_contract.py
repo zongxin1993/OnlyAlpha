@@ -15,7 +15,9 @@ from typing import Any, cast
 
 from onlyalpha_http_server import create_product_app
 from onlyalpha_http_server.health import OnlyKernelResearchReadinessProjection
+from onlyalpha_http_server.search import OnlySearchProductHttpBoundary
 
+from onlyalpha.application.catalog_context import OnlyExactCatalogContextQueryService
 from onlyalpha.application.product_boundary import only_compose_research_product_boundary
 from onlyalpha.application.qualification_product import (
     OnlyQualificationProductService,
@@ -71,6 +73,9 @@ SUPPORTED_COMPATIBILITY_KEYWORDS = frozenset(
         "properties",
         "required",
         "type",
+        "x-onlyalpha-reference-kind",
+        "x-onlyalpha-reference-locator-kind",
+        "x-onlyalpha-reference-schema-version",
     }
 )
 NON_SEMANTIC_SCHEMA_KEYWORDS = frozenset({"default", "deprecated", "description", "example", "examples", "title"})
@@ -254,6 +259,9 @@ def render_document() -> JsonObject:
             cast(OnlyQualificationQueryService, object()),
             cast(OnlyBacktestCommandService, object()),
             cast(OnlyBacktestQueryService, object()),
+            None,
+            cast(OnlyExactCatalogContextQueryService, object()),
+            cast(OnlySearchProductHttpBoundary, object()),
         )
         return app.openapi()
     finally:

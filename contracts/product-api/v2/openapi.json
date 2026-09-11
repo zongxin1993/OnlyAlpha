@@ -465,6 +465,64 @@
         "title": "BacktestRuntimeOptionsDto",
         "type": "object"
       },
+      "ExactCatalogContextResponseDto": {
+        "additionalProperties": false,
+        "properties": {
+          "catalog_generation_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Catalog Generation Fingerprint",
+            "type": "string",
+            "x-onlyalpha-reference-kind": "CATALOG_GENERATION",
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-schema-version": 1
+          },
+          "ordered_calculation_capabilities": {
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "title": "Ordered Calculation Capabilities",
+            "type": "array"
+          },
+          "ordered_providers": {
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "title": "Ordered Providers",
+            "type": "array"
+          },
+          "projection_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Projection Fingerprint",
+            "type": "string"
+          },
+          "projection_schema_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Projection Schema Fingerprint",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "catalog_generation_fingerprint",
+          "ordered_providers",
+          "ordered_calculation_capabilities",
+          "projection_schema_fingerprint",
+          "projection_fingerprint"
+        ],
+        "title": "ExactCatalogContextResponseDto",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -572,6 +630,124 @@
         ],
         "title": "OnlyResearchWeighting",
         "type": "string"
+      },
+      "ParameterSearchSubmitRequestDto": {
+        "additionalProperties": false,
+        "properties": {
+          "algorithm_manifest": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Algorithm Manifest",
+            "type": "object"
+          },
+          "catalog_generation_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Catalog Generation Fingerprint",
+            "type": "string",
+            "x-onlyalpha-reference-kind": "CATALOG_GENERATION",
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-schema-version": 1
+          },
+          "dataset_snapshot_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Dataset Snapshot Fingerprint",
+            "type": "string",
+            "x-onlyalpha-reference-kind": "DATASET_SNAPSHOT",
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-schema-version": 1
+          },
+          "decision_engine_binding": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Decision Engine Binding",
+            "type": "object"
+          },
+          "evaluation_contract": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Evaluation Contract",
+            "type": "object"
+          },
+          "hypothesis": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Hypothesis",
+            "type": "object"
+          },
+          "parent_experiment_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Experiment Fingerprint"
+          },
+          "runtime_generation_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Runtime Generation Fingerprint",
+            "type": "string",
+            "x-onlyalpha-reference-kind": "RUNTIME_GENERATION",
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-schema-version": 1
+          },
+          "schema_version": {
+            "const": 2,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "search_budget": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Search Budget",
+            "type": "object"
+          },
+          "search_policy": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Search Policy",
+            "type": "object"
+          },
+          "search_space": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Search Space",
+            "type": "object"
+          },
+          "workflow_binding": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Workflow Binding",
+            "type": "object"
+          }
+        },
+        "required": [
+          "schema_version",
+          "hypothesis",
+          "search_space",
+          "evaluation_contract",
+          "search_budget",
+          "algorithm_manifest",
+          "workflow_binding",
+          "decision_engine_binding",
+          "catalog_generation_fingerprint",
+          "dataset_snapshot_fingerprint",
+          "runtime_generation_fingerprint",
+          "search_policy"
+        ],
+        "title": "ParameterSearchSubmitRequestDto",
+        "type": "object"
       },
       "ProductErrorDto": {
         "additionalProperties": false,
@@ -943,7 +1119,10 @@
           },
           "research_result_fingerprint": {
             "title": "Research Result Fingerprint",
-            "type": "string"
+            "type": "string",
+            "x-onlyalpha-reference-kind": "RESEARCH_RESULT",
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-schema-version": 1
           },
           "research_result_plan_fingerprint": {
             "title": "Research Result Plan Fingerprint",
@@ -1912,7 +2091,10 @@
           },
           "specification_fingerprint": {
             "title": "Specification Fingerprint",
-            "type": "string"
+            "type": "string",
+            "x-onlyalpha-reference-kind": "RESEARCH_SPECIFICATION",
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-schema-version": 1
           }
         },
         "required": [
@@ -2997,7 +3179,10 @@
           },
           "run_id": {
             "title": "Run Id",
-            "type": "string"
+            "type": "string",
+            "x-onlyalpha-reference-kind": "RESEARCH_RUN",
+            "x-onlyalpha-reference-locator-kind": "UUID4",
+            "x-onlyalpha-reference-schema-version": 1
           },
           "schema_version": {
             "const": 2,
@@ -4134,6 +4319,309 @@
         "title": "ResearchVariableRefDto",
         "type": "object"
       },
+      "SearchAdvanceRequestDto": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_state": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Expected State",
+            "type": "object"
+          },
+          "experiment_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Experiment Fingerprint",
+            "type": "string",
+            "x-onlyalpha-reference-kind": "SEARCH_EXPERIMENT",
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-schema-version": 1
+          },
+          "method": {
+            "enum": [
+              "SYMBOLIC",
+              "PARAMETER"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "operation": {
+            "enum": [
+              "ADVANCE_ONE_SYMBOLIC_OCCURRENCE",
+              "RECONCILE_ONE_SYMBOLIC_OCCURRENCE",
+              "ADVANCE_ONE_PARAMETER_DECISION",
+              "RECONCILE_OPEN_PARAMETER_BATCH"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "method",
+          "operation",
+          "experiment_fingerprint",
+          "expected_state"
+        ],
+        "title": "SearchAdvanceRequestDto",
+        "type": "object"
+      },
+      "SearchCommandResponseDto": {
+        "additionalProperties": false,
+        "properties": {
+          "experiment_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Experiment Fingerprint",
+            "type": "string",
+            "x-onlyalpha-reference-kind": "SEARCH_EXPERIMENT",
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-schema-version": 1
+          },
+          "ledger": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Ledger",
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "SYMBOLIC",
+              "PARAMETER"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "product_command_id": {
+            "title": "Product Command Id",
+            "type": "string"
+          },
+          "receipt": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Receipt",
+            "type": "object"
+          },
+          "replayed": {
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "terminal": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Terminal",
+            "type": "object"
+          }
+        },
+        "required": [
+          "product_command_id",
+          "experiment_fingerprint",
+          "method",
+          "receipt",
+          "ledger",
+          "terminal",
+          "replayed"
+        ],
+        "title": "SearchCommandResponseDto",
+        "type": "object"
+      },
+      "SearchErrorDto": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "detail"
+        ],
+        "title": "SearchErrorDto",
+        "type": "object"
+      },
+      "SearchErrorEnvelopeDto": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/SearchErrorDto"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "SearchErrorEnvelopeDto",
+        "type": "object"
+      },
+      "SearchExperimentResponseDto": {
+        "additionalProperties": false,
+        "properties": {
+          "experiment": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Experiment",
+            "type": "object"
+          },
+          "experiment_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Experiment Fingerprint",
+            "type": "string",
+            "x-onlyalpha-reference-kind": "SEARCH_EXPERIMENT",
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-schema-version": 1
+          },
+          "method": {
+            "enum": [
+              "SYMBOLIC",
+              "PARAMETER"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "experiment_fingerprint",
+          "method",
+          "experiment"
+        ],
+        "title": "SearchExperimentResponseDto",
+        "type": "object"
+      },
+      "SearchLedgerResponseDto": {
+        "additionalProperties": false,
+        "properties": {
+          "experiment_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Experiment Fingerprint",
+            "type": "string",
+            "x-onlyalpha-reference-kind": "SEARCH_EXPERIMENT",
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-schema-version": 1
+          },
+          "ledger": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Ledger",
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "SYMBOLIC",
+              "PARAMETER"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "experiment_fingerprint",
+          "method",
+          "ledger"
+        ],
+        "title": "SearchLedgerResponseDto",
+        "type": "object"
+      },
+      "SearchTerminalResponseDto": {
+        "additionalProperties": false,
+        "properties": {
+          "experiment_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Experiment Fingerprint",
+            "type": "string",
+            "x-onlyalpha-reference-kind": "SEARCH_EXPERIMENT",
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-schema-version": 1
+          },
+          "method": {
+            "enum": [
+              "SYMBOLIC",
+              "PARAMETER"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "stop_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Reason"
+          },
+          "terminal_fact": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terminal Fact"
+          },
+          "terminal_kind": {
+            "enum": [
+              "NON_TERMINAL",
+              "TERMINAL_SYMBOLIC_COMPLETION",
+              "TERMINAL_PARAMETER_STOP"
+            ],
+            "title": "Terminal Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "experiment_fingerprint",
+          "method",
+          "terminal_kind",
+          "terminal_fact",
+          "stop_reason"
+        ],
+        "title": "SearchTerminalResponseDto",
+        "type": "object"
+      },
       "StrategyDto": {
         "additionalProperties": false,
         "properties": {
@@ -4364,6 +4852,116 @@
           "run"
         ],
         "title": "SubmitResearchRunResponse",
+        "type": "object"
+      },
+      "SymbolicSearchSubmitRequestDto": {
+        "additionalProperties": false,
+        "properties": {
+          "algorithm_manifest": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Algorithm Manifest",
+            "type": "object"
+          },
+          "catalog_generation_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Catalog Generation Fingerprint",
+            "type": "string",
+            "x-onlyalpha-reference-kind": "CATALOG_GENERATION",
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-schema-version": 1
+          },
+          "dataset_snapshot_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Dataset Snapshot Fingerprint",
+            "type": "string",
+            "x-onlyalpha-reference-kind": "DATASET_SNAPSHOT",
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-schema-version": 1
+          },
+          "decision_engine_binding": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Decision Engine Binding",
+            "type": "object"
+          },
+          "evaluation_contract": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Evaluation Contract",
+            "type": "object"
+          },
+          "hypothesis": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Hypothesis",
+            "type": "object"
+          },
+          "parent_experiment_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Experiment Fingerprint"
+          },
+          "runtime_generation_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Runtime Generation Fingerprint",
+            "type": "string",
+            "x-onlyalpha-reference-kind": "RUNTIME_GENERATION",
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-schema-version": 1
+          },
+          "schema_version": {
+            "const": 2,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "search_budget": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Search Budget",
+            "type": "object"
+          },
+          "search_space": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Search Space",
+            "type": "object"
+          },
+          "workflow_binding": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Workflow Binding",
+            "type": "object"
+          }
+        },
+        "required": [
+          "schema_version",
+          "hypothesis",
+          "search_space",
+          "evaluation_contract",
+          "search_budget",
+          "algorithm_manifest",
+          "workflow_binding",
+          "decision_engine_binding",
+          "catalog_generation_fingerprint",
+          "dataset_snapshot_fingerprint",
+          "runtime_generation_fingerprint"
+        ],
+        "title": "SymbolicSearchSubmitRequestDto",
         "type": "object"
       },
       "ValidationError": {
@@ -5104,7 +5702,10 @@
             "required": true,
             "schema": {
               "title": "Research Result Fingerprint",
-              "type": "string"
+              "type": "string",
+              "x-onlyalpha-reference-kind": "RESEARCH_RESULT",
+              "x-onlyalpha-reference-locator-kind": "SHA256",
+              "x-onlyalpha-reference-schema-version": 1
             }
           }
         ],
@@ -5173,7 +5774,24 @@
         "summary": "Artifact Summary",
         "tags": [
           "research-artifacts"
-        ]
+        ],
+        "x-onlyalpha-agent-operation": {
+          "identity_requirements": [
+            "research_result_fingerprint"
+          ],
+          "owning_authority_references": [
+            {
+              "locator_kind": "SHA256",
+              "reference_kind": "RESEARCH_RESULT",
+              "reference_schema_version": 1,
+              "response_field": "research_result_fingerprint"
+            }
+          ],
+          "recovery_class": "IMMUTABLE_EXACT_QUERY",
+          "requires_product_command_id": false,
+          "schema_version": 1,
+          "tool_class": "RESEARCH_EVIDENCE_QUERY"
+        }
       }
     },
     "/api/v2/research/artifacts/{research_result_fingerprint}/candidates": {
@@ -6182,6 +6800,69 @@
         ]
       }
     },
+    "/api/v2/research/catalog-context/{catalog_generation_fingerprint}": {
+      "get": {
+        "operationId": "get_exact_catalog_context_v2",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "catalog_generation_fingerprint",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Catalog Generation Fingerprint",
+              "type": "string",
+              "x-onlyalpha-reference-kind": "CATALOG_GENERATION",
+              "x-onlyalpha-reference-locator-kind": "SHA256",
+              "x-onlyalpha-reference-schema-version": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExactCatalogContextResponseDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Exact Catalog Context",
+        "tags": [
+          "exact-catalog-context"
+        ],
+        "x-onlyalpha-agent-operation": {
+          "identity_requirements": [
+            "catalog_generation_fingerprint"
+          ],
+          "owning_authority_references": [
+            {
+              "locator_kind": "SHA256",
+              "reference_kind": "CATALOG_GENERATION",
+              "reference_schema_version": 1,
+              "response_field": "catalog_generation_fingerprint"
+            }
+          ],
+          "recovery_class": "IMMUTABLE_EXACT_QUERY",
+          "requires_product_command_id": false,
+          "schema_version": 1,
+          "tool_class": "EXACT_CATALOG_CONTEXT_QUERY"
+        }
+      }
+    },
     "/api/v2/research/catalog/calculations": {
       "get": {
         "operationId": "calculations_api_v2_research_catalog_calculations_get",
@@ -6314,7 +6995,22 @@
         "summary": "Resolve Definition",
         "tags": [
           "research-definitions"
-        ]
+        ],
+        "x-onlyalpha-agent-operation": {
+          "identity_requirements": [],
+          "owning_authority_references": [
+            {
+              "locator_kind": "SHA256",
+              "reference_kind": "RESEARCH_SPECIFICATION",
+              "reference_schema_version": 1,
+              "response_field": "specification_fingerprint"
+            }
+          ],
+          "recovery_class": "PURE_RESOLVE",
+          "requires_product_command_id": false,
+          "schema_version": 1,
+          "tool_class": "RESEARCH_DEFINITION_RESOLVE"
+        }
       }
     },
     "/api/v2/research/runs": {
@@ -6464,7 +7160,15 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "Idempotency-Key": {
+                "description": "Exact admitted Product Command identity",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "400": {
             "content": {
@@ -6533,6 +7237,135 @@
         ]
       }
     },
+    "/api/v2/research/runs/commands": {
+      "post": {
+        "operationId": "submit_research_run_command_v2",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitResearchRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmitResearchRunResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Idempotency-Key": {
+                "description": "Exact admitted Product Command identity",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchRunErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchRunErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchRunErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchRunErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchRunErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Submit Run Command",
+        "tags": [
+          "research-runs"
+        ],
+        "x-onlyalpha-agent-operation": {
+          "identity_requirements": [],
+          "owning_authority_references": [
+            {
+              "locator_kind": "UUID4",
+              "reference_kind": "RESEARCH_RUN",
+              "reference_schema_version": 1,
+              "response_field": "run.run_id"
+            }
+          ],
+          "product_command_id_transport": {
+            "in": "header",
+            "name": "Idempotency-Key"
+          },
+          "recovery_class": "IDEMPOTENT_COMMAND",
+          "requires_product_command_id": true,
+          "schema_version": 1,
+          "tool_class": "RESEARCH_RUN_SUBMIT"
+        }
+      }
+    },
     "/api/v2/research/runs/{run_id}": {
       "get": {
         "operationId": "get_run_api_v2_research_runs__run_id__get",
@@ -6543,7 +7376,10 @@
             "required": true,
             "schema": {
               "title": "Run Id",
-              "type": "string"
+              "type": "string",
+              "x-onlyalpha-reference-kind": "RESEARCH_RUN",
+              "x-onlyalpha-reference-locator-kind": "UUID4",
+              "x-onlyalpha-reference-schema-version": 1
             }
           }
         ],
@@ -6622,7 +7458,24 @@
         "summary": "Get Run",
         "tags": [
           "research-runs"
-        ]
+        ],
+        "x-onlyalpha-agent-operation": {
+          "identity_requirements": [
+            "run_id"
+          ],
+          "owning_authority_references": [
+            {
+              "locator_kind": "UUID4",
+              "reference_kind": "RESEARCH_RUN",
+              "reference_schema_version": 1,
+              "response_field": "run_id"
+            }
+          ],
+          "recovery_class": "MUTABLE_OBSERVATION_QUERY",
+          "requires_product_command_id": false,
+          "schema_version": 1,
+          "tool_class": "RESEARCH_RUN_QUERY"
+        }
       }
     },
     "/api/v2/research/runs/{run_id}/cancellation": {
@@ -6823,6 +7676,873 @@
         "tags": [
           "research-runs"
         ]
+      }
+    },
+    "/api/v2/research/search/experiments/{experiment_fingerprint}": {
+      "get": {
+        "operationId": "get_search_experiment_v2",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "experiment_fingerprint",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Experiment Fingerprint",
+              "type": "string",
+              "x-onlyalpha-reference-kind": "SEARCH_EXPERIMENT",
+              "x-onlyalpha-reference-locator-kind": "SHA256",
+              "x-onlyalpha-reference-schema-version": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchExperimentResponseDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Experiment",
+        "tags": [
+          "search-product"
+        ],
+        "x-onlyalpha-agent-operation": {
+          "identity_requirements": [
+            "experiment_fingerprint"
+          ],
+          "owning_authority_references": [
+            {
+              "locator_kind": "SHA256",
+              "reference_kind": "SEARCH_EXPERIMENT",
+              "reference_schema_version": 1,
+              "response_field": "experiment_fingerprint"
+            }
+          ],
+          "recovery_class": "MUTABLE_OBSERVATION_QUERY",
+          "requires_product_command_id": false,
+          "schema_version": 1,
+          "tool_class": "SEARCH_QUERY"
+        }
+      }
+    },
+    "/api/v2/research/search/experiments/{experiment_fingerprint}/ledger": {
+      "get": {
+        "operationId": "get_search_iteration_ledger_v2",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "experiment_fingerprint",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Experiment Fingerprint",
+              "type": "string",
+              "x-onlyalpha-reference-kind": "SEARCH_EXPERIMENT",
+              "x-onlyalpha-reference-locator-kind": "SHA256",
+              "x-onlyalpha-reference-schema-version": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchLedgerResponseDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Ledger",
+        "tags": [
+          "search-product"
+        ],
+        "x-onlyalpha-agent-operation": {
+          "identity_requirements": [
+            "experiment_fingerprint"
+          ],
+          "owning_authority_references": [
+            {
+              "locator_kind": "SHA256",
+              "reference_kind": "SEARCH_EXPERIMENT",
+              "reference_schema_version": 1,
+              "response_field": "experiment_fingerprint"
+            }
+          ],
+          "recovery_class": "MUTABLE_OBSERVATION_QUERY",
+          "requires_product_command_id": false,
+          "schema_version": 1,
+          "tool_class": "SEARCH_QUERY"
+        }
+      }
+    },
+    "/api/v2/research/search/experiments/{experiment_fingerprint}/terminal": {
+      "get": {
+        "operationId": "get_search_terminal_v2",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "experiment_fingerprint",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Experiment Fingerprint",
+              "type": "string",
+              "x-onlyalpha-reference-kind": "SEARCH_EXPERIMENT",
+              "x-onlyalpha-reference-locator-kind": "SHA256",
+              "x-onlyalpha-reference-schema-version": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchTerminalResponseDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Terminal",
+        "tags": [
+          "search-product"
+        ],
+        "x-onlyalpha-agent-operation": {
+          "identity_requirements": [
+            "experiment_fingerprint"
+          ],
+          "owning_authority_references": [
+            {
+              "locator_kind": "SHA256",
+              "reference_kind": "SEARCH_EXPERIMENT",
+              "reference_schema_version": 1,
+              "response_field": "experiment_fingerprint"
+            }
+          ],
+          "recovery_class": "MUTABLE_OBSERVATION_QUERY",
+          "requires_product_command_id": false,
+          "schema_version": 1,
+          "tool_class": "SEARCH_QUERY"
+        }
+      }
+    },
+    "/api/v2/research/search/parameter-experiments": {
+      "post": {
+        "operationId": "submit_parameter_search_experiment_v2",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParameterSearchSubmitRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchCommandResponseDto"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Idempotency-Key": {
+                "description": "Exact admitted Product Command identity",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Submit Parameter",
+        "tags": [
+          "search-product"
+        ],
+        "x-onlyalpha-agent-operation": {
+          "identity_requirements": [
+            "catalog_generation_fingerprint",
+            "dataset_snapshot_fingerprint",
+            "runtime_generation_fingerprint"
+          ],
+          "owning_authority_references": [
+            {
+              "locator_kind": "SHA256",
+              "reference_kind": "SEARCH_EXPERIMENT",
+              "reference_schema_version": 1,
+              "response_field": "experiment_fingerprint"
+            }
+          ],
+          "product_command_id_transport": {
+            "in": "header",
+            "name": "Idempotency-Key"
+          },
+          "recovery_class": "IDEMPOTENT_COMMAND",
+          "requires_product_command_id": true,
+          "schema_version": 1,
+          "tool_class": "PARAMETER_SEARCH"
+        }
+      }
+    },
+    "/api/v2/research/search/parameter-experiments/advance": {
+      "post": {
+        "operationId": "advance_parameter_search_experiment_v2",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchAdvanceRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchCommandResponseDto"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Idempotency-Key": {
+                "description": "Exact admitted Product Command identity",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Advance Parameter",
+        "tags": [
+          "search-product"
+        ],
+        "x-onlyalpha-agent-operation": {
+          "identity_requirements": [
+            "experiment_fingerprint"
+          ],
+          "owning_authority_references": [
+            {
+              "locator_kind": "SHA256",
+              "reference_kind": "SEARCH_EXPERIMENT",
+              "reference_schema_version": 1,
+              "response_field": "experiment_fingerprint"
+            }
+          ],
+          "product_command_id_transport": {
+            "in": "header",
+            "name": "Idempotency-Key"
+          },
+          "recovery_class": "IDEMPOTENT_COMMAND",
+          "requires_product_command_id": true,
+          "schema_version": 1,
+          "tool_class": "PARAMETER_SEARCH"
+        }
+      }
+    },
+    "/api/v2/research/search/symbolic-experiments": {
+      "post": {
+        "operationId": "submit_symbolic_search_experiment_v2",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SymbolicSearchSubmitRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchCommandResponseDto"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Idempotency-Key": {
+                "description": "Exact admitted Product Command identity",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Submit Symbolic",
+        "tags": [
+          "search-product"
+        ],
+        "x-onlyalpha-agent-operation": {
+          "identity_requirements": [
+            "catalog_generation_fingerprint",
+            "dataset_snapshot_fingerprint",
+            "runtime_generation_fingerprint"
+          ],
+          "owning_authority_references": [
+            {
+              "locator_kind": "SHA256",
+              "reference_kind": "SEARCH_EXPERIMENT",
+              "reference_schema_version": 1,
+              "response_field": "experiment_fingerprint"
+            }
+          ],
+          "product_command_id_transport": {
+            "in": "header",
+            "name": "Idempotency-Key"
+          },
+          "recovery_class": "IDEMPOTENT_COMMAND",
+          "requires_product_command_id": true,
+          "schema_version": 1,
+          "tool_class": "SYMBOLIC_SEARCH"
+        }
+      }
+    },
+    "/api/v2/research/search/symbolic-experiments/advance": {
+      "post": {
+        "operationId": "advance_symbolic_search_experiment_v2",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchAdvanceRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchCommandResponseDto"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Idempotency-Key": {
+                "description": "Exact admitted Product Command identity",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Advance Symbolic",
+        "tags": [
+          "search-product"
+        ],
+        "x-onlyalpha-agent-operation": {
+          "identity_requirements": [
+            "experiment_fingerprint"
+          ],
+          "owning_authority_references": [
+            {
+              "locator_kind": "SHA256",
+              "reference_kind": "SEARCH_EXPERIMENT",
+              "reference_schema_version": 1,
+              "response_field": "experiment_fingerprint"
+            }
+          ],
+          "product_command_id_transport": {
+            "in": "header",
+            "name": "Idempotency-Key"
+          },
+          "recovery_class": "IDEMPOTENT_COMMAND",
+          "requires_product_command_id": true,
+          "schema_version": 1,
+          "tool_class": "SYMBOLIC_SEARCH"
+        }
       }
     },
     "/api/v2/strategies/{strategy_fingerprint}": {

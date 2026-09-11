@@ -73,6 +73,24 @@ def create_definition_router(service: ResearchDefinitionApiService) -> APIRouter
         "/resolve",
         response_model=ResearchDefinitionResolutionDto,
         responses=_DEFINITION_ERRORS,
+        openapi_extra={
+            "x-onlyalpha-agent-operation": {
+                "schema_version": 1,
+                "tool_class": "RESEARCH_DEFINITION_RESOLVE",
+                "recovery_class": "PURE_RESOLVE",
+                "requires_product_command_id": False,
+                "product_command_id_transport": None,
+                "identity_requirements": [],
+                "owning_authority_references": [
+                    {
+                        "reference_kind": "RESEARCH_SPECIFICATION",
+                        "reference_schema_version": 1,
+                        "locator_kind": "SHA256",
+                        "response_field": "specification_fingerprint",
+                    }
+                ],
+            }
+        },
     )
     def resolve_definition(request: ResearchDefinitionRequestDto) -> ResearchDefinitionResolutionDto:
         return service.resolve(request)

@@ -54,7 +54,13 @@ class ResearchArtifactSummaryDto(_ReadDto):
     schema_version: Literal[2] = RESEARCH_API_SCHEMA_VERSION
     research_result_plan_fingerprint: str
     research_result_content_fingerprint: str
-    research_result_fingerprint: str
+    research_result_fingerprint: str = Field(
+        json_schema_extra={
+            "x-onlyalpha-reference-kind": "RESEARCH_RESULT",
+            "x-onlyalpha-reference-schema-version": 1,
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+        }
+    )
     dataset_snapshot_fingerprint: str
     artifact_content_fingerprint: str
     research_result_schema_version: int

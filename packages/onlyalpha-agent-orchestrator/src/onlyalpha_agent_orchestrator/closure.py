@@ -43,7 +43,33 @@ ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1 = (
         "onlyalpha.agent.orchestrator.__init__.py", "onlyalpha_agent_orchestrator", "__init__.py"
     ),
     OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha.agent.orchestrator.adapters.__init__.py",
+        "onlyalpha_agent_orchestrator.adapters",
+        "__init__.py",
+    ),
+    OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha.agent.orchestrator.adapters.openai_compatible.py",
+        "onlyalpha_agent_orchestrator.adapters",
+        "openai_compatible.py",
+    ),
+    OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha.agent.orchestrator.adapters.product_api.py",
+        "onlyalpha_agent_orchestrator.adapters",
+        "product_api.py",
+    ),
+    OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha.agent.orchestrator.adapters.transport.py",
+        "onlyalpha_agent_orchestrator.adapters",
+        "transport.py",
+    ),
+    OnlyAgentWorkflowResourceSpecV1(
         "onlyalpha.agent.orchestrator.closure.py", "onlyalpha_agent_orchestrator", "closure.py"
+    ),
+    OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha.agent.orchestrator.config.py", "onlyalpha_agent_orchestrator", "config.py"
+    ),
+    OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha.agent.orchestrator.execution.py", "onlyalpha_agent_orchestrator", "execution.py"
     ),
     OnlyAgentWorkflowResourceSpecV1(
         "onlyalpha.agent.orchestrator.provenance.py", "onlyalpha_agent_orchestrator", "provenance.py"

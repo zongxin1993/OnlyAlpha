@@ -1,14 +1,24 @@
 # OnlyAlpha Agent Orchestrator
 
-This independently buildable package is the deployment/runtime assembly boundary for the Agent workflow. B3.4.3-A provides only the
-workflow executable-resource closure, current-manifest derivation, exact historical admission, and operational secret container. It
-does not call a model, execute a Product API operation, drive a Session, persist progress, or own Research/Search facts.
+This independently buildable package is the deployment/runtime assembly boundary for the Agent workflow. It provides exact workflow
+resource closure, current-manifest derivation, historical runtime admission, controlled OpenAI-compatible model execution, and
+canonical-OpenAPI-driven Product API execution. It executes one already-prepared occurrence at a time; it does not drive a Session,
+persist mutable progress, own Research/Search facts, or automatically choose a next action.
 
 Future external execution has one structural entry boundary: `execute_after_runtime_admission`. It exact-loads the verified Session
 context, verifies its historical workflow resource against the manifest derived from current packaged bytes, and only then calls its continuation with an ephemeral
 sealed `OnlyAgentRuntimeExecutionPermit`. The legacy `OnlyAgentAdmittedRuntimeV1` import is an alias to the same sealed type, not a
 constructible DTO. The permit is read-only, process-local, non-serializable, bound to the exact Session/workflow/source identities,
-and validated by future external-I/O entrypoints. It is never persisted and owns no Session or workflow state.
+and validated by external occurrence entrypoints. After a genuine Prepared occurrence is consumed, the execution boundary mints a
+second sealed, one-use I/O capability. Model and Product adapters and the raw transport reject calls without that capability, so the
+low-level network boundary cannot bypass either runtime admission or Prepared-occurrence validation. Neither capability is persisted
+or enters Plan, Result, Session, workflow, or domain identity.
+
+The Product adapter reads operation identity, method/path, strict request and response schemas, Tool/recovery class, command-header
+semantics, typed locators, and owning-Authority references from the canonical Product API v2 OpenAPI artifact. It has no parallel route
+or recovery registry. The model adapter binds one configured provider/model/version and projects the exact Plan resources, ordered
+context, settings, prompt, and strict JSON-schema response format. The transport performs one request with no redirect, retry,
+fallback, cookie, pool, or ambient-proxy behavior and preserves pre-dispatch failure versus post-dispatch ambiguity.
 
 ## Workflow executable-resource closure V1
 
@@ -20,7 +30,13 @@ Included resources:
 - `onlyalpha.__init__.py`: lazy/inert public surface; covers the unavoidable installed Core package initializer without eagerly loading
   trading subsystems.
 - `onlyalpha.agent.orchestrator.__init__.py`: defines the independently packaged runtime's public assembly surface.
+- `onlyalpha.agent.orchestrator.adapters.__init__.py`: closes the bounded adapter package initializer.
+- `onlyalpha.agent.orchestrator.adapters.openai_compatible.py`: owns exact model request/response protocol projection.
+- `onlyalpha.agent.orchestrator.adapters.product_api.py`: verifies and projects the canonical Product API contract.
+- `onlyalpha.agent.orchestrator.adapters.transport.py`: owns single-request transport and dispatch classification.
 - `onlyalpha.agent.orchestrator.closure.py`: owns the reviewed declaration and package-resource loader, closing the declaration over itself.
+- `onlyalpha.agent.orchestrator.config.py`: owns operational-only endpoint, timeout, TLS, and secret containers.
+- `onlyalpha.agent.orchestrator.execution.py`: owns dual-gated occurrence execution and immediate Result closure.
 - `onlyalpha.agent.orchestrator.provenance.py`: exact-loads the Orchestrator distribution's immutable packaged provenance.
 - `onlyalpha.agent.orchestrator.runtime.py`: owns dual-distribution manifest assembly, historical admission, and secret isolation.
 - `onlyalpha.application.__init__.py`: lazy/inert Product contract public surface.
@@ -49,8 +65,8 @@ Included resources:
 
 Agent semantic modules import Search types from their exact owning module rather than its package re-export surface. Every package
 initializer Python necessarily executes on this bounded path is explicit instead of assumed irrelevant. Intentionally excluded are
-`py.typed`, tests, documentation, build-only helpers, logging/metrics/UI/CLI formatting, HTTP/provider adapters, and unrelated
-Core/Search/Research implementations. A future direct meaning-bearing dependency fails the bounded architecture guard until it is
+`py.typed`, tests, documentation, build-only helpers, logging/metrics/UI/CLI formatting, and unrelated Core/Search/Research
+implementations. A future direct meaning-bearing dependency fails the bounded architecture guard until it is
 included or explicitly classified as a standard-library, non-semantic framework, or verified public-contract boundary.
 
 Canonical distribution provenance contains exactly `onlyalpha` and `onlyalpha-agent-orchestrator`. Both facts are offline-readable

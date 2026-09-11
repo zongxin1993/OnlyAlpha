@@ -456,6 +456,9 @@ def test_current_v2_schema_vocabulary_is_fully_governed() -> None:
         "required",
         "title",
         "type",
+        "x-onlyalpha-reference-kind",
+        "x-onlyalpha-reference-locator-kind",
+        "x-onlyalpha-reference-schema-version",
     }
     governance.validate_schema_vocabulary(document)
 

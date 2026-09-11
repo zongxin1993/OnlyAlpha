@@ -293,6 +293,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/research/catalog-context/{catalog_generation_fingerprint}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Exact Catalog Context */
+        get: operations["get_exact_catalog_context_v2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/research/catalog/calculations": {
         parameters: {
             query?: never;
@@ -396,6 +413,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/research/runs/commands": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit Run Command */
+        post: operations["submit_research_run_command_v2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/research/runs/{run_id}": {
         parameters: {
             query?: never;
@@ -441,6 +475,125 @@ export interface paths {
         get: operations["get_run_execution_evidence_api_v2_research_runs__run_id__execution_evidence_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/search/experiments/{experiment_fingerprint}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Experiment */
+        get: operations["get_search_experiment_v2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/search/experiments/{experiment_fingerprint}/ledger": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Ledger */
+        get: operations["get_search_iteration_ledger_v2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/search/experiments/{experiment_fingerprint}/terminal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Terminal */
+        get: operations["get_search_terminal_v2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/search/parameter-experiments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit Parameter */
+        post: operations["submit_parameter_search_experiment_v2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/search/parameter-experiments/advance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Advance Parameter */
+        post: operations["advance_parameter_search_experiment_v2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/search/symbolic-experiments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit Symbolic */
+        post: operations["submit_symbolic_search_experiment_v2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/search/symbolic-experiments/advance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Advance Symbolic */
+        post: operations["advance_symbolic_search_experiment_v2"];
         delete?: never;
         options?: never;
         head?: never;
@@ -787,6 +940,28 @@ export interface components {
              */
             ordered_fact_policy: "ORDERED_FACTS_V1";
         };
+        /** ExactCatalogContextResponseDto */
+        ExactCatalogContextResponseDto: {
+            /** Catalog Generation Fingerprint */
+            catalog_generation_fingerprint: string;
+            /** Ordered Calculation Capabilities */
+            ordered_calculation_capabilities: {
+                [key: string]: components["schemas"]["JsonValue"];
+            }[];
+            /** Ordered Providers */
+            ordered_providers: {
+                [key: string]: components["schemas"]["JsonValue"];
+            }[];
+            /** Projection Fingerprint */
+            projection_fingerprint: string;
+            /** Projection Schema Fingerprint */
+            projection_schema_fingerprint: string;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -848,6 +1023,54 @@ export interface components {
          * @enum {string}
          */
         OnlyResearchWeighting: "EQUAL";
+        /** ParameterSearchSubmitRequestDto */
+        ParameterSearchSubmitRequestDto: {
+            /** Algorithm Manifest */
+            algorithm_manifest: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Catalog Generation Fingerprint */
+            catalog_generation_fingerprint: string;
+            /** Dataset Snapshot Fingerprint */
+            dataset_snapshot_fingerprint: string;
+            /** Decision Engine Binding */
+            decision_engine_binding: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Evaluation Contract */
+            evaluation_contract: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Hypothesis */
+            hypothesis: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Parent Experiment Fingerprint */
+            parent_experiment_fingerprint?: string | null;
+            /** Runtime Generation Fingerprint */
+            runtime_generation_fingerprint: string;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 2;
+            /** Search Budget */
+            search_budget: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Search Policy */
+            search_policy: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Search Space */
+            search_space: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Workflow Binding */
+            workflow_binding: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+        };
         /** ProductErrorDto */
         ProductErrorDto: {
             /** Code */
@@ -2044,6 +2267,140 @@ export interface components {
             /** Output Name */
             output_name: string;
         };
+        /** SearchAdvanceRequestDto */
+        SearchAdvanceRequestDto: {
+            /** Expected State */
+            expected_state: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Experiment Fingerprint */
+            experiment_fingerprint: string;
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "SYMBOLIC" | "PARAMETER";
+            /**
+             * Operation
+             * @enum {string}
+             */
+            operation: "ADVANCE_ONE_SYMBOLIC_OCCURRENCE" | "RECONCILE_ONE_SYMBOLIC_OCCURRENCE" | "ADVANCE_ONE_PARAMETER_DECISION" | "RECONCILE_OPEN_PARAMETER_BATCH";
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** SearchCommandResponseDto */
+        SearchCommandResponseDto: {
+            /** Experiment Fingerprint */
+            experiment_fingerprint: string;
+            /** Ledger */
+            ledger: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "SYMBOLIC" | "PARAMETER";
+            /** Product Command Id */
+            product_command_id: string;
+            /** Receipt */
+            receipt: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Replayed */
+            replayed: boolean;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Terminal */
+            terminal: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+        };
+        /** SearchErrorDto */
+        SearchErrorDto: {
+            /** Code */
+            code: string;
+            /** Detail */
+            detail: string;
+        };
+        /** SearchErrorEnvelopeDto */
+        SearchErrorEnvelopeDto: {
+            error: components["schemas"]["SearchErrorDto"];
+        };
+        /** SearchExperimentResponseDto */
+        SearchExperimentResponseDto: {
+            /** Experiment */
+            experiment: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Experiment Fingerprint */
+            experiment_fingerprint: string;
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "SYMBOLIC" | "PARAMETER";
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** SearchLedgerResponseDto */
+        SearchLedgerResponseDto: {
+            /** Experiment Fingerprint */
+            experiment_fingerprint: string;
+            /** Ledger */
+            ledger: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "SYMBOLIC" | "PARAMETER";
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** SearchTerminalResponseDto */
+        SearchTerminalResponseDto: {
+            /** Experiment Fingerprint */
+            experiment_fingerprint: string;
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "SYMBOLIC" | "PARAMETER";
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Stop Reason */
+            stop_reason: string | null;
+            /** Terminal Fact */
+            terminal_fact: {
+                [key: string]: components["schemas"]["JsonValue"];
+            } | null;
+            /**
+             * Terminal Kind
+             * @enum {string}
+             */
+            terminal_kind: "NON_TERMINAL" | "TERMINAL_SYMBOLIC_COMPLETION" | "TERMINAL_PARAMETER_STOP";
+        };
         /** StrategyDto */
         StrategyDto: {
             /** Current Stage */
@@ -2138,6 +2495,50 @@ export interface components {
             run: components["schemas"]["ResearchRunDto"];
             /** Submission Disposition */
             submission_disposition: string;
+        };
+        /** SymbolicSearchSubmitRequestDto */
+        SymbolicSearchSubmitRequestDto: {
+            /** Algorithm Manifest */
+            algorithm_manifest: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Catalog Generation Fingerprint */
+            catalog_generation_fingerprint: string;
+            /** Dataset Snapshot Fingerprint */
+            dataset_snapshot_fingerprint: string;
+            /** Decision Engine Binding */
+            decision_engine_binding: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Evaluation Contract */
+            evaluation_contract: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Hypothesis */
+            hypothesis: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Parent Experiment Fingerprint */
+            parent_experiment_fingerprint?: string | null;
+            /** Runtime Generation Fingerprint */
+            runtime_generation_fingerprint: string;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 2;
+            /** Search Budget */
+            search_budget: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Search Space */
+            search_space: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Workflow Binding */
+            workflow_binding: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
         };
         /** ValidationError */
         ValidationError: {
@@ -3337,6 +3738,37 @@ export interface operations {
             };
         };
     };
+    get_exact_catalog_context_v2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                catalog_generation_fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExactCatalogContextResponseDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     calculations_api_v2_research_catalog_calculations_get: {
         parameters: {
             query?: never;
@@ -3554,6 +3986,90 @@ export interface operations {
             /** @description Successful Response */
             202: {
                 headers: {
+                    /** @description Exact admitted Product Command identity */
+                    "Idempotency-Key"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmitResearchRunResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    submit_research_run_command_v2: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitResearchRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    /** @description Exact admitted Product Command identity */
+                    "Idempotency-Key"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -3842,6 +4358,562 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    get_search_experiment_v2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                experiment_fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchExperimentResponseDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    get_search_iteration_ledger_v2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                experiment_fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchLedgerResponseDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    get_search_terminal_v2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                experiment_fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchTerminalResponseDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    submit_parameter_search_experiment_v2: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParameterSearchSubmitRequestDto"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    /** @description Exact admitted Product Command identity */
+                    "Idempotency-Key"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchCommandResponseDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    advance_parameter_search_experiment_v2: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SearchAdvanceRequestDto"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    /** @description Exact admitted Product Command identity */
+                    "Idempotency-Key"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchCommandResponseDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    submit_symbolic_search_experiment_v2: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SymbolicSearchSubmitRequestDto"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    /** @description Exact admitted Product Command identity */
+                    "Idempotency-Key"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchCommandResponseDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    advance_symbolic_search_experiment_v2: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SearchAdvanceRequestDto"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    /** @description Exact admitted Product Command identity */
+                    "Idempotency-Key"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchCommandResponseDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
                 };
             };
         };

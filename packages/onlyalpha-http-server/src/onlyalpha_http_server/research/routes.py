@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Path, Query
 
 from onlyalpha.research.query import (
     DEFAULT_PAGE_SIZE,
@@ -34,6 +34,16 @@ _ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
 
 _CANONICAL_INTEGER = re.compile(r"^(?:0|-?[1-9][0-9]*)$")
 CanonicalIntegerQuery = Annotated[str | None, Query(pattern=_CANONICAL_INTEGER.pattern)]
+ResearchResultPath = Annotated[
+    str,
+    Path(
+        json_schema_extra={
+            "x-onlyalpha-reference-kind": "RESEARCH_RESULT",
+            "x-onlyalpha-reference-schema-version": 1,
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+        },
+    ),
+]
 
 
 def _optional_integer(value: str | None) -> int | None:
@@ -54,8 +64,26 @@ def create_artifact_router(service: OnlyResearchQueryService) -> APIRouter:
         "/{research_result_fingerprint}",
         response_model=ResearchArtifactSummaryDto,
         responses=_ERROR_RESPONSES,
+        openapi_extra={
+            "x-onlyalpha-agent-operation": {
+                "schema_version": 1,
+                "tool_class": "RESEARCH_EVIDENCE_QUERY",
+                "recovery_class": "IMMUTABLE_EXACT_QUERY",
+                "requires_product_command_id": False,
+                "product_command_id_transport": None,
+                "identity_requirements": ["research_result_fingerprint"],
+                "owning_authority_references": [
+                    {
+                        "reference_kind": "RESEARCH_RESULT",
+                        "reference_schema_version": 1,
+                        "locator_kind": "SHA256",
+                        "response_field": "research_result_fingerprint",
+                    }
+                ],
+            }
+        },
     )
-    def artifact_summary(research_result_fingerprint: str) -> ResearchArtifactSummaryDto:
+    def artifact_summary(research_result_fingerprint: ResearchResultPath) -> ResearchArtifactSummaryDto:
         return ResearchArtifactSummaryDto.from_model(service.get_artifact_summary(research_result_fingerprint))
 
     @router.get(

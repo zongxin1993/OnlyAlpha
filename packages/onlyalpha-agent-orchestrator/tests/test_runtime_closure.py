@@ -175,6 +175,12 @@ def test_resource_loading_and_manifest_identity_are_absolute_path_independent(mo
 @pytest.mark.parametrize(
     "logical_identity",
     (
+        "onlyalpha.agent.orchestrator.adapters.openai_compatible.py",
+        "onlyalpha.agent.orchestrator.adapters.product_api.py",
+        "onlyalpha.agent.orchestrator.adapters.transport.py",
+        "onlyalpha.agent.orchestrator.config.py",
+        "onlyalpha.agent.orchestrator.execution.py",
+        "onlyalpha.agent.orchestrator.runtime.py",
         "onlyalpha.research.agent.application.py",
         "onlyalpha.build_provenance.py",
         "onlyalpha.research.agent.semantic_translation.py",

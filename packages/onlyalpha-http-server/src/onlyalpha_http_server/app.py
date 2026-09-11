@@ -10,6 +10,7 @@ from fastapi.params import Depends as DependsParam
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
+from onlyalpha.application.catalog_context import OnlyExactCatalogContextQueryService
 from onlyalpha.application.product_boundary import OnlyResearchProductBoundary
 from onlyalpha.application.qualification_product import (
     OnlyQualificationProductService,
@@ -46,6 +47,7 @@ from onlyalpha.strategy.errors import OnlyStrategyError
 from .backtest.routes import BACKTEST_ROUTE_TAG, create_backtest_router
 from .backtest.schema import ProductErrorDto, ProductErrorEnvelopeDto
 from .health import OnlyKernelResearchReadinessProjection, OnlyProductExecutionCapacityProbe, create_health_router
+from .research.catalog_context_routes import EXACT_CATALOG_ROUTE_TAG, create_exact_catalog_context_router
 from .research.definition_errors import definition_error_response
 from .research.definition_routes import (
     DEFINITION_ROUTE_TAG,
@@ -62,6 +64,7 @@ from .research.run_errors import run_error_response
 from .research.run_routes import RUN_ROUTE_TAG, create_run_router
 from .research.run_schema import ResearchRunErrorDto, ResearchRunErrorEnvelopeDto
 from .research.schema import RESEARCH_API_SCHEMA_VERSION, ResearchErrorDto
+from .search import SEARCH_ROUTE_TAG, OnlySearchProductHttpBoundary, create_search_router
 from .strategy.routes import STRATEGY_ROUTE_TAG, create_strategy_router
 
 
@@ -114,6 +117,8 @@ def _request_route_tag(request: Request) -> str | None:
             DISCOVERY_ROUTE_TAG,
             STRATEGY_ROUTE_TAG,
             BACKTEST_ROUTE_TAG,
+            EXACT_CATALOG_ROUTE_TAG,
+            SEARCH_ROUTE_TAG,
         }
     )
     return known[0] if len(known) == 1 else None
@@ -139,6 +144,8 @@ def create_research_app(
     backtest_commands: OnlyBacktestCommandService | None = None,
     backtest_queries: OnlyBacktestQueryService | None = None,
     execution_capacity: OnlyProductExecutionCapacityProbe | None = None,
+    exact_catalog_context: OnlyExactCatalogContextQueryService | None = None,
+    search_product: OnlySearchProductHttpBoundary | None = None,
 ) -> FastAPI:
     universe_authority = definition_resolver.universe_resolver
     if universe_authority is not None and not isinstance(universe_authority, OnlyResearchUniverseCatalog):
@@ -292,6 +299,12 @@ def create_research_app(
         dependencies=readiness_dependencies,
     )
     app.include_router(create_health_router(readiness_probe, execution_capacity))
+    if exact_catalog_context is not None:
+        app.include_router(
+            create_exact_catalog_context_router(exact_catalog_context), dependencies=readiness_dependencies
+        )
+    if search_product is not None:
+        app.include_router(create_search_router(search_product), dependencies=readiness_dependencies)
     if any(
         item is not None
         for item in (strategy_freeze, strategy_promotion, strategy_query, qualification, qualification_query)
@@ -369,6 +382,8 @@ def create_product_app(
     backtest_commands: OnlyBacktestCommandService,
     backtest_queries: OnlyBacktestQueryService,
     execution_capacity: OnlyProductExecutionCapacityProbe | None = None,
+    exact_catalog_context: OnlyExactCatalogContextQueryService | None = None,
+    search_product: OnlySearchProductHttpBoundary | None = None,
 ) -> FastAPI:
     app = create_research_app(
         reader,
@@ -384,6 +399,8 @@ def create_product_app(
         backtest_commands,
         backtest_queries,
         execution_capacity,
+        exact_catalog_context,
+        search_product,
     )
     app.title = "OnlyAlpha Product API"
     return app

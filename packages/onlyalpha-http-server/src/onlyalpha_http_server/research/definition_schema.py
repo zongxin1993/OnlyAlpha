@@ -354,7 +354,13 @@ class ResearchDefinitionResolutionDto(_StrictDto):
     authoring_definition_fingerprint: str
     resolved_definition_fingerprint: str
     dataset_snapshot_fingerprint: str
-    specification_fingerprint: str
+    specification_fingerprint: str = Field(
+        json_schema_extra={
+            "x-onlyalpha-reference-kind": "RESEARCH_SPECIFICATION",
+            "x-onlyalpha-reference-schema-version": 1,
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+        }
+    )
     resolved_dataset_definition: dict[str, JsonValue]
     instrument_count: int
     candidate_count: int

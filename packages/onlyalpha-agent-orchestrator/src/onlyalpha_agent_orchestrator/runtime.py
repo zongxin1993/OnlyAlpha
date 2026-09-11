@@ -39,6 +39,7 @@ class OnlyAgentOrchestratorOperationalConfigV1:
 
 
 _ADMISSION_SEAL = object()
+_EXTERNAL_IO_SEAL = object()
 
 
 class OnlyAgentRuntimeExecutionPermit:
@@ -111,6 +112,69 @@ class OnlyAgentRuntimeExecutionPermit:
 OnlyAgentAdmittedRuntimeV1 = OnlyAgentRuntimeExecutionPermit
 
 
+class OnlyAgentExternalIoPermit:
+    """Process-local proof that Permit and Prepared validation both completed."""
+
+    __slots__ = ("_agent_session_fingerprint", "_consumed", "_seal")
+    _agent_session_fingerprint: str
+    _consumed: bool
+    _seal: object
+
+    def __init__(self, agent_session_fingerprint: str, *, _seal: object | None = None) -> None:
+        if _seal is not _EXTERNAL_IO_SEAL:
+            raise OnlyAgentContextError("AGENT_POLICY_VIOLATION", "external I/O permit construction")
+        object.__setattr__(self, "_agent_session_fingerprint", agent_session_fingerprint)
+        object.__setattr__(self, "_consumed", False)
+        object.__setattr__(self, "_seal", _seal)
+
+    def __setattr__(self, _name: str, _value: object) -> None:
+        raise AttributeError("OnlyAgentExternalIoPermit is read-only")
+
+    def __copy__(self) -> Never:
+        raise TypeError("OnlyAgentExternalIoPermit cannot be reconstructed")
+
+    def __deepcopy__(self, _memo: object) -> Never:
+        raise TypeError("OnlyAgentExternalIoPermit cannot be reconstructed")
+
+    def __reduce_ex__(self, _protocol: SupportsIndex) -> Never:
+        raise TypeError("OnlyAgentExternalIoPermit cannot be serialized")
+
+    @property
+    def agent_session_fingerprint(self) -> str:
+        return self._agent_session_fingerprint
+
+
+def _mint_external_io_permit(
+    permit: OnlyAgentRuntimeExecutionPermit,
+    *,
+    agent_session_fingerprint: str,
+) -> OnlyAgentExternalIoPermit:
+    """Mint only from the continuation reached after consuming a Prepared seal."""
+
+    assert_runtime_execution_permit_for_session(
+        permit,
+        agent_session_fingerprint=agent_session_fingerprint,
+    )
+    return OnlyAgentExternalIoPermit(agent_session_fingerprint, _seal=_EXTERNAL_IO_SEAL)
+
+
+def assert_external_io_permit(
+    permit: object,
+    *,
+    agent_session_fingerprint: str | None = None,
+    consume: bool = False,
+) -> None:
+    if (
+        type(permit) is not OnlyAgentExternalIoPermit
+        or permit._seal is not _EXTERNAL_IO_SEAL
+        or permit._consumed
+        or (agent_session_fingerprint is not None and permit.agent_session_fingerprint != agent_session_fingerprint)
+    ):
+        raise OnlyAgentContextError("AGENT_POLICY_VIOLATION", "external I/O permit validation")
+    if consume:
+        object.__setattr__(permit, "_consumed", True)
+
+
 def _mint_runtime_execution_permit(
     agent_session_fingerprint: str,
     historical_workflow_resource_fingerprint: str,
@@ -143,6 +207,21 @@ def assert_runtime_execution_permit(
         or permit.historical_workflow_resource_fingerprint != historical_workflow_resource_fingerprint
         or permit.workflow_implementation_fingerprint != workflow_implementation_fingerprint
         or permit.source_revision != source_revision
+    ):
+        raise OnlyAgentContextError("AGENT_POLICY_VIOLATION", "runtime execution permit validation")
+
+
+def assert_runtime_execution_permit_for_session(
+    permit: object,
+    *,
+    agent_session_fingerprint: str,
+) -> None:
+    """Verify permit authenticity and occurrence Session binding at the I/O gate."""
+
+    if (
+        type(permit) is not OnlyAgentRuntimeExecutionPermit
+        or permit._seal is not _ADMISSION_SEAL
+        or permit.agent_session_fingerprint != agent_session_fingerprint
     ):
         raise OnlyAgentContextError("AGENT_POLICY_VIOLATION", "runtime execution permit validation")
 
@@ -215,10 +294,13 @@ __all__ = [
     "ONLY_AGENT_WORKFLOW_ID",
     "ONLY_AGENT_WORKFLOW_SEMANTIC_VERSION",
     "OnlyAgentAdmittedRuntimeV1",
+    "OnlyAgentExternalIoPermit",
     "OnlyAgentOrchestratorOperationalConfigV1",
     "OnlyAgentRuntimeExecutionPermit",
     "assert_current_runtime_admitted_for_session",
+    "assert_external_io_permit",
     "assert_runtime_execution_permit",
+    "assert_runtime_execution_permit_for_session",
     "build_current_agent_workflow_implementation_manifest",
     "execute_after_runtime_admission",
 ]

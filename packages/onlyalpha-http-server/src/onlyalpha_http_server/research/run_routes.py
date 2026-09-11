@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Header, Query, Response
+from fastapi import APIRouter, Header, Path, Query, Response
 
 from onlyalpha.application.product_boundary import (
     OnlyCancelResearchRun,
@@ -35,8 +35,30 @@ from .run_schema import (
 _ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     status: {"model": ResearchRunErrorEnvelopeDto} for status in (400, 404, 409, 500, 503)
 }
+_SUBMIT_RESPONSES: dict[int | str, dict[str, Any]] = {
+    **_ERROR_RESPONSES,
+    202: {
+        "headers": {
+            "Idempotency-Key": {
+                "description": "Exact admitted Product Command identity",
+                "schema": {"type": "string"},
+            }
+        }
+    },
+}
 RUN_ROUTE_TAG = "research-runs"
 IdempotencyKeyHeader = Annotated[str | None, Header(alias="Idempotency-Key")]
+RequiredIdempotencyKeyHeader = Annotated[str, Header(alias="Idempotency-Key")]
+ResearchRunPath = Annotated[
+    str,
+    Path(
+        json_schema_extra={
+            "x-onlyalpha-reference-kind": "RESEARCH_RUN",
+            "x-onlyalpha-reference-schema-version": 1,
+            "x-onlyalpha-reference-locator-kind": "UUID4",
+        }
+    ),
+]
 
 
 def _run_id(value: str) -> OnlyResearchRunId:
@@ -72,16 +94,16 @@ def _expected_result[ResultT](value: object, result_type: type[ResultT]) -> Resu
 def create_run_router(product: OnlyResearchProductBoundary) -> APIRouter:
     router = APIRouter(prefix="/api/v2/research/runs", tags=[RUN_ROUTE_TAG])
 
-    @router.post("", status_code=202, response_model=SubmitResearchRunResponse, responses=_ERROR_RESPONSES)
-    def submit_run(
+    def submit(
         request: SubmitResearchRunRequest,
         response: Response,
-        idempotency_key: IdempotencyKeyHeader = None,
+        idempotency_key: str,
     ) -> SubmitResearchRunResponse:
+        submission_key = _submission_key(idempotency_key)
         outcome = _expected_result(
             product.commands.dispatch(
                 OnlyCreateResearchRun(
-                    _submission_key(idempotency_key),
+                    submission_key,
                     OnlyResearchSpecification.from_dict(request.specification),
                     None if request.authoring_provenance is None else request.authoring_provenance.to_model(),
                 )
@@ -89,10 +111,78 @@ def create_run_router(product: OnlyResearchProductBoundary) -> APIRouter:
             OnlyResearchSubmitOutcome,
         )
         response.headers["Location"] = f"/api/v2/research/runs/{outcome.run.run_id.value}"
+        response.headers["Idempotency-Key"] = submission_key.value
         return SubmitResearchRunResponse.from_model(outcome)
 
-    @router.get("/{run_id}", response_model=ResearchRunDto, responses=_ERROR_RESPONSES)
-    def get_run(run_id: str) -> ResearchRunDto:
+    @router.post(
+        "",
+        status_code=202,
+        response_model=SubmitResearchRunResponse,
+        responses=_SUBMIT_RESPONSES,
+    )
+    def submit_run(
+        request: SubmitResearchRunRequest,
+        response: Response,
+        idempotency_key: IdempotencyKeyHeader = None,
+    ) -> SubmitResearchRunResponse:
+        return submit(request, response, _submission_key(idempotency_key).value)
+
+    @router.post(
+        "/commands",
+        operation_id="submit_research_run_command_v2",
+        status_code=202,
+        response_model=SubmitResearchRunResponse,
+        responses=_SUBMIT_RESPONSES,
+        openapi_extra={
+            "x-onlyalpha-agent-operation": {
+                "schema_version": 1,
+                "tool_class": "RESEARCH_RUN_SUBMIT",
+                "recovery_class": "IDEMPOTENT_COMMAND",
+                "requires_product_command_id": True,
+                "product_command_id_transport": {"in": "header", "name": "Idempotency-Key"},
+                "identity_requirements": [],
+                "owning_authority_references": [
+                    {
+                        "reference_kind": "RESEARCH_RUN",
+                        "reference_schema_version": 1,
+                        "locator_kind": "UUID4",
+                        "response_field": "run.run_id",
+                    }
+                ],
+            }
+        },
+    )
+    def submit_run_command(
+        request: SubmitResearchRunRequest,
+        response: Response,
+        idempotency_key: RequiredIdempotencyKeyHeader,
+    ) -> SubmitResearchRunResponse:
+        return submit(request, response, idempotency_key)
+
+    @router.get(
+        "/{run_id}",
+        response_model=ResearchRunDto,
+        responses=_ERROR_RESPONSES,
+        openapi_extra={
+            "x-onlyalpha-agent-operation": {
+                "schema_version": 1,
+                "tool_class": "RESEARCH_RUN_QUERY",
+                "recovery_class": "MUTABLE_OBSERVATION_QUERY",
+                "requires_product_command_id": False,
+                "product_command_id_transport": None,
+                "identity_requirements": ["run_id"],
+                "owning_authority_references": [
+                    {
+                        "reference_kind": "RESEARCH_RUN",
+                        "reference_schema_version": 1,
+                        "locator_kind": "UUID4",
+                        "response_field": "run_id",
+                    }
+                ],
+            }
+        },
+    )
+    def get_run(run_id: ResearchRunPath) -> ResearchRunDto:
         result = product.queries.dispatch(OnlyGetResearchRun(_run_id(run_id)))
         return ResearchRunDto.from_model(_expected_result(result, OnlyResearchRun))
 

@@ -35,6 +35,7 @@ sensitive_path_patterns = [
   "src/onlyalpha/persistence/postgres/research_*_store.py",
   "packages/onlyalpha-http-server/src/onlyalpha_http_server/*.py",
   "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/*.py",
+  "packages/onlyalpha-http-server/src/onlyalpha_http_server/search/*.py",
   "packages/onlyalpha-http-server/src/onlyalpha_http_server/strategy/*.py",
   "packages/onlyalpha-http-server/src/onlyalpha_http_server/backtest/*.py",
   "scripts/database.py",
@@ -521,6 +522,9 @@ pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/health.py"
 actor = "A04"
 [[actor_paths]]
 pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/*.py"
+actor = "A04"
+[[actor_paths]]
+pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/search/*.py"
 actor = "A04"
 [[actor_paths]]
 pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/strategy/*.py"

@@ -21,7 +21,12 @@ from scripts.database import _backup, _restore_test
 from tests.market_data_durable.conftest import BASE
 from tests.market_data_durable.test_recovery_revision_dataset import _scope, _sealed
 
-pytestmark = pytest.mark.postgres
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.external,
+    pytest.mark.requires_network,
+    pytest.mark.postgres,
+]
 
 
 def test_market_data_catalog_concurrent_commit_is_immutable_and_survives_restore(

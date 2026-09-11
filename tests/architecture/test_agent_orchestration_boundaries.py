@@ -20,14 +20,18 @@ _AGENT_WORKFLOW_STDLIB_IMPORTS = {
     "enum",
     "fcntl",
     "hashlib",
+    "http.client",
     "importlib",
     "json",
     "os",
     "pathlib",
     "re",
+    "socket",
+    "ssl",
     "shutil",
     "types",
     "typing",
+    "urllib.parse",
     "uuid",
 }
 _AGENT_WORKFLOW_VERIFIED_PUBLIC_BOUNDARIES = {
@@ -303,7 +307,7 @@ def test_agent_orchestrator_component_dependency_and_authority_boundary() -> Non
         "onlyalpha.research.agent.decision_store",
         "onlyalpha.research.search",
     }
-    for path in orchestrator.glob("*.py"):
+    for path in orchestrator.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         imports = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names} | {
             node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
@@ -314,7 +318,7 @@ def test_agent_orchestrator_component_dependency_and_authority_boundary() -> Non
             if any(imported == item or imported.startswith(item + ".") for item in forbidden_import_roots)
         }, path
 
-    source = "\n".join(path.read_text(encoding="utf-8") for path in orchestrator.glob("*.py"))
+    source = "\n".join(path.read_text(encoding="utf-8") for path in orchestrator.rglob("*.py"))
     for forbidden in (
         "session.status",
         "session.current_step",
@@ -377,6 +381,7 @@ def test_agent_workflow_direct_semantic_dependencies_are_closed_or_explicit_boun
         path = (
             ROOT / "packages/onlyalpha-agent-orchestrator/src" / item.package.replace(".", "/") / item.relative_name
             if item.package == "onlyalpha_agent_orchestrator"
+            or item.package.startswith("onlyalpha_agent_orchestrator.")
             else ROOT / "src" / item.package.replace(".", "/") / item.relative_name
         )
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -472,6 +477,7 @@ def test_closed_workflow_semantics_forbid_unreviewed_dynamic_imports() -> None:
         path = (
             ROOT / "packages/onlyalpha-agent-orchestrator/src" / item.package.replace(".", "/") / item.relative_name
             if item.package == "onlyalpha_agent_orchestrator"
+            or item.package.startswith("onlyalpha_agent_orchestrator.")
             else ROOT / "src" / item.package.replace(".", "/") / item.relative_name
         )
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -517,3 +523,58 @@ def test_future_external_execution_seam_requires_runtime_execution_permit() -> N
     assert "continuation: Callable[[OnlyAgentRuntimeExecutionPermit], ResultT]" in source
     assert "def assert_runtime_execution_permit(" in source
     assert "Callable[[OnlyAgentAdmittedRuntimeV1]" not in source
+
+
+def test_external_io_permit_is_minted_only_after_prepared_execution_validation() -> None:
+    orchestrator = ROOT / "packages/onlyalpha-agent-orchestrator/src/onlyalpha_agent_orchestrator"
+    constructor_calls: set[tuple[str, str]] = set()
+    mint_calls: set[tuple[str, str]] = set()
+    send_calls: set[str] = set()
+    adapter_invoke_calls: set[str] = set()
+    for path in orchestrator.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for function in (node for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))):
+            for node in ast.walk(function):
+                if not isinstance(node, ast.Call):
+                    continue
+                if isinstance(node.func, ast.Name):
+                    if node.func.id == "OnlyAgentExternalIoPermit":
+                        constructor_calls.add((path.name, function.name))
+                    elif node.func.id == "_mint_external_io_permit":
+                        mint_calls.add((path.name, function.name))
+                elif isinstance(node.func, ast.Attribute):
+                    if node.func.attr == "send":
+                        send_calls.add(path.relative_to(orchestrator).as_posix())
+                    elif node.func.attr == "invoke":
+                        adapter_invoke_calls.add(path.relative_to(orchestrator).as_posix())
+    assert constructor_calls == {("runtime.py", "_mint_external_io_permit")}
+    assert mint_calls == {
+        ("execution.py", "execute_external_model_occurrence"),
+        ("execution.py", "execute_external_tool_occurrence"),
+        ("execution.py", "invoke"),
+    }
+    assert send_calls == {
+        "adapters/openai_compatible.py",
+        "adapters/product_api.py",
+    }
+    assert adapter_invoke_calls == {"execution.py"}
+
+
+def test_search_http_projection_is_transport_only_and_search_semantics_do_not_reverse_depend() -> None:
+    search_core = ROOT / "src/onlyalpha/research/search"
+    for path in search_core.rglob("*.py"):
+        assert "onlyalpha_http_server" not in path.read_text(encoding="utf-8"), path
+
+    search_http = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/search"
+    source = "\n".join(path.read_text(encoding="utf-8") for path in search_http.rglob("*.py"))
+    assert "OnlyResearchProductBoundary" in source
+    for forbidden in (
+        "onlyalpha.persistence",
+        "OnlyPostgres",
+        "psycopg",
+        "sqlalchemy",
+        "DIRECT_DATABASE",
+        "onlyalpha.broker",
+        "onlyalpha.runtime.live",
+    ):
+        assert forbidden not in source

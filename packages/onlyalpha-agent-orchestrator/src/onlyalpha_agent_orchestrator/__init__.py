@@ -13,6 +13,7 @@ from .runtime import (
     OnlyAgentRuntimeExecutionPermit,
     assert_current_runtime_admitted_for_session,
     assert_runtime_execution_permit,
+    assert_runtime_execution_permit_for_session,
     build_current_agent_workflow_implementation_manifest,
     execute_after_runtime_admission,
 )
@@ -27,6 +28,7 @@ __all__ = [
     "OnlyAgentWorkflowResourceSpecV1",
     "assert_current_runtime_admitted_for_session",
     "assert_runtime_execution_permit",
+    "assert_runtime_execution_permit_for_session",
     "build_current_agent_workflow_implementation_manifest",
     "build_current_agent_workflow_runtime_resources",
     "execute_after_runtime_admission",

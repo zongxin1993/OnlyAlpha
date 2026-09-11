@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Protocol, cast
 
@@ -118,6 +118,10 @@ class OnlyAgentProductOperationContractV1:
     response_schema: Mapping[str, object]
     requires_product_command_id: bool
     allowed_owning_reference_kinds: tuple[str, ...]
+    identity_requirements: tuple[str, ...] = ()
+    http_method: str = ""
+    http_path: str = ""
+    product_command_id_transport: tuple[str, str] | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -138,6 +142,16 @@ class OnlyAgentProductOperationContractV1:
                 not isinstance(item, str) or not item or any(character.isspace() for character in item)
                 for item in self.allowed_owning_reference_kinds
             )
+            or not isinstance(self.identity_requirements, tuple)
+            or any(not isinstance(item, str) or not item for item in self.identity_requirements)
+            or (self.http_method and self.http_method not in {"DELETE", "GET", "PATCH", "POST", "PUT"})
+            or (self.http_path and not self.http_path.startswith("/api/v"))
+            or (
+                self.product_command_id_transport is not None
+                and self.product_command_id_transport != ("header", "Idempotency-Key")
+            )
+            or (self.product_command_id_transport is not None and not self.requires_product_command_id)
+            or (self.http_method and self.requires_product_command_id and self.product_command_id_transport is None)
         ):
             raise ValueError("AGENT_PRODUCT_API_CONTRACT_MISMATCH")
         object.__setattr__(self, "request_schema", _frozen_object(self.request_schema, "request_schema"))
@@ -168,6 +182,18 @@ class OnlyAgentProductApiContractReader(Protocol):
         canonical_validated_request: Mapping[str, object],
     ) -> OnlyAgentProductRequestSemanticProjectionV1: ...
 
+    def validate_request_verified(
+        self,
+        contract: OnlyAgentProductOperationContractV1,
+        value: Mapping[str, object],
+    ) -> Mapping[str, object]: ...
+
+    def validate_response_verified(
+        self,
+        contract: OnlyAgentProductOperationContractV1,
+        value: Mapping[str, object],
+    ) -> Mapping[str, object]: ...
+
 
 class OnlyAgentExactResponseReferenceReader(Protocol):
     def load_exact_response_verified(self, reference: OnlyAgentExactAuthorityReference) -> Mapping[str, object]: ...
@@ -178,6 +204,7 @@ class OnlyPreparedAgentModelCallV1:
     plan: OnlyAgentModelCallPlanV1
     _current_workflow_manifest: OnlyAgentWorkflowImplementationManifestV1
     _service_token: object
+    _execution_seal: object
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,6 +214,7 @@ class OnlyPreparedAgentToolCallV1:
     recovery: bool
     _current_workflow_manifest: OnlyAgentWorkflowImplementationManifestV1
     _service_token: object
+    _execution_seal: object
 
 
 def _admit_occurrence_mutation(
@@ -339,6 +367,7 @@ class OnlyAgentModelOccurrenceServiceV1:
         self._decisions = decisions
         self._store = store
         self._token = object()
+        self._unspent_execution_seals: set[object] = set()
 
     def prepare_model_call(
         self,
@@ -429,7 +458,9 @@ class OnlyAgentModelOccurrenceServiceV1:
                 "Existing Model Plan must be recovered, never prepared for re-invocation",
             )
         exact = self._store.load_plan_verified(plan.model_call_plan_fingerprint)
-        return OnlyPreparedAgentModelCallV1(exact, current_workflow_manifest, self._token)
+        execution_seal = object()
+        self._unspent_execution_seals.add(execution_seal)
+        return OnlyPreparedAgentModelCallV1(exact, current_workflow_manifest, self._token, execution_seal)
 
     def record_returned(self, prepared: OnlyPreparedAgentModelCallV1, response: object) -> OnlyAgentModelCallResultV1:
         plan = self._require_prepared(prepared)
@@ -473,12 +504,39 @@ class OnlyAgentModelOccurrenceServiceV1:
         self._store.commit_result(result)
         return self._store.load_result_for_plan_verified(plan.model_call_plan_fingerprint)
 
+    def execute_prepared_model_call[ResultT](
+        self,
+        prepared: OnlyPreparedAgentModelCallV1,
+        continuation: Callable[[OnlyAgentModelCallPlanV1], ResultT],
+        *,
+        preflight: Callable[[OnlyAgentModelCallPlanV1], None] | None = None,
+    ) -> ResultT:
+        """Validate the private Prepared capability immediately before external I/O."""
+
+        plan = self._require_prepared(prepared)
+        if preflight is not None:
+            preflight(plan)
+        if prepared._execution_seal not in self._unspent_execution_seals:
+            raise OnlyAgentContextError("AGENT_MODEL_CALL_PLAN_CONFLICT", plan.model_call_plan_fingerprint)
+        self._unspent_execution_seals.remove(prepared._execution_seal)
+        return continuation(plan)
+
     def record_failed(self, prepared: OnlyPreparedAgentModelCallV1) -> OnlyAgentModelCallResultV1:
         plan = self._require_prepared(prepared)
         result = OnlyAgentModelCallResultV1(
             plan.model_call_plan_fingerprint,
             OnlyAgentModelCallOutcome.FAILED,
             failure_code="AGENT_MODEL_CALL_FAILED",
+        )
+        self._store.commit_result(result)
+        return result
+
+    def record_outcome_unknown(self, prepared: OnlyPreparedAgentModelCallV1) -> OnlyAgentModelCallResultV1:
+        plan = self._require_prepared(prepared)
+        result = OnlyAgentModelCallResultV1(
+            plan.model_call_plan_fingerprint,
+            OnlyAgentModelCallOutcome.OUTCOME_UNKNOWN,
+            failure_code="AGENT_MODEL_CALL_OUTCOME_UNKNOWN",
         )
         self._store.commit_result(result)
         return result
@@ -658,6 +716,7 @@ class OnlyAgentToolOccurrenceServiceV1:
         self._response_references = response_references
         self._store = store
         self._token = object()
+        self._unspent_execution_seals: set[object] = set()
 
     def prepare_tool_call(
         self,
@@ -704,25 +763,34 @@ class OnlyAgentToolOccurrenceServiceV1:
             operation_identity=operation_identity,
             tool_class=tool_class,
         )
-        try:
-            validate_agent_strict_schema(contract.request_schema, root_type="object")
-            validate_agent_strict_schema(contract.response_schema, root_type="object")
-        except Exception as exc:
-            raise OnlyAgentContextError(
-                "AGENT_PRODUCT_API_CONTRACT_MISMATCH", "Product request/response schema is unsupported"
-            ) from exc
+        external_validator = getattr(self._contracts, "validate_request_verified", None)
         if contract.requires_product_command_id != (product_command_id_or_idempotency_key is not None):
             raise OnlyAgentContextError("AGENT_TOOL_CALL_PLAN_INVALID", "Product Command identity requirement differs")
+        if not callable(external_validator):
+            try:
+                validate_agent_strict_schema(contract.request_schema, root_type="object")
+                validate_agent_strict_schema(contract.response_schema, root_type="object")
+            except Exception as exc:
+                raise OnlyAgentContextError(
+                    "AGENT_PRODUCT_API_CONTRACT_MISMATCH", "Product request/response schema is unsupported"
+                ) from exc
         try:
-            validated = validate_agent_strict_value(
-                canonical_request,
-                contract.request_schema,
-                allowed_context_references=exact_identity_inputs,
-            )
+            if callable(external_validator):
+                validated = external_validator(contract, canonical_request)
+            else:
+                validated = validate_agent_strict_value(
+                    canonical_request,
+                    contract.request_schema,
+                    allowed_context_references=exact_identity_inputs,
+                )
         except Exception as exc:
             raise OnlyAgentContextError("AGENT_TOOL_CALL_PLAN_INVALID", "Request is not canonical") from exc
         if not isinstance(validated, Mapping):
             raise OnlyAgentContextError("AGENT_TOOL_CALL_PLAN_INVALID", "Request root must be an object")
+        if contract.identity_requirements and contract.identity_requirements != constraints[0].identity_requirements:
+            raise OnlyAgentContextError(
+                "AGENT_PRODUCT_API_CONTRACT_MISMATCH", "Contract and Tool Policy identity requirements differ"
+            )
         _verify_tool_request_identity_closure(
             validated_request=cast(Mapping[str, object], validated),
             request_schema=contract.request_schema,
@@ -776,13 +844,33 @@ class OnlyAgentToolOccurrenceServiceV1:
                 "AGENT_TOOL_CALL_PLAN_CONFLICT",
                 "Existing Tool Plan must use its recovery classification",
             )
+        execution_seal = object()
+        self._unspent_execution_seals.add(execution_seal)
         return OnlyPreparedAgentToolCallV1(
             self._store.load_plan_verified(plan.tool_call_plan_fingerprint),
             contract.recovery_class,
             False,
             current_workflow_manifest,
             self._token,
+            execution_seal,
         )
+
+    def execute_prepared_tool_call[ResultT](
+        self,
+        prepared: OnlyPreparedAgentToolCallV1,
+        continuation: Callable[[OnlyAgentToolCallPlanV1], ResultT],
+        *,
+        preflight: Callable[[OnlyAgentToolCallPlanV1], None] | None = None,
+    ) -> ResultT:
+        """Validate the private Prepared capability immediately before external I/O."""
+
+        plan, _contract = self._require_prepared(prepared)
+        if preflight is not None:
+            preflight(plan)
+        if prepared._execution_seal not in self._unspent_execution_seals:
+            raise OnlyAgentContextError("AGENT_TOOL_CALL_PLAN_CONFLICT", plan.tool_call_plan_fingerprint)
+        self._unspent_execution_seals.remove(prepared._execution_seal)
+        return continuation(plan)
 
     def prepare_recovery(
         self,
@@ -813,7 +901,16 @@ class OnlyAgentToolOccurrenceServiceV1:
             and plan.product_command_id_or_idempotency_key is None
         ):
             raise OnlyAgentContextError("AGENT_TOOL_CALL_PLAN_INVALID", "Command identity is absent")
-        return OnlyPreparedAgentToolCallV1(plan, recovery_class, True, current_workflow_manifest, self._token)
+        execution_seal = object()
+        self._unspent_execution_seals.add(execution_seal)
+        return OnlyPreparedAgentToolCallV1(
+            plan,
+            recovery_class,
+            True,
+            current_workflow_manifest,
+            self._token,
+            execution_seal,
+        )
 
     def record_inline_success(
         self,
@@ -823,7 +920,12 @@ class OnlyAgentToolOccurrenceServiceV1:
     ) -> OnlyAgentToolCallResultV1:
         plan, contract = self._require_prepared(prepared)
         try:
-            validated = validate_agent_strict_value(response, contract.response_schema)
+            validator = getattr(self._contracts, "validate_response_verified", None)
+            validated = (
+                validator(contract, response)
+                if callable(validator)
+                else validate_agent_strict_value(response, contract.response_schema)
+            )
             if not isinstance(validated, Mapping):
                 raise ValueError("Response root must be an object")
             self._verify_owning_references(contract, owning_authority_references)
@@ -855,7 +957,12 @@ class OnlyAgentToolOccurrenceServiceV1:
         plan, contract = self._require_prepared(prepared)
         try:
             response = self._response_references.load_exact_response_verified(response_reference)
-            validated = validate_agent_strict_value(response, contract.response_schema)
+            validator = getattr(self._contracts, "validate_response_verified", None)
+            validated = (
+                validator(contract, response)
+                if callable(validator)
+                else validate_agent_strict_value(response, contract.response_schema)
+            )
             if not isinstance(validated, Mapping):
                 raise ValueError("Response root must be an object")
             self._verify_owning_references(contract, owning_authority_references)
@@ -936,18 +1043,30 @@ class OnlyAgentToolOccurrenceServiceV1:
             operation_identity=plan.operation_identity,
             tool_class=plan.tool_class,
         )
+        validator = getattr(self._contracts, "validate_request_verified", None)
+        if not callable(validator):
+            try:
+                validate_agent_strict_schema(contract.request_schema, root_type="object")
+                validate_agent_strict_schema(contract.response_schema, root_type="object")
+            except Exception as exc:
+                raise OnlyAgentContextError("AGENT_PRODUCT_API_CONTRACT_MISMATCH", plan_fingerprint) from exc
         try:
-            validate_agent_strict_schema(contract.request_schema, root_type="object")
-            validate_agent_strict_schema(contract.response_schema, root_type="object")
-            validated = validate_agent_strict_value(
-                plan.canonical_validated_request,
-                contract.request_schema,
-                allowed_context_references=plan.exact_identity_inputs,
-            )
+            if callable(validator):
+                validated = validator(contract, plan.canonical_validated_request)
+            else:
+                validated = validate_agent_strict_value(
+                    plan.canonical_validated_request,
+                    contract.request_schema,
+                    allowed_context_references=plan.exact_identity_inputs,
+                )
         except Exception as exc:
             raise OnlyAgentContextError("AGENT_TOOL_CALL_PLAN_INVALID", plan_fingerprint) from exc
         if only_canonical_fingerprint(validated) != plan.canonical_request_fingerprint:
             raise OnlyAgentContextError("AGENT_TOOL_CALL_PLAN_INVALID", plan_fingerprint)
+        if contract.identity_requirements and contract.identity_requirements != constraints[0].identity_requirements:
+            raise OnlyAgentContextError(
+                "AGENT_PRODUCT_API_CONTRACT_MISMATCH", "Contract and Tool Policy identity requirements differ"
+            )
         _verify_tool_request_identity_closure(
             validated_request=cast(Mapping[str, object], validated),
             request_schema=contract.request_schema,
@@ -995,7 +1114,12 @@ class OnlyAgentToolOccurrenceServiceV1:
                 )
             else:
                 response = cast(Mapping[str, object], result.canonical_validated_response)
-            validated = validate_agent_strict_value(response, contract.response_schema)
+            validator = getattr(self._contracts, "validate_response_verified", None)
+            validated = (
+                validator(contract, response)
+                if callable(validator)
+                else validate_agent_strict_value(response, contract.response_schema)
+            )
             if not isinstance(validated, Mapping):
                 raise OnlyAgentContextError("AGENT_TOOL_RESULT_INVALID", plan_fingerprint)
             try:
