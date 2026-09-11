@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import re
@@ -94,3 +95,18 @@ def write_build_provenance(destination: Path, provenance: bytes) -> None:
     destination.with_name("_build_provenance.sha256").write_bytes(
         (hashlib.sha256(provenance).hexdigest() + "\n").encode()
     )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--revision", required=True)
+    arguments = parser.parse_args()
+    project_root = Path(__file__).resolve().parent
+    write_build_provenance(
+        project_root / _CARRIED,
+        build_provenance_bytes(project_root, arguments.revision),
+    )
+
+
+if __name__ == "__main__":
+    main()

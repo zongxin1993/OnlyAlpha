@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import sys
 from pathlib import Path
 from runpy import run_path
 
@@ -80,3 +82,24 @@ def test_carried_sdist_provenance_is_offline_reusable_and_digest_verified(tmp_pa
     destination.with_name("_build_provenance.sha256").write_text(hashlib.sha256(b"tampered").hexdigest() + "\n")
     with pytest.raises(ValueError, match="ONLYALPHA_AGENT_ORCHESTRATOR_BUILD_PROVENANCE_INVALID"):
         helper["resolve_build_provenance_bytes"](project)
+
+
+def test_provenance_cli_materializes_exact_carrier_for_gitless_build_context(tmp_path: Path) -> None:
+    helper_path = Path(__file__).resolve().parents[1] / "provenance_build.py"
+    project = tmp_path / "onlyalpha-agent-orchestrator"
+    project.mkdir()
+    copied_helper = project / "provenance_build.py"
+    copied_helper.write_bytes(helper_path.read_bytes())
+    (project / "pyproject.toml").write_text('[project]\nversion = "0.9.9"\n', encoding="utf-8")
+
+    subprocess.run(
+        [sys.executable, str(copied_helper), "--revision", "1" * 40],
+        check=True,
+        cwd=tmp_path,
+    )
+
+    carrier = project / "src/onlyalpha_agent_orchestrator/_build_provenance.json"
+    assert carrier.read_bytes() == _canonical()
+    assert carrier.with_name("_build_provenance.sha256").read_text(encoding="ascii") == (
+        hashlib.sha256(_canonical()).hexdigest() + "\n"
+    )

@@ -86,6 +86,7 @@ def test_acceptance_runs_inside_compose_against_private_service_dns() -> None:
     assert "--no-editable" not in dockerfile
     assert "UV_NO_SYNC=1" in dockerfile
     assert "python scripts/embed_build_provenance.py" in dockerfile
+    assert "python packages/onlyalpha-agent-orchestrator/provenance_build.py" in dockerfile
     assert "apt-get install git" not in dockerfile
     assert "COPY .git" not in dockerfile
 

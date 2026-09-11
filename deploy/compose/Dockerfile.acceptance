@@ -32,7 +32,9 @@ COPY --chown=onlyalpha:onlyalpha . .
 USER onlyalpha
 
 ARG ONLYALPHA_BUILD_SOURCE_REVISION
-RUN python scripts/embed_build_provenance.py --revision "${ONLYALPHA_BUILD_SOURCE_REVISION}"
+RUN python scripts/embed_build_provenance.py --revision "${ONLYALPHA_BUILD_SOURCE_REVISION}" \
+    && python packages/onlyalpha-agent-orchestrator/provenance_build.py \
+        --revision "${ONLYALPHA_BUILD_SOURCE_REVISION}"
 
 RUN uv sync --frozen --all-packages --no-dev \
     --no-install-package onlyalpha-example-alpha \
