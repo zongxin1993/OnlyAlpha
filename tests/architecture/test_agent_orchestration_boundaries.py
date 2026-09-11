@@ -36,6 +36,19 @@ _AGENT_WORKFLOW_VERIFIED_PUBLIC_BOUNDARIES = {
 }
 
 
+def _type_checking_import_ids(tree: ast.AST) -> set[int]:
+    return {
+        id(import_node)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.If)
+        and isinstance(node.test, ast.Name)
+        and node.test.id in {"TYPE_CHECKING", "_TYPE_CHECKING"}
+        for statement in node.body
+        for import_node in ast.walk(statement)
+        if isinstance(import_node, (ast.Import, ast.ImportFrom))
+    }
+
+
 def test_agent_context_core_has_no_provider_transport_execution_or_provenance_discovery_dependencies() -> None:
     root = Path(__file__).resolve().parents[2] / "src" / "onlyalpha" / "research" / "agent"
     forbidden_import_roots = {
@@ -336,15 +349,16 @@ def test_agent_workflow_direct_semantic_dependencies_are_closed_or_explicit_boun
         for item in ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1
     }
     for item in ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1:
-        if item.relative_name == "__init__.py":
-            continue
         path = (
             ROOT / "packages/onlyalpha-agent-orchestrator/src" / item.package.replace(".", "/") / item.relative_name
             if item.package == "onlyalpha_agent_orchestrator"
             else ROOT / "src" / item.package.replace(".", "/") / item.relative_name
         )
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        type_checking_import_ids = _type_checking_import_ids(tree)
         for node in ast.walk(tree):
+            if id(node) in type_checking_import_ids:
+                continue
             if isinstance(node, ast.Import):
                 imported = {alias.name for alias in node.names}
             elif isinstance(node, ast.ImportFrom):
@@ -384,3 +398,97 @@ def test_every_executed_workflow_package_initializer_is_explicitly_closed() -> N
         "onlyalpha.research.experiment.__init__.py",
         "onlyalpha.agent.orchestrator.__init__.py",
     } <= identities
+
+
+def test_workflow_package_initializers_have_explicit_execution_classifications() -> None:
+    classifications = {
+        "src/onlyalpha/__init__.py": "LAZY / INERT",
+        "src/onlyalpha/research/__init__.py": "LAZY / INERT",
+        "src/onlyalpha/research/experiment/__init__.py": "LAZY / INERT",
+        "src/onlyalpha/research/agent/__init__.py": "CLOSED EAGER",
+        "src/onlyalpha/application/__init__.py": "LAZY / INERT",
+        "packages/onlyalpha-agent-orchestrator/src/onlyalpha_agent_orchestrator/__init__.py": "CLOSED EAGER",
+    }
+    assert set(classifications.values()) <= {"LAZY / INERT", "CLOSED EAGER", "FORMAL AUTHORITY BOUNDARY"}
+    assert all((ROOT / relative).is_file() for relative in classifications)
+    for relative, classification in classifications.items():
+        if classification != "LAZY / INERT":
+            continue
+        tree = ast.parse((ROOT / relative).read_text(encoding="utf-8"), filename=relative)
+        type_checking_import_ids = _type_checking_import_ids(tree)
+        eager_onlyalpha_imports = {
+            alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import) and id(node) not in type_checking_import_ids
+            for alias in node.names
+            if alias.name == "onlyalpha" or alias.name.startswith("onlyalpha.")
+        } | {
+            node.module or ""
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+            and id(node) not in type_checking_import_ids
+            and (node.module == "onlyalpha" or (node.module or "").startswith("onlyalpha."))
+        }
+        assert not eager_onlyalpha_imports, relative
+
+
+def test_closed_workflow_semantics_forbid_unreviewed_dynamic_imports() -> None:
+    from onlyalpha_agent_orchestrator.closure import ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1
+
+    lazy_initializers = {
+        "onlyalpha.__init__.py",
+        "onlyalpha.application.__init__.py",
+        "onlyalpha.research.__init__.py",
+        "onlyalpha.research.experiment.__init__.py",
+    }
+    for item in ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1:
+        if item.logical_resource_identity in lazy_initializers:
+            continue
+        path = (
+            ROOT / "packages/onlyalpha-agent-orchestrator/src" / item.package.replace(".", "/") / item.relative_name
+            if item.package == "onlyalpha_agent_orchestrator"
+            else ROOT / "src" / item.package.replace(".", "/") / item.relative_name
+        )
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        calls = {
+            node.func.id for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        assert not calls.intersection({"__import__", "import_module"}), path
+
+
+def test_runtime_execution_permit_has_one_mint_authority_and_no_external_seal_reference() -> None:
+    orchestrator = ROOT / "packages/onlyalpha-agent-orchestrator/src/onlyalpha_agent_orchestrator"
+    constructor_calls: set[tuple[str, str]] = set()
+    mint_calls: set[tuple[str, str]] = set()
+    seal_files: set[str] = set()
+    for path in orchestrator.glob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                enclosing = next(
+                    (
+                        parent.name
+                        for parent in ast.walk(tree)
+                        if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)) and node in ast.walk(parent)
+                    ),
+                    "<module>",
+                )
+                if node.func.id == "OnlyAgentRuntimeExecutionPermit":
+                    constructor_calls.add((path.name, enclosing))
+                elif node.func.id == "_mint_runtime_execution_permit":
+                    mint_calls.add((path.name, enclosing))
+        if "_ADMISSION_SEAL" in source:
+            seal_files.add(path.name)
+    assert constructor_calls == {("runtime.py", "_mint_runtime_execution_permit")}
+    assert mint_calls == {("runtime.py", "execute_after_runtime_admission")}
+    assert seal_files == {"runtime.py"}
+
+
+def test_future_external_execution_seam_requires_runtime_execution_permit() -> None:
+    source = (ROOT / "packages/onlyalpha-agent-orchestrator/src/onlyalpha_agent_orchestrator/runtime.py").read_text(
+        encoding="utf-8"
+    )
+    assert "continuation: Callable[[OnlyAgentRuntimeExecutionPermit], ResultT]" in source
+    assert "def assert_runtime_execution_permit(" in source
+    assert "Callable[[OnlyAgentAdmittedRuntimeV1]" not in source

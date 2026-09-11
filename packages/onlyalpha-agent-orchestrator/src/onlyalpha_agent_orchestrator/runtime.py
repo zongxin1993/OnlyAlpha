@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Never, SupportsIndex
 
 from onlyalpha.research.agent.errors import OnlyAgentContextError
 from onlyalpha.research.agent.model import (
@@ -37,14 +38,113 @@ class OnlyAgentOrchestratorOperationalConfigV1:
             raise ValueError("AGENT_ORCHESTRATOR_OPERATIONAL_CONFIG_INVALID")
 
 
-@dataclass(frozen=True, slots=True)
-class OnlyAgentAdmittedRuntimeV1:
-    """Ephemeral proof that one Session-bound workflow equals this runtime."""
+_ADMISSION_SEAL = object()
 
-    agent_session_fingerprint: str
-    historical_workflow_resource_fingerprint: str
-    workflow_implementation_fingerprint: str
-    source_revision: str
+
+class OnlyAgentRuntimeExecutionPermit:
+    """Read-only process-local capability issued by runtime admission only."""
+
+    __slots__ = (
+        "_agent_session_fingerprint",
+        "_historical_workflow_resource_fingerprint",
+        "_workflow_implementation_fingerprint",
+        "_source_revision",
+        "_seal",
+    )
+    _agent_session_fingerprint: str
+    _historical_workflow_resource_fingerprint: str
+    _workflow_implementation_fingerprint: str
+    _source_revision: str
+    _seal: object
+
+    def __init__(
+        self,
+        agent_session_fingerprint: str,
+        historical_workflow_resource_fingerprint: str,
+        workflow_implementation_fingerprint: str,
+        source_revision: str,
+        *,
+        _seal: object | None = None,
+    ) -> None:
+        if _seal is not _ADMISSION_SEAL:
+            raise OnlyAgentContextError("AGENT_POLICY_VIOLATION", "runtime execution permit construction")
+        object.__setattr__(self, "_agent_session_fingerprint", agent_session_fingerprint)
+        object.__setattr__(
+            self,
+            "_historical_workflow_resource_fingerprint",
+            historical_workflow_resource_fingerprint,
+        )
+        object.__setattr__(self, "_workflow_implementation_fingerprint", workflow_implementation_fingerprint)
+        object.__setattr__(self, "_source_revision", source_revision)
+        object.__setattr__(self, "_seal", _seal)
+
+    def __setattr__(self, _name: str, _value: object) -> None:
+        raise AttributeError("OnlyAgentRuntimeExecutionPermit is read-only")
+
+    def __copy__(self) -> Never:
+        raise TypeError("OnlyAgentRuntimeExecutionPermit cannot be reconstructed")
+
+    def __deepcopy__(self, _memo: object) -> Never:
+        raise TypeError("OnlyAgentRuntimeExecutionPermit cannot be reconstructed")
+
+    def __reduce_ex__(self, _protocol: SupportsIndex) -> Never:
+        raise TypeError("OnlyAgentRuntimeExecutionPermit cannot be serialized")
+
+    @property
+    def agent_session_fingerprint(self) -> str:
+        return self._agent_session_fingerprint
+
+    @property
+    def historical_workflow_resource_fingerprint(self) -> str:
+        return self._historical_workflow_resource_fingerprint
+
+    @property
+    def workflow_implementation_fingerprint(self) -> str:
+        return self._workflow_implementation_fingerprint
+
+    @property
+    def source_revision(self) -> str:
+        return self._source_revision
+
+
+# Import compatibility only: this is the same sealed capability, not the former DTO.
+OnlyAgentAdmittedRuntimeV1 = OnlyAgentRuntimeExecutionPermit
+
+
+def _mint_runtime_execution_permit(
+    agent_session_fingerprint: str,
+    historical_workflow_resource_fingerprint: str,
+    workflow_implementation_fingerprint: str,
+    source_revision: str,
+) -> OnlyAgentRuntimeExecutionPermit:
+    return OnlyAgentRuntimeExecutionPermit(
+        agent_session_fingerprint,
+        historical_workflow_resource_fingerprint,
+        workflow_implementation_fingerprint,
+        source_revision,
+        _seal=_ADMISSION_SEAL,
+    )
+
+
+def assert_runtime_execution_permit(
+    permit: object,
+    *,
+    agent_session_fingerprint: str,
+    historical_workflow_resource_fingerprint: str,
+    workflow_implementation_fingerprint: str,
+    source_revision: str,
+) -> None:
+    """Validate the exact admission capability required by future external I/O."""
+
+    if (
+        type(permit) is not OnlyAgentRuntimeExecutionPermit
+        or permit._seal is not _ADMISSION_SEAL
+        or permit.agent_session_fingerprint != agent_session_fingerprint
+        or permit.historical_workflow_resource_fingerprint != historical_workflow_resource_fingerprint
+        or permit.workflow_implementation_fingerprint != workflow_implementation_fingerprint
+        or permit.source_revision != source_revision
+    ):
+        raise OnlyAgentContextError("AGENT_POLICY_VIOLATION", "runtime execution permit validation")
 
 
 def build_current_agent_workflow_implementation_manifest() -> OnlyAgentWorkflowImplementationManifestV1:
@@ -93,7 +193,7 @@ def assert_current_runtime_admitted_for_session(
 def execute_after_runtime_admission[ResultT](
     agent_session_fingerprint: str,
     session_reader: OnlyAgentSessionContextReader,
-    continuation: Callable[[OnlyAgentAdmittedRuntimeV1], ResultT],
+    continuation: Callable[[OnlyAgentRuntimeExecutionPermit], ResultT],
 ) -> ResultT:
     """The sole boundary through which future external execution may continue."""
 
@@ -102,7 +202,7 @@ def execute_after_runtime_admission[ResultT](
         raise OnlyAgentContextError("AGENT_ORCHESTRATION_RESOURCE_MISMATCH", agent_session_fingerprint)
     current = build_current_agent_workflow_implementation_manifest()
     admit_agent_workflow_runtime(context.workflow_resource, current)
-    admitted = OnlyAgentAdmittedRuntimeV1(
+    admitted = _mint_runtime_execution_permit(
         agent_session_fingerprint,
         context.workflow_resource.resource_fingerprint,
         current.implementation_fingerprint,
@@ -116,7 +216,9 @@ __all__ = [
     "ONLY_AGENT_WORKFLOW_SEMANTIC_VERSION",
     "OnlyAgentAdmittedRuntimeV1",
     "OnlyAgentOrchestratorOperationalConfigV1",
+    "OnlyAgentRuntimeExecutionPermit",
     "assert_current_runtime_admitted_for_session",
+    "assert_runtime_execution_permit",
     "build_current_agent_workflow_implementation_manifest",
     "execute_after_runtime_admission",
 ]

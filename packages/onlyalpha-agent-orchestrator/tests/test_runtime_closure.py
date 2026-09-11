@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import copy
+import dataclasses
 import json
+import pickle
+import subprocess
+import sys
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,9 +16,12 @@ from onlyalpha_agent_orchestrator import (
     ONLY_AGENT_WORKFLOW_ID,
     ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1,
     ONLY_AGENT_WORKFLOW_SEMANTIC_VERSION,
+    OnlyAgentAdmittedRuntimeV1,
     OnlyAgentOrchestratorOperationalConfigV1,
+    OnlyAgentRuntimeExecutionPermit,
     OnlyAgentWorkflowResourceSpecV1,
     assert_current_runtime_admitted_for_session,
+    assert_runtime_execution_permit,
     build_current_agent_workflow_implementation_manifest,
     build_current_agent_workflow_runtime_resources,
     execute_after_runtime_admission,
@@ -295,6 +303,15 @@ def test_runtime_admission_boundary_runs_matching_continuation_exactly_once(monk
         current,
     )
     calls = 0
+    minted = 0
+    original_mint = runtime_module._mint_runtime_execution_permit
+
+    def mint(*args, **kwargs):  # type: ignore[no-untyped-def]
+        nonlocal minted
+        minted += 1
+        return original_mint(*args, **kwargs)
+
+    monkeypatch.setattr(runtime_module, "_mint_runtime_execution_permit", mint)
 
     def continuation(admitted):  # type: ignore[no-untyped-def]
         nonlocal calls
@@ -310,6 +327,168 @@ def test_runtime_admission_boundary_runs_matching_continuation_exactly_once(monk
     )
     assert result == current.implementation_fingerprint
     assert calls == 1
+    assert minted == 1
+
+
+def test_admitted_runtime_cannot_be_constructed_without_runtime_admission() -> None:
+    with pytest.raises((TypeError, OnlyAgentContextError)):
+        OnlyAgentAdmittedRuntimeV1(
+            "1" * 64,
+            "2" * 64,
+            "3" * 64,
+            "4" * 40,
+        )
+
+
+def test_fresh_runtime_import_does_not_execute_unrelated_onlyalpha_semantics() -> None:
+    program = """
+import json
+import sys
+import onlyalpha_agent_orchestrator.runtime
+print(json.dumps(sorted(
+    name for name in sys.modules
+    if name == "onlyalpha" or name.startswith("onlyalpha.")
+    or name == "onlyalpha_agent_orchestrator" or name.startswith("onlyalpha_agent_orchestrator.")
+)))
+"""
+    loaded = set(json.loads(subprocess.check_output([sys.executable, "-c", program], text=True)))
+    assert loaded == {
+        "onlyalpha",
+        "onlyalpha.application",
+        "onlyalpha.application.product_command_receipt",
+        "onlyalpha.build_provenance",
+        "onlyalpha.canonical",
+        "onlyalpha.distribution",
+        "onlyalpha.research",
+        "onlyalpha.research.agent",
+        "onlyalpha.research.agent.application",
+        "onlyalpha.research.agent.authority_state",
+        "onlyalpha.research.agent.decision",
+        "onlyalpha.research.agent.decision_store",
+        "onlyalpha.research.agent.errors",
+        "onlyalpha.research.agent.model",
+        "onlyalpha.research.agent.occurrence",
+        "onlyalpha.research.agent.occurrence_service",
+        "onlyalpha.research.agent.occurrence_store",
+        "onlyalpha.research.agent.semantic_translation",
+        "onlyalpha.research.agent.session_state",
+        "onlyalpha.research.agent.store",
+        "onlyalpha.research.agent.verification",
+        "onlyalpha.research.agent.workflow",
+        "onlyalpha.research.experiment",
+        "onlyalpha.research.experiment.model",
+        "onlyalpha_agent_orchestrator",
+        "onlyalpha_agent_orchestrator.closure",
+        "onlyalpha_agent_orchestrator.provenance",
+        "onlyalpha_agent_orchestrator.runtime",
+    }
+
+
+def test_runtime_execution_permit_rejects_wrong_seal_cross_session_and_reconstruction() -> None:
+    with pytest.raises(OnlyAgentContextError, match="AGENT_POLICY_VIOLATION"):
+        OnlyAgentRuntimeExecutionPermit("1" * 64, "2" * 64, "3" * 64, "4" * 40, _seal=object())
+
+    current = build_current_agent_workflow_implementation_manifest()
+    historical = OnlyAgentOrchestrationResourceV1(
+        OnlyAgentOrchestrationResourceKind.AGENT_WORKFLOW_IMPLEMENTATION_MANIFEST,
+        1,
+        "1.0.0",
+        current,
+    )
+    permit = execute_after_runtime_admission(
+        "1" * 64,
+        _SessionReader(historical),  # type: ignore[arg-type]
+        lambda admitted: admitted,
+    )
+    assert type(permit) is OnlyAgentRuntimeExecutionPermit
+    with pytest.raises(OnlyAgentContextError, match="AGENT_POLICY_VIOLATION"):
+        assert_runtime_execution_permit(
+            permit,
+            agent_session_fingerprint="2" * 64,
+            historical_workflow_resource_fingerprint=historical.resource_fingerprint,
+            workflow_implementation_fingerprint=current.implementation_fingerprint,
+            source_revision=current.source_revision,
+        )
+    with pytest.raises(OnlyAgentContextError, match="AGENT_POLICY_VIOLATION"):
+        assert_runtime_execution_permit(
+            permit,
+            agent_session_fingerprint="1" * 64,
+            historical_workflow_resource_fingerprint=historical.resource_fingerprint,
+            workflow_implementation_fingerprint="0" * 64,
+            source_revision=current.source_revision,
+        )
+    with pytest.raises(OnlyAgentContextError, match="AGENT_POLICY_VIOLATION"):
+        assert_runtime_execution_permit(
+            SimpleNamespace(
+                agent_session_fingerprint="1" * 64,
+                historical_workflow_resource_fingerprint=historical.resource_fingerprint,
+                workflow_implementation_fingerprint=current.implementation_fingerprint,
+                source_revision=current.source_revision,
+            ),
+            agent_session_fingerprint="1" * 64,
+            historical_workflow_resource_fingerprint=historical.resource_fingerprint,
+            workflow_implementation_fingerprint=current.implementation_fingerprint,
+            source_revision=current.source_revision,
+        )
+    for reconstruct in (
+        lambda: copy.copy(permit),
+        lambda: copy.deepcopy(permit),
+        lambda: pickle.dumps(permit),
+        lambda: dataclasses.replace(permit),  # type: ignore[arg-type]
+    ):
+        with pytest.raises((TypeError, ValueError)):
+            reconstruct()
+    assert not hasattr(permit, "__dict__")
+    assert not hasattr(permit, "to_dict")
+    assert not hasattr(type(permit), "from_dict")
+    with pytest.raises(AttributeError):
+        permit.agent_session_fingerprint = "2" * 64  # type: ignore[misc]
+
+
+def test_valid_permit_validation_requires_all_exact_bindings() -> None:
+    current = build_current_agent_workflow_implementation_manifest()
+    historical = OnlyAgentOrchestrationResourceV1(
+        OnlyAgentOrchestrationResourceKind.AGENT_WORKFLOW_IMPLEMENTATION_MANIFEST,
+        1,
+        "1.0.0",
+        current,
+    )
+    permit = execute_after_runtime_admission(
+        "1" * 64,
+        _SessionReader(historical),  # type: ignore[arg-type]
+        lambda admitted: admitted,
+    )
+    assert_runtime_execution_permit(
+        permit,
+        agent_session_fingerprint="1" * 64,
+        historical_workflow_resource_fingerprint=historical.resource_fingerprint,
+        workflow_implementation_fingerprint=current.implementation_fingerprint,
+        source_revision=current.source_revision,
+    )
+
+
+def test_public_package_imports_keep_canonical_objects_and_export_counts() -> None:
+    import onlyalpha
+    import onlyalpha.application as application
+    import onlyalpha.research as research
+    import onlyalpha.research.agent as agent
+    import onlyalpha.research.experiment as experiment
+    from onlyalpha.application.product_command_receipt import OnlyProductCommandId
+    from onlyalpha.core.clock import OnlyClock
+    from onlyalpha.research.agent.errors import OnlyAgentContextError as CanonicalAgentContextError
+    from onlyalpha.research.experiment.model import OnlySearchBudgetV1
+    from onlyalpha.research.workload import OnlyResearchWorkloadPlan
+
+    assert len(onlyalpha.__all__) == 17
+    assert len(research.__all__) == 504
+    assert len(experiment.__all__) == 52
+    assert len(agent.__all__) == 104
+    assert len(application.__all__) == 21
+    assert onlyalpha.OnlyClock is OnlyClock
+    assert research.OnlyResearchWorkloadPlan is OnlyResearchWorkloadPlan
+    assert experiment.OnlySearchBudgetV1 is OnlySearchBudgetV1
+    assert agent.OnlyAgentContextError is CanonicalAgentContextError
+    assert application.OnlyProductCommandId is OnlyProductCommandId
 
 
 def test_mismatch_blocks_admission_continuation(monkeypatch) -> None:
@@ -330,6 +509,15 @@ def test_mismatch_blocks_admission_continuation(monkeypatch) -> None:
     )
     monkeypatch.setattr(runtime_module, "build_current_agent_workflow_implementation_manifest", lambda: current)
     calls = 0
+    minted = 0
+    original_mint = runtime_module._mint_runtime_execution_permit
+
+    def mint(*args, **kwargs):  # type: ignore[no-untyped-def]
+        nonlocal minted
+        minted += 1
+        return original_mint(*args, **kwargs)
+
+    monkeypatch.setattr(runtime_module, "_mint_runtime_execution_permit", mint)
 
     def continuation(_admitted):  # type: ignore[no-untyped-def]
         nonlocal calls
@@ -343,6 +531,7 @@ def test_mismatch_blocks_admission_continuation(monkeypatch) -> None:
         )
     assert raised.value.code == "AGENT_WORKFLOW_RUNTIME_MISMATCH"
     assert calls == 0
+    assert minted == 0
 
 
 @pytest.mark.parametrize(
@@ -391,6 +580,15 @@ def test_admission_failures_never_reach_continuation(monkeypatch, failure: str) 
             ),
         )
     calls = 0
+    minted = 0
+    original_mint = runtime_module._mint_runtime_execution_permit
+
+    def mint(*args, **kwargs):  # type: ignore[no-untyped-def]
+        nonlocal minted
+        minted += 1
+        return original_mint(*args, **kwargs)
+
+    monkeypatch.setattr(runtime_module, "_mint_runtime_execution_permit", mint)
 
     def continuation(_admitted):  # type: ignore[no-untyped-def]
         nonlocal calls
@@ -403,6 +601,7 @@ def test_admission_failures_never_reach_continuation(monkeypatch, failure: str) 
             continuation,
         )
     assert calls == 0
+    assert minted == 0
 
 
 def test_orchestrator_provenance_mismatch_fails_closed(monkeypatch) -> None:

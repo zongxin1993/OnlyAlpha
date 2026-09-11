@@ -6,7 +6,9 @@ does not call a model, execute a Product API operation, drive a Session, persist
 
 Future external execution has one structural entry boundary: `execute_after_runtime_admission`. It exact-loads the verified Session
 context, verifies its historical workflow resource against the manifest derived from current packaged bytes, and only then calls its continuation with an ephemeral
-`OnlyAgentAdmittedRuntimeV1`. That proof is never persisted and owns no Session or workflow state.
+sealed `OnlyAgentRuntimeExecutionPermit`. The legacy `OnlyAgentAdmittedRuntimeV1` import is an alias to the same sealed type, not a
+constructible DTO. The permit is read-only, process-local, non-serializable, bound to the exact Session/workflow/source identities,
+and validated by future external-I/O entrypoints. It is never persisted and owns no Session or workflow state.
 
 ## Workflow executable-resource closure V1
 
@@ -15,18 +17,19 @@ filesystem timestamps, import-discovery order, or ambient source trees, enter th
 
 Included resources:
 
-- `onlyalpha.__init__.py`: covers the unavoidable installed Core package initializer.
+- `onlyalpha.__init__.py`: lazy/inert public surface; covers the unavoidable installed Core package initializer without eagerly loading
+  trading subsystems.
 - `onlyalpha.agent.orchestrator.__init__.py`: defines the independently packaged runtime's public assembly surface.
 - `onlyalpha.agent.orchestrator.closure.py`: owns the reviewed declaration and package-resource loader, closing the declaration over itself.
 - `onlyalpha.agent.orchestrator.provenance.py`: exact-loads the Orchestrator distribution's immutable packaged provenance.
 - `onlyalpha.agent.orchestrator.runtime.py`: owns dual-distribution manifest assembly, historical admission, and secret isolation.
-- `onlyalpha.application.__init__.py`: covers the Product contract package initializer.
+- `onlyalpha.application.__init__.py`: lazy/inert Product contract public surface.
 - `onlyalpha.application.product_command_receipt.py`: defines Product command identity used by Agent Tool occurrences.
 - `onlyalpha.build_provenance.py`: exact-loads and validates the packaged source/distribution provenance bound by the manifest.
 - `onlyalpha.canonical.py`: defines canonical serialization and fingerprints used by Agent identities.
 - `onlyalpha.distribution.py`: defines the packaged provenance authority vocabulary consumed by the build-provenance reader.
-- `onlyalpha.research.__init__.py`: covers the unavoidable Research package initializer.
-- `onlyalpha.research.agent.__init__.py`: covers the Agent public package initializer.
+- `onlyalpha.research.__init__.py`: lazy/inert Research public surface.
+- `onlyalpha.research.agent.__init__.py`: closed eager Agent public surface; every imported semantic module is in this closure.
 - `onlyalpha.research.experiment.model.py`: defines exact Search identities consumed and produced by Agent translation/verification.
 - `onlyalpha.research.agent.application.py`: performs deterministic Decision transformation, intent admission, and launch reconstruction.
 - `onlyalpha.research.agent.authority_state.py`: defines the exact Search/Research authority views admitted by the reducer.
@@ -42,7 +45,7 @@ Included resources:
 - `onlyalpha.research.agent.store.py`: exact-loads immutable resources and Session bindings and enforces put-once storage.
 - `onlyalpha.research.agent.verification.py`: verifies Brief, Session, and orchestration-resource reference closure.
 - `onlyalpha.research.agent.workflow.py`: owns the existing ADR 0123 manifest derivation and exact runtime admission primitive.
-- `onlyalpha.research.experiment.__init__.py`: covers the Search Experiment package initializer.
+- `onlyalpha.research.experiment.__init__.py`: lazy/inert Search Experiment public surface.
 
 Agent semantic modules import Search types from their exact owning module rather than its package re-export surface. Every package
 initializer Python necessarily executes on this bounded path is explicit instead of assumed irrelevant. Intentionally excluded are

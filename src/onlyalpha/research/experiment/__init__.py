@@ -1,56 +1,106 @@
-"""Public Search Experiment provenance contract."""
+"""Lazy public Search Experiment provenance contract."""
 
-from .errors import OnlySearchProvenanceError as OnlySearchProvenanceError
-from .errors import OnlySearchProvenanceStoreError as OnlySearchProvenanceStoreError
-from .model import SEARCH_EXPERIMENT_CONTEXT_SCHEMA_VERSION as SEARCH_EXPERIMENT_CONTEXT_SCHEMA_VERSION
-from .model import SEARCH_EXPERIMENT_POLICY_SCHEMA_VERSION as SEARCH_EXPERIMENT_POLICY_SCHEMA_VERSION
-from .model import SEARCH_EXPERIMENT_SCHEMA_VERSION as SEARCH_EXPERIMENT_SCHEMA_VERSION
-from .model import SEARCH_HYPOTHESIS_SCHEMA_VERSION as SEARCH_HYPOTHESIS_SCHEMA_VERSION
-from .model import SEARCH_ITERATION_PLAN_SCHEMA_VERSION as SEARCH_ITERATION_PLAN_SCHEMA_VERSION
-from .model import SEARCH_ITERATION_RESULT_SCHEMA_VERSION as SEARCH_ITERATION_RESULT_SCHEMA_VERSION
-from .model import OnlySearchAlgorithmBindingV1 as OnlySearchAlgorithmBindingV1
-from .model import OnlySearchBudgetV1 as OnlySearchBudgetV1
-from .model import OnlySearchCommitDisposition as OnlySearchCommitDisposition
-from .model import OnlySearchCommitOutcome as OnlySearchCommitOutcome
-from .model import OnlySearchDecisionEngineBindingV1 as OnlySearchDecisionEngineBindingV1
-from .model import OnlySearchDecisionMode as OnlySearchDecisionMode
-from .model import OnlySearchEvaluationContextReferenceV1 as OnlySearchEvaluationContextReferenceV1
-from .model import OnlySearchExperimentManifestV1 as OnlySearchExperimentManifestV1
-from .model import OnlySearchExperimentManifestV2 as OnlySearchExperimentManifestV2
-from .model import OnlySearchExperimentManifestV3 as OnlySearchExperimentManifestV3
-from .model import OnlySearchFailureCode as OnlySearchFailureCode
-from .model import OnlySearchHypothesisSourceKind as OnlySearchHypothesisSourceKind
-from .model import OnlySearchHypothesisSourceReferenceV1 as OnlySearchHypothesisSourceReferenceV1
-from .model import OnlySearchHypothesisV1 as OnlySearchHypothesisV1
-from .model import OnlySearchIterationDisposition as OnlySearchIterationDisposition
-from .model import OnlySearchIterationPlanV1 as OnlySearchIterationPlanV1
-from .model import OnlySearchIterationResultV1 as OnlySearchIterationResultV1
-from .model import OnlySearchPolicyReferenceV1 as OnlySearchPolicyReferenceV1
-from .model import OnlySearchRandomnessMode as OnlySearchRandomnessMode
-from .model import OnlySearchResearchResultReferenceV1 as OnlySearchResearchResultReferenceV1
-from .model import OnlySearchSpaceReferenceV1 as OnlySearchSpaceReferenceV1
-from .model import OnlySearchWorkflowBindingV1 as OnlySearchWorkflowBindingV1
-from .store import OnlyJsonSearchProvenanceStore as OnlyJsonSearchProvenanceStore
-from .verification import OnlySearchCandidateReader as OnlySearchCandidateReader
-from .verification import OnlySearchCandidateValue as OnlySearchCandidateValue
-from .verification import OnlySearchCatalogGenerationReader as OnlySearchCatalogGenerationReader
-from .verification import OnlySearchCatalogGenerationValue as OnlySearchCatalogGenerationValue
-from .verification import OnlySearchContextReader as OnlySearchContextReader
-from .verification import OnlySearchDatasetReader as OnlySearchDatasetReader
-from .verification import OnlySearchExperimentReader as OnlySearchExperimentReader
-from .verification import OnlySearchFreezeRelationReader as OnlySearchFreezeRelationReader
-from .verification import OnlySearchFreezeRelationValue as OnlySearchFreezeRelationValue
-from .verification import OnlySearchIterationPlanReader as OnlySearchIterationPlanReader
-from .verification import OnlySearchIterationResultReader as OnlySearchIterationResultReader
-from .verification import OnlySearchProposalReader as OnlySearchProposalReader
-from .verification import OnlySearchProposalValue as OnlySearchProposalValue
-from .verification import OnlySearchQualificationDecisionReader as OnlySearchQualificationDecisionReader
-from .verification import OnlySearchResearchResultReader as OnlySearchResearchResultReader
-from .verification import OnlySearchSpaceReader as OnlySearchSpaceReader
-from .verification import OnlySearchSpaceValue as OnlySearchSpaceValue
-from .verification import verify_search_experiment_references as verify_search_experiment_references
-from .verification import verify_search_iteration_lineage as verify_search_iteration_lineage
-from .verification import verify_search_iteration_proposal_reference as verify_search_iteration_proposal_reference
-from .verification import verify_search_iteration_result_references as verify_search_iteration_result_references
+from importlib import import_module
 
-__all__ = [name for name in globals() if name.startswith(("OnlySearch", "OnlyJsonSearch", "SEARCH_", "verify_search"))]
+_PUBLIC_EXPORTS = {
+    "onlyalpha.research.experiment.errors": (
+        "OnlySearchProvenanceError",
+        "OnlySearchProvenanceStoreError",
+    ),
+    "onlyalpha.research.experiment.model": (
+        "SEARCH_EXPERIMENT_CONTEXT_SCHEMA_VERSION",
+        "SEARCH_EXPERIMENT_POLICY_SCHEMA_VERSION",
+        "SEARCH_EXPERIMENT_SCHEMA_VERSION",
+        "SEARCH_HYPOTHESIS_SCHEMA_VERSION",
+        "SEARCH_ITERATION_PLAN_SCHEMA_VERSION",
+        "SEARCH_ITERATION_RESULT_SCHEMA_VERSION",
+        "OnlySearchAlgorithmBindingV1",
+        "OnlySearchBudgetV1",
+        "OnlySearchCommitDisposition",
+        "OnlySearchCommitOutcome",
+        "OnlySearchDecisionEngineBindingV1",
+        "OnlySearchDecisionMode",
+        "OnlySearchEvaluationContextReferenceV1",
+        "OnlySearchExperimentManifestV1",
+        "OnlySearchExperimentManifestV2",
+        "OnlySearchExperimentManifestV3",
+        "OnlySearchFailureCode",
+        "OnlySearchHypothesisSourceKind",
+        "OnlySearchHypothesisSourceReferenceV1",
+        "OnlySearchHypothesisV1",
+        "OnlySearchIterationDisposition",
+        "OnlySearchIterationPlanV1",
+        "OnlySearchIterationResultV1",
+        "OnlySearchPolicyReferenceV1",
+        "OnlySearchRandomnessMode",
+        "OnlySearchResearchResultReferenceV1",
+        "OnlySearchSpaceReferenceV1",
+        "OnlySearchWorkflowBindingV1",
+    ),
+    "onlyalpha.research.experiment.store": ("OnlyJsonSearchProvenanceStore",),
+    "onlyalpha.research.experiment.verification": (
+        "OnlySearchCandidateReader",
+        "OnlySearchCandidateValue",
+        "OnlySearchCatalogGenerationReader",
+        "OnlySearchCatalogGenerationValue",
+        "OnlySearchContextReader",
+        "OnlySearchDatasetReader",
+        "OnlySearchExperimentReader",
+        "OnlySearchFreezeRelationReader",
+        "OnlySearchFreezeRelationValue",
+        "OnlySearchIterationPlanReader",
+        "OnlySearchIterationResultReader",
+        "OnlySearchProposalReader",
+        "OnlySearchProposalValue",
+        "OnlySearchQualificationDecisionReader",
+        "OnlySearchResearchResultReader",
+        "OnlySearchSpaceReader",
+        "OnlySearchSpaceValue",
+        "verify_search_experiment_references",
+        "verify_search_iteration_lineage",
+        "verify_search_iteration_proposal_reference",
+        "verify_search_iteration_result_references",
+    ),
+}
+_exports_loaded = False
+
+
+def _load_public_exports() -> None:
+    global _exports_loaded
+    if _exports_loaded:
+        return
+    for module_name, exported in _PUBLIC_EXPORTS.items():
+        module = import_module(module_name)
+        for name in exported:
+            globals()[name] = getattr(module, name)
+    names = [
+        name for name in globals() if name.startswith(("OnlySearch", "OnlyJsonSearch", "SEARCH_", "verify_search"))
+    ]
+    list.clear(__all__)
+    list.extend(__all__, names)
+    _exports_loaded = True
+
+
+class _LazyPublicNames(list[str]):
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        _load_public_exports()
+        return list.__iter__(self)
+
+    def __len__(self) -> int:
+        _load_public_exports()
+        return list.__len__(self)
+
+    def __getitem__(self, key):  # type: ignore[no-untyped-def]
+        _load_public_exports()
+        return list.__getitem__(self, key)
+
+
+__all__: list[str] = _LazyPublicNames()
+
+
+def __getattr__(name: str) -> object:
+    _load_public_exports()
+    try:
+        return globals()[name]
+    except KeyError as exc:
+        raise AttributeError(name) from exc
