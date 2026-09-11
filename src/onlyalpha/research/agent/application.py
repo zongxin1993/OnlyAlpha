@@ -52,6 +52,10 @@ from .occurrence_service import (
     OnlyAgentProductRequestSemanticProjectionV1,
     OnlyAgentSessionContextReader,
 )
+from .semantic_translation import (
+    OnlyAgentSearchRuntimeGenerationAuthority,
+    expected_agent_search_submit_semantics,
+)
 from .store import OnlyAgentCommitOutcome
 from .verification import OnlyVerifiedAgentDecisionContextV1
 from .workflow import admit_agent_workflow_runtime
@@ -167,6 +171,7 @@ class OnlyAgentDecisionApplicationServiceV1:
         store: OnlyJsonAgentDecisionStore,
         search_states: OnlyAgentSearchStateReader | None = None,
         research_states: OnlyAgentResearchStateReader | None = None,
+        runtime_generations: OnlyAgentSearchRuntimeGenerationAuthority | None = None,
     ) -> None:
         self._sessions = sessions
         self._models = models
@@ -175,6 +180,7 @@ class OnlyAgentDecisionApplicationServiceV1:
         self._store = store
         self._search_states = search_states
         self._research_states = research_states
+        self._runtime_generations = runtime_generations
 
     def derive_research_plan(
         self,
@@ -443,6 +449,7 @@ class OnlyAgentDecisionApplicationServiceV1:
         operation_identity: str,
         semantic_projection: OnlyAgentProductRequestSemanticProjectionV1,
         exact_identity_inputs: tuple[OnlyAgentContextReferenceV1, ...],
+        tool_call_ordinal: int,
     ) -> None:
         """Verify a stored intent using immutable facts only."""
 
@@ -471,7 +478,7 @@ class OnlyAgentDecisionApplicationServiceV1:
                     raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity)
                 required = {
                     reference
-                    for ordinal in range(self._tools.budget_consumed(decision.agent_session_fingerprint))
+                    for ordinal in range(tool_call_ordinal)
                     for plan in (
                         self._tools.load_plan_by_session_ordinal_verified(decision.agent_session_fingerprint, ordinal),
                     )
@@ -497,9 +504,22 @@ class OnlyAgentDecisionApplicationServiceV1:
                         _reference("DATASET_SNAPSHOT", context.research_brief.dataset_snapshot_fingerprint),
                     }
                 )
+                children = tuple(reference for reference in supplied if reference.reference_kind == "SEARCH_EXPERIMENT")
+                if not children:
+                    runtime_references = tuple(
+                        reference for reference in supplied if reference.reference_kind == "RUNTIME_GENERATION"
+                    )
+                    runtime_generation = semantic_projection.semantic_bindings.get("runtime_generation_fingerprint")
+                    if (
+                        len(runtime_references) != 1
+                        or not isinstance(runtime_generation, str)
+                        or runtime_references[0].reference_fingerprint != runtime_generation
+                    ):
+                        raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity)
+                    configuration.add(runtime_references[0])
                 prior_children = {
                     reference
-                    for ordinal in range(self._tools.budget_consumed(decision.agent_session_fingerprint))
+                    for ordinal in range(tool_call_ordinal)
                     for plan in (
                         self._tools.load_plan_by_session_ordinal_verified(decision.agent_session_fingerprint, ordinal),
                     )
@@ -533,7 +553,7 @@ class OnlyAgentDecisionApplicationServiceV1:
                 }.get(tool_class, set())
                 prior_owned = {
                     reference
-                    for ordinal in range(self._tools.budget_consumed(decision.agent_session_fingerprint))
+                    for ordinal in range(tool_call_ordinal)
                     for plan in (
                         self._tools.load_plan_by_session_ordinal_verified(decision.agent_session_fingerprint, ordinal),
                     )
@@ -577,6 +597,7 @@ class OnlyAgentDecisionApplicationServiceV1:
         operation_identity: str,
         semantic_projection: OnlyAgentProductRequestSemanticProjectionV1,
         exact_identity_inputs: tuple[OnlyAgentContextReferenceV1, ...],
+        tool_call_ordinal: int,
     ) -> None:
         """Admit new work, adding current owning-Authority constraints when needed."""
 
@@ -586,6 +607,7 @@ class OnlyAgentDecisionApplicationServiceV1:
             operation_identity=operation_identity,
             semantic_projection=semantic_projection,
             exact_identity_inputs=exact_identity_inputs,
+            tool_call_ordinal=tool_call_ordinal,
         )
         if tool_class not in {OnlyAgentToolClass.SYMBOLIC_SEARCH, OnlyAgentToolClass.PARAMETER_SEARCH}:
             return
@@ -596,6 +618,13 @@ class OnlyAgentDecisionApplicationServiceV1:
             reference for reference in exact_identity_inputs if reference.reference_kind == "SEARCH_EXPECTED_STATE"
         )
         if not children and not expected_states:
+            runtime_generation = semantic_projection.semantic_bindings.get("runtime_generation_fingerprint")
+            if not isinstance(runtime_generation, str) or self._runtime_generations is None:
+                raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity)
+            try:
+                self._runtime_generations.require_new_work_generation(runtime_generation)
+            except Exception as exc:
+                raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity) from exc
             return
         if len(children) != 1 or len(expected_states) != 1 or self._search_states is None:
             raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity)
@@ -630,10 +659,6 @@ class OnlyAgentDecisionApplicationServiceV1:
         for name, expected in expected_scalars.items():
             if name in bindings and bindings[name] != expected:
                 raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", projection.operation_identity)
-        if "hypothesis" in bindings and only_canonical_fingerprint(
-            bindings["hypothesis"]
-        ) != only_canonical_fingerprint(context.research_brief.hypothesis.to_dict()):
-            raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", projection.operation_identity)
         if "parent_experiment_fingerprint" in bindings and bindings["parent_experiment_fingerprint"] is not None:
             raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", projection.operation_identity)
         if isinstance(bindings.get("decision_engine_binding"), Mapping):
@@ -657,34 +682,16 @@ class OnlyAgentDecisionApplicationServiceV1:
                     reference for reference in exact_identity_inputs if reference.reference_kind == "SEARCH_EXPERIMENT"
                 )
                 if not children:
-                    required = {
-                        "method",
-                        "hypothesis",
-                        "search_space_fingerprint",
-                        "evaluation_fingerprint",
-                        "algorithm_fingerprint",
-                        "search_budget_fingerprint",
-                        "catalog_generation_fingerprint",
-                        "dataset_snapshot_fingerprint",
-                        "workflow_binding",
-                        "decision_engine_binding",
-                        "parent_experiment_fingerprint",
-                    }
-                    if isinstance(directive_payload, OnlyAgentParameterSearchDirectiveV1):
-                        required.add("search_policy_fingerprint")
-                    if not required.issubset(bindings):
+                    runtime_generation = bindings.get("runtime_generation_fingerprint")
+                    if not isinstance(runtime_generation, str):
                         raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", projection.operation_identity)
-                    expected_bindings = {
-                        "search_space_fingerprint": directive_payload.search_space_reference.reference_fingerprint,
-                        "evaluation_fingerprint": directive_payload.evaluation_reference.reference_fingerprint,
-                        "algorithm_fingerprint": directive_payload.algorithm_reference.reference_fingerprint,
-                        "search_budget_fingerprint": directive_payload.search_budget_reference.reference_fingerprint,
-                    }
-                    if isinstance(directive_payload, OnlyAgentParameterSearchDirectiveV1):
-                        expected_bindings["search_policy_fingerprint"] = (
-                            directive_payload.search_policy_reference.reference_fingerprint
-                        )
-                    if any(bindings[name] != value for name, value in expected_bindings.items()):
+                    compiled_semantics = expected_agent_search_submit_semantics(
+                        operation_identity=projection.operation_identity,
+                        context=context,
+                        directive=directive,
+                        runtime_generation_fingerprint=runtime_generation,
+                    )
+                    if bindings != compiled_semantics.semantic_bindings:
                         raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", projection.operation_identity)
                 else:
                     required = {
@@ -883,8 +890,23 @@ class OnlyAgentDecisionApplicationServiceV1:
             or decision.ordered_context_references != analyst_context
         ):
             raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", decision.decision_fingerprint)
-        self._verify_evidence_closure(context, proposal_payload)
-        if decision.ordered_tool_call_result_fingerprints != self._consumed_tool_results(context):
+        historical_plans = tuple(
+            self._tools.load_plan_verified(
+                self._tools.load_result_by_fingerprint_verified(fingerprint).tool_call_plan_fingerprint
+            )
+            for fingerprint in decision.ordered_tool_call_result_fingerprints
+        )
+        if not historical_plans:
+            raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", decision.decision_fingerprint)
+        publication_boundary = max(plan.tool_call_ordinal for plan in historical_plans) + 1
+        self._verify_evidence_closure(
+            context,
+            proposal_payload,
+            before_tool_ordinal=publication_boundary,
+        )
+        if decision.ordered_tool_call_result_fingerprints != self._consumed_tool_results(
+            context, before_tool_ordinal=publication_boundary
+        ):
             raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", decision.decision_fingerprint)
 
     def _derive_decision_from_exact_inputs(
@@ -1142,12 +1164,22 @@ class OnlyAgentDecisionApplicationServiceV1:
             ),
         )
 
-    def _consumed_tool_results(self, context: OnlyVerifiedAgentDecisionContextV1) -> tuple[str, ...]:
+    def _consumed_tool_results(
+        self,
+        context: OnlyVerifiedAgentDecisionContextV1,
+        *,
+        before_tool_ordinal: int | None = None,
+    ) -> tuple[str, ...]:
         """Return successful Results consumed by Decision #2, tolerating superseded mutable gaps."""
 
+        count = self._tools.budget_consumed(context.session.session_fingerprint)
+        if before_tool_ordinal is not None:
+            if before_tool_ordinal < 0 or before_tool_ordinal > count:
+                raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", "Tool causal prefix")
+            count = before_tool_ordinal
         plans = tuple(
             self._tools.load_plan_by_session_ordinal_verified(context.session.session_fingerprint, ordinal)
-            for ordinal in range(self._tools.budget_consumed(context.session.session_fingerprint))
+            for ordinal in range(count)
         )
         latest_mutable: dict[tuple[object, ...], int] = {}
         for plan in plans:
@@ -1176,8 +1208,14 @@ class OnlyAgentDecisionApplicationServiceV1:
         self,
         context: OnlyVerifiedAgentDecisionContextV1,
         payload: OnlyAgentNextExperimentProposalV1,
+        *,
+        before_tool_ordinal: int | None = None,
     ) -> None:
         count = self._tools.budget_consumed(context.session.session_fingerprint)
+        if before_tool_ordinal is not None:
+            if before_tool_ordinal < 0 or before_tool_ordinal > count:
+                raise OnlyAgentContextError("AGENT_EVIDENCE_UNAVAILABLE", "Tool causal prefix")
+            count = before_tool_ordinal
         if count < 2:
             raise OnlyAgentContextError("AGENT_EVIDENCE_UNAVAILABLE", "No evaluation Tool facts")
         results: list[OnlyAgentToolCallResultV1] = []

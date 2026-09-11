@@ -86,6 +86,7 @@ class OnlyAgentDecisionToolIntentVerifier(Protocol):
         operation_identity: str,
         semantic_projection: OnlyAgentProductRequestSemanticProjectionV1,
         exact_identity_inputs: tuple[OnlyAgentContextReferenceV1, ...],
+        tool_call_ordinal: int,
     ) -> None: ...
 
     def admit_new_tool_intent(
@@ -96,6 +97,7 @@ class OnlyAgentDecisionToolIntentVerifier(Protocol):
         operation_identity: str,
         semantic_projection: OnlyAgentProductRequestSemanticProjectionV1,
         exact_identity_inputs: tuple[OnlyAgentContextReferenceV1, ...],
+        tool_call_ordinal: int,
     ) -> None: ...
 
 
@@ -749,6 +751,7 @@ class OnlyAgentToolOccurrenceServiceV1:
                 operation_identity=operation_identity,
                 semantic_projection=projection,
                 exact_identity_inputs=exact_identity_inputs,
+                tool_call_ordinal=tool_call_ordinal,
             )
         except OnlyAgentContextError:
             raise
@@ -968,6 +971,7 @@ class OnlyAgentToolOccurrenceServiceV1:
                 operation_identity=plan.operation_identity,
                 semantic_projection=projection,
                 exact_identity_inputs=plan.exact_identity_inputs,
+                tool_call_ordinal=plan.tool_call_ordinal,
             )
         except OnlyAgentContextError:
             raise

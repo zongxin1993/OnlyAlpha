@@ -228,3 +228,21 @@ def test_agent_reducer_and_evidence_do_not_duplicate_owning_authorities() -> Non
     assert not set(OnlyAgentEvidenceObservationV1.__dataclass_fields__).intersection(
         {"ic", "rank_ic", "sharpe", "coverage_ratio", "correlation", "stability_score"}
     )
+
+
+def test_historical_fact_verifiers_do_not_derive_inputs_from_the_current_session_suffix() -> None:
+    from onlyalpha.research.agent.application import OnlyAgentDecisionApplicationServiceV1
+    from onlyalpha.research.agent.occurrence_service import OnlyAgentToolOccurrenceServiceV1
+
+    historical_methods = (
+        OnlyAgentDecisionApplicationServiceV1.verify_historical_tool_intent,
+        OnlyAgentDecisionApplicationServiceV1._verify_historical_decision,
+        OnlyAgentToolOccurrenceServiceV1.load_plan_verified,
+    )
+    for method in historical_methods:
+        source = inspect.getsource(method)
+        assert "budget_consumed(" not in source
+        assert "range(self._tools.budget_consumed" not in source
+
+    signature = inspect.signature(OnlyAgentDecisionApplicationServiceV1.verify_historical_tool_intent)
+    assert "tool_call_ordinal" in signature.parameters

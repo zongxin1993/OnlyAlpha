@@ -33,6 +33,7 @@ from onlyalpha.application.search_generation_execution import (
     OnlyHistoricalGenerationUnavailable,
     OnlyHistoricalGenerationWorkerUnavailable,
 )
+from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.kernel.command import OnlyProductCommand
 from onlyalpha.kernel.query import OnlyProductQuery
 from onlyalpha.research.experiment import (
@@ -308,6 +309,74 @@ def _resource_payload(value: object) -> object:
     if not isinstance(payload, Mapping):
         raise ValueError("Search Product immutable input payload must be an object")
     return payload
+
+
+def _semantic_resource_fingerprint(value: object, *names: str) -> str:
+    """Return the identity owned by a real immutable Search Product input."""
+
+    for name in names:
+        fingerprint = getattr(value, name, None)
+        if isinstance(fingerprint, str):
+            return _sha(fingerprint, name)
+    raise ValueError("Search Product immutable input has no recognized semantic identity")
+
+
+def only_project_search_product_request_semantics(
+    command: OnlySearchSubmitCommandV1 | OnlyAdvanceSearchExperimentV1,
+) -> Mapping[str, object]:
+    """Project meaning-bearing fields from the real Product command DTO.
+
+    The projection is transient and read-only.  It deliberately excludes Product
+    Command identity because command occurrence identity is not Search meaning.
+    """
+
+    if isinstance(command, OnlyAdvanceSearchExperimentV1):
+        return MappingProxyType(
+            {
+                "method": command.method.value,
+                "child_experiment_fingerprint": command.expected_state.experiment_fingerprint,
+                "expected_search_state_fingerprint": only_canonical_fingerprint(command.expected_state.to_dict()),
+                "bounded_operation": command.operation.value,
+            }
+        )
+    if not isinstance(
+        command,
+        (
+            OnlySubmitSymbolicSearchExperimentV1,
+            OnlySubmitParameterSearchExperimentV1,
+            OnlySubmitSymbolicSearchExperimentV2,
+            OnlySubmitParameterSearchExperimentV2,
+        ),
+    ):
+        raise TypeError("unsupported Search Product command")
+    bindings: dict[str, object] = {
+        "method": command.method.value,
+        "search_hypothesis_fingerprint": command.hypothesis.hypothesis_fingerprint,
+        "search_space_fingerprint": _semantic_resource_fingerprint(command.search_space, "search_space_fingerprint"),
+        "evaluation_fingerprint": _semantic_resource_fingerprint(
+            command.evaluation_contract, "evaluation_contract_fingerprint"
+        ),
+        "algorithm_fingerprint": _semantic_resource_fingerprint(
+            command.algorithm_manifest, "implementation_fingerprint"
+        ),
+        "search_budget_fingerprint": only_canonical_fingerprint(command.search_budget.to_dict()),
+        "search_policy_fingerprint": (
+            _semantic_resource_fingerprint(command.search_policy, "policy_fingerprint")
+            if isinstance(command, (OnlySubmitParameterSearchExperimentV1, OnlySubmitParameterSearchExperimentV2))
+            else None
+        ),
+        "catalog_generation_fingerprint": command.catalog_generation_fingerprint,
+        "dataset_snapshot_fingerprint": command.dataset_snapshot_fingerprint,
+        "workflow_binding": command.workflow_binding.to_dict(),
+        "decision_engine_binding": command.decision_engine_binding.to_dict(),
+        "parent_experiment_fingerprint": command.parent_experiment_fingerprint,
+        "runtime_generation_fingerprint": (
+            command.runtime_generation_fingerprint
+            if isinstance(command, (OnlySubmitSymbolicSearchExperimentV2, OnlySubmitParameterSearchExperimentV2))
+            else None
+        ),
+    }
+    return MappingProxyType(bindings)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1090,4 +1159,4 @@ def _is_not_found(exc: Exception) -> bool:
     return getattr(exc, "code", None) == "SEARCH_EXPERIMENT_NOT_FOUND"
 
 
-__all__ = [name for name in globals() if name.startswith("Only")]
+__all__ = [name for name in globals() if name.startswith("Only") or name.startswith("only_")]

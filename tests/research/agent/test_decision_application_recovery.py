@@ -51,6 +51,7 @@ from onlyalpha.research.agent import (
     OnlyAgentSearchMethod,
     OnlyAgentSessionManifestV1,
     OnlyAgentSessionReducerV1,
+    OnlyAgentStructuredHypothesisV1,
     OnlyAgentSymbolicSearchDirectiveV1,
     OnlyAgentToolCallOutcome,
     OnlyAgentToolCallPlanV1,
@@ -59,6 +60,8 @@ from onlyalpha.research.agent import (
     OnlyAgentToolOccurrenceServiceV1,
     OnlyAgentToolRecoveryClass,
     OnlyVerifiedAgentDecisionContextV1,
+    expected_agent_search_submit_semantics,
+    translate_agent_hypothesis_to_search_hypothesis,
 )
 from onlyalpha.research.agent.decision_store import (
     OnlyJsonAgentDecisionStore,
@@ -98,8 +101,20 @@ from .support import ContextFixture, make_context, packaged_provenance, resource
 
 
 class SemanticProductContracts:
-    def __init__(self, exact: tuple[OnlyAgentContextReferenceV1, ...]) -> None:
+    def __init__(
+        self,
+        exact: tuple[OnlyAgentContextReferenceV1, ...],
+        context: OnlyVerifiedAgentDecisionContextV1,
+        directive: OnlyAgentDecisionV1,
+    ) -> None:
         self._exact = exact
+        assert isinstance(directive.structured_payload, OnlyAgentSearchDirectiveV1)
+        self.projection = expected_agent_search_submit_semantics(
+            operation_identity="symbolic_search.v1",
+            context=context,
+            directive=directive.structured_payload,
+            runtime_generation_fingerprint=RuntimeGenerations.fingerprint,
+        )
         properties: dict[str, object] = {
             "hypothesis": {
                 "additionalProperties": False,
@@ -161,26 +176,41 @@ class SemanticProductContracts:
         )
 
     def project_request_semantics_verified(self, **kwargs):  # type: ignore[no-untyped-def]
+        bindings = dict(self.projection.semantic_bindings)
         request = kwargs["canonical_validated_request"]
-        return OnlyAgentProductRequestSemanticProjectionV1(
-            kwargs["operation_identity"],
-            {
-                "method": "SYMBOLIC",
-                "hypothesis": request["hypothesis"],
-                "search_space_fingerprint": self._exact[0].reference_fingerprint,
-                "evaluation_fingerprint": self._exact[1].reference_fingerprint,
-                "algorithm_fingerprint": self._exact[2].reference_fingerprint,
-                "search_budget_fingerprint": self._exact[3].reference_fingerprint,
-                "catalog_generation_fingerprint": self._exact[4].reference_fingerprint,
-                "dataset_snapshot_fingerprint": self._exact[5].reference_fingerprint,
-                "workflow_binding": {"workflow_id": "SYMBOLIC_RESEARCH"},
-                "decision_engine_binding": {"mode": "DETERMINISTIC"},
-                "parent_experiment_fingerprint": None,
-            },
+        hypothesis_payload = request["hypothesis"]
+        hypothesis = OnlyAgentStructuredHypothesisV1(
+            hypothesis_payload["hypothesis_id"],
+            hypothesis_payload["statement"],
+            hypothesis_payload["rationale"],
+            hypothesis_payload["expected_relationship"],
+            tuple(hypothesis_payload["universe_assumptions"]),
+            tuple(hypothesis_payload["falsification_criteria"]),
+            hypothesis_payload["schema_version"],
         )
+        bindings["search_hypothesis_fingerprint"] = translate_agent_hypothesis_to_search_hypothesis(
+            hypothesis
+        ).hypothesis_fingerprint
+        return OnlyAgentProductRequestSemanticProjectionV1(kwargs["operation_identity"], bindings)
 
     def verify_response_binding(self, plan, response, references):  # type: ignore[no-untyped-def]
         del plan, response, references
+
+
+class RuntimeGenerations:
+    fingerprint = "e" * 64
+
+    def require_new_work_generation(self, runtime_generation_fingerprint: str) -> object:
+        if runtime_generation_fingerprint != self.fingerprint:
+            raise LookupError(runtime_generation_fingerprint)
+        return object()
+
+
+class DifferentRuntimeGenerations:
+    def require_new_work_generation(self, runtime_generation_fingerprint: str) -> object:
+        if runtime_generation_fingerprint != "f" * 64:
+            raise LookupError(runtime_generation_fingerprint)
+        return object()
 
 
 def ref(kind: str, fingerprint: str) -> OnlyAgentContextReferenceV1:
@@ -457,7 +487,12 @@ def service(tmp_path: Path):  # type: ignore[no-untyped-def]
     tools = Tools()
     store = OnlyJsonAgentDecisionStore(tmp_path)
     application = OnlyAgentDecisionApplicationServiceV1(
-        sessions=Sessions(context), models=models, tools=tools, references=References(), store=store
+        sessions=Sessions(context),
+        models=models,
+        tools=tools,
+        references=References(),
+        store=store,
+        runtime_generations=RuntimeGenerations(),
     )
     return fixture, context, models, tools, store, application
 
@@ -520,6 +555,10 @@ def derive_directive(
     tools: Tools,
     application: OnlyAgentDecisionApplicationServiceV1,
     action: OnlyAgentRouterAction,
+    *,
+    directive_payload: (
+        OnlyAgentReuseDirectiveV1 | OnlyAgentSymbolicSearchDirectiveV1 | OnlyAgentParameterSearchDirectiveV1 | None
+    ) = None,
 ) -> tuple[OnlyAgentDecisionV1, OnlyAgentToolCallResultV1]:
     plan_decision = derive_plan(fixture, context, models, application)
     catalog_owner = ref("CATALOG_GENERATION", context.research_brief.catalog_generation_fingerprint)
@@ -551,6 +590,7 @@ def derive_directive(
     )
     models.add(router_plan, router_result)
     if action is not OnlyAgentRouterAction.CAPABILITY_GAP:
+        payload = directive_payload if directive_payload is not None else action_payload(action, context)
         designer_plan, designer_result = model_occurrence(
             fixture,
             context,
@@ -558,7 +598,7 @@ def derive_directive(
             role="FACTOR_DESIGNER",
             role_fingerprint=context.session.ordered_role_policy_fingerprints[2],
             refs=(brief_ref, catalog_ref, ref("AGENT_MODEL_CALL_RESULT", router_result.model_call_result_fingerprint)),
-            output={"action_payload": action_payload(action, context).to_dict()},
+            output={"action_payload": payload.to_dict()},
             parent=plan_decision.decision_fingerprint,
         )
         models.add(designer_plan, designer_result)
@@ -1016,6 +1056,18 @@ def test_launch_reconstruction_exact_child_and_fresh_service_reuse(
     )
     assert same == launch
     assert reused.disposition.value == "REUSED"
+    illegal_plan, illegal_result = tool_occurrence(
+        context,
+        ordinal=2,
+        decision=directive.decision_fingerprint,
+        tool_class=tool_class,
+        owner=ref("SEARCH_EXPERIMENT", "f" * 64),
+    )
+    tools.add(illegal_plan, illegal_result)
+    assert application.load_decision_verified(directive.decision_fingerprint) == directive
+    assert reopened.load_launch_record_verified(launch.experiment_launch_record_fingerprint) == launch
+    with pytest.raises(OnlyAgentContextError, match="AGENT_HISTORY_CONTRADICTORY"):
+        reducer.derive(context.session.session_fingerprint)
 
 
 @pytest.mark.parametrize("mismatch", ["catalog", "search_space"])
@@ -1404,6 +1456,15 @@ def test_reuse_evidence_proposal_is_terminal_and_non_executable(tmp_path: Path) 
         owner=branch[1][1],
     )
     tools.add(extra_plan, extra_result)
+    assert (
+        reopened.load_decision_by_session_ordinal_verified(context.session.session_fingerprint, 0).decision_kind
+        is OnlyAgentDecisionKind.RESEARCH_PLAN
+    )
+    assert (
+        reopened.load_decision_by_session_ordinal_verified(context.session.session_fingerprint, 1).decision_kind
+        is OnlyAgentDecisionKind.SEARCH_DIRECTIVE
+    )
+    assert reopened.load_decision_verified(final.decision_fingerprint) == final
     with pytest.raises(OnlyAgentContextError, match="AGENT_HISTORY_CONTRADICTORY"):
         reducer.derive(context.session.session_fingerprint)
 
@@ -1446,26 +1507,24 @@ def test_decision_exact_intent_rejects_independently_valid_search_b(tmp_path: Pa
         payload.search_budget_reference,
         ref("CATALOG_GENERATION", context.research_brief.catalog_generation_fingerprint),
         ref("DATASET_SNAPSHOT", context.research_brief.dataset_snapshot_fingerprint),
+        ref("RUNTIME_GENERATION", RuntimeGenerations.fingerprint),
     )
-    semantics = {
-        "method": "SYMBOLIC",
-        "hypothesis": context.research_brief.hypothesis.to_dict(),
-        "search_space_fingerprint": exact[0].reference_fingerprint,
-        "evaluation_fingerprint": exact[1].reference_fingerprint,
-        "algorithm_fingerprint": exact[2].reference_fingerprint,
-        "search_budget_fingerprint": exact[3].reference_fingerprint,
-        "catalog_generation_fingerprint": exact[4].reference_fingerprint,
-        "dataset_snapshot_fingerprint": exact[5].reference_fingerprint,
-        "workflow_binding": {"workflow_id": "SYMBOLIC_RESEARCH"},
-        "decision_engine_binding": {"mode": "DETERMINISTIC"},
-        "parent_experiment_fingerprint": None,
-    }
+    assert isinstance(decision.structured_payload, OnlyAgentSearchDirectiveV1)
+    semantics = dict(
+        expected_agent_search_submit_semantics(
+            operation_identity="symbolic_search.v1",
+            context=context,
+            directive=decision.structured_payload,
+            runtime_generation_fingerprint=RuntimeGenerations.fingerprint,
+        ).semantic_bindings
+    )
     application.verify_historical_tool_intent(
         decision_fingerprint=decision.decision_fingerprint,
         tool_class=OnlyAgentToolClass.SYMBOLIC_SEARCH,
         operation_identity="symbolic_search.v1",
         semantic_projection=OnlyAgentProductRequestSemanticProjectionV1("symbolic_search.v1", semantics),
         exact_identity_inputs=exact,
+        tool_call_ordinal=0,
     )
     search_b = tuple(
         ref(item.reference_kind, "f" * 64) if item is payload.search_space_reference else item for item in exact
@@ -1479,6 +1538,7 @@ def test_decision_exact_intent_rejects_independently_valid_search_b(tmp_path: Pa
             operation_identity="symbolic_search.v1",
             semantic_projection=OnlyAgentProductRequestSemanticProjectionV1("symbolic_search.v1", changed_semantics),
             exact_identity_inputs=search_b,
+            tool_call_ordinal=0,
         )
 
 
@@ -1494,15 +1554,17 @@ def test_real_tool_occurrence_rejects_changed_non_reference_semantics_before_com
         payload.search_budget_reference,
         ref("CATALOG_GENERATION", context.research_brief.catalog_generation_fingerprint),
         ref("DATASET_SNAPSHOT", context.research_brief.dataset_snapshot_fingerprint),
+        ref("RUNTIME_GENERATION", RuntimeGenerations.fingerprint),
     )
-    contracts = SemanticProductContracts(exact)
+    contracts = SemanticProductContracts(exact, context, decision)
+    occurrence_store = OnlyJsonAgentToolOccurrenceStore(tmp_path / "semantic-tool")
     occurrence = OnlyAgentToolOccurrenceServiceV1(
         sessions=Sessions(context),
         decisions=application,
         product_contracts=contracts,
         references=References(),
         response_references=References(),
-        store=OnlyJsonAgentToolOccurrenceStore(tmp_path / "semantic-tool"),
+        store=occurrence_store,
     )
     request: dict[str, object] = {"hypothesis": context.research_brief.hypothesis.to_dict()}
     request.update(
@@ -1525,6 +1587,30 @@ def test_real_tool_occurrence_rejects_changed_non_reference_semantics_before_com
         product_command_id_or_idempotency_key="00000000-0000-4000-8000-000000000001",
     )
     assert prepared.plan.tool_call_ordinal == 0
+    suffix = replace(
+        prepared.plan,
+        tool_call_ordinal=1,
+        product_command_id_or_idempotency_key="00000000-0000-4000-8000-000000000002",
+        tool_call_plan_fingerprint="",
+    )
+    occurrence_store.commit_plan(suffix)
+    changed_runtime_application = OnlyAgentDecisionApplicationServiceV1(
+        sessions=Sessions(context),
+        models=models,
+        tools=tools,
+        references=References(),
+        store=OnlyJsonAgentDecisionStore(tmp_path),
+        runtime_generations=DifferentRuntimeGenerations(),
+    )
+    historical_occurrence = OnlyAgentToolOccurrenceServiceV1(
+        sessions=Sessions(context),
+        decisions=changed_runtime_application,
+        product_contracts=contracts,
+        references=References(),
+        response_references=References(),
+        store=occurrence_store,
+    )
+    assert historical_occurrence.load_plan_verified(prepared.plan.tool_call_plan_fingerprint) == prepared.plan
     changed = dict(request)
     changed_hypothesis = dict(context.research_brief.hypothesis.to_dict())
     changed_hypothesis["statement"] = "A different semantic hypothesis."
@@ -1543,7 +1629,7 @@ def test_real_tool_occurrence_rejects_changed_non_reference_semantics_before_com
             exact_identity_inputs=exact,
             product_command_id_or_idempotency_key="00000000-0000-4000-8000-000000000002",
         )
-    assert occurrence.budget_consumed(context.session.session_fingerprint) == 1
+    assert occurrence.budget_consumed(context.session.session_fingerprint) == 2
 
 
 def test_reuse_mutable_observation_loss_allows_new_plan_and_later_result(tmp_path: Path) -> None:

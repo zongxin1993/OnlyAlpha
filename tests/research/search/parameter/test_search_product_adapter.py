@@ -300,7 +300,7 @@ class _ProductResearchCommands:
         raise AssertionError("failed Research has no Evidence")
 
 
-def _product_case(tmp_path):  # type: ignore[no-untyped-def]
+def _product_case(tmp_path, *, hypothesis=None):  # type: ignore[no-untyped-def]
     search_space = _space()
     policy = _policy()
     algorithm = only_deterministic_coarse_to_fine_implementation()
@@ -315,7 +315,7 @@ def _product_case(tmp_path):  # type: ignore[no-untyped-def]
     )
     submit = OnlySubmitParameterSearchExperimentV2(
         OnlyProductCommandId(str(uuid4())),
-        OnlySearchHypothesisV1("bounded Product parameter recovery"),
+        hypothesis or OnlySearchHypothesisV1("bounded Product parameter recovery"),
         search_space,
         evaluation,
         policy,
