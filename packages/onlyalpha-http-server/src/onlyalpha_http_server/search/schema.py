@@ -16,10 +16,31 @@ class _Dto(BaseModel):
 class SymbolicSearchSubmitRequestDto(_Dto):
     schema_version: Literal[2]
     hypothesis: dict[str, JsonValue]
-    search_space: dict[str, JsonValue]
-    evaluation_contract: dict[str, JsonValue]
+    search_space: dict[str, JsonValue] = Field(
+        json_schema_extra={
+            "x-onlyalpha-reference-kind": "SYMBOLIC_SEARCH_SPACE",
+            "x-onlyalpha-reference-schema-version": 1,
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-value-field": "search_space_fingerprint",
+        }
+    )
+    evaluation_contract: dict[str, JsonValue] = Field(
+        json_schema_extra={
+            "x-onlyalpha-reference-kind": "RESEARCH_EVALUATION",
+            "x-onlyalpha-reference-schema-version": 1,
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-value-field": "evaluation_contract_fingerprint",
+        }
+    )
     search_budget: dict[str, JsonValue]
-    algorithm_manifest: dict[str, JsonValue]
+    algorithm_manifest: dict[str, JsonValue] = Field(
+        json_schema_extra={
+            "x-onlyalpha-reference-kind": "SEARCH_ALGORITHM",
+            "x-onlyalpha-reference-schema-version": 1,
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-value-field": "implementation_fingerprint",
+        }
+    )
     workflow_binding: dict[str, JsonValue]
     decision_engine_binding: dict[str, JsonValue]
     catalog_generation_fingerprint: str = Field(
@@ -50,7 +71,22 @@ class SymbolicSearchSubmitRequestDto(_Dto):
 
 
 class ParameterSearchSubmitRequestDto(SymbolicSearchSubmitRequestDto):
-    search_policy: dict[str, JsonValue]
+    search_space: dict[str, JsonValue] = Field(
+        json_schema_extra={
+            "x-onlyalpha-reference-kind": "PARAMETER_SEARCH_SPACE",
+            "x-onlyalpha-reference-schema-version": 1,
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-value-field": "search_space_fingerprint",
+        }
+    )
+    search_policy: dict[str, JsonValue] = Field(
+        json_schema_extra={
+            "x-onlyalpha-reference-kind": "SEARCH_POLICY",
+            "x-onlyalpha-reference-schema-version": 1,
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-value-field": "policy_fingerprint",
+        }
+    )
 
 
 class SearchAdvanceRequestDto(_Dto):
@@ -70,7 +106,14 @@ class SearchAdvanceRequestDto(_Dto):
             "x-onlyalpha-reference-locator-kind": "SHA256",
         },
     )
-    expected_state: dict[str, JsonValue]
+    expected_state: dict[str, JsonValue] = Field(
+        json_schema_extra={
+            "x-onlyalpha-reference-kind": "SEARCH_EXPECTED_STATE",
+            "x-onlyalpha-reference-schema-version": 1,
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-canonical-fingerprint": True,
+        }
+    )
 
 
 class SearchCommandResponseDto(_Dto):

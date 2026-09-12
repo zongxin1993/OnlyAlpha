@@ -29,6 +29,7 @@ from onlyalpha.research.agent.authority_state import (
 from onlyalpha.research.agent.errors import OnlyAgentContextError
 from onlyalpha.research.agent.model import OnlyAgentEvaluationContextReferenceV1
 from onlyalpha.research.agent.occurrence import (
+    OnlyAgentContextReferenceV1,
     OnlyAgentExactAuthorityReference,
     OnlyAgentExactAuthorityReferenceV2,
     OnlyAgentReferenceLocatorKind,
@@ -102,6 +103,22 @@ class _SerializedFact:
 
     def to_dict(self) -> dict[str, object]:
         return dict(self.payload)
+
+    @property
+    def enumeration_result_fingerprint(self) -> str | None:
+        return _optional_fact_fingerprint(self.payload, "enumeration_result_fingerprint")
+
+    @property
+    def feedback_decision_fingerprint(self) -> str | None:
+        return _optional_fact_fingerprint(self.payload, "feedback_decision_fingerprint")
+
+    @property
+    def iteration_result_fingerprint(self) -> str | None:
+        return _optional_fact_fingerprint(self.payload, "iteration_result_fingerprint")
+
+    @property
+    def terminal_fingerprint(self) -> str | None:
+        return _optional_fact_fingerprint(self.payload, "terminal_fingerprint")
 
 
 class OnlyApiBackedAgentSearchStateReaderV1(OnlyAgentSearchStateReader):
@@ -195,32 +212,60 @@ class OnlyApiEvaluationContextIdentityV1:
     evaluation_fingerprint: str
 
 
+@dataclass(frozen=True, slots=True)
+class OnlyApiSearchAuthoringIdentityV1:
+    reference_kind: str
+    reference_schema_version: int
+    reference_fingerprint: str
+
+
 class OnlyApiBackedAgentBriefReferenceReaderV1:
     """Exact identity-only Brief verification through Product API v2."""
 
     def __init__(self, client: OnlyAgentProductControlPlaneClient) -> None:
         self._client = client
+        self._verified: dict[tuple[object, ...], object] = {}
 
     def generation(self, fingerprint: str) -> OnlyApiCatalogGenerationIdentityV1:
         _sha(fingerprint, "catalog_generation_fingerprint")
+        key = ("CATALOG_GENERATION", 1, fingerprint)
+        cached = self._verified.get(key)
+        if cached is not None:
+            return cast(OnlyApiCatalogGenerationIdentityV1, cached)
         payload = self._client.get_json_verified(f"/api/v2/research/catalog-context/exact/{fingerprint}")
         if payload.get("catalog_generation_fingerprint") != fingerprint:
             raise OnlyAgentContextError("AGENT_RESEARCH_BRIEF_REFERENCE_INVALID", fingerprint)
-        return OnlyApiCatalogGenerationIdentityV1(fingerprint)
+        value = OnlyApiCatalogGenerationIdentityV1(fingerprint)
+        self._verified[key] = value
+        return value
 
     def load_verified_table(self, snapshot_fingerprint: str) -> OnlyApiDatasetSnapshotIdentityV1:
         _sha(snapshot_fingerprint, "dataset_snapshot_fingerprint")
+        key = ("DATASET_SNAPSHOT", 1, snapshot_fingerprint)
+        cached = self._verified.get(key)
+        if cached is not None:
+            return cast(OnlyApiDatasetSnapshotIdentityV1, cached)
         payload = _strict_envelope(
             self._client.get_json_verified(f"/api/v2/research/datasets/{snapshot_fingerprint}"),
             {"schema_version", "snapshot_fingerprint"},
         )
         if payload["schema_version"] != 1 or payload["snapshot_fingerprint"] != snapshot_fingerprint:
             raise OnlyAgentContextError("AGENT_RESEARCH_BRIEF_REFERENCE_INVALID", snapshot_fingerprint)
-        return OnlyApiDatasetSnapshotIdentityV1(snapshot_fingerprint)
+        value = OnlyApiDatasetSnapshotIdentityV1(snapshot_fingerprint)
+        self._verified[key] = value
+        return value
 
     def load_evaluation_context_verified(
         self, reference: OnlyAgentEvaluationContextReferenceV1
     ) -> OnlyApiEvaluationContextIdentityV1:
+        key = (
+            reference.evaluation_kind,
+            reference.evaluation_schema_version,
+            reference.evaluation_fingerprint,
+        )
+        cached = self._verified.get(key)
+        if cached is not None:
+            return cast(OnlyApiEvaluationContextIdentityV1, cached)
         path = (
             "/api/v2/research/evaluations/"
             f"{quote(reference.evaluation_kind, safe='')}/{reference.evaluation_schema_version}/"
@@ -238,7 +283,50 @@ class OnlyApiBackedAgentBriefReferenceReaderV1:
         )
         if payload["schema_version"] != 1 or actual != expected:
             raise OnlyAgentContextError("AGENT_RESEARCH_BRIEF_REFERENCE_INVALID", reference.evaluation_fingerprint)
-        return OnlyApiEvaluationContextIdentityV1(*expected)
+        value = OnlyApiEvaluationContextIdentityV1(*expected)
+        self._verified[key] = value
+        return value
+
+    def load_search_authoring_reference_verified(
+        self, reference: OnlyAgentContextReferenceV1
+    ) -> OnlyApiSearchAuthoringIdentityV1:
+        if (
+            reference.reference_kind
+            not in {
+                "SYMBOLIC_SEARCH_SPACE",
+                "PARAMETER_SEARCH_SPACE",
+                "SEARCH_POLICY",
+                "SEARCH_ALGORITHM",
+            }
+            or reference.reference_schema_version != 1
+        ):
+            raise OnlyAgentContextError("AGENT_RESEARCH_BRIEF_REFERENCE_INVALID", reference.locator_value)
+        key = (reference.reference_kind, reference.reference_schema_version, reference.locator_value)
+        cached = self._verified.get(key)
+        if cached is not None:
+            return cast(OnlyApiSearchAuthoringIdentityV1, cached)
+        path = (
+            "/api/v2/research/search/authoring/"
+            f"{quote(reference.reference_kind, safe='')}/{quote(reference.locator_value, safe='')}"
+        )
+        payload = _strict_envelope(
+            self._client.get_json_verified(path),
+            {"schema_version", "reference_kind", "reference_fingerprint", "payload"},
+        )
+        if (
+            payload["schema_version"] != 1
+            or payload["reference_kind"] != reference.reference_kind
+            or payload["reference_fingerprint"] != reference.locator_value
+            or not isinstance(payload["payload"], Mapping)
+        ):
+            raise OnlyAgentContextError("AGENT_RESEARCH_BRIEF_REFERENCE_INVALID", reference.locator_value)
+        value = OnlyApiSearchAuthoringIdentityV1(
+            reference.reference_kind,
+            reference.reference_schema_version,
+            reference.locator_value,
+        )
+        self._verified[key] = value
+        return value
 
 
 def _research_run(value: Mapping[str, object]) -> OnlyResearchRun:
@@ -390,6 +478,16 @@ def _string(value: object, field: str) -> str:
 def _optional_string(value: object) -> str | None:
     if value is not None and not isinstance(value, str):
         raise OnlyAgentContextError("AGENT_TOOL_RESULT_INVALID", "optional string")
+    return value
+
+
+def _optional_fact_fingerprint(payload: Mapping[str, object], field: str) -> str | None:
+    value = payload.get(field)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise OnlyAgentContextError("AGENT_SEARCH_FAILED", field)
+    _sha(value, field)
     return value
 
 

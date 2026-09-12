@@ -781,6 +781,51 @@
         "title": "ExactEvaluationContextDto",
         "type": "object"
       },
+      "ExactResearchStatisticsDto": {
+        "additionalProperties": false,
+        "properties": {
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "statistics_result_fingerprint": {
+            "title": "Statistics Result Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "statistics_result_fingerprint",
+          "payload"
+        ],
+        "title": "ExactResearchStatisticsDto",
+        "type": "object"
+      },
+      "ExactRuntimeGenerationDto": {
+        "additionalProperties": false,
+        "properties": {
+          "runtime_generation_fingerprint": {
+            "title": "Runtime Generation Fingerprint",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "runtime_generation_fingerprint"
+        ],
+        "title": "ExactRuntimeGenerationDto",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -897,7 +942,11 @@
               "$ref": "#/components/schemas/JsonValue"
             },
             "title": "Algorithm Manifest",
-            "type": "object"
+            "type": "object",
+            "x-onlyalpha-reference-kind": "SEARCH_ALGORITHM",
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-schema-version": 1,
+            "x-onlyalpha-reference-value-field": "implementation_fingerprint"
           },
           "catalog_generation_fingerprint": {
             "pattern": "^[0-9a-f]{64}$",
@@ -927,7 +976,11 @@
               "$ref": "#/components/schemas/JsonValue"
             },
             "title": "Evaluation Contract",
-            "type": "object"
+            "type": "object",
+            "x-onlyalpha-reference-kind": "RESEARCH_EVALUATION",
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-schema-version": 1,
+            "x-onlyalpha-reference-value-field": "evaluation_contract_fingerprint"
           },
           "hypothesis": {
             "additionalProperties": {
@@ -973,14 +1026,22 @@
               "$ref": "#/components/schemas/JsonValue"
             },
             "title": "Search Policy",
-            "type": "object"
+            "type": "object",
+            "x-onlyalpha-reference-kind": "SEARCH_POLICY",
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-schema-version": 1,
+            "x-onlyalpha-reference-value-field": "policy_fingerprint"
           },
           "search_space": {
             "additionalProperties": {
               "$ref": "#/components/schemas/JsonValue"
             },
             "title": "Search Space",
-            "type": "object"
+            "type": "object",
+            "x-onlyalpha-reference-kind": "PARAMETER_SEARCH_SPACE",
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-schema-version": 1,
+            "x-onlyalpha-reference-value-field": "search_space_fingerprint"
           },
           "workflow_binding": {
             "additionalProperties": {
@@ -4591,7 +4652,11 @@
               "$ref": "#/components/schemas/JsonValue"
             },
             "title": "Expected State",
-            "type": "object"
+            "type": "object",
+            "x-onlyalpha-reference-canonical-fingerprint": true,
+            "x-onlyalpha-reference-kind": "SEARCH_EXPECTED_STATE",
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-schema-version": 1
           },
           "experiment_fingerprint": {
             "pattern": "^[0-9a-f]{64}$",
@@ -5156,7 +5221,11 @@
               "$ref": "#/components/schemas/JsonValue"
             },
             "title": "Algorithm Manifest",
-            "type": "object"
+            "type": "object",
+            "x-onlyalpha-reference-kind": "SEARCH_ALGORITHM",
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-schema-version": 1,
+            "x-onlyalpha-reference-value-field": "implementation_fingerprint"
           },
           "catalog_generation_fingerprint": {
             "pattern": "^[0-9a-f]{64}$",
@@ -5186,7 +5255,11 @@
               "$ref": "#/components/schemas/JsonValue"
             },
             "title": "Evaluation Contract",
-            "type": "object"
+            "type": "object",
+            "x-onlyalpha-reference-kind": "RESEARCH_EVALUATION",
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-schema-version": 1,
+            "x-onlyalpha-reference-value-field": "evaluation_contract_fingerprint"
           },
           "hypothesis": {
             "additionalProperties": {
@@ -5232,7 +5305,11 @@
               "$ref": "#/components/schemas/JsonValue"
             },
             "title": "Search Space",
-            "type": "object"
+            "type": "object",
+            "x-onlyalpha-reference-kind": "SYMBOLIC_SEARCH_SPACE",
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-schema-version": 1,
+            "x-onlyalpha-reference-value-field": "search_space_fingerprint"
           },
           "workflow_binding": {
             "additionalProperties": {
@@ -8243,6 +8320,49 @@
         ]
       }
     },
+    "/api/v2/research/runtime-generations/{runtime_generation_fingerprint}": {
+      "get": {
+        "operationId": "get_exact_runtime_generation_v2",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runtime_generation_fingerprint",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Runtime Generation Fingerprint",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExactRuntimeGenerationDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Exact",
+        "tags": [
+          "runtime-generation"
+        ]
+      }
+    },
     "/api/v2/research/search/authoring/{reference_kind}/{reference_fingerprint}": {
       "get": {
         "operationId": "get_exact_search_authoring_input_v2",
@@ -8745,9 +8865,13 @@
         ],
         "x-onlyalpha-agent-operation": {
           "identity_requirements": [
+            "algorithm_manifest",
             "catalog_generation_fingerprint",
             "dataset_snapshot_fingerprint",
-            "runtime_generation_fingerprint"
+            "evaluation_contract",
+            "runtime_generation_fingerprint",
+            "search_policy",
+            "search_space"
           ],
           "owning_authority_references": [
             {
@@ -8889,6 +9013,7 @@
         ],
         "x-onlyalpha-agent-operation": {
           "identity_requirements": [
+            "expected_state",
             "experiment_fingerprint"
           ],
           "owning_authority_references": [
@@ -9031,9 +9156,12 @@
         ],
         "x-onlyalpha-agent-operation": {
           "identity_requirements": [
+            "algorithm_manifest",
             "catalog_generation_fingerprint",
             "dataset_snapshot_fingerprint",
-            "runtime_generation_fingerprint"
+            "evaluation_contract",
+            "runtime_generation_fingerprint",
+            "search_space"
           ],
           "owning_authority_references": [
             {
@@ -9175,6 +9303,7 @@
         ],
         "x-onlyalpha-agent-operation": {
           "identity_requirements": [
+            "expected_state",
             "experiment_fingerprint"
           ],
           "owning_authority_references": [
@@ -9205,6 +9334,49 @@
           "schema_version": 1,
           "tool_class": "SYMBOLIC_SEARCH"
         }
+      }
+    },
+    "/api/v2/research/statistics/{statistics_result_fingerprint}": {
+      "get": {
+        "operationId": "get_exact_research_statistics_v2",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "statistics_result_fingerprint",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Statistics Result Fingerprint",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExactResearchStatisticsDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Statistics",
+        "tags": [
+          "exact-research-statistics"
+        ]
       }
     },
     "/api/v2/strategies/{strategy_fingerprint}": {

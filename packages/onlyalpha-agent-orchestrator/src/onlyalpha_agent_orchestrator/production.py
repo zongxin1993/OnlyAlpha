@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 from urllib.parse import quote
 
+from onlyalpha.canonical import only_canonical_json
 from onlyalpha.research.agent.application import (
     OnlyAgentDecisionApplicationServiceV1,
     OnlyAgentEvidenceCausalVerifierV1,
@@ -34,7 +37,10 @@ from onlyalpha.research.agent.store import (
     OnlyJsonAgentResearchBriefStore,
     OnlyJsonAgentSessionManifestStore,
 )
-from onlyalpha.research.agent.verification import OnlyAgentResearchBriefReferenceReadersV1
+from onlyalpha.research.agent.verification import (
+    OnlyAgentResearchBriefReferenceReadersV1,
+    OnlyVerifiedAgentDecisionContextV1,
+)
 from onlyalpha.research.experiment.model import only_search_experiment_manifest_from_dict
 
 from .adapters.openai_compatible import OnlyOpenAICompatibleModelAdapterV1
@@ -52,6 +58,7 @@ from .coordination import OnlyAgentSessionExecutionCoordinatorV1
 from .driver import OnlyAgentSessionDriverV1
 from .materialization import OnlyAgentWorkflowActionMaterializerV1
 from .node_service import OnlyAgentNodeControlServiceV1
+from .runtime import build_current_agent_workflow_implementation_manifest
 from .semantic_bundle import load_production_semantic_bundle_v1
 
 
@@ -62,6 +69,69 @@ class _LateBindingProxy:
         if self.target is None:
             raise RuntimeError("AGENT_PRODUCTION_COMPOSITION_INCOMPLETE")
         return getattr(self.target, name)
+
+
+class _VerifiedSessionContextCache:
+    """Process-local cache of fully verified immutable Session context."""
+
+    def __init__(self, sessions: OnlyJsonAgentSessionManifestStore) -> None:
+        self._sessions = sessions
+        self._verified: dict[str, OnlyVerifiedAgentDecisionContextV1] = {}
+
+    def load_session_manifest_verified(self, fingerprint: str) -> OnlyVerifiedAgentDecisionContextV1:
+        cached = self._verified.get(fingerprint)
+        if cached is not None:
+            return cached
+        context = self._sessions.load_session_manifest_verified(fingerprint)
+        self._verified[fingerprint] = context
+        return context
+
+
+class _RequestScopedVerifiedReaderCache:
+    """Memoize fully verified immutable reads only within one control request."""
+
+    def __init__(self, target: object, methods: frozenset[str]) -> None:
+        self._target = target
+        self._methods = methods
+        self._verified: dict[tuple[object, ...], object] = {}
+
+    def clear(self) -> None:
+        self._verified.clear()
+
+    def __getattr__(self, name: str) -> Any:
+        target = getattr(self._target, name)
+        if name not in self._methods:
+            return target
+
+        def load(*args: object, **kwargs: object) -> object:
+            key = (name, args, tuple(sorted(kwargs.items())))
+            cached = self._verified.get(key)
+            if cached is not None:
+                return cached
+            value = target(*args, **kwargs)
+            self._verified[key] = value
+            return value
+
+        return load
+
+
+class _RequestScopedVerificationDriver:
+    def __init__(
+        self,
+        driver: OnlyAgentSessionDriverV1,
+        caches: tuple[_RequestScopedVerifiedReaderCache, ...],
+    ) -> None:
+        self._driver = driver
+        self._caches = caches
+
+    def advance_once(self, session_fingerprint: str):  # type: ignore[no-untyped-def]
+        for cache in self._caches:
+            cache.clear()
+        try:
+            return self._driver.advance_once(session_fingerprint)
+        finally:
+            for cache in self._caches:
+                cache.clear()
 
 
 class OnlyApiBackedAgentRuntimeGenerationReaderV1:
@@ -97,8 +167,16 @@ class OnlyAgentProductionContextReaderV1:
         self._briefs = briefs
         self._models = models
         self._tools = tools
+        self._immutable_product_payloads: dict[tuple[str, int, str], bytes] = {}
 
     def verify_exact_reference(self, reference: OnlyAgentExactAuthorityReference) -> None:
+        if reference.reference_kind == "SEARCH_EXPECTED_STATE":
+            if reference.reference_schema_version != 1:
+                raise OnlyAgentContextError("AGENT_EXACT_AUTHORITY_REFERENCE_INVALID", reference.locator_value)
+            # This is a canonical causal-input fingerprint, not a standalone
+            # Authority.  Its complete value is verified against the paired
+            # Search Authority projection during new-tool admission.
+            return
         self.load_semantic_payload_verified(reference)
 
     def verify_completed_evaluation_path(
@@ -117,8 +195,24 @@ class OnlyAgentProductionContextReaderV1:
         return self.load_semantic_payload_verified(reference)
 
     def load_semantic_payload_verified(self, reference: OnlyAgentExactAuthorityReference) -> Mapping[str, object]:
+        key = (reference.reference_kind, reference.reference_schema_version, reference.locator_value)
+        if reference.reference_kind != "RESEARCH_RUN":
+            cached = self._immutable_product_payloads.get(key)
+            if cached is not None:
+                value = json.loads(cached)
+                if not isinstance(value, dict):  # pragma: no cover - written only after verified mapping
+                    raise RuntimeError("AGENT_IMMUTABLE_CONTEXT_CACHE_CORRUPT")
+                return cast(Mapping[str, object], value)
+        value = self._load_semantic_payload_uncached(reference)
+        if reference.reference_kind != "RESEARCH_RUN":
+            self._immutable_product_payloads[key] = only_canonical_json(value).encode("utf-8")
+        return value
+
+    def _load_semantic_payload_uncached(self, reference: OnlyAgentExactAuthorityReference) -> Mapping[str, object]:
         kind = reference.reference_kind
         value = reference.locator_value
+        if kind == "SEARCH_EXPECTED_STATE":
+            raise OnlyAgentContextError("AGENT_EXACT_AUTHORITY_REFERENCE_INVALID", value)
         if kind == "AGENT_RESEARCH_BRIEF":
             return self._briefs.load_research_brief_verified(value).to_dict()
         if kind == "AGENT_MODEL_CALL_RESULT":
@@ -132,8 +226,52 @@ class OnlyAgentProductionContextReaderV1:
             "SEARCH_EXPERIMENT": f"/api/v2/research/search/experiments/{value}",
             "RESEARCH_RESULT": f"/api/v2/research/artifacts/{value}",
         }
+        if kind == "RESEARCH_STATISTICS":
+            envelope = self._client.get_json_verified(f"/api/v2/research/statistics/{value}")
+            if (
+                envelope.get("schema_version") != 1
+                or envelope.get("statistics_result_fingerprint") != value
+                or not isinstance(envelope.get("payload"), Mapping)
+            ):
+                raise OnlyAgentContextError("AGENT_EXACT_AUTHORITY_REFERENCE_INVALID", value)
+            return cast(Mapping[str, object], envelope["payload"])
+        if kind == "SEARCH_ITERATION_RESULT":
+            envelope = self._client.get_json_verified(
+                f"/api/v2/research/search/iteration-results/{quote(value, safe='')}"
+            )
+            if (
+                envelope.get("schema_version") != 1
+                or envelope.get("iteration_result_fingerprint") != value
+                or not isinstance(envelope.get("payload"), Mapping)
+            ):
+                raise OnlyAgentContextError("AGENT_EXACT_AUTHORITY_REFERENCE_INVALID", value)
+            return cast(Mapping[str, object], envelope["payload"])
+        if kind == "SEARCH_TERMINAL_PROJECTION":
+            envelope = self._client.get_json_verified(
+                f"/api/v2/research/search/iteration-results/terminal-projections/{quote(value, safe='')}"
+            )
+            if (
+                envelope.get("schema_version") != 1
+                or envelope.get("terminal_projection_fingerprint") != value
+                or not isinstance(envelope.get("payload"), Mapping)
+            ):
+                raise OnlyAgentContextError("AGENT_EXACT_AUTHORITY_REFERENCE_INVALID", value)
+            return cast(Mapping[str, object], envelope["payload"])
+        if kind == "RUNTIME_GENERATION":
+            envelope = self._client.get_json_verified(f"/api/v2/research/runtime-generations/{quote(value, safe='')}")
+            if envelope.get("schema_version") != 1 or envelope.get("runtime_generation_fingerprint") != value:
+                raise OnlyAgentContextError("AGENT_EXACT_AUTHORITY_REFERENCE_INVALID", value)
+            return envelope
         path = paths.get(kind)
         if path is None:
+            if kind not in {
+                "SYMBOLIC_SEARCH_SPACE",
+                "PARAMETER_SEARCH_SPACE",
+                "SEARCH_POLICY",
+                "SEARCH_ALGORITHM",
+                "RESEARCH_EVALUATION",
+            }:
+                raise OnlyAgentContextError("AGENT_EXACT_AUTHORITY_REFERENCE_INVALID", value)
             path = f"/api/v2/research/search/authoring/{quote(kind, safe='')}/{quote(value, safe='')}"
             envelope = self._client.get_json_verified(path)
             if (
@@ -163,6 +301,28 @@ class OnlyAgentProductionContextReaderV1:
 class OnlyAgentProductionRuntimeV1:
     control: OnlyAgentNodeControlServiceV1
     workflow_implementation_fingerprint: str
+    durable_root: Path
+    coordination_root: Path
+    product_contract_path: Path
+    product_contract_fingerprint: str
+
+    def is_ready(self) -> bool:
+        """Re-prove local operational invariants without remote Product or model I/O."""
+
+        try:
+            roots_usable = all(
+                root.is_absolute() and root.is_dir() and not root.is_symlink() and os.access(root, os.W_OK | os.X_OK)
+                for root in (self.durable_root, self.coordination_root)
+            )
+            if not roots_usable:
+                return False
+            current = build_current_agent_workflow_implementation_manifest()
+            if current.implementation_fingerprint != self.workflow_implementation_fingerprint:
+                return False
+            contract = OnlyProductApiContractV2(self.product_contract_path)
+            return contract.fingerprint == self.product_contract_fingerprint
+        except Exception:
+            return False
 
     @classmethod
     def compose(
@@ -182,10 +342,12 @@ class OnlyAgentProductionRuntimeV1:
             brief_references,
             brief_references,
             brief_references,
+            brief_references,
         )
         resources = OnlyJsonAgentOrchestrationResourceStore(durable_root)
         briefs = OnlyJsonAgentResearchBriefStore(durable_root, reference_readers)
         sessions = OnlyJsonAgentSessionManifestStore(durable_root, briefs=briefs, resources=resources)
+        session_contexts = _VerifiedSessionContextCache(sessions)
         model_store = OnlyJsonAgentModelOccurrenceStore(durable_root)
         tool_store = OnlyJsonAgentToolOccurrenceStore(durable_root)
         decision_store = OnlyJsonAgentDecisionStore(durable_root)
@@ -218,8 +380,8 @@ class OnlyAgentProductionRuntimeV1:
             research_states=research_states,
             search_states=search_states,
         )
-        decisions = OnlyAgentDecisionApplicationServiceV1(
-            sessions=sessions,
+        decision_service = OnlyAgentDecisionApplicationServiceV1(
+            sessions=session_contexts,
             models=model_proxy,
             tools=tool_proxy,
             references=contexts,
@@ -229,33 +391,68 @@ class OnlyAgentProductionRuntimeV1:
             runtime_generations=OnlyApiBackedAgentRuntimeGenerationReaderV1(client),
             evidence_causality=causality,
         )
+        decision_cache = _RequestScopedVerifiedReaderCache(
+            decision_service,
+            frozenset(
+                {
+                    "load_decision_verified",
+                    "load_decision_by_session_ordinal_verified",
+                    "load_decision_authorization_verified",
+                }
+            ),
+        )
+        decisions = cast(Any, decision_cache)
         decision_proxy.target = decisions
-        models = OnlyAgentModelOccurrenceServiceV1(
-            sessions=sessions,
+        model_service = OnlyAgentModelOccurrenceServiceV1(
+            sessions=session_contexts,
             resources=resources,
             references=contexts,
             decisions=decision_proxy,
             store=model_store,
         )
-        tools = OnlyAgentToolOccurrenceServiceV1(
-            sessions=sessions,
+        model_cache = _RequestScopedVerifiedReaderCache(
+            model_service,
+            frozenset(
+                {
+                    "load_plan_verified",
+                    "load_result_verified",
+                    "load_result_by_fingerprint_verified",
+                    "load_plan_by_session_ordinal_verified",
+                }
+            ),
+        )
+        models = cast(Any, model_cache)
+        tool_service = OnlyAgentToolOccurrenceServiceV1(
+            sessions=session_contexts,
             decisions=decision_proxy,
             product_contracts=product_contract,
             references=contexts,
             response_references=contexts,
             store=tool_store,
         )
+        tool_cache = _RequestScopedVerifiedReaderCache(
+            tool_service,
+            frozenset(
+                {
+                    "load_plan_verified",
+                    "load_result_verified",
+                    "load_result_by_fingerprint_verified",
+                    "load_plan_by_session_ordinal_verified",
+                }
+            ),
+        )
+        tools = cast(Any, tool_cache)
         model_proxy.target = models
         tool_proxy.target = tools
         launches = OnlyAgentExperimentLaunchServiceV1(
-            sessions=sessions,
+            sessions=session_contexts,
             decisions=decisions,
             tools=tools,
             child_searches=contexts,
             store=launch_store,
         )
         reducer = OnlyAgentSessionReducerV1(
-            sessions=sessions,
+            sessions=session_contexts,
             models=models,
             tools=tools,
             decision_service=decisions,
@@ -284,7 +481,7 @@ class OnlyAgentProductionRuntimeV1:
             transport=model_transport,
         )
         materializer = OnlyAgentWorkflowActionMaterializerV1(
-            sessions=sessions,
+            sessions=session_contexts,
             models=models,
             tools=tools,
             decisions=decisions,
@@ -300,7 +497,7 @@ class OnlyAgentProductionRuntimeV1:
         )
         driver = OnlyAgentSessionDriverV1(
             reducer=reducer,
-            sessions=sessions,
+            sessions=session_contexts,
             materializer=materializer,
             model_occurrences=models,
             tool_occurrences=tools,
@@ -308,15 +505,27 @@ class OnlyAgentProductionRuntimeV1:
             product_adapter=product_adapter,
             coordination=OnlyAgentSessionExecutionCoordinatorV1(coordination_root),
         )
+        request_driver = _RequestScopedVerificationDriver(
+            driver,
+            (decision_cache, model_cache, tool_cache),
+        )
         control = OnlyAgentNodeControlServiceV1(
             resources=resources,
             briefs=briefs,
             sessions=sessions,
             semantic_bundle=bundle,
-            driver=driver,
+            driver=request_driver,
         )
-        workflow = control.bootstrap()
-        return cls(control, workflow)
+        control.bootstrap()
+        workflow = build_current_agent_workflow_implementation_manifest()
+        return cls(
+            control,
+            workflow.implementation_fingerprint,
+            durable_root,
+            coordination_root,
+            product.contract_path,
+            product_contract.fingerprint,
+        )
 
 
 __all__ = [name for name in globals() if name.startswith("OnlyAgent")]

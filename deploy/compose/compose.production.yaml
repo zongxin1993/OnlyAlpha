@@ -106,6 +106,8 @@ services:
       - /etc/onlyalpha/product/binance-usdm-public-reference.json
       - --backtest-market-resource
       - /etc/onlyalpha/product/binance-usdm-account-reference.json
+      - --runtime-generation-authority-root
+      - /var/lib/onlyalpha/runtime-generations
       - --agent-node-url
       - http://onlyalpha-agent:8010
       - --agent-control-token-file

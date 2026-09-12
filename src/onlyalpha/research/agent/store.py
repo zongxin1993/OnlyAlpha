@@ -20,8 +20,9 @@ from .errors import OnlyAgentContextError, OnlyAgentContextStoreError
 from .model import (
     OnlyAgentOrchestrationResourceKind,
     OnlyAgentOrchestrationResourceV1,
-    OnlyAgentResearchBriefV1,
+    OnlyAgentResearchBrief,
     OnlyAgentSessionManifestV1,
+    only_agent_research_brief_from_dict,
 )
 from .verification import (
     OnlyAgentOrchestrationResourceReader,
@@ -210,20 +211,20 @@ class OnlyJsonAgentResearchBriefStore(OnlyAgentResearchBriefReader):
         self._store = _OnlyJsonPutOnceStore(semantic_root, Path("research/agent-orchestration/briefs"))
         self._reference_readers = reference_readers
 
-    def commit_research_brief(self, value: OnlyAgentResearchBriefV1) -> OnlyAgentCommitOutcome:
+    def commit_research_brief(self, value: OnlyAgentResearchBrief) -> OnlyAgentCommitOutcome:
         verify_agent_research_brief_references(value, self._reference_readers)
         return self._store.commit(
             value.research_brief_fingerprint,
             value,
-            OnlyAgentResearchBriefV1.from_dict,
+            only_agent_research_brief_from_dict,
             "AGENT_RESEARCH_BRIEF_INVALID",
             "AGENT_RESEARCH_BRIEF_INVALID",
         )
 
-    def load_research_brief_verified(self, research_brief_fingerprint: str) -> OnlyAgentResearchBriefV1:
+    def load_research_brief_verified(self, research_brief_fingerprint: str) -> OnlyAgentResearchBrief:
         value = self._store.load(
             research_brief_fingerprint,
-            OnlyAgentResearchBriefV1.from_dict,
+            only_agent_research_brief_from_dict,
             "AGENT_RESEARCH_BRIEF_INVALID",
             "AGENT_RESEARCH_BRIEF_INVALID",
         )

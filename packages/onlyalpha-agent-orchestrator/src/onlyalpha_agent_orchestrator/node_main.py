@@ -70,7 +70,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     app = create_agent_node_app(
         runtime.control,
         control_bearer_token=_secret(args.control_token_file),
-        readiness=lambda: True,
+        readiness=runtime.is_ready,
     )
     uvicorn.run(app, host=args.host, port=args.port)
     return 0

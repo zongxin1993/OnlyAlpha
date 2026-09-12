@@ -8,11 +8,14 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from onlyalpha.build_provenance import OnlyPackagedBuildProvenanceV1
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_payload
-from onlyalpha.research.experiment.model import OnlySearchEvaluationContextReferenceV1
+from onlyalpha.research.experiment.model import OnlySearchBudgetV1, OnlySearchEvaluationContextReferenceV1
+
+if TYPE_CHECKING:
+    from .occurrence import OnlyAgentContextReferenceV1
 
 _SHA = re.compile(r"^[0-9a-f]{64}$")
 _GIT_REVISION = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
@@ -955,6 +958,146 @@ class OnlyAgentResearchBriefV1:
         )
 
 
+_SEARCH_AUTHORING_REFERENCE_KINDS = {
+    "SYMBOLIC_SEARCH_SPACE",
+    "PARAMETER_SEARCH_SPACE",
+    "SEARCH_POLICY",
+    "SEARCH_ALGORITHM",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyAgentResearchBriefV2:
+    hypothesis: OnlyAgentStructuredHypothesisV1
+    catalog_generation_fingerprint: str
+    dataset_snapshot_fingerprint: str
+    evaluation_context_reference: OnlySearchEvaluationContextReferenceV1
+    allowed_search_methods: tuple[OnlyAgentSearchMethod, ...]
+    agent_budget: OnlyAgentBudgetV1
+    requested_child_search_budget: OnlySearchBudgetV1
+    ordered_search_authoring_references: tuple[OnlyAgentContextReferenceV1, ...]
+    research_brief_fingerprint: str = ""
+    schema_version: int = 2
+
+    def __post_init__(self) -> None:
+        from .occurrence import OnlyAgentContextReferenceV1
+
+        if (
+            self.schema_version != 2
+            or not isinstance(self.hypothesis, OnlyAgentStructuredHypothesisV1)
+            or not isinstance(self.evaluation_context_reference, OnlySearchEvaluationContextReferenceV1)
+            or not isinstance(self.agent_budget, OnlyAgentBudgetV1)
+            or not isinstance(self.requested_child_search_budget, OnlySearchBudgetV1)
+            or any(
+                not isinstance(reference, OnlyAgentContextReferenceV1)
+                for reference in self.ordered_search_authoring_references
+            )
+        ):
+            raise ValueError("AGENT_RESEARCH_BRIEF_INVALID")
+        _sha(self.catalog_generation_fingerprint, "catalog_generation_fingerprint")
+        _sha(self.dataset_snapshot_fingerprint, "dataset_snapshot_fingerprint")
+        _canonical_set(
+            tuple(item.value for item in self.allowed_search_methods), "allowed_search_methods", non_empty=True
+        )
+        if (
+            not self.ordered_search_authoring_references
+            or len(self.ordered_search_authoring_references) != len(set(self.ordered_search_authoring_references))
+            or self.ordered_search_authoring_references != tuple(sorted(self.ordered_search_authoring_references))
+            or any(
+                reference.reference_kind not in _SEARCH_AUTHORING_REFERENCE_KINDS
+                or reference.reference_schema_version != 1
+                for reference in self.ordered_search_authoring_references
+            )
+        ):
+            raise ValueError("AGENT_RESEARCH_BRIEF_AUTHORING_REFERENCES_INVALID")
+        expected = only_canonical_fingerprint(
+            {"domain": "onlyalpha.agent-research-brief", **self.to_dict(include_fingerprint=False)}
+        )
+        if not self.research_brief_fingerprint:
+            object.__setattr__(self, "research_brief_fingerprint", expected)
+        elif self.research_brief_fingerprint != expected:
+            raise ValueError("AGENT_RESEARCH_BRIEF_FINGERPRINT_MISMATCH")
+
+    @property
+    def requested_child_search_budget_fingerprint(self) -> str:
+        return only_canonical_fingerprint(self.requested_child_search_budget.to_dict())
+
+    def to_dict(self, *, include_fingerprint: bool = True) -> dict[str, object]:
+        result: dict[str, object] = {
+            "schema_version": self.schema_version,
+            "hypothesis": self.hypothesis.to_dict(),
+            "catalog_generation_fingerprint": self.catalog_generation_fingerprint,
+            "dataset_snapshot_fingerprint": self.dataset_snapshot_fingerprint,
+            "evaluation_context_reference": self.evaluation_context_reference.to_dict(),
+            "allowed_search_methods": [item.value for item in self.allowed_search_methods],
+            "agent_budget": self.agent_budget.to_dict(),
+            "requested_child_search_budget": self.requested_child_search_budget.to_dict(),
+            "ordered_search_authoring_references": [
+                item.to_dict() for item in self.ordered_search_authoring_references
+            ],
+        }
+        if include_fingerprint:
+            result["research_brief_fingerprint"] = self.research_brief_fingerprint
+        return result
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyAgentResearchBriefV2:
+        from .occurrence import OnlyAgentContextReferenceV1
+
+        _exact(
+            payload,
+            {
+                "schema_version",
+                "hypothesis",
+                "catalog_generation_fingerprint",
+                "dataset_snapshot_fingerprint",
+                "evaluation_context_reference",
+                "allowed_search_methods",
+                "agent_budget",
+                "requested_child_search_budget",
+                "ordered_search_authoring_references",
+                "research_brief_fingerprint",
+            },
+            "Research Brief",
+        )
+        return cls(
+            OnlyAgentStructuredHypothesisV1.from_dict(_mapping(payload["hypothesis"], "hypothesis")),
+            _sha(payload["catalog_generation_fingerprint"], "catalog_generation_fingerprint"),
+            _sha(payload["dataset_snapshot_fingerprint"], "dataset_snapshot_fingerprint"),
+            OnlySearchEvaluationContextReferenceV1.from_dict(
+                _mapping(payload["evaluation_context_reference"], "evaluation_context_reference")
+            ),
+            tuple(
+                OnlyAgentSearchMethod(_string(item, "allowed_search_method"))
+                for item in _sequence(payload["allowed_search_methods"], "allowed_search_methods")
+            ),
+            OnlyAgentBudgetV1.from_dict(_mapping(payload["agent_budget"], "agent_budget")),
+            OnlySearchBudgetV1.from_dict(
+                _mapping(payload["requested_child_search_budget"], "requested_child_search_budget")
+            ),
+            tuple(
+                OnlyAgentContextReferenceV1.from_dict(_mapping(item, "search authoring reference"))
+                for item in _sequence(
+                    payload["ordered_search_authoring_references"], "ordered_search_authoring_references"
+                )
+            ),
+            _sha(payload["research_brief_fingerprint"], "research_brief_fingerprint"),
+            _integer(payload["schema_version"], "schema_version"),
+        )
+
+
+OnlyAgentResearchBrief = OnlyAgentResearchBriefV1 | OnlyAgentResearchBriefV2
+
+
+def only_agent_research_brief_from_dict(payload: Mapping[str, object]) -> OnlyAgentResearchBrief:
+    version = _integer(payload.get("schema_version"), "schema_version")
+    if version == 1:
+        return OnlyAgentResearchBriefV1.from_dict(payload)
+    if version == 2:
+        return OnlyAgentResearchBriefV2.from_dict(payload)
+    raise ValueError("AGENT_RESEARCH_BRIEF_SCHEMA_UNSUPPORTED")
+
+
 @dataclass(frozen=True, slots=True)
 class OnlyAgentSessionManifestV1:
     research_brief_fingerprint: str
@@ -1044,4 +1187,4 @@ class OnlyAgentSessionManifestV1:
         )
 
 
-__all__ = [name for name in globals() if name.startswith("OnlyAgent")]
+__all__ = [name for name in globals() if name.startswith("OnlyAgent") or name.startswith("only_agent_research_brief_")]

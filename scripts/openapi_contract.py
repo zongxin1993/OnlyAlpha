@@ -75,8 +75,10 @@ SUPPORTED_COMPATIBILITY_KEYWORDS = frozenset(
         "required",
         "type",
         "x-onlyalpha-reference-kind",
+        "x-onlyalpha-reference-canonical-fingerprint",
         "x-onlyalpha-reference-locator-kind",
         "x-onlyalpha-reference-schema-version",
+        "x-onlyalpha-reference-value-field",
     }
 )
 NON_SEMANTIC_SCHEMA_KEYWORDS = frozenset({"default", "deprecated", "description", "example", "examples", "title"})
@@ -147,6 +149,11 @@ class _ContractRuntimeGenerations:
 class _ContractSearchAuthoring:
     def load_search_authoring_input_verified(self, _kind: str, _fingerprint: str) -> object:
         raise RuntimeError("OpenAPI generation must not read Search authoring inputs")
+
+
+class _ContractExactStatistics:
+    def load_verified(self, _fingerprint: str) -> object:
+        raise RuntimeError("OpenAPI generation must not read Research Statistics")
 
 
 def canonical_bytes(document: Mapping[str, Any]) -> bytes:
@@ -291,6 +298,7 @@ def render_document() -> JsonObject:
             cast(OnlyAgentNodeGateway, _ContractAgentGateway()),
             cast(Any, _ContractRuntimeGenerations()),
             cast(Any, _ContractSearchAuthoring()),
+            cast(Any, _ContractExactStatistics()),
         )
         return app.openapi()
     finally:

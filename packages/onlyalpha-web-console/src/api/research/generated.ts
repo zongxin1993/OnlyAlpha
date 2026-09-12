@@ -586,6 +586,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/research/runtime-generations/{runtime_generation_fingerprint}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Exact */
+        get: operations["get_exact_runtime_generation_v2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/research/search/authoring/{reference_kind}/{reference_fingerprint}": {
         parameters: {
             query?: never;
@@ -716,6 +733,23 @@ export interface paths {
         put?: never;
         /** Advance Symbolic */
         post: operations["advance_symbolic_search_experiment_v2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/statistics/{statistics_result_fingerprint}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Statistics */
+        get: operations["get_exact_research_statistics_v2"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1190,6 +1224,31 @@ export interface components {
             evaluation_kind: string;
             /** Evaluation Schema Version */
             evaluation_schema_version: number;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** ExactResearchStatisticsDto */
+        ExactResearchStatisticsDto: {
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /** Statistics Result Fingerprint */
+            statistics_result_fingerprint: string;
+        };
+        /** ExactRuntimeGenerationDto */
+        ExactRuntimeGenerationDto: {
+            /** Runtime Generation Fingerprint */
+            runtime_generation_fingerprint: string;
             /**
              * Schema Version
              * @default 1
@@ -4792,6 +4851,37 @@ export interface operations {
             };
         };
     };
+    get_exact_runtime_generation_v2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runtime_generation_fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExactRuntimeGenerationDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_exact_search_authoring_input_v2: {
         parameters: {
             query?: never;
@@ -5376,6 +5466,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    get_exact_research_statistics_v2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                statistics_result_fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExactResearchStatisticsDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

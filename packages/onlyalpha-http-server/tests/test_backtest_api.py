@@ -8,6 +8,14 @@ from onlyalpha_http_server import create_research_app
 from onlyalpha_http_server.health import OnlyKernelResearchReadinessProjection
 
 from onlyalpha.application.product_boundary import only_compose_research_product_boundary
+from onlyalpha.application.search_product import (
+    OnlySearchProductAuthorityUnavailable,
+    OnlySearchProductCommandConflict,
+    OnlySearchProductExpectedStateMismatch,
+    OnlySearchProductReceiptCorrupt,
+    OnlySearchRuntimeGenerationInvalid,
+    OnlySearchRuntimeGenerationNotFound,
+)
 from onlyalpha.backtest import (
     OnlyBacktestAdmissionResolution,
     OnlyBacktestCommandService,
@@ -113,6 +121,14 @@ class _FailingProductQuery:
         raise self._error
 
 
+class _FailingSearchProduct:
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
+    def get_experiment(self, _fingerprint: str) -> object:
+        raise self._error
+
+
 def _error_client(tmp_path, *, family: str, error: Exception) -> TestClient:  # type: ignore[no-untyped-def]
     kernel = OnlyAlphaKernelHost()
     kernel.start()
@@ -127,7 +143,7 @@ def _error_client(tmp_path, *, family: str, error: Exception) -> TestClient:  # 
             "backtest_commands": object(),
             "backtest_queries": _FailingProductQuery(error),
         }
-    else:
+    elif family == "strategy":
         options = {
             "strategy_freeze": object(),
             "strategy_promotion": object(),
@@ -135,6 +151,8 @@ def _error_client(tmp_path, *, family: str, error: Exception) -> TestClient:  # 
             "qualification": object(),
             "qualification_query": object(),
         }
+    else:
+        options = {"search_product": _FailingSearchProduct(error)}
     app = create_research_app(
         _Reader(),  # type: ignore[arg-type]
         boundary,
@@ -147,6 +165,25 @@ def _error_client(tmp_path, *, family: str, error: Exception) -> TestClient:  # 
         **options,  # type: ignore[arg-type]
     )
     return TestClient(app)
+
+
+@pytest.mark.parametrize(
+    ("error", "status"),
+    (
+        (OnlySearchRuntimeGenerationInvalid("invalid"), 400),
+        (OnlySearchRuntimeGenerationNotFound("missing"), 404),
+        (OnlySearchProductCommandConflict("conflict"), 409),
+        (OnlySearchProductExpectedStateMismatch("stale"), 409),
+        (OnlySearchProductReceiptCorrupt("corrupt"), 500),
+        (OnlySearchProductAuthorityUnavailable("unavailable"), 503),
+    ),
+)
+def test_search_product_domain_errors_match_declared_envelope(tmp_path, error: Exception, status: int) -> None:  # type: ignore[no-untyped-def]
+    response = _error_client(tmp_path, family="search", error=error).get(
+        f"/api/v2/research/search/experiments/{'a' * 64}"
+    )
+    assert response.status_code == status
+    assert response.json()["error"]["code"] == error.code  # type: ignore[attr-defined]
 
 
 def _payload() -> dict[str, object]:

@@ -22,12 +22,15 @@ from onlyalpha.research.agent.authority_state import (
 from onlyalpha.research.agent.decision import (
     OnlyAgentDecisionKind,
     OnlyAgentParameterSearchDirectiveV1,
+    OnlyAgentParameterSearchDirectiveV2,
     OnlyAgentReuseDirectiveV1,
     OnlyAgentSearchDirectiveV1,
     OnlyAgentSymbolicSearchDirectiveV1,
+    OnlyAgentSymbolicSearchDirectiveV2,
 )
 from onlyalpha.research.agent.errors import OnlyAgentContextError
 from onlyalpha.research.agent.model import (
+    OnlyAgentResearchBriefV2,
     OnlyAgentRolePolicyPayloadV1,
     OnlyAgentToolClass,
     OnlyAgentWorkflowImplementationManifestV1,
@@ -487,11 +490,11 @@ class OnlyAgentWorkflowActionMaterializerV1:
         directive: OnlyAgentSearchDirectiveV1,
     ) -> OnlyAgentMaterializedToolIntentV1:
         payload = directive.action_payload
-        if isinstance(payload, OnlyAgentSymbolicSearchDirectiveV1):
+        if isinstance(payload, (OnlyAgentSymbolicSearchDirectiveV1, OnlyAgentSymbolicSearchDirectiveV2)):
             operation = _SYMBOLIC_SUBMIT_OPERATION
             workflow = ONLYAGENT_SYMBOLIC_SEARCH_WORKFLOW_BINDING_V1
             method_payload: dict[str, object] = {}
-        elif isinstance(payload, OnlyAgentParameterSearchDirectiveV1):
+        elif isinstance(payload, (OnlyAgentParameterSearchDirectiveV1, OnlyAgentParameterSearchDirectiveV2)):
             operation = _PARAMETER_SUBMIT_OPERATION
             workflow = ONLYAGENT_PARAMETER_SEARCH_WORKFLOW_BINDING_V1
             method_payload = {
@@ -503,6 +506,11 @@ class OnlyAgentWorkflowActionMaterializerV1:
         generation_reference = _sha_reference("RUNTIME_GENERATION", generation)
         catalog_reference = _sha_reference("CATALOG_GENERATION", context.research_brief.catalog_generation_fingerprint)
         dataset_reference = _sha_reference("DATASET_SNAPSHOT", context.research_brief.dataset_snapshot_fingerprint)
+        budget_reference = (
+            None
+            if isinstance(payload, (OnlyAgentSymbolicSearchDirectiveV2, OnlyAgentParameterSearchDirectiveV2))
+            else payload.search_budget_reference
+        )
         references = tuple(
             item
             for item in (
@@ -510,13 +518,21 @@ class OnlyAgentWorkflowActionMaterializerV1:
                 payload.evaluation_reference,
                 getattr(payload, "search_policy_reference", None),
                 payload.algorithm_reference,
-                payload.search_budget_reference,
+                budget_reference,
                 catalog_reference,
                 dataset_reference,
                 generation_reference,
             )
             if item is not None
         )
+        if isinstance(payload, (OnlyAgentSymbolicSearchDirectiveV2, OnlyAgentParameterSearchDirectiveV2)):
+            if not isinstance(context.research_brief, OnlyAgentResearchBriefV2):
+                raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", "Brief/Directive version")
+            search_budget: Mapping[str, object] = context.research_brief.requested_child_search_budget.to_dict()
+            if only_canonical_fingerprint(search_budget) != payload.search_budget_fingerprint:
+                raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", "Search Budget binding")
+        else:
+            search_budget = self._semantic_inputs.load_semantic_payload_verified(payload.search_budget_reference)
         request = {
             "schema_version": 2,
             "hypothesis": translate_agent_hypothesis_to_search_hypothesis(context.research_brief.hypothesis).to_dict(),
@@ -525,7 +541,7 @@ class OnlyAgentWorkflowActionMaterializerV1:
             "search_space": self._semantic_inputs.load_semantic_payload_verified(payload.search_space_reference),
             "evaluation_contract": self._semantic_inputs.load_semantic_payload_verified(payload.evaluation_reference),
             "algorithm_manifest": self._semantic_inputs.load_semantic_payload_verified(payload.algorithm_reference),
-            "search_budget": self._semantic_inputs.load_semantic_payload_verified(payload.search_budget_reference),
+            "search_budget": search_budget,
             "workflow_binding": workflow.to_dict(),
             "decision_engine_binding": ONLYAGENT_SEARCH_DECISION_ENGINE_BINDING_V1.to_dict(),
             "parent_experiment_fingerprint": None,

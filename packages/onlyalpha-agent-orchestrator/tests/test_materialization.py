@@ -14,22 +14,28 @@ from onlyalpha.research.agent import (
     OnlyAgentBudgetV1,
     OnlyAgentContextReferenceV1,
     OnlyAgentDecisionKind,
+    OnlyAgentEvaluationContextReferenceV1,
     OnlyAgentExactAuthorityReferenceV2,
     OnlyAgentModelSettingBindingV1,
     OnlyAgentModelSettingState,
     OnlyAgentNextActionKind,
     OnlyAgentNextActionV1,
     OnlyAgentParameterSearchDirectiveV1,
+    OnlyAgentParameterSearchDirectiveV2,
     OnlyAgentReferenceLocatorKind,
+    OnlyAgentResearchBriefV2,
     OnlyAgentReuseDirectiveV1,
     OnlyAgentRolePolicyPayloadV1,
+    OnlyAgentRouterAction,
     OnlyAgentSearchDirectiveV1,
+    OnlyAgentSearchMethod,
     OnlyAgentStructuredHypothesisV1,
     OnlyAgentSymbolicSearchDirectiveV1,
+    OnlyAgentSymbolicSearchDirectiveV2,
     OnlyAgentToolCallOutcome,
     OnlyAgentToolClass,
 )
-from onlyalpha.research.agent.decision import OnlyAgentRouterAction
+from onlyalpha.research.experiment import OnlySearchBudgetV1
 
 SESSION = "a" * 64
 COMMAND_ID = uuid.UUID("12345678-1234-4234-9234-123456789abc")
@@ -155,6 +161,58 @@ def test_search_submit_materialization_binds_exact_directive_and_current_runtime
         "DATASET_SNAPSHOT",
         "RUNTIME_GENERATION",
     }
+
+
+@pytest.mark.parametrize("parameter", (False, True))
+def test_v2_search_submit_uses_brief_budget_without_budget_authority_lookup(parameter: bool) -> None:
+    budget = OnlySearchBudgetV1(2, 3, 1)
+    space = _ref("PARAMETER_SEARCH_SPACE" if parameter else "SYMBOLIC_SEARCH_SPACE", "4")
+    evaluation = _ref("RESEARCH_EVALUATION", "5")
+    policy = _ref("SEARCH_POLICY", "6")
+    algorithm = _ref("SEARCH_ALGORITHM", "7")
+    authoring = tuple(sorted((space, policy, algorithm) if parameter else (space, algorithm)))
+    brief = OnlyAgentResearchBriefV2(
+        _brief().hypothesis,
+        "1" * 64,
+        "2" * 64,
+        OnlyAgentEvaluationContextReferenceV1("ONLY_SYMBOLIC_RESEARCH_EVALUATION_CONTRACT", 1, "5" * 64),
+        (OnlyAgentSearchMethod.PARAMETER_SEARCH if parameter else OnlyAgentSearchMethod.SYMBOLIC_SEARCH,),
+        OnlyAgentBudgetV1(4, 20),
+        budget,
+        authoring,
+    )
+    payload = (
+        OnlyAgentParameterSearchDirectiveV2(
+            space,
+            evaluation,
+            policy,
+            algorithm,
+            brief.requested_child_search_budget_fingerprint,
+        )
+        if parameter
+        else OnlyAgentSymbolicSearchDirectiveV2(
+            space,
+            evaluation,
+            algorithm,
+            brief.requested_child_search_budget_fingerprint,
+        )
+    )
+    directive = OnlyAgentSearchDirectiveV1(
+        OnlyAgentRouterAction.PARAMETER_SEARCH if parameter else OnlyAgentRouterAction.SYMBOLIC_SEARCH,
+        "0" * 64,
+        payload,
+    )
+
+    class Inputs:
+        def load_semantic_payload_verified(self, reference):  # type: ignore[no-untyped-def]
+            assert reference.reference_kind != "SEARCH_BUDGET"
+            return {"reference_fingerprint": reference.reference_fingerprint}
+
+    intent = _materializer(semantic_inputs=Inputs())._search_submit_intent(
+        SimpleNamespace(research_brief=brief), directive
+    )
+    assert intent.canonical_request["search_budget"] == budget.to_dict()
+    assert all(item.reference_kind != "SEARCH_BUDGET" for item in intent.exact_identity_inputs)
 
 
 def test_exact_catalog_materialization_uses_brief_generation() -> None:

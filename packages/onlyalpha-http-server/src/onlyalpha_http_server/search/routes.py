@@ -99,9 +99,12 @@ def create_search_router(service: OnlySearchProductHttpBoundary) -> APIRouter:
             "IDEMPOTENT_COMMAND",
             command=True,
             identities=[
+                "algorithm_manifest",
                 "catalog_generation_fingerprint",
                 "dataset_snapshot_fingerprint",
+                "evaluation_contract",
                 "runtime_generation_fingerprint",
+                "search_space",
             ],
         ),
     )
@@ -125,9 +128,13 @@ def create_search_router(service: OnlySearchProductHttpBoundary) -> APIRouter:
             "IDEMPOTENT_COMMAND",
             command=True,
             identities=[
+                "algorithm_manifest",
                 "catalog_generation_fingerprint",
                 "dataset_snapshot_fingerprint",
+                "evaluation_contract",
                 "runtime_generation_fingerprint",
+                "search_policy",
+                "search_space",
             ],
         ),
     )
@@ -147,7 +154,10 @@ def create_search_router(service: OnlySearchProductHttpBoundary) -> APIRouter:
         response_model=SearchCommandResponseDto,
         responses=_COMMAND_RESPONSES,
         openapi_extra=_operation(
-            "SYMBOLIC_SEARCH", "IDEMPOTENT_COMMAND", command=True, identities=["experiment_fingerprint"]
+            "SYMBOLIC_SEARCH",
+            "IDEMPOTENT_COMMAND",
+            command=True,
+            identities=["expected_state", "experiment_fingerprint"],
         ),
     )
     def advance_symbolic(
@@ -166,7 +176,10 @@ def create_search_router(service: OnlySearchProductHttpBoundary) -> APIRouter:
         response_model=SearchCommandResponseDto,
         responses=_COMMAND_RESPONSES,
         openapi_extra=_operation(
-            "PARAMETER_SEARCH", "IDEMPOTENT_COMMAND", command=True, identities=["experiment_fingerprint"]
+            "PARAMETER_SEARCH",
+            "IDEMPOTENT_COMMAND",
+            command=True,
+            identities=["expected_state", "experiment_fingerprint"],
         ),
     )
     def advance_parameter(

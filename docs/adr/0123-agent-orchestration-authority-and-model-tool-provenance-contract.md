@@ -1,7 +1,7 @@
 # ADR 0123: Agent Orchestration Authority and Model/Tool Provenance Contract
 
 - Status: Accepted
-- Date: 2026-09-08 (amended 2026-09-10 for Agent Launch Tool Result identity closure)
+- Date: 2026-09-08 (amended 2026-09-12 for Agent Research Brief and Search Directive V2)
 - Decision maker: repository owner through the B3.4.0 design authorization
 - Related: ADR 0091, 0103, 0108, 0118, 0119, 0120, 0121, 0122
 
@@ -258,6 +258,35 @@ OnlyAgentBudgetV1:
 Consumption is derived from committed Model Call Plans, Tool Call Plans, and Experiment Launch Records. Process-local counters are
 not Authority. Provider token counts, latency, and monetary cost may be operational telemetry but are not Research Authority and do
 not enter V1 decision identity unless a later policy explicitly makes a bounded setting decision-affecting.
+
+#### Forward-only Agent Research Brief V2 and Search Directive V2 amendment (2026-09-12)
+
+`OnlyAgentResearchBriefV2` preserves every V1 binding and additionally carries:
+
+```text
+requested_child_search_budget: OnlySearchBudgetV1
+ordered_search_authoring_references:
+    exact existing SYMBOLIC_SEARCH_SPACE / PARAMETER_SEARCH_SPACE /
+    SEARCH_POLICY / SEARCH_ALGORITHM references
+```
+
+The ordered references are an exact Factor Designer allowlist, not a registry or a new Authority. Admission exact-verifies them only
+through versioned Product reads over their existing ADR 0121/0122 Authorities. `RESEARCH_EVALUATION` continues to be the exact Brief
+evaluation context and is read through its existing Authority projection. There is deliberately no `SEARCH_BUDGET` authoring lookup.
+
+Forward-only Symbolic and Parameter Search Directive V2 remove the V1 `SEARCH_BUDGET` exact Authority reference. They bind only
+`search_budget_fingerprint`, deterministically derived from the exact Brief V2 budget. The model and Factor Designer cannot choose or
+modify that budget, and may select Search Space, Search Policy, and Search Algorithm references only from the Brief allowlist. The
+Directive evaluation reference must equal the Brief evaluation context.
+
+Search Submit materialization exact-loads the Brief, takes its complete requested child budget, verifies the Directive fingerprint,
+and places the complete value in the canonical Product request. The Tool Call Plan records proposal/intent provenance only. Once the
+Product admits the child, ADR 0120 Search Experiment Provenance remains the sole Authority for its complete bound Search Budget.
+Agent Budget remains permanently separate.
+
+V1 Briefs and Directives keep their existing schemas, canonical bytes, identities, parsers, and readability. No historical rewrite or
+migration is authorized. A V1 Brief accepts only V1 Search Directive payloads and a V2 Brief accepts only V2 Symbolic/Parameter
+payloads; version mixing fails closed.
 
 ### Agent Session Manifest V1
 

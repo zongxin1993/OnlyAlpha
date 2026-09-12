@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict
 from pydantic import ValidationError as PydanticValidationError
 
 from onlyalpha.canonical import only_canonical_json
-from onlyalpha.research.agent.model import OnlyAgentResearchBriefV1
+from onlyalpha.research.agent.model import only_agent_research_brief_from_dict
 
 AGENT_GATEWAY_ROUTE_TAG = "agent-gateway"
 
@@ -123,7 +123,7 @@ def create_agent_gateway_router(gateway: OnlyAgentNodeGateway) -> APIRouter:
     @router.post("/sessions", operation_id="admit_agent_session_v2", response_model=AgentSessionResponseDto)
     def admit(request: AgentSessionRequestDto) -> AgentSessionResponseDto:
         try:
-            brief = OnlyAgentResearchBriefV1.from_dict(request.research_brief)
+            brief = only_agent_research_brief_from_dict(request.research_brief)
         except (TypeError, ValueError) as error:
             raise HTTPException(status_code=400, detail="AGENT_RESEARCH_BRIEF_INVALID") from error
         payload = gateway.post_json_verified("/internal/v1/sessions", {"research_brief": brief.to_dict()})

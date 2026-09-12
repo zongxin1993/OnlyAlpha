@@ -11,7 +11,7 @@ from fastapi import APIRouter, FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict
 
 from onlyalpha.research.agent.errors import OnlyAgentContextError
-from onlyalpha.research.agent.model import OnlyAgentResearchBriefV1
+from onlyalpha.research.agent.model import only_agent_research_brief_from_dict
 
 from .coordination import OnlyAgentSessionExecutionBusy
 from .node_service import OnlyAgentNodeControlServiceV1
@@ -89,7 +89,7 @@ def create_agent_node_app(
     ) -> AgentSessionAdmissionResponseDto:
         authorize(authorization)
         try:
-            brief = OnlyAgentResearchBriefV1.from_dict(request.research_brief)
+            brief = only_agent_research_brief_from_dict(request.research_brief)
             outcome = service.admit_session(brief)
         except OnlyAgentContextError as error:
             raise HTTPException(status_code=409, detail=error.code) from error

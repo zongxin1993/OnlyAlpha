@@ -16,6 +16,24 @@ from onlyalpha.application.qualification_product import (
     OnlyQualificationProductService,
     OnlyQualificationQueryService,
 )
+from onlyalpha.application.search_product import (
+    OnlySearchProductAuthorityUnavailable,
+    OnlySearchProductCapabilityUnsupported,
+    OnlySearchProductCommandConflict,
+    OnlySearchProductEffectConflict,
+    OnlySearchProductError,
+    OnlySearchProductExpectedStateMismatch,
+    OnlySearchProductMethodUnsupported,
+    OnlySearchProductReceiptCorrupt,
+    OnlySearchProductSemanticFactCorrupt,
+    OnlySearchRuntimeGenerationBindingConflict,
+    OnlySearchRuntimeGenerationDerivedBindingConflict,
+    OnlySearchRuntimeGenerationInvalid,
+    OnlySearchRuntimeGenerationNotEligibleForNewWork,
+    OnlySearchRuntimeGenerationNotFound,
+    OnlySearchRuntimeGenerationUnavailable,
+    OnlySearchRuntimeGenerationUnbound,
+)
 from onlyalpha.application.strategy_product import (
     OnlyStrategyFreezeProductService,
     OnlyStrategyPromotionProductService,
@@ -65,6 +83,11 @@ from .research.exact_reference_schema import (
     OnlyDatasetSnapshotIdentityReader,
     OnlyEvaluationContextIdentityReader,
 )
+from .research.exact_statistics_routes import (
+    EXACT_STATISTICS_ROUTE_TAG,
+    OnlyExactResearchStatisticsReader,
+    create_exact_statistics_router,
+)
 from .research.routes import ARTIFACT_ROUTE_TAG, create_artifact_router
 from .research.run_errors import run_error_response
 from .research.run_routes import RUN_ROUTE_TAG, create_run_router
@@ -80,7 +103,14 @@ from .research.search_authoring_routes import (
     OnlySearchAuthoringInputReader,
     create_search_authoring_router,
 )
+from .research.search_provenance_routes import (
+    SEARCH_PROVENANCE_ROUTE_TAG,
+    OnlySearchIterationResultReader,
+    OnlySearchTerminalProjectionReader,
+    create_search_provenance_router,
+)
 from .search import SEARCH_ROUTE_TAG, OnlySearchProductHttpBoundary, create_search_router
+from .search.schema import SearchErrorDto, SearchErrorEnvelopeDto
 from .strategy.routes import STRATEGY_ROUTE_TAG, create_strategy_router
 
 
@@ -139,6 +169,8 @@ def _request_route_tag(request: Request) -> str | None:
             AGENT_GATEWAY_ROUTE_TAG,
             RUNTIME_GENERATION_ROUTE_TAG,
             SEARCH_AUTHORING_ROUTE_TAG,
+            SEARCH_PROVENANCE_ROUTE_TAG,
+            EXACT_STATISTICS_ROUTE_TAG,
         }
     )
     return known[0] if len(known) == 1 else None
@@ -171,6 +203,9 @@ def create_research_app(
     agent_gateway: OnlyAgentNodeGateway | None = None,
     runtime_generations: OnlyRuntimeGenerationProjectionReader | None = None,
     search_authoring_inputs: OnlySearchAuthoringInputReader | None = None,
+    exact_statistics: OnlyExactResearchStatisticsReader | None = None,
+    exact_search_iteration_results: OnlySearchIterationResultReader | None = None,
+    exact_search_terminal_projections: OnlySearchTerminalProjectionReader | None = None,
 ) -> FastAPI:
     universe_authority = definition_resolver.universe_resolver
     if universe_authority is not None and not isinstance(universe_authority, OnlyResearchUniverseCatalog):
@@ -278,9 +313,56 @@ def create_research_app(
     app.add_exception_handler(OnlyBacktestError, product_error_handler)
     app.add_exception_handler(OnlyStrategyError, product_error_handler)
 
+    async def search_product_error_handler(_request: Request, error: Exception) -> JSONResponse:
+        assert isinstance(error, OnlySearchProductError)
+        if isinstance(error, (OnlySearchProductReceiptCorrupt, OnlySearchProductSemanticFactCorrupt)):
+            status = 500
+            detail = "Verified Search Product authority is corrupt"
+        elif isinstance(error, (OnlySearchProductAuthorityUnavailable, OnlySearchRuntimeGenerationUnavailable)):
+            status = 503
+            detail = "Required Search Product authority is unavailable"
+        elif isinstance(error, OnlySearchRuntimeGenerationNotFound):
+            status = 404
+            detail = error.detail or error.code
+        elif isinstance(
+            error,
+            (
+                OnlySearchProductCommandConflict,
+                OnlySearchProductExpectedStateMismatch,
+                OnlySearchProductEffectConflict,
+                OnlySearchRuntimeGenerationUnbound,
+                OnlySearchRuntimeGenerationBindingConflict,
+                OnlySearchRuntimeGenerationNotEligibleForNewWork,
+                OnlySearchRuntimeGenerationDerivedBindingConflict,
+            ),
+        ):
+            status = 409
+            detail = error.detail or error.code
+        else:
+            assert isinstance(
+                error,
+                (
+                    OnlySearchProductMethodUnsupported,
+                    OnlySearchProductCapabilityUnsupported,
+                    OnlySearchRuntimeGenerationInvalid,
+                ),
+            )
+            status = 400
+            detail = error.detail or error.code
+        body = SearchErrorEnvelopeDto(error=SearchErrorDto(code=error.code, detail=detail))
+        return JSONResponse(status_code=status, content=body.model_dump(mode="json"))
+
+    app.add_exception_handler(OnlySearchProductError, search_product_error_handler)
+
     async def product_value_error_handler(request: Request, _error: Exception) -> JSONResponse:
-        if _request_route_tag(request) not in {STRATEGY_ROUTE_TAG, BACKTEST_ROUTE_TAG}:
+        family = _request_route_tag(request)
+        if family not in {STRATEGY_ROUTE_TAG, BACKTEST_ROUTE_TAG, SEARCH_ROUTE_TAG}:
             return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
+        if family == SEARCH_ROUTE_TAG:
+            search_body = SearchErrorEnvelopeDto(
+                error=SearchErrorDto(code="SEARCH_PRODUCT_REQUEST_INVALID", detail="HTTP request validation failed")
+            )
+            return JSONResponse(status_code=400, content=search_body.model_dump(mode="json"))
         body = ProductErrorEnvelopeDto(
             error=ProductErrorDto(
                 phase="COMMAND",
@@ -301,6 +383,11 @@ def create_research_app(
             return _artifact_validation_error_response()
         if family == DEFINITION_ROUTE_TAG:
             return _definition_validation_error_response(error)
+        if family == SEARCH_ROUTE_TAG:
+            search_body = SearchErrorEnvelopeDto(
+                error=SearchErrorDto(code="SEARCH_PRODUCT_REQUEST_INVALID", detail="HTTP request validation failed")
+            )
+            return JSONResponse(status_code=400, content=search_body.model_dump(mode="json"))
         if family in {STRATEGY_ROUTE_TAG, BACKTEST_ROUTE_TAG}:
             body = ProductErrorEnvelopeDto(
                 error=ProductErrorDto(
@@ -343,6 +430,16 @@ def create_research_app(
         app.include_router(create_runtime_generation_router(runtime_generations), dependencies=readiness_dependencies)
     if search_authoring_inputs is not None:
         app.include_router(create_search_authoring_router(search_authoring_inputs), dependencies=readiness_dependencies)
+    if exact_statistics is not None:
+        app.include_router(create_exact_statistics_router(exact_statistics), dependencies=readiness_dependencies)
+    if exact_search_iteration_results is not None:
+        app.include_router(
+            create_search_provenance_router(
+                exact_search_iteration_results,
+                exact_search_terminal_projections,
+            ),
+            dependencies=readiness_dependencies,
+        )
     if any(
         item is not None
         for item in (strategy_freeze, strategy_promotion, strategy_query, qualification, qualification_query)
@@ -427,6 +524,9 @@ def create_product_app(
     agent_gateway: OnlyAgentNodeGateway | None = None,
     runtime_generations: OnlyRuntimeGenerationProjectionReader | None = None,
     search_authoring_inputs: OnlySearchAuthoringInputReader | None = None,
+    exact_statistics: OnlyExactResearchStatisticsReader | None = None,
+    exact_search_iteration_results: OnlySearchIterationResultReader | None = None,
+    exact_search_terminal_projections: OnlySearchTerminalProjectionReader | None = None,
 ) -> FastAPI:
     app = create_research_app(
         reader,
@@ -449,6 +549,9 @@ def create_product_app(
         agent_gateway,
         runtime_generations,
         search_authoring_inputs,
+        exact_statistics,
+        exact_search_iteration_results,
+        exact_search_terminal_projections,
     )
     app.title = "OnlyAlpha Product API"
     return app

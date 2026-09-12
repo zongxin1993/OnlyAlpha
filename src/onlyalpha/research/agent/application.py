@@ -22,16 +22,19 @@ from .decision import (
     OnlyAgentExperimentLaunchRecordV1,
     OnlyAgentNextExperimentProposalV1,
     OnlyAgentParameterSearchDirectiveV1,
+    OnlyAgentParameterSearchDirectiveV2,
     OnlyAgentResearchPlanV1,
     OnlyAgentReuseDirectiveV1,
     OnlyAgentRouterAction,
     OnlyAgentSearchDirectivePayloadV1,
     OnlyAgentSearchDirectiveV1,
     OnlyAgentSymbolicSearchDirectiveV1,
+    OnlyAgentSymbolicSearchDirectiveV2,
 )
 from .decision_store import OnlyJsonAgentDecisionStore, OnlyJsonAgentExperimentLaunchStore
 from .errors import OnlyAgentContextError
 from .model import (
+    OnlyAgentResearchBriefV2,
     OnlyAgentRolePolicyPayloadV1,
     OnlyAgentSearchMethod,
     OnlyAgentToolClass,
@@ -263,7 +266,11 @@ class OnlyAgentEvidenceCausalVerifierV1:
             or launch_plan.agent_session_fingerprint != decision.agent_session_fingerprint
             or launch_plan.authorizing_agent_decision_fingerprint != decision.decision_fingerprint
             or launch_plan.tool_class is not expected_launch_class
-            or launch_result.owning_authority_references.count(child) != 1
+            or sum(
+                _reference_identity(reference) == _reference_identity(child)
+                for reference in launch_result.owning_authority_references
+            )
+            != 1
         ):
             self._unavailable("Search Launch causal closure")
         authority = self._search_states.load_search_state_verified(launch.child_search_experiment_fingerprint)
@@ -417,7 +424,12 @@ def _plain_json(value: object) -> object:
     return value
 
 
-def _action_payload(value: object, action: OnlyAgentRouterAction) -> OnlyAgentSearchDirectivePayloadV1:
+def _action_payload(
+    value: object,
+    action: OnlyAgentRouterAction,
+    *,
+    brief_schema_version: int,
+) -> OnlyAgentSearchDirectivePayloadV1:
     if not isinstance(value, Mapping):
         raise OnlyAgentContextError("AGENT_MODEL_RESPONSE_INVALID", "action_payload")
     try:
@@ -425,9 +437,17 @@ def _action_payload(value: object, action: OnlyAgentRouterAction) -> OnlyAgentSe
         if action is OnlyAgentRouterAction.REUSE_EXISTING:
             return OnlyAgentReuseDirectiveV1.from_dict(payload)
         if action is OnlyAgentRouterAction.SYMBOLIC_SEARCH:
-            return OnlyAgentSymbolicSearchDirectiveV1.from_dict(payload)
+            return (
+                OnlyAgentSymbolicSearchDirectiveV2.from_dict(payload)
+                if brief_schema_version == 2
+                else OnlyAgentSymbolicSearchDirectiveV1.from_dict(payload)
+            )
         if action is OnlyAgentRouterAction.PARAMETER_SEARCH:
-            return OnlyAgentParameterSearchDirectiveV1.from_dict(payload)
+            return (
+                OnlyAgentParameterSearchDirectiveV2.from_dict(payload)
+                if brief_schema_version == 2
+                else OnlyAgentParameterSearchDirectiveV1.from_dict(payload)
+            )
         return OnlyAgentCapabilityGapDirectiveV1.from_dict(payload)
     except Exception as exc:
         raise OnlyAgentContextError("AGENT_MODEL_RESPONSE_INVALID", "Search Directive payload") from exc
@@ -561,7 +581,11 @@ class OnlyAgentDecisionApplicationServiceV1:
         if action is OnlyAgentRouterAction.CAPABILITY_GAP:
             if factor_designer_model_result_fingerprint is not None or "action_payload" not in router_output:
                 raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", "Capability Gap branch")
-            action_payload = _action_payload(router_output["action_payload"], action)
+            action_payload = _action_payload(
+                router_output["action_payload"],
+                action,
+                brief_schema_version=context.research_brief.schema_version,
+            )
         else:
             if factor_designer_model_result_fingerprint is None or "action_payload" in router_output:
                 raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", "Factor Designer branch")
@@ -581,7 +605,11 @@ class OnlyAgentDecisionApplicationServiceV1:
             )
             if designer_plan.ordered_context_references != expected_designer_context:
                 raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", "Factor Designer context")
-            action_payload = _action_payload(designer_output["action_payload"], action)
+            action_payload = _action_payload(
+                designer_output["action_payload"],
+                action,
+                brief_schema_version=context.research_brief.schema_version,
+            )
             model_results.append(designer_result.model_call_result_fingerprint)
             context_references.extend(expected_designer_context[len(expected_router_context) :])
         self._verify_action_references(action_payload, context)
@@ -705,8 +733,17 @@ class OnlyAgentDecisionApplicationServiceV1:
         if not isinstance(policy, OnlyAgentToolPolicyPayloadV1):
             raise OnlyAgentContextError("AGENT_POLICY_VIOLATION", decision_fingerprint)
         allowed.intersection_update(policy.allowed_tool_classes)
-        _, role_policy = _role(context, decision.logical_role)
-        allowed.intersection_update(role_policy.allowed_tool_classes)
+        authorization_roles: tuple[str, ...] = (decision.logical_role,)
+        if decision.decision_kind is OnlyAgentDecisionKind.SEARCH_DIRECTIVE:
+            directive = cast(OnlyAgentSearchDirectiveV1, decision.structured_payload)
+            if directive.router_action is not OnlyAgentRouterAction.CAPABILITY_GAP:
+                authorization_roles = ("FACTOR_DESIGNER", "EVIDENCE_ANALYST")
+        role_tools = {
+            tool_class
+            for logical_role in authorization_roles
+            for tool_class in _role(context, logical_role)[1].allowed_tool_classes
+        }
+        allowed.intersection_update(role_tools)
         operations = tuple(
             item.operation_identity for item in policy.operation_constraints if item.tool_class in allowed
         )
@@ -768,7 +805,15 @@ class OnlyAgentDecisionApplicationServiceV1:
                 if not required:
                     raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity)
             elif tool_class in {OnlyAgentToolClass.SYMBOLIC_SEARCH, OnlyAgentToolClass.PARAMETER_SEARCH}:
-                if not isinstance(payload, (OnlyAgentSymbolicSearchDirectiveV1, OnlyAgentParameterSearchDirectiveV1)):
+                if not isinstance(
+                    payload,
+                    (
+                        OnlyAgentSymbolicSearchDirectiveV1,
+                        OnlyAgentParameterSearchDirectiveV1,
+                        OnlyAgentSymbolicSearchDirectiveV2,
+                        OnlyAgentParameterSearchDirectiveV2,
+                    ),
+                ):
                     raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity)
                 configuration = {
                     value
@@ -811,7 +856,12 @@ class OnlyAgentDecisionApplicationServiceV1:
                     ).owning_authority_references
                     if reference.reference_kind == "SEARCH_EXPERIMENT"
                 }
-                required = configuration if configuration.issubset(supplied) else prior_children
+                supplied_identities = {_reference_identity(reference) for reference in supplied}
+                required = (
+                    configuration
+                    if {_reference_identity(reference) for reference in configuration}.issubset(supplied_identities)
+                    else prior_children
+                )
                 if not required:
                     raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity)
             elif tool_class is OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY:
@@ -850,7 +900,9 @@ class OnlyAgentDecisionApplicationServiceV1:
                         plan.tool_call_plan_fingerprint
                     ).owning_authority_references
                 }
-                if not supplied.intersection(prior_owned):
+                if not {_reference_identity(reference) for reference in supplied}.intersection(
+                    _reference_identity(reference) for reference in prior_owned
+                ):
                     raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity)
                 required = set()
         else:
@@ -865,7 +917,9 @@ class OnlyAgentDecisionApplicationServiceV1:
             for reference in supplied
         ):
             raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity)
-        if not required.issubset(supplied):
+        if not {_reference_identity(reference) for reference in required}.issubset(
+            _reference_identity(reference) for reference in supplied
+        ):
             raise OnlyAgentContextError("AGENT_TOOL_OPERATION_NOT_ALLOWED", operation_identity)
         self._verify_projected_semantics(
             context=context,
@@ -917,10 +971,19 @@ class OnlyAgentDecisionApplicationServiceV1:
         authority = self._search_states.load_search_state_verified(children[0].locator_value)
         expected = only_canonical_fingerprint(authority.expected_state.to_dict())
         operation = authority.next_bounded_operation
+        product_operation = {
+            OnlyAgentToolClass.SYMBOLIC_SEARCH: "advance_symbolic_search_experiment_v2",
+            OnlyAgentToolClass.PARAMETER_SEARCH: "advance_parameter_search_experiment_v2",
+        }[tool_class]
         if (
             expected_states[0].locator_value != expected
             or operation is None
-            or operation_identity not in {operation.value, f"search.{operation.value.lower()}.v1"}
+            or operation_identity
+            not in {
+                product_operation,
+                operation.value,
+                f"search.{operation.value.lower()}.v1",
+            }
             or semantic_projection.semantic_bindings["child_experiment_fingerprint"] != children[0].locator_value
             or semantic_projection.semantic_bindings["expected_search_state_fingerprint"] != expected
             or semantic_projection.semantic_bindings["bounded_operation"] != operation.value
@@ -961,7 +1024,12 @@ class OnlyAgentDecisionApplicationServiceV1:
             directive_payload = directive.action_payload
             if tool_class in {OnlyAgentToolClass.SYMBOLIC_SEARCH, OnlyAgentToolClass.PARAMETER_SEARCH} and isinstance(
                 directive_payload,
-                (OnlyAgentSymbolicSearchDirectiveV1, OnlyAgentParameterSearchDirectiveV1),
+                (
+                    OnlyAgentSymbolicSearchDirectiveV1,
+                    OnlyAgentParameterSearchDirectiveV1,
+                    OnlyAgentSymbolicSearchDirectiveV2,
+                    OnlyAgentParameterSearchDirectiveV2,
+                ),
             ):
                 children = tuple(
                     reference for reference in exact_identity_inputs if reference.reference_kind == "SEARCH_EXPERIMENT"
@@ -1121,7 +1189,11 @@ class OnlyAgentDecisionApplicationServiceV1:
                 designer_output = cast(Mapping[str, object], designer_result.validated_structured_output)
                 if (
                     set(designer_output) != {"action_payload"}
-                    or _action_payload(designer_output["action_payload"], directive.router_action)
+                    or _action_payload(
+                        designer_output["action_payload"],
+                        directive.router_action,
+                        brief_schema_version=context.research_brief.schema_version,
+                    )
                     != directive.action_payload
                 ):
                     raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", decision.decision_fingerprint)
@@ -1133,7 +1205,12 @@ class OnlyAgentDecisionApplicationServiceV1:
                     raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", decision.decision_fingerprint)
             elif (
                 set(router_output) != {"router_action", "action_payload"}
-                or _action_payload(router_output["action_payload"], directive.router_action) != directive.action_payload
+                or _action_payload(
+                    router_output["action_payload"],
+                    directive.router_action,
+                    brief_schema_version=context.research_brief.schema_version,
+                )
+                != directive.action_payload
             ):
                 raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", decision.decision_fingerprint)
             if decision.ordered_context_references != tuple(directive_context):
@@ -1293,7 +1370,11 @@ class OnlyAgentDecisionApplicationServiceV1:
             if action is OnlyAgentRouterAction.CAPABILITY_GAP:
                 if len(decision.ordered_model_call_result_fingerprints) != 1 or "action_payload" not in router_output:
                     raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", "Capability Gap branch")
-                action_payload = _action_payload(router_output["action_payload"], action)
+                action_payload = _action_payload(
+                    router_output["action_payload"],
+                    action,
+                    brief_schema_version=context.research_brief.schema_version,
+                )
             else:
                 if len(decision.ordered_model_call_result_fingerprints) != 2 or "action_payload" in router_output:
                     raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", "Factor Designer branch")
@@ -1313,7 +1394,11 @@ class OnlyAgentDecisionApplicationServiceV1:
                 )
                 if designer_plan.ordered_context_references != designer_context:
                     raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", "Factor Designer context")
-                action_payload = _action_payload(designer_output["action_payload"], action)
+                action_payload = _action_payload(
+                    designer_output["action_payload"],
+                    action,
+                    brief_schema_version=context.research_brief.schema_version,
+                )
                 model_results.append(designer_result.model_call_result_fingerprint)
                 directive_context.append(designer_context[-1])
             self._verify_action_references(action_payload, context)
@@ -1419,6 +1504,20 @@ class OnlyAgentDecisionApplicationServiceV1:
     def _verify_action_references(
         self, payload: OnlyAgentSearchDirectivePayloadV1, context: OnlyVerifiedAgentDecisionContextV1
     ) -> None:
+        v2_search_payload = isinstance(
+            payload,
+            (OnlyAgentSymbolicSearchDirectiveV2, OnlyAgentParameterSearchDirectiveV2),
+        )
+        if isinstance(context.research_brief, OnlyAgentResearchBriefV2) != v2_search_payload and isinstance(
+            payload,
+            (
+                OnlyAgentSymbolicSearchDirectiveV1,
+                OnlyAgentParameterSearchDirectiveV1,
+                OnlyAgentSymbolicSearchDirectiveV2,
+                OnlyAgentParameterSearchDirectiveV2,
+            ),
+        ):
+            raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", "Brief/Directive version")
         values = tuple(getattr(payload, field.name) for field in fields(payload))
         references = tuple(value for value in values if isinstance(value, OnlyAgentExactAuthorityReference)) + tuple(
             item
@@ -1429,6 +1528,21 @@ class OnlyAgentDecisionApplicationServiceV1:
         )
         for reference in references:
             self._references.verify_exact_reference(reference)
+        if isinstance(context.research_brief, OnlyAgentResearchBriefV2) and isinstance(
+            payload,
+            (OnlyAgentSymbolicSearchDirectiveV2, OnlyAgentParameterSearchDirectiveV2),
+        ):
+            if payload.search_budget_fingerprint != (context.research_brief.requested_child_search_budget_fingerprint):
+                raise OnlyAgentContextError("AGENT_DECISION_CAUSAL_INPUT_INVALID", "Search Budget binding")
+            selected_authoring = tuple(
+                reference
+                for reference in references
+                if reference.reference_kind
+                in {"SYMBOLIC_SEARCH_SPACE", "PARAMETER_SEARCH_SPACE", "SEARCH_POLICY", "SEARCH_ALGORITHM"}
+            )
+            allowed = set(context.research_brief.ordered_search_authoring_references)
+            if not selected_authoring or any(reference not in allowed for reference in selected_authoring):
+                raise OnlyAgentContextError("AGENT_POLICY_VIOLATION", "Search authoring reference allowlist")
         evaluation = getattr(payload, "evaluation_reference", None)
         if isinstance(evaluation, OnlyAgentExactAuthorityReference) and (
             evaluation.locator_value != context.research_brief.evaluation_context_reference.evaluation_fingerprint
@@ -1592,16 +1706,31 @@ class OnlyAgentDecisionApplicationServiceV1:
         child: OnlySearchExperimentManifestV2 | OnlySearchExperimentManifestV3,
     ) -> None:
         payload = directive.action_payload
-        if not isinstance(payload, (OnlyAgentSymbolicSearchDirectiveV1, OnlyAgentParameterSearchDirectiveV1)):
+        if not isinstance(
+            payload,
+            (
+                OnlyAgentSymbolicSearchDirectiveV1,
+                OnlyAgentParameterSearchDirectiveV1,
+                OnlyAgentSymbolicSearchDirectiveV2,
+                OnlyAgentParameterSearchDirectiveV2,
+            ),
+        ):
             raise OnlyAgentContextError("AGENT_EXPERIMENT_LAUNCH_INVALID", "Directive is not executable Search")
         expected_budget_fingerprint = only_canonical_fingerprint(child.search_budget.to_dict())
+        budget_binding = (
+            payload.search_budget_fingerprint
+            if isinstance(payload, (OnlyAgentSymbolicSearchDirectiveV2, OnlyAgentParameterSearchDirectiveV2))
+            else payload.search_budget_reference.locator_value
+        )
         common_invalid = (
             payload.search_space_reference.locator_value != child.search_space_reference.search_space_fingerprint
             or payload.algorithm_reference.locator_value != child.search_algorithm_binding.implementation_fingerprint
-            or payload.search_budget_reference.locator_value != expected_budget_fingerprint
+            or budget_binding != expected_budget_fingerprint
             or child.decision_engine_binding.mode is not OnlySearchDecisionMode.DETERMINISTIC
         )
-        policy_invalid = isinstance(payload, OnlyAgentParameterSearchDirectiveV1) and (
+        policy_invalid = isinstance(
+            payload, (OnlyAgentParameterSearchDirectiveV1, OnlyAgentParameterSearchDirectiveV2)
+        ) and (
             not isinstance(child, OnlySearchExperimentManifestV3)
             or payload.search_policy_reference.locator_value != child.search_policy_reference.policy_fingerprint
         )
@@ -1731,6 +1860,10 @@ class OnlyAgentExperimentLaunchServiceV1:
             or child.catalog_generation_fingerprint != context.research_brief.catalog_generation_fingerprint
             or child.dataset_snapshot_fingerprint != context.research_brief.dataset_snapshot_fingerprint
             or child.evaluation_context_reference != context.research_brief.evaluation_context_reference
+            or (
+                isinstance(context.research_brief, OnlyAgentResearchBriefV2)
+                and child.search_budget != context.research_brief.requested_child_search_budget
+            )
             or context.research_brief.agent_budget.child_experiment_limit != 1
         ):
             raise OnlyAgentContextError("AGENT_EXPERIMENT_LAUNCH_INVALID", launch.experiment_launch_record_fingerprint)

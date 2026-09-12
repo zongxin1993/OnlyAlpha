@@ -328,6 +328,12 @@ content through one immutable Agent Orchestration Resource Authority. Historical
 code may continue or reproduce a Session only when its derived workflow implementation manifest exactly matches the Session-bound
 manifest; mismatch fails closed without invalidating history.
 
+The forward-only Agent Research Brief V2 additionally carries one requested child `OnlySearchBudgetV1` and an ordered exact allowlist
+of existing Symbolic/Parameter Search Space, Search Policy, and Search Algorithm references. Factor Designer may select only from that
+allowlist and may bind only the deterministic Brief-budget fingerprint; it cannot choose or modify the budget. Product submission
+materializes the complete budget from the exact Brief, while the admitted ADR 0120 Search Experiment remains its sole Authority. No
+Search Budget store, registry, discovery endpoint, or authoring reader exists. Historical V1 Briefs and Directives remain unchanged.
+
 Every Agent-visible Product API invocation, including Catalog queries and pure resolve calls, requires a durable Tool Call Plan before
 I/O and an exact validated Tool Call Result afterward. One successful first cycle follows exactly one mutually exclusive bounded formal
 evaluation path: `REUSE_EXISTING` performs Catalog/Definition Resolve followed by direct Research Run submit/query and Evidence query

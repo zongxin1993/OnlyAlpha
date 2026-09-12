@@ -13,7 +13,7 @@ from types import MappingProxyType
 from typing import Any, cast
 from urllib.parse import quote, urlencode
 
-from onlyalpha.canonical import only_canonical_json
+from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 from onlyalpha.research.agent.model import OnlyAgentToolClass
 from onlyalpha.research.agent.occurrence import (
     OnlyAgentExactAuthorityReference,
@@ -26,6 +26,12 @@ from onlyalpha.research.agent.occurrence import (
 from onlyalpha.research.agent.occurrence_service import (
     OnlyAgentProductOperationContractV1,
     OnlyAgentProductRequestSemanticProjectionV1,
+)
+from onlyalpha.research.experiment import (
+    OnlySearchBudgetV1,
+    OnlySearchDecisionEngineBindingV1,
+    OnlySearchHypothesisV1,
+    OnlySearchWorkflowBindingV1,
 )
 
 from ..config import OnlyProductApiEndpointConfigV1
@@ -46,6 +52,56 @@ _EXTENSION_FIELDS = {
 _OWNER_FIELDS = {"reference_kind", "reference_schema_version", "locator_kind", "response_field"}
 _COMMAND_TRANSPORT_FIELDS = {"in", "name"}
 _HTTP_METHODS = {"delete", "get", "patch", "post", "put"}
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _object_field(value: Mapping[str, object], field: str) -> Mapping[str, object]:
+    item = value.get(field)
+    if not isinstance(item, Mapping) or any(not isinstance(key, str) for key in item):
+        raise ValueError("AGENT_PRODUCT_API_CONTRACT_MISMATCH")
+    return cast(Mapping[str, object], item)
+
+
+def _semantic_fingerprint(value: Mapping[str, object], field: str) -> str:
+    fingerprint = value.get(field)
+    if not isinstance(fingerprint, str) or _SHA256.fullmatch(fingerprint) is None:
+        raise ValueError("AGENT_PRODUCT_API_CONTRACT_MISMATCH")
+    return fingerprint
+
+
+def _project_search_submit_semantics(request: Mapping[str, object], *, method: str) -> Mapping[str, object]:
+    hypothesis = OnlySearchHypothesisV1.from_dict(_object_field(request, "hypothesis"))
+    budget = OnlySearchBudgetV1.from_dict(_object_field(request, "search_budget"))
+    workflow = OnlySearchWorkflowBindingV1.from_dict(_object_field(request, "workflow_binding"))
+    decision_engine = OnlySearchDecisionEngineBindingV1.from_dict(_object_field(request, "decision_engine_binding"))
+    policy = request.get("search_policy")
+    if (method == "PARAMETER") != isinstance(policy, Mapping):
+        raise ValueError("AGENT_PRODUCT_API_CONTRACT_MISMATCH")
+    return {
+        "method": method,
+        "search_hypothesis_fingerprint": hypothesis.hypothesis_fingerprint,
+        "search_space_fingerprint": _semantic_fingerprint(
+            _object_field(request, "search_space"), "search_space_fingerprint"
+        ),
+        "evaluation_fingerprint": _semantic_fingerprint(
+            _object_field(request, "evaluation_contract"), "evaluation_contract_fingerprint"
+        ),
+        "algorithm_fingerprint": _semantic_fingerprint(
+            _object_field(request, "algorithm_manifest"), "implementation_fingerprint"
+        ),
+        "search_budget_fingerprint": only_canonical_fingerprint(budget.to_dict()),
+        "search_policy_fingerprint": (
+            _semantic_fingerprint(cast(Mapping[str, object], policy), "policy_fingerprint")
+            if method == "PARAMETER"
+            else None
+        ),
+        "catalog_generation_fingerprint": request["catalog_generation_fingerprint"],
+        "dataset_snapshot_fingerprint": request["dataset_snapshot_fingerprint"],
+        "workflow_binding": workflow.to_dict(),
+        "decision_engine_binding": decision_engine.to_dict(),
+        "parent_experiment_fingerprint": request.get("parent_experiment_fingerprint"),
+        "runtime_generation_fingerprint": request["runtime_generation_fingerprint"],
+    }
 
 
 class OnlyProductResponseEffect(StrEnum):
@@ -136,6 +192,33 @@ class OnlyProductApiContractV2:
     ) -> OnlyAgentProductRequestSemanticProjectionV1:
         contract = self.load_operation_verified(product_api_major, product_api_contract_fingerprint, operation_identity)
         validated = self.validate_request_verified(contract, canonical_validated_request)
+        if operation_identity in {
+            "submit_symbolic_search_experiment_v2",
+            "submit_parameter_search_experiment_v2",
+        }:
+            return OnlyAgentProductRequestSemanticProjectionV1(
+                operation_identity,
+                _project_search_submit_semantics(
+                    validated,
+                    method=(
+                        "SYMBOLIC" if operation_identity == "submit_symbolic_search_experiment_v2" else "PARAMETER"
+                    ),
+                ),
+            )
+        if operation_identity in {
+            "advance_symbolic_search_experiment_v2",
+            "advance_parameter_search_experiment_v2",
+        }:
+            expected_state = _object_field(validated, "expected_state")
+            return OnlyAgentProductRequestSemanticProjectionV1(
+                operation_identity,
+                {
+                    "method": validated["method"],
+                    "child_experiment_fingerprint": validated["experiment_fingerprint"],
+                    "expected_search_state_fingerprint": only_canonical_fingerprint(expected_state),
+                    "bounded_operation": validated["operation"],
+                },
+            )
         return OnlyAgentProductRequestSemanticProjectionV1(operation_identity, validated)
 
     def verify_response_binding(

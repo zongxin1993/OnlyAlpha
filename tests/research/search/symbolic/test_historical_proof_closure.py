@@ -116,6 +116,7 @@ def test_enumeration_result_identity_is_complete_deterministic_and_fresh_process
     generation, search_space = space(max_nodes=2)
     store, experiment, context, _resolver = _verified_context(tmp_path, generation, search_space, "a" * 64)
     value = store.load_enumeration_result_verified(experiment.experiment_fingerprint)
+    assert store.load_enumeration_result_by_fingerprint_verified(value.enumeration_result_fingerprint) == value
     assert OnlySymbolicEnumerationResultV1.from_dict(value.to_dict()) == value
     assert value.experiment_fingerprint != value.enumeration_result_fingerprint
     assert replace(value).enumeration_result_fingerprint == value.enumeration_result_fingerprint

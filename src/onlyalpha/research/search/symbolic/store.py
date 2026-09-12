@@ -150,6 +150,36 @@ class OnlyJsonSymbolicSearchStore:
             "SEARCH_ENUMERATION_RESULT",
         )
 
+    def load_enumeration_result_by_fingerprint_verified(
+        self, enumeration_result_fingerprint: str
+    ) -> OnlySymbolicEnumerationResultV1:
+        """Resolve one exact immutable Result identity without exposing discovery semantics."""
+
+        if (
+            not isinstance(enumeration_result_fingerprint, str)
+            or len(enumeration_result_fingerprint) != 64
+            or any(character not in "0123456789abcdef" for character in enumeration_result_fingerprint)
+        ):
+            raise OnlySymbolicSearchStoreError("SEARCH_ENUMERATION_RESULT_NOT_FOUND", enumeration_result_fingerprint)
+        root = self._root / "enumeration-results" / "sha256"
+        matches: list[OnlySymbolicEnumerationResultV1] = []
+        if root.is_dir() and not root.is_symlink():
+            for shard in sorted(root.iterdir(), key=lambda item: item.name):
+                if len(shard.name) != 2 or shard.is_symlink() or not shard.is_dir():
+                    continue
+                for candidate in sorted(shard.iterdir(), key=lambda item: item.name):
+                    if len(candidate.name) != 64 or any(
+                        character not in "0123456789abcdef" for character in candidate.name
+                    ):
+                        continue
+                    value = self.load_enumeration_result_verified(candidate.name)
+                    if value.enumeration_result_fingerprint == enumeration_result_fingerprint:
+                        matches.append(value)
+        if len(matches) != 1:
+            code = "SEARCH_ENUMERATION_RESULT_NOT_FOUND" if not matches else "SEARCH_ENUMERATION_RESULT_CONFLICT"
+            raise OnlySymbolicSearchStoreError(code, enumeration_result_fingerprint)
+        return matches[0]
+
     def _commit(
         self,
         category: str,

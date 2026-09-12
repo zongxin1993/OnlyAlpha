@@ -1,7 +1,7 @@
 # ADR 0120: Search Experiment and Search Provenance Authority Contract
 
 - Status: Accepted
-- Date: 2026-09-06
+- Date: 2026-09-06 (amended 2026-09-12 for Agent Brief V2 budget-authority closure)
 - Decision maker: repository owner through the B3.1 implementation authorization
 - Related: ADR 0072, 0083, 0095, 0115, 0118, 0119
 
@@ -144,6 +144,20 @@ qualification_attempt_limit
 
 This contract records the budget and whether an Iteration reached Research or Qualification. It does not add a scheduler, reservation
 service, ranking policy, parallel allocator, or global Store scan.
+
+#### Amendment: Agent-authored child budget binding (2026-09-12)
+
+Search Experiment Provenance remains the sole Authority for the complete `search_budget` of an admitted Search Experiment. There is
+no standalone Search Budget authoring Authority, Store, registry, discovery endpoint, exact-reference reader, or Product-owned budget
+truth. A forward-only Agent Research Brief V2 may carry a requested child `OnlySearchBudgetV1` as immutable proposal intent before
+admission. The child Directive binds only its deterministic canonical fingerprint; Product materialization obtains the complete value
+from the exact Brief and verifies that fingerprint before submission. After Product admission, this manifest's complete
+`search_budget` is the sole authoritative bound value. Tool Call Plan request bytes remain proposal/intent provenance and never become
+Search Budget Authority.
+
+Agent Budget and child Search Budget are permanently distinct identity and accounting domains. Historical Agent Brief V1 and
+Directive V1 records remain byte-identical readable; this amendment requires no rewrite or migration of any existing Search or Agent
+fact.
 
 Every Experiment has an explicit workflow identity/version. Decision mode is exactly `DETERMINISTIC`, `HUMAN`, or `MODEL_ASSISTED`.
 Model-assisted mode additionally requires exact provider, model, model-version, prompt-template fingerprint, and tool-policy

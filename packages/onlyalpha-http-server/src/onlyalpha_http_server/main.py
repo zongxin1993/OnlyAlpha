@@ -4,17 +4,31 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import uvicorn
-from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry
+from onlyalpha_runtime_generation_manager import (
+    OnlyHistoricalGenerationHostManager,
+    OnlyLocalImmutableArtifactStore,
+    OnlyRuntimeGenerationBuilder,
+    OnlyRuntimeGenerationRegistry,
+)
+from onlyalpha_runtime_generation_manager.catalog_context import (
+    OnlyRuntimeGenerationExactCatalogDescriptorReader,
+)
 
+from onlyalpha.application.catalog_context import OnlyExactCatalogContextQueryService
 from onlyalpha.application.product_boundary import only_compose_research_product_boundary
 from onlyalpha.application.qualification_product import (
     OnlyQualificationProductService,
     OnlyQualificationQueryService,
+)
+from onlyalpha.application.search_product import (
+    OnlySearchProductCommandServiceV1,
+    OnlySearchProductQueryServiceV1,
 )
 from onlyalpha.application.strategy_authority import (
     OnlyStrategyFreezeApplicationService,
@@ -67,8 +81,14 @@ from onlyalpha.research.evaluation.factor_pair.result_store import (
     OnlyParquetResearchFactorPairStatisticsResultStore,
 )
 from onlyalpha.research.evaluation.result_store import OnlyParquetResearchStatisticsResultStore
+from onlyalpha.research.evaluation.summary.execution import OnlyResearchEffectSummaryExecutor
 from onlyalpha.research.evaluation.summary.reader import OnlyResearchStatisticsResultReader
 from onlyalpha.research.evaluation.summary.result_store import OnlyJsonResearchSummaryStatisticsResultStore
+from onlyalpha.research.experiment import (
+    OnlyJsonSearchProvenanceStore,
+    OnlySearchExperimentManifestV2,
+    OnlySearchExperimentManifestV3,
+)
 from onlyalpha.research.operations.deployment import (
     OnlyResearchDeploymentCoherenceVerifier,
     OnlyResearchFrozenDeploymentCheck,
@@ -80,8 +100,27 @@ from onlyalpha.research.operations.readiness import (
     OnlyResearchRequiredRoot,
     OnlyResearchServiceReadinessProbe,
 )
+from onlyalpha.research.result.assembler import OnlyResearchResultAssembler
 from onlyalpha.research.result.result_store import OnlyJsonResearchResultStore
 from onlyalpha.research.run.admission import OnlyResearchRunAdmissionService
+from onlyalpha.research.run.generation import OnlyResearchHostedRuntimeGenerationResolver
+from onlyalpha.research.search.parameter.context import OnlyParameterSearchContextResolver
+from onlyalpha.research.search.parameter.errors import OnlyParameterSearchStoreError
+from onlyalpha.research.search.parameter.evidence import OnlyParameterResearchEvidenceReader
+from onlyalpha.research.search.parameter.execution import OnlyHostedParameterGenerationExecutionV1
+from onlyalpha.research.search.parameter.integration import (
+    OnlyParameterResearchCommandGatewayV1,
+    OnlyParameterResearchEvidenceFinalizerV1,
+)
+from onlyalpha.research.search.parameter.product import OnlyParameterSearchProductAdapterV1
+from onlyalpha.research.search.parameter.store import OnlyJsonParameterSearchStore
+from onlyalpha.research.search.symbolic.context import OnlySymbolicSearchContextResolver
+from onlyalpha.research.search.symbolic.errors import OnlySymbolicSearchStoreError
+from onlyalpha.research.search.symbolic.execution import OnlyHostedSymbolicGenerationExecutionV1
+from onlyalpha.research.search.symbolic.product import (
+    OnlySymbolicResearchCommandGatewayV1,
+    OnlySymbolicSearchProductAdapterV1,
+)
 from onlyalpha.research.search.symbolic.store import OnlyJsonSymbolicSearchStore
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 from onlyalpha.strategy.qualification import OnlyQualificationEvaluator, OnlyQualificationPolicyRevision
@@ -96,6 +135,7 @@ from .app import create_product_app
 from .composition import only_configure_product_registries
 from .health import OnlyKernelResearchReadinessProjection
 from .research.search_authoring_routes import OnlySearchAuthoringValue
+from .search import OnlySearchProductHttpServiceV1
 
 
 class _ResearchProductVerification:
@@ -124,17 +164,193 @@ class _UnavailableProductAuthority:
 class _SearchAuthoringInputReader:
     """Exact dispatch over existing Search-owned immutable stores."""
 
-    def __init__(self, symbolic: OnlyJsonSymbolicSearchStore) -> None:
+    def __init__(
+        self,
+        symbolic: OnlyJsonSymbolicSearchStore,
+        parameter: OnlyJsonParameterSearchStore,
+    ) -> None:
         self._symbolic = symbolic
+        self._parameter = parameter
 
     def load_search_authoring_input_verified(self, reference_kind: str, fingerprint: str) -> OnlySearchAuthoringValue:
         if reference_kind == "SYMBOLIC_SEARCH_SPACE":
             return self._symbolic.load_search_space_intrinsic_verified(fingerprint)
         if reference_kind == "RESEARCH_EVALUATION":
             return self._symbolic.load_evaluation_contract_intrinsic_verified(fingerprint)
+        if reference_kind == "PARAMETER_SEARCH_SPACE":
+            return self._parameter.load_search_space_intrinsic_verified(fingerprint)
+        if reference_kind == "SEARCH_POLICY":
+            return self._parameter.load_policy_intrinsic_verified(fingerprint)
         if reference_kind == "SEARCH_ALGORITHM":
-            return self._symbolic.load_algorithm_implementation_manifest_intrinsic_verified(fingerprint)
+            values: list[OnlySearchAuthoringValue] = []
+            try:
+                values.append(self._symbolic.load_algorithm_implementation_manifest_intrinsic_verified(fingerprint))
+            except OnlySymbolicSearchStoreError as error:
+                if error.code != "SEARCH_ALGORITHM_MANIFEST_NOT_FOUND":
+                    raise
+            try:
+                values.append(self._parameter.load_algorithm_manifest_intrinsic_verified(fingerprint))
+            except OnlyParameterSearchStoreError as error:
+                if error.code != "PARAMETER_ALGORITHM_MANIFEST_NOT_FOUND":
+                    raise
+            if len(values) != 1:
+                raise LookupError("SEARCH_ALGORITHM_NOT_FOUND_OR_AMBIGUOUS")
+            return values[0]
         raise LookupError(reference_kind)
+
+
+class _GenerationOwnedCatalogReader:
+    """Fail closed if a historical Search path attempts parent-runtime Catalog execution."""
+
+    def generation(self, fingerprint: str) -> object:
+        raise RuntimeError(f"SEARCH_CATALOG_IS_RUNTIME_GENERATION_OWNED:{fingerprint}")
+
+
+class _SearchContextReader:
+    """Dispatch shared provenance verification by the Experiment's exact schema."""
+
+    def __init__(
+        self,
+        symbolic: OnlySymbolicSearchContextResolver,
+        parameter: OnlyParameterSearchContextResolver,
+    ) -> None:
+        self._symbolic = symbolic
+        self._parameter = parameter
+
+    def _resolver(
+        self, experiment: OnlySearchExperimentManifestV2 | OnlySearchExperimentManifestV3
+    ) -> OnlySymbolicSearchContextResolver | OnlyParameterSearchContextResolver:
+        if isinstance(experiment, OnlySearchExperimentManifestV2):
+            return self._symbolic
+        if isinstance(experiment, OnlySearchExperimentManifestV3):
+            return self._parameter
+        raise TypeError("SEARCH_EXPERIMENT_SCHEMA_UNSUPPORTED")
+
+    def __getattr__(self, name: str) -> object:
+        if name.startswith("_"):
+            raise AttributeError(name)
+
+        def dispatch(
+            experiment: OnlySearchExperimentManifestV2 | OnlySearchExperimentManifestV3,
+            *args: object,
+        ) -> object:
+            method = getattr(self._resolver(experiment), name)
+            return method(experiment, *args)
+
+        return dispatch
+
+
+class _SearchTerminalProjectionReader:
+    def __init__(self, symbolic: OnlyJsonSymbolicSearchStore, parameter: OnlyJsonParameterSearchStore) -> None:
+        self._symbolic = symbolic
+        self._parameter = parameter
+
+    def load_terminal_projection_verified(self, fingerprint: str) -> object:
+        try:
+            return self._symbolic.load_enumeration_result_by_fingerprint_verified(fingerprint)
+        except OnlySymbolicSearchStoreError as error:
+            if not error.code.endswith("_NOT_FOUND"):
+                raise
+        return self._parameter.load_feedback_decision_intrinsic_verified(fingerprint)
+
+
+def _compose_search_product(
+    *,
+    layout: OnlyUserDataLayout,
+    calculations: OnlyCalculationRegistry,
+    datasets: OnlyParquetResearchDatasetSnapshotStore,
+    research_commands: OnlyResearchCommandService,
+    research_runs: OnlyResearchRunQueryService,
+    research_results: OnlyJsonResearchResultStore,
+    statistics_results: OnlyResearchStatisticsResultReader,
+    calculation_results: OnlyParquetResearchCalculationResultStore,
+    legacy_statistics_results: OnlyParquetResearchStatisticsResultStore,
+    summary_statistics_results: OnlyJsonResearchSummaryStatisticsResultStore,
+    product_commands: OnlyPostgresProductCommandAuthority,
+    runtime_generations: OnlyRuntimeGenerationRegistry,
+    generation_host: OnlyHistoricalGenerationHostManager,
+) -> tuple[
+    OnlySearchProductCommandServiceV1,
+    OnlySearchProductQueryServiceV1,
+    OnlyJsonSearchProvenanceStore,
+]:
+    symbolic = OnlyJsonSymbolicSearchStore(layout.research_root)
+    parameter = OnlyJsonParameterSearchStore(layout.research_root)
+    catalogs = _GenerationOwnedCatalogReader()
+    symbolic_contexts = OnlySymbolicSearchContextResolver(
+        symbolic_store=symbolic,
+        catalogs=cast(Any, catalogs),
+        datasets=datasets,
+        research_calculation_registry=calculations,
+    )
+    parameter_contexts = OnlyParameterSearchContextResolver(
+        parameter_store=parameter,
+        evaluations=symbolic,
+        catalogs=cast(Any, catalogs),
+        datasets=datasets,
+        research_calculation_registry=calculations,
+    )
+    search_contexts = _SearchContextReader(symbolic_contexts, parameter_contexts)
+    provenance = OnlyJsonSearchProvenanceStore(
+        layout.research_root,
+        catalogs=cast(Any, catalogs),
+        datasets=datasets,
+        search_contexts=cast(Any, search_contexts),
+    )
+    symbolic_adapter = OnlySymbolicSearchProductAdapterV1(
+        symbolic_store=symbolic,
+        provenance=provenance,
+        contexts=symbolic_contexts,
+        resolver=OnlyResearchSpecificationResolver(calculations),
+        research_commands=OnlySymbolicResearchCommandGatewayV1(cast(Any, research_commands), research_results),
+        generation_execution=OnlyHostedSymbolicGenerationExecutionV1(generation_host, layout.research_dataset_root),
+        product_receipts=product_commands,
+        research_runs=research_runs,
+    )
+    parameter_adapter = OnlyParameterSearchProductAdapterV1(
+        parameter_store=parameter,
+        evaluation_store=symbolic,
+        provenance=provenance,
+        contexts=parameter_contexts,
+        calculation_registry=calculations,
+        evidence_reader=OnlyParameterResearchEvidenceReader(
+            iteration_results=provenance,
+            iteration_plans=provenance,
+            research_results=research_results,
+            statistics_results=statistics_results,
+        ),
+        resolver=OnlyResearchSpecificationResolver(calculations),
+        research_commands=OnlyParameterResearchCommandGatewayV1(
+            cast(Any, research_commands),
+            OnlyParameterResearchEvidenceFinalizerV1(
+                research_results=cast(Any, research_results),
+                summary_executor=OnlyResearchEffectSummaryExecutor(
+                    legacy_statistics_results,
+                    summary_statistics_results,
+                ),
+                result_assembler=OnlyResearchResultAssembler(
+                    statistics_results,
+                    audit_time=only_system_utc_now,
+                    calculation_result_store=calculation_results,
+                ),
+            ),
+        ),
+        generation_execution=OnlyHostedParameterGenerationExecutionV1(generation_host, layout.research_dataset_root),
+        product_receipts=product_commands,
+        research_runs=research_runs,
+    )
+    adapters = (symbolic_adapter, parameter_adapter)
+    return (
+        OnlySearchProductCommandServiceV1(
+            command_admissions=product_commands,
+            command_receipts=product_commands,
+            runtime_generations=runtime_generations,
+            adapters=adapters,
+            now_utc=only_system_utc_now,
+        ),
+        OnlySearchProductQueryServiceV1(adapters),
+        provenance,
+    )
 
 
 def _verify_postgres_server(operational_dsn: str) -> None:
@@ -262,7 +478,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         layout.research_root
     )
     runtime_generations = OnlyRuntimeGenerationRegistry(args.runtime_generation_authority_root)
+    generation_builder = OnlyRuntimeGenerationBuilder(
+        OnlyLocalImmutableArtifactStore(args.runtime_generation_authority_root / "artifacts"),
+        Path(sys.executable),
+    )
+    generation_host = OnlyHistoricalGenerationHostManager(
+        registry=runtime_generations,
+        builder=generation_builder,
+        cache_root=args.runtime_generation_authority_root / "host-cache",
+    )
+    exact_catalog_reader = OnlyRuntimeGenerationExactCatalogDescriptorReader(
+        runtime_generations,
+        generation_builder,
+        args.runtime_generation_authority_root / "catalog-context-cache",
+    )
+    exact_catalog = OnlyExactCatalogContextQueryService(
+        exact_catalog_reader,
+        exact_catalog_reader,
+        exact_catalog_reader,
+        exact_catalog_reader,
+    )
     run_store = OnlyPostgresResearchRunStore(postgres.dsn, operational_options)
+    product_commands = OnlyPostgresProductCommandAuthority(postgres.dsn, operational_options)
     calculations = OnlyCalculationRegistry()
     data_sources = OnlyDataSourceFactoryRegistry()
     brokers = OnlyBrokerFactoryRegistry()
@@ -348,16 +585,39 @@ def main(argv: Sequence[str] | None = None) -> int:
             store=run_store,
             now_utc=only_system_utc_now,
             runtime_generations=runtime_generations,
-            command_admissions=OnlyPostgresProductCommandAuthority(postgres.dsn, operational_options),
+            command_admissions=product_commands,
+            runtime_generation_resolver=OnlyResearchHostedRuntimeGenerationResolver(
+                execution=generation_host,
+                dataset_store_root=str(layout.research_dataset_root),
+            ),
         )
-        product_boundary = only_compose_research_product_boundary(
-            admission=kernel,
-            commands=command,
-            queries=OnlyResearchRunQueryService(run_store),
-        )
+        research_queries = OnlyResearchRunQueryService(run_store)
         readiness = OnlyKernelResearchReadinessProjection(kernel, verification.evidence)
         artifact_reader = OnlyResearchArtifactProfileReader(layout.research_artifact_root)
         definition_resolver = OnlyResearchDefinitionResolver(calculations, dataset_store)
+        calculation_results = OnlyParquetResearchCalculationResultStore(
+            layout.research_calculation_result_root,
+            dataset_store,
+        )
+        legacy_statistics_results = OnlyParquetResearchStatisticsResultStore(
+            layout.research_statistics_result_root,
+            calculation_results,
+        )
+        factor_pair_statistics_results = OnlyParquetResearchFactorPairStatisticsResultStore(
+            layout.research_statistics_result_root,
+            calculation_results,
+        )
+        summary_statistics_results = OnlyJsonResearchSummaryStatisticsResultStore(
+            layout.research_statistics_result_root,
+            legacy_statistics_results,
+            factor_pair_source_store=factor_pair_statistics_results,
+        )
+        statistics_results = OnlyResearchStatisticsResultReader(
+            layout.research_statistics_result_root,
+            legacy_statistics_results,
+            summary_statistics_results,
+            factor_pair_statistics_results,
+        )
         if startup_status.state is OnlyKernelState.FAILED:
             unavailable = _UnavailableProductAuthority()
             strategy_freeze = cast(OnlyStrategyFreezeProductService, unavailable)
@@ -368,6 +628,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             backtest_commands = cast(OnlyBacktestCommandService, unavailable)
             backtest_queries = cast(OnlyBacktestQueryService, unavailable)
             backtest_store = OnlyPostgresBacktestStore(postgres.dsn, operational_options)
+            search_commands = None
+            search_queries = None
+            search_provenance = None
         else:
             semantic_namespace_id = OnlyResearchSemanticStoreIdentity(layout.research_root).load_verified()
             strategy_store = OnlyPostgresStrategyProductStore(
@@ -376,29 +639,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 operational_options,
             )
             frozen_strategies = OnlyFrozenStrategyRevisionStore(layout.research_root)
-            calculation_results = OnlyParquetResearchCalculationResultStore(
-                layout.research_calculation_result_root,
-                dataset_store,
-            )
-            legacy_statistics_results = OnlyParquetResearchStatisticsResultStore(
-                layout.research_statistics_result_root,
-                calculation_results,
-            )
-            factor_pair_statistics_results = OnlyParquetResearchFactorPairStatisticsResultStore(
-                layout.research_statistics_result_root,
-                calculation_results,
-            )
-            summary_statistics_results = OnlyJsonResearchSummaryStatisticsResultStore(
-                layout.research_statistics_result_root,
-                legacy_statistics_results,
-                factor_pair_source_store=factor_pair_statistics_results,
-            )
-            statistics_results = OnlyResearchStatisticsResultReader(
-                layout.research_statistics_result_root,
-                legacy_statistics_results,
-                summary_statistics_results,
-                factor_pair_statistics_results,
-            )
             research_results = OnlyJsonResearchResultStore(
                 layout.research_result_root,
                 statistics_results,
@@ -457,6 +697,29 @@ def main(argv: Sequence[str] | None = None) -> int:
                 resources,
                 runtime_generations,
             )
+            search_commands, search_queries, search_provenance = _compose_search_product(
+                layout=layout,
+                calculations=calculations,
+                datasets=dataset_store,
+                research_commands=command,
+                research_runs=research_queries,
+                research_results=research_results,
+                statistics_results=statistics_results,
+                calculation_results=calculation_results,
+                legacy_statistics_results=legacy_statistics_results,
+                summary_statistics_results=summary_statistics_results,
+                product_commands=product_commands,
+                runtime_generations=runtime_generations,
+                generation_host=generation_host,
+            )
+        product_boundary = only_compose_research_product_boundary(
+            admission=kernel,
+            commands=command,
+            queries=research_queries,
+            exact_catalog_context=exact_catalog,
+            search_commands=search_commands,
+            search_queries=search_queries,
+        )
         app = create_product_app(
             artifact_reader,
             product_boundary,
@@ -471,6 +734,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             backtest_commands,
             backtest_queries,
             backtest_store,
+            exact_catalog_context=exact_catalog,
+            search_product=(None if search_commands is None else OnlySearchProductHttpServiceV1(product_boundary)),
             exact_dataset_snapshots=dataset_store,
             exact_evaluation_contexts=OnlyJsonSymbolicSearchStore(layout.research_root),
             agent_gateway=(
@@ -484,10 +749,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             ),
             runtime_generations=runtime_generations,
-            search_authoring_inputs=_SearchAuthoringInputReader(OnlyJsonSymbolicSearchStore(layout.research_root)),
+            search_authoring_inputs=_SearchAuthoringInputReader(
+                OnlyJsonSymbolicSearchStore(layout.research_root),
+                OnlyJsonParameterSearchStore(layout.research_root),
+            ),
+            exact_statistics=statistics_results,
+            exact_search_iteration_results=search_provenance,
+            exact_search_terminal_projections=_SearchTerminalProjectionReader(
+                OnlyJsonSymbolicSearchStore(layout.research_root),
+                OnlyJsonParameterSearchStore(layout.research_root),
+            ),
         )
         uvicorn.run(app, host=args.host, port=args.port)
     finally:
+        generation_host.close()
         if kernel.state is OnlyKernelState.READY:
             kernel.stop()
     return 0

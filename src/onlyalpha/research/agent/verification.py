@@ -10,13 +10,15 @@ from .model import (
     OnlyAgentEvaluationContextReferenceV1,
     OnlyAgentOrchestrationResourceKind,
     OnlyAgentOrchestrationResourceV1,
-    OnlyAgentResearchBriefV1,
+    OnlyAgentResearchBrief,
+    OnlyAgentResearchBriefV2,
     OnlyAgentRolePolicyPayloadV1,
     OnlyAgentSessionManifestV1,
     OnlyAgentStructuredOutputSchemaPayloadV1,
     OnlyAgentToolPolicyPayloadV1,
     OnlyAgentWorkflowImplementationManifestV1,
 )
+from .occurrence import OnlyAgentContextReferenceV1
 
 
 class OnlyAgentCatalogGenerationValue(Protocol):
@@ -60,6 +62,23 @@ class OnlyAgentEvaluationContextReader(Protocol):
     ) -> OnlyAgentEvaluationContextValue: ...
 
 
+class OnlyAgentSearchAuthoringReferenceValue(Protocol):
+    @property
+    def reference_kind(self) -> str: ...
+
+    @property
+    def reference_schema_version(self) -> int: ...
+
+    @property
+    def reference_fingerprint(self) -> str: ...
+
+
+class OnlyAgentSearchAuthoringReferenceReader(Protocol):
+    def load_search_authoring_reference_verified(
+        self, reference: OnlyAgentContextReferenceV1
+    ) -> OnlyAgentSearchAuthoringReferenceValue: ...
+
+
 class OnlyAgentOrchestrationResourceReader(Protocol):
     def load_resource_verified(
         self,
@@ -69,7 +88,7 @@ class OnlyAgentOrchestrationResourceReader(Protocol):
 
 
 class OnlyAgentResearchBriefReader(Protocol):
-    def load_research_brief_verified(self, research_brief_fingerprint: str) -> OnlyAgentResearchBriefV1: ...
+    def load_research_brief_verified(self, research_brief_fingerprint: str) -> OnlyAgentResearchBrief: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,12 +96,13 @@ class OnlyAgentResearchBriefReferenceReadersV1:
     catalogs: OnlyAgentCatalogGenerationReader
     datasets: OnlyAgentDatasetSnapshotReader
     evaluations: OnlyAgentEvaluationContextReader
+    search_authoring: OnlyAgentSearchAuthoringReferenceReader | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyVerifiedAgentDecisionContextV1:
     session: OnlyAgentSessionManifestV1
-    research_brief: OnlyAgentResearchBriefV1
+    research_brief: OnlyAgentResearchBrief
     workflow_resource: OnlyAgentOrchestrationResourceV1
     tool_policy_resource: OnlyAgentOrchestrationResourceV1
     ordered_role_policy_resources: tuple[OnlyAgentOrchestrationResourceV1, ...]
@@ -90,7 +110,7 @@ class OnlyVerifiedAgentDecisionContextV1:
 
 
 def verify_agent_research_brief_references(
-    brief: OnlyAgentResearchBriefV1,
+    brief: OnlyAgentResearchBrief,
     readers: OnlyAgentResearchBriefReferenceReadersV1,
 ) -> None:
     """Prove all external Authority references before a Brief is admitted."""
@@ -110,6 +130,17 @@ def verify_agent_research_brief_references(
             or evaluation.evaluation_fingerprint != reference.evaluation_fingerprint
         ):
             raise ValueError("Evaluation reader returned a different identity")
+        if isinstance(brief, OnlyAgentResearchBriefV2):
+            if readers.search_authoring is None:
+                raise ValueError("Search authoring reader is unavailable")
+            for authoring_reference in brief.ordered_search_authoring_references:
+                value = readers.search_authoring.load_search_authoring_reference_verified(authoring_reference)
+                if (
+                    value.reference_kind != authoring_reference.reference_kind
+                    or value.reference_schema_version != authoring_reference.reference_schema_version
+                    or value.reference_fingerprint != authoring_reference.reference_fingerprint
+                ):
+                    raise ValueError("Search authoring reader returned a different identity")
     except Exception as exc:
         if isinstance(exc, OnlyAgentContextError):
             raise

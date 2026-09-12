@@ -287,16 +287,33 @@ def _request_reference_closure(
 ) -> tuple[OnlyAgentExactAuthorityReference, ...]:
     reference_kind = schema.get("x-onlyalpha-reference-kind")
     if isinstance(reference_kind, str):
-        return (only_agent_exact_reference_from_schema(value, schema),)
-    if schema["type"] == "object":
+        locator = value
+        locator_field = schema.get("x-onlyalpha-reference-value-field")
+        canonical_locator = schema.get("x-onlyalpha-reference-canonical-fingerprint")
+        if canonical_locator is not None:
+            if canonical_locator is not True or locator_field is not None:
+                raise OnlyAgentContextError(
+                    "AGENT_PRODUCT_API_CONTRACT_MISMATCH", "Canonical reference locator is invalid"
+                )
+            locator = only_canonical_fingerprint(value)
+        if locator_field is not None:
+            if not isinstance(locator_field, str) or not isinstance(value, Mapping):
+                raise OnlyAgentContextError(
+                    "AGENT_PRODUCT_API_CONTRACT_MISMATCH", "Embedded reference locator is invalid"
+                )
+            locator = value.get(locator_field)
+        return (only_agent_exact_reference_from_schema(locator, schema),)
+    schema_type = schema.get("type")
+    if schema_type == "object":
         request = cast(Mapping[str, object], value)
         properties = cast(Mapping[str, object], schema.get("properties", {}))
         return tuple(
             reference
             for key in sorted(request)
+            if isinstance(properties.get(key), Mapping)
             for reference in _request_reference_closure(request[key], cast(Mapping[str, object], properties[key]))
         )
-    if schema["type"] == "array":
+    if schema_type == "array":
         return tuple(
             reference
             for item in cast(tuple[object, ...], value)
@@ -326,9 +343,9 @@ def _verify_tool_request_identity_closure(
                 f"Identity input {requirement} lacks typed Authority semantics",
             )
     derived = _request_reference_closure(validated_request, request_schema)
-    if tuple(_exact_reference_identity(item) for item in derived) != tuple(
-        _exact_reference_identity(item) for item in exact_identity_inputs
-    ):
+    derived_identities = tuple(_exact_reference_identity(item) for item in derived)
+    supplied_identities = tuple(_exact_reference_identity(item) for item in exact_identity_inputs)
+    if len(set(supplied_identities)) != len(supplied_identities) or set(derived_identities) != set(supplied_identities):
         raise OnlyAgentContextError(
             "AGENT_TOOL_CALL_PLAN_INVALID", "Request identity and exact reference closure differ"
         )

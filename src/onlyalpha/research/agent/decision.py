@@ -389,6 +389,134 @@ class OnlyAgentParameterSearchDirectiveV1:
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyAgentSymbolicSearchDirectiveV2:
+    search_space_reference: OnlyAgentContextReferenceV1
+    evaluation_reference: OnlyAgentContextReferenceV1
+    algorithm_reference: OnlyAgentContextReferenceV1
+    search_budget_fingerprint: str
+    schema_version: int = 2
+
+    def __post_init__(self) -> None:
+        if self.schema_version != 2 or any(
+            not isinstance(item, OnlyAgentContextReferenceV1)
+            for item in (self.search_space_reference, self.evaluation_reference, self.algorithm_reference)
+        ):
+            raise ValueError("AGENT_SEARCH_DIRECTIVE_INVALID")
+        expected = (
+            (self.search_space_reference, "SYMBOLIC_SEARCH_SPACE"),
+            (self.evaluation_reference, "RESEARCH_EVALUATION"),
+            (self.algorithm_reference, "SEARCH_ALGORITHM"),
+        )
+        if any(
+            reference.reference_kind != kind or reference.reference_schema_version != 1 for reference, kind in expected
+        ):
+            raise ValueError("AGENT_SEARCH_DIRECTIVE_INVALID")
+        _sha(self.search_budget_fingerprint, "search_budget_fingerprint")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "search_space_reference": self.search_space_reference.to_dict(),
+            "evaluation_reference": self.evaluation_reference.to_dict(),
+            "algorithm_reference": self.algorithm_reference.to_dict(),
+            "search_budget_fingerprint": self.search_budget_fingerprint,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyAgentSymbolicSearchDirectiveV2:
+        _exact(
+            payload,
+            {
+                "schema_version",
+                "search_space_reference",
+                "evaluation_reference",
+                "algorithm_reference",
+                "search_budget_fingerprint",
+            },
+            "Symbolic Search Directive",
+        )
+        return cls(
+            OnlyAgentContextReferenceV1.from_dict(
+                _mapping(payload["search_space_reference"], "search_space_reference")
+            ),
+            OnlyAgentContextReferenceV1.from_dict(_mapping(payload["evaluation_reference"], "evaluation_reference")),
+            OnlyAgentContextReferenceV1.from_dict(_mapping(payload["algorithm_reference"], "algorithm_reference")),
+            _sha(payload["search_budget_fingerprint"], "search_budget_fingerprint"),
+            _integer(payload["schema_version"], "schema_version"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyAgentParameterSearchDirectiveV2:
+    search_space_reference: OnlyAgentContextReferenceV1
+    evaluation_reference: OnlyAgentContextReferenceV1
+    search_policy_reference: OnlyAgentContextReferenceV1
+    algorithm_reference: OnlyAgentContextReferenceV1
+    search_budget_fingerprint: str
+    schema_version: int = 2
+
+    def __post_init__(self) -> None:
+        if self.schema_version != 2 or any(
+            not isinstance(item, OnlyAgentContextReferenceV1)
+            for item in (
+                self.search_space_reference,
+                self.evaluation_reference,
+                self.search_policy_reference,
+                self.algorithm_reference,
+            )
+        ):
+            raise ValueError("AGENT_SEARCH_DIRECTIVE_INVALID")
+        expected = (
+            (self.search_space_reference, "PARAMETER_SEARCH_SPACE"),
+            (self.evaluation_reference, "RESEARCH_EVALUATION"),
+            (self.search_policy_reference, "SEARCH_POLICY"),
+            (self.algorithm_reference, "SEARCH_ALGORITHM"),
+        )
+        if any(
+            reference.reference_kind != kind or reference.reference_schema_version != 1 for reference, kind in expected
+        ):
+            raise ValueError("AGENT_SEARCH_DIRECTIVE_INVALID")
+        _sha(self.search_budget_fingerprint, "search_budget_fingerprint")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "search_space_reference": self.search_space_reference.to_dict(),
+            "evaluation_reference": self.evaluation_reference.to_dict(),
+            "search_policy_reference": self.search_policy_reference.to_dict(),
+            "algorithm_reference": self.algorithm_reference.to_dict(),
+            "search_budget_fingerprint": self.search_budget_fingerprint,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyAgentParameterSearchDirectiveV2:
+        _exact(
+            payload,
+            {
+                "schema_version",
+                "search_space_reference",
+                "evaluation_reference",
+                "search_policy_reference",
+                "algorithm_reference",
+                "search_budget_fingerprint",
+            },
+            "Parameter Search Directive",
+        )
+        return cls(
+            OnlyAgentContextReferenceV1.from_dict(
+                _mapping(payload["search_space_reference"], "search_space_reference")
+            ),
+            OnlyAgentContextReferenceV1.from_dict(_mapping(payload["evaluation_reference"], "evaluation_reference")),
+            OnlyAgentContextReferenceV1.from_dict(
+                _mapping(payload["search_policy_reference"], "search_policy_reference")
+            ),
+            OnlyAgentContextReferenceV1.from_dict(_mapping(payload["algorithm_reference"], "algorithm_reference")),
+            _sha(payload["search_budget_fingerprint"], "search_budget_fingerprint"),
+            _integer(payload["schema_version"], "schema_version"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyAgentCapabilityGapDirectiveV1:
     missing_capability_references: tuple[OnlyAgentContextReferenceV1, ...]
     required_semantic_roles: tuple[str, ...]
@@ -437,14 +565,22 @@ OnlyAgentSearchDirectivePayloadV1 = (
     OnlyAgentReuseDirectiveV1
     | OnlyAgentSymbolicSearchDirectiveV1
     | OnlyAgentParameterSearchDirectiveV1
+    | OnlyAgentSymbolicSearchDirectiveV2
+    | OnlyAgentParameterSearchDirectiveV2
     | OnlyAgentCapabilityGapDirectiveV1
 )
 
-_ACTION_PAYLOAD_TYPES: dict[OnlyAgentRouterAction, type[OnlyAgentSearchDirectivePayloadV1]] = {
-    OnlyAgentRouterAction.REUSE_EXISTING: OnlyAgentReuseDirectiveV1,
-    OnlyAgentRouterAction.SYMBOLIC_SEARCH: OnlyAgentSymbolicSearchDirectiveV1,
-    OnlyAgentRouterAction.PARAMETER_SEARCH: OnlyAgentParameterSearchDirectiveV1,
-    OnlyAgentRouterAction.CAPABILITY_GAP: OnlyAgentCapabilityGapDirectiveV1,
+_ACTION_PAYLOAD_TYPES: dict[OnlyAgentRouterAction, tuple[type[OnlyAgentSearchDirectivePayloadV1], ...]] = {
+    OnlyAgentRouterAction.REUSE_EXISTING: (OnlyAgentReuseDirectiveV1,),
+    OnlyAgentRouterAction.SYMBOLIC_SEARCH: (
+        OnlyAgentSymbolicSearchDirectiveV1,
+        OnlyAgentSymbolicSearchDirectiveV2,
+    ),
+    OnlyAgentRouterAction.PARAMETER_SEARCH: (
+        OnlyAgentParameterSearchDirectiveV1,
+        OnlyAgentParameterSearchDirectiveV2,
+    ),
+    OnlyAgentRouterAction.CAPABILITY_GAP: (OnlyAgentCapabilityGapDirectiveV1,),
 }
 
 
@@ -485,10 +621,19 @@ class OnlyAgentSearchDirectiveV1:
             "Search Directive",
         )
         action = OnlyAgentRouterAction(_string(payload["router_action"], "router_action"))
+        action_payload = _mapping(payload["action_payload"], "action_payload")
+        action_payload_version = _integer(action_payload.get("schema_version"), "schema_version")
+        candidates = _ACTION_PAYLOAD_TYPES[action]
+        selected = next(
+            (candidate for candidate in candidates if candidate.__name__.endswith(f"V{action_payload_version}")),
+            None,
+        )
+        if selected is None:
+            raise ValueError("AGENT_SEARCH_DIRECTIVE_SCHEMA_UNSUPPORTED")
         return cls(
             action,
             _sha(payload["exact_catalog_context_tool_result_fingerprint"], "catalog Tool Result fingerprint"),
-            _ACTION_PAYLOAD_TYPES[action].from_dict(_mapping(payload["action_payload"], "action_payload")),
+            selected.from_dict(action_payload),
             _integer(payload["schema_version"], "schema_version"),
         )
 

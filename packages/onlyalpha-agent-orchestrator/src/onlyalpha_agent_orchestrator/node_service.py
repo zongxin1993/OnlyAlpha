@@ -8,7 +8,7 @@ from typing import Protocol
 from onlyalpha.research.agent.model import (
     OnlyAgentOrchestrationResourceKind,
     OnlyAgentOrchestrationResourceV1,
-    OnlyAgentResearchBriefV1,
+    OnlyAgentResearchBrief,
     OnlyAgentSessionManifestV1,
 )
 from onlyalpha.research.agent.session_state import OnlyAgentDerivedSessionStateV1
@@ -68,7 +68,7 @@ class OnlyAgentNodeControlServiceV1:
             raise ValueError("AGENT_PRODUCTION_RESOURCE_BOOTSTRAP_MISMATCH")
         return resource.resource_fingerprint
 
-    def admit_session(self, brief: OnlyAgentResearchBriefV1) -> OnlyAgentSessionAdmissionOutcomeV1:
+    def admit_session(self, brief: OnlyAgentResearchBrief) -> OnlyAgentSessionAdmissionOutcomeV1:
         workflow_resource_fingerprint = self.bootstrap()
         manifest = build_current_agent_workflow_implementation_manifest()
         brief_outcome = self._briefs.commit_research_brief(brief)

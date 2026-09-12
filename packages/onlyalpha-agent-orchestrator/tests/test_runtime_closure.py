@@ -486,9 +486,9 @@ def test_public_package_imports_keep_canonical_objects_and_export_counts() -> No
     from onlyalpha.research.workload import OnlyResearchWorkloadPlan
 
     assert len(onlyalpha.__all__) == 17
-    assert len(research.__all__) == 523
+    assert len(research.__all__) == 530
     assert len(experiment.__all__) == 52
-    assert len(agent.__all__) == 123
+    assert len(agent.__all__) == 130
     assert len(application.__all__) == 21
     assert onlyalpha.OnlyClock is OnlyClock
     assert research.OnlyResearchWorkloadPlan is OnlyResearchWorkloadPlan
@@ -538,6 +538,42 @@ def test_mismatch_blocks_admission_continuation(monkeypatch) -> None:
     assert raised.value.code == "AGENT_WORKFLOW_RUNTIME_MISMATCH"
     assert calls == 0
     assert minted == 0
+
+
+def test_exact_runtime_rollback_resumes_the_unchanged_historical_session(monkeypatch) -> None:
+    original = _manifest(_runtime_resources())
+    historical = OnlyAgentOrchestrationResourceV1(
+        OnlyAgentOrchestrationResourceKind.AGENT_WORKFLOW_IMPLEMENTATION_MANIFEST,
+        1,
+        "1.0.0",
+        original,
+    )
+    upgraded = _manifest(
+        _runtime_resources(
+            content={
+                **_bytes_by_locator(),
+                ("onlyalpha.research.agent", "application.py"): b"forward-only upgraded semantics",
+            }
+        )
+    )
+    continuations: list[str] = []
+
+    monkeypatch.setattr(runtime_module, "build_current_agent_workflow_implementation_manifest", lambda: upgraded)
+    with pytest.raises(OnlyAgentContextError, match="AGENT_WORKFLOW_RUNTIME_MISMATCH"):
+        execute_after_runtime_admission(
+            "1" * 64,
+            _SessionReader(historical),  # type: ignore[arg-type]
+            lambda _permit: continuations.append("upgraded"),
+        )
+    assert continuations == []
+
+    monkeypatch.setattr(runtime_module, "build_current_agent_workflow_implementation_manifest", lambda: original)
+    execute_after_runtime_admission(
+        "1" * 64,
+        _SessionReader(historical),  # type: ignore[arg-type]
+        lambda _permit: continuations.append("rollback"),
+    )
+    assert continuations == ["rollback"]
 
 
 @pytest.mark.parametrize(

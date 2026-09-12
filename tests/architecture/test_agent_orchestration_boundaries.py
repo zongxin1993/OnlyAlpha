@@ -226,8 +226,7 @@ def test_d_public_gateway_cannot_import_or_write_agent_authorities() -> None:
     assert "onlyalpha.research.agent.store" not in imports
     assert "onlyalpha.research.agent.session_state" not in imports
     assert not any(
-        token in source
-        for token in ("commit_session_manifest", "commit_research_brief", "OnlyAgentSessionReducerV1")
+        token in source for token in ("commit_session_manifest", "commit_research_brief", "OnlyAgentSessionReducerV1")
     )
 
 

@@ -6,9 +6,11 @@ from pathlib import Path
 import onlyalpha_agent_orchestrator.runtime as runtime_module
 import pytest
 from fastapi.testclient import TestClient
+from onlyalpha_agent_orchestrator.adapters.product_api import OnlyProductApiContractV2
 from onlyalpha_agent_orchestrator.node_app import create_agent_node_app
 from onlyalpha_agent_orchestrator.node_main import main as node_main
 from onlyalpha_agent_orchestrator.node_service import OnlyAgentNodeControlServiceV1
+from onlyalpha_agent_orchestrator.production import OnlyAgentProductionRuntimeV1
 from onlyalpha_agent_orchestrator.provenance import OnlyAgentOrchestratorPackagedBuildProvenanceV1
 from onlyalpha_agent_orchestrator.semantic_bundle import load_production_semantic_bundle_v1
 
@@ -19,9 +21,11 @@ from onlyalpha.research.agent.model import (
     OnlyAgentBudgetV1,
     OnlyAgentEvaluationContextReferenceV1,
     OnlyAgentResearchBriefV1,
+    OnlyAgentResearchBriefV2,
     OnlyAgentSearchMethod,
     OnlyAgentStructuredHypothesisV1,
 )
+from onlyalpha.research.agent.occurrence import OnlyAgentContextReferenceV1
 from onlyalpha.research.agent.store import (
     OnlyAgentCommitDisposition,
     OnlyAgentResearchBriefReferenceReadersV1,
@@ -29,6 +33,7 @@ from onlyalpha.research.agent.store import (
     OnlyJsonAgentResearchBriefStore,
     OnlyJsonAgentSessionManifestStore,
 )
+from onlyalpha.research.experiment import OnlySearchBudgetV1
 
 SHA_A = "a" * 64
 SHA_B = "b" * 64
@@ -60,6 +65,9 @@ class _Identity:
     evaluation_kind: str = ""
     evaluation_schema_version: int = 1
     evaluation_fingerprint: str = ""
+    reference_kind: str = ""
+    reference_schema_version: int = 1
+    reference_fingerprint: str = ""
 
     @property
     def snapshot(self) -> _Identity:
@@ -81,6 +89,14 @@ class _References:
             evaluation_kind=reference.evaluation_kind,
             evaluation_schema_version=reference.evaluation_schema_version,
             evaluation_fingerprint=reference.evaluation_fingerprint,
+        )
+
+    def load_search_authoring_reference_verified(self, reference: OnlyAgentContextReferenceV1) -> _Identity:
+        assert reference in _brief_v2().ordered_search_authoring_references
+        return _Identity(
+            reference_kind=reference.reference_kind,
+            reference_schema_version=reference.reference_schema_version,
+            reference_fingerprint=reference.reference_fingerprint,
         )
 
 
@@ -107,9 +123,26 @@ def _brief() -> OnlyAgentResearchBriefV1:
     )
 
 
+def _brief_v2() -> OnlyAgentResearchBriefV2:
+    original = _brief()
+    return OnlyAgentResearchBriefV2(
+        original.hypothesis,
+        original.catalog_generation_fingerprint,
+        original.dataset_snapshot_fingerprint,
+        original.evaluation_context_reference,
+        original.allowed_search_methods,
+        original.agent_budget,
+        OnlySearchBudgetV1(4, 3, 2),
+        (
+            OnlyAgentContextReferenceV1("SEARCH_ALGORITHM", 1, "d" * 64),
+            OnlyAgentContextReferenceV1("SYMBOLIC_SEARCH_SPACE", 1, "e" * 64),
+        ),
+    )
+
+
 def _service(root: Path) -> OnlyAgentNodeControlServiceV1:
     references = _References()
-    readers = OnlyAgentResearchBriefReferenceReadersV1(references, references, references)
+    readers = OnlyAgentResearchBriefReferenceReadersV1(references, references, references, references)
     resources = OnlyJsonAgentOrchestrationResourceStore(root)
     briefs = OnlyJsonAgentResearchBriefStore(root, readers)
     sessions = OnlyJsonAgentSessionManifestStore(root, briefs=briefs, resources=resources)
@@ -148,6 +181,20 @@ def test_private_control_requires_operational_bearer_without_leaking_it(tmp_path
     assert admitted.json()["session_disposition"] == "CREATED"
 
 
+def test_private_control_admits_forward_only_brief_v2_and_preserves_budget(tmp_path: Path) -> None:
+    token = "private-secret-token"
+    service = _service(tmp_path)
+    client = TestClient(create_agent_node_app(service, control_bearer_token=token, readiness=lambda: True))
+    brief = _brief_v2()
+    admitted = client.post(
+        "/internal/v1/sessions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"research_brief": brief.to_dict()},
+    )
+    assert admitted.status_code == 200
+    assert admitted.json()["research_brief_fingerprint"] == brief.research_brief_fingerprint
+
+
 def test_process_entrypoint_rejects_unsupported_replicas_before_loading_secrets(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="AGENT_UNSUPPORTED_REPLICA_COUNT"):
         node_main(
@@ -173,3 +220,41 @@ def test_process_entrypoint_rejects_unsupported_replicas_before_loading_secrets(
                 "2",
             ]
         )
+
+
+def test_production_readiness_reproves_local_roots_workflow_and_product_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    durable = tmp_path / "durable"
+    coordination = tmp_path / "coordination"
+    durable.mkdir()
+    coordination.mkdir()
+    contract = tmp_path / "openapi.json"
+    canonical_contract = Path(__file__).resolve().parents[3] / "contracts/product-api/v2/openapi.json"
+    contract.write_bytes(canonical_contract.read_bytes())
+
+    parsed = OnlyProductApiContractV2(contract)
+    workflow = runtime_module.build_current_agent_workflow_implementation_manifest()
+    runtime = OnlyAgentProductionRuntimeV1(
+        _service(tmp_path / "service"),
+        workflow.implementation_fingerprint,
+        durable,
+        coordination,
+        contract,
+        parsed.fingerprint,
+    )
+    assert runtime.is_ready()
+
+    coordination.rmdir()
+    assert not runtime.is_ready()
+    coordination.mkdir()
+    contract.write_text("{}", encoding="utf-8")
+    assert not runtime.is_ready()
+
+    contract.write_bytes(canonical_contract.read_bytes())
+    monkeypatch.setattr(
+        "onlyalpha_agent_orchestrator.production.build_current_agent_workflow_implementation_manifest",
+        lambda: type("Manifest", (), {"implementation_fingerprint": "0" * 64})(),
+    )
+    assert not runtime.is_ready()

@@ -16,9 +16,11 @@ from onlyalpha.research.experiment.model import (
 
 from .decision import (
     OnlyAgentParameterSearchDirectiveV1,
+    OnlyAgentParameterSearchDirectiveV2,
     OnlyAgentRouterAction,
     OnlyAgentSearchDirectiveV1,
     OnlyAgentSymbolicSearchDirectiveV1,
+    OnlyAgentSymbolicSearchDirectiveV2,
 )
 from .errors import OnlyAgentContextError
 from .model import OnlyAgentStructuredHypothesisV1
@@ -75,13 +77,13 @@ def expected_agent_search_submit_semantics(
 
     payload = directive.action_payload
     if directive.router_action is OnlyAgentRouterAction.SYMBOLIC_SEARCH and isinstance(
-        payload, OnlyAgentSymbolicSearchDirectiveV1
+        payload, (OnlyAgentSymbolicSearchDirectiveV1, OnlyAgentSymbolicSearchDirectiveV2)
     ):
         method = "SYMBOLIC"
         workflow = ONLYAGENT_SYMBOLIC_SEARCH_WORKFLOW_BINDING_V1
         policy_fingerprint: str | None = None
     elif directive.router_action is OnlyAgentRouterAction.PARAMETER_SEARCH and isinstance(
-        payload, OnlyAgentParameterSearchDirectiveV1
+        payload, (OnlyAgentParameterSearchDirectiveV1, OnlyAgentParameterSearchDirectiveV2)
     ):
         method = "PARAMETER"
         workflow = ONLYAGENT_PARAMETER_SEARCH_WORKFLOW_BINDING_V1
@@ -98,7 +100,11 @@ def expected_agent_search_submit_semantics(
             "search_space_fingerprint": payload.search_space_reference.reference_fingerprint,
             "evaluation_fingerprint": payload.evaluation_reference.reference_fingerprint,
             "algorithm_fingerprint": payload.algorithm_reference.reference_fingerprint,
-            "search_budget_fingerprint": payload.search_budget_reference.reference_fingerprint,
+            "search_budget_fingerprint": (
+                payload.search_budget_fingerprint
+                if isinstance(payload, (OnlyAgentSymbolicSearchDirectiveV2, OnlyAgentParameterSearchDirectiveV2))
+                else payload.search_budget_reference.reference_fingerprint
+            ),
             "search_policy_fingerprint": policy_fingerprint,
             "catalog_generation_fingerprint": context.research_brief.catalog_generation_fingerprint,
             "dataset_snapshot_fingerprint": context.research_brief.dataset_snapshot_fingerprint,
