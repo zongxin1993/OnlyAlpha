@@ -927,6 +927,68 @@ def test_mutable_observation_recovery_requires_new_plan_and_budget(tmp_path) -> 
     assert tool.budget_consumed(context.session.session_fingerprint) == 2
 
 
+def test_c2_c4_c5_c6_recovery_uses_fresh_services_over_same_durable_roots(tmp_path: Path) -> None:
+    model_root = tmp_path / "model-unknown"
+    context, model, _, _, _, reference, _, _, _ = _services(model_root)
+    model_plan = _prepare_model(model, context, reference).plan
+    fresh_context, fresh_model, _, fresh_model_store, _, _, _, _, _ = _services(model_root)
+    unknown = fresh_model.recover_outcome_unknown(
+        model_plan.model_call_plan_fingerprint,
+        current_workflow_manifest=fresh_context.resources[-1].canonical_payload,
+    )
+    assert unknown.model_call_plan_fingerprint == model_plan.model_call_plan_fingerprint
+    assert unknown.outcome is OnlyAgentModelCallOutcome.OUTCOME_UNKNOWN
+    assert fresh_model_store.budget_consumed(context.session.session_fingerprint) == 1
+
+    immutable_root = tmp_path / "immutable-query"
+    context, _, tool, _, _, _, _, _, _ = _services(immutable_root)
+    immutable = _prepare_tool(tool, context, OnlyAgentToolClass.EXACT_CATALOG_CONTEXT_QUERY, 0).plan
+    fresh_context, _, fresh_tool, _, fresh_store, _, _, _, _ = _services(immutable_root)
+    immutable_recovery = fresh_tool.prepare_recovery(
+        immutable.tool_call_plan_fingerprint,
+        current_workflow_manifest=fresh_context.resources[-1].canonical_payload,
+    )
+    assert immutable_recovery.plan == immutable
+    assert fresh_store.budget_consumed(context.session.session_fingerprint) == 1
+
+    mutable_root = tmp_path / "mutable-observation"
+    context, _, tool, _, _, _, _, _, _ = _services(mutable_root)
+    mutable = _prepare_tool(tool, context, OnlyAgentToolClass.RESEARCH_RUN_QUERY, 0).plan
+    fresh_context, _, fresh_tool, _, fresh_store, _, _, _, _ = _services(mutable_root)
+    with pytest.raises(OnlyAgentContextError, match="AGENT_TOOL_MUTABLE_OBSERVATION_REQUIRES_NEW_PLAN"):
+        fresh_tool.prepare_recovery(
+            mutable.tool_call_plan_fingerprint,
+            current_workflow_manifest=fresh_context.resources[-1].canonical_payload,
+        )
+    new_observation = _prepare_tool(
+        fresh_tool,
+        fresh_context,
+        OnlyAgentToolClass.RESEARCH_RUN_QUERY,
+        1,
+    ).plan
+    assert new_observation.tool_call_plan_fingerprint != mutable.tool_call_plan_fingerprint
+    assert fresh_store.budget_consumed(context.session.session_fingerprint) == 2
+
+    command_root = tmp_path / "idempotent-command"
+    context, _, tool, _, _, _, _, _, _ = _services(command_root)
+    command = _prepare_tool(
+        tool,
+        context,
+        OnlyAgentToolClass.RESEARCH_RUN_SUBMIT,
+        0,
+        command=COMMAND_ID,
+    ).plan
+    fresh_context, _, fresh_tool, _, fresh_store, _, _, _, _ = _services(command_root)
+    command_recovery = fresh_tool.prepare_recovery(
+        command.tool_call_plan_fingerprint,
+        current_workflow_manifest=fresh_context.resources[-1].canonical_payload,
+    )
+    assert command_recovery.plan == command
+    assert command_recovery.plan.canonical_validated_request == command.canonical_validated_request
+    assert command_recovery.plan.product_command_id_or_idempotency_key == COMMAND_ID
+    assert fresh_store.budget_consumed(context.session.session_fingerprint) == 1
+
+
 def _manifest(root: Path, category: str, fingerprint: str) -> Path:
     return (
         root

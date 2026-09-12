@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Never, cast
@@ -413,6 +414,10 @@ class OnlyAgentSessionReducerV1:
                 and reference.locator_value in self._terminal_search_fact_fingerprints(authority.terminal)
                 for reference in successful_observations[-1][1].owning_authority_references
             )
+            if successful_observations and not terminal_observed:
+                terminal_observed = self._terminal_search_response_matches(
+                    successful_observations[-1][1], authority.terminal
+                )
             if not terminal_observed:
                 return self._prepare_new_observation(
                     session_fingerprint, OnlyAgentToolClass.SEARCH_QUERY, tool_count, budget.tool_call_limit
@@ -548,6 +553,32 @@ class OnlyAgentSessionReducerV1:
             if isinstance(value, str):
                 result.add(value)
         return result
+
+    @staticmethod
+    def _terminal_search_response_matches(result, terminal) -> bool:  # type: ignore[no-untyped-def]
+        """Compare the durable exact Product observation with current owning facts."""
+
+        response = result.canonical_validated_response
+        if not isinstance(response, Mapping) or set(response) != {
+            "schema_version",
+            "experiment_fingerprint",
+            "method",
+            "terminal_kind",
+            "terminal_fact",
+            "stop_reason",
+        }:
+            return False
+        fact = terminal.terminal_fact
+        serializer = getattr(fact, "to_dict", None)
+        expected_fact = serializer() if callable(serializer) else None
+        return response == {
+            "schema_version": 1,
+            "experiment_fingerprint": terminal.experiment_fingerprint,
+            "method": terminal.method.value,
+            "terminal_kind": terminal.terminal_kind.value,
+            "terminal_fact": expected_fact,
+            "stop_reason": terminal.stop_reason,
+        }
 
     @staticmethod
     def _observation_target(plan) -> tuple[object, ...]:  # type: ignore[no-untyped-def]

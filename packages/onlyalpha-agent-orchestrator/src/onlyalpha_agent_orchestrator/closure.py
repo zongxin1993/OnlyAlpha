@@ -63,13 +63,29 @@ ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1 = (
         "transport.py",
     ),
     OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha.agent.orchestrator.bindings.py", "onlyalpha_agent_orchestrator", "bindings.py"
+    ),
+    OnlyAgentWorkflowResourceSpecV1(
         "onlyalpha.agent.orchestrator.closure.py", "onlyalpha_agent_orchestrator", "closure.py"
     ),
     OnlyAgentWorkflowResourceSpecV1(
         "onlyalpha.agent.orchestrator.config.py", "onlyalpha_agent_orchestrator", "config.py"
     ),
     OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha.agent.orchestrator.coordination.py",
+        "onlyalpha_agent_orchestrator",
+        "coordination.py",
+    ),
+    OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha.agent.orchestrator.driver.py", "onlyalpha_agent_orchestrator", "driver.py"
+    ),
+    OnlyAgentWorkflowResourceSpecV1(
         "onlyalpha.agent.orchestrator.execution.py", "onlyalpha_agent_orchestrator", "execution.py"
+    ),
+    OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha.agent.orchestrator.materialization.py",
+        "onlyalpha_agent_orchestrator",
+        "materialization.py",
     ),
     OnlyAgentWorkflowResourceSpecV1(
         "onlyalpha.agent.orchestrator.provenance.py", "onlyalpha_agent_orchestrator", "provenance.py"

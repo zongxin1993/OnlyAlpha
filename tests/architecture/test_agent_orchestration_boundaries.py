@@ -108,6 +108,74 @@ def test_agent_application_has_no_generic_call_or_mutable_progress_authority() -
         assert forbidden not in source
 
 
+def test_agent_driver_is_one_step_dispatch_without_second_progress_authority_or_io_bypass() -> None:
+    orchestrator = ROOT / "packages" / "onlyalpha-agent-orchestrator" / "src" / "onlyalpha_agent_orchestrator"
+    driver = orchestrator / "driver.py"
+    source = driver.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(driver))
+    advance = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "advance_once")
+    assert not any(isinstance(node, (ast.While, ast.For, ast.AsyncFor)) for node in ast.walk(advance))
+    assert ".invoke(" not in source
+    assert "OnlyAgentSessionReducerV1" in source
+    assert "execute_after_runtime_admission" in source
+    assert "execute_external_model_occurrence" in source
+    assert "execute_external_tool_occurrence" in source
+    for forbidden in (
+        "session.status",
+        "session.current_step",
+        "workflow_cursor",
+        "driver_checkpoint",
+        "pending_action",
+        "retry manager",
+        "requests.",
+        "httpx.",
+    ):
+        assert forbidden not in source
+
+
+def test_c_model_binding_excludes_operational_configuration_and_first_allowed_selection() -> None:
+    orchestrator = ROOT / "packages" / "onlyalpha-agent-orchestrator" / "src" / "onlyalpha_agent_orchestrator"
+    binding_source = (orchestrator / "bindings.py").read_text(encoding="utf-8")
+    materialization_source = (orchestrator / "materialization.py").read_text(encoding="utf-8")
+    binding_module = ast.parse(binding_source)
+    binding_class = next(
+        node
+        for node in binding_module.body
+        if isinstance(node, ast.ClassDef) and node.name == "OnlyAgentModelInvocationBindingV1"
+    )
+    annotated = {
+        node.target.id
+        for node in binding_class.body
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+    }
+    assert not annotated.intersection(
+        {"api_key", "token", "credential", "base_url", "proxy", "timeout", "tls", "ca_bundle_path"}
+    )
+    assert "allowed_prompt_template_fingerprints[0]" not in materialization_source
+    assert "allowed_structured_output_schema_fingerprints[0]" not in materialization_source
+    assert "allowed_model_execution_policy_fingerprints[0]" not in materialization_source
+    assert "expected_model_id" not in materialization_source
+    assert "DEFAULT_MODEL" not in materialization_source
+
+
+def test_c_meaning_bearing_files_are_in_workflow_closure() -> None:
+    from onlyalpha_agent_orchestrator.closure import ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1
+
+    closed = {item.relative_name for item in ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1}
+    assert {"bindings.py", "coordination.py", "driver.py", "materialization.py"}.issubset(closed)
+    materialization = (
+        ROOT
+        / "packages"
+        / "onlyalpha-agent-orchestrator"
+        / "src"
+        / "onlyalpha_agent_orchestrator"
+        / "materialization.py"
+    ).read_text(encoding="utf-8")
+    assert "recovery_class" not in materialization
+    assert "http_path" not in materialization
+    assert "http_method" not in materialization
+
+
 def test_decision_and_launch_store_commits_are_application_service_only() -> None:
     root = Path(__file__).resolve().parents[2] / "src" / "onlyalpha"
     allowed = {"research/agent/application.py"}

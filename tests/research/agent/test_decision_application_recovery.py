@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import json
+import uuid
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
+import onlyalpha_agent_orchestrator.driver as driver_module
 import pytest
+from onlyalpha_agent_orchestrator.driver import OnlyAgentSessionDriverV1
 
 from onlyalpha.application.search_product import (
     OnlyAdvanceSearchExperimentV1,
@@ -2040,3 +2046,380 @@ def test_reducer_composes_real_parameter_product_frontier(tmp_path: Path, monkey
     reconcile = reducer.derive(context.session.session_fingerprint)
     assert reconcile.next_action is not None
     assert reconcile.next_action.operation_identity == OnlySearchBoundedOperationV1.RECONCILE_OPEN_PARAMETER_BATCH
+
+
+class DurableBranchModels(Models):
+    def __init__(self, root: Path) -> None:
+        super().__init__()
+        self._path = root / "model-facts.json"
+        if self._path.is_file():
+            payload = json.loads(self._path.read_text(encoding="utf-8"))
+            self.plans = [OnlyAgentModelCallPlanV1.from_dict(item) for item in payload["plans"]]
+            loaded = [OnlyAgentModelCallResultV1.from_dict(item) for item in payload["results"]]
+            self.results = {item.model_call_result_fingerprint: item for item in loaded}
+
+    def add(self, plan: OnlyAgentModelCallPlanV1, result: OnlyAgentModelCallResultV1 | None = None) -> None:
+        super().add(plan, result)
+        self._path.write_text(
+            json.dumps(
+                {
+                    "plans": [item.to_dict() for item in self.plans],
+                    "results": [item.to_dict() for item in self.results.values()],
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            encoding="utf-8",
+        )
+
+
+class DurableBranchTools(Tools):
+    def __init__(self, root: Path) -> None:
+        super().__init__()
+        self._path = root / "tool-facts.json"
+        if self._path.is_file():
+            payload = json.loads(self._path.read_text(encoding="utf-8"))
+            self.plans = [OnlyAgentToolCallPlanV1.from_dict(item) for item in payload["plans"]]
+            loaded = [OnlyAgentToolCallResultV1.from_dict(item) for item in payload["results"]]
+            self.results = {item.tool_call_result_fingerprint: item for item in loaded}
+
+    def add(self, plan: OnlyAgentToolCallPlanV1, result: OnlyAgentToolCallResultV1 | None = None) -> None:
+        super().add(plan, result)
+        self._path.write_text(
+            json.dumps(
+                {
+                    "plans": [item.to_dict() for item in self.plans],
+                    "results": [item.to_dict() for item in self.results.values()],
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            encoding="utf-8",
+        )
+
+
+class BranchDriverMaterializer:
+    """Test-only external boundary; Reducer remains the sole progress grammar."""
+
+    def __init__(self, root: Path, branch: OnlyAgentRouterAction) -> None:
+        self.fixture, self.context = decision_context(root)
+        self.models, self.tools = DurableBranchModels(root), DurableBranchTools(root)
+        self.decisions = OnlyJsonAgentDecisionStore(root)
+        self.application = OnlyAgentDecisionApplicationServiceV1(
+            sessions=Sessions(self.context),
+            models=self.models,
+            tools=self.tools,
+            references=References(),
+            store=self.decisions,
+        )
+        self.branch = branch
+        self.child = (
+            child_experiment(self.context, branch)
+            if branch in {OnlyAgentRouterAction.SYMBOLIC_SEARCH, OnlyAgentRouterAction.PARAMETER_SEARCH}
+            else None
+        )
+        children = () if self.child is None else (self.child,)
+        self.launches = launch_application(root, self.context, self.application, self.tools, *children)
+        self.command_ids: list[str] = []
+        self.terminal_path = ref(
+            "SEARCH_TERMINAL_PROJECTION" if self.child is not None else "RESEARCH_RUN_RESULT", "6" * 64
+        )
+        self.research_result = ref("RESEARCH_RESULT", "7" * 64)
+        self.statistics = ref("RESEARCH_STATISTICS", "8" * 64)
+
+    def refresh_application_services(self, root: Path) -> None:
+        """Rebuild every fact reader/service over the same durable test roots."""
+
+        self.models = DurableBranchModels(root)
+        self.tools = DurableBranchTools(root)
+        self.decisions = OnlyJsonAgentDecisionStore(root)
+        self.application = OnlyAgentDecisionApplicationServiceV1(
+            sessions=Sessions(self.context),
+            models=self.models,
+            tools=self.tools,
+            references=References(),
+            store=self.decisions,
+        )
+        children = () if self.child is None else (self.child,)
+        self.launches = launch_application(root, self.context, self.application, self.tools, *children)
+
+    def prepare_model_call(self, *, action, **_kwargs):  # type: ignore[no-untyped-def]
+        ordinal = self.models.budget_consumed(self.context.session.session_fingerprint)
+        role = action.logical_role
+        if role == "RESEARCH_PLANNER":
+            output: dict[str, object] = {"action": "PLAN"}
+        elif role == "SEARCH_ROUTER":
+            output = {"router_action": self.branch.value}
+            if self.branch is OnlyAgentRouterAction.CAPABILITY_GAP:
+                output["action_payload"] = OnlyAgentCapabilityGapDirectiveV1(
+                    (ref("MISSING_CAPABILITY", "9" * 64),), ("FACTOR",), ("MISSING_L3",)
+                ).to_dict()
+        elif role == "FACTOR_DESIGNER":
+            output = {"action_payload": action_payload(self.branch, self.context).to_dict()}
+        else:
+            output = self._proposal().to_dict()
+        return model_occurrence(
+            self.fixture,
+            self.context,
+            ordinal=ordinal,
+            role=role,
+            role_fingerprint=self.context.session.ordered_role_policy_fingerprints[
+                {"RESEARCH_PLANNER": 0, "SEARCH_ROUTER": 1, "FACTOR_DESIGNER": 2, "EVIDENCE_ANALYST": 3}[role]
+            ],
+            refs=self._model_references(role),
+            output=output,
+            parent=(
+                None
+                if role == "RESEARCH_PLANNER"
+                else self.application.load_decision_by_session_ordinal_verified(
+                    self.context.session.session_fingerprint, 1 if role == "EVIDENCE_ANALYST" else 0
+                ).decision_fingerprint
+            ),
+        )
+
+    def prepare_tool_call(self, *, action, **_kwargs):  # type: ignore[no-untyped-def]
+        ordinal = self.tools.budget_consumed(self.context.session.session_fingerprint)
+        decision = self.application.load_decision_by_session_ordinal_verified(
+            self.context.session.session_fingerprint,
+            0 if action.tool_class is OnlyAgentToolClass.EXACT_CATALOG_CONTEXT_QUERY else 1,
+        )
+        plan, result = tool_occurrence(
+            self.context,
+            ordinal=ordinal,
+            decision=decision.decision_fingerprint,
+            tool_class=action.tool_class,
+            owner=self._tool_owner(action.tool_class),
+        )
+        if action.tool_class in {
+            OnlyAgentToolClass.RESEARCH_RUN_SUBMIT,
+            OnlyAgentToolClass.SYMBOLIC_SEARCH,
+            OnlyAgentToolClass.PARAMETER_SEARCH,
+        }:
+            command_id = str(uuid.UUID(int=ordinal + 1, version=4))
+            self.command_ids.append(command_id)
+            plan = replace(
+                plan,
+                product_command_id_or_idempotency_key=command_id,
+                tool_call_plan_fingerprint="",
+            )
+            result = replace(
+                result,
+                tool_call_plan_fingerprint=plan.tool_call_plan_fingerprint,
+                tool_call_result_fingerprint="",
+            )
+        if action.tool_class is OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY:
+            result = replace(
+                result,
+                owning_authority_references=(self.research_result, self.statistics),
+                tool_call_result_fingerprint="",
+            )
+        return plan, result
+
+    def derive_decision(self, *, decision_kind, **_kwargs):  # type: ignore[no-untyped-def]
+        session = self.context.session.session_fingerprint
+        manifest = self.fixture.resources[-1].canonical_payload
+        if decision_kind is OnlyAgentDecisionKind.RESEARCH_PLAN:
+            result = self.models.load_result_verified(self.models.plans[0].model_call_plan_fingerprint)
+            self.application.derive_research_plan(
+                session_fingerprint=session,
+                planner_model_result_fingerprint=result.model_call_result_fingerprint,
+                current_workflow_manifest=manifest,  # type: ignore[arg-type]
+            )
+        elif decision_kind is OnlyAgentDecisionKind.SEARCH_DIRECTIVE:
+            router = self.models.load_result_verified(self.models.plans[1].model_call_plan_fingerprint)
+            catalog = self.tools.load_result_verified(self.tools.plans[0].tool_call_plan_fingerprint)
+            factor = (
+                None
+                if self.branch is OnlyAgentRouterAction.CAPABILITY_GAP
+                else self.models.load_result_verified(
+                    self.models.plans[2].model_call_plan_fingerprint
+                ).model_call_result_fingerprint
+            )
+            self.application.derive_search_directive(
+                session_fingerprint=session,
+                router_model_result_fingerprint=router.model_call_result_fingerprint,
+                catalog_tool_result_fingerprint=catalog.tool_call_result_fingerprint,
+                factor_designer_model_result_fingerprint=factor,
+                current_workflow_manifest=manifest,  # type: ignore[arg-type]
+            )
+        else:
+            analyst = self.models.load_result_verified(self.models.plans[3].model_call_plan_fingerprint)
+            self.application.derive_next_experiment_proposal(
+                session_fingerprint=session,
+                evidence_analyst_model_result_fingerprint=analyst.model_call_result_fingerprint,
+                current_workflow_manifest=manifest,  # type: ignore[arg-type]
+            )
+
+    def reconstruct_launch(self, *, tool_result_fingerprint, **_kwargs):  # type: ignore[no-untyped-def]
+        assert self.child is not None
+        directive = self.application.load_decision_by_session_ordinal_verified(
+            self.context.session.session_fingerprint, 1
+        )
+        self.launches.reconstruct_launch_record(
+            session_fingerprint=self.context.session.session_fingerprint,
+            agent_decision_fingerprint=directive.decision_fingerprint,
+            tool_call_result_fingerprint=tool_result_fingerprint,
+            child_search_experiment_fingerprint=self.child.experiment_fingerprint,
+            current_workflow_manifest=self.fixture.resources[-1].canonical_payload,  # type: ignore[arg-type]
+        )
+
+    def _model_references(self, role: str):  # type: ignore[no-untyped-def]
+        brief = ref("AGENT_RESEARCH_BRIEF", self.context.research_brief.research_brief_fingerprint)
+        if role == "RESEARCH_PLANNER":
+            return (brief,)
+        catalog = self.tools.load_result_verified(self.tools.plans[0].tool_call_plan_fingerprint)
+        if role == "SEARCH_ROUTER":
+            return (brief, ref("AGENT_TOOL_CALL_RESULT", catalog.tool_call_result_fingerprint))
+        if role == "FACTOR_DESIGNER":
+            router = self.models.load_result_verified(self.models.plans[1].model_call_plan_fingerprint)
+            return (
+                brief,
+                ref("AGENT_TOOL_CALL_RESULT", catalog.tool_call_result_fingerprint),
+                ref("AGENT_MODEL_CALL_RESULT", router.model_call_result_fingerprint),
+            )
+        return self.terminal_path, self.research_result, self.statistics
+
+    def _tool_owner(self, tool_class: OnlyAgentToolClass) -> OnlyAgentContextReferenceV1:
+        if tool_class is OnlyAgentToolClass.EXACT_CATALOG_CONTEXT_QUERY:
+            return ref("CATALOG_GENERATION", self.context.research_brief.catalog_generation_fingerprint)
+        if tool_class is OnlyAgentToolClass.RESEARCH_DEFINITION_RESOLVE:
+            return ref("RESEARCH_DEFINITION", "2" * 64)
+        if tool_class is OnlyAgentToolClass.RESEARCH_RUN_SUBMIT:
+            return ref("RESEARCH_RUN", "3" * 64)
+        if tool_class in {OnlyAgentToolClass.RESEARCH_RUN_QUERY, OnlyAgentToolClass.SEARCH_QUERY}:
+            return self.terminal_path
+        if tool_class is OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY:
+            return self.research_result
+        assert self.child is not None
+        return ref("SEARCH_EXPERIMENT", self.child.experiment_fingerprint)
+
+    def _proposal(self) -> OnlyAgentNextExperimentProposalV1:
+        return OnlyAgentNextExperimentProposalV1(
+            OnlyAgentEvaluationPathKind.CHILD_SEARCH
+            if self.child is not None
+            else OnlyAgentEvaluationPathKind.DIRECT_REUSE_RESEARCH,
+            self.terminal_path,
+            (self.research_result,),
+            (self.statistics,),
+            (
+                OnlyAgentEvidenceObservationV1(
+                    OnlyAgentEvidenceObservationCodeV1.FOLLOW_UP_RECOMMENDED,
+                    (self.statistics,),
+                ),
+            ),
+            OnlyAgentFollowUpBriefDeltaV1("refine", "bounded evidence", ("narrow scope",)),
+        )
+
+
+class NoOpDriverCoordinator:
+    @contextmanager
+    def acquire(self, _session: str):  # type: ignore[no-untyped-def]
+        yield
+
+
+@pytest.mark.parametrize(
+    ("branch", "expected_status", "expected_models", "expected_tools", "expected_launches"),
+    (
+        (OnlyAgentRouterAction.CAPABILITY_GAP, OnlyAgentDerivedSessionStatus.CAPABILITY_GAP, 2, 1, 0),
+        (OnlyAgentRouterAction.REUSE_EXISTING, OnlyAgentDerivedSessionStatus.COMPLETE, 4, 5, 0),
+        (OnlyAgentRouterAction.SYMBOLIC_SEARCH, OnlyAgentDerivedSessionStatus.COMPLETE, 4, 4, 1),
+        (OnlyAgentRouterAction.PARAMETER_SEARCH, OnlyAgentDerivedSessionStatus.COMPLETE, 4, 4, 1),
+    ),
+)
+def test_all_four_branches_advance_by_fresh_one_step_drivers_with_exact_fact_counts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    branch: OnlyAgentRouterAction,
+    expected_status: OnlyAgentDerivedSessionStatus,
+    expected_models: int,
+    expected_tools: int,
+    expected_launches: int,
+) -> None:
+    root = tmp_path / branch.value.lower()
+    root.mkdir()
+    materializer = BranchDriverMaterializer(root, branch)
+    session = materializer.context.session.session_fingerprint
+    terminal = SimpleNamespace(
+        experiment_fingerprint=materializer.child.experiment_fingerprint if materializer.child else "0" * 64,
+        method=SimpleNamespace(value="SYMBOLIC" if branch is OnlyAgentRouterAction.SYMBOLIC_SEARCH else "PARAMETER"),
+        terminal_kind=SimpleNamespace(value="TERMINAL_STOP"),
+        terminal_fact=SimpleNamespace(to_dict=lambda: {"terminal": True}, terminal_fingerprint="6" * 64),
+        stop_reason="SEARCH_SPACE_EXHAUSTED",
+    )
+    search_states = SimpleNamespace(
+        load_search_state_verified=lambda _child: SimpleNamespace(
+            terminal=terminal,
+            expected_state=SimpleNamespace(to_dict=lambda: {"schema_version": 1}),
+            next_bounded_operation=None,
+        )
+    )
+    completed_run = SimpleNamespace(state=SimpleNamespace(value="COMPLETED"), research_result_fingerprint="6" * 64)
+    research_states = SimpleNamespace(load_research_run_verified=lambda _reference: completed_run)
+    manifest = SimpleNamespace(implementation_fingerprint="4" * 64, source_revision="5" * 40)
+    permit = SimpleNamespace(historical_workflow_resource_fingerprint="6" * 64)
+    monkeypatch.setattr(driver_module, "build_current_agent_workflow_implementation_manifest", lambda: manifest)
+    monkeypatch.setattr(driver_module, "assert_runtime_execution_permit", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        driver_module,
+        "execute_after_runtime_admission",
+        lambda _session, _reader, continuation: continuation(permit),
+    )
+    monkeypatch.setattr(
+        driver_module,
+        "execute_external_model_occurrence",
+        lambda **kwargs: materializer.models.add(*kwargs["prepared"]),
+    )
+    monkeypatch.setattr(
+        driver_module,
+        "execute_external_tool_occurrence",
+        lambda **kwargs: materializer.tools.add(*kwargs["prepared"]),
+    )
+
+    action_trace: list[OnlyAgentNextActionKind] = []
+    for _ in range(20):
+        materializer.refresh_application_services(root)
+        reducer = OnlyAgentSessionReducerV1(
+            sessions=Sessions(materializer.context),
+            models=materializer.models,
+            tools=materializer.tools,
+            decision_service=materializer.application,
+            decision_store=OnlyJsonAgentDecisionStore(root),
+            launch_service=materializer.launches,
+            search_states=search_states if materializer.child is not None else None,
+            research_states=research_states if branch is OnlyAgentRouterAction.REUSE_EXISTING else None,
+        )
+        inspected = reducer.derive(session)
+        if inspected.next_action is not None:
+            action_trace.append(inspected.next_action.action_kind)
+        state = OnlyAgentSessionDriverV1(
+            reducer=reducer,
+            sessions=Sessions(materializer.context),
+            materializer=materializer,  # type: ignore[arg-type]
+            model_occurrences=materializer.models,  # type: ignore[arg-type]
+            tool_occurrences=materializer.tools,  # type: ignore[arg-type]
+            model_adapter=object(),  # type: ignore[arg-type]
+            product_adapter=object(),  # type: ignore[arg-type]
+            coordination=NoOpDriverCoordinator(),  # type: ignore[arg-type]
+        ).advance_once(session)
+        if state.status is not OnlyAgentDerivedSessionStatus.ACTIVE:
+            break
+    else:
+        raise AssertionError("branch did not reach its bounded terminal state")
+
+    expected_decisions = 2 if branch is OnlyAgentRouterAction.CAPABILITY_GAP else 3
+    expected_commands = 0 if branch is OnlyAgentRouterAction.CAPABILITY_GAP else 1
+    assert state.status is expected_status
+    assert len(materializer.models.plans) == len(materializer.models.results) == expected_models
+    assert len(materializer.tools.plans) == len(materializer.tools.results) == expected_tools
+    assert materializer.decisions.contiguous_count(session) == expected_decisions
+    assert int(materializer.launches.launch_exists(session)) == expected_launches
+    assert int(materializer.child is not None) == expected_launches
+    assert len(materializer.command_ids) == expected_commands
+    assert len(set(materializer.command_ids)) == len(materializer.command_ids)
+    assert action_trace.count(OnlyAgentNextActionKind.DERIVE_DECISION) == expected_decisions
+    assert action_trace[0] is OnlyAgentNextActionKind.PREPARE_MODEL_CALL
+    if expected_launches:
+        assert action_trace.count(OnlyAgentNextActionKind.RECONSTRUCT_LAUNCH_RECORD) == 1
+        assert OnlyAgentNextActionKind.PREPARE_NEW_TOOL_OBSERVATION in action_trace
+    if branch is OnlyAgentRouterAction.REUSE_EXISTING:
+        assert OnlyAgentNextActionKind.PREPARE_NEW_TOOL_OBSERVATION in action_trace
