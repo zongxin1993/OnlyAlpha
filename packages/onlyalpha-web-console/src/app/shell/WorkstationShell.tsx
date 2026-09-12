@@ -30,6 +30,7 @@ export function WorkstationShell() {
     }[] = [
         { to: "/research/new", label: "New Research", icon: "research" },
         { to: "/research/library", label: "Research Library", icon: "library", secondary: true },
+        { to: "/research/factors", label: "Factor Explorer", icon: "results", secondary: true },
         { to: "/research/runs", label: "Runs", icon: "runs" },
         { to: "/research/results", label: "Results", icon: "results" },
         { to: "/research/analysis", label: "AI Analysis", icon: "analysis", secondary: true }

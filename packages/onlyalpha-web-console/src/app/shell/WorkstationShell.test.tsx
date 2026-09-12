@@ -9,6 +9,7 @@ const destinations = [
     { path: "/research/results", label: "Results" },
     { path: "/research/analysis", label: "AI Analysis" },
     { path: "/research/library", label: "Research Library" },
+    { path: "/research/factors", label: "Factor Explorer" },
     { path: "/data/inputs", label: "Research Inputs" },
     { path: "/strategies", label: "Strategies" },
     { path: "/backtest/runs", label: "Backtests" },

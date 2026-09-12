@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { ResearchWebError, errorMessage } from "../../../api/research/errors";
 import type { ResearchCalculationCatalogItemTransport } from "../../../api/research/schemas";
 import { useResearchApi } from "../../../app/providers";
@@ -8,6 +8,7 @@ import { CalculationEditor } from "./CalculationEditor";
 import { ExpressionEditor } from "./ExpressionEditor";
 import { ResearchInspector, type ResolutionState } from "./ResearchInspector";
 import { ResearchDraftError, buildResearchDefinitionTransport } from "./definitionTransport";
+import { readFactorSeed } from "./factorSeed";
 import {
     calculationDraftFromCatalog,
     catalogKey,
@@ -34,6 +35,7 @@ interface StudioState {
 export function ResearchStudioPage() {
     const client = useResearchApi();
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const calculations = useQuery(calculationCatalogOptions(client));
     const universes = useQuery(universeCatalogOptions(client));
     const statisticsCapabilities = useQuery(statisticsCapabilityOptions(client));
@@ -50,12 +52,23 @@ export function ResearchStudioPage() {
     const resolveController = useRef<AbortController | null>(null);
     const submissionIntent = useRef(new ResearchRunSubmissionIntent());
 
-    function changeDraft(update: (draft: ResearchDraft) => ResearchDraft) {
+    function changeDraft(
+        update: (draft: ResearchDraft) => ResearchDraft,
+        options?: { readonly expectedRevision: number; readonly nextId: number }
+    ) {
+        if (options !== undefined && revisionRef.current !== options.expectedRevision) return;
         resolveController.current?.abort();
         setStudio((current) => {
+            if (options !== undefined && current.revision !== options.expectedRevision)
+                return current;
             const revision = current.revision + 1;
             revisionRef.current = revision;
-            return { ...current, revision, draft: update(current.draft) };
+            return {
+                ...current,
+                revision,
+                draft: update(current.draft),
+                nextId: options?.nextId ?? current.nextId
+            };
         });
         setResolution({ status: "UNRESOLVED" });
         setSubmissionError(null);
@@ -101,6 +114,7 @@ export function ResearchStudioPage() {
     }
 
     const catalogItems = calculations.data.calculations;
+    const factorSeed = readFactorSeed(searchParams, catalogItems);
     const catalogMap = new Map(catalogItems.map((item) => [catalogKey(item), item]));
     const calculationChoices = catalogItems.filter((item) => item.type_reference.kind !== "TARGET");
     const targetChoices = catalogItems.filter((item) => item.type_reference.kind === "TARGET");
@@ -239,6 +253,42 @@ export function ResearchStudioPage() {
                     </button>
                 </div>
             </header>
+            {factorSeed === null ? null : factorSeed.kind === "INVALID" ? (
+                <div className="error" role="alert">
+                    FACTOR_SELECTION_UNAVAILABLE: {factorSeed.detail}
+                </div>
+            ) : (
+                <section className="builder-section" aria-labelledby="factor-seed-heading">
+                    <h2 id="factor-seed-heading">Factor Explorer selection</h2>
+                    <p>
+                        <code>{factorSeed.factorKey}</code>
+                    </p>
+                    <p>
+                        This selection is an authoring shortcut only. Factor inputs, Target and
+                        Statistics still require your choices; nothing is resolved or submitted
+                        automatically.
+                    </p>
+                    <p className="catalog-meta">
+                        Parameters and published outputs start from catalog defaults, not the
+                        historical Factor settings. Confirm them before resolving this new draft.
+                    </p>
+                    <button
+                        type="button"
+                        disabled={studio.revision !== 0}
+                        onClick={() => {
+                            changeDraft(() => factorSeed.draft, { expectedRevision: 0, nextId: 2 });
+                        }}
+                    >
+                        Apply Factor Explorer selection
+                    </button>
+                    {studio.revision === 0 ? null : (
+                        <p className="catalog-meta">
+                            Selection can only be applied to an untouched draft. Existing edits will
+                            not be replaced.
+                        </p>
+                    )}
+                </section>
+            )}
             {submissionError === null ? null : (
                 <div className="error" role="alert">
                     {submissionError}

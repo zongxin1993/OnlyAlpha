@@ -1,0 +1,12 @@
+/* Renderer layout must not inherit the workstation's semantic-data table chrome. */
+.onlyalpha-financial-chart .tv-lightweight-charts table {
+    border-collapse: separate;
+    border-spacing: 0;
+    background: transparent;
+}
+
+.onlyalpha-financial-chart .tv-lightweight-charts td,
+.onlyalpha-financial-chart .tv-lightweight-charts th {
+    border: 0;
+    padding: 0;
+}

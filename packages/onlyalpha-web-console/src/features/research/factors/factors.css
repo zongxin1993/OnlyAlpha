@@ -1,0 +1,501 @@
+.factor-explorer {
+    padding: 1.5rem;
+    max-width: 1920px;
+    margin: 0 auto;
+    min-width: 0;
+}
+.factor-page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+.factor-page-header h1 {
+    margin: 0.4rem 0 0.7rem;
+    font-size: 1.8rem;
+}
+.factor-page-header p:not(.eyebrow) {
+    color: var(--muted);
+    font-size: 0.8rem;
+    margin: 0;
+}
+.factor-page-header > a {
+    flex-shrink: 0;
+}
+.factor-workspace-layout {
+    display: grid;
+    grid-template-columns: 15rem minmax(0, 1fr);
+    gap: 1rem;
+    align-items: start;
+}
+.factor-catalog {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 1rem;
+    background: var(--surface);
+    position: sticky;
+    top: 4.5rem;
+    max-height: calc(100dvh - 6rem);
+    overflow-y: auto;
+}
+.factor-catalog header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+.factor-catalog h2 {
+    font-size: 0.95rem;
+    margin: 0;
+}
+.factor-catalog header svg {
+    color: var(--accent);
+}
+.factor-catalog > label {
+    font-size: 0.72rem;
+    color: var(--muted);
+}
+.factor-catalog > input {
+    padding: 0.6rem;
+    font-size: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+.factor-caption {
+    font-size: 0.7rem;
+    color: var(--muted);
+    line-height: 1.7;
+}
+.factor-catalog-items {
+    display: grid;
+    gap: 0.5rem;
+    margin: 0.75rem 0;
+}
+.factor-catalog-items > button {
+    display: grid;
+    justify-items: start;
+    gap: 0.6rem;
+    text-align: left;
+    padding: 0.8rem;
+    background: var(--bg);
+    border: 1px solid var(--line-soft);
+    color: var(--text);
+    min-width: 0;
+}
+.factor-catalog-items > button[aria-pressed="true"] {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+}
+.factor-catalog-items strong {
+    font-size: 0.76rem;
+    overflow-wrap: anywhere;
+}
+.factor-catalog-items button > span:last-child {
+    font-size: 0.67rem;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+}
+.factor-catalog .quiet-button {
+    font-size: 0.7rem;
+}
+.factor-evidence-workspace {
+    min-width: 0;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    padding: 1rem;
+}
+.factor-evidence-toolbar {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.75rem;
+}
+.factor-evidence-toolbar > label {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.75rem;
+}
+.factor-evidence-toolbar select {
+    margin-bottom: 0;
+    font-size: 0.75rem;
+    padding: 0.6rem;
+}
+.factor-evidence-toolbar > a {
+    margin-bottom: 0.15rem;
+    flex-shrink: 0;
+}
+.factor-result-input {
+    margin: 0.9rem 0;
+    font-size: 0.72rem;
+}
+.factor-result-input summary,
+.factor-identities summary,
+.factor-subject summary,
+.factor-exact-data summary {
+    cursor: pointer;
+    color: var(--accent);
+}
+.factor-result-input form {
+    margin-top: 0.75rem;
+}
+.factor-start {
+    display: grid;
+    justify-items: center;
+    align-content: center;
+    min-height: 32rem;
+    padding: 2rem;
+    text-align: center;
+    border-top: 1px solid var(--line-soft);
+}
+.factor-start > svg {
+    width: 2.5rem;
+    height: 2.5rem;
+    color: var(--accent);
+}
+.factor-start h2 {
+    font-size: 1.4rem;
+    margin: 1rem 0 0.5rem;
+}
+.factor-start > p {
+    max-width: 42rem;
+    color: var(--muted);
+    font-size: 0.8rem;
+    line-height: 1.8;
+}
+.factor-start-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    justify-content: center;
+    margin: 1rem 0;
+}
+.factor-start-options span {
+    font-size: 0.7rem;
+    padding: 0.6rem;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: var(--bg);
+}
+.factor-result-context {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    border-top: 1px solid var(--line);
+    padding-top: 1rem;
+}
+.factor-result-context h2 {
+    font-size: 1.1rem;
+    margin: 0.6rem 0 0;
+}
+.factor-result-context p,
+.factor-result-context > a {
+    font-size: 0.7rem;
+    color: var(--muted);
+}
+.factor-result-context > a {
+    color: var(--accent);
+    flex-shrink: 0;
+}
+.factor-identities {
+    margin: 0.5rem 0 1rem;
+    font-size: 0.72rem;
+}
+.factor-identities dl,
+.factor-subject dl {
+    display: grid;
+    gap: 0.3rem;
+}
+.factor-identities dt,
+.factor-subject dt {
+    color: var(--muted);
+}
+.factor-identities dd,
+.factor-subject dd {
+    margin: 0 0 0.4rem;
+    overflow-wrap: anywhere;
+}
+.factor-candidate-selector,
+.factor-output-selector {
+    font-size: 0.75rem;
+}
+.factor-candidate-selector select,
+.factor-output-selector select,
+.factor-correlation select {
+    font-size: 0.73rem;
+    min-width: 0;
+    padding: 0.6rem;
+}
+.factor-empty-message {
+    font-size: 0.75rem;
+    color: var(--muted);
+    line-height: 1.8;
+}
+.factor-stock-picker {
+    padding: 0.8rem;
+    margin: 0 0 1rem;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    min-width: 0;
+}
+.factor-stock-picker legend {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0 0.3rem;
+}
+.factor-stock-picker > div {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+}
+.factor-stock-picker label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.4rem 0.5rem;
+    font-size: 0.75rem;
+    background: var(--bg);
+    border-radius: 4px;
+    border: 1px solid var(--line-soft);
+    overflow-wrap: anywhere;
+}
+.factor-stock-picker input {
+    width: 1rem;
+    margin: 0;
+    accent-color: var(--accent);
+}
+.factor-stock-picker p {
+    margin: 0.7rem 0 0;
+    color: var(--muted);
+    font-size: 0.68rem;
+}
+.factor-date-controls {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    margin: 0 0 1rem;
+    padding: 0.85rem;
+    background: var(--bg);
+}
+.factor-date-controls label {
+    flex: 1 1 10rem;
+    font-size: 0.7rem;
+    min-width: 0;
+}
+.factor-date-controls input {
+    margin-bottom: 0;
+    font-size: 0.73rem;
+    padding: 0.5rem;
+}
+.factor-date-controls button {
+    font-size: 0.7rem;
+}
+.factor-date-controls p {
+    flex-basis: 100%;
+    margin: 0;
+    font-size: 0.68rem;
+    color: var(--muted);
+}
+.factor-date-controls .error {
+    color: var(--danger);
+}
+.factor-subject {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.7rem;
+    flex-wrap: wrap;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border: 1px solid var(--line);
+    border-left: 2px solid var(--accent);
+    border-radius: 6px;
+    background: var(--bg);
+}
+.factor-subject h3 {
+    font-size: 1rem;
+    margin: 0.5rem 0;
+    overflow-wrap: anywhere;
+}
+.factor-subject p {
+    color: var(--muted);
+    font-size: 0.7rem;
+    margin: 0;
+}
+.factor-subject > a {
+    flex-shrink: 0;
+    font-size: 0.7rem;
+}
+.factor-subject details {
+    flex-basis: 100%;
+    min-width: 0;
+    font-size: 0.68rem;
+}
+.factor-subject .factor-seed-note {
+    flex-basis: 100%;
+    line-height: 1.7;
+}
+.factor-subject pre {
+    max-width: 100%;
+    overflow-x: auto;
+}
+.factor-plots {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 30rem), 1fr));
+    gap: 1rem;
+}
+.factor-instrument-card {
+    min-width: 0;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 0.8rem;
+    background: var(--bg);
+}
+.factor-card-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    gap: 0.5rem;
+}
+.factor-card-heading h3 {
+    margin: 0;
+    font-size: 0.95rem;
+    overflow-wrap: anywhere;
+}
+.factor-card-heading p {
+    font-size: 0.68rem;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+}
+.factor-card-heading .kind-label {
+    font-size: 0.6rem;
+    color: var(--accent);
+    white-space: nowrap;
+}
+.factor-instrument-card .evidence-status {
+    font-size: 0.67rem;
+}
+.factor-instrument-card .financial-chart {
+    width: 100%;
+    min-width: 0;
+}
+.factor-instrument-card .attribution {
+    font-size: 0.65rem;
+}
+.factor-exact-data {
+    padding: 0.6rem 0;
+    border-top: 1px solid var(--line-soft);
+    font-size: 0.72rem;
+    min-width: 0;
+}
+.factor-exact-data .table-scroll {
+    max-width: 100%;
+    margin-top: 0.6rem;
+}
+.factor-table td,
+.factor-table th {
+    font-size: 0.68rem;
+    padding: 0.5rem;
+}
+.factor-correlation {
+    margin-top: 1rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 1rem;
+    background: var(--bg);
+    min-width: 0;
+}
+.factor-correlation > header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+}
+.factor-correlation h2 {
+    font-size: 1.1rem;
+    margin: 0;
+}
+.factor-correlation header .eyebrow {
+    font-size: 0.65rem;
+}
+.factor-correlation > label {
+    font-size: 0.75rem;
+}
+.factor-method {
+    font-size: 0.85rem;
+    color: var(--accent);
+}
+.factor-correlation .identity-inspector {
+    font-size: 0.7rem;
+    padding: 0.8rem;
+}
+.factor-correlation .facts {
+    grid-template-columns: minmax(0, 1fr);
+}
+.factor-correlation .facts dd {
+    margin: 0;
+}
+.factor-correlation .table-scroll {
+    max-width: 100%;
+}
+.factor-correlation th,
+.factor-correlation td {
+    font-size: 0.7rem;
+    padding: 0.5rem;
+}
+.factor-explorer .error {
+    overflow-wrap: anywhere;
+}
+@media (max-width: 1000px) {
+    .factor-workspace-layout {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .factor-catalog {
+        position: static;
+        max-height: 21rem;
+    }
+    .factor-catalog-items {
+        grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    }
+}
+@media (max-width: 767px) {
+    .factor-explorer {
+        padding: 1rem 0.6rem;
+    }
+    .factor-page-header,
+    .factor-result-context,
+    .factor-evidence-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .factor-page-header h1 {
+        font-size: 1.5rem;
+    }
+    .factor-evidence-workspace {
+        padding: 0.65rem;
+    }
+    .factor-start {
+        padding: 1.5rem 0.5rem;
+        min-height: 28rem;
+    }
+    .factor-start h2 {
+        font-size: 1.2rem;
+    }
+    .factor-date-controls {
+        gap: 0.5rem;
+    }
+    .factor-date-controls label {
+        flex-basis: 100%;
+    }
+    .factor-subject > a {
+        width: 100%;
+    }
+    .factor-correlation > header {
+        align-items: start;
+        flex-direction: column;
+    }
+    .factor-card-heading {
+        flex-direction: column;
+    }
+}

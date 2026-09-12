@@ -1,6 +1,7 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useResearchApi } from "../../../../app/providers";
 import { formatUtcNanoseconds } from "../../../../domain/research/time";
+import type { UnixNanoseconds } from "../../../../domain/research/time";
 import { QueryError } from "../../../../shared/components/QueryState";
 import { ScientificEvidenceChart } from "../../../../visualization/scientific/echarts/ScientificEvidenceChart";
 import { projectStatisticsEvidence } from "../../../../visualization/projection/scientificProjection";
@@ -58,18 +59,36 @@ export function StatisticsWorkspace() {
 
 export function StatisticsEvidence({
     result,
-    descriptor
+    descriptor,
+    from,
+    to
 }: {
     readonly result: ReturnType<typeof useResultWorkspace>["summary"]["researchResultFingerprint"];
     readonly descriptor: ReturnType<typeof useResultWorkspace>["statistics"]["statistics"][number];
+    readonly from?: UnixNanoseconds;
+    readonly to?: UnixNanoseconds;
 }) {
     const client = useResearchApi();
     const query = useInfiniteQuery(
-        seriesOptions(client, result, descriptor.statisticsFingerprint, 500)
+        seriesOptions(client, result, descriptor.statisticsFingerprint, 500, from, to)
     );
     if (query.isPending) return <p role="status">Loading bounded exact Statistics evidence…</p>;
     if (query.isError) return <QueryError error={query.error} retry={() => void query.refetch()} />;
-    const admission = admitPresentation(() => mergeSeriesPages(query.data.pages));
+    const admission = admitPresentation(() => {
+        for (const page of query.data.pages) {
+            if (
+                page.researchResultFingerprint !== result ||
+                page.statisticsFingerprint !== descriptor.statisticsFingerprint ||
+                page.points.some(
+                    (point) =>
+                        (from !== undefined && point.tsEventNs < from) ||
+                        (to !== undefined && point.tsEventNs >= to)
+                )
+            )
+                throw new Error("Statistics identity or requested interval mismatch");
+        }
+        return mergeSeriesPages(query.data.pages);
+    });
     if (!admission.ok)
         return (
             <p className="error" role="alert">

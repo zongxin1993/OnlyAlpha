@@ -19,17 +19,22 @@ import type {
     FinancialSignalMarker,
     FinancialVolume
 } from "../../model/financial";
+import "./FinancialEvidenceChart.css";
 
 export function FinancialEvidenceChart({
     candles,
     volume,
     variable,
-    markers
+    markers,
+    variablePane = false,
+    variableLabel
 }: {
     readonly candles: readonly FinancialCandle[];
     readonly volume: readonly FinancialVolume[];
     readonly variable: readonly FinancialLinePoint[];
     readonly markers: readonly FinancialSignalMarker[];
+    readonly variablePane?: boolean;
+    readonly variableLabel?: string;
 }) {
     const container = useRef<HTMLDivElement>(null);
     useEffect(() => {
@@ -69,8 +74,25 @@ export function FinancialEvidenceChart({
                 color: point.direction === "UP" ? "#34d39980" : "#fb718580"
             }))
         );
-        if (variable.length > 0) {
-            const line = chart.addSeries(LineSeries, { color: "#67e8f9", lineWidth: 2 });
+        if (variable.length > 0 || variablePane) {
+            const line = variablePane
+                ? chart.addSeries(
+                      LineSeries,
+                      {
+                          color: "#67e8f9",
+                          lineWidth: 2,
+                          priceScaleId: "right",
+                          title: variableLabel ?? "Factor",
+                          priceFormat: {
+                              type: "custom",
+                              minMove: factorDisplayStep(variable),
+                              formatter: (value: number): string =>
+                                  Number.isFinite(value) ? value.toPrecision(6) : "—"
+                          }
+                      },
+                      1
+                  )
+                : chart.addSeries(LineSeries, { color: "#67e8f9", lineWidth: 2 });
             line.setData(
                 variable.map((point): LineData | WhitespaceData =>
                     point.value === undefined
@@ -96,13 +118,41 @@ export function FinancialEvidenceChart({
         return () => {
             chart.remove();
         };
-    }, [candles, markers, variable, volume]);
+    }, [candles, markers, variable, volume, variablePane, variableLabel]);
     return (
-        <section aria-label="Financial evidence chart">
-            <div className="financial-chart" ref={container} data-testid="financial-chart" />
+        <section
+            role={variablePane ? "figure" : undefined}
+            aria-label={
+                variablePane
+                    ? "Financial evidence chart with independent Factor pane"
+                    : "Financial evidence chart"
+            }
+        >
+            <div
+                className="financial-chart onlyalpha-financial-chart"
+                style={{ height: 480 }}
+                ref={container}
+                data-testid="financial-chart"
+            />
+            {variablePane ? (
+                <p className="attribution">
+                    {variableLabel ?? "Factor"} · Independent Factor pane · Separate value scale,
+                    shared time axis. Values are a plotting projection, not a correlation result.
+                </p>
+            ) : null}
             <p className="attribution">
                 Charting by <a href="https://www.tradingview.com/">TradingView</a>
             </p>
         </section>
     );
+}
+
+function factorDisplayStep(points: readonly FinancialLinePoint[]): number {
+    // Renderer tick spacing only; no evidence values or semantic output quantum are changed.
+    let magnitude = 1;
+    for (const point of points) {
+        if (point.value !== undefined && point.value !== 0 && Number.isFinite(point.value))
+            magnitude = Math.min(magnitude, Math.abs(point.value));
+    }
+    return Math.max(1e-300, 10 ** (Math.floor(Math.log10(magnitude)) - 5));
 }

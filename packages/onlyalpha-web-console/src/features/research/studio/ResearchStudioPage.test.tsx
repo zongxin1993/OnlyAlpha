@@ -103,10 +103,14 @@ function deferred<T>() {
 
 function renderStudio(
     resolveDefinition: ResearchApiClient["resolveDefinition"],
-    submitRun: ResearchApiClient["submitRun"] = () => Promise.reject(new Error("hold navigation"))
+    submitRun: ResearchApiClient["submitRun"] = () => Promise.reject(new Error("hold navigation")),
+    options: {
+        readonly entry?: string;
+        readonly catalog?: ResearchCalculationCatalogTransport;
+    } = {}
 ) {
     const client = researchClient({
-        getCalculationCatalog: () => Promise.resolve(catalog),
+        getCalculationCatalog: () => Promise.resolve(options.catalog ?? catalog),
         getUniverseCatalog: () =>
             Promise.resolve({
                 schema_version: 2,
@@ -149,7 +153,7 @@ function renderStudio(
             { path: "/research/new", element: <ResearchStudioPage /> },
             { path: "/research/runs/:runId", element: <p>Run accepted</p> }
         ],
-        { initialEntries: ["/research/new"] }
+        { initialEntries: [options.entry ?? "/research/new"] }
     );
     return render(
         <AppProviders client={client}>
@@ -272,3 +276,112 @@ it("authors the existing Dataset price and adjustment fields into Resolution inp
         adjustment_reference: "2026-01-01"
     });
 });
+
+it("applies an exact Factor Explorer selection only on explicit input without inventing Factor bindings, Target or Statistics", async () => {
+    const resolveDefinition = vi.fn<ResearchApiClient["resolveDefinition"]>();
+    const submitRun = vi.fn<ResearchApiClient["submitRun"]>();
+    const seedCatalog: ResearchCalculationCatalogTransport = {
+        ...catalog,
+        calculations: catalog.calculations.map(
+            (item): ResearchCalculationCatalogTransport["calculations"][number] =>
+                item.kind === "FACTOR"
+                    ? {
+                          ...item,
+                          inputs: [
+                              {
+                                  name: "price",
+                                  data_type: "DECIMAL",
+                                  nullable: false,
+                                  semantic_type: "PRICE",
+                                  dimensions: ["INSTRUMENT", "TIME"],
+                                  unit: "PRICE"
+                              }
+                          ]
+                      }
+                    : item
+        )
+    };
+    const parameters = new URLSearchParams({
+        factor: "FACTOR:test.factor@1",
+        from: "2026-01-01",
+        to: "2026-02-01"
+    });
+    parameters.append("instrument", "A.XNAS");
+    parameters.append("instrument", "B.XNAS");
+    renderStudio(resolveDefinition, submitRun, {
+        entry: `/research/new?${parameters.toString()}`,
+        catalog: seedCatalog
+    });
+    const apply = await screen.findByRole("button", { name: "Apply Factor Explorer selection" });
+    expect(screen.getByLabelText("Instrument IDs")).toHaveValue("");
+    expect(screen.getByLabelText("Start")).toHaveValue("");
+    expect(screen.queryByLabelText("test.factor instance key")).not.toBeInTheDocument();
+    expect(resolveDefinition).not.toHaveBeenCalled();
+    expect(submitRun).not.toHaveBeenCalled();
+    const user = userEvent.setup();
+    await user.click(apply);
+    expect(screen.getByLabelText("Universe kind")).toHaveValue("EXPLICIT_INSTRUMENT_SET");
+    expect(screen.getByLabelText("Instrument IDs")).toHaveValue("A.XNAS, B.XNAS");
+    expect(screen.getByLabelText("Start")).toHaveValue("2026-01-01T00:00:00Z");
+    expect(screen.getByLabelText("End")).toHaveValue("2026-02-01T00:00:00Z");
+    expect(screen.getByLabelText("test.factor instance key")).toHaveValue("factor_1");
+    expect(screen.getByLabelText("Input · price")).toHaveValue("");
+    expect(screen.queryByLabelText("test.target instance key")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Method")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run" })).toBeDisabled();
+    expect(apply).toBeDisabled();
+    expect(resolveDefinition).not.toHaveBeenCalled();
+    expect(submitRun).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Resolve" }));
+    expect(screen.getByText("RESEARCH_DRAFT_INCOMPLETE")).toBeInTheDocument();
+    expect(resolveDefinition).not.toHaveBeenCalled();
+    const targetSection = screen.getByLabelText("Add Targets").closest("section");
+    if (targetSection === null) throw new Error("Target builder section missing");
+    await user.click(within(targetSection).getByRole("button", { name: "Add" }));
+    expect(screen.getByLabelText("test.target instance key")).toHaveValue("target_2");
+});
+
+it("never replaces a user's existing draft edits with an Explorer URL selection", async () => {
+    const resolveDefinition = vi.fn<ResearchApiClient["resolveDefinition"]>();
+    const submitRun = vi.fn<ResearchApiClient["submitRun"]>();
+    const parameters = new URLSearchParams({
+        factor: "FACTOR:test.factor@1",
+        instrument: "A.XNAS"
+    });
+    renderStudio(resolveDefinition, submitRun, { entry: `/research/new?${parameters.toString()}` });
+    const apply = await screen.findByRole("button", { name: "Apply Factor Explorer selection" });
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Instrument IDs"), "USER.XNAS");
+    expect(apply).toBeDisabled();
+    await user.click(apply);
+    expect(screen.getByLabelText("Instrument IDs")).toHaveValue("USER.XNAS");
+    expect(screen.queryByLabelText("test.factor instance key")).not.toBeInTheDocument();
+    expect(screen.getByText(/Existing edits will not be replaced/)).toBeInTheDocument();
+    expect(resolveDefinition).not.toHaveBeenCalled();
+    expect(submitRun).not.toHaveBeenCalled();
+});
+
+it.each([
+    { factor: "FACTOR:test.factor@9" },
+    { factor: "TARGET:test.target@1" },
+    { factor: "FACTOR:test.factor@1", from: "2026-02-29" }
+])(
+    "reports unusable Factor Explorer selection without silently choosing or applying a substitute",
+    async (values) => {
+        const resolveDefinition = vi.fn<ResearchApiClient["resolveDefinition"]>();
+        const submitRun = vi.fn<ResearchApiClient["submitRun"]>();
+        const parameters = new URLSearchParams({ factor: values.factor });
+        if (values.from !== undefined) parameters.set("from", values.from);
+        renderStudio(resolveDefinition, submitRun, {
+            entry: `/research/new?${parameters.toString()}`
+        });
+        expect(await screen.findByRole("alert")).toHaveTextContent("FACTOR_SELECTION_UNAVAILABLE");
+        expect(
+            screen.queryByRole("button", { name: "Apply Factor Explorer selection" })
+        ).not.toBeInTheDocument();
+        expect(screen.getByLabelText("Instrument IDs")).toHaveValue("");
+        expect(screen.queryByLabelText("test.factor instance key")).not.toBeInTheDocument();
+        expect(resolveDefinition).not.toHaveBeenCalled();
+        expect(submitRun).not.toHaveBeenCalled();
+    }
+);

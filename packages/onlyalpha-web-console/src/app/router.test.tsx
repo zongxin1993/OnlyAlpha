@@ -9,6 +9,7 @@ it("owns stable Research deep-link routes and narrow compatibility redirects", (
             "/research/new",
             "/research/analysis",
             "/research/library",
+            "/research/factors",
             "/data/inputs",
             "/strategies",
             "/strategies/:strategyFingerprint",

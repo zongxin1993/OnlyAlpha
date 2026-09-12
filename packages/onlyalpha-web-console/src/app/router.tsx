@@ -13,6 +13,7 @@ import { ResearchLibraryPage } from "../features/research/library/ResearchLibrar
 import { StrategyPage } from "../features/strategies/StrategyPage";
 import { BacktestPage } from "../features/backtest/BacktestPage";
 import { SystemHealthPage } from "../features/system/SystemHealthPage";
+import { FactorExplorerPage } from "../features/research/factors/FactorExplorerPage";
 
 export const researchRoutes: RouteObject[] = [
     {
@@ -23,6 +24,7 @@ export const researchRoutes: RouteObject[] = [
             { path: "/research/new", element: <ResearchStudioPage /> },
             { path: "/research/analysis", element: <ResearchAnalysisPage /> },
             { path: "/research/library", element: <ResearchLibraryPage /> },
+            { path: "/research/factors", element: <FactorExplorerPage /> },
             { path: "/data/inputs", element: <ResearchInputsPage /> },
             { path: "/strategies", element: <StrategyPage /> },
             { path: "/strategies/:strategyFingerprint", element: <StrategyPage /> },
