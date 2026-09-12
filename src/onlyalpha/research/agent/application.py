@@ -1231,7 +1231,35 @@ class OnlyAgentDecisionApplicationServiceV1:
             or results[-1].outcome is not OnlyAgentToolCallOutcome.SUCCEEDED
         ):
             raise OnlyAgentContextError("AGENT_EVIDENCE_UNAVAILABLE", "Evidence query is not complete")
-        evidence_references = results[-1].owning_authority_references
+        evidence_result = results[-1]
+        evidence_response = evidence_result.canonical_validated_response
+        if not isinstance(evidence_response, Mapping):
+            raise OnlyAgentContextError("AGENT_EVIDENCE_UNAVAILABLE", "Evidence response is unavailable")
+        result_fingerprint = evidence_response.get("research_result_fingerprint")
+        raw_statistics = evidence_response.get("statistics")
+        if not isinstance(result_fingerprint, str) or not isinstance(raw_statistics, tuple) or not raw_statistics:
+            raise OnlyAgentContextError("AGENT_EVIDENCE_UNAVAILABLE", "Evidence response reference closure")
+        try:
+            derived_results = (_reference("RESEARCH_RESULT", result_fingerprint),)
+            derived_statistics = tuple(
+                _reference(
+                    "RESEARCH_STATISTICS",
+                    cast(str, cast(Mapping[str, object], descriptor)["statistics_result_fingerprint"]),
+                )
+                for descriptor in raw_statistics
+                if isinstance(descriptor, Mapping)
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise OnlyAgentContextError("AGENT_EVIDENCE_UNAVAILABLE", "Evidence response reference closure") from exc
+        if (
+            len(derived_statistics) != len(raw_statistics)
+            or len(derived_statistics) != len(set(derived_statistics))
+            or evidence_result.owning_authority_references.count(derived_results[0]) != 1
+            or any(
+                evidence_result.owning_authority_references.count(reference) != 1 for reference in derived_statistics
+            )
+        ):
+            raise OnlyAgentContextError("AGENT_EVIDENCE_UNAVAILABLE", "Evidence response reference closure")
         try:
             self._references.verify_completed_evaluation_path(
                 payload.completed_path_reference, payload.evaluation_path_kind
@@ -1244,11 +1272,10 @@ class OnlyAgentDecisionApplicationServiceV1:
             reference.reference_kind != "RESEARCH_STATISTICS" for reference in payload.research_statistics_references
         ):
             raise OnlyAgentContextError("AGENT_EVIDENCE_UNAVAILABLE", "Research Statistics reference kind")
-        required_evidence = (
-            *payload.research_result_references,
-            *payload.research_statistics_references,
-        )
-        if any(evidence_references.count(reference) != 1 for reference in required_evidence):
+        if (
+            payload.research_result_references != derived_results
+            or payload.research_statistics_references != derived_statistics
+        ):
             raise OnlyAgentContextError("AGENT_EVIDENCE_UNAVAILABLE", "Evidence reference closure")
         statistics = set(payload.research_statistics_references)
         if any(

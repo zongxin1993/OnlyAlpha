@@ -64,6 +64,14 @@ def create_artifact_router(service: OnlyResearchQueryService) -> APIRouter:
         "/{research_result_fingerprint}",
         response_model=ResearchArtifactSummaryDto,
         responses=_ERROR_RESPONSES,
+    )
+    def artifact_summary(research_result_fingerprint: ResearchResultPath) -> ResearchArtifactSummaryDto:
+        return ResearchArtifactSummaryDto.from_model(service.get_artifact_summary(research_result_fingerprint))
+
+    @router.get(
+        "/{research_result_fingerprint}/statistics",
+        response_model=ResearchStatisticsCatalogDto,
+        responses=_ERROR_RESPONSES,
         openapi_extra={
             "x-onlyalpha-agent-operation": {
                 "schema_version": 1,
@@ -83,15 +91,7 @@ def create_artifact_router(service: OnlyResearchQueryService) -> APIRouter:
             }
         },
     )
-    def artifact_summary(research_result_fingerprint: ResearchResultPath) -> ResearchArtifactSummaryDto:
-        return ResearchArtifactSummaryDto.from_model(service.get_artifact_summary(research_result_fingerprint))
-
-    @router.get(
-        "/{research_result_fingerprint}/statistics",
-        response_model=ResearchStatisticsCatalogDto,
-        responses=_ERROR_RESPONSES,
-    )
-    def statistics_catalog(research_result_fingerprint: str) -> ResearchStatisticsCatalogDto:
+    def statistics_catalog(research_result_fingerprint: ResearchResultPath) -> ResearchStatisticsCatalogDto:
         return ResearchStatisticsCatalogDto.from_model(service.list_statistics(research_result_fingerprint))
 
     @router.get(

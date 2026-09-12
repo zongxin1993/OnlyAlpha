@@ -3995,7 +3995,10 @@
         "properties": {
           "research_result_fingerprint": {
             "title": "Research Result Fingerprint",
-            "type": "string"
+            "type": "string",
+            "x-onlyalpha-reference-kind": "RESEARCH_RESULT",
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-schema-version": 1
           },
           "schema_version": {
             "const": 2,
@@ -4127,7 +4130,10 @@
           },
           "statistics_result_fingerprint": {
             "title": "Statistics Result Fingerprint",
-            "type": "string"
+            "type": "string",
+            "x-onlyalpha-reference-kind": "RESEARCH_STATISTICS",
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+            "x-onlyalpha-reference-schema-version": 1
           },
           "statistics_result_schema_version": {
             "title": "Statistics Result Schema Version",
@@ -5863,24 +5869,7 @@
         "summary": "Artifact Summary",
         "tags": [
           "research-artifacts"
-        ],
-        "x-onlyalpha-agent-operation": {
-          "identity_requirements": [
-            "research_result_fingerprint"
-          ],
-          "owning_authority_references": [
-            {
-              "locator_kind": "SHA256",
-              "reference_kind": "RESEARCH_RESULT",
-              "reference_schema_version": 1,
-              "response_field": "research_result_fingerprint"
-            }
-          ],
-          "recovery_class": "IMMUTABLE_EXACT_QUERY",
-          "requires_product_command_id": false,
-          "schema_version": 1,
-          "tool_class": "RESEARCH_EVIDENCE_QUERY"
-        }
+        ]
       }
     },
     "/api/v2/research/artifacts/{research_result_fingerprint}/candidates": {
@@ -6388,7 +6377,10 @@
             "required": true,
             "schema": {
               "title": "Research Result Fingerprint",
-              "type": "string"
+              "type": "string",
+              "x-onlyalpha-reference-kind": "RESEARCH_RESULT",
+              "x-onlyalpha-reference-locator-kind": "SHA256",
+              "x-onlyalpha-reference-schema-version": 1
             }
           }
         ],
@@ -6457,7 +6449,24 @@
         "summary": "Statistics Catalog",
         "tags": [
           "research-artifacts"
-        ]
+        ],
+        "x-onlyalpha-agent-operation": {
+          "identity_requirements": [
+            "research_result_fingerprint"
+          ],
+          "owning_authority_references": [
+            {
+              "locator_kind": "SHA256",
+              "reference_kind": "RESEARCH_RESULT",
+              "reference_schema_version": 1,
+              "response_field": "research_result_fingerprint"
+            }
+          ],
+          "recovery_class": "IMMUTABLE_EXACT_QUERY",
+          "requires_product_command_id": false,
+          "schema_version": 1,
+          "tool_class": "RESEARCH_EVIDENCE_QUERY"
+        }
       }
     },
     "/api/v2/research/artifacts/{research_result_fingerprint}/statistics/{statistics_fingerprint}/series": {

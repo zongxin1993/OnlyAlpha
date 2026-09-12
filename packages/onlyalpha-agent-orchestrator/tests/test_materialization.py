@@ -25,6 +25,7 @@ from onlyalpha.research.agent import (
     OnlyAgentSearchDirectiveV1,
     OnlyAgentStructuredHypothesisV1,
     OnlyAgentSymbolicSearchDirectiveV1,
+    OnlyAgentToolCallOutcome,
     OnlyAgentToolClass,
 )
 from onlyalpha.research.agent.decision import OnlyAgentRouterAction
@@ -40,12 +41,6 @@ def _ref(kind: str, character: str) -> OnlyAgentContextReferenceV1:
 class _Inputs:
     def load_semantic_payload_verified(self, reference):  # type: ignore[no-untyped-def]
         return {"exact_reference": reference.reference_fingerprint}
-
-    def load_evidence_query_reference_verified(self, _session):  # type: ignore[no-untyped-def]
-        return _ref("RESEARCH_RESULT", "e")
-
-    def load_evidence_model_context_verified(self, _session):  # type: ignore[no-untyped-def]
-        return (_ref("RESEARCH_RESULT", "e"), _ref("RESEARCH_STATISTICS", "f"))
 
 
 class _RuntimeGeneration:
@@ -91,7 +86,18 @@ def _directive(parameter: bool = False) -> OnlyAgentSearchDirectiveV1:
     return OnlyAgentSearchDirectiveV1(action, "0" * 64, payload)
 
 
-def _materializer(*, sessions=None, decisions=None, models=None, launches=None, search_states=None):  # type: ignore[no-untyped-def]
+def _materializer(  # type: ignore[no-untyped-def]
+    *,
+    sessions=None,
+    decisions=None,
+    models=None,
+    tools=None,
+    launches=None,
+    search_states=None,
+    research_states=None,
+    semantic_inputs=None,
+    invocation_bindings=None,
+):
     binding = OnlyAgentModelInvocationBindingV1(
         "RESEARCH_PLANNER",
         "provider",
@@ -108,14 +114,15 @@ def _materializer(*, sessions=None, decisions=None, models=None, launches=None, 
     return OnlyAgentWorkflowActionMaterializerV1(
         sessions=sessions or default_sessions,
         models=models or object(),
-        tools=object(),
+        tools=tools or object(),
         decisions=decisions or object(),
         launches=launches or object(),
-        invocation_bindings=OnlyStaticAgentModelInvocationBindingReaderV1((binding,)),
+        invocation_bindings=invocation_bindings or OnlyStaticAgentModelInvocationBindingReaderV1((binding,)),
         product_contracts=object(),
-        semantic_inputs=_Inputs(),
+        semantic_inputs=semantic_inputs or _Inputs(),
         runtime_generations=_RuntimeGeneration(),
         search_states=search_states,
+        research_states=research_states,
         product_api_contract_fingerprint="f" * 64,
         uuid_factory=lambda: COMMAND_ID,
     )
@@ -252,6 +259,352 @@ def test_research_observation_uses_exact_uuid4_from_successful_submit_result() -
     assert intent.product_command_id is None
 
 
+class _EvidenceInputs:
+    def __init__(self, payloads):  # type: ignore[no-untyped-def]
+        self.payloads = payloads
+
+    def load_semantic_payload_verified(self, reference):  # type: ignore[no-untyped-def]
+        return self.payloads[(reference.reference_kind, reference.locator_value)]
+
+
+class _EvidenceTools:
+    def __init__(self, occurrences):  # type: ignore[no-untyped-def]
+        self.occurrences = tuple(occurrences)
+
+    def budget_consumed(self, _session):  # type: ignore[no-untyped-def]
+        return len(self.occurrences)
+
+    def load_plan_by_session_ordinal_verified(self, _session, ordinal):  # type: ignore[no-untyped-def]
+        return self.occurrences[ordinal][0]
+
+    def result_exists(self, plan_fingerprint):  # type: ignore[no-untyped-def]
+        return any(
+            plan.tool_call_plan_fingerprint == plan_fingerprint and result is not None
+            for plan, result in self.occurrences
+        )
+
+    def load_result_verified(self, plan_fingerprint):  # type: ignore[no-untyped-def]
+        return next(
+            result
+            for plan, result in self.occurrences
+            if plan.tool_call_plan_fingerprint == plan_fingerprint and result is not None
+        )
+
+
+def _evidence_plan(ordinal: int, tool_class: OnlyAgentToolClass, character: str, *, inputs=()):  # type: ignore[no-untyped-def]
+    return SimpleNamespace(
+        tool_call_ordinal=ordinal,
+        tool_class=tool_class,
+        operation_identity=f"operation-{ordinal}",
+        exact_identity_inputs=inputs,
+        authorizing_agent_decision_fingerprint="a" * 64,
+        tool_call_plan_fingerprint=character * 64,
+    )
+
+
+def _evidence_result(plan, *, response, references):  # type: ignore[no-untyped-def]
+    return SimpleNamespace(
+        outcome=OnlyAgentToolCallOutcome.SUCCEEDED,
+        canonical_validated_response=response,
+        owning_authority_references=references,
+        tool_call_plan_fingerprint=plan.tool_call_plan_fingerprint,
+        tool_call_result_fingerprint="f" * 64,
+    )
+
+
+def test_reuse_evidence_target_and_analyst_context_are_derived_from_durable_tool_prefix() -> None:
+    run = OnlyAgentExactAuthorityReferenceV2(
+        "RESEARCH_RUN",
+        1,
+        OnlyAgentReferenceLocatorKind.UUID4,
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    )
+    research_result = _ref("RESEARCH_RESULT", "7")
+    statistics = _ref("RESEARCH_STATISTICS", "8")
+    observation_plan = _evidence_plan(0, OnlyAgentToolClass.RESEARCH_RUN_QUERY, "1", inputs=(run,))
+    observation_result = _evidence_result(
+        observation_plan,
+        response={"run_id": run.locator_value, "state": "COMPLETED", "result_ref": research_result.locator_value},
+        references=(run,),
+    )
+    evidence_plan = _evidence_plan(
+        1,
+        OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY,
+        "2",
+        inputs=(research_result,),
+    )
+    evidence_result = _evidence_result(
+        evidence_plan,
+        response={
+            "research_result_fingerprint": research_result.locator_value,
+            "statistics": [
+                {
+                    "statistics_fingerprint": "9" * 64,
+                    "statistics_result_fingerprint": statistics.locator_value,
+                }
+            ],
+        },
+        references=(research_result, statistics),
+    )
+    tools = _EvidenceTools(((observation_plan, observation_result), (evidence_plan, evidence_result)))
+    inputs = _EvidenceInputs(
+        {
+            ("RESEARCH_RESULT", research_result.locator_value): {
+                "statistics_results": [
+                    {
+                        "statistics_fingerprint": "9" * 64,
+                        "statistics_result_fingerprint": statistics.locator_value,
+                    }
+                ]
+            }
+        }
+    )
+    completed_run = SimpleNamespace(
+        run_id=run.locator_value,
+        state=SimpleNamespace(value="COMPLETED"),
+        research_result_fingerprint=research_result.locator_value,
+    )
+    materializer = _materializer(
+        decisions=_Decisions(_reuse_directive()),
+        tools=tools,
+        research_states=SimpleNamespace(load_research_run_verified=lambda _reference: completed_run),
+        semantic_inputs=inputs,
+    )
+
+    assert materializer._derive_evidence_query_reference(SESSION) == research_result
+    assert materializer._derive_evidence_model_context(SESSION) == (
+        _ref("RESEARCH_RUN_RESULT", "7"),
+        research_result,
+        statistics,
+    )
+
+
+def test_evidence_analyst_context_rejects_unrelated_exact_evidence_before_model_plan() -> None:
+    run = OnlyAgentExactAuthorityReferenceV2(
+        "RESEARCH_RUN",
+        1,
+        OnlyAgentReferenceLocatorKind.UUID4,
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    )
+    result_a = _ref("RESEARCH_RESULT", "7")
+    result_b = _ref("RESEARCH_RESULT", "6")
+    observation_plan = _evidence_plan(0, OnlyAgentToolClass.RESEARCH_RUN_QUERY, "1", inputs=(run,))
+    observation_result = _evidence_result(
+        observation_plan,
+        response={"run_id": run.locator_value, "state": "COMPLETED", "result_ref": result_a.locator_value},
+        references=(run,),
+    )
+    evidence_plan = _evidence_plan(1, OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY, "2", inputs=(result_b,))
+    evidence_result = _evidence_result(
+        evidence_plan,
+        response={
+            "research_result_fingerprint": result_b.locator_value,
+            "statistics": [{"statistics_fingerprint": "9" * 64, "statistics_result_fingerprint": "8" * 64}],
+        },
+        references=(result_b, _ref("RESEARCH_STATISTICS", "8")),
+    )
+    role = OnlyAgentRolePolicyPayloadV1(
+        "EVIDENCE_ANALYST",
+        "analyst boundary",
+        ("b" * 64,),
+        ("c" * 64,),
+        ("d" * 64,),
+        (),
+        "EVIDENCE",
+        "PROPOSAL",
+        "RETURN_OR_FAIL_CLOSED",
+    )
+    context = SimpleNamespace(
+        research_brief=_brief(),
+        ordered_role_policy_resources=(SimpleNamespace(canonical_payload=role, resource_fingerprint="e" * 64),),
+    )
+
+    class CountingModels:
+        prepare_count = 0
+
+        def budget_consumed(self, _session):  # type: ignore[no-untyped-def]
+            return 3
+
+        def prepare_model_call(self, **_kwargs):  # type: ignore[no-untyped-def]
+            self.prepare_count += 1
+
+    models = CountingModels()
+    analyst_binding = OnlyAgentModelInvocationBindingV1(
+        "EVIDENCE_ANALYST",
+        "provider",
+        "model",
+        "version",
+        "b" * 64,
+        "c" * 64,
+        "d" * 64,
+        (),
+    )
+    materializer = _materializer(
+        sessions=SimpleNamespace(load_session_manifest_verified=lambda _session: context),
+        models=models,
+        decisions=_Decisions(_reuse_directive()),
+        tools=_EvidenceTools(((observation_plan, observation_result), (evidence_plan, evidence_result))),
+        research_states=SimpleNamespace(
+            load_research_run_verified=lambda _reference: SimpleNamespace(
+                run_id=run.locator_value,
+                state=SimpleNamespace(value="COMPLETED"),
+                research_result_fingerprint=result_a.locator_value,
+            )
+        ),
+        semantic_inputs=_EvidenceInputs(
+            {
+                ("RESEARCH_RESULT", result_b.locator_value): {
+                    "statistics_results": [
+                        {"statistics_fingerprint": "9" * 64, "statistics_result_fingerprint": "8" * 64}
+                    ]
+                }
+            }
+        ),
+        invocation_bindings=OnlyStaticAgentModelInvocationBindingReaderV1((analyst_binding,)),
+    )
+
+    with pytest.raises(Exception, match="AGENT_EVIDENCE_UNAVAILABLE"):
+        materializer.prepare_model_call(
+            session_fingerprint=SESSION,
+            action=OnlyAgentNextActionV1(
+                OnlyAgentNextActionKind.PREPARE_MODEL_CALL,
+                logical_role="EVIDENCE_ANALYST",
+            ),
+            current_workflow_manifest=object(),  # type: ignore[arg-type]
+        )
+    assert models.prepare_count == 0
+
+
+def test_evidence_analyst_context_requires_successful_evidence_tool_result() -> None:
+    run = OnlyAgentExactAuthorityReferenceV2(
+        "RESEARCH_RUN",
+        1,
+        OnlyAgentReferenceLocatorKind.UUID4,
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    )
+    research_result = _ref("RESEARCH_RESULT", "7")
+    observation_plan = _evidence_plan(0, OnlyAgentToolClass.RESEARCH_RUN_QUERY, "1", inputs=(run,))
+    observation_result = _evidence_result(
+        observation_plan,
+        response={"run_id": run.locator_value, "state": "COMPLETED", "result_ref": research_result.locator_value},
+        references=(run,),
+    )
+    materializer = _materializer(
+        decisions=_Decisions(_reuse_directive()),
+        tools=_EvidenceTools(((observation_plan, observation_result),)),
+        research_states=SimpleNamespace(
+            load_research_run_verified=lambda _reference: SimpleNamespace(
+                run_id=run.locator_value,
+                state=SimpleNamespace(value="COMPLETED"),
+                research_result_fingerprint=research_result.locator_value,
+            )
+        ),
+    )
+
+    with pytest.raises(Exception, match="AGENT_EVIDENCE_UNAVAILABLE"):
+        materializer._derive_evidence_model_context(SESSION)
+
+
+@pytest.mark.parametrize("parameter", (False, True))
+def test_search_evidence_context_is_derived_through_terminal_iteration_result(
+    parameter: bool,
+) -> None:
+    child = "a" * 64
+    iteration = "b" * 64
+    research_result = _ref("RESEARCH_RESULT", "7")
+    statistics = _ref("RESEARCH_STATISTICS", "8")
+    terminal_payload = (
+        {
+            "selected_anchor_iteration_result_fingerprint": iteration,
+            "ordered_input_iteration_result_fingerprints": (iteration,),
+        }
+        if parameter
+        else {"enumeration": "complete"}
+    )
+    terminal_fact = SimpleNamespace(
+        to_dict=lambda: terminal_payload,
+        feedback_decision_fingerprint="c" * 64 if parameter else None,
+        enumeration_result_fingerprint="c" * 64 if not parameter else None,
+    )
+    terminal = SimpleNamespace(
+        experiment_fingerprint=child,
+        method=SimpleNamespace(value="PARAMETER" if parameter else "SYMBOLIC"),
+        terminal_kind=SimpleNamespace(value="TERMINAL_STOP"),
+        terminal_fact=terminal_fact,
+        stop_reason="SEARCH_SPACE_EXHAUSTED",
+    )
+    expected = SimpleNamespace(ordered_plan_states=(SimpleNamespace(result_fingerprint=iteration),))
+    terminal_response = {
+        "schema_version": 1,
+        "experiment_fingerprint": child,
+        "method": terminal.method.value,
+        "terminal_kind": terminal.terminal_kind.value,
+        "terminal_fact": terminal_payload,
+        "stop_reason": terminal.stop_reason,
+    }
+    observation_plan = _evidence_plan(
+        0,
+        OnlyAgentToolClass.SEARCH_QUERY,
+        "1",
+        inputs=(_ref("SEARCH_EXPERIMENT", "a"),),
+    )
+    observation_result = _evidence_result(
+        observation_plan,
+        response=terminal_response,
+        references=(_ref("SEARCH_TERMINAL_PROJECTION", "c"),),
+    )
+    evidence_plan = _evidence_plan(
+        1,
+        OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY,
+        "2",
+        inputs=(research_result,),
+    )
+    evidence_result = _evidence_result(
+        evidence_plan,
+        response={
+            "research_result_fingerprint": research_result.locator_value,
+            "statistics": [
+                {
+                    "statistics_fingerprint": "9" * 64,
+                    "statistics_result_fingerprint": statistics.locator_value,
+                }
+            ],
+        },
+        references=(research_result, statistics),
+    )
+    launches = SimpleNamespace(
+        load_launch_record_by_session_verified=lambda _session: SimpleNamespace(
+            child_search_experiment_fingerprint=child
+        )
+    )
+    inputs = _EvidenceInputs(
+        {
+            ("SEARCH_ITERATION_RESULT", iteration): {
+                "research_result_reference": {"result_fingerprint": research_result.locator_value}
+            }
+        }
+    )
+    materializer = _materializer(
+        decisions=_Decisions(_directive(parameter)),
+        tools=_EvidenceTools(((observation_plan, observation_result), (evidence_plan, evidence_result))),
+        launches=launches,
+        search_states=SimpleNamespace(
+            load_search_state_verified=lambda _child: SimpleNamespace(
+                terminal=terminal,
+                expected_state=expected,
+            )
+        ),
+        semantic_inputs=inputs,
+    )
+
+    assert materializer._derive_evidence_query_reference(SESSION) == research_result
+    assert materializer._derive_evidence_model_context(SESSION) == (
+        _ref("SEARCH_TERMINAL_PROJECTION", "c"),
+        research_result,
+        statistics,
+    )
+
+
 def test_search_observation_uses_exact_child_launch_identity_and_no_command_id() -> None:
     launches = SimpleNamespace(
         load_launch_record_by_session_verified=lambda _session: SimpleNamespace(
@@ -291,12 +644,29 @@ def test_search_advance_binds_exact_current_expected_state_and_one_new_command_i
         tool_class=OnlyAgentToolClass.SYMBOLIC_SEARCH,
         operation_identity=operation.value,
     )
-    intent = _materializer(launches=launches, search_states=states)._search_advance_intent(SESSION, action)
-    assert intent.operation_identity == "advance_symbolic_search_experiment_v2"
-    assert intent.canonical_request["expected_state"] == expected.to_dict()
-    assert intent.canonical_request["operation"] == operation.value
-    assert intent.product_command_id == str(COMMAND_ID)
-    assert tuple(item.reference_kind for item in intent.exact_identity_inputs) == (
+
+    class CapturingOccurrenceService:
+        def budget_consumed(self, _session):  # type: ignore[no-untyped-def]
+            return 2
+
+        def prepare_tool_call(self, **kwargs):  # type: ignore[no-untyped-def]
+            return kwargs
+
+    prepared = _materializer(
+        decisions=_Decisions(_directive()),
+        tools=CapturingOccurrenceService(),
+        launches=launches,
+        search_states=states,
+    ).prepare_tool_call(
+        session_fingerprint=SESSION,
+        action=action,
+        current_workflow_manifest=object(),  # type: ignore[arg-type]
+    )
+    assert prepared["operation_identity"] == "advance_symbolic_search_experiment_v2"
+    assert prepared["canonical_request"]["expected_state"] == expected.to_dict()
+    assert prepared["canonical_request"]["operation"] == operation.value
+    assert prepared["product_command_id_or_idempotency_key"] == str(COMMAND_ID)
+    assert tuple(item.reference_kind for item in prepared["exact_identity_inputs"]) == (
         "SEARCH_EXPERIMENT",
         "SEARCH_EXPECTED_STATE",
     )

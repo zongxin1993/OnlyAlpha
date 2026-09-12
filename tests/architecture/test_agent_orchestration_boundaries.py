@@ -158,6 +158,20 @@ def test_c_model_binding_excludes_operational_configuration_and_first_allowed_se
     assert "DEFAULT_MODEL" not in materialization_source
 
 
+def test_c_semantic_input_reader_is_an_exact_loader_not_a_session_evidence_selector() -> None:
+    orchestrator = ROOT / "packages" / "onlyalpha-agent-orchestrator" / "src" / "onlyalpha_agent_orchestrator"
+    materialization = orchestrator / "materialization.py"
+    tree = ast.parse(materialization.read_text(encoding="utf-8"), filename=str(materialization))
+    reader = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "OnlyAgentWorkflowSemanticInputReader"
+    )
+    methods = {node.name for node in reader.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    assert methods == {"load_semantic_payload_verified"}
+    assert not any("session" in method or "evidence" in method or "context" in method for method in methods)
+
+
 def test_c_meaning_bearing_files_are_in_workflow_closure() -> None:
     from onlyalpha_agent_orchestrator.closure import ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1
 

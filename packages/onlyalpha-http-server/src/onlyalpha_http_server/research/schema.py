@@ -140,7 +140,13 @@ class ResearchStatisticsDefinitionDto(_ReadDto):
 
 class ResearchStatisticsDescriptorDto(_ReadDto):
     statistics_fingerprint: str
-    statistics_result_fingerprint: str
+    statistics_result_fingerprint: str = Field(
+        json_schema_extra={
+            "x-onlyalpha-reference-kind": "RESEARCH_STATISTICS",
+            "x-onlyalpha-reference-schema-version": 1,
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+        }
+    )
     result_content_fingerprint: str
     statistics_result_schema_version: int
     row_count: int
@@ -172,7 +178,13 @@ class ResearchStatisticsDescriptorDto(_ReadDto):
 
 class ResearchStatisticsCatalogDto(_ReadDto):
     schema_version: Literal[2] = RESEARCH_API_SCHEMA_VERSION
-    research_result_fingerprint: str
+    research_result_fingerprint: str = Field(
+        json_schema_extra={
+            "x-onlyalpha-reference-kind": "RESEARCH_RESULT",
+            "x-onlyalpha-reference-schema-version": 1,
+            "x-onlyalpha-reference-locator-kind": "SHA256",
+        }
+    )
     statistics: tuple[ResearchStatisticsDescriptorDto, ...]
 
     @classmethod
