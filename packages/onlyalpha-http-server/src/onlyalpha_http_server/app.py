@@ -44,6 +44,7 @@ from onlyalpha.research.run.errors import OnlyResearchRunError
 from onlyalpha.research.specification.errors import OnlyResearchSpecificationError
 from onlyalpha.strategy.errors import OnlyStrategyError
 
+from .agent_gateway import AGENT_GATEWAY_ROUTE_TAG, OnlyAgentNodeGateway, create_agent_gateway_router
 from .backtest.routes import BACKTEST_ROUTE_TAG, create_backtest_router
 from .backtest.schema import ProductErrorDto, ProductErrorEnvelopeDto
 from .health import OnlyKernelResearchReadinessProjection, OnlyProductExecutionCapacityProbe, create_health_router
@@ -59,11 +60,26 @@ from .research.definition_schema import ResearchDefinitionErrorDto, ResearchDefi
 from .research.definition_service import ResearchDefinitionApiService
 from .research.discovery import ResearchDiscoveryService
 from .research.errors import research_error_response
+from .research.exact_reference_routes import EXACT_REFERENCE_ROUTE_TAG, create_exact_reference_router
+from .research.exact_reference_schema import (
+    OnlyDatasetSnapshotIdentityReader,
+    OnlyEvaluationContextIdentityReader,
+)
 from .research.routes import ARTIFACT_ROUTE_TAG, create_artifact_router
 from .research.run_errors import run_error_response
 from .research.run_routes import RUN_ROUTE_TAG, create_run_router
 from .research.run_schema import ResearchRunErrorDto, ResearchRunErrorEnvelopeDto
+from .research.runtime_generation_routes import (
+    RUNTIME_GENERATION_ROUTE_TAG,
+    OnlyRuntimeGenerationProjectionReader,
+    create_runtime_generation_router,
+)
 from .research.schema import RESEARCH_API_SCHEMA_VERSION, ResearchErrorDto
+from .research.search_authoring_routes import (
+    SEARCH_AUTHORING_ROUTE_TAG,
+    OnlySearchAuthoringInputReader,
+    create_search_authoring_router,
+)
 from .search import SEARCH_ROUTE_TAG, OnlySearchProductHttpBoundary, create_search_router
 from .strategy.routes import STRATEGY_ROUTE_TAG, create_strategy_router
 
@@ -118,7 +134,11 @@ def _request_route_tag(request: Request) -> str | None:
             STRATEGY_ROUTE_TAG,
             BACKTEST_ROUTE_TAG,
             EXACT_CATALOG_ROUTE_TAG,
+            EXACT_REFERENCE_ROUTE_TAG,
             SEARCH_ROUTE_TAG,
+            AGENT_GATEWAY_ROUTE_TAG,
+            RUNTIME_GENERATION_ROUTE_TAG,
+            SEARCH_AUTHORING_ROUTE_TAG,
         }
     )
     return known[0] if len(known) == 1 else None
@@ -146,6 +166,11 @@ def create_research_app(
     execution_capacity: OnlyProductExecutionCapacityProbe | None = None,
     exact_catalog_context: OnlyExactCatalogContextQueryService | None = None,
     search_product: OnlySearchProductHttpBoundary | None = None,
+    exact_dataset_snapshots: OnlyDatasetSnapshotIdentityReader | None = None,
+    exact_evaluation_contexts: OnlyEvaluationContextIdentityReader | None = None,
+    agent_gateway: OnlyAgentNodeGateway | None = None,
+    runtime_generations: OnlyRuntimeGenerationProjectionReader | None = None,
+    search_authoring_inputs: OnlySearchAuthoringInputReader | None = None,
 ) -> FastAPI:
     universe_authority = definition_resolver.universe_resolver
     if universe_authority is not None and not isinstance(universe_authority, OnlyResearchUniverseCatalog):
@@ -305,6 +330,19 @@ def create_research_app(
         )
     if search_product is not None:
         app.include_router(create_search_router(search_product), dependencies=readiness_dependencies)
+    if exact_dataset_snapshots is not None or exact_evaluation_contexts is not None:
+        if exact_dataset_snapshots is None or exact_evaluation_contexts is None:
+            raise TypeError("Exact Research reference routes require Dataset and Evaluation readers")
+        app.include_router(
+            create_exact_reference_router(exact_dataset_snapshots, exact_evaluation_contexts),
+            dependencies=readiness_dependencies,
+        )
+    if agent_gateway is not None:
+        app.include_router(create_agent_gateway_router(agent_gateway))
+    if runtime_generations is not None:
+        app.include_router(create_runtime_generation_router(runtime_generations), dependencies=readiness_dependencies)
+    if search_authoring_inputs is not None:
+        app.include_router(create_search_authoring_router(search_authoring_inputs), dependencies=readiness_dependencies)
     if any(
         item is not None
         for item in (strategy_freeze, strategy_promotion, strategy_query, qualification, qualification_query)
@@ -384,6 +422,11 @@ def create_product_app(
     execution_capacity: OnlyProductExecutionCapacityProbe | None = None,
     exact_catalog_context: OnlyExactCatalogContextQueryService | None = None,
     search_product: OnlySearchProductHttpBoundary | None = None,
+    exact_dataset_snapshots: OnlyDatasetSnapshotIdentityReader | None = None,
+    exact_evaluation_contexts: OnlyEvaluationContextIdentityReader | None = None,
+    agent_gateway: OnlyAgentNodeGateway | None = None,
+    runtime_generations: OnlyRuntimeGenerationProjectionReader | None = None,
+    search_authoring_inputs: OnlySearchAuthoringInputReader | None = None,
 ) -> FastAPI:
     app = create_research_app(
         reader,
@@ -401,6 +444,11 @@ def create_product_app(
         execution_capacity,
         exact_catalog_context,
         search_product,
+        exact_dataset_snapshots,
+        exact_evaluation_contexts,
+        agent_gateway,
+        runtime_generations,
+        search_authoring_inputs,
     )
     app.title = "OnlyAlpha Product API"
     return app

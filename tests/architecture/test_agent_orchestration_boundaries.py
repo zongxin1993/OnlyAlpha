@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 _AGENT_WORKFLOW_STDLIB_IMPORTS = {
     "__future__",
+    "argparse",
     "collections.abc",
     "contextlib",
     "dataclasses",
@@ -26,17 +27,24 @@ _AGENT_WORKFLOW_STDLIB_IMPORTS = {
     "os",
     "pathlib",
     "re",
+    "secrets",
     "socket",
     "ssl",
     "shutil",
     "types",
     "typing",
     "urllib.parse",
+    "urllib.error",
+    "urllib.request",
     "uuid",
 }
 _AGENT_WORKFLOW_VERIFIED_PUBLIC_BOUNDARIES = {
+    "fastapi",
     "onlyalpha.application.search_product",
     "onlyalpha.research.run",
+    "onlyalpha.research.specification.model",
+    "pydantic",
+    "uvicorn",
 }
 
 
@@ -188,6 +196,64 @@ def test_c_meaning_bearing_files_are_in_workflow_closure() -> None:
     assert "recovery_class" not in materialization
     assert "http_path" not in materialization
     assert "http_method" not in materialization
+
+
+def test_d_node_and_semantic_bundle_are_closed_and_have_no_run_until_complete_loop() -> None:
+    from onlyalpha_agent_orchestrator.closure import ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1
+
+    closed = {item.relative_name for item in ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1}
+    required = {
+        "authority_readers.py",
+        "node_app.py",
+        "node_main.py",
+        "node_service.py",
+        "production.py",
+        "semantic_bundle.py",
+        "v1/semantic_bundle.json",
+    }
+    assert required.issubset(closed)
+    node_root = ROOT / "packages/onlyalpha-agent-orchestrator/src/onlyalpha_agent_orchestrator"
+    for name in ("node_app.py", "node_main.py", "node_service.py", "production.py"):
+        tree = ast.parse((node_root / name).read_text(encoding="utf-8"))
+        assert not any(isinstance(node, (ast.While, ast.AsyncFor)) for node in ast.walk(tree))
+
+
+def test_d_public_gateway_cannot_import_or_write_agent_authorities() -> None:
+    path = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/agent_gateway.py"
+    source = path.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(path))
+    imports = {node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+    assert "onlyalpha.research.agent.store" not in imports
+    assert "onlyalpha.research.agent.session_state" not in imports
+    assert not any(
+        token in source
+        for token in ("commit_session_manifest", "commit_research_brief", "OnlyAgentSessionReducerV1")
+    )
+
+
+def test_d_production_agent_has_no_cross_node_store_db_broker_or_live_import() -> None:
+    path = ROOT / "packages/onlyalpha-agent-orchestrator/src/onlyalpha_agent_orchestrator/production.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    imports = {node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+    forbidden = ("onlyalpha.persistence", "onlyalpha.research.search", "onlyalpha.broker", "onlyalpha.live")
+    assert not {item for item in imports if item.startswith(forbidden)}
+
+
+def test_d_compose_agent_is_single_replica_and_has_only_agent_roots_and_network_contracts() -> None:
+    source = (ROOT / "deploy/compose/compose.production.yaml").read_text(encoding="utf-8")
+    start = source.index("  onlyalpha-agent:\n")
+    end = source.index("\n  research-worker:", start)
+    service = source[start:end]
+    assert '--replica-count\n      - "1"' in service
+    assert "agent-state:/var/lib/onlyalpha-agent" in service
+    assert "agent-locks:/var/run/onlyalpha-agent" in service
+    assert "user-data:" not in service
+    assert "database" not in service
+    assert "broker" not in service.casefold()
+    assert "live" not in service.casefold()
+    assert "- agent-control" in service
+    web_root = ROOT / "packages/onlyalpha-web-console/src"
+    assert "/internal/v1/" not in "\n".join(path.read_text(encoding="utf-8") for path in web_root.rglob("*.ts"))
 
 
 def test_decision_and_launch_store_commits_are_application_service_only() -> None:
@@ -394,11 +460,18 @@ def test_agent_orchestrator_component_dependency_and_authority_boundary() -> Non
         imports = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names} | {
             node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
         }
-        assert not {
+        violations = {
             imported
             for imported in imports
             if any(imported == item or imported.startswith(item + ".") for item in forbidden_import_roots)
-        }, path
+        }
+        if path.name in {"production.py", "node_service.py"}:
+            violations -= {
+                "onlyalpha.research.agent.store",
+                "onlyalpha.research.agent.occurrence_store",
+                "onlyalpha.research.agent.decision_store",
+            }
+        assert not violations, path
 
     source = "\n".join(path.read_text(encoding="utf-8") for path in orchestrator.rglob("*.py"))
     for forbidden in (

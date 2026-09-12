@@ -142,7 +142,7 @@ def test_concurrent_drivers_allow_one_action_and_contender_has_zero_mutation_or_
             if self.calls == 1:
                 entered.set()
                 assert release.wait(5)
-            status = OnlyAgentDerivedSessionStatus.ACTIVE if self.calls <= 2 else OnlyAgentDerivedSessionStatus.COMPLETE
+            status = OnlyAgentDerivedSessionStatus.ACTIVE if self.calls == 1 else OnlyAgentDerivedSessionStatus.COMPLETE
             return OnlyAgentDerivedSessionStateV1(SESSION, status, action if status.value == "ACTIVE" else None)
 
     reducer = BlockingReducer()
@@ -215,7 +215,7 @@ class _Reducer:
 
     def derive(self, _session: str) -> OnlyAgentDerivedSessionStateV1:
         self.calls += 1
-        if self.calls <= 2:
+        if self.calls == 1:
             return OnlyAgentDerivedSessionStateV1(SESSION, OnlyAgentDerivedSessionStatus.ACTIVE, self.action)
         return OnlyAgentDerivedSessionStateV1(SESSION, OnlyAgentDerivedSessionStatus.COMPLETE, None)
 
@@ -373,16 +373,20 @@ def test_advance_once_dispatches_exactly_one_reducer_action(
     assert calls == {"model": model_io, "tool": tool_io}
     assert models.recoveries == model_recovery
     assert tools.recoveries == tool_recovery
-    assert reducer.calls == 3
+    assert reducer.calls == 2
 
 
 def test_terminal_advance_has_zero_admission_mutation_or_io(monkeypatch: pytest.MonkeyPatch) -> None:
     terminal = OnlyAgentDerivedSessionStateV1(SESSION, OnlyAgentDerivedSessionStatus.COMPLETE, None)
     reducer = SimpleNamespace(derive=lambda _session: terminal)
+    admissions: list[str] = []
     monkeypatch.setattr(
         driver_module,
         "execute_after_runtime_admission",
-        lambda *_args, **_kwargs: pytest.fail("terminal state entered runtime admission"),
+        lambda session, _reader, continuation: (
+            admissions.append(session),
+            continuation(SimpleNamespace(historical_workflow_resource_fingerprint="6" * 64)),
+        )[1],
     )
     driver = OnlyAgentSessionDriverV1(
         reducer=reducer,  # type: ignore[arg-type]
@@ -395,6 +399,7 @@ def test_terminal_advance_has_zero_admission_mutation_or_io(monkeypatch: pytest.
         coordination=_Coordinator(),  # type: ignore[arg-type]
     )
     assert driver.advance_once(SESSION) == terminal
+    assert admissions == [SESSION]
 
 
 def test_runtime_mismatch_has_zero_materialization_or_external_io(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -421,7 +426,7 @@ def test_runtime_mismatch_has_zero_materialization_or_external_io(monkeypatch: p
     )
     with pytest.raises(RuntimeError, match="AGENT_WORKFLOW_RUNTIME_MISMATCH"):
         driver.advance_once(SESSION)
-    assert reducer.calls == 1
+    assert reducer.calls == 0
     assert materializer.calls == []
     assert calls == []
 

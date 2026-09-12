@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from onlyalpha_http_server import create_product_app
+from onlyalpha_http_server.agent_gateway import OnlyAgentNodeGateway
 from onlyalpha_http_server.health import OnlyKernelResearchReadinessProjection
 from onlyalpha_http_server.search import OnlySearchProductHttpBoundary
 
@@ -123,6 +124,29 @@ class _ContractReader:
 class _ContractDatasetResolver:
     def resolve_verified(self, definition: object) -> object:
         raise RuntimeError(f"OpenAPI generation must not resolve Dataset {definition}")
+
+
+class _ContractExactReferences:
+    def load(self, _fingerprint: str) -> object:
+        raise RuntimeError("OpenAPI generation must not load a Dataset Snapshot")
+
+    def load_evaluation_contract_intrinsic_verified(self, _fingerprint: str) -> object:
+        raise RuntimeError("OpenAPI generation must not load an Evaluation Context")
+
+
+class _ContractAgentGateway:
+    def post_json_verified(self, _path: str, _payload: Mapping[str, object]) -> Mapping[str, object]:
+        raise RuntimeError("OpenAPI generation must not call the Agent node")
+
+
+class _ContractRuntimeGenerations:
+    def projection(self) -> object:
+        raise RuntimeError("OpenAPI generation must not read Runtime Generation state")
+
+
+class _ContractSearchAuthoring:
+    def load_search_authoring_input_verified(self, _kind: str, _fingerprint: str) -> object:
+        raise RuntimeError("OpenAPI generation must not read Search authoring inputs")
 
 
 def canonical_bytes(document: Mapping[str, Any]) -> bytes:
@@ -262,6 +286,11 @@ def render_document() -> JsonObject:
             None,
             cast(OnlyExactCatalogContextQueryService, object()),
             cast(OnlySearchProductHttpBoundary, object()),
+            cast(Any, _ContractExactReferences()),
+            cast(Any, _ContractExactReferences()),
+            cast(OnlyAgentNodeGateway, _ContractAgentGateway()),
+            cast(Any, _ContractRuntimeGenerations()),
+            cast(Any, _ContractSearchAuthoring()),
         )
         return app.openapi()
     finally:

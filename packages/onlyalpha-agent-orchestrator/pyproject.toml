@@ -4,7 +4,10 @@ version = "0.9.9"
 description = "Fail-closed runtime assembly boundary for OnlyAlpha Agent orchestration"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-dependencies = ["onlyalpha==0.9.9"]
+dependencies = ["fastapi>=0.115,<1", "onlyalpha==0.9.9", "uvicorn>=0.34,<1"]
+
+[project.scripts]
+onlyalpha-agent = "onlyalpha_agent_orchestrator.node_main:main"
 
 [build-system]
 requires = ["hatchling>=1.26,<2"]

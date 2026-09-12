@@ -4,6 +4,40 @@
  */
 
 export interface paths {
+    "/api/v2/agent/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Admit */
+        post: operations["admit_agent_session_v2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/agent/sessions/{session_fingerprint}/advance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Advance */
+        post: operations["advance_agent_session_once_v2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/backtest/runs": {
         parameters: {
             query?: never;
@@ -398,6 +432,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/research/datasets/{snapshot_fingerprint}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Dataset */
+        get: operations["get_exact_dataset_snapshot_identity_v2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/research/definitions/resolve": {
         parameters: {
             query?: never;
@@ -409,6 +460,23 @@ export interface paths {
         put?: never;
         /** Resolve Definition */
         post: operations["resolve_definition_api_v2_research_definitions_resolve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/evaluations/{evaluation_kind}/{evaluation_schema_version}/{evaluation_fingerprint}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Evaluation */
+        get: operations["get_exact_evaluation_context_identity_v2"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -493,6 +561,40 @@ export interface paths {
         };
         /** Get Run Execution Evidence */
         get: operations["get_run_execution_evidence_api_v2_research_runs__run_id__execution_evidence_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/runtime-generations/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Active */
+        get: operations["get_active_runtime_generation_v2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/search/authoring/{reference_kind}/{reference_fingerprint}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Input */
+        get: operations["get_exact_search_authoring_input_v2"];
         put?: never;
         post?: never;
         delete?: never;
@@ -777,6 +879,56 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActiveRuntimeGenerationDto */
+        ActiveRuntimeGenerationDto: {
+            /** Runtime Generation Fingerprint */
+            runtime_generation_fingerprint: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** AgentAdvanceResponseDto */
+        AgentAdvanceResponseDto: {
+            /** Derived Status */
+            derived_status: string;
+            /** Failure Code */
+            failure_code: string | null;
+            /** Next Action Kind */
+            next_action_kind: string | null;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /** Session Fingerprint */
+            session_fingerprint: string;
+        };
+        /** AgentSessionRequestDto */
+        AgentSessionRequestDto: {
+            /** Research Brief */
+            research_brief: {
+                [key: string]: unknown;
+            };
+        };
+        /** AgentSessionResponseDto */
+        AgentSessionResponseDto: {
+            /** Research Brief Fingerprint */
+            research_brief_fingerprint: string;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /** Session Disposition */
+            session_disposition: string;
+            /** Session Fingerprint */
+            session_fingerprint: string;
+            /** Workflow Implementation Fingerprint */
+            workflow_implementation_fingerprint: string;
+        };
         /** BacktestCancellationResponse */
         BacktestCancellationResponse: {
             /** Revision */
@@ -1015,6 +1167,32 @@ export interface components {
             projection_schema_fingerprint: string;
             /**
              * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** ExactDatasetSnapshotDto */
+        ExactDatasetSnapshotDto: {
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Snapshot Fingerprint */
+            snapshot_fingerprint: string;
+        };
+        /** ExactEvaluationContextDto */
+        ExactEvaluationContextDto: {
+            /** Evaluation Fingerprint */
+            evaluation_fingerprint: string;
+            /** Evaluation Kind */
+            evaluation_kind: string;
+            /** Evaluation Schema Version */
+            evaluation_schema_version: number;
+            /**
+             * Schema Version
+             * @default 1
              * @constant
              */
             schema_version: 1;
@@ -2348,6 +2526,22 @@ export interface components {
              */
             schema_version: 1;
         };
+        /** SearchAuthoringInputDto */
+        SearchAuthoringInputDto: {
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+            /** Reference Fingerprint */
+            reference_fingerprint: string;
+            /** Reference Kind */
+            reference_kind: string;
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+        };
         /** SearchCommandResponseDto */
         SearchCommandResponseDto: {
             /** Experiment Fingerprint */
@@ -2619,6 +2813,70 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    admit_agent_session_v2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentSessionRequestDto"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSessionResponseDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    advance_agent_session_once_v2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentAdvanceResponseDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_run_api_v2_backtest_runs_post: {
         parameters: {
             query?: never;
@@ -3937,6 +4195,37 @@ export interface operations {
             };
         };
     };
+    get_exact_dataset_snapshot_identity_v2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                snapshot_fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExactDatasetSnapshotDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     resolve_definition_api_v2_research_definitions_resolve_post: {
         parameters: {
             query?: never;
@@ -3966,6 +4255,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResearchDefinitionErrorEnvelopeDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_exact_evaluation_context_identity_v2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                evaluation_kind: string;
+                evaluation_schema_version: number;
+                evaluation_fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExactEvaluationContextDto"];
                 };
             };
             /** @description Validation Error */
@@ -4446,6 +4768,58 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    get_active_runtime_generation_v2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActiveRuntimeGenerationDto"];
+                };
+            };
+        };
+    };
+    get_exact_search_authoring_input_v2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reference_kind: string;
+                reference_fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchAuthoringInputDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

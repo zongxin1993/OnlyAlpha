@@ -1,0 +1,92 @@
+{
+  "bundle_schema_version": 1,
+  "model_execution_policy": {
+    "no_fallback": true,
+    "output_handling": "STRICT_STRUCTURED_OUTPUT_ONLY",
+    "retry_semantics": "NO_AUTOMATIC_RETRY",
+    "schema_version": 1,
+    "secret_exclusion": ["api_key", "bearer_token", "credentials", "secret_locator", "token"],
+    "setting_rules": [
+      {"semantics": "Explicit bounded output", "setting_name": "max_output_tokens", "support": "REQUIRED"},
+      {"semantics": "Unsupported by the V1 binding", "setting_name": "seed", "support": "ABSENT"},
+      {"semantics": "Deterministic production value", "setting_name": "temperature", "support": "REQUIRED"},
+      {"semantics": "Explicit nucleus sampling value", "setting_name": "top_p", "support": "REQUIRED"}
+    ]
+  },
+  "invocation_bindings": {
+    "model_id": "onlyalpha-research-v1",
+    "model_version": "2026-09-01",
+    "provider_id": "openai-compatible",
+    "response_affecting_settings": [
+      {"setting_name": "max_output_tokens", "state": "VALUE", "value": 4096},
+      {"setting_name": "seed", "state": "UNSUPPORTED", "value": null},
+      {"setting_name": "temperature", "state": "VALUE", "value": 0},
+      {"setting_name": "top_p", "state": "VALUE", "value": 1}
+    ]
+  },
+  "roles": [
+    {
+      "allowed_tool_classes": ["EXACT_CATALOG_CONTEXT_QUERY"],
+      "input_contract": "ONE_EXACT_RESEARCH_BRIEF",
+      "logical_role_id": "RESEARCH_PLANNER",
+      "output_contract": "ONE_STRICT_RESEARCH_PLAN",
+      "prompt": "Given the exact structured OnlyAlpha Research Brief, return only the strict planning object. Do not call tools, invent evidence, change identities, or authorize LIVE. Context: {{ context_json }}",
+      "responsibility_boundary": "Plan one bounded research cycle without owning scientific or execution facts",
+      "schema": {"additionalProperties": false, "properties": {"action": {"enum": ["PLAN"], "type": "string"}}, "required": ["action"], "type": "object"},
+      "terminal_behavior": "RETURN_OR_FAIL_CLOSED",
+      "variables": ["context_json"]
+    },
+    {
+      "allowed_tool_classes": ["EXACT_CATALOG_CONTEXT_QUERY"],
+      "input_contract": "EXACT_BRIEF_AND_CATALOG_CONTEXT",
+      "logical_role_id": "SEARCH_ROUTER",
+      "output_contract": "ONE_CATALOG_FIRST_ROUTER_ACTION",
+      "prompt": "Choose exactly one catalog-first router action from the allowed enum. Return a capability-gap payload only for CAPABILITY_GAP. Do not generate code or use approximate identities. Context: {{ context_json }}",
+      "responsibility_boundary": "Choose one bounded route without owning Catalog, Search, Research, or Evidence",
+      "schema": {"additionalProperties": false, "properties": {"action_payload": {"additionalProperties": false, "properties": {"missing_capability_references": {"items": {"additionalProperties": false, "properties": {"reference_fingerprint": {"type": "string"}, "reference_kind": {"type": "string"}, "reference_schema_version": {"type": "integer"}}, "required": ["reference_kind", "reference_schema_version", "reference_fingerprint"], "type": "object"}, "type": "array"}, "reason_codes": {"items": {"type": "string"}, "type": "array"}, "required_semantic_roles": {"items": {"type": "string"}, "type": "array"}, "schema_version": {"type": "integer"}}, "required": ["schema_version", "missing_capability_references", "required_semantic_roles", "reason_codes"], "type": "object"}, "router_action": {"enum": ["REUSE_EXISTING", "SYMBOLIC_SEARCH", "PARAMETER_SEARCH", "CAPABILITY_GAP"], "type": "string"}}, "required": ["router_action"], "type": "object"},
+      "terminal_behavior": "CAPABILITY_GAP_STOPS_OTHERWISE_CONTINUE",
+      "variables": ["context_json"]
+    },
+    {
+      "allowed_tool_classes": ["PARAMETER_SEARCH", "RESEARCH_DEFINITION_RESOLVE", "RESEARCH_RUN_SUBMIT", "SYMBOLIC_SEARCH"],
+      "input_contract": "EXACT_ROUTER_RESULT_AND_CATALOG_CONTEXT",
+      "logical_role_id": "FACTOR_DESIGNER",
+      "output_contract": "ONE_EXACT_ACTION_PAYLOAD",
+      "prompt": "Return only the exact action_payload for the already selected route using identities present in context. Do not alter the route, generate Python, or invent an Authority. Context: {{ context_json }}",
+      "responsibility_boundary": "Materialize one route-specific immutable configuration without owning Factor or Search semantics",
+      "schema": {"additionalProperties": false, "properties": {"action_payload": {"additionalProperties": false, "properties": {"algorithm_reference": {"additionalProperties": false, "properties": {"reference_fingerprint": {"type": "string"}, "reference_kind": {"type": "string"}, "reference_schema_version": {"type": "integer"}}, "required": ["reference_kind", "reference_schema_version", "reference_fingerprint"], "type": "object"}, "evaluation_reference": {"additionalProperties": false, "properties": {"reference_fingerprint": {"type": "string"}, "reference_kind": {"type": "string"}, "reference_schema_version": {"type": "integer"}}, "required": ["reference_kind", "reference_schema_version", "reference_fingerprint"], "type": "object"}, "research_definition_reference": {"additionalProperties": false, "properties": {"reference_fingerprint": {"type": "string"}, "reference_kind": {"type": "string"}, "reference_schema_version": {"type": "integer"}}, "required": ["reference_kind", "reference_schema_version", "reference_fingerprint"], "type": "object"}, "reused_capability_references": {"items": {"additionalProperties": false, "properties": {"reference_fingerprint": {"type": "string"}, "reference_kind": {"type": "string"}, "reference_schema_version": {"type": "integer"}}, "required": ["reference_kind", "reference_schema_version", "reference_fingerprint"], "type": "object"}, "type": "array"}, "schema_version": {"type": "integer"}, "search_budget_reference": {"additionalProperties": false, "properties": {"reference_fingerprint": {"type": "string"}, "reference_kind": {"type": "string"}, "reference_schema_version": {"type": "integer"}}, "required": ["reference_kind", "reference_schema_version", "reference_fingerprint"], "type": "object"}, "search_policy_reference": {"additionalProperties": false, "properties": {"reference_fingerprint": {"type": "string"}, "reference_kind": {"type": "string"}, "reference_schema_version": {"type": "integer"}}, "required": ["reference_kind", "reference_schema_version", "reference_fingerprint"], "type": "object"}, "search_space_reference": {"additionalProperties": false, "properties": {"reference_fingerprint": {"type": "string"}, "reference_kind": {"type": "string"}, "reference_schema_version": {"type": "integer"}}, "required": ["reference_kind", "reference_schema_version", "reference_fingerprint"], "type": "object"}}, "required": ["schema_version"], "type": "object"}}, "required": ["action_payload"], "type": "object"},
+      "terminal_behavior": "RETURN_OR_FAIL_CLOSED",
+      "variables": ["context_json"]
+    },
+    {
+      "allowed_tool_classes": ["RESEARCH_EVIDENCE_QUERY", "RESEARCH_RUN_QUERY", "SEARCH_QUERY"],
+      "input_contract": "EXACT_TERMINAL_PATH_AND_RESEARCH_EVIDENCE",
+      "logical_role_id": "EVIDENCE_ANALYST",
+      "output_contract": "ONE_ADVISORY_NEXT_EXPERIMENT_PROPOSAL",
+      "prompt": "Interpret only the exact supplied Product Evidence. Return one strict advisory proposal and stop. Never recompute metrics, declare qualification, execute the proposal, promote, or authorize LIVE. Context: {{ context_json }}",
+      "responsibility_boundary": "Summarize formal Evidence categorically and propose one unexecuted follow-up",
+      "schema": {"additionalProperties": false, "properties": {"completed_path_reference": {"additionalProperties": false, "properties": {"reference_fingerprint": {"type": "string"}, "reference_kind": {"type": "string"}, "reference_schema_version": {"type": "integer"}}, "required": ["reference_kind", "reference_schema_version", "reference_fingerprint"], "type": "object"}, "evaluation_path_kind": {"enum": ["DIRECT_REUSE_RESEARCH", "CHILD_SEARCH"], "type": "string"}, "proposed_follow_up_brief_delta": {"additionalProperties": false, "properties": {"hypothesis_delta": {"type": "string"}, "proposed_changes": {"items": {"type": "string"}, "type": "array"}, "rationale_delta": {"type": "string"}, "schema_version": {"type": "integer"}}, "required": ["schema_version", "hypothesis_delta", "rationale_delta", "proposed_changes"], "type": "object"}, "qualitative_observations": {"items": {"additionalProperties": false, "properties": {"observation_code": {"enum": ["EFFECT_DIRECTION_SUPPORTS_HYPOTHESIS", "WEAK_TEMPORAL_STABILITY", "LIMITED_COVERAGE", "HIGH_REDUNDANCY", "ROBUSTNESS_UNCERTAIN", "FOLLOW_UP_RECOMMENDED"], "type": "string"}, "schema_version": {"type": "integer"}, "supporting_authority_references": {"items": {"additionalProperties": false, "properties": {"reference_fingerprint": {"type": "string"}, "reference_kind": {"type": "string"}, "reference_schema_version": {"type": "integer"}}, "required": ["reference_kind", "reference_schema_version", "reference_fingerprint"], "type": "object"}, "type": "array"}}, "required": ["schema_version", "observation_code", "supporting_authority_references"], "type": "object"}, "type": "array"}, "research_result_references": {"items": {"additionalProperties": false, "properties": {"reference_fingerprint": {"type": "string"}, "reference_kind": {"type": "string"}, "reference_schema_version": {"type": "integer"}}, "required": ["reference_kind", "reference_schema_version", "reference_fingerprint"], "type": "object"}, "type": "array"}, "research_statistics_references": {"items": {"additionalProperties": false, "properties": {"reference_fingerprint": {"type": "string"}, "reference_kind": {"type": "string"}, "reference_schema_version": {"type": "integer"}}, "required": ["reference_kind", "reference_schema_version", "reference_fingerprint"], "type": "object"}, "type": "array"}, "schema_version": {"type": "integer"}}, "required": ["schema_version", "evaluation_path_kind", "completed_path_reference", "research_result_references", "research_statistics_references", "qualitative_observations", "proposed_follow_up_brief_delta"], "type": "object"},
+      "terminal_behavior": "PERSIST_PROPOSAL_AND_STOP",
+      "variables": ["context_json"]
+    }
+  ],
+  "tool_policy": {
+    "allowed_tool_classes": ["EXACT_CATALOG_CONTEXT_QUERY", "PARAMETER_SEARCH", "RESEARCH_DEFINITION_RESOLVE", "RESEARCH_EVIDENCE_QUERY", "RESEARCH_RUN_QUERY", "RESEARCH_RUN_SUBMIT", "SEARCH_QUERY", "SYMBOLIC_SEARCH"],
+    "explicitly_forbidden_capabilities": ["ARBITRARY_FILESYSTEM", "ARBITRARY_HTTP", "ASSET_ADMISSION", "BROKER", "DIRECT_DATABASE", "GIT", "LIVE", "PACKAGE_INSTALL", "PROMOTION", "PYTHON_EXEC", "SHELL"],
+    "operation_constraints": [
+      {"classification": "COMMAND", "identity_requirements": ["experiment_fingerprint"], "operation_identity": "advance_parameter_search_experiment_v2", "tool_class": "PARAMETER_SEARCH"},
+      {"classification": "COMMAND", "identity_requirements": ["experiment_fingerprint"], "operation_identity": "advance_symbolic_search_experiment_v2", "tool_class": "SYMBOLIC_SEARCH"},
+      {"classification": "QUERY", "identity_requirements": ["catalog_generation_fingerprint"], "operation_identity": "get_complete_exact_catalog_context_v2", "tool_class": "EXACT_CATALOG_CONTEXT_QUERY"},
+      {"classification": "QUERY", "identity_requirements": ["run_id"], "operation_identity": "get_run_api_v2_research_runs__run_id__get", "tool_class": "RESEARCH_RUN_QUERY"},
+      {"classification": "QUERY", "identity_requirements": ["experiment_fingerprint"], "operation_identity": "get_search_experiment_v2", "tool_class": "SEARCH_QUERY"},
+      {"classification": "QUERY", "identity_requirements": ["experiment_fingerprint"], "operation_identity": "get_search_iteration_ledger_v2", "tool_class": "SEARCH_QUERY"},
+      {"classification": "QUERY", "identity_requirements": ["experiment_fingerprint"], "operation_identity": "get_search_terminal_v2", "tool_class": "SEARCH_QUERY"},
+      {"classification": "PURE_RESOLVE", "identity_requirements": [], "operation_identity": "resolve_definition_api_v2_research_definitions_resolve_post", "tool_class": "RESEARCH_DEFINITION_RESOLVE"},
+      {"classification": "QUERY", "identity_requirements": ["research_result_fingerprint"], "operation_identity": "statistics_catalog_api_v2_research_artifacts__research_result_fingerprint__statistics_get", "tool_class": "RESEARCH_EVIDENCE_QUERY"},
+      {"classification": "COMMAND", "identity_requirements": ["catalog_generation_fingerprint", "dataset_snapshot_fingerprint", "runtime_generation_fingerprint"], "operation_identity": "submit_parameter_search_experiment_v2", "tool_class": "PARAMETER_SEARCH"},
+      {"classification": "COMMAND", "identity_requirements": [], "operation_identity": "submit_research_run_command_v2", "tool_class": "RESEARCH_RUN_SUBMIT"},
+      {"classification": "COMMAND", "identity_requirements": ["catalog_generation_fingerprint", "dataset_snapshot_fingerprint", "runtime_generation_fingerprint"], "operation_identity": "submit_symbolic_search_experiment_v2", "tool_class": "SYMBOLIC_SEARCH"}
+    ],
+    "schema_version": 1
+  }
+}

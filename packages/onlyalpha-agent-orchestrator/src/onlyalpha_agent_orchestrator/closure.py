@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import resources
+from pathlib import PurePosixPath
 
 from onlyalpha.research.agent.errors import OnlyAgentContextError
 from onlyalpha.research.agent.model import OnlyAgentWorkflowResourceKind
@@ -21,14 +22,15 @@ class OnlyAgentWorkflowResourceSpecV1:
     resource_kind: OnlyAgentWorkflowResourceKind = OnlyAgentWorkflowResourceKind.SOURCE
 
     def __post_init__(self) -> None:
+        relative = PurePosixPath(self.relative_name)
         if (
             not self.logical_resource_identity
             or any(character.isspace() for character in self.logical_resource_identity)
             or not self.package
             or any(character.isspace() for character in self.package)
             or not self.relative_name
-            or self.relative_name in {".", ".."}
-            or "/" in self.relative_name
+            or relative.is_absolute()
+            or any(part in {"", ".", ".."} for part in relative.parts)
             or "\\" in self.relative_name
             or not isinstance(self.resource_kind, OnlyAgentWorkflowResourceKind)
         ):
@@ -63,6 +65,11 @@ ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1 = (
         "transport.py",
     ),
     OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha.agent.orchestrator.authority_readers.py",
+        "onlyalpha_agent_orchestrator",
+        "authority_readers.py",
+    ),
+    OnlyAgentWorkflowResourceSpecV1(
         "onlyalpha.agent.orchestrator.bindings.py", "onlyalpha_agent_orchestrator", "bindings.py"
     ),
     OnlyAgentWorkflowResourceSpecV1(
@@ -88,10 +95,40 @@ ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1 = (
         "materialization.py",
     ),
     OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha.agent.orchestrator.node_app.py", "onlyalpha_agent_orchestrator", "node_app.py"
+    ),
+    OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha.agent.orchestrator.node_main.py", "onlyalpha_agent_orchestrator", "node_main.py"
+    ),
+    OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha.agent.orchestrator.node_service.py",
+        "onlyalpha_agent_orchestrator",
+        "node_service.py",
+    ),
+    OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha.agent.orchestrator.production.py", "onlyalpha_agent_orchestrator", "production.py"
+    ),
+    OnlyAgentWorkflowResourceSpecV1(
         "onlyalpha.agent.orchestrator.provenance.py", "onlyalpha_agent_orchestrator", "provenance.py"
     ),
     OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha.agent.orchestrator.resources.__init__.py",
+        "onlyalpha_agent_orchestrator.resources",
+        "__init__.py",
+    ),
+    OnlyAgentWorkflowResourceSpecV1(
         "onlyalpha.agent.orchestrator.runtime.py", "onlyalpha_agent_orchestrator", "runtime.py"
+    ),
+    OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha.agent.orchestrator.semantic_bundle.py",
+        "onlyalpha_agent_orchestrator",
+        "semantic_bundle.py",
+    ),
+    OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha.agent.orchestrator.semantic_bundle.v1.json",
+        "onlyalpha_agent_orchestrator.resources",
+        "v1/semantic_bundle.json",
+        OnlyAgentWorkflowResourceKind.PACKAGE_RESOURCE,
     ),
     OnlyAgentWorkflowResourceSpecV1("onlyalpha.application.__init__.py", "onlyalpha.application", "__init__.py"),
     OnlyAgentWorkflowResourceSpecV1(

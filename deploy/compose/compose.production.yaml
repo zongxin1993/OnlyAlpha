@@ -106,6 +106,10 @@ services:
       - /etc/onlyalpha/product/binance-usdm-public-reference.json
       - --backtest-market-resource
       - /etc/onlyalpha/product/binance-usdm-account-reference.json
+      - --agent-node-url
+      - http://onlyalpha-agent:8010
+      - --agent-control-token-file
+      - /run/secrets/onlyalpha_agent_control_token
     environment:
       ONLYALPHA_POSTGRES_DSN: ${ONLYALPHA_POSTGRES_DSN:?set ONLYALPHA_POSTGRES_DSN with URL-encoded credentials}
       ONLYALPHA_CLICKHOUSE_URL: http://onlyalpha-clickhouse:8123
@@ -123,8 +127,54 @@ services:
     volumes:
       - user-data:/var/lib/onlyalpha
       - ${ONLYALPHA_PRODUCT_CONFIG_PATH:?set ONLYALPHA_PRODUCT_CONFIG_PATH}:/etc/onlyalpha/product:ro
+    secrets:
+      - onlyalpha_agent_control_token
     networks:
       - database
+      - agent-control
+
+  onlyalpha-agent:
+    image: ${ONLYALPHA_OPERATOR_IMAGE:-onlyalpha-operator:0.9.9}
+    restart: unless-stopped
+    entrypoint: ["onlyalpha-agent"]
+    command:
+      - serve
+      - --durable-root
+      - /var/lib/onlyalpha-agent
+      - --coordination-root
+      - /var/run/onlyalpha-agent
+      - --product-api-url
+      - http://onlyalpha-http-server:8000
+      - --product-api-contract
+      - /etc/onlyalpha/contracts/product-api/v2/openapi.json
+      - --product-token-file
+      - /run/secrets/onlyalpha_agent_product_token
+      - --model-api-url
+      - ${ONLYALPHA_AGENT_MODEL_API_URL:?set ONLYALPHA_AGENT_MODEL_API_URL}
+      - --model-token-file
+      - /run/secrets/onlyalpha_agent_model_token
+      - --control-token-file
+      - /run/secrets/onlyalpha_agent_control_token
+      - --replica-count
+      - "1"
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8010"
+    depends_on:
+      onlyalpha-http-server:
+        condition: service_started
+    volumes:
+      - agent-state:/var/lib/onlyalpha-agent
+      - agent-locks:/var/run/onlyalpha-agent
+      - ../../contracts:/etc/onlyalpha/contracts:ro
+    secrets:
+      - onlyalpha_agent_control_token
+      - onlyalpha_agent_product_token
+      - onlyalpha_agent_model_token
+    networks:
+      - agent-control
+      - model-egress
 
   research-worker:
     image: ${ONLYALPHA_OPERATOR_IMAGE:-onlyalpha-operator:0.9.8}
@@ -175,7 +225,24 @@ services:
 volumes:
   user-data:
     name: ${ONLYALPHA_USER_DATA_VOLUME:-onlyalpha-user-data}
+  agent-state:
+    name: ${ONLYALPHA_AGENT_STATE_VOLUME:-onlyalpha-agent-state}
+  agent-locks:
+    name: ${ONLYALPHA_AGENT_LOCK_VOLUME:-onlyalpha-agent-locks}
+
+secrets:
+  onlyalpha_agent_control_token:
+    file: ${ONLYALPHA_AGENT_CONTROL_TOKEN_PATH:?set ONLYALPHA_AGENT_CONTROL_TOKEN_PATH}
+  onlyalpha_agent_product_token:
+    file: ${ONLYALPHA_AGENT_PRODUCT_TOKEN_PATH:?set ONLYALPHA_AGENT_PRODUCT_TOKEN_PATH}
+  onlyalpha_agent_model_token:
+    file: ${ONLYALPHA_AGENT_MODEL_TOKEN_PATH:?set ONLYALPHA_AGENT_MODEL_TOKEN_PATH}
 
 networks:
+  agent-control:
+    name: ${ONLYALPHA_AGENT_CONTROL_NETWORK:-onlyalpha-agent-control}
+    internal: true
+  model-egress:
+    name: ${ONLYALPHA_AGENT_MODEL_EGRESS_NETWORK:-onlyalpha-agent-model-egress}
   binance-egress:
     name: ${ONLYALPHA_BINANCE_EGRESS_NETWORK:-onlyalpha-binance-egress}

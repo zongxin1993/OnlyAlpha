@@ -82,6 +82,7 @@ from onlyalpha.research.operations.readiness import (
 )
 from onlyalpha.research.result.result_store import OnlyJsonResearchResultStore
 from onlyalpha.research.run.admission import OnlyResearchRunAdmissionService
+from onlyalpha.research.search.symbolic.store import OnlyJsonSymbolicSearchStore
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 from onlyalpha.strategy.qualification import OnlyQualificationEvaluator, OnlyQualificationPolicyRevision
 from onlyalpha.strategy.qualification_store import (
@@ -90,9 +91,11 @@ from onlyalpha.strategy.qualification_store import (
 )
 from onlyalpha.strategy.store import OnlyFrozenStrategyRevisionStore
 
+from .agent_gateway import OnlyAgentNodeGatewayConfigV1, OnlyAgentNodeHttpGatewayV1
 from .app import create_product_app
 from .composition import only_configure_product_registries
 from .health import OnlyKernelResearchReadinessProjection
+from .research.search_authoring_routes import OnlySearchAuthoringValue
 
 
 class _ResearchProductVerification:
@@ -116,6 +119,22 @@ class _UnavailableProductAuthority:
 
     def __getattr__(self, name: str) -> object:
         raise RuntimeError(f"PRODUCT_KERNEL_NOT_READY: {name}")
+
+
+class _SearchAuthoringInputReader:
+    """Exact dispatch over existing Search-owned immutable stores."""
+
+    def __init__(self, symbolic: OnlyJsonSymbolicSearchStore) -> None:
+        self._symbolic = symbolic
+
+    def load_search_authoring_input_verified(self, reference_kind: str, fingerprint: str) -> OnlySearchAuthoringValue:
+        if reference_kind == "SYMBOLIC_SEARCH_SPACE":
+            return self._symbolic.load_search_space_intrinsic_verified(fingerprint)
+        if reference_kind == "RESEARCH_EVALUATION":
+            return self._symbolic.load_evaluation_contract_intrinsic_verified(fingerprint)
+        if reference_kind == "SEARCH_ALGORITHM":
+            return self._symbolic.load_algorithm_implementation_manifest_intrinsic_verified(fingerprint)
+        raise LookupError(reference_kind)
 
 
 def _verify_postgres_server(operational_dsn: str) -> None:
@@ -214,6 +233,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="verified operator-owned Product configuration document; repeat for each Market Product",
     )
     parser.add_argument("--runtime-generation-authority-root", type=Path, required=True)
+    parser.add_argument("--agent-node-url")
+    parser.add_argument("--agent-control-token-file", type=Path)
     parser.add_argument(
         "--qualification-policy",
         action="append",
@@ -229,6 +250,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="verified plugin-owned Market Product resource document; repeat as required",
     )
     args = parser.parse_args(argv)
+    if (args.agent_node_url is None) != (args.agent_control_token_file is None):
+        raise ValueError("AGENT_GATEWAY_CONFIG_INCOMPLETE")
     postgres = OnlyPostgresConfig.from_environment()
     operational_options = OnlyPostgresOperationalConnectionOptions()
     operational_dsn = postgres.operational_dsn(operational_options)
@@ -448,6 +471,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             backtest_commands,
             backtest_queries,
             backtest_store,
+            exact_dataset_snapshots=dataset_store,
+            exact_evaluation_contexts=OnlyJsonSymbolicSearchStore(layout.research_root),
+            agent_gateway=(
+                None
+                if args.agent_node_url is None
+                else OnlyAgentNodeHttpGatewayV1(
+                    OnlyAgentNodeGatewayConfigV1(
+                        args.agent_node_url,
+                        args.agent_control_token_file.read_text(encoding="utf-8").strip(),
+                    )
+                )
+            ),
+            runtime_generations=runtime_generations,
+            search_authoring_inputs=_SearchAuthoringInputReader(OnlyJsonSymbolicSearchStore(layout.research_root)),
         )
         uvicorn.run(app, host=args.host, port=args.port)
     finally:

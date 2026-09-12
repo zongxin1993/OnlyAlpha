@@ -1,6 +1,125 @@
 {
   "components": {
     "schemas": {
+      "ActiveRuntimeGenerationDto": {
+        "additionalProperties": false,
+        "properties": {
+          "runtime_generation_fingerprint": {
+            "title": "Runtime Generation Fingerprint",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "runtime_generation_fingerprint"
+        ],
+        "title": "ActiveRuntimeGenerationDto",
+        "type": "object"
+      },
+      "AgentAdvanceResponseDto": {
+        "additionalProperties": false,
+        "properties": {
+          "derived_status": {
+            "title": "Derived Status",
+            "type": "string"
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
+          "next_action_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Action Kind"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "session_fingerprint": {
+            "title": "Session Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "session_fingerprint",
+          "derived_status",
+          "next_action_kind",
+          "failure_code"
+        ],
+        "title": "AgentAdvanceResponseDto",
+        "type": "object"
+      },
+      "AgentSessionRequestDto": {
+        "additionalProperties": false,
+        "properties": {
+          "research_brief": {
+            "additionalProperties": true,
+            "title": "Research Brief",
+            "type": "object"
+          }
+        },
+        "required": [
+          "research_brief"
+        ],
+        "title": "AgentSessionRequestDto",
+        "type": "object"
+      },
+      "AgentSessionResponseDto": {
+        "additionalProperties": false,
+        "properties": {
+          "research_brief_fingerprint": {
+            "title": "Research Brief Fingerprint",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "session_disposition": {
+            "title": "Session Disposition",
+            "type": "string"
+          },
+          "session_fingerprint": {
+            "title": "Session Fingerprint",
+            "type": "string"
+          },
+          "workflow_implementation_fingerprint": {
+            "title": "Workflow Implementation Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "session_fingerprint",
+          "research_brief_fingerprint",
+          "session_disposition",
+          "workflow_implementation_fingerprint"
+        ],
+        "title": "AgentSessionResponseDto",
+        "type": "object"
+      },
       "BacktestCancellationResponse": {
         "additionalProperties": false,
         "properties": {
@@ -610,6 +729,56 @@
           "projection_fingerprint"
         ],
         "title": "ExactCatalogContextResponseDto",
+        "type": "object"
+      },
+      "ExactDatasetSnapshotDto": {
+        "additionalProperties": false,
+        "properties": {
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "snapshot_fingerprint": {
+            "title": "Snapshot Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "snapshot_fingerprint"
+        ],
+        "title": "ExactDatasetSnapshotDto",
+        "type": "object"
+      },
+      "ExactEvaluationContextDto": {
+        "additionalProperties": false,
+        "properties": {
+          "evaluation_fingerprint": {
+            "title": "Evaluation Fingerprint",
+            "type": "string"
+          },
+          "evaluation_kind": {
+            "title": "Evaluation Kind",
+            "type": "string"
+          },
+          "evaluation_schema_version": {
+            "title": "Evaluation Schema Version",
+            "type": "integer"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "evaluation_kind",
+          "evaluation_schema_version",
+          "evaluation_fingerprint"
+        ],
+        "title": "ExactEvaluationContextDto",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -4466,6 +4635,36 @@
         "title": "SearchAdvanceRequestDto",
         "type": "object"
       },
+      "SearchAuthoringInputDto": {
+        "additionalProperties": false,
+        "properties": {
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "reference_fingerprint": {
+            "title": "Reference Fingerprint",
+            "type": "string"
+          },
+          "reference_kind": {
+            "title": "Reference Kind",
+            "type": "string"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "reference_kind",
+          "reference_fingerprint",
+          "payload"
+        ],
+        "title": "SearchAuthoringInputDto",
+        "type": "object"
+      },
       "SearchCommandResponseDto": {
         "additionalProperties": false,
         "properties": {
@@ -5107,6 +5306,90 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v2/agent/sessions": {
+      "post": {
+        "operationId": "admit_agent_session_v2",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentSessionRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentSessionResponseDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Admit",
+        "tags": [
+          "agent-gateway"
+        ]
+      }
+    },
+    "/api/v2/agent/sessions/{session_fingerprint}/advance": {
+      "post": {
+        "operationId": "advance_agent_session_once_v2",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_fingerprint",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Session Fingerprint",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentAdvanceResponseDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Advance",
+        "tags": [
+          "agent-gateway"
+        ]
+      }
+    },
     "/api/v2/backtest/runs": {
       "post": {
         "operationId": "create_run_api_v2_backtest_runs_post",
@@ -7092,6 +7375,49 @@
         ]
       }
     },
+    "/api/v2/research/datasets/{snapshot_fingerprint}": {
+      "get": {
+        "operationId": "get_exact_dataset_snapshot_identity_v2",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "snapshot_fingerprint",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Snapshot Fingerprint",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExactDatasetSnapshotDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Dataset",
+        "tags": [
+          "research-exact-reference"
+        ]
+      }
+    },
     "/api/v2/research/definitions/resolve": {
       "post": {
         "operationId": "resolve_definition_api_v2_research_definitions_resolve_post",
@@ -7156,6 +7482,68 @@
           "schema_version": 1,
           "tool_class": "RESEARCH_DEFINITION_RESOLVE"
         }
+      }
+    },
+    "/api/v2/research/evaluations/{evaluation_kind}/{evaluation_schema_version}/{evaluation_fingerprint}": {
+      "get": {
+        "operationId": "get_exact_evaluation_context_identity_v2",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "evaluation_kind",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Z][A-Z0-9_]{2,127}$",
+              "title": "Evaluation Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "evaluation_schema_version",
+            "required": true,
+            "schema": {
+              "title": "Evaluation Schema Version",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "evaluation_fingerprint",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Evaluation Fingerprint",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExactEvaluationContextDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Evaluation",
+        "tags": [
+          "research-exact-reference"
+        ]
       }
     },
     "/api/v2/research/runs": {
@@ -7831,6 +8219,80 @@
         "summary": "Get Run Execution Evidence",
         "tags": [
           "research-runs"
+        ]
+      }
+    },
+    "/api/v2/research/runtime-generations/active": {
+      "get": {
+        "operationId": "get_active_runtime_generation_v2",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActiveRuntimeGenerationDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Active",
+        "tags": [
+          "runtime-generation"
+        ]
+      }
+    },
+    "/api/v2/research/search/authoring/{reference_kind}/{reference_fingerprint}": {
+      "get": {
+        "operationId": "get_exact_search_authoring_input_v2",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reference_kind",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Z][A-Z0-9_]{2,127}$",
+              "title": "Reference Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "reference_fingerprint",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Reference Fingerprint",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchAuthoringInputDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Input",
+        "tags": [
+          "search-authoring"
         ]
       }
     },

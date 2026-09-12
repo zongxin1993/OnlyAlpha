@@ -31,8 +31,12 @@ def _isolated_runtime_proof() -> str:
         import importlib.metadata
         import json
         import os
+        import selectors
         import shutil
+        import signal
+        import subprocess
         import sys
+        import urllib.request
         from pathlib import Path
         from types import SimpleNamespace
 
@@ -101,6 +105,78 @@ def _isolated_runtime_proof() -> str:
             assert not module_path.is_relative_to(repository_root)
         assert Path(onlyalpha.__file__).resolve() in installed_module_paths
         assert Path(runtime.__file__).resolve() in installed_module_paths
+
+        contract_path = Path(sys.argv[2]).resolve()
+        node_root = working_directory / "node-state"
+        lock_root = working_directory / "node-locks"
+        secret_paths = []
+        for name in ("product", "model", "control"):
+            path = working_directory / f"{name}.secret"
+            path.write_text(f"{name}-secret\\n", encoding="utf-8")
+            secret_paths.append(path)
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-I",
+                "-m",
+                "onlyalpha_agent_orchestrator.node_main",
+                "serve",
+                "--durable-root",
+                str(node_root),
+                "--coordination-root",
+                str(lock_root),
+                "--product-api-url",
+                "http://127.0.0.1:9",
+                "--product-api-contract",
+                str(contract_path),
+                "--product-token-file",
+                str(secret_paths[0]),
+                "--model-api-url",
+                "http://127.0.0.1:9",
+                "--model-token-file",
+                str(secret_paths[1]),
+                "--control-token-file",
+                str(secret_paths[2]),
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "18019",
+            ],
+            cwd=working_directory,
+            env=dict(os.environ),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        selector = selectors.DefaultSelector()
+        assert process.stderr is not None
+        selector.register(process.stderr, selectors.EVENT_READ)
+        startup_lines = []
+        while "Application startup complete." not in "".join(startup_lines):
+            events = selector.select(timeout=30)
+            assert events, "Agent node startup barrier timed out"
+            line = process.stderr.readline()
+            startup_lines.append(line)
+            assert process.poll() is None, "Agent node exited during startup: " + "".join(startup_lines)
+        with urllib.request.urlopen("http://127.0.0.1:18019/internal/v1/healthz", timeout=5) as response:
+            response_status = response.status
+            response_payload = json.loads(response.read())
+            assert response_status == 200, (response_status, response_payload, startup_lines)
+            assert response_payload == {"status": "ALIVE"}, (
+                response_payload,
+                startup_lines,
+            )
+        process.send_signal(signal.SIGTERM)
+        remaining_stdout, remaining_stderr = process.communicate(timeout=10)
+        shutdown_output = "".join(startup_lines) + remaining_stderr
+        assert "Application shutdown complete." in shutdown_output, shutdown_output
+        assert "Finished server process" in shutdown_output, shutdown_output
+        assert process.returncode in (0, -signal.SIGTERM), (
+            process.returncode,
+            startup_lines,
+            remaining_stdout,
+            remaining_stderr,
+        )
 
         session_fingerprint = "1" * 64
         historical = OnlyAgentOrchestrationResourceV1(
@@ -220,7 +296,17 @@ def test_built_wheels_admit_only_the_exact_installed_agent_runtime(tmp_path: Pat
 
     for package in ("onlyalpha", "onlyalpha-agent-orchestrator"):
         _run(
-            [uv, "build", "--offline", "--wheel", "--package", package, "--out-dir", str(artifacts)],
+            [
+                uv,
+                "build",
+                "--offline",
+                "--no-build-isolation",
+                "--wheel",
+                "--package",
+                package,
+                "--out-dir",
+                str(artifacts),
+            ],
             cwd=ROOT,
             env=environment,
         )
@@ -235,7 +321,26 @@ def test_built_wheels_admit_only_the_exact_installed_agent_runtime(tmp_path: Pat
     dependency_constraints.write_text(
         "".join(
             f"{name}=={locked_packages[name]}\n"
-            for name in ("psycopg", "psycopg-binary", "pyarrow", "pyyaml", "typing-extensions", "tzdata")
+            for name in (
+                "annotated-types",
+                "annotated-doc",
+                "anyio",
+                "click",
+                "fastapi",
+                "h11",
+                "idna",
+                "pydantic",
+                "pydantic-core",
+                "psycopg",
+                "psycopg-binary",
+                "pyarrow",
+                "pyyaml",
+                "starlette",
+                "typing-extensions",
+                "typing-inspection",
+                "tzdata",
+                "uvicorn",
+            )
         ),
         encoding="utf-8",
     )
@@ -267,8 +372,10 @@ def test_built_wheels_admit_only_the_exact_installed_agent_runtime(tmp_path: Pat
 
     runtime_environment = dict(environment)
     runtime_environment.update({"PATH": "", "PWD": str(execution_directory)})
+    contract_copy = execution_directory / "product-openapi.json"
+    shutil.copyfile(ROOT / "contracts/product-api/v2/openapi.json", contract_copy)
     completed = _run(
-        [str(isolated_python), "-I", "-c", _isolated_runtime_proof(), str(ROOT)],
+        [str(isolated_python), "-I", "-c", _isolated_runtime_proof(), str(ROOT), str(contract_copy)],
         cwd=execution_directory,
         env=runtime_environment,
     )

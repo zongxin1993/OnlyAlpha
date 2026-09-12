@@ -168,13 +168,24 @@ def _render_prompt(
         or prompt.rendering_semantics != "EXACT_DECLARED_VARIABLE_SUBSTITUTION"
     ):
         raise ValueError("AGENT_PROMPT_TEMPLATE_UNSUPPORTED")
-    values: dict[str, object] = {}
-    for reference in plan.ordered_context_references:
-        projection = contexts.load_model_context_projection_verified(reference)
-        for key, value in projection.items():
-            if key in values:
-                raise ValueError("AGENT_MODEL_CONTEXT_AMBIGUOUS")
-            values[key] = value
+    if prompt.ordered_declared_variables == ("context_json",):
+        values: dict[str, object] = {
+            "context_json": [
+                {
+                    "reference": reference.to_dict(),
+                    "projection": dict(contexts.load_model_context_projection_verified(reference)),
+                }
+                for reference in plan.ordered_context_references
+            ]
+        }
+    else:
+        values = {}
+        for reference in plan.ordered_context_references:
+            projection = contexts.load_model_context_projection_verified(reference)
+            for key, value in projection.items():
+                if key in values:
+                    raise ValueError("AGENT_MODEL_CONTEXT_AMBIGUOUS")
+                values[key] = value
     if set(values) != set(prompt.ordered_declared_variables):
         raise ValueError("AGENT_MODEL_CONTEXT_MISMATCH")
     rendered = prompt.template_content

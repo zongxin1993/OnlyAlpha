@@ -53,12 +53,9 @@ class OnlyAgentSessionDriverV1:
         self._coordination = coordination
 
     def advance_once(self, session_fingerprint: str) -> OnlyAgentDerivedSessionStateV1:
-        """Derive, admit, re-derive, and execute exactly one legal action."""
+        """Admit current runtime, then derive and execute exactly one legal action."""
 
         with self._coordination.acquire(session_fingerprint):
-            inspected = self._reducer.derive(session_fingerprint)
-            if inspected.status is not OnlyAgentDerivedSessionStatus.ACTIVE:
-                return inspected
 
             def admitted_continuation(
                 permit: OnlyAgentRuntimeExecutionPermit,
