@@ -21,6 +21,7 @@ from onlyalpha.research.agent.occurrence import (
     OnlyAgentReferenceLocatorKind,
     OnlyAgentToolCallPlanV1,
     OnlyAgentToolRecoveryClass,
+    only_agent_exact_reference_from_schema,
 )
 from onlyalpha.research.agent.occurrence_service import (
     OnlyAgentProductOperationContractV1,
@@ -209,6 +210,17 @@ class OnlyProductApiContractV2:
             )
         return tuple(references)
 
+    def response_references_verified(
+        self,
+        plan: OnlyAgentToolCallPlanV1,
+        response: Mapping[str, object],
+    ) -> tuple[OnlyAgentExactAuthorityReference, ...]:
+        """Extract every typed exact reference declared by the canonical response schema."""
+
+        operation = self._operation_for_plan(plan)
+        validated = self.validate_response_verified(operation.contract, response)
+        return _response_reference_closure(validated, operation.contract.response_schema)
+
     def response_effect_verified(self, plan: OnlyAgentToolCallPlanV1, status_code: int) -> OnlyProductResponseEffect:
         operation = self._operation_for_plan(plan)
         effect = operation.response_effect_semantics.get(status_code)
@@ -216,6 +228,8 @@ class OnlyProductApiContractV2:
             return effect
         if operation.contract.recovery_class is OnlyAgentToolRecoveryClass.IDEMPOTENT_COMMAND:
             return OnlyProductResponseEffect.EFFECT_UNKNOWN
+        if 200 <= status_code < 300:
+            return OnlyProductResponseEffect.COMMITTED_RESPONSE
         return OnlyProductResponseEffect.DEFINITIVE_PRE_ADMISSION_REJECTION
 
     def _operation_for_plan(self, plan: OnlyAgentToolCallPlanV1) -> _WireOperation:
@@ -573,6 +587,35 @@ def _field_schema(schema: Mapping[str, object], path: str) -> Mapping[str, objec
             raise ValueError("AGENT_PRODUCT_API_CONTRACT_MISMATCH")
         current = cast(Mapping[str, object], properties[part])
     return current
+
+
+def _response_reference_closure(
+    value: object,
+    schema: Mapping[str, object],
+) -> tuple[OnlyAgentExactAuthorityReference, ...]:
+    reference_kind = schema.get("x-onlyalpha-reference-kind")
+    if isinstance(reference_kind, str):
+        return (only_agent_exact_reference_from_schema(value, schema),)
+    if schema.get("type") == "object" and isinstance(value, Mapping):
+        properties = schema.get("properties")
+        if not isinstance(properties, Mapping):
+            raise ValueError("AGENT_PRODUCT_API_CONTRACT_MISMATCH")
+        return tuple(
+            reference
+            for key in sorted(value)
+            if key in properties and isinstance(properties[key], Mapping)
+            for reference in _response_reference_closure(value[key], cast(Mapping[str, object], properties[key]))
+        )
+    if schema.get("type") == "array" and isinstance(value, (list, tuple)):
+        child = schema.get("items")
+        if not isinstance(child, Mapping):
+            raise ValueError("AGENT_PRODUCT_API_CONTRACT_MISMATCH")
+        return tuple(
+            reference
+            for item in value
+            for reference in _response_reference_closure(item, cast(Mapping[str, object], child))
+        )
+    return ()
 
 
 def _validated_object(value: Mapping[str, object], schema: Mapping[str, object]) -> Mapping[str, object]:

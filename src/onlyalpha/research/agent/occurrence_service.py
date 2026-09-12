@@ -173,6 +173,12 @@ class OnlyAgentProductApiContractReader(Protocol):
         owning_authority_references: tuple[OnlyAgentExactAuthorityReference, ...],
     ) -> None: ...
 
+    def response_references_verified(
+        self,
+        plan: OnlyAgentToolCallPlanV1,
+        canonical_response: Mapping[str, object],
+    ) -> tuple[OnlyAgentExactAuthorityReference, ...]: ...
+
     def project_request_semantics_verified(
         self,
         *,
@@ -320,10 +326,23 @@ def _verify_tool_request_identity_closure(
                 f"Identity input {requirement} lacks typed Authority semantics",
             )
     derived = _request_reference_closure(validated_request, request_schema)
-    if derived != exact_identity_inputs:
+    if tuple(_exact_reference_identity(item) for item in derived) != tuple(
+        _exact_reference_identity(item) for item in exact_identity_inputs
+    ):
         raise OnlyAgentContextError(
             "AGENT_TOOL_CALL_PLAN_INVALID", "Request identity and exact reference closure differ"
         )
+
+
+def _exact_reference_identity(
+    reference: OnlyAgentExactAuthorityReference,
+) -> tuple[str, int, str, str]:
+    return (
+        reference.reference_kind,
+        reference.reference_schema_version,
+        reference.locator_kind.value,
+        reference.locator_value,
+    )
 
 
 def _load_product_operation_contract(

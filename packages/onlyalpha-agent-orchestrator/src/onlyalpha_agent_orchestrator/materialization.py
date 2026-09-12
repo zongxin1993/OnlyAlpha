@@ -10,7 +10,10 @@ from typing import Never, Protocol, cast
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.research.agent.application import (
     OnlyAgentDecisionApplicationServiceV1,
+    OnlyAgentEvidenceCausalVerifierV1,
+    OnlyAgentEvidenceQueryCausalVerifier,
     OnlyAgentExperimentLaunchServiceV1,
+    OnlyAgentVerifiedEvidencePathV1,
 )
 from onlyalpha.research.agent.authority_state import (
     OnlyAgentResearchStateReader,
@@ -20,7 +23,6 @@ from onlyalpha.research.agent.decision import (
     OnlyAgentDecisionKind,
     OnlyAgentParameterSearchDirectiveV1,
     OnlyAgentReuseDirectiveV1,
-    OnlyAgentRouterAction,
     OnlyAgentSearchDirectiveV1,
     OnlyAgentSymbolicSearchDirectiveV1,
 )
@@ -91,13 +93,6 @@ class OnlyAgentMaterializedToolIntentV1:
     product_command_id: str | None
 
 
-@dataclass(frozen=True, slots=True)
-class _OnlyAgentDerivedEvidencePathV1:
-    completed_path_reference: OnlyAgentContextReferenceV1
-    research_result_reference: OnlyAgentContextReferenceV1
-    observation_ordinal: int
-
-
 class OnlyAgentWorkflowActionMaterializerV1:
     """Materialize one exact formal intent without deriving workflow progress."""
 
@@ -115,6 +110,7 @@ class OnlyAgentWorkflowActionMaterializerV1:
         runtime_generations: OnlyAgentNewWorkRuntimeGenerationReader,
         search_states: OnlyAgentSearchStateReader | None = None,
         research_states: OnlyAgentResearchStateReader | None = None,
+        evidence_causality: OnlyAgentEvidenceQueryCausalVerifier | None = None,
         product_api_major: int = 2,
         product_api_contract_fingerprint: str,
         uuid_factory: Callable[[], uuid.UUID] = uuid.uuid4,
@@ -130,6 +126,13 @@ class OnlyAgentWorkflowActionMaterializerV1:
         self._runtime_generations = runtime_generations
         self._search_states = search_states
         self._research_states = research_states
+        self._evidence_causality = evidence_causality or OnlyAgentEvidenceCausalVerifierV1(
+            tools=tools,
+            launches=launches,
+            semantic_inputs=semantic_inputs,
+            research_states=research_states,
+            search_states=search_states,
+        )
         self._product_api_major = product_api_major
         self._product_api_contract_fingerprint = product_api_contract_fingerprint
         self._uuid_factory = uuid_factory
@@ -405,12 +408,20 @@ class OnlyAgentWorkflowActionMaterializerV1:
             plan.tool_call_ordinal <= path.observation_ordinal
             or result is None
             or result.outcome is not OnlyAgentToolCallOutcome.SUCCEEDED
-            or plan.exact_identity_inputs.count(path.research_result_reference) != 1
+            or sum(
+                _same_reference(reference, path.research_result_reference) for reference in plan.exact_identity_inputs
+            )
+            != 1
             or any(
-                reference.reference_kind == "RESEARCH_RESULT" and reference != path.research_result_reference
+                reference.reference_kind == "RESEARCH_RESULT"
+                and not _same_reference(reference, path.research_result_reference)
                 for reference in plan.exact_identity_inputs
             )
-            or result.owning_authority_references.count(path.research_result_reference) != 1
+            or sum(
+                _same_reference(reference, path.research_result_reference)
+                for reference in result.owning_authority_references
+            )
+            != 1
         ):
             self._evidence_unavailable("Evidence query causal closure")
         response = result.canonical_validated_response
@@ -419,167 +430,36 @@ class OnlyAgentWorkflowActionMaterializerV1:
             or response.get("research_result_fingerprint") != path.research_result_reference.reference_fingerprint
         ):
             self._evidence_unavailable("Evidence response identity")
-        raw_statistics = response.get("statistics")
-        if not isinstance(raw_statistics, (tuple, list)) or not raw_statistics:
+        try:
+            response_references = self._contracts.response_references_verified(plan, response)
+        except Exception as exc:
+            raise OnlyAgentContextError("AGENT_EVIDENCE_UNAVAILABLE", "Evidence response reference schema") from exc
+        canonical_references = tuple(
+            _sha_reference(reference.reference_kind, reference.locator_value) for reference in response_references
+        )
+        if canonical_references.count(path.research_result_reference) != 1:
+            self._evidence_unavailable("Research Result response reference")
+        statistics = tuple(
+            reference for reference in canonical_references if reference.reference_kind == "RESEARCH_STATISTICS"
+        )
+        if not statistics:
             self._evidence_unavailable("Research Statistics references")
-        statistics: list[OnlyAgentContextReferenceV1] = []
-        for descriptor in raw_statistics:
-            if not isinstance(descriptor, Mapping):
-                self._evidence_unavailable("Research Statistics descriptor")
-            fingerprint = descriptor.get("statistics_result_fingerprint")
-            try:
-                reference = _sha_reference("RESEARCH_STATISTICS", cast(str, fingerprint))
-            except (TypeError, ValueError) as exc:
-                raise OnlyAgentContextError("AGENT_EVIDENCE_UNAVAILABLE", "Research Statistics identity") from exc
-            statistics.append(reference)
         if len(statistics) != len(set(statistics)):
             self._evidence_unavailable("Duplicate Research Statistics reference")
-        if any(result.owning_authority_references.count(reference) != 1 for reference in statistics):
-            self._evidence_unavailable("Research Statistics owning references")
+        try:
+            for reference in statistics:
+                self._semantic_inputs.load_semantic_payload_verified(reference)
+        except Exception as exc:
+            raise OnlyAgentContextError("AGENT_EVIDENCE_UNAVAILABLE", "Research Statistics Authority") from exc
         return (
             path.completed_path_reference,
             path.research_result_reference,
             *statistics,
         )
 
-    def _derive_evidence_path(self, session_fingerprint: str) -> _OnlyAgentDerivedEvidencePathV1:
+    def _derive_evidence_path(self, session_fingerprint: str) -> OnlyAgentVerifiedEvidencePathV1:
         decision = self._decisions.load_decision_by_session_ordinal_verified(session_fingerprint, 1)
-        directive = cast(OnlyAgentSearchDirectiveV1, decision.structured_payload)
-        if directive.router_action is OnlyAgentRouterAction.REUSE_EXISTING:
-            return self._derive_reuse_evidence_path(session_fingerprint)
-        if directive.router_action in {
-            OnlyAgentRouterAction.SYMBOLIC_SEARCH,
-            OnlyAgentRouterAction.PARAMETER_SEARCH,
-        }:
-            return self._derive_search_evidence_path(session_fingerprint)
-        self._evidence_unavailable("Capability Gap has no Evidence path")
-
-    def _derive_reuse_evidence_path(self, session_fingerprint: str) -> _OnlyAgentDerivedEvidencePathV1:
-        if self._research_states is None:
-            self._evidence_unavailable("Research Authority reader")
-        occurrences = self._tool_occurrences(session_fingerprint, OnlyAgentToolClass.RESEARCH_RUN_QUERY)
-        if not occurrences or occurrences[-1][1] is None:
-            self._evidence_unavailable("Terminal Research observation")
-        plan, result = occurrences[-1]
-        assert result is not None
-        if result.outcome is not OnlyAgentToolCallOutcome.SUCCEEDED:
-            self._evidence_unavailable("Terminal Research observation")
-        run_references = tuple(
-            reference for reference in result.owning_authority_references if reference.reference_kind == "RESEARCH_RUN"
-        )
-        if (
-            len(run_references) != 1
-            or plan.exact_identity_inputs.count(run_references[0]) != 1
-            or any(
-                reference.reference_kind == "RESEARCH_RUN" and reference != run_references[0]
-                for reference in plan.exact_identity_inputs
-            )
-        ):
-            self._evidence_unavailable("Research Run observation identity")
-        try:
-            run = self._research_states.load_research_run_verified(run_references[0])
-        except Exception as exc:
-            raise OnlyAgentContextError("AGENT_EVIDENCE_UNAVAILABLE", "Research Run Authority") from exc
-        response = result.canonical_validated_response
-        result_fingerprint = getattr(run, "research_result_fingerprint", None)
-        if (
-            not isinstance(response, Mapping)
-            or response.get("state") != "COMPLETED"
-            or response.get("run_id") != run_references[0].locator_value
-            or response.get("result_ref") != result_fingerprint
-            or getattr(getattr(run, "state", None), "value", None) != "COMPLETED"
-            or not isinstance(result_fingerprint, str)
-        ):
-            self._evidence_unavailable("Research terminal observation mismatch")
-        try:
-            result_reference = _sha_reference("RESEARCH_RESULT", result_fingerprint)
-        except ValueError as exc:
-            raise OnlyAgentContextError("AGENT_EVIDENCE_UNAVAILABLE", "Research Result identity") from exc
-        return _OnlyAgentDerivedEvidencePathV1(
-            _sha_reference("RESEARCH_RUN_RESULT", result_fingerprint),
-            result_reference,
-            plan.tool_call_ordinal,
-        )
-
-    def _derive_search_evidence_path(self, session_fingerprint: str) -> _OnlyAgentDerivedEvidencePathV1:
-        if self._search_states is None:
-            self._evidence_unavailable("Search Authority reader")
-        launch = self._launches.load_launch_record_by_session_verified(session_fingerprint)
-        authority = self._search_states.load_search_state_verified(launch.child_search_experiment_fingerprint)
-        occurrences = self._tool_occurrences(session_fingerprint, OnlyAgentToolClass.SEARCH_QUERY)
-        if not occurrences or occurrences[-1][1] is None:
-            self._evidence_unavailable("Terminal Search observation")
-        plan, result = occurrences[-1]
-        assert result is not None
-        response = result.canonical_validated_response
-        terminal = authority.terminal
-        child_reference = _sha_reference("SEARCH_EXPERIMENT", launch.child_search_experiment_fingerprint)
-        serializer = getattr(terminal.terminal_fact, "to_dict", None)
-        expected_response = {
-            "schema_version": 1,
-            "experiment_fingerprint": terminal.experiment_fingerprint,
-            "method": terminal.method.value,
-            "terminal_kind": terminal.terminal_kind.value,
-            "terminal_fact": serializer() if callable(serializer) else None,
-            "stop_reason": terminal.stop_reason,
-        }
-        if (
-            result.outcome is not OnlyAgentToolCallOutcome.SUCCEEDED
-            or plan.exact_identity_inputs.count(child_reference) != 1
-            or any(
-                reference.reference_kind == "SEARCH_EXPERIMENT" and reference != child_reference
-                for reference in plan.exact_identity_inputs
-            )
-            or response != expected_response
-            or terminal.terminal_kind.value == "NON_TERMINAL"
-            or terminal.experiment_fingerprint != launch.child_search_experiment_fingerprint
-        ):
-            self._evidence_unavailable("Search terminal observation mismatch")
-        result_fingerprint = self._search_terminal_research_result(authority)
-        completed_fingerprint = self._terminal_fact_fingerprint(terminal.terminal_fact)
-        return _OnlyAgentDerivedEvidencePathV1(
-            _sha_reference("SEARCH_TERMINAL_PROJECTION", completed_fingerprint),
-            _sha_reference("RESEARCH_RESULT", result_fingerprint),
-            plan.tool_call_ordinal,
-        )
-
-    def _search_terminal_research_result(self, authority: object) -> str:
-        terminal = authority.terminal  # type: ignore[attr-defined]
-        expected = authority.expected_state  # type: ignore[attr-defined]
-        iteration_result_fingerprints: list[str] = []
-        if terminal.method.value == "PARAMETER":
-            terminal_payload = terminal.terminal_fact.to_dict()
-            anchor = terminal_payload.get("selected_anchor_iteration_result_fingerprint")
-            if isinstance(anchor, str):
-                iteration_result_fingerprints.append(anchor)
-            iteration_result_fingerprints.extend(
-                reversed(tuple(terminal_payload.get("ordered_input_iteration_result_fingerprints", ())))
-            )
-        else:
-            iteration_result_fingerprints.extend(
-                state.result_fingerprint
-                for state in reversed(expected.ordered_plan_states)
-                if state.result_fingerprint is not None
-            )
-        for fingerprint in iteration_result_fingerprints:
-            try:
-                payload = self._semantic_inputs.load_semantic_payload_verified(
-                    _sha_reference("SEARCH_ITERATION_RESULT", fingerprint)
-                )
-            except Exception as exc:
-                raise OnlyAgentContextError("AGENT_EVIDENCE_UNAVAILABLE", "Search Iteration Result") from exc
-            research_reference = payload.get("research_result_reference")
-            if not isinstance(research_reference, Mapping):
-                continue
-            result_fingerprint = research_reference.get("result_fingerprint")
-            if isinstance(result_fingerprint, str):
-                try:
-                    return _sha_reference("RESEARCH_RESULT", result_fingerprint).reference_fingerprint
-                except ValueError as exc:
-                    raise OnlyAgentContextError(
-                        "AGENT_EVIDENCE_UNAVAILABLE", "Search Research Result identity"
-                    ) from exc
-        self._evidence_unavailable("Search has no completed Research Result")
+        return self._evidence_causality.derive_evidence_path(decision)
 
     def _tool_occurrences(
         self, session_fingerprint: str, tool_class: OnlyAgentToolClass
@@ -596,19 +476,6 @@ class OnlyAgentWorkflowActionMaterializerV1:
             )
             occurrences.append((plan, result))
         return tuple(occurrences)
-
-    @staticmethod
-    def _terminal_fact_fingerprint(fact: object) -> str:
-        for name in (
-            "enumeration_result_fingerprint",
-            "feedback_decision_fingerprint",
-            "iteration_result_fingerprint",
-            "terminal_fingerprint",
-        ):
-            value = getattr(fact, name, None)
-            if isinstance(value, str):
-                return value
-        raise OnlyAgentContextError("AGENT_EVIDENCE_UNAVAILABLE", "Search terminal fact identity")
 
     @staticmethod
     def _evidence_unavailable(detail: str) -> Never:
@@ -729,6 +596,23 @@ class OnlyAgentWorkflowActionMaterializerV1:
 
 def _sha_reference(kind: str, fingerprint: str) -> OnlyAgentContextReferenceV1:
     return OnlyAgentContextReferenceV1(kind, 1, fingerprint)
+
+
+def _same_reference(
+    left: OnlyAgentExactAuthorityReference,
+    right: OnlyAgentExactAuthorityReference,
+) -> bool:
+    return (
+        left.reference_kind,
+        left.reference_schema_version,
+        left.locator_kind,
+        left.locator_value,
+    ) == (
+        right.reference_kind,
+        right.reference_schema_version,
+        right.locator_kind,
+        right.locator_value,
+    )
 
 
 __all__ = [name for name in globals() if name.startswith("OnlyAgent")]

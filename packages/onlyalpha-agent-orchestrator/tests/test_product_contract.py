@@ -103,6 +103,74 @@ def test_canonical_contract_is_complete_and_drives_the_frozen_recovery_matrix() 
     }.issubset(set(cast(list[str], exact.response_schema["required"])))
 
 
+def test_evidence_response_schema_extracts_nested_exact_references_without_changing_owner() -> None:
+    result_fingerprint = "7" * 64
+    response = {
+        "schema_version": 2,
+        "research_result_fingerprint": result_fingerprint,
+        "statistics": [
+            {
+                "statistics_fingerprint": "8" * 64,
+                "statistics_result_fingerprint": "9" * 64,
+                "result_content_fingerprint": "a" * 64,
+                "statistics_result_schema_version": 2,
+                "row_count": 1,
+                "feature": {
+                    "calculation_fingerprint": "b" * 64,
+                    "node_fingerprint": "c" * 64,
+                    "output_name": "feature",
+                },
+                "target": {
+                    "calculation_fingerprint": "d" * 64,
+                    "node_fingerprint": "e" * 64,
+                    "output_name": "target",
+                },
+                "definition": {
+                    "method": "PEARSON",
+                    "minimum_observations": 1,
+                    "pairing_policy": "PAIRWISE_COMPLETE",
+                    "universe_policy": "PER_INSTRUMENT",
+                    "rank_tie_method": "AVERAGE",
+                    "weighting": "EQUAL",
+                    "numeric": {
+                        "representation": "DECIMAL",
+                        "precision": 18,
+                        "output_quantum": "0.000000000001",
+                        "rounding": "ROUND_HALF_EVEN",
+                    },
+                },
+            }
+        ],
+    }
+    contract = OnlyProductApiContractV2(CONTRACT)
+    operation_id = _operation_id(_document(), "RESEARCH_EVIDENCE_QUERY")
+    plan = _plan(
+        contract,
+        operation_id,
+        OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY,
+        {"research_result_fingerprint": result_fingerprint},
+    )
+
+    owners = contract.owning_references_verified(plan, response)
+    references = contract.response_references_verified(plan, response)
+
+    assert tuple(item.reference_kind for item in owners) == ("RESEARCH_RESULT",)
+    assert references[0] == owners[0]
+    assert tuple(item.reference_kind for item in references[1:]) == ("RESEARCH_STATISTICS",) * len(
+        response["statistics"]
+    )
+
+    malformed = copy.deepcopy(response)
+    malformed["statistics"][0]["statistics_result_fingerprint"] = "not-a-sha256"
+    with pytest.raises(ValueError):
+        contract.response_references_verified(plan, malformed)
+
+    duplicated = copy.deepcopy(response)
+    duplicated["statistics"].append(copy.deepcopy(duplicated["statistics"][0]))
+    duplicate_references = contract.response_references_verified(plan, duplicated)
+    assert duplicate_references[-1] == duplicate_references[1]
+
+
 def _operation_id(document: dict[str, object], tool_class: str, contains: str = "") -> str:
     matches = [
         operation["operationId"]

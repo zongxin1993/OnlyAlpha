@@ -502,13 +502,20 @@ class OnlyAgentSessionReducerV1:
             if run.state.value in {"FAILED", "CANCELLED", "CANCEL_REQUESTED"}:
                 return self._failed(session_fingerprint, "AGENT_SEARCH_FAILED")
             observations = [plan for plan in branch_plans if plan.tool_class is OnlyAgentToolClass.RESEARCH_RUN_QUERY]
-            successful_run_observations = [
-                tool_results[plan.tool_call_ordinal] for plan in observations if plan.tool_call_ordinal in tool_results
-            ]
-            terminal_observed = bool(successful_run_observations) and any(
-                reference.reference_kind == "RESEARCH_RUN_RESULT"
-                and reference.locator_value == run.research_result_fingerprint
-                for reference in successful_run_observations[-1].owning_authority_references
+            latest_observation = observations[-1] if observations else None
+            latest_result = (
+                tool_results.get(latest_observation.tool_call_ordinal) if latest_observation is not None else None
+            )
+            response = latest_result.canonical_validated_response if latest_result is not None else None
+            terminal_observed = (
+                latest_observation is not None
+                and latest_result is not None
+                and latest_observation.exact_identity_inputs == (references[0],)
+                and latest_result.owning_authority_references == (references[0],)
+                and isinstance(response, Mapping)
+                and response.get("run_id") == references[0].locator_value
+                and response.get("state") == "COMPLETED"
+                and response.get("result_ref") == run.research_result_fingerprint
             )
             if run.state.value != "COMPLETED" or not terminal_observed:
                 return self._prepare_new_observation(

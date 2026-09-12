@@ -13,6 +13,7 @@ from onlyalpha_agent_orchestrator.materialization import OnlyAgentWorkflowAction
 from onlyalpha.research.agent import (
     OnlyAgentBudgetV1,
     OnlyAgentContextReferenceV1,
+    OnlyAgentDecisionKind,
     OnlyAgentExactAuthorityReferenceV2,
     OnlyAgentModelSettingBindingV1,
     OnlyAgentModelSettingState,
@@ -96,6 +97,7 @@ def _materializer(  # type: ignore[no-untyped-def]
     search_states=None,
     research_states=None,
     semantic_inputs=None,
+    product_contracts=None,
     invocation_bindings=None,
 ):
     binding = OnlyAgentModelInvocationBindingV1(
@@ -118,7 +120,7 @@ def _materializer(  # type: ignore[no-untyped-def]
         decisions=decisions or object(),
         launches=launches or object(),
         invocation_bindings=invocation_bindings or OnlyStaticAgentModelInvocationBindingReaderV1((binding,)),
-        product_contracts=object(),
+        product_contracts=product_contracts or object(),
         semantic_inputs=semantic_inputs or _Inputs(),
         runtime_generations=_RuntimeGeneration(),
         search_states=search_states,
@@ -172,7 +174,12 @@ class _Decisions:
 
     def load_decision_by_session_ordinal_verified(self, _session, ordinal):  # type: ignore[no-untyped-def]
         assert ordinal == 1
-        return SimpleNamespace(structured_payload=self.directive, decision_fingerprint="a" * 64)
+        return SimpleNamespace(
+            agent_session_fingerprint=SESSION,
+            decision_kind=OnlyAgentDecisionKind.SEARCH_DIRECTIVE,
+            structured_payload=self.directive,
+            decision_fingerprint="a" * 64,
+        )
 
 
 class _PriorTools:
@@ -267,6 +274,14 @@ class _EvidenceInputs:
         return self.payloads[(reference.reference_kind, reference.locator_value)]
 
 
+class _EvidenceContracts:
+    def response_references_verified(self, _plan, response):  # type: ignore[no-untyped-def]
+        return (
+            _ref("RESEARCH_RESULT", response["research_result_fingerprint"][0]),
+            *(_ref("RESEARCH_STATISTICS", item["statistics_result_fingerprint"][0]) for item in response["statistics"]),
+        )
+
+
 class _EvidenceTools:
     def __init__(self, occurrences):  # type: ignore[no-untyped-def]
         self.occurrences = tuple(occurrences)
@@ -290,9 +305,20 @@ class _EvidenceTools:
             if plan.tool_call_plan_fingerprint == plan_fingerprint and result is not None
         )
 
+    def load_plan_verified(self, plan_fingerprint):  # type: ignore[no-untyped-def]
+        return next(plan for plan, _result in self.occurrences if plan.tool_call_plan_fingerprint == plan_fingerprint)
+
+    def load_result_by_fingerprint_verified(self, result_fingerprint):  # type: ignore[no-untyped-def]
+        return next(
+            result
+            for _plan, result in self.occurrences
+            if result is not None and result.tool_call_result_fingerprint == result_fingerprint
+        )
+
 
 def _evidence_plan(ordinal: int, tool_class: OnlyAgentToolClass, character: str, *, inputs=()):  # type: ignore[no-untyped-def]
     return SimpleNamespace(
+        agent_session_fingerprint=SESSION,
         tool_call_ordinal=ordinal,
         tool_class=tool_class,
         operation_identity=f"operation-{ordinal}",
@@ -302,13 +328,13 @@ def _evidence_plan(ordinal: int, tool_class: OnlyAgentToolClass, character: str,
     )
 
 
-def _evidence_result(plan, *, response, references):  # type: ignore[no-untyped-def]
+def _evidence_result(plan, *, response, references, result_character="f"):  # type: ignore[no-untyped-def]
     return SimpleNamespace(
         outcome=OnlyAgentToolCallOutcome.SUCCEEDED,
         canonical_validated_response=response,
         owning_authority_references=references,
         tool_call_plan_fingerprint=plan.tool_call_plan_fingerprint,
-        tool_call_result_fingerprint="f" * 64,
+        tool_call_result_fingerprint=result_character * 64,
     )
 
 
@@ -344,7 +370,7 @@ def test_reuse_evidence_target_and_analyst_context_are_derived_from_durable_tool
                 }
             ],
         },
-        references=(research_result, statistics),
+        references=(research_result,),
     )
     tools = _EvidenceTools(((observation_plan, observation_result), (evidence_plan, evidence_result)))
     inputs = _EvidenceInputs(
@@ -356,7 +382,10 @@ def test_reuse_evidence_target_and_analyst_context_are_derived_from_durable_tool
                         "statistics_result_fingerprint": statistics.locator_value,
                     }
                 ]
-            }
+            },
+            ("RESEARCH_STATISTICS", statistics.locator_value): {
+                "statistics_result_fingerprint": statistics.locator_value
+            },
         }
     )
     completed_run = SimpleNamespace(
@@ -369,6 +398,7 @@ def test_reuse_evidence_target_and_analyst_context_are_derived_from_durable_tool
         tools=tools,
         research_states=SimpleNamespace(load_research_run_verified=lambda _reference: completed_run),
         semantic_inputs=inputs,
+        product_contracts=_EvidenceContracts(),
     )
 
     assert materializer._derive_evidence_query_reference(SESSION) == research_result
@@ -542,8 +572,19 @@ def test_search_evidence_context_is_derived_through_terminal_iteration_result(
         "terminal_fact": terminal_payload,
         "stop_reason": terminal.stop_reason,
     }
-    observation_plan = _evidence_plan(
+    launch_plan = _evidence_plan(
         0,
+        OnlyAgentToolClass.PARAMETER_SEARCH if parameter else OnlyAgentToolClass.SYMBOLIC_SEARCH,
+        "0",
+    )
+    launch_result = _evidence_result(
+        launch_plan,
+        response={"experiment_fingerprint": child},
+        references=(_ref("SEARCH_EXPERIMENT", "a"),),
+        result_character="d",
+    )
+    observation_plan = _evidence_plan(
+        1,
         OnlyAgentToolClass.SEARCH_QUERY,
         "1",
         inputs=(_ref("SEARCH_EXPERIMENT", "a"),),
@@ -551,10 +592,10 @@ def test_search_evidence_context_is_derived_through_terminal_iteration_result(
     observation_result = _evidence_result(
         observation_plan,
         response=terminal_response,
-        references=(_ref("SEARCH_TERMINAL_PROJECTION", "c"),),
+        references=(_ref("SEARCH_EXPERIMENT", "a"),),
     )
     evidence_plan = _evidence_plan(
-        1,
+        2,
         OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY,
         "2",
         inputs=(research_result,),
@@ -570,23 +611,34 @@ def test_search_evidence_context_is_derived_through_terminal_iteration_result(
                 }
             ],
         },
-        references=(research_result, statistics),
+        references=(research_result,),
     )
     launches = SimpleNamespace(
         load_launch_record_by_session_verified=lambda _session: SimpleNamespace(
-            child_search_experiment_fingerprint=child
+            agent_decision_fingerprint="a" * 64,
+            tool_call_result_fingerprint="d" * 64,
+            child_search_experiment_fingerprint=child,
         )
     )
     inputs = _EvidenceInputs(
         {
             ("SEARCH_ITERATION_RESULT", iteration): {
                 "research_result_reference": {"result_fingerprint": research_result.locator_value}
-            }
+            },
+            ("RESEARCH_STATISTICS", statistics.locator_value): {
+                "statistics_result_fingerprint": statistics.locator_value
+            },
         }
     )
     materializer = _materializer(
         decisions=_Decisions(_directive(parameter)),
-        tools=_EvidenceTools(((observation_plan, observation_result), (evidence_plan, evidence_result))),
+        tools=_EvidenceTools(
+            (
+                (launch_plan, launch_result),
+                (observation_plan, observation_result),
+                (evidence_plan, evidence_result),
+            )
+        ),
         launches=launches,
         search_states=SimpleNamespace(
             load_search_state_verified=lambda _child: SimpleNamespace(
@@ -595,6 +647,7 @@ def test_search_evidence_context_is_derived_through_terminal_iteration_result(
             )
         ),
         semantic_inputs=inputs,
+        product_contracts=_EvidenceContracts(),
     )
 
     assert materializer._derive_evidence_query_reference(SESSION) == research_result

@@ -10,7 +10,27 @@ from types import SimpleNamespace
 
 import onlyalpha_agent_orchestrator.driver as driver_module
 import pytest
+from onlyalpha_agent_orchestrator.adapters.product_api import (
+    OnlyContractDrivenProductApiAdapterV1,
+    OnlyProductApiContractV2,
+)
+from onlyalpha_agent_orchestrator.adapters.transport import (
+    OnlyHttpDispatchClassification,
+    OnlyHttpResponseV1,
+    OnlyHttpTransportOutcomeV1,
+)
+from onlyalpha_agent_orchestrator.bindings import (
+    OnlyAgentModelInvocationBindingV1,
+    OnlyStaticAgentModelInvocationBindingReaderV1,
+)
+from onlyalpha_agent_orchestrator.config import OnlyProductApiEndpointConfigV1
 from onlyalpha_agent_orchestrator.driver import OnlyAgentSessionDriverV1
+from onlyalpha_agent_orchestrator.execution import execute_external_tool_occurrence
+from onlyalpha_agent_orchestrator.materialization import OnlyAgentWorkflowActionMaterializerV1
+from onlyalpha_agent_orchestrator.runtime import (
+    _mint_runtime_execution_permit,
+    assert_external_io_permit,
+)
 
 from onlyalpha.application.search_product import (
     OnlyAdvanceSearchExperimentV1,
@@ -27,11 +47,13 @@ from onlyalpha.research.agent import (
     OnlyAgentContextError,
     OnlyAgentContextReferenceV1,
     OnlyAgentDecisionApplicationServiceV1,
+    OnlyAgentDecisionAuthorizationV1,
     OnlyAgentDecisionKind,
     OnlyAgentDecisionV1,
     OnlyAgentDerivedSessionStatus,
     OnlyAgentEvaluationContextReferenceV1,
     OnlyAgentEvaluationPathKind,
+    OnlyAgentEvidenceCausalVerifierV1,
     OnlyAgentEvidenceObservationCodeV1,
     OnlyAgentEvidenceObservationV1,
     OnlyAgentExactAuthorityReference,
@@ -42,9 +64,11 @@ from onlyalpha.research.agent import (
     OnlyAgentModelCallOutcome,
     OnlyAgentModelCallPlanV1,
     OnlyAgentModelCallResultV1,
+    OnlyAgentModelOccurrenceServiceV1,
     OnlyAgentModelSettingBindingV1,
     OnlyAgentModelSettingState,
     OnlyAgentNextActionKind,
+    OnlyAgentNextActionV1,
     OnlyAgentNextExperimentProposalV1,
     OnlyAgentObservedResponseStorageKind,
     OnlyAgentParameterSearchDirectiveV1,
@@ -69,6 +93,7 @@ from onlyalpha.research.agent import (
     OnlyAgentToolClass,
     OnlyAgentToolOccurrenceServiceV1,
     OnlyAgentToolRecoveryClass,
+    OnlyJsonAgentOrchestrationResourceStore,
     OnlyVerifiedAgentDecisionContextV1,
     expected_agent_search_submit_semantics,
     translate_agent_hypothesis_to_search_hypothesis,
@@ -77,7 +102,10 @@ from onlyalpha.research.agent.decision_store import (
     OnlyJsonAgentDecisionStore,
     OnlyJsonAgentExperimentLaunchStore,
 )
-from onlyalpha.research.agent.occurrence_store import OnlyJsonAgentToolOccurrenceStore
+from onlyalpha.research.agent.occurrence_store import (
+    OnlyJsonAgentModelOccurrenceStore,
+    OnlyJsonAgentToolOccurrenceStore,
+)
 from onlyalpha.research.command.query import OnlyResearchRunQueryService
 from onlyalpha.research.experiment import (
     OnlySearchAlgorithmBindingV1,
@@ -377,6 +405,14 @@ class ProductResearchStates:
 
     def load_research_run_verified(self, reference):  # type: ignore[no-untyped-def]
         return self.reader.load_research_run_verified(reference)
+
+
+class SemanticInputs:
+    def __init__(self, payloads: dict[tuple[str, str], dict[str, object]] | None = None) -> None:
+        self.payloads = payloads or {}
+
+    def load_semantic_payload_verified(self, reference):  # type: ignore[no-untyped-def]
+        return self.payloads[(reference.reference_kind, reference.locator_value)]
 
 
 def decision_context(tmp_path: Path) -> tuple[ContextFixture, OnlyVerifiedAgentDecisionContextV1]:
@@ -1378,11 +1414,18 @@ def test_reuse_evidence_proposal_is_terminal_and_non_executable(tmp_path: Path) 
     fixture, context, models, tools, store, application = service(tmp_path)
     directive, _ = derive_directive(fixture, context, models, tools, application, OnlyAgentRouterAction.REUSE_EXISTING)
     statistics = ref("RESEARCH_STATISTICS", "5" * 64)
+    research_result = ref("RESEARCH_RESULT", "4" * 64)
+    run = OnlyAgentExactAuthorityReferenceV2(
+        "RESEARCH_RUN",
+        1,
+        OnlyAgentReferenceLocatorKind.UUID4,
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    )
     branch = (
         (OnlyAgentToolClass.RESEARCH_DEFINITION_RESOLVE, ref("RESEARCH_DEFINITION", "1" * 64)),
-        (OnlyAgentToolClass.RESEARCH_RUN_SUBMIT, ref("RESEARCH_RUN", "2" * 64)),
-        (OnlyAgentToolClass.RESEARCH_RUN_QUERY, ref("RESEARCH_RUN_RESULT", "3" * 64)),
-        (OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY, ref("RESEARCH_RESULT", "4" * 64)),
+        (OnlyAgentToolClass.RESEARCH_RUN_SUBMIT, run),
+        (OnlyAgentToolClass.RESEARCH_RUN_QUERY, run),
+        (OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY, research_result),
     )
     for ordinal, (tool_class, owner) in enumerate(branch, start=1):
         plan, result = tool_occurrence(
@@ -1392,7 +1435,19 @@ def test_reuse_evidence_proposal_is_terminal_and_non_executable(tmp_path: Path) 
             tool_class=tool_class,
             owner=owner,
         )
-        if tool_class is OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY:
+        if tool_class is OnlyAgentToolClass.RESEARCH_RUN_QUERY:
+            response = {
+                "run_id": run.locator_value,
+                "state": "COMPLETED",
+                "result_ref": research_result.locator_value,
+            }
+            result = replace(
+                result,
+                canonical_validated_response=response,
+                canonical_response_fingerprint=only_canonical_fingerprint(response),
+                tool_call_result_fingerprint="",
+            )
+        elif tool_class is OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY:
             response = {
                 "research_result_fingerprint": owner.locator_value,
                 "statistics": (
@@ -1406,14 +1461,32 @@ def test_reuse_evidence_proposal_is_terminal_and_non_executable(tmp_path: Path) 
                 result,
                 canonical_validated_response=response,
                 canonical_response_fingerprint=only_canonical_fingerprint(response),
-                owning_authority_references=(owner, statistics),
+                owning_authority_references=(owner,),
                 tool_call_result_fingerprint="",
             )
         tools.add(plan, result)
+    completed_run = SimpleNamespace(
+        state=SimpleNamespace(value="COMPLETED"),
+        research_result_fingerprint=research_result.locator_value,
+    )
+    causality = OnlyAgentEvidenceCausalVerifierV1(
+        tools=tools,
+        launches=OnlyJsonAgentExperimentLaunchStore(tmp_path),
+        semantic_inputs=SemanticInputs(),
+        research_states=SimpleNamespace(load_research_run_verified=lambda _reference: completed_run),
+    )
+    application = OnlyAgentDecisionApplicationServiceV1(
+        sessions=Sessions(context),
+        models=models,
+        tools=tools,
+        references=References(),
+        store=store,
+        evidence_causality=causality,
+    )
     proposal = OnlyAgentNextExperimentProposalV1(
         OnlyAgentEvaluationPathKind.DIRECT_REUSE_RESEARCH,
-        branch[2][1],
-        (branch[3][1],),
+        ref("RESEARCH_RUN_RESULT", research_result.locator_value),
+        (research_result,),
         (statistics,),
         (
             OnlyAgentEvidenceObservationV1(
@@ -1455,6 +1528,7 @@ def test_reuse_evidence_proposal_is_terminal_and_non_executable(tmp_path: Path) 
         tools=tools,
         references=References(),
         store=OnlyJsonAgentDecisionStore(tmp_path),
+        evidence_causality=causality,
     )
     assert reopened.load_decision_verified(final.decision_fingerprint) == final
     reducer = OnlyAgentSessionReducerV1(
@@ -1487,6 +1561,367 @@ def test_reuse_evidence_proposal_is_terminal_and_non_executable(tmp_path: Path) 
     assert reopened.load_decision_verified(final.decision_fingerprint) == final
     with pytest.raises(OnlyAgentContextError, match="AGENT_HISTORY_CONTRADICTORY"):
         reducer.derive(context.session.session_fingerprint)
+
+
+def test_production_evidence_occurrence_closes_statistics_before_analyst_plan(tmp_path: Path) -> None:
+    fixture, original = decision_context(tmp_path)
+    contract_path = Path(__file__).resolve().parents[3] / "contracts/product-api/v2/openapi.json"
+    contract = OnlyProductApiContractV2(contract_path)
+    evidence_operation = "statistics_catalog_api_v2_research_artifacts__research_result_fingerprint__statistics_get"
+    run_operation = "get_run_api_v2_research_runs__run_id__get"
+    policy = original.tool_policy_resource.canonical_payload
+    constraints = tuple(
+        sorted(
+            (
+                replace(
+                    item,
+                    operation_identity=(
+                        evidence_operation
+                        if item.tool_class is OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY
+                        else run_operation
+                        if item.tool_class is OnlyAgentToolClass.RESEARCH_RUN_QUERY
+                        else item.operation_identity
+                    ),
+                    identity_requirements=(
+                        ("research_result_fingerprint",)
+                        if item.tool_class is OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY
+                        else ("run_id",)
+                        if item.tool_class is OnlyAgentToolClass.RESEARCH_RUN_QUERY
+                        else item.identity_requirements
+                    ),
+                )
+                for item in policy.operation_constraints  # type: ignore[union-attr]
+            ),
+            key=lambda item: item.operation_identity,
+        )
+    )
+    tool_policy_resource = resource(
+        original.tool_policy_resource.resource_kind,
+        replace(policy, operation_constraints=constraints),  # type: ignore[arg-type]
+    )
+    session = replace(
+        original.session,
+        tool_policy_fingerprint=tool_policy_resource.resource_fingerprint,
+        session_fingerprint="",
+    )
+    context = replace(original, session=session, tool_policy_resource=tool_policy_resource)
+    result_reference = ref("RESEARCH_RESULT", "7" * 64)
+    statistics_reference = ref("RESEARCH_STATISTICS", "9" * 64)
+    run_reference = OnlyAgentExactAuthorityReferenceV2(
+        "RESEARCH_RUN",
+        1,
+        OnlyAgentReferenceLocatorKind.UUID4,
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    )
+    directive = SimpleNamespace(
+        agent_session_fingerprint=session.session_fingerprint,
+        decision_fingerprint="d" * 64,
+        decision_kind=OnlyAgentDecisionKind.SEARCH_DIRECTIVE,
+        structured_payload=OnlyAgentSearchDirectiveV1(
+            OnlyAgentRouterAction.REUSE_EXISTING,
+            "c" * 64,
+            OnlyAgentReuseDirectiveV1(
+                (ref("QUANT_ASSET", "1" * 64),),
+                ref("RESEARCH_DEFINITION", "2" * 64),
+            ),
+        ),
+    )
+
+    class ExactInputs(SemanticInputs):
+        def verify_exact_reference(self, _reference):  # type: ignore[no-untyped-def]
+            return None
+
+        def load_exact_response_verified(self, _reference):  # type: ignore[no-untyped-def]
+            raise LookupError(_reference)
+
+    inputs = ExactInputs(
+        {
+            ("RESEARCH_STATISTICS", statistics_reference.locator_value): {
+                "statistics_result_fingerprint": statistics_reference.locator_value
+            }
+        }
+    )
+    tool_store = OnlyJsonAgentToolOccurrenceStore(tmp_path / "production-evidence")
+    run_plan = OnlyAgentToolCallPlanV1(
+        session.session_fingerprint,
+        0,
+        directive.decision_fingerprint,
+        OnlyAgentToolClass.RESEARCH_RUN_QUERY,
+        2,
+        contract.fingerprint,
+        run_operation,
+        {"run_id": run_reference.locator_value},
+        exact_identity_inputs=(run_reference,),
+        tool_policy_fingerprint=session.tool_policy_fingerprint,
+    )
+    run_response = {
+        "schema_version": 2,
+        "run_id": run_reference.locator_value,
+        "revision": "1",
+        "state": "COMPLETED",
+        "specification_schema_version": 2,
+        "specification_fingerprint": "1" * 64,
+        "admission_resolution_fingerprint": "2" * 64,
+        "specification": {},
+        "queued_at": "2026-09-12T00:00:00Z",
+        "started_at": "2026-09-12T00:00:01Z",
+        "cancel_requested_at": None,
+        "finished_at": "2026-09-12T00:00:02Z",
+        "result_ref": result_reference.locator_value,
+        "artifact_ref": "3" * 64,
+        "failure": None,
+    }
+    run_result = OnlyAgentToolCallResultV1(
+        run_plan.tool_call_plan_fingerprint,
+        OnlyAgentToolCallOutcome.SUCCEEDED,
+        OnlyAgentObservedResponseStorageKind.INLINE_CANONICAL_RESPONSE,
+        run_response,
+        canonical_response_fingerprint=only_canonical_fingerprint(run_response),
+        owning_authority_references=(run_reference,),
+    )
+    tool_store.commit_plan(run_plan)
+    tool_store.commit_result(run_result)
+
+    class ToolProxy:
+        target = None
+
+        def __getattr__(self, name):  # type: ignore[no-untyped-def]
+            return getattr(self.target, name)
+
+    proxy = ToolProxy()
+    research_states = SimpleNamespace(
+        load_research_run_verified=lambda _reference: SimpleNamespace(
+            state=SimpleNamespace(value="COMPLETED"),
+            research_result_fingerprint=result_reference.locator_value,
+        )
+    )
+    causality = OnlyAgentEvidenceCausalVerifierV1(
+        tools=proxy,  # type: ignore[arg-type]
+        launches=OnlyJsonAgentExperimentLaunchStore(tmp_path),
+        semantic_inputs=inputs,
+        research_states=research_states,
+    )
+
+    class Decisions:
+        def load_decision_by_session_ordinal_verified(self, _session, ordinal):  # type: ignore[no-untyped-def]
+            assert ordinal == 1
+            return directive
+
+        def load_decision_authorization_verified(self, fingerprint):  # type: ignore[no-untyped-def]
+            assert fingerprint == directive.decision_fingerprint
+            return OnlyAgentDecisionAuthorizationV1(
+                fingerprint,
+                session.session_fingerprint,
+                session.agent_workflow_implementation_fingerprint,
+                (
+                    OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY,
+                    OnlyAgentToolClass.RESEARCH_RUN_QUERY,
+                ),
+                (evidence_operation, run_operation),
+            )
+
+        def admit_new_tool_intent(self, **kwargs):  # type: ignore[no-untyped-def]
+            causality.verify_evidence_query_target(
+                decision=directive,  # type: ignore[arg-type]
+                tool_call_ordinal=kwargs["tool_call_ordinal"],
+                exact_identity_inputs=kwargs["exact_identity_inputs"],
+            )
+
+        def verify_historical_tool_intent(self, **_kwargs):  # type: ignore[no-untyped-def]
+            return None
+
+    decisions = Decisions()
+    tools = OnlyAgentToolOccurrenceServiceV1(
+        sessions=Sessions(context),
+        decisions=decisions,
+        product_contracts=contract,
+        references=inputs,
+        response_references=inputs,
+        store=tool_store,
+    )
+    proxy.target = tools
+
+    resources = OnlyJsonAgentOrchestrationResourceStore(tmp_path / "production-model")
+    for item in (
+        *context.supporting_resources,
+        context.tool_policy_resource,
+        *context.ordered_role_policy_resources,
+        context.workflow_resource,
+    ):
+        resources.commit_resource(item)
+    models = OnlyAgentModelOccurrenceServiceV1(
+        sessions=Sessions(context),
+        resources=resources,
+        references=inputs,
+        decisions=decisions,
+        store=OnlyJsonAgentModelOccurrenceStore(tmp_path / "production-model"),
+    )
+    analyst_role = context.ordered_role_policy_resources[3]
+    binding = OnlyAgentModelInvocationBindingV1(
+        "EVIDENCE_ANALYST",
+        "provider-a",
+        "model-a",
+        "2026-09-01",
+        fixture.resources[0].resource_fingerprint,
+        fixture.resources[1].resource_fingerprint,
+        fixture.resources[2].resource_fingerprint,
+        (OnlyAgentModelSettingBindingV1("temperature", OnlyAgentModelSettingState.VALUE, "0"),),
+    )
+    materializer = OnlyAgentWorkflowActionMaterializerV1(
+        sessions=Sessions(context),
+        models=models,
+        tools=tools,
+        decisions=decisions,  # type: ignore[arg-type]
+        launches=OnlyJsonAgentExperimentLaunchStore(tmp_path),  # type: ignore[arg-type]
+        invocation_bindings=OnlyStaticAgentModelInvocationBindingReaderV1((binding,)),
+        product_contracts=contract,
+        semantic_inputs=inputs,
+        runtime_generations=SimpleNamespace(read_current_new_work_runtime_generation_fingerprint=lambda: "e" * 64),
+        research_states=research_states,  # type: ignore[arg-type]
+        evidence_causality=causality,
+        product_api_contract_fingerprint=contract.fingerprint,
+    )
+    manifest = context.workflow_resource.canonical_payload
+    unrelated = ref("RESEARCH_RESULT", "6" * 64)
+    with pytest.raises(OnlyAgentContextError, match="AGENT_EVIDENCE_UNAVAILABLE"):
+        tools.prepare_tool_call(
+            session_fingerprint=session.session_fingerprint,
+            current_workflow_manifest=manifest,  # type: ignore[arg-type]
+            tool_call_ordinal=1,
+            authorizing_agent_decision_fingerprint=directive.decision_fingerprint,
+            tool_class=OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY,
+            product_api_major=2,
+            product_api_contract_fingerprint=contract.fingerprint,
+            operation_identity=evidence_operation,
+            canonical_request={"research_result_fingerprint": unrelated.locator_value},
+            exact_identity_inputs=(unrelated,),
+            product_command_id_or_idempotency_key=None,
+        )
+    assert tools.budget_consumed(session.session_fingerprint) == 1
+    assert models.budget_consumed(session.session_fingerprint) == 0
+
+    evidence_prepared = materializer.prepare_tool_call(
+        session_fingerprint=session.session_fingerprint,
+        action=OnlyAgentNextActionV1(
+            OnlyAgentNextActionKind.PREPARE_TOOL_CALL,
+            tool_class=OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY,
+        ),
+        current_workflow_manifest=manifest,  # type: ignore[arg-type]
+    )
+    assert tools.load_plan_verified(evidence_prepared.plan.tool_call_plan_fingerprint) == evidence_prepared.plan
+    with pytest.raises(OnlyAgentContextError, match="AGENT_EVIDENCE_UNAVAILABLE"):
+        materializer.prepare_model_call(
+            session_fingerprint=session.session_fingerprint,
+            action=OnlyAgentNextActionV1(
+                OnlyAgentNextActionKind.PREPARE_MODEL_CALL,
+                logical_role="EVIDENCE_ANALYST",
+            ),
+            current_workflow_manifest=manifest,  # type: ignore[arg-type]
+        )
+    assert models.budget_consumed(session.session_fingerprint) == 0
+
+    evidence_response = {
+        "schema_version": 2,
+        "research_result_fingerprint": result_reference.locator_value,
+        "statistics": [
+            {
+                "statistics_fingerprint": "8" * 64,
+                "statistics_result_fingerprint": statistics_reference.locator_value,
+                "result_content_fingerprint": "a" * 64,
+                "statistics_result_schema_version": 2,
+                "row_count": 1,
+                "feature": {
+                    "calculation_fingerprint": "b" * 64,
+                    "node_fingerprint": "c" * 64,
+                    "output_name": "feature",
+                },
+                "target": {
+                    "calculation_fingerprint": "d" * 64,
+                    "node_fingerprint": "e" * 64,
+                    "output_name": "target",
+                },
+                "definition": {
+                    "method": "PEARSON",
+                    "minimum_observations": 1,
+                    "pairing_policy": "PAIRWISE_COMPLETE",
+                    "universe_policy": "PER_INSTRUMENT",
+                    "rank_tie_method": "AVERAGE",
+                    "weighting": "EQUAL",
+                    "numeric": {
+                        "representation": "DECIMAL",
+                        "precision": 18,
+                        "output_quantum": "0.000000000001",
+                        "rounding": "ROUND_HALF_EVEN",
+                    },
+                },
+            }
+        ],
+    }
+
+    class Transport:
+        calls = 0
+
+        def send(self, _request, permit):  # type: ignore[no-untyped-def]
+            assert_external_io_permit(permit, consume=True)
+            self.calls += 1
+            return OnlyHttpTransportOutcomeV1(
+                OnlyHttpDispatchClassification.RESPONSE_RECEIVED,
+                OnlyHttpResponseV1(200, (), json.dumps(evidence_response).encode()),
+            )
+
+    transport = Transport()
+    adapter = OnlyContractDrivenProductApiAdapterV1(
+        OnlyProductApiEndpointConfigV1("https://product.invalid", "secret", contract_path),
+        transport,  # type: ignore[arg-type]
+    )
+    permit = _mint_runtime_execution_permit(
+        session.session_fingerprint,
+        context.workflow_resource.resource_fingerprint,
+        session.agent_workflow_implementation_fingerprint,
+        session.agent_workflow_source_revision,
+    )
+    executed = execute_external_tool_occurrence(
+        permit=permit,
+        prepared=evidence_prepared,
+        occurrences=tools,
+        adapter=adapter,
+    )
+    assert transport.calls == 1
+    assert executed.result is not None
+    assert executed.result.outcome is OnlyAgentToolCallOutcome.SUCCEEDED, executed.result
+    assert tuple((item.reference_kind, item.locator_value) for item in executed.result.owning_authority_references) == (
+        (result_reference.reference_kind, result_reference.locator_value),
+    )
+    assert tools.load_result_verified(evidence_prepared.plan.tool_call_plan_fingerprint) == executed.result
+
+    statistics_key = ("RESEARCH_STATISTICS", statistics_reference.locator_value)
+    exact_statistics = inputs.payloads.pop(statistics_key)
+    with pytest.raises(OnlyAgentContextError, match="AGENT_EVIDENCE_UNAVAILABLE"):
+        materializer.prepare_model_call(
+            session_fingerprint=session.session_fingerprint,
+            action=OnlyAgentNextActionV1(
+                OnlyAgentNextActionKind.PREPARE_MODEL_CALL,
+                logical_role="EVIDENCE_ANALYST",
+            ),
+            current_workflow_manifest=manifest,  # type: ignore[arg-type]
+        )
+    assert models.budget_consumed(session.session_fingerprint) == 0
+    inputs.payloads[statistics_key] = exact_statistics
+
+    model_prepared = materializer.prepare_model_call(
+        session_fingerprint=session.session_fingerprint,
+        action=OnlyAgentNextActionV1(
+            OnlyAgentNextActionKind.PREPARE_MODEL_CALL,
+            logical_role="EVIDENCE_ANALYST",
+        ),
+        current_workflow_manifest=manifest,  # type: ignore[arg-type]
+    )
+    assert model_prepared.plan.role_policy_fingerprint == analyst_role.resource_fingerprint
+    assert model_prepared.plan.ordered_context_references == (
+        ref("RESEARCH_RUN_RESULT", result_reference.locator_value),
+        result_reference,
+        statistics_reference,
+    )
 
 
 def test_typed_evidence_observation_is_closed_and_reference_backed() -> None:
@@ -1686,6 +2121,20 @@ def test_reuse_mutable_observation_loss_allows_new_plan_and_later_result(tmp_pat
     )
     tools.add(lost)
     run_states = ProductResearchStates(OnlyResearchRunQueryService(run_store))
+    causality = OnlyAgentEvidenceCausalVerifierV1(
+        tools=tools,
+        launches=OnlyJsonAgentExperimentLaunchStore(tmp_path),
+        semantic_inputs=SemanticInputs(),
+        research_states=run_states,
+    )
+    application = OnlyAgentDecisionApplicationServiceV1(
+        sessions=Sessions(context),
+        models=models,
+        tools=tools,
+        references=References(),
+        store=store,
+        evidence_causality=causality,
+    )
     reducer = OnlyAgentSessionReducerV1(
         sessions=Sessions(context),
         models=models,
@@ -1731,9 +2180,16 @@ def test_reuse_mutable_observation_loss_allows_new_plan_and_later_result(tmp_pat
         owner=branch[1][1],
     )
     terminal_path = ref("RESEARCH_RUN_RESULT", "3" * 64)
+    terminal_response = {
+        "run_id": run_reference.locator_value,
+        "state": "COMPLETED",
+        "result_ref": "3" * 64,
+    }
     terminal_result = replace(
         terminal_result,
-        owning_authority_references=(terminal_path,),
+        canonical_validated_response=terminal_response,
+        canonical_response_fingerprint=only_canonical_fingerprint(terminal_response),
+        owning_authority_references=(run_reference,),
         tool_call_result_fingerprint="",
     )
     tools.add(terminal_plan, terminal_result)
@@ -1741,7 +2197,7 @@ def test_reuse_mutable_observation_loss_allows_new_plan_and_later_result(tmp_pat
     assert observed.next_action is not None
     assert observed.next_action.tool_class is OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY
     statistics = ref("RESEARCH_STATISTICS", "5" * 64)
-    research_result = ref("RESEARCH_RESULT", "4" * 64)
+    research_result = ref("RESEARCH_RESULT", "3" * 64)
     evidence_plan, evidence_result = tool_occurrence(
         context,
         ordinal=6,
@@ -1762,7 +2218,7 @@ def test_reuse_mutable_observation_loss_allows_new_plan_and_later_result(tmp_pat
         evidence_result,
         canonical_validated_response=evidence_response,
         canonical_response_fingerprint=only_canonical_fingerprint(evidence_response),
-        owning_authority_references=(research_result, statistics),
+        owning_authority_references=(research_result,),
         tool_call_result_fingerprint="",
     )
     tools.add(evidence_plan, evidence_result)
@@ -2128,27 +2584,46 @@ class BranchDriverMaterializer:
         self.fixture, self.context = decision_context(root)
         self.models, self.tools = DurableBranchModels(root), DurableBranchTools(root)
         self.decisions = OnlyJsonAgentDecisionStore(root)
-        self.application = OnlyAgentDecisionApplicationServiceV1(
-            sessions=Sessions(self.context),
-            models=self.models,
-            tools=self.tools,
-            references=References(),
-            store=self.decisions,
-        )
         self.branch = branch
         self.child = (
             child_experiment(self.context, branch)
             if branch in {OnlyAgentRouterAction.SYMBOLIC_SEARCH, OnlyAgentRouterAction.PARAMETER_SEARCH}
             else None
         )
-        children = () if self.child is None else (self.child,)
-        self.launches = launch_application(root, self.context, self.application, self.tools, *children)
         self.command_ids: list[str] = []
         self.terminal_path = ref(
-            "SEARCH_TERMINAL_PROJECTION" if self.child is not None else "RESEARCH_RUN_RESULT", "6" * 64
+            "SEARCH_TERMINAL_PROJECTION" if self.child is not None else "RESEARCH_RUN_RESULT",
+            ("6" if self.child is not None else "7") * 64,
         )
         self.research_result = ref("RESEARCH_RESULT", "7" * 64)
         self.statistics = ref("RESEARCH_STATISTICS", "8" * 64)
+        self.run = OnlyAgentExactAuthorityReferenceV2(
+            "RESEARCH_RUN",
+            1,
+            OnlyAgentReferenceLocatorKind.UUID4,
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        )
+        self.search_states = (
+            DurableAdvancingSearchStates(root, self.child.experiment_fingerprint, branch)
+            if self.child is not None
+            else None
+        )
+        self.research_states = SimpleNamespace(
+            load_research_run_verified=lambda _reference: SimpleNamespace(
+                state=SimpleNamespace(value="COMPLETED"),
+                research_result_fingerprint=self.research_result.locator_value,
+            )
+        )
+        self.semantic_inputs = SemanticInputs(
+            {
+                ("SEARCH_ITERATION_RESULT", "5" * 64): {
+                    "research_result_reference": {"result_fingerprint": self.research_result.locator_value}
+                }
+            }
+        )
+        self._build_application(root)
+        children = () if self.child is None else (self.child,)
+        self.launches = launch_application(root, self.context, self.application, self.tools, *children)
 
     @classmethod
     def reopen(cls, root: Path, branch: OnlyAgentRouterAction) -> BranchDriverMaterializer:
@@ -2162,15 +2637,31 @@ class BranchDriverMaterializer:
         self.models = DurableBranchModels(root)
         self.tools = DurableBranchTools(root)
         self.decisions = OnlyJsonAgentDecisionStore(root)
+        self.search_states = (
+            DurableAdvancingSearchStates(root, self.child.experiment_fingerprint, self.branch)
+            if self.child is not None
+            else None
+        )
+        self._build_application(root)
+        children = () if self.child is None else (self.child,)
+        self.launches = launch_application(root, self.context, self.application, self.tools, *children)
+
+    def _build_application(self, root: Path) -> None:
+        causality = OnlyAgentEvidenceCausalVerifierV1(
+            tools=self.tools,
+            launches=OnlyJsonAgentExperimentLaunchStore(root),
+            semantic_inputs=self.semantic_inputs,
+            research_states=self.research_states if self.child is None else None,
+            search_states=self.search_states,
+        )
         self.application = OnlyAgentDecisionApplicationServiceV1(
             sessions=Sessions(self.context),
             models=self.models,
             tools=self.tools,
             references=References(),
             store=self.decisions,
+            evidence_causality=causality,
         )
-        children = () if self.child is None else (self.child,)
-        self.launches = launch_application(root, self.context, self.application, self.tools, *children)
 
     def prepare_model_call(self, *, action, **_kwargs):  # type: ignore[no-untyped-def]
         ordinal = self.models.budget_consumed(self.context.session.session_fingerprint)
@@ -2253,7 +2744,42 @@ class BranchDriverMaterializer:
                 result,
                 canonical_validated_response=response,
                 canonical_response_fingerprint=only_canonical_fingerprint(response),
-                owning_authority_references=(self.research_result, self.statistics),
+                owning_authority_references=(self.research_result,),
+                tool_call_result_fingerprint="",
+            )
+        elif action.tool_class is OnlyAgentToolClass.RESEARCH_RUN_QUERY:
+            response = {
+                "run_id": self.run.locator_value,
+                "state": "COMPLETED",
+                "result_ref": self.research_result.locator_value,
+            }
+            result = replace(
+                result,
+                canonical_validated_response=response,
+                canonical_response_fingerprint=only_canonical_fingerprint(response),
+                owning_authority_references=(self.run,),
+                tool_call_result_fingerprint="",
+            )
+        elif action.tool_class is OnlyAgentToolClass.SEARCH_QUERY:
+            assert self.search_states is not None
+            terminal = self.search_states.load_search_state_verified(
+                self.child.experiment_fingerprint  # type: ignore[union-attr]
+            ).terminal
+            response = {
+                "schema_version": 1,
+                "experiment_fingerprint": terminal.experiment_fingerprint,
+                "method": terminal.method.value,
+                "terminal_kind": terminal.terminal_kind.value,
+                "terminal_fact": terminal.terminal_fact.to_dict(),
+                "stop_reason": terminal.stop_reason,
+            }
+            result = replace(
+                result,
+                canonical_validated_response=response,
+                canonical_response_fingerprint=only_canonical_fingerprint(response),
+                owning_authority_references=(
+                    ref("SEARCH_EXPERIMENT", self.child.experiment_fingerprint),  # type: ignore[union-attr]
+                ),
                 tool_call_result_fingerprint="",
             )
         return plan, result
@@ -2328,9 +2854,12 @@ class BranchDriverMaterializer:
         if tool_class is OnlyAgentToolClass.RESEARCH_DEFINITION_RESOLVE:
             return ref("RESEARCH_DEFINITION", "2" * 64)
         if tool_class is OnlyAgentToolClass.RESEARCH_RUN_SUBMIT:
-            return ref("RESEARCH_RUN", "3" * 64)
-        if tool_class in {OnlyAgentToolClass.RESEARCH_RUN_QUERY, OnlyAgentToolClass.SEARCH_QUERY}:
-            return self.terminal_path
+            return self.run
+        if tool_class is OnlyAgentToolClass.RESEARCH_RUN_QUERY:
+            return self.run
+        if tool_class is OnlyAgentToolClass.SEARCH_QUERY:
+            assert self.child is not None
+            return ref("SEARCH_EXPERIMENT", self.child.experiment_fingerprint)
         if tool_class is OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY:
             return self.research_result
         assert self.child is not None
@@ -2393,12 +2922,20 @@ class DurableAdvancingSearchStates:
             )
         )
         terminal_kind = "NON_TERMINAL" if self.completed_operations < 2 else "TERMINAL_STOP"
+        terminal_payload = (
+            {
+                "selected_anchor_iteration_result_fingerprint": "5" * 64,
+                "ordered_input_iteration_result_fingerprints": ("5" * 64,),
+            }
+            if not symbolic
+            else {"terminal": self.completed_operations >= 2}
+        )
         terminal = SimpleNamespace(
             experiment_fingerprint=self.child_fingerprint,
             method=SimpleNamespace(value="SYMBOLIC" if symbolic else "PARAMETER"),
             terminal_kind=SimpleNamespace(value=terminal_kind),
             terminal_fact=SimpleNamespace(
-                to_dict=lambda: {"terminal": self.completed_operations >= 2},
+                to_dict=lambda: terminal_payload,
                 terminal_fingerprint="6" * 64,
             ),
             stop_reason=None if self.completed_operations < 2 else "SEARCH_SPACE_EXHAUSTED",
@@ -2406,10 +2943,11 @@ class DurableAdvancingSearchStates:
         return SimpleNamespace(
             terminal=terminal,
             expected_state=SimpleNamespace(
+                ordered_plan_states=(SimpleNamespace(result_fingerprint="5" * 64),),
                 to_dict=lambda: {
                     "schema_version": 1,
                     "completed_operations": self.completed_operations,
-                }
+                },
             ),
             next_bounded_operation=(operations[self.completed_operations] if self.completed_operations < 2 else None),
         )
@@ -2528,7 +3066,7 @@ def test_all_four_branches_advance_by_fresh_one_step_drivers_with_exact_fact_cou
     root.mkdir()
     materializer = BranchDriverMaterializer(root, branch)
     session = materializer.context.session.session_fingerprint
-    completed_run = SimpleNamespace(state=SimpleNamespace(value="COMPLETED"), research_result_fingerprint="6" * 64)
+    completed_run = SimpleNamespace(state=SimpleNamespace(value="COMPLETED"), research_result_fingerprint="7" * 64)
     research_states = SimpleNamespace(load_research_run_verified=lambda _reference: completed_run)
     manifest = SimpleNamespace(implementation_fingerprint="4" * 64, source_revision="5" * 40)
     permit = SimpleNamespace(historical_workflow_resource_fingerprint="6" * 64)
@@ -2602,7 +3140,10 @@ def test_all_four_branches_advance_by_fresh_one_step_drivers_with_exact_fact_cou
         if branch is OnlyAgentRouterAction.REUSE_EXISTING
         else 3
     )
-    assert state.status is expected_status
+    assert state.status is expected_status, (
+        action_trace,
+        [plan.operation_identity for plan in materializer.tools.plans],
+    )
     assert len(materializer.models.plans) == len(materializer.models.results) == expected_models
     assert len(materializer.tools.plans) == len(materializer.tools.results) == expected_tools
     assert materializer.decisions.contiguous_count(session) == expected_decisions
