@@ -362,7 +362,11 @@ class OnlyAgentSessionReducerV1:
             ]
             if (
                 any(plan.tool_class not in allowed_search for plan in branch_plans)
-                or sum(plan.tool_class is submit_class for plan in branch_plans) != 1
+                or sum(
+                    plan.tool_class is submit_class and plan.operation_identity == branch_plans[0].operation_identity
+                    for plan in branch_plans
+                )
+                != 1
                 or len(evidence_ordinals) > 1
                 or (
                     evidence_ordinals and (not observation_ordinals or evidence_ordinals[0] < max(observation_ordinals))

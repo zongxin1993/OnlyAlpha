@@ -1393,8 +1393,19 @@ def test_reuse_evidence_proposal_is_terminal_and_non_executable(tmp_path: Path) 
             owner=owner,
         )
         if tool_class is OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY:
+            response = {
+                "research_result_fingerprint": owner.locator_value,
+                "statistics": (
+                    {
+                        "statistics_fingerprint": "6" * 64,
+                        "statistics_result_fingerprint": statistics.locator_value,
+                    },
+                ),
+            }
             result = replace(
                 result,
+                canonical_validated_response=response,
+                canonical_response_fingerprint=only_canonical_fingerprint(response),
                 owning_authority_references=(owner, statistics),
                 tool_call_result_fingerprint="",
             )
@@ -1730,16 +1741,27 @@ def test_reuse_mutable_observation_loss_allows_new_plan_and_later_result(tmp_pat
     assert observed.next_action is not None
     assert observed.next_action.tool_class is OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY
     statistics = ref("RESEARCH_STATISTICS", "5" * 64)
+    research_result = ref("RESEARCH_RESULT", "4" * 64)
     evidence_plan, evidence_result = tool_occurrence(
         context,
         ordinal=6,
         decision=directive.decision_fingerprint,
         tool_class=OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY,
-        owner=terminal_path,
+        owner=research_result,
     )
-    research_result = ref("RESEARCH_RESULT", "4" * 64)
+    evidence_response = {
+        "research_result_fingerprint": research_result.locator_value,
+        "statistics": (
+            {
+                "statistics_fingerprint": "9" * 64,
+                "statistics_result_fingerprint": statistics.locator_value,
+            },
+        ),
+    }
     evidence_result = replace(
         evidence_result,
+        canonical_validated_response=evidence_response,
+        canonical_response_fingerprint=only_canonical_fingerprint(evidence_response),
         owning_authority_references=(research_result, statistics),
         tool_call_result_fingerprint="",
     )
@@ -2102,6 +2124,7 @@ class BranchDriverMaterializer:
     """Test-only external boundary; Reducer remains the sole progress grammar."""
 
     def __init__(self, root: Path, branch: OnlyAgentRouterAction) -> None:
+        self._root = root
         self.fixture, self.context = decision_context(root)
         self.models, self.tools = DurableBranchModels(root), DurableBranchTools(root)
         self.decisions = OnlyJsonAgentDecisionStore(root)
@@ -2126,6 +2149,12 @@ class BranchDriverMaterializer:
         )
         self.research_result = ref("RESEARCH_RESULT", "7" * 64)
         self.statistics = ref("RESEARCH_STATISTICS", "8" * 64)
+
+    @classmethod
+    def reopen(cls, root: Path, branch: OnlyAgentRouterAction) -> BranchDriverMaterializer:
+        """Construct a wholly new semantic graph from durable roots and immutable config."""
+
+        return cls(root, branch)
 
     def refresh_application_services(self, root: Path) -> None:
         """Rebuild every fact reader/service over the same durable test roots."""
@@ -2199,6 +2228,9 @@ class BranchDriverMaterializer:
             self.command_ids.append(command_id)
             plan = replace(
                 plan,
+                operation_identity=(
+                    action.operation_identity if action.operation_identity is not None else plan.operation_identity
+                ),
                 product_command_id_or_idempotency_key=command_id,
                 tool_call_plan_fingerprint="",
             )
@@ -2208,8 +2240,19 @@ class BranchDriverMaterializer:
                 tool_call_result_fingerprint="",
             )
         if action.tool_class is OnlyAgentToolClass.RESEARCH_EVIDENCE_QUERY:
+            response = {
+                "research_result_fingerprint": self.research_result.locator_value,
+                "statistics": (
+                    {
+                        "statistics_fingerprint": "9" * 64,
+                        "statistics_result_fingerprint": self.statistics.locator_value,
+                    },
+                ),
+            }
             result = replace(
                 result,
+                canonical_validated_response=response,
+                canonical_response_fingerprint=only_canonical_fingerprint(response),
                 owning_authority_references=(self.research_result, self.statistics),
                 tool_call_result_fingerprint="",
             )
@@ -2317,13 +2360,159 @@ class NoOpDriverCoordinator:
         yield
 
 
+class DurableAdvancingSearchStates:
+    """Durable owning-Authority stand-in whose state changes only after Product effects."""
+
+    def __init__(self, root: Path, child_fingerprint: str, branch: OnlyAgentRouterAction) -> None:
+        self._path = root / "search-authority.json"
+        self.child_fingerprint = child_fingerprint
+        self.branch = branch
+        self.completed_operations = (
+            json.loads(self._path.read_text(encoding="utf-8"))["completed_operations"] if self._path.is_file() else 0
+        )
+
+    def record_completed_operation(self) -> None:
+        self.completed_operations += 1
+        self._path.write_text(
+            json.dumps({"completed_operations": self.completed_operations}),
+            encoding="utf-8",
+        )
+
+    def load_search_state_verified(self, child_fingerprint: str):  # type: ignore[no-untyped-def]
+        assert child_fingerprint == self.child_fingerprint
+        symbolic = self.branch is OnlyAgentRouterAction.SYMBOLIC_SEARCH
+        operations = (
+            (
+                OnlySearchBoundedOperationV1.ADVANCE_ONE_SYMBOLIC_OCCURRENCE,
+                OnlySearchBoundedOperationV1.RECONCILE_ONE_SYMBOLIC_OCCURRENCE,
+            )
+            if symbolic
+            else (
+                OnlySearchBoundedOperationV1.ADVANCE_ONE_PARAMETER_DECISION,
+                OnlySearchBoundedOperationV1.RECONCILE_OPEN_PARAMETER_BATCH,
+            )
+        )
+        terminal_kind = "NON_TERMINAL" if self.completed_operations < 2 else "TERMINAL_STOP"
+        terminal = SimpleNamespace(
+            experiment_fingerprint=self.child_fingerprint,
+            method=SimpleNamespace(value="SYMBOLIC" if symbolic else "PARAMETER"),
+            terminal_kind=SimpleNamespace(value=terminal_kind),
+            terminal_fact=SimpleNamespace(
+                to_dict=lambda: {"terminal": self.completed_operations >= 2},
+                terminal_fingerprint="6" * 64,
+            ),
+            stop_reason=None if self.completed_operations < 2 else "SEARCH_SPACE_EXHAUSTED",
+        )
+        return SimpleNamespace(
+            terminal=terminal,
+            expected_state=SimpleNamespace(
+                to_dict=lambda: {
+                    "schema_version": 1,
+                    "completed_operations": self.completed_operations,
+                }
+            ),
+            next_bounded_operation=(operations[self.completed_operations] if self.completed_operations < 2 else None),
+        )
+
+
+def test_fresh_process_recovery_builder_reconstructs_a_complete_new_object_graph(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "fresh-process"
+    root.mkdir()
+    graph_a = BranchDriverMaterializer(root, OnlyAgentRouterAction.REUSE_EXISTING)
+
+    graph_b = BranchDriverMaterializer.reopen(root, OnlyAgentRouterAction.REUSE_EXISTING)
+
+    assert graph_b is not graph_a
+    assert graph_b.context is not graph_a.context
+    assert graph_b.models is not graph_a.models
+    assert graph_b.tools is not graph_a.tools
+    assert graph_b.application is not graph_a.application
+    assert graph_b.launches is not graph_a.launches
+
+
+@pytest.mark.parametrize("case", ("C14", "C15"))
+def test_c14_c15_fresh_object_graphs_fail_closed_without_external_io(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+) -> None:
+    root = tmp_path / case.lower()
+    root.mkdir()
+    graph_a = BranchDriverMaterializer(root, OnlyAgentRouterAction.REUSE_EXISTING)
+    if case == "C15":
+        corrupt_plan, corrupt_result = tool_occurrence(
+            graph_a.context,
+            ordinal=0,
+            decision="d" * 64,
+            tool_class=OnlyAgentToolClass.EXACT_CATALOG_CONTEXT_QUERY,
+            owner=ref(
+                "CATALOG_GENERATION",
+                graph_a.context.research_brief.catalog_generation_fingerprint,
+            ),
+        )
+        graph_a.tools.add(corrupt_plan, corrupt_result)
+
+    graph_b = BranchDriverMaterializer.reopen(root, OnlyAgentRouterAction.REUSE_EXISTING)
+    reducer = OnlyAgentSessionReducerV1(
+        sessions=Sessions(graph_b.context),
+        models=graph_b.models,
+        tools=graph_b.tools,
+        decision_service=graph_b.application,
+        decision_store=graph_b.decisions,
+        launch_service=graph_b.launches,
+    )
+    io_calls: list[str] = []
+    monkeypatch.setattr(
+        driver_module,
+        "execute_external_model_occurrence",
+        lambda **_kwargs: io_calls.append("model"),
+    )
+    monkeypatch.setattr(
+        driver_module,
+        "execute_external_tool_occurrence",
+        lambda **_kwargs: io_calls.append("tool"),
+    )
+    session = graph_b.context.session.session_fingerprint
+    if case == "C14":
+        monkeypatch.setattr(
+            driver_module,
+            "execute_after_runtime_admission",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                OnlyAgentContextError("AGENT_WORKFLOW_RUNTIME_MISMATCH", session)
+            ),
+        )
+        driver = OnlyAgentSessionDriverV1(
+            reducer=reducer,
+            sessions=Sessions(graph_b.context),
+            materializer=graph_b,  # type: ignore[arg-type]
+            model_occurrences=graph_b.models,  # type: ignore[arg-type]
+            tool_occurrences=graph_b.tools,  # type: ignore[arg-type]
+            model_adapter=object(),  # type: ignore[arg-type]
+            product_adapter=object(),  # type: ignore[arg-type]
+            coordination=NoOpDriverCoordinator(),  # type: ignore[arg-type]
+        )
+        with pytest.raises(OnlyAgentContextError, match="AGENT_WORKFLOW_RUNTIME_MISMATCH"):
+            driver.advance_once(session)
+    else:
+        with pytest.raises(OnlyAgentContextError, match="AGENT_HISTORY_CONTRADICTORY"):
+            reducer.derive(session)
+
+    reopened = BranchDriverMaterializer.reopen(root, OnlyAgentRouterAction.REUSE_EXISTING)
+    assert reopened.models.budget_consumed(session) == 0
+    assert reopened.decisions.contiguous_count(session) == 0
+    assert not reopened.launches.launch_exists(session)
+    assert io_calls == []
+
+
 @pytest.mark.parametrize(
     ("branch", "expected_status", "expected_models", "expected_tools", "expected_launches"),
     (
         (OnlyAgentRouterAction.CAPABILITY_GAP, OnlyAgentDerivedSessionStatus.CAPABILITY_GAP, 2, 1, 0),
         (OnlyAgentRouterAction.REUSE_EXISTING, OnlyAgentDerivedSessionStatus.COMPLETE, 4, 5, 0),
-        (OnlyAgentRouterAction.SYMBOLIC_SEARCH, OnlyAgentDerivedSessionStatus.COMPLETE, 4, 4, 1),
-        (OnlyAgentRouterAction.PARAMETER_SEARCH, OnlyAgentDerivedSessionStatus.COMPLETE, 4, 4, 1),
+        (OnlyAgentRouterAction.SYMBOLIC_SEARCH, OnlyAgentDerivedSessionStatus.COMPLETE, 4, 6, 1),
+        (OnlyAgentRouterAction.PARAMETER_SEARCH, OnlyAgentDerivedSessionStatus.COMPLETE, 4, 6, 1),
     ),
 )
 def test_all_four_branches_advance_by_fresh_one_step_drivers_with_exact_fact_counts(
@@ -2339,20 +2528,6 @@ def test_all_four_branches_advance_by_fresh_one_step_drivers_with_exact_fact_cou
     root.mkdir()
     materializer = BranchDriverMaterializer(root, branch)
     session = materializer.context.session.session_fingerprint
-    terminal = SimpleNamespace(
-        experiment_fingerprint=materializer.child.experiment_fingerprint if materializer.child else "0" * 64,
-        method=SimpleNamespace(value="SYMBOLIC" if branch is OnlyAgentRouterAction.SYMBOLIC_SEARCH else "PARAMETER"),
-        terminal_kind=SimpleNamespace(value="TERMINAL_STOP"),
-        terminal_fact=SimpleNamespace(to_dict=lambda: {"terminal": True}, terminal_fingerprint="6" * 64),
-        stop_reason="SEARCH_SPACE_EXHAUSTED",
-    )
-    search_states = SimpleNamespace(
-        load_search_state_verified=lambda _child: SimpleNamespace(
-            terminal=terminal,
-            expected_state=SimpleNamespace(to_dict=lambda: {"schema_version": 1}),
-            next_bounded_operation=None,
-        )
-    )
     completed_run = SimpleNamespace(state=SimpleNamespace(value="COMPLETED"), research_result_fingerprint="6" * 64)
     research_states = SimpleNamespace(load_research_run_verified=lambda _reference: completed_run)
     manifest = SimpleNamespace(implementation_fingerprint="4" * 64, source_revision="5" * 40)
@@ -2369,15 +2544,28 @@ def test_all_four_branches_advance_by_fresh_one_step_drivers_with_exact_fact_cou
         "execute_external_model_occurrence",
         lambda **kwargs: materializer.models.add(*kwargs["prepared"]),
     )
-    monkeypatch.setattr(
-        driver_module,
-        "execute_external_tool_occurrence",
-        lambda **kwargs: materializer.tools.add(*kwargs["prepared"]),
-    )
+
+    def execute_tool(**kwargs):  # type: ignore[no-untyped-def]
+        plan, result = kwargs["prepared"]
+        materializer.tools.add(plan, result)
+        if search_states is not None and plan.operation_identity in {
+            OnlySearchBoundedOperationV1.ADVANCE_ONE_SYMBOLIC_OCCURRENCE,
+            OnlySearchBoundedOperationV1.RECONCILE_ONE_SYMBOLIC_OCCURRENCE,
+            OnlySearchBoundedOperationV1.ADVANCE_ONE_PARAMETER_DECISION,
+            OnlySearchBoundedOperationV1.RECONCILE_OPEN_PARAMETER_BATCH,
+        }:
+            search_states.record_completed_operation()
+
+    monkeypatch.setattr(driver_module, "execute_external_tool_occurrence", execute_tool)
 
     action_trace: list[OnlyAgentNextActionKind] = []
     for _ in range(20):
-        materializer.refresh_application_services(root)
+        materializer = BranchDriverMaterializer.reopen(root, branch)
+        search_states = (
+            DurableAdvancingSearchStates(root, materializer.child.experiment_fingerprint, branch)
+            if materializer.child is not None
+            else None
+        )
         reducer = OnlyAgentSessionReducerV1(
             sessions=Sessions(materializer.context),
             models=materializer.models,
@@ -2385,7 +2573,7 @@ def test_all_four_branches_advance_by_fresh_one_step_drivers_with_exact_fact_cou
             decision_service=materializer.application,
             decision_store=OnlyJsonAgentDecisionStore(root),
             launch_service=materializer.launches,
-            search_states=search_states if materializer.child is not None else None,
+            search_states=search_states,
             research_states=research_states if branch is OnlyAgentRouterAction.REUSE_EXISTING else None,
         )
         inspected = reducer.derive(session)
@@ -2407,19 +2595,31 @@ def test_all_four_branches_advance_by_fresh_one_step_drivers_with_exact_fact_cou
         raise AssertionError("branch did not reach its bounded terminal state")
 
     expected_decisions = 2 if branch is OnlyAgentRouterAction.CAPABILITY_GAP else 3
-    expected_commands = 0 if branch is OnlyAgentRouterAction.CAPABILITY_GAP else 1
+    expected_commands = (
+        0
+        if branch is OnlyAgentRouterAction.CAPABILITY_GAP
+        else 1
+        if branch is OnlyAgentRouterAction.REUSE_EXISTING
+        else 3
+    )
     assert state.status is expected_status
     assert len(materializer.models.plans) == len(materializer.models.results) == expected_models
     assert len(materializer.tools.plans) == len(materializer.tools.results) == expected_tools
     assert materializer.decisions.contiguous_count(session) == expected_decisions
     assert int(materializer.launches.launch_exists(session)) == expected_launches
     assert int(materializer.child is not None) == expected_launches
-    assert len(materializer.command_ids) == expected_commands
-    assert len(set(materializer.command_ids)) == len(materializer.command_ids)
+    command_ids = tuple(
+        plan.product_command_id_or_idempotency_key
+        for plan in materializer.tools.plans
+        if plan.product_command_id_or_idempotency_key is not None
+    )
+    assert len(command_ids) == expected_commands
+    assert len(set(command_ids)) == len(command_ids)
     assert action_trace.count(OnlyAgentNextActionKind.DERIVE_DECISION) == expected_decisions
     assert action_trace[0] is OnlyAgentNextActionKind.PREPARE_MODEL_CALL
     if expected_launches:
         assert action_trace.count(OnlyAgentNextActionKind.RECONSTRUCT_LAUNCH_RECORD) == 1
+        assert OnlyAgentNextActionKind.PREPARE_AUTHORITY_TOOL_CALL in action_trace
         assert OnlyAgentNextActionKind.PREPARE_NEW_TOOL_OBSERVATION in action_trace
     if branch is OnlyAgentRouterAction.REUSE_EXISTING:
         assert OnlyAgentNextActionKind.PREPARE_NEW_TOOL_OBSERVATION in action_trace
