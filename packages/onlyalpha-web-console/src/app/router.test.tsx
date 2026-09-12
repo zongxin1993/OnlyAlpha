@@ -7,6 +7,14 @@ it("owns stable Research deep-link routes and narrow compatibility redirects", (
     expect(paths).toEqual(
         expect.arrayContaining([
             "/research/new",
+            "/research/analysis",
+            "/research/library",
+            "/data/inputs",
+            "/strategies",
+            "/strategies/:strategyFingerprint",
+            "/backtest/runs",
+            "/backtest/runs/:backtestRunId",
+            "/system/health",
             "/research/runs",
             "/research/runs/:runId",
             "/research/results",

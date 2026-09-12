@@ -26,8 +26,20 @@ export class ResearchWebError extends Error {
     }
 }
 
+export class ProductWebError extends Error {
+    constructor(
+        readonly code: string,
+        message: string,
+        readonly status: number,
+        readonly phase: string
+    ) {
+        super(message);
+        this.name = "ProductWebError";
+    }
+}
+
 export function errorMessage(error: unknown): string {
-    return error instanceof ResearchWebError
+    return error instanceof ResearchWebError || error instanceof ProductWebError
         ? `${error.code}: ${error.message}`
         : "Unexpected error";
 }

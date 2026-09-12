@@ -56,7 +56,7 @@ export function StatisticsWorkspace() {
     );
 }
 
-function StatisticsEvidence({
+export function StatisticsEvidence({
     result,
     descriptor
 }: {

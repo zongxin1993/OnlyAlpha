@@ -1,15 +1,19 @@
 :root {
     color-scheme: dark;
-    --bg: #07111f;
-    --surface: #111c2f;
-    --surface-2: #18263d;
-    --text: #e6edf7;
-    --muted: #94a8c4;
-    --accent: #67e8f9;
+    --bg: #090f19;
+    --surface: #101925;
+    --surface-2: #162233;
+    --surface-3: #1a2a3e;
+    --text: #e4edf7;
+    --muted: #96a7bd;
+    --accent: #53c7f5;
+    --accent-solid: #106ca8;
+    --accent-soft: #112c43;
     --danger: #fda4af;
     --warning: #fde68a;
-    --line: #2d405d;
-    --radius: 10px;
+    --line: #253449;
+    --line-soft: #1c293a;
+    --radius: 8px;
     font-family:
         Inter,
         ui-sans-serif,

@@ -1,7 +1,9 @@
 import type {
+    BacktestRunId,
     ResearchResultFingerprint,
     ResearchRunId,
     ResearchSubmissionKey,
+    Sha256Fingerprint,
     StatisticsFingerprint
 } from "../../domain/research/identity";
 import type {
@@ -18,7 +20,7 @@ import type {
 } from "../../domain/research/model";
 import type { UnixNanoseconds } from "../../domain/research/time";
 import { nanosecondsToRequestText } from "../../domain/research/time";
-import { ResearchWebError } from "./errors";
+import { ProductWebError, ResearchWebError } from "./errors";
 import {
     mapArtifactSummary,
     mapCandidateCatalog,
@@ -33,6 +35,10 @@ import {
 } from "./mapper";
 import {
     artifactSummarySchema,
+    backtestEvidenceSchema,
+    backtestRunSchema,
+    productErrorSchema,
+    productHealthSchema,
     researchCalculationCatalogSchema,
     researchCandidateCatalogSchema,
     researchCandidateGraphSchema,
@@ -49,15 +55,20 @@ import {
     researchScientificSeriesPageSchema,
     researchUniverseCatalogSchema,
     statisticSeriesPageSchema,
-    statisticsCatalogSchema
+    statisticsCatalogSchema,
+    strategySchema
 } from "./schemas";
 import type {
+    BacktestEvidenceTransport,
+    BacktestRunTransport,
+    ProductHealthTransport,
     ResearchCalculationCatalogTransport,
     ResearchDatasetFieldCatalogTransport,
     ResearchDefinitionResolutionTransport,
     ResearchDefinitionTransport,
     ResearchStatisticsCapabilityCatalogTransport,
-    ResearchUniverseCatalogTransport
+    ResearchUniverseCatalogTransport,
+    StrategyTransport
 } from "./schemas";
 
 export interface StatisticSeriesRequest {
@@ -160,13 +171,29 @@ export interface ResearchDefinitionApiClient {
     ): Promise<ResearchDefinitionResolutionTransport>;
 }
 
+export type ProductHealthSelector = "live" | "ready" | "execution";
+
+export interface ProductReadApiClient {
+    getStrategy(id: Sha256Fingerprint, signal?: AbortSignal): Promise<StrategyTransport>;
+    getBacktestRun(id: BacktestRunId, signal?: AbortSignal): Promise<BacktestRunTransport>;
+    getBacktestEvidence(
+        id: BacktestRunId,
+        signal?: AbortSignal
+    ): Promise<BacktestEvidenceTransport>;
+    getHealth(
+        selector: ProductHealthSelector,
+        signal?: AbortSignal
+    ): Promise<ProductHealthTransport>;
+}
+
 export interface ResearchApiClient
     extends
         ResearchRunApiClient,
         ResearchArtifactApiClient,
         ResearchScientificArtifactApiClient,
         ResearchDiscoveryApiClient,
-        ResearchDefinitionApiClient {}
+        ResearchDefinitionApiClient,
+        ProductReadApiClient {}
 
 async function decode(response: Response): Promise<unknown> {
     try {
@@ -180,7 +207,12 @@ async function decode(response: Response): Promise<unknown> {
     }
 }
 
-async function request(url: string, init: RequestInit, signal?: AbortSignal): Promise<unknown> {
+async function request(
+    url: string,
+    init: RequestInit,
+    signal?: AbortSignal,
+    family: "research" | "product-read" | "health" = "research"
+): Promise<unknown> {
     let response: Response;
     try {
         response = await fetch(url, {
@@ -193,6 +225,29 @@ async function request(url: string, init: RequestInit, signal?: AbortSignal): Pr
         throw new ResearchWebError("TRANSPORT_ERROR", "Research API is unavailable");
     }
     const body = await decode(response);
+    if (family === "health") {
+        const admittedUnavailable =
+            response.status === 503 && (url === "/health/ready" || url === "/health/execution");
+        if (response.status !== 200 && !admittedUnavailable)
+            throw new ResearchWebError(
+                "CONTRACT_ERROR",
+                "Health response status violates the public contract",
+                response.status
+            );
+        return body;
+    }
+    if (family === "product-read") {
+        if (response.status === 200) return body;
+        const failure = productErrorSchema.safeParse(body);
+        if (![400, 404, 409, 500, 503].includes(response.status) || !failure.success)
+            throw new ResearchWebError(
+                "CONTRACT_ERROR",
+                "Product error response violates the public contract",
+                response.status
+            );
+        const error = failure.data.error;
+        throw new ProductWebError(error.code, error.detail, response.status, error.phase);
+    }
     if (!response.ok) {
         const definitionFailure = researchDefinitionErrorSchema.safeParse(body);
         if (definitionFailure.success) {
@@ -239,6 +294,67 @@ const base = (id: ResearchResultFingerprint): string =>
     `/api/v2/research/artifacts/${encodeURIComponent(id)}`;
 
 export class FetchResearchApiClient implements ResearchApiClient {
+    async getStrategy(id: Sha256Fingerprint, signal?: AbortSignal) {
+        const value = admitted(
+            strategySchema,
+            await request(
+                `/api/v2/strategies/${encodeURIComponent(id)}`,
+                { method: "GET" },
+                signal,
+                "product-read"
+            )
+        );
+        if (value.strategy_fingerprint !== id)
+            throw new ResearchWebError(
+                "CONTRACT_ERROR",
+                "Strategy response identity does not match the requested fingerprint"
+            );
+        return value;
+    }
+
+    async getBacktestRun(id: BacktestRunId, signal?: AbortSignal) {
+        const value = admitted(
+            backtestRunSchema,
+            await request(
+                `/api/v2/backtest/runs/${encodeURIComponent(id)}`,
+                { method: "GET" },
+                signal,
+                "product-read"
+            )
+        );
+        if (value.run_id !== id)
+            throw new ResearchWebError(
+                "CONTRACT_ERROR",
+                "Backtest response identity does not match the requested Run"
+            );
+        return value;
+    }
+
+    async getBacktestEvidence(id: BacktestRunId, signal?: AbortSignal) {
+        const value = admitted(
+            backtestEvidenceSchema,
+            await request(
+                `/api/v2/backtest/runs/${encodeURIComponent(id)}/evidence`,
+                { method: "GET" },
+                signal,
+                "product-read"
+            )
+        );
+        if (value.manifest.backtest_run_id !== id)
+            throw new ResearchWebError(
+                "CONTRACT_ERROR",
+                "Backtest Evidence identity does not match the requested Run"
+            );
+        return value;
+    }
+
+    async getHealth(selector: ProductHealthSelector, signal?: AbortSignal) {
+        return admitted(
+            productHealthSchema,
+            await request(`/health/${selector}`, { method: "GET" }, signal, "health")
+        );
+    }
+
     async getCalculationCatalog(signal?: AbortSignal) {
         return admitted(
             researchCalculationCatalogSchema,

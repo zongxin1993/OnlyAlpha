@@ -7,6 +7,7 @@ export type ResearchResultFingerprint = string & {
 export type StatisticsFingerprint = string & { readonly __statisticsFingerprint: unique symbol };
 export type Sha256Fingerprint = string & { readonly __sha256Fingerprint: unique symbol };
 export type ResearchRunId = string & { readonly __researchRunId: unique symbol };
+export type BacktestRunId = string & { readonly __backtestRunId: unique symbol };
 export type ResearchSubmissionKey = string & { readonly __researchSubmissionKey: unique symbol };
 
 function parseSha256(value: string, name: string): string {
@@ -31,6 +32,9 @@ function parseUuid4(value: string, name: string): string {
 
 export const parseResearchRunId = (value: string): ResearchRunId =>
     parseUuid4(value, "Research Run ID") as ResearchRunId;
+
+export const parseBacktestRunId = (value: string): BacktestRunId =>
+    parseUuid4(value, "Backtest Run ID") as BacktestRunId;
 
 export const parseResearchSubmissionKey = (value: string): ResearchSubmissionKey =>
     parseUuid4(value, "Research submission key") as ResearchSubmissionKey;
