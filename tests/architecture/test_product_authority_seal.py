@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from tests.architecture._p9_k0_authority_contract import load_authority_contract
-from tests.architecture.test_p9_k0_product_surfaces import (
+from tests.architecture.test_product_surface_boundaries import (
     EXPECTED_DIRECT_CONSTRUCTION_CLASSIFICATION,
     HISTORICAL_ROOT_MIGRATION_DEBT,
     ROOT_KNOWN_MIGRATION_DEBT,
