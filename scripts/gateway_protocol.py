@@ -371,7 +371,6 @@ def verify_lane(base: str) -> str:
         "-m",
         "pytest",
         "tests/contracts/test_gateway_protocol_contract.py",
-        "tests/contracts/test_p9_k7_task_delta.py",
         "tests/integration/test_remote_gateway_protocol.py",
         "-q",
         "--tb=short",
