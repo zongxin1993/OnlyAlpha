@@ -8,6 +8,12 @@ ROOT = Path(__file__).parents[2]
 
 SEMANTIC_SUCCESSORS = {
     "tests/architecture/test_a0_product_vertical_boundaries.py": "tests/architecture/test_backtest_product_boundary.py",
+    "tests/architecture/test_p9_k0_api_core_crossings.py": "tests/architecture/test_api_core_crossings.py",
+    "tests/architecture/test_p9_k0_authority_contract.py": "tests/architecture/test_product_authority_contract.py",
+    "tests/architecture/test_p9_k0_authority_ownership.py": "tests/architecture/test_authority_ownership.py",
+    "tests/architecture/test_p9_k0_capability_reachability.py": "tests/architecture/test_capability_reachability.py",
+    "tests/architecture/test_p9_k0_composition_ownership.py": "tests/architecture/test_composition_ownership.py",
+    "tests/architecture/test_p9_k0_transport_boundary.py": "tests/architecture/test_transport_boundary.py",
     "tests/architecture/test_p9_k3_product_http_control_plane.py": "tests/architecture/test_product_http_control_plane.py",
     "tests/architecture/test_p9_k5_recovery_closure.py": "tests/architecture/test_kernel_recovery_authority.py",
     "tests/architecture/test_p9_k6_external_client_boundary.py": "tests/architecture/test_product_surface_retirement.py",
