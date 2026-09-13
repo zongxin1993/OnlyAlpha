@@ -15,6 +15,7 @@ SEMANTIC_SUCCESSORS = {
     "tests/architecture/test_p9_k0_composition_ownership.py": "tests/architecture/test_composition_ownership.py",
     "tests/architecture/test_p9_k0_product_surfaces.py": "tests/architecture/test_product_surface_boundaries.py",
     "tests/architecture/test_p9_k0_transport_boundary.py": "tests/architecture/test_transport_boundary.py",
+    "tests/architecture/_p9_k0_capability_reachability.py": "tests/architecture/_capability_reachability.py",
     "tests/architecture/test_p9_k3_product_http_control_plane.py": "tests/architecture/test_product_http_control_plane.py",
     "tests/architecture/test_p9_k5_recovery_closure.py": "tests/architecture/test_kernel_recovery_authority.py",
     "tests/architecture/test_p9_k6_external_client_boundary.py": "tests/architecture/test_product_surface_retirement.py",
