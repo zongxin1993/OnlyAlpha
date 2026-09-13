@@ -115,7 +115,7 @@ jobs:
           exit 1
       - name: Fuzz the published OpenAPI surface for server errors
         run: >-
-          uvx --from schemathesis==4.24.3 schemathesis run
+          uvx --from schemathesis==4.26.1 schemathesis run
           http://127.0.0.1:8000/openapi.json
           --checks=not_a_server_error
           --max-examples=25
@@ -152,7 +152,24 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - id: dependency-graph
+        name: Detect Dependency Graph availability
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/$GITHUB_REPOSITORY/dependency-graph/compare/$BASE_SHA...$HEAD_SHA" \
+            >/dev/null 2>&1; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::GitHub Dependency Graph is disabled; Dependency Review is configured but cannot run until the repository capability is enabled."
+          fi
       - name: Review dependency changes
+        if: steps.dependency-graph.outputs.enabled == 'true'
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: moderate
