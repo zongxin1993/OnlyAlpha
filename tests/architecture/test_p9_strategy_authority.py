@@ -21,7 +21,9 @@ def test_strategy_domain_has_no_downstream_or_provider_dependencies() -> None:
     )
     for path in Path("src/onlyalpha/strategy").glob("*.py"):
         for imported in imported_modules_for_path(ROOT / path, ROOT):
-            assert not imported.startswith(forbidden), f"{path}: forbidden Strategy dependency {imported}"
+            assert not imported.startswith(forbidden), (
+                f"{path}: forbidden Strategy dependency {imported}"
+            )
 
 
 def test_runtime_and_cluster_have_no_dynamic_strategy_authority() -> None:
@@ -48,9 +50,9 @@ def test_legacy_strategy_factory_is_absent_and_config_is_fingerprint_only() -> N
 
 
 def test_candidate_and_web_do_not_reach_trading_strategy_composition() -> None:
-    composition = Path("src/onlyalpha/cluster/factory.py").read_text(encoding="utf-8") + Path(
-        "src/onlyalpha/strategy/execution.py"
-    ).read_text(encoding="utf-8")
+    composition = Path("src/onlyalpha/cluster/factory.py").read_text(
+        encoding="utf-8"
+    ) + Path("src/onlyalpha/strategy/execution.py").read_text(encoding="utf-8")
     assert "candidate_fingerprint" not in composition
     for root in (Path("src/onlyalpha/api"), Path("src/onlyalpha/application")):
         if root.exists():
@@ -62,7 +64,9 @@ def test_candidate_and_web_do_not_reach_trading_strategy_composition() -> None:
 
 def test_backtest_and_sim_share_the_single_cluster_strategy_resolver() -> None:
     cluster = Path("src/onlyalpha/cluster/factory.py").read_text(encoding="utf-8")
-    backtest = Path("src/onlyalpha/runtime/backtest/factory.py").read_text(encoding="utf-8")
+    backtest = Path("src/onlyalpha/runtime/backtest/factory.py").read_text(
+        encoding="utf-8"
+    )
     sim = Path("src/onlyalpha/runtime/sim/factory.py").read_text(encoding="utf-8")
 
     assert cluster.count("OnlyStrategyExecutionResolver(") == 1
@@ -75,17 +79,29 @@ def test_no_python_callback_strategy_authoring_or_cluster_injection_surface_exis
     assert not Path("src/onlyalpha/strategy/base.py").exists()
     assert not Path("src/onlyalpha/strategy/config.py").exists()
     assert not Path("src/onlyalpha/strategy/context.py").exists()
-    cluster_tree = ast.parse(Path("src/onlyalpha/cluster/base.py").read_text(encoding="utf-8"))
-    cluster = next(node for node in cluster_tree.body if isinstance(node, ast.ClassDef) and node.name == "OnlyCluster")
+    cluster_tree = ast.parse(
+        Path("src/onlyalpha/cluster/base.py").read_text(encoding="utf-8")
+    )
+    cluster = next(
+        node
+        for node in cluster_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "OnlyCluster"
+    )
     constructor = next(
         node
         for node in cluster.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "__init__"
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "__init__"
     )
     parameters = {item.arg for item in constructor.args.args}
     assert "strategy" not in parameters
     assert "strategy_plan" in parameters
-    for root in (Path("src"), Path("packages"), Path("examples"), Path("tests/fixtures/external_plugins")):
+    for root in (
+        Path("src"),
+        Path("packages"),
+        Path("examples"),
+        Path("tests/fixtures/external_plugins"),
+    ):
         for path in root.rglob("*.py"):
             source = path.read_text(encoding="utf-8")
             assert "class OnlyStrategy(" not in source
@@ -104,7 +120,9 @@ def test_strategy_decision_is_explicit_provider_neutral_pipeline_output() -> Non
         "exit",
         "schema_version",
     }
-    assert "strategy_decision" in {item.name for item in fields(OnlyClusterPipelineResult)}
+    assert "strategy_decision" in {
+        item.name for item in fields(OnlyClusterPipelineResult)
+    }
     forbidden = {"order", "account", "broker", "capital", "quantity", "position", "risk"}
     assert forbidden.isdisjoint({item.name for item in fields(OnlyStrategyDecision)})
 
@@ -118,24 +136,31 @@ def test_trading_strategy_path_has_no_research_runtime_implementation_dependency
     )
     for path in paths:
         assert all(
-            not value.startswith("onlyalpha.research") for value in imported_modules_for_path(ROOT / path, ROOT)
+            not value.startswith("onlyalpha.research")
+            for value in imported_modules_for_path(ROOT / path, ROOT)
         )
 
 
 def test_admission_uses_verified_evidence_store_and_promotion_ignores_audit_time_for_ordering() -> None:
     admission = Path("src/onlyalpha/strategy/admission.py").read_text(encoding="utf-8")
     promotion = Path("src/onlyalpha/strategy/promotion.py").read_text(encoding="utf-8")
-    postgres = Path("src/onlyalpha/persistence/postgres/strategy_store.py").read_text(encoding="utf-8")
+    postgres = Path("src/onlyalpha/persistence/postgres/strategy_store.py").read_text(
+        encoding="utf-8"
+    )
     assert "require_verified" in admission
     assert "EquivalenceAdmissionRegistry" not in admission
     assert "ORDER BY recorded_at" not in postgres
     assert "recorded_at DESC" not in postgres
-    chain_body = promotion[promotion.index("def only_verified_strategy_promotion_chain") :]
+    chain_body = promotion[
+        promotion.index("def only_verified_strategy_promotion_chain") :
+    ]
     assert ".recorded_at" not in chain_body
 
 
 def test_official_freeze_and_promotion_application_composition_exists() -> None:
-    source = Path("src/onlyalpha/application/strategy_authority.py").read_text(encoding="utf-8")
+    source = Path("src/onlyalpha/application/strategy_authority.py").read_text(
+        encoding="utf-8"
+    )
     assert "class OnlyStrategyFreezeApplicationService" in source
     assert "class OnlyStrategyPromotionApplicationService" in source
     assert "OnlyCalculationEquivalenceEvidenceV2Store" in source
@@ -152,7 +177,9 @@ def test_admission_uses_historical_execution_evidence_and_never_current_research
 
 
 def test_production_certification_accepts_no_runner_or_caller_corpus() -> None:
-    source = Path("src/onlyalpha/application/calculation_equivalence.py").read_text(encoding="utf-8")
+    source = Path("src/onlyalpha/application/calculation_equivalence.py").read_text(
+        encoding="utf-8"
+    )
     legacy = Path("src/onlyalpha/strategy/equivalence.py").read_text(encoding="utf-8")
     assert "class OnlyCalculationEquivalenceCertificationApplicationService" in source
     assert "def certify(self, node:" in source
@@ -160,9 +187,9 @@ def test_production_certification_accepts_no_runner_or_caller_corpus() -> None:
     assert (
         "corpus:"
         not in source[
-            source.index("class OnlyCalculationEquivalenceCertificationApplicationService") : source.index(
-                "def _materialize_corpus"
-            )
+            source.index(
+                "class OnlyCalculationEquivalenceCertificationApplicationService"
+            ) : source.index("def _materialize_corpus")
         ]
     )
     assert "OnlyCalculationEquivalenceVerifier" not in legacy
@@ -194,13 +221,20 @@ def test_only_freeze_path_holds_internal_strategy_publication_capability() -> No
     }
     for path in Path("src/onlyalpha").rglob("*.py"):
         source = path.read_text(encoding="utf-8")
-        if "_OnlyFrozenStrategyPublisher" in source or "_only_authorize_frozen_strategy_publication" in source:
+        if (
+            "_OnlyFrozenStrategyPublisher" in source
+            or "_only_authorize_frozen_strategy_publication" in source
+        ):
             assert path in allowed
 
 
 def test_public_research_execution_projection_cannot_mint_producer_evidence() -> None:
-    public = Path("src/onlyalpha/research/calculation/__init__.py").read_text(encoding="utf-8")
-    evidence = Path("src/onlyalpha/research/calculation/execution_evidence.py").read_text(encoding="utf-8")
+    public = Path("src/onlyalpha/research/calculation/__init__.py").read_text(
+        encoding="utf-8"
+    )
+    evidence = Path(
+        "src/onlyalpha/research/calculation/execution_evidence.py"
+    ).read_text(encoding="utf-8")
     assert "_OnlyVerifiedResearchCalculationExecution" not in public
     assert "commit_execution" not in evidence
     assert "def publish_verified(" not in evidence
@@ -226,7 +260,9 @@ def test_only_actual_research_execution_orchestration_uses_private_evidence_capa
 
 
 def test_equivalence_corpus_is_exact_node_state_horizon_aware() -> None:
-    source = Path("src/onlyalpha/application/calculation_equivalence.py").read_text(encoding="utf-8")
+    source = Path("src/onlyalpha/application/calculation_equivalence.py").read_text(
+        encoding="utf-8"
+    )
     assert "_required_certification_horizon(definition)" in source
     assert "definition.warmup.minimum_observations" in source
     assert 'parameters.get("warmup_bars"' in source
