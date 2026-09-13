@@ -10,13 +10,13 @@ from onlyalpha.persistence.postgres.migration import (
     OnlyPostgresMigrationAuthority,
     OnlyPostgresSchemaVerifier,
 )
-from tests.architecture._p9_k0_authority_contract import load_authority_contract
-from tests.architecture._p9_k0_capability_reachability import ModuleIndex, actual_constructor_sites
+from tests.architecture._capability_reachability import ModuleIndex, actual_constructor_sites
+from tests.architecture._product_authority_contract import load_authority_contract
 
 pytestmark = pytest.mark.architecture
 
 ROOT = Path(__file__).parents[2]
-CONTRACT = load_authority_contract(ROOT / "docs/architecture/p9_k0_authority_contract.toml")
+CONTRACT = load_authority_contract(ROOT / "docs/architecture/product_authority_contract.toml")
 CONSTRUCTOR_SITES = actual_constructor_sites(ROOT, CONTRACT, ModuleIndex(ROOT))
 
 

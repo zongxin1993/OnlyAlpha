@@ -1,4 +1,4 @@
-"""Resolve ordinary Python imports/re-exports into P9.K.0 capabilities."""
+"""Resolve ordinary Python imports/re-exports into Product authority capabilities."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ import ast
 from collections.abc import Iterable
 from pathlib import Path
 
-from tests.architecture._p9_k0_authority_contract import AuthorityContract, AuthorityContractError
-from tests.architecture._p9_k0_guard_helpers import module_name
+from tests.architecture._architecture_imports import module_name
+from tests.architecture._product_authority_contract import AuthorityContract, AuthorityContractError
 
 
 class ModuleIndex:

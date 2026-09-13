@@ -1,4 +1,4 @@
-"""Permanent negative architecture gate for the P9.K.8 Product authority seal."""
+"""Permanent negative architecture gate for Product authority boundaries."""
 
 from __future__ import annotations
 
@@ -10,11 +10,10 @@ from pathlib import Path
 
 import pytest
 
-from tests.architecture._p9_k0_authority_contract import load_authority_contract
-from tests.architecture.test_p9_k0_product_surfaces import (
+from tests.architecture._product_authority_contract import load_authority_contract
+from tests.architecture.test_product_surface_boundaries import (
     EXPECTED_DIRECT_CONSTRUCTION_CLASSIFICATION,
-    HISTORICAL_ROOT_MIGRATION_DEBT,
-    ROOT_KNOWN_MIGRATION_DEBT,
+    FORBIDDEN_ROOT_CONSTRUCTOR_EXPORTS,
     _console_entry_points,
     _direct_construction_sites,
 )
@@ -82,7 +81,7 @@ def _route_modules() -> frozenset[Path]:
 
 
 def test_root_and_broad_aggregators_expose_zero_mutation_constructors() -> None:
-    assert HISTORICAL_ROOT_MIGRATION_DEBT == {
+    assert FORBIDDEN_ROOT_CONSTRUCTOR_EXPORTS == {
         "OnlyBacktestRuntime",
         "OnlyCluster",
         "OnlyClusterConfig",
@@ -97,9 +96,8 @@ def test_root_and_broad_aggregators_expose_zero_mutation_constructors() -> None:
         "OnlyResearchRuntime",
         "OnlyRuntime",
     }
-    assert ROOT_KNOWN_MIGRATION_DEBT == frozenset()
     forbidden_by_module = {
-        "onlyalpha": HISTORICAL_ROOT_MIGRATION_DEBT,
+        "onlyalpha": FORBIDDEN_ROOT_CONSTRUCTOR_EXPORTS,
         "onlyalpha.engine": {"OnlyEngine"},
         "onlyalpha.runtime": {
             "OnlyBacktestRuntime",
@@ -188,9 +186,9 @@ def test_product_space_has_zero_direct_engine_or_runtime_constructor_owner() -> 
     assert not any(path.startswith(forbidden_roots) or path == "src/onlyalpha/cli.py" for path, _ in sites)
 
 
-def test_k0_migration_debt_is_zero() -> None:
-    k0 = load_authority_contract(ROOT / "docs/architecture/p9_k0_authority_contract.toml")
-    assert k0.legacy_debts == {}
+def test_product_authority_migration_debt_is_zero() -> None:
+    contract = load_authority_contract(ROOT / "docs/architecture/product_authority_contract.toml")
+    assert contract.legacy_debts == {}
 
 
 def test_standalone_artifact_compatibility_product_surface_is_absent() -> None:

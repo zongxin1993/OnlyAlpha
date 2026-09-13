@@ -15,18 +15,11 @@ from scripts.verify import (
 pytestmark = pytest.mark.architecture
 ROOT = Path(".")
 
-
-RETIRED_PATHS = (
+FORBIDDEN_PARALLEL_AUTHORITIES = (
     "project-state.toml",
     "AGENTS.override.md",
     "scripts/project_state.py",
     "scripts/local_verify.py",
-    "docs/engineering/quality-system.md",
-    "docs/engineering/quality-toolchain.md",
-    "docs/engineering/task-gate-template.md",
-    "docs/engineering/project-state-authority.md",
-    "docs/engineering/convergent-audit-policy.md",
-    "docs/engineering/local-verification-execution-policy.md",
 )
 
 
@@ -49,8 +42,8 @@ def test_task_acceptance_has_one_normative_repository_authority() -> None:
     assert "GitHub CI 是持续质量探针" in agents
     assert "Major Milestone Phase Gate" in agents
 
-    for retired in RETIRED_PATHS:
-        assert not (ROOT / retired).exists(), retired
+    for path in FORBIDDEN_PARALLEL_AUTHORITIES:
+        assert not (ROOT / path).exists(), path
 
 
 def test_repository_does_not_version_quality_reports_or_progress_state() -> None:

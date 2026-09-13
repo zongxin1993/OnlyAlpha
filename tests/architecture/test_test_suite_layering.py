@@ -49,9 +49,10 @@ def test_binance_offline_packages_are_in_core_full_and_network_contract_is_exclu
     assert "pytest.mark.requires_network" in public_contract
 
 
-def test_historical_git_contract_has_one_explicit_history_capable_owner() -> None:
-    historical = (ROOT / "tests/contracts/test_p9_k7_task_delta.py").read_text()
-    assert "pytest.mark.historical_git" in historical
+def test_historical_git_is_excluded_from_generic_lanes_and_gateway_reads_immutable_baseline() -> None:
+    gateway = (ROOT / "scripts/gateway_protocol.py").read_text(encoding="utf-8")
+    assert '["git", "ls-tree"' in gateway
+    assert '["git", "show"' in gateway
     assert "historical_git" in LANES[OnlyTestLane.FAST].expression
     assert "historical_git" in LANES[OnlyTestLane.CORE_FULL].expression
 

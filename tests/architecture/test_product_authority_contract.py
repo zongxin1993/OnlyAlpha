@@ -1,4 +1,4 @@
-"""Validate the single machine-readable P9.K.0 authority policy."""
+"""Validate the single machine-readable Product authority policy."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.architecture._p9_k0_authority_contract import (
+from tests.architecture._product_authority_contract import (
     AuthorityContractError,
     authority_contract_from_document,
     load_authority_contract,
@@ -17,7 +17,7 @@ from tests.architecture._p9_k0_authority_contract import (
 pytestmark = pytest.mark.architecture
 
 ROOT = Path(__file__).parents[2]
-CONTRACT_PATH = ROOT / "docs/architecture/p9_k0_authority_contract.toml"
+CONTRACT_PATH = ROOT / "docs/architecture/product_authority_contract.toml"
 
 
 def _document() -> dict[str, object]:

@@ -1,4 +1,4 @@
-"""Freeze the audited P9.K.0 product and direct-construction surfaces."""
+"""Freeze audited product and direct-construction surfaces."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.architecture._p9_k0_guard_helpers import canonical_imports, canonical_imports_for_path, module_name
+from tests.architecture._architecture_imports import canonical_imports, canonical_imports_for_path, module_name
 
 pytestmark = pytest.mark.architecture
 
@@ -61,9 +61,9 @@ EXPECTED_CONSOLE_ENTRY_POINTS = {
     ("pyproject.toml", "onlyalpha-backtest-worker", "onlyalpha.backtest.worker_main:main"),
 }
 
-# This is the exact K0 allowlist. Entries include internal composition, classified
-# operator/test tooling and known migration debt. Any new construction
-# site requires an explicit architecture-contract update.
+# This is the exact direct-construction allowlist. Entries include internal
+# composition, classified operator/test tooling and known migration debt. Any
+# new construction site requires an explicit architecture-contract update.
 EXPECTED_DIRECT_CONSTRUCTION_SITES = {
     ("scripts/regenerate_recovery_baselines.py", "OnlyEngine"),
     ("scripts/regenerate_result_fixtures.py", "OnlyEngine"),
@@ -139,7 +139,7 @@ ROOT_PUBLIC_VALUE_READ_ONLY = {
     "OnlyQuantity",
 }
 
-HISTORICAL_ROOT_MIGRATION_DEBT = {
+FORBIDDEN_ROOT_CONSTRUCTOR_EXPORTS = {
     "OnlyBacktestRuntime",
     "OnlyCluster",
     "OnlyClusterConfig",
@@ -154,9 +154,8 @@ HISTORICAL_ROOT_MIGRATION_DEBT = {
     "OnlyResearchRuntime",
     "OnlyRuntime",
 }
-ROOT_KNOWN_MIGRATION_DEBT: frozenset[str] = frozenset()
 
-EXPECTED_TOP_LEVEL_EXPORTS = ROOT_PUBLIC_CONTRACT | ROOT_KNOWN_MIGRATION_DEBT
+EXPECTED_TOP_LEVEL_EXPORTS = ROOT_PUBLIC_CONTRACT
 EXPECTED_TOP_LEVEL_BINDINGS = (EXPECTED_TOP_LEVEL_EXPORTS | ROOT_PUBLIC_VALUE_READ_ONLY) - {
     "OnlyRuntimeState",
     "OnlyRuntimeStatus",
@@ -416,10 +415,7 @@ def test_explicit_constructor_alias_remains_deterministic() -> None:
 
 def test_top_level_python_surface_is_frozen() -> None:
     assert ROOT_PUBLIC_CONTRACT.isdisjoint(ROOT_PUBLIC_VALUE_READ_ONLY)
-    assert ROOT_PUBLIC_CONTRACT.isdisjoint(ROOT_KNOWN_MIGRATION_DEBT)
-    assert ROOT_PUBLIC_VALUE_READ_ONLY.isdisjoint(ROOT_KNOWN_MIGRATION_DEBT)
-    assert ROOT_KNOWN_MIGRATION_DEBT == frozenset()
-    assert len(HISTORICAL_ROOT_MIGRATION_DEBT) == 13
+    assert len(FORBIDDEN_ROOT_CONSTRUCTOR_EXPORTS) == 13
     assert _top_level_exports() == EXPECTED_TOP_LEVEL_EXPORTS
     source = (ROOT / "src/onlyalpha/__init__.py").read_text(encoding="utf-8")
     assert _top_level_bindings(source) == EXPECTED_TOP_LEVEL_BINDINGS

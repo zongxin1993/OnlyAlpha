@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 
 import pytest
@@ -8,23 +7,13 @@ import pytest
 from onlyalpha.kernel.command import OnlyProductCommandDispatcher
 from onlyalpha.kernel.query import OnlyProductQueryDispatcher
 from onlyalpha.research.command.query import OnlyResearchRunQueryService
+from tests.architecture._architecture_imports import imported_modules_for_path
 
 pytestmark = pytest.mark.architecture
 
 ROOT = Path(__file__).parents[2]
 KERNEL = ROOT / "src/onlyalpha/kernel"
 PRODUCT_COMPOSITION = ROOT / "src/onlyalpha/application/product_boundary.py"
-
-
-def _imports(path: Path) -> frozenset[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    result: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            result.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module is not None:
-            result.add(node.module)
-    return frozenset(result)
 
 
 def test_kernel_dispatchers_are_transport_and_domain_neutral() -> None:
@@ -41,7 +30,7 @@ def test_kernel_dispatchers_are_transport_and_domain_neutral() -> None:
         "onlyalpha.strategy",
     )
     for filename in ("command.py", "query.py"):
-        assert not any(name.startswith(forbidden) for name in _imports(KERNEL / filename))
+        assert not any(name.startswith(forbidden) for name in imported_modules_for_path(KERNEL / filename, ROOT))
 
 
 def test_command_and_query_have_separate_minimal_surfaces() -> None:
@@ -60,7 +49,7 @@ def test_research_query_service_receives_only_read_capability() -> None:
     }
 
 
-def test_research_product_composition_remains_thin_after_k3_http_adoption() -> None:
+def test_research_product_composition_remains_thin_and_transport_neutral() -> None:
     source = PRODUCT_COMPOSITION.read_text(encoding="utf-8")
     assert source.count("OnlyProductCommandDispatcher(") == 1
     assert source.count("OnlyProductQueryDispatcher(") == 1
@@ -69,5 +58,6 @@ def test_research_product_composition_remains_thin_after_k3_http_adoption() -> N
     assert "get_run(" in source
     assert "list_runs(" in source
     assert not any(
-        name.startswith(("fastapi", "pydantic", "onlyalpha_http_server")) for name in _imports(PRODUCT_COMPOSITION)
+        name.startswith(("fastapi", "pydantic", "onlyalpha_http_server"))
+        for name in imported_modules_for_path(PRODUCT_COMPOSITION, ROOT)
     )

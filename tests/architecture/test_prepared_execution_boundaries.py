@@ -1,12 +1,7 @@
 import ast
 from pathlib import Path
 
-
-def _imports(path: str) -> set[str]:
-    tree = ast.parse(Path(path).read_text(encoding="utf-8"))
-    return {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names} | {
-        node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
-    }
+from tests.architecture._architecture_imports import syntactic_imported_modules_for_path
 
 
 def test_prepared_transaction_projection_and_store_do_not_import_runtime_managers_or_event_bus() -> None:
@@ -21,11 +16,11 @@ def test_prepared_transaction_projection_and_store_do_not_import_runtime_manager
         "src/onlyalpha/transaction/codec.py",
         "src/onlyalpha/transaction/projection_applier.py",
     ):
-        imports = _imports(path)
+        imports = syntactic_imported_modules_for_path(path)
         assert not any("runtime" in name for name in imports)
         assert not any(name.endswith(".manager") for name in imports)
         assert "onlyalpha.event.bus" not in imports
-    store_imports = _imports("src/onlyalpha/runtime/persistence/store.py")
+    store_imports = syntactic_imported_modules_for_path("src/onlyalpha/runtime/persistence/store.py")
     assert not any(name.endswith(".manager") or ".backtest" in name or ".engine" in name for name in store_imports)
     assert "onlyalpha.event.bus" not in store_imports
 
@@ -57,8 +52,14 @@ def test_replay_correctness_rules_have_no_manager_dependency_or_legacy_formula()
     presence = Path("src/onlyalpha/execution/reservation_presence.py").read_text(encoding="utf-8")
     invariants = Path("src/onlyalpha/execution/economic_invariants.py").read_text(encoding="utf-8")
     state = Path("src/onlyalpha/execution/execution_state.py").read_text(encoding="utf-8")
-    assert not any(name.endswith(".manager") for name in _imports("src/onlyalpha/execution/reservation_presence.py"))
-    assert not any(name.endswith(".manager") for name in _imports("src/onlyalpha/execution/economic_invariants.py"))
+    assert not any(
+        name.endswith(".manager")
+        for name in syntactic_imported_modules_for_path("src/onlyalpha/execution/reservation_presence.py")
+    )
+    assert not any(
+        name.endswith(".manager")
+        for name in syntactic_imported_modules_for_path("src/onlyalpha/execution/economic_invariants.py")
+    )
     assert "reserved_margin.amount - self.occupied_margin.amount" not in state
     assert "skip_economic_validation" not in presence + invariants + state
     assert "OnlyExecutionProcessor" not in presence + invariants + state

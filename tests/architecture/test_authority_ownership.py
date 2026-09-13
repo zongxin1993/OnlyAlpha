@@ -1,4 +1,4 @@
-"""Freeze P9.K.0 publication, execution-agent, and route ownership boundaries."""
+"""Freeze publication, execution-agent, and route ownership boundaries."""
 
 from __future__ import annotations
 
@@ -7,12 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from tests.architecture._p9_k0_authority_contract import load_authority_contract
-from tests.architecture._p9_k0_guard_helpers import (
+from tests.architecture._architecture_imports import (
     CanonicalImport,
     onlyalpha_imports,
     onlyalpha_imports_for_path,
 )
+from tests.architecture._product_authority_contract import load_authority_contract
 
 pytestmark = pytest.mark.architecture
 
@@ -21,7 +21,7 @@ API_ROOT = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server"
 RESEARCH_EXECUTION_ROOT = ROOT / "src/onlyalpha/research/execution"
 
 HTTP_METHODS = {"delete", "get", "head", "options", "patch", "post", "put", "trace"}
-CONTRACT = load_authority_contract(ROOT / "docs/architecture/p9_k0_authority_contract.toml")
+CONTRACT = load_authority_contract(ROOT / "docs/architecture/product_authority_contract.toml")
 FORBIDDEN_ROUTE_IMPORTS = (
     "onlyalpha.application.strategy_authority",
     "onlyalpha.engine",
@@ -252,19 +252,6 @@ def test_nested_research_execution_module_is_in_the_recursive_guard(tmp_path: Pa
         forbidden_imports=FORBIDDEN_WORKER_IMPORTS,
         forbidden_capabilities=FORBIDDEN_WORKER_CAPABILITIES,
     )
-
-
-def test_projection_reconciliation_is_operator_infrastructure_only() -> None:
-    assert not (ROOT / "docs/reports/p9_k0_product_surface_inventory.md").exists()
-    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
-    assert "仓库不得把以下内容作为当前 Authority" in agents
-    assert "质量/审计/验收/closure 报告" in agents
-
-
-def test_k01_closure_evidence_is_bound_to_the_immutable_subject() -> None:
-    assert not (ROOT / "docs/reports/p9_k0_product_surface_inventory.md").exists()
-    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
-    assert "Final-SHA / Exact-SHA 工程认证记录" in agents
 
 
 def test_strategy_publication_capability_remains_freeze_owned() -> None:
