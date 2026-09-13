@@ -16,11 +16,37 @@ SEMANTIC_SUCCESSORS = {
     "docs/p9_k7_remote_gateway_protocol.md": "docs/gateway_protocol.md",
 }
 
+PROCESS_SNAPSHOT_SUCCESSORS = {
+    "docs/account_broker_component_analysis.md": (
+        "docs/account.md",
+        "docs/broker_gateway.md",
+        "docs/virtual_broker.md",
+    ),
+    "docs/clock_analysis.md": ("docs/clock.md",),
+    "docs/domain_analysis.md": ("docs/domain_model.md",),
+    "docs/event_component_analysis.md": ("docs/event.md", "docs/market_data_pipeline.md"),
+    "docs/execution_processor_component_analysis.md": ("docs/execution_processor.md",),
+    "docs/market_data_source_component_analysis.md": ("docs/market_data_source.md",),
+    "docs/order_component_analysis.md": ("docs/order.md",),
+    "docs/position_component_analysis.md": ("docs/position.md",),
+    "docs/risk_component_analysis.md": ("docs/risk.md",),
+    "docs/runtime_context_analysis.md": ("docs/runtime_context.md",),
+    "docs/strategy_ledger_component_analysis.md": ("docs/strategy_ledger.md",),
+    "docs/time_model_analysis.md": ("docs/time_model.md",),
+}
+
 
 def test_retired_phase_coupled_assets_have_semantic_successors() -> None:
     for retired, successor in SEMANTIC_SUCCESSORS.items():
         assert not (ROOT / retired).exists(), retired
         assert (ROOT / successor).is_file(), successor
+
+
+def test_process_snapshots_are_replaced_by_current_domain_documents() -> None:
+    for retired, successors in PROCESS_SNAPSHOT_SUCCESSORS.items():
+        assert not (ROOT / retired).exists(), retired
+        for successor in successors:
+            assert (ROOT / successor).is_file(), successor
 
 
 def test_one_time_replay_audit_is_not_versioned_as_current_documentation() -> None:
