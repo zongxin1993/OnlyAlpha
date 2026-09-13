@@ -10,11 +10,10 @@ from pathlib import Path
 
 import pytest
 
-from tests.architecture._p9_k0_authority_contract import load_authority_contract
+from tests.architecture._product_authority_contract import load_authority_contract
 from tests.architecture.test_product_surface_boundaries import (
     EXPECTED_DIRECT_CONSTRUCTION_CLASSIFICATION,
-    HISTORICAL_ROOT_MIGRATION_DEBT,
-    ROOT_KNOWN_MIGRATION_DEBT,
+    FORBIDDEN_ROOT_CONSTRUCTOR_EXPORTS,
     _console_entry_points,
     _direct_construction_sites,
 )
@@ -82,7 +81,7 @@ def _route_modules() -> frozenset[Path]:
 
 
 def test_root_and_broad_aggregators_expose_zero_mutation_constructors() -> None:
-    assert HISTORICAL_ROOT_MIGRATION_DEBT == {
+    assert FORBIDDEN_ROOT_CONSTRUCTOR_EXPORTS == {
         "OnlyBacktestRuntime",
         "OnlyCluster",
         "OnlyClusterConfig",
@@ -97,9 +96,8 @@ def test_root_and_broad_aggregators_expose_zero_mutation_constructors() -> None:
         "OnlyResearchRuntime",
         "OnlyRuntime",
     }
-    assert ROOT_KNOWN_MIGRATION_DEBT == frozenset()
     forbidden_by_module = {
-        "onlyalpha": HISTORICAL_ROOT_MIGRATION_DEBT,
+        "onlyalpha": FORBIDDEN_ROOT_CONSTRUCTOR_EXPORTS,
         "onlyalpha.engine": {"OnlyEngine"},
         "onlyalpha.runtime": {
             "OnlyBacktestRuntime",

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.architecture._p9_k0_authority_contract import (
+from tests.architecture._product_authority_contract import (
     AuthorityContractError,
     authority_contract_from_document,
     load_authority_contract,

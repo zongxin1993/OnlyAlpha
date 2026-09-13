@@ -1,4 +1,4 @@
-"""Architecture-only loader for the single P9.K.0 authority contract."""
+"""Architecture-only loader for the single Product authority contract."""
 
 from __future__ import annotations
 

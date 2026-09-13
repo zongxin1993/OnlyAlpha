@@ -1,4 +1,4 @@
-"""Small canonical import scanner shared by the P9.K.0 architecture guards."""
+"""Small canonical import scanner shared by architecture guards."""
 
 from __future__ import annotations
 

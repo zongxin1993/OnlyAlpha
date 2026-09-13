@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from tests.architecture._p9_k0_authority_contract import load_authority_contract
-from tests.architecture._p9_k0_guard_helpers import CanonicalImport, onlyalpha_imports, onlyalpha_imports_for_path
+from tests.architecture._architecture_imports import CanonicalImport, onlyalpha_imports, onlyalpha_imports_for_path
+from tests.architecture._product_authority_contract import load_authority_contract
 
 pytestmark = pytest.mark.architecture
 
