@@ -189,7 +189,7 @@ def test_product_space_has_zero_direct_engine_or_runtime_constructor_owner() -> 
 
 
 def test_k0_migration_debt_is_zero() -> None:
-    k0 = load_authority_contract(ROOT / "docs/architecture/p9_k0_authority_contract.toml")
+    k0 = load_authority_contract(ROOT / "docs/architecture/product_authority_contract.toml")
     assert k0.legacy_debts == {}
 
 

@@ -20,6 +20,7 @@ SEMANTIC_SUCCESSORS = {
     "tests/architecture/test_p9_k6_external_client_boundary.py": "tests/architecture/test_product_surface_retirement.py",
     "tests/architecture/test_p9_k7_remote_protocol_boundary.py": "tests/architecture/test_gateway_protocol_boundary.py",
     "tests/architecture/test_p9_k8_kernel_seal.py": "tests/architecture/test_product_authority_seal.py",
+    "docs/architecture/p9_k0_authority_contract.toml": "docs/architecture/product_authority_contract.toml",
     "docs/p9_k7_remote_gateway_protocol.md": "docs/gateway_protocol.md",
 }
 

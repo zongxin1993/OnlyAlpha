@@ -1,4 +1,4 @@
-"""Freeze P9.K.0 publication, execution-agent, and route ownership boundaries."""
+"""Freeze publication, execution-agent, and route ownership boundaries."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ API_ROOT = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server"
 RESEARCH_EXECUTION_ROOT = ROOT / "src/onlyalpha/research/execution"
 
 HTTP_METHODS = {"delete", "get", "head", "options", "patch", "post", "put", "trace"}
-CONTRACT = load_authority_contract(ROOT / "docs/architecture/p9_k0_authority_contract.toml")
+CONTRACT = load_authority_contract(ROOT / "docs/architecture/product_authority_contract.toml")
 FORBIDDEN_ROUTE_IMPORTS = (
     "onlyalpha.application.strategy_authority",
     "onlyalpha.engine",

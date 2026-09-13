@@ -13,7 +13,7 @@ pytestmark = pytest.mark.architecture
 
 ROOT = Path(__file__).parents[2]
 API_ROOT = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server"
-CONTRACT = load_authority_contract(ROOT / "docs/architecture/p9_k0_authority_contract.toml")
+CONTRACT = load_authority_contract(ROOT / "docs/architecture/product_authority_contract.toml")
 
 PRIVILEGED_TRANSPORT_MODULES = (
     "onlyalpha.application.strategy_authority",
