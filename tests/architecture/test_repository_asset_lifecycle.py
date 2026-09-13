@@ -33,6 +33,12 @@ PROCESS_SNAPSHOT_SUCCESSORS = {
     "docs/runtime_context_analysis.md": ("docs/runtime_context.md",),
     "docs/strategy_ledger_component_analysis.md": ("docs/strategy_ledger.md",),
     "docs/time_model_analysis.md": ("docs/time_model.md",),
+    "docs/integration_vertical_slice.md": ("docs/testing.md",),
+    "docs/nautilus_research.md": (
+        "docs/engineering/reference_registry.md",
+        "docs/engineering/open_source_engineering_evidence.md",
+        "docs/domain_model.md",
+    ),
 }
 
 
