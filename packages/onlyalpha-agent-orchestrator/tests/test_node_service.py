@@ -19,7 +19,6 @@ from onlyalpha.build_provenance import OnlyPackagedBuildProvenanceV1
 from onlyalpha.distribution import OnlyArtifactSourceProvenanceAuthority
 from onlyalpha.research.agent.model import (
     OnlyAgentBudgetV1,
-    OnlyAgentEvaluationContextReferenceV1,
     OnlyAgentResearchBriefV1,
     OnlyAgentResearchBriefV2,
     OnlyAgentSearchMethod,
@@ -34,6 +33,7 @@ from onlyalpha.research.agent.store import (
     OnlyJsonAgentSessionManifestStore,
 )
 from onlyalpha.research.experiment import OnlySearchBudgetV1
+from onlyalpha.research.experiment.model import OnlySearchEvaluationContextReferenceV1
 
 SHA_A = "a" * 64
 SHA_B = "b" * 64
@@ -83,7 +83,7 @@ class _References:
         assert fingerprint == SHA_B
         return _Identity(snapshot_fingerprint=fingerprint)
 
-    def load_evaluation_context_verified(self, reference: OnlyAgentEvaluationContextReferenceV1) -> _Identity:
+    def load_evaluation_context_verified(self, reference: OnlySearchEvaluationContextReferenceV1) -> _Identity:
         assert reference.evaluation_fingerprint == SHA_C
         return _Identity(
             evaluation_kind=reference.evaluation_kind,
@@ -117,7 +117,7 @@ def _brief() -> OnlyAgentResearchBriefV1:
         ),
         SHA_A,
         SHA_B,
-        OnlyAgentEvaluationContextReferenceV1("ONLY_SYMBOLIC_RESEARCH_EVALUATION_CONTRACT", 1, SHA_C),
+        OnlySearchEvaluationContextReferenceV1("ONLY_SYMBOLIC_RESEARCH_EVALUATION_CONTRACT", 1, SHA_C),
         (OnlyAgentSearchMethod.SYMBOLIC_SEARCH,),
         OnlyAgentBudgetV1(4, 8),
     )

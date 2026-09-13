@@ -11,11 +11,12 @@ from onlyalpha_agent_orchestrator.authority_readers import (
 from onlyalpha_agent_orchestrator.production import OnlyAgentProductionContextReaderV1
 
 from onlyalpha.application.search_product import OnlySearchBoundedOperationV1
-from onlyalpha.research.agent import OnlyAgentContextError, OnlyAgentEvaluationContextReferenceV1
+from onlyalpha.research.agent import OnlyAgentContextError
 from onlyalpha.research.agent.occurrence import (
     OnlyAgentExactAuthorityReferenceV2,
     OnlyAgentReferenceLocatorKind,
 )
+from onlyalpha.research.experiment.model import OnlySearchEvaluationContextReferenceV1
 from tests.research.run.test_contract import specification
 
 SHA = "a" * 64
@@ -121,7 +122,7 @@ def test_search_reader_preserves_terminal_fact_identity_for_evidence_causality()
 
 
 def test_brief_reference_reader_exact_verifies_all_product_identities() -> None:
-    evaluation = OnlyAgentEvaluationContextReferenceV1("ONLY_SYMBOLIC_RESEARCH_EVALUATION_CONTRACT", 1, SHA)
+    evaluation = OnlySearchEvaluationContextReferenceV1("ONLY_SYMBOLIC_RESEARCH_EVALUATION_CONTRACT", 1, SHA)
     client = _Client(
         [
             {"catalog_generation_fingerprint": SHA, "extra_projection": "allowed"},

@@ -53,7 +53,6 @@ from onlyalpha.domain.enums import (
 )
 from onlyalpha.domain.execution import (
     OnlyCancelOrderRequest,
-    OnlyCancelRequest,
     OnlyOrderFailure,
     OnlyOrderFill,
     OnlyOrderRef,

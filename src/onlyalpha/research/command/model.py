@@ -20,13 +20,12 @@ from onlyalpha.research.specification.model import OnlyResearchSpecification
 
 from .errors import OnlyResearchRunCursorError
 
-OnlyResearchSubmissionKey = OnlyProductCommandId
 _SEARCH_EXPERIMENT_WORK_ID = re.compile(r"^search-experiment:[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyResearchSubmitCommand:
-    submission_key: OnlyResearchSubmissionKey
+    submission_key: OnlyProductCommandId
     specification: OnlyResearchSpecification
     authoring_provenance: OnlyResearchAuthoringProvenance | None = None
 
@@ -43,7 +42,7 @@ class OnlyResearchSubmitCommand:
 class OnlyDerivedResearchSubmitCommandV2:
     """Complete Product operational intent for Search-derived Research work."""
 
-    submission_key: OnlyResearchSubmissionKey
+    submission_key: OnlyProductCommandId
     specification: OnlyResearchSpecification
     parent_runtime_work_id: str
     authoring_provenance: OnlyResearchAuthoringProvenance | None = None
@@ -101,7 +100,7 @@ class OnlyResearchSubmitOutcome:
 class OnlyResearchSubmissionRecord:
     """Compatibility projection; Product Command Receipt is the sole durable authority."""
 
-    submission_key: OnlyResearchSubmissionKey
+    submission_key: OnlyProductCommandId
     command_fingerprint: str
     run_id: OnlyResearchRunId
 

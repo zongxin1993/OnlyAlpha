@@ -20,8 +20,8 @@ from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.research.calculation.binding import only_research_dataset_source_contract
 from onlyalpha.research.calculation.predicate import (
+    only_predicate_type_reference,
     only_register_research_predicate_primitives,
-    only_research_predicate_type_reference,
 )
 from onlyalpha.research.dataset import OnlyResearchDatasetDefinition
 from onlyalpha.research.evaluation.capability import only_research_statistics_capability
@@ -643,7 +643,7 @@ class _ExpressionLowerer:
         node_id = f"{role}_terminal"
         self.nodes[node_id] = OnlyResearchGraphTemplateNode(
             node_id,
-            only_research_predicate_type_reference(f"terminal.{role}"),
+            only_predicate_type_reference(f"terminal.{role}"),
             {},
             (OnlyResearchTemplateInputBinding("value", OnlyResearchTemplateReference(root, "value")),),
         )
@@ -667,7 +667,7 @@ class _ExpressionLowerer:
             child = self._lower(expression.operand, f"{path}.operand")
             node = OnlyResearchGraphTemplateNode(
                 node_id,
-                only_research_predicate_type_reference("boolean.not"),
+                only_predicate_type_reference("boolean.not"),
                 {},
                 (OnlyResearchTemplateInputBinding("value", OnlyResearchTemplateReference(child, "value")),),
             )
@@ -681,7 +681,7 @@ class _ExpressionLowerer:
                 intermediate = node_id if ordinal == len(children) - 1 else f"{node_id}_{ordinal}"
                 self.nodes[intermediate] = OnlyResearchGraphTemplateNode(
                     intermediate,
-                    only_research_predicate_type_reference(f"boolean.{name}"),
+                    only_predicate_type_reference(f"boolean.{name}"),
                     {},
                     (
                         OnlyResearchTemplateInputBinding("left", OnlyResearchTemplateReference(current, "value")),
@@ -699,7 +699,7 @@ class _ExpressionLowerer:
         if not left_literal and not right_literal:
             return OnlyResearchGraphTemplateNode(
                 node_id,
-                only_research_predicate_type_reference(f"compare.{operator}.{left_type.value.lower()}.refs"),
+                only_predicate_type_reference(f"compare.{operator}.{left_type.value.lower()}.refs"),
                 {},
                 (self._operand_binding("left", expression.left), self._operand_binding("right", expression.right)),
             )
@@ -713,7 +713,7 @@ class _ExpressionLowerer:
             raise TypeError("comparison literal is missing")
         return OnlyResearchGraphTemplateNode(
             node_id,
-            only_research_predicate_type_reference(f"compare.{operator}.{left_type.value.lower()}.literal"),
+            only_predicate_type_reference(f"compare.{operator}.{left_type.value.lower()}.literal"),
             {"literal": literal.value, "literal_left": left_literal},
             (self._operand_binding("left", reference),),
         )

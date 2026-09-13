@@ -41,7 +41,7 @@ The Orchestrator owns checkpoint load/contract verification, participant restore
 immutable `OnlyRuntimeRecoveryOutcome`. The outcome identifies the restored checkpoint, diagnostic final head, persisted-tail and
 continuation sequence ranges, exact final boundary and whether replay occurred. It does not validate all managers.
 
-The Validator receives a narrow immutable context of query/snapshot Ports. It never receives `OnlyRuntimeServices`, reads private
+The Validator receives a narrow immutable context of query/snapshot Ports. It never receives `OnlyTradingKernelServices`, reads private
 manager containers, or mutates authority. It checks transaction sequence/readiness/identities, Outbox references and publication,
 this recovery's applied-projection range, position/allocation, order/reservation, account/all ledgers, fee/settlement/margin,
 broker/local open orders, queues, EventBus, cursor/result progress/processor sequence and clock. Existing Runtime ledger

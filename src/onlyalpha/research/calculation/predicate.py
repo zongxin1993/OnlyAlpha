@@ -24,15 +24,9 @@ from onlyalpha.calculation.predicate import (
     PREDICATE_VALUE_SEMANTIC_TYPE,
     OnlyPredicateDefinitionResolver,
     only_predicate_type_definitions,
-    only_predicate_type_reference,
+    only_predicate_type_reference,  # noqa: F401
 )
 from onlyalpha.calculation.registry import OnlyCalculationBackendRegistration, OnlyCalculationRegistry
-
-
-def only_research_predicate_type_reference(name: str) -> OnlyCalculationTypeReference:
-    """Compatibility name for the neutral Predicate semantic reference."""
-
-    return only_predicate_type_reference(name)
 
 
 class _ResearchPredicateBackend:
@@ -132,6 +126,6 @@ def _register_idempotently(
 __all__ = [
     "PREDICATE_SEMANTIC_VERSION",
     "PREDICATE_VALUE_SEMANTIC_TYPE",
+    "only_predicate_type_reference",
     "only_register_research_predicate_primitives",
-    "only_research_predicate_type_reference",
 ]

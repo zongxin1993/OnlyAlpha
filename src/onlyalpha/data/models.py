@@ -365,10 +365,6 @@ class OnlyMarketDataConnectionResult:
     reason: str | None = None
 
 
-OnlyMarketDataAuthenticationResult = OnlyMarketDataConnectionResult
-OnlyMarketDataDisconnectResult = OnlyMarketDataConnectionResult
-
-
 @dataclass(frozen=True, slots=True)
 class OnlyMarketDataSubscriptionRequest:
     request_id: str

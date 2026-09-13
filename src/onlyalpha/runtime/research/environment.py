@@ -5,8 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from onlyalpha.canonical import only_canonical_fingerprint
-
-from .plan import OnlyResearchWorkloadPlan
+from onlyalpha.research.workload import OnlyResearchWorkloadPlan
 
 
 @dataclass(frozen=True, slots=True)

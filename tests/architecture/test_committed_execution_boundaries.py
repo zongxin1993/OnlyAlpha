@@ -13,7 +13,7 @@ from onlyalpha.execution import (
     OnlyRuntimeTransactionOutboxPort,
     OnlyRuntimeTransactionQueryPort,
 )
-from onlyalpha.runtime.runtime import OnlyRuntimeServices
+from onlyalpha.runtime.trading.services import OnlyTradingKernelServices
 
 
 def _source(root: Path) -> str:
@@ -23,7 +23,7 @@ def _source(root: Path) -> str:
 def test_committed_fact_and_runtime_service_have_provider_neutral_runtime_ownership() -> None:
     fact_modules = {getattr(field.type, "__module__", "") for field in fields(OnlyCommittedExecutionFact)}
     assert not any(module.startswith("onlyalpha_plugin_") for module in fact_modules)
-    service_hints = get_type_hints(OnlyRuntimeServices)
+    service_hints = get_type_hints(OnlyTradingKernelServices)
     assert service_hints["execution_transaction_query"] is OnlyRuntimeTransactionQueryPort
     assert service_hints["ready_execution_query"] is OnlyProjectionReadyRuntimeQueryPort
     assert service_hints["execution_projection_state"] is OnlyRuntimeProjectionStatePort

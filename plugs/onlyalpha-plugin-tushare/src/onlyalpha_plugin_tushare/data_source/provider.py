@@ -4,7 +4,7 @@ from collections.abc import Callable, Mapping
 from datetime import datetime
 from decimal import Decimal
 
-from onlyalpha.cache.historical.models import OnlyHistoricalCacheKey
+from onlyalpha.cache.historical.models import OnlyHistoricalBarCacheKey
 from onlyalpha.core.ranges import OnlyTimeRange, only_merge_ranges
 from onlyalpha.data.historical import OnlyDataQualityReport, OnlyHistoricalDataRequest, OnlyHistoricalFetchResult
 from onlyalpha.domain.calendar import OnlyTradingCalendar
@@ -38,8 +38,8 @@ class OnlyTushareHistoricalDataProvider:
         self._calendar = calendar
         self._client_factory = client_factory
 
-    def build_cache_key(self, request: OnlyHistoricalDataRequest) -> OnlyHistoricalCacheKey:
-        return OnlyHistoricalCacheKey(
+    def build_cache_key(self, request: OnlyHistoricalDataRequest) -> OnlyHistoricalBarCacheKey:
+        return OnlyHistoricalBarCacheKey(
             self._source_id,
             "bars",
             request.instrument_id,

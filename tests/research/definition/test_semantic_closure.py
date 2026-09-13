@@ -49,9 +49,9 @@ from onlyalpha.research import (
     OnlyResearchTypedLiteral,
     OnlyResearchVariableRef,
     only_canonicalize_research_expression,
+    only_predicate_type_reference,
     only_register_research_predicate_primitives,
     only_research_expression_fingerprint,
-    only_research_predicate_type_reference,
 )
 from onlyalpha.research.definition.resolver import _ExpressionLowerer
 from tests.research.calculation.support import bars, snapshot
@@ -303,7 +303,7 @@ def test_expression_diagnostics_use_exact_definition_paths(tmp_path, role, expre
 def _predicate_backend(name: str, inputs: dict[str, pa.Array], parameters: dict[str, object] | None = None):
     registry = OnlyCalculationRegistry()
     only_register_research_predicate_primitives(registry)
-    reference = only_research_predicate_type_reference(name)
+    reference = only_predicate_type_reference(name)
     bindings = {input_name: OnlyCalculationReference(None, input_name, "bar.close") for input_name in inputs}
     definition_ = registry.rematerialize_definition(reference, parameters or {}, bindings)
     backend = OnlyResearchCalculationBackendResolver(registry).resolve(definition_)
@@ -480,7 +480,7 @@ def _comparison_node(expression: OnlyResearchComparison) -> OnlyResearchGraphTem
         binding = _binding("left", reference.instance_key, reference.output_name)
     return OnlyResearchGraphTemplateNode(
         node_id,
-        only_research_predicate_type_reference(f"compare.{operator}.{data_type.value.lower()}.literal"),
+        only_predicate_type_reference(f"compare.{operator}.{data_type.value.lower()}.literal"),
         {"literal": literal.value, "literal_left": isinstance(expression.left, OnlyResearchTypedLiteral)},
         (binding,),
     )
@@ -521,7 +521,7 @@ def _independent_specification(base, snapshot_fingerprint: str) -> OnlyResearchS
         *comparison_nodes,
         OnlyResearchGraphTemplateNode(
             entry_id,
-            only_research_predicate_type_reference("boolean.and"),
+            only_predicate_type_reference("boolean.and"),
             {},
             (
                 _binding("left", f"predicate_{only_research_expression_fingerprint(entry_parts[0])}", "value"),
@@ -530,19 +530,19 @@ def _independent_specification(base, snapshot_fingerprint: str) -> OnlyResearchS
         ),
         OnlyResearchGraphTemplateNode(
             "eligibility_terminal",
-            only_research_predicate_type_reference("terminal.eligibility"),
+            only_predicate_type_reference("terminal.eligibility"),
             {},
             (_binding("value", f"predicate_{only_research_expression_fingerprint(eligibility)}", "value"),),
         ),
         OnlyResearchGraphTemplateNode(
             "entry_signal_terminal",
-            only_research_predicate_type_reference("terminal.entry_signal"),
+            only_predicate_type_reference("terminal.entry_signal"),
             {},
             (_binding("value", entry_id, "value"),),
         ),
         OnlyResearchGraphTemplateNode(
             "exit_signal_terminal",
-            only_research_predicate_type_reference("terminal.exit_signal"),
+            only_predicate_type_reference("terminal.exit_signal"),
             {},
             (_binding("value", f"predicate_{only_research_expression_fingerprint(exit_expression)}", "value"),),
         ),

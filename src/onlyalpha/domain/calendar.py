@@ -153,10 +153,6 @@ class OnlyTradingCalendar(OnlyDomainModel):
     def is_trading_time(self, timestamp_utc: datetime | OnlyTimestamp) -> bool:
         return self.session_at(timestamp_utc) is not None
 
-    def is_open_at(self, timestamp: datetime) -> bool:
-        """Compatibility alias for is_trading_time."""
-        return self.is_trading_time(timestamp)
-
     def to_local(self, timestamp_utc: datetime | OnlyTimestamp) -> datetime:
         value = timestamp_utc.to_datetime() if isinstance(timestamp_utc, OnlyTimestamp) else timestamp_utc
         only_require_utc(value, "calendar query timestamp")

@@ -40,7 +40,6 @@ from .errors import (
 )
 from .model import (
     OnlyDerivedResearchSubmitCommandV2,
-    OnlyResearchSubmissionKey,
     OnlyResearchSubmitCommand,
     OnlyResearchSubmitDisposition,
     OnlyResearchSubmitOutcome,
@@ -73,7 +72,7 @@ class OnlyResearchCommandService:
 
     def submit_research_run(
         self,
-        submission_key: OnlyResearchSubmissionKey,
+        submission_key: OnlyProductCommandId,
         specification: OnlyResearchSpecification,
         provenance: OnlyResearchAuthoringProvenance | None = None,
         *,

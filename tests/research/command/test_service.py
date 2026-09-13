@@ -40,7 +40,6 @@ from onlyalpha.research.command import (
     OnlyResearchRunPageLimitError,
     OnlyResearchRunQueryService,
     OnlyResearchSubmissionConflictError,
-    OnlyResearchSubmissionKey,
     OnlyResearchSubmissionRecord,
     OnlyResearchSubmitCommand,
     OnlyResearchSubmitDisposition,
@@ -65,8 +64,8 @@ from tests.research.specification.support import registry, specification
 from tests.runtime_generation_support import only_ready_test_generation
 
 NOW = datetime(2026, 8, 18, 1, 2, 3, 456789, tzinfo=UTC)
-KEY = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000001")
-OTHER_KEY = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000002")
+KEY = OnlyProductCommandId("00000000-0000-4000-8000-000000000001")
+OTHER_KEY = OnlyProductCommandId("00000000-0000-4000-8000-000000000002")
 
 
 class _RuntimeGenerations:
@@ -163,14 +162,14 @@ class _AuthoringGenerations:
 class _Store:
     def __init__(self) -> None:
         self.runs: dict[OnlyResearchRunId, OnlyResearchRun] = {}
-        self.receipts: dict[OnlyResearchSubmissionKey, OnlyProductCommandReceipt] = {}
+        self.receipts: dict[OnlyProductCommandId, OnlyProductCommandReceipt] = {}
         self.conflicts = 0
 
     def create_queued(self, run: OnlyResearchRun) -> OnlyResearchRun:
         self.runs[run.run_id] = run
         return run
 
-    def find_product_command_receipt(self, key: OnlyResearchSubmissionKey) -> OnlyProductCommandReceipt | None:
+    def find_product_command_receipt(self, key: OnlyProductCommandId) -> OnlyProductCommandReceipt | None:
         return self.receipts.get(key)
 
     def create_queued_with_receipt(
@@ -304,7 +303,7 @@ def test_formal_runs_bind_active_generation_across_activation_rollback_and_resta
         actor="operator",
         occurred_at=NOW + timedelta(seconds=4),
     )
-    third = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000003")
+    third = OnlyProductCommandId("00000000-0000-4000-8000-000000000003")
     r3 = service.submit_research_run(third, specification()).run
 
     restarted = OnlyRuntimeGenerationRegistry(tmp_path / "runtime-authority")
@@ -338,7 +337,7 @@ def test_search_derived_research_inherits_parent_generation_while_standalone_use
         ],
         runtime_generations=authority,
     )
-    derived_key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000004")
+    derived_key = OnlyProductCommandId("00000000-0000-4000-8000-000000000004")
     derived = service.submit_research_run(
         derived_key,
         specification(),
@@ -354,7 +353,7 @@ def test_search_derived_research_inherits_parent_generation_while_standalone_use
         == derived
     )
 
-    standalone_key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000005")
+    standalone_key = OnlyProductCommandId("00000000-0000-4000-8000-000000000005")
     standalone = service.submit_research_run(standalone_key, specification()).run
     assert authority.require_work_binding(standalone.run_id.value).runtime_generation_fingerprint == g2
 
@@ -371,7 +370,7 @@ def test_search_derived_research_prebound_to_another_generation_fails_before_run
     authority.activate_for_new_work(
         expected_current=g1, target=g2, actor="operator", occurred_at=NOW + timedelta(seconds=4)
     )
-    derived_key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000006")
+    derived_key = OnlyProductCommandId("00000000-0000-4000-8000-000000000006")
     child_id = only_derived_research_run_id(derived_key).value
     authority.bind_new_work(child_id, actor="conflicting-root", occurred_at=NOW + timedelta(seconds=5))
     store = _Store()
@@ -437,7 +436,7 @@ def test_derived_replay_rejects_wrong_existing_run_even_when_runtime_generation_
         command_admissions=admissions,
     )
     wrong_run = service.submit_research_run(OTHER_KEY, specification()).run
-    derived_key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-00000000000e")
+    derived_key = OnlyProductCommandId("00000000-0000-4000-8000-00000000000e")
     command = OnlyDerivedResearchSubmitCommandV2(derived_key, specification(), parent)
     admissions.admit_exact(
         OnlyProductCommandAdmissionV1(
@@ -469,7 +468,7 @@ def test_derived_replay_rejects_wrong_existing_run_even_when_runtime_generation_
 
 
 def test_derived_post_create_winning_receipt_must_reference_canonical_run(tmp_path) -> None:
-    derived_key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-00000000000f")
+    derived_key = OnlyProductCommandId("00000000-0000-4000-8000-00000000000f")
     parent = only_search_experiment_work_id("d" * 64)
     command = OnlyDerivedResearchSubmitCommandV2(derived_key, specification(), parent)
 
@@ -572,7 +571,7 @@ def test_derived_binding_crash_before_run_commit_recovers_same_run_without_orpha
         runtime_generations=authority,
         command_admissions=admissions,
     )
-    derived_key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000007")
+    derived_key = OnlyProductCommandId("00000000-0000-4000-8000-000000000007")
     expected_run_id = only_derived_research_run_id(derived_key)
 
     with pytest.raises(RuntimeError, match="injected crash"):
@@ -615,7 +614,7 @@ def test_derived_retry_conflicts_on_different_parent_even_when_generation_matche
         runtime_generations=authority,
         command_admissions=admissions,
     )
-    derived_key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000008")
+    derived_key = OnlyProductCommandId("00000000-0000-4000-8000-000000000008")
     with pytest.raises(RuntimeError, match="injected crash"):
         service.submit_research_run(derived_key, specification(), parent_runtime_work_id=parents[0])
     with pytest.raises(OnlyResearchSubmissionConflictError):
@@ -643,7 +642,7 @@ def test_terminal_derived_replay_uses_historical_inactive_binding(tmp_path) -> N
     authority.bind_work_exact(parent, generation, actor="search", occurred_at=NOW + timedelta(seconds=2))
     store = _Store()
     service = _service(store, _DatasetStore(), runtime_generations=authority)
-    derived_key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000009")
+    derived_key = OnlyProductCommandId("00000000-0000-4000-8000-000000000009")
     created = service.submit_research_run(derived_key, specification(), parent_runtime_work_id=parent).run
     completed = created.transition(OnlyResearchRunState.RUNNING, at=NOW + timedelta(seconds=3)).transition(
         OnlyResearchRunState.COMPLETED,
@@ -686,7 +685,7 @@ def test_new_derived_work_requires_active_parent_but_bound_recovery_does_not(tmp
     authority.bind_work_exact(parent, generation, actor="search", occurred_at=NOW + timedelta(seconds=2))
     store = CrashOnceStore()
     service = _service(store, _DatasetStore(), runtime_generations=authority)
-    recovery_key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-00000000000a")
+    recovery_key = OnlyProductCommandId("00000000-0000-4000-8000-00000000000a")
     with pytest.raises(RuntimeError, match="injected crash"):
         service.submit_research_run(recovery_key, specification(), parent_runtime_work_id=parent)
     authority.release_work(parent, actor="search", occurred_at=NOW + timedelta(seconds=3))
@@ -696,7 +695,7 @@ def test_new_derived_work_requires_active_parent_but_bound_recovery_does_not(tmp
         parent_runtime_work_id=parent,
     ).run.run_id == only_derived_research_run_id(recovery_key)
 
-    new_key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-00000000000b")
+    new_key = OnlyProductCommandId("00000000-0000-4000-8000-00000000000b")
     with pytest.raises(ValueError, match="RUNTIME_DERIVED_PARENT_GENERATION_UNBOUND"):
         service.submit_research_run(new_key, specification(), parent_runtime_work_id=parent)
     assert only_derived_research_run_id(new_key).value not in authority.projection().work_bindings
@@ -724,7 +723,7 @@ def test_concurrent_same_derived_command_converges_on_one_run_and_receipt(tmp_pa
     authority.bind_work_exact(parent, generation, actor="search", occurred_at=NOW + timedelta(seconds=2))
     store = RacingStore()
     service = _service(store, _DatasetStore(), runtime_generations=authority)
-    derived_key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-00000000000c")
+    derived_key = OnlyProductCommandId("00000000-0000-4000-8000-00000000000c")
     outcomes: list[OnlyResearchRun] = []
 
     def submit() -> None:
@@ -775,7 +774,7 @@ def test_concurrent_same_key_different_parent_has_one_product_intent_winner(tmp_
         runtime_generations=authority,
         command_admissions=RacingAdmissions(),
     )
-    derived_key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-00000000000d")
+    derived_key = OnlyProductCommandId("00000000-0000-4000-8000-00000000000d")
     outcomes: list[str] = []
 
     def submit(parent: str) -> None:
@@ -806,7 +805,7 @@ def test_submission_key_requires_canonical_uuid4() -> None:
     assert str(KEY) == KEY.value
     for invalid in ("bad", "00000000-0000-1000-8000-000000000001", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".upper()):
         with pytest.raises(ValueError):
-            OnlyResearchSubmissionKey(invalid)
+            OnlyProductCommandId(invalid)
 
 
 def test_command_constructor_record_and_cursor_evidence_fail_closed() -> None:
@@ -1005,7 +1004,7 @@ def test_cursor_round_trip_rejects_noncanonical_input_and_pages_stably() -> None
         ids=[f"00000000-0000-4000-8000-{value:012d}" for value in (10, 11, 12)],
         times=[NOW, NOW, NOW],
     )
-    for key in (KEY, OTHER_KEY, OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000003")):
+    for key in (KEY, OTHER_KEY, OnlyProductCommandId("00000000-0000-4000-8000-000000000003")):
         service.submit_research_run(key, specification())
     query = OnlyResearchRunQueryService(store)  # type: ignore[arg-type]
     first = query.list_runs(limit=2)

@@ -28,7 +28,6 @@ from onlyalpha.data.registry import OnlyMarketDataSourceFactory, OnlyMarketDataS
 from onlyalpha.data.replay import OnlyHistoricalReplayService
 from onlyalpha.data.sources import (
     OnlyCsvHistoricalDataSource,
-    OnlyFileReferenceDataSource,
     OnlyHistoricalDataSourceError,
     OnlyInMemoryHistoricalDataSource,
     OnlyInMemoryReferenceDataSource,

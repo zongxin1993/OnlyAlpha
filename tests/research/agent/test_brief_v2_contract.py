@@ -11,7 +11,6 @@ from onlyalpha.research.agent import (
     OnlyAgentContextError,
     OnlyAgentContextReferenceV1,
     OnlyAgentDecisionApplicationServiceV1,
-    OnlyAgentEvaluationContextReferenceV1,
     OnlyAgentResearchBriefReferenceReadersV1,
     OnlyAgentResearchBriefV1,
     OnlyAgentResearchBriefV2,
@@ -22,6 +21,7 @@ from onlyalpha.research.agent import (
     verify_agent_research_brief_references,
 )
 from onlyalpha.research.experiment import OnlySearchBudgetV1
+from onlyalpha.research.experiment.model import OnlySearchEvaluationContextReferenceV1
 
 
 def _reference(kind: str, digit: str) -> OnlyAgentContextReferenceV1:
@@ -52,7 +52,7 @@ def _brief_v2() -> OnlyAgentResearchBriefV2:
         _hypothesis(),
         "a" * 64,
         "b" * 64,
-        OnlyAgentEvaluationContextReferenceV1("ONLY_SYMBOLIC_RESEARCH_EVALUATION_CONTRACT", 1, "c" * 64),
+        OnlySearchEvaluationContextReferenceV1("ONLY_SYMBOLIC_RESEARCH_EVALUATION_CONTRACT", 1, "c" * 64),
         (OnlyAgentSearchMethod.SYMBOLIC_SEARCH,),
         OnlyAgentBudgetV1(4, 12),
         OnlySearchBudgetV1(1, 1, 1),
@@ -65,7 +65,7 @@ def test_brief_v1_bytes_and_parser_remain_exactly_backward_compatible() -> None:
         _hypothesis(),
         "a" * 64,
         "b" * 64,
-        OnlyAgentEvaluationContextReferenceV1("ONLY_SYMBOLIC_RESEARCH_EVALUATION_CONTRACT", 1, "c" * 64),
+        OnlySearchEvaluationContextReferenceV1("ONLY_SYMBOLIC_RESEARCH_EVALUATION_CONTRACT", 1, "c" * 64),
         (OnlyAgentSearchMethod.SYMBOLIC_SEARCH,),
         OnlyAgentBudgetV1(4, 12),
     )

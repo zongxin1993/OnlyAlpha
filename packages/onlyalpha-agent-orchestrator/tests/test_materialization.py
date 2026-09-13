@@ -14,7 +14,6 @@ from onlyalpha.research.agent import (
     OnlyAgentBudgetV1,
     OnlyAgentContextReferenceV1,
     OnlyAgentDecisionKind,
-    OnlyAgentEvaluationContextReferenceV1,
     OnlyAgentExactAuthorityReferenceV2,
     OnlyAgentModelSettingBindingV1,
     OnlyAgentModelSettingState,
@@ -36,6 +35,7 @@ from onlyalpha.research.agent import (
     OnlyAgentToolClass,
 )
 from onlyalpha.research.experiment import OnlySearchBudgetV1
+from onlyalpha.research.experiment.model import OnlySearchEvaluationContextReferenceV1
 
 SESSION = "a" * 64
 COMMAND_ID = uuid.UUID("12345678-1234-4234-9234-123456789abc")
@@ -175,7 +175,7 @@ def test_v2_search_submit_uses_brief_budget_without_budget_authority_lookup(para
         _brief().hypothesis,
         "1" * 64,
         "2" * 64,
-        OnlyAgentEvaluationContextReferenceV1("ONLY_SYMBOLIC_RESEARCH_EVALUATION_CONTRACT", 1, "5" * 64),
+        OnlySearchEvaluationContextReferenceV1("ONLY_SYMBOLIC_RESEARCH_EVALUATION_CONTRACT", 1, "5" * 64),
         (OnlyAgentSearchMethod.PARAMETER_SEARCH if parameter else OnlyAgentSearchMethod.SYMBOLIC_SEARCH,),
         OnlyAgentBudgetV1(4, 20),
         budget,

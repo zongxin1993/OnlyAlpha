@@ -7,8 +7,6 @@ from onlyalpha.plugin.descriptor import OnlyPluginDescriptor, OnlyPluginOrigin, 
 from onlyalpha.plugin.errors import OnlyPluginRegistryError
 from onlyalpha.plugin.registry import OnlyPluginFactoryRecord, only_register_plugin_factory
 
-OnlyBrokerFactory = OnlyBrokerGatewayFactory
-
 
 class OnlyBrokerFactoryRegistry:
     def __init__(self) -> None:
@@ -37,11 +35,6 @@ class OnlyBrokerFactoryRegistry:
                 plugin_id=plugin_id,
             ) from exc
 
-    def require(self, plugin_id: str) -> OnlyBrokerGatewayFactory:
-        """Deprecated alias for resolve()."""
-
-        return self.resolve(plugin_id)
-
     def descriptors(self) -> tuple[OnlyPluginDescriptor, ...]:
         return tuple(self._records[key].descriptor for key in sorted(self._records))
 
@@ -51,7 +44,6 @@ class OnlyBrokerFactoryRegistry:
 
 __all__ = [
     "OnlyBrokerCreateRequest",
-    "OnlyBrokerFactory",
     "OnlyBrokerFactoryRegistry",
     "OnlyBrokerGatewayFactory",
 ]

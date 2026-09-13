@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Path
 
-from onlyalpha.research.agent.model import OnlyAgentEvaluationContextReferenceV1
+from onlyalpha.research.experiment.model import OnlySearchEvaluationContextReferenceV1
 
 from .exact_reference_schema import (
     ExactDatasetSnapshotDto,
@@ -45,7 +45,7 @@ def create_exact_reference_router(
         evaluation_schema_version: VersionPath,
         evaluation_fingerprint: ShaPath,
     ) -> ExactEvaluationContextDto:
-        reference = OnlyAgentEvaluationContextReferenceV1(
+        reference = OnlySearchEvaluationContextReferenceV1(
             evaluation_kind,
             evaluation_schema_version,
             evaluation_fingerprint,

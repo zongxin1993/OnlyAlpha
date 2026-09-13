@@ -10,7 +10,6 @@ from onlyalpha.distribution import OnlyArtifactSourceProvenanceAuthority
 from onlyalpha.research.agent import (
     OnlyAgentBudgetV1,
     OnlyAgentDistributionProvenanceV1,
-    OnlyAgentEvaluationContextReferenceV1,
     OnlyAgentModelExecutionPolicyPayloadV1,
     OnlyAgentModelSettingRuleV1,
     OnlyAgentModelSettingSupport,
@@ -32,6 +31,7 @@ from onlyalpha.research.agent import (
     OnlyAgentWorkflowImplementationManifestV1,
     OnlyAgentWorkflowResourceKind,
 )
+from onlyalpha.research.experiment.model import OnlySearchEvaluationContextReferenceV1
 
 SOURCE_REVISION = "1" * 40
 
@@ -53,7 +53,7 @@ class PersistentExactReaders:
     def __init__(self, root: Path) -> None:
         self._path = root / "external-authorities.json"
 
-    def initialize(self, *, catalog: str, dataset: str, evaluation: OnlyAgentEvaluationContextReferenceV1) -> None:
+    def initialize(self, *, catalog: str, dataset: str, evaluation: OnlySearchEvaluationContextReferenceV1) -> None:
         self._path.write_text(
             json.dumps(
                 {
@@ -84,7 +84,7 @@ class PersistentExactReaders:
             raise LookupError(snapshot_fingerprint)
         return FingerprintValue(snapshot_fingerprint=snapshot_fingerprint)
 
-    def load_evaluation_context_verified(self, reference: OnlyAgentEvaluationContextReferenceV1) -> FingerprintValue:
+    def load_evaluation_context_verified(self, reference: OnlySearchEvaluationContextReferenceV1) -> FingerprintValue:
         value = self._load()["evaluation"]
         if value != reference.to_dict():
             raise LookupError(reference.evaluation_fingerprint)
@@ -120,7 +120,7 @@ def resource(kind: OnlyAgentOrchestrationResourceKind, payload: object) -> OnlyA
 def make_context(root: Path) -> ContextFixture:
     catalog = "a" * 64
     dataset = "b" * 64
-    evaluation = OnlyAgentEvaluationContextReferenceV1("ONLYALPHA_RESEARCH_EVALUATION", 1, "c" * 64)
+    evaluation = OnlySearchEvaluationContextReferenceV1("ONLYALPHA_RESEARCH_EVALUATION", 1, "c" * 64)
     exact_readers = PersistentExactReaders(root)
     exact_readers.initialize(catalog=catalog, dataset=dataset, evaluation=evaluation)
     readers = OnlyAgentResearchBriefReferenceReadersV1(exact_readers, exact_readers, exact_readers)

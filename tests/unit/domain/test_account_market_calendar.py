@@ -81,7 +81,7 @@ def test_bar_order_book_and_calendar_invariants(instrument_id: OnlyInstrumentId)
         (OnlyTradingSession("continuous", time(9, 30), time(15, 0)),),
         (date(2026, 1, 1),),
     )
-    assert calendar.is_open_at(datetime(2026, 1, 5, 2, 0, tzinfo=UTC))
+    assert calendar.is_trading_time(datetime(2026, 1, 5, 2, 0, tzinfo=UTC))
     crossed = OnlyOrderBook(
         instrument_id,
         OnlyBookType.L2,

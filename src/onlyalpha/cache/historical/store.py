@@ -18,7 +18,7 @@ from onlyalpha.cache.historical.models import (
     OnlyCacheInspection,
     OnlyCacheManifest,
     OnlyCacheWriteResult,
-    OnlyHistoricalCacheKey,
+    OnlyHistoricalBarCacheKey,
     OnlyHistoricalTradeCacheKey,
     OnlyTypedHistoricalCacheKey,
 )
@@ -69,7 +69,7 @@ class OnlyParquetHistoricalCacheStore:
             self._quarantine(key, str(exc))
             return OnlyCacheInspection(True, False, key, (), (), (requested_range,), None, (issue,))
 
-    def read(self, key: OnlyHistoricalCacheKey, time_range: OnlyTimeRange) -> tuple[OnlyBar, ...]:
+    def read(self, key: OnlyHistoricalBarCacheKey, time_range: OnlyTimeRange) -> tuple[OnlyBar, ...]:
         manifest = self._load_manifest(key)
         records: list[OnlyBar] = []
         for relative in sorted(manifest.partition_hashes):
@@ -87,7 +87,7 @@ class OnlyParquetHistoricalCacheStore:
                     records.append(bar)
         return tuple(sorted(records, key=lambda item: (item.ts_event, item.to_json())))
 
-    def write(self, key: OnlyHistoricalCacheKey, result: OnlyHistoricalFetchResult) -> OnlyCacheWriteResult:
+    def write(self, key: OnlyHistoricalBarCacheKey, result: OnlyHistoricalFetchResult) -> OnlyCacheWriteResult:
         root = self._key_root(key)
         root.mkdir(parents=True, exist_ok=True)
         existing: list[OnlyBar] = []
@@ -254,7 +254,7 @@ class OnlyParquetHistoricalCacheStore:
     def manifest(self, key: OnlyTypedHistoricalCacheKey) -> OnlyCacheManifest:
         return self._load_manifest(key)
 
-    def invalidate(self, key: OnlyHistoricalCacheKey, time_range: OnlyTimeRange | None = None) -> None:
+    def invalidate(self, key: OnlyHistoricalBarCacheKey, time_range: OnlyTimeRange | None = None) -> None:
         if time_range is not None:
             raise NotImplementedError("partial invalidation is intentionally not exposed in the first version")
         if self._key_root(key).exists():

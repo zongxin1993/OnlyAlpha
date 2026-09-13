@@ -102,7 +102,7 @@ class OnlyBacktestDatasetSourceFactory:
         configured_bar_types = tuple(request.bar_types.values())
         if (
             definition.instruments != tuple(sorted(request.instruments, key=str))
-            or definition.time_range.start != request.clock.now()
+            or definition.time_range.start != request.clock.now_utc()
             or not configured_bar_types
             or any(
                 bar_type.specification != definition.bar_specification

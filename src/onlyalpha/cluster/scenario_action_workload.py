@@ -12,7 +12,7 @@ from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyOrderId, OnlyOrde
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBar
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
-from onlyalpha.runtime.context import OnlyClusterContext
+from onlyalpha.runtime.context import OnlyRuntimeContext
 
 
 class OnlyScenarioActionWorkload:
@@ -24,12 +24,12 @@ class OnlyScenarioActionWorkload:
         if not isinstance(metadata, Mapping):
             raise ValueError("Scenario result metadata must be an object")
         self._result_metadata = dict(metadata)
-        self._context: OnlyClusterContext | None = None
+        self._context: OnlyRuntimeContext | None = None
         self._bar_sequence = 0
         self._orders: dict[str, OnlyOrderId] = {}
         self._records: list[dict[str, object]] = []
 
-    def bind(self, context: OnlyClusterContext) -> None:
+    def bind(self, context: OnlyRuntimeContext) -> None:
         if self._context is not None:
             raise RuntimeError("Scenario Action Workload can be bound only once")
         self._context = context

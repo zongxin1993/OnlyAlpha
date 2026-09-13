@@ -347,6 +347,3 @@ class OnlyInMemoryReferenceDataSource:
 
     def calendar(self, calendar_id: OnlyCalendarId) -> OnlyTradingCalendar | None:
         return self._calendars.get(calendar_id)
-
-
-OnlyFileReferenceDataSource = OnlyInMemoryReferenceDataSource

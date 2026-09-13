@@ -16,7 +16,7 @@ from onlyalpha.application.product_boundary import (
     OnlyResearchProductBoundary,
     only_compose_research_product_boundary,
 )
-from onlyalpha.application.product_command_receipt import OnlyProductCommandReceipt
+from onlyalpha.application.product_command_receipt import OnlyProductCommandId, OnlyProductCommandReceipt
 from onlyalpha.kernel import (
     OnlyAlphaKernelHost,
     OnlyKernelHostError,
@@ -29,7 +29,6 @@ from onlyalpha.research.command import (
     OnlyResearchCommandService,
     OnlyResearchRunPageCursor,
     OnlyResearchRunQueryService,
-    OnlyResearchSubmissionKey,
 )
 from onlyalpha.research.definition import OnlyResearchDefinitionResolver
 from onlyalpha.research.operations.readiness import (
@@ -104,13 +103,13 @@ class _AuthoringGenerations:
 class _Store:
     def __init__(self) -> None:
         self.runs: dict[OnlyResearchRunId, OnlyResearchRun] = {}
-        self.receipts: dict[OnlyResearchSubmissionKey, OnlyProductCommandReceipt] = {}
+        self.receipts: dict[OnlyProductCommandId, OnlyProductCommandReceipt] = {}
 
     def create_queued(self, run: OnlyResearchRun) -> OnlyResearchRun:
         self.runs[run.run_id] = run
         return run
 
-    def find_product_command_receipt(self, key: OnlyResearchSubmissionKey) -> OnlyProductCommandReceipt | None:
+    def find_product_command_receipt(self, key: OnlyProductCommandId) -> OnlyProductCommandReceipt | None:
         return self.receipts.get(key)
 
     def create_queued_with_receipt(

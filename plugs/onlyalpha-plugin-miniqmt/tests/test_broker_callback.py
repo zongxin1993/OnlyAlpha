@@ -20,7 +20,7 @@ from onlyalpha.domain.identifiers import (
 
 
 class OnlyFakeClock:
-    def now(self) -> datetime:
+    def now_utc(self) -> datetime:
         return datetime(2026, 1, 5, 2, 0, tzinfo=UTC)
 
 

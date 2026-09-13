@@ -120,10 +120,6 @@ class OnlyClusterPositionRiskView:
         )
 
 
-OnlyAccountPositionRiskViewAlias = OnlyAccountPositionRiskView
-OnlyClusterPositionRiskViewAlias = OnlyClusterPositionRiskView
-
-
 class OnlyPositionRiskView:
     """Combined Risk port retaining explicit account and Cluster queries."""
 
@@ -153,6 +149,3 @@ class OnlyPositionRiskView:
         position_mode: OnlyPositionMode = OnlyPositionMode.NETTING,
     ) -> OnlyPositionRiskSnapshot | None:
         return self.cluster.snapshot(account_id, cluster_id, instrument_id, position_side, position_mode)
-
-
-OnlyPositionReservationView = object

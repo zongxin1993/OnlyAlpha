@@ -83,9 +83,6 @@ class OnlyAccountCashBalance(OnlyDomainModel):
             raise ValueError("Account cash availability ordering is invalid")
 
 
-OnlyAccountBalance = OnlyAccountCashBalance
-
-
 @dataclass(frozen=True, slots=True)
 class OnlyAccountReservation(OnlyDomainModel):
     reservation_id: OnlyAccountReservationId

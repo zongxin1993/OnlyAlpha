@@ -41,17 +41,12 @@ class OnlyExecutionSubmissionOutcome(StrEnum):
     RESOLVED = "RESOLVED"
     SUPPRESSED = "SUPPRESSED"
 
-    # Source-compatible names for existing internal callers. Their canonical
-    # serialized values are the more precise submission-knowledge semantics.
-    SUBMITTED = "KNOWN_RESULT"
-    REJECTED = "NOT_DISPATCHED"
-
 
 @dataclass(frozen=True, slots=True)
 class OnlyExecutionSubmitResult(OnlyDomainModel):
     received: bool
     message: str
-    outcome: OnlyExecutionSubmissionOutcome = OnlyExecutionSubmissionOutcome.SUBMITTED
+    outcome: OnlyExecutionSubmissionOutcome = OnlyExecutionSubmissionOutcome.KNOWN_RESULT
 
 
 @dataclass(frozen=True, slots=True)

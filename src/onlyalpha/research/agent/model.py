@@ -837,9 +837,6 @@ class OnlyAgentStructuredHypothesisV1:
         )
 
 
-OnlyAgentEvaluationContextReferenceV1 = OnlySearchEvaluationContextReferenceV1
-
-
 @dataclass(frozen=True, slots=True)
 class OnlyAgentBudgetV1:
     model_call_limit: int

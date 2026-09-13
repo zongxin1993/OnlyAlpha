@@ -44,7 +44,3 @@ class OnlyPositionQueryService:
                 side,
             )
         )
-
-
-OnlyPositionQueryView = OnlyPositionQueryService
-OnlyPositionAllocationQueryView = OnlyPositionQueryService

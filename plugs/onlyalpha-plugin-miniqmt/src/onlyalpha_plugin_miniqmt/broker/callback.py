@@ -240,7 +240,7 @@ class OnlyMiniQmtTraderCallback:
         self.gateway._request.broker_inbound_queue.put(update)
 
     def _stamp(self) -> OnlyTimestamp:
-        return OnlyTimestamp.from_datetime(self.gateway._request.clock.now().astimezone(UTC))
+        return OnlyTimestamp.from_datetime(self.gateway._request.clock.now_utc().astimezone(UTC))
 
     @staticmethod
     def _money(value: Any, currency: OnlyCurrency) -> OnlyMoney:

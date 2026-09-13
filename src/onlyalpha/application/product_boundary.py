@@ -35,7 +35,6 @@ from onlyalpha.kernel.command import (
 from onlyalpha.kernel.query import OnlyProductQuery, OnlyProductQueryBinding, OnlyProductQueryDispatcher
 from onlyalpha.research.command.model import (
     OnlyResearchRunPage,
-    OnlyResearchSubmissionKey,
     OnlyResearchSubmitOutcome,
 )
 from onlyalpha.research.command.query import DEFAULT_RESEARCH_RUN_PAGE_SIZE, OnlyResearchRunQueryService
@@ -47,7 +46,7 @@ from onlyalpha.research.specification.model import OnlyResearchSpecification
 
 @dataclass(frozen=True, slots=True)
 class OnlyCreateResearchRun(OnlyProductCommand):
-    submission_key: OnlyResearchSubmissionKey
+    submission_key: OnlyProductCommandId
     specification: OnlyResearchSpecification
     authoring_provenance: OnlyResearchAuthoringProvenance | None = None
 

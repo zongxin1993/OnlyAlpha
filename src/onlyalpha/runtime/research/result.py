@@ -7,10 +7,9 @@ from dataclasses import dataclass
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.research.evaluation.result import OnlyResearchStatisticsOutcome
 from onlyalpha.research.job import OnlyResearchJobOutcome
+from onlyalpha.research.runtime_errors import OnlyResearchRuntimePhase
 from onlyalpha.research.sweep.outcome import OnlyResearchSweepOutcome
 from onlyalpha.runtime.result import OnlyRuntimeResultStatus
-
-from .errors import OnlyResearchRuntimePhase
 
 
 @dataclass(frozen=True, slots=True)

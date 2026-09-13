@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from onlyalpha.cache.historical.models import OnlyHistoricalCacheKey
+from onlyalpha.cache.historical.models import OnlyHistoricalBarCacheKey
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.data.historical import OnlyDataQualityReport, OnlyHistoricalDataRequest, OnlyHistoricalFetchResult
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
@@ -27,8 +27,8 @@ class OnlyMiniQmtHistoricalDataProvider:
         self._data_version = data_version
         self._batch_size = batch_size
 
-    def build_cache_key(self, request: OnlyHistoricalDataRequest) -> OnlyHistoricalCacheKey:
-        return OnlyHistoricalCacheKey(
+    def build_cache_key(self, request: OnlyHistoricalDataRequest) -> OnlyHistoricalBarCacheKey:
+        return OnlyHistoricalBarCacheKey(
             str(self._source_id),
             "bars",
             request.instrument_id,

@@ -7,7 +7,7 @@ import pytest
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
 from onlyalpha.cache.historical.models import (
     OnlyCachePolicy,
-    OnlyHistoricalCacheKey,
+    OnlyHistoricalBarCacheKey,
     OnlyHistoricalTradeCacheKey,
 )
 from onlyalpha.core.ranges import OnlyTimeRange, only_merge_ranges, only_missing_ranges
@@ -45,8 +45,10 @@ class OnlyFakeProvider:
         self.calls = 0
         self.bar = build_bar()
 
-    def build_cache_key(self, request: OnlyHistoricalDataRequest) -> OnlyHistoricalCacheKey:
-        return OnlyHistoricalCacheKey("fake", "bars", request.instrument_id, request.bar_type, request.price_adjustment)
+    def build_cache_key(self, request: OnlyHistoricalDataRequest) -> OnlyHistoricalBarCacheKey:
+        return OnlyHistoricalBarCacheKey(
+            "fake", "bars", request.instrument_id, request.bar_type, request.price_adjustment
+        )
 
     def fetch(self, request: OnlyHistoricalDataRequest, time_range: OnlyTimeRange) -> OnlyHistoricalFetchResult:
         self.calls += 1

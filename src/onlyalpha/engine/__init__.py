@@ -29,7 +29,7 @@ __all__ = [
     "OnlyResearchWorkloadPlan",
 ]
 
-_LAZY_EXPORTS = {"OnlyResearchWorkloadPlan": "onlyalpha.runtime.research.plan"}
+_LAZY_EXPORTS = {"OnlyResearchWorkloadPlan": "onlyalpha.research.workload"}
 
 
 def __getattr__(name: str) -> object:

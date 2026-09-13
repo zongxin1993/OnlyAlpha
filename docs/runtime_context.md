@@ -15,7 +15,7 @@ Runtime 在每次 `on_bar` 前、派生 Bar/Indicator/MarketData Snapshot 完成
 每个 `OnlyBacktestRuntime` 独占 `OnlyBacktestClock`、有 Runtime Scope 的 `OnlyEventBus`、
 `OnlyMarketDataCache`、`OnlyBarAggregationManager`、通用 MarketData barrier、
 `OnlyMarketDataPipeline`、`OnlyStrategyBarDispatcher` 和 `OnlyClusterManager`。内部
-`OnlyRuntimeServices` 只用于装配，绝不进入 Cluster Context。不同 Runtime 不共享可变资源。
+`OnlyTradingKernelServices` 只用于装配，绝不进入 Cluster Context。不同 Runtime 不共享可变资源。
 
 具体 Indicator 不归 Runtime 装配或识别。每个 Cluster 持有独立的 Indicator Registry，Factor 在初始化时通过受限
 Factory Registry 创建 Indicator；Cluster Pipeline 在 Strategy 回调前更新它们。
@@ -40,7 +40,7 @@ Context 同样不含 `mode`、`runtime_type` 或 `is_backtest/is_live/is_sim/is_
 ## 3. Context 层次
 
 ```text
-OnlyRuntimeContext / OnlyClusterContext
+OnlyRuntimeContext
 ├── OnlyClockView
 ├── OnlyMarketDataView
 ├── OnlyInstrumentView
@@ -51,11 +51,11 @@ OnlyRuntimeContext / OnlyClusterContext
 
 OnlyBarContext
 ├── 单次不可变 OnlyMarketDataSnapshot
-└── 当前 Cluster 的 OnlyRuntimeContextView
+└── 当前 Cluster 的 OnlyRuntimeContext
 
 OnlyTimerContext
 ├── OnlyTimerEvent
-└── 当前 Cluster 的 OnlyRuntimeContextView
+└── 当前 Cluster 的 OnlyRuntimeContext
 ```
 
 Snapshot 只在一次 Bar 回调期间作为 `current_snapshot()` 可见；回调后 Runtime 清除该引用。

@@ -6,7 +6,7 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
-from onlyalpha.research.agent.model import OnlyAgentEvaluationContextReferenceV1
+from onlyalpha.research.experiment.model import OnlySearchEvaluationContextReferenceV1
 
 
 class OnlyDatasetSnapshotIdentity(Protocol):
@@ -52,7 +52,7 @@ class ExactEvaluationContextDto(BaseModel):
     @classmethod
     def from_model(
         cls,
-        reference: OnlyAgentEvaluationContextReferenceV1,
+        reference: OnlySearchEvaluationContextReferenceV1,
         value: OnlyEvaluationContextIdentity,
     ) -> ExactEvaluationContextDto:
         fingerprint = value.evaluation_contract_fingerprint

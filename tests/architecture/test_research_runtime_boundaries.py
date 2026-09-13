@@ -30,8 +30,6 @@ def test_research_runtime_orchestration_has_no_trading_authority_dependency() ->
     )
     product_modules = (
         "environment.py",
-        "errors.py",
-        "plan.py",
         "planning.py",
         "result.py",
         "runtime.py",
@@ -49,8 +47,8 @@ def test_trading_runtime_modules_do_not_depend_on_research_runtime() -> None:
             assert not any(value.startswith("onlyalpha.runtime.research") for value in _imports(path)), path
 
 
-def test_research_plan_has_no_cluster_market_or_new_semantic_identity() -> None:
-    source = Path("src/onlyalpha/runtime/research/plan.py").read_text(encoding="utf-8")
+def test_research_planning_has_no_cluster_market_or_new_semantic_identity() -> None:
+    source = Path("src/onlyalpha/runtime/research/planning.py").read_text(encoding="utf-8")
     assert not any(
         token in source for token in ("Cluster", "MarketProduct", "workload_fingerprint", "commit(", "Store")
     )

@@ -13,7 +13,7 @@ from onlyalpha.core.errors import OnlyDuplicateIdError, OnlyLifecycleError, Only
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyRuntimeId
 from onlyalpha.domain.market import OnlyBar
 from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
-from onlyalpha.runtime.context import OnlyClusterContext, OnlyTimerContext
+from onlyalpha.runtime.context import OnlyRuntimeContext, OnlyTimerContext
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ class OnlyClusterStatus:
 class OnlyManagedCluster:
     cluster: OnlyCluster
     state: OnlyClusterState
-    context: OnlyClusterContext | None = None
+    context: OnlyRuntimeContext | None = None
     last_failure: OnlyClusterFailure | None = None
 
 
@@ -59,7 +59,7 @@ class OnlyClusterManager:
     def __init__(
         self,
         runtime_id: OnlyRuntimeId,
-        context_factory: Callable[[OnlyClusterId], OnlyClusterContext],
+        context_factory: Callable[[OnlyClusterId], OnlyRuntimeContext],
         cleanup: Callable[[OnlyClusterId], None],
     ) -> None:
         self._runtime_id = runtime_id

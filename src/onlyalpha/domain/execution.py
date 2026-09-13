@@ -101,9 +101,6 @@ class OnlyCancelOrderRequest(OnlyDomainModel):
         object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
 
 
-OnlyCancelRequest = OnlyCancelOrderRequest
-
-
 @dataclass(frozen=True, slots=True)
 class OnlyOrderRejection(OnlyDomainModel):
     code: str

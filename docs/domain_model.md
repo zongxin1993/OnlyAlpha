@@ -135,33 +135,32 @@ A 股 T+1、涨跌停、ST、印花税和买卖手数差异不属于通用 Instr
 
 `OnlyOrderRequest` 字段：order/account/cluster/instrument ID、side、offset、type、quantity、time-in-force、submitted_at、limit_price?、stop_price?、expire_at?。Limit 必须有 limit price，触发单必须有 stop price，GTD 必须有未来 expiry。
 
-`OnlyCancelRequest` 只表达 order/account ID 和请求时点，不承诺撤单成功。
+`OnlyCancelOrderRequest` 只表达 order/account ID 和请求时点，不承诺撤单成功。
 
 `OnlyOrder` 是不可变状态快照：request、status、filled_quantity、average_fill_price?、`OnlyVenueOrderId?`、rejection_reason?、updated_at。`transition()` 校验状态和单调时间并返回新对象。
 
 ```mermaid
 stateDiagram-v2
-    [*] --> INITIALIZED
-    INITIALIZED --> DENIED
-    INITIALIZED --> SUBMITTED
+    [*] --> CREATED
+    CREATED --> SUBMITTED
     SUBMITTED --> ACCEPTED
     SUBMITTED --> REJECTED
-    SUBMITTED --> CANCELED
+    SUBMITTED --> CANCELLED
     ACCEPTED --> PARTIALLY_FILLED
     ACCEPTED --> PENDING_CANCEL
-    ACCEPTED --> CANCELED
+    ACCEPTED --> CANCELLED
     ACCEPTED --> EXPIRED
     ACCEPTED --> FILLED
     PARTIALLY_FILLED --> PARTIALLY_FILLED
     PARTIALLY_FILLED --> PENDING_CANCEL
-    PARTIALLY_FILLED --> CANCELED
+    PARTIALLY_FILLED --> CANCELLED
     PARTIALLY_FILLED --> FILLED
-    PENDING_CANCEL --> CANCELED
+    PENDING_CANCEL --> CANCELLED
     PENDING_CANCEL --> PARTIALLY_FILLED
     PENDING_CANCEL --> FILLED
 ```
 
-终态：DENIED、REJECTED、CANCELED、EXPIRED、FILLED。
+终态：REJECTED、CANCELLED、EXPIRED、FILLED。
 
 `OnlyTrade` 是不可变事实：trade/order/account/instrument ID、side、offset、price、quantity、commission、liquidity side、executed_at。Trade 不修改 Order 或 Position；外层聚合服务应用事实并生成新快照。
 

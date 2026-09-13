@@ -12,7 +12,7 @@ def test_backtest_clock_is_deterministic_and_monotonic() -> None:
     start = datetime(2026, 1, 1, tzinfo=UTC)
     clock = OnlyBacktestClock(start)
     clock.advance_to(start + timedelta(minutes=1))
-    assert clock.now() == start + timedelta(minutes=1)
+    assert clock.now_utc() == start + timedelta(minutes=1)
     with pytest.raises(OnlyValidationError):
         clock.advance_to(start)
 

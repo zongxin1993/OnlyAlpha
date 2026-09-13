@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from onlyalpha.cache.historical.models import OnlyHistoricalCacheKey
+from onlyalpha.cache.historical.models import OnlyHistoricalBarCacheKey
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.data.historical import OnlyDataQualityReport, OnlyHistoricalDataRequest, OnlyHistoricalFetchResult
 from onlyalpha.data.warmup import OnlyHistoricalWarmupRequest, OnlyHistoricalWarmupStatus
@@ -27,8 +27,8 @@ class OnlyMiniQmtIsolatedWarmupCacheProvider:
         self._warmup_request = warmup_request
         self._source_id = source_id
 
-    def build_cache_key(self, request: OnlyHistoricalDataRequest) -> OnlyHistoricalCacheKey:
-        return OnlyHistoricalCacheKey(
+    def build_cache_key(self, request: OnlyHistoricalDataRequest) -> OnlyHistoricalBarCacheKey:
+        return OnlyHistoricalBarCacheKey(
             self._source_id,
             "bars",
             request.instrument_id,

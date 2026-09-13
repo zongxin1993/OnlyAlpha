@@ -54,10 +54,6 @@ class OnlyResearchDatasetSourceContractV1:
         )
 
 
-# Compatibility name for producer-side callers; the authority itself is explicitly V1.
-OnlyResearchDatasetSourceContract = OnlyResearchDatasetSourceContractV1
-
-
 _SOURCES = {
     "bar.open": OnlyResearchDatasetSourceContractV1(
         "open", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "PRICE"}), source_id="bar.open"
@@ -101,13 +97,13 @@ _SOURCES = {
 }
 
 
-def only_research_dataset_source_contract(source: str) -> OnlyResearchDatasetSourceContract | None:
+def only_research_dataset_source_contract(source: str) -> OnlyResearchDatasetSourceContractV1 | None:
     """Return the single read-only semantic contract used by admission and execution."""
 
     return _SOURCES.get(source)
 
 
-def only_research_dataset_source_contracts() -> tuple[tuple[str, OnlyResearchDatasetSourceContract], ...]:
+def only_research_dataset_source_contracts() -> tuple[tuple[str, OnlyResearchDatasetSourceContractV1], ...]:
     """Enumerate the canonical source contracts in stable source order."""
 
     return tuple((source, _SOURCES[source]) for source in sorted(_SOURCES))
@@ -170,7 +166,6 @@ def only_research_dataset_source_output(
 
 
 __all__ = [
-    "OnlyResearchDatasetSourceContract",
     "OnlyResearchDatasetSourceContractV1",
     "only_bind_research_dataset_source",
     "only_research_dataset_source_contract",

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from onlyalpha.core.clock import OnlyClockView
-from onlyalpha.runtime.context import OnlyRuntimeContextError, OnlyRuntimeContextView
+from onlyalpha.runtime.context import OnlyRuntimeContext, OnlyRuntimeContextError
 
 if TYPE_CHECKING:
     from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
@@ -16,13 +16,13 @@ class OnlyBarContext:
 
     __slots__ = ("_clock_view", "_runtime", "snapshot")
     snapshot: OnlyMarketDataSnapshot
-    _runtime: OnlyRuntimeContextView | None
+    _runtime: OnlyRuntimeContext | None
     _clock_view: OnlyClockView
 
     def __init__(
         self,
         snapshot: OnlyMarketDataSnapshot,
-        runtime: OnlyRuntimeContextView | OnlyClockView,
+        runtime: OnlyRuntimeContext | OnlyClockView,
     ) -> None:
         object.__setattr__(self, "snapshot", snapshot)
         if isinstance(runtime, OnlyClockView):
@@ -36,7 +36,7 @@ class OnlyBarContext:
         raise AttributeError(f"{type(self).__name__} is immutable")
 
     @property
-    def runtime(self) -> OnlyRuntimeContextView:
+    def runtime(self) -> OnlyRuntimeContext:
         if self._runtime is None:
             raise OnlyRuntimeContextError("standalone BarContext has no RuntimeContext")
         return self._runtime

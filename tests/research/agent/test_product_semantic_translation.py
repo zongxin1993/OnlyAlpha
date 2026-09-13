@@ -16,7 +16,6 @@ from onlyalpha.research.agent import (
     OnlyAgentContextError,
     OnlyAgentContextReferenceV1,
     OnlyAgentDecisionApplicationServiceV1,
-    OnlyAgentEvaluationContextReferenceV1,
     OnlyAgentParameterSearchDirectiveV1,
     OnlyAgentProductOperationContractV1,
     OnlyAgentProductRequestSemanticProjectionV1,
@@ -40,6 +39,7 @@ from onlyalpha.research.experiment import (
     OnlySearchHypothesisV1,
     OnlySearchWorkflowBindingV1,
 )
+from onlyalpha.research.experiment.model import OnlySearchEvaluationContextReferenceV1
 from tests.research.search.parameter.test_search_product_adapter import _product_case
 from tests.research.search.symbolic.test_search_product_adapter import _case
 
@@ -65,7 +65,7 @@ def _context_for(command, root: Path):  # type: ignore[no-untyped-def]
         fixture.brief,
         catalog_generation_fingerprint=command.catalog_generation_fingerprint,
         dataset_snapshot_fingerprint=command.dataset_snapshot_fingerprint,
-        evaluation_context_reference=OnlyAgentEvaluationContextReferenceV1(
+        evaluation_context_reference=OnlySearchEvaluationContextReferenceV1(
             "ONLY_SYMBOLIC_RESEARCH_EVALUATION_CONTRACT",
             1,
             command.evaluation_contract.evaluation_contract_fingerprint,
@@ -286,7 +286,7 @@ def _agent_product_case(command, root: Path, product_service):  # type: ignore[n
         original_context.research_brief,
         catalog_generation_fingerprint=command.catalog_generation_fingerprint,
         dataset_snapshot_fingerprint=command.dataset_snapshot_fingerprint,
-        evaluation_context_reference=OnlyAgentEvaluationContextReferenceV1(
+        evaluation_context_reference=OnlySearchEvaluationContextReferenceV1(
             "ONLYALPHA_SEARCH_EVALUATION",
             1,
             command.evaluation_contract.evaluation_contract_fingerprint,

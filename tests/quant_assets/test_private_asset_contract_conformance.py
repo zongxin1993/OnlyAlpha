@@ -64,7 +64,6 @@ from onlyalpha.research.calculation.execution_evidence import OnlyResearchCalcul
 from onlyalpha.research.calculation.result_store import OnlyParquetResearchCalculationResultStore
 from onlyalpha.research.command import (
     OnlyResearchCommandService,
-    OnlyResearchSubmissionKey,
 )
 from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore
 from onlyalpha.research.dataset.definition import OnlyResearchDatasetDefinition
@@ -450,7 +449,7 @@ def test_installed_l3_l4_resolve_research_evidence_freeze_and_revision(tmp_path:
             now_utc=lambda: NOW,
             runtime_generations=runtime_generations,
         ).submit_research_run(
-            OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000003001"),
+            OnlyProductCommandId("00000000-0000-4000-8000-000000003001"),
             queued.specification,
         )
         assert admitted.run == queued

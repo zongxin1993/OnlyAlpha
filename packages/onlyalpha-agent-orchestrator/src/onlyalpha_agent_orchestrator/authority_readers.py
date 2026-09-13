@@ -27,13 +27,13 @@ from onlyalpha.research.agent.authority_state import (
     OnlyAgentSearchStateReader,
 )
 from onlyalpha.research.agent.errors import OnlyAgentContextError
-from onlyalpha.research.agent.model import OnlyAgentEvaluationContextReferenceV1
 from onlyalpha.research.agent.occurrence import (
     OnlyAgentContextReferenceV1,
     OnlyAgentExactAuthorityReference,
     OnlyAgentExactAuthorityReferenceV2,
     OnlyAgentReferenceLocatorKind,
 )
+from onlyalpha.research.experiment.model import OnlySearchEvaluationContextReferenceV1
 from onlyalpha.research.run import (
     OnlyResearchRun,
     OnlyResearchRunFailure,
@@ -256,7 +256,7 @@ class OnlyApiBackedAgentBriefReferenceReaderV1:
         return value
 
     def load_evaluation_context_verified(
-        self, reference: OnlyAgentEvaluationContextReferenceV1
+        self, reference: OnlySearchEvaluationContextReferenceV1
     ) -> OnlyApiEvaluationContextIdentityV1:
         key = (
             reference.evaluation_kind,

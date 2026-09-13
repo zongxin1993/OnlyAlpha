@@ -74,11 +74,6 @@ class OnlyHistoricalFactSource(Protocol):
     ) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]: ...
 
 
-OnlyHistoricalBarSource = OnlyHistoricalDataSource
-OnlyHistoricalQuoteSource = OnlyHistoricalDataSource
-OnlyHistoricalTradeSource = OnlyHistoricalDataSource
-
-
 class OnlyInstrumentDataSource(Protocol):
     def instrument(self, instrument_id: OnlyInstrumentId) -> OnlyInstrument | None: ...
 

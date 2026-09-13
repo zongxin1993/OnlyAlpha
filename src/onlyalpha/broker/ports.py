@@ -5,13 +5,11 @@ from typing import Protocol, runtime_checkable
 from onlyalpha.broker.capabilities import OnlyBrokerCapabilities
 from onlyalpha.broker.models import (
     OnlyBrokerAccountSnapshot,
-    OnlyBrokerAuthenticationResult,
     OnlyBrokerBalanceSnapshot,
     OnlyBrokerCancelRequest,
     OnlyBrokerCancelResult,
     OnlyBrokerConnectionResult,
     OnlyBrokerConnectionSnapshot,
-    OnlyBrokerDisconnectResult,
     OnlyBrokerOrderRequest,
     OnlyBrokerOrderSnapshot,
     OnlyBrokerOrderSubmitResult,
@@ -29,9 +27,9 @@ class OnlyBrokerConnectionPort(Protocol):
 
     def connect(self) -> OnlyBrokerConnectionResult: ...
 
-    def authenticate(self) -> OnlyBrokerAuthenticationResult: ...
+    def authenticate(self) -> OnlyBrokerConnectionResult: ...
 
-    def disconnect(self) -> OnlyBrokerDisconnectResult: ...
+    def disconnect(self) -> OnlyBrokerConnectionResult: ...
 
     def connection_snapshot(self) -> OnlyBrokerConnectionSnapshot: ...
 

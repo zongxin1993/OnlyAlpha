@@ -249,10 +249,6 @@ class OnlyRuntimeBarResult:
     events_dispatched: int
 
 
-OnlyRuntimeServices = OnlyTradingKernelServices
-"""Deprecated internal name retained while callers migrate to the Kernel boundary."""
-
-
 class OnlyManagedBarDispatchExecutor(OnlyBarDispatchExecutor):
     """Adapts Dispatcher selection to ClusterManager execution."""
 

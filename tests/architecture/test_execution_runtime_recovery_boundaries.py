@@ -2,12 +2,12 @@ from pathlib import Path
 from typing import get_type_hints
 
 from onlyalpha.execution import OnlyExecutionRecoveryService
-from onlyalpha.runtime.runtime import OnlyRuntimeServices
+from onlyalpha.runtime.trading.services import OnlyTradingKernelServices
 from tests.architecture._architecture_imports import syntactic_imported_modules_for_path
 
 
 def test_runtime_services_owns_recovery_and_initialize_start_have_strict_order() -> None:
-    hints = get_type_hints(OnlyRuntimeServices)
+    hints = get_type_hints(OnlyTradingKernelServices)
     assert hints["execution_recovery_service"] is OnlyExecutionRecoveryService
     source = Path("src/onlyalpha/runtime/runtime.py").read_text(encoding="utf-8")
     initialize = source[source.index("    def initialize(self)") : source.index("    def start(self)")]

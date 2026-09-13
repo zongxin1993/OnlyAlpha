@@ -162,7 +162,7 @@ class OnlyMiniQmtBrokerGateway:
     def _connection_result(self, ok: bool) -> OnlyBrokerConnectionResult:
         from onlyalpha.domain.time import OnlyTimestamp
 
-        stamp = OnlyTimestamp.from_datetime(self._request.clock.now())
+        stamp = OnlyTimestamp.from_datetime(self._request.clock.now_utc())
         return OnlyBrokerConnectionResult(
             OnlyBrokerOperationStatus.RECEIVED if ok else OnlyBrokerOperationStatus.REJECTED,
             OnlyBrokerConnectionSnapshot(self._request.gateway_id, self._connection_state, stamp),

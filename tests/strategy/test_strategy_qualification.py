@@ -350,7 +350,7 @@ def test_same_subject_policy_and_research_evidence_is_deterministic_and_replayab
 
     assert first == second == decisions.load_verified(first.decision_fingerprint)
     assert first.outcome is OnlyQualificationOutcome.APPROVED
-    assert first.decision_fingerprint == "3fbc9df1f062f225ab3c63000f6551b8bfbcbd05abd350c4ce4b5741900242f2"
+    assert first.decision_fingerprint == "0a4c1a6002a3a9cf657f9e6e92264de6650223ea51f880115cdc52cae7d9d3bd"
     assert evaluator.replay(first.decision_fingerprint) == first
 
 

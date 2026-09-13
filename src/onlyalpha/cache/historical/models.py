@@ -42,9 +42,6 @@ class OnlyHistoricalBarCacheKey:
     timestamp_semantics: OnlyBarTimestampSemantics = OnlyBarTimestampSemantics.BAR_CLOSE
 
 
-OnlyHistoricalCacheKey = OnlyHistoricalBarCacheKey
-
-
 @dataclass(frozen=True, slots=True)
 class OnlyHistoricalTradeCacheKey:
     source_id: str

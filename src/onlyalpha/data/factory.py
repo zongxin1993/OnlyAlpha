@@ -35,11 +35,6 @@ class OnlyDataSourceFactoryRegistry:
                 plugin_id=plugin_id,
             ) from exc
 
-    def require(self, plugin_id: str) -> OnlyDataSourceFactory:
-        """Deprecated alias for resolve()."""
-
-        return self.resolve(plugin_id)
-
     def descriptors(self) -> tuple[OnlyPluginDescriptor, ...]:
         return tuple(self._records[key].descriptor for key in sorted(self._records))
 

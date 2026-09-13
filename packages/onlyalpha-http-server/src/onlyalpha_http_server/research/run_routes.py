@@ -13,10 +13,10 @@ from onlyalpha.application.product_boundary import (
     OnlyListResearchRuns,
     OnlyResearchProductBoundary,
 )
+from onlyalpha.application.product_command_receipt import OnlyProductCommandId
 from onlyalpha.research.command.errors import OnlyResearchCommandError, OnlyResearchCommandPhase
 from onlyalpha.research.command.model import (
     OnlyResearchRunPage,
-    OnlyResearchSubmissionKey,
     OnlyResearchSubmitOutcome,
 )
 from onlyalpha.research.command.query import DEFAULT_RESEARCH_RUN_PAGE_SIZE
@@ -72,11 +72,11 @@ def _run_id(value: str) -> OnlyResearchRunId:
         ) from exc
 
 
-def _submission_key(value: str | None) -> OnlyResearchSubmissionKey:
+def _submission_key(value: str | None) -> OnlyProductCommandId:
     try:
         if value is None:
             raise ValueError("missing")
-        return OnlyResearchSubmissionKey(value)
+        return OnlyProductCommandId(value)
     except ValueError as exc:
         raise OnlyResearchCommandError(
             OnlyResearchCommandPhase.COMMAND,

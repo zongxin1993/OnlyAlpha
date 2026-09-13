@@ -28,11 +28,6 @@ class OnlyOrderStatus(StrEnum):
     REJECTED = "REJECTED"
     FAILED = "FAILED"
 
-    # Compatibility spellings from the initial immutable Domain skeleton.
-    INITIALIZED = "CREATED"
-    CANCELED = "CANCELLED"
-    DENIED = "REJECTED"
-
 
 class OnlyOrderType(StrEnum):
     MARKET = "MARKET"

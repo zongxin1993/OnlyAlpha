@@ -5,7 +5,7 @@ rules:
     message: Core source must remain transport-framework neutral; FastAPI belongs in the HTTP adapter package.
     paths:
       include:
-        - src/onlyalpha/**/*.py
+        - /src/onlyalpha/**/*.py
     pattern-regex: '(?m)^\s*(?:from\s+fastapi(?:\.[A-Za-z0-9_.]+)?\s+import|import\s+fastapi(?:\.[A-Za-z0-9_.]+)?)'
 
   - id: onlyalpha-core-no-provider-sdk
@@ -14,7 +14,7 @@ rules:
     message: Core source must not import provider SDKs; provider integration belongs in plugin packages.
     paths:
       include:
-        - src/onlyalpha/**/*.py
+        - /src/onlyalpha/**/*.py
     pattern-regex: '(?m)^\s*(?:from\s+(?:binance|tushare|xtquant)(?:\.[A-Za-z0-9_.]+)?\s+import|import\s+(?:binance|tushare|xtquant)(?:\.[A-Za-z0-9_.]+)?)'
 
   - id: onlyalpha-core-no-concrete-plugin
@@ -23,5 +23,42 @@ rules:
     message: Core source must depend on plugin contracts, never concrete onlyalpha_plugin_* implementations.
     paths:
       include:
-        - src/onlyalpha/**/*.py
+        - /src/onlyalpha/**/*.py
     pattern-regex: '(?m)^\s*(?:from\s+onlyalpha_plugin_[A-Za-z0-9_.]*\s+import|import\s+onlyalpha_plugin_[A-Za-z0-9_.]*)'
+
+  - id: onlyalpha-no-graduated-compatibility-alias
+    languages: [python]
+    severity: ERROR
+    message: Graduated Kernel symbols must have one canonical identity; migrate callers instead of adding aliases.
+    paths:
+      include:
+        - /src/onlyalpha/**/*.py
+    patterns:
+      - pattern: $OLD = $NEW
+      - metavariable-regex:
+          metavariable: $OLD
+          regex: '^(OnlyRuntimeServices|OnlyRuntimeContextView|OnlyClusterContext|OnlyBrokerFactory|OnlyCancelRequest|OnlyAccountBalance|OnlyHistoricalCacheKey|OnlyResearchSubmissionKey|OnlyResearchDatasetSourceContract|OnlyAgentEvaluationContextReferenceV1|OnlyIndicatorDefinition|OnlyFactorDefinition|OnlyOrderQueryView|OnlyOrderContextView|OnlyPositionQueryView|OnlyPositionAllocationQueryView|OnlyPositionAllocation|OnlyPositionFill)$'
+
+  - id: onlyalpha-no-old-forwarding-wrapper
+    languages: [python]
+    severity: ERROR
+    message: Permanent old/legacy forwarding wrappers are not allowed in the Kernel package.
+    paths:
+      include:
+        - /src/onlyalpha/**/*.py
+    patterns:
+      - pattern: |
+          def $OLD(...):
+              return $NEW(...)
+      - metavariable-regex:
+          metavariable: $OLD
+          regex: '^(old_|legacy_|compatibility_).+'
+
+  - id: onlyalpha-no-removed-research-compat-module
+    languages: [python]
+    severity: ERROR
+    message: Research compatibility re-export modules were removed; import the owning semantic module.
+    paths:
+      include:
+        - /src/onlyalpha/**/*.py
+    pattern-regex: '(?m)onlyalpha\.runtime\.research\.(?:errors|plan)(?:$|\.)|onlyalpha\.research\.definition\.primitives(?:$|\.)'

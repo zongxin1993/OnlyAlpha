@@ -187,10 +187,6 @@ class OnlyClock(ABC):
     def now_utc(self) -> datetime:
         """Return the current aware UTC compatibility view."""
 
-    def now(self) -> datetime:
-        """Compatibility alias for the phase-one Clock API."""
-        return self.now_utc()
-
     @abstractmethod
     def timestamp_ns(self) -> int:
         """Return authoritative Unix nanoseconds."""

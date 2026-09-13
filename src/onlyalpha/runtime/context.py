@@ -175,16 +175,12 @@ class OnlyRuntimeContext:
     logger: OnlyRuntimeLogger
 
 
-OnlyRuntimeContextView = OnlyRuntimeContext
-OnlyClusterContext = OnlyRuntimeContext
-
-
 @dataclass(frozen=True, slots=True)
 class OnlyTimerContext:
     """Immutable context for one Cluster Timer callback."""
 
     event: OnlyTimerEvent
-    runtime: OnlyRuntimeContextView
+    runtime: OnlyRuntimeContext
 
     @property
     def clock(self) -> OnlyClockView:

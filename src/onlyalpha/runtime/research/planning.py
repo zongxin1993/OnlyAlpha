@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from onlyalpha.domain.identifiers import OnlyRuntimeId
+from onlyalpha.research.workload import OnlyResearchWorkloadPlan
 
 from .environment import OnlyResearchRuntimeEnvironmentIdentity
-from .plan import OnlyResearchWorkloadPlan
 
 
 @dataclass(frozen=True, slots=True)

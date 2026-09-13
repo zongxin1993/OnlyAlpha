@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
-from onlyalpha.cache.historical.models import OnlyCachePolicy, OnlyHistoricalCacheKey
+from onlyalpha.cache.historical.models import OnlyCachePolicy, OnlyHistoricalBarCacheKey
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.data.historical import OnlyDataQualityReport, OnlyHistoricalFetchResult
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
@@ -30,7 +30,7 @@ class _Provider:
         self.bar = bar
 
     def build_cache_key(self, request):
-        return OnlyHistoricalCacheKey(
+        return OnlyHistoricalBarCacheKey(
             str(self.request.source_id),
             "bars",
             request.instrument_id,

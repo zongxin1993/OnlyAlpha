@@ -79,7 +79,4 @@ from onlyalpha.position.views import (
     OnlyPositionRiskView,
 )
 
-OnlyPositionAllocation = OnlyPositionAllocationSnapshot
-OnlyPositionFill = OnlyPositionTrade
-
 __all__ = [name for name in globals() if name.startswith("Only")]

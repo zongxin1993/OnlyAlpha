@@ -234,9 +234,9 @@ from onlyalpha.runtime.checkpoint.participant import (
 from onlyalpha.runtime.checkpoint.registry import OnlyRuntimeCheckpointParticipantRegistry
 from onlyalpha.runtime.checkpoint.service import OnlyRuntimeCheckpointService
 from onlyalpha.runtime.context import (
-    OnlyClusterContext,
     OnlyInstrumentView,
     OnlyMarketDataView,
+    OnlyRuntimeContext,
     OnlyRuntimeContextError,
     OnlyRuntimeLogger,
     OnlySubscriptionService,
@@ -277,9 +277,9 @@ from onlyalpha.runtime.runtime import (
     OnlyRuntimeError,
     OnlyRuntimeErrorPolicy,
     OnlyRuntimePositionEventPublisherAdapter,
-    OnlyRuntimeServices,
     OnlyRuntimeState,
 )
+from onlyalpha.runtime.trading.services import OnlyTradingKernelServices
 from onlyalpha.runtime.trading_day_boundary import OnlyRuntimeTradingDayBoundaryCoordinator
 from onlyalpha.strategy_ledger.enums import OnlyStrategyCashEntryType
 from onlyalpha.strategy_ledger.identifiers import OnlyStrategyCashFlowId
@@ -1020,7 +1020,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         )
         historical_replay_service = OnlyHistoricalReplayService(cast(OnlyBacktestClock, clock), market_data_processor)
         self._trading_kernel.install_services(
-            OnlyRuntimeServices(
+            OnlyTradingKernelServices(
                 clock,
                 owned_bus,
                 event_bus_view,
@@ -3107,7 +3107,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
     def _set_broker_connection_state(self, state: object) -> None:
         self._broker_connection_state = state
 
-    def _make_context(self, cluster_id: OnlyClusterId) -> OnlyClusterContext:
+    def _make_context(self, cluster_id: OnlyClusterId) -> OnlyRuntimeContext:
         def allowed_bar_types() -> frozenset[OnlyBarType]:
             registration = self._subscriptions.get(cluster_id)
             return frozenset() if registration is None else frozenset(registration.subscription.bar_types)
@@ -3121,7 +3121,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         def current_snapshot() -> OnlyMarketDataSnapshot | None:
             return self._current_snapshots.get(cluster_id)
 
-        return OnlyClusterContext(
+        return OnlyRuntimeContext(
             engine_id=self.config.engine_id,  # type: ignore[arg-type]
             runtime_id=OnlyRuntimeId(str(self.config.runtime_id)),
             cluster_id=cluster_id,

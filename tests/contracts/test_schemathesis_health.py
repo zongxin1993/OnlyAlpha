@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import pytest
 from fastapi import FastAPI
 from hypothesis import settings
-import pytest
+from onlyalpha_http_server.health import create_health_router
 
 from onlyalpha.research.operations.readiness import OnlyResearchReadiness, OnlyResearchReadinessStatus
-from onlyalpha_http_server.health import create_health_router
 
 schemathesis = pytest.importorskip("schemathesis")
 

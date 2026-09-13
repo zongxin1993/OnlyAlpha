@@ -7,8 +7,8 @@ import pyarrow as pa
 from onlyalpha.calculation import OnlyCalculationReference, OnlyCalculationRegistry
 from onlyalpha.research.calculation import OnlyResearchCalculationBackendResolver
 from onlyalpha.research.calculation.predicate import (
+    only_predicate_type_reference,
     only_register_research_predicate_primitives,
-    only_research_predicate_type_reference,
 )
 
 
@@ -18,7 +18,7 @@ def _execute(
     inputs: dict[str, pa.Array],
     parameters: dict[str, object] | None = None,
 ) -> list[object]:
-    reference = only_research_predicate_type_reference(name)
+    reference = only_predicate_type_reference(name)
     bindings = {key: OnlyCalculationReference(None, key, "bar.close") for key in inputs}
     definition = registry.rematerialize_definition(reference, parameters or {}, bindings)
     backend = OnlyResearchCalculationBackendResolver(registry).resolve(definition)
@@ -33,7 +33,7 @@ def test_predicate_registration_is_complete_idempotent_and_resolvable() -> None:
     definitions = registry.type_definitions()
     assert len(definitions) == 38
     assert all(item.type_id.startswith("onlyalpha.predicate.internal.") for item in definitions)
-    assert registry.resolve_type(only_research_predicate_type_reference("terminal.entry_signal")) in definitions
+    assert registry.resolve_type(only_predicate_type_reference("terminal.entry_signal")) in definitions
 
 
 def test_predicate_boolean_and_terminal_primitives_preserve_three_valued_truth() -> None:

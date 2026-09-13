@@ -5,9 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
+from onlyalpha.research.experiment.model import OnlySearchEvaluationContextReferenceV1
+
 from .errors import OnlyAgentContextError
 from .model import (
-    OnlyAgentEvaluationContextReferenceV1,
     OnlyAgentOrchestrationResourceKind,
     OnlyAgentOrchestrationResourceV1,
     OnlyAgentResearchBrief,
@@ -58,7 +59,7 @@ class OnlyAgentEvaluationContextValue(Protocol):
 class OnlyAgentEvaluationContextReader(Protocol):
     def load_evaluation_context_verified(
         self,
-        reference: OnlyAgentEvaluationContextReferenceV1,
+        reference: OnlySearchEvaluationContextReferenceV1,
     ) -> OnlyAgentEvaluationContextValue: ...
 
 

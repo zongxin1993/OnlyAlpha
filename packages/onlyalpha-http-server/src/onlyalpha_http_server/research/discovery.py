@@ -11,7 +11,7 @@ from onlyalpha.calculation.definition import (
 )
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.research.calculation.binding import (
-    OnlyResearchDatasetSourceContract,
+    OnlyResearchDatasetSourceContractV1,
     only_research_dataset_source_contracts,
 )
 from onlyalpha.research.definition.model import OnlyResearchUniverseKind
@@ -61,7 +61,7 @@ class ResearchDiscoveryService:
         return tuple(sorted(result, key=lambda item: (item.kind.value, item.type_id, item.semantic_version)))
 
     @staticmethod
-    def dataset_fields() -> tuple[tuple[str, OnlyResearchDatasetSourceContract], ...]:
+    def dataset_fields() -> tuple[tuple[str, OnlyResearchDatasetSourceContractV1], ...]:
         return only_research_dataset_source_contracts()
 
     def universes(self) -> ResearchUniverseDiscovery:

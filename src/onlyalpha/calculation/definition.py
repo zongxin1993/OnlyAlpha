@@ -656,5 +656,3 @@ _scalar_from_dict = only_calculation_scalar_from_dict
 
 # Both names share the one calculation semantic authority; kind validation remains
 # part of the immutable definition rather than creating parallel hierarchies.
-OnlyIndicatorDefinition = OnlyCalculationDefinition
-OnlyFactorDefinition = OnlyCalculationDefinition

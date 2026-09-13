@@ -51,7 +51,6 @@ from onlyalpha.research.agent import (
     OnlyAgentDecisionKind,
     OnlyAgentDecisionV1,
     OnlyAgentDerivedSessionStatus,
-    OnlyAgentEvaluationContextReferenceV1,
     OnlyAgentEvaluationPathKind,
     OnlyAgentEvidenceCausalVerifierV1,
     OnlyAgentEvidenceObservationCodeV1,
@@ -2271,7 +2270,7 @@ def test_reducer_composes_real_symbolic_product_nonterminal_and_reconcile(
     agent_root = tmp_path / "agent"
     agent_root.mkdir()
     fixture, original = decision_context(agent_root)
-    evaluation = OnlyAgentEvaluationContextReferenceV1(
+    evaluation = OnlySearchEvaluationContextReferenceV1(
         child.evaluation_context_reference.evaluation_kind,
         child.evaluation_context_reference.evaluation_schema_version,
         child.evaluation_context_reference.evaluation_fingerprint,
@@ -2448,7 +2447,7 @@ def test_reducer_composes_real_parameter_product_frontier(tmp_path: Path, monkey
         original.research_brief,
         catalog_generation_fingerprint=child.catalog_generation_fingerprint,
         dataset_snapshot_fingerprint=child.dataset_snapshot_fingerprint,
-        evaluation_context_reference=OnlyAgentEvaluationContextReferenceV1(
+        evaluation_context_reference=OnlySearchEvaluationContextReferenceV1(
             child.evaluation_context_reference.evaluation_kind,
             child.evaluation_context_reference.evaluation_schema_version,
             child.evaluation_context_reference.evaluation_fingerprint,

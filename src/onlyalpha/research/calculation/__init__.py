@@ -7,7 +7,6 @@ from .backend import (
     OnlyResolvedResearchCalculationBackend,
 )
 from .binding import (
-    OnlyResearchDatasetSourceContract,
     OnlyResearchDatasetSourceContractV1,
     only_bind_research_dataset_source,
     only_research_dataset_source_contract,
@@ -31,8 +30,8 @@ from .identity import only_research_calculation_fingerprint
 from .predicate import (
     PREDICATE_SEMANTIC_VERSION,
     PREDICATE_VALUE_SEMANTIC_TYPE,
+    only_predicate_type_reference,
     only_register_research_predicate_primitives,
-    only_research_predicate_type_reference,
 )
 from .result import (
     OnlyResearchCalculationResult,

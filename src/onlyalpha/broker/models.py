@@ -43,10 +43,6 @@ class OnlyBrokerConnectionResult(OnlyDomainModel):
     snapshot: OnlyBrokerConnectionSnapshot
 
 
-OnlyBrokerAuthenticationResult = OnlyBrokerConnectionResult
-OnlyBrokerDisconnectResult = OnlyBrokerConnectionResult
-
-
 @dataclass(frozen=True, slots=True)
 class OnlyBrokerOrderRequest(OnlyDomainModel):
     schema_version = 2

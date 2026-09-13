@@ -486,9 +486,9 @@ def test_public_package_imports_keep_canonical_objects_and_export_counts() -> No
     from onlyalpha.research.workload import OnlyResearchWorkloadPlan
 
     assert len(onlyalpha.__all__) == 17
-    assert len(research.__all__) == 530
+    assert len(research.__all__) == 528
     assert len(experiment.__all__) == 52
-    assert len(agent.__all__) == 130
+    assert len(agent.__all__) == 129
     assert len(application.__all__) == 21
     assert onlyalpha.OnlyClock is OnlyClock
     assert research.OnlyResearchWorkloadPlan is OnlyResearchWorkloadPlan

@@ -116,7 +116,3 @@ class OnlyOrderServiceView:
     def __require_enabled(self) -> None:
         if not self.__enabled():
             raise OnlyOrderScopeError("Order commands require a running Cluster and Runtime")
-
-
-OnlyOrderQueryView = OnlyOrderServiceView
-OnlyOrderContextView = OnlyOrderServiceView

@@ -10,7 +10,6 @@ from .errors import OnlyResearchSubmissionConflictError as OnlyResearchSubmissio
 from .model import OnlyDerivedResearchSubmitCommandV2 as OnlyDerivedResearchSubmitCommandV2
 from .model import OnlyResearchRunPage as OnlyResearchRunPage
 from .model import OnlyResearchRunPageCursor as OnlyResearchRunPageCursor
-from .model import OnlyResearchSubmissionKey as OnlyResearchSubmissionKey
 from .model import OnlyResearchSubmissionRecord as OnlyResearchSubmissionRecord
 from .model import OnlyResearchSubmitCommand as OnlyResearchSubmitCommand
 from .model import OnlyResearchSubmitDisposition as OnlyResearchSubmitDisposition

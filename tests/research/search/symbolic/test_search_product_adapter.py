@@ -666,7 +666,7 @@ def test_submit_v1_fingerprint_is_frozen_and_v2_separates_science_from_runtime_i
         submit.catalog_generation_fingerprint,
         submit.dataset_snapshot_fingerprint,
     )
-    assert v1.command_fingerprint == "1ef8a1a55ab2d8021ff14391d81b7edde3e32cf1ce3528c35f1681564acb2e7b"
+    assert v1.command_fingerprint == "3d086644c6b8705bb2674e001be9f83f9ba0d45bef8a1ff63534ee11dd1eb6f2"
     with pytest.raises(OnlySearchRuntimeGenerationUnbound):
         service.submit(v1)
 

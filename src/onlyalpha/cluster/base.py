@@ -28,7 +28,7 @@ from onlyalpha.indicator.registry import (
 from onlyalpha.indicator.snapshot import OnlyIndicatorSnapshot
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
 from onlyalpha.result.strategy import OnlyStrategyResultRecorder
-from onlyalpha.runtime.context import OnlyClusterContext, OnlyTimerContext
+from onlyalpha.runtime.context import OnlyRuntimeContext, OnlyTimerContext
 from onlyalpha.strategy.adapter import OnlyRevisionStrategyAdapter
 from onlyalpha.strategy.execution import OnlyStrategyExecutionPlan
 from onlyalpha.strategy.identifiers import OnlyStrategyId
@@ -57,7 +57,7 @@ class OnlyClusterState(StrEnum):
 class OnlyClusterActionWorkload(Protocol):
     """Non-Strategy deterministic harness commands, used only by Scenario."""
 
-    def bind(self, context: OnlyClusterContext) -> None: ...
+    def bind(self, context: OnlyRuntimeContext) -> None: ...
 
     def on_bar(self, bar: OnlyBar) -> None: ...
 
@@ -118,7 +118,7 @@ class OnlyCluster:
         if not isinstance(indicator_factories, OnlyIndicatorFactoryRegistry):
             raise TypeError("Cluster requires an OnlyIndicatorFactoryRegistry")
         self._indicator_factories = indicator_factories
-        self._context: OnlyClusterContext | None = None
+        self._context: OnlyRuntimeContext | None = None
         self._state = OnlyClusterState.CREATED
         self._indicator_registry: OnlyIndicatorRegistry | None = None
         self._pipeline: OnlyClusterPipeline | None = None
@@ -128,7 +128,7 @@ class OnlyCluster:
         self._action_workload = action_workload
 
     @property
-    def context(self) -> OnlyClusterContext | None:
+    def context(self) -> OnlyRuntimeContext | None:
         return self._context
 
     @property
@@ -191,7 +191,7 @@ class OnlyCluster:
             ready,
         )
 
-    def _only_manager_bind(self, context: OnlyClusterContext) -> None:
+    def _only_manager_bind(self, context: OnlyRuntimeContext) -> None:
         if self._context is not None:
             raise OnlyClusterError("Cluster Context can be bound only once")
         self._context = context
@@ -285,7 +285,7 @@ class OnlyCluster:
     def on_error(self, error: Exception) -> None:
         self._require_context().logger.error("cluster callback failed: %s", error)
 
-    def _require_context(self) -> OnlyClusterContext:
+    def _require_context(self) -> OnlyRuntimeContext:
         if self._context is None:
             raise OnlyClusterError("Cluster Context is unavailable")
         return self._context
