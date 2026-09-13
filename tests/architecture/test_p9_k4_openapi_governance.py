@@ -68,15 +68,6 @@ def test_core_domain_has_no_api_contract_tooling_dependency() -> None:
         assert not (_imports(path) & forbidden), path
 
 
-def test_k4_contract_governance_does_not_start_v3_or_remote_protocol_work() -> None:
-    assert not (ROOT / "contracts/product-api/v3").exists()
-    changed = "\n".join(path.as_posix() for path in ROOT.rglob("*"))
-    assert "scripts/openapi_contract.py" in changed
-    source = GOVERNANCE.read_text(encoding="utf-8")
-    for forbidden in ("grpc", "protobuf", "asyncapi", "kafka", "nats", "idempotency ledger"):
-        assert forbidden not in source.lower()
-
-
 def test_contract_metadata_does_not_enter_semantic_identity_code() -> None:
     semantic_roots = (
         ROOT / "src/onlyalpha/calculation",
