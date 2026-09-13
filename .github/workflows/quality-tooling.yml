@@ -132,14 +132,28 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: astral-sh/setup-uv@v7
+      - name: Detect changed core source
+        id: core-changes
+        shell: bash
+        run: |
+          if git diff --quiet "origin/${GITHUB_BASE_REF}...HEAD" -- src/onlyalpha; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No src/onlyalpha changes; diff coverage is not applicable."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.core-changes.outputs.changed == 'true'
+        uses: astral-sh/setup-uv@v7
         with:
           version: "0.10.5"
           python-version: ${{ env.PYTHON_VERSION }}
-      - run: uv sync --frozen --all-packages --all-groups
-      - name: Produce deterministic core coverage
+      - if: steps.core-changes.outputs.changed == 'true'
+        run: uv sync --frozen --all-packages --all-groups
+      - if: steps.core-changes.outputs.changed == 'true'
+        name: Produce deterministic core coverage
         run: uv run python scripts/test_suite.py fast --coverage
-      - name: Require coverage for changed core lines and branches
+      - if: steps.core-changes.outputs.changed == 'true'
+        name: Require coverage for changed core lines and branches
         run: >-
           uvx --from diff-cover==10.4.1 diff-cover
           test-results/coverage/coverage.xml
