@@ -19,7 +19,7 @@ from onlyalpha.runtime.generation import (
     OnlyRuntimeGenerationValidationEvidence,
     OnlyRuntimeProviderBinding,
 )
-from tests.strategy.p9_support import p9_strategy_case
+from tests.strategy.product_support import strategy_product_case
 
 NOW = datetime(2026, 9, 5, tzinfo=UTC)
 
@@ -425,7 +425,7 @@ def test_restart_fails_closed_when_generation_manifest_or_event_chain_is_corrupt
 
 
 def test_historical_revision_resolves_exact_implementation_not_same_semantic_version(tmp_path: Path) -> None:
-    case = p9_strategy_case(tmp_path / "strategy")
+    case = strategy_product_case(tmp_path / "strategy")
     required = tuple(
         fingerprint
         for binding in case.revision.implementation_bindings

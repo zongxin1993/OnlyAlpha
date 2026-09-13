@@ -273,7 +273,7 @@ IMPACT_RULES = (
         (
             "scripts/export_research_openapi.py",
             "scripts/openapi_contract.py",
-            "tests/architecture/test_p9_k4_openapi_governance.py",
+            "tests/architecture/test_openapi_governance.py",
         ),
         (OnlyTestLane.RESEARCH_QUERY, OnlyTestLane.RESEARCH_COMMAND),
         WEB_CHECKS,
@@ -601,7 +601,7 @@ IMPACT_RULES = (
     VerificationImpactRule(
         "strategy-product",
         ("src/onlyalpha/strategy/", "tests/strategy/", "src/onlyalpha/cluster/factory.py"),
-        ("tests/architecture/test_p9_strategy_authority.py", "src/onlyalpha/config/models.py"),
+        ("tests/architecture/test_strategy_authority.py", "src/onlyalpha/config/models.py"),
         (OnlyTestLane.STRATEGY, OnlyTestLane.CALCULATION),
         STATIC,
         VerificationEscalation.COMPONENT,

@@ -14,7 +14,7 @@ GOVERNANCE = ROOT / "scripts/openapi_contract.py"
 WRAPPER = ROOT / "scripts/export_research_openapi.py"
 
 
-def test_one_v2_canonical_contract_and_one_bounded_a0_authorization() -> None:
+def test_one_v2_canonical_contract_and_one_bounded_pre_freeze_authorization() -> None:
     contract_root = ROOT / "contracts/product-api"
     contracts = sorted(
         path for path in contract_root.rglob("*") if path.is_file() and path.suffix in {".json", ".yaml", ".yml"}

@@ -3,29 +3,29 @@ set -euo pipefail
 
 deploy_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 repository_root="$(CDPATH= cd -- "${deploy_dir}/../.." && pwd)"
-environment_file="${ONLYALPHA_COMPOSE_ENV_FILE:-${deploy_dir}/.env.test.example}"
-golden_root="${ONLYALPHA_A0_GOLDEN_ROOT:?set ONLYALPHA_A0_GOLDEN_ROOT to the guarded frozen bundle directory}"
+environment_file="${ONLYALPHA_COMPOSE_ENV_FILE:-${deploy_dir}/.env.acceptance.example}"
+golden_root="${ONLYALPHA_GOLDEN_BUNDLE_ROOT:?set ONLYALPHA_GOLDEN_BUNDLE_ROOT to the guarded frozen bundle directory}"
 
 case "${golden_root}" in
   /*) ;;
-  *) echo "ONLYALPHA_A0_GOLDEN_ROOT must be absolute" >&2; exit 2 ;;
+  *) echo "ONLYALPHA_GOLDEN_BUNDLE_ROOT must be absolute" >&2; exit 2 ;;
 esac
 if [[ "${golden_root}" == "/" || ! -f "${golden_root}/bundle-manifest.json" ]]; then
-  echo "guarded A0 Golden bundle-manifest.json is required" >&2
+  echo "guarded Golden bundle-manifest.json is required" >&2
   exit 2
 fi
-product_output="$(mktemp -d "${TMPDIR:-/tmp}/onlyalpha-a0-product.XXXXXX")"
+product_output="$(mktemp -d "${TMPDIR:-/tmp}/onlyalpha-product-acceptance.XXXXXX")"
 
-compose_files=(-f "${deploy_dir}/compose.yaml" -f "${deploy_dir}/compose.production.yaml" -f "${deploy_dir}/compose.test.yaml")
+compose_files=(-f "${deploy_dir}/compose.yaml" -f "${deploy_dir}/compose.production.yaml" -f "${deploy_dir}/compose.acceptance.yaml")
 set -a
 # shellcheck disable=SC1090
 source "${environment_file}"
 set +a
 bundle_sha="$(shasum -a 256 "${golden_root}/bundle-manifest.json" | awk '{print $1}')"
-export ONLYALPHA_A0_GOLDEN_BUNDLE_PATH="${golden_root}"
+export ONLYALPHA_GOLDEN_BUNDLE_PATH="${golden_root}"
 export ONLYALPHA_PRODUCT_CONFIG_PATH="${product_output}"
 export ONLYALPHA_BACKUP_PATH="${product_output}/backups"
-export ONLYALPHA_USER_DATA_VOLUME="onlyalpha-a0-${bundle_sha:0:16}-user-data"
+export ONLYALPHA_USER_DATA_VOLUME="onlyalpha-product-acceptance-${bundle_sha:0:16}-user-data"
 export ONLYALPHA_POSTGRES_DSN="postgresql://${ONLYALPHA_POSTGRES_USER}:${ONLYALPHA_POSTGRES_PASSWORD}@onlyalpha-postgres:5432/${ONLYALPHA_POSTGRES_DATABASE}"
 mkdir -p "${ONLYALPHA_BACKUP_PATH}"
 
@@ -38,7 +38,7 @@ cleanup() {
     compose stop
     rm -rf -- "${product_output}"
   else
-    echo "retaining A0 Product output at ${product_output}" >&2
+    echo "retaining Product acceptance output at ${product_output}" >&2
   fi
 }
 trap cleanup EXIT
@@ -51,7 +51,7 @@ compose --profile tools run --rm operator python scripts/database.py migrate
 compose --profile tools run --rm operator python scripts/database.py initialize-deployment --user-data-root /var/lib/onlyalpha
 compose --profile tools run --rm operator python scripts/market_data_database.py migrate
 compose --profile binance-certification run --rm binance-golden-provisioner \
-  python /workspace/deploy/compose/provision_a0_binance_golden.py provision-offline \
+  python /workspace/deploy/compose/provision_binance_golden.py provision-offline \
   --bundle-manifest /var/lib/onlyalpha-golden/bundle-manifest.json \
   --archive-root /var/lib/onlyalpha-golden/archives \
   --user-data-root /var/lib/onlyalpha \
@@ -87,7 +87,7 @@ for name, first, replay in (("Spot", sys.argv[1], sys.argv[2]), ("USD-M", sys.ar
 PY
 
 compose stop backtest-worker
-export ONLYALPHA_BACKTEST_ACCEPTANCE_BARRIER_PATH="/var/lib/onlyalpha/a0-backtest-release-${bundle_sha:0:16}-$$"
+export ONLYALPHA_BACKTEST_ACCEPTANCE_BARRIER_PATH="/var/lib/onlyalpha/product-acceptance-backtest-${bundle_sha:0:16}-$$"
 compose up -d --force-recreate backtest-worker
 definition_json="$(python -c 'import json; print(json.dumps(json.load(open("'"${product_output}/acceptance-spot.json"'"))["definition"],separators=(",",":")))')"
 backtest_json="$(python -c 'import json; print(json.dumps(json.load(open("'"${product_output}/acceptance-spot.json"'"))["backtest_request"],separators=(",",":")))')"
@@ -107,5 +107,5 @@ baseline, recovered = json.loads(sys.argv[1]), json.loads(sys.argv[2])
 for field in ("result_fingerprint", "determinism_fingerprint"):
     if baseline[field] != recovered[field]:
         raise SystemExit(f"Worker restart changed {field}")
-print("A0 Product Acceptance\nSpot: PASS\nUSD-M: PASS\nDeterministic Replay: PASS\nWorker Restart: PASS\nIdempotency: PASS\nEvidence Recovery: PASS")
+print("Product Acceptance\nSpot: PASS\nUSD-M: PASS\nDeterministic Replay: PASS\nWorker Restart: PASS\nIdempotency: PASS\nEvidence Recovery: PASS")
 PY

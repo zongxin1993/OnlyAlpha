@@ -8,11 +8,11 @@ from onlyalpha.strategy.store import (
     _only_authorize_frozen_strategy_publication,
     _only_compose_frozen_strategy_authority,
 )
-from tests.strategy.p9_support import p9_strategy_case, publish_frozen_strategy_for_execution_test
+from tests.strategy.product_support import publish_frozen_strategy_for_execution_test, strategy_product_case
 
 
 def test_frozen_strategy_store_is_read_only_and_loads_verified_freeze_fixture(tmp_path) -> None:
-    revision = p9_strategy_case(tmp_path / "case").revision
+    revision = strategy_product_case(tmp_path / "case").revision
     root = tmp_path / "semantic"
     store = OnlyFrozenStrategyRevisionStore(root)
 
@@ -28,7 +28,7 @@ def test_frozen_strategy_store_is_read_only_and_loads_verified_freeze_fixture(tm
 
 
 def test_legacy_raw_revision_namespace_is_not_runtime_readable(tmp_path) -> None:
-    revision = p9_strategy_case(tmp_path / "case").revision
+    revision = strategy_product_case(tmp_path / "case").revision
     root = tmp_path / "semantic"
     fingerprint = str(revision.strategy_fingerprint)
     legacy = root / "strategy" / "revisions" / "sha256" / fingerprint[:2] / fingerprint
@@ -52,7 +52,7 @@ def test_legacy_raw_revision_namespace_is_not_runtime_readable(tmp_path) -> None
 
 
 def test_revision_without_semantic_freeze_relation_is_not_executable(tmp_path) -> None:
-    revision = p9_strategy_case(tmp_path / "case").revision
+    revision = strategy_product_case(tmp_path / "case").revision
     root = tmp_path / "semantic"
     fingerprint = str(revision.strategy_fingerprint)
     target = root / "strategy" / "frozen-revisions" / "sha256" / fingerprint[:2] / fingerprint
@@ -68,7 +68,7 @@ def test_revision_without_semantic_freeze_relation_is_not_executable(tmp_path) -
 
 
 def test_corrupt_semantic_freeze_relation_is_not_executable(tmp_path) -> None:
-    revision = p9_strategy_case(tmp_path / "case").revision
+    revision = strategy_product_case(tmp_path / "case").revision
     root = tmp_path / "semantic"
     publish_frozen_strategy_for_execution_test(root, revision)
     relation = next((root / "strategy" / "freeze-relations" / "sha256").glob("*/*/manifest.json"))
@@ -79,7 +79,7 @@ def test_corrupt_semantic_freeze_relation_is_not_executable(tmp_path) -> None:
 
 
 def test_distinct_candidates_can_publish_relations_for_one_strategy_identity(tmp_path) -> None:
-    revision = p9_strategy_case(tmp_path / "case").revision
+    revision = strategy_product_case(tmp_path / "case").revision
     root = tmp_path / "semantic"
     reader, publisher = _only_compose_frozen_strategy_authority(root)
     relations = tuple(
@@ -106,8 +106,8 @@ def test_frozen_strategy_inventory_is_verified_sorted_and_empty_safe(tmp_path) -
     store = OnlyFrozenStrategyRevisionStore(root)
     assert store.frozen_strategy_fingerprints() == ()
     revisions = (
-        p9_strategy_case(tmp_path / "case-a").revision,
-        p9_strategy_case(tmp_path / "case-b").revision,
+        strategy_product_case(tmp_path / "case-a").revision,
+        strategy_product_case(tmp_path / "case-b").revision,
     )
     for revision in reversed(revisions):
         publish_frozen_strategy_for_execution_test(root, revision)
@@ -126,7 +126,7 @@ def test_frozen_strategy_inventory_fails_closed_on_unexpected_prefix(tmp_path) -
 
 @pytest.mark.parametrize("corruption", ["manifest", "unexpected", "path", "symlink"])
 def test_frozen_strategy_reader_fails_closed_on_corruption(tmp_path, corruption) -> None:
-    revision = p9_strategy_case(tmp_path / "case").revision
+    revision = strategy_product_case(tmp_path / "case").revision
     root = tmp_path / "semantic"
     publish_frozen_strategy_for_execution_test(root, revision)
     store = OnlyFrozenStrategyRevisionStore(root)

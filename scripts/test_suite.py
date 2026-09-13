@@ -52,8 +52,8 @@ class OnlyTestLane(StrEnum):
     RESEARCH_EXECUTION = "research-execution"
     RESEARCH_POSTGRES = "research-postgres"
     MARKET_DATA_CLICKHOUSE = "market-data-clickhouse"
-    P9_3_REAL_DATABASE = "p9-3-real-database"
-    RESEARCH_PRODUCT_CLOSURE = "research-product-closure"
+    DATABASE_ACCEPTANCE = "database-acceptance"
+    RESEARCH_PRODUCT_CERTIFICATION = "research-product-certification"
     RESEARCH_RUNTIME = "research-runtime"
     RESEARCH_JOB = "research-job"
     RESEARCH_SWEEP = "research-sweep"
@@ -97,8 +97,8 @@ LANES = {
     OnlyTestLane.KERNEL: Lane(
         (
             "tests/kernel",
-            "tests/architecture/test_p9_k1_kernel_boundary.py",
-            "tests/architecture/test_p9_k2_product_boundary.py",
+            "tests/architecture/test_kernel_boundary.py",
+            "tests/architecture/test_product_kernel_boundary.py",
         ),
         "unit or architecture",
         "0",
@@ -107,7 +107,7 @@ LANES = {
     OnlyTestLane.STRATEGY: Lane(
         (
             "tests/strategy",
-            "tests/architecture/test_p9_strategy_authority.py",
+            "tests/architecture/test_strategy_authority.py",
             "tests/config/test_run_config.py",
         ),
         "not external",
@@ -252,21 +252,21 @@ LANES = {
     ),
     OnlyTestLane.MARKET_DATA_CLICKHOUSE: Lane(
         ("tests/market_data_durable",),
-        "clickhouse and external and requires_network and not p9_3_real_database",
+        "clickhouse and external and requires_network and not database_acceptance",
         "0",
         "no",
         100,
     ),
-    OnlyTestLane.P9_3_REAL_DATABASE: Lane(
+    OnlyTestLane.DATABASE_ACCEPTANCE: Lane(
         ("tests/market_data_durable/test_real_database_acceptance.py",),
-        "p9_3_real_database and postgres and clickhouse and external and requires_network",
+        "database_acceptance and postgres and clickhouse and external and requires_network",
         "0",
         "no",
         100,
     ),
-    OnlyTestLane.RESEARCH_PRODUCT_CLOSURE: Lane(
+    OnlyTestLane.RESEARCH_PRODUCT_CERTIFICATION: Lane(
         (
-            "tests/certification/p8_6",
+            "tests/certification/research_product",
             "tests/architecture/test_research_deployment_boundaries.py",
         ),
         "postgres or not external",
@@ -471,7 +471,7 @@ RELEASE_LANES = (
     OnlyTestLane.RESEARCH_RUN,
     OnlyTestLane.RESEARCH_COMMAND,
     OnlyTestLane.RESEARCH_EXECUTION,
-    OnlyTestLane.RESEARCH_PRODUCT_CLOSURE,
+    OnlyTestLane.RESEARCH_PRODUCT_CERTIFICATION,
     OnlyTestLane.RESEARCH_POSTGRES,
     OnlyTestLane.MARKET_DATA_CLICKHOUSE,
     OnlyTestLane.RESEARCH_RUNTIME,

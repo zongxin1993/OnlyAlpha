@@ -71,8 +71,8 @@ def test_kernel_lane_owns_lifecycle_host_and_product_boundary() -> None:
     lane = LANES[OnlyTestLane.KERNEL]
     assert lane.paths == (
         "tests/kernel",
-        "tests/architecture/test_p9_k1_kernel_boundary.py",
-        "tests/architecture/test_p9_k2_product_boundary.py",
+        "tests/architecture/test_kernel_boundary.py",
+        "tests/architecture/test_product_kernel_boundary.py",
     )
     assert lane.expression == "unit or architecture"
     assert lane.workers == "0"

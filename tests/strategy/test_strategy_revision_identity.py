@@ -11,11 +11,11 @@ from onlyalpha.strategy import (
     OnlyStrategyRevision,
     OnlyStrategyUniverse,
 )
-from tests.strategy.p9_support import p9_strategy_case
+from tests.strategy.product_support import strategy_product_case
 
 
 def test_same_semantic_result_with_different_research_implementation_changes_strategy_identity(tmp_path) -> None:
-    case = p9_strategy_case(tmp_path / "case")
+    case = strategy_product_case(tmp_path / "case")
     binding = case.revision.implementation_bindings[0]
     first_evidence = case.execution_evidence[0]
     first_provenance_binding = first_evidence.research_implementation_bindings[0]
@@ -41,7 +41,7 @@ def test_same_semantic_result_with_different_research_implementation_changes_str
 
 
 def test_strategy_fingerprint_is_canonical_and_excludes_external_evidence(tmp_path) -> None:
-    case = p9_strategy_case(tmp_path)
+    case = strategy_product_case(tmp_path)
     revision = case.revision
     reordered = replace(revision, universe=OnlyStrategyUniverse(tuple(reversed(revision.universe.instruments))))
 
@@ -68,7 +68,7 @@ def test_strategy_fingerprint_is_canonical_and_excludes_external_evidence(tmp_pa
 
 
 def test_every_strategy_semantic_boundary_changes_the_single_fingerprint(tmp_path) -> None:
-    case = p9_strategy_case(tmp_path)
+    case = strategy_product_case(tmp_path)
     revision = case.revision
     original = revision.strategy_fingerprint
     contract = revision.market_input_contract
@@ -120,7 +120,7 @@ def test_every_strategy_semantic_boundary_changes_the_single_fingerprint(tmp_pat
 
 
 def test_revision_requires_exact_graph_implementation_and_signal_role_coverage(tmp_path) -> None:
-    revision = p9_strategy_case(tmp_path).revision
+    revision = strategy_product_case(tmp_path).revision
     with pytest.raises(ValueError, match="exactly cover"):
         OnlyStrategyRevision(
             revision.universe,

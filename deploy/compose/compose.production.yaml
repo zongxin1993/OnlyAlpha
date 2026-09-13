@@ -16,7 +16,7 @@ services:
         max-file: "5"
 
   user-data-initializer:
-    image: ${ONLYALPHA_OPERATOR_IMAGE:-onlyalpha-operator:0.9.8}
+    image: ${ONLYALPHA_OPERATOR_IMAGE:?set ONLYALPHA_OPERATOR_IMAGE}
     profiles:
       - tools
     restart: "no"
@@ -27,7 +27,7 @@ services:
       - user-data:/var/lib/onlyalpha
 
   operator:
-    image: ${ONLYALPHA_OPERATOR_IMAGE:-onlyalpha-operator:0.9.8}
+    image: ${ONLYALPHA_OPERATOR_IMAGE:?set ONLYALPHA_OPERATOR_IMAGE}
     build:
       context: ../..
       dockerfile: deploy/compose/Dockerfile.acceptance
@@ -52,7 +52,7 @@ services:
       - database
 
   binance-golden-provisioner:
-    image: ${ONLYALPHA_OPERATOR_IMAGE:-onlyalpha-operator:0.9.8}
+    image: ${ONLYALPHA_OPERATOR_IMAGE:?set ONLYALPHA_OPERATOR_IMAGE}
     build:
       context: ../..
       dockerfile: deploy/compose/Dockerfile.acceptance
@@ -80,13 +80,13 @@ services:
     volumes:
       - user-data:/var/lib/onlyalpha
       - ${ONLYALPHA_PRODUCT_CONFIG_PATH:?set ONLYALPHA_PRODUCT_CONFIG_PATH}:/var/lib/onlyalpha-product
-      - ${ONLYALPHA_A0_GOLDEN_BUNDLE_PATH:-${ONLYALPHA_PRODUCT_CONFIG_PATH}}:/var/lib/onlyalpha-golden:ro
+      - ${ONLYALPHA_GOLDEN_BUNDLE_PATH:-${ONLYALPHA_PRODUCT_CONFIG_PATH}}:/var/lib/onlyalpha-golden:ro
     networks:
       - database
       - binance-egress
 
   onlyalpha-http-server:
-    image: ${ONLYALPHA_OPERATOR_IMAGE:-onlyalpha-operator:0.9.8}
+    image: ${ONLYALPHA_OPERATOR_IMAGE:?set ONLYALPHA_OPERATOR_IMAGE}
     restart: unless-stopped
     entrypoint: ["onlyalpha-http-server"]
     command:
@@ -136,7 +136,7 @@ services:
       - agent-control
 
   onlyalpha-agent:
-    image: ${ONLYALPHA_OPERATOR_IMAGE:-onlyalpha-operator:0.9.9}
+    image: ${ONLYALPHA_OPERATOR_IMAGE:?set ONLYALPHA_OPERATOR_IMAGE}
     restart: unless-stopped
     entrypoint: ["onlyalpha-agent"]
     command:
@@ -179,7 +179,7 @@ services:
       - model-egress
 
   research-worker:
-    image: ${ONLYALPHA_OPERATOR_IMAGE:-onlyalpha-operator:0.9.8}
+    image: ${ONLYALPHA_OPERATOR_IMAGE:?set ONLYALPHA_OPERATOR_IMAGE}
     restart: unless-stopped
     entrypoint: ["onlyalpha-research-worker"]
     command: ["--user-data-root", "/var/lib/onlyalpha"]
@@ -196,7 +196,7 @@ services:
       - database
 
   backtest-worker:
-    image: ${ONLYALPHA_OPERATOR_IMAGE:-onlyalpha-operator:0.9.8}
+    image: ${ONLYALPHA_OPERATOR_IMAGE:?set ONLYALPHA_OPERATOR_IMAGE}
     restart: unless-stopped
     entrypoint: ["onlyalpha-backtest-worker"]
     command:

@@ -157,4 +157,4 @@ def test_miniqmt_read_only_and_order_workflows_are_separate() -> None:
     assert "test_suite.py miniqmt-local" in local
     assert "miniqmt-dedicated-test-account" in order
     assert "I_UNDERSTAND" in order
-    assert "Order execution is intentionally not enabled in P0" in order
+    assert "Order execution is intentionally not enabled in the current MiniQMT workflow" in order

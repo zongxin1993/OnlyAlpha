@@ -194,7 +194,7 @@ jobs:
       - run: uv sync --frozen --all-packages --all-groups
       - run: uv build --all-packages
 
-  research-product-closure:
+  research-product-certification:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -244,7 +244,7 @@ jobs:
           test "$("${ONLYALPHA_POSTGRES_CLIENT_BIN_DIR}/pg_dump" --version | awk '{print $3}' | cut -d. -f1)" = "18"
           test "$("${ONLYALPHA_POSTGRES_CLIENT_BIN_DIR}/pg_restore" --version | awk '{print $3}' | cut -d. -f1)" = "18"
           test "$("${ONLYALPHA_POSTGRES_CLIENT_BIN_DIR}/psql" --version | awk '{print $3}' | cut -d. -f1)" = "18"
-      - run: uv run python scripts/test_suite.py research-product-closure
+      - run: uv run python scripts/test_suite.py research-product-certification
 
   database-compose:
     runs-on: ubuntu-latest
@@ -336,7 +336,7 @@ jobs:
 
   quality-gate:
     if: always()
-    needs: [static, architecture, openapi-contract, private-asset-contract, gateway-protocol, dependency-audit, pr-lanes, main-lanes, research-product-closure, database-compose, build, web]
+    needs: [static, architecture, openapi-contract, private-asset-contract, gateway-protocol, dependency-audit, pr-lanes, main-lanes, research-product-certification, database-compose, build, web]
     runs-on: ubuntu-latest
     steps:
       - name: Require every independent gate
@@ -349,8 +349,8 @@ jobs:
           DEPENDENCY_AUDIT_RESULT: ${{ needs.dependency-audit.result }}
           PR_LANES_RESULT: ${{ needs.pr-lanes.result }}
           MAIN_LANES_RESULT: ${{ needs.main-lanes.result }}
-          RESEARCH_PRODUCT_CLOSURE_RESULT: ${{ needs.research-product-closure.result }}
+          RESEARCH_PRODUCT_CERTIFICATION_RESULT: ${{ needs.research-product-certification.result }}
           DATABASE_COMPOSE_RESULT: ${{ needs.database-compose.result }}
           BUILD_RESULT: ${{ needs.build.result }}
           WEB_RESULT: ${{ needs.web.result }}
-        run: test "$STATIC_RESULT" = success -a "$ARCHITECTURE_RESULT" = success -a "$OPENAPI_CONTRACT_RESULT" = success -a "$PRIVATE_ASSET_CONTRACT_RESULT" = success -a "$GATEWAY_PROTOCOL_RESULT" = success -a "$DEPENDENCY_AUDIT_RESULT" = success -a "$RESEARCH_PRODUCT_CLOSURE_RESULT" = success -a "$DATABASE_COMPOSE_RESULT" = success -a "$BUILD_RESULT" = success -a "$WEB_RESULT" = success -a \( "$PR_LANES_RESULT" = success -o "$PR_LANES_RESULT" = skipped \) -a \( "$MAIN_LANES_RESULT" = success -o "$MAIN_LANES_RESULT" = skipped \)
+        run: test "$STATIC_RESULT" = success -a "$ARCHITECTURE_RESULT" = success -a "$OPENAPI_CONTRACT_RESULT" = success -a "$PRIVATE_ASSET_CONTRACT_RESULT" = success -a "$GATEWAY_PROTOCOL_RESULT" = success -a "$DEPENDENCY_AUDIT_RESULT" = success -a "$RESEARCH_PRODUCT_CERTIFICATION_RESULT" = success -a "$DATABASE_COMPOSE_RESULT" = success -a "$BUILD_RESULT" = success -a "$WEB_RESULT" = success -a \( "$PR_LANES_RESULT" = success -o "$PR_LANES_RESULT" = skipped \) -a \( "$MAIN_LANES_RESULT" = success -o "$MAIN_LANES_RESULT" = skipped \)

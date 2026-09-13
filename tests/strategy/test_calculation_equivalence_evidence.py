@@ -29,11 +29,11 @@ from onlyalpha.calculation import (
 from onlyalpha.indicator.identifiers import OnlyIndicatorId
 from onlyalpha.strategy.equivalence import OnlyLegacyCalculationEquivalenceEvidenceV1Reader
 from onlyalpha.strategy.execution import only_invoke_trading_calculation
-from tests.strategy.p9_support import p9_strategy_case
+from tests.strategy.product_support import strategy_product_case
 
 
 def test_actual_backends_must_match_before_evidence_v2_is_published(tmp_path) -> None:
-    case = p9_strategy_case(tmp_path / "case")
+    case = strategy_product_case(tmp_path / "case")
     node = next(
         item
         for item in case.revision.decision_graph.ordered_nodes
@@ -88,7 +88,7 @@ def test_certification_api_accepts_no_runner_corpus_profile_or_output(tmp_path) 
 
 
 def test_evidence_v2_binds_exact_node_and_required_profile(tmp_path) -> None:
-    case = p9_strategy_case(tmp_path / "case")
+    case = strategy_product_case(tmp_path / "case")
     first, second = tuple(
         item
         for item in case.revision.decision_graph.ordered_nodes

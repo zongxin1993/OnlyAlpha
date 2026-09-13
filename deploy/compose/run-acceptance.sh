@@ -3,8 +3,8 @@ set -euo pipefail
 
 deploy_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 repository_root="$(CDPATH= cd -- "${deploy_dir}/../.." && pwd)"
-environment_file="${deploy_dir}/.env.test.example"
-compose_files=(-f "${deploy_dir}/compose.yaml" -f "${deploy_dir}/compose.test.yaml")
+environment_file="${deploy_dir}/.env.acceptance.example"
+compose_files=(-f "${deploy_dir}/compose.yaml" -f "${deploy_dir}/compose.acceptance.yaml")
 
 set -a
 # shellcheck disable=SC1090

@@ -13,7 +13,7 @@ from onlyalpha.strategy import (
     OnlyStrategyMarketInputContract,
     OnlyStrategyUniverse,
 )
-from tests.strategy.p9_support import p9_strategy_case, publish_frozen_strategy_for_execution_test
+from tests.strategy.product_support import publish_frozen_strategy_for_execution_test, strategy_product_case
 
 
 def _config(path: str, capital: str) -> OnlyClusterRunConfig:
@@ -27,7 +27,7 @@ def test_engine_multi_cluster_performance_full_vertical_slice(tmp_path: Path) ->
     first = _config("tests/fixtures/legacy_macd/cluster.json", "400000.00")
     second = _config("tests/fixtures/legacy_macd/cluster_fast.json", "600000.00")
     subscription = first.factors[0].subscriptions.instrument_bars[0]
-    case = p9_strategy_case(tmp_path / "research")
+    case = strategy_product_case(tmp_path / "research")
     revision = replace(
         case.revision,
         universe=OnlyStrategyUniverse(tuple(item.instrument_id for item in first.reference_data.instruments)),

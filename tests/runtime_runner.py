@@ -21,7 +21,7 @@ from onlyalpha.strategy import (
     OnlyStrategyUniverse,
 )
 from tests.runtime_support.market_product import _NoResources
-from tests.strategy.p9_support import p9_strategy_case, publish_frozen_strategy_for_execution_test
+from tests.strategy.product_support import publish_frozen_strategy_for_execution_test, strategy_product_case
 
 
 def only_run_cluster_runtime(
@@ -70,7 +70,7 @@ def only_migrate_cluster_to_strategy(
 ) -> OnlyClusterRunConfig:
     """Explicitly seed a P9 test Revision and replace one legacy fixture reference."""
 
-    case = p9_strategy_case(user_data_root / "research")
+    case = strategy_product_case(user_data_root / "research")
     subscriptions = tuple(
         subscription for factor in config.factors for subscription in factor.subscriptions.instrument_bars
     )

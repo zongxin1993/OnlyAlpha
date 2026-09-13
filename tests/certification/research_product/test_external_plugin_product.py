@@ -45,7 +45,7 @@ from onlyalpha.research.operations.deployment import (
 from onlyalpha.research.run import OnlyResearchRunId
 from onlyalpha.runtime.defaults import only_default_engine_services
 from scripts.database import _backup, _initialize_deployment, _restore_test
-from tests.certification.p8_6.support import external_definition
+from tests.certification.research_product.support import external_definition
 from tests.research.calculation.support import snapshot
 from tests.runtime_generation_process_support import only_prepare_test_process_generation
 

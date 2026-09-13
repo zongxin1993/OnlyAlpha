@@ -71,7 +71,7 @@ def test_research_result_rich_verification_is_composition_only_and_shared() -> N
     assert "scan" not in verifier
 
 
-def test_research_is_activated_and_live_remains_unsupported_after_p7_11() -> None:
+def test_research_is_activated_and_live_remains_unsupported() -> None:
     live = OnlyLiveRuntimeFactory().create(None)
     assert OnlyResearchRuntimeFactory().runtime_type == "RESEARCH"
     assert not live.supported and live.failure_code == "UNSUPPORTED_RUNTIME_TYPE"

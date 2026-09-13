@@ -75,7 +75,7 @@ def test_deployment_identity_cannot_enter_research_semantic_fingerprints() -> No
 
 def test_real_browser_certification_has_no_route_mock_and_uses_process_barrier() -> None:
     browser = _source("packages/onlyalpha-web-console/e2e-real/research-product.spec.ts")
-    harness = _source("tests/certification/p8_6/test_real_browser_product.py")
+    harness = _source("tests/certification/research_product/test_real_browser_product.py")
     worker_harness = _source("tests/runtime_generation_worker_main.py")
     assert "page.route(" not in browser
     assert "route.fulfill(" not in browser
@@ -87,11 +87,11 @@ def test_real_browser_certification_has_no_route_mock_and_uses_process_barrier()
 
 
 def test_crash_barriers_are_test_owned_and_production_has_no_crash_mode() -> None:
-    helper = _source("tests/certification/p8_6/crash_worker.py")
+    helper = _source("tests/certification/research_product/crash_worker.py")
     production = "\n".join(
         path.read_text(encoding="utf-8") for path in sorted(Path("src/onlyalpha/research").rglob("*.py"))
     )
     assert 'choices=("C1", "C2", "C3", "C4")' in helper
     assert "Event().wait()" in helper
-    assert "P8_TEST" not in production
+    assert "RESEARCH_CRASH_TEST_MODE" not in production
     assert "crash_worker" not in production

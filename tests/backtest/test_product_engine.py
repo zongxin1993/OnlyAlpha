@@ -20,7 +20,7 @@ from onlyalpha.canonical import only_canonical_json
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.strategy import OnlyFrozenStrategyRevisionStore
 from tests.research.calculation.support import bars
-from tests.strategy.p9_support import p9_strategy_case, publish_frozen_strategy_for_execution_test
+from tests.strategy.product_support import publish_frozen_strategy_for_execution_test, strategy_product_case
 
 
 def _deployment(case) -> OnlyClusterRunConfig:  # type: ignore[no-untyped-def]
@@ -119,7 +119,7 @@ def _run(case, document: OnlyClusterRunConfig, run_id: str) -> OnlyBacktestRun: 
 
 def test_operator_deployment_catalog_loads_exact_json_document(tmp_path) -> None:  # type: ignore[no-untyped-def]
     values = tuple(item for item in bars() if str(item.instrument_id) == "A.XNAS")
-    case = p9_strategy_case(tmp_path / "case", values=values)
+    case = strategy_product_case(tmp_path / "case", values=values)
     document = _deployment(case)
     path = tmp_path / "product.json"
     path.write_text(only_canonical_json(document.normalized_payload), encoding="utf-8")
@@ -133,7 +133,7 @@ def test_operator_deployment_catalog_loads_exact_json_document(tmp_path) -> None
 
 def test_operator_execution_mutation_does_not_enter_product_resource_semantics(tmp_path) -> None:  # type: ignore[no-untyped-def]
     values = tuple(item for item in bars() if str(item.instrument_id) == "A.XNAS")
-    case = p9_strategy_case(tmp_path / "case", values=values)
+    case = strategy_product_case(tmp_path / "case", values=values)
     original = _deployment(case)
     changed_payload = json.loads(only_canonical_json(original.normalized_payload))
     changed_payload["brokers"][0]["extensions"] = {
@@ -153,7 +153,7 @@ def test_operator_execution_mutation_does_not_enter_product_resource_semantics(t
 
 def test_product_plan_runs_existing_engine_and_distinct_runs_replay_identically(tmp_path) -> None:  # type: ignore[no-untyped-def]
     values = tuple(item for item in bars() if str(item.instrument_id) == "A.XNAS")
-    case = p9_strategy_case(tmp_path / "case", values=values)
+    case = strategy_product_case(tmp_path / "case", values=values)
     semantic_root = tmp_path / "engine" / "research"
     publish_frozen_strategy_for_execution_test(semantic_root, case.revision)
     document = _deployment(case)

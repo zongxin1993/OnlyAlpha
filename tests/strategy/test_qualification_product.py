@@ -42,7 +42,7 @@ from onlyalpha.strategy.qualification_store import (
     _only_compose_qualification_decision_authority,
     _OnlyQualificationDecisionPublisher,
 )
-from tests.strategy.p9_support import p9_strategy_case, publish_frozen_strategy_for_execution_test
+from tests.strategy.product_support import publish_frozen_strategy_for_execution_test, strategy_product_case
 
 NOW = datetime(2026, 9, 5, tzinfo=UTC)
 
@@ -181,7 +181,7 @@ def _decision(
 
 
 def _case(tmp_path):  # type: ignore[no-untyped-def]
-    revision = p9_strategy_case(tmp_path / "case").revision
+    revision = strategy_product_case(tmp_path / "case").revision
     semantic = tmp_path / "semantic"
     publish_frozen_strategy_for_execution_test(semantic, revision)
     strategies = OnlyFrozenStrategyRevisionStore(semantic)

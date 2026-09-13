@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -41,7 +42,7 @@ def test_compose_base_is_pinned_persistent_private_and_has_no_host_ports() -> No
 
 def test_compose_production_and_test_overrides_have_distinct_safety_contracts() -> None:
     production = _yaml("compose.production.yaml")
-    test = _yaml("compose.test.yaml")
+    test = _yaml("compose.acceptance.yaml")
     for service in ("postgres", "clickhouse"):
         assert production["services"][service]["restart"] == "unless-stopped"
         assert production["services"][service]["logging"]["options"] == {
@@ -58,10 +59,19 @@ def test_compose_production_and_test_overrides_have_distinct_safety_contracts() 
         "acceptance-client",
     }
     assert test["networks"]["database"]["internal"] is True
+    assert all(
+        service["image"] == "${ONLYALPHA_OPERATOR_IMAGE:?set ONLYALPHA_OPERATOR_IMAGE}"
+        for service in production["services"].values()
+        if isinstance(service, dict) and "image" in service
+    )
+    assert test["services"]["acceptance"]["image"] == "${ONLYALPHA_ACCEPTANCE_IMAGE:-onlyalpha-acceptance:local}"
+    assert test["services"]["acceptance-client"]["image"] == (
+        "${ONLYALPHA_PRODUCT_ACCEPTANCE_CLIENT_IMAGE:-onlyalpha-product-acceptance-client:local}"
+    )
 
 
 def test_acceptance_runs_inside_compose_against_private_service_dns() -> None:
-    test = _yaml("compose.test.yaml")
+    test = _yaml("compose.acceptance.yaml")
     acceptance = test["services"]["acceptance"]
     assert acceptance["build"] == {
         "context": "../..",
@@ -98,7 +108,7 @@ def test_acceptance_runs_inside_compose_against_private_service_dns() -> None:
 
 def test_compose_templates_keep_production_secrets_out_and_acceptance_is_canonical() -> None:
     production = (DEPLOY / ".env.production.example").read_text(encoding="utf-8")
-    test = (DEPLOY / ".env.test.example").read_text(encoding="utf-8")
+    test = (DEPLOY / ".env.acceptance.example").read_text(encoding="utf-8")
     runner = (DEPLOY / "run-acceptance.sh").read_text(encoding="utf-8")
     assert "change-me" in production
     assert "onlyalpha_test" not in production
@@ -113,11 +123,13 @@ def test_compose_templates_keep_production_secrets_out_and_acceptance_is_canonic
 
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert 'path = "hatch_build.py"' in pyproject
+    dependencies = tomllib.loads(pyproject)["dependency-groups"]["compose-acceptance"]
+    assert "onlyalpha-test-plugin" in dependencies
 
     container_runner = (DEPLOY / "container-acceptance.sh").read_text(encoding="utf-8")
     assert "scripts/test_suite.py research-postgres" in container_runner
     assert "scripts/test_suite.py market-data-clickhouse" in container_runner
-    assert "scripts/test_suite.py p9-3-real-database" in container_runner
+    assert "scripts/test_suite.py database-acceptance" in container_runner
 
 
 def test_ci_reuses_the_canonical_clickhouse_storage_policy() -> None:
@@ -130,7 +142,7 @@ def test_ci_reuses_the_canonical_clickhouse_storage_policy() -> None:
 def test_production_entrypoint_can_only_use_the_base_and_production_override() -> None:
     deployment = (DEPLOY / "deploy-production.sh").read_text(encoding="utf-8")
     assert 'compose.yaml" -f "${deploy_dir}/compose.production.yaml' in deployment
-    assert "compose.test.yaml" not in deployment
+    assert "compose.acceptance.yaml" not in deployment
     assert "PASSWORD=(change-me)?" in deployment
     assert 'actual_revision="$(git -C "${repository_root}" rev-parse HEAD)"' in deployment
     assert '"${ONLYALPHA_BUILD_SOURCE_REVISION}" != "${actual_revision}"' in deployment
@@ -151,7 +163,7 @@ def test_production_entrypoint_can_only_use_the_base_and_production_override() -
 
     operator_runner = (DEPLOY / "run-operator.sh").read_text(encoding="utf-8")
     assert "run --rm operator" in operator_runner
-    assert "compose.test.yaml" not in operator_runner
+    assert "compose.acceptance.yaml" not in operator_runner
     assert "<url-encoded-password>" in operator_runner
 
 

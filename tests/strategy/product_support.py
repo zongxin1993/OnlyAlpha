@@ -35,7 +35,7 @@ from tests.research.evaluation.support import evaluation_registry
 
 
 @dataclass(frozen=True, slots=True)
-class P9StrategyCase:
+class StrategyProductCase:
     revision: OnlyStrategyRevision
     registry: OnlyCalculationRegistry
     dataset_store: OnlyParquetResearchDatasetSnapshotStore
@@ -95,12 +95,12 @@ def publish_frozen_strategy_for_execution_test(root: Path, revision: OnlyStrateg
     (target / "manifest.json").write_text(only_canonical_json(payload), encoding="utf-8")
 
 
-def p9_strategy_case(
+def strategy_product_case(
     root: Path,
     *,
     values: tuple[OnlyBar, ...] | None = None,
     source_definition: OnlyResearchDefinition | None = None,
-) -> P9StrategyCase:
+) -> StrategyProductCase:
     dataset_store = OnlyParquetResearchDatasetSnapshotStore(root / "datasets")
     candidate, partitions = snapshot(values)
     committed = dataset_store.commit(candidate, partitions)
@@ -170,7 +170,7 @@ def p9_strategy_case(
                 signal_semantics,
             )
         )
-    return P9StrategyCase(
+    return StrategyProductCase(
         revisions[0],
         registry,
         dataset_store,
