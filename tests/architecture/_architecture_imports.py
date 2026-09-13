@@ -63,9 +63,7 @@ def canonical_imports_for_path(path: Path, root: Path) -> frozenset[CanonicalImp
 def imported_modules_for_path(path: Path, root: Path) -> frozenset[str]:
     """Return imported module identities without duplicating AST scanning in guards."""
     return frozenset(
-        capability[1]
-        for capability in canonical_imports_for_path(path, root)
-        if len(capability) >= 2
+        capability[1] for capability in canonical_imports_for_path(path, root) if len(capability) >= 2
     )
 
 

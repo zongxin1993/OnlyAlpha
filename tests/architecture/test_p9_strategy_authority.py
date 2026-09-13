@@ -118,8 +118,7 @@ def test_trading_strategy_path_has_no_research_runtime_implementation_dependency
     )
     for path in paths:
         assert all(
-            not value.startswith("onlyalpha.research")
-            for value in imported_modules_for_path(ROOT / path, ROOT)
+            not value.startswith("onlyalpha.research") for value in imported_modules_for_path(ROOT / path, ROOT)
         )
 
 
