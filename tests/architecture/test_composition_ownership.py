@@ -10,8 +10,8 @@ from onlyalpha.persistence.postgres.migration import (
     OnlyPostgresMigrationAuthority,
     OnlyPostgresSchemaVerifier,
 )
-from tests.architecture._p9_k0_authority_contract import load_authority_contract
 from tests.architecture._capability_reachability import ModuleIndex, actual_constructor_sites
+from tests.architecture._p9_k0_authority_contract import load_authority_contract
 
 pytestmark = pytest.mark.architecture
 

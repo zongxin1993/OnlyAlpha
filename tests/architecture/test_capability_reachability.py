@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from tests.architecture._p9_k0_authority_contract import load_authority_contract
 from tests.architecture._capability_reachability import ModuleIndex, actual_capabilities_by_actor
+from tests.architecture._p9_k0_authority_contract import load_authority_contract
 
 pytestmark = pytest.mark.architecture
 
