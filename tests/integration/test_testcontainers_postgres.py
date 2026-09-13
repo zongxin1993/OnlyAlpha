@@ -14,7 +14,7 @@ POSTGRES_IMAGE = "postgres:18.6@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c91
 def test_testcontainers_provides_real_postgres_round_trip() -> None:
     with PostgresContainer(
         POSTGRES_IMAGE,
-        user="onlyalpha",
+        username="onlyalpha",
         password="onlyalpha_test",
         dbname="onlyalpha_test",
     ) as postgres:
