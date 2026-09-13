@@ -4,17 +4,9 @@ from pathlib import Path
 
 from onlyalpha.cluster.pipeline import OnlyClusterPipelineResult
 from onlyalpha.strategy.execution import OnlyStrategyDecision
+from tests.architecture._architecture_imports import imported_modules_for_path
 
-
-def _imports(path: Path) -> tuple[str, ...]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    result: list[str] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            result.extend(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module is not None:
-            result.append(node.module)
-    return tuple(result)
+ROOT = Path(__file__).parents[2]
 
 
 def test_strategy_domain_has_no_downstream_or_provider_dependencies() -> None:
@@ -28,7 +20,7 @@ def test_strategy_domain_has_no_downstream_or_provider_dependencies() -> None:
         "onlyalpha_plugin_",
     )
     for path in Path("src/onlyalpha/strategy").glob("*.py"):
-        for imported in _imports(path):
+        for imported in imported_modules_for_path(ROOT / path, ROOT):
             assert not imported.startswith(forbidden), f"{path}: forbidden Strategy dependency {imported}"
 
 
@@ -125,7 +117,10 @@ def test_trading_strategy_path_has_no_research_runtime_implementation_dependency
         Path("src/onlyalpha/runtime/trading/predicate.py"),
     )
     for path in paths:
-        assert all(not value.startswith("onlyalpha.research") for value in _imports(path))
+        assert all(
+            not value.startswith("onlyalpha.research")
+            for value in imported_modules_for_path(ROOT / path, ROOT)
+        )
 
 
 def test_admission_uses_verified_evidence_store_and_promotion_ignores_audit_time_for_ordering() -> None:

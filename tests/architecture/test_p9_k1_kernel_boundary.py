@@ -1,28 +1,17 @@
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 
 import pytest
 
 from onlyalpha.kernel import OnlyAlphaKernelHost, OnlyKernelLifecycle, OnlyKernelState
 from onlyalpha.runtime.trading.kernel import OnlyTradingKernel
+from tests.architecture._architecture_imports import imported_modules_for_path
 
 pytestmark = pytest.mark.architecture
 
 ROOT = Path(__file__).parents[2]
 KERNEL_ROOT = ROOT / "src/onlyalpha/kernel"
-
-
-def _imports(path: Path) -> frozenset[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    result: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            result.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module is not None:
-            result.add(node.module)
-    return frozenset(result)
 
 
 def test_product_kernel_boundary_is_minimal_and_transport_neutral() -> None:
@@ -35,7 +24,7 @@ def test_product_kernel_boundary_is_minimal_and_transport_neutral() -> None:
     }
     forbidden = ("fastapi", "starlette", "pydantic", "uvicorn", "onlyalpha_http_server")
     for path in KERNEL_ROOT.glob("*.py"):
-        assert not any(name.startswith(forbidden) for name in _imports(path)), path
+        assert not any(name.startswith(forbidden) for name in imported_modules_for_path(path, ROOT)), path
 
 
 def test_product_kernel_does_not_import_domain_authorities_or_trading_kernel() -> None:
@@ -47,7 +36,7 @@ def test_product_kernel_does_not_import_domain_authorities_or_trading_kernel() -
         "onlyalpha.runtime",
     )
     for path in KERNEL_ROOT.glob("*.py"):
-        assert not any(name.startswith(forbidden) for name in _imports(path)), path
+        assert not any(name.startswith(forbidden) for name in imported_modules_for_path(path, ROOT)), path
 
 
 def test_product_kernel_and_trading_semantic_kernel_are_distinct() -> None:

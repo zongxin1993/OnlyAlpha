@@ -1,23 +1,17 @@
 from __future__ import annotations
 
-import ast
 import json
 from pathlib import Path
 
 import pytest
+
+from tests.architecture._architecture_imports import imported_modules_for_path
 
 pytestmark = pytest.mark.architecture
 
 ROOT = Path(__file__).parents[2]
 GOVERNANCE = ROOT / "scripts/openapi_contract.py"
 WRAPPER = ROOT / "scripts/export_research_openapi.py"
-
-
-def _imports(path: Path) -> frozenset[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    return frozenset(
-        node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module is not None
-    )
 
 
 def test_one_v2_canonical_contract_and_one_bounded_a0_authorization() -> None:
@@ -65,7 +59,7 @@ def test_generated_web_client_has_only_canonical_openapi_source() -> None:
 def test_core_domain_has_no_api_contract_tooling_dependency() -> None:
     forbidden = {"openapi_contract", "onlyalpha_http_server", "fastapi", "starlette"}
     for path in (ROOT / "src/onlyalpha").rglob("*.py"):
-        assert not (_imports(path) & forbidden), path
+        assert not (imported_modules_for_path(path, ROOT) & forbidden), path
 
 
 def test_contract_metadata_does_not_enter_semantic_identity_code() -> None:
