@@ -33,12 +33,14 @@ jobs:
         working-directory: packages/onlyalpha-web-console
         run: |
           npm install --package-lock-only --ignore-scripts
-          npm update js-yaml --package-lock-only --ignore-scripts
+          npm update @redocly/openapi-core js-yaml --package-lock-only --ignore-scripts
       - name: Validate generated lock changes
         run: |
           git diff --check
-          grep -q 'name = "httpx2"' uv.lock
+          grep -A 2 'name = "httpx2"' uv.lock | grep -q 'version = "2.12.0"'
           grep -q '"vitest": "4.1.11"' packages/onlyalpha-web-console/package-lock.json
+          grep -A 3 '"node_modules/@vitest/mocker"' packages/onlyalpha-web-console/package-lock.json | grep -q '"version": "4.1.11"'
+          grep -A 3 '"node_modules/js-yaml"' packages/onlyalpha-web-console/package-lock.json | grep -q '"version": "4.3.2"'
       - name: Commit generated locks
         run: |
           if git diff --quiet -- uv.lock packages/onlyalpha-web-console/package-lock.json; then
