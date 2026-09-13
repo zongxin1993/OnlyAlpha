@@ -1,4 +1,4 @@
-name: onlyalpha-p93-test
+name: onlyalpha-acceptance
 
 services:
   operator:
@@ -16,7 +16,7 @@ services:
     restart: "no"
 
   acceptance:
-    image: ${ONLYALPHA_ACCEPTANCE_IMAGE:-onlyalpha-p93-acceptance:0.9.8}
+    image: ${ONLYALPHA_ACCEPTANCE_IMAGE:-onlyalpha-acceptance:local}
     build:
       context: ../..
       dockerfile: deploy/compose/Dockerfile.acceptance
@@ -40,7 +40,7 @@ services:
       - database
 
   acceptance-client:
-    image: ${ONLYALPHA_PRODUCT_ACCEPTANCE_CLIENT_IMAGE:-onlyalpha-product-acceptance-client:a0}
+    image: ${ONLYALPHA_PRODUCT_ACCEPTANCE_CLIENT_IMAGE:-onlyalpha-product-acceptance-client:local}
     build:
       context: ../..
       dockerfile: deploy/compose/Dockerfile.acceptance
@@ -58,5 +58,5 @@ services:
 
 networks:
   database:
-    name: onlyalpha-p93-test
+    name: onlyalpha-acceptance
     internal: true

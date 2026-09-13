@@ -27,7 +27,7 @@ class OnlyRealtimeMarketReferenceResolution:
 
 
 class OnlyRealtimeMarketReferenceAuthority:
-    """Owns ephemeral reference/trade evidence; P9.3 owns durable revisions."""
+    """Owns ephemeral reference/trade evidence; durable storage owns revisions."""
 
     def __init__(self) -> None:
         self._references: dict[OnlyInstrumentId, list[OnlyMarketReferenceTick]] = {}

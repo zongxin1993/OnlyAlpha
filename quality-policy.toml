@@ -9,7 +9,7 @@ required_gates = [
     "private-asset-contract",
     "gateway-protocol",
     "dependency-audit",
-    "research-product-closure",
+    "research-product-certification",
     "database-compose",
     "build",
     "web",

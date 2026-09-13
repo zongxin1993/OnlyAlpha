@@ -18,11 +18,11 @@ command_name="$1"
 shift
 case "${command_name}" in
   capture-reference)
-    command=(python /workspace/deploy/compose/provision_a0_binance_golden.py capture-reference
+    command=(python /workspace/deploy/compose/provision_binance_golden.py capture-reference
       --output /var/lib/onlyalpha-product/binance-reference-capture.json "$@")
     ;;
   provision)
-    command=(python /workspace/deploy/compose/provision_a0_binance_golden.py provision
+    command=(python /workspace/deploy/compose/provision_binance_golden.py provision
       --capture /var/lib/onlyalpha-product/binance-reference-capture.json
       --user-data-root /var/lib/onlyalpha
       --output /var/lib/onlyalpha-product "$@")

@@ -11,7 +11,7 @@ from onlyalpha.calculation import (
 from onlyalpha.domain.enums import OnlyAdjustmentType
 from onlyalpha.research import OnlyResearchCalculationImplementationBinding
 from onlyalpha.strategy import OnlyStrategyAdmissionError, OnlyStrategyTradingAdmissionService
-from tests.strategy.p9_support import p9_strategy_case
+from tests.strategy.product_support import strategy_product_case
 
 
 def _registry_without(case, *, backend=None, manifest=True, state=True):
@@ -34,7 +34,7 @@ def _registry_without(case, *, backend=None, manifest=True, state=True):
 
 
 def test_admission_requires_exact_trading_backend(tmp_path) -> None:
-    case = p9_strategy_case(tmp_path)
+    case = strategy_product_case(tmp_path)
     service = OnlyStrategyTradingAdmissionService(
         _registry_without(case, backend=OnlyCalculationBackendKind.TRADING),
         case.equivalence,
@@ -51,7 +51,7 @@ def test_admission_requires_exact_trading_backend(tmp_path) -> None:
 
 
 def test_admission_requires_resolved_implementation_identity(tmp_path) -> None:
-    case = p9_strategy_case(tmp_path)
+    case = strategy_product_case(tmp_path)
     service = OnlyStrategyTradingAdmissionService(
         _registry_without(case, manifest=False),
         case.equivalence,
@@ -68,7 +68,7 @@ def test_admission_requires_resolved_implementation_identity(tmp_path) -> None:
 
 
 def test_admission_rejects_unknown_calculation_state_capability(tmp_path) -> None:
-    case = p9_strategy_case(tmp_path)
+    case = strategy_product_case(tmp_path)
     service = OnlyStrategyTradingAdmissionService(
         _registry_without(case, state=False),
         case.equivalence,
@@ -85,7 +85,7 @@ def test_admission_rejects_unknown_calculation_state_capability(tmp_path) -> Non
 
 
 def test_admission_requires_explicit_equivalence_evidence(tmp_path) -> None:
-    case = p9_strategy_case(tmp_path)
+    case = strategy_product_case(tmp_path)
     service = OnlyStrategyTradingAdmissionService(
         case.registry,
         OnlyCalculationEquivalenceEvidenceV2Store(tmp_path / "empty"),
@@ -103,7 +103,7 @@ def test_admission_requires_explicit_equivalence_evidence(tmp_path) -> None:
 
 @pytest.mark.parametrize("adjustment_type", (OnlyAdjustmentType.FORWARD, OnlyAdjustmentType.BACKWARD))
 def test_admission_rejects_non_raw_market_input(tmp_path, adjustment_type) -> None:
-    case = p9_strategy_case(tmp_path)
+    case = strategy_product_case(tmp_path)
     adjusted = replace(
         case.revision.market_input_contract,
         adjustment_type=adjustment_type,
@@ -122,7 +122,7 @@ def test_admission_rejects_non_raw_market_input(tmp_path, adjustment_type) -> No
 
 @pytest.mark.parametrize("role", ("eligibility", "entry", "exit"))
 def test_admission_rejects_missing_or_invalid_required_signal_role(tmp_path, role) -> None:
-    case = p9_strategy_case(tmp_path)
+    case = strategy_product_case(tmp_path)
     signals = case.revision.signal_semantics
     invalid = replace(signals, **{role: signals.entry if role != "entry" else signals.exit})
 
@@ -137,7 +137,7 @@ def test_admission_rejects_missing_or_invalid_required_signal_role(tmp_path, rol
 
 
 def test_admission_uses_historical_evidence_without_current_research_backend(tmp_path) -> None:
-    case = p9_strategy_case(tmp_path)
+    case = strategy_product_case(tmp_path)
     admitted = OnlyStrategyTradingAdmissionService(
         _registry_without(case, backend=OnlyCalculationBackendKind.RESEARCH),
         case.equivalence,
@@ -153,7 +153,7 @@ def test_admission_uses_historical_evidence_without_current_research_backend(tmp
 
 @pytest.mark.parametrize("changed_backend", ("RESEARCH", "TRADING"))
 def test_implementation_change_invalidates_existing_equivalence_v2(tmp_path, changed_backend) -> None:
-    case = p9_strategy_case(tmp_path)
+    case = strategy_product_case(tmp_path)
     registry = case.registry
     provenance = case.execution_evidence[0]
     if changed_backend == "RESEARCH":

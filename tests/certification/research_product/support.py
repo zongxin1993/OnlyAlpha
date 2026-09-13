@@ -10,7 +10,7 @@ from tests.research.definition.support import definition
 
 
 def external_definition(dataset_definition):  # type: ignore[no-untyped-def]
-    """Use the external Indicator in the ordinary P8 scientific surface."""
+    """Use the external Indicator in the ordinary research product surface."""
 
     base = definition(dataset_definition)
     external = OnlyResearchCalculationInstance(

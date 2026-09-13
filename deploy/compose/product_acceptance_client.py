@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""HTTP-only A0 Product acceptance client.
+"""HTTP-only Product acceptance client.
 
 This process intentionally uses only the Python standard library. It has no
 database credentials, shared Product storage, or imports from OnlyAlpha.
@@ -204,7 +204,7 @@ def run() -> dict[str, str]:
             "research_run_id": research_run_id,
             "candidate_fingerprint": candidate_fingerprint,
             "actor": "compose-acceptance-client",
-            "comment": "A0 deterministic Product acceptance",
+            "comment": "Deterministic Product acceptance",
         },
         idempotency_key=freeze_key,
         expected_status=202,
@@ -225,7 +225,7 @@ def run() -> dict[str, str]:
             f"/api/v2/strategies/{strategy_fingerprint}/promotions",
             {
                 "freeze_relation_fingerprint": relations[0],
-                "reason": "A0 deterministic Product acceptance",
+                "reason": "Deterministic Product acceptance",
                 "actor": "compose-acceptance-client",
             },
             idempotency_key=str(uuid.uuid4()),

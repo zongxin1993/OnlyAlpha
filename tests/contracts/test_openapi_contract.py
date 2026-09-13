@@ -147,7 +147,7 @@ def test_a0_pre_freeze_authorization_is_exact_and_non_reusable() -> None:
     _, candidate_document, candidate = governance.load_git_baseline(corrected_sha)
     result = governance.compare_contracts(baseline_document, candidate_document)
 
-    authorization = governance.authorize_a0_pre_freeze_correction(
+    authorization = governance.authorize_pre_freeze_correction(
         base_git_sha=exact,
         baseline=baseline,
         candidate=candidate,
@@ -158,7 +158,7 @@ def test_a0_pre_freeze_authorization_is_exact_and_non_reusable() -> None:
     assert authorization.adr == "docs/adr/0109-product-api-v2-a0-pre-freeze-contract-correction.md"
     assert len(authorization.breaking_changes) == 48
     assert (
-        governance.authorize_a0_pre_freeze_correction(
+        governance.authorize_pre_freeze_correction(
             base_git_sha=exact,
             baseline=baseline,
             candidate=candidate + b" ",
@@ -171,7 +171,7 @@ def test_a0_pre_freeze_authorization_is_exact_and_non_reusable() -> None:
         (*result.breaking_changes, "/api/v2/unrelated: path was removed"),
     )
     assert (
-        governance.authorize_a0_pre_freeze_correction(
+        governance.authorize_pre_freeze_correction(
             base_git_sha=exact,
             baseline=baseline,
             candidate=candidate,
@@ -191,7 +191,7 @@ def test_a0_pre_freeze_authorization_manifest_fails_closed_on_extra_fields(
     monkeypatch.setattr(governance, "AUTHORIZED_A0_CORRECTIONS", candidate)
 
     with pytest.raises(ValueError, match="unexpected fields"):
-        governance.load_authorized_a0_correction()
+        governance.load_authorized_pre_freeze_correction()
 
 
 def test_source_projection_staleness_fails_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

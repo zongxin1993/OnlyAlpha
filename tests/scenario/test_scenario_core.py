@@ -21,11 +21,11 @@ from onlyalpha.scenario import (
     only_scenario_fingerprint,
 )
 from onlyalpha.strategy import OnlyStrategyUniverse
-from tests.strategy.p9_support import p9_strategy_case, publish_frozen_strategy_for_execution_test
+from tests.strategy.product_support import publish_frozen_strategy_for_execution_test, strategy_product_case
 
 
 def _seed_scenario_strategy(root: Path) -> str:
-    case = p9_strategy_case(root / "research")
+    case = strategy_product_case(root / "research")
     revision = replace(
         case.revision,
         universe=OnlyStrategyUniverse((OnlyInstrumentId.parse("TEST.XSHG"),)),

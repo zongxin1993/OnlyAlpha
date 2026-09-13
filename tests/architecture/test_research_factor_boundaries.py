@@ -75,8 +75,8 @@ def test_examples_are_not_default_production_dependencies() -> None:
     assert "--no-install-package onlyalpha-example-alpha" in operator_stage
     assert "--no-install-package onlyalpha-example-strategies" in operator_stage
     assert "uv sync --frozen --all-packages --no-dev" in acceptance_stage
-    compose_test = Path("deploy/compose/compose.test.yaml").read_text(encoding="utf-8")
-    assert compose_test.count("target: acceptance-operator") == 2
+    compose_acceptance = Path("deploy/compose/compose.acceptance.yaml").read_text(encoding="utf-8")
+    assert compose_acceptance.count("target: acceptance-operator") == 2
 
 
 def test_example_strategy_is_authoring_data_not_a_python_callback_authority() -> None:

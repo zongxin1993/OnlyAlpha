@@ -189,7 +189,7 @@ def test_research_evidence_freeze_publishes_one_strategy_for_backtest_and_sim(
 
     monkeypatch.setattr(OnlyRevisionStrategyAdapter, "on_bar", capture)
 
-    backtest = OnlyEngine(OnlyEngineConfig(OnlyEngineId("p9-c2-backtest"), user_data))
+    backtest = OnlyEngine(OnlyEngineConfig(OnlyEngineId("trading-authority-backtest"), user_data))
     backtest.add_cluster(_runtime_config("BACKTEST", fingerprint, tmp_path))
     backtest_result = backtest.run()
     assert backtest_result.status == "COMPLETED"
@@ -274,7 +274,7 @@ def test_research_evidence_freeze_publishes_one_strategy_for_backtest_and_sim(
     assert evidence.result_fingerprint == backtest_result.runtime_results[0].result_fingerprint
 
     active_runtime = "SIM"
-    sim = OnlyEngine(OnlyEngineConfig(OnlyEngineId("p9-c2-sim"), user_data))
+    sim = OnlyEngine(OnlyEngineConfig(OnlyEngineId("trading-authority-sim"), user_data))
     sim.add_cluster(_runtime_config("SIM", fingerprint, tmp_path))
     sim.initialize()
     sim.start()

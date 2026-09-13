@@ -35,7 +35,7 @@ from .conftest import BAR_TYPE, BASE, INSTRUMENT, SOURCE, VERSION
 from .test_backfill_and_correction import _HistoricalSource, _two_minute_scope, _write_bar
 
 pytestmark = [
-    pytest.mark.p9_3_real_database,
+    pytest.mark.database_acceptance,
     pytest.mark.postgres,
     pytest.mark.clickhouse,
     pytest.mark.external,

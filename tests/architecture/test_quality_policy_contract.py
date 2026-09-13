@@ -8,7 +8,7 @@ import yaml
 
 from scripts.quality_policy import load_quality_policy
 from scripts.test_suite import RELEASE_STATIC_COMMANDS
-from tests.certification.p8_6 import conftest as p8_6_conftest
+from tests.certification.research_product import conftest as research_product_conftest
 
 POLICY = load_quality_policy()
 CANONICAL_STATIC_COMMAND = "uv run python scripts/test_suite.py release-static"
@@ -50,7 +50,9 @@ def test_quality_policy_is_ci_and_phase_gate_policy_not_progress_state() -> None
     assert not (root / "scripts/project_state.py").exists()
 
     policy_source = (root / "quality-policy.toml").read_text(encoding="utf-8")
-    assert "certification" not in policy_source
+    obsolete_lane = "research-product-" + "closure"
+    assert obsolete_lane not in policy_source
+    assert "research-product-certification" in policy_source
     assert "historical_evidence" not in policy_source
     assert "verified" not in policy_source.lower()
     assert "authorized" not in policy_source.lower()
@@ -138,10 +140,12 @@ def test_functional_postgres_web_and_broad_lanes_remain_active() -> None:
     lanes = matrix.get("lane")
     assert isinstance(lanes, list)
     assert {"core-full", "recovery", "research-runtime", "research-dataset"} <= set(lanes)
-    assert "uv run python scripts/test_suite.py research-product-closure" in _runs(jobs["research-product-closure"])
+    assert "uv run python scripts/test_suite.py research-product-certification" in _runs(
+        jobs["research-product-certification"]
+    )
     assert "uv run python scripts/test_suite.py private-asset-contract" in _runs(jobs["private-asset-contract"])
     assert "deploy/compose/run-acceptance.sh" in _runs(jobs["database-compose"])
-    assert jobs["research-product-closure"]["services"]["postgres"]["image"].startswith(  # type: ignore[index]
+    assert jobs["research-product-certification"]["services"]["postgres"]["image"].startswith(  # type: ignore[index]
         "postgres:18.6@sha256:"
     )
     assert "market-data-clickhouse" not in jobs
@@ -149,8 +153,8 @@ def test_functional_postgres_web_and_broad_lanes_remain_active() -> None:
         assert f"uv run python scripts/web_suite.py {command}" in _runs(jobs["web"])
 
 
-def test_research_product_closure_uses_the_canonical_test_database_identity() -> None:
-    job = _workflow()["research-product-closure"]
+def test_research_product_certification_uses_the_canonical_test_database_identity() -> None:
+    job = _workflow()["research-product-certification"]
     env = job.get("env")
     assert isinstance(env, dict)
     assert env.get("ONLYALPHA_POSTGRES_DSN") == CANONICAL_POSTGRES_DSN
@@ -160,31 +164,31 @@ def test_research_product_closure_uses_the_canonical_test_database_identity() ->
         assert OBSOLETE_TEST_POSTGRES_DSN_NAME not in path.read_text(encoding="utf-8")
 
 
-def test_p8_6_postgres_fixture_fails_closed_without_the_canonical_dsn(
+def test_research_product_postgres_fixture_fails_closed_without_the_canonical_dsn(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("ONLYALPHA_POSTGRES_DSN", raising=False)
     connect = MagicMock()
-    monkeypatch.setattr(p8_6_conftest.psycopg, "connect", connect)
+    monkeypatch.setattr(research_product_conftest.psycopg, "connect", connect)
 
     with pytest.raises(pytest.fail.Exception, match="ONLYALPHA_POSTGRES_DSN is required"):
-        p8_6_conftest.postgres_dsn.__wrapped__()
+        research_product_conftest.postgres_dsn.__wrapped__()
     connect.assert_not_called()
 
 
-def test_p8_6_postgres_fixture_rejects_production_before_schema_reset(
+def test_research_product_postgres_fixture_rejects_production_before_schema_reset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ONLYALPHA_POSTGRES_DSN", "postgresql://onlyalpha:secret@database/onlyalpha")
     connect = MagicMock()
-    monkeypatch.setattr(p8_6_conftest.psycopg, "connect", connect)
+    monkeypatch.setattr(research_product_conftest.psycopg, "connect", connect)
 
     with pytest.raises(RuntimeError, match="POSTGRES_INTEGRATION_TEST_DATABASE_REQUIRED"):
-        p8_6_conftest.postgres_dsn.__wrapped__()
+        research_product_conftest.postgres_dsn.__wrapped__()
     connect.assert_not_called()
 
 
-def test_p8_6_postgres_fixture_allows_test_database_and_resets_schema(
+def test_research_product_postgres_fixture_allows_test_database_and_resets_schema(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     dsn = "postgresql://onlyalpha:secret@database/onlyalpha_test"
@@ -192,9 +196,9 @@ def test_p8_6_postgres_fixture_allows_test_database_and_resets_schema(
     connection = MagicMock()
     connect = MagicMock()
     connect.return_value.__enter__.return_value = connection
-    monkeypatch.setattr(p8_6_conftest.psycopg, "connect", connect)
+    monkeypatch.setattr(research_product_conftest.psycopg, "connect", connect)
 
-    assert p8_6_conftest.postgres_dsn.__wrapped__() == dsn
+    assert research_product_conftest.postgres_dsn.__wrapped__() == dsn
     connect.assert_called_once_with(dsn, autocommit=True)
     assert [call.args[0] for call in connection.execute.call_args_list] == [
         "DROP SCHEMA public CASCADE",

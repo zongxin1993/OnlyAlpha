@@ -36,7 +36,7 @@ from onlyalpha.strategy.qualification_store import (
 )
 from tests.research.evaluation.support import coverage_case, factor_pair_effect_case, stability_case, summary_case
 from tests.research.evaluation.test_parameter_neighborhood_summary import _effect_sources
-from tests.strategy.p9_support import p9_strategy_case, publish_frozen_strategy_for_execution_test
+from tests.strategy.product_support import publish_frozen_strategy_for_execution_test, strategy_product_case
 
 
 @dataclass(slots=True)
@@ -268,7 +268,7 @@ def _backtest_manifest(strategy_fingerprint: str) -> tuple[OnlyBacktestEvidenceM
 
 
 def _research_case(tmp_path):  # type: ignore[no-untyped-def]
-    revision = p9_strategy_case(tmp_path / "case").revision
+    revision = strategy_product_case(tmp_path / "case").revision
     semantic = tmp_path / "semantic"
     publish_frozen_strategy_for_execution_test(semantic, revision)
     strategies = OnlyFrozenStrategyRevisionStore(semantic)
@@ -415,7 +415,7 @@ def test_unsupported_policy_semantics_fail_closed(tmp_path, policy, expected) ->
 
 def test_research_evidence_from_another_subject_fails_closed(tmp_path) -> None:  # type: ignore[no-untyped-def]
     revision, _, policies, _, evaluator, evidence, _ = _research_case(tmp_path)
-    other_case = p9_strategy_case(tmp_path / "other")
+    other_case = strategy_product_case(tmp_path / "other")
     other = next(
         item
         for item in other_case.revision_variants

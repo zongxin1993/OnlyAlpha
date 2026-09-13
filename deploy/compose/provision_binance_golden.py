@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Provision a real Binance-derived A0 Product vertical.
+"""Provision a real Binance-derived Product acceptance vertical.
 
 Reference capture and historical provisioning are deliberately separate.  A
 capture only proves market/account rules from its provider timestamp forward;
@@ -140,7 +140,7 @@ from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_
 
 _SPOT_URL = "https://api.binance.com"
 _USDM_URL = "https://fapi.binance.com"
-_RUNTIME = OnlyRuntimeId("a0-binance-golden-provisioner")
+_RUNTIME = OnlyRuntimeId("binance-golden-provisioner")
 _BAR_SPEC = OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
 _CAPTURE_SCHEMA = 1
 
@@ -258,23 +258,23 @@ def _verified_offline_bundle(
     raw_bytes = bundle_manifest.read_bytes()
     raw = json.loads(raw_bytes)
     if not isinstance(raw, dict) or raw.get("schema_version") != 1 or raw.get("bundle_kind") != "A0_GOLDEN_V1":
-        raise ValueError("A0_GOLDEN_BUNDLE_MANIFEST_INVALID")
+        raise ValueError("GOLDEN_BUNDLE_MANIFEST_INVALID")
     expected = {"schema_version", "bundle_kind", "source_manifest", "reference_capture", "interval"}
     if (
         set(raw) != expected
         or not isinstance(raw["source_manifest"], dict)
         or not isinstance(raw["reference_capture"], dict)
     ):
-        raise ValueError("A0_GOLDEN_BUNDLE_MANIFEST_INVALID")
+        raise ValueError("GOLDEN_BUNDLE_MANIFEST_INVALID")
 
     def verified_file(entry: Mapping[str, object]) -> Path:
         if set(entry) != {"path", "sha256"} or not isinstance(entry["path"], str):
-            raise ValueError("A0_GOLDEN_BUNDLE_MANIFEST_INVALID")
+            raise ValueError("GOLDEN_BUNDLE_MANIFEST_INVALID")
         path = bundle_manifest.parent / entry["path"]
         if path.is_symlink() or not path.is_file() or bundle_manifest.parent.resolve() not in path.resolve().parents:
-            raise ValueError("A0_GOLDEN_BUNDLE_PATH_INVALID")
+            raise ValueError("GOLDEN_BUNDLE_PATH_INVALID")
         if hashlib.sha256(path.read_bytes()).hexdigest() != entry["sha256"]:
-            raise ValueError("A0_GOLDEN_BUNDLE_HASH_MISMATCH")
+            raise ValueError("GOLDEN_BUNDLE_HASH_MISMATCH")
         return path
 
     source_manifest = verified_file(raw["source_manifest"])
@@ -286,11 +286,11 @@ def _verified_offline_bundle(
         or not isinstance(interval["start"], str)
         or not isinstance(interval["end"], str)
     ):
-        raise ValueError("A0_GOLDEN_BUNDLE_INTERVAL_INVALID")
+        raise ValueError("GOLDEN_BUNDLE_INTERVAL_INVALID")
     start = datetime.fromisoformat(interval["start"])
     end = datetime.fromisoformat(interval["end"])
     if start.tzinfo is None or end.tzinfo is None:
-        raise ValueError("A0_GOLDEN_BUNDLE_INTERVAL_INVALID")
+        raise ValueError("GOLDEN_BUNDLE_INTERVAL_INVALID")
     start = start.astimezone(UTC)
     end = end.astimezone(UTC)
     sources = _archive_sources(source_manifest, archive_root)
@@ -821,7 +821,7 @@ def _definition(dataset: OnlyResearchDatasetDefinition) -> dict[str, object]:
                 OnlyResearchStatisticsDefinition(method=OnlyResearchStatisticsMethod.IC),
             ),
         ),
-        display_metadata={"name": "A0 Binance real-history momentum"},
+        display_metadata={"name": "Binance real-history momentum"},
     )
     return dict(definition.to_dict())
 
@@ -887,7 +887,7 @@ def _product_document(
     end: datetime,
     market_config: Mapping[str, object],
 ) -> OnlyClusterRunConfig:
-    universe = f"a0-{product}"
+    universe = f"binance-golden-{product}"
     base_currency = "USDT"
     payload = {
         "schema_version": "1.0",
@@ -958,7 +958,7 @@ def _product_document(
         "factors": [],
         "output": {"formats": ["JSON"]},
     }
-    return OnlyClusterRunConfig.from_mapping(payload, source_path=f"<a0-{product}-provisioner>")
+    return OnlyClusterRunConfig.from_mapping(payload, source_path=f"<binance-golden-{product}-provisioner>")
 
 
 def _resource_document(provider_id: str, resource_id: str, payload: Mapping[str, object]) -> dict[str, object]:
@@ -1197,7 +1197,7 @@ def provision(
                 capture_session=f"{spot_capture.capture_fingerprint}:{instrument.instrument_id}",
                 start=start,
                 end=end,
-                wal_root=user_data_root / "wal" / "a0" / str(instrument.instrument_id),
+                wal_root=user_data_root / "wal" / "binance-golden" / str(instrument.instrument_id),
                 store=fact_store,
                 catalog=catalog,
             )
@@ -1296,7 +1296,7 @@ def provision(
             capture_session=f"{usdm_capture.capture_fingerprint}:{usdm_instrument.instrument_id}",
             start=start,
             end=end,
-            wal_root=user_data_root / "wal" / "a0" / str(usdm_instrument.instrument_id),
+            wal_root=user_data_root / "wal" / "binance-golden" / str(usdm_instrument.instrument_id),
             store=fact_store,
             catalog=catalog,
         )
@@ -1324,7 +1324,7 @@ def provision(
             capture_session=usdm_capture.capture_fingerprint,
             market="USDM",
             stream="mark-price-1m",
-            wal_root=user_data_root / "wal" / "a0" / "usdm-mark-raw",
+            wal_root=user_data_root / "wal" / "binance-golden" / "usdm-mark-raw",
             store=fact_store,
             catalog=catalog,
         )
@@ -1334,7 +1334,7 @@ def provision(
             capture_session=usdm_capture.capture_fingerprint,
             market="USDM",
             stream="funding-rate",
-            wal_root=user_data_root / "wal" / "a0" / "usdm-funding-raw",
+            wal_root=user_data_root / "wal" / "binance-golden" / "usdm-funding-raw",
             store=fact_store,
             catalog=catalog,
         )
@@ -1449,7 +1449,7 @@ def _products(value: str) -> tuple[str, ...]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="provision-a0-binance-golden")
+    parser = argparse.ArgumentParser(prog="provision-binance-golden")
     subparsers = parser.add_subparsers(dest="command", required=True)
     capture = subparsers.add_parser("capture-reference")
     capture.add_argument("--output", type=Path, required=True)

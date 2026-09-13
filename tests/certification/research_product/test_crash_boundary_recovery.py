@@ -142,7 +142,7 @@ def test_process_kill_boundaries_reenter_and_converge_exact_semantic_truth(
         [
             sys.executable,
             "-m",
-            "tests.certification.p8_6.crash_worker",
+            "tests.certification.research_product.crash_worker",
             boundary,
             "--barrier",
             str(barrier),

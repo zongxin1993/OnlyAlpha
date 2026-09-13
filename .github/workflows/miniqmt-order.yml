@@ -34,5 +34,5 @@ jobs:
           ORDER_CONFIRMATION: ${{ inputs.confirmation }}
         run: |
           if ($env:ORDER_CONFIRMATION -ne 'I_UNDERSTAND') { throw 'explicit confirmation is required' }
-          Write-Output 'Order execution is intentionally not enabled in P0.'
+          Write-Output 'Order execution is intentionally not enabled in the current MiniQMT workflow.'
           Write-Output 'A future requires_broker_account test must submit the minimum LIMIT order and cancel it.'

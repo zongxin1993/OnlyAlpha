@@ -916,6 +916,7 @@ dependencies = [
 [package.dev-dependencies]
 compose-acceptance = [
     { name = "hypothesis" },
+    { name = "onlyalpha-test-plugin" },
     { name = "pytest" },
     { name = "pytest-xdist" },
 ]
@@ -963,6 +964,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 compose-acceptance = [
     { name = "hypothesis", specifier = ">=6.165.5" },
+    { name = "onlyalpha-test-plugin", editable = "tests/fixtures/external_plugins/onlyalpha_test_plugin" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-xdist", specifier = ">=3.8.0" },
 ]

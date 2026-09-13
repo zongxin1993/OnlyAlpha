@@ -1,25 +1,25 @@
 # OnlyAlpha database deployment with Docker Compose
 
 This deployment project owns the pinned PostgreSQL and ClickHouse service
-topology used by P9.3. It follows the standard Compose pattern of one shared
+topology used by the durable market-data acceptance path. It follows the standard Compose pattern of one shared
 service definition plus environment-specific override files:
 
 ```text
 compose.yaml                 shared pinned database topology
 compose.production.yaml      production lifecycle and log rotation
-compose.test.yaml            isolated containerized acceptance override
+compose.acceptance.yaml      isolated containerized acceptance override
 .env.production.example      production configuration template
-.env.test.example            deterministic local acceptance configuration
+.env.acceptance.example      deterministic local acceptance configuration
 clickhouse/storage.xml       one HOT/COLD storage-policy definition
 Dockerfile.acceptance        pinned Python/PostgreSQL-client test image
 container-acceptance.sh      test process entrypoint inside Compose
 product_acceptance_client.py isolated HTTP-only future-Agent acceptance client
 certify_binance_golden_source.py verifies pinned provider archives before materialization
-provision_a0_binance_golden.py captures provider authority and provisions real post-capture history
+provision_binance_golden.py  captures provider authority and provisions real post-capture history
 deploy-production.sh         validate, pull, and converge production services
 run-operator.sh              execute explicit operators on the private network
 run-binance-golden.sh        run online provisioning with isolated Binance egress
-run-a0-product-acceptance.sh canonical offline Spot/USD-M Product acceptance
+run-product-acceptance.sh    canonical offline Spot/USD-M Product acceptance
 ```
 
 Database versions are intentionally exact:
@@ -106,7 +106,7 @@ set `ONLYALPHA_BACKUP_PATH` to a protected host path outside database volumes.
 The operator sees it at `/var/lib/onlyalpha-backups`. Exercise restore into
 isolated `onlyalpha_restore_*` targets before relying on a backup.
 
-## P9.3 database acceptance
+## Database acceptance
 
 The test override is destructive only within guarded test databases. It uses
 the same PostgreSQL and ClickHouse service definitions, exact images, private
@@ -119,7 +119,7 @@ deploy/compose/run-acceptance.sh
 
 The acceptance container receives the same canonical `ONLYALPHA_POSTGRES_DSN`
 configuration name used by the product. Compose constructs its local test value
-from `.env.test.example` and private service DNS; there is no separate test-only
+from `.env.acceptance.example` and private service DNS; there is no separate test-only
 PostgreSQL connection-variable path.
 
 The script builds the pinned acceptance image, starts the merged base/test
@@ -128,7 +128,7 @@ deployment, waits for health, and runs these lanes inside the Compose network:
 ```text
 research-postgres
 market-data-clickhouse
-p9-3-real-database
+database-acceptance
 ```
 
 and then stops the services while retaining named volumes. Set
@@ -159,12 +159,12 @@ The offline Product lane consumes the resulting immutable Dataset and economic
 fact identities; it does not contact Binance or treat a mutable ClickHouse
 query as semantic truth.
 
-The canonical A0 lane consumes one operator-supplied, content-addressed frozen
+The canonical Product lane consumes one operator-supplied, content-addressed frozen
 bundle and performs materialization plus the complete HTTP-only Product proof:
 
 ```bash
-ONLYALPHA_A0_GOLDEN_ROOT=/secure/a0-golden-2024-01 \
-  deploy/compose/run-a0-product-acceptance.sh
+ONLYALPHA_GOLDEN_BUNDLE_ROOT=/secure/binance-golden-2024-01 \
+  deploy/compose/run-product-acceptance.sh
 ```
 
 `bundle-manifest.json` is strict schema version 1 with
@@ -176,13 +176,13 @@ using `<source_id>.zip`. The lane verifies every archive before invoking the
 same Binance Spot/USD-M normalizers used by provider ingestion, persists facts
 through ClickHouse/PostgreSQL, seals immutable Dataset/economic bindings, then
 runs Spot and USD-M twice and compares Result/determinism identities. Its final
-fault phase holds a claimed Attempt at a deterministic operational barrier,
+fault step holds a claimed Attempt at a deterministic operational barrier,
 kills the Backtest Worker, restarts it after lease recovery, and compares the
 recovered result to the uninterrupted baseline. The external client contains
 no OnlyAlpha or database imports.
 
 Online capture/certification remains a separate lane and is never invoked by
-`run-a0-product-acceptance.sh`.
+`run-product-acceptance.sh`.
 
 For an end-to-end online capture, the database network stays internal and only
 the `binance-golden-provisioner` profile joins a separate egress network. USD-M
@@ -214,25 +214,25 @@ Manual equivalent:
 
 ```bash
 set -a
-source deploy/compose/.env.test.example
+source deploy/compose/.env.acceptance.example
 set +a
 
 docker compose \
-  --env-file deploy/compose/.env.test.example \
+  --env-file deploy/compose/.env.acceptance.example \
   -f deploy/compose/compose.yaml \
-  -f deploy/compose/compose.test.yaml \
+  -f deploy/compose/compose.acceptance.yaml \
   build acceptance
 
 docker compose \
-  --env-file deploy/compose/.env.test.example \
+  --env-file deploy/compose/.env.acceptance.example \
   -f deploy/compose/compose.yaml \
-  -f deploy/compose/compose.test.yaml \
+  -f deploy/compose/compose.acceptance.yaml \
   up -d --wait postgres clickhouse
 
 docker compose \
-  --env-file deploy/compose/.env.test.example \
+  --env-file deploy/compose/.env.acceptance.example \
   -f deploy/compose/compose.yaml \
-  -f deploy/compose/compose.test.yaml \
+  -f deploy/compose/compose.acceptance.yaml \
   run --rm acceptance
 ```
 
@@ -245,9 +245,9 @@ Stop without deleting data:
 
 ```bash
 docker compose \
-  --env-file deploy/compose/.env.test.example \
+  --env-file deploy/compose/.env.acceptance.example \
   -f deploy/compose/compose.yaml \
-  -f deploy/compose/compose.test.yaml \
+  -f deploy/compose/compose.acceptance.yaml \
   stop
 ```
 

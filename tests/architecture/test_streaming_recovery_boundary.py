@@ -1,4 +1,4 @@
-"""P6.4 streaming recovery must remain outside every trading economic authority."""
+"""Streaming recovery must remain outside every trading economic authority."""
 
 import ast
 from pathlib import Path

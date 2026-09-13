@@ -38,7 +38,7 @@ from onlyalpha.strategy.freeze import (
 )
 from onlyalpha.strategy.store import _only_compose_frozen_strategy_authority
 from tests.research.definition.support import definition
-from tests.strategy.p9_support import _Datasets, p9_strategy_case
+from tests.strategy.product_support import _Datasets, strategy_product_case
 
 NOW = datetime(2026, 8, 24, tzinfo=UTC)
 
@@ -65,7 +65,7 @@ class _BrokenDatasetStore:
 
 
 def _freeze_case(tmp_path, *, semantic_root=None, values=None, source_definition=None):
-    case = p9_strategy_case(tmp_path / "base", values=values, source_definition=source_definition)
+    case = strategy_product_case(tmp_path / "base", values=values, source_definition=source_definition)
     semantic_root = tmp_path / "semantic" if semantic_root is None else semantic_root
     resolved_definition = OnlyResearchDefinitionResolver(
         case.registry,

@@ -6,11 +6,11 @@ from onlyalpha.calculation import (
     only_implementation_manifest_from_bytes,
     only_python_stdlib_semantic_dependency,
 )
-from tests.strategy.p9_support import p9_strategy_case
+from tests.strategy.product_support import strategy_product_case
 
 
 def test_implementation_identity_binds_resources_and_semantic_dependencies(tmp_path) -> None:
-    case = p9_strategy_case(tmp_path)
+    case = strategy_product_case(tmp_path)
     node = case.revision.decision_graph.ordered_nodes[0]
     registration = case.registry.resolve(
         node.definition.kind,
@@ -65,8 +65,8 @@ def test_implementation_identity_binds_resources_and_semantic_dependencies(tmp_p
     )
 
 
-def test_every_official_p9_registration_binds_external_numeric_runtime(tmp_path) -> None:
-    case = p9_strategy_case(tmp_path)
+def test_every_official_registration_binds_external_numeric_runtime(tmp_path) -> None:
+    case = strategy_product_case(tmp_path)
     for node in case.revision.decision_graph.nodes:
         for backend in (OnlyCalculationBackendKind.RESEARCH, OnlyCalculationBackendKind.TRADING):
             registration = case.registry.resolve(

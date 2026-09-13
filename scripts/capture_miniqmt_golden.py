@@ -156,7 +156,9 @@ def main() -> int:
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
     if len(args.instrument) != 1:
-        parser.error("the P0 capture supports exactly one --instrument; repeat support is reserved for a later schema")
+        parser.error(
+            "the current capture supports exactly one --instrument; repeat support is reserved for a later schema"
+        )
     args.instrument = args.instrument[0]
     capture(args)
     return 0

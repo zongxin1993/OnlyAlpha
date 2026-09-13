@@ -99,7 +99,7 @@ class CompatibilityResult:
 
 
 @dataclass(frozen=True, slots=True)
-class AuthorizedA0Correction:
+class AuthorizedPreFreezeCorrection:
     adr: str
     base_git_sha: str
     base_contract_sha256: str
@@ -174,7 +174,7 @@ def contract_sha256(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def load_authorized_a0_correction() -> AuthorizedA0Correction:
+def load_authorized_pre_freeze_correction() -> AuthorizedPreFreezeCorrection:
     document = parse_document(AUTHORIZED_A0_CORRECTIONS.read_bytes(), source=str(AUTHORIZED_A0_CORRECTIONS))
     expected_keys = {
         "adr",
@@ -187,60 +187,60 @@ def load_authorized_a0_correction() -> AuthorizedA0Correction:
         "schema_version",
     }
     if set(document) != expected_keys:
-        raise ValueError("authorized A0 correction manifest has unexpected fields")
+        raise ValueError("authorized pre-freeze correction manifest has unexpected fields")
     if document["schema_version"] != 1 or document["api_major"] != API_MAJOR:
-        raise ValueError("authorized A0 correction manifest version is invalid")
+        raise ValueError("authorized pre-freeze correction manifest version is invalid")
     if document["classification"] != "REQUIRED_A0_CONTRACT_CORRECTION":
-        raise ValueError("authorized A0 correction manifest classification is invalid")
+        raise ValueError("authorized pre-freeze correction manifest classification is invalid")
 
     adr = document["adr"]
     base_git_sha = document["base_git_sha"]
     base_contract = document["base_contract_sha256"]
     corrected_contract = document["corrected_contract_sha256"]
     if not isinstance(adr, str) or not adr.startswith("docs/adr/") or not (ROOT / adr).is_file():
-        raise ValueError("authorized A0 correction manifest ADR is invalid")
+        raise ValueError("authorized pre-freeze correction manifest ADR is invalid")
     if "- Status: Accepted" not in (ROOT / adr).read_text(encoding="utf-8"):
-        raise ValueError("authorized A0 correction manifest ADR is not Accepted")
+        raise ValueError("authorized pre-freeze correction manifest ADR is not Accepted")
     if not isinstance(base_git_sha, str) or GIT_SHA.fullmatch(base_git_sha) is None:
-        raise ValueError("authorized A0 correction manifest base Git SHA is invalid")
+        raise ValueError("authorized pre-freeze correction manifest base Git SHA is invalid")
     for label, value in (("base", base_contract), ("corrected", corrected_contract)):
         if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
-            raise ValueError(f"authorized A0 correction manifest {label} contract SHA256 is invalid")
+            raise ValueError(f"authorized pre-freeze correction manifest {label} contract SHA256 is invalid")
 
     corrections = document["corrections"]
     if not isinstance(corrections, list) or not corrections:
-        raise ValueError("authorized A0 correction manifest corrections must be a non-empty list")
+        raise ValueError("authorized pre-freeze correction manifest corrections must be a non-empty list")
     issues: list[str] = []
     entry_keys = {"added_response_content", "method", "path", "removed_response_statuses"}
     for correction in corrections:
         if not isinstance(correction, dict) or set(correction) != entry_keys:
-            raise ValueError("authorized A0 correction entry has unexpected fields")
+            raise ValueError("authorized pre-freeze correction entry has unexpected fields")
         method = correction["method"]
         path = correction["path"]
         added = correction["added_response_content"]
         removed = correction["removed_response_statuses"]
         if not isinstance(method, str) or method.lower() not in HTTP_METHODS or method != method.upper():
-            raise ValueError("authorized A0 correction method is invalid")
+            raise ValueError("authorized pre-freeze correction method is invalid")
         if not isinstance(path, str) or not path.startswith(f"/api/v{API_MAJOR}/"):
-            raise ValueError("authorized A0 correction path is invalid")
+            raise ValueError("authorized pre-freeze correction path is invalid")
         if not isinstance(added, list) or not all(
             isinstance(item, dict) and set(item) == {"media_type", "status"} for item in added
         ):
-            raise ValueError("authorized A0 correction response content is invalid")
+            raise ValueError("authorized pre-freeze correction response content is invalid")
         if not isinstance(removed, list) or not all(isinstance(item, str) for item in removed):
-            raise ValueError("authorized A0 correction removed response statuses are invalid")
+            raise ValueError("authorized pre-freeze correction removed response statuses are invalid")
         location = f"{method} {path}"
         for item in added:
             status = item["status"]
             media_type = item["media_type"]
             if not isinstance(status, str) or not isinstance(media_type, str):
-                raise ValueError("authorized A0 correction response content values are invalid")
+                raise ValueError("authorized pre-freeze correction response content values are invalid")
             issues.append(f"{location}: response {status} content type {media_type} was added")
         issues.extend(f"{location}: response status {status} was removed" for status in removed)
     unique = tuple(sorted(set(issues)))
     if len(unique) != len(issues):
-        raise ValueError("authorized A0 correction manifest contains duplicate entries")
-    return AuthorizedA0Correction(
+        raise ValueError("authorized pre-freeze correction manifest contains duplicate entries")
+    return AuthorizedPreFreezeCorrection(
         adr=adr,
         base_git_sha=base_git_sha,
         base_contract_sha256=base_contract,
@@ -249,12 +249,12 @@ def load_authorized_a0_correction() -> AuthorizedA0Correction:
     )
 
 
-def authorize_a0_pre_freeze_correction(
+def authorize_pre_freeze_correction(
     *, base_git_sha: str, baseline: bytes, candidate: bytes, result: CompatibilityResult
-) -> AuthorizedA0Correction | None:
+) -> AuthorizedPreFreezeCorrection | None:
     if result.change is not ContractChange.BREAKING or not AUTHORIZED_A0_CORRECTIONS.is_file():
         return None
-    authorization = load_authorized_a0_correction()
+    authorization = load_authorized_pre_freeze_correction()
     if (
         authorization.base_git_sha != base_git_sha
         or authorization.base_contract_sha256 != contract_sha256(baseline)
@@ -953,7 +953,7 @@ def _verify(base_sha: str) -> None:
     candidate_document, candidate = check_current_contract()
     exact_base, baseline_document, baseline = load_git_baseline(base_sha)
     result = compare_contracts(baseline_document, candidate_document)
-    authorization = authorize_a0_pre_freeze_correction(
+    authorization = authorize_pre_freeze_correction(
         base_git_sha=exact_base,
         baseline=baseline,
         candidate=candidate,

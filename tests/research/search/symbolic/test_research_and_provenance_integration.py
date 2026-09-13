@@ -93,7 +93,7 @@ from onlyalpha.strategy.store import (
 from tests.research.calculation.support import snapshot
 from tests.research.specification.support import registry as specification_registry
 from tests.research.specification.support import specification
-from tests.strategy.p9_support import p9_strategy_case
+from tests.strategy.product_support import strategy_product_case
 
 from .support import space, verified_dataset
 
@@ -522,7 +522,7 @@ def _fresh_process_e2e(root: Path, terminal_result_fingerprint: str | None = Non
         assert execution.status is OnlyRuntimeResultStatus.COMPLETED
         assert execution.research_result_fingerprint is not None
         assert resolved.candidate.candidate_fingerprint is not None
-        revision = p9_strategy_case(root / "strategy-authoring").revision
+        revision = strategy_product_case(root / "strategy-authoring").revision
         strategy_reader, strategy_publisher = _only_compose_frozen_strategy_authority(root)
         relation = OnlyStrategyFreezeRelation(
             str(revision.strategy_fingerprint),

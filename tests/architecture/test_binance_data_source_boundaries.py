@@ -33,7 +33,7 @@ def test_core_does_not_import_binance_provider_adapter() -> None:
     assert violations == []
 
 
-def test_core_business_code_does_not_hard_code_p9_2_symbols() -> None:
+def test_core_business_code_does_not_hard_code_provider_symbols() -> None:
     violations = [
         str(path.relative_to(ROOT))
         for path in CORE.rglob("*.py")

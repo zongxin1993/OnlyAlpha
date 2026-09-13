@@ -140,5 +140,5 @@ def test_summary_statistics_has_no_downstream_research_or_product_dependencies()
         assert not any(name.startswith(forbidden) for name in imports), (path, imports)
 
 
-def test_research_runtime_factory_is_formally_activated_after_p7_11() -> None:
+def test_research_runtime_factory_is_formally_activated() -> None:
     assert OnlyResearchRuntimeFactory().runtime_type == "RESEARCH"
