@@ -1,4 +1,4 @@
-"""Permanent negative architecture gate for the P9.K.8 Product authority seal."""
+"""Permanent negative architecture gate for Product authority boundaries."""
 
 from __future__ import annotations
 
@@ -188,9 +188,9 @@ def test_product_space_has_zero_direct_engine_or_runtime_constructor_owner() -> 
     assert not any(path.startswith(forbidden_roots) or path == "src/onlyalpha/cli.py" for path, _ in sites)
 
 
-def test_k0_migration_debt_is_zero() -> None:
-    k0 = load_authority_contract(ROOT / "docs/architecture/product_authority_contract.toml")
-    assert k0.legacy_debts == {}
+def test_product_authority_migration_debt_is_zero() -> None:
+    contract = load_authority_contract(ROOT / "docs/architecture/product_authority_contract.toml")
+    assert contract.legacy_debts == {}
 
 
 def test_standalone_artifact_compatibility_product_surface_is_absent() -> None:
