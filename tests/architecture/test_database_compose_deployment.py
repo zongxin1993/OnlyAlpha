@@ -130,6 +130,11 @@ def test_compose_templates_keep_production_secrets_out_and_acceptance_is_canonic
     assert "scripts/test_suite.py research-postgres" in container_runner
     assert "scripts/test_suite.py market-data-clickhouse" in container_runner
     assert "scripts/test_suite.py database-acceptance" in container_runner
+    assert "research-postgres.log" in container_runner
+    assert "market-data-clickhouse.log" in container_runner
+    assert 'wait "$postgres_pid"' in container_runner
+    assert 'wait "$clickhouse_pid"' in container_runner
+    assert "combined lane is deliberately serial" in container_runner
 
 
 def test_ci_reuses_the_canonical_clickhouse_storage_policy() -> None:

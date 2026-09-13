@@ -4,6 +4,9 @@ This document defines the bounded role of third-party review and test tooling in
 
 The tools in this layer supplement existing repository-native authorities. They do not replace the existing Layered Quality workflow, architecture tests, CodeQL, OSV dependency audit, pytest lanes, Hypothesis, CrossHair, or mutmut.
 
+The only maintained third-party quality workflow is `.github/workflows/third-party-quality.yml`. No second third-party
+workflow is a maintained quality interpretation or fallback entry point.
+
 ## Tool roles
 
 | Tool | Version | OnlyAlpha role | Blocking behavior |
@@ -27,7 +30,7 @@ The tools in this layer supplement existing repository-native authorities. They 
 
 ## Current rollout
 
-The third-party workflow runs independently from `Layered Quality` so failures can be evaluated without weakening existing gates. Its aggregate `third-party-quality-gate` requires every applicable blocking job to succeed.
+The canonical third-party workflow runs independently from `Layered Quality` so failures can be evaluated without weakening existing gates. Its aggregate `third-party-quality-gate` requires every applicable blocking job to succeed.
 
 `zizmor` is intentionally reporting-first because the repository predates this audit and existing workflow findings require bounded baseline triage before they can safely become a hard merge gate.
 
@@ -37,7 +40,7 @@ The third-party workflow runs independently from `Layered Quality` so failures c
 
 `Testcontainers` initially certifies that GitHub-hosted runners can create, execute in, and clean up disposable Docker containers. Existing pinned PostgreSQL acceptance remains authoritative for database product behavior; future integration tests may migrate selected fixture orchestration to Testcontainers only where it reduces duplicated service setup.
 
-`Dependency Review Action` depends on GitHub Dependency Graph. The workflow explicitly detects that repository capability before invoking the action. Until Dependency Graph is enabled, the job emits a warning and remains non-blocking; the existing OSV dependency audit and `pip-audit` remain active blocking dependency-security evidence. Once Dependency Graph is enabled, the same workflow invokes Dependency Review normally and its vulnerability result is blocking.
+`Dependency Review Action` depends on GitHub Dependency Graph. The workflow explicitly detects that repository capability before invoking the action and records the result as `AVAILABLE` or `UNAVAILABLE`. Until Dependency Graph is enabled, the workflow emits a warning and summary entry, does not claim a Dependency Review PASS, and does not block the third-party chain; the existing OSV dependency audit and `pip-audit` remain active blocking dependency-security evidence. Once Dependency Graph is enabled, the same workflow invokes Dependency Review normally and its configured vulnerability result is blocking. Ambiguous capability detection fails closed.
 
 ## Stop rule
 

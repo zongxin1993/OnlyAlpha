@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
+from argparse import Namespace
 from pathlib import Path
 
 import pytest
 
+import scripts.test_suite as test_suite
 from scripts.pytest_layering import CONCERN_MARKERS, LAYER_MARKERS, path_concerns, path_layer
-from scripts.test_suite import LANES, OnlyTestLane
+from scripts.test_suite import LANES, OnlyTestLane, selected_workers
 
 pytestmark = pytest.mark.architecture
 
@@ -67,6 +70,68 @@ def test_architecture_lane_is_the_single_stable_repository_gate() -> None:
     assert lane.dist == "no"
 
 
+def test_coverage_is_serial_by_default_but_explicit_workers_enable_proven_xdist() -> None:
+    lane = LANES[OnlyTestLane.KERNEL]
+    assert (
+        selected_workers(lane, lane_name=OnlyTestLane.KERNEL, requested_workers=None, no_parallel=False, coverage=True)
+        == "0"
+    )
+    assert (
+        selected_workers(lane, lane_name=OnlyTestLane.KERNEL, requested_workers="2", no_parallel=False, coverage=True)
+        == "2"
+    )
+    assert (
+        selected_workers(lane, lane_name=OnlyTestLane.KERNEL, requested_workers="2", no_parallel=True, coverage=True)
+        == "0"
+    )
+    with pytest.raises(ValueError, match="not proven safe"):
+        selected_workers(
+            LANES[OnlyTestLane.CALCULATION],
+            lane_name=OnlyTestLane.CALCULATION,
+            requested_workers="2",
+            no_parallel=False,
+            coverage=True,
+        )
+
+
+def test_proven_parallel_coverage_reaches_the_pytest_command(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(command: list[str], env: dict[str, str] | None = None) -> int:
+        assert env is not None
+        captured["command"] = command
+        captured["env"] = env
+        Path(env["ONLYALPHA_TEST_METRICS"]).parent.mkdir(parents=True, exist_ok=True)
+        Path(env["ONLYALPHA_TEST_METRICS"]).write_text(
+            json.dumps({"collected": 1, "total_seconds": 0.0}), encoding="utf-8"
+        )
+        return 0
+
+    monkeypatch.setattr(test_suite, "ROOT", tmp_path)
+    monkeypatch.setattr(test_suite, "run", fake_run)
+    args = Namespace(
+        group=None,
+        splits=None,
+        store_durations=False,
+        clean_durations=False,
+        workers="2",
+        no_parallel=False,
+        coverage=True,
+        dist=None,
+        durations=None,
+        durations_path=None,
+        splitting_algorithm="least_duration",
+        metrics_path=None,
+    )
+
+    assert test_suite.execute(OnlyTestLane.KERNEL, args) == 0
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert "-n" in command
+    assert command[command.index("-n") + 1] == "2"
+    assert command[command.index("--dist") + 1] == "worksteal"
+
+
 def test_kernel_lane_owns_lifecycle_host_and_product_boundary() -> None:
     lane = LANES[OnlyTestLane.KERNEL]
     assert lane.paths == (
@@ -83,6 +148,17 @@ def test_normal_ci_directly_runs_the_canonical_architecture_gate() -> None:
     workflow = Path(".github/workflows/quality.yml").read_text(encoding="utf-8")
     assert "- run: uv run python scripts/test_suite.py architecture" in workflow
     assert "ARCHITECTURE_RESULT: ${{ needs.architecture.result }}" in workflow
+
+
+def test_ci_shards_only_an_already_selected_canonical_lane_and_reads_duration_authority() -> None:
+    workflow = Path(".github/workflows/quality.yml").read_text(encoding="utf-8")
+    assert "research-evaluation-shards:" in workflow
+    assert "--splits 4" in workflow
+    assert "--splitting-algorithm least_duration" in workflow
+    assert "--durations-path test-data/test-durations.json" in workflow
+    assert "--store-durations" not in workflow
+    assert "research-evaluation-shard-gate:" in workflow
+    assert "--validate-shards" in workflow
 
 
 def test_public_ci_runs_and_requires_private_asset_contract_conformance() -> None:

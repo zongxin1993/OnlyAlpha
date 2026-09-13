@@ -83,10 +83,12 @@ jobs:
       - name: Produce core coverage evidence
         run: uv run python scripts/test_suite.py core-full --coverage
       - name: Require changed core lines to be covered
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: >-
           uvx --from diff-cover==10.4.1 diff-cover
           test-results/coverage/coverage.xml
-          --compare-branch=origin/${{ github.base_ref }}
+          --compare-branch "origin/$BASE_REF"
           --branch-coverage
           --show-uncovered
           --fail-under=90
@@ -145,6 +147,8 @@ jobs:
 
   dependency-review:
     if: github.event_name == 'pull_request'
+    outputs:
+      dependency_graph_available: ${{ steps.dependency-graph.outputs.enabled }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -164,9 +168,20 @@ jobs:
             "/repos/$GITHUB_REPOSITORY/dependency-graph/compare/$BASE_SHA...$HEAD_SHA" \
             >/dev/null 2>&1; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "Dependency Graph is available; Dependency Review is blocking for its configured severity threshold."
+            {
+              echo "### Dependency Review"
+              echo
+              echo "Dependency Graph is available; Dependency Review is enabled and blocking for its configured severity threshold."
+            } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "::warning::GitHub Dependency Graph is disabled; Dependency Review is configured but cannot run until the repository capability is enabled."
+            {
+              echo "### Dependency Review"
+              echo
+              echo "UNAVAILABLE: GitHub Dependency Graph is unavailable, so Dependency Review did not run. This is non-blocking; pip-audit remains active."
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Review dependency changes
         if: steps.dependency-graph.outputs.enabled == 'true'
@@ -233,6 +248,7 @@ jobs:
           SCHEMATHESIS_RESULT: ${{ needs.schemathesis.result }}
           TESTCONTAINERS_RESULT: ${{ needs.testcontainers.result }}
           DEPENDENCY_REVIEW_RESULT: ${{ needs.dependency-review.result }}
+          DEPENDENCY_REVIEW_AVAILABLE: ${{ needs.dependency-review.outputs.dependency_graph_available }}
           PIP_AUDIT_RESULT: ${{ needs.pip-audit.result }}
           ZIZMOR_RESULT: ${{ needs.zizmor.result }}
         run: |
@@ -244,7 +260,14 @@ jobs:
           if test "$EVENT_NAME" = pull_request; then
             test "$REVIEWDOG_RESULT" = success
             test "$DIFF_COVERAGE_RESULT" = success
-            test "$DEPENDENCY_REVIEW_RESULT" = success
+            if test "$DEPENDENCY_REVIEW_AVAILABLE" = true; then
+              test "$DEPENDENCY_REVIEW_RESULT" = success
+            elif test "$DEPENDENCY_REVIEW_AVAILABLE" = false && test "$DEPENDENCY_REVIEW_RESULT" = success; then
+              echo "Dependency Review unavailable; continuing with pip-audit as independent dependency-security evidence."
+            else
+              echo "Dependency Review capability detection failed; refusing an ambiguous quality result."
+              exit 1
+            fi
           else
             test "$REVIEWDOG_RESULT" = skipped
             test "$DIFF_COVERAGE_RESULT" = skipped

@@ -11,6 +11,7 @@ from enum import StrEnum
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+CANONICAL_DURATION_PATH = ROOT / "test-data" / "test-durations.json"
 
 
 def workspace_test_paths(pyproject: Path = ROOT / "pyproject.toml") -> tuple[str, ...]:
@@ -82,6 +83,9 @@ class OnlyReleaseCheck(StrEnum):
     BUILD = "build"
 
 
+COVERAGE_PARALLEL_LANES = frozenset({OnlyTestLane.KERNEL})
+
+
 @dataclass(frozen=True, slots=True)
 class Lane:
     paths: tuple[str, ...]
@@ -90,6 +94,7 @@ class Lane:
     dist: str
     durations: int = 20
     prefilter_marker: str | None = None
+    timeout_seconds: int = 180
 
 
 LANES = {
@@ -249,6 +254,7 @@ LANES = {
         "0",
         "no",
         40,
+        timeout_seconds=600,
     ),
     OnlyTestLane.MARKET_DATA_CLICKHOUSE: Lane(
         ("tests/market_data_durable",),
@@ -256,6 +262,7 @@ LANES = {
         "0",
         "no",
         100,
+        timeout_seconds=900,
     ),
     OnlyTestLane.DATABASE_ACCEPTANCE: Lane(
         ("tests/market_data_durable/test_real_database_acceptance.py",),
@@ -263,6 +270,7 @@ LANES = {
         "0",
         "no",
         100,
+        timeout_seconds=900,
     ),
     OnlyTestLane.RESEARCH_PRODUCT_CERTIFICATION: Lane(
         (
@@ -273,6 +281,7 @@ LANES = {
         "0",
         "no",
         40,
+        timeout_seconds=900,
     ),
     OnlyTestLane.RESEARCH_RUNTIME: Lane(
         (
@@ -356,12 +365,14 @@ LANES = {
         "(unit or contract or architecture) and not (historical_git or recovery or sim_recovery or conformance or external or exhaustive or slow)",
         "8",
         "worksteal",
+        timeout_seconds=300,
     ),
     OnlyTestLane.INTEGRATION: Lane(
         ("tests",),
         "(integration or scenario) and not (recovery or sim_recovery or conformance or external or exhaustive or slow)",
         "6",
         "worksteal",
+        timeout_seconds=900,
     ),
     OnlyTestLane.ASHARE: Lane(
         WORKSPACE_TESTS,
@@ -377,6 +388,7 @@ LANES = {
         "worksteal",
         100,
         "recovery",
+        timeout_seconds=900,
     ),
     OnlyTestLane.SIM_RECOVERY: Lane(
         WORKSPACE_TESTS,
@@ -385,6 +397,7 @@ LANES = {
         "worksteal",
         100,
         "sim_recovery",
+        timeout_seconds=900,
     ),
     OnlyTestLane.MINIQMT_CONTRACT: Lane(
         ("plugs/onlyalpha-plugin-miniqmt/tests",),
@@ -397,6 +410,7 @@ LANES = {
         "miniqmt and external and requires_local_qmt and windows and not requires_broker_account",
         "0",
         "no",
+        timeout_seconds=900,
     ),
     OnlyTestLane.CORE_FULL: Lane(
         WORKSPACE_TESTS,
@@ -412,6 +426,7 @@ LANES = {
         "worksteal",
         100,
         "exhaustive",
+        timeout_seconds=900,
     ),
 }
 
@@ -522,6 +537,22 @@ def run(command: list[str], env: dict[str, str] | None = None) -> int:
     return subprocess.run(command, cwd=ROOT, env=env, check=False).returncode
 
 
+def selected_workers(
+    lane: Lane,
+    *,
+    lane_name: OnlyTestLane,
+    requested_workers: str | None,
+    no_parallel: bool,
+    coverage: bool,
+) -> str:
+    workers = "0" if no_parallel else (requested_workers or lane.workers)
+    if coverage and requested_workers is None and not no_parallel:
+        return "0"
+    if coverage and requested_workers is not None and lane_name not in COVERAGE_PARALLEL_LANES:
+        raise ValueError("parallel coverage is not proven safe for this lane")
+    return workers
+
+
 def release(args: argparse.Namespace) -> int:
     code = execute_release_check(OnlyReleaseCheck.STATIC)
     if code:
@@ -545,8 +576,35 @@ def release(args: argparse.Namespace) -> int:
 
 def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
     lane = LANES[name]
-    workers = "0" if args.no_parallel else (args.workers or lane.workers)
+    if args.group is not None and args.splits is None:
+        print("--group requires --splits", file=sys.stderr)
+        return 2
+    if args.splits is not None and args.splits < 2:
+        print("--splits must be at least 2", file=sys.stderr)
+        return 2
+    if args.splits is not None and (args.group is None or not 1 <= args.group <= args.splits):
+        print("--group must be between 1 and --splits", file=sys.stderr)
+        return 2
+    if args.store_durations and args.splits is not None:
+        print("duration authority cannot be updated by a shard", file=sys.stderr)
+        return 2
+    if args.clean_durations and args.splits is not None:
+        print("duration data cannot be cleaned by a shard", file=sys.stderr)
+        return 2
+    try:
+        workers = selected_workers(
+            lane,
+            lane_name=name,
+            requested_workers=args.workers,
+            no_parallel=args.no_parallel,
+            coverage=args.coverage,
+        )
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     dist = args.dist or lane.dist
+    if workers != "0" and dist == "no":
+        dist = "worksteal"
     if name is OnlyTestLane.MINIQMT_LOCAL:
         if sys.platform != "win32":
             print("miniqmt-local requires Windows", file=sys.stderr)
@@ -573,6 +631,7 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
         "-m",
         lane.expression,
         f"--durations={args.durations or lane.durations}",
+        f"--timeout={lane.timeout_seconds}",
         "-p",
         "scripts.pytest_layering",
         "-p",
@@ -671,10 +730,35 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
                 f"--cov-fail-under={100 if name is OnlyTestLane.RESEARCH_FACTOR else 100 if name in (OnlyTestLane.RESEARCH_SPECIFICATION, OnlyTestLane.RESEARCH_RUN) else 95 if name in (OnlyTestLane.RESEARCH_EXECUTION, OnlyTestLane.RESEARCH_RUNTIME, OnlyTestLane.RESEARCH_QUERY, OnlyTestLane.RESEARCH_EVALUATION, OnlyTestLane.RESEARCH_RESULT, OnlyTestLane.RESEARCH_ARTIFACT) else 90 if name in (OnlyTestLane.RESEARCH_COMMAND, OnlyTestLane.RESEARCH_SWEEP) else 82}",
             ]
         )
-        workers = "0"
     if workers != "0":
         command.extend(["-n", workers, "--dist", dist])
-    metric_path = ROOT / "test-results" / "metrics" / f"{name.value}.json"
+    durations_path = Path(args.durations_path) if args.durations_path else CANONICAL_DURATION_PATH
+    if args.splits is not None:
+        command.extend(
+            [
+                "--splits",
+                str(args.splits),
+                "--group",
+                str(args.group),
+                "--splitting-algorithm",
+                args.splitting_algorithm,
+                "--durations-path",
+                str(durations_path),
+            ]
+        )
+    if args.store_durations or args.clean_durations:
+        command.extend(["--durations-path", str(durations_path)])
+    if args.store_durations:
+        command.append("--store-durations")
+    if args.clean_durations:
+        command.append("--clean-durations")
+    metric_path = (
+        Path(args.metrics_path)
+        if args.metrics_path is not None
+        else ROOT / "test-results" / "metrics" / f"{name.value}.json"
+    )
+    if not metric_path.is_absolute():
+        metric_path = ROOT / metric_path
     env = os.environ.copy()
     env.update(
         {
@@ -815,11 +899,22 @@ def main() -> int:
     parser.add_argument("--workers")
     parser.add_argument("--dist", choices=("load", "loadscope", "loadfile", "worksteal"))
     parser.add_argument("--durations", type=int)
+    parser.add_argument("--splits", type=int)
+    parser.add_argument("--group", type=int)
+    parser.add_argument(
+        "--splitting-algorithm",
+        choices=("duration_based_chunks", "least_duration"),
+        default="least_duration",
+    )
+    parser.add_argument("--durations-path", type=Path)
+    parser.add_argument("--store-durations", action="store_true")
+    parser.add_argument("--clean-durations", action="store_true")
+    parser.add_argument("--metrics-path", type=Path)
     parser.add_argument("--no-parallel", action="store_true")
     parser.add_argument(
         "--coverage",
         action="store_true",
-        help="collect branch coverage once for this lane; disables xdist for deterministic data",
+        help="collect branch coverage once for this lane; serial by default, explicit --workers only for proven lanes",
     )
     args = parser.parse_args()
     if args.lane in {check.value for check in OnlyReleaseCheck}:

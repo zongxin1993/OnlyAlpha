@@ -33,6 +33,21 @@ uv run python scripts/test_suite.py release
 `test-results/metrics/<lane>.json`。即使测试失败，指标仍会写出并保留真实 pytest 退出码。可用 `--workers N`、`--dist worksteal`、`--durations N` 或 `--no-parallel`
 覆盖并行策略；定位进程级、SQLite 锁、顺序敏感或调试器问题时关闭 xdist。
 
+`scripts/test_topology.py` 只消费上述 canonical metrics，生成 lane/node 映射、重复执行、重叠矩阵、长尾和估算 critical
+path；它是 reporting-only，不拥有测试选择权。历史 metrics 若缺少完整 `tests[nodeid]` 映射，报告会明确标为 lower bound，不能被当作完整
+execution graph。
+
+pytest-timeout 由 `scripts/test_suite.py` 按 lane 配置上限：普通 unit/contract/architecture 180 秒，`fast` 300 秒，integration、recovery、SIM
+recovery 和真实数据库/外部 lane 使用更宽的 600--900 秒；timeout 只用于 hang/deadlock fail-fast，不是性能预算。Coverage 默认继续串行；只有已经完成
+serial/xdist 等价证明的 lane 才允许通过显式 `--workers` 并行。当前证明 lane 是 `kernel`，其他 coverage lane fail closed 为 serial-only。
+
+pytest-split 只对已经由 canonical lane 选出的 `research-evaluation` universe 做跨 Runner 分片，固定使用 `least_duration`，并读取只读的
+`test-data/test-durations.json`。PR shard 不得写 duration file；Nightly 的 `duration-authority` job 生成新的 canonical duration evidence，更新快照必须经过
+显式 owner 维护。所有 shard 使用独立 metrics 文件，`union == canonical universe`、交集为空和缺失检查属于 shard acceptance proof。
+
+数据库 acceptance 的 PostgreSQL 与 ClickHouse 独立 lane 在同一 Compose acceptance 容器中并行；它们使用不同数据库资源，不共享 destructive state。跨数据库
+`database-acceptance` 始终在两者完成后串行执行。`pytest-testmon` 不进入 canonical CI，也没有第二套 impact-aware selector。
+
 `fast` 证明纯组件、公共合同和架构边界；`integration` 证明最短离线纵切面与 scenario smoke；`ashare` 只运行
 离线 A 股 conformance；`recovery` 独立运行普通 checkpoint/restart/fault correctness；`core-full` 覆盖全部普通 Workspace 离线 correctness；`exhaustive` 保留 100-run 和完整组合矩阵。
 长测试必须标记 `slow` 或 `recovery`。产品纵切面必须经过 `OnlyEngine`；Analytics、Report、Artifact、Collector
@@ -79,7 +94,9 @@ uv run python scripts/capture_miniqmt_golden.py --userdata-mini "C:\path\userdat
   --adjustment none --output tests/fixtures/miniqmt/cn_a_share_v1
 ```
 
-PR/Main 的 Static、各测试 lane 和 Build 独立并行，最终由 Quality Gate 汇总；Nightly 额外运行 Exhaustive。真实 MiniQMT 查询仅在自托管 Windows
+PR 的语义 lane 仍由 `scripts/test_suite.py` 负责本地/问题定位，CI 只执行不重复的 impact/capability topology；`research-evaluation` 在 PR 由四个
+duration-aware shards 替代原 semantic matrix entry。Main 只执行一次 `core-full` canonical offline universe，再执行独立的 Recovery、SIM Recovery、A-share、MiniQMT Contract、
+Research Product、数据库、Web 和安全/第三方 gates，最终由 Quality Gate 汇总；Nightly 额外运行 Exhaustive。真实 MiniQMT 查询仅在自托管 Windows
 Runner 串行运行；真实订单属于独立手动工作流，P0 不自动提交订单。原跨平台 distribution/install Smoke 保留在
 `ci.yml`，但只允许手动触发，避免在 PR 重复运行三平台 Full/Recovery。
 
