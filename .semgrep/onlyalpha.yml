@@ -1,0 +1,35 @@
+rules:
+  - id: onlyalpha-no-dynamic-python-eval-exec
+    languages: [python]
+    severity: ERROR
+    message: Production and tooling code must not execute dynamic Python strings with eval/exec.
+    patterns:
+      - pattern-either:
+          - pattern: eval(...)
+          - pattern: exec(...)
+    paths:
+      include:
+        - src/**
+        - packages/**/src/**
+        - scripts/**
+      exclude:
+        - packages/**/tests/**
+
+  - id: onlyalpha-no-subprocess-shell-true
+    languages: [python]
+    severity: ERROR
+    message: subprocess shell=True is forbidden; pass an argument vector to a direct executable instead.
+    patterns:
+      - pattern-either:
+          - pattern: subprocess.run(..., shell=True, ...)
+          - pattern: subprocess.Popen(..., shell=True, ...)
+          - pattern: subprocess.call(..., shell=True, ...)
+          - pattern: subprocess.check_call(..., shell=True, ...)
+          - pattern: subprocess.check_output(..., shell=True, ...)
+    paths:
+      include:
+        - src/**
+        - packages/**/src/**
+        - scripts/**
+      exclude:
+        - packages/**/tests/**
