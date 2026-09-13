@@ -29,7 +29,9 @@ def module_name(path: Path, root: Path) -> str | None:
     return ".".join(module_parts)
 
 
-def canonical_imports(source: str, *, module: str | None = None) -> frozenset[CanonicalImport]:
+def canonical_imports(
+    source: str, *, module: str | None = None
+) -> frozenset[CanonicalImport]:
     """Return alias-independent module and symbol capabilities from Python source."""
     tree = ast.parse(source)
     result: set[CanonicalImport] = set()
@@ -39,15 +41,22 @@ def canonical_imports(source: str, *, module: str | None = None) -> frozenset[Ca
             result.update(("module", alias.name) for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
             imported_module = _resolve_import_from(node, package)
-            result.update(("symbol", imported_module, alias.name) for alias in node.names)
+            result.update(
+                ("symbol", imported_module, alias.name) for alias in node.names
+            )
     return frozenset(result)
 
 
-def onlyalpha_imports(source: str, *, module: str | None = None) -> frozenset[CanonicalImport]:
+def onlyalpha_imports(
+    source: str, *, module: str | None = None
+) -> frozenset[CanonicalImport]:
     return frozenset(
         capability
         for capability in canonical_imports(source, module=module)
-        if len(capability) >= 2 and (capability[1] == "onlyalpha" or capability[1].startswith("onlyalpha."))
+        if len(capability) >= 2
+        and (
+            capability[1] == "onlyalpha" or capability[1].startswith("onlyalpha.")
+        )
     )
 
 
@@ -55,7 +64,10 @@ def canonical_imports_for_path(path: Path, root: Path) -> frozenset[CanonicalImp
     """Return canonical imports using the repository path as module authority."""
     module = module_name(path, root)
     source = path.read_text(encoding="utf-8")
-    if module is None and any(isinstance(node, ast.ImportFrom) and node.level for node in ast.walk(ast.parse(source))):
+    if module is None and any(
+        isinstance(node, ast.ImportFrom) and node.level
+        for node in ast.walk(ast.parse(source))
+    ):
         raise ValueError(f"cannot resolve relative import module for {path}")
     return canonical_imports(source, module=module)
 
@@ -63,14 +75,18 @@ def canonical_imports_for_path(path: Path, root: Path) -> frozenset[CanonicalImp
 def imported_modules_for_path(path: Path, root: Path) -> frozenset[str]:
     """Return imported module identities without duplicating AST scanning in guards."""
     return frozenset(
-        capability[1] for capability in canonical_imports_for_path(path, root) if len(capability) >= 2
+        capability[1]
+        for capability in canonical_imports_for_path(path, root)
+        if len(capability) >= 2
     )
 
 
 def syntactic_imported_modules_for_path(path: str | Path) -> frozenset[str]:
     """Return syntactic import-module names without resolving relative imports."""
     source_path = Path(path)
-    tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
+    tree = ast.parse(
+        source_path.read_text(encoding="utf-8"), filename=str(source_path)
+    )
     result: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -80,11 +96,16 @@ def syntactic_imported_modules_for_path(path: str | Path) -> frozenset[str]:
     return frozenset(result)
 
 
-def onlyalpha_imports_for_path(path: Path, root: Path) -> frozenset[CanonicalImport]:
+def onlyalpha_imports_for_path(
+    path: Path, root: Path
+) -> frozenset[CanonicalImport]:
     return frozenset(
         capability
         for capability in canonical_imports_for_path(path, root)
-        if len(capability) >= 2 and (capability[1] == "onlyalpha" or capability[1].startswith("onlyalpha."))
+        if len(capability) >= 2
+        and (
+            capability[1] == "onlyalpha" or capability[1].startswith("onlyalpha.")
+        )
     )
 
 
