@@ -1,21 +1,14 @@
-import ast
 import inspect
 from pathlib import Path
 
 from onlyalpha.execution import OnlyRuntimeTransactionCoordinator
-
-
-def _imports(path: str) -> set[str]:
-    tree = ast.parse(Path(path).read_text(encoding="utf-8"))
-    return {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names} | {
-        node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
-    }
+from tests.architecture._architecture_imports import syntactic_imported_modules_for_path
 
 
 def test_coordinator_planner_and_store_dependency_direction() -> None:
-    coordinator = _imports("src/onlyalpha/transaction/coordinator.py")
-    planner = _imports("src/onlyalpha/execution/trade_planner.py")
-    store = _imports("src/onlyalpha/runtime/persistence/store.py")
+    coordinator = syntactic_imported_modules_for_path("src/onlyalpha/transaction/coordinator.py")
+    planner = syntactic_imported_modules_for_path("src/onlyalpha/execution/trade_planner.py")
+    store = syntactic_imported_modules_for_path("src/onlyalpha/runtime/persistence/store.py")
     assert not any(name.endswith(".manager") for name in coordinator)
     assert not any(
         name.endswith(".manager") or ".runtime" in name or name.endswith("transaction_store") for name in planner

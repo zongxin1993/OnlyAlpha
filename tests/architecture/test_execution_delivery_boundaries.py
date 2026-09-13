@@ -1,16 +1,10 @@
-import ast
 from pathlib import Path
 
-
-def _imports(path: str) -> set[str]:
-    tree = ast.parse(Path(path).read_text(encoding="utf-8"))
-    return {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names} | {
-        node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
-    }
+from tests.architecture._architecture_imports import syntactic_imported_modules_for_path
 
 
 def test_event_buffer_is_a_pure_event_production_component() -> None:
-    imports = _imports("src/onlyalpha/execution/event_buffer.py")
+    imports = syntactic_imported_modules_for_path("src/onlyalpha/execution/event_buffer.py")
     assert "onlyalpha.event.bus" not in imports
     assert not any(name.endswith("execution.journal") for name in imports)
     source = Path("src/onlyalpha/execution/event_buffer.py").read_text(encoding="utf-8")
@@ -19,7 +13,7 @@ def test_event_buffer_is_a_pure_event_production_component() -> None:
 
 
 def test_processor_knows_commit_but_not_delivery_implementations_or_event_bus() -> None:
-    imports = _imports("src/onlyalpha/execution/processor.py")
+    imports = syntactic_imported_modules_for_path("src/onlyalpha/execution/processor.py")
     assert "onlyalpha.event.bus" not in imports
     source = Path("src/onlyalpha/execution/processor.py").read_text(encoding="utf-8")
     assert "OnlyDirectExecutionEventPublisher" not in source

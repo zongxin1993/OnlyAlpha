@@ -67,6 +67,19 @@ def imported_modules_for_path(path: Path, root: Path) -> frozenset[str]:
     )
 
 
+def syntactic_imported_modules_for_path(path: str | Path) -> frozenset[str]:
+    """Return syntactic import-module names without resolving relative imports."""
+    source_path = Path(path)
+    tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
+    result: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            result.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            result.add(node.module or "")
+    return frozenset(result)
+
+
 def onlyalpha_imports_for_path(path: Path, root: Path) -> frozenset[CanonicalImport]:
     return frozenset(
         capability
@@ -96,4 +109,5 @@ __all__ = [
     "module_name",
     "onlyalpha_imports",
     "onlyalpha_imports_for_path",
+    "syntactic_imported_modules_for_path",
 ]
