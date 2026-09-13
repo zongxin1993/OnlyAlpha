@@ -1,0 +1,27 @@
+rules:
+  - id: onlyalpha-core-no-fastapi
+    languages: [python]
+    severity: ERROR
+    message: Core source must remain transport-framework neutral; FastAPI belongs in the HTTP adapter package.
+    paths:
+      include:
+        - src/onlyalpha/**/*.py
+    pattern-regex: '(?m)^\s*(?:from\s+fastapi(?:\.[A-Za-z0-9_.]+)?\s+import|import\s+fastapi(?:\.[A-Za-z0-9_.]+)?)'
+
+  - id: onlyalpha-core-no-provider-sdk
+    languages: [python]
+    severity: ERROR
+    message: Core source must not import provider SDKs; provider integration belongs in plugin packages.
+    paths:
+      include:
+        - src/onlyalpha/**/*.py
+    pattern-regex: '(?m)^\s*(?:from\s+(?:binance|tushare|xtquant)(?:\.[A-Za-z0-9_.]+)?\s+import|import\s+(?:binance|tushare|xtquant)(?:\.[A-Za-z0-9_.]+)?)'
+
+  - id: onlyalpha-core-no-concrete-plugin
+    languages: [python]
+    severity: ERROR
+    message: Core source must depend on plugin contracts, never concrete onlyalpha_plugin_* implementations.
+    paths:
+      include:
+        - src/onlyalpha/**/*.py
+    pattern-regex: '(?m)^\s*(?:from\s+onlyalpha_plugin_[A-Za-z0-9_.]*\s+import|import\s+onlyalpha_plugin_[A-Za-z0-9_.]*)'

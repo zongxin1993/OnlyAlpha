@@ -1,0 +1,236 @@
+name: Extended Quality Tooling
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extended-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  PYTHONUTF8: "1"
+  UV_NO_PROGRESS: "1"
+
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Enforce OnlyAlpha semantic architecture rules
+        run: uvx --from semgrep==1.169.0 semgrep scan --config .semgrep.yml --error --metrics=off
+
+  schemathesis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen --all-packages --all-groups
+      - name: Generate and validate HTTP health contract cases
+        run: >-
+          uv run --with schemathesis==4.24.3
+          python -m pytest -c pyproject.toml
+          tests/contracts/test_schemathesis_health.py
+          --import-mode=importlib -q
+
+  testcontainers-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen --all-packages --all-groups
+      - name: Certify disposable real PostgreSQL integration
+        run: >-
+          uv run --with 'testcontainers[postgres]==4.15.0'
+          python -m pytest -c pyproject.toml
+          tests/integration/test_testcontainers_postgres.py
+          --import-mode=importlib -q
+
+  pip-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen --all-packages --all-groups
+      - name: Audit resolved third-party Python environment
+        run: >-
+          uv run --with pip-audit==2.10.1
+          pip-audit --local --skip-editable --progress-spinner off
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Reject newly introduced high-severity vulnerable dependencies
+        uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: high
+          show-patched-versions: true
+
+  zizmor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Audit GitHub Actions security
+        uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
+        with:
+          advanced-security: false
+          annotations: true
+          config: zizmor.yml
+          version: "1.29.0"
+          min-severity: high
+          min-confidence: medium
+
+  diff-coverage:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Detect changed core source
+        id: core-changes
+        shell: bash
+        run: |
+          if git diff --quiet "origin/${GITHUB_BASE_REF}...HEAD" -- src/onlyalpha; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No src/onlyalpha changes; diff coverage is not applicable."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.core-changes.outputs.changed == 'true'
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: ${{ env.PYTHON_VERSION }}
+      - if: steps.core-changes.outputs.changed == 'true'
+        run: uv sync --frozen --all-packages --all-groups
+      - if: steps.core-changes.outputs.changed == 'true'
+        name: Produce deterministic core coverage
+        run: uv run python scripts/test_suite.py fast --coverage
+      - if: steps.core-changes.outputs.changed == 'true'
+        name: Require coverage for changed core lines and branches
+        run: >-
+          uvx --from diff-cover==10.4.1 diff-cover
+          test-results/coverage/coverage.xml
+          --compare-branch "origin/${GITHUB_BASE_REF}"
+          --fail-under 90
+          --branch-coverage
+          --exclude 'packages/**' 'plugs/**' 'examples/**' 'tests/**' 'scripts/**' 'docs/**'
+
+  reviewdog:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: reviewdog/action-setup@v1.5.0
+        with:
+          reviewdog_version: v0.21.0
+      - name: Publish Ruff findings on changed lines
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          uvx --from ruff==0.15.22 ruff check src tests packages scripts --output-format=concise > /tmp/ruff.txt 2>&1 || true
+          reviewdog \
+            -efm='%f:%l:%c: %m' \
+            -name='ruff' \
+            -reporter=github-pr-review \
+            -filter-mode=added \
+            -fail-level=none \
+            < /tmp/ruff.txt
+
+  quality-tooling-gate:
+    if: always()
+    needs:
+      - semgrep
+      - schemathesis
+      - testcontainers-postgres
+      - pip-audit
+      - dependency-review
+      - zizmor
+      - diff-coverage
+      - reviewdog
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require deterministic tooling gates
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          SEMGREP_RESULT: ${{ needs.semgrep.result }}
+          SCHEMATHESIS_RESULT: ${{ needs.schemathesis.result }}
+          TESTCONTAINERS_RESULT: ${{ needs.testcontainers-postgres.result }}
+          PIP_AUDIT_RESULT: ${{ needs.pip-audit.result }}
+          DEPENDENCY_REVIEW_RESULT: ${{ needs.dependency-review.result }}
+          ZIZMOR_RESULT: ${{ needs.zizmor.result }}
+          DIFF_COVERAGE_RESULT: ${{ needs.diff-coverage.result }}
+          REVIEWDOG_RESULT: ${{ needs.reviewdog.result }}
+        run: |
+          test "$SEMGREP_RESULT" = success
+          test "$SCHEMATHESIS_RESULT" = success
+          test "$TESTCONTAINERS_RESULT" = success
+          test "$PIP_AUDIT_RESULT" = success
+          test "$ZIZMOR_RESULT" = success
+          if [ "$EVENT_NAME" = pull_request ]; then
+            test "$DEPENDENCY_REVIEW_RESULT" = success
+            test "$DIFF_COVERAGE_RESULT" = success
+            test "$REVIEWDOG_RESULT" = success -o "$REVIEWDOG_RESULT" = skipped
+          else
+            test "$DEPENDENCY_REVIEW_RESULT" = skipped
+            test "$DIFF_COVERAGE_RESULT" = skipped
+            test "$REVIEWDOG_RESULT" = skipped
+          fi
