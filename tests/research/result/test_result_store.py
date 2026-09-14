@@ -85,6 +85,18 @@ def test_atomic_commit_verified_load_and_equal_recommit_is_reused(tmp_path) -> N
     assert not any(path.name.startswith(".stage-") for path in _target(tmp_path, plan.fingerprint).parent.iterdir())
 
 
+def test_result_source_cut_freezes_exact_member_and_survives_restart(tmp_path: Path) -> None:
+    plan, _, store, result, _ = result_case(tmp_path)
+    empty = store.capture_closed_cut()
+    store.commit(result)
+    cut = store.capture_closed_cut()
+    assert empty.entries == ()
+    assert tuple(entry.locator for entry in cut.entries) == (plan.fingerprint,)
+    assert cut == store.capture_closed_cut()
+    _, _, restarted, _, _ = result_case(tmp_path)
+    assert restarted.load_closed_cut_verified(cut.cut_fingerprint) == cut
+
+
 @pytest.mark.parametrize(
     "mutation",
     (

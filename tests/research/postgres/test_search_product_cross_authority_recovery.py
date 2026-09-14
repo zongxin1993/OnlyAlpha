@@ -499,12 +499,20 @@ def test_real_research_receipt_exactly_dereferences_run_and_dangling_fails_close
             expected_specification=exact_specification,
         )
 
+    # The historical source journal now forbids deleting a durable Run. A
+    # missing exact reader still models a dangling cross-authority reference.
+    class _MissingReader:
+        def get_run(self, run_id):  # type: ignore[no-untyped-def]
+            del run_id
+            return None
+
     with psycopg.connect(postgres_dsn) as connection:
-        connection.execute("DELETE FROM research_run WHERE run_id = %s", (first.run_id.value,))
+        with pytest.raises(psycopg.Error, match="cannot be deleted"):
+            connection.execute("DELETE FROM research_run WHERE run_id = %s", (first.run_id.value,))
     with pytest.raises(OnlySearchProductSemanticFactCorrupt):
         only_load_search_research_run_exact(
             command_id=first_id,
             receipts=receipts,
-            runs=run_reader,
+            runs=_MissingReader(),
             expected_specification=exact_specification,
         )

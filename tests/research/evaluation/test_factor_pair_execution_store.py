@@ -28,7 +28,19 @@ from onlyalpha.research.evaluation.errors import (
     OnlyResearchEvaluationError,
     OnlyResearchStatisticsResultStoreError,
 )
-from tests.research.evaluation.support import factor_pair_case, summary_case
+from tests.research.evaluation.support import factor_pair_case, factor_pair_effect_case, summary_case
+
+
+def test_colocated_pair_and_summary_cuts_classify_every_artifact(tmp_path: Path) -> None:
+    case = factor_pair_effect_case(tmp_path)
+    pair, summary = case[10], case[14]
+    case[15].execute(case[13])
+    pair_cut = pair.capture_closed_cut()
+    summary_cut = summary.capture_closed_cut()
+    assert len(pair_cut.entries) == len(summary_cut.entries) == 1
+    assert pair_cut.source_family != summary_cut.source_family
+    assert pair.load_closed_cut_verified(pair_cut.cut_fingerprint) == pair_cut
+    assert summary.load_closed_cut_verified(summary_cut.cut_fingerprint) == summary_cut
 
 
 def _target(root: Path, fingerprint: str) -> Path:

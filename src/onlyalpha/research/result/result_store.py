@@ -10,6 +10,12 @@ from pathlib import Path
 from typing import Protocol
 
 from onlyalpha.research.calculation.result import OnlyResearchCalculationResult
+from onlyalpha.research.source_cut import (
+    OnlySourceClosedCutV1,
+    _OnlyFileSourceCutAuthority,
+    only_sha256_source_inventory,
+    only_source_publication,
+)
 
 from .errors import OnlyResearchResultStoreError
 from .identity import only_research_result_content_fingerprint, only_research_result_fingerprint
@@ -43,10 +49,24 @@ class OnlyJsonResearchResultStore:
         self._root = root
         self._statistics_result_store = statistics_result_store
         self._calculation_result_store = calculation_result_store
+        self._source_cuts = _OnlyFileSourceCutAuthority(
+            root, "RESEARCH_RESULT", 2, lambda: only_sha256_source_inventory(root), self._cut_read
+        )
+
+    def capture_closed_cut(self) -> OnlySourceClosedCutV1:
+        return self._source_cuts.capture_closed_cut()
+
+    def load_closed_cut_verified(self, fingerprint: str) -> OnlySourceClosedCutV1:
+        return self._source_cuts.load_closed_cut_verified(fingerprint)
+
+    def _cut_read(self, locator: str) -> tuple[str, dict[str, object]]:
+        result = self.load_verified(locator)
+        return result.manifest.research_result_fingerprint, result.manifest.to_dict()
 
     def exists(self, research_result_plan_fingerprint: str) -> bool:
         return self._target(research_result_plan_fingerprint).exists()
 
+    @only_source_publication
     def commit(self, result: OnlyResearchResult) -> OnlyResearchResultOutcome:
         candidate = self._admit(result)
         plan_fingerprint = candidate.manifest.research_result_plan_fingerprint

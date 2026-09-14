@@ -17,6 +17,7 @@ from onlyalpha.research import (
     OnlyResearchStatisticStatus,
 )
 from onlyalpha.research.evaluation.errors import OnlyResearchStatisticsResultStoreError
+from onlyalpha.research.source_cut import OnlySourceCutError
 from tests.research.evaluation.support import statistics_case
 
 
@@ -46,6 +47,18 @@ def test_commit_verify_idempotency_and_deterministic_conflict(tmp_path) -> None:
     with pytest.raises(OnlyResearchStatisticsResultStoreError) as raised:
         store.commit(conflict)
     assert raised.value.code == "DETERMINISTIC_RESULT_CONFLICT"
+
+
+def test_statistics_source_cut_binds_verified_parquet_member(tmp_path: Path) -> None:
+    case = statistics_case(tmp_path)
+    plan, store = case[6], case[8]
+    cut = store.capture_closed_cut()
+    assert tuple(entry.locator for entry in cut.entries) == (plan.statistics_fingerprint,)
+    assert cut == store.capture_closed_cut()
+    assert store.load_closed_cut_verified(cut.cut_fingerprint) == cut
+    (_target(tmp_path, plan.statistics_fingerprint) / "data.parquet").write_bytes(b"damaged")
+    with pytest.raises(OnlySourceCutError, match="SOURCE_CUT_CORRUPT"):
+        store.load_closed_cut_verified(cut.cut_fingerprint)
 
 
 @pytest.mark.parametrize(

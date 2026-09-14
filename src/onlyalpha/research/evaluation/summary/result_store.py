@@ -13,6 +13,12 @@ from pathlib import Path
 from typing import Protocol
 
 from onlyalpha.canonical import only_canonical_json
+from onlyalpha.research.evaluation.source_cut import only_statistics_family_inventory
+from onlyalpha.research.source_cut import (
+    OnlySourceClosedCutV1,
+    _OnlyFileSourceCutAuthority,
+    only_source_publication,
+)
 
 from ..errors import OnlyResearchStatisticsResultStoreError
 from ..factor_pair.result import OnlyResearchFactorPairStatisticsResult
@@ -90,10 +96,28 @@ class OnlyJsonResearchSummaryStatisticsResultStore:
         self._source_store = source_statistics_result_store
         self._factor_pair_source_store = factor_pair_source_store
         self._audit_time = audit_time
+        self._source_cuts = _OnlyFileSourceCutAuthority(
+            root,
+            "RESEARCH_SUMMARY_STATISTICS",
+            1,
+            lambda: only_statistics_family_inventory(root, "SUMMARY_STATISTICS_V1"),
+            self._cut_read,
+        )
+
+    def capture_closed_cut(self) -> OnlySourceClosedCutV1:
+        return self._source_cuts.capture_closed_cut()
+
+    def load_closed_cut_verified(self, fingerprint: str) -> OnlySourceClosedCutV1:
+        return self._source_cuts.load_closed_cut_verified(fingerprint)
+
+    def _cut_read(self, locator: str) -> tuple[str, dict[str, object]]:
+        manifest = self.load_verified(locator).manifest
+        return manifest.statistics_result_fingerprint, manifest.to_dict()
 
     def exists(self, statistics_fingerprint: str) -> bool:
         return self._target(statistics_fingerprint).exists()
 
+    @only_source_publication
     def commit(self, execution: OnlyResearchSummaryExecution) -> OnlyResearchSummaryStatisticsResult:
         if not isinstance(
             execution,

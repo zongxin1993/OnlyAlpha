@@ -177,6 +177,7 @@ ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1 = (
     OnlyAgentWorkflowResourceSpecV1(
         "onlyalpha.research.experiment.model.py", "onlyalpha.research.experiment", "model.py"
     ),
+    OnlyAgentWorkflowResourceSpecV1("onlyalpha.research.source_cut.py", "onlyalpha.research", "source_cut.py"),
 )
 
 _ResourceReader = Callable[[str, str], bytes]

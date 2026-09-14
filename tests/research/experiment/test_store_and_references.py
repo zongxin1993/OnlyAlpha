@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
+from threading import Event, Thread
 
 import pytest
 
@@ -20,6 +23,7 @@ from onlyalpha.research.experiment import (
     OnlySearchProvenanceStoreError,
     OnlySearchResearchResultReferenceV1,
 )
+from onlyalpha.research.source_cut import OnlySourceCutError
 
 from .support import experiment, fingerprint, plan, research_reference
 
@@ -269,6 +273,107 @@ def test_commit_load_and_reuse_all_three_record_types(tmp_path: Path) -> None:
     assert store.load_iteration_plan_verified(iteration.iteration_plan_fingerprint) == iteration
     assert store.load_iteration_result_verified(result.iteration_result_fingerprint) == result
     assert candidates.loads > 0 and research.loads > 0 and decisions.loads > 0
+
+
+def test_source_owned_cut_is_stable_exact_and_survives_new_fact_and_restart(tmp_path: Path) -> None:
+    store, _, _, _ = stores(tmp_path)
+    first = store.capture_closed_cut()
+    assert first == store.capture_closed_cut()
+    search = experiment()
+    store.commit_experiment(search)
+    second = store.capture_closed_cut()
+    assert first.entries == ()
+    assert first.cut_fingerprint != second.cut_fingerprint
+    assert tuple(entry.locator for entry in second.entries) == (f"experiments/{search.experiment_fingerprint}",)
+    restarted, _, _, _ = stores(tmp_path)
+    assert restarted.load_closed_cut_verified(first.cut_fingerprint) == first
+    assert restarted.load_closed_cut_verified(second.cut_fingerprint) == second
+
+    manifest = (
+        tmp_path
+        / "research/search-provenance/experiments/sha256"
+        / search.experiment_fingerprint[:2]
+        / search.experiment_fingerprint
+        / "manifest.json"
+    )
+    manifest.write_text("{}", encoding="utf-8")
+    with pytest.raises(OnlySourceCutError, match="SOURCE_CUT_CORRUPT"):
+        restarted.load_closed_cut_verified(second.cut_fingerprint)
+
+
+def test_search_source_cut_exact_member_reloads_in_fresh_process(tmp_path: Path) -> None:
+    store, _, _, _ = stores(tmp_path)
+    store.commit_experiment(experiment())
+    cut = store.capture_closed_cut()
+    program = (
+        "import sys\n"
+        "from pathlib import Path\n"
+        "from tests.research.experiment.test_store_and_references import stores\n"
+        "store, _, _, _ = stores(Path(sys.argv[1]))\n"
+        "cut = store.load_closed_cut_verified(sys.argv[2])\n"
+        "assert len(cut.entries) == 1\n"
+        "print(cut.cut_fingerprint)\n"
+    )
+    assert (
+        subprocess.check_output([sys.executable, "-c", program, str(tmp_path), cut.cut_fingerprint], text=True).strip()
+        == cut.cut_fingerprint
+    )
+
+
+def test_source_cut_serializes_writer_before_inventory(tmp_path: Path) -> None:
+    store, _, _, _ = stores(tmp_path)
+    entered = Event()
+    release = Event()
+    writing = Event()
+    completed = Event()
+    inventory = store._source_cuts._inventory
+
+    def held_inventory() -> tuple[str, ...]:
+        entered.set()
+        assert release.wait(5)
+        return inventory()
+
+    store._source_cuts._inventory = held_inventory
+    cuts = []
+    capture = Thread(target=lambda: cuts.append(store.capture_closed_cut()))
+    capture.start()
+    assert entered.wait(5)
+
+    def publish() -> None:
+        writing.set()
+        store.commit_experiment(experiment())
+        completed.set()
+
+    writer = Thread(target=publish)
+    writer.start()
+    assert writing.wait(5)
+    assert not completed.is_set()
+    release.set()
+    capture.join(5)
+    writer.join(5)
+    assert not capture.is_alive() and not writer.is_alive() and completed.is_set()
+    assert cuts[0].entries == ()
+    assert len(store.capture_closed_cut().entries) == 1
+
+
+def test_source_cut_rejects_unknown_artifact_and_partial_publication(tmp_path: Path) -> None:
+    store, _, _, _ = stores(tmp_path)
+    first = store.capture_closed_cut()
+    cut_root = tmp_path / "research/search-provenance/closed-cuts/sha256" / first.cut_fingerprint[:2]
+    partial = cut_root / ".stage-interrupted"
+    partial.mkdir()
+    (partial / "manifest.json").write_text("{}", encoding="utf-8")
+    assert store.load_closed_cut_verified(first.cut_fingerprint) == first
+
+    unknown = tmp_path / "research/search-provenance/experiments/sha256" / "aa" / "unknown"
+    unknown.parent.mkdir(parents=True)
+    unknown.mkdir()
+    with pytest.raises(OnlySourceCutError, match="SEARCH_CUT_UNKNOWN_ENTRY"):
+        store.capture_closed_cut()
+    unknown.rmdir()
+    (unknown.parent.parent / "zz").mkdir()
+    with pytest.raises(OnlySourceCutError, match="SEARCH_CUT_UNKNOWN_ENTRY"):
+        store.capture_closed_cut()
 
 
 def test_one_plan_cannot_have_two_terminal_results(tmp_path: Path) -> None:

@@ -383,6 +383,7 @@ print(json.dumps(sorted(
         "onlyalpha.research.agent.workflow",
         "onlyalpha.research.experiment",
         "onlyalpha.research.experiment.model",
+        "onlyalpha.research.source_cut",
         "onlyalpha_agent_orchestrator",
         "onlyalpha_agent_orchestrator.closure",
         "onlyalpha_agent_orchestrator.provenance",

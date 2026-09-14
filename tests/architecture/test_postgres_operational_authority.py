@@ -84,6 +84,9 @@ def test_postgres_schema_is_control_catalog_authority_not_high_volume_semantic_s
         "backtest_worker_presence",
         "qualification_command_admission",
         "product_command_admission",
+        "research_source_history_frontier",
+        "research_source_history",
+        "research_source_closed_cut",
     ]
     for forbidden in (
         "dataset_row",

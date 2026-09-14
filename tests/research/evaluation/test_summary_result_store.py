@@ -18,6 +18,7 @@ from onlyalpha.research import (
     OnlyResearchSummaryStatisticsResult,
     OnlyResearchSummaryValueKind,
 )
+from onlyalpha.research.source_cut import OnlySourceCutError
 from tests.research.evaluation.support import summary_case
 
 
@@ -40,6 +41,11 @@ def test_summary_store_deterministic_conflict_never_overwrites(tmp_path) -> None
 def test_typed_reader_dispatches_legacy_and_summary_without_exception_guessing(tmp_path) -> None:
     case = summary_case(tmp_path)
     case[13].execute(case[11])
+    legacy_cut = case[8].capture_closed_cut()
+    summary_cut = case[12].capture_closed_cut()
+    assert len(legacy_cut.entries) == len(summary_cut.entries) == 1
+    assert case[8].load_closed_cut_verified(legacy_cut.cut_fingerprint) == legacy_cut
+    assert case[12].load_closed_cut_verified(summary_cut.cut_fingerprint) == summary_cut
     reader = OnlyResearchStatisticsResultReader(tmp_path / "statistics-results", case[8], case[12])
     legacy = reader.load_verified(case[6].statistics_fingerprint)
     summary = reader.load_verified(case[11].statistics_fingerprint)
@@ -52,6 +58,16 @@ def test_typed_reader_dispatches_legacy_and_summary_without_exception_guessing(t
     with pytest.raises(OnlyResearchStatisticsResultStoreError) as captured:
         reader.load_verified(case[11].statistics_fingerprint)
     assert captured.value.code == "STATISTICS_RESULT_SCHEMA_UNSUPPORTED"
+
+
+def test_colocated_statistics_unknown_schema_blocks_every_family_cut(tmp_path: Path) -> None:
+    case = summary_case(tmp_path)
+    unknown = tmp_path / "statistics-results/sha256/ff" / ("f" * 64)
+    unknown.mkdir(parents=True)
+    (unknown / "manifest.json").write_text(only_canonical_json({"schema_version": 99}), encoding="utf-8")
+    for store in (case[8], case[12]):
+        with pytest.raises(OnlySourceCutError, match="STATISTICS_CUT_UNKNOWN_FAMILY"):
+            store.capture_closed_cut()
 
 
 @pytest.mark.parametrize(

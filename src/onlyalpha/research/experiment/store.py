@@ -10,10 +10,12 @@ import uuid
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import wraps
 from pathlib import Path
 from typing import TypeVar
 
 from onlyalpha.canonical import only_canonical_json
+from onlyalpha.research.source_cut import OnlySourceClosedCutV1, OnlySourceCutError, _OnlyFileSourceCutAuthority
 
 from .errors import OnlySearchProvenanceError, OnlySearchProvenanceStoreError
 from .model import (
@@ -45,6 +47,17 @@ from .verification import (
 
 _T = TypeVar("_T")
 _HOSTED_ADMISSION_SEAL = object()
+
+
+def _source_publication[**P, T](method: Callable[P, T]) -> Callable[P, T]:
+    @wraps(method)
+    def wrapped(*args: P.args, **kwargs: P.kwargs) -> T:
+        owner = args[0]
+        owner._require_safe_path(owner._root)  # type: ignore[attr-defined]
+        with owner._source_cuts.publication():  # type: ignore[attr-defined]
+            return method(*args, **kwargs)
+
+    return wrapped
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +119,9 @@ class OnlyJsonSearchProvenanceStore:
         self._proposals = proposals
         self._search_contexts = search_contexts
         self._historical_fact_reads = False
+        self._source_cuts = _OnlyFileSourceCutAuthority(
+            self._root, "SEARCH_PROVENANCE", 3, self._cut_inventory, self._cut_read
+        )
 
     def historical_fact_view(self) -> OnlyJsonSearchProvenanceStore:
         """Same durable Authority and locks, with observation-only context checks.
@@ -119,6 +135,7 @@ class OnlyJsonSearchProvenanceStore:
         view._historical_fact_reads = True
         return view
 
+    @_source_publication
     def commit_experiment(
         self, experiment: OnlySearchExperimentManifest, *, hosted_admission: OnlyHostedSearchAdmission | None = None
     ) -> OnlySearchCommitOutcome:
@@ -187,6 +204,7 @@ class OnlyJsonSearchProvenanceStore:
         self._verify_parent_experiment_chain(experiment)
         return experiment
 
+    @_source_publication
     def commit_iteration_plan(self, plan: OnlySearchIterationPlanV1) -> OnlySearchCommitOutcome:
         if not isinstance(plan, OnlySearchIterationPlanV1):
             raise OnlySearchProvenanceStoreError("SEARCH_ITERATION_PLAN_INVALID", "Plan contract is invalid")
@@ -335,6 +353,7 @@ class OnlyJsonSearchProvenanceStore:
             self.load_iteration_result_verified(plan.parent_iteration_result_fingerprint)
         return plan
 
+    @_source_publication
     def commit_iteration_result(self, result: OnlySearchIterationResultV1) -> OnlySearchCommitOutcome:
         if not isinstance(result, OnlySearchIterationResultV1):
             raise OnlySearchProvenanceStoreError("SEARCH_ITERATION_RESULT_INVALID", "Result contract is invalid")
@@ -396,6 +415,58 @@ class OnlyJsonSearchProvenanceStore:
     @property
     def _raw(self) -> _RawSearchProvenanceReader:
         return _RawSearchProvenanceReader(self)
+
+    def capture_closed_cut(self) -> OnlySourceClosedCutV1:
+        return self._source_cuts.capture_closed_cut()
+
+    def load_closed_cut_verified(self, fingerprint: str) -> OnlySourceClosedCutV1:
+        return self._source_cuts.load_closed_cut_verified(fingerprint)
+
+    def _cut_inventory(self) -> tuple[str, ...]:
+        locators: list[str] = []
+        if not self._root.exists():
+            return ()
+        allowed = {"experiments", "iteration-plans", "iteration-results", "closed-cuts", ".locks", ".source-cut.lock"}
+        if {path.name for path in self._root.iterdir()} - allowed:
+            raise OnlySourceCutError("SEARCH_CUT_UNKNOWN_ENTRY")
+        for kind in ("experiments", "iteration-plans", "iteration-results"):
+            authority = self._root / kind
+            if not authority.exists():
+                continue
+            if authority.is_symlink() or {path.name for path in authority.iterdir()} != {"sha256"}:
+                raise OnlySourceCutError("SEARCH_CUT_UNKNOWN_ENTRY")
+            hashed = authority / "sha256"
+            for prefix in hashed.iterdir():
+                if (
+                    prefix.is_symlink()
+                    or not prefix.is_dir()
+                    or len(prefix.name) != 2
+                    or any(char not in "0123456789abcdef" for char in prefix.name)
+                ):
+                    raise OnlySourceCutError("SEARCH_CUT_UNKNOWN_ENTRY")
+                for path in prefix.iterdir():
+                    if path.name.startswith(".stage-"):
+                        continue
+                    if not _valid_sha(path.name) or path.name[:2] != prefix.name:
+                        raise OnlySourceCutError("SEARCH_CUT_UNKNOWN_ENTRY")
+                    locators.append(f"{kind}/{path.name}")
+        return tuple(locators)
+
+    def _cut_read(self, locator: str) -> tuple[str, Mapping[str, object]]:
+        kind, separator, fingerprint = locator.partition("/")
+        if not separator or not _valid_sha(fingerprint):
+            raise OnlySourceCutError("SEARCH_CUT_LOCATOR_INVALID")
+        reader = self.historical_fact_view()
+        value: OnlySearchExperimentManifest | OnlySearchIterationPlanV1 | OnlySearchIterationResultV1
+        if kind == "experiments":
+            value = reader.load_experiment_verified(fingerprint)
+        elif kind == "iteration-plans":
+            value = reader.load_iteration_plan_verified(fingerprint)
+        elif kind == "iteration-results":
+            value = reader.load_iteration_result_verified(fingerprint)
+        else:
+            raise OnlySourceCutError("SEARCH_CUT_LOCATOR_INVALID")
+        return fingerprint, value.to_dict()
 
     def _verify_parent_experiment_chain(self, experiment: OnlySearchExperimentManifest) -> None:
         seen = {experiment.experiment_fingerprint}

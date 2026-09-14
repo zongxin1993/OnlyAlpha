@@ -20,6 +20,7 @@ _AGENT_WORKFLOW_STDLIB_IMPORTS = {
     "decimal",
     "enum",
     "fcntl",
+    "functools",
     "hashlib",
     "http.client",
     "importlib",

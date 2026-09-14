@@ -10,6 +10,12 @@ from decimal import Decimal
 from pathlib import Path
 
 from onlyalpha.canonical import only_canonical_json
+from onlyalpha.research.source_cut import (
+    OnlySourceClosedCutV1,
+    _OnlyFileSourceCutAuthority,
+    only_sha256_source_inventory,
+    only_source_publication,
+)
 from onlyalpha.strategy.errors import OnlyQualificationError
 from onlyalpha.strategy.qualification import (
     _QUALIFICATION_DECISION_PUBLICATION_SEAL,
@@ -137,6 +143,24 @@ class OnlyQualificationDecisionStore:
 
     def __init__(self, semantic_root: Path) -> None:
         self._root = semantic_root / "strategy" / "qualification-decisions" / "sha256"
+        owner_root = self._root.parent
+        self._source_cuts = _OnlyFileSourceCutAuthority(
+            owner_root,
+            "QUALIFICATION_DECISION",
+            1,
+            lambda: only_sha256_source_inventory(owner_root),
+            self._cut_read,
+        )
+
+    def capture_closed_cut(self) -> OnlySourceClosedCutV1:
+        return self._source_cuts.capture_closed_cut()
+
+    def load_closed_cut_verified(self, fingerprint: str) -> OnlySourceClosedCutV1:
+        return self._source_cuts.load_closed_cut_verified(fingerprint)
+
+    def _cut_read(self, locator: str) -> tuple[str, dict[str, object]]:
+        decision = self.load_verified(locator)
+        return decision.decision_fingerprint, decision.to_dict()
 
     def load_verified(self, decision_fingerprint: str) -> OnlyQualificationDecision:
         target = self._target(decision_fingerprint)
@@ -195,6 +219,7 @@ class _OnlyQualificationDecisionPublisher:
 
     def __init__(self, reader: OnlyQualificationDecisionStore) -> None:
         self._reader = reader
+        self._source_cuts = reader._source_cuts
 
     def load_verified(self, decision_fingerprint: str) -> OnlyQualificationDecision:
         return self._reader.load_verified(decision_fingerprint)
@@ -211,6 +236,7 @@ class _OnlyQualificationDecisionPublisher:
         decision = publication.decision
         return self._publish(decision)
 
+    @only_source_publication
     def _publish(self, decision: OnlyQualificationDecision) -> OnlyQualificationDecision:
         target = self._reader._target(decision.decision_fingerprint)
         self._reader._require_safe_decision_path(target)

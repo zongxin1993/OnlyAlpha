@@ -18,6 +18,8 @@ from onlyalpha.research.agent import (
     OnlyJsonAgentResearchBriefStore,
     OnlyJsonAgentSessionManifestStore,
 )
+from onlyalpha.research.agent.source_cut import OnlyAgentProvenanceClosedCutAuthority
+from onlyalpha.research.source_cut import OnlySourceCutError
 
 from .support import make_context
 
@@ -60,6 +62,30 @@ def test_resource_commit_exact_load_reuse_kind_and_missing(tmp_path) -> None:
     with pytest.raises(OnlyAgentContextError) as missing:
         store.load_resource_verified(value.resource_kind, "f" * 64)
     assert missing.value.code == "AGENT_ORCHESTRATION_RESOURCE_MISSING"
+
+
+def test_agent_source_owned_cut_is_exact_and_reloaded_after_restart(tmp_path: Path) -> None:
+    source = OnlyAgentProvenanceClosedCutAuthority(tmp_path)
+    first = source.capture_closed_cut()
+    context, _, _, _ = _commit_context(tmp_path)
+    second = source.capture_closed_cut()
+    assert first == source.load_closed_cut_verified(first.cut_fingerprint)
+    assert second == OnlyAgentProvenanceClosedCutAuthority(tmp_path).load_closed_cut_verified(second.cut_fingerprint)
+    assert second != first
+    assert f"briefs/{context.brief.research_brief_fingerprint}" in {item.locator for item in second.entries}
+    assert source.capture_closed_cut() == second
+    (_manifest_path(tmp_path, "briefs", context.brief.research_brief_fingerprint)).write_text("{}", encoding="utf-8")
+    with pytest.raises(OnlySourceCutError):
+        source.load_closed_cut_verified(second.cut_fingerprint)
+
+
+def test_agent_cut_rejects_unclassified_source_artifact(tmp_path: Path) -> None:
+    source = OnlyAgentProvenanceClosedCutAuthority(tmp_path)
+    source.capture_closed_cut()
+    unknown = tmp_path / "research/agent-orchestration/model-calls/unrecognized"
+    unknown.mkdir(parents=True)
+    with pytest.raises(OnlySourceCutError, match="AGENT_CUT_UNKNOWN_ENTRY"):
+        source.capture_closed_cut()
 
 
 def test_resource_store_rejects_tamper_noncanonical_extra_file_and_wrong_path(tmp_path) -> None:

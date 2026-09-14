@@ -17,6 +17,12 @@ import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
 from onlyalpha.research.calculation.result import OnlyResearchCalculationResult
+from onlyalpha.research.evaluation.source_cut import only_statistics_family_inventory
+from onlyalpha.research.source_cut import (
+    OnlySourceClosedCutV1,
+    _OnlyFileSourceCutAuthority,
+    only_source_publication,
+)
 
 from ..errors import OnlyResearchStatisticsResultStoreError
 from .execution import OnlyResearchFactorPairStatisticsExecution, _validate_factor_pair_upstream
@@ -67,10 +73,28 @@ class OnlyParquetResearchFactorPairStatisticsResultStore:
         self._compression = compression
         self._row_group_size = row_group_size
         self._audit_time = audit_time
+        self._source_cuts = _OnlyFileSourceCutAuthority(
+            root,
+            "RESEARCH_FACTOR_PAIR_STATISTICS",
+            1,
+            lambda: only_statistics_family_inventory(root, "FACTOR_PAIR_CORRELATION_SERIES_V1"),
+            self._cut_read,
+        )
+
+    def capture_closed_cut(self) -> OnlySourceClosedCutV1:
+        return self._source_cuts.capture_closed_cut()
+
+    def load_closed_cut_verified(self, fingerprint: str) -> OnlySourceClosedCutV1:
+        return self._source_cuts.load_closed_cut_verified(fingerprint)
+
+    def _cut_read(self, locator: str) -> tuple[str, dict[str, object]]:
+        manifest = self.load_verified(locator).manifest
+        return manifest.statistics_result_fingerprint, manifest.to_dict()
 
     def exists(self, statistics_fingerprint: str) -> bool:
         return self._target(statistics_fingerprint).exists()
 
+    @only_source_publication
     def commit(self, execution: OnlyResearchFactorPairStatisticsExecution) -> OnlyResearchFactorPairStatisticsResult:
         created_at = self._audit_timestamp()
         candidate = self._admit(execution)

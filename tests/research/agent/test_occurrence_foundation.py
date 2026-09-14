@@ -42,6 +42,8 @@ from onlyalpha.research.agent.occurrence_store import (
     OnlyJsonAgentModelOccurrenceStore,
     OnlyJsonAgentToolOccurrenceStore,
 )
+from onlyalpha.research.agent.source_cut import OnlyAgentProvenanceClosedCutAuthority
+from onlyalpha.research.source_cut import OnlySourceCutError
 
 from .support import ContextFixture, make_context
 
@@ -391,6 +393,21 @@ def test_model_admission_exact_settings_context_budget_ordinal_and_runtime(tmp_p
     with pytest.raises(OnlyAgentContextError) as budget:
         _prepare_model(model, context, reference, ordinal=2)
     assert budget.value.code == "AGENT_BUDGET_EXHAUSTED"
+
+
+def test_agent_cut_rejects_missing_occurrence_ordinal_locator(tmp_path: Path) -> None:
+    context, model, _, _, _, reference, _, _, _ = _services(tmp_path)
+    _prepare_model(model, context, reference)
+    source = OnlyAgentProvenanceClosedCutAuthority(tmp_path)
+    closed = source.capture_closed_cut()
+    assert any(entry.locator.startswith("model-calls/by-session-ordinal/") for entry in closed.entries)
+    index_root = tmp_path / "research/agent-orchestration/model-calls/by-session-ordinal/sha256"
+    locator = next(index_root.glob("*/*"))
+    shutil.rmtree(locator)
+    with pytest.raises(OnlySourceCutError, match="AGENT_CUT_OCCURRENCE_GAP"):
+        source.capture_closed_cut()
+    with pytest.raises(OnlySourceCutError, match="SOURCE_CUT_CORRUPT"):
+        source.load_closed_cut_verified(closed.cut_fingerprint)
 
 
 def test_model_admission_rejects_missing_session_and_disallowed_resource_bindings(tmp_path) -> None:

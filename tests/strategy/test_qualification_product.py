@@ -204,6 +204,14 @@ def _case(tmp_path):  # type: ignore[no-untyped-def]
     return revision, strategies, policies, decisions, decision_publisher, store, research_decision
 
 
+def test_qualification_source_cut_is_source_owned_and_restart_safe(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    _, _, _, decisions, _, _, decision = _case(tmp_path)
+    cut = decisions.capture_closed_cut()
+    assert tuple(entry.locator for entry in cut.entries) == (decision.decision_fingerprint,)
+    assert cut == decisions.capture_closed_cut()
+    assert decisions.load_closed_cut_verified(cut.cut_fingerprint) == cut
+
+
 def test_qualification_product_command_is_idempotent_and_conflict_safe(tmp_path) -> None:  # type: ignore[no-untyped-def]
     revision, _, _, decisions, decision_publisher, store, decision = _case(tmp_path)
     service = OnlyQualificationProductService(

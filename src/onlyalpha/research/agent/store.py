@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TypeVar, cast
 
 from onlyalpha.canonical import only_canonical_json
+from onlyalpha.research.source_cut import OnlySourcePublicationBarrier, only_source_publication
 
 from .errors import OnlyAgentContextError, OnlyAgentContextStoreError
 from .model import (
@@ -51,7 +52,9 @@ class _OnlyJsonPutOnceStore:
     def __init__(self, semantic_root: Path, relative_root: Path) -> None:
         self._semantic_root = semantic_root
         self._root = semantic_root / relative_root
+        self._source_cuts = OnlySourcePublicationBarrier(semantic_root / "research" / "agent-orchestration")
 
+    @only_source_publication
     def commit(
         self,
         fingerprint: str,
