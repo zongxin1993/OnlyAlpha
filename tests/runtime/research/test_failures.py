@@ -74,7 +74,8 @@ def test_existing_corrupt_authority_is_never_rebuilt(
     runtime_id = first.add_research_workload(workload)
     first.initialize()
     first.start()
-    assert first.run_runtime(runtime_id).status is OnlyRuntimeResultStatus.COMPLETED
+    first_result = first.run_runtime(runtime_id)
+    assert first_result.status is OnlyRuntimeResultStatus.COMPLETED
     first.stop()
     root = tmp_path / "research" / authority
     manifest_name = "artifact_manifest.json" if authority == "artifacts" else "manifest.json"
@@ -89,6 +90,10 @@ def test_existing_corrupt_authority_is_never_rebuilt(
     assert result.status is OnlyRuntimeResultStatus.FAILED
     assert result.phase is phase
     assert result.code == code
+    assert result.research_result_fingerprint == (
+        first_result.research_result_fingerprint if authority == "artifacts" else ""
+    )
+    assert result.artifact_content_fingerprint == ""
     assert manifest.read_text(encoding="utf-8") == "{}"
     repeated.stop()
 

@@ -36,6 +36,7 @@ from onlyalpha.runtime.research import (
     OnlyResearchRuntimeCancellationRequested,
     OnlyResearchRuntimeExecutionControl,
     OnlyResearchRuntimeOwnershipLost,
+    OnlyResearchRuntimePhase,
     OnlyResearchRuntimeResult,
 )
 from onlyalpha.runtime.result import OnlyRuntimeResultStatus
@@ -188,8 +189,9 @@ class _LeaseControl:
 
 
 class _MappedWorkerFailure(RuntimeError):
-    def __init__(self, failure: OnlyResearchRunFailure) -> None:
+    def __init__(self, failure: OnlyResearchRunFailure, research_result_fingerprint: str = "") -> None:
         self.failure = failure
+        self.research_result_fingerprint = research_result_fingerprint
         super().__init__(failure.code)
 
 
@@ -307,7 +309,17 @@ class OnlyResearchWorker:
                 )
             result = self._runtime_executor.execute(resolution.workload, control)
             if result.status is not OnlyRuntimeResultStatus.COMPLETED:
-                raise _MappedWorkerFailure(_runtime_failure(result))
+                raise _MappedWorkerFailure(
+                    _runtime_failure(result),
+                    result.research_result_fingerprint
+                    if result.phase
+                    in {
+                        OnlyResearchRuntimePhase.ARTIFACT_MATERIALIZATION,
+                        OnlyResearchRuntimePhase.ARTIFACT_COMMIT,
+                        OnlyResearchRuntimePhase.FINAL_VERIFICATION,
+                    }
+                    else "",
+                )
             control.assert_authoritative()
             completed = self._execution_store.complete(
                 claim=claim,
@@ -326,7 +338,7 @@ class OnlyResearchWorker:
         ):
             return OnlyResearchWorkerOutcome(OnlyResearchWorkerOutcomeKind.OWNERSHIP_LOST, claim)
         except _MappedWorkerFailure as exc:
-            return self._fail(claim, exc.failure)
+            return self._fail(claim, exc.failure, exc.research_result_fingerprint or None)
         except OnlyResearchSpecificationError as exc:
             return self._fail(
                 claim,
@@ -361,7 +373,12 @@ class OnlyResearchWorker:
         finally:
             control.stop()
 
-    def _fail(self, claim: OnlyResearchExecutionClaim, failure: OnlyResearchRunFailure) -> OnlyResearchWorkerOutcome:
+    def _fail(
+        self,
+        claim: OnlyResearchExecutionClaim,
+        failure: OnlyResearchRunFailure,
+        research_result_fingerprint: str | None = None,
+    ) -> OnlyResearchWorkerOutcome:
         decision = self._policy.retry_decision(failure, attempt_number=claim.attempt.attempt_number)
         try:
             run = self._execution_store.fail(
@@ -369,6 +386,7 @@ class OnlyResearchWorker:
                 run_finished_at=self._now_utc(),
                 failure=failure,
                 retry_decision=decision,
+                research_result_fingerprint=research_result_fingerprint,
             )
         except (OnlyResearchExecutionOwnershipLostError, OnlyResearchExecutionStoreUnavailableError):
             return OnlyResearchWorkerOutcome(OnlyResearchWorkerOutcomeKind.OWNERSHIP_LOST, claim, failure=failure)

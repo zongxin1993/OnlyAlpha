@@ -77,6 +77,7 @@ class OnlyResearchExecutionStore(Protocol):
         run_finished_at: datetime,
         failure: OnlyResearchRunFailure,
         retry_decision: OnlyResearchRetryDecision,
+        research_result_fingerprint: str | None = None,
     ) -> OnlyResearchRun: ...
 
     def cancel(

@@ -429,11 +429,17 @@ class OnlyPostgresResearchExecutionStore:
         run_finished_at: datetime,
         failure: OnlyResearchRunFailure,
         retry_decision: OnlyResearchRetryDecision,
+        research_result_fingerprint: str | None = None,
     ) -> OnlyResearchRun:
         def transition(run: OnlyResearchRun) -> OnlyResearchRun:
             if retry_decision is OnlyResearchRetryDecision.RETRY and run.state is OnlyResearchRunState.RUNNING:
                 return run
-            return run.transition(OnlyResearchRunState.FAILED, at=run_finished_at, failure=failure)
+            return run.transition(
+                OnlyResearchRunState.FAILED,
+                at=run_finished_at,
+                failure=failure,
+                research_result_fingerprint=research_result_fingerprint,
+            )
 
         return self._finalize(claim, OnlyResearchRunAttemptState.FAILED, transition, failure)
 

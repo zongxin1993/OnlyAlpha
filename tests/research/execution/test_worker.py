@@ -77,6 +77,7 @@ class _ExecutionStore:
         self.attempt = claim.attempt
         self.heartbeat_count = 0
         self.error_on: str | None = None
+        self.failure_result_fingerprint: str | None = None
 
     def load_attempt(self, attempt_id: OnlyResearchRunAttemptId) -> OnlyResearchRunAttempt:
         assert attempt_id == self.attempt.attempt_id
@@ -105,12 +106,14 @@ class _ExecutionStore:
     def fail(self, **kwargs: object) -> OnlyResearchRun:
         if self.error_on == "fail":
             raise OnlyResearchExecutionOwnershipLostError("stale")
+        self.failure_result_fingerprint = kwargs["research_result_fingerprint"]  # type: ignore[assignment]
         run = self.run_store.run
         if kwargs["retry_decision"] is OnlyResearchRetryDecision.FINAL_FAIL:
             run = run.transition(
                 OnlyResearchRunState.FAILED,
                 at=kwargs["run_finished_at"],  # type: ignore[arg-type]
                 failure=kwargs["failure"],  # type: ignore[arg-type]
+                research_result_fingerprint=kwargs["research_result_fingerprint"],  # type: ignore[arg-type]
             )
             self.run_store.run = run
         return run
@@ -424,10 +427,21 @@ def test_runtime_failure_maps_to_stable_run_failure_phase(
     tmp_path: Path, phase: OnlyResearchRuntimePhase, expected_phase: str
 ) -> None:
     executor = _RuntimeExecutor(_runtime_result(OnlyRuntimeResultStatus.FAILED, phase=phase, code="RUNTIME_FAILED"))
-    worker, _, _, claim = _case(tmp_path, runtime_executor=executor)
+    worker, _, execution_store, claim = _case(tmp_path, runtime_executor=executor)
     outcome = worker.execute_claim(claim)
     assert outcome.kind is OnlyResearchWorkerOutcomeKind.FAILED
     assert outcome.failure is not None and outcome.failure.phase.value == expected_phase
+    assert execution_store.failure_result_fingerprint == (
+        "b" * 64 if phase is OnlyResearchRuntimePhase.ARTIFACT_COMMIT else None
+    )
+
+
+def test_pre_result_worker_failure_never_claims_a_result(tmp_path: Path) -> None:
+    worker, _, execution_store, claim = _case(
+        tmp_path, runtime_executor=_RuntimeExecutor(), dataset_store=_BrokenDatasetStore()
+    )
+    assert worker.execute_claim(claim).kind is OnlyResearchWorkerOutcomeKind.FAILED
+    assert execution_store.failure_result_fingerprint is None
 
 
 def test_unexpected_failure_retries_and_fenced_failure_cannot_mutate_run(tmp_path: Path) -> None:

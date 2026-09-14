@@ -333,6 +333,7 @@ def test_heartbeat_expiry_reclaim_and_stale_worker_fencing(postgres_dsn: str) ->
             run_finished_at=NOW + timedelta(minutes=6),
             failure=OnlyResearchRunFailure(OnlyResearchRunFailurePhase.OPERATIONAL, "STALE", "stale"),
             retry_decision=OnlyResearchRetryDecision.FINAL_FAIL,
+            research_result_fingerprint="b" * 64,
         ),
         lambda: store.cancel(claim=first, run_finished_at=NOW + timedelta(minutes=6)),
     ):
@@ -485,8 +486,11 @@ def test_retry_is_attempt_local_bounded_and_terminal_run_never_reopens(postgres_
         run_finished_at=NOW + timedelta(minutes=1),
         failure=failure,
         retry_decision=OnlyResearchRetryDecision.RETRY,
+        research_result_fingerprint="b" * 64,
     )
     assert retrying.state is OnlyResearchRunState.RUNNING
+    assert retrying.research_result_fingerprint is None
+    assert store.load_attempt(first.attempt.attempt_id).state is OnlyResearchRunAttemptState.FAILED
     second = _claim(store, WORKER_2, 32, max_attempts=2)
     assert second is not None and second.attempt.attempt_number == 2
     failed = store.fail(
@@ -494,8 +498,14 @@ def test_retry_is_attempt_local_bounded_and_terminal_run_never_reopens(postgres_
         run_finished_at=NOW + timedelta(minutes=2),
         failure=failure,
         retry_decision=OnlyResearchRetryDecision.FINAL_FAIL,
+        research_result_fingerprint="b" * 64,
     )
     assert failed.state is OnlyResearchRunState.FAILED
+    assert failed.research_result_fingerprint == "b" * 64
+    assert failed.artifact_content_fingerprint is None
+    assert failed.failure == failure
+    assert run_store.load(failed.run_id) == failed
+    assert store.load_attempt(second.attempt.attempt_id).state is OnlyResearchRunAttemptState.FAILED
     assert _claim(store, WORKER_1, 33, max_attempts=2) is None
 
 
@@ -662,7 +672,18 @@ def test_result_commit_crash_reenters_real_engine_without_rewriting_result(
     )
     assert failed.status.value == "FAILED" and failed.phase is not None
     assert failed.phase.value == "ARTIFACT_COMMIT"
-    result_root = OnlyUserDataLayout(tmp_path).research_result_root
+    layout = OnlyUserDataLayout(tmp_path)
+    result_root = layout.research_result_root
+    dataset = OnlyParquetResearchDatasetSnapshotStore(layout.research_dataset_root)
+    calculation = OnlyParquetResearchCalculationResultStore(layout.research_calculation_result_root, dataset)
+    statistics = OnlyParquetResearchStatisticsResultStore(layout.research_statistics_result_root, calculation)
+    committed_result_identity = (
+        OnlyJsonResearchResultStore(result_root, statistics)
+        .load_verified(resolution.workload.result_plan.fingerprint)
+        .manifest.research_result_fingerprint
+    )
+    assert failed.research_result_fingerprint == committed_result_identity
+    assert failed.artifact_content_fingerprint == ""
     committed_result = {
         path.relative_to(result_root): path.read_bytes() for path in result_root.rglob("*") if path.is_file()
     }

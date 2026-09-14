@@ -100,6 +100,7 @@ class OnlyResearchRuntime:
         direct: tuple[OnlyResearchJobOutcome, ...] = ()
         sweeps: tuple[OnlyResearchSweepOutcome, ...] = ()
         statistics: tuple[OnlyResearchStatisticsOutcome, ...] = ()
+        result_outcome: OnlyResearchResultOutcome | None = None
         try:
             self._checkpoint(control, OnlyResearchRuntimeBoundary.BEFORE_DATASET_VERIFICATION)
             self._invoke(
@@ -210,6 +211,9 @@ class OnlyResearchRuntime:
                 sweeps,
                 statistics,
                 self.workload.result_plan.fingerprint,
+                research_result_fingerprint=""
+                if result_outcome is None
+                else result_outcome.research_result_fingerprint,
                 phase=exc.phase,
                 code=exc.code,
                 detail=exc.detail,
