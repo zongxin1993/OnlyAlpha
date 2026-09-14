@@ -65,6 +65,7 @@ from onlyalpha.research.evaluation.factor_pair.result_store import (
 from onlyalpha.research.evaluation.result_store import OnlyParquetResearchStatisticsResultStore
 from onlyalpha.research.evaluation.summary.execution import OnlyResearchFactorPairEffectSummaryExecutor
 from onlyalpha.research.evaluation.summary.result_store import OnlyJsonResearchSummaryStatisticsResultStore
+from onlyalpha.research.execution import OnlyResearchRetryDecision, OnlyResearchRunAttemptState
 from onlyalpha.research.experiment import (
     OnlyJsonSearchProvenanceStore,
     OnlySearchAlgorithmBindingV1,
@@ -93,7 +94,13 @@ from onlyalpha.research.memory.source_manifest import (
 from onlyalpha.research.memory.store import OnlyExperimentMemoryRevisionStore
 from onlyalpha.research.result.assembler import OnlyResearchResultAssembler
 from onlyalpha.research.result.result_store import OnlyJsonResearchResultStore
-from onlyalpha.research.run import OnlyResearchRun, OnlyResearchRunId, OnlyResearchRunState
+from onlyalpha.research.run import (
+    OnlyResearchRun,
+    OnlyResearchRunFailure,
+    OnlyResearchRunFailurePhase,
+    OnlyResearchRunId,
+    OnlyResearchRunState,
+)
 from onlyalpha.research.search.parameter import (
     PARAMETER_SEARCH_POLICY_KIND,
     PARAMETER_SEARCH_SPACE_KIND,
@@ -662,6 +669,56 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     )
     assert completed.state is OnlyResearchRunState.COMPLETED
 
+    failed_run_id = OnlyResearchRunId("00000000-0000-4000-8000-000000000935")
+    failed_run = OnlyResearchRun.queued(
+        run_id=failed_run_id,
+        specification=run_spec,
+        canonical_specification_payload=__import__(
+            "onlyalpha.canonical", fromlist=["only_canonical_json"]
+        ).only_canonical_json(run_spec.to_dict()),
+        admission_resolution_fingerprint="a" * 64,
+        queued_at=NOW + timedelta(seconds=3),
+        authoring_provenance=authoring,
+    )
+    run_store.create_queued(failed_run)
+    runtime_generations.bind_work_exact(
+        failed_run_id.value,
+        runtime_fingerprint,
+        actor="topology-certifier",
+        occurred_at=NOW + timedelta(seconds=3),
+    )
+    failed_claim = execution_store.claim_next(
+        worker_instance_id=__import__(
+            "onlyalpha.research.execution", fromlist=["OnlyResearchWorkerInstanceId"]
+        ).OnlyResearchWorkerInstanceId("00000000-0000-4000-8000-000000000936"),
+        attempt_id=__import__(
+            "onlyalpha.research.execution", fromlist=["OnlyResearchRunAttemptId"]
+        ).OnlyResearchRunAttemptId("00000000-0000-4000-8000-000000000937"),
+        lease_duration=timedelta(minutes=2),
+        max_attempts=3,
+        run_started_at=NOW + timedelta(seconds=4),
+        eligible_run_ids=(failed_run_id.value,),
+    )
+    assert failed_claim is not None
+    expected_failure = OnlyResearchRunFailure(
+        OnlyResearchRunFailurePhase.ARTIFACT_COMMIT,
+        "ARTIFACT_COMMIT_FAILED",
+        "artifact unavailable",
+    )
+    failed = execution_store.fail(
+        claim=failed_claim,
+        run_finished_at=NOW + timedelta(seconds=5),
+        failure=expected_failure,
+        retry_decision=OnlyResearchRetryDecision.FINAL_FAIL,
+        research_result_fingerprint=chain["research"],
+    )
+    assert failed.state is OnlyResearchRunState.FAILED
+    assert failed.research_result_fingerprint == chain["research"]
+    assert failed.artifact_content_fingerprint is None
+    assert failed.failure == expected_failure
+    assert run_store.load(failed_run_id) == failed
+    assert execution_store.load_attempt(failed_claim.attempt.attempt_id).state is OnlyResearchRunAttemptState.FAILED
+
     policies = OnlyQualificationPolicyStore(root)
     backtest_policy = OnlyQualificationPolicyRevision(
         "topology-backtest-gate",
@@ -750,6 +807,41 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     assert completed_closure["authoring_generation_fingerprint"] == authoring.execution_generation_fingerprint
     assert completed_closure["calculation_execution_evidence_fingerprints"] == ["d" * 64]
     assert completed_closure["run_source_ref"]["source_family"] == "RESEARCH_RUN"
+    run_cut = next(cut for cut in manifest.cuts if cut.source_family == "RESEARCH_RUN")
+    failed_observation = next(
+        observation
+        for observation in builder._sources["RESEARCH_RUN"].iter_closed_cut_observations_verified(
+            run_cut.cut_fingerprint
+        )
+        if observation.canonical_payload["source_row"]["run_id"] == failed.run_id.value
+        and observation.canonical_payload["source_row"]["revision"] == failed.revision
+    )
+    failed_source_row = failed_observation.canonical_payload["source_row"]
+    assert failed_observation.source_family == "RESEARCH_RUN"
+    assert failed_observation.cut_fingerprint == run_cut.cut_fingerprint
+    assert failed_source_row["state"] == "FAILED"
+    assert failed_source_row["research_result_fingerprint"] == chain["research"]
+    assert failed_source_row["artifact_content_fingerprint"] is None
+    assert failed_source_row["failure_phase"] == expected_failure.phase.value
+    assert failed_source_row["failure_code"] == expected_failure.code
+    assert failed_source_row["failure_detail"] == expected_failure.detail
+    failed_closure = next(
+        closure
+        for closure in evaluation.facets["run_evaluation_closures"]
+        if closure["run_id"] == failed.run_id.value and closure["run_revision"] == failed.revision
+    )
+    assert failed_closure["run_state"] == "FAILED"
+    assert failed_closure["specification_fingerprint"] == failed.specification_fingerprint
+    assert failed_closure["research_result_fingerprint"] == chain["research"]
+    assert failed_closure["artifact_content_fingerprint"] is None
+    assert failed_closure["runtime_generation_fingerprint"] == runtime_fingerprint
+    assert failed_closure["authoring_generation_fingerprint"] == authoring.execution_generation_fingerprint
+    assert failed_closure["calculation_execution_evidence_fingerprints"] == []
+    assert failed_closure["run_source_ref"]["source_family"] == "RESEARCH_RUN"
+    assert failed_closure["run_source_ref"]["locator"] == failed_observation.locator
+    assert {completed_closure["run_id"], failed_closure["run_id"]} == {run_id.value, failed.run_id.value}
+    assert completed_closure["run_state"] != failed_closure["run_state"]
+    assert completed_closure["artifact_content_fingerprint"] is not None
     source_snapshot = tuple(
         (
             cut.source_family,
