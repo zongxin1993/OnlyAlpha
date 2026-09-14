@@ -46,6 +46,24 @@ def test_task_acceptance_has_one_normative_repository_authority() -> None:
         assert not (ROOT / path).exists(), path
 
 
+def test_simplicity_review_is_bounded_and_subordinate_to_task_acceptance() -> None:
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    third_party = (ROOT / "docs/third_party_quality_gates.md").read_text(encoding="utf-8")
+    quality_policy = (ROOT / "quality-policy.toml").read_text(encoding="utf-8")
+
+    assert "Simplicity / Accidental Complexity Control" in agents
+    assert "@ponytail-review" in agents
+    assert "Ponytail 不拥有任务验收 Authority" in agents
+    assert "bounded Simplicity Review 已完成（涉及非平凡 executable code 时）" in agents
+    assert "Modification Scope + 真实 Impact Scope" in agents
+    assert "REJECT_AS_ESSENTIAL" in agents
+
+    assert "Ponytail is an Agent-side simplicity discipline" in third_party
+    assert "not added to `quality-policy.toml`" in third_party
+    assert "@ponytail-audit` must not be used to turn an ordinary task into a repository-wide cleanup" in third_party
+    assert "ponytail" not in quality_policy.lower()
+
+
 def test_repository_does_not_version_quality_reports_or_progress_state() -> None:
     assert not (ROOT / "docs/reports").exists()
     assert not (ROOT / "project-state.toml").exists()
