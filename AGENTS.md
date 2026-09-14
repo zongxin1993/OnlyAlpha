@@ -240,6 +240,49 @@ Acceptance Tests 可以因为真实发现而增强或纠正，例如：
 
 不得因为实现无法满足要求而删除测试、弱化断言、放宽语义、增加无意义 retry/sleep、skip/xfail 当前真实失败或吞掉异常。
 
+### 3.3 Simplicity / Accidental Complexity Control
+
+OnlyAlpha 使用 bounded Simplicity Review 消除 accidental complexity；它不删除 Constitution、Architecture / Contract、Accepted ADR、冻结 Required Behavior、correctness、security、reproducibility、data integrity、recovery、traceability、observability 或 required tests 所要求的 essential complexity。
+
+对涉及 executable code 的非平凡实现、重构或 Bug 修复，Agent 在理解真实调用链和边界之后，按以下顺序选择实现：
+
+```text
+1. 当前 Required Behavior 是否真的需要新增实现？若不需要，不新增。
+2. 当前代码库是否已经有可复用实现？优先复用。
+3. Python / JavaScript / 平台标准能力是否已经覆盖？优先 stdlib / native。
+4. 已安装依赖是否已经可靠覆盖？优先复用，不为同类能力新增 dependency。
+5. 只有以上都不成立时，新增满足当前 Required Behavior 的最小正确实现。
+```
+
+默认禁止仅为了假设未来需求新增 abstraction、interface、factory、adapter、wrapper、configuration switch、extension point 或 dependency。第二个真实实现、明确 Contract、已接受 Architecture/ADR 或当前 Required Behavior 可以构成新增抽象的证据。
+
+“最小”指最小必要复杂度，不是 code golf。不得用更短代码换取更差的可读性、边界正确性、类型安全、错误语义或确定性。
+
+若当前 Codex 环境已安装 Ponytail，默认使用 Full semantics；实现阶段可调用 `@ponytail`，在代码修改完成并通过初始 Baseline Validation 后调用 `@ponytail-review`。若 Ponytail 不可用，Agent 仍必须直接执行同等 bounded Simplicity Review；第三方插件可用性不得改变 Required Behavior、验证范围或 Stop Condition。
+
+Simplicity Review 只检查当前 Modification Scope + 真实 Impact Scope 内的 diff，重点寻找：
+
+- 可删除的 dead/speculative code；
+- 已存在项目实现却重复实现的逻辑；
+- stdlib/native 已覆盖的手写实现；
+- 为单一实现/单一调用方提前建立的抽象层；
+- 没有当前消费者的配置、扩展点和 dependency；
+- 保持相同语义时可以明显缩小的实现。
+
+每个 finding 必须在当前开发上下文中二选一：
+
+```text
+APPLY
+→ 简化实现，并重新执行受影响的 targeted tests / static checks
+
+REJECT_AS_ESSENTIAL
+→ 说明它由哪条 Required Behavior / Architecture / correctness / safety / reproducibility / recovery 约束要求保留
+```
+
+不得把 Ponytail finding、`@ponytail-audit` 输出、debt ledger、PASS 结果或 review summary 提交成第二份仓库质量/进度 Authority。`@ponytail-audit` 也不得把普通任务扩展成全仓 cleanup；只有当前 Task Contract 或 Major Milestone contract 明确把 repository-wide complexity audit 纳入 Scope 时才能执行。
+
+Ponytail 不拥有任务验收 Authority，不替代 Baseline Validation、risk-specific evidence、bounded Independent Review、Constitution consistency 或现有 CI/quality gates。
+
 ---
 
 ## 4. 验收模型：Risk-Tiered + Impact-Aware
@@ -350,6 +393,7 @@ Required Behavior 已实现
 + Acceptance Tests PASS
 + Baseline Validation PASS
 + 真实 Impact Scope 所需验证 PASS
++ bounded Simplicity Review 已完成（涉及非平凡 executable code 时）
 + Constitution consistency PASS
 + 当前范围 Critical = 0
 + 当前范围 High = 0
@@ -518,9 +562,11 @@ READ PROJECT_CONSTITUTION.md
 → if conflict: PLAN_CONFLICT + STOP
 → establish Task Contract
 → freeze Required Behavior
-→ implement smallest correct solution
+→ implement smallest correct solution under Simplicity Discipline
 → correct Impact Scope from real dependencies
 → targeted tests + Baseline Validation
+→ bounded Simplicity Review when non-trivial executable code changed
+→ if simplicity changes code: rerun affected validation
 → add risk-specific evidence
 → bounded Independent Review when high-risk
 → Constitution consistency check

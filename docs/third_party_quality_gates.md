@@ -28,6 +28,19 @@ workflow is a maintained quality interpretation or fallback entry point.
 4. Tool versions are pinned. GitHub Actions introduced by this workflow are pinned to immutable commit SHAs.
 5. New findings are fixed at their owning boundary. Do not grow allowlists or suppressions merely to make CI green.
 
+## Agent-side simplicity review
+
+Ponytail is an Agent-side simplicity discipline, not a repository quality Authority and not a CI product. Its normative use is defined only by root `AGENTS.md` as part of the existing Task Acceptance flow.
+
+- Ponytail is not added to `quality-policy.toml` and does not create another maintained GitHub Actions workflow.
+- When the Codex Ponytail skill is available, `@ponytail` may supply the implementation-time simplicity discipline and `@ponytail-review` may perform the bounded diff review required by `AGENTS.md`.
+- When that skill is unavailable, the same review must be performed directly from the repository rule; tool availability never changes Required Behavior or the Stop Condition.
+- A Ponytail finding is a review candidate, not independent correctness evidence. Constitution, Architecture / Contracts / Accepted ADRs, frozen Required Behavior, correctness, security, reproducibility, data integrity, recovery and required tests take precedence over a request to make code shorter.
+- The review stays inside the current Modification Scope and real Impact Scope. `@ponytail-audit` must not be used to turn an ordinary task into a repository-wide cleanup.
+- Ponytail output remains in the active task context. Do not commit generated audit, debt, completion or PASS reports as repository state.
+
+The purpose is to remove accidental complexity such as speculative abstractions, unnecessary dependencies and duplicated platform/stdlib behavior without deleting essential complexity required by OnlyAlpha semantics.
+
 ## Current rollout
 
 The canonical third-party workflow runs independently from `Layered Quality` so failures can be evaluated without weakening existing gates. Its aggregate `third-party-quality-gate` requires every applicable blocking job to succeed.
