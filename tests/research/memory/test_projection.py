@@ -4,12 +4,23 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from copy import deepcopy
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
-from onlyalpha.canonical import only_canonical_fingerprint
+from onlyalpha.application.product_command_receipt import OnlyProductCommandKind
+from onlyalpha.application.search_product import only_search_experiment_work_id
+from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
+from onlyalpha.research.command.model import OnlyDerivedResearchSubmitCommandV2, only_derived_research_run_id
+from onlyalpha.research.experiment import (
+    OnlySearchIterationDisposition,
+    OnlySearchIterationPlanV1,
+    OnlySearchIterationResultV1,
+    OnlySearchResearchResultReferenceV1,
+)
 from onlyalpha.research.memory.projector import (
     PROJECTION_SCHEMA_VERSION,
     PROJECTOR_ALGORITHM_VERSION,
@@ -22,6 +33,8 @@ from onlyalpha.research.memory.source_manifest import (
     OnlyMemoryProjectionError,
 )
 from onlyalpha.research.memory.store import OnlyExperimentMemoryRevisionStore
+from onlyalpha.research.search.parameter.integration import parameter_submission_key
+from onlyalpha.research.search.symbolic.controller import symbolic_submission_key
 from onlyalpha.research.source_cut import (
     OnlySourceClosedCutV1,
     OnlySourceCutEntryV1,
@@ -29,6 +42,7 @@ from onlyalpha.research.source_cut import (
     OnlySourceObservationV1,
     _OnlyFileSourceCutAuthority,
 )
+from tests.research.specification.support import specification
 
 
 @dataclass
@@ -87,6 +101,240 @@ def _set_facts(reader: _Reader, facts: list[tuple[str, str, dict[str, object]]])
 def _build(readers: dict[str, _Reader]):
     manifest = OnlyExperimentMemorySourceCutManifestV1.from_cuts([reader.cut for reader in readers.values()])
     return only_build_experiment_memory_projection(manifest, readers, lambda _kind, _identity: None)
+
+
+def _shared_result_lineage_case():
+    readers = _empty_readers()
+    scientific = specification()
+    result, locator, candidate = "d" * 64, "c" * 64, "e" * 64
+    experiments = ("1" * 64, "2" * 64)
+    plans = (
+        OnlySearchIterationPlanV1(experiments[0], 0, "ONLY_SYMBOLIC_GRAPH_PROPOSAL", 1, "a" * 64, (), (), "f" * 64),
+        OnlySearchIterationPlanV1(experiments[1], 0, "ONLY_PARAMETER_GRAPH_PROPOSAL", 1, "b" * 64, (), (), "f" * 64),
+    )
+    commands = (symbolic_submission_key(plans[0]), parameter_submission_key(plans[1]))
+    run_ids = tuple(only_derived_research_run_id(command).value for command in commands)
+    direct = "00000000-0000-4000-8000-000000000003"
+    terminal = OnlySearchIterationResultV1(
+        plans[0].iteration_plan_fingerprint,
+        candidate,
+        True,
+        OnlySearchResearchResultReferenceV1(locator, result),
+        False,
+        None,
+        OnlySearchIterationDisposition.RESEARCH_EVIDENCE_RECORDED,
+        None,
+    )
+    search_facts = [
+        (
+            f"experiments/{experiment}",
+            experiment,
+            {
+                "dataset_snapshot_fingerprint": scientific.dataset_snapshot_fingerprint,
+                "catalog_generation_fingerprint": "9" * 64,
+                "search_space_reference": {"search_space_fingerprint": "8" * 64},
+            },
+        )
+        for experiment in experiments
+    ]
+    search_facts.extend(
+        (f"iteration-plans/{plan.iteration_plan_fingerprint}", plan.iteration_plan_fingerprint, plan.to_dict())
+        for plan in plans
+    )
+    search_facts.append(
+        (
+            f"iteration-results/{terminal.iteration_result_fingerprint}",
+            terminal.iteration_result_fingerprint,
+            terminal.to_dict(),
+        )
+    )
+    _set_facts(readers["SEARCH_PROVENANCE"], search_facts)
+    _with_fact(
+        readers["RESEARCH_RESULT"],
+        locator,
+        result,
+        {
+            "dataset_snapshot_fingerprint": scientific.dataset_snapshot_fingerprint,
+            "statistics_results": [],
+            "plan": {
+                "candidates": [{"candidate_fingerprint": candidate, "graph_fingerprint": "f" * 64}],
+                "published_series": [
+                    {"candidate_fingerprint": candidate, "node_fingerprint": "0" * 64, "output_name": "factor_value"}
+                ],
+            },
+        },
+    )
+    _set_facts(
+        readers["RESEARCH_RUN"],
+        [
+            (
+                f"{index:020d}",
+                str(index) * 64,
+                {
+                    "source_row": {
+                        "run_id": run_id,
+                        "revision": 2,
+                        "state": "COMPLETED",
+                        "specification_fingerprint": scientific.specification_fingerprint,
+                        "specification_payload": only_canonical_json(scientific.to_dict()),
+                        "research_result_fingerprint": result,
+                        "artifact_content_fingerprint": "7" * 64,
+                        "authoring_provenance": None,
+                        "calculation_execution_evidence_fingerprints": [],
+                    }
+                },
+            )
+            for index, run_id in enumerate((*run_ids, direct), start=1)
+        ],
+    )
+    admissions = []
+    receipts = []
+    for index, (plan, command, run_id) in enumerate(zip(plans, commands, run_ids, strict=True), start=1):
+        fingerprint = OnlyDerivedResearchSubmitCommandV2(
+            command, scientific, only_search_experiment_work_id(plan.experiment_fingerprint)
+        ).command_fingerprint
+        admission = {
+            "command_id": command.value,
+            "command_kind": OnlyProductCommandKind.CREATE_RESEARCH_RUN,
+            "command_fingerprint": fingerprint,
+            "schema_version": 1,
+        }
+        receipt = {
+            **admission,
+            "outcome_kind": "RESEARCH_RUN",
+            "outcome_id": run_id,
+            "accepted_at": datetime(2026, 1, 1, tzinfo=UTC).isoformat(),
+        }
+        admissions.append((f"{index:020d}", str(index + 3) * 64, {"source_row": admission}))
+        receipts.append((f"{index:020d}", str(index + 5) * 64, {"source_row": receipt}))
+    _set_facts(readers["PRODUCT_COMMAND_ADMISSION"], admissions)
+    _set_facts(readers["PRODUCT_COMMAND_RECEIPT"], receipts)
+
+    def reference(kind: str, identity: str):
+        if kind == "RUNTIME_WORK_BINDING":
+            return {
+                "work_id": identity,
+                "runtime_generation_fingerprint": "6" * 64,
+                "catalog_generation_fingerprint": "9" * 64,
+            }
+        if kind == "ONLY_PARAMETER_GRAPH_PROPOSAL":
+            return {
+                "proposal_fingerprint": identity,
+                "search_space_fingerprint": "8" * 64,
+                "ordinal": 0,
+                "assignment": [],
+            }
+        return {}
+
+    return readers, plans, commands, run_ids, direct, reference
+
+
+@pytest.mark.recovery
+def test_receipt_bound_search_lineage_is_per_run_and_rebuildable(tmp_path: Path) -> None:
+    readers, plans, commands, run_ids, direct, reference = _shared_result_lineage_case()
+    manifest = OnlyExperimentMemorySourceCutManifestV1.from_cuts([reader.cut for reader in readers.values()])
+    projection = only_build_experiment_memory_projection(manifest, readers, reference)
+    evaluation = next(record for record in projection.records if record.kind == "EvaluationProjectionRecord")
+    closures = {
+        closure["run_id"]: closure["search_lineage"] for closure in evaluation.facets["run_evaluation_closures"]
+    }
+    assert closures[direct] is None
+    for index, run_id in enumerate(run_ids):
+        lineage = closures[run_id]
+        assert lineage["search_method"] == ("SYMBOLIC", "PARAMETER")[index]
+        assert lineage["experiment_fingerprint"] == plans[index].experiment_fingerprint
+        assert lineage["iteration_plan_fingerprint"] == plans[index].iteration_plan_fingerprint
+        assert lineage["research_product_command_id"] == commands[index].value
+        assert lineage["research_product_command_kind"] == "CREATE_RESEARCH_RUN"
+        assert lineage["iteration_result_fingerprint"] == (
+            next(
+                item.identity
+                for item in readers["SEARCH_PROVENANCE"].observations
+                if item.locator.startswith("iteration-results/")
+            )
+            if index == 0
+            else None
+        )
+    assert closures[run_ids[0]]["experiment_fingerprint"] != closures[run_ids[1]]["experiment_fingerprint"]
+    assert evaluation.facets["search_experiment_refs"] == [plans[0].experiment_fingerprint]
+
+    root = tmp_path / "experiment-memory"
+    store = OnlyExperimentMemoryRevisionStore(root)
+    store.publish_and_activate(manifest, readers, reference)
+    before = {family: reader.cut.cut_fingerprint for family, reader in readers.items()}
+    import shutil
+
+    shutil.rmtree(root)
+    for reader in readers.values():
+        reader.observations = tuple(reversed(reader.observations))
+    rebuilt = only_build_experiment_memory_projection(manifest, readers, reference)
+    assert rebuilt == projection
+    assert rebuilt.logical_digest == projection.logical_digest
+    assert rebuilt.revision_fingerprint == projection.revision_fingerprint
+    assert before == {family: reader.cut.cut_fingerprint for family, reader in readers.items()}
+
+    old_readers = deepcopy(readers)
+    search = readers["SEARCH_PROVENANCE"]
+    later = "3" * 64
+    _set_facts(
+        search,
+        [
+            *((item.locator, item.identity, dict(item.canonical_payload)) for item in search.observations),
+            (
+                f"experiments/{later}",
+                later,
+                {"dataset_snapshot_fingerprint": "a" * 64, "catalog_generation_fingerprint": "9" * 64},
+            ),
+        ],
+    )
+    newer = only_build_experiment_memory_projection(
+        OnlyExperimentMemorySourceCutManifestV1.from_cuts([reader.cut for reader in readers.values()]),
+        readers,
+        reference,
+    )
+    assert newer.revision_fingerprint != projection.revision_fingerprint
+    assert only_build_experiment_memory_projection(manifest, old_readers, reference) == projection
+
+
+@pytest.mark.parametrize("corruption", ["admission", "receipt", "schema", "run", "plan", "experiment", "outcome_kind"])
+def test_search_lineage_conflicts_fail_closed(corruption: str) -> None:
+    readers, plans, _, _, direct, reference = _shared_result_lineage_case()
+    if corruption == "admission":
+        reader = readers["PRODUCT_COMMAND_ADMISSION"]
+        rows = [(o.locator, o.identity, dict(o.canonical_payload)) for o in reader.observations]
+        rows[0][2]["source_row"] = {**rows[0][2]["source_row"], "command_fingerprint": "0" * 64}
+    elif corruption in {"receipt", "schema", "run", "outcome_kind"}:
+        reader = readers["PRODUCT_COMMAND_RECEIPT"]
+        rows = [(o.locator, o.identity, dict(o.canonical_payload)) for o in reader.observations]
+        changed = {
+            "receipt": {"command_kind": "CANCEL_RESEARCH_RUN"},
+            "schema": {"schema_version": 2},
+            "run": {"outcome_id": direct},
+            "outcome_kind": {"outcome_kind": "BACKTEST_RUN"},
+        }[corruption]
+        rows[0][2]["source_row"] = {**rows[0][2]["source_row"], **changed}
+    else:
+        reader = readers["SEARCH_PROVENANCE"]
+        rows = [(o.locator, o.identity, dict(o.canonical_payload)) for o in reader.observations]
+        index = next(
+            i
+            for i, row in enumerate(rows)
+            if row[1]
+            == (plans[0].iteration_plan_fingerprint if corruption == "plan" else plans[0].experiment_fingerprint)
+        )
+        locator, identity, payload = rows[index]
+        rows[index] = (
+            locator,
+            identity if corruption == "plan" else "4" * 64,
+            {**payload, "experiment_fingerprint": plans[1].experiment_fingerprint} if corruption == "plan" else payload,
+        )
+    _set_facts(reader, rows)
+    with pytest.raises(OnlyMemoryProjectionError, match="CROSS_SOURCE_CLOSURE_INCOMPLETE"):
+        only_build_experiment_memory_projection(
+            OnlyExperimentMemorySourceCutManifestV1.from_cuts([source.cut for source in readers.values()]),
+            readers,
+            reference,
+        )
 
 
 def test_certified_empty_and_missing_family_are_different() -> None:
@@ -402,8 +650,11 @@ def test_parameter_observations_do_not_infer_an_unseen_grid_cell() -> None:
     ]
     proposals: dict[str, dict[str, object]] = {}
     for iteration_index, ordinal in enumerate((0, 1, 3)):
-        identity = str(ordinal + 1) * 64
         proposal = str(ordinal + 5) * 64
+        plan = OnlySearchIterationPlanV1(
+            experiment, iteration_index, "ONLY_PARAMETER_GRAPH_PROPOSAL", 1, proposal, (), (), "f" * 64
+        )
+        identity = plan.iteration_plan_fingerprint
         proposals[proposal] = {
             "proposal_fingerprint": proposal,
             "search_space_fingerprint": space,
@@ -414,12 +665,7 @@ def test_parameter_observations_do_not_infer_an_unseen_grid_cell() -> None:
             (
                 f"iteration-plans/{identity}",
                 identity,
-                {
-                    "experiment_fingerprint": experiment,
-                    "iteration_index": iteration_index,
-                    "proposal_kind": "ONLY_PARAMETER_GRAPH_PROPOSAL",
-                    "proposal_fingerprint": proposal,
-                },
+                plan.to_dict(),
             )
         )
     _set_facts(readers["SEARCH_PROVENANCE"], facts)
@@ -668,7 +914,7 @@ def test_evaluation_closures_bind_each_historical_run_without_cross_association(
         return only_build_experiment_memory_projection(manifest, readers, reference)
 
     projection = build()
-    assert (PROJECTION_SCHEMA_VERSION, PROJECTOR_ALGORITHM_VERSION) == (3, 3)
+    assert (PROJECTION_SCHEMA_VERSION, PROJECTOR_ALGORITHM_VERSION) == (4, 4)
     evaluation = next(record for record in projection.records if record.kind == "EvaluationProjectionRecord")
     assert evaluation.facets["catalog_generation_refs"] == ["a" * 64, "b" * 64]
     closures = evaluation.facets["run_evaluation_closures"]

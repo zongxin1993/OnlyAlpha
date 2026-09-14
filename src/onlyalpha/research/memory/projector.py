@@ -6,12 +6,29 @@ import json
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from typing import Protocol, cast
 
+from onlyalpha.application.product_command_authority import only_verify_product_command_binding
+from onlyalpha.application.product_command_receipt import (
+    OnlyProductCommandAdmissionV1,
+    OnlyProductCommandId,
+    OnlyProductCommandKind,
+    OnlyProductCommandOutcomeKind,
+    OnlyProductCommandOutcomeRef,
+    OnlyProductCommandReceipt,
+)
+from onlyalpha.application.search_product import only_search_experiment_work_id
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
+from onlyalpha.research.command.model import OnlyDerivedResearchSubmitCommandV2, only_derived_research_run_id
+from onlyalpha.research.experiment.model import OnlySearchIterationPlanV1
+from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 from onlyalpha.research.run.model import OnlyResearchRunState
+from onlyalpha.research.search.parameter.integration import parameter_submission_key
+from onlyalpha.research.search.symbolic.controller import symbolic_submission_key
 from onlyalpha.research.source_cut import OnlySourceClosedCutV1, OnlySourceCutError, OnlySourceObservationV1
+from onlyalpha.research.specification.model import OnlyResearchSpecification
 
 from .source_manifest import (
     MANDATORY_FAMILIES,
@@ -19,8 +36,8 @@ from .source_manifest import (
     OnlyMemoryProjectionError,
 )
 
-PROJECTION_SCHEMA_VERSION = 3
-PROJECTOR_ALGORITHM_VERSION = 3
+PROJECTION_SCHEMA_VERSION = 4
+PROJECTOR_ALGORITHM_VERSION = 4
 
 
 class OnlyMemoryReferenceKind(StrEnum):
@@ -252,6 +269,123 @@ def _required_member(
     return item
 
 
+def _search_lineages(
+    by_family: Mapping[str, list[OnlySourceObservationV1]],
+    experiments: Mapping[str, OnlySourceObservationV1],
+    result_by_plan: Mapping[str, OnlySourceObservationV1],
+) -> dict[str, Mapping[str, object]]:
+    """Resolve occurrence ownership only through cut-bound Product facts, never Result equality."""
+    admissions: dict[str, tuple[OnlyProductCommandAdmissionV1, OnlySourceObservationV1]] = {}
+    receipts: dict[str, tuple[OnlyProductCommandReceipt, OnlySourceObservationV1]] = {}
+    runs: dict[str, list[OnlySourceObservationV1]] = defaultdict(list)
+    try:
+        for item in by_family["RESEARCH_RUN"]:
+            runs[str(_payload(item)["run_id"])].append(item)
+        for item in by_family["PRODUCT_COMMAND_ADMISSION"]:
+            row = _payload(item)
+            admission = OnlyProductCommandAdmissionV1(
+                OnlyProductCommandId(cast(str, row["command_id"])),
+                OnlyProductCommandKind(cast(str, row["command_kind"])),
+                cast(str, row["command_fingerprint"]),
+                cast(int, row["schema_version"]),
+            )
+            if admission.command_id.value in admissions:
+                raise ValueError("duplicate Product admission")
+            admissions[admission.command_id.value] = admission, item
+        for item in by_family["PRODUCT_COMMAND_RECEIPT"]:
+            row = _payload(item)
+            receipt = OnlyProductCommandReceipt(
+                OnlyProductCommandId(cast(str, row["command_id"])),
+                OnlyProductCommandKind(cast(str, row["command_kind"])),
+                cast(str, row["command_fingerprint"]),
+                OnlyProductCommandOutcomeRef(
+                    OnlyProductCommandOutcomeKind(cast(str, row["outcome_kind"])),
+                    cast(str, row["outcome_id"]),
+                ),
+                datetime.fromisoformat(cast(str, row["accepted_at"])),
+                cast(int, row["schema_version"]),
+            )
+            if receipt.command_id.value in receipts:
+                raise ValueError("duplicate Product receipt")
+            admission, _ = admissions[receipt.command_id.value]
+            only_verify_product_command_binding(admission, receipt)
+            if receipt.outcome_ref.kind is OnlyProductCommandOutcomeKind.RESEARCH_RUN:
+                if receipt.outcome_ref.outcome_id not in runs:
+                    raise ValueError("Product receipt points outside the Run cut")
+            receipts[receipt.command_id.value] = receipt, item
+
+        lineages: dict[str, Mapping[str, object]] = {}
+        for item in by_family["SEARCH_PROVENANCE"]:
+            if not item.locator.startswith("iteration-plans/"):
+                continue
+            plan = OnlySearchIterationPlanV1.from_dict(_payload(item))
+            if plan.iteration_plan_fingerprint != item.identity:
+                raise ValueError("Plan identity mismatch")
+            experiment = _required_member(experiments, f"experiments/{plan.experiment_fingerprint}")
+            if experiment.identity != plan.experiment_fingerprint:
+                raise ValueError("Plan Experiment identity mismatch")
+            proposal_kind = _reference_kind(plan.proposal_kind)
+            if proposal_kind is OnlyMemoryReferenceKind.ONLY_SYMBOLIC_GRAPH_PROPOSAL:
+                method, command_id = "SYMBOLIC", symbolic_submission_key(plan)
+            elif proposal_kind is OnlyMemoryReferenceKind.ONLY_PARAMETER_GRAPH_PROPOSAL:
+                method, command_id = "PARAMETER", parameter_submission_key(plan)
+            else:
+                raise ValueError("unsupported Search method")
+            bound = receipts.get(command_id.value)
+            if bound is None:
+                continue  # A Plan may precede its Product command and terminal Iteration Result.
+            receipt, receipt_source = bound
+            admission, admission_source = admissions[command_id.value]
+            if (
+                admission.command_kind is not OnlyProductCommandKind.CREATE_RESEARCH_RUN
+                or receipt.outcome_ref.kind is not OnlyProductCommandOutcomeKind.RESEARCH_RUN
+                or receipt.outcome_ref.outcome_id != only_derived_research_run_id(command_id).value
+            ):
+                raise ValueError("Search Product outcome mismatch")
+            run_id = receipt.outcome_ref.outcome_id
+            if run_id in lineages:
+                raise ValueError("multiple Search owners for one Run")
+            for run in runs[run_id]:
+                row = _payload(run)
+                raw = row["specification_payload"]
+                decoded = json.loads(raw) if isinstance(raw, str) else raw
+                if not isinstance(decoded, Mapping):
+                    raise ValueError("Run specification is unavailable")
+                specification = OnlyResearchSpecification.from_dict(decoded)
+                provenance = row.get("authoring_provenance")
+                expected = OnlyDerivedResearchSubmitCommandV2(
+                    command_id,
+                    specification,
+                    only_search_experiment_work_id(plan.experiment_fingerprint),
+                    OnlyResearchAuthoringProvenance.from_dict(provenance) if isinstance(provenance, Mapping) else None,
+                )
+                if (
+                    row["run_id"] != run_id
+                    or row["specification_fingerprint"] != specification.specification_fingerprint
+                    or admission.command_fingerprint != expected.command_fingerprint
+                ):
+                    raise ValueError("Search Product intent does not bind the Run")
+            terminal = result_by_plan.get(plan.iteration_plan_fingerprint)
+            if terminal is not None and _payload(terminal).get("iteration_plan_fingerprint") != item.identity:
+                raise ValueError("Search Iteration Result belongs to another Plan")
+            lineages[run_id] = {
+                "search_method": method,
+                "experiment_fingerprint": experiment.identity,
+                "iteration_plan_fingerprint": item.identity,
+                "iteration_result_fingerprint": terminal.identity if terminal is not None else None,
+                "research_product_command_id": command_id.value,
+                "research_product_command_kind": admission.command_kind,
+                "research_product_command_fingerprint": admission.command_fingerprint,
+                "experiment_source_ref": _ref(experiment)[0].to_dict(),
+                "plan_source_ref": _ref(item)[0].to_dict(),
+                "admission_source_ref": _ref(admission_source)[0].to_dict(),
+                "receipt_source_ref": _ref(receipt_source)[0].to_dict(),
+            }
+        return lineages
+    except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+        raise OnlyMemoryProjectionError("CROSS_SOURCE_CLOSURE_INCOMPLETE") from exc
+
+
 def only_project_experiment_memory(
     manifest: OnlyExperimentMemorySourceCutManifestV1,
     observations: Iterable[OnlySourceObservationV1],
@@ -310,6 +444,7 @@ def only_project_experiment_memory(
             if plan_identity in result_by_plan:
                 raise OnlyMemoryProjectionError("PROJECTION_SOURCE_CONFLICT")
             result_by_plan[plan_identity] = search_result
+    search_lineages = _search_lineages(by_family, experiments, result_by_plan)
     for item in sorted(by_family["SEARCH_PROVENANCE"], key=lambda o: o.locator):
         payload = _payload(item)
         if item.locator.startswith("experiments/"):
@@ -524,6 +659,17 @@ def only_project_experiment_memory(
         )
         for run in linked_runs:
             references.extend(_ref(run))
+            lineage = search_lineages.get(str(_payload(run).get("run_id")))
+            if lineage is not None:
+                references.extend(
+                    OnlyMemorySourceRefV1(**cast(dict[str, str], lineage[field]))
+                    for field in (
+                        "experiment_source_ref",
+                        "plan_source_ref",
+                        "admission_source_ref",
+                        "receipt_source_ref",
+                    )
+                )
         search_experiments: list[OnlySourceObservationV1] = []
         for search in linked_search:
             references.extend(_ref(search))
@@ -605,6 +751,7 @@ def only_project_experiment_memory(
                     "authoring_generation_fingerprint": authoring_generation,
                     "calculation_execution_evidence_fingerprints": evidence,
                     "run_source_ref": _ref(run)[0].to_dict(),
+                    "search_lineage": search_lineages.get(run_id),
                 }
             )
         run_closures.sort(
@@ -739,18 +886,6 @@ def only_project_experiment_memory(
     for item in by_family["RESEARCH_ATTEMPT"]:
         if _payload(item).get("run_id") not in run_ids:
             raise OnlyMemoryProjectionError("CROSS_SOURCE_CLOSURE_INCOMPLETE")
-
-    admissions = {str(_payload(item).get("command_id")): item for item in by_family["PRODUCT_COMMAND_ADMISSION"]}
-
-    for item in by_family["PRODUCT_COMMAND_RECEIPT"]:
-        payload = _payload(item)
-        admission = admissions.get(str(payload.get("command_id")))
-        if admission is None or _payload(admission).get("command_fingerprint") != payload.get("command_fingerprint"):
-            raise OnlyMemoryProjectionError("CROSS_SOURCE_CLOSURE_INCOMPLETE")
-        if payload.get("outcome_kind") == "RESEARCH_RUN":
-            run_id = payload.get("outcome_id")
-            if run_id not in run_ids:
-                raise OnlyMemoryProjectionError("CROSS_SOURCE_CLOSURE_INCOMPLETE")
 
     for item in by_family["QUALIFICATION_DECISION"]:
         payload = _payload(item)

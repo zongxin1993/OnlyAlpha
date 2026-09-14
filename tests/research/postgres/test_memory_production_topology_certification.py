@@ -30,8 +30,10 @@ from onlyalpha_runtime_generation_manager.catalog_context import (
     OnlyRuntimeGenerationExactCatalogDescriptorReader,
 )
 
+from onlyalpha.application.search_product import only_search_experiment_work_id
 from onlyalpha.backtest.evidence import OnlyBacktestEvidenceManifest, OnlyBacktestEvidenceStore
 from onlyalpha.calculation.artifact import only_calculation_distribution_artifact_manifest
+from onlyalpha.canonical import only_canonical_json
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from onlyalpha.persistence.postgres.product_command_authority import OnlyPostgresProductCommandAuthority
@@ -56,6 +58,7 @@ from onlyalpha.research.agent.store import (
     OnlyJsonAgentSessionManifestStore,
 )
 from onlyalpha.research.calculation.result_store import OnlyParquetResearchCalculationResultStore
+from onlyalpha.research.command.model import OnlyDerivedResearchSubmitCommandV2, only_derived_research_run_id
 from onlyalpha.research.dataset.parquet_store import OnlyParquetResearchDatasetSnapshotStore
 from onlyalpha.research.evaluation.definition import OnlyResearchStatisticsMethod
 from onlyalpha.research.evaluation.execution import OnlyResearchStatisticsExecutor
@@ -113,6 +116,7 @@ from onlyalpha.research.search.parameter import (
     verify_parameter_feedback_decision_occurrence,
 )
 from onlyalpha.research.search.parameter.context import OnlyParameterSearchContextResolver
+from onlyalpha.research.search.parameter.integration import parameter_submission_key
 from onlyalpha.research.search.symbolic import (
     SYMBOLIC_EVALUATION_CONTRACT_KIND,
     SYMBOLIC_PROPOSAL_KIND,
@@ -123,6 +127,7 @@ from onlyalpha.research.search.symbolic import (
     commit_symbolic_enumeration_result_verified,
     enumerate_symbolic_factor_proposals,
 )
+from onlyalpha.research.search.symbolic.controller import symbolic_submission_key
 from onlyalpha.runtime.generation import OnlyCoreExecutionIdentity, OnlyDistributionArtifactRole
 from onlyalpha.strategy.qualification import (
     OnlyQualificationCriterion,
@@ -346,7 +351,7 @@ def _build_builder(
     }
 
 
-def _publish_parameter_experiment(root: Path, generation, values: dict[str, object]) -> None:
+def _publish_parameter_experiment(root: Path, generation, values: dict[str, object]) -> str:
     symbolic = values["symbolic"]
     parameter = values["parameter"]
     provenance = values["provenance"]
@@ -412,6 +417,7 @@ def _publish_parameter_experiment(root: Path, generation, values: dict[str, obje
     )
     for plan in plans_for_feedback_decision(decision, context.proposals):
         provenance.commit_iteration_plan(plan)
+    return experiment.experiment_fingerprint
 
 
 def _publish_agent_facts(root: Path, experiment_fingerprint: str) -> None:
@@ -569,7 +575,7 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     values["dataset_fingerprint"] = result.manifest.dataset_snapshot_fingerprint
     experiment = values["provenance"].load_experiment_verified(chain["experiment"])
     values["evaluation_fingerprint"] = experiment.evaluation_context_reference.evaluation_fingerprint
-    _publish_parameter_experiment(root, generation, values)
+    parameter_experiment = _publish_parameter_experiment(root, generation, values)
     _publish_agent_facts(root, chain["experiment"])
 
     provider = next(item for item in generation.providers if item.manifest.layer.value == "L3_FACTOR")
@@ -719,6 +725,69 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     assert run_store.load(failed_run_id) == failed
     assert execution_store.load_attempt(failed_claim.attempt.attempt_id).state is OnlyResearchRunAttemptState.FAILED
 
+    search_plans = (
+        values["provenance"].iteration_plans_for_experiment_verified(chain["experiment"])[0],
+        values["provenance"].iteration_plans_for_experiment_verified(parameter_experiment)[0],
+    )
+    search_commands = (symbolic_submission_key(search_plans[0]), parameter_submission_key(search_plans[1]))
+    search_run_ids = tuple(only_derived_research_run_id(command) for command in search_commands)
+    for index, (plan, command, search_run_id) in enumerate(
+        zip(search_plans, search_commands, search_run_ids, strict=True)
+    ):
+        parent = only_search_experiment_work_id(plan.experiment_fingerprint)
+        runtime_generations.bind_work_exact(parent, runtime_fingerprint, actor="topology-certifier", occurred_at=NOW)
+        queued_at = NOW + timedelta(seconds=6 + 3 * index)
+        runtime_generations.bind_derived_work(
+            parent, search_run_id.value, actor="topology-certifier", occurred_at=queued_at
+        )
+        search_run = OnlyResearchRun.queued(
+            run_id=search_run_id,
+            specification=run_spec,
+            canonical_specification_payload=only_canonical_json(run_spec.to_dict()),
+            admission_resolution_fingerprint="a" * 64,
+            queued_at=queued_at,
+            authoring_provenance=authoring,
+        )
+        run_store.create_queued(search_run)
+        intent = OnlyDerivedResearchSubmitCommandV2(command, run_spec, parent, authoring)
+        product.admit_exact(
+            OnlyProductCommandAdmissionV1(
+                command, OnlyProductCommandKind.CREATE_RESEARCH_RUN, intent.command_fingerprint
+            )
+        )
+        product.put_verified_receipt(
+            OnlyProductCommandReceipt(
+                command,
+                OnlyProductCommandKind.CREATE_RESEARCH_RUN,
+                intent.command_fingerprint,
+                OnlyProductCommandOutcomeRef(OnlyProductCommandOutcomeKind.RESEARCH_RUN, search_run_id.value),
+                queued_at,
+            )
+        )
+        search_claim = execution_store.claim_next(
+            worker_instance_id=__import__(
+                "onlyalpha.research.execution", fromlist=["OnlyResearchWorkerInstanceId"]
+            ).OnlyResearchWorkerInstanceId(f"00000000-0000-4000-8000-{941 + 2 * index:012d}"),
+            attempt_id=__import__(
+                "onlyalpha.research.execution", fromlist=["OnlyResearchRunAttemptId"]
+            ).OnlyResearchRunAttemptId(f"00000000-0000-4000-8000-{942 + 2 * index:012d}"),
+            lease_duration=timedelta(minutes=2),
+            max_attempts=3,
+            run_started_at=queued_at + timedelta(seconds=1),
+            eligible_run_ids=(search_run_id.value,),
+        )
+        assert search_claim is not None
+        assert (
+            execution_store.complete(
+                claim=search_claim,
+                run_finished_at=queued_at + timedelta(seconds=2),
+                research_result_fingerprint=chain["research"],
+                artifact_content_fingerprint="c" * 64,
+                calculation_execution_evidence_fingerprints=("d" * 64,),
+            ).state
+            is OnlyResearchRunState.COMPLETED
+        )
+
     policies = OnlyQualificationPolicyStore(root)
     backtest_policy = OnlyQualificationPolicyRevision(
         "topology-backtest-gate",
@@ -814,6 +883,19 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     assert completed_closure["authoring_generation_fingerprint"] == authoring.execution_generation_fingerprint
     assert completed_closure["calculation_execution_evidence_fingerprints"] == ["d" * 64]
     assert completed_closure["run_source_ref"]["source_family"] == "RESEARCH_RUN"
+    assert completed_closure["search_lineage"] is None
+    for index, search_run_id in enumerate(search_run_ids):
+        lineage = next(
+            closure["search_lineage"]
+            for closure in evaluation.facets["run_evaluation_closures"]
+            if closure["run_id"] == search_run_id.value and closure["run_state"] == "COMPLETED"
+        )
+        assert lineage["search_method"] == ("SYMBOLIC", "PARAMETER")[index]
+        assert lineage["experiment_fingerprint"] == search_plans[index].experiment_fingerprint
+        assert lineage["iteration_plan_fingerprint"] == search_plans[index].iteration_plan_fingerprint
+        assert lineage["research_product_command_id"] == search_commands[index].value
+        assert lineage["admission_source_ref"]["source_family"] == "PRODUCT_COMMAND_ADMISSION"
+        assert lineage["receipt_source_ref"]["source_family"] == "PRODUCT_COMMAND_RECEIPT"
     run_cut = next(cut for cut in manifest.cuts if cut.source_family == "RESEARCH_RUN")
     failed_observation = next(
         observation
@@ -917,6 +999,7 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     } == {
         run_id.value: completed_closure["catalog_generation_fingerprint"],
         failed.run_id.value: failed_closure["catalog_generation_fingerprint"],
+        **{search_run_id.value: generation.generation_fingerprint for search_run_id in search_run_ids},
     }
     assert rebuilt["logical_digest"] == initial.logical_digest
     assert rebuilt["revision"] == initial.revision_fingerprint
