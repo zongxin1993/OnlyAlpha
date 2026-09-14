@@ -9,7 +9,8 @@ from onlyalpha_authoring_execution_worker import OnlyAuthoringExecutionGeneratio
 from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry
 
 from onlyalpha.backtest.evidence import OnlyBacktestEvidenceStore
-from onlyalpha.research.memory.production import OnlyExperimentMemoryReferenceReadersV1
+from onlyalpha.research.memory.production import SUPPORTED_REFERENCE_KINDS, OnlyExperimentMemoryReferenceReadersV1
+from onlyalpha.research.memory.projector import OnlyMemoryReferenceKind
 from onlyalpha.research.memory.source_manifest import OnlyMemoryProjectionError
 from onlyalpha.research.search.parameter.store import OnlyJsonParameterSearchStore
 from onlyalpha.research.search.symbolic.store import OnlyJsonSymbolicSearchStore
@@ -20,6 +21,11 @@ from tests.strategy.test_strategy_freeze import _freeze_case
 class _UnavailableCatalog:
     def load_verified_catalog_descriptor(self, fingerprint: str) -> dict[str, object]:
         raise RuntimeError(f"catalog unavailable: {fingerprint}")
+
+
+def test_production_reference_kind_contract_is_exhaustive() -> None:
+    assert set(OnlyMemoryReferenceKind) == SUPPORTED_REFERENCE_KINDS
+    assert len(SUPPORTED_REFERENCE_KINDS) == 14
 
 
 def test_real_dataset_calculation_graph_and_missing_reference_fail_closed(tmp_path: Path) -> None:
@@ -50,3 +56,6 @@ def test_real_dataset_calculation_graph_and_missing_reference_fail_closed(tmp_pa
         reader("DATASET_SNAPSHOT", "0" * 64)
     with pytest.raises(OnlyMemoryProjectionError, match="REFERENCE_AUTHORITY_UNAVAILABLE"):
         reader("CATALOG_GENERATION", "0" * 64)
+
+    with pytest.raises(OnlyMemoryProjectionError, match="REFERENCE_AUTHORITY_UNAVAILABLE"):
+        reader("NOT_A_REFERENCE_KIND", "0" * 64)

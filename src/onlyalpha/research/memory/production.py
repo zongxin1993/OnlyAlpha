@@ -24,6 +24,7 @@ from onlyalpha.strategy.qualification import OnlyQualificationPolicyRevision
 from .projector import (
     OnlyExperimentMemoryProjectionV1,
     OnlyMemoryCutReader,
+    OnlyMemoryReferenceKind,
     only_load_cut_observations,
     only_project_experiment_memory,
 )
@@ -68,6 +69,9 @@ class OnlyExactBacktestEvidenceReader(Protocol):
 
 class OnlyCapturableMemoryCutReader(OnlyMemoryCutReader, Protocol):
     def capture_closed_cut(self) -> OnlySourceClosedCutV1: ...
+
+
+SUPPORTED_REFERENCE_KINDS = frozenset(OnlyMemoryReferenceKind)
 
 
 def _row(observation: OnlySourceObservationV1) -> Mapping[str, object]:
@@ -177,25 +181,27 @@ class _BoundReferenceReader:
         self._calculations = calculations
         self._specifications = specifications
 
-    def __call__(self, kind: str, identity: str) -> Mapping[str, object]:
+    def __call__(self, kind: OnlyMemoryReferenceKind | str, identity: str) -> Mapping[str, object]:
         try:
-            return self._load(kind, identity)
+            return self._load(OnlyMemoryReferenceKind(kind), identity)
+        except (TypeError, ValueError) as exc:
+            raise OnlyMemoryProjectionError("REFERENCE_AUTHORITY_UNAVAILABLE") from exc
         except OnlyMemoryProjectionError:
             raise
         except Exception as exc:
             raise OnlyMemoryProjectionError("REFERENCE_AUTHORITY_UNAVAILABLE") from exc
 
-    def _load(self, kind: str, identity: str) -> Mapping[str, object]:
+    def _load(self, kind: OnlyMemoryReferenceKind, identity: str) -> Mapping[str, object]:
         owners = self._owners
-        if kind == "DATASET_SNAPSHOT":
+        if kind is OnlyMemoryReferenceKind.DATASET_SNAPSHOT:
             snapshot = owners.datasets.load_verified_table(identity).snapshot
             self._require(snapshot.snapshot_fingerprint == identity)
             return snapshot.to_dict()
-        if kind == "CATALOG_GENERATION":
+        if kind is OnlyMemoryReferenceKind.CATALOG_GENERATION:
             descriptor = owners.catalogs.load_verified_catalog_descriptor(identity)
             self._require(descriptor.get("generation_fingerprint") == identity)
             return descriptor
-        if kind == "SEARCH_SPACE":
+        if kind is OnlyMemoryReferenceKind.SEARCH_SPACE:
             for reader in (owners.symbolic, owners.parameter):
                 try:
                     space = reader.load_search_space_intrinsic_verified(identity)
@@ -206,15 +212,15 @@ class _BoundReferenceReader:
                 self._require(space.search_space_fingerprint == identity)
                 return space.to_dict()
             raise OnlyMemoryProjectionError("REFERENCE_AUTHORITY_UNAVAILABLE")
-        if kind == "EVALUATION_CONTRACT":
+        if kind is OnlyMemoryReferenceKind.EVALUATION_CONTRACT:
             evaluation = owners.symbolic.load_evaluation_contract_intrinsic_verified(identity)
             self._require(evaluation.evaluation_contract_fingerprint == identity)
             return evaluation.to_dict()
-        if kind == "SEARCH_POLICY":
+        if kind is OnlyMemoryReferenceKind.SEARCH_POLICY:
             policy = owners.parameter.load_policy_intrinsic_verified(identity)
             self._require(policy.policy_fingerprint == identity)
             return policy.to_dict()
-        if kind == "SEARCH_ALGORITHM":
+        if kind is OnlyMemoryReferenceKind.SEARCH_ALGORITHM:
             found: list[Mapping[str, object]] = []
             for load in (
                 owners.symbolic.load_algorithm_implementation_manifest_intrinsic_verified,
@@ -230,15 +236,15 @@ class _BoundReferenceReader:
                 found.append(algorithm.to_dict())
             self._require(len(found) == 1)
             return found[0]
-        if kind == "ONLY_SYMBOLIC_GRAPH_PROPOSAL":
+        if kind is OnlyMemoryReferenceKind.ONLY_SYMBOLIC_GRAPH_PROPOSAL:
             proposal = owners.symbolic.load_proposal_intrinsic_verified(identity)
             self._require(proposal.proposal_fingerprint == identity)
             return proposal.to_dict()
-        if kind == "ONLY_PARAMETER_GRAPH_PROPOSAL":
+        if kind is OnlyMemoryReferenceKind.ONLY_PARAMETER_GRAPH_PROPOSAL:
             parameter_proposal = owners.parameter.load_proposal_intrinsic_verified(identity)
             self._require(parameter_proposal.proposal_fingerprint == identity)
             return parameter_proposal.to_dict()
-        if kind == "CALCULATION_GRAPH":
+        if kind is OnlyMemoryReferenceKind.CALCULATION_GRAPH:
             calculation_ids = self._calculations.get(identity)
             if not calculation_ids:
                 raise OnlyMemoryProjectionError("REFERENCE_AUTHORITY_UNAVAILABLE")
@@ -250,23 +256,23 @@ class _BoundReferenceReader:
                     and result.manifest.calculation_graph_fingerprint == identity
                 )
             return {"graph_fingerprint": identity}
-        if kind == "RESEARCH_SPECIFICATION":
+        if kind is OnlyMemoryReferenceKind.RESEARCH_SPECIFICATION:
             specification = self._specifications.get(identity)
             if specification is None or specification.specification_fingerprint != identity:
                 raise OnlyMemoryProjectionError("REFERENCE_AUTHORITY_UNAVAILABLE")
             return specification.to_dict()
-        if kind == "RUNTIME_WORK_BINDING":
+        if kind is OnlyMemoryReferenceKind.RUNTIME_WORK_BINDING:
             binding = owners.runtime_generations.require_work_binding(identity)
             generation = binding.runtime_generation_fingerprint
             self._require(binding.work_id == identity and isinstance(generation, str))
             manifest = owners.runtime_generations.require_runtime_generation(generation)
             self._require(manifest.runtime_generation_fingerprint == generation)
             return {"work_id": identity, "runtime_generation_fingerprint": generation}
-        if kind == "AUTHORING_GENERATION":
+        if kind is OnlyMemoryReferenceKind.AUTHORING_GENERATION:
             descriptor = owners.authoring_generations.load_descriptor_verified(identity)
             self._require(descriptor.get("execution_generation_fingerprint") == identity)
             return descriptor
-        if kind == "QUALIFICATION_POLICY":
+        if kind is OnlyMemoryReferenceKind.QUALIFICATION_POLICY:
             policy_id, separator, version = identity.partition(":")
             self._require(bool(separator and policy_id and version))
             qualification_policy = owners.qualification_policies.load_exact(policy_id, version)
@@ -274,7 +280,7 @@ class _BoundReferenceReader:
                 qualification_policy.policy_id == policy_id and qualification_policy.policy_version == version
             )
             return qualification_policy.to_dict()
-        if kind == "QUALIFICATION_EVIDENCE":
+        if kind is OnlyMemoryReferenceKind.QUALIFICATION_EVIDENCE:
             evidence = owners.backtest_evidence.load_verified(identity)
             self._require(evidence.evidence_fingerprint == identity)
             return evidence.to_dict()

@@ -6,6 +6,7 @@ import json
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Protocol, cast
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
@@ -19,6 +20,34 @@ from .source_manifest import (
 
 PROJECTION_SCHEMA_VERSION = 1
 PROJECTOR_ALGORITHM_VERSION = 1
+
+
+class OnlyMemoryReferenceKind(StrEnum):
+    """Finite vocabulary of exact authorities used by the projection."""
+
+    DATASET_SNAPSHOT = "DATASET_SNAPSHOT"
+    CATALOG_GENERATION = "CATALOG_GENERATION"
+    SEARCH_SPACE = "SEARCH_SPACE"
+    EVALUATION_CONTRACT = "EVALUATION_CONTRACT"
+    SEARCH_POLICY = "SEARCH_POLICY"
+    SEARCH_ALGORITHM = "SEARCH_ALGORITHM"
+    ONLY_SYMBOLIC_GRAPH_PROPOSAL = "ONLY_SYMBOLIC_GRAPH_PROPOSAL"
+    ONLY_PARAMETER_GRAPH_PROPOSAL = "ONLY_PARAMETER_GRAPH_PROPOSAL"
+    CALCULATION_GRAPH = "CALCULATION_GRAPH"
+    RESEARCH_SPECIFICATION = "RESEARCH_SPECIFICATION"
+    RUNTIME_WORK_BINDING = "RUNTIME_WORK_BINDING"
+    AUTHORING_GENERATION = "AUTHORING_GENERATION"
+    QUALIFICATION_POLICY = "QUALIFICATION_POLICY"
+    QUALIFICATION_EVIDENCE = "QUALIFICATION_EVIDENCE"
+
+
+def _reference_kind(value: object) -> OnlyMemoryReferenceKind:
+    if not isinstance(value, str):
+        raise OnlyMemoryProjectionError("REFERENCE_AUTHORITY_UNAVAILABLE")
+    try:
+        return OnlyMemoryReferenceKind(value)
+    except (TypeError, ValueError) as exc:
+        raise OnlyMemoryProjectionError("REFERENCE_AUTHORITY_UNAVAILABLE") from exc
 
 
 class OnlyMemoryCutReader(Protocol):
@@ -252,7 +281,7 @@ def only_project_experiment_memory(
     by_identity = {family: {o.identity: o for o in items} for family, items in by_family.items()}
     records: list[OnlyMemoryProjectionRecordV1] = []
 
-    def exact(kind: str, identity: object) -> Mapping[str, object] | None:
+    def exact(kind: OnlyMemoryReferenceKind, identity: object) -> Mapping[str, object] | None:
         if not isinstance(identity, str) or not identity:
             raise OnlyMemoryProjectionError("REFERENCE_AUTHORITY_UNAVAILABLE")
         try:
@@ -283,20 +312,20 @@ def only_project_experiment_memory(
     for item in sorted(by_family["SEARCH_PROVENANCE"], key=lambda o: o.locator):
         payload = _payload(item)
         if item.locator.startswith("experiments/"):
-            exact("DATASET_SNAPSHOT", payload.get("dataset_snapshot_fingerprint"))
-            exact("CATALOG_GENERATION", payload.get("catalog_generation_fingerprint"))
+            exact(OnlyMemoryReferenceKind.DATASET_SNAPSHOT, payload.get("dataset_snapshot_fingerprint"))
+            exact(OnlyMemoryReferenceKind.CATALOG_GENERATION, payload.get("catalog_generation_fingerprint"))
             algorithm = payload.get("search_algorithm_binding")
             if isinstance(algorithm, Mapping):
-                exact("SEARCH_ALGORITHM", algorithm.get("implementation_fingerprint"))
+                exact(OnlyMemoryReferenceKind.SEARCH_ALGORITHM, algorithm.get("implementation_fingerprint"))
             space = payload.get("search_space_reference")
             if isinstance(space, Mapping):
-                exact("SEARCH_SPACE", space.get("search_space_fingerprint"))
+                exact(OnlyMemoryReferenceKind.SEARCH_SPACE, space.get("search_space_fingerprint"))
             evaluation = payload.get("evaluation_context_reference")
             if isinstance(evaluation, Mapping):
-                exact("EVALUATION_CONTRACT", evaluation.get("evaluation_fingerprint"))
+                exact(OnlyMemoryReferenceKind.EVALUATION_CONTRACT, evaluation.get("evaluation_fingerprint"))
             policy = payload.get("search_policy_reference")
             if isinstance(policy, Mapping):
-                exact("SEARCH_POLICY", policy.get("policy_fingerprint"))
+                exact(OnlyMemoryReferenceKind.SEARCH_POLICY, policy.get("policy_fingerprint"))
             hypothesis = payload.get("hypothesis")
             parent = payload.get("parent_experiment_fingerprint")
             if parent is not None:
@@ -326,8 +355,13 @@ def only_project_experiment_memory(
             parent_result = payload.get("parent_iteration_result_fingerprint")
             if parent_result is not None:
                 _required_member(experiments, f"iteration-results/{parent_result}")
-            proposal_kind = payload.get("proposal_kind")
-            proposal = exact(str(proposal_kind), payload.get("proposal_fingerprint"))
+            proposal_kind = _reference_kind(payload.get("proposal_kind"))
+            if proposal_kind not in {
+                OnlyMemoryReferenceKind.ONLY_SYMBOLIC_GRAPH_PROPOSAL,
+                OnlyMemoryReferenceKind.ONLY_PARAMETER_GRAPH_PROPOSAL,
+            }:
+                raise OnlyMemoryProjectionError("REFERENCE_AUTHORITY_UNAVAILABLE")
+            proposal = exact(proposal_kind, payload.get("proposal_fingerprint"))
             terminal = result_by_plan.get(item.identity)
             terminal_payload = _payload(terminal) if terminal is not None else {}
             source_refs = list(_ref(item) + _ref(experiment))
@@ -357,7 +391,7 @@ def only_project_experiment_memory(
                 else "PLANNED"
             )
             parameter: dict[str, object] = {}
-            if proposal_kind == "ONLY_PARAMETER_GRAPH_PROPOSAL":
+            if proposal_kind is OnlyMemoryReferenceKind.ONLY_PARAMETER_GRAPH_PROPOSAL:
                 space = _payload(experiment).get("search_space_reference")
                 ordinal = proposal.get("ordinal") if isinstance(proposal, Mapping) else None
                 if (
@@ -458,7 +492,7 @@ def only_project_experiment_memory(
 
     for item in by_family["RESEARCH_RESULT"]:
         payload = _payload(item)
-        exact("DATASET_SNAPSHOT", payload.get("dataset_snapshot_fingerprint"))
+        exact(OnlyMemoryReferenceKind.DATASET_SNAPSHOT, payload.get("dataset_snapshot_fingerprint"))
         references = list(_ref(item))
         statistics_refs = payload.get("statistics_results", [])
         if not isinstance(statistics_refs, list):
@@ -507,14 +541,14 @@ def only_project_experiment_memory(
         ]
         work_bindings: list[str] = []
         for run in linked_runs:
-            binding = exact("RUNTIME_WORK_BINDING", _payload(run).get("run_id"))
+            binding = exact(OnlyMemoryReferenceKind.RUNTIME_WORK_BINDING, _payload(run).get("run_id"))
             generation = binding.get("runtime_generation_fingerprint") if isinstance(binding, Mapping) else None
             if not isinstance(generation, str):
                 raise OnlyMemoryProjectionError("REFERENCE_AUTHORITY_UNAVAILABLE")
             work_bindings.append(generation)
         for provenance in authoring:
             if isinstance(provenance, Mapping):
-                exact("AUTHORING_GENERATION", provenance.get("execution_generation_fingerprint"))
+                exact(OnlyMemoryReferenceKind.AUTHORING_GENERATION, provenance.get("execution_generation_fingerprint"))
         for candidate in candidates:
             if not isinstance(candidate, Mapping):
                 raise OnlyMemoryProjectionError("SOURCE_OBSERVATION_MISMATCH")
@@ -533,7 +567,7 @@ def only_project_experiment_memory(
                 key = str(reference["statistics_fingerprint"]), str(reference["statistics_result_fingerprint"])
                 candidate_refs.extend(_ref(stats[key]))
             graph = candidate.get("graph_fingerprint")
-            exact("CALCULATION_GRAPH", graph)
+            exact(OnlyMemoryReferenceKind.CALCULATION_GRAPH, graph)
             series = [
                 s
                 for s in (*plan.get("published_series", []), *plan.get("signals", []))
@@ -616,7 +650,7 @@ def only_project_experiment_memory(
 
     for item in by_family["RESEARCH_RUN"]:
         payload = _payload(item)
-        exact("RESEARCH_SPECIFICATION", payload.get("specification_fingerprint"))
+        exact(OnlyMemoryReferenceKind.RESEARCH_SPECIFICATION, payload.get("specification_fingerprint"))
         result_identity = payload.get("research_result_fingerprint")
         if result_identity is not None and result_identity not in by_identity.get("RESEARCH_RESULT", {}):
             raise OnlyMemoryProjectionError("CROSS_SOURCE_CLOSURE_INCOMPLETE")
@@ -654,7 +688,10 @@ def only_project_experiment_memory(
 
     for item in by_family["QUALIFICATION_DECISION"]:
         payload = _payload(item)
-        policy = exact("QUALIFICATION_POLICY", str(payload.get("policy_id")) + ":" + str(payload.get("policy_version")))
+        policy = exact(
+            OnlyMemoryReferenceKind.QUALIFICATION_POLICY,
+            str(payload.get("policy_id")) + ":" + str(payload.get("policy_version")),
+        )
         if isinstance(policy, Mapping) and policy.get("policy_fingerprint") != payload.get("policy_fingerprint"):
             raise OnlyMemoryProjectionError("REFERENCE_AUTHORITY_UNAVAILABLE")
         evidence = payload.get("evidence")
@@ -670,7 +707,7 @@ def only_project_experiment_memory(
                 )
                 refs.extend(_ref(result))
             else:
-                exact("QUALIFICATION_EVIDENCE", proof.get("evidence_fingerprint"))
+                exact(OnlyMemoryReferenceKind.QUALIFICATION_EVIDENCE, proof.get("evidence_fingerprint"))
         if payload.get("outcome") == "REJECTED":
             records.append(
                 OnlyMemoryProjectionRecordV1(
