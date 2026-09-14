@@ -2,8 +2,21 @@
 
 This independently buildable package is the deployment/runtime assembly boundary for the Agent workflow. It provides exact workflow
 resource closure, current-manifest derivation, historical runtime admission, controlled OpenAI-compatible model execution, and
-canonical-OpenAPI-driven Product API execution. It executes one already-prepared occurrence at a time; it does not drive a Session,
-persist mutable progress, own Research/Search facts, or automatically choose a next action.
+canonical-OpenAPI-driven Product API execution. It coordinates runtime assembly, formal Model/Tool occurrence execution, recovery, and
+node lifecycle. For Session advancement, it derives the current legal action from durable Session facts through the authoritative
+reducer, then coordinates exactly one admitted transition per invocation. It does not own Session Authority, persist mutable progress,
+own Research/Search facts, or run an unbounded free-form autonomous action loop.
+
+The advancement boundary is:
+
+```text
+durable Session facts
+→ authoritative reducer derives one legal next action
+→ Driver / Orchestrator coordinates exactly one transition
+```
+
+The LLM remains a proposal / structured-decision source only. Catalog, Search, Research, Evidence, Qualification, Strategy, and LIVE
+facts retain their existing Authorities; the Orchestrator does not become any of those Authorities.
 
 Future external execution has one structural entry boundary: `execute_after_runtime_admission`. It exact-loads the verified Session
 context, verifies its historical workflow resource against the manifest derived from current packaged bytes, and only then calls its continuation with an ephemeral

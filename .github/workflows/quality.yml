@@ -138,15 +138,76 @@ jobs:
           echo "sha=$base_sha" >> "$GITHUB_OUTPUT"
       - run: uv run python scripts/gateway_protocol.py verify-lane --base "${{ steps.baseline.outputs.sha }}"
 
-  pr-lanes:
+  research-evaluation-shards:
     if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen --all-packages --all-groups
+      - name: Run one disjoint duration-aware research evaluation shard
+        run: >-
+          uv run python scripts/test_suite.py research-evaluation
+          --splits 4
+          --group ${{ matrix.shard }}
+          --splitting-algorithm least_duration
+          --workers 2
+          --dist worksteal
+          --durations-path test-data/test-durations.json
+          --metrics-path test-results/metrics/research-evaluation-shard-${{ matrix.shard }}.json
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: research-evaluation-shard-${{ matrix.shard }}-metrics
+          path: test-results/metrics/research-evaluation-shard-${{ matrix.shard }}.json
+          if-no-files-found: error
+
+  research-evaluation-shard-gate:
+    if: always() && github.event_name == 'pull_request'
+    needs: [research-evaluation-shards]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v6
+        with:
+          pattern: research-evaluation-shard-*-metrics
+          path: test-results/metrics
+          merge-multiple: true
+      - name: Require every shard and prove a complete disjoint union
+        env:
+          SHARDS_RESULT: ${{ needs.research-evaluation-shards.result }}
+        run: |
+          test "$SHARDS_RESULT" = success
+          python scripts/test_topology.py \
+            --validate-shards \
+            test-results/metrics/research-evaluation-shard-1.json \
+            test-results/metrics/research-evaluation-shard-2.json \
+            test-results/metrics/research-evaluation-shard-3.json \
+            test-results/metrics/research-evaluation-shard-4.json \
+            --expected-duration-path test-data/test-durations.json
+
+  pr-lanes:
+    if: always() && github.event_name == 'pull_request'
+    needs: [research-evaluation-shard-gate]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        lane: [strategy, research-definition, research-specification, research-run, research-command, research-execution, research-runtime, research-query, research-artifact, research-result, research-evaluation, research-sweep, research-factor, research-job, research-calculation, recovery, sim-recovery, ashare, miniqmt-contract]
+        lane: [strategy, research-definition, research-specification, research-run, research-command, research-execution, research-runtime, research-query, research-artifact, research-result, research-sweep, research-factor, research-job, research-calculation, recovery, sim-recovery, ashare, miniqmt-contract]
     steps:
+      - name: Require complete research evaluation shard gate
+        env:
+          SHARD_GATE_RESULT: ${{ needs.research-evaluation-shard-gate.result }}
+        run: test "$SHARD_GATE_RESULT" = success
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
         with:
@@ -161,14 +222,19 @@ jobs:
           path: test-results/metrics/*.json
 
   main-lanes:
-    if: github.event_name != 'pull_request'
+    if: always() && github.event_name != 'pull_request'
+    needs: [research-evaluation-shard-gate]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        lane: [strategy, research-definition, research-specification, research-run, research-command, research-execution, research-runtime, research-query, research-artifact, research-result, research-evaluation, research-sweep, research-factor, research-job, research-calculation, calculation, research-dataset, core-full, recovery, sim-recovery, ashare, miniqmt-contract]
+        lane: [core-full, recovery, sim-recovery, ashare, miniqmt-contract]
     steps:
+      - name: Require complete research evaluation shard gate
+        env:
+          SHARD_GATE_RESULT: ${{ needs.research-evaluation-shard-gate.result }}
+        run: test "$SHARD_GATE_RESULT" = skipped
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
         with:
