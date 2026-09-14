@@ -19,8 +19,8 @@ from .source_manifest import (
     OnlyMemoryProjectionError,
 )
 
-PROJECTION_SCHEMA_VERSION = 2
-PROJECTOR_ALGORITHM_VERSION = 2
+PROJECTION_SCHEMA_VERSION = 3
+PROJECTOR_ALGORITHM_VERSION = 3
 
 
 class OnlyMemoryReferenceKind(StrEnum):
@@ -547,7 +547,15 @@ def only_project_experiment_memory(
             run_id = run_fact.get("run_id")
             binding = exact(OnlyMemoryReferenceKind.RUNTIME_WORK_BINDING, run_id)
             generation = binding.get("runtime_generation_fingerprint") if isinstance(binding, Mapping) else None
-            if not isinstance(generation, str):
+            catalog = binding.get("catalog_generation_fingerprint") if isinstance(binding, Mapping) else None
+            if (
+                not isinstance(binding, Mapping)
+                or binding.get("work_id") != run_id
+                or not isinstance(generation, str)
+                or not isinstance(catalog, str)
+                or len(catalog) != 64
+                or any(char not in "0123456789abcdef" for char in catalog)
+            ):
                 raise OnlyMemoryProjectionError("REFERENCE_AUTHORITY_UNAVAILABLE")
             work_bindings.append(generation)
             state = run_fact.get("state")
@@ -558,6 +566,16 @@ def only_project_experiment_memory(
             authoring_generation = (
                 provenance.get("execution_generation_fingerprint") if isinstance(provenance, Mapping) else None
             )
+            if isinstance(authoring_generation, str):
+                descriptor = exact(OnlyMemoryReferenceKind.AUTHORING_GENERATION, authoring_generation)
+                authoring_payload = descriptor.get("provenance") if isinstance(descriptor, Mapping) else None
+                if (
+                    not isinstance(descriptor, Mapping)
+                    or not isinstance(authoring_payload, Mapping)
+                    or descriptor.get("execution_generation_fingerprint") != authoring_generation
+                    or authoring_payload.get("catalog_generation_fingerprint") != catalog
+                ):
+                    raise OnlyMemoryProjectionError("REFERENCE_AUTHORITY_UNAVAILABLE")
             if (
                 not isinstance(run_id, str)
                 or type(revision) is not int
@@ -582,6 +600,7 @@ def only_project_experiment_memory(
                     "specification_fingerprint": run_fact.get("specification_fingerprint"),
                     "research_result_fingerprint": item.identity,
                     "artifact_content_fingerprint": artifact,
+                    "catalog_generation_fingerprint": catalog,
                     "runtime_generation_fingerprint": generation,
                     "authoring_generation_fingerprint": authoring_generation,
                     "calculation_execution_evidence_fingerprints": evidence,
@@ -595,9 +614,6 @@ def only_project_experiment_memory(
                 cast(Mapping[str, str], closure["run_source_ref"])["locator"],
             )
         )
-        for provenance in authoring:
-            if isinstance(provenance, Mapping):
-                exact(OnlyMemoryReferenceKind.AUTHORING_GENERATION, provenance.get("execution_generation_fingerprint"))
         for candidate in candidates:
             if not isinstance(candidate, Mapping):
                 raise OnlyMemoryProjectionError("SOURCE_OBSERVATION_MISMATCH")

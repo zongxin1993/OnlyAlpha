@@ -54,6 +54,9 @@ class _RuntimeManifest(Protocol):
     @property
     def runtime_generation_fingerprint(self) -> str: ...
 
+    @property
+    def catalog_generation_fingerprint(self) -> str: ...
+
 
 class OnlyExactAuthoringGenerationReader(Protocol):
     def load_descriptor_verified(self, fingerprint: str) -> Mapping[str, object]: ...
@@ -267,7 +270,16 @@ class _BoundReferenceReader:
             self._require(binding.work_id == identity and isinstance(generation, str))
             manifest = owners.runtime_generations.require_runtime_generation(generation)
             self._require(manifest.runtime_generation_fingerprint == generation)
-            return {"work_id": identity, "runtime_generation_fingerprint": generation}
+            catalog = manifest.catalog_generation_fingerprint
+            self._require(
+                isinstance(catalog, str) and len(catalog) == 64 and all(char in "0123456789abcdef" for char in catalog)
+            )
+            self._load(OnlyMemoryReferenceKind.CATALOG_GENERATION, catalog)
+            return {
+                "work_id": identity,
+                "runtime_generation_fingerprint": generation,
+                "catalog_generation_fingerprint": catalog,
+            }
         if kind is OnlyMemoryReferenceKind.AUTHORING_GENERATION:
             descriptor = owners.authoring_generations.load_descriptor_verified(identity)
             self._require(descriptor.get("execution_generation_fingerprint") == identity)

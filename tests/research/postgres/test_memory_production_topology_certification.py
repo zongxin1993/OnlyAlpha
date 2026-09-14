@@ -804,6 +804,13 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     assert completed_closure["research_result_fingerprint"] == chain["research"]
     assert completed_closure["artifact_content_fingerprint"] == "c" * 64
     assert completed_closure["runtime_generation_fingerprint"] == runtime_fingerprint
+    assert completed_closure["catalog_generation_fingerprint"] == generation.generation_fingerprint
+    assert (
+        runtime_generations.require_runtime_generation(
+            runtime_generations.require_work_binding(run_id.value).runtime_generation_fingerprint
+        ).catalog_generation_fingerprint
+        == completed_closure["catalog_generation_fingerprint"]
+    )
     assert completed_closure["authoring_generation_fingerprint"] == authoring.execution_generation_fingerprint
     assert completed_closure["calculation_execution_evidence_fingerprints"] == ["d" * 64]
     assert completed_closure["run_source_ref"]["source_family"] == "RESEARCH_RUN"
@@ -835,6 +842,13 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     assert failed_closure["research_result_fingerprint"] == chain["research"]
     assert failed_closure["artifact_content_fingerprint"] is None
     assert failed_closure["runtime_generation_fingerprint"] == runtime_fingerprint
+    assert failed_closure["catalog_generation_fingerprint"] == generation.generation_fingerprint
+    assert (
+        runtime_generations.require_runtime_generation(
+            runtime_generations.require_work_binding(failed.run_id.value).runtime_generation_fingerprint
+        ).catalog_generation_fingerprint
+        == failed_closure["catalog_generation_fingerprint"]
+    )
     assert failed_closure["authoring_generation_fingerprint"] == authoring.execution_generation_fingerprint
     assert failed_closure["calculation_execution_evidence_fingerprints"] == []
     assert failed_closure["run_source_ref"]["source_family"] == "RESEARCH_RUN"
@@ -890,6 +904,20 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     )
     assert rebuilt["manifest"] == initial.source_manifest.manifest_fingerprint
     assert rebuilt["records"] == [record.to_dict() for record in initial.records]
+    rebuilt_evaluation = next(
+        record
+        for record in rebuilt["records"]
+        if record["kind"] == "EvaluationProjectionRecord"
+        and record["facets"]["research_result_fingerprint"] == chain["research"]
+        and record["facets"]["run_evaluation_closures"]
+    )
+    assert {
+        closure["run_id"]: closure["catalog_generation_fingerprint"]
+        for closure in rebuilt_evaluation["facets"]["run_evaluation_closures"]
+    } == {
+        run_id.value: completed_closure["catalog_generation_fingerprint"],
+        failed.run_id.value: failed_closure["catalog_generation_fingerprint"],
+    }
     assert rebuilt["logical_digest"] == initial.logical_digest
     assert rebuilt["revision"] == initial.revision_fingerprint
     assert source_snapshot == tuple(

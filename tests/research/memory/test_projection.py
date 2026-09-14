@@ -595,7 +595,7 @@ def test_evaluation_statistics_are_candidate_scoped_not_global_result_membership
     assert {ref.identity for ref in evaluation.source_refs if ref.source_family == "RESEARCH_STATISTICS"} == {"3" * 64}
 
 
-def test_evaluation_closures_bind_each_historical_run_without_cross_association() -> None:
+def test_evaluation_closures_bind_each_historical_run_without_cross_association(tmp_path: Path) -> None:
     readers = _empty_readers()
     result = "a" * 64
     _with_fact(
@@ -617,7 +617,7 @@ def test_evaluation_closures_bind_each_historical_run_without_cross_association(
     run2 = "00000000-0000-4000-8000-000000000002"
     run3 = "00000000-0000-4000-8000-000000000003"
 
-    def row(run_id: str, revision: int, state: str, spec: str, authoring: str, artifact: str | None):
+    def row(run_id: str, revision: int, state: str, spec: str, authoring: str | None, artifact: str | None):
         return {
             "source_row": {
                 "run_id": run_id,
@@ -626,7 +626,14 @@ def test_evaluation_closures_bind_each_historical_run_without_cross_association(
                 "specification_fingerprint": spec,
                 "research_result_fingerprint": result,
                 "artifact_content_fingerprint": artifact,
-                "authoring_provenance": {"execution_generation_fingerprint": authoring},
+                "authoring_provenance": (
+                    {
+                        "execution_generation_fingerprint": authoring,
+                        "catalog_generation_fingerprint": ("a" if authoring == "5" * 64 else "b") * 64,
+                    }
+                    if authoring is not None
+                    else None
+                ),
                 "calculation_execution_evidence_fingerprints": ["8" * 64] if artifact else [],
             }
         }
@@ -637,22 +644,33 @@ def test_evaluation_closures_bind_each_historical_run_without_cross_association(
             ("00000000000000000001", "1" * 64, row(run1, 2, "RUNNING", "3" * 64, "5" * 64, None)),
             ("00000000000000000002", "2" * 64, row(run1, 3, "FAILED", "3" * 64, "5" * 64, None)),
             ("00000000000000000003", "3" * 64, row(run2, 2, "COMPLETED", "4" * 64, "6" * 64, "7" * 64)),
-            ("00000000000000000004", "4" * 64, row(run3, 2, "CANCELLED", "4" * 64, "6" * 64, None)),
+            ("00000000000000000004", "4" * 64, row(run3, 2, "CANCELLED", "4" * 64, None, None)),
         ],
     )
     manifest = OnlyExperimentMemorySourceCutManifestV1.from_cuts([reader.cut for reader in readers.values()])
 
     def reference(kind: str, identity: str):
         if kind == "RUNTIME_WORK_BINDING":
-            return {"runtime_generation_fingerprint": ("9" if identity == run1 else "f") * 64}
+            generation, catalog = ("9", "a") if identity == run1 else ("f", "b") if identity == run2 else ("7", "c")
+            return {
+                "work_id": identity,
+                "runtime_generation_fingerprint": generation * 64,
+                "catalog_generation_fingerprint": catalog * 64,
+            }
+        if kind == "AUTHORING_GENERATION":
+            return {
+                "execution_generation_fingerprint": identity,
+                "provenance": {"catalog_generation_fingerprint": ("a" if identity == "5" * 64 else "b") * 64},
+            }
         return {}
 
     def build():
         return only_build_experiment_memory_projection(manifest, readers, reference)
 
     projection = build()
-    assert (PROJECTION_SCHEMA_VERSION, PROJECTOR_ALGORITHM_VERSION) == (2, 2)
+    assert (PROJECTION_SCHEMA_VERSION, PROJECTOR_ALGORITHM_VERSION) == (3, 3)
     evaluation = next(record for record in projection.records if record.kind == "EvaluationProjectionRecord")
+    assert evaluation.facets["catalog_generation_refs"] == ["a" * 64, "b" * 64]
     closures = evaluation.facets["run_evaluation_closures"]
     assert [(c["run_id"], c["run_revision"], c["run_state"]) for c in closures] == [
         (run1, 2, "RUNNING"),
@@ -664,21 +682,39 @@ def test_evaluation_closures_bind_each_historical_run_without_cross_association(
         (
             c["specification_fingerprint"],
             c["runtime_generation_fingerprint"],
+            c["catalog_generation_fingerprint"],
             c["authoring_generation_fingerprint"],
             c["artifact_content_fingerprint"],
         )
         for c in closures
     ] == [
-        ("3" * 64, "9" * 64, "5" * 64, None),
-        ("3" * 64, "9" * 64, "5" * 64, None),
-        ("4" * 64, "f" * 64, "6" * 64, "7" * 64),
-        ("4" * 64, "f" * 64, "6" * 64, None),
+        ("3" * 64, "9" * 64, "a" * 64, "5" * 64, None),
+        ("3" * 64, "9" * 64, "a" * 64, "5" * 64, None),
+        ("4" * 64, "f" * 64, "b" * 64, "6" * 64, "7" * 64),
+        ("4" * 64, "7" * 64, "c" * 64, None, None),
     ]
+    assert closures[0]["catalog_generation_fingerprint"] != "b" * 64
+    assert closures[2]["catalog_generation_fingerprint"] != "a" * 64
+    assert closures[3]["authoring_generation_fingerprint"] is None
     assert [c["calculation_execution_evidence_fingerprints"] for c in closures] == [[], [], ["8" * 64], []]
     assert [c["run_source_ref"]["locator"] for c in closures] == [f"{i:020d}" for i in range(1, 5)]
     readers["RESEARCH_RUN"].observations = tuple(reversed(readers["RESEARCH_RUN"].observations))
     assert build().logical_digest == projection.logical_digest
     assert build().revision_fingerprint == projection.revision_fingerprint
+
+    def mismatched_reference(kind: str, identity: str):
+        if kind == "AUTHORING_GENERATION":
+            return {
+                "execution_generation_fingerprint": identity,
+                "provenance": {"catalog_generation_fingerprint": "e" * 64},
+            }
+        return reference(kind, identity)
+
+    store = OnlyExperimentMemoryRevisionStore(tmp_path / "experiment-memory")
+    store.publish_and_activate(manifest, readers, reference)
+    with pytest.raises(OnlyMemoryProjectionError, match="REFERENCE_AUTHORITY_UNAVAILABLE"):
+        store.publish_and_activate(manifest, readers, mismatched_reference)
+    assert store.load_active_verified() == projection
 
     _set_facts(
         readers["RESEARCH_RUN"],
