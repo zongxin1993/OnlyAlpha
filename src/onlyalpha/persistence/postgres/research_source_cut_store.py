@@ -1,4 +1,4 @@
-"""PostgreSQL Research owners' transactional, historical closed-cut readers."""
+"""PostgreSQL Research source-history store's transactional closed-cut readers."""
 
 from __future__ import annotations
 

@@ -61,3 +61,13 @@ def test_generic_file_publisher_is_internal_to_owning_source_stores() -> None:
 
     assert not hasattr(source_cut, "OnlyFileSourceCutAuthority")
     assert hasattr(source_cut, "_OnlyFileSourceCutAuthority")
+
+
+def test_postgres_research_source_cut_store_has_one_research_application_actor() -> None:
+    from tests.architecture._product_authority_contract import load_authority_contract
+
+    contract = load_authority_contract(ROOT / "docs/architecture/product_authority_contract.toml")
+    path = "src/onlyalpha/persistence/postgres/research_source_cut_store.py"
+    assert (ROOT / path).is_file()
+    assert contract.is_sensitive_path(path)
+    assert contract.classify_path(path).id == "A16"

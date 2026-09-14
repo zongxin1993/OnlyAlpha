@@ -23,7 +23,7 @@ from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthor
 from onlyalpha.persistence.postgres.product_command_authority import OnlyPostgresProductCommandAuthority
 from onlyalpha.persistence.postgres.research_execution_store import OnlyPostgresResearchExecutionStore
 from onlyalpha.persistence.postgres.research_run_store import OnlyPostgresResearchRunStore
-from onlyalpha.persistence.postgres.research_source_cut import OnlyPostgresResearchSourceCutAuthority
+from onlyalpha.persistence.postgres.research_source_cut_store import OnlyPostgresResearchSourceCutAuthority
 from onlyalpha.research.execution import OnlyResearchRunAttemptId, OnlyResearchWorkerInstanceId
 from onlyalpha.research.source_cut import OnlySourceCutError
 from tests.research.postgres.migration_support import copy_migrations_through
@@ -58,7 +58,7 @@ def test_transactional_run_cut_preserves_baseline_and_later_revision(postgres_ds
 
     program = (
         "import sys\n"
-        "from onlyalpha.persistence.postgres.research_source_cut import OnlyPostgresResearchSourceCutAuthority\n"
+        "from onlyalpha.persistence.postgres.research_source_cut_store import OnlyPostgresResearchSourceCutAuthority\n"
         "cut = OnlyPostgresResearchSourceCutAuthority(sys.argv[1]).load_closed_cut_verified(sys.argv[2], 'RESEARCH_RUN')\n"
         "print(cut.cut_fingerprint)\n"
     )
