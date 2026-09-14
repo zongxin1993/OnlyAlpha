@@ -692,6 +692,9 @@ actor = "A16"
 pattern = "src/onlyalpha/research/job/*.py"
 actor = "A16"
 [[actor_paths]]
+pattern = "src/onlyalpha/research/memory/*.py"
+actor = "A16"
+[[actor_paths]]
 pattern = "src/onlyalpha/research/sweep/executor.py"
 actor = "A16"
 [[actor_paths]]

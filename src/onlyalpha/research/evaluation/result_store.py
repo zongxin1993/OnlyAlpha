@@ -19,6 +19,7 @@ import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from onlyalpha.research.calculation.result import OnlyResearchCalculationResult
 from onlyalpha.research.source_cut import (
     OnlySourceClosedCutV1,
+    OnlySourceObservationV1,
     _OnlyFileSourceCutAuthority,
     only_source_publication,
 )
@@ -89,6 +90,9 @@ class OnlyParquetResearchStatisticsResultStore:
 
     def load_closed_cut_verified(self, fingerprint: str) -> OnlySourceClosedCutV1:
         return self._source_cuts.load_closed_cut_verified(fingerprint)
+
+    def iter_closed_cut_observations_verified(self, fingerprint: str) -> tuple[OnlySourceObservationV1, ...]:
+        return self._source_cuts.iter_closed_cut_observations_verified(fingerprint)
 
     def _cut_read(self, locator: str) -> tuple[str, dict[str, object]]:
         manifest = self.load_verified(locator).manifest

@@ -51,6 +51,11 @@ class OnlyUserDataLayout:
         return self.research_root / "artifacts"
 
     @property
+    def experiment_memory_projection_root(self) -> Path:
+        """Disposable derived state, distinct from every Research source authority."""
+        return self.research_root / "experiment-memory"
+
+    @property
     def research_dataset_economic_binding_root(self) -> Path:
         return self.research_root / "dataset-economic-bindings"
 

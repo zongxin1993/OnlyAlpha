@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import uvicorn
+from onlyalpha_authoring_execution_worker.generation import OnlyAuthoringExecutionGenerationStore
 from onlyalpha_runtime_generation_manager import (
     OnlyHistoricalGenerationHostManager,
     OnlyLocalImmutableArtifactStore,
@@ -70,7 +71,9 @@ from onlyalpha.persistence.postgres import (
     only_assert_supported_postgres_server,
 )
 from onlyalpha.persistence.postgres.backtest_store import OnlyPostgresBacktestStore
+from onlyalpha.persistence.postgres.research_source_cut_store import OnlyPostgresResearchSourceCutAuthority
 from onlyalpha.persistence.postgres.strategy_product_store import OnlyPostgresStrategyProductStore
+from onlyalpha.research.agent.source_cut import OnlyAgentProvenanceClosedCutAuthority
 from onlyalpha.research.artifact.reader import OnlyResearchArtifactProfileReader
 from onlyalpha.research.calculation.result_store import OnlyParquetResearchCalculationResultStore
 from onlyalpha.research.command.query import OnlyResearchRunQueryService
@@ -89,6 +92,12 @@ from onlyalpha.research.experiment import (
     OnlySearchExperimentManifestV2,
     OnlySearchExperimentManifestV3,
 )
+from onlyalpha.research.memory.production import (
+    OnlyCapturableMemoryCutReader,
+    OnlyExperimentMemoryProductionBuilder,
+    OnlyExperimentMemoryReferenceReadersV1,
+)
+from onlyalpha.research.memory.store import OnlyExperimentMemoryRevisionStore
 from onlyalpha.research.operations.deployment import (
     OnlyResearchDeploymentCoherenceVerifier,
     OnlyResearchFrozenDeploymentCheck,
@@ -125,6 +134,7 @@ from onlyalpha.research.search.symbolic.store import OnlyJsonSymbolicSearchStore
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 from onlyalpha.strategy.qualification import OnlyQualificationEvaluator, OnlyQualificationPolicyRevision
 from onlyalpha.strategy.qualification_store import (
+    OnlyQualificationDecisionStore,
     OnlyQualificationPolicyStore,
     _only_compose_qualification_decision_authority,
 )
@@ -353,6 +363,58 @@ def _compose_search_product(
     )
 
 
+def _compose_experiment_memory_projection_builder(
+    *,
+    layout: OnlyUserDataLayout,
+    postgres_dsn: str,
+    search: OnlyJsonSearchProvenanceStore,
+    results: OnlyJsonResearchResultStore,
+    statistics: OnlyParquetResearchStatisticsResultStore,
+    factor_pair_statistics: OnlyParquetResearchFactorPairStatisticsResultStore,
+    summary_statistics: OnlyJsonResearchSummaryStatisticsResultStore,
+    qualification_decisions: OnlyQualificationDecisionStore,
+    datasets: OnlyParquetResearchDatasetSnapshotStore,
+    catalogs: OnlyRuntimeGenerationExactCatalogDescriptorReader,
+    calculations: OnlyParquetResearchCalculationResultStore,
+    runtime_generations: OnlyRuntimeGenerationRegistry,
+    authoring_generation_root: Path,
+) -> OnlyExperimentMemoryProductionBuilder:
+    """The Product root fixes all eleven owners; no external reference callback enters."""
+    postgres = OnlyPostgresResearchSourceCutAuthority(postgres_dsn)
+    sources: dict[str, OnlyCapturableMemoryCutReader] = {
+        "SEARCH_PROVENANCE": search,
+        "AGENT_PROVENANCE": OnlyAgentProvenanceClosedCutAuthority(layout.research_root),
+        "RESEARCH_RESULT": results,
+        "RESEARCH_STATISTICS": statistics,
+        "RESEARCH_FACTOR_PAIR_STATISTICS": factor_pair_statistics,
+        "RESEARCH_SUMMARY_STATISTICS": summary_statistics,
+        "QUALIFICATION_DECISION": qualification_decisions,
+        **{
+            family: postgres.for_family(family)
+            for family in (
+                "RESEARCH_RUN",
+                "RESEARCH_ATTEMPT",
+                "PRODUCT_COMMAND_ADMISSION",
+                "PRODUCT_COMMAND_RECEIPT",
+            )
+        },
+    }
+    references = OnlyExperimentMemoryReferenceReadersV1(
+        datasets,
+        catalogs,
+        OnlyJsonSymbolicSearchStore(layout.research_root),
+        OnlyJsonParameterSearchStore(layout.research_root),
+        calculations,
+        runtime_generations,
+        OnlyAuthoringExecutionGenerationStore(authoring_generation_root),
+        OnlyQualificationPolicyStore(layout.research_root),
+        OnlyBacktestEvidenceStore(layout.root),
+    )
+    return OnlyExperimentMemoryProductionBuilder(
+        sources, references, OnlyExperimentMemoryRevisionStore(layout.experiment_memory_projection_root)
+    )
+
+
 def _verify_postgres_server(operational_dsn: str) -> None:
     only_assert_supported_postgres_server(operational_dsn)
 
@@ -449,6 +511,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="verified operator-owned Product configuration document; repeat for each Market Product",
     )
     parser.add_argument("--runtime-generation-authority-root", type=Path, required=True)
+    parser.add_argument("--authoring-generation-root", type=Path)
     parser.add_argument("--agent-node-url")
     parser.add_argument("--agent-control-token-file", type=Path)
     parser.add_argument(
@@ -712,6 +775,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                 runtime_generations=runtime_generations,
                 generation_host=generation_host,
             )
+            memory_builder = _compose_experiment_memory_projection_builder(
+                layout=layout,
+                postgres_dsn=postgres.dsn,
+                search=search_provenance,
+                results=research_results,
+                statistics=legacy_statistics_results,
+                factor_pair_statistics=factor_pair_statistics_results,
+                summary_statistics=summary_statistics_results,
+                qualification_decisions=qualification_decisions,
+                datasets=dataset_store,
+                catalogs=exact_catalog_reader,
+                calculations=calculation_results,
+                runtime_generations=runtime_generations,
+                authoring_generation_root=args.authoring_generation_root
+                or layout.research_root / "authoring-generations",
+            )
         product_boundary = only_compose_research_product_boundary(
             admission=kernel,
             commands=command,
@@ -760,6 +839,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 OnlyJsonParameterSearchStore(layout.research_root),
             ),
         )
+        if startup_status.state is OnlyKernelState.READY:
+            app.state.experiment_memory_projection_builder = memory_builder
         uvicorn.run(app, host=args.host, port=args.port)
     finally:
         generation_host.close()

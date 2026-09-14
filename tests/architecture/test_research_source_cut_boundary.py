@@ -71,3 +71,53 @@ def test_postgres_research_source_cut_store_has_one_research_application_actor()
     assert (ROOT / path).is_file()
     assert contract.is_sensitive_path(path)
     assert contract.classify_path(path).id == "A16"
+
+
+def test_memory_modules_have_one_research_actor_and_no_direct_source_io() -> None:
+    import ast
+
+    from tests.architecture._product_authority_contract import load_authority_contract
+
+    contract = load_authority_contract(ROOT / "docs/architecture/product_authority_contract.toml")
+    for source in (ROOT / "src/onlyalpha/research/memory").glob("*.py"):
+        relative = source.relative_to(ROOT).as_posix()
+        assert contract.classify_path(relative).id == "A16"
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        imports = [node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)]
+        assert not any("psycopg" in name or "persistence.postgres" in name for name in imports)
+        if source.name == "projector.py":
+            assert not any(
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in {"iterdir", "glob", "rglob", "scandir", "execute", "connect"}
+                for node in ast.walk(tree)
+            )
+
+
+def test_product_memory_composition_has_fixed_owners_and_no_callback_parameter() -> None:
+    import ast
+
+    source = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    composition = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_compose_experiment_memory_projection_builder"
+    )
+    parameters = {argument.arg for argument in (*composition.args.args, *composition.args.kwonlyargs)}
+    assert "verify_exact_reference" not in parameters
+    assert "source_readers" not in parameters
+    assert {
+        "search",
+        "results",
+        "statistics",
+        "factor_pair_statistics",
+        "summary_statistics",
+        "qualification_decisions",
+        "datasets",
+        "catalogs",
+        "calculations",
+        "runtime_generations",
+        "authoring_generation_root",
+        "postgres_dsn",
+    } <= parameters

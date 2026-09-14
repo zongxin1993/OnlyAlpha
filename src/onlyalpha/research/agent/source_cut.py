@@ -7,7 +7,12 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import cast
 
-from onlyalpha.research.source_cut import OnlySourceClosedCutV1, OnlySourceCutError, _OnlyFileSourceCutAuthority
+from onlyalpha.research.source_cut import (
+    OnlySourceClosedCutV1,
+    OnlySourceCutError,
+    OnlySourceObservationV1,
+    _OnlyFileSourceCutAuthority,
+)
 
 from .decision import OnlyAgentDecisionV1, OnlyAgentExperimentLaunchRecordV1
 from .decision_store import _DecisionLocatorV1
@@ -60,6 +65,9 @@ class OnlyAgentProvenanceClosedCutAuthority:
 
     def load_closed_cut_verified(self, fingerprint: str) -> OnlySourceClosedCutV1:
         return self._source_cuts.load_closed_cut_verified(fingerprint)
+
+    def iter_closed_cut_observations_verified(self, fingerprint: str) -> tuple[OnlySourceObservationV1, ...]:
+        return self._source_cuts.iter_closed_cut_observations_verified(fingerprint)
 
     def _inventory(self) -> tuple[str, ...]:
         if not self._root.exists():

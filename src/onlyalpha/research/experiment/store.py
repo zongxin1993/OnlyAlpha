@@ -15,7 +15,12 @@ from pathlib import Path
 from typing import TypeVar
 
 from onlyalpha.canonical import only_canonical_json
-from onlyalpha.research.source_cut import OnlySourceClosedCutV1, OnlySourceCutError, _OnlyFileSourceCutAuthority
+from onlyalpha.research.source_cut import (
+    OnlySourceClosedCutV1,
+    OnlySourceCutError,
+    OnlySourceObservationV1,
+    _OnlyFileSourceCutAuthority,
+)
 
 from .errors import OnlySearchProvenanceError, OnlySearchProvenanceStoreError
 from .model import (
@@ -421,6 +426,9 @@ class OnlyJsonSearchProvenanceStore:
 
     def load_closed_cut_verified(self, fingerprint: str) -> OnlySourceClosedCutV1:
         return self._source_cuts.load_closed_cut_verified(fingerprint)
+
+    def iter_closed_cut_observations_verified(self, fingerprint: str) -> tuple[OnlySourceObservationV1, ...]:
+        return self._source_cuts.iter_closed_cut_observations_verified(fingerprint)
 
     def _cut_inventory(self) -> tuple[str, ...]:
         locators: list[str] = []

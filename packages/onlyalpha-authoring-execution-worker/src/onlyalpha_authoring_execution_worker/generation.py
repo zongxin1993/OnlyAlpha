@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from onlyalpha.canonical import only_canonical_json
+from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration
 from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 from onlyalpha.research.run.errors import OnlyResearchRunAdmissionError
@@ -90,6 +91,43 @@ class OnlyAuthoringExecutionGenerationStore:
         if actual != expected:
             raise ValueError("AUTHORING_EXECUTION_GENERATION_MISMATCH")
         return target
+
+    def load_descriptor_verified(self, fingerprint: str) -> dict[str, object]:
+        """Read immutable generation admission evidence by exact identity, without hosting code."""
+        if len(fingerprint) != 64 or any(char not in "0123456789abcdef" for char in fingerprint):
+            raise ValueError("AUTHORING_EXECUTION_GENERATION_IDENTITY_INVALID")
+        target = self.root / f"{fingerprint}.json"
+        if self.root.is_symlink() or target.is_symlink():
+            raise ValueError("AUTHORING_EXECUTION_GENERATION_MISMATCH")
+        try:
+            raw = target.read_text(encoding="utf-8")
+            descriptor = json.loads(raw)
+            if (
+                not isinstance(descriptor, dict)
+                or set(descriptor) != {"schema_version", "execution_generation_fingerprint", "provenance", "catalog"}
+                or raw != only_canonical_json(descriptor) + "\n"
+            ):
+                raise ValueError("descriptor is not canonical")
+            provenance_raw = descriptor["provenance"]
+            catalog = descriptor["catalog"]
+            if not isinstance(provenance_raw, dict) or not isinstance(catalog, dict):
+                raise ValueError("descriptor fields")
+            provenance = OnlyResearchAuthoringProvenance.from_dict(provenance_raw)
+            if (
+                descriptor["schema_version"] != 1
+                or descriptor["execution_generation_fingerprint"] != fingerprint
+                or provenance.identity_dict() != provenance_raw
+                or provenance.execution_generation_fingerprint != fingerprint
+                or catalog.get("generation_fingerprint") != provenance.catalog_generation_fingerprint
+                or only_canonical_fingerprint(
+                    {key: value for key, value in catalog.items() if key != "generation_fingerprint"}
+                )
+                != provenance.catalog_generation_fingerprint
+            ):
+                raise ValueError("descriptor identity")
+            return descriptor
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            raise ValueError("AUTHORING_EXECUTION_GENERATION_NOT_FOUND_OR_CORRUPT") from exc
 
 
 class OnlyAuthoringExecutionGenerationRegistry:

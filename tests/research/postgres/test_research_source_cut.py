@@ -10,6 +10,13 @@ from threading import Event, Thread
 
 import psycopg
 import pytest
+from onlyalpha_http_server.main import _compose_experiment_memory_projection_builder, _GenerationOwnedCatalogReader
+from onlyalpha_runtime_generation_manager import (
+    OnlyLocalImmutableArtifactStore,
+    OnlyRuntimeGenerationBuilder,
+    OnlyRuntimeGenerationRegistry,
+)
+from onlyalpha_runtime_generation_manager.catalog_context import OnlyRuntimeGenerationExactCatalogDescriptorReader
 
 from onlyalpha.application.product_command_receipt import (
     OnlyProductCommandAdmissionV1,
@@ -19,13 +26,22 @@ from onlyalpha.application.product_command_receipt import (
     OnlyProductCommandOutcomeRef,
     OnlyProductCommandReceipt,
 )
+from onlyalpha.output.user_data import OnlyUserDataLayout
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from onlyalpha.persistence.postgres.product_command_authority import OnlyPostgresProductCommandAuthority
 from onlyalpha.persistence.postgres.research_execution_store import OnlyPostgresResearchExecutionStore
 from onlyalpha.persistence.postgres.research_run_store import OnlyPostgresResearchRunStore
 from onlyalpha.persistence.postgres.research_source_cut_store import OnlyPostgresResearchSourceCutAuthority
+from onlyalpha.research.calculation.result_store import OnlyParquetResearchCalculationResultStore
+from onlyalpha.research.dataset.parquet_store import OnlyParquetResearchDatasetSnapshotStore
+from onlyalpha.research.evaluation.factor_pair.result_store import OnlyParquetResearchFactorPairStatisticsResultStore
+from onlyalpha.research.evaluation.result_store import OnlyParquetResearchStatisticsResultStore
+from onlyalpha.research.evaluation.summary.result_store import OnlyJsonResearchSummaryStatisticsResultStore
 from onlyalpha.research.execution import OnlyResearchRunAttemptId, OnlyResearchWorkerInstanceId
+from onlyalpha.research.experiment.store import OnlyJsonSearchProvenanceStore
+from onlyalpha.research.result.result_store import OnlyJsonResearchResultStore
 from onlyalpha.research.source_cut import OnlySourceCutError
+from onlyalpha.strategy.qualification_store import OnlyQualificationDecisionStore
 from tests.research.postgres.migration_support import copy_migrations_through
 from tests.research.postgres.test_postgres_authority import NOW, _queued
 
@@ -55,16 +71,29 @@ def test_transactional_run_cut_preserves_baseline_and_later_revision(postgres_ds
     assert len(newer.entries) == 2
     assert source.load_closed_cut_verified(old.cut_fingerprint, "RESEARCH_RUN") == old
     assert source.load_closed_cut_verified(newer.cut_fingerprint, "RESEARCH_RUN") == newer
+    historical = source.for_family("RESEARCH_RUN").iter_closed_cut_observations_verified(old.cut_fingerprint)
+    assert len(historical) == 1
+    assert historical[0].locator == old.entries[0].locator
+    assert historical[0].content_fingerprint == old.entries[0].content_fingerprint
+    assert historical[0].canonical_payload["source_row"]["revision"] == 0
+    assert (
+        source.iter_closed_cut_observations_verified(newer.cut_fingerprint, "RESEARCH_RUN")[1].canonical_payload[
+            "source_row"
+        ]["revision"]
+        == 1
+    )
 
     program = (
         "import sys\n"
         "from onlyalpha.persistence.postgres.research_source_cut_store import OnlyPostgresResearchSourceCutAuthority\n"
-        "cut = OnlyPostgresResearchSourceCutAuthority(sys.argv[1]).load_closed_cut_verified(sys.argv[2], 'RESEARCH_RUN')\n"
-        "print(cut.cut_fingerprint)\n"
+        "authority = OnlyPostgresResearchSourceCutAuthority(sys.argv[1])\n"
+        "cut = authority.load_closed_cut_verified(sys.argv[2], 'RESEARCH_RUN')\n"
+        "observations = authority.iter_closed_cut_observations_verified(sys.argv[2], 'RESEARCH_RUN')\n"
+        "print(cut.cut_fingerprint, observations[0].canonical_payload['source_row']['revision'])\n"
     )
     assert (
         subprocess.check_output([sys.executable, "-c", program, postgres_dsn, old.cut_fingerprint], text=True).strip()
-        == old.cut_fingerprint
+        == f"{old.cut_fingerprint} 0"
     )
 
     with psycopg.connect(postgres_dsn) as connection:
@@ -131,6 +160,85 @@ def test_attempt_and_product_admission_cuts_survive_later_changes(postgres_dsn: 
     assert restarted.load_closed_cut_verified(active.cut_fingerprint, "RESEARCH_ATTEMPT") == active
     assert restarted.load_closed_cut_verified(admitted.cut_fingerprint, "PRODUCT_COMMAND_ADMISSION") == admitted
     assert restarted.load_closed_cut_verified(received.cut_fingerprint, "PRODUCT_COMMAND_RECEIPT") == received
+
+
+def test_product_composition_captures_real_mixed_owner_topology(postgres_dsn: str, tmp_path: Path) -> None:
+    """The canonical composition binds owner ports, including four real journal families."""
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    layout = OnlyUserDataLayout(tmp_path / "user-data")
+    datasets = OnlyParquetResearchDatasetSnapshotStore(layout.research_dataset_root)
+    calculations = OnlyParquetResearchCalculationResultStore(layout.research_calculation_result_root, datasets)
+    statistics = OnlyParquetResearchStatisticsResultStore(layout.research_statistics_result_root, calculations)
+    pair = OnlyParquetResearchFactorPairStatisticsResultStore(layout.research_statistics_result_root, calculations)
+    summary = OnlyJsonResearchSummaryStatisticsResultStore(
+        layout.research_statistics_result_root, statistics, factor_pair_source_store=pair
+    )
+    results = OnlyJsonResearchResultStore(layout.research_result_root, statistics, calculations)
+    generations_root = tmp_path / "runtime-generations"
+    generations = OnlyRuntimeGenerationRegistry(generations_root)
+    catalog = OnlyRuntimeGenerationExactCatalogDescriptorReader(
+        generations,
+        OnlyRuntimeGenerationBuilder(
+            OnlyLocalImmutableArtifactStore(generations_root / "artifacts"), Path(sys.executable)
+        ),
+        generations_root / "catalog-context-cache",
+    )
+    search = OnlyJsonSearchProvenanceStore(
+        layout.research_root, catalogs=_GenerationOwnedCatalogReader(), datasets=datasets
+    )
+    builder = _compose_experiment_memory_projection_builder(
+        layout=layout,
+        postgres_dsn=postgres_dsn,
+        search=search,
+        results=results,
+        statistics=statistics,
+        factor_pair_statistics=pair,
+        summary_statistics=summary,
+        qualification_decisions=OnlyQualificationDecisionStore(layout.research_root),
+        datasets=datasets,
+        catalogs=catalog,
+        calculations=calculations,
+        runtime_generations=generations,
+        authoring_generation_root=tmp_path / "authoring-generations",
+    )
+    run = _queued("00000000-0000-4000-8000-000000000921")
+    OnlyPostgresResearchRunStore(postgres_dsn).create_queued(run)
+    admission = OnlyProductCommandAdmissionV1(
+        OnlyProductCommandId("00000000-0000-4000-8000-000000000922"),
+        OnlyProductCommandKind.CREATE_RESEARCH_RUN,
+        "a" * 64,
+    )
+    product = OnlyPostgresProductCommandAuthority(postgres_dsn)
+    product.admit_exact(admission)
+    product.put_verified_receipt(
+        OnlyProductCommandReceipt(
+            admission.command_id,
+            admission.command_kind,
+            admission.command_fingerprint,
+            OnlyProductCommandOutcomeRef(OnlyProductCommandOutcomeKind.RESEARCH_RUN, run.run_id.value),
+            NOW,
+        )
+    )
+    assert (
+        OnlyPostgresResearchExecutionStore(postgres_dsn).claim_next(
+            worker_instance_id=OnlyResearchWorkerInstanceId("00000000-0000-4000-8002-000000000921"),
+            attempt_id=OnlyResearchRunAttemptId("00000000-0000-4000-8001-000000000921"),
+            lease_duration=timedelta(minutes=2),
+            max_attempts=3,
+            run_started_at=NOW + timedelta(seconds=1),
+        )
+        is not None
+    )
+    manifest = builder.capture_manifest()
+    assert len(manifest.cuts) == 11
+    assert all(
+        len(builder._sources[cut.source_family].load_closed_cut_verified(cut.cut_fingerprint).entries) > 0
+        for cut in manifest.cuts
+        if cut.source_family
+        in {"RESEARCH_RUN", "RESEARCH_ATTEMPT", "PRODUCT_COMMAND_ADMISSION", "PRODUCT_COMMAND_RECEIPT"}
+    )
+    projection = builder.publish_and_activate(manifest)
+    assert projection.revision_fingerprint == builder._revisions.load_active_verified().revision_fingerprint
 
 
 def test_postgres_capture_waits_for_uncommitted_writer(postgres_dsn: str) -> None:

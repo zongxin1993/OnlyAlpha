@@ -24,6 +24,27 @@ class OnlySourceCutError(ValueError):
     """A source cannot certify or verify the requested closed cut."""
 
 
+@dataclass(frozen=True, slots=True)
+class OnlySourceObservationV1:
+    """Ephemeral owner-verified historical fact; never a second durable authority."""
+
+    source_family: str
+    source_schema_version: int
+    cut_fingerprint: str
+    locator: str
+    identity: str
+    content_fingerprint: str
+    canonical_payload: Mapping[str, object]
+
+    def __post_init__(self) -> None:
+        if not self.source_family or self.source_schema_version < 1 or not self.locator:
+            raise OnlySourceCutError("SOURCE_OBSERVATION_MISMATCH")
+        if not all(_sha(value) for value in (self.cut_fingerprint, self.identity, self.content_fingerprint)):
+            raise OnlySourceCutError("SOURCE_OBSERVATION_MISMATCH")
+        if only_canonical_fingerprint(self.canonical_payload) != self.content_fingerprint:
+            raise OnlySourceCutError("SOURCE_OBSERVATION_MISMATCH")
+
+
 def only_source_publication[**P, T](method: Callable[P, T]) -> Callable[P, T]:
     """Wrap the complete owner write path, before any owner-local coordination lock."""
 
@@ -232,6 +253,31 @@ class _OnlyFileSourceCutAuthority:
             return cut
         except Exception as exc:
             raise OnlySourceCutError("SOURCE_CUT_CORRUPT") from exc
+
+    def iter_closed_cut_observations_verified(self, fingerprint: str) -> tuple[OnlySourceObservationV1, ...]:
+        cut = self.load_closed_cut_verified(fingerprint)
+        observations: list[OnlySourceObservationV1] = []
+        for entry in cut.entries:
+            try:
+                identity, payload = self._read(entry.locator)
+                if identity != entry.identity or only_canonical_fingerprint(payload) != entry.content_fingerprint:
+                    raise OnlySourceCutError("SOURCE_OBSERVATION_MISMATCH")
+                observations.append(
+                    OnlySourceObservationV1(
+                        cut.source_family,
+                        cut.source_schema_version,
+                        fingerprint,
+                        entry.locator,
+                        identity,
+                        entry.content_fingerprint,
+                        payload,
+                    )
+                )
+            except OnlySourceCutError:
+                raise
+            except Exception as exc:
+                raise OnlySourceCutError("SOURCE_OBSERVATION_UNAVAILABLE") from exc
+        return tuple(observations)
 
     def _entry(self, locator: str) -> OnlySourceCutEntryV1:
         identity, payload = self._read(locator)

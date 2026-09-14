@@ -10,6 +10,7 @@ from onlyalpha_authoring_execution_worker import (
 )
 from onlyalpha_example_alpha.provider import quant_asset_provider
 
+from onlyalpha.canonical import only_canonical_json
 from onlyalpha.quant_assets import (
     OnlyQuantAssetCatalogGeneration,
     OnlyQuantAssetLayer,
@@ -78,6 +79,11 @@ def test_generation_owns_exact_catalog_and_process_composition(tmp_path: Path) -
     store = OnlyAuthoringExecutionGenerationStore(tmp_path)
     assert store.commit(generation) == store.commit(generation)
     assert store.verify(generation).is_file()
+    assert only_canonical_json(store.load_descriptor_verified(generation.fingerprint)) == only_canonical_json(
+        generation.descriptor()
+    )
+    with pytest.raises(ValueError, match="AUTHORING_EXECUTION_GENERATION_NOT_FOUND_OR_CORRUPT"):
+        store.load_descriptor_verified("0" * 64)
 
 
 def test_generation_fails_closed_on_catalog_or_durable_descriptor_drift(tmp_path: Path) -> None:
@@ -92,6 +98,8 @@ def test_generation_fails_closed_on_catalog_or_durable_descriptor_drift(tmp_path
     path.write_text("{}\n", encoding="utf-8")
     with pytest.raises(ValueError, match="AUTHORING_EXECUTION_GENERATION_MISMATCH"):
         store.verify(generation)
+    with pytest.raises(ValueError, match="AUTHORING_EXECUTION_GENERATION_NOT_FOUND_OR_CORRUPT"):
+        store.load_descriptor_verified(generation.fingerprint)
     with pytest.raises(ValueError, match="AUTHORING_PROCESS_REQUIRES_EXACTLY_ONE_GENERATION"):
         OnlyAuthoringExecutionGenerationRegistry(())
     with pytest.raises(ValueError, match="AUTHORING_PROCESS_REQUIRES_EXACTLY_ONE_GENERATION"):

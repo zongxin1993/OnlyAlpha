@@ -11,7 +11,12 @@ import psycopg
 from psycopg.rows import dict_row
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
-from onlyalpha.research.source_cut import OnlySourceClosedCutV1, OnlySourceCutEntryV1, OnlySourceCutError
+from onlyalpha.research.source_cut import (
+    OnlySourceClosedCutV1,
+    OnlySourceCutEntryV1,
+    OnlySourceCutError,
+    OnlySourceObservationV1,
+)
 
 from .research_execution_store import _decode_attempt
 from .research_run_store import OnlyPostgresResearchRunStore
@@ -43,6 +48,10 @@ class OnlyPostgresResearchSourceCutAuthority:
 
     def __init__(self, dsn: str) -> None:
         self._dsn = dsn
+
+    def for_family(self, source_family: str) -> OnlyPostgresResearchFamilyCutReader:
+        self._require_family(source_family)
+        return OnlyPostgresResearchFamilyCutReader(self, source_family)
 
     def capture_closed_cut(self, source_family: str) -> OnlySourceClosedCutV1:
         self._require_family(source_family)
@@ -76,6 +85,59 @@ class OnlyPostgresResearchSourceCutAuthority:
         try:
             with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
                 return self._load_in_transaction(connection, fingerprint, source_family)
+        except psycopg.Error as exc:
+            raise OnlySourceCutError("SOURCE_CUT_POSTGRES_UNAVAILABLE") from exc
+
+    def iter_closed_cut_observations_verified(
+        self, fingerprint: str, source_family: str
+    ) -> tuple[OnlySourceObservationV1, ...]:
+        """Return the exact historical events, never current mutable Run/Receipt rows."""
+        self._require_family(source_family)
+        try:
+            with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+                cut = self._load_in_transaction(connection, fingerprint, source_family)
+                observations: list[OnlySourceObservationV1] = []
+                for entry in cut.entries:
+                    event_index = int(entry.locator)
+                    row = cast(
+                        Mapping[str, object] | None,
+                        connection.execute(
+                            "SELECT event_index, source_family, native_locator, source_row, operation, schema_version "
+                            "FROM research_source_history WHERE event_index = %s",
+                            (event_index,),
+                        ).fetchone(),
+                    )
+                    if row is None:
+                        raise OnlySourceCutError("SOURCE_OBSERVATION_UNAVAILABLE")
+                    self._verify_history_row(row)
+                    payload: dict[str, object] = {
+                        "schema_version": 1,
+                        "source_family": source_family,
+                        "native_locator": row["native_locator"],
+                        "source_row": row["source_row"],
+                        "operation": row["operation"],
+                        "event_index": event_index,
+                    }
+                    if (
+                        row["event_index"] != event_index
+                        or row["source_family"] != source_family
+                        or row["schema_version"] != 1
+                        or only_canonical_fingerprint(payload) != entry.content_fingerprint
+                        or entry.identity != entry.content_fingerprint
+                    ):
+                        raise OnlySourceCutError("SOURCE_OBSERVATION_MISMATCH")
+                    observations.append(
+                        OnlySourceObservationV1(
+                            source_family,
+                            cut.source_schema_version,
+                            fingerprint,
+                            entry.locator,
+                            entry.identity,
+                            entry.content_fingerprint,
+                            payload,
+                        )
+                    )
+                return tuple(observations)
         except psycopg.Error as exc:
             raise OnlySourceCutError("SOURCE_CUT_POSTGRES_UNAVAILABLE") from exc
 
@@ -212,3 +274,20 @@ class OnlyPostgresResearchSourceCutAuthority:
     def _require_family(family: str) -> None:
         if family not in _FAMILIES:
             raise OnlySourceCutError("SOURCE_CUT_FAMILY_INVALID")
+
+
+class OnlyPostgresResearchFamilyCutReader:
+    """Exact family-bound owner port for cross-source composition."""
+
+    def __init__(self, owner: OnlyPostgresResearchSourceCutAuthority, family: str) -> None:
+        self._owner = owner
+        self._family = family
+
+    def capture_closed_cut(self) -> OnlySourceClosedCutV1:
+        return self._owner.capture_closed_cut(self._family)
+
+    def load_closed_cut_verified(self, fingerprint: str) -> OnlySourceClosedCutV1:
+        return self._owner.load_closed_cut_verified(fingerprint, self._family)
+
+    def iter_closed_cut_observations_verified(self, fingerprint: str) -> tuple[OnlySourceObservationV1, ...]:
+        return self._owner.iter_closed_cut_observations_verified(fingerprint, self._family)
