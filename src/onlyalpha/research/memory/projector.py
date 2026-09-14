@@ -10,6 +10,7 @@ from enum import StrEnum
 from typing import Protocol, cast
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
+from onlyalpha.research.run.model import OnlyResearchRunState
 from onlyalpha.research.source_cut import OnlySourceClosedCutV1, OnlySourceCutError, OnlySourceObservationV1
 
 from .source_manifest import (
@@ -18,8 +19,8 @@ from .source_manifest import (
     OnlyMemoryProjectionError,
 )
 
-PROJECTION_SCHEMA_VERSION = 1
-PROJECTOR_ALGORITHM_VERSION = 1
+PROJECTION_SCHEMA_VERSION = 2
+PROJECTOR_ALGORITHM_VERSION = 2
 
 
 class OnlyMemoryReferenceKind(StrEnum):
@@ -540,12 +541,60 @@ def only_project_experiment_memory(
             if isinstance(_payload(run).get("authoring_provenance"), Mapping)
         ]
         work_bindings: list[str] = []
+        run_closures: list[dict[str, object]] = []
         for run in linked_runs:
-            binding = exact(OnlyMemoryReferenceKind.RUNTIME_WORK_BINDING, _payload(run).get("run_id"))
+            run_fact = _payload(run)
+            run_id = run_fact.get("run_id")
+            binding = exact(OnlyMemoryReferenceKind.RUNTIME_WORK_BINDING, run_id)
             generation = binding.get("runtime_generation_fingerprint") if isinstance(binding, Mapping) else None
             if not isinstance(generation, str):
                 raise OnlyMemoryProjectionError("REFERENCE_AUTHORITY_UNAVAILABLE")
             work_bindings.append(generation)
+            state = run_fact.get("state")
+            revision = run_fact.get("revision")
+            artifact = run_fact.get("artifact_content_fingerprint")
+            evidence = run_fact.get("calculation_execution_evidence_fingerprints", [])
+            provenance = run_fact.get("authoring_provenance")
+            authoring_generation = (
+                provenance.get("execution_generation_fingerprint") if isinstance(provenance, Mapping) else None
+            )
+            if (
+                not isinstance(run_id, str)
+                or type(revision) is not int
+                or revision < 0
+                or not isinstance(state, str)
+                or state not in OnlyResearchRunState
+                or run_fact.get("research_result_fingerprint") != item.identity
+                or (state == OnlyResearchRunState.COMPLETED and not isinstance(artifact, str))
+                or (artifact is not None and not isinstance(artifact, str))
+                or (provenance is not None and not isinstance(provenance, Mapping))
+                or (provenance is not None and not isinstance(authoring_generation, str))
+                or not isinstance(evidence, list)
+                or any(not isinstance(value, str) for value in evidence)
+                or evidence != sorted(set(evidence))
+            ):
+                raise OnlyMemoryProjectionError("SOURCE_OBSERVATION_MISMATCH")
+            run_closures.append(
+                {
+                    "run_id": run_id,
+                    "run_revision": revision,
+                    "run_state": state,
+                    "specification_fingerprint": run_fact.get("specification_fingerprint"),
+                    "research_result_fingerprint": item.identity,
+                    "artifact_content_fingerprint": artifact,
+                    "runtime_generation_fingerprint": generation,
+                    "authoring_generation_fingerprint": authoring_generation,
+                    "calculation_execution_evidence_fingerprints": evidence,
+                    "run_source_ref": _ref(run)[0].to_dict(),
+                }
+            )
+        run_closures.sort(
+            key=lambda closure: (
+                str(closure["run_id"]),
+                cast(int, closure["run_revision"]),
+                cast(Mapping[str, str], closure["run_source_ref"])["locator"],
+            )
+        )
         for provenance in authoring:
             if isinstance(provenance, Mapping):
                 exact(OnlyMemoryReferenceKind.AUTHORING_GENERATION, provenance.get("execution_generation_fingerprint"))
@@ -591,6 +640,7 @@ def only_project_experiment_memory(
                             "output_name": output.get("output_name"),
                             "dataset_snapshot_fingerprint": payload["dataset_snapshot_fingerprint"],
                             "research_run_refs": sorted({str(_payload(run).get("run_id")) for run in linked_runs}),
+                            "run_evaluation_closures": run_closures,
                             "specification_refs": sorted(
                                 {str(_payload(run).get("specification_fingerprint")) for run in linked_runs}
                             ),

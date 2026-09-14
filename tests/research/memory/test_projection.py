@@ -11,6 +11,8 @@ import pytest
 
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.research.memory.projector import (
+    PROJECTION_SCHEMA_VERSION,
+    PROJECTOR_ALGORITHM_VERSION,
     only_build_experiment_memory_projection,
     only_project_experiment_memory,
 )
@@ -591,3 +593,100 @@ def test_evaluation_statistics_are_candidate_scoped_not_global_result_membership
     evaluation = next(r for r in _build(readers).records if r.kind == "EvaluationProjectionRecord")
     assert evaluation.facets["statistics_references"] == [references[0]]
     assert {ref.identity for ref in evaluation.source_refs if ref.source_family == "RESEARCH_STATISTICS"} == {"3" * 64}
+
+
+def test_evaluation_closures_bind_each_historical_run_without_cross_association() -> None:
+    readers = _empty_readers()
+    result = "a" * 64
+    _with_fact(
+        readers["RESEARCH_RESULT"],
+        result,
+        result,
+        {
+            "dataset_snapshot_fingerprint": "b" * 64,
+            "statistics_results": [],
+            "plan": {
+                "candidates": [{"candidate_fingerprint": "c" * 64, "graph_fingerprint": "d" * 64}],
+                "published_series": [
+                    {"candidate_fingerprint": "c" * 64, "node_fingerprint": "e" * 64, "output_name": "value"}
+                ],
+            },
+        },
+    )
+    run1 = "00000000-0000-4000-8000-000000000001"
+    run2 = "00000000-0000-4000-8000-000000000002"
+    run3 = "00000000-0000-4000-8000-000000000003"
+
+    def row(run_id: str, revision: int, state: str, spec: str, authoring: str, artifact: str | None):
+        return {
+            "source_row": {
+                "run_id": run_id,
+                "revision": revision,
+                "state": state,
+                "specification_fingerprint": spec,
+                "research_result_fingerprint": result,
+                "artifact_content_fingerprint": artifact,
+                "authoring_provenance": {"execution_generation_fingerprint": authoring},
+                "calculation_execution_evidence_fingerprints": ["8" * 64] if artifact else [],
+            }
+        }
+
+    _set_facts(
+        readers["RESEARCH_RUN"],
+        [
+            ("00000000000000000001", "1" * 64, row(run1, 2, "RUNNING", "3" * 64, "5" * 64, None)),
+            ("00000000000000000002", "2" * 64, row(run1, 3, "FAILED", "3" * 64, "5" * 64, None)),
+            ("00000000000000000003", "3" * 64, row(run2, 2, "COMPLETED", "4" * 64, "6" * 64, "7" * 64)),
+            ("00000000000000000004", "4" * 64, row(run3, 2, "CANCELLED", "4" * 64, "6" * 64, None)),
+        ],
+    )
+    manifest = OnlyExperimentMemorySourceCutManifestV1.from_cuts([reader.cut for reader in readers.values()])
+
+    def reference(kind: str, identity: str):
+        if kind == "RUNTIME_WORK_BINDING":
+            return {"runtime_generation_fingerprint": ("9" if identity == run1 else "f") * 64}
+        return {}
+
+    def build():
+        return only_build_experiment_memory_projection(manifest, readers, reference)
+
+    projection = build()
+    assert (PROJECTION_SCHEMA_VERSION, PROJECTOR_ALGORITHM_VERSION) == (2, 2)
+    evaluation = next(record for record in projection.records if record.kind == "EvaluationProjectionRecord")
+    closures = evaluation.facets["run_evaluation_closures"]
+    assert [(c["run_id"], c["run_revision"], c["run_state"]) for c in closures] == [
+        (run1, 2, "RUNNING"),
+        (run1, 3, "FAILED"),
+        (run2, 2, "COMPLETED"),
+        (run3, 2, "CANCELLED"),
+    ]
+    assert [
+        (
+            c["specification_fingerprint"],
+            c["runtime_generation_fingerprint"],
+            c["authoring_generation_fingerprint"],
+            c["artifact_content_fingerprint"],
+        )
+        for c in closures
+    ] == [
+        ("3" * 64, "9" * 64, "5" * 64, None),
+        ("3" * 64, "9" * 64, "5" * 64, None),
+        ("4" * 64, "f" * 64, "6" * 64, "7" * 64),
+        ("4" * 64, "f" * 64, "6" * 64, None),
+    ]
+    assert [c["calculation_execution_evidence_fingerprints"] for c in closures] == [[], [], ["8" * 64], []]
+    assert [c["run_source_ref"]["locator"] for c in closures] == [f"{i:020d}" for i in range(1, 5)]
+    readers["RESEARCH_RUN"].observations = tuple(reversed(readers["RESEARCH_RUN"].observations))
+    assert build().logical_digest == projection.logical_digest
+    assert build().revision_fingerprint == projection.revision_fingerprint
+
+    _set_facts(
+        readers["RESEARCH_RUN"],
+        [("00000000000000000001", "1" * 64, row(run1, 2, "COMPLETED", "3" * 64, "5" * 64, None))],
+    )
+    with pytest.raises(OnlyMemoryProjectionError, match="SOURCE_OBSERVATION_MISMATCH"):
+        only_build_experiment_memory_projection(
+            OnlyExperimentMemorySourceCutManifestV1.from_cuts([reader.cut for reader in readers.values()]),
+            readers,
+            reference,
+        )

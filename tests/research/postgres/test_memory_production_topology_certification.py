@@ -730,6 +730,26 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
         for family, cut in ((cut.source_family, cut) for cut in manifest.cuts)
     )
     initial = builder.publish_and_activate(manifest)
+    evaluation = next(
+        record
+        for record in initial.records
+        if record.kind == "EvaluationProjectionRecord"
+        and record.facets["research_result_fingerprint"] == chain["research"]
+        and record.facets["run_evaluation_closures"]
+    )
+    completed_closure = next(
+        closure
+        for closure in evaluation.facets["run_evaluation_closures"]
+        if closure["run_id"] == run_id.value and closure["run_revision"] == completed.revision
+    )
+    assert completed_closure["run_state"] == "COMPLETED"
+    assert completed_closure["specification_fingerprint"] == run_spec.specification_fingerprint
+    assert completed_closure["research_result_fingerprint"] == chain["research"]
+    assert completed_closure["artifact_content_fingerprint"] == "c" * 64
+    assert completed_closure["runtime_generation_fingerprint"] == runtime_fingerprint
+    assert completed_closure["authoring_generation_fingerprint"] == authoring.execution_generation_fingerprint
+    assert completed_closure["calculation_execution_evidence_fingerprints"] == ["d" * 64]
+    assert completed_closure["run_source_ref"]["source_family"] == "RESEARCH_RUN"
     source_snapshot = tuple(
         (
             cut.source_family,
