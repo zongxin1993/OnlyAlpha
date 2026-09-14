@@ -7,23 +7,42 @@ import subprocess
 import sys
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from importlib import metadata
 from pathlib import Path
 
+import psycopg
 import pytest
 from onlyalpha_authoring_execution_worker import (
     OnlyAuthoringExecutionGeneration,
     OnlyAuthoringExecutionGenerationStore,
 )
-from onlyalpha_http_server.main import _SearchContextReader
-from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry
+from onlyalpha_example_alpha.provider import quant_asset_provider as alpha_provider
+from onlyalpha_http_server.main import _GenerationOwnedCatalogReader, _SearchContextReader
+from onlyalpha_plugin_indicators.provider import quant_asset_provider as indicator_provider
+from onlyalpha_plugin_operators.provider import quant_asset_provider as operator_provider
+from onlyalpha_plugin_targets.registration import registrations as target_registrations
+from onlyalpha_runtime_generation_manager import (
+    OnlyLocalImmutableArtifactStore,
+    OnlyRuntimeGenerationBuilder,
+    OnlyRuntimeGenerationRegistry,
+)
+from onlyalpha_runtime_generation_manager.catalog_context import (
+    OnlyRuntimeGenerationExactCatalogDescriptorReader,
+)
 
 from onlyalpha.backtest.evidence import OnlyBacktestEvidenceManifest, OnlyBacktestEvidenceStore
+from onlyalpha.calculation.artifact import only_calculation_distribution_artifact_manifest
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from onlyalpha.persistence.postgres.product_command_authority import OnlyPostgresProductCommandAuthority
 from onlyalpha.persistence.postgres.research_execution_store import OnlyPostgresResearchExecutionStore
 from onlyalpha.persistence.postgres.research_run_store import OnlyPostgresResearchRunStore
 from onlyalpha.persistence.postgres.research_source_cut_store import OnlyPostgresResearchSourceCutAuthority
+from onlyalpha.quant_assets import (
+    OnlyQuantAssetCatalogGeneration,
+    OnlyQuantAssetCatalogManager,
+    only_quant_asset_distribution_artifact_manifest,
+)
 from onlyalpha.research.agent import OnlyAgentExactAuthorityReferenceV2, OnlyAgentReferenceLocatorKind
 from onlyalpha.research.agent.decision import OnlyAgentExperimentLaunchRecordV1
 from onlyalpha.research.agent.occurrence_store import (
@@ -37,15 +56,14 @@ from onlyalpha.research.agent.store import (
     OnlyJsonAgentSessionManifestStore,
 )
 from onlyalpha.research.calculation.result_store import OnlyParquetResearchCalculationResultStore
+from onlyalpha.research.dataset.parquet_store import OnlyParquetResearchDatasetSnapshotStore
 from onlyalpha.research.evaluation.definition import OnlyResearchStatisticsMethod
 from onlyalpha.research.evaluation.execution import OnlyResearchStatisticsExecutor
+from onlyalpha.research.evaluation.factor_pair.result_store import (
+    OnlyParquetResearchFactorPairStatisticsResultStore,
+)
 from onlyalpha.research.evaluation.result_store import OnlyParquetResearchStatisticsResultStore
-from onlyalpha.research.evaluation.summary.execution import (
-    OnlyResearchEffectSummaryExecutor,
-)
-from onlyalpha.research.evaluation.summary.plan import (
-    OnlyResearchEffectSummaryPlan,
-)
+from onlyalpha.research.evaluation.summary.execution import OnlyResearchFactorPairEffectSummaryExecutor
 from onlyalpha.research.evaluation.summary.result_store import OnlyJsonResearchSummaryStatisticsResultStore
 from onlyalpha.research.experiment import (
     OnlyJsonSearchProvenanceStore,
@@ -98,6 +116,7 @@ from onlyalpha.research.search.symbolic import (
     commit_symbolic_enumeration_result_verified,
     enumerate_symbolic_factor_proposals,
 )
+from onlyalpha.runtime.generation import OnlyCoreExecutionIdentity, OnlyDistributionArtifactRole
 from onlyalpha.strategy.qualification import (
     OnlyQualificationCriterion,
     OnlyQualificationEvaluator,
@@ -119,7 +138,7 @@ from tests.research.agent.test_decision_application_recovery import (
 from tests.research.agent.test_decision_application_recovery import (
     service as agent_service,
 )
-from tests.research.evaluation.support import factor_pair_case
+from tests.research.evaluation.support import factor_pair_effect_case
 from tests.research.postgres.test_postgres_authority import NOW, _authoring_provenance
 from tests.research.search.symbolic.test_research_and_provenance_integration import (
     _fresh_process_e2e,
@@ -127,20 +146,7 @@ from tests.research.search.symbolic.test_research_and_provenance_integration imp
 from tests.research.specification.support import registry as specification_registry
 from tests.research.specification.support import specification
 from tests.research.sweep.support import definition
-from tests.runtime_generation_support import only_ready_test_generation
-
-
-class _CatalogOwner:
-    def __init__(self, generation) -> None:  # type: ignore[no-untyped-def]
-        self._generation = generation
-
-    def generation(self, fingerprint: str):  # type: ignore[no-untyped-def]
-        if fingerprint != self._generation.generation_fingerprint:
-            raise LookupError(fingerprint)
-        return self._generation
-
-    def load_verified_catalog_descriptor(self, fingerprint: str) -> dict[str, object]:
-        return self.generation(fingerprint).descriptor()
+from tests.runtime.search_ownership_support import _plain, _support_wheel
 
 
 class _CandidateOwner:
@@ -151,11 +157,6 @@ class _CandidateOwner:
         if fingerprint != self._candidate.candidate_fingerprint:
             raise LookupError(fingerprint)
         return self._candidate
-
-
-class _MissingCatalog:
-    def load_verified_catalog_descriptor(self, fingerprint: str) -> dict[str, object]:
-        raise LookupError(fingerprint)
 
 
 def _stores(root: Path):  # type: ignore[no-untyped-def]
@@ -173,35 +174,113 @@ def _stores(root: Path):  # type: ignore[no-untyped-def]
     return layout, datasets, calculations, statistics, results, symbolic, parameter
 
 
+def _build_exact_runtime_generation(root: Path):  # type: ignore[no-untyped-def]
+    package_names = (
+        "onlyalpha",
+        "onlyalpha-runtime-generation-manager",
+        "onlyalpha-example-alpha",
+        "onlyalpha-plugin-operators",
+        "onlyalpha-plugin-indicators",
+        "onlyalpha-plugin-targets",
+        "numpy",
+        "pyarrow",
+        "pyyaml",
+        "psycopg",
+        "psycopg-binary",
+    )
+    wheels = {name: _support_wheel(name, root / "wheels") for name in package_names}
+    core = _plain(wheels["onlyalpha"], "onlyalpha", OnlyDistributionArtifactRole.CORE)
+    core_identity = OnlyCoreExecutionIdentity(core.distribution_name, core.distribution_version, core.artifact_sha256)
+    providers = (operator_provider(), indicator_provider(), alpha_provider())
+    catalog = OnlyQuantAssetCatalogGeneration(providers)
+    quant_artifacts = tuple(
+        only_quant_asset_distribution_artifact_manifest(
+            source_repository=provider.manifest.distribution_name,
+            source_revision="1" * 40,
+            artifact_logical_name=wheels[provider.manifest.distribution_name].name,
+            artifact_bytes=wheels[provider.manifest.distribution_name].read_bytes(),
+            tested_core_execution_fingerprint=core_identity.fingerprint,
+            provider=provider,
+        )
+        for provider in providers
+    )
+    target = wheels["onlyalpha-plugin-targets"]
+    target_artifact = only_calculation_distribution_artifact_manifest(
+        source_repository="OnlyAlpha",
+        source_revision="1" * 40,
+        distribution_name="onlyalpha-plugin-targets",
+        distribution_version=metadata.version("onlyalpha-plugin-targets"),
+        artifact_logical_name=target.name,
+        artifact_bytes=target.read_bytes(),
+        tested_core_execution_fingerprint=core_identity.fingerprint,
+        registrations=target_registrations(),
+    )
+    artifacts = (
+        core,
+        _plain(
+            wheels["onlyalpha-runtime-generation-manager"],
+            "onlyalpha-runtime-generation-manager",
+            OnlyDistributionArtifactRole.SUPPORT,
+        ),
+        target_artifact,
+        *quant_artifacts,
+        *(
+            _plain(wheels[name], name, OnlyDistributionArtifactRole.SUPPORT)
+            for name in ("numpy", "pyarrow", "pyyaml", "psycopg", "psycopg-binary")
+        ),
+    )
+    store = OnlyLocalImmutableArtifactStore(root / "artifacts")
+    content_by_name = {wheel.name: wheel.read_bytes() for wheel in wheels.values()}
+    for artifact in artifacts:
+        store.put_once(artifact, content_by_name[artifact.artifact_logical_name])
+    builder = OnlyRuntimeGenerationBuilder(store, Path(sys.executable))
+    validated = builder.build_validated(
+        artifacts=artifacts,
+        expected_catalog=catalog,
+        environment_root=root / "build",
+    )
+    authority = OnlyRuntimeGenerationRegistry(root / "authority")
+    authority.prepare(validated.manifest, actor="test-operator", occurred_at=NOW)
+    authority.admit_ready(validated.validation_evidence, actor="test-validator", occurred_at=NOW)
+    authority.activate_for_new_work(
+        expected_current=None,
+        target=validated.manifest.runtime_generation_fingerprint,
+        actor="test-operator",
+        occurred_at=NOW,
+    )
+    return authority, catalog, validated.manifest.runtime_generation_fingerprint
+
+
 def _build_builder(
     root: Path,
     postgres_dsn: str,
-    generation,
+    catalogs: OnlyRuntimeGenerationExactCatalogDescriptorReader,
     runtime_generations: OnlyRuntimeGenerationRegistry,
     authoring_generation_root: Path,
     pair_statistics,
     summary_statistics,
+    search_catalogs=None,
 ) -> tuple[OnlyExperimentMemoryProductionBuilder, dict[str, object]]:
     layout, datasets, calculations, statistics, results, symbolic, parameter = _stores(root)
-    catalogs = _CatalogOwner(generation)
+    search_catalogs = search_catalogs or _GenerationOwnedCatalogReader()
     contexts = _SearchContextReader(
         OnlySymbolicSearchContextResolver(
             symbolic_store=symbolic,
-            catalogs=catalogs,
+            catalogs=search_catalogs,
             datasets=datasets,
             research_calculation_registry=specification_registry(),
         ),
         OnlyParameterSearchContextResolver(
             parameter_store=parameter,
             evaluations=symbolic,
-            catalogs=catalogs,
+            catalogs=search_catalogs,
             datasets=datasets,
             research_calculation_registry=specification_registry(),
         ),
     )
     provenance = OnlyJsonSearchProvenanceStore(
         root,
-        catalogs=catalogs,
+        catalogs=search_catalogs,
         datasets=datasets,
         research_results=results,
         qualification_decisions=OnlyQualificationDecisionStore(root),
@@ -253,6 +332,7 @@ def _build_builder(
         "parameter": parameter,
         "provenance": provenance,
         "catalogs": catalogs,
+        "search_catalogs": search_catalogs,
         "sources": sources,
         "references": references,
         "contexts": contexts,
@@ -387,20 +467,29 @@ def _publish_agent_facts(root: Path, experiment_fingerprint: str) -> None:
 def _fresh_rebuild(
     root: Path,
     postgres_dsn: str,
-    generation,
     runtime_root: Path,
     authoring_root: Path,
     pair_root: Path,
     summary_root: Path,
 ) -> dict[str, object]:
-    pair = factor_pair_case(pair_root)[10]
     layout, datasets, calculations, statistics, results, _symbolic, _parameter = _stores(root)
-    summary = OnlyJsonResearchSummaryStatisticsResultStore(summary_root / "statistics-results", statistics)
-    runtime_generations = OnlyRuntimeGenerationRegistry(runtime_root)
+    pair_dataset = OnlyParquetResearchDatasetSnapshotStore(pair_root / "datasets")
+    pair_calculations = OnlyParquetResearchCalculationResultStore(pair_root / "calculation-results", pair_dataset)
+    pair = OnlyParquetResearchFactorPairStatisticsResultStore(pair_root / "statistics-results", pair_calculations)
+    summary = OnlyJsonResearchSummaryStatisticsResultStore(
+        summary_root / "statistics-results", statistics, factor_pair_source_store=pair
+    )
+    runtime_generations = OnlyRuntimeGenerationRegistry(runtime_root / "authority")
+    runtime_builder = OnlyRuntimeGenerationBuilder(
+        OnlyLocalImmutableArtifactStore(runtime_root / "artifacts"), Path(sys.executable)
+    )
+    catalogs = OnlyRuntimeGenerationExactCatalogDescriptorReader(
+        runtime_generations, runtime_builder, runtime_root / "catalog-context-cache"
+    )
     builder, _ = _build_builder(
         root,
         postgres_dsn,
-        generation,
+        catalogs,
         runtime_generations,
         authoring_root,
         pair,
@@ -428,41 +517,47 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     runtime_root = tmp_path / "runtime-generations"
     authoring_root = tmp_path / "authoring-generations"
 
+    runtime_generations, generation, runtime_fingerprint = _build_exact_runtime_generation(runtime_root)
+    runtime_builder = OnlyRuntimeGenerationBuilder(
+        OnlyLocalImmutableArtifactStore(runtime_root / "artifacts"), Path(sys.executable)
+    )
+    catalogs = OnlyRuntimeGenerationExactCatalogDescriptorReader(
+        runtime_generations, runtime_builder, runtime_root / "catalog-context-cache"
+    )
+
     chain = _fresh_process_e2e(root)
-    pair_store = factor_pair_case(pair_root)[10]
-    pair_store.capture_closed_cut()
     layout, datasets, calculations, statistics, results, symbolic, _parameter = _stores(root)
+    pair_case = factor_pair_effect_case(pair_root)
+    pair_store = pair_case[10]
+    pair_summary_store = OnlyJsonResearchSummaryStatisticsResultStore(
+        summary_root / "statistics-results",
+        statistics,
+        factor_pair_source_store=pair_store,
+        audit_time=lambda: NOW,
+    )
+    OnlyResearchFactorPairEffectSummaryExecutor(pair_store, pair_summary_store).execute(pair_case[13])
+    pair_cut = pair_store.capture_closed_cut()
+    summary_cut = pair_summary_store.capture_closed_cut()
+    pair_payload = pair_store.iter_closed_cut_observations_verified(pair_cut.cut_fingerprint)[0].canonical_payload
+    summary_payload = pair_summary_store.iter_closed_cut_observations_verified(summary_cut.cut_fingerprint)[
+        0
+    ].canonical_payload
+    assert summary_payload["source_statistics_fingerprint"] == pair_payload["statistics_fingerprint"]
+    assert summary_payload["source_statistics_result_fingerprint"] == pair_payload["statistics_result_fingerprint"]
     result = results.load_verified(chain["locator"])
     main_stats_fp = result.manifest.statistics_results[0].statistics_fingerprint
     main_stats = statistics.load_verified(main_stats_fp)
-    summary_plan = OnlyResearchEffectSummaryPlan(
-        main_stats.manifest.dataset_snapshot_fingerprint,
-        "c" * 64,
-        main_stats.manifest.plan.feature,
-        main_stats.manifest.statistics_fingerprint,
-        main_stats.manifest.statistics_result_fingerprint,
-        __import__(
-            "onlyalpha.research.evaluation.summary.plan", fromlist=["OnlyResearchEffectSummaryDefinition"]
-        ).OnlyResearchEffectSummaryDefinition(OnlyResearchStatisticsMethod.IC),
-    )
-    summary_store = OnlyJsonResearchSummaryStatisticsResultStore(
-        summary_root / "statistics-results", statistics, audit_time=lambda: NOW
-    )
-    OnlyResearchEffectSummaryExecutor(statistics, summary_store).execute(summary_plan)
-    summary_store.capture_closed_cut()
-
-    generation, _ = __import__("tests.research.search.symbolic.support", fromlist=["space"]).space(max_nodes=1)
-    runtime_generations = OnlyRuntimeGenerationRegistry(runtime_root)
-    runtime_fingerprint = only_ready_test_generation(runtime_generations, "f", NOW)
+    summary_store = pair_summary_store
 
     builder, values = _build_builder(
         root,
         postgres_dsn,
-        generation,
+        catalogs,
         runtime_generations,
         authoring_root,
         pair_store,
         summary_store,
+        OnlyQuantAssetCatalogManager(generation),
     )
     values["dataset_fingerprint"] = result.manifest.dataset_snapshot_fingerprint
     experiment = values["provenance"].load_experiment_verified(chain["experiment"])
@@ -646,13 +741,24 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
         )
         for cut in manifest.cuts
     )
+    with psycopg.connect(postgres_dsn) as connection:
+        postgres_snapshot = (
+            connection.execute(
+                "SELECT last_index FROM research_source_history_frontier WHERE singleton = TRUE"
+            ).fetchone()[0],
+            tuple(
+                connection.execute(
+                    "SELECT event_index, source_family, native_locator, source_row, operation, schema_version "
+                    "FROM research_source_history ORDER BY event_index"
+                ).fetchall()
+            ),
+        )
     projection_root = layout.experiment_memory_projection_root
     shutil.rmtree(projection_root)
     script = (
         "import json,sys; from pathlib import Path; "
         "from tests.research.postgres.test_memory_production_topology_certification import _fresh_rebuild; "
-        "from tests.research.search.symbolic.support import space; "
-        "value=_fresh_rebuild(Path(sys.argv[1]),sys.argv[2],space(max_nodes=1)[0],Path(sys.argv[3]),Path(sys.argv[4]),Path(sys.argv[5]),Path(sys.argv[6])); print(json.dumps(value,sort_keys=True))"
+        "value=_fresh_rebuild(Path(sys.argv[1]),sys.argv[2],Path(sys.argv[3]),Path(sys.argv[4]),Path(sys.argv[5]),Path(sys.argv[6])); print(json.dumps(value,sort_keys=True))"
     )
     rebuilt = json.loads(
         subprocess.check_output(
@@ -685,6 +791,18 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
         )
         for cut in manifest.cuts
     )
+    with psycopg.connect(postgres_dsn) as connection:
+        assert postgres_snapshot == (
+            connection.execute(
+                "SELECT last_index FROM research_source_history_frontier WHERE singleton = TRUE"
+            ).fetchone()[0],
+            tuple(
+                connection.execute(
+                    "SELECT event_index, source_family, native_locator, source_row, operation, schema_version "
+                    "FROM research_source_history ORDER BY event_index"
+                ).fetchall()
+            ),
+        )
 
     new_result_stats_plan = replace(
         main_stats.manifest.plan,
@@ -708,7 +826,7 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     contexts.commit_experiment(child)
     child_context_resolver = OnlySymbolicSearchContextResolver(
         symbolic_store=symbolic,
-        catalogs=values["catalogs"],
+        catalogs=values["search_catalogs"],
         datasets=values["datasets"],
         research_calculation_registry=specification_registry(),
     )
@@ -760,10 +878,19 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
         builder.build(mixed)
     assert builder._revisions.load_active_verified().revision_fingerprint == initial.revision_fingerprint
     missing_builder, _ = _build_builder(
-        root, postgres_dsn, generation, runtime_generations, authoring_root, pair_store, summary_store
+        root,
+        postgres_dsn,
+        OnlyRuntimeGenerationExactCatalogDescriptorReader(
+            OnlyRuntimeGenerationRegistry(tmp_path / "missing-runtime-generations"),
+            runtime_builder,
+            tmp_path / "missing-catalog-context",
+        ),
+        runtime_generations,
+        authoring_root,
+        pair_store,
+        summary_store,
     )
     with pytest.raises(OnlyMemoryProjectionError, match="REFERENCE_AUTHORITY_UNAVAILABLE"):
-        missing_builder._references = replace(missing_builder._references, catalogs=_MissingCatalog())
         missing_builder.build(manifest)
     assert (
         OnlyExperimentMemoryRevisionStore(projection_root).load_active_verified().revision_fingerprint
