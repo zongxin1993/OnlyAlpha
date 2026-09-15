@@ -91,8 +91,12 @@ from onlyalpha.research.memory.production import (
     OnlyExperimentMemoryReferenceReadersV1,
 )
 from onlyalpha.research.memory.query import (
+    OnlyExactEvaluationHistorySelectorV1,
+    OnlyExactFailureEvidenceSelectorV1,
     OnlyExactSemanticHistorySelectorV1,
+    OnlyExactStatisticsReferenceV1,
     OnlyMemoryHistoricalQueryV1,
+    OnlyResearchRunFailureOwnerV1,
     only_query_experiment_memory_history,
 )
 from onlyalpha.research.memory.source_manifest import (
@@ -515,6 +519,8 @@ def _fresh_rebuild(
     )
     projection = builder.publish_and_activate(builder.capture_manifest())
     history = _first_semantic_history(builder._revisions, projection)
+    evaluation_history = _first_evaluation_history(builder._revisions, projection)
+    failure_history = _first_run_failure_history(builder._revisions, projection)
     return {
         "manifest": projection.source_manifest.manifest_fingerprint,
         "records": [record.to_dict() for record in projection.records],
@@ -522,6 +528,10 @@ def _fresh_rebuild(
         "revision": projection.revision_fingerprint,
         "query": history[0],
         "proof": history[1],
+        "evaluation_query": evaluation_history[0],
+        "evaluation_proof": evaluation_history[1],
+        "failure_query": failure_history[0],
+        "failure_proof": failure_history[1],
     }
 
 
@@ -533,6 +543,69 @@ def _first_semantic_history(revisions, projection):  # type: ignore[no-untyped-d
             evaluation.facets["graph_fingerprint"],
             evaluation.facets["candidate_node_fingerprint"],
             evaluation.facets["output_name"],
+        ),
+    )
+    return query.to_dict(), only_query_experiment_memory_history(revisions, query).to_dict()
+
+
+def _first_evaluation_history(revisions, projection):  # type: ignore[no-untyped-def]
+    evaluation = next(
+        record
+        for record in projection.records
+        if record.kind == "EvaluationProjectionRecord"
+        and any(closure["run_state"] == "COMPLETED" for closure in record.facets["run_evaluation_closures"])
+    )
+    closure = next(
+        closure for closure in evaluation.facets["run_evaluation_closures"] if closure["run_state"] == "COMPLETED"
+    )
+    selector = OnlyExactEvaluationHistorySelectorV1(
+        OnlyExactSemanticHistorySelectorV1(
+            evaluation.facets["graph_fingerprint"],
+            evaluation.facets["candidate_node_fingerprint"],
+            evaluation.facets["output_name"],
+        ),
+        evaluation.facets["candidate_fingerprint"],
+        evaluation.facets["dataset_snapshot_fingerprint"],
+        closure["specification_fingerprint"],
+        evaluation.facets["research_result_locator"],
+        closure["catalog_generation_fingerprint"],
+        closure["runtime_generation_fingerprint"],
+        closure["authoring_generation_fingerprint"],
+        tuple(
+            OnlyExactStatisticsReferenceV1(
+                reference["statistics_fingerprint"], reference["statistics_result_fingerprint"]
+            )
+            for reference in evaluation.facets["statistics_references"]
+        ),
+        closure["search_lineage"]["experiment_fingerprint"] if closure["search_lineage"] is not None else None,
+    )
+    query = OnlyMemoryHistoricalQueryV1(projection.revision_fingerprint, selector)
+    return query.to_dict(), only_query_experiment_memory_history(revisions, query).to_dict()
+
+
+def _first_run_failure_history(revisions, projection):  # type: ignore[no-untyped-def]
+    failure = next(
+        record
+        for record in projection.records
+        if record.kind == "FailureEvidenceProjectionRecord"
+        and isinstance(record.facets.get("run_context"), dict)
+        and record.facets["run_context"]["research_result_fingerprint"] is None
+    )
+    context = failure.facets["run_context"]
+    lineage = context["search_lineage"]
+    owner = OnlyResearchRunFailureOwnerV1(
+        context["run_id"],
+        context["run_revision"],
+        context["specification_fingerprint"],
+        context["catalog_generation_fingerprint"],
+        context["runtime_generation_fingerprint"],
+        lineage["experiment_fingerprint"] if lineage is not None else None,
+        lineage["iteration_plan_fingerprint"] if lineage is not None else None,
+    )
+    query = OnlyMemoryHistoricalQueryV1(
+        projection.revision_fingerprint,
+        OnlyExactFailureEvidenceSelectorV1(
+            failure.facets["classification"], failure.facets["failure_code"], owner, failure.facets["failure_phase"]
         ),
     )
     return query.to_dict(), only_query_experiment_memory_history(revisions, query).to_dict()
@@ -893,6 +966,10 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     )
     initial = builder.publish_and_activate(manifest)
     initial_query, initial_proof = _first_semantic_history(builder._revisions, initial)
+    initial_evaluation_query, initial_evaluation_proof = _first_evaluation_history(builder._revisions, initial)
+    initial_failure_query, initial_failure_proof = _first_run_failure_history(builder._revisions, initial)
+    assert initial_evaluation_proof["proof_status"] == "MATCH"
+    assert initial_failure_proof["proof_status"] == "MATCH"
     evaluation = next(
         record
         for record in initial.records
@@ -1086,6 +1163,10 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     assert rebuilt["revision"] == initial.revision_fingerprint
     assert rebuilt["query"] == initial_query
     assert rebuilt["proof"] == initial_proof
+    assert rebuilt["evaluation_query"] == initial_evaluation_query
+    assert rebuilt["evaluation_proof"] == initial_evaluation_proof
+    assert rebuilt["failure_query"] == initial_failure_query
+    assert rebuilt["failure_proof"] == initial_failure_proof
     assert source_snapshot == tuple(
         (
             cut.source_family,
