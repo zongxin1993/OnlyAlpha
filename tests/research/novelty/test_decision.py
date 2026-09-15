@@ -25,7 +25,7 @@ from onlyalpha.research.memory.query import (
 from onlyalpha.research.memory.source_manifest import MANDATORY_FAMILIES
 from onlyalpha.research.novelty import (
     OnlyHistoricalProofUnavailableError,
-    OnlyNoveltyDecisionBundleStore,
+    OnlyNoveltyDecisionAuthority,
     OnlyNoveltyDecisionConflictError,
     OnlyNoveltyDecisionCorruptError,
     OnlyNoveltyDecisionNotFoundError,
@@ -38,8 +38,6 @@ from onlyalpha.research.novelty import (
     OnlyNoveltyQualificationBindingV1,
     OnlyNoveltyWitnessCorruptError,
     OnlyNoveltyWitnessSchemaUnsupportedError,
-    only_build_novelty_decision_bundle,
-    only_seal_novelty_decision,
     only_verify_historical_novelty_decision,
 )
 from onlyalpha.research.source_cut import OnlySourceClosedCutV1
@@ -84,43 +82,79 @@ def _authorities(tmp_path, projection=None, *, novelty_policy=None):  # type: ig
     revisions, projection = _store(tmp_path, projection)
     policies = OnlyNoveltyPolicyStore(tmp_path)
     policies.put(novelty_policy or policy())
-    decisions = OnlyNoveltyDecisionBundleStore(tmp_path)
+    decisions = OnlyNoveltyDecisionAuthority(tmp_path)
     return revisions, projection, policies, decisions
 
 
 def test_exact_evaluation_and_replication_policy_are_deterministic(tmp_path) -> None:  # type: ignore[no-untyped-def]
     revisions, projection, policies, decisions = _authorities(tmp_path)
-    first = only_seal_novelty_decision(
-        _request(projection), projection.revision_fingerprint, revisions, policies, decisions
-    )
+    first = decisions.seal_from_request(_request(projection), projection.revision_fingerprint, revisions, policies)
     assert first.decision.derived_policy_condition is OnlyNoveltyPolicyCondition.EXACT_COMPLETED_EVALUATION
     assert first.decision.outcome is OnlyNoveltyPolicyOutcome.REUSE
     assert first.decision.reason_codes == (OnlyNoveltyDecisionReason.EXACT_EVALUATION_MATCH,)
-    assert first == only_seal_novelty_decision(
-        _request(projection), projection.revision_fingerprint, revisions, policies, decisions
+    assert first == decisions.seal_from_request(
+        _request(projection), projection.revision_fingerprint, revisions, policies
     )
 
     other_root = tmp_path / "replication"
     replication = policy(EXACT_COMPLETED_EVALUATION=OnlyNoveltyPolicyOutcome.ADMIT)
-    other_revisions, other_projection, other_policies, _ = _authorities(other_root, novelty_policy=replication)
-    decision = only_build_novelty_decision_bundle(
+    other_revisions, other_projection, other_policies, other_decisions = _authorities(
+        other_root, novelty_policy=replication
+    )
+    decision = other_decisions.seal_from_request(
         _request(other_projection), other_projection.revision_fingerprint, other_revisions, other_policies
     )
     assert decision.decision.outcome is OnlyNoveltyPolicyOutcome.ADMIT
 
 
+def test_forged_condition_cannot_enter_decision_authority(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    revisions, projection, policies, decisions = _authorities(tmp_path / "source")
+    bundle = decisions.seal_from_request(_request(projection), projection.revision_fingerprint, revisions, policies)
+    forged = replace(
+        bundle,
+        decision=replace(
+            bundle.decision,
+            derived_policy_condition=OnlyNoveltyPolicyCondition.CERTIFIED_NO_MATCH,
+            outcome=OnlyNoveltyPolicyOutcome.ADMIT,
+            reason_codes=(OnlyNoveltyDecisionReason.CERTIFIED_EVALUATION_ABSENCE,),
+        ),
+    )
+    assert forged.decision.decision_fingerprint != bundle.decision.decision_fingerprint
+    assert type(forged.decision).from_dict(forged.decision.to_dict(), forged.witness.subject) == forged.decision
+    target = OnlyNoveltyDecisionAuthority(tmp_path / "forged-condition")
+    with pytest.raises(OnlyNoveltyDecisionCorruptError, match="Decision request"):
+        target.seal_from_request(  # type: ignore[arg-type]
+            forged, projection.revision_fingerprint, revisions, policies
+        )
+    with pytest.raises(OnlyNoveltyDecisionNotFoundError):
+        target.load_exact(COMMAND)
+
+
+def test_forged_outcome_cannot_enter_decision_authority(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    revisions, projection, policies, decisions = _authorities(tmp_path / "source")
+    bundle = decisions.seal_from_request(_request(projection), projection.revision_fingerprint, revisions, policies)
+    forged = replace(bundle, decision=replace(bundle.decision, outcome=OnlyNoveltyPolicyOutcome.ADMIT))
+    assert forged.decision.decision_fingerprint != bundle.decision.decision_fingerprint
+    assert type(forged.decision).from_dict(forged.decision.to_dict(), forged.witness.subject) == forged.decision
+    target = OnlyNoveltyDecisionAuthority(tmp_path / "forged-outcome")
+    with pytest.raises(OnlyNoveltyDecisionCorruptError, match="Decision request"):
+        target.seal_from_request(  # type: ignore[arg-type]
+            forged, projection.revision_fingerprint, revisions, policies
+        )
+    with pytest.raises(OnlyNoveltyDecisionNotFoundError):
+        target.load_exact(COMMAND)
+
+
 def test_absence_incomplete_operational_and_stop_conditions(tmp_path) -> None:  # type: ignore[no-untyped-def]
     absent = _projection(include_evaluation=False)
-    revisions, absent, policies, _ = _authorities(tmp_path / "absent", absent)
-    decision = only_build_novelty_decision_bundle(_request(absent), absent.revision_fingerprint, revisions, policies)
+    revisions, absent, policies, decisions = _authorities(tmp_path / "absent", absent)
+    decision = decisions.seal_from_request(_request(absent), absent.revision_fingerprint, revisions, policies)
     assert decision.decision.derived_policy_condition is OnlyNoveltyPolicyCondition.CERTIFIED_NO_MATCH
     assert decision.decision.outcome is OnlyNoveltyPolicyOutcome.ADMIT
 
     incomplete = _projection(incomplete=True)
-    revisions, incomplete, policies, _ = _authorities(tmp_path / "incomplete", incomplete)
-    decision = only_build_novelty_decision_bundle(
-        _request(incomplete), incomplete.revision_fingerprint, revisions, policies
-    )
+    revisions, incomplete, policies, decisions = _authorities(tmp_path / "incomplete", incomplete)
+    decision = decisions.seal_from_request(_request(incomplete), incomplete.revision_fingerprint, revisions, policies)
     assert decision.decision.derived_policy_condition is OnlyNoveltyPolicyCondition.PROOF_INCOMPLETE
     assert decision.decision.outcome is OnlyNoveltyPolicyOutcome.FAIL_CLOSED
 
@@ -128,8 +162,8 @@ def test_absence_incomplete_operational_and_stop_conditions(tmp_path) -> None:  
     failed = OnlyExactFailureEvidenceSelectorV1(
         "OPERATIONAL_FAILURE", "ARTIFACT_COMMIT_FAILED", OnlyResearchRunTerminalOwnerV1(FAILED_RUN_ID, 2)
     )
-    revisions, absent, policies, _ = _authorities(tmp_path / "operational", absent)
-    operational = only_build_novelty_decision_bundle(
+    revisions, absent, policies, decisions = _authorities(tmp_path / "operational", absent)
+    operational = decisions.seal_from_request(
         _request(absent, evaluation_selector=no_match_selector, related_failures=(failed,)),
         absent.revision_fingerprint,
         revisions,
@@ -159,11 +193,11 @@ def test_absence_incomplete_operational_and_stop_conditions(tmp_path) -> None:  
         base.source_manifest,
         tuple(sorted((*base.records, record), key=lambda item: only_canonical_json(item.to_dict()))),
     )
-    revisions, projection, policies, _ = _authorities(tmp_path / "stop", projection)
+    revisions, projection, policies, decisions = _authorities(tmp_path / "stop", projection)
     stop = OnlyExactFailureEvidenceSelectorV1(
         "SEARCH_OR_BUDGET_STOP", "SEARCH_BUDGET_EXHAUSTED", OnlySearchFailureOwnerV1(identity)
     )
-    decision = only_build_novelty_decision_bundle(
+    decision = decisions.seal_from_request(
         _request(projection, evaluation_selector=no_match_selector, related_failures=(stop,)),
         projection.revision_fingerprint,
         revisions,
@@ -245,14 +279,14 @@ def _with_qualification(projection: OnlyExperimentMemoryProjectionV1, decision: 
 def test_exact_negative_evidence_requires_complete_exact_relation(tmp_path) -> None:  # type: ignore[no-untyped-def]
     qualification, relation = _negative_authorities()
     projection = _with_qualification(_projection(), qualification)
-    revisions, projection, policies, _ = _authorities(tmp_path, projection)
+    revisions, projection, policies, decisions = _authorities(tmp_path, projection)
     binding = OnlyNoveltyQualificationBindingV1(
         qualification.decision_fingerprint,
         qualification.policy_id,
         qualification.policy_version,
         qualification.policy_fingerprint,
     )
-    bundle = only_build_novelty_decision_bundle(
+    bundle = decisions.seal_from_request(
         _request(projection, qualification_binding=binding),
         projection.revision_fingerprint,
         revisions,
@@ -263,12 +297,15 @@ def test_exact_negative_evidence_requires_complete_exact_relation(tmp_path) -> N
     assert bundle.decision.derived_policy_condition is OnlyNoveltyPolicyCondition.EXACT_COMPLETED_NEGATIVE_EVIDENCE
     assert bundle.decision.outcome is OnlyNoveltyPolicyOutcome.SUPPRESS
 
-    for wrong_binding, wrong_relation in (
-        (replace(binding, policy_fingerprint="b" * 64), relation),
-        (binding, replace(relation, candidate_fingerprint="b" * 64)),
-        (binding, replace(relation, research_result_fingerprint="c" * 64)),
+    for index, (wrong_binding, wrong_relation) in enumerate(
+        (
+            (replace(binding, policy_fingerprint="b" * 64), relation),
+            (binding, replace(relation, candidate_fingerprint="b" * 64)),
+            (binding, replace(relation, research_result_fingerprint="c" * 64)),
+        )
     ):
-        changed = only_build_novelty_decision_bundle(
+        changed_authority = OnlyNoveltyDecisionAuthority(tmp_path / str(index))
+        changed = changed_authority.seal_from_request(
             _request(projection, qualification_binding=wrong_binding),
             projection.revision_fingerprint,
             revisions,
@@ -283,14 +320,14 @@ def test_exact_negative_evidence_requires_complete_exact_relation(tmp_path) -> N
 def test_qualification_match_without_exact_evaluation_is_incomplete(tmp_path) -> None:  # type: ignore[no-untyped-def]
     qualification, relation = _negative_authorities()
     projection = _with_qualification(_projection(include_evaluation=False), qualification)
-    revisions, projection, policies, _ = _authorities(tmp_path, projection)
+    revisions, projection, policies, decisions = _authorities(tmp_path, projection)
     binding = OnlyNoveltyQualificationBindingV1(
         qualification.decision_fingerprint,
         qualification.policy_id,
         qualification.policy_version,
         qualification.policy_fingerprint,
     )
-    bundle = only_build_novelty_decision_bundle(
+    bundle = decisions.seal_from_request(
         _request(projection, qualification_binding=binding),
         projection.revision_fingerprint,
         revisions,
@@ -305,15 +342,15 @@ def test_qualification_match_without_exact_evaluation_is_incomplete(tmp_path) ->
 def test_same_command_changed_intent_conflicts_and_memory_growth_retry_returns_original(tmp_path) -> None:  # type: ignore[no-untyped-def]
     revisions, projection, policies, decisions = _authorities(tmp_path)
     request = _request(projection)
-    original = only_seal_novelty_decision(request, projection.revision_fingerprint, revisions, policies, decisions)
+    original = decisions.seal_from_request(request, projection.revision_fingerprint, revisions, policies)
     grown = _projection(include_evaluation=False)
     revisions._publish_and_activate(grown)
-    assert only_seal_novelty_decision(request, grown.revision_fingerprint, revisions, policies, decisions) == original
+    assert decisions.seal_from_request(request, grown.revision_fingerprint, revisions, policies) == original
     changed = replace(
         request, evaluation_selector=replace(request.evaluation_selector, dataset_snapshot_fingerprint="9" * 64)
     )
     with pytest.raises(OnlyNoveltyDecisionConflictError):
-        only_seal_novelty_decision(changed, grown.revision_fingerprint, revisions, policies, decisions)
+        decisions.seal_from_request(changed, grown.revision_fingerprint, revisions, policies)
 
 
 def test_intent_and_subject_identity_bind_every_exact_semantic_dimension() -> None:
@@ -354,10 +391,8 @@ def test_intent_and_subject_identity_bind_every_exact_semantic_dimension() -> No
 
 
 def test_subject_and_witness_freeze_nested_input_mappings(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    revisions, projection, policies, _ = _authorities(tmp_path)
-    bundle = only_build_novelty_decision_bundle(
-        _request(projection), projection.revision_fingerprint, revisions, policies
-    )
+    revisions, projection, policies, decisions = _authorities(tmp_path)
+    bundle = decisions.seal_from_request(_request(projection), projection.revision_fingerprint, revisions, policies)
     subject_before = bundle.witness.subject.subject_fingerprint
     witness_before = bundle.witness.witness_fingerprint
     resolved = bundle.witness.subject.resolved_subject
@@ -370,10 +405,8 @@ def test_subject_and_witness_freeze_nested_input_mappings(tmp_path) -> None:  # 
 
 
 def test_witness_rejects_historical_proof_for_another_exact_subject(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    revisions, projection, policies, _ = _authorities(tmp_path)
-    bundle = only_build_novelty_decision_bundle(
-        _request(projection), projection.revision_fingerprint, revisions, policies
-    )
+    revisions, projection, policies, decisions = _authorities(tmp_path)
+    bundle = decisions.seal_from_request(_request(projection), projection.revision_fingerprint, revisions, policies)
     resolved = dict(bundle.witness.subject.resolved_subject)
     selector = dict(resolved["evaluation_selector"])  # type: ignore[arg-type]
     selector["candidate_fingerprint"] = "0" * 64
@@ -387,22 +420,20 @@ def test_witness_rejects_historical_proof_for_another_exact_subject(tmp_path) ->
         replace(bundle.witness, subject=subject)
 
 
-def test_concurrent_same_command_converges_with_barrier(tmp_path) -> None:  # type: ignore[no-untyped-def]
+def test_concurrent_same_command_converges_with_barrier(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     revisions, projection, policies, decisions = _authorities(tmp_path)
     barrier = Barrier(2)
 
-    class _BarrierStore:
-        def load_exact(self, command_id):  # type: ignore[no-untyped-def]
-            return decisions.load_exact(command_id)
+    put_verified = decisions._put_verified_bundle
 
-        def seal(self, bundle):  # type: ignore[no-untyped-def]
-            barrier.wait()
-            return decisions.seal(bundle)
+    def barrier_put(bundle):  # type: ignore[no-untyped-def]
+        barrier.wait()
+        return put_verified(bundle)
+
+    monkeypatch.setattr(decisions, "_put_verified_bundle", barrier_put)
 
     def evaluate():
-        return only_seal_novelty_decision(
-            _request(projection), projection.revision_fingerprint, revisions, policies, _BarrierStore()
-        )
+        return decisions.seal_from_request(_request(projection), projection.revision_fingerprint, revisions, policies)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = tuple(pool.map(lambda _: evaluate(), range(2)))
@@ -429,7 +460,7 @@ def test_historical_replay_uses_frozen_empty_cut_not_active_memory(tmp_path, mon
     empty = _projection(include_evaluation=False)
     empty = OnlyExperimentMemoryProjectionV1(empty.source_manifest, ())
     revisions, empty, policies, decisions = _authorities(tmp_path, empty)
-    bundle = only_seal_novelty_decision(_request(empty), empty.revision_fingerprint, revisions, policies, decisions)
+    bundle = decisions.seal_from_request(_request(empty), empty.revision_fingerprint, revisions, policies)
     cuts = {family: OnlySourceClosedCutV1(family, 1, ()) for family in MANDATORY_FAMILIES}
     readers = {family: _CutReader(cut) for family, cut in cuts.items()}
     monkeypatch.setattr(
@@ -447,7 +478,7 @@ def test_historical_replay_uses_frozen_empty_cut_not_active_memory(tmp_path, mon
 @pytest.mark.parametrize("target", ["decision", "witness", "policy", "source", "proof-order"])
 def test_bundle_semantic_mutation_fails_closed(tmp_path, target: str) -> None:  # type: ignore[no-untyped-def]
     revisions, projection, policies, decisions = _authorities(tmp_path)
-    only_seal_novelty_decision(_request(projection), projection.revision_fingerprint, revisions, policies, decisions)
+    decisions.seal_from_request(_request(projection), projection.revision_fingerprint, revisions, policies)
     path = tmp_path / "research" / "novelty-decisions" / COMMAND.value / "bundle.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
     if target == "decision":
@@ -468,10 +499,7 @@ def test_bundle_semantic_mutation_fails_closed(tmp_path, target: str) -> None:  
 @pytest.mark.parametrize("member", ["decision", "witness"])
 def test_unsupported_bundle_schema_and_publish_crash_are_explicit(tmp_path, monkeypatch, member: str) -> None:  # type: ignore[no-untyped-def]
     revisions, projection, policies, decisions = _authorities(tmp_path)
-    bundle = only_build_novelty_decision_bundle(
-        _request(projection), projection.revision_fingerprint, revisions, policies
-    )
-    decisions.seal(bundle)
+    decisions.seal_from_request(_request(projection), projection.revision_fingerprint, revisions, policies)
     path = tmp_path / "research" / "novelty-decisions" / COMMAND.value / "bundle.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload[member]["schema_version"] = 2
@@ -483,16 +511,19 @@ def test_unsupported_bundle_schema_and_publish_crash_are_explicit(tmp_path, monk
         decisions.load_exact(COMMAND)
 
     crash_root = tmp_path / "crash"
-    crash = OnlyNoveltyDecisionBundleStore(crash_root)
+    crash = OnlyNoveltyDecisionAuthority(crash_root)
     monkeypatch.setattr(os, "rename", lambda *_: (_ for _ in ()).throw(OSError("crash")))
     with pytest.raises(OnlyNoveltyDecisionCorruptError):
-        crash.seal(bundle)
+        crash.seal_from_request(_request(projection), projection.revision_fingerprint, revisions, policies)
     with pytest.raises(OnlyNoveltyDecisionNotFoundError):
         crash.load_exact(COMMAND)
 
 
 def test_authoritative_api_does_not_accept_condition_or_outcome() -> None:
-    parameters = inspect.signature(only_build_novelty_decision_bundle).parameters
+    parameters = inspect.signature(OnlyNoveltyDecisionAuthority.seal_from_request).parameters
     assert "condition" not in parameters
     assert "outcome" not in parameters
+    assert "decision" not in parameters
+    assert "witness" not in parameters
+    assert "bundle" not in parameters
     assert "canonical_intent_fingerprint" not in inspect.signature(OnlyNoveltyDecisionRequestV1).parameters

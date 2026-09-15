@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from onlyalpha.research.novelty import OnlyNoveltyDecisionBundleStore
+import onlyalpha.research.novelty as novelty
+from onlyalpha.research.novelty import OnlyNoveltyDecisionAuthority
 from tests.architecture._architecture_imports import imported_modules_for_path
 
 pytestmark = pytest.mark.architecture
@@ -12,9 +13,12 @@ pytestmark = pytest.mark.architecture
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_novelty_decision_store_has_only_put_once_exact_operations() -> None:
-    methods = {name for name in vars(OnlyNoveltyDecisionBundleStore) if not name.startswith("_")}
-    assert methods == {"seal", "load_exact"}
+def test_novelty_decision_authority_is_the_only_public_write_capability() -> None:
+    assert not hasattr(novelty, "OnlyNoveltyDecisionBundleStore")
+    assert not hasattr(novelty, "only_build_novelty_decision_bundle")
+    assert not hasattr(novelty, "only_seal_novelty_decision")
+    methods = {name for name in vars(OnlyNoveltyDecisionAuthority) if not name.startswith("_")}
+    assert methods == {"seal_from_request", "load_exact"}
 
 
 def test_novelty_decision_has_no_research_action_or_agent_path() -> None:

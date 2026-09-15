@@ -46,16 +46,10 @@ from .decision import (
     OnlyNoveltyWitnessSchemaUnsupportedError as OnlyNoveltyWitnessSchemaUnsupportedError,
 )
 from .decision import (
-    only_build_novelty_decision_bundle as only_build_novelty_decision_bundle,
-)
-from .decision import (
-    only_seal_novelty_decision as only_seal_novelty_decision,
-)
-from .decision import (
     only_verify_historical_novelty_decision as only_verify_historical_novelty_decision,
 )
 from .decision_store import (
-    OnlyNoveltyDecisionBundleStore as OnlyNoveltyDecisionBundleStore,
+    OnlyNoveltyDecisionAuthority as OnlyNoveltyDecisionAuthority,
 )
 from .decision_store import (
     OnlyNoveltyDecisionNotFoundError as OnlyNoveltyDecisionNotFoundError,

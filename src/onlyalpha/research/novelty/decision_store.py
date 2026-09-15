@@ -13,31 +13,76 @@ from pathlib import Path
 
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId
 from onlyalpha.canonical import only_canonical_json
+from onlyalpha.research.memory.store import OnlyExperimentMemoryRevisionStore
 
 from .decision import (
     OnlyNoveltyDecisionBundleV1,
     OnlyNoveltyDecisionConflictError,
     OnlyNoveltyDecisionCorruptError,
     OnlyNoveltyDecisionError,
+    OnlyNoveltyDecisionRequestV1,
     OnlyNoveltyDecisionSchemaUnsupportedError,
     OnlyNoveltyDecisionV1,
     OnlyNoveltyDecisionWitnessV1,
+    OnlyNoveltyFreezeRelationReader,
+    OnlyNoveltyQualificationDecisionReader,
     OnlyNoveltyWitnessSchemaUnsupportedError,
+    _build_novelty_decision_bundle,
 )
+from .store import OnlyNoveltyPolicyStore
 
 
 class OnlyNoveltyDecisionNotFoundError(OnlyNoveltyDecisionError):
     code = "NOVELTY_DECISION_NOT_FOUND"
 
 
-class OnlyNoveltyDecisionBundleStore:
+class OnlyNoveltyDecisionAuthority:
+    """The sole supported authoring path for authoritative Novelty Decisions."""
+
     def __init__(self, semantic_root: Path) -> None:
         self._semantic_root = semantic_root
         self._root = semantic_root / "research" / "novelty-decisions"
 
-    def seal(self, bundle: OnlyNoveltyDecisionBundleV1) -> OnlyNoveltyDecisionBundleV1:
+    def seal_from_request(
+        self,
+        request: OnlyNoveltyDecisionRequestV1,
+        projection_revision_fingerprint: str,
+        revisions: OnlyExperimentMemoryRevisionStore,
+        policies: OnlyNoveltyPolicyStore,
+        *,
+        qualification_decisions: OnlyNoveltyQualificationDecisionReader | None = None,
+        freeze_relations: OnlyNoveltyFreezeRelationReader | None = None,
+    ) -> OnlyNoveltyDecisionBundleV1:
+        """Derive and persist one Decision; retries consult sealed history first."""
+        if not isinstance(request, OnlyNoveltyDecisionRequestV1):
+            raise OnlyNoveltyDecisionCorruptError("authoritative seal requires a Decision request")
+        try:
+            existing = self.load_exact(request.command_id)
+        except OnlyNoveltyDecisionNotFoundError:
+            pass
+        else:
+            if existing.decision.subject.canonical_intent_fingerprint != request.canonical_intent_fingerprint:
+                raise OnlyNoveltyDecisionConflictError(request.command_id.value)
+            return existing
+        proposed = _build_novelty_decision_bundle(
+            request,
+            projection_revision_fingerprint,
+            revisions,
+            policies,
+            qualification_decisions=qualification_decisions,
+            freeze_relations=freeze_relations,
+        )
+        try:
+            return self._put_verified_bundle(proposed)
+        except OnlyNoveltyDecisionConflictError:
+            existing = self.load_exact(request.command_id)
+            if existing.decision.subject.canonical_intent_fingerprint != request.canonical_intent_fingerprint:
+                raise
+            return existing
+
+    def _put_verified_bundle(self, bundle: OnlyNoveltyDecisionBundleV1) -> OnlyNoveltyDecisionBundleV1:
         if not isinstance(bundle, OnlyNoveltyDecisionBundleV1):
-            raise OnlyNoveltyDecisionCorruptError("seal requires a validated Decision Bundle")
+            raise OnlyNoveltyDecisionCorruptError("verified put requires a validated Decision Bundle")
         command_id = OnlyProductCommandId(bundle.decision.subject.product_command_id)
         target = self._target(command_id)
         self._require_safe(target)

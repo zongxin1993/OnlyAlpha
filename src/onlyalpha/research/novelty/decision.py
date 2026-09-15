@@ -805,12 +805,6 @@ class OnlyNoveltyFreezeRelationReader(Protocol):
     def load_freeze_relation(self, relation_fingerprint: str) -> OnlyStrategyFreezeRelation: ...
 
 
-class OnlyNoveltyDecisionBundleAuthority(Protocol):
-    def seal(self, bundle: OnlyNoveltyDecisionBundleV1) -> OnlyNoveltyDecisionBundleV1: ...
-
-    def load_exact(self, command_id: OnlyProductCommandId) -> OnlyNoveltyDecisionBundleV1: ...
-
-
 def _proof(
     role: OnlyNoveltyProofRole, revisions: OnlyExperimentMemoryRevisionStore, query: OnlyMemoryHistoricalQueryV1
 ) -> OnlyNoveltyProofWitnessV1:
@@ -926,7 +920,7 @@ def _evaluate(policy: OnlyNoveltyPolicyRevisionV1, witness: OnlyNoveltyDecisionW
     )
 
 
-def only_build_novelty_decision_bundle(
+def _build_novelty_decision_bundle(
     request: OnlyNoveltyDecisionRequestV1,
     projection_revision_fingerprint: str,
     revisions: OnlyExperimentMemoryRevisionStore,
@@ -935,7 +929,7 @@ def only_build_novelty_decision_bundle(
     qualification_decisions: OnlyNoveltyQualificationDecisionReader | None = None,
     freeze_relations: OnlyNoveltyFreezeRelationReader | None = None,
 ) -> OnlyNoveltyDecisionBundleV1:
-    """Build from exact readers; no caller-supplied condition or outcome."""
+    """Build authority-verified content from exact readers."""
     policy = policies.load_exact(request.policy_id, request.policy_version)
     projection = revisions.load_verified(projection_revision_fingerprint)
     subject = OnlyNoveltyDecisionSubjectV1(
@@ -992,43 +986,6 @@ def only_build_novelty_decision_bundle(
         negative_failure,
     )
     return OnlyNoveltyDecisionBundleV1(_evaluate(policy, witness), witness)
-
-
-def only_seal_novelty_decision(
-    request: OnlyNoveltyDecisionRequestV1,
-    projection_revision_fingerprint: str,
-    revisions: OnlyExperimentMemoryRevisionStore,
-    policies: OnlyNoveltyPolicyStore,
-    decisions: OnlyNoveltyDecisionBundleAuthority,
-    *,
-    qualification_decisions: OnlyNoveltyQualificationDecisionReader | None = None,
-    freeze_relations: OnlyNoveltyFreezeRelationReader | None = None,
-) -> OnlyNoveltyDecisionBundleV1:
-    """Converge one Product Command retry before consulting newer Memory."""
-    try:
-        existing = decisions.load_exact(request.command_id)
-    except OnlyNoveltyDecisionError as exc:
-        if exc.code != "NOVELTY_DECISION_NOT_FOUND":
-            raise
-    else:
-        if existing.decision.subject.canonical_intent_fingerprint != request.canonical_intent_fingerprint:
-            raise OnlyNoveltyDecisionConflictError(request.command_id.value)
-        return existing
-    proposed = only_build_novelty_decision_bundle(
-        request,
-        projection_revision_fingerprint,
-        revisions,
-        policies,
-        qualification_decisions=qualification_decisions,
-        freeze_relations=freeze_relations,
-    )
-    try:
-        return decisions.seal(proposed)
-    except OnlyNoveltyDecisionConflictError:
-        existing = decisions.load_exact(request.command_id)
-        if existing.decision.subject.canonical_intent_fingerprint != request.canonical_intent_fingerprint:
-            raise
-        return existing
 
 
 def only_verify_historical_novelty_decision(

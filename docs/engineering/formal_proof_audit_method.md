@@ -63,6 +63,10 @@ current readable state
 != historical proof completeness
 ```
 
+### 2.1 Derived Authority Fact Rule
+
+对于任何 derived formal fact，caller 提供的结构合法值不等于 Authority 可接纳事实。公开权威写入路径必须接收 source intent / input facts，由 canonical producer 推导结果；raw persistence primitive 必须保持 internal，不能成为第二条 authoring API。Independent Review 必须构造语义伪造但 fingerprint 正确的 derived result，并证明它不能绕过 canonical producer 进入 Authority。
+
 ---
 
 ## 3. Authority State-Space Audit
