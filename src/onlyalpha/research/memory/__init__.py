@@ -15,6 +15,7 @@ from .query import (
     OnlyMemoryHistoricalQueryV1,
     OnlyQualificationFailureOwnerV1,
     OnlyResearchRunFailureOwnerV1,
+    OnlyResearchRunTerminalOwnerV1,
     OnlySearchFailureOwnerV1,
     only_query_experiment_memory_history,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "OnlyMemoryReferenceKind",
     "OnlyQualificationFailureOwnerV1",
     "OnlyResearchRunFailureOwnerV1",
+    "OnlyResearchRunTerminalOwnerV1",
     "OnlySearchFailureOwnerV1",
     "only_query_experiment_memory_history",
 ]

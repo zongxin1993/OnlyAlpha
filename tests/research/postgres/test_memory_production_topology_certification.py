@@ -97,6 +97,7 @@ from onlyalpha.research.memory.query import (
     OnlyExactStatisticsReferenceV1,
     OnlyMemoryHistoricalQueryV1,
     OnlyResearchRunFailureOwnerV1,
+    OnlyResearchRunTerminalOwnerV1,
     only_query_experiment_memory_history,
 )
 from onlyalpha.research.memory.source_manifest import (
@@ -521,6 +522,7 @@ def _fresh_rebuild(
     history = _first_semantic_history(builder._revisions, projection)
     evaluation_history = _first_evaluation_history(builder._revisions, projection)
     failure_history = _first_run_failure_history(builder._revisions, projection)
+    cancellation_history = _first_run_cancellation_history(builder._revisions, projection)
     return {
         "manifest": projection.source_manifest.manifest_fingerprint,
         "records": [record.to_dict() for record in projection.records],
@@ -532,6 +534,8 @@ def _fresh_rebuild(
         "evaluation_proof": evaluation_history[1],
         "failure_query": failure_history[0],
         "failure_proof": failure_history[1],
+        "cancellation_query": cancellation_history[0],
+        "cancellation_proof": cancellation_history[1],
     }
 
 
@@ -589,6 +593,7 @@ def _first_run_failure_history(revisions, projection):  # type: ignore[no-untype
         for record in projection.records
         if record.kind == "FailureEvidenceProjectionRecord"
         and isinstance(record.facets.get("run_context"), dict)
+        and record.facets["run_context"]["run_state"] == "FAILED"
         and record.facets["run_context"]["research_result_fingerprint"] is None
     )
     context = failure.facets["run_context"]
@@ -606,6 +611,26 @@ def _first_run_failure_history(revisions, projection):  # type: ignore[no-untype
         projection.revision_fingerprint,
         OnlyExactFailureEvidenceSelectorV1(
             failure.facets["classification"], failure.facets["failure_code"], owner, failure.facets["failure_phase"]
+        ),
+    )
+    return query.to_dict(), only_query_experiment_memory_history(revisions, query).to_dict()
+
+
+def _first_run_cancellation_history(revisions, projection):  # type: ignore[no-untyped-def]
+    failure = next(
+        record
+        for record in projection.records
+        if record.kind == "FailureEvidenceProjectionRecord"
+        and isinstance(record.facets.get("run_context"), dict)
+        and record.facets["run_context"]["run_state"] == "CANCELLED"
+    )
+    context = failure.facets["run_context"]
+    query = OnlyMemoryHistoricalQueryV1(
+        projection.revision_fingerprint,
+        OnlyExactFailureEvidenceSelectorV1(
+            failure.facets["classification"],
+            None,
+            OnlyResearchRunTerminalOwnerV1(context["run_id"], context["run_revision"], terminal_state="CANCELLED"),
         ),
     )
     return query.to_dict(), only_query_experiment_memory_history(revisions, query).to_dict()
@@ -819,6 +844,29 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     assert run_store.load(failed_run_id) == failed
     assert execution_store.load_attempt(failed_claim.attempt.attempt_id).state is OnlyResearchRunAttemptState.FAILED
 
+    cancelled_run_id = OnlyResearchRunId("00000000-0000-4000-8000-000000000938")
+    cancelled_run = OnlyResearchRun.queued(
+        run_id=cancelled_run_id,
+        specification=run_spec,
+        canonical_specification_payload=only_canonical_json(run_spec.to_dict()),
+        admission_resolution_fingerprint="a" * 64,
+        queued_at=NOW + timedelta(seconds=5),
+        authoring_provenance=authoring,
+    )
+    run_store.create_queued(cancelled_run)
+    runtime_generations.bind_work_exact(
+        cancelled_run_id.value,
+        runtime_fingerprint,
+        actor="topology-certifier",
+        occurred_at=NOW + timedelta(seconds=5),
+    )
+    cancelled = run_store.commit_transition(
+        cancelled_run,
+        cancelled_run.transition(OnlyResearchRunState.CANCELLED, at=NOW + timedelta(seconds=6)),
+    )
+    assert cancelled.state is OnlyResearchRunState.CANCELLED
+    assert cancelled.failure is None
+
     search_plans = (
         values["provenance"].iteration_plans_for_experiment_verified(chain["experiment"])[0],
         values["provenance"].iteration_plans_for_experiment_verified(parameter_experiment)[0],
@@ -968,8 +1016,12 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     initial_query, initial_proof = _first_semantic_history(builder._revisions, initial)
     initial_evaluation_query, initial_evaluation_proof = _first_evaluation_history(builder._revisions, initial)
     initial_failure_query, initial_failure_proof = _first_run_failure_history(builder._revisions, initial)
+    initial_cancellation_query, initial_cancellation_proof = _first_run_cancellation_history(
+        builder._revisions, initial
+    )
     assert initial_evaluation_proof["proof_status"] == "MATCH"
     assert initial_failure_proof["proof_status"] == "MATCH"
+    assert initial_cancellation_proof["proof_status"] == "MATCH"
     evaluation = next(
         record
         for record in initial.records
@@ -1010,6 +1062,11 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     )
     assert symbolic_lineage["experiment_fingerprint"] == search_plans[0].experiment_fingerprint
     failure_record = failure_records[search_run_ids[1].value]
+    cancellation_record = failure_records[cancelled_run_id.value]
+    assert cancellation_record.facets["run_context"]["run_state"] == "CANCELLED"
+    assert cancellation_record.facets["failure_code"] is None
+    assert cancellation_record.facets["failure_phase"] is None
+    assert cancellation_record.facets["failure_detail"] is None
     context = failure_record.facets["run_context"]
     lineage = context["search_lineage"]
     assert context["run_state"] == "FAILED"
@@ -1167,6 +1224,8 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     assert rebuilt["evaluation_proof"] == initial_evaluation_proof
     assert rebuilt["failure_query"] == initial_failure_query
     assert rebuilt["failure_proof"] == initial_failure_proof
+    assert rebuilt["cancellation_query"] == initial_cancellation_query
+    assert rebuilt["cancellation_proof"] == initial_cancellation_proof
     assert source_snapshot == tuple(
         (
             cut.source_family,

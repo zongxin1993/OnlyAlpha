@@ -16,6 +16,7 @@ from onlyalpha.research.memory.projector import (
     OnlyMemorySourceRefV1,
 )
 from onlyalpha.research.memory.query import (
+    OnlyAgentFailureOwnerV1,
     OnlyExactEvaluationHistorySelectorV1,
     OnlyExactFailureEvidenceSelectorV1,
     OnlyExactParameterObservationSelectorV1,
@@ -25,6 +26,7 @@ from onlyalpha.research.memory.query import (
     OnlyMemoryHistoricalQueryV1,
     OnlyQualificationFailureOwnerV1,
     OnlyResearchRunFailureOwnerV1,
+    OnlyResearchRunTerminalOwnerV1,
     OnlySearchFailureOwnerV1,
     only_query_experiment_memory_history,
 )
@@ -150,6 +152,7 @@ def _projection(
                 "search_lineage": search_lineage,
             },
             "failure_phase": "ARTIFACT_COMMIT",
+            "failure_detail": "artifact unavailable",
         },
         (run_ref, *tuple(OnlyMemorySourceRefV1(**value) for value in search_refs.values())),
     )
@@ -180,6 +183,133 @@ def _replace_record_facets(
     records[index] = OnlyMemoryProjectionRecordV1(record.kind, facets, record.source_refs)
     records.sort(key=lambda item: only_canonical_json(item.to_dict()))
     return OnlyExperimentMemoryProjectionV1(projection.source_manifest, tuple(records))
+
+
+def _source_ref(
+    projection: OnlyExperimentMemoryProjectionV1,
+    family: str,
+    identity: str,
+    *,
+    locator: str | None = None,
+) -> OnlyMemorySourceRefV1:
+    cut = next(cut for cut in projection.source_manifest.cuts if cut.source_family == family)
+    return OnlyMemorySourceRefV1(family, cut.cut_fingerprint, locator or identity, identity, identity)
+
+
+def _with_failure_records(
+    projection: OnlyExperimentMemoryProjectionV1, *records: OnlyMemoryProjectionRecordV1
+) -> OnlyExperimentMemoryProjectionV1:
+    retained = [record for record in projection.records if record.kind != "FailureEvidenceProjectionRecord"]
+    ordered = tuple(sorted((*retained, *records), key=lambda record: only_canonical_json(record.to_dict())))
+    return OnlyExperimentMemoryProjectionV1(projection.source_manifest, ordered)
+
+
+def _run_terminal_record(
+    projection: OnlyExperimentMemoryProjectionV1,
+    *,
+    run_id: str = FAILED_RUN_ID,
+    revision: int = 2,
+    state: str = "FAILED",
+) -> OnlyMemoryProjectionRecordV1:
+    identity = {"FAILED": "9" * 64, "CANCELLED": "a" * 64}[state]
+    source = _source_ref(projection, "RESEARCH_RUN", identity)
+    structured = state == "FAILED"
+    return OnlyMemoryProjectionRecordV1(
+        "FailureEvidenceProjectionRecord",
+        {
+            "classification": "OPERATIONAL_FAILURE",
+            "run_context": {
+                "run_id": run_id,
+                "run_revision": revision,
+                "run_state": state,
+                "specification_fingerprint": SPECIFICATION,
+                "research_result_fingerprint": None,
+                "artifact_content_fingerprint": None,
+                "catalog_generation_fingerprint": CATALOG,
+                "runtime_generation_fingerprint": RUNTIME,
+                "authoring_generation_fingerprint": None,
+                "calculation_execution_evidence_fingerprints": [],
+                "run_source_ref": source.to_dict(),
+                "search_lineage": None,
+            },
+            "failure_phase": "EXECUTION" if structured else None,
+            "failure_code": "RESEARCH_EXECUTION_FAILED" if structured else None,
+            "failure_detail": "execution failed" if structured else None,
+        },
+        (source,),
+    )
+
+
+def _search_failure_record(
+    projection: OnlyExperimentMemoryProjectionV1, identity: str = "7" * 64
+) -> OnlyMemoryProjectionRecordV1:
+    source = _source_ref(projection, "SEARCH_PROVENANCE", identity, locator=f"iteration-results/{identity}")
+    return OnlyMemoryProjectionRecordV1(
+        "FailureEvidenceProjectionRecord",
+        {
+            "classification": "SEARCH_OR_BUDGET_STOP",
+            "failure_code": "SEARCH_BUDGET_EXHAUSTED",
+            "iteration_result_fingerprint": identity,
+        },
+        (source,),
+    )
+
+
+def _agent_failure_record(
+    projection: OnlyExperimentMemoryProjectionV1, identity: str = "8" * 64
+) -> OnlyMemoryProjectionRecordV1:
+    source = _source_ref(projection, "AGENT_PROVENANCE", identity, locator=f"model-calls/results/{identity}")
+    return OnlyMemoryProjectionRecordV1(
+        "FailureEvidenceProjectionRecord",
+        {
+            "classification": "OPERATIONAL_FAILURE",
+            "failure_code": "AGENT_MODEL_CALL_FAILED",
+            "outcome": "FAILED",
+        },
+        (source,),
+    )
+
+
+def _qualification_failure_record(
+    projection: OnlyExperimentMemoryProjectionV1, identity: str = "b" * 64
+) -> OnlyMemoryProjectionRecordV1:
+    source = _source_ref(projection, "QUALIFICATION_DECISION", identity)
+    return OnlyMemoryProjectionRecordV1(
+        "FailureEvidenceProjectionRecord",
+        {
+            "classification": "QUALIFICATION_REJECT",
+            "subject_strategy_fingerprint": "c" * 64,
+            "policy_id": "policy",
+            "policy_version": "1",
+            "policy_fingerprint": "d" * 64,
+            "evidence_refs": [
+                {
+                    "kind": "BACKTEST_EVIDENCE",
+                    "evidence_fingerprint": "e" * 64,
+                    "locator_fingerprint": None,
+                    "subject_binding_fingerprint": None,
+                }
+            ],
+        },
+        (source,),
+    )
+
+
+def _failure_status(
+    tmp_path: Path,
+    projection: OnlyExperimentMemoryProjectionV1,
+    selector: OnlyExactFailureEvidenceSelectorV1,
+) -> OnlyMemoryHistoricalProofStatus:
+    store, projection = _store(tmp_path, projection)
+    return only_query_experiment_memory_history(
+        store, OnlyMemoryHistoricalQueryV1(projection.revision_fingerprint, selector)
+    ).proof_status
+
+
+def _mutate_failure_record(record, update, *, source_refs=None):  # type: ignore[no-untyped-def]
+    facets = json.loads(only_canonical_json(record.facets))
+    update(facets)
+    return OnlyMemoryProjectionRecordV1("FailureEvidenceProjectionRecord", facets, source_refs or record.source_refs)
 
 
 def _semantic_query(projection: OnlyExperimentMemoryProjectionV1, *, dataset: str | None = None):
@@ -253,7 +383,7 @@ def test_certified_no_match_unavailable_incomplete_and_unsupported_are_distinct(
     assert only_query_experiment_memory_history(store, missing).proof_status is (
         OnlyMemoryHistoricalProofStatus.PROOF_UNAVAILABLE
     )
-    unsupported = replace(absent, query_schema_version=1)
+    unsupported = replace(absent, query_schema_version=2)
     assert only_query_experiment_memory_history(store, unsupported).failure_code == "QUERY_SCHEMA_UNSUPPORTED"
 
     incomplete_store, incomplete_projection = _store(tmp_path / "incomplete", _projection(incomplete=True))
@@ -415,6 +545,100 @@ def test_run_failure_requires_complete_context_and_exact_search_lineage(tmp_path
     )
 
 
+def test_failed_and_cancelled_run_terminals_are_exact_and_do_not_poison_each_other(tmp_path: Path) -> None:
+    base = _projection()
+    failed = _run_terminal_record(base)
+    cancelled_id = "00000000-0000-4000-8000-000000000005"
+    cancelled = _run_terminal_record(base, run_id=cancelled_id, revision=1, state="CANCELLED")
+    projection = _with_failure_records(base, failed, cancelled)
+    failed_selector = OnlyExactFailureEvidenceSelectorV1(
+        "OPERATIONAL_FAILURE",
+        "RESEARCH_EXECUTION_FAILED",
+        OnlyResearchRunTerminalOwnerV1(FAILED_RUN_ID, 2, terminal_state="FAILED"),
+        "EXECUTION",
+    )
+    cancelled_selector = OnlyExactFailureEvidenceSelectorV1(
+        "OPERATIONAL_FAILURE",
+        None,
+        OnlyResearchRunTerminalOwnerV1(cancelled_id, 1, terminal_state="CANCELLED"),
+    )
+
+    assert _failure_status(tmp_path / "failed", projection, failed_selector) is OnlyMemoryHistoricalProofStatus.MATCH
+    assert _failure_status(tmp_path / "cancelled", projection, cancelled_selector) is (
+        OnlyMemoryHistoricalProofStatus.MATCH
+    )
+    assert (
+        _failure_status(tmp_path / "wrong_code", projection, replace(failed_selector, stable_code="OTHER_FAILURE"))
+        is OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH
+    )
+    assert (
+        _failure_status(
+            tmp_path / "different",
+            projection,
+            replace(cancelled_selector, owner=replace(cancelled_selector.owner, run_revision=2)),
+        )
+        is OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH
+    )
+
+    fabricated = _mutate_failure_record(
+        cancelled,
+        lambda facets: facets.update(
+            failure_phase="EXECUTION", failure_code="FAKE_CANCELLATION", failure_detail="fabricated"
+        ),
+    )
+    assert (
+        _failure_status(tmp_path / "fabricated", _with_failure_records(base, fabricated), cancelled_selector)
+        is OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
+    )
+
+
+def test_run_terminal_structural_loss_is_always_incomplete(tmp_path: Path) -> None:
+    base = _projection()
+    record = _run_terminal_record(base)
+    selector = OnlyExactFailureEvidenceSelectorV1(
+        "OPERATIONAL_FAILURE",
+        "RESEARCH_EXECUTION_FAILED",
+        OnlyResearchRunTerminalOwnerV1(FAILED_RUN_ID, 2, terminal_state="FAILED"),
+    )
+    unrelated = _source_ref(base, "PRODUCT_COMMAND_RECEIPT", "f" * 64)
+    duplicate = _source_ref(base, "RESEARCH_RUN", "e" * 64)
+    mutations = {
+        "owner_context": _mutate_failure_record(record, lambda facets: facets.pop("run_context")),
+        "owner_identity": _mutate_failure_record(record, lambda facets: facets["run_context"].pop("run_id")),
+        "nested_relation": _mutate_failure_record(record, lambda facets: facets["run_context"].pop("search_lineage")),
+        "source_ref": _mutate_failure_record(record, lambda _: None, source_refs=(unrelated,)),
+        "leaf_fingerprint": _mutate_failure_record(
+            record,
+            lambda facets: facets["run_context"].update(specification_fingerprint="not-a-sha"),
+        ),
+        "duplicate_owner_ref": _mutate_failure_record(
+            record, lambda _: None, source_refs=(*record.source_refs, duplicate)
+        ),
+        "missing_code": _mutate_failure_record(record, lambda facets: facets.update(failure_code=None)),
+        "missing_phase": _mutate_failure_record(record, lambda facets: facets.update(failure_phase=None)),
+    }
+    for name, malformed in mutations.items():
+        assert (
+            _failure_status(tmp_path / name, _with_failure_records(base, malformed), selector)
+            is OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
+        )
+    different = _run_terminal_record(base, run_id="00000000-0000-4000-8000-000000000006", revision=2)
+    assert (
+        _failure_status(tmp_path / "different_identity", _with_failure_records(base, different), selector)
+        is OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH
+    )
+
+
+def test_failure_selector_rejects_semantically_impossible_terminal_payloads() -> None:
+    cancelled = OnlyResearchRunTerminalOwnerV1(FAILED_RUN_ID, 2, terminal_state="CANCELLED")
+    with pytest.raises(ValueError, match="CANCELLED"):
+        OnlyExactFailureEvidenceSelectorV1("OPERATIONAL_FAILURE", "FAKE_CANCELLATION", cancelled)
+    with pytest.raises(ValueError, match="classification is incompatible"):
+        OnlyExactFailureEvidenceSelectorV1(
+            "QUALIFICATION_REJECT", "OTHER_REJECTION", OnlyQualificationFailureOwnerV1("b" * 64)
+        )
+
+
 def test_failure_owner_is_native_typed_occurrence_not_any_source_ref(tmp_path: Path) -> None:
     projection = _projection()
     search_identity = "7" * 64
@@ -513,6 +737,142 @@ def test_qualification_reject_never_matches_operational_failure(tmp_path: Path) 
     )
 
 
+@pytest.mark.parametrize("family", ("SEARCH", "AGENT", "QUALIFICATION"))
+def test_typed_owner_structural_mutations_are_incomplete_and_different_identity_is_not(
+    tmp_path: Path, family: str
+) -> None:
+    base = _projection()
+    if family == "SEARCH":
+        record = _search_failure_record(base)
+        selector = OnlyExactFailureEvidenceSelectorV1(
+            "SEARCH_OR_BUDGET_STOP", "SEARCH_BUDGET_EXHAUSTED", OnlySearchFailureOwnerV1("7" * 64)
+        )
+        owner_family = "SEARCH_PROVENANCE"
+        identity_field = "iteration_result_fingerprint"
+        nested_field = identity_field
+        leaf_field = identity_field
+    elif family == "AGENT":
+        record = _agent_failure_record(base)
+        selector = OnlyExactFailureEvidenceSelectorV1(
+            "OPERATIONAL_FAILURE", "AGENT_MODEL_CALL_FAILED", OnlyAgentFailureOwnerV1("8" * 64)
+        )
+        owner_family = "AGENT_PROVENANCE"
+        identity_field = "outcome"
+        nested_field = "outcome"
+        leaf_field = "failure_code"
+    else:
+        record = _qualification_failure_record(base)
+        selector = OnlyExactFailureEvidenceSelectorV1(
+            "QUALIFICATION_REJECT", "QUALIFICATION_REJECTED", OnlyQualificationFailureOwnerV1("b" * 64)
+        )
+        owner_family = "QUALIFICATION_DECISION"
+        identity_field = "subject_strategy_fingerprint"
+        nested_field = "evidence_refs"
+        leaf_field = "policy_fingerprint"
+
+    owner_ref = next(ref for ref in record.source_refs if ref.source_family == owner_family)
+    malformed_ref = replace(owner_ref, locator="malformed")
+    duplicate_ref = replace(owner_ref, content_fingerprint="f" * 64)
+    mutations = {
+        "owner_context": _mutate_failure_record(record, lambda facets: facets.pop(identity_field)),
+        "owner_identity": _mutate_failure_record(
+            record,
+            lambda facets: facets.update(**{identity_field: None if family != "SEARCH" else "not-a-sha"}),
+        ),
+        "nested_relation": _mutate_failure_record(record, lambda facets: facets.pop(nested_field)),
+        "source_ref": _mutate_failure_record(record, lambda _: None, source_refs=(malformed_ref,)),
+        "leaf_fingerprint": _mutate_failure_record(
+            record, lambda facets: facets.update(**{leaf_field: "not-a-sha" if family != "AGENT" else ""})
+        ),
+        "duplicate_owner_ref": _mutate_failure_record(
+            record, lambda _: None, source_refs=(*record.source_refs, duplicate_ref)
+        ),
+    }
+    for name, malformed in mutations.items():
+        assert (
+            _failure_status(tmp_path / name, _with_failure_records(base, malformed), selector)
+            is OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
+        )
+    if family == "AGENT":
+        contradictory = _mutate_failure_record(record, lambda facets: facets.update(outcome="OUTCOME_UNKNOWN"))
+        assert (
+            _failure_status(tmp_path / "wrong_outcome", _with_failure_records(base, contradictory), selector)
+            is OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
+        )
+
+    different_owner = (
+        replace(selector.owner, iteration_result_fingerprint="0" * 64)
+        if family == "SEARCH"
+        else replace(selector.owner, occurrence_fingerprint="0" * 64)
+        if family == "AGENT"
+        else replace(selector.owner, decision_fingerprint="0" * 64)
+    )
+    assert (
+        _failure_status(
+            tmp_path / "different",
+            _with_failure_records(base, record),
+            replace(selector, owner=different_owner),
+        )
+        is OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH
+    )
+    assert (
+        _failure_status(
+            tmp_path / "wrong_code",
+            _with_failure_records(base, record),
+            replace(selector, stable_code="OTHER_FAILURE")
+            if family != "QUALIFICATION"
+            else OnlyExactFailureEvidenceSelectorV1(
+                "QUALIFICATION_REJECT", "QUALIFICATION_REJECTED", OnlyQualificationFailureOwnerV1("0" * 64)
+            ),
+        )
+        is OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH
+    )
+
+
+def test_cross_family_records_are_isolated_and_provenance_noise_does_not_transfer_owner(tmp_path: Path) -> None:
+    base = _projection()
+    run = _run_terminal_record(base)
+    search = _search_failure_record(base)
+    agent = _agent_failure_record(base)
+    qualification = _qualification_failure_record(base)
+    run_noise = _source_ref(base, "RESEARCH_RUN", "1" * 64)
+    search = _mutate_failure_record(search, lambda _: None, source_refs=(*search.source_refs, run_noise))
+    search_noise = _source_ref(base, "SEARCH_PROVENANCE", "2" * 64, locator="experiments/" + "2" * 64)
+    run = _mutate_failure_record(run, lambda _: None, source_refs=(*run.source_refs, search_noise))
+    projection = _with_failure_records(base, run, search, agent, qualification)
+    selectors = (
+        OnlyExactFailureEvidenceSelectorV1(
+            "OPERATIONAL_FAILURE",
+            "RESEARCH_EXECUTION_FAILED",
+            OnlyResearchRunTerminalOwnerV1(FAILED_RUN_ID, 2),
+        ),
+        OnlyExactFailureEvidenceSelectorV1(
+            "SEARCH_OR_BUDGET_STOP", "SEARCH_BUDGET_EXHAUSTED", OnlySearchFailureOwnerV1("7" * 64)
+        ),
+        OnlyExactFailureEvidenceSelectorV1(
+            "OPERATIONAL_FAILURE", "AGENT_MODEL_CALL_FAILED", OnlyAgentFailureOwnerV1("8" * 64)
+        ),
+        OnlyExactFailureEvidenceSelectorV1(
+            "QUALIFICATION_REJECT", "QUALIFICATION_REJECTED", OnlyQualificationFailureOwnerV1("b" * 64)
+        ),
+    )
+    for index, selector in enumerate(selectors):
+        assert _failure_status(tmp_path / str(index), projection, selector) is OnlyMemoryHistoricalProofStatus.MATCH
+
+
+def test_incomplete_relevant_owner_keeps_precedence_over_a_match(tmp_path: Path) -> None:
+    base = _projection()
+    complete = _search_failure_record(base)
+    incomplete = _mutate_failure_record(complete, lambda facets: facets.pop("iteration_result_fingerprint"))
+    selector = OnlyExactFailureEvidenceSelectorV1(
+        "SEARCH_OR_BUDGET_STOP", "SEARCH_BUDGET_EXHAUSTED", OnlySearchFailureOwnerV1("7" * 64)
+    )
+    assert (
+        _failure_status(tmp_path, _with_failure_records(base, complete, incomplete), selector)
+        is OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
+    )
+
+
 def test_query_fingerprint_binds_every_new_exact_identity() -> None:
     projection = _projection()
     evaluation = _semantic_query(projection, dataset=DATASET)
@@ -530,6 +890,7 @@ def test_query_fingerprint_binds_every_new_exact_identity() -> None:
     )
     variants = (
         replace(failure, exact_selector=replace(failure.exact_selector, stable_code="OTHER_FAILURE")),
+        replace(failure, exact_selector=replace(failure.exact_selector, failure_phase="EXECUTION")),
         replace(failure, exact_selector=replace(failure.exact_selector, owner=replace(base_owner, run_revision=3))),
         replace(
             failure,
@@ -545,8 +906,43 @@ def test_query_fingerprint_binds_every_new_exact_identity() -> None:
             ),
         ),
     )
+    cancellation = OnlyMemoryHistoricalQueryV1(
+        projection.revision_fingerprint,
+        OnlyExactFailureEvidenceSelectorV1(
+            "OPERATIONAL_FAILURE",
+            None,
+            replace(base_owner, terminal_state="CANCELLED"),
+        ),
+    )
+    owner_queries = (
+        OnlyMemoryHistoricalQueryV1(
+            projection.revision_fingerprint,
+            OnlyExactFailureEvidenceSelectorV1(
+                "SEARCH_OR_BUDGET_STOP", "SEARCH_BUDGET_EXHAUSTED", OnlySearchFailureOwnerV1("7" * 64)
+            ),
+        ),
+        OnlyMemoryHistoricalQueryV1(
+            projection.revision_fingerprint,
+            OnlyExactFailureEvidenceSelectorV1(
+                "OPERATIONAL_FAILURE", "AGENT_MODEL_CALL_FAILED", OnlyAgentFailureOwnerV1("8" * 64)
+            ),
+        ),
+        OnlyMemoryHistoricalQueryV1(
+            projection.revision_fingerprint,
+            OnlyExactFailureEvidenceSelectorV1(
+                "QUALIFICATION_REJECT", "QUALIFICATION_REJECTED", OnlyQualificationFailureOwnerV1("b" * 64)
+            ),
+        ),
+    )
     assert evaluation.query_fingerprint != statistics_result.query_fingerprint
-    assert len({failure.query_fingerprint, *(query.query_fingerprint for query in variants)}) == 5
+    fingerprints = {
+        failure.query_fingerprint,
+        cancellation.query_fingerprint,
+        *(query.query_fingerprint for query in variants),
+        *(query.query_fingerprint for query in owner_queries),
+    }
+    assert len(fingerprints) == 10
+    assert failure.query_fingerprint == replace(failure).query_fingerprint
 
 
 def test_old_revision_is_independent_of_active_pointer_source_growth_and_duplicate_replay(tmp_path: Path) -> None:

@@ -14,7 +14,7 @@ from .projector import OnlyMemoryProjectionRecordV1, OnlyMemorySourceRefV1
 from .source_manifest import OnlyMemoryProjectionError
 from .store import OnlyExperimentMemoryRevisionStore
 
-QUERY_SCHEMA_VERSION = 2
+QUERY_SCHEMA_VERSION = 3
 
 
 def _sha(value: object, name: str) -> str:
@@ -201,7 +201,7 @@ class OnlyExactParameterObservationSelectorV1:
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyResearchRunFailureOwnerV1:
+class OnlyResearchRunTerminalOwnerV1:
     run_id: str
     run_revision: int
     specification_fingerprint: str | None = None
@@ -209,12 +209,15 @@ class OnlyResearchRunFailureOwnerV1:
     runtime_generation_fingerprint: str | None = None
     search_experiment_fingerprint: str | None = None
     search_iteration_plan_fingerprint: str | None = None
+    terminal_state: str = "FAILED"
     owner_kind: ClassVar[OnlyMemoryFailureOwnerKind] = OnlyMemoryFailureOwnerKind.RESEARCH_RUN
 
     def __post_init__(self) -> None:
         _uuid4(self.run_id, "run_id")
         if type(self.run_revision) is not int or self.run_revision < 0:
             raise ValueError("run_revision must be a non-negative integer")
+        if self.terminal_state not in {"FAILED", "CANCELLED"}:
+            raise ValueError("terminal_state must be FAILED or CANCELLED")
         for name in (
             "specification_fingerprint",
             "catalog_generation_fingerprint",
@@ -236,7 +239,12 @@ class OnlyResearchRunFailureOwnerV1:
             "runtime_generation_fingerprint": self.runtime_generation_fingerprint,
             "search_experiment_fingerprint": self.search_experiment_fingerprint,
             "search_iteration_plan_fingerprint": self.search_iteration_plan_fingerprint,
+            "terminal_state": self.terminal_state,
         }
+
+
+# Source compatibility for the V2 Python name; serialized V3 queries always bind terminal_state.
+OnlyResearchRunFailureOwnerV1 = OnlyResearchRunTerminalOwnerV1
 
 
 @dataclass(frozen=True, slots=True)
@@ -276,25 +284,28 @@ class OnlyQualificationFailureOwnerV1:
 
 
 OnlyExactFailureOwnerV1 = (
-    OnlyResearchRunFailureOwnerV1 | OnlySearchFailureOwnerV1 | OnlyAgentFailureOwnerV1 | OnlyQualificationFailureOwnerV1
+    OnlyResearchRunTerminalOwnerV1
+    | OnlySearchFailureOwnerV1
+    | OnlyAgentFailureOwnerV1
+    | OnlyQualificationFailureOwnerV1
 )
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyExactFailureEvidenceSelectorV1:
     classification: str
-    stable_code: str
+    stable_code: str | None
     owner: OnlyExactFailureOwnerV1
     failure_phase: str | None = None
     query_kind: ClassVar[OnlyMemoryHistoricalQueryKind] = OnlyMemoryHistoricalQueryKind.FAILURE_EVIDENCE_EXACT
 
     def __post_init__(self) -> None:
-        if not self.classification or not self.stable_code:
-            raise ValueError("classification and stable_code are required")
+        if not self.classification:
+            raise ValueError("classification is required")
         if not isinstance(
             self.owner,
             (
-                OnlyResearchRunFailureOwnerV1,
+                OnlyResearchRunTerminalOwnerV1,
                 OnlySearchFailureOwnerV1,
                 OnlyAgentFailureOwnerV1,
                 OnlyQualificationFailureOwnerV1,
@@ -303,11 +314,18 @@ class OnlyExactFailureEvidenceSelectorV1:
             raise ValueError("typed failure owner is required")
         if self.failure_phase is not None and not self.failure_phase:
             raise ValueError("failure_phase must be non-empty when provided")
-        if self.failure_phase is not None and not isinstance(self.owner, OnlyResearchRunFailureOwnerV1):
+        if self.failure_phase is not None and not isinstance(self.owner, OnlyResearchRunTerminalOwnerV1):
             raise ValueError("failure_phase is only valid for a Research Run owner")
+        run_cancelled = (
+            isinstance(self.owner, OnlyResearchRunTerminalOwnerV1) and self.owner.terminal_state == "CANCELLED"
+        )
+        if run_cancelled and (self.stable_code is not None or self.failure_phase is not None):
+            raise ValueError("CANCELLED does not accept structured failure selectors")
+        if not run_cancelled and (not isinstance(self.stable_code, str) or not self.stable_code):
+            raise ValueError("stable_code is required outside CANCELLED")
         allowed = (
             self.classification == "OPERATIONAL_FAILURE"
-            if isinstance(self.owner, (OnlyResearchRunFailureOwnerV1, OnlyAgentFailureOwnerV1))
+            if isinstance(self.owner, (OnlyResearchRunTerminalOwnerV1, OnlyAgentFailureOwnerV1))
             else self.classification in {"OPERATIONAL_FAILURE", "SEARCH_OR_BUDGET_STOP"}
             if isinstance(self.owner, OnlySearchFailureOwnerV1)
             else self.classification == "QUALIFICATION_REJECT" and self.stable_code == "QUALIFICATION_REJECTED"
@@ -634,8 +652,12 @@ def _parameter(record: OnlyMemoryProjectionRecordV1, selector: OnlyExactParamete
     )
 
 
+def _owner_refs(record: OnlyMemoryProjectionRecordV1, family: str) -> tuple[OnlyMemorySourceRefV1, ...]:
+    return tuple(ref for ref in record.source_refs if ref.source_family == family)
+
+
 def _owner_ref(record: OnlyMemoryProjectionRecordV1, family: str) -> OnlyMemorySourceRefV1 | None:
-    refs = [ref for ref in record.source_refs if ref.source_family == family]
+    refs = _owner_refs(record, family)
     if len(refs) != 1 or not all(
         (
             ref.source_family
@@ -650,12 +672,48 @@ def _owner_ref(record: OnlyMemoryProjectionRecordV1, family: str) -> OnlyMemoryS
     return refs[0]
 
 
-def _run_failure_owner(record: OnlyMemoryProjectionRecordV1, selector: OnlyResearchRunFailureOwnerV1) -> bool | None:
-    # Run failure matrix: native UUID4/revision, terminal failed state, exact Specification/Runtime/Catalog,
-    # nullable Result/Artifact/Authoring/Search occurrence, canonical Evidence, and exact Run source ref.
-    context = record.facets.get("run_context")
-    if not isinstance(context, Mapping):
+def _exact_search_owner_marker(record: OnlyMemoryProjectionRecordV1) -> bool:
+    identity = record.facets.get("iteration_result_fingerprint")
+    return _is_sha(identity) and any(
+        _source_ref_complete(ref.to_dict())
+        and ref.identity == identity
+        and ref.locator == f"iteration-results/{identity}"
+        for ref in _owner_refs(record, "SEARCH_PROVENANCE")
+    )
+
+
+def _exact_agent_owner_marker(record: OnlyMemoryProjectionRecordV1) -> bool:
+    return any(
+        _source_ref_complete(ref.to_dict())
+        and ref.locator in {f"model-calls/results/{ref.identity}", f"tool-calls/results/{ref.identity}"}
+        for ref in _owner_refs(record, "AGENT_PROVENANCE")
+    )
+
+
+def _run_owner_applicable(record: OnlyMemoryProjectionRecordV1) -> bool | None:
+    facets = record.facets
+    if facets.get("classification") != "OPERATIONAL_FAILURE":
         return False
+    if "run_context" in facets:
+        return True
+    if _exact_search_owner_marker(record) or _exact_agent_owner_marker(record):
+        return False
+    if _owner_refs(record, "RESEARCH_RUN"):
+        return True
+    return None
+
+
+def _run_owner_complete(record: OnlyMemoryProjectionRecordV1, context: object) -> bool:
+    if not isinstance(context, Mapping) or set(record.facets) != {
+        "classification",
+        "run_context",
+        "failure_phase",
+        "failure_code",
+        "failure_detail",
+    }:
+        return False
+    context = record.facets.get("run_context")
+    assert isinstance(context, Mapping)
     expected = {
         "run_id",
         "run_revision",
@@ -676,7 +734,7 @@ def _run_failure_owner(record: OnlyMemoryProjectionRecordV1, selector: OnlyResea
     result = context.get("research_result_fingerprint")
     artifact = context.get("artifact_content_fingerprint")
     authoring = context.get("authoring_generation_fingerprint")
-    if not (
+    common = (
         set(context) == expected
         and _is_uuid4(context.get("run_id"))
         and type(context.get("run_revision")) is int
@@ -700,11 +758,29 @@ def _run_failure_owner(record: OnlyMemoryProjectionRecordV1, selector: OnlyResea
         and source is not None
         and _source_ref_complete(context.get("run_source_ref"))
         and source.to_dict() == context.get("run_source_ref")
-    ):
-        return None
+        and (artifact is None or result is not None)
+        and (not evidence or result is not None)
+    )
+    if not common:
+        return False
+    if context["run_state"] == "FAILED":
+        return (
+            isinstance(record.facets.get("failure_code"), str)
+            and bool(record.facets["failure_code"])
+            and record.facets.get("failure_phase")
+            in {"ADMISSION", "EXECUTION", "RESULT_COMMIT", "ARTIFACT_COMMIT", "OPERATIONAL"}
+            and isinstance(record.facets.get("failure_detail"), str)
+            and bool(record.facets["failure_detail"])
+        )
+    return all(record.facets.get(name) is None for name in ("failure_code", "failure_phase", "failure_detail"))
+
+
+def _run_owner_equal(context: Mapping[str, object], selector: OnlyResearchRunTerminalOwnerV1) -> bool:
+    lineage = context.get("search_lineage")
     constraints = {
         "run_id": selector.run_id,
         "run_revision": selector.run_revision,
+        "run_state": selector.terminal_state,
         "specification_fingerprint": selector.specification_fingerprint,
         "catalog_generation_fingerprint": selector.catalog_generation_fingerprint,
         "runtime_generation_fingerprint": selector.runtime_generation_fingerprint,
@@ -722,43 +798,125 @@ def _run_failure_owner(record: OnlyMemoryProjectionRecordV1, selector: OnlyResea
     )
 
 
-def _search_failure_owner(record: OnlyMemoryProjectionRecordV1, selector: OnlySearchFailureOwnerV1) -> bool | None:
-    # Search failures use the exact Iteration Result occurrence; a provenance ref of another kind is not ownership.
+def _run_failure_owner(record: OnlyMemoryProjectionRecordV1, selector: OnlyResearchRunTerminalOwnerV1) -> bool | None:
+    applicable = _run_owner_applicable(record)
+    if applicable is not True:
+        return applicable
+    context = record.facets.get("run_context")
+    if not _run_owner_complete(record, context):
+        return None
+    return _run_owner_equal(cast(Mapping[str, object], context), selector)
+
+
+def _search_owner_applicable(record: OnlyMemoryProjectionRecordV1) -> bool | None:
+    facets = record.facets
+    if facets.get("classification") not in {"OPERATIONAL_FAILURE", "SEARCH_OR_BUDGET_STOP"}:
+        return False
+    if "run_context" in facets or _exact_agent_owner_marker(record):
+        return False
+    if _exact_search_owner_marker(record):
+        return True
+    search_refs = _owner_refs(record, "SEARCH_PROVENANCE")
+    if "iteration_result_fingerprint" in facets or any(
+        ref.locator.startswith("iteration-results/") for ref in search_refs
+    ):
+        return True
+    return None
+
+
+def _search_owner_complete(record: OnlyMemoryProjectionRecordV1) -> bool:
+    if set(record.facets) != {"classification", "failure_code", "iteration_result_fingerprint"}:
+        return False
     identity = record.facets.get("iteration_result_fingerprint")
     source = _owner_ref(record, "SEARCH_PROVENANCE")
-    if identity is None:
-        return False
-    if (
-        not _is_sha(identity)
-        or source is None
-        or source.identity != identity
-        or not source.locator.startswith("iteration-results/")
-    ):
+    return (
+        _is_sha(identity)
+        and source is not None
+        and source.identity == identity
+        and source.locator == f"iteration-results/{identity}"
+        and isinstance(record.facets.get("failure_code"), str)
+        and bool(record.facets["failure_code"])
+    )
+
+
+def _search_failure_owner(record: OnlyMemoryProjectionRecordV1, selector: OnlySearchFailureOwnerV1) -> bool | None:
+    applicable = _search_owner_applicable(record)
+    if applicable is not True:
+        return applicable
+    if not _search_owner_complete(record):
         return None
-    return identity == selector.iteration_result_fingerprint
+    return record.facets["iteration_result_fingerprint"] == selector.iteration_result_fingerprint
+
+
+def _agent_owner_applicable(record: OnlyMemoryProjectionRecordV1) -> bool | None:
+    facets = record.facets
+    if facets.get("classification") != "OPERATIONAL_FAILURE":
+        return False
+    if "run_context" in facets or _exact_search_owner_marker(record):
+        return False
+    if _owner_refs(record, "AGENT_PROVENANCE"):
+        return True
+    return None
+
+
+def _agent_owner_complete(record: OnlyMemoryProjectionRecordV1) -> bool:
+    if set(record.facets) != {"classification", "failure_code", "outcome"}:
+        return False
+    source = _owner_ref(record, "AGENT_PROVENANCE")
+    if source is None or not isinstance(record.facets.get("failure_code"), str) or not record.facets["failure_code"]:
+        return False
+    outcome = record.facets.get("outcome")
+    code = record.facets["failure_code"]
+    if not isinstance(outcome, str):
+        return False
+    if source.locator == f"model-calls/results/{source.identity}":
+        return code == {
+            "FAILED": "AGENT_MODEL_CALL_FAILED",
+            "OUTCOME_UNKNOWN": "AGENT_MODEL_CALL_OUTCOME_UNKNOWN",
+            "RESPONSE_INVALID": "AGENT_MODEL_RESPONSE_INVALID",
+        }.get(outcome)
+    if source.locator == f"tool-calls/results/{source.identity}":
+        return code == {"FAILED": "AGENT_TOOL_CALL_FAILED", "RESULT_INVALID": "AGENT_TOOL_RESULT_INVALID"}.get(outcome)
+    return False
 
 
 def _agent_failure_owner(record: OnlyMemoryProjectionRecordV1, selector: OnlyAgentFailureOwnerV1) -> bool | None:
-    # Agent operational failures are owned only by their typed model/tool Result occurrence.
-    source = _owner_ref(record, "AGENT_PROVENANCE")
-    if source is None:
-        return False
-    if not source.locator.startswith(("model-calls/results/", "tool-calls/results/")):
+    applicable = _agent_owner_applicable(record)
+    if applicable is not True:
+        return applicable
+    if not _agent_owner_complete(record):
         return None
-    outcome = record.facets.get("outcome")
-    if outcome is not None and not isinstance(outcome, str):
-        return None
+    source = cast(OnlyMemorySourceRefV1, _owner_ref(record, "AGENT_PROVENANCE"))
     return source.identity == selector.occurrence_fingerprint
+
+
+def _qualification_owner_applicable(record: OnlyMemoryProjectionRecordV1) -> bool:
+    return record.facets.get("classification") == "QUALIFICATION_REJECT"
+
+
+def _qualification_owner_complete(record: OnlyMemoryProjectionRecordV1) -> bool:
+    if set(record.facets) != {
+        "classification",
+        "subject_strategy_fingerprint",
+        "policy_id",
+        "policy_version",
+        "policy_fingerprint",
+        "evidence_refs",
+    }:
+        return False
+    return True
 
 
 def _qualification_failure_owner(
     record: OnlyMemoryProjectionRecordV1, selector: OnlyQualificationFailureOwnerV1
 ) -> bool | None:
-    # Qualification rejection remains its own exact Decision subject/policy/evidence occurrence.
+    if not _qualification_owner_applicable(record):
+        return False
     facets = record.facets
     source = _owner_ref(record, "QUALIFICATION_DECISION")
     evidence = facets.get("evidence_refs")
-    if not (
+    evidence_keys = [only_canonical_json(item) for item in evidence] if isinstance(evidence, list) else []
+    if not _qualification_owner_complete(record) or not (
         _is_sha(facets.get("subject_strategy_fingerprint"))
         and isinstance(facets.get("policy_id"), str)
         and bool(facets["policy_id"])
@@ -767,6 +925,7 @@ def _qualification_failure_owner(
         and _is_sha(facets.get("policy_fingerprint"))
         and isinstance(evidence, list)
         and bool(evidence)
+        and evidence_keys == sorted(set(evidence_keys))
         and all(
             isinstance(item, Mapping)
             and set(item) == {"kind", "evidence_fingerprint", "locator_fingerprint", "subject_binding_fingerprint"}
@@ -777,6 +936,7 @@ def _qualification_failure_owner(
             for item in evidence
         )
         and source is not None
+        and source.locator == source.identity
     ):
         return None
     return source.identity == selector.decision_fingerprint
@@ -790,12 +950,8 @@ def _failure(record: OnlyMemoryProjectionRecordV1, selector: OnlyExactFailureEvi
         return None
     if classification != selector.classification:
         return False
-    code = record.facets.get("failure_code")
-    stable_code = "QUALIFICATION_REJECTED" if classification == "QUALIFICATION_REJECT" else code
-    if not isinstance(stable_code, str) or not stable_code:
-        return None
     owner = selector.owner
-    if isinstance(owner, OnlyResearchRunFailureOwnerV1):
+    if isinstance(owner, OnlyResearchRunTerminalOwnerV1):
         owned = _run_failure_owner(record, owner)
     elif isinstance(owner, OnlySearchFailureOwnerV1):
         owned = _search_failure_owner(record, owner)
@@ -805,9 +961,12 @@ def _failure(record: OnlyMemoryProjectionRecordV1, selector: OnlyExactFailureEvi
         owned = _qualification_failure_owner(record, owner)
     if owned is not True:
         return owned
+    if isinstance(owner, OnlyResearchRunTerminalOwnerV1) and owner.terminal_state == "CANCELLED":
+        return True
+    code = record.facets.get("failure_code")
+    stable_code = "QUALIFICATION_REJECTED" if classification == "QUALIFICATION_REJECT" else code
     phase = record.facets.get("failure_phase")
-    if isinstance(owner, OnlyResearchRunFailureOwnerV1) and not isinstance(phase, str):
-        return None
+    assert isinstance(stable_code, str)
     return stable_code == selector.stable_code and (selector.failure_phase is None or phase == selector.failure_phase)
 
 
