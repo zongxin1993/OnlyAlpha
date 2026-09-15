@@ -36,8 +36,8 @@ from .source_manifest import (
     OnlyMemoryProjectionError,
 )
 
-PROJECTION_SCHEMA_VERSION = 6
-PROJECTOR_ALGORITHM_VERSION = 6
+PROJECTION_SCHEMA_VERSION = 7
+PROJECTOR_ALGORITHM_VERSION = 7
 
 
 class OnlyMemoryReferenceKind(StrEnum):
@@ -255,6 +255,14 @@ def _ref(item: OnlySourceObservationV1) -> tuple[OnlyMemorySourceRefV1, ...]:
     return (OnlyMemorySourceRefV1.from_observation(item),)
 
 
+def _product_relation_ref(item: OnlySourceObservationV1, command_id: str) -> dict[str, str]:
+    row = _payload(item)
+    native_locator = item.canonical_payload.get("native_locator")
+    if native_locator != row.get("command_id") or native_locator != command_id:
+        raise OnlyMemoryProjectionError("CROSS_SOURCE_CLOSURE_INCOMPLETE")
+    return {**_ref(item)[0].to_dict(), "native_locator": command_id}
+
+
 def _required_member(
     index: Mapping[str, OnlySourceObservationV1],
     identity: object,
@@ -380,8 +388,8 @@ def _search_lineages(
                 "research_product_command_fingerprint": admission.command_fingerprint,
                 "experiment_source_ref": _ref(experiment)[0].to_dict(),
                 "plan_source_ref": _ref(item)[0].to_dict(),
-                "admission_source_ref": _ref(admission_source)[0].to_dict(),
-                "receipt_source_ref": _ref(receipt_source)[0].to_dict(),
+                "admission_source_ref": _product_relation_ref(admission_source, command_id.value),
+                "receipt_source_ref": _product_relation_ref(receipt_source, command_id.value),
                 "iteration_result_source_ref": _ref(terminal)[0].to_dict() if terminal is not None else None,
             }
         return lineages
@@ -452,10 +460,17 @@ def _build_run_occurrence_closure(
     run_ref = _ref(run)[0]
     refs = [run_ref]
     if lineage is not None:
-        refs.extend(
-            OnlyMemorySourceRefV1(**cast(dict[str, str], lineage[field]))
-            for field in ("experiment_source_ref", "plan_source_ref", "admission_source_ref", "receipt_source_ref")
-        )
+        for field in ("experiment_source_ref", "plan_source_ref", "admission_source_ref", "receipt_source_ref"):
+            relation = cast(Mapping[str, object], lineage[field])
+            refs.append(
+                OnlyMemorySourceRefV1(
+                    cast(str, relation["source_family"]),
+                    cast(str, relation["cut_fingerprint"]),
+                    cast(str, relation["locator"]),
+                    cast(str, relation["identity"]),
+                    cast(str, relation["content_fingerprint"]),
+                )
+            )
         terminal_ref = lineage.get("iteration_result_source_ref")
         if isinstance(terminal_ref, Mapping):
             refs.append(OnlyMemorySourceRefV1(**cast(dict[str, str], terminal_ref)))

@@ -206,8 +206,12 @@ def _shared_result_lineage_case():
             "outcome_id": run_id,
             "accepted_at": datetime(2026, 1, 1, tzinfo=UTC).isoformat(),
         }
-        admissions.append((f"{index:020d}", str(index + 3) * 64, {"source_row": admission}))
-        receipts.append((f"{index:020d}", str(index + 5) * 64, {"source_row": receipt}))
+        admissions.append(
+            (f"{index:020d}", str(index + 3) * 64, {"native_locator": command.value, "source_row": admission})
+        )
+        receipts.append(
+            (f"{index:020d}", str(index + 5) * 64, {"native_locator": command.value, "source_row": receipt})
+        )
     _set_facts(readers["PRODUCT_COMMAND_ADMISSION"], admissions)
     _set_facts(readers["PRODUCT_COMMAND_RECEIPT"], receipts)
 
@@ -247,6 +251,10 @@ def test_receipt_bound_search_lineage_is_per_run_and_rebuildable(tmp_path: Path)
         assert lineage["iteration_plan_fingerprint"] == plans[index].iteration_plan_fingerprint
         assert lineage["research_product_command_id"] == commands[index].value
         assert lineage["research_product_command_kind"] == "CREATE_RESEARCH_RUN"
+        assert lineage["admission_source_ref"]["locator"] != commands[index].value
+        assert lineage["receipt_source_ref"]["locator"] != commands[index].value
+        assert lineage["admission_source_ref"]["native_locator"] == commands[index].value
+        assert lineage["receipt_source_ref"]["native_locator"] == commands[index].value
         assert lineage["iteration_result_fingerprint"] == (
             next(
                 item.identity
@@ -295,6 +303,19 @@ def test_receipt_bound_search_lineage_is_per_run_and_rebuildable(tmp_path: Path)
     )
     assert newer.revision_fingerprint != projection.revision_fingerprint
     assert only_build_experiment_memory_projection(manifest, old_readers, reference) == projection
+
+
+@pytest.mark.parametrize("family", ("PRODUCT_COMMAND_ADMISSION", "PRODUCT_COMMAND_RECEIPT"))
+def test_product_native_locator_mismatch_fails_projection_closed(family: str) -> None:
+    readers, _, _, _, _, reference = _shared_result_lineage_case()
+    reader = readers[family]
+    facts = [(item.locator, item.identity, dict(item.canonical_payload)) for item in reader.observations]
+    facts[0][2]["native_locator"] = "00000000-0000-4000-8000-000000000099"
+    _set_facts(reader, facts)
+    manifest = OnlyExperimentMemorySourceCutManifestV1.from_cuts([source.cut for source in readers.values()])
+
+    with pytest.raises(OnlyMemoryProjectionError, match="CROSS_SOURCE_CLOSURE_INCOMPLETE"):
+        only_build_experiment_memory_projection(manifest, readers, reference)
 
 
 @pytest.mark.recovery
@@ -1047,7 +1068,7 @@ def test_evaluation_closures_bind_each_historical_run_without_cross_association(
         return only_build_experiment_memory_projection(manifest, readers, reference)
 
     projection = build()
-    assert (PROJECTION_SCHEMA_VERSION, PROJECTOR_ALGORITHM_VERSION) == (6, 6)
+    assert (PROJECTION_SCHEMA_VERSION, PROJECTOR_ALGORITHM_VERSION) == (7, 7)
     evaluation = next(record for record in projection.records if record.kind == "EvaluationProjectionRecord")
     assert evaluation.facets["catalog_generation_refs"] == ["a" * 64, "b" * 64]
     closures = evaluation.facets["run_evaluation_closures"]

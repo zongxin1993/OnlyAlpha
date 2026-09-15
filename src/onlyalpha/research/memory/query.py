@@ -472,6 +472,17 @@ def _source_ref_complete(value: object) -> bool:
     )
 
 
+def _product_relation_ref_complete(value: object, family: str, command_id: object) -> bool:
+    return (
+        isinstance(value, Mapping)
+        and set(value)
+        == {"source_family", "cut_fingerprint", "locator", "identity", "content_fingerprint", "native_locator"}
+        and value.get("source_family") == family
+        and value.get("native_locator") == command_id
+        and _source_ref_complete({name: item for name, item in value.items() if name != "native_locator"})
+    )
+
+
 def _exact_source_ref(record: OnlyMemoryProjectionRecordV1, family: str, locator: object, identity: object) -> bool:
     refs = tuple(ref for ref in record.source_refs if ref.source_family == family)
     matches = tuple(ref for ref in refs if ref.locator == locator and ref.identity == identity)
@@ -502,20 +513,43 @@ def _search_lineage_complete(value: object) -> bool:
     }
     result = value.get("iteration_result_fingerprint")
     result_ref = value.get("iteration_result_source_ref")
+    command_id = value.get("research_product_command_id")
+    experiment = value.get("experiment_fingerprint")
+    plan = value.get("iteration_plan_fingerprint")
+    experiment_ref = value.get("experiment_source_ref")
+    plan_ref = value.get("plan_source_ref")
     return (
         set(value) == required
         and value.get("search_method") in {"SYMBOLIC", "PARAMETER"}
         and _is_sha(value.get("experiment_fingerprint"))
         and _is_sha(value.get("iteration_plan_fingerprint"))
         and (result is None or _is_sha(result))
-        and _is_uuid4(value.get("research_product_command_id"))
+        and _is_uuid4(command_id)
         and value.get("research_product_command_kind") == "CREATE_RESEARCH_RUN"
         and _is_sha(value.get("research_product_command_fingerprint"))
-        and all(
-            _source_ref_complete(value.get(name))
-            for name in ("experiment_source_ref", "plan_source_ref", "admission_source_ref", "receipt_source_ref")
+        and isinstance(experiment_ref, Mapping)
+        and _source_ref_complete(experiment_ref)
+        and experiment_ref.get("source_family") == "SEARCH_PROVENANCE"
+        and experiment_ref.get("locator") == f"experiments/{experiment}"
+        and experiment_ref.get("identity") == experiment
+        and isinstance(plan_ref, Mapping)
+        and _source_ref_complete(plan_ref)
+        and plan_ref.get("source_family") == "SEARCH_PROVENANCE"
+        and plan_ref.get("locator") == f"iteration-plans/{plan}"
+        and plan_ref.get("identity") == plan
+        and _product_relation_ref_complete(value.get("admission_source_ref"), "PRODUCT_COMMAND_ADMISSION", command_id)
+        and _product_relation_ref_complete(value.get("receipt_source_ref"), "PRODUCT_COMMAND_RECEIPT", command_id)
+        and (
+            (result is None and result_ref is None)
+            or (
+                result is not None
+                and isinstance(result_ref, Mapping)
+                and _source_ref_complete(result_ref)
+                and result_ref.get("source_family") == "SEARCH_PROVENANCE"
+                and result_ref.get("locator") == f"iteration-results/{result}"
+                and result_ref.get("identity") == result
+            )
         )
-        and ((result is None and result_ref is None) or (result is not None and _source_ref_complete(result_ref)))
     )
 
 
@@ -549,7 +583,7 @@ _RUN_STATES = frozenset(state.value for state in OnlyResearchRunState)
 _RUN_FAILURE_PHASES = frozenset(phase.value for phase in OnlyResearchRunFailurePhase)
 
 
-def _run_evaluation_closure_complete(closure: Mapping[str, object]) -> bool:
+def _run_evaluation_closure_complete(closure: Mapping[str, object], *, enclosing_result_fingerprint: str) -> bool:
     expected = {
         "run_id",
         "run_revision",
@@ -585,7 +619,7 @@ def _run_evaluation_closure_complete(closure: Mapping[str, object]) -> bool:
                 "runtime_generation_fingerprint",
             )
         )
-        and (result is None or _is_sha(result))
+        and result == enclosing_result_fingerprint
         and (artifact is None or _is_sha(artifact))
         and (authoring is None or _is_sha(authoring))
         and isinstance(evidence, list)
@@ -601,7 +635,7 @@ def _run_evaluation_closure_complete(closure: Mapping[str, object]) -> bool:
     if state == "COMPLETED":
         return _is_sha(result) and _is_sha(artifact) and bool(evidence)
     if state == "QUEUED":
-        return result is None and artifact is None and not evidence
+        return False
     return state not in {"RUNNING", "CANCEL_REQUESTED"} or not evidence
 
 
@@ -633,7 +667,12 @@ def _evaluation(
     ):
         return _PredicateVerdict.INCOMPLETE
     closures = cast(list[object], facets["run_evaluation_closures"])
-    if any(not isinstance(closure, Mapping) or not _run_evaluation_closure_complete(closure) for closure in closures):
+    result_fingerprint = cast(str, facets["research_result_fingerprint"])
+    if any(
+        not isinstance(closure, Mapping)
+        or not _run_evaluation_closure_complete(closure, enclosing_result_fingerprint=result_fingerprint)
+        for closure in closures
+    ):
         return _PredicateVerdict.INCOMPLETE
     if (
         semantic is _PredicateVerdict.NO_MATCH
@@ -643,7 +682,6 @@ def _evaluation(
         or statistics != selector.statistics_references
     ):
         return _PredicateVerdict.NO_MATCH
-    result_fingerprint = cast(str, facets["research_result_fingerprint"])
     for closure in closures:
         assert isinstance(closure, Mapping)
         if closure["run_state"] != "COMPLETED":
@@ -675,7 +713,11 @@ def _parameter(
     if not isinstance(method, str) or method not in {"SYMBOLIC", "PARAMETER"}:
         return _PredicateVerdict.INCOMPLETE
     if method == "SYMBOLIC":
-        return _PredicateVerdict.NOT_APPLICABLE
+        return (
+            _PredicateVerdict.INCOMPLETE
+            if {"search_space_fingerprint", "normalized_assignment", "grid_ordinal"} & set(facets)
+            else _PredicateVerdict.NOT_APPLICABLE
+        )
     if not all(
         _is_sha(facets.get(name))
         for name in (

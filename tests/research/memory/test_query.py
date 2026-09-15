@@ -16,6 +16,7 @@ from onlyalpha.research.memory.projector import (
     OnlyMemorySourceRefV1,
 )
 from onlyalpha.research.memory.query import (
+    QUERY_SCHEMA_VERSION,
     OnlyAgentFailureOwnerV1,
     OnlyExactEvaluationHistorySelectorV1,
     OnlyExactFailureEvidenceSelectorV1,
@@ -54,7 +55,16 @@ def _projection(
 
     run_ref = ref("RESEARCH_RUN", FAILURE)
     search_refs = {
-        name: ref(family, identity).to_dict()
+        name: replace(
+            ref(family, identity),
+            locator=(
+                f"experiments/{identity}"
+                if name == "experiment_source_ref"
+                else f"iteration-plans/{identity}"
+                if name == "plan_source_ref"
+                else identity
+            ),
+        ).to_dict()
         for name, family, identity in (
             ("experiment_source_ref", "SEARCH_PROVENANCE", EXPERIMENT),
             ("plan_source_ref", "SEARCH_PROVENANCE", PROPOSAL),
@@ -73,6 +83,8 @@ def _projection(
         **search_refs,
         "iteration_result_source_ref": None,
     }
+    search_lineage["admission_source_ref"]["native_locator"] = search_lineage["research_product_command_id"]
+    search_lineage["receipt_source_ref"]["native_locator"] = search_lineage["research_product_command_id"]
 
     semantic = {
         "candidate_fingerprint": CANDIDATE,
@@ -161,7 +173,13 @@ def _projection(
             "failure_phase": "ARTIFACT_COMMIT",
             "failure_detail": "artifact unavailable",
         },
-        (run_ref, *tuple(OnlyMemorySourceRefV1(**value) for value in search_refs.values())),
+        (
+            run_ref,
+            *tuple(
+                OnlyMemorySourceRefV1(**{name: item for name, item in value.items() if name != "native_locator"})
+                for value in search_refs.values()
+            ),
+        ),
     )
     records = [parameter, failure]
     if include_evaluation:
@@ -441,12 +459,13 @@ def test_corruption_is_never_certified_absence(tmp_path: Path) -> None:
     )
 
 
-def test_projection_v5_is_unavailable_not_reinterpreted(tmp_path: Path) -> None:
+def test_projection_v6_is_unavailable_not_reinterpreted(tmp_path: Path) -> None:
+    assert QUERY_SCHEMA_VERSION == 3
     store, projection = _store(tmp_path)
     target = store._target(projection.revision_fingerprint) / "projection.json"
     payload = json.loads(target.read_text(encoding="utf-8"))
-    payload["projection_schema_version"] = 5
-    payload["projector_algorithm_version"] = 5
+    payload["projection_schema_version"] = 6
+    payload["projector_algorithm_version"] = 6
     target.write_text(only_canonical_json(payload), encoding="utf-8")
 
     proof = only_query_experiment_memory_history(store, _semantic_query(projection))
@@ -494,7 +513,7 @@ def test_parameter_cells_and_failures_are_exact_only(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "mutation,expected",
     (
-        (lambda facets: facets.update(search_method="SYMBOLIC"), OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH),
+        (lambda facets: facets.update(search_method="SYMBOLIC"), OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE),
         (lambda facets: facets.pop("search_method"), OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE),
         (lambda facets: facets.update(search_method="UNKNOWN"), OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE),
         (lambda facets: facets.pop("search_space_fingerprint"), OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE),
@@ -516,6 +535,38 @@ def test_parameter_observation_applicability_and_completeness_matrix(tmp_path: P
         proposal_fingerprint=PROPOSAL,
         normalized_assignment=ASSIGNMENT,
         grid_ordinal=2,
+    )
+    assert (
+        only_query_experiment_memory_history(
+            store, OnlyMemoryHistoricalQueryV1(projection.revision_fingerprint, selector)
+        ).proof_status
+        is expected
+    )
+
+
+@pytest.mark.parametrize("parameter_field", (None, "search_space_fingerprint", "normalized_assignment", "grid_ordinal"))
+def test_symbolic_parameter_shape_is_role_consistent(tmp_path: Path, parameter_field: str | None) -> None:
+    def update(facets):  # type: ignore[no-untyped-def]
+        facets["search_method"] = "SYMBOLIC"
+        parameter_values = {
+            name: facets.pop(name) for name in ("search_space_fingerprint", "normalized_assignment", "grid_ordinal")
+        }
+        if parameter_field is not None:
+            facets[parameter_field] = parameter_values[parameter_field]
+
+    projection = _replace_record_facets(_projection(), "ParameterObservationProjectionRecord", update)
+    store, projection = _store(tmp_path, projection)
+    selector = OnlyExactParameterObservationSelectorV1.from_normalized_assignment(
+        experiment_fingerprint=EXPERIMENT,
+        search_space_fingerprint=SPACE,
+        proposal_fingerprint=PROPOSAL,
+        normalized_assignment=ASSIGNMENT,
+        grid_ordinal=2,
+    )
+    expected = (
+        OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH
+        if parameter_field is None
+        else OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
     )
     assert (
         only_query_experiment_memory_history(
@@ -667,7 +718,7 @@ def test_failed_run_with_result_never_matches_evaluation_exact(tmp_path: Path) -
         ("CANCELLED", OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH),
         ("RUNNING", OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH),
         ("CANCEL_REQUESTED", OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH),
-        ("QUEUED", OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH),
+        ("QUEUED", OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE),
         ("BROKEN", OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE),
         (None, OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE),
         (7, OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE),
@@ -679,7 +730,6 @@ def test_evaluation_run_state_space(tmp_path: Path, state: object, expected) -> 
         closure["run_state"] = state
         facets["run_evaluation_closures"] = [closure]
         if state != "COMPLETED":
-            closure["research_result_fingerprint"] = None
             closure["artifact_content_fingerprint"] = None
             closure["calculation_execution_evidence_fingerprints"] = []
 
@@ -688,6 +738,34 @@ def test_evaluation_run_state_space(tmp_path: Path, state: object, expected) -> 
     assert (
         only_query_experiment_memory_history(store, _semantic_query(projection, dataset=DATASET)).proof_status
         is expected
+    )
+
+
+@pytest.mark.parametrize("value", (None, "0" * 64, "not-a-sha"))
+def test_evaluation_run_must_bind_enclosing_result(tmp_path: Path, value: object) -> None:
+    def update(facets):  # type: ignore[no-untyped-def]
+        facets["run_evaluation_closures"][0]["research_result_fingerprint"] = value
+
+    projection = _replace_record_facets(_projection(), "EvaluationProjectionRecord", update)
+    store, projection = _store(tmp_path, projection)
+    assert (
+        only_query_experiment_memory_history(store, _semantic_query(projection, dataset=DATASET)).proof_status
+        is OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
+    )
+
+
+@pytest.mark.parametrize("state", ("RUNNING", "CANCEL_REQUESTED"))
+def test_active_evaluation_run_forbids_finalized_evidence(tmp_path: Path, state: str) -> None:
+    def update(facets):  # type: ignore[no-untyped-def]
+        closure = facets["run_evaluation_closures"][0]
+        closure["run_state"] = state
+        closure["artifact_content_fingerprint"] = None
+
+    projection = _replace_record_facets(_projection(), "EvaluationProjectionRecord", update)
+    store, projection = _store(tmp_path, projection)
+    assert (
+        only_query_experiment_memory_history(store, _semantic_query(projection, dataset=DATASET)).proof_status
+        is OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
     )
 
 
@@ -736,6 +814,51 @@ def test_run_failure_requires_complete_context_and_exact_search_lineage(tmp_path
     assert (
         only_query_experiment_memory_history(malformed_store, malformed_query).proof_status
         is OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
+    )
+
+
+@pytest.mark.parametrize(
+    "field,mutation",
+    (
+        ("admission_source_ref", lambda ref: ref.pop("native_locator")),
+        ("admission_source_ref", lambda ref: ref.update(native_locator="00000000-0000-4000-8000-000000000004")),
+        ("receipt_source_ref", lambda ref: ref.pop("native_locator")),
+        ("receipt_source_ref", lambda ref: ref.update(native_locator="00000000-0000-4000-8000-000000000004")),
+        ("admission_source_ref", lambda ref: ref.update(source_family="PRODUCT_COMMAND_RECEIPT")),
+        ("receipt_source_ref", lambda ref: ref.update(source_family="PRODUCT_COMMAND_ADMISSION")),
+        ("admission_source_ref", lambda ref: ref.update(locator="")),
+        ("receipt_source_ref", lambda ref: ref.pop("locator")),
+    ),
+)
+def test_search_product_relation_mutation_is_incomplete(tmp_path: Path, field: str, mutation) -> None:  # type: ignore[no-untyped-def]
+    def update(facets):  # type: ignore[no-untyped-def]
+        mutation(facets["run_evaluation_closures"][0]["search_lineage"][field])
+
+    projection = _replace_record_facets(_projection(), "EvaluationProjectionRecord", update)
+    store, projection = _store(tmp_path, projection)
+    assert (
+        only_query_experiment_memory_history(store, _semantic_query(projection, dataset=DATASET)).proof_status
+        is OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
+    )
+
+
+def test_product_observation_locator_need_not_equal_native_command_id(tmp_path: Path) -> None:
+    store, projection = _store(tmp_path)
+    lineage = next(
+        closure["search_lineage"]
+        for record in projection.records
+        if record.kind == "EvaluationProjectionRecord"
+        for closure in record.facets["run_evaluation_closures"]
+        if closure["search_lineage"] is not None
+    )
+    command_id = lineage["research_product_command_id"]
+    assert lineage["admission_source_ref"]["locator"] != command_id
+    assert lineage["receipt_source_ref"]["locator"] != command_id
+    assert lineage["admission_source_ref"]["native_locator"] == command_id
+    assert lineage["receipt_source_ref"]["native_locator"] == command_id
+    assert (
+        only_query_experiment_memory_history(store, _semantic_query(projection, dataset=DATASET)).proof_status
+        is OnlyMemoryHistoricalProofStatus.MATCH
     )
 
 

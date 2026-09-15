@@ -1115,6 +1115,10 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     assert lineage["research_product_command_id"] == search_commands[1].value
     assert lineage["admission_source_ref"]["source_family"] == "PRODUCT_COMMAND_ADMISSION"
     assert lineage["receipt_source_ref"]["source_family"] == "PRODUCT_COMMAND_RECEIPT"
+    assert lineage["admission_source_ref"]["locator"] != search_commands[1].value
+    assert lineage["receipt_source_ref"]["locator"] != search_commands[1].value
+    assert lineage["admission_source_ref"]["native_locator"] == search_commands[1].value
+    assert lineage["receipt_source_ref"]["native_locator"] == search_commands[1].value
     parameter_observation = next(
         record
         for record in initial.records
