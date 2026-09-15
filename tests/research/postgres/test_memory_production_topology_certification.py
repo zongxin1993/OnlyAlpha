@@ -93,10 +93,10 @@ from onlyalpha.research.memory.production import (
 from onlyalpha.research.memory.query import (
     OnlyExactEvaluationHistorySelectorV1,
     OnlyExactFailureEvidenceSelectorV1,
+    OnlyExactParameterObservationSelectorV1,
     OnlyExactSemanticHistorySelectorV1,
     OnlyExactStatisticsReferenceV1,
     OnlyMemoryHistoricalQueryV1,
-    OnlyResearchRunFailureOwnerV1,
     OnlyResearchRunTerminalOwnerV1,
     only_query_experiment_memory_history,
 )
@@ -521,6 +521,7 @@ def _fresh_rebuild(
     projection = builder.publish_and_activate(builder.capture_manifest())
     history = _first_semantic_history(builder._revisions, projection)
     evaluation_history = _first_evaluation_history(builder._revisions, projection)
+    parameter_history = _first_parameter_history(builder._revisions, projection)
     failure_history = _first_run_failure_history(builder._revisions, projection)
     cancellation_history = _first_run_cancellation_history(builder._revisions, projection)
     return {
@@ -532,6 +533,8 @@ def _fresh_rebuild(
         "proof": history[1],
         "evaluation_query": evaluation_history[0],
         "evaluation_proof": evaluation_history[1],
+        "parameter_query": parameter_history[0],
+        "parameter_proof": parameter_history[1],
         "failure_query": failure_history[0],
         "failure_proof": failure_history[1],
         "cancellation_query": cancellation_history[0],
@@ -587,6 +590,23 @@ def _first_evaluation_history(revisions, projection):  # type: ignore[no-untyped
     return query.to_dict(), only_query_experiment_memory_history(revisions, query).to_dict()
 
 
+def _first_parameter_history(revisions, projection):  # type: ignore[no-untyped-def]
+    observation = next(
+        record
+        for record in projection.records
+        if record.kind == "ParameterObservationProjectionRecord" and record.facets["search_method"] == "PARAMETER"
+    )
+    selector = OnlyExactParameterObservationSelectorV1.from_normalized_assignment(
+        experiment_fingerprint=observation.facets["experiment_fingerprint"],
+        search_space_fingerprint=observation.facets["search_space_fingerprint"],
+        proposal_fingerprint=observation.facets["proposal_fingerprint"],
+        normalized_assignment=observation.facets["normalized_assignment"],
+        grid_ordinal=observation.facets["grid_ordinal"],
+    )
+    query = OnlyMemoryHistoricalQueryV1(projection.revision_fingerprint, selector)
+    return query.to_dict(), only_query_experiment_memory_history(revisions, query).to_dict()
+
+
 def _first_run_failure_history(revisions, projection):  # type: ignore[no-untyped-def]
     failure = next(
         record
@@ -598,7 +618,7 @@ def _first_run_failure_history(revisions, projection):  # type: ignore[no-untype
     )
     context = failure.facets["run_context"]
     lineage = context["search_lineage"]
-    owner = OnlyResearchRunFailureOwnerV1(
+    owner = OnlyResearchRunTerminalOwnerV1(
         context["run_id"],
         context["run_revision"],
         context["specification_fingerprint"],
@@ -1015,11 +1035,13 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     initial = builder.publish_and_activate(manifest)
     initial_query, initial_proof = _first_semantic_history(builder._revisions, initial)
     initial_evaluation_query, initial_evaluation_proof = _first_evaluation_history(builder._revisions, initial)
+    initial_parameter_query, initial_parameter_proof = _first_parameter_history(builder._revisions, initial)
     initial_failure_query, initial_failure_proof = _first_run_failure_history(builder._revisions, initial)
     initial_cancellation_query, initial_cancellation_proof = _first_run_cancellation_history(
         builder._revisions, initial
     )
     assert initial_evaluation_proof["proof_status"] == "MATCH"
+    assert initial_parameter_proof["proof_status"] == "MATCH"
     assert initial_failure_proof["proof_status"] == "MATCH"
     assert initial_cancellation_proof["proof_status"] == "MATCH"
     evaluation = next(
@@ -1063,6 +1085,8 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     assert symbolic_lineage["experiment_fingerprint"] == search_plans[0].experiment_fingerprint
     failure_record = failure_records[search_run_ids[1].value]
     cancellation_record = failure_records[cancelled_run_id.value]
+    assert failure_record.facets["owner_kind"] == "RESEARCH_RUN"
+    assert cancellation_record.facets["owner_kind"] == "RESEARCH_RUN"
     assert cancellation_record.facets["run_context"]["run_state"] == "CANCELLED"
     assert cancellation_record.facets["failure_code"] is None
     assert cancellation_record.facets["failure_phase"] is None
@@ -1091,13 +1115,15 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     assert lineage["research_product_command_id"] == search_commands[1].value
     assert lineage["admission_source_ref"]["source_family"] == "PRODUCT_COMMAND_ADMISSION"
     assert lineage["receipt_source_ref"]["source_family"] == "PRODUCT_COMMAND_RECEIPT"
+    parameter_observation = next(
+        record
+        for record in initial.records
+        if record.kind == "ParameterObservationProjectionRecord"
+        and record.facets["experiment_fingerprint"] == search_plans[1].experiment_fingerprint
+    )
+    assert parameter_observation.facets["search_method"] == "PARAMETER"
     assert (
-        next(
-            record
-            for record in initial.records
-            if record.kind == "ParameterObservationProjectionRecord"
-            and record.facets["experiment_fingerprint"] == search_plans[1].experiment_fingerprint
-        ).facets["iteration_plan_fingerprint"]
+        parameter_observation.facets["iteration_plan_fingerprint"]
         == failure_records[search_run_ids[1].value].facets["run_context"]["search_lineage"][
             "iteration_plan_fingerprint"
         ]
@@ -1222,6 +1248,8 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     assert rebuilt["proof"] == initial_proof
     assert rebuilt["evaluation_query"] == initial_evaluation_query
     assert rebuilt["evaluation_proof"] == initial_evaluation_proof
+    assert rebuilt["parameter_query"] == initial_parameter_query
+    assert rebuilt["parameter_proof"] == initial_parameter_proof
     assert rebuilt["failure_query"] == initial_failure_query
     assert rebuilt["failure_proof"] == initial_failure_proof
     assert rebuilt["cancellation_query"] == initial_cancellation_query

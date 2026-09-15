@@ -36,8 +36,8 @@ from .source_manifest import (
     OnlyMemoryProjectionError,
 )
 
-PROJECTION_SCHEMA_VERSION = 5
-PROJECTOR_ALGORITHM_VERSION = 5
+PROJECTION_SCHEMA_VERSION = 6
+PROJECTOR_ALGORITHM_VERSION = 6
 
 
 class OnlyMemoryReferenceKind(StrEnum):
@@ -642,10 +642,14 @@ def only_project_experiment_memory(
                     "normalized_assignment": proposal["assignment"],
                     "grid_ordinal": proposal["ordinal"],
                 }
+            search_method = (
+                "PARAMETER" if proposal_kind is OnlyMemoryReferenceKind.ONLY_PARAMETER_GRAPH_PROPOSAL else "SYMBOLIC"
+            )
             records.append(
                 OnlyMemoryProjectionRecordV1(
                     "ParameterObservationProjectionRecord",
                     {
+                        "search_method": search_method,
                         "experiment_fingerprint": payload["experiment_fingerprint"],
                         "dataset_snapshot_fingerprint": _payload(experiment).get("dataset_snapshot_fingerprint"),
                         "catalog_generation_fingerprint": _payload(experiment).get("catalog_generation_fingerprint"),
@@ -672,6 +676,7 @@ def only_project_experiment_memory(
                     OnlyMemoryProjectionRecordV1(
                         "FailureEvidenceProjectionRecord",
                         {
+                            "owner_kind": "SEARCH_OCCURRENCE",
                             "classification": "OPERATIONAL_FAILURE"
                             if payload.get("research_attempted")
                             else "SEARCH_OR_BUDGET_STOP",
@@ -715,6 +720,7 @@ def only_project_experiment_memory(
                 OnlyMemoryProjectionRecordV1(
                     "FailureEvidenceProjectionRecord",
                     {
+                        "owner_kind": "AGENT_OCCURRENCE",
                         "classification": "OPERATIONAL_FAILURE",
                         "failure_code": payload["failure_code"],
                         "outcome": payload.get("outcome"),
@@ -890,6 +896,7 @@ def only_project_experiment_memory(
                 OnlyMemoryProjectionRecordV1(
                     "FailureEvidenceProjectionRecord",
                     {
+                        "owner_kind": "RESEARCH_RUN",
                         "classification": "OPERATIONAL_FAILURE",
                         "run_context": run_context,
                         "failure_phase": payload.get("failure_phase"),
@@ -932,6 +939,7 @@ def only_project_experiment_memory(
                 OnlyMemoryProjectionRecordV1(
                     "FailureEvidenceProjectionRecord",
                     {
+                        "owner_kind": "QUALIFICATION_DECISION",
                         "classification": "QUALIFICATION_REJECT",
                         "subject_strategy_fingerprint": payload.get("subject_strategy_fingerprint"),
                         "policy_id": payload.get("policy_id"),

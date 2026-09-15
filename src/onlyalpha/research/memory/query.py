@@ -9,6 +9,7 @@ from typing import ClassVar, cast
 from uuid import UUID
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
+from onlyalpha.research.run.model import OnlyResearchRunFailurePhase, OnlyResearchRunState
 
 from .projector import OnlyMemoryProjectionRecordV1, OnlyMemorySourceRefV1
 from .source_manifest import OnlyMemoryProjectionError
@@ -243,10 +244,6 @@ class OnlyResearchRunTerminalOwnerV1:
         }
 
 
-# Source compatibility for the V2 Python name; serialized V3 queries always bind terminal_state.
-OnlyResearchRunFailureOwnerV1 = OnlyResearchRunTerminalOwnerV1
-
-
 @dataclass(frozen=True, slots=True)
 class OnlySearchFailureOwnerV1:
     iteration_result_fingerprint: str
@@ -441,15 +438,26 @@ class OnlyMemoryHistoricalProofV1:
         return payload
 
 
-def _semantic(record: OnlyMemoryProjectionRecordV1, selector: OnlyExactSemanticHistorySelectorV1) -> bool | None:
+class _PredicateVerdict(StrEnum):
+    NOT_APPLICABLE = "NOT_APPLICABLE"
+    MATCH = "MATCH"
+    NO_MATCH = "NO_MATCH"
+    INCOMPLETE = "INCOMPLETE"
+
+
+def _semantic(record: OnlyMemoryProjectionRecordV1, selector: OnlyExactSemanticHistorySelectorV1) -> _PredicateVerdict:
     if record.kind != "EvaluationProjectionRecord":
-        return False
+        return _PredicateVerdict.NOT_APPLICABLE
     facets = record.facets
     if not _is_sha(facets.get("graph_fingerprint")) or not _is_sha(facets.get("candidate_node_fingerprint")):
-        return None
+        return _PredicateVerdict.INCOMPLETE
     if not isinstance(facets.get("output_name"), str) or not facets["output_name"]:
-        return None
-    return all(facets[name] == value for name, value in selector.to_dict().items())
+        return _PredicateVerdict.INCOMPLETE
+    return (
+        _PredicateVerdict.MATCH
+        if all(facets[name] == value for name, value in selector.to_dict().items())
+        else _PredicateVerdict.NO_MATCH
+    )
 
 
 def _source_ref_complete(value: object) -> bool:
@@ -461,6 +469,17 @@ def _source_ref_complete(value: object) -> bool:
         and isinstance(value.get("locator"), str)
         and bool(value["locator"])
         and all(_is_sha(value.get(name)) for name in ("cut_fingerprint", "identity", "content_fingerprint"))
+    )
+
+
+def _exact_source_ref(record: OnlyMemoryProjectionRecordV1, family: str, locator: object, identity: object) -> bool:
+    refs = tuple(ref for ref in record.source_refs if ref.source_family == family)
+    matches = tuple(ref for ref in refs if ref.locator == locator and ref.identity == identity)
+    return (
+        isinstance(locator, str)
+        and isinstance(identity, str)
+        and len(matches) == 1
+        and all(_source_ref_complete(ref.to_dict()) for ref in refs)
     )
 
 
@@ -526,9 +545,11 @@ def _statistics_references(value: object) -> tuple[OnlyExactStatisticsReferenceV
     return references
 
 
-def _completed_evaluation_closure_complete(closure: Mapping[str, object]) -> bool:
-    # Proof matrix: Run/Result/Artifact/generations/evidence are mandatory; Authoring and per-Run Search
-    # lineage are explicit nullable dimensions. Every malformed mandatory field means INCOMPLETE.
+_RUN_STATES = frozenset(state.value for state in OnlyResearchRunState)
+_RUN_FAILURE_PHASES = frozenset(phase.value for phase in OnlyResearchRunFailurePhase)
+
+
+def _run_evaluation_closure_complete(closure: Mapping[str, object]) -> bool:
     expected = {
         "run_id",
         "run_revision",
@@ -546,39 +567,55 @@ def _completed_evaluation_closure_complete(closure: Mapping[str, object]) -> boo
     authoring = closure.get("authoring_generation_fingerprint")
     evidence = closure.get("calculation_execution_evidence_fingerprints")
     lineage = closure.get("search_lineage")
-    return (
+    result = closure.get("research_result_fingerprint")
+    artifact = closure.get("artifact_content_fingerprint")
+    state = closure.get("run_state")
+    common = (
         set(closure) == expected
         and _is_uuid4(closure.get("run_id"))
         and type(closure.get("run_revision")) is int
         and cast(int, closure["run_revision"]) >= 0
-        and closure.get("run_state") == "COMPLETED"
+        and isinstance(state, str)
+        and state in _RUN_STATES
         and all(
             _is_sha(closure.get(name))
             for name in (
                 "specification_fingerprint",
-                "research_result_fingerprint",
-                "artifact_content_fingerprint",
                 "catalog_generation_fingerprint",
                 "runtime_generation_fingerprint",
             )
         )
+        and (result is None or _is_sha(result))
+        and (artifact is None or _is_sha(artifact))
         and (authoring is None or _is_sha(authoring))
         and isinstance(evidence, list)
-        and bool(evidence)
         and all(_is_sha(item) for item in evidence)
         and evidence == sorted(set(evidence))
         and _source_ref_complete(closure.get("run_source_ref"))
         and (lineage is None or _search_lineage_complete(lineage))
+        and (artifact is None or result is not None)
+        and (not evidence or result is not None)
     )
+    if not common:
+        return False
+    if state == "COMPLETED":
+        return _is_sha(result) and _is_sha(artifact) and bool(evidence)
+    if state == "QUEUED":
+        return result is None and artifact is None and not evidence
+    return state not in {"RUNNING", "CANCEL_REQUESTED"} or not evidence
 
 
-def _evaluation(record: OnlyMemoryProjectionRecordV1, selector: OnlyExactEvaluationHistorySelectorV1) -> bool | None:
+def _evaluation(
+    record: OnlyMemoryProjectionRecordV1, selector: OnlyExactEvaluationHistorySelectorV1
+) -> _PredicateVerdict:
     # Selector-bound matrix: semantic output, Candidate, Dataset, Specification, Plan, Statistics
     # logical/result pairs, Catalog, Runtime, nullable Authoring, and optional Search Experiment.
     # Result, completed Run, Artifact, and execution Evidence are exact returned occurrence proof.
     semantic = _semantic(record, selector.semantic)
-    if semantic is not True:
+    if semantic is _PredicateVerdict.NOT_APPLICABLE:
         return semantic
+    if semantic is _PredicateVerdict.INCOMPLETE:
+        return _PredicateVerdict.INCOMPLETE
     facets = record.facets
     if not all(
         _is_sha(facets.get(name))
@@ -589,28 +626,28 @@ def _evaluation(record: OnlyMemoryProjectionRecordV1, selector: OnlyExactEvaluat
             "research_result_fingerprint",
         )
     ) or not isinstance(facets.get("run_evaluation_closures"), list):
-        return None
+        return _PredicateVerdict.INCOMPLETE
     statistics = _statistics_references(facets.get("statistics_references"))
-    if statistics is None:
-        return None
+    if statistics is None or not _exact_source_ref(
+        record, "RESEARCH_RESULT", facets["research_result_locator"], facets["research_result_fingerprint"]
+    ):
+        return _PredicateVerdict.INCOMPLETE
+    closures = cast(list[object], facets["run_evaluation_closures"])
+    if any(not isinstance(closure, Mapping) or not _run_evaluation_closure_complete(closure) for closure in closures):
+        return _PredicateVerdict.INCOMPLETE
     if (
-        facets["candidate_fingerprint"] != selector.candidate_fingerprint
+        semantic is _PredicateVerdict.NO_MATCH
+        or facets["candidate_fingerprint"] != selector.candidate_fingerprint
         or facets["dataset_snapshot_fingerprint"] != selector.dataset_snapshot_fingerprint
         or facets["research_result_locator"] != selector.result_plan_fingerprint
         or statistics != selector.statistics_references
     ):
-        return False
+        return _PredicateVerdict.NO_MATCH
     result_fingerprint = cast(str, facets["research_result_fingerprint"])
-    for closure in cast(list[object], facets["run_evaluation_closures"]):
-        if not isinstance(closure, Mapping):
-            return None
-        state = closure.get("run_state")
-        if not isinstance(state, str):
-            return None
-        if state != "COMPLETED":
+    for closure in closures:
+        assert isinstance(closure, Mapping)
+        if closure["run_state"] != "COMPLETED":
             continue
-        if not _completed_evaluation_closure_complete(closure):
-            return None
         lineage = closure.get("search_lineage")
         if selector.search_experiment_fingerprint is not None and (
             not isinstance(lineage, Mapping)
@@ -624,31 +661,62 @@ def _evaluation(record: OnlyMemoryProjectionRecordV1, selector: OnlyExactEvaluat
             and closure["runtime_generation_fingerprint"] == selector.runtime_generation_fingerprint
             and closure.get("authoring_generation_fingerprint") == selector.authoring_generation_fingerprint
         ):
-            return True
-    return False
+            return _PredicateVerdict.MATCH
+    return _PredicateVerdict.NO_MATCH
 
 
-def _parameter(record: OnlyMemoryProjectionRecordV1, selector: OnlyExactParameterObservationSelectorV1) -> bool | None:
+def _parameter(
+    record: OnlyMemoryProjectionRecordV1, selector: OnlyExactParameterObservationSelectorV1
+) -> _PredicateVerdict:
     if record.kind != "ParameterObservationProjectionRecord":
-        return False
+        return _PredicateVerdict.NOT_APPLICABLE
     facets = record.facets
-    if "search_space_fingerprint" not in facets:
-        return False  # Symbolic Plan occurrence, not an incomplete parameter cell.
-    required = {
-        "experiment_fingerprint": str,
-        "search_space_fingerprint": str,
-        "proposal_fingerprint": str,
-        "normalized_assignment": list,
-        "grid_ordinal": int,
-    }
-    if any(not isinstance(facets.get(name), kind) for name, kind in required.items()):
-        return None
+    method = facets.get("search_method")
+    if not isinstance(method, str) or method not in {"SYMBOLIC", "PARAMETER"}:
+        return _PredicateVerdict.INCOMPLETE
+    if method == "SYMBOLIC":
+        return _PredicateVerdict.NOT_APPLICABLE
+    if not all(
+        _is_sha(facets.get(name))
+        for name in (
+            "experiment_fingerprint",
+            "search_space_fingerprint",
+            "proposal_fingerprint",
+            "iteration_plan_fingerprint",
+        )
+    ):
+        return _PredicateVerdict.INCOMPLETE
+    assignment = facets.get("normalized_assignment")
+    ordinal = facets.get("grid_ordinal")
+    if (
+        not isinstance(assignment, list)
+        or type(ordinal) is not int
+        or ordinal < 0
+        or not _exact_source_ref(
+            record,
+            "SEARCH_PROVENANCE",
+            f"iteration-plans/{facets['iteration_plan_fingerprint']}",
+            facets["iteration_plan_fingerprint"],
+        )
+        or not any(
+            _source_ref_complete(ref.to_dict())
+            and ref.locator == f"experiments/{facets['experiment_fingerprint']}"
+            and ref.identity == facets["experiment_fingerprint"]
+            for ref in record.source_refs
+            if ref.source_family == "SEARCH_PROVENANCE"
+        )
+    ):
+        return _PredicateVerdict.INCOMPLETE
     return (
-        facets["experiment_fingerprint"] == selector.experiment_fingerprint
-        and facets["search_space_fingerprint"] == selector.search_space_fingerprint
-        and facets["proposal_fingerprint"] == selector.proposal_fingerprint
-        and only_canonical_fingerprint(facets["normalized_assignment"]) == selector.normalized_assignment_fingerprint
-        and facets["grid_ordinal"] == selector.grid_ordinal
+        _PredicateVerdict.MATCH
+        if (
+            facets["experiment_fingerprint"] == selector.experiment_fingerprint
+            and facets["search_space_fingerprint"] == selector.search_space_fingerprint
+            and facets["proposal_fingerprint"] == selector.proposal_fingerprint
+            and only_canonical_fingerprint(assignment) == selector.normalized_assignment_fingerprint
+            and ordinal == selector.grid_ordinal
+        )
+        else _PredicateVerdict.NO_MATCH
     )
 
 
@@ -672,39 +740,9 @@ def _owner_ref(record: OnlyMemoryProjectionRecordV1, family: str) -> OnlyMemoryS
     return refs[0]
 
 
-def _exact_search_owner_marker(record: OnlyMemoryProjectionRecordV1) -> bool:
-    identity = record.facets.get("iteration_result_fingerprint")
-    return _is_sha(identity) and any(
-        _source_ref_complete(ref.to_dict())
-        and ref.identity == identity
-        and ref.locator == f"iteration-results/{identity}"
-        for ref in _owner_refs(record, "SEARCH_PROVENANCE")
-    )
-
-
-def _exact_agent_owner_marker(record: OnlyMemoryProjectionRecordV1) -> bool:
-    return any(
-        _source_ref_complete(ref.to_dict())
-        and ref.locator in {f"model-calls/results/{ref.identity}", f"tool-calls/results/{ref.identity}"}
-        for ref in _owner_refs(record, "AGENT_PROVENANCE")
-    )
-
-
-def _run_owner_applicable(record: OnlyMemoryProjectionRecordV1) -> bool | None:
-    facets = record.facets
-    if facets.get("classification") != "OPERATIONAL_FAILURE":
-        return False
-    if "run_context" in facets:
-        return True
-    if _exact_search_owner_marker(record) or _exact_agent_owner_marker(record):
-        return False
-    if _owner_refs(record, "RESEARCH_RUN"):
-        return True
-    return None
-
-
 def _run_owner_complete(record: OnlyMemoryProjectionRecordV1, context: object) -> bool:
     if not isinstance(context, Mapping) or set(record.facets) != {
+        "owner_kind",
         "classification",
         "run_context",
         "failure_phase",
@@ -735,7 +773,9 @@ def _run_owner_complete(record: OnlyMemoryProjectionRecordV1, context: object) -
     artifact = context.get("artifact_content_fingerprint")
     authoring = context.get("authoring_generation_fingerprint")
     common = (
-        set(context) == expected
+        record.facets.get("owner_kind") == OnlyMemoryFailureOwnerKind.RESEARCH_RUN
+        and record.facets.get("classification") == "OPERATIONAL_FAILURE"
+        and set(context) == expected
         and _is_uuid4(context.get("run_id"))
         and type(context.get("run_revision")) is int
         and cast(int, context["run_revision"]) >= 0
@@ -767,8 +807,7 @@ def _run_owner_complete(record: OnlyMemoryProjectionRecordV1, context: object) -
         return (
             isinstance(record.facets.get("failure_code"), str)
             and bool(record.facets["failure_code"])
-            and record.facets.get("failure_phase")
-            in {"ADMISSION", "EXECUTION", "RESULT_COMMIT", "ARTIFACT_COMMIT", "OPERATIONAL"}
+            and record.facets.get("failure_phase") in _RUN_FAILURE_PHASES
             and isinstance(record.facets.get("failure_detail"), str)
             and bool(record.facets["failure_detail"])
         )
@@ -798,39 +837,15 @@ def _run_owner_equal(context: Mapping[str, object], selector: OnlyResearchRunTer
     )
 
 
-def _run_failure_owner(record: OnlyMemoryProjectionRecordV1, selector: OnlyResearchRunTerminalOwnerV1) -> bool | None:
-    applicable = _run_owner_applicable(record)
-    if applicable is not True:
-        return applicable
-    context = record.facets.get("run_context")
-    if not _run_owner_complete(record, context):
-        return None
-    return _run_owner_equal(cast(Mapping[str, object], context), selector)
-
-
-def _search_owner_applicable(record: OnlyMemoryProjectionRecordV1) -> bool | None:
-    facets = record.facets
-    if facets.get("classification") not in {"OPERATIONAL_FAILURE", "SEARCH_OR_BUDGET_STOP"}:
-        return False
-    if "run_context" in facets or _exact_agent_owner_marker(record):
-        return False
-    if _exact_search_owner_marker(record):
-        return True
-    search_refs = _owner_refs(record, "SEARCH_PROVENANCE")
-    if "iteration_result_fingerprint" in facets or any(
-        ref.locator.startswith("iteration-results/") for ref in search_refs
-    ):
-        return True
-    return None
-
-
 def _search_owner_complete(record: OnlyMemoryProjectionRecordV1) -> bool:
-    if set(record.facets) != {"classification", "failure_code", "iteration_result_fingerprint"}:
+    if set(record.facets) != {"owner_kind", "classification", "failure_code", "iteration_result_fingerprint"}:
         return False
     identity = record.facets.get("iteration_result_fingerprint")
     source = _owner_ref(record, "SEARCH_PROVENANCE")
     return (
-        _is_sha(identity)
+        record.facets.get("owner_kind") == OnlyMemoryFailureOwnerKind.SEARCH_OCCURRENCE
+        and record.facets.get("classification") in {"OPERATIONAL_FAILURE", "SEARCH_OR_BUDGET_STOP"}
+        and _is_sha(identity)
         and source is not None
         and source.identity == identity
         and source.locator == f"iteration-results/{identity}"
@@ -839,31 +854,17 @@ def _search_owner_complete(record: OnlyMemoryProjectionRecordV1) -> bool:
     )
 
 
-def _search_failure_owner(record: OnlyMemoryProjectionRecordV1, selector: OnlySearchFailureOwnerV1) -> bool | None:
-    applicable = _search_owner_applicable(record)
-    if applicable is not True:
-        return applicable
-    if not _search_owner_complete(record):
-        return None
-    return record.facets["iteration_result_fingerprint"] == selector.iteration_result_fingerprint
-
-
-def _agent_owner_applicable(record: OnlyMemoryProjectionRecordV1) -> bool | None:
-    facets = record.facets
-    if facets.get("classification") != "OPERATIONAL_FAILURE":
-        return False
-    if "run_context" in facets or _exact_search_owner_marker(record):
-        return False
-    if _owner_refs(record, "AGENT_PROVENANCE"):
-        return True
-    return None
-
-
 def _agent_owner_complete(record: OnlyMemoryProjectionRecordV1) -> bool:
-    if set(record.facets) != {"classification", "failure_code", "outcome"}:
+    if set(record.facets) != {"owner_kind", "classification", "failure_code", "outcome"}:
         return False
     source = _owner_ref(record, "AGENT_PROVENANCE")
-    if source is None or not isinstance(record.facets.get("failure_code"), str) or not record.facets["failure_code"]:
+    if (
+        record.facets.get("owner_kind") != OnlyMemoryFailureOwnerKind.AGENT_OCCURRENCE
+        or record.facets.get("classification") != "OPERATIONAL_FAILURE"
+        or source is None
+        or not isinstance(record.facets.get("failure_code"), str)
+        or not record.facets["failure_code"]
+    ):
         return False
     outcome = record.facets.get("outcome")
     code = record.facets["failure_code"]
@@ -880,22 +881,9 @@ def _agent_owner_complete(record: OnlyMemoryProjectionRecordV1) -> bool:
     return False
 
 
-def _agent_failure_owner(record: OnlyMemoryProjectionRecordV1, selector: OnlyAgentFailureOwnerV1) -> bool | None:
-    applicable = _agent_owner_applicable(record)
-    if applicable is not True:
-        return applicable
-    if not _agent_owner_complete(record):
-        return None
-    source = cast(OnlyMemorySourceRefV1, _owner_ref(record, "AGENT_PROVENANCE"))
-    return source.identity == selector.occurrence_fingerprint
-
-
-def _qualification_owner_applicable(record: OnlyMemoryProjectionRecordV1) -> bool:
-    return record.facets.get("classification") == "QUALIFICATION_REJECT"
-
-
 def _qualification_owner_complete(record: OnlyMemoryProjectionRecordV1) -> bool:
     if set(record.facets) != {
+        "owner_kind",
         "classification",
         "subject_strategy_fingerprint",
         "policy_id",
@@ -904,19 +892,18 @@ def _qualification_owner_complete(record: OnlyMemoryProjectionRecordV1) -> bool:
         "evidence_refs",
     }:
         return False
-    return True
+    return (
+        record.facets.get("owner_kind") == OnlyMemoryFailureOwnerKind.QUALIFICATION_DECISION
+        and record.facets.get("classification") == "QUALIFICATION_REJECT"
+    )
 
 
-def _qualification_failure_owner(
-    record: OnlyMemoryProjectionRecordV1, selector: OnlyQualificationFailureOwnerV1
-) -> bool | None:
-    if not _qualification_owner_applicable(record):
-        return False
+def _qualification_owner_context_complete(record: OnlyMemoryProjectionRecordV1) -> bool:
     facets = record.facets
     source = _owner_ref(record, "QUALIFICATION_DECISION")
     evidence = facets.get("evidence_refs")
     evidence_keys = [only_canonical_json(item) for item in evidence] if isinstance(evidence, list) else []
-    if not _qualification_owner_complete(record) or not (
+    return _qualification_owner_complete(record) and (
         _is_sha(facets.get("subject_strategy_fingerprint"))
         and isinstance(facets.get("policy_id"), str)
         and bool(facets["policy_id"])
@@ -937,37 +924,82 @@ def _qualification_failure_owner(
         )
         and source is not None
         and source.locator == source.identity
-    ):
-        return None
-    return source.identity == selector.decision_fingerprint
+    )
 
 
-def _failure(record: OnlyMemoryProjectionRecordV1, selector: OnlyExactFailureEvidenceSelectorV1) -> bool | None:
+def _owner_kind_proven(record: OnlyMemoryProjectionRecordV1, owner_kind: OnlyMemoryFailureOwnerKind) -> bool:
+    facets = record.facets
+    if owner_kind is OnlyMemoryFailureOwnerKind.RESEARCH_RUN:
+        context = facets.get("run_context")
+        source = _owner_ref(record, "RESEARCH_RUN")
+        return isinstance(context, Mapping) and source is not None and source.to_dict() == context.get("run_source_ref")
+    if owner_kind is OnlyMemoryFailureOwnerKind.SEARCH_OCCURRENCE:
+        identity = facets.get("iteration_result_fingerprint")
+        source = _owner_ref(record, "SEARCH_PROVENANCE")
+        return (
+            _is_sha(identity)
+            and source is not None
+            and source.identity == identity
+            and source.locator == f"iteration-results/{identity}"
+        )
+    if owner_kind is OnlyMemoryFailureOwnerKind.AGENT_OCCURRENCE:
+        return any(
+            _source_ref_complete(ref.to_dict())
+            and ref.locator in {f"model-calls/results/{ref.identity}", f"tool-calls/results/{ref.identity}"}
+            for ref in _owner_refs(record, "AGENT_PROVENANCE")
+        )
+    source = _owner_ref(record, "QUALIFICATION_DECISION")
+    return source is not None and source.locator == source.identity
+
+
+def _failure(record: OnlyMemoryProjectionRecordV1, selector: OnlyExactFailureEvidenceSelectorV1) -> _PredicateVerdict:
     if record.kind != "FailureEvidenceProjectionRecord":
-        return False
-    classification = record.facets.get("classification")
-    if not isinstance(classification, str):
-        return None
-    if classification != selector.classification:
-        return False
+        return _PredicateVerdict.NOT_APPLICABLE
+    owner_kind = record.facets.get("owner_kind")
+    if not isinstance(owner_kind, str):
+        return _PredicateVerdict.INCOMPLETE
+    try:
+        parsed_owner_kind = OnlyMemoryFailureOwnerKind(owner_kind)
+    except ValueError:
+        return _PredicateVerdict.INCOMPLETE
     owner = selector.owner
+    if not _owner_kind_proven(record, parsed_owner_kind):
+        return _PredicateVerdict.INCOMPLETE
+    if parsed_owner_kind is not owner.owner_kind:
+        return _PredicateVerdict.NOT_APPLICABLE
     if isinstance(owner, OnlyResearchRunTerminalOwnerV1):
-        owned = _run_failure_owner(record, owner)
+        context = record.facets.get("run_context")
+        complete = _run_owner_complete(record, context)
+        owned = complete and _run_owner_equal(cast(Mapping[str, object], context), owner)
     elif isinstance(owner, OnlySearchFailureOwnerV1):
-        owned = _search_failure_owner(record, owner)
+        complete = _search_owner_complete(record)
+        owned = complete and record.facets["iteration_result_fingerprint"] == owner.iteration_result_fingerprint
     elif isinstance(owner, OnlyAgentFailureOwnerV1):
-        owned = _agent_failure_owner(record, owner)
+        complete = _agent_owner_complete(record)
+        source = _owner_ref(record, "AGENT_PROVENANCE")
+        owned = complete and source is not None and source.identity == owner.occurrence_fingerprint
     else:
-        owned = _qualification_failure_owner(record, owner)
-    if owned is not True:
-        return owned
+        complete = _qualification_owner_context_complete(record)
+        source = _owner_ref(record, "QUALIFICATION_DECISION")
+        owned = complete and source is not None and source.identity == owner.decision_fingerprint
+    if not complete:
+        return _PredicateVerdict.INCOMPLETE
+    if not owned:
+        return _PredicateVerdict.NO_MATCH
+    classification = cast(str, record.facets["classification"])
+    if classification != selector.classification:
+        return _PredicateVerdict.NO_MATCH
     if isinstance(owner, OnlyResearchRunTerminalOwnerV1) and owner.terminal_state == "CANCELLED":
-        return True
+        return _PredicateVerdict.MATCH
     code = record.facets.get("failure_code")
     stable_code = "QUALIFICATION_REJECTED" if classification == "QUALIFICATION_REJECT" else code
     phase = record.facets.get("failure_phase")
     assert isinstance(stable_code, str)
-    return stable_code == selector.stable_code and (selector.failure_phase is None or phase == selector.failure_phase)
+    return (
+        _PredicateVerdict.MATCH
+        if stable_code == selector.stable_code and (selector.failure_phase is None or phase == selector.failure_phase)
+        else _PredicateVerdict.NO_MATCH
+    )
 
 
 def only_query_experiment_memory_history(
@@ -998,7 +1030,7 @@ def only_query_experiment_memory_history(
         )
 
     matched: dict[str, OnlyMemoryHistoricalMatchV1] = {}
-    complete = True
+    incomplete = False
     for record in projection.records:
         selector = query.exact_selector
         if isinstance(selector, OnlyExactSemanticHistorySelectorV1):
@@ -1009,15 +1041,15 @@ def only_query_experiment_memory_history(
             outcome = _parameter(record, selector)
         else:
             outcome = _failure(record, selector)
-        if outcome is None:
-            complete = False
-        elif outcome:
+        if outcome is _PredicateVerdict.INCOMPLETE:
+            incomplete = True
+        elif outcome is _PredicateVerdict.MATCH:
             match = OnlyMemoryHistoricalMatchV1(record)
             matched[only_canonical_json(match.to_dict())] = match
     ordered = tuple(matched[key] for key in sorted(matched))
     status = (
         OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
-        if not complete
+        if incomplete
         else OnlyMemoryHistoricalProofStatus.MATCH
         if ordered
         else OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH

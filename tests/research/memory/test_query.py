@@ -25,7 +25,6 @@ from onlyalpha.research.memory.query import (
     OnlyMemoryHistoricalProofStatus,
     OnlyMemoryHistoricalQueryV1,
     OnlyQualificationFailureOwnerV1,
-    OnlyResearchRunFailureOwnerV1,
     OnlyResearchRunTerminalOwnerV1,
     OnlySearchFailureOwnerV1,
     only_query_experiment_memory_history,
@@ -119,22 +118,30 @@ def _projection(
     }
     if incomplete:
         semantic.pop("output_name")
-    evaluation = OnlyMemoryProjectionRecordV1("EvaluationProjectionRecord", semantic, (ref("RESEARCH_RESULT", RESULT),))
+    evaluation = OnlyMemoryProjectionRecordV1(
+        "EvaluationProjectionRecord", semantic, (replace(ref("RESEARCH_RESULT", RESULT), locator=PLAN),)
+    )
     parameter = OnlyMemoryProjectionRecordV1(
         "ParameterObservationProjectionRecord",
         {
+            "search_method": "PARAMETER",
             "experiment_fingerprint": EXPERIMENT,
+            "iteration_plan_fingerprint": PROPOSAL,
             "search_space_fingerprint": SPACE,
             "proposal_fingerprint": PROPOSAL,
             "normalized_assignment": ASSIGNMENT,
             "grid_ordinal": 2,
             "status": "COMPLETED_EVIDENCE",
         },
-        (ref("SEARCH_PROVENANCE", PROPOSAL),),
+        (
+            replace(ref("SEARCH_PROVENANCE", PROPOSAL), locator=f"iteration-plans/{PROPOSAL}"),
+            replace(ref("SEARCH_PROVENANCE", EXPERIMENT), locator=f"experiments/{EXPERIMENT}"),
+        ),
     )
     failure = OnlyMemoryProjectionRecordV1(
         "FailureEvidenceProjectionRecord",
         {
+            "owner_kind": "RESEARCH_RUN",
             "classification": "OPERATIONAL_FAILURE",
             "failure_code": "ARTIFACT_COMMIT_FAILED",
             "run_context": {
@@ -217,6 +224,7 @@ def _run_terminal_record(
     return OnlyMemoryProjectionRecordV1(
         "FailureEvidenceProjectionRecord",
         {
+            "owner_kind": "RESEARCH_RUN",
             "classification": "OPERATIONAL_FAILURE",
             "run_context": {
                 "run_id": run_id,
@@ -247,6 +255,7 @@ def _search_failure_record(
     return OnlyMemoryProjectionRecordV1(
         "FailureEvidenceProjectionRecord",
         {
+            "owner_kind": "SEARCH_OCCURRENCE",
             "classification": "SEARCH_OR_BUDGET_STOP",
             "failure_code": "SEARCH_BUDGET_EXHAUSTED",
             "iteration_result_fingerprint": identity,
@@ -262,6 +271,7 @@ def _agent_failure_record(
     return OnlyMemoryProjectionRecordV1(
         "FailureEvidenceProjectionRecord",
         {
+            "owner_kind": "AGENT_OCCURRENCE",
             "classification": "OPERATIONAL_FAILURE",
             "failure_code": "AGENT_MODEL_CALL_FAILED",
             "outcome": "FAILED",
@@ -277,6 +287,7 @@ def _qualification_failure_record(
     return OnlyMemoryProjectionRecordV1(
         "FailureEvidenceProjectionRecord",
         {
+            "owner_kind": "QUALIFICATION_DECISION",
             "classification": "QUALIFICATION_REJECT",
             "subject_strategy_fingerprint": "c" * 64,
             "policy_id": "policy",
@@ -393,6 +404,33 @@ def test_certified_no_match_unavailable_incomplete_and_unsupported_are_distinct(
     )
 
 
+@pytest.mark.parametrize(
+    "mutation,expected",
+    (
+        (lambda facets: facets.update(graph_fingerprint="0" * 64), OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH),
+        (
+            lambda facets: facets.update(candidate_node_fingerprint="0" * 64),
+            OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH,
+        ),
+        (lambda facets: facets.update(output_name="other"), OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH),
+        (lambda facets: facets.pop("graph_fingerprint"), OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE),
+        (lambda facets: facets.update(graph_fingerprint="not-a-sha"), OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE),
+        (lambda facets: facets.pop("candidate_node_fingerprint"), OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE),
+        (lambda facets: facets.pop("output_name"), OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE),
+    ),
+)
+def test_semantic_exact_structural_matrix(tmp_path: Path, mutation, expected) -> None:  # type: ignore[no-untyped-def]
+    projection = _replace_record_facets(_projection(), "EvaluationProjectionRecord", mutation)
+    store, projection = _store(tmp_path, projection)
+    proof = only_query_experiment_memory_history(
+        store,
+        OnlyMemoryHistoricalQueryV1(
+            projection.revision_fingerprint, OnlyExactSemanticHistorySelectorV1(GRAPH, NODE, "factor_value")
+        ),
+    )
+    assert proof.proof_status is expected
+
+
 def test_corruption_is_never_certified_absence(tmp_path: Path) -> None:
     store, projection = _store(tmp_path)
     query = _semantic_query(projection)
@@ -401,6 +439,20 @@ def test_corruption_is_never_certified_absence(tmp_path: Path) -> None:
     assert only_query_experiment_memory_history(store, query).proof_status is (
         OnlyMemoryHistoricalProofStatus.PROOF_UNAVAILABLE
     )
+
+
+def test_projection_v5_is_unavailable_not_reinterpreted(tmp_path: Path) -> None:
+    store, projection = _store(tmp_path)
+    target = store._target(projection.revision_fingerprint) / "projection.json"
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    payload["projection_schema_version"] = 5
+    payload["projector_algorithm_version"] = 5
+    target.write_text(only_canonical_json(payload), encoding="utf-8")
+
+    proof = only_query_experiment_memory_history(store, _semantic_query(projection))
+
+    assert proof.proof_status is OnlyMemoryHistoricalProofStatus.PROOF_UNAVAILABLE
+    assert proof.failure_code == "PROJECTION_SCHEMA_UNSUPPORTED"
 
 
 def test_parameter_cells_and_failures_are_exact_only(tmp_path: Path) -> None:
@@ -425,7 +477,7 @@ def test_parameter_cells_and_failures_are_exact_only(tmp_path: Path) -> None:
             OnlyExactFailureEvidenceSelectorV1(
                 "OPERATIONAL_FAILURE",
                 "ARTIFACT_COMMIT_FAILED",
-                OnlyResearchRunFailureOwnerV1(FAILED_RUN_ID, 2),
+                OnlyResearchRunTerminalOwnerV1(FAILED_RUN_ID, 2),
             ),
         ),
     )
@@ -437,6 +489,102 @@ def test_parameter_cells_and_failures_are_exact_only(tmp_path: Path) -> None:
     assert context["run_id"] == FAILED_RUN_ID
     assert context["run_revision"] == 2
     assert context["search_lineage"]["experiment_fingerprint"] == EXPERIMENT
+
+
+@pytest.mark.parametrize(
+    "mutation,expected",
+    (
+        (lambda facets: facets.update(search_method="SYMBOLIC"), OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH),
+        (lambda facets: facets.pop("search_method"), OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE),
+        (lambda facets: facets.update(search_method="UNKNOWN"), OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE),
+        (lambda facets: facets.pop("search_space_fingerprint"), OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE),
+        (lambda facets: facets.pop("normalized_assignment"), OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE),
+        (lambda facets: facets.pop("grid_ordinal"), OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE),
+        (
+            lambda facets: facets.update(proposal_fingerprint="not-a-sha"),
+            OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE,
+        ),
+        (lambda facets: facets.update(grid_ordinal=True), OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE),
+    ),
+)
+def test_parameter_observation_applicability_and_completeness_matrix(tmp_path: Path, mutation, expected) -> None:  # type: ignore[no-untyped-def]
+    projection = _replace_record_facets(_projection(), "ParameterObservationProjectionRecord", mutation)
+    store, projection = _store(tmp_path, projection)
+    selector = OnlyExactParameterObservationSelectorV1.from_normalized_assignment(
+        experiment_fingerprint=EXPERIMENT,
+        search_space_fingerprint=SPACE,
+        proposal_fingerprint=PROPOSAL,
+        normalized_assignment=ASSIGNMENT,
+        grid_ordinal=2,
+    )
+    assert (
+        only_query_experiment_memory_history(
+            store, OnlyMemoryHistoricalQueryV1(projection.revision_fingerprint, selector)
+        ).proof_status
+        is expected
+    )
+
+
+def test_parameter_match_plus_relevant_incomplete_is_incomplete(tmp_path: Path) -> None:
+    projection = _projection()
+    record = next(r for r in projection.records if r.kind == "ParameterObservationProjectionRecord")
+    facets = json.loads(only_canonical_json(record.facets))
+    facets.pop("normalized_assignment")
+    malformed = OnlyMemoryProjectionRecordV1(record.kind, facets, record.source_refs)
+    projection = OnlyExperimentMemoryProjectionV1(
+        projection.source_manifest,
+        tuple(sorted((*projection.records, malformed), key=lambda item: only_canonical_json(item.to_dict()))),
+    )
+    store, projection = _store(tmp_path, projection)
+    selector = OnlyExactParameterObservationSelectorV1.from_normalized_assignment(
+        experiment_fingerprint=EXPERIMENT,
+        search_space_fingerprint=SPACE,
+        proposal_fingerprint=PROPOSAL,
+        normalized_assignment=ASSIGNMENT,
+        grid_ordinal=2,
+    )
+    assert (
+        only_query_experiment_memory_history(
+            store, OnlyMemoryHistoricalQueryV1(projection.revision_fingerprint, selector)
+        ).proof_status
+        is OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
+    )
+
+
+@pytest.mark.parametrize("family", ("EVALUATION", "PARAMETER"))
+def test_exact_projection_source_relation_loss_is_incomplete(tmp_path: Path, family: str) -> None:
+    projection = _projection()
+    kind = "EvaluationProjectionRecord" if family == "EVALUATION" else "ParameterObservationProjectionRecord"
+    record = next(r for r in projection.records if r.kind == kind)
+    refs = tuple(replace(ref, locator="malformed") for ref in record.source_refs)
+    malformed = OnlyMemoryProjectionRecordV1(kind, record.facets, refs)
+    projection = OnlyExperimentMemoryProjectionV1(
+        projection.source_manifest,
+        tuple(
+            sorted(
+                (malformed if item is record else item for item in projection.records),
+                key=lambda item: only_canonical_json(item.to_dict()),
+            )
+        ),
+    )
+    store, projection = _store(tmp_path, projection)
+    selector = (
+        _semantic_query(projection, dataset=DATASET).exact_selector
+        if family == "EVALUATION"
+        else OnlyExactParameterObservationSelectorV1.from_normalized_assignment(
+            experiment_fingerprint=EXPERIMENT,
+            search_space_fingerprint=SPACE,
+            proposal_fingerprint=PROPOSAL,
+            normalized_assignment=ASSIGNMENT,
+            grid_ordinal=2,
+        )
+    )
+    assert (
+        only_query_experiment_memory_history(
+            store, OnlyMemoryHistoricalQueryV1(projection.revision_fingerprint, selector)
+        ).proof_status
+        is OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
+    )
 
 
 def test_evaluation_exact_distinguishes_statistics_result_identity(tmp_path: Path) -> None:
@@ -511,9 +659,55 @@ def test_failed_run_with_result_never_matches_evaluation_exact(tmp_path: Path) -
     )
 
 
+@pytest.mark.parametrize(
+    "state,expected",
+    (
+        ("COMPLETED", OnlyMemoryHistoricalProofStatus.MATCH),
+        ("FAILED", OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH),
+        ("CANCELLED", OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH),
+        ("RUNNING", OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH),
+        ("CANCEL_REQUESTED", OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH),
+        ("QUEUED", OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH),
+        ("BROKEN", OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE),
+        (None, OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE),
+        (7, OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE),
+    ),
+)
+def test_evaluation_run_state_space(tmp_path: Path, state: object, expected) -> None:  # type: ignore[no-untyped-def]
+    def update(facets):  # type: ignore[no-untyped-def]
+        closure = facets["run_evaluation_closures"][0]
+        closure["run_state"] = state
+        facets["run_evaluation_closures"] = [closure]
+        if state != "COMPLETED":
+            closure["research_result_fingerprint"] = None
+            closure["artifact_content_fingerprint"] = None
+            closure["calculation_execution_evidence_fingerprints"] = []
+
+    projection = _replace_record_facets(_projection(), "EvaluationProjectionRecord", update)
+    store, projection = _store(tmp_path, projection)
+    assert (
+        only_query_experiment_memory_history(store, _semantic_query(projection, dataset=DATASET)).proof_status
+        is expected
+    )
+
+
+def test_evaluation_match_plus_malformed_closure_is_incomplete(tmp_path: Path) -> None:
+    def update(facets):  # type: ignore[no-untyped-def]
+        malformed = dict(facets["run_evaluation_closures"][1])
+        malformed.pop("run_state")
+        facets["run_evaluation_closures"].append(malformed)
+
+    projection = _replace_record_facets(_projection(), "EvaluationProjectionRecord", update)
+    store, projection = _store(tmp_path, projection)
+    assert (
+        only_query_experiment_memory_history(store, _semantic_query(projection, dataset=DATASET)).proof_status
+        is OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
+    )
+
+
 def test_run_failure_requires_complete_context_and_exact_search_lineage(tmp_path: Path) -> None:
     store, projection = _store(tmp_path)
-    owner = OnlyResearchRunFailureOwnerV1(
+    owner = OnlyResearchRunTerminalOwnerV1(
         FAILED_RUN_ID,
         2,
         search_experiment_fingerprint=EXPERIMENT,
@@ -652,6 +846,7 @@ def test_failure_owner_is_native_typed_occurrence_not_any_source_ref(tmp_path: P
     search_failure = OnlyMemoryProjectionRecordV1(
         "FailureEvidenceProjectionRecord",
         {
+            "owner_kind": "SEARCH_OCCURRENCE",
             "classification": "SEARCH_OR_BUDGET_STOP",
             "failure_code": "SEARCH_BUDGET_EXHAUSTED",
             "iteration_result_fingerprint": search_identity,
@@ -699,6 +894,7 @@ def test_qualification_reject_never_matches_operational_failure(tmp_path: Path) 
     qualification = OnlyMemoryProjectionRecordV1(
         "FailureEvidenceProjectionRecord",
         {
+            "owner_kind": "QUALIFICATION_DECISION",
             "classification": "QUALIFICATION_REJECT",
             "subject_strategy_fingerprint": "b" * 64,
             "policy_id": "policy",
@@ -860,6 +1056,91 @@ def test_cross_family_records_are_isolated_and_provenance_noise_does_not_transfe
         assert _failure_status(tmp_path / str(index), projection, selector) is OnlyMemoryHistoricalProofStatus.MATCH
 
 
+@pytest.mark.parametrize("family", ("RUN", "SEARCH", "AGENT", "QUALIFICATION"))
+def test_exact_failure_owner_with_contradictory_classification_is_incomplete(tmp_path: Path, family: str) -> None:
+    base = _projection()
+    if family == "RUN":
+        record = _run_terminal_record(base)
+        selector = OnlyExactFailureEvidenceSelectorV1(
+            "OPERATIONAL_FAILURE", "RESEARCH_EXECUTION_FAILED", OnlyResearchRunTerminalOwnerV1(FAILED_RUN_ID, 2)
+        )
+        classification = "QUALIFICATION_REJECT"
+    elif family == "SEARCH":
+        record = _search_failure_record(base)
+        selector = OnlyExactFailureEvidenceSelectorV1(
+            "SEARCH_OR_BUDGET_STOP", "SEARCH_BUDGET_EXHAUSTED", OnlySearchFailureOwnerV1("7" * 64)
+        )
+        classification = "QUALIFICATION_REJECT"
+    elif family == "AGENT":
+        record = _agent_failure_record(base)
+        selector = OnlyExactFailureEvidenceSelectorV1(
+            "OPERATIONAL_FAILURE", "AGENT_MODEL_CALL_FAILED", OnlyAgentFailureOwnerV1("8" * 64)
+        )
+        classification = "SEARCH_OR_BUDGET_STOP"
+    else:
+        record = _qualification_failure_record(base)
+        selector = OnlyExactFailureEvidenceSelectorV1(
+            "QUALIFICATION_REJECT", "QUALIFICATION_REJECTED", OnlyQualificationFailureOwnerV1("b" * 64)
+        )
+        classification = "OPERATIONAL_FAILURE"
+    contradictory = _mutate_failure_record(record, lambda facets: facets.update(classification=classification))
+    assert (
+        _failure_status(tmp_path, _with_failure_records(base, contradictory), selector)
+        is OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
+    )
+
+
+def test_search_owner_with_run_structure_is_incomplete_and_other_owner_kind_is_not_applicable(tmp_path: Path) -> None:
+    base = _projection()
+    record = _search_failure_record(base)
+    selector = OnlyExactFailureEvidenceSelectorV1(
+        "SEARCH_OR_BUDGET_STOP", "SEARCH_BUDGET_EXHAUSTED", OnlySearchFailureOwnerV1("7" * 64)
+    )
+    contradictory = _mutate_failure_record(record, lambda facets: facets.update(run_context={}))
+    assert (
+        _failure_status(tmp_path / "structure", _with_failure_records(base, contradictory), selector)
+        is OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
+    )
+    other_family = _agent_failure_record(base)
+    assert (
+        _failure_status(tmp_path / "other", _with_failure_records(base, other_family), selector)
+        is OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH
+    )
+    contradictory_kind = _mutate_failure_record(record, lambda facets: facets.update(owner_kind="AGENT_OCCURRENCE"))
+    assert (
+        _failure_status(tmp_path / "kind", _with_failure_records(base, contradictory_kind), selector)
+        is OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
+    )
+
+
+@pytest.mark.parametrize("family", ("RUN", "SEARCH", "AGENT", "QUALIFICATION"))
+def test_other_owner_family_requires_exact_owner_relation(tmp_path: Path, family: str) -> None:
+    base = _projection()
+    record = {
+        "RUN": _run_terminal_record,
+        "SEARCH": _search_failure_record,
+        "AGENT": _agent_failure_record,
+        "QUALIFICATION": _qualification_failure_record,
+    }[family](base)
+    source = record.source_refs[0]
+    malformed = _mutate_failure_record(record, lambda _: None, source_refs=(replace(source, locator="malformed"),))
+    selector = OnlyExactFailureEvidenceSelectorV1(
+        "OPERATIONAL_FAILURE",
+        "AGENT_MODEL_CALL_FAILED",
+        OnlyAgentFailureOwnerV1("8" * 64),
+    )
+    if family == "AGENT":
+        selector = OnlyExactFailureEvidenceSelectorV1(
+            "SEARCH_OR_BUDGET_STOP",
+            "SEARCH_BUDGET_EXHAUSTED",
+            OnlySearchFailureOwnerV1("7" * 64),
+        )
+    assert (
+        _failure_status(tmp_path, _with_failure_records(base, malformed), selector)
+        is OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
+    )
+
+
 def test_incomplete_relevant_owner_keeps_precedence_over_a_match(tmp_path: Path) -> None:
     base = _projection()
     complete = _search_failure_record(base)
@@ -883,7 +1164,7 @@ def test_query_fingerprint_binds_every_new_exact_identity() -> None:
             statistics_references=(OnlyExactStatisticsReferenceV1(STATISTICS, OTHER_STATISTICS_RESULT),),
         ),
     )
-    base_owner = OnlyResearchRunFailureOwnerV1(FAILED_RUN_ID, 2, search_experiment_fingerprint=EXPERIMENT)
+    base_owner = OnlyResearchRunTerminalOwnerV1(FAILED_RUN_ID, 2, search_experiment_fingerprint=EXPERIMENT)
     failure = OnlyMemoryHistoricalQueryV1(
         projection.revision_fingerprint,
         OnlyExactFailureEvidenceSelectorV1("OPERATIONAL_FAILURE", "ARTIFACT_COMMIT_FAILED", base_owner),
@@ -978,7 +1259,7 @@ def test_fresh_rebuild_reproduces_query_and_result_identity(tmp_path: Path) -> N
             OnlyExactFailureEvidenceSelectorV1(
                 "OPERATIONAL_FAILURE",
                 "ARTIFACT_COMMIT_FAILED",
-                OnlyResearchRunFailureOwnerV1(FAILED_RUN_ID, 2),
+                OnlyResearchRunTerminalOwnerV1(FAILED_RUN_ID, 2),
             ),
         ),
     )

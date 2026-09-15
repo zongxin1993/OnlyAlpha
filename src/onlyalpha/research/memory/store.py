@@ -62,20 +62,20 @@ class OnlyExperimentMemoryRevisionStore:
             payload = json.loads(raw)
             if not isinstance(payload, dict) or raw != only_canonical_json(payload):
                 raise ValueError("noncanonical revision")
+            if set(payload) != {
+                "projection_schema_version",
+                "projector_algorithm_version",
+                "source_manifest",
+                "records",
+                "logical_digest",
+                "revision_fingerprint",
+            }:
+                raise ValueError("revision shape")
             if (
-                set(payload)
-                != {
-                    "projection_schema_version",
-                    "projector_algorithm_version",
-                    "source_manifest",
-                    "records",
-                    "logical_digest",
-                    "revision_fingerprint",
-                }
-                or payload["projection_schema_version"] != PROJECTION_SCHEMA_VERSION
+                payload["projection_schema_version"] != PROJECTION_SCHEMA_VERSION
                 or payload["projector_algorithm_version"] != PROJECTOR_ALGORITHM_VERSION
             ):
-                raise ValueError("unsupported revision")
+                raise OnlyMemoryProjectionError("PROJECTION_SCHEMA_UNSUPPORTED")
             source_manifest = OnlyExperimentMemorySourceCutManifestV1.from_dict(payload["source_manifest"])
             if not isinstance(payload["records"], list):
                 raise ValueError("records")
@@ -100,6 +100,10 @@ class OnlyExperimentMemoryRevisionStore:
             ):
                 raise ValueError("revision identity")
             return projection
+        except OnlyMemoryProjectionError as exc:
+            if str(exc) == "PROJECTION_SCHEMA_UNSUPPORTED":
+                raise
+            raise OnlyMemoryProjectionError("PROJECTION_CORRUPT") from exc
         except (OSError, ValueError, TypeError, KeyError) as exc:
             raise OnlyMemoryProjectionError("PROJECTION_CORRUPT") from exc
 

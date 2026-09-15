@@ -365,6 +365,7 @@ def test_resultless_run_failures_keep_exact_occurrence_context(tmp_path: Path) -
         if record.kind == "ParameterObservationProjectionRecord"
         and record.facets["experiment_fingerprint"] == plans[1].experiment_fingerprint
     )
+    assert parameter.facets["search_method"] == "PARAMETER"
     assert (
         parameter.facets["iteration_plan_fingerprint"]
         == failures[run_ids[1]].facets["run_context"]["search_lineage"]["iteration_plan_fingerprint"]
@@ -757,6 +758,7 @@ def test_model_failure_is_operational_not_scientific_rejection() -> None:
     )
     records = [r for r in _build(readers).records if r.kind == "FailureEvidenceProjectionRecord"]
     assert len(records) == 1
+    assert records[0].facets["owner_kind"] == "AGENT_OCCURRENCE"
     assert records[0].facets["classification"] == "OPERATIONAL_FAILURE"
     assert all(r.facets.get("classification") != "SCIENTIFIC_REJECTION" for r in records)
 
@@ -805,6 +807,9 @@ def test_parameter_observations_do_not_infer_an_unseen_grid_cell() -> None:
     )
     cells = [r.facets["grid_ordinal"] for r in projection.records if r.kind == "ParameterObservationProjectionRecord"]
     assert cells == [0, 1, 3]
+    assert {
+        r.facets["search_method"] for r in projection.records if r.kind == "ParameterObservationProjectionRecord"
+    } == {"PARAMETER"}
     readers["SEARCH_PROVENANCE"].observations = tuple(reversed(readers["SEARCH_PROVENANCE"].observations))
     reordered = only_build_experiment_memory_projection(
         manifest,
@@ -1042,7 +1047,7 @@ def test_evaluation_closures_bind_each_historical_run_without_cross_association(
         return only_build_experiment_memory_projection(manifest, readers, reference)
 
     projection = build()
-    assert (PROJECTION_SCHEMA_VERSION, PROJECTOR_ALGORITHM_VERSION) == (5, 5)
+    assert (PROJECTION_SCHEMA_VERSION, PROJECTOR_ALGORITHM_VERSION) == (6, 6)
     evaluation = next(record for record in projection.records if record.kind == "EvaluationProjectionRecord")
     assert evaluation.facets["catalog_generation_refs"] == ["a" * 64, "b" * 64]
     closures = evaluation.facets["run_evaluation_closures"]
