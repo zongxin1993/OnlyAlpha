@@ -663,3 +663,82 @@ Routine planning SHOULD consult `docs/engineering/reference_registry.md` and `do
 A confirmed applicable external failure SHOULD become an executable OnlyAlpha regression/fault test when deterministic reproduction is practical. Documentation such as "be careful with reconnect" is not an adequate substitute for a test when the failure can be mechanically proved.
 
 The detailed method is defined in `docs/engineering/open_source_engineering_evidence.md`. These reference documents remain advisory engineering knowledge and MUST NOT become a second architecture, quality, Research, execution or certification Authority.
+
+## Formal proof / Authority-bound audit
+
+以下规则补充第 4.3 节的高风险 Independent Review 与第 5 节 Stop Condition。它们适用于会影响正式 **Authority、canonical identity、immutable fact/history、projection、Evidence/provenance、state machine、recovery/replay、exact query/certified absence、fail-closed、admission/reuse/suppression/decision witness** 的 proof-bearing / Authority-bound 任务。
+
+这类任务在冻结实现前，MUST 从 owning Authority 与 Accepted Contract/ADR 重新推导，而不是只从本次 bug、当前代码分支或实现 checklist 出发。至少完成：
+
+```text
+Authority State-Space
+→ 枚举真实 Impact Scope 内所有合法 state / outcome / terminal variant
+
+Proof Matrix
+→ 对每个 mandatory dimension 明确 Authority、canonical identity、representation、validation、missing semantics
+
+Relation Closure
+→ 明确 occurrence / ownership / lineage 的 authoritative relation chain；共享 Result/ref/时间戳不得替代关系证明
+
+Predicate Truth Table
+→ 区分 proved match、proved non-match、incomplete proof、unavailable proof
+
+Negative Invariants
+→ 明确哪些结论绝不能从缺失、UNKNOWN、共享 identity、cancel/stop/failure 等事实推导
+
+Structural Mutation
+→ 至少覆盖 whole-context、owner identity、nested relation、source ref、leaf identity、duplicate owner、wrong family、complete-different identity
+```
+
+若 formal predicate 内部使用 `True / False / None`，语义 MUST 为：
+
+```text
+True  → 已完整证明 exact match
+False → 已完整证明 exact non-match
+None  → 缺少完成判断所需的 mandatory proof
+```
+
+因此：
+
+> **每一个 `False` 都必须有完整的 non-match 证明；missing evidence / malformed relevant proof 不得作为 False，也不得被升级为 certified absence。**
+
+对 typed owner / exact predicate，默认按以下三阶段推导：
+
+```text
+Applicability
+→ record 是否属于该 predicate / owner family？
+
+Completeness
+→ 若适用，mandatory proof 是否完整？
+
+Equality
+→ proof 完整后 exact identity / context 是否匹配？
+```
+
+对于状态机，必须同时审计 success / failure / cancellation / incomplete / UNKNOWN 等合法状态，不能只覆盖 happy path；optional downstream fact 不得成为 occurrence 存在的隐式前提。
+
+高风险 proof-bearing 任务的 bounded Independent Review MUST **独立重推导**相关 Authority state space、relation closure、negative invariants、predicate truth table 和 adversarial mutations，再与实现比较；不得仅复读实现 Prompt 的 checklist。
+
+此类任务在第 5 节原 Stop Condition 之外，适用项还必须在当前任务上下文证明：
+
+```text
+Authority State-Space       PASS
+Entity Completeness         PASS
+Relation Closure            PASS
+Predicate Proof Sufficiency PASS
+Negative Invariants         PASS
+Structural Mutation         PASS
+Recovery / Replay           PASS（涉及 durable history / recovery 时）
+Independent Re-Derivation   PASS
+```
+
+并保持当前范围：
+
+```text
+Critical = 0
+High = 0
+```
+
+不适用项可以 `N/A`，但必须说明为什么不在真实 Impact Scope；不得用 `N/A` 跳过实际 proof obligation。上述 PASS/N/A 只存在于当前 Task / Review 上下文，禁止提交成仓库质量状态、closure 报告或第二份验收 Authority。
+
+详细执行方法见 `docs/engineering/formal_proof_audit_method.md`。该文档解释如何执行本节规则，不拥有独立的 Task Acceptance Authority。
