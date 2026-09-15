@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 from copy import deepcopy
@@ -296,16 +297,142 @@ def test_receipt_bound_search_lineage_is_per_run_and_rebuildable(tmp_path: Path)
     assert only_build_experiment_memory_projection(manifest, old_readers, reference) == projection
 
 
-@pytest.mark.parametrize("corruption", ["admission", "receipt", "schema", "run", "plan", "experiment", "outcome_kind"])
-def test_search_lineage_conflicts_fail_closed(corruption: str) -> None:
-    readers, plans, _, _, direct, reference = _shared_result_lineage_case()
+@pytest.mark.recovery
+def test_resultless_run_failures_keep_exact_occurrence_context(tmp_path: Path) -> None:
+    readers, plans, commands, run_ids, direct, reference = _shared_result_lineage_case()
+    search = readers["SEARCH_PROVENANCE"]
+    _set_facts(
+        search,
+        [
+            (item.locator, item.identity, dict(item.canonical_payload))
+            for item in search.observations
+            if not item.locator.startswith("iteration-results/")
+        ],
+    )
+    resultful = "00000000-0000-4000-8000-000000000004"
+    run_facts: list[tuple[str, str, dict[str, object]]] = []
+    for index, item in enumerate(readers["RESEARCH_RUN"].observations, start=1):
+        payload = dict(item.canonical_payload)
+        row = dict(payload["source_row"])  # type: ignore[arg-type]
+        row.update(
+            state="FAILED",
+            research_result_fingerprint=None,
+            artifact_content_fingerprint=None,
+            failure_phase="EXECUTION",
+            failure_code=f"FAILED_{index}",
+            failure_detail=f"failure {index}",
+        )
+        payload["source_row"] = row
+        run_facts.append((item.locator, item.identity, payload))
+    resultful_row = dict(run_facts[-1][2]["source_row"])  # type: ignore[arg-type]
+    resultful_row.update(run_id=resultful, research_result_fingerprint="d" * 64)
+    run_facts.append(("00000000000000000004", "4" * 64, {"source_row": resultful_row}))
+    _set_facts(readers["RESEARCH_RUN"], run_facts)
+
+    manifest = OnlyExperimentMemorySourceCutManifestV1.from_cuts([reader.cut for reader in readers.values()])
+    projection = only_build_experiment_memory_projection(manifest, readers, reference)
+    failures = {
+        record.facets["run_context"]["run_id"]: record  # type: ignore[index]
+        for record in projection.records
+        if record.kind == "FailureEvidenceProjectionRecord" and "run_context" in record.facets
+    }
+    assert set(failures) == {*run_ids, direct, resultful}
+    for index, run_id in enumerate(run_ids):
+        context = failures[run_id].facets["run_context"]
+        lineage = context["search_lineage"]
+        assert context["research_result_fingerprint"] is None
+        assert context["artifact_content_fingerprint"] is None
+        assert context["runtime_generation_fingerprint"] == "6" * 64
+        assert context["catalog_generation_fingerprint"] == "9" * 64
+        assert lineage["experiment_fingerprint"] == plans[index].experiment_fingerprint
+        assert lineage["iteration_plan_fingerprint"] == plans[index].iteration_plan_fingerprint
+        assert lineage["research_product_command_id"] == commands[index].value
+        assert {ref.source_family for ref in failures[run_id].source_refs} == {
+            "SEARCH_PROVENANCE",
+            "PRODUCT_COMMAND_ADMISSION",
+            "PRODUCT_COMMAND_RECEIPT",
+            "RESEARCH_RUN",
+        }
+    assert (
+        failures[run_ids[0]].facets["run_context"]["search_lineage"]
+        != failures[run_ids[1]].facets["run_context"]["search_lineage"]
+    )
+    assert failures[direct].facets["run_context"]["search_lineage"] is None
+    assert failures[resultful].facets["run_context"]["research_result_fingerprint"] == "d" * 64
+    parameter = next(
+        record
+        for record in projection.records
+        if record.kind == "ParameterObservationProjectionRecord"
+        and record.facets["experiment_fingerprint"] == plans[1].experiment_fingerprint
+    )
+    assert (
+        parameter.facets["iteration_plan_fingerprint"]
+        == failures[run_ids[1]].facets["run_context"]["search_lineage"]["iteration_plan_fingerprint"]
+    )
+
+    root = tmp_path / "experiment-memory"
+    store = OnlyExperimentMemoryRevisionStore(root)
+    store.publish_and_activate(manifest, readers, reference)
+    source_cuts = {family: reader.cut.cut_fingerprint for family, reader in readers.items()}
+    shutil.rmtree(root)
+    for reader in readers.values():
+        reader.observations = tuple(reversed(reader.observations))
+    rebuilt = only_build_experiment_memory_projection(manifest, readers, reference)
+    assert rebuilt == projection
+    assert rebuilt.logical_digest == projection.logical_digest
+    assert rebuilt.revision_fingerprint == projection.revision_fingerprint
+    assert source_cuts == {family: reader.cut.cut_fingerprint for family, reader in readers.items()}
+
+
+@pytest.mark.parametrize(
+    "corruption", ["admission", "receipt", "missing_receipt", "schema", "run", "plan", "experiment", "outcome_kind"]
+)
+def test_search_lineage_conflicts_fail_closed(corruption: str, tmp_path: Path) -> None:
+    readers, plans, _, run_ids, direct, reference = _shared_result_lineage_case()
+    run_reader = readers["RESEARCH_RUN"]
+    run_rows = [(item.locator, item.identity, dict(item.canonical_payload)) for item in run_reader.observations]
+    failed_payload = run_rows[0][2]
+    failed_payload["source_row"] = {
+        **failed_payload["source_row"],  # type: ignore[dict-item]
+        "state": "FAILED",
+        "research_result_fingerprint": None,
+        "artifact_content_fingerprint": None,
+        "failure_phase": "EXECUTION",
+        "failure_code": "SEARCH_EXECUTION_FAILED",
+        "failure_detail": "resultless failure",
+    }
+    assert failed_payload["source_row"]["run_id"] == run_ids[0]  # type: ignore[index]
+    _set_facts(run_reader, run_rows)
+    search_reader = readers["SEARCH_PROVENANCE"]
+    _set_facts(
+        search_reader,
+        [
+            (item.locator, item.identity, dict(item.canonical_payload))
+            for item in search_reader.observations
+            if not item.locator.startswith("iteration-results/")
+        ],
+    )
+    manifest = OnlyExperimentMemorySourceCutManifestV1.from_cuts([source.cut for source in readers.values()])
+    store = OnlyExperimentMemoryRevisionStore(tmp_path / "experiment-memory")
+    original = store.publish_and_activate(manifest, readers, reference)
     if corruption == "admission":
         reader = readers["PRODUCT_COMMAND_ADMISSION"]
         rows = [(o.locator, o.identity, dict(o.canonical_payload)) for o in reader.observations]
         rows[0][2]["source_row"] = {**rows[0][2]["source_row"], "command_fingerprint": "0" * 64}
-    elif corruption in {"receipt", "schema", "run", "outcome_kind"}:
+    elif corruption in {"receipt", "missing_receipt", "schema", "run", "outcome_kind"}:
         reader = readers["PRODUCT_COMMAND_RECEIPT"]
         rows = [(o.locator, o.identity, dict(o.canonical_payload)) for o in reader.observations]
+        if corruption == "missing_receipt":
+            rows.pop(0)
+            _set_facts(reader, rows)
+            with pytest.raises(OnlyMemoryProjectionError, match="CROSS_SOURCE_CLOSURE_INCOMPLETE"):
+                store.publish_and_activate(
+                    OnlyExperimentMemorySourceCutManifestV1.from_cuts([source.cut for source in readers.values()]),
+                    readers,
+                    reference,
+                )
+            assert store.load_active_verified().revision_fingerprint == original
+            return
         changed = {
             "receipt": {"command_kind": "CANCEL_RESEARCH_RUN"},
             "schema": {"schema_version": 2},
@@ -330,11 +457,12 @@ def test_search_lineage_conflicts_fail_closed(corruption: str) -> None:
         )
     _set_facts(reader, rows)
     with pytest.raises(OnlyMemoryProjectionError, match="CROSS_SOURCE_CLOSURE_INCOMPLETE"):
-        only_build_experiment_memory_projection(
+        store.publish_and_activate(
             OnlyExperimentMemorySourceCutManifestV1.from_cuts([source.cut for source in readers.values()]),
             readers,
             reference,
         )
+    assert store.load_active_verified().revision_fingerprint == original
 
 
 def test_certified_empty_and_missing_family_are_different() -> None:
@@ -914,7 +1042,7 @@ def test_evaluation_closures_bind_each_historical_run_without_cross_association(
         return only_build_experiment_memory_projection(manifest, readers, reference)
 
     projection = build()
-    assert (PROJECTION_SCHEMA_VERSION, PROJECTOR_ALGORITHM_VERSION) == (4, 4)
+    assert (PROJECTION_SCHEMA_VERSION, PROJECTOR_ALGORITHM_VERSION) == (5, 5)
     evaluation = next(record for record in projection.records if record.kind == "EvaluationProjectionRecord")
     assert evaluation.facets["catalog_generation_refs"] == ["a" * 64, "b" * 64]
     closures = evaluation.facets["run_evaluation_closures"]

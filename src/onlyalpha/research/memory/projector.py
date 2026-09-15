@@ -36,8 +36,8 @@ from .source_manifest import (
     OnlyMemoryProjectionError,
 )
 
-PROJECTION_SCHEMA_VERSION = 4
-PROJECTOR_ALGORITHM_VERSION = 4
+PROJECTION_SCHEMA_VERSION = 5
+PROJECTOR_ALGORITHM_VERSION = 5
 
 
 class OnlyMemoryReferenceKind(StrEnum):
@@ -333,6 +333,8 @@ def _search_lineages(
                 raise ValueError("unsupported Search method")
             bound = receipts.get(command_id.value)
             if bound is None:
+                if only_derived_research_run_id(command_id).value in runs:
+                    raise ValueError("Search-owned Run is missing its Product receipt")
                 continue  # A Plan may precede its Product command and terminal Iteration Result.
             receipt, receipt_source = bound
             admission, admission_source = admissions[command_id.value]
@@ -380,10 +382,100 @@ def _search_lineages(
                 "plan_source_ref": _ref(item)[0].to_dict(),
                 "admission_source_ref": _ref(admission_source)[0].to_dict(),
                 "receipt_source_ref": _ref(receipt_source)[0].to_dict(),
+                "iteration_result_source_ref": _ref(terminal)[0].to_dict() if terminal is not None else None,
             }
         return lineages
     except (KeyError, TypeError, ValueError, RuntimeError) as exc:
         raise OnlyMemoryProjectionError("CROSS_SOURCE_CLOSURE_INCOMPLETE") from exc
+
+
+def _build_run_occurrence_closure(
+    run: OnlySourceObservationV1,
+    exact: Callable[[OnlyMemoryReferenceKind, object], Mapping[str, object] | None],
+    search_lineages: Mapping[str, Mapping[str, object]],
+    result_identities: frozenset[str],
+) -> tuple[dict[str, object], tuple[OnlyMemorySourceRefV1, ...]]:
+    """Build one Result-independent, owner-verified Run occurrence context."""
+    fact = _payload(run)
+    run_id = fact.get("run_id")
+    exact(OnlyMemoryReferenceKind.RESEARCH_SPECIFICATION, fact.get("specification_fingerprint"))
+    binding = exact(OnlyMemoryReferenceKind.RUNTIME_WORK_BINDING, run_id)
+    generation = binding.get("runtime_generation_fingerprint") if isinstance(binding, Mapping) else None
+    catalog = binding.get("catalog_generation_fingerprint") if isinstance(binding, Mapping) else None
+    if (
+        not isinstance(binding, Mapping)
+        or binding.get("work_id") != run_id
+        or not isinstance(generation, str)
+        or not isinstance(catalog, str)
+        or len(catalog) != 64
+        or any(char not in "0123456789abcdef" for char in catalog)
+    ):
+        raise OnlyMemoryProjectionError("REFERENCE_AUTHORITY_UNAVAILABLE")
+
+    state = fact.get("state")
+    revision = fact.get("revision")
+    result = fact.get("research_result_fingerprint")
+    artifact = fact.get("artifact_content_fingerprint")
+    evidence = fact.get("calculation_execution_evidence_fingerprints", [])
+    provenance = fact.get("authoring_provenance")
+    authoring_generation = (
+        provenance.get("execution_generation_fingerprint") if isinstance(provenance, Mapping) else None
+    )
+    if isinstance(authoring_generation, str):
+        descriptor = exact(OnlyMemoryReferenceKind.AUTHORING_GENERATION, authoring_generation)
+        authoring_payload = descriptor.get("provenance") if isinstance(descriptor, Mapping) else None
+        if (
+            not isinstance(descriptor, Mapping)
+            or not isinstance(authoring_payload, Mapping)
+            or descriptor.get("execution_generation_fingerprint") != authoring_generation
+            or authoring_payload.get("catalog_generation_fingerprint") != catalog
+        ):
+            raise OnlyMemoryProjectionError("REFERENCE_AUTHORITY_UNAVAILABLE")
+    if (
+        not isinstance(run_id, str)
+        or type(revision) is not int
+        or revision < 0
+        or not isinstance(state, str)
+        or state not in OnlyResearchRunState
+        or (result is not None and (not isinstance(result, str) or result not in result_identities))
+        or (state == OnlyResearchRunState.COMPLETED and (result is None or not isinstance(artifact, str)))
+        or (artifact is not None and not isinstance(artifact, str))
+        or (provenance is not None and not isinstance(provenance, Mapping))
+        or (provenance is not None and not isinstance(authoring_generation, str))
+        or not isinstance(evidence, list)
+        or any(not isinstance(value, str) for value in evidence)
+        or evidence != sorted(set(evidence))
+    ):
+        raise OnlyMemoryProjectionError("SOURCE_OBSERVATION_MISMATCH")
+
+    lineage = search_lineages.get(run_id)
+    run_ref = _ref(run)[0]
+    refs = [run_ref]
+    if lineage is not None:
+        refs.extend(
+            OnlyMemorySourceRefV1(**cast(dict[str, str], lineage[field]))
+            for field in ("experiment_source_ref", "plan_source_ref", "admission_source_ref", "receipt_source_ref")
+        )
+        terminal_ref = lineage.get("iteration_result_source_ref")
+        if isinstance(terminal_ref, Mapping):
+            refs.append(OnlyMemorySourceRefV1(**cast(dict[str, str], terminal_ref)))
+    return (
+        {
+            "run_id": run_id,
+            "run_revision": revision,
+            "run_state": state,
+            "specification_fingerprint": fact.get("specification_fingerprint"),
+            "research_result_fingerprint": result,
+            "artifact_content_fingerprint": artifact,
+            "catalog_generation_fingerprint": catalog,
+            "runtime_generation_fingerprint": generation,
+            "authoring_generation_fingerprint": authoring_generation,
+            "calculation_execution_evidence_fingerprints": evidence,
+            "run_source_ref": run_ref.to_dict(),
+            "search_lineage": lineage,
+        },
+        tuple(sorted(set(refs), key=lambda ref: (ref.source_family, ref.locator))),
+    )
 
 
 def only_project_experiment_memory(
@@ -445,6 +537,11 @@ def only_project_experiment_memory(
                 raise OnlyMemoryProjectionError("PROJECTION_SOURCE_CONFLICT")
             result_by_plan[plan_identity] = search_result
     search_lineages = _search_lineages(by_family, experiments, result_by_plan)
+    result_identities = frozenset(by_identity.get("RESEARCH_RESULT", {}))
+    run_occurrences = {
+        run.locator: _build_run_occurrence_closure(run, exact, search_lineages, result_identities)
+        for run in by_family["RESEARCH_RUN"]
+    }
     for item in sorted(by_family["SEARCH_PROVENANCE"], key=lambda o: o.locator):
         payload = _payload(item)
         if item.locator.startswith("experiments/"):
@@ -658,18 +755,7 @@ def only_project_experiment_memory(
             and reference.get("result_fingerprint") == item.identity
         )
         for run in linked_runs:
-            references.extend(_ref(run))
-            lineage = search_lineages.get(str(_payload(run).get("run_id")))
-            if lineage is not None:
-                references.extend(
-                    OnlyMemorySourceRefV1(**cast(dict[str, str], lineage[field]))
-                    for field in (
-                        "experiment_source_ref",
-                        "plan_source_ref",
-                        "admission_source_ref",
-                        "receipt_source_ref",
-                    )
-                )
+            references.extend(run_occurrences[run.locator][1])
         search_experiments: list[OnlySourceObservationV1] = []
         for search in linked_search:
             references.extend(_ref(search))
@@ -686,74 +772,7 @@ def only_project_experiment_memory(
             for run in linked_runs
             if isinstance(_payload(run).get("authoring_provenance"), Mapping)
         ]
-        work_bindings: list[str] = []
-        run_closures: list[dict[str, object]] = []
-        for run in linked_runs:
-            run_fact = _payload(run)
-            run_id = run_fact.get("run_id")
-            binding = exact(OnlyMemoryReferenceKind.RUNTIME_WORK_BINDING, run_id)
-            generation = binding.get("runtime_generation_fingerprint") if isinstance(binding, Mapping) else None
-            catalog = binding.get("catalog_generation_fingerprint") if isinstance(binding, Mapping) else None
-            if (
-                not isinstance(binding, Mapping)
-                or binding.get("work_id") != run_id
-                or not isinstance(generation, str)
-                or not isinstance(catalog, str)
-                or len(catalog) != 64
-                or any(char not in "0123456789abcdef" for char in catalog)
-            ):
-                raise OnlyMemoryProjectionError("REFERENCE_AUTHORITY_UNAVAILABLE")
-            work_bindings.append(generation)
-            state = run_fact.get("state")
-            revision = run_fact.get("revision")
-            artifact = run_fact.get("artifact_content_fingerprint")
-            evidence = run_fact.get("calculation_execution_evidence_fingerprints", [])
-            provenance = run_fact.get("authoring_provenance")
-            authoring_generation = (
-                provenance.get("execution_generation_fingerprint") if isinstance(provenance, Mapping) else None
-            )
-            if isinstance(authoring_generation, str):
-                descriptor = exact(OnlyMemoryReferenceKind.AUTHORING_GENERATION, authoring_generation)
-                authoring_payload = descriptor.get("provenance") if isinstance(descriptor, Mapping) else None
-                if (
-                    not isinstance(descriptor, Mapping)
-                    or not isinstance(authoring_payload, Mapping)
-                    or descriptor.get("execution_generation_fingerprint") != authoring_generation
-                    or authoring_payload.get("catalog_generation_fingerprint") != catalog
-                ):
-                    raise OnlyMemoryProjectionError("REFERENCE_AUTHORITY_UNAVAILABLE")
-            if (
-                not isinstance(run_id, str)
-                or type(revision) is not int
-                or revision < 0
-                or not isinstance(state, str)
-                or state not in OnlyResearchRunState
-                or run_fact.get("research_result_fingerprint") != item.identity
-                or (state == OnlyResearchRunState.COMPLETED and not isinstance(artifact, str))
-                or (artifact is not None and not isinstance(artifact, str))
-                or (provenance is not None and not isinstance(provenance, Mapping))
-                or (provenance is not None and not isinstance(authoring_generation, str))
-                or not isinstance(evidence, list)
-                or any(not isinstance(value, str) for value in evidence)
-                or evidence != sorted(set(evidence))
-            ):
-                raise OnlyMemoryProjectionError("SOURCE_OBSERVATION_MISMATCH")
-            run_closures.append(
-                {
-                    "run_id": run_id,
-                    "run_revision": revision,
-                    "run_state": state,
-                    "specification_fingerprint": run_fact.get("specification_fingerprint"),
-                    "research_result_fingerprint": item.identity,
-                    "artifact_content_fingerprint": artifact,
-                    "catalog_generation_fingerprint": catalog,
-                    "runtime_generation_fingerprint": generation,
-                    "authoring_generation_fingerprint": authoring_generation,
-                    "calculation_execution_evidence_fingerprints": evidence,
-                    "run_source_ref": _ref(run)[0].to_dict(),
-                    "search_lineage": search_lineages.get(run_id),
-                }
-            )
+        run_closures = [run_occurrences[run.locator][0] for run in linked_runs]
         run_closures.sort(
             key=lambda closure: (
                 str(closure["run_id"]),
@@ -826,7 +845,9 @@ def only_project_experiment_memory(
                                     if isinstance(value, Mapping)
                                 }
                             ),
-                            "runtime_generation_refs": sorted(set(work_bindings)),
+                            "runtime_generation_refs": sorted(
+                                {str(closure["runtime_generation_fingerprint"]) for closure in run_closures}
+                            ),
                             "research_result_locator": item.locator,
                             "research_result_fingerprint": item.identity,
                             "statistics_references": candidate_statistics,
@@ -863,22 +884,19 @@ def only_project_experiment_memory(
 
     for item in by_family["RESEARCH_RUN"]:
         payload = _payload(item)
-        exact(OnlyMemoryReferenceKind.RESEARCH_SPECIFICATION, payload.get("specification_fingerprint"))
-        result_identity = payload.get("research_result_fingerprint")
-        if result_identity is not None and result_identity not in by_identity.get("RESEARCH_RESULT", {}):
-            raise OnlyMemoryProjectionError("CROSS_SOURCE_CLOSURE_INCOMPLETE")
         if payload.get("state") in {"FAILED", "CANCELLED"}:
+            run_context, failure_source_refs = run_occurrences[item.locator]
             records.append(
                 OnlyMemoryProjectionRecordV1(
                     "FailureEvidenceProjectionRecord",
                     {
                         "classification": "OPERATIONAL_FAILURE",
-                        "run_id": payload.get("run_id"),
-                        "revision": payload.get("revision"),
+                        "run_context": run_context,
                         "failure_phase": payload.get("failure_phase"),
                         "failure_code": payload.get("failure_code"),
+                        "failure_detail": payload.get("failure_detail"),
                     },
-                    _ref(item),
+                    failure_source_refs,
                 )
             )
 

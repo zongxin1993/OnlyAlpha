@@ -777,16 +777,31 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
             eligible_run_ids=(search_run_id.value,),
         )
         assert search_claim is not None
-        assert (
-            execution_store.complete(
+        if index == 0:
+            assert (
+                execution_store.complete(
+                    claim=search_claim,
+                    run_finished_at=queued_at + timedelta(seconds=2),
+                    research_result_fingerprint=chain["research"],
+                    artifact_content_fingerprint="c" * 64,
+                    calculation_execution_evidence_fingerprints=("d" * 64,),
+                ).state
+                is OnlyResearchRunState.COMPLETED
+            )
+        else:
+            search_failure = OnlyResearchRunFailure(
+                OnlyResearchRunFailurePhase.EXECUTION,
+                "SEARCH_EXECUTION_FAILED",
+                "search failure without Result",
+            )
+            search_failed = execution_store.fail(
                 claim=search_claim,
                 run_finished_at=queued_at + timedelta(seconds=2),
-                research_result_fingerprint=chain["research"],
-                artifact_content_fingerprint="c" * 64,
-                calculation_execution_evidence_fingerprints=("d" * 64,),
-            ).state
-            is OnlyResearchRunState.COMPLETED
-        )
+                failure=search_failure,
+                retry_decision=OnlyResearchRetryDecision.FINAL_FAIL,
+            )
+            assert search_failed.state is OnlyResearchRunState.FAILED
+            assert search_failed.research_result_fingerprint is None
 
     policies = OnlyQualificationPolicyStore(root)
     backtest_policy = OnlyQualificationPolicyRevision(
@@ -884,18 +899,53 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     assert completed_closure["calculation_execution_evidence_fingerprints"] == ["d" * 64]
     assert completed_closure["run_source_ref"]["source_family"] == "RESEARCH_RUN"
     assert completed_closure["search_lineage"] is None
-    for index, search_run_id in enumerate(search_run_ids):
-        lineage = next(
-            closure["search_lineage"]
-            for closure in evaluation.facets["run_evaluation_closures"]
-            if closure["run_id"] == search_run_id.value and closure["run_state"] == "COMPLETED"
-        )
-        assert lineage["search_method"] == ("SYMBOLIC", "PARAMETER")[index]
-        assert lineage["experiment_fingerprint"] == search_plans[index].experiment_fingerprint
-        assert lineage["iteration_plan_fingerprint"] == search_plans[index].iteration_plan_fingerprint
-        assert lineage["research_product_command_id"] == search_commands[index].value
-        assert lineage["admission_source_ref"]["source_family"] == "PRODUCT_COMMAND_ADMISSION"
-        assert lineage["receipt_source_ref"]["source_family"] == "PRODUCT_COMMAND_RECEIPT"
+    failure_records = {
+        record.facets["run_context"]["run_id"]: record
+        for record in initial.records
+        if record.kind == "FailureEvidenceProjectionRecord" and "run_context" in record.facets
+    }
+    symbolic_lineage = next(
+        closure["search_lineage"]
+        for closure in evaluation.facets["run_evaluation_closures"]
+        if closure["run_id"] == search_run_ids[0].value
+    )
+    assert symbolic_lineage["experiment_fingerprint"] == search_plans[0].experiment_fingerprint
+    failure_record = failure_records[search_run_ids[1].value]
+    context = failure_record.facets["run_context"]
+    lineage = context["search_lineage"]
+    assert context["run_state"] == "FAILED"
+    assert context["research_result_fingerprint"] is None
+    assert context["artifact_content_fingerprint"] is None
+    assert context["specification_fingerprint"] == run_spec.specification_fingerprint
+    assert context["runtime_generation_fingerprint"] == runtime_fingerprint
+    assert context["catalog_generation_fingerprint"] == generation.generation_fingerprint
+    assert context["authoring_generation_fingerprint"] == authoring.execution_generation_fingerprint
+    assert context["calculation_execution_evidence_fingerprints"] == []
+    assert failure_record.facets["failure_code"] == "SEARCH_EXECUTION_FAILED"
+    assert failure_record.facets["failure_detail"] == "search failure without Result"
+    assert {ref.source_family for ref in failure_record.source_refs} == {
+        "SEARCH_PROVENANCE",
+        "PRODUCT_COMMAND_ADMISSION",
+        "PRODUCT_COMMAND_RECEIPT",
+        "RESEARCH_RUN",
+    }
+    assert lineage["search_method"] == "PARAMETER"
+    assert lineage["experiment_fingerprint"] == search_plans[1].experiment_fingerprint
+    assert lineage["iteration_plan_fingerprint"] == search_plans[1].iteration_plan_fingerprint
+    assert lineage["research_product_command_id"] == search_commands[1].value
+    assert lineage["admission_source_ref"]["source_family"] == "PRODUCT_COMMAND_ADMISSION"
+    assert lineage["receipt_source_ref"]["source_family"] == "PRODUCT_COMMAND_RECEIPT"
+    assert (
+        next(
+            record
+            for record in initial.records
+            if record.kind == "ParameterObservationProjectionRecord"
+            and record.facets["experiment_fingerprint"] == search_plans[1].experiment_fingerprint
+        ).facets["iteration_plan_fingerprint"]
+        == failure_records[search_run_ids[1].value].facets["run_context"]["search_lineage"][
+            "iteration_plan_fingerprint"
+        ]
+    )
     run_cut = next(cut for cut in manifest.cuts if cut.source_family == "RESEARCH_RUN")
     failed_observation = next(
         observation
@@ -999,8 +1049,17 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     } == {
         run_id.value: completed_closure["catalog_generation_fingerprint"],
         failed.run_id.value: failed_closure["catalog_generation_fingerprint"],
-        **{search_run_id.value: generation.generation_fingerprint for search_run_id in search_run_ids},
+        search_run_ids[0].value: generation.generation_fingerprint,
     }
+    rebuilt_failures = {
+        record["facets"]["run_context"]["run_id"]: record
+        for record in rebuilt["records"]
+        if record["kind"] == "FailureEvidenceProjectionRecord" and "run_context" in record["facets"]
+    }
+    assert (
+        rebuilt_failures[search_run_ids[1].value]["facets"]["run_context"]
+        == failure_records[search_run_ids[1].value].facets["run_context"]
+    )
     assert rebuilt["logical_digest"] == initial.logical_digest
     assert rebuilt["revision"] == initial.revision_fingerprint
     assert source_snapshot == tuple(
