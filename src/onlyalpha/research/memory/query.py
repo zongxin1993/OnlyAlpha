@@ -494,7 +494,12 @@ def _exact_source_ref(record: OnlyMemoryProjectionRecordV1, family: str, locator
     )
 
 
-def _search_lineage_complete(value: object) -> bool:
+def _nested_ref_matches_record_source(record: OnlyMemoryProjectionRecordV1, value: Mapping[str, object]) -> bool:
+    source_part = {name: item for name, item in value.items() if name != "native_locator"}
+    return sum(ref.to_dict() == source_part for ref in record.source_refs) == 1
+
+
+def _search_lineage_complete(record: OnlyMemoryProjectionRecordV1, value: object) -> bool:
     if not isinstance(value, Mapping):
         return False
     required = {
@@ -532,13 +537,17 @@ def _search_lineage_complete(value: object) -> bool:
         and experiment_ref.get("source_family") == "SEARCH_PROVENANCE"
         and experiment_ref.get("locator") == f"experiments/{experiment}"
         and experiment_ref.get("identity") == experiment
+        and _nested_ref_matches_record_source(record, experiment_ref)
         and isinstance(plan_ref, Mapping)
         and _source_ref_complete(plan_ref)
         and plan_ref.get("source_family") == "SEARCH_PROVENANCE"
         and plan_ref.get("locator") == f"iteration-plans/{plan}"
         and plan_ref.get("identity") == plan
+        and _nested_ref_matches_record_source(record, plan_ref)
         and _product_relation_ref_complete(value.get("admission_source_ref"), "PRODUCT_COMMAND_ADMISSION", command_id)
+        and _nested_ref_matches_record_source(record, cast(Mapping[str, object], value["admission_source_ref"]))
         and _product_relation_ref_complete(value.get("receipt_source_ref"), "PRODUCT_COMMAND_RECEIPT", command_id)
+        and _nested_ref_matches_record_source(record, cast(Mapping[str, object], value["receipt_source_ref"]))
         and (
             (result is None and result_ref is None)
             or (
@@ -548,6 +557,7 @@ def _search_lineage_complete(value: object) -> bool:
                 and result_ref.get("source_family") == "SEARCH_PROVENANCE"
                 and result_ref.get("locator") == f"iteration-results/{result}"
                 and result_ref.get("identity") == result
+                and _nested_ref_matches_record_source(record, result_ref)
             )
         )
     )
@@ -583,7 +593,12 @@ _RUN_STATES = frozenset(state.value for state in OnlyResearchRunState)
 _RUN_FAILURE_PHASES = frozenset(phase.value for phase in OnlyResearchRunFailurePhase)
 
 
-def _run_evaluation_closure_complete(closure: Mapping[str, object], *, enclosing_result_fingerprint: str) -> bool:
+def _run_evaluation_closure_complete(
+    record: OnlyMemoryProjectionRecordV1,
+    closure: Mapping[str, object],
+    *,
+    enclosing_result_fingerprint: str,
+) -> bool:
     expected = {
         "run_id",
         "run_revision",
@@ -626,7 +641,7 @@ def _run_evaluation_closure_complete(closure: Mapping[str, object], *, enclosing
         and all(_is_sha(item) for item in evidence)
         and evidence == sorted(set(evidence))
         and _source_ref_complete(closure.get("run_source_ref"))
-        and (lineage is None or _search_lineage_complete(lineage))
+        and (lineage is None or _search_lineage_complete(record, lineage))
         and (artifact is None or result is not None)
         and (not evidence or result is not None)
     )
@@ -670,7 +685,7 @@ def _evaluation(
     result_fingerprint = cast(str, facets["research_result_fingerprint"])
     if any(
         not isinstance(closure, Mapping)
-        or not _run_evaluation_closure_complete(closure, enclosing_result_fingerprint=result_fingerprint)
+        or not _run_evaluation_closure_complete(record, closure, enclosing_result_fingerprint=result_fingerprint)
         for closure in closures
     ):
         return _PredicateVerdict.INCOMPLETE
@@ -836,7 +851,7 @@ def _run_owner_complete(record: OnlyMemoryProjectionRecordV1, context: object) -
         and isinstance(evidence, list)
         and all(_is_sha(value) for value in evidence)
         and evidence == sorted(set(evidence))
-        and (lineage is None or _search_lineage_complete(lineage))
+        and (lineage is None or _search_lineage_complete(record, lineage))
         and source is not None
         and _source_ref_complete(context.get("run_source_ref"))
         and source.to_dict() == context.get("run_source_ref")

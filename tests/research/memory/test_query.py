@@ -53,6 +53,7 @@ def _projection(
     def ref(family: str, identity: str) -> OnlyMemorySourceRefV1:
         return OnlyMemorySourceRefV1(family, cuts[family].cut_fingerprint, identity, identity, identity)
 
+    completed_run_ref = ref("RESEARCH_RUN", "d" * 64)
     run_ref = ref("RESEARCH_RUN", FAILURE)
     search_refs = {
         name: replace(
@@ -62,6 +63,8 @@ def _projection(
                 if name == "experiment_source_ref"
                 else f"iteration-plans/{identity}"
                 if name == "plan_source_ref"
+                else f"iteration-results/{identity}"
+                if name == "iteration_result_source_ref"
                 else identity
             ),
         ).to_dict()
@@ -70,18 +73,19 @@ def _projection(
             ("plan_source_ref", "SEARCH_PROVENANCE", PROPOSAL),
             ("admission_source_ref", "PRODUCT_COMMAND_ADMISSION", "a" * 64),
             ("receipt_source_ref", "PRODUCT_COMMAND_RECEIPT", "b" * 64),
+            ("iteration_result_source_ref", "SEARCH_PROVENANCE", FAILURE),
         )
     }
     search_lineage = {
         "search_method": "PARAMETER",
         "experiment_fingerprint": EXPERIMENT,
         "iteration_plan_fingerprint": PROPOSAL,
-        "iteration_result_fingerprint": None,
+        "iteration_result_fingerprint": FAILURE,
         "research_product_command_id": "00000000-0000-4000-8000-000000000003",
         "research_product_command_kind": "CREATE_RESEARCH_RUN",
         "research_product_command_fingerprint": "c" * 64,
         **search_refs,
-        "iteration_result_source_ref": None,
+        "iteration_result_source_ref": search_refs["iteration_result_source_ref"],
     }
     search_lineage["admission_source_ref"]["native_locator"] = search_lineage["research_product_command_id"]
     search_lineage["receipt_source_ref"]["native_locator"] = search_lineage["research_product_command_id"]
@@ -109,7 +113,7 @@ def _projection(
                 "runtime_generation_fingerprint": RUNTIME,
                 "authoring_generation_fingerprint": AUTHORING,
                 "calculation_execution_evidence_fingerprints": ["b" * 64],
-                "run_source_ref": ref("RESEARCH_RUN", "d" * 64).to_dict(),
+                "run_source_ref": completed_run_ref.to_dict(),
                 "search_lineage": search_lineage,
             },
             {
@@ -131,7 +135,17 @@ def _projection(
     if incomplete:
         semantic.pop("output_name")
     evaluation = OnlyMemoryProjectionRecordV1(
-        "EvaluationProjectionRecord", semantic, (replace(ref("RESEARCH_RESULT", RESULT), locator=PLAN),)
+        "EvaluationProjectionRecord",
+        semantic,
+        (
+            replace(ref("RESEARCH_RESULT", RESULT), locator=PLAN),
+            completed_run_ref,
+            run_ref,
+            *tuple(
+                OnlyMemorySourceRefV1(**{name: item for name, item in value.items() if name != "native_locator"})
+                for value in search_refs.values()
+            ),
+        ),
     )
     parameter = OnlyMemoryProjectionRecordV1(
         "ParameterObservationProjectionRecord",
@@ -839,6 +853,118 @@ def test_search_product_relation_mutation_is_incomplete(tmp_path: Path, field: s
     assert (
         only_query_experiment_memory_history(store, _semantic_query(projection, dataset=DATASET)).proof_status
         is OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
+    )
+
+
+@pytest.mark.parametrize("kind", ("EvaluationProjectionRecord", "FailureEvidenceProjectionRecord"))
+@pytest.mark.parametrize(
+    "field",
+    (
+        "experiment_source_ref",
+        "plan_source_ref",
+        "iteration_result_source_ref",
+        "admission_source_ref",
+        "receipt_source_ref",
+    ),
+)
+@pytest.mark.parametrize(
+    "attribute,value", (("locator", "different"), ("identity", "0" * 64), ("content_fingerprint", "0" * 64))
+)
+def test_search_lineage_nested_ref_must_bind_exact_record_source(
+    tmp_path: Path, kind: str, field: str, attribute: str, value: str
+) -> None:
+    def update(facets):  # type: ignore[no-untyped-def]
+        context = (
+            facets["run_evaluation_closures"][0] if kind == "EvaluationProjectionRecord" else facets["run_context"]
+        )
+        context["search_lineage"][field][attribute] = value
+
+    projection = _replace_record_facets(_projection(), kind, update)
+    store, projection = _store(tmp_path, projection)
+    query = (
+        _semantic_query(projection, dataset=DATASET)
+        if kind == "EvaluationProjectionRecord"
+        else OnlyMemoryHistoricalQueryV1(
+            projection.revision_fingerprint,
+            OnlyExactFailureEvidenceSelectorV1(
+                "OPERATIONAL_FAILURE",
+                "ARTIFACT_COMMIT_FAILED",
+                OnlyResearchRunTerminalOwnerV1(FAILED_RUN_ID, 2),
+            ),
+        )
+    )
+    assert only_query_experiment_memory_history(store, query).proof_status is (
+        OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
+    )
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "experiment_source_ref",
+        "plan_source_ref",
+        "iteration_result_source_ref",
+        "admission_source_ref",
+        "receipt_source_ref",
+    ),
+)
+@pytest.mark.parametrize(
+    "attribute,value", (("locator", "different"), ("identity", "0" * 64), ("content_fingerprint", "0" * 64))
+)
+def test_search_lineage_top_level_ref_must_match_nested_ref(
+    tmp_path: Path, field: str, attribute: str, value: str
+) -> None:
+    projection = _projection()
+    records = list(projection.records)
+    index = next(index for index, record in enumerate(records) if record.kind == "EvaluationProjectionRecord")
+    record = records[index]
+    lineage = record.facets["run_evaluation_closures"][0]["search_lineage"]
+    nested = {name: item for name, item in lineage[field].items() if name != "native_locator"}
+    refs = tuple(replace(ref, **{attribute: value}) if ref.to_dict() == nested else ref for ref in record.source_refs)
+    records[index] = OnlyMemoryProjectionRecordV1(record.kind, record.facets, refs)
+    projection = OnlyExperimentMemoryProjectionV1(
+        projection.source_manifest, tuple(sorted(records, key=lambda item: only_canonical_json(item.to_dict())))
+    )
+    store, projection = _store(tmp_path, projection)
+    assert only_query_experiment_memory_history(store, _semantic_query(projection, dataset=DATASET)).proof_status is (
+        OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
+    )
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "experiment_source_ref",
+        "plan_source_ref",
+        "iteration_result_source_ref",
+        "admission_source_ref",
+        "receipt_source_ref",
+    ),
+)
+def test_search_lineage_duplicate_exact_record_source_is_incomplete(tmp_path: Path, field: str) -> None:
+    projection = _projection()
+    records = list(projection.records)
+    index = next(index for index, record in enumerate(records) if record.kind == "EvaluationProjectionRecord")
+    record = records[index]
+    lineage = record.facets["run_evaluation_closures"][0]["search_lineage"]
+    nested = {name: item for name, item in lineage[field].items() if name != "native_locator"}
+    duplicate = next(ref for ref in record.source_refs if ref.to_dict() == nested)
+    records[index] = OnlyMemoryProjectionRecordV1(record.kind, record.facets, (*record.source_refs, duplicate))
+    projection = OnlyExperimentMemoryProjectionV1(
+        projection.source_manifest, tuple(sorted(records, key=lambda item: only_canonical_json(item.to_dict())))
+    )
+    store, projection = _store(tmp_path, projection)
+    assert only_query_experiment_memory_history(store, _semantic_query(projection, dataset=DATASET)).proof_status is (
+        OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
+    )
+
+
+def test_exact_search_lineage_with_different_selector_is_certified_no_match(tmp_path: Path) -> None:
+    store, projection = _store(tmp_path)
+    query = _semantic_query(projection, dataset=DATASET)
+    selector = replace(query.exact_selector, search_experiment_fingerprint="0" * 64)
+    assert only_query_experiment_memory_history(store, replace(query, exact_selector=selector)).proof_status is (
+        OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH
     )
 
 
