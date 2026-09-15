@@ -90,6 +90,11 @@ from onlyalpha.research.memory.production import (
     OnlyExperimentMemoryProductionBuilder,
     OnlyExperimentMemoryReferenceReadersV1,
 )
+from onlyalpha.research.memory.query import (
+    OnlyExactSemanticHistorySelectorV1,
+    OnlyMemoryHistoricalQueryV1,
+    only_query_experiment_memory_history,
+)
 from onlyalpha.research.memory.source_manifest import (
     OnlyExperimentMemorySourceCutManifestV1,
     OnlyMemoryProjectionError,
@@ -509,12 +514,28 @@ def _fresh_rebuild(
         summary,
     )
     projection = builder.publish_and_activate(builder.capture_manifest())
+    history = _first_semantic_history(builder._revisions, projection)
     return {
         "manifest": projection.source_manifest.manifest_fingerprint,
         "records": [record.to_dict() for record in projection.records],
         "logical_digest": projection.logical_digest,
         "revision": projection.revision_fingerprint,
+        "query": history[0],
+        "proof": history[1],
     }
+
+
+def _first_semantic_history(revisions, projection):  # type: ignore[no-untyped-def]
+    evaluation = next(record for record in projection.records if record.kind == "EvaluationProjectionRecord")
+    query = OnlyMemoryHistoricalQueryV1(
+        projection.revision_fingerprint,
+        OnlyExactSemanticHistorySelectorV1(
+            evaluation.facets["graph_fingerprint"],
+            evaluation.facets["candidate_node_fingerprint"],
+            evaluation.facets["output_name"],
+        ),
+    )
+    return query.to_dict(), only_query_experiment_memory_history(revisions, query).to_dict()
 
 
 @pytest.mark.integration
@@ -871,6 +892,7 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
         for family, cut in ((cut.source_family, cut) for cut in manifest.cuts)
     )
     initial = builder.publish_and_activate(manifest)
+    initial_query, initial_proof = _first_semantic_history(builder._revisions, initial)
     evaluation = next(
         record
         for record in initial.records
@@ -1062,6 +1084,8 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     )
     assert rebuilt["logical_digest"] == initial.logical_digest
     assert rebuilt["revision"] == initial.revision_fingerprint
+    assert rebuilt["query"] == initial_query
+    assert rebuilt["proof"] == initial_proof
     assert source_snapshot == tuple(
         (
             cut.source_family,
@@ -1159,6 +1183,7 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     with pytest.raises(OnlyMemoryProjectionError, match="CROSS_SOURCE_CLOSURE_INCOMPLETE"):
         builder.build(mixed)
     assert builder._revisions.load_active_verified().revision_fingerprint == initial.revision_fingerprint
+    assert _first_semantic_history(builder._revisions, initial) == (initial_query, initial_proof)
     missing_builder, _ = _build_builder(
         root,
         postgres_dsn,
