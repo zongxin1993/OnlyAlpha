@@ -19,11 +19,18 @@ from scripts.test_suite import (  # noqa: E402
 
 def test_core_full_lane_covers_every_workspace_test_distribution() -> None:
     assert LANES[OnlyTestLane.CORE_FULL].paths == WORKSPACE_TESTS
+    assert LANES[OnlyTestLane.CORE_FULL].dist == "loadfile"
     assert "external" in LANES[OnlyTestLane.CORE_FULL].expression
     assert "recovery" in LANES[OnlyTestLane.CORE_FULL].expression
     assert "conformance" in LANES[OnlyTestLane.CORE_FULL].expression
     assert "exhaustive" in LANES[OnlyTestLane.CORE_FULL].expression
     assert "historical_git" in LANES[OnlyTestLane.CORE_FULL].expression
+
+
+def test_postgres_source_cut_tests_belong_to_the_postgres_lane() -> None:
+    source = (ROOT / "tests/research/postgres/test_research_source_cut.py").read_text(encoding="utf-8")
+    assert "pytest.mark.postgres" in source
+    assert "tests/research/postgres" in LANES[OnlyTestLane.RESEARCH_POSTGRES].paths
 
 
 def test_workspace_tests_are_derived_from_root_pytest_testpaths(tmp_path: Path) -> None:

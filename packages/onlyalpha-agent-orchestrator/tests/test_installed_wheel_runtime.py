@@ -8,6 +8,8 @@ import textwrap
 import tomllib
 from pathlib import Path
 
+from tests.runtime.search_ownership_support import _support_wheel
+
 ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -317,33 +319,36 @@ def test_built_wheels_admit_only_the_exact_installed_agent_runtime(tmp_path: Pat
         package["name"]: package["version"]
         for package in tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))["package"]
     }
+    dependency_names = (
+        "annotated-types",
+        "annotated-doc",
+        "anyio",
+        "click",
+        "fastapi",
+        "h11",
+        "idna",
+        "pydantic",
+        "pydantic-core",
+        "psycopg",
+        "psycopg-binary",
+        "pyarrow",
+        "pyyaml",
+        "starlette",
+        "typing-extensions",
+        "typing-inspection",
+        "tzdata",
+        "uvicorn",
+    )
     dependency_constraints = tmp_path / "runtime-dependency-constraints.txt"
     dependency_constraints.write_text(
-        "".join(
-            f"{name}=={locked_packages[name]}\n"
-            for name in (
-                "annotated-types",
-                "annotated-doc",
-                "anyio",
-                "click",
-                "fastapi",
-                "h11",
-                "idna",
-                "pydantic",
-                "pydantic-core",
-                "psycopg",
-                "psycopg-binary",
-                "pyarrow",
-                "pyyaml",
-                "starlette",
-                "typing-extensions",
-                "typing-inspection",
-                "tzdata",
-                "uvicorn",
-            )
-        ),
+        "".join(f"{name}=={locked_packages[name]}\n" for name in dependency_names),
         encoding="utf-8",
     )
+    support_wheels = tmp_path / "runtime-support-wheels"
+    for name in dependency_names:
+        if name == "tzdata" and sys.platform != "win32":
+            continue
+        _support_wheel(name, support_wheels)
     isolated_environment = tmp_path / "isolated-environment"
     _run(
         [uv, "venv", "--offline", "--no-project", "--python", sys.executable, str(isolated_environment)],
@@ -361,6 +366,8 @@ def test_built_wheels_admit_only_the_exact_installed_agent_runtime(tmp_path: Pat
             "--strict",
             "--constraint",
             str(dependency_constraints),
+            "--find-links",
+            str(support_wheels),
             "--python",
             str(isolated_python),
             str(onlyalpha_wheel),

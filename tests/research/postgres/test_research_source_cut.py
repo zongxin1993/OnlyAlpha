@@ -14,7 +14,6 @@ from onlyalpha_http_server.main import _compose_experiment_memory_projection_bui
 from onlyalpha_runtime_generation_manager import (
     OnlyLocalImmutableArtifactStore,
     OnlyRuntimeGenerationBuilder,
-    OnlyRuntimeGenerationRegistry,
 )
 from onlyalpha_runtime_generation_manager.catalog_context import OnlyRuntimeGenerationExactCatalogDescriptorReader
 
@@ -43,7 +42,10 @@ from onlyalpha.research.result.result_store import OnlyJsonResearchResultStore
 from onlyalpha.research.source_cut import OnlySourceCutError
 from onlyalpha.strategy.qualification_store import OnlyQualificationDecisionStore
 from tests.research.postgres.migration_support import copy_migrations_through
+from tests.research.postgres.test_memory_production_topology_certification import _build_exact_runtime_generation
 from tests.research.postgres.test_postgres_authority import NOW, _queued
+
+pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
 
 
 def test_transactional_run_cut_preserves_baseline_and_later_revision(postgres_dsn: str, tmp_path: Path) -> None:
@@ -175,7 +177,7 @@ def test_product_composition_captures_real_mixed_owner_topology(postgres_dsn: st
     )
     results = OnlyJsonResearchResultStore(layout.research_result_root, statistics, calculations)
     generations_root = tmp_path / "runtime-generations"
-    generations = OnlyRuntimeGenerationRegistry(generations_root)
+    generations, _catalog_generation, runtime_fingerprint = _build_exact_runtime_generation(generations_root)
     catalog = OnlyRuntimeGenerationExactCatalogDescriptorReader(
         generations,
         OnlyRuntimeGenerationBuilder(
@@ -228,6 +230,12 @@ def test_product_composition_captures_real_mixed_owner_topology(postgres_dsn: st
             run_started_at=NOW + timedelta(seconds=1),
         )
         is not None
+    )
+    generations.bind_work_exact(
+        run.run_id.value,
+        runtime_fingerprint,
+        actor="source-cut-test",
+        occurred_at=NOW,
     )
     manifest = builder.capture_manifest()
     assert len(manifest.cuts) == 11

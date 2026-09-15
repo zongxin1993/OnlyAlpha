@@ -92,6 +92,7 @@ from onlyalpha.research.query import (
 from onlyalpha.research.search.symbolic import only_deterministic_enumeration_implementation
 from tests.research.search.symbolic.support import space
 from tests.research.search.symbolic.test_research_and_provenance_integration import _evaluation
+from tests.runtime.search_ownership_support import _support_wheel
 
 CATALOG, SEARCH_SPACE = space(max_nodes=1)
 CATALOG_FP = CATALOG.generation_fingerprint
@@ -573,33 +574,36 @@ def _installed_agent(root: Path) -> tuple[Path, dict[str, str]]:
         item["name"]: item["version"]
         for item in tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))["package"]
     }
+    dependency_names = (
+        "annotated-types",
+        "annotated-doc",
+        "anyio",
+        "click",
+        "fastapi",
+        "h11",
+        "idna",
+        "pydantic",
+        "pydantic-core",
+        "psycopg",
+        "psycopg-binary",
+        "pyarrow",
+        "pyyaml",
+        "starlette",
+        "typing-extensions",
+        "typing-inspection",
+        "tzdata",
+        "uvicorn",
+    )
     constraints = root / "constraints.txt"
     constraints.write_text(
-        "".join(
-            f"{name}=={locked[name]}\n"
-            for name in (
-                "annotated-types",
-                "annotated-doc",
-                "anyio",
-                "click",
-                "fastapi",
-                "h11",
-                "idna",
-                "pydantic",
-                "pydantic-core",
-                "psycopg",
-                "psycopg-binary",
-                "pyarrow",
-                "pyyaml",
-                "starlette",
-                "typing-extensions",
-                "typing-inspection",
-                "tzdata",
-                "uvicorn",
-            )
-        ),
+        "".join(f"{name}=={locked[name]}\n" for name in dependency_names),
         encoding="utf-8",
     )
+    support_wheels = root / "runtime-support-wheels"
+    for name in dependency_names:
+        if name == "tzdata" and sys.platform != "win32":
+            continue
+        _support_wheel(name, support_wheels)
     runtime = root / "runtime"
     subprocess.run(
         [uv, "venv", "--offline", "--no-project", "--python", sys.executable, str(runtime)],
@@ -625,6 +629,8 @@ def _installed_agent(root: Path) -> tuple[Path, dict[str, str]]:
             "--strict",
             "--constraint",
             str(constraints),
+            "--find-links",
+            str(support_wheels),
             "--python",
             str(python),
             *(str(item) for item in wheels),

@@ -416,7 +416,7 @@ LANES = {
         WORKSPACE_TESTS,
         "not (historical_git or recovery or sim_recovery or conformance or external or postgres or clickhouse or requires_network or requires_tushare or requires_local_qmt or requires_broker_account or exhaustive or slow)",
         "8",
-        "worksteal",
+        "loadfile",
         100,
     ),
     OnlyTestLane.EXHAUSTIVE: Lane(
