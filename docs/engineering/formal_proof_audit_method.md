@@ -483,3 +483,53 @@ READ owning Authorities
 核心原则：
 
 > Formal proof 系统中，“不知道”不是“否定”；“存在字段”不是“关系被证明”；“共享事实”不是“共享 ownership”。
+
+---
+
+## 16. Audit Boundary / Review Budget 前置约束
+
+所有使用本方法的 formal-proof / Authority-bound audit，**MUST 在 substantive review 前先执行 `docs/engineering/audit_boundary_method.md`**。
+
+顺序固定为：
+
+```text
+Freeze Audit Type
+→ Freeze Audit Target / Baseline / Required Behavior
+→ Freeze S0 / S1 / required S2 Scope
+→ Freeze Audit Dimensions + Negative Scope
+→ Set Review Round Budget
+→ Freeze Formal Proof Matrix / Relation Matrix / Truth Table
+→ Review
+```
+
+不得反向执行：
+
+```text
+Review
+→ 发现新角度
+→ 自动增加 Proof Matrix 维度
+→ 再 Review
+→ 无限扩大当前 Phase
+```
+
+Formal-proof 审计中的 State-Space、Proof Matrix、Relation Closure、Negative Invariants 与 Structural Mutation **只能覆盖 Frozen Audit Dimensions**。新增维度必须通过 `audit_boundary_method.md` 的 Boundary Expansion Test。
+
+Review round 也受该方法限制：
+
+```text
+Round 1 — Full Review
+Round 2 — Delta Review
+Round 3 — Final Closure Review
+```
+
+Formal-proof / Authority-bound audit 默认最多 3 个 semantic review rounds。Round 3 后仍有 Critical / High 时，不得自动进入 Round 4；必须报告：
+
+```text
+DESIGN_RESET_REQUIRED
+或
+OWNER_DECISION_REQUIRED
+```
+
+若同一 root cause 连续 2 轮产生新的 blocker，应停止局部 patch，并执行 Design Reset。
+
+达到 Frozen Audit Matrix 全部检查完成且当前范围 `Critical = 0 / High = 0` 后，**MUST STOP AUDIT**；Medium / Low / Deferred / Observation 不得继续扩大当前 closure。
