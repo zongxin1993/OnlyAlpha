@@ -19,6 +19,7 @@ from scripts.test_suite import (  # noqa: E402
 
 def test_core_full_lane_covers_every_workspace_test_distribution() -> None:
     assert LANES[OnlyTestLane.CORE_FULL].paths == WORKSPACE_TESTS
+    assert LANES[OnlyTestLane.CORE_FULL].workers == "2"
     assert LANES[OnlyTestLane.CORE_FULL].dist == "loadfile"
     assert "external" in LANES[OnlyTestLane.CORE_FULL].expression
     assert "recovery" in LANES[OnlyTestLane.CORE_FULL].expression
