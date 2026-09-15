@@ -1,0 +1,498 @@
+from __future__ import annotations
+
+import inspect
+import json
+import os
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
+from decimal import Decimal
+from threading import Barrier
+
+import pytest
+
+from onlyalpha.application.product_command_receipt import OnlyProductCommandId
+from onlyalpha.canonical import only_canonical_json
+from onlyalpha.research.memory.projector import (
+    OnlyExperimentMemoryProjectionV1,
+    OnlyMemoryProjectionRecordV1,
+    OnlyMemorySourceRefV1,
+)
+from onlyalpha.research.memory.query import (
+    OnlyExactFailureEvidenceSelectorV1,
+    OnlyResearchRunTerminalOwnerV1,
+    OnlySearchFailureOwnerV1,
+)
+from onlyalpha.research.memory.source_manifest import MANDATORY_FAMILIES
+from onlyalpha.research.novelty import (
+    OnlyHistoricalProofUnavailableError,
+    OnlyNoveltyDecisionBundleStore,
+    OnlyNoveltyDecisionConflictError,
+    OnlyNoveltyDecisionCorruptError,
+    OnlyNoveltyDecisionNotFoundError,
+    OnlyNoveltyDecisionReason,
+    OnlyNoveltyDecisionRequestV1,
+    OnlyNoveltyDecisionSchemaUnsupportedError,
+    OnlyNoveltyPolicyCondition,
+    OnlyNoveltyPolicyOutcome,
+    OnlyNoveltyPolicyStore,
+    OnlyNoveltyQualificationBindingV1,
+    OnlyNoveltyWitnessCorruptError,
+    OnlyNoveltyWitnessSchemaUnsupportedError,
+    only_build_novelty_decision_bundle,
+    only_seal_novelty_decision,
+    only_verify_historical_novelty_decision,
+)
+from onlyalpha.research.source_cut import OnlySourceClosedCutV1
+from onlyalpha.strategy.freeze_relation import OnlyStrategyFreezeRelation
+from onlyalpha.strategy.qualification import (
+    OnlyQualificationCriterionOutcome,
+    OnlyQualificationCriterionResult,
+    OnlyQualificationDecision,
+    OnlyQualificationEvidenceKind,
+    OnlyQualificationEvidenceReference,
+    OnlyQualificationGate,
+    OnlyQualificationOutcome,
+)
+from tests.research.memory.test_query import (
+    CANDIDATE,
+    DATASET,
+    FAILED_RUN_ID,
+    PLAN,
+    RESULT,
+    _projection,
+    _semantic_query,
+    _store,
+)
+from tests.research.novelty.test_policy import policy
+
+COMMAND = OnlyProductCommandId("00000000-0000-4000-8000-000000000010")
+
+
+def _request(projection: OnlyExperimentMemoryProjectionV1, **changes: object) -> OnlyNoveltyDecisionRequestV1:
+    selector = _semantic_query(projection, dataset=DATASET).exact_selector
+    values = {
+        "command_id": COMMAND,
+        "policy_id": "default-novelty",
+        "policy_version": "1",
+        "evaluation_selector": selector,
+    }
+    values.update(changes)
+    return OnlyNoveltyDecisionRequestV1(**values)  # type: ignore[arg-type]
+
+
+def _authorities(tmp_path, projection=None, *, novelty_policy=None):  # type: ignore[no-untyped-def]
+    revisions, projection = _store(tmp_path, projection)
+    policies = OnlyNoveltyPolicyStore(tmp_path)
+    policies.put(novelty_policy or policy())
+    decisions = OnlyNoveltyDecisionBundleStore(tmp_path)
+    return revisions, projection, policies, decisions
+
+
+def test_exact_evaluation_and_replication_policy_are_deterministic(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    revisions, projection, policies, decisions = _authorities(tmp_path)
+    first = only_seal_novelty_decision(
+        _request(projection), projection.revision_fingerprint, revisions, policies, decisions
+    )
+    assert first.decision.derived_policy_condition is OnlyNoveltyPolicyCondition.EXACT_COMPLETED_EVALUATION
+    assert first.decision.outcome is OnlyNoveltyPolicyOutcome.REUSE
+    assert first.decision.reason_codes == (OnlyNoveltyDecisionReason.EXACT_EVALUATION_MATCH,)
+    assert first == only_seal_novelty_decision(
+        _request(projection), projection.revision_fingerprint, revisions, policies, decisions
+    )
+
+    other_root = tmp_path / "replication"
+    replication = policy(EXACT_COMPLETED_EVALUATION=OnlyNoveltyPolicyOutcome.ADMIT)
+    other_revisions, other_projection, other_policies, _ = _authorities(other_root, novelty_policy=replication)
+    decision = only_build_novelty_decision_bundle(
+        _request(other_projection), other_projection.revision_fingerprint, other_revisions, other_policies
+    )
+    assert decision.decision.outcome is OnlyNoveltyPolicyOutcome.ADMIT
+
+
+def test_absence_incomplete_operational_and_stop_conditions(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    absent = _projection(include_evaluation=False)
+    revisions, absent, policies, _ = _authorities(tmp_path / "absent", absent)
+    decision = only_build_novelty_decision_bundle(_request(absent), absent.revision_fingerprint, revisions, policies)
+    assert decision.decision.derived_policy_condition is OnlyNoveltyPolicyCondition.CERTIFIED_NO_MATCH
+    assert decision.decision.outcome is OnlyNoveltyPolicyOutcome.ADMIT
+
+    incomplete = _projection(incomplete=True)
+    revisions, incomplete, policies, _ = _authorities(tmp_path / "incomplete", incomplete)
+    decision = only_build_novelty_decision_bundle(
+        _request(incomplete), incomplete.revision_fingerprint, revisions, policies
+    )
+    assert decision.decision.derived_policy_condition is OnlyNoveltyPolicyCondition.PROOF_INCOMPLETE
+    assert decision.decision.outcome is OnlyNoveltyPolicyOutcome.FAIL_CLOSED
+
+    no_match_selector = replace(_request(absent).evaluation_selector, dataset_snapshot_fingerprint="9" * 64)
+    failed = OnlyExactFailureEvidenceSelectorV1(
+        "OPERATIONAL_FAILURE", "ARTIFACT_COMMIT_FAILED", OnlyResearchRunTerminalOwnerV1(FAILED_RUN_ID, 2)
+    )
+    revisions, absent, policies, _ = _authorities(tmp_path / "operational", absent)
+    operational = only_build_novelty_decision_bundle(
+        _request(absent, evaluation_selector=no_match_selector, related_failures=(failed,)),
+        absent.revision_fingerprint,
+        revisions,
+        policies,
+    )
+    assert operational.decision.derived_policy_condition is OnlyNoveltyPolicyCondition.OPERATIONAL_FAILURE
+    assert operational.decision.outcome is not OnlyNoveltyPolicyOutcome.SUPPRESS
+
+    base = _projection(include_evaluation=False)
+    cut = next(item for item in base.source_manifest.cuts if item.source_family == "SEARCH_PROVENANCE")
+    identity = "7" * 64
+    record = OnlyMemoryProjectionRecordV1(
+        "FailureEvidenceProjectionRecord",
+        {
+            "owner_kind": "SEARCH_OCCURRENCE",
+            "classification": "SEARCH_OR_BUDGET_STOP",
+            "failure_code": "SEARCH_BUDGET_EXHAUSTED",
+            "iteration_result_fingerprint": identity,
+        },
+        (
+            OnlyMemorySourceRefV1(
+                "SEARCH_PROVENANCE", cut.cut_fingerprint, f"iteration-results/{identity}", identity, identity
+            ),
+        ),
+    )
+    projection = OnlyExperimentMemoryProjectionV1(
+        base.source_manifest,
+        tuple(sorted((*base.records, record), key=lambda item: only_canonical_json(item.to_dict()))),
+    )
+    revisions, projection, policies, _ = _authorities(tmp_path / "stop", projection)
+    stop = OnlyExactFailureEvidenceSelectorV1(
+        "SEARCH_OR_BUDGET_STOP", "SEARCH_BUDGET_EXHAUSTED", OnlySearchFailureOwnerV1(identity)
+    )
+    decision = only_build_novelty_decision_bundle(
+        _request(projection, evaluation_selector=no_match_selector, related_failures=(stop,)),
+        projection.revision_fingerprint,
+        revisions,
+        policies,
+    )
+    assert decision.decision.derived_policy_condition is OnlyNoveltyPolicyCondition.SEARCH_OR_BUDGET_STOP
+    assert decision.decision.outcome is not OnlyNoveltyPolicyOutcome.SUPPRESS
+
+
+class _DecisionReader:
+    def __init__(self, value: OnlyQualificationDecision) -> None:
+        self.value = value
+
+    def load_verified(self, fingerprint: str) -> OnlyQualificationDecision:
+        if fingerprint != self.value.decision_fingerprint:
+            raise ValueError("missing")
+        return self.value
+
+
+class _RelationReader:
+    def __init__(self, value: OnlyStrategyFreezeRelation) -> None:
+        self.value = value
+
+    def load_freeze_relation(self, fingerprint: str) -> OnlyStrategyFreezeRelation:
+        if fingerprint != self.value.relation_fingerprint:
+            raise ValueError("missing")
+        return self.value
+
+
+def _negative_authorities():
+    relation = OnlyStrategyFreezeRelation("6" * 64, CANDIDATE, RESULT, ("7" * 64,), "8" * 64, ("9" * 64,))
+    evidence = OnlyQualificationEvidenceReference(
+        OnlyQualificationEvidenceKind.RESEARCH_RESULT, RESULT, PLAN, relation.relation_fingerprint
+    )
+    criterion = OnlyQualificationCriterionResult(
+        "minimum-effect", RESULT, "IC_MEAN", Decimal("0"), ">", Decimal("0.01"), OnlyQualificationCriterionOutcome.FAIL
+    )
+    decision = OnlyQualificationDecision(
+        relation.strategy_fingerprint,
+        OnlyQualificationGate.RESEARCH_TO_BACKTEST,
+        "qualification-policy",
+        "1",
+        "a" * 64,
+        (evidence,),
+        (criterion,),
+        OnlyQualificationOutcome.REJECTED,
+    )
+    return decision, relation
+
+
+def _with_qualification(projection: OnlyExperimentMemoryProjectionV1, decision: OnlyQualificationDecision):
+    cut = next(item for item in projection.source_manifest.cuts if item.source_family == "QUALIFICATION_DECISION")
+    ref = OnlyMemorySourceRefV1(
+        "QUALIFICATION_DECISION",
+        cut.cut_fingerprint,
+        decision.decision_fingerprint,
+        decision.decision_fingerprint,
+        decision.decision_fingerprint,
+    )
+    record = OnlyMemoryProjectionRecordV1(
+        "FailureEvidenceProjectionRecord",
+        {
+            "owner_kind": "QUALIFICATION_DECISION",
+            "classification": "QUALIFICATION_REJECT",
+            "subject_strategy_fingerprint": decision.subject_strategy_fingerprint,
+            "policy_id": decision.policy_id,
+            "policy_version": decision.policy_version,
+            "policy_fingerprint": decision.policy_fingerprint,
+            "evidence_refs": [item.to_dict() for item in decision.evidence],
+        },
+        (ref,),
+    )
+    return OnlyExperimentMemoryProjectionV1(
+        projection.source_manifest,
+        tuple(sorted((*projection.records, record), key=lambda item: only_canonical_json(item.to_dict()))),
+    )
+
+
+def test_exact_negative_evidence_requires_complete_exact_relation(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    qualification, relation = _negative_authorities()
+    projection = _with_qualification(_projection(), qualification)
+    revisions, projection, policies, _ = _authorities(tmp_path, projection)
+    binding = OnlyNoveltyQualificationBindingV1(
+        qualification.decision_fingerprint,
+        qualification.policy_id,
+        qualification.policy_version,
+        qualification.policy_fingerprint,
+    )
+    bundle = only_build_novelty_decision_bundle(
+        _request(projection, qualification_binding=binding),
+        projection.revision_fingerprint,
+        revisions,
+        policies,
+        qualification_decisions=_DecisionReader(qualification),
+        freeze_relations=_RelationReader(relation),
+    )
+    assert bundle.decision.derived_policy_condition is OnlyNoveltyPolicyCondition.EXACT_COMPLETED_NEGATIVE_EVIDENCE
+    assert bundle.decision.outcome is OnlyNoveltyPolicyOutcome.SUPPRESS
+
+    for wrong_binding, wrong_relation in (
+        (replace(binding, policy_fingerprint="b" * 64), relation),
+        (binding, replace(relation, candidate_fingerprint="b" * 64)),
+        (binding, replace(relation, research_result_fingerprint="c" * 64)),
+    ):
+        changed = only_build_novelty_decision_bundle(
+            _request(projection, qualification_binding=wrong_binding),
+            projection.revision_fingerprint,
+            revisions,
+            policies,
+            qualification_decisions=_DecisionReader(qualification),
+            freeze_relations=_RelationReader(wrong_relation),
+        )
+        assert changed.decision.derived_policy_condition is OnlyNoveltyPolicyCondition.PROOF_UNAVAILABLE
+        assert changed.decision.outcome is OnlyNoveltyPolicyOutcome.FAIL_CLOSED
+
+
+def test_qualification_match_without_exact_evaluation_is_incomplete(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    qualification, relation = _negative_authorities()
+    projection = _with_qualification(_projection(include_evaluation=False), qualification)
+    revisions, projection, policies, _ = _authorities(tmp_path, projection)
+    binding = OnlyNoveltyQualificationBindingV1(
+        qualification.decision_fingerprint,
+        qualification.policy_id,
+        qualification.policy_version,
+        qualification.policy_fingerprint,
+    )
+    bundle = only_build_novelty_decision_bundle(
+        _request(projection, qualification_binding=binding),
+        projection.revision_fingerprint,
+        revisions,
+        policies,
+        qualification_decisions=_DecisionReader(qualification),
+        freeze_relations=_RelationReader(relation),
+    )
+    assert bundle.decision.derived_policy_condition is OnlyNoveltyPolicyCondition.PROOF_INCOMPLETE
+    assert bundle.decision.outcome is OnlyNoveltyPolicyOutcome.FAIL_CLOSED
+
+
+def test_same_command_changed_intent_conflicts_and_memory_growth_retry_returns_original(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    revisions, projection, policies, decisions = _authorities(tmp_path)
+    request = _request(projection)
+    original = only_seal_novelty_decision(request, projection.revision_fingerprint, revisions, policies, decisions)
+    grown = _projection(include_evaluation=False)
+    revisions._publish_and_activate(grown)
+    assert only_seal_novelty_decision(request, grown.revision_fingerprint, revisions, policies, decisions) == original
+    changed = replace(
+        request, evaluation_selector=replace(request.evaluation_selector, dataset_snapshot_fingerprint="9" * 64)
+    )
+    with pytest.raises(OnlyNoveltyDecisionConflictError):
+        only_seal_novelty_decision(changed, grown.revision_fingerprint, revisions, policies, decisions)
+
+
+def test_intent_and_subject_identity_bind_every_exact_semantic_dimension() -> None:
+    projection = _projection()
+    request = _request(projection)
+    selector = request.evaluation_selector
+    semantic = selector.semantic
+    variants = (
+        replace(request, policy_version="2"),
+        replace(request, evaluation_selector=replace(selector, semantic=replace(semantic, graph_fingerprint="0" * 64))),
+        replace(
+            request,
+            evaluation_selector=replace(selector, semantic=replace(semantic, candidate_node_fingerprint="0" * 64)),
+        ),
+        replace(request, evaluation_selector=replace(selector, semantic=replace(semantic, output_name="other"))),
+        replace(request, evaluation_selector=replace(selector, candidate_fingerprint="0" * 64)),
+        replace(request, evaluation_selector=replace(selector, dataset_snapshot_fingerprint="0" * 64)),
+        replace(request, evaluation_selector=replace(selector, specification_fingerprint="0" * 64)),
+        replace(request, evaluation_selector=replace(selector, result_plan_fingerprint="0" * 64)),
+        replace(request, evaluation_selector=replace(selector, catalog_generation_fingerprint="0" * 64)),
+        replace(request, evaluation_selector=replace(selector, runtime_generation_fingerprint="0" * 64)),
+        replace(request, evaluation_selector=replace(selector, authoring_generation_fingerprint="0" * 64)),
+        replace(
+            request,
+            evaluation_selector=replace(
+                selector,
+                statistics_references=(
+                    replace(selector.statistics_references[0], statistics_result_fingerprint="1" * 64),
+                ),
+            ),
+        ),
+        replace(request, evaluation_selector=replace(selector, search_experiment_fingerprint="0" * 64)),
+    )
+    assert (
+        len({request.canonical_intent_fingerprint, *(item.canonical_intent_fingerprint for item in variants)})
+        == len(variants) + 1
+    )
+
+
+def test_subject_and_witness_freeze_nested_input_mappings(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    revisions, projection, policies, _ = _authorities(tmp_path)
+    bundle = only_build_novelty_decision_bundle(
+        _request(projection), projection.revision_fingerprint, revisions, policies
+    )
+    subject_before = bundle.witness.subject.subject_fingerprint
+    witness_before = bundle.witness.witness_fingerprint
+    resolved = bundle.witness.subject.resolved_subject
+    proof = bundle.witness.proofs[0].proof
+    assert isinstance(resolved, dict) and isinstance(proof, dict)
+    resolved["subject_type"] = "MUTATED"
+    proof["proof_status"] = "MUTATED"
+    assert bundle.witness.subject.subject_fingerprint == subject_before
+    assert bundle.witness.witness_fingerprint == witness_before
+
+
+def test_witness_rejects_historical_proof_for_another_exact_subject(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    revisions, projection, policies, _ = _authorities(tmp_path)
+    bundle = only_build_novelty_decision_bundle(
+        _request(projection), projection.revision_fingerprint, revisions, policies
+    )
+    resolved = dict(bundle.witness.subject.resolved_subject)
+    selector = dict(resolved["evaluation_selector"])  # type: ignore[arg-type]
+    selector["candidate_fingerprint"] = "0" * 64
+    resolved["evaluation_selector"] = selector
+    intent = _request(
+        projection,
+        evaluation_selector=replace(_request(projection).evaluation_selector, candidate_fingerprint="0" * 64),
+    )
+    subject = type(bundle.witness.subject)(COMMAND.value, intent.canonical_intent_fingerprint, resolved)
+    with pytest.raises(OnlyNoveltyWitnessCorruptError, match="exact Decision subject"):
+        replace(bundle.witness, subject=subject)
+
+
+def test_concurrent_same_command_converges_with_barrier(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    revisions, projection, policies, decisions = _authorities(tmp_path)
+    barrier = Barrier(2)
+
+    class _BarrierStore:
+        def load_exact(self, command_id):  # type: ignore[no-untyped-def]
+            return decisions.load_exact(command_id)
+
+        def seal(self, bundle):  # type: ignore[no-untyped-def]
+            barrier.wait()
+            return decisions.seal(bundle)
+
+    def evaluate():
+        return only_seal_novelty_decision(
+            _request(projection), projection.revision_fingerprint, revisions, policies, _BarrierStore()
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = tuple(pool.map(lambda _: evaluate(), range(2)))
+    assert results[0] == results[1]
+    assert decisions.load_exact(COMMAND) == results[0]
+
+
+class _CutReader:
+    def __init__(self, cut: OnlySourceClosedCutV1, *, available: bool = True) -> None:
+        self.cut = cut
+        self.available = available
+
+    def load_closed_cut_verified(self, fingerprint: str) -> OnlySourceClosedCutV1:
+        if not self.available or fingerprint != self.cut.cut_fingerprint:
+            raise ValueError("unavailable")
+        return self.cut
+
+    def iter_closed_cut_observations_verified(self, fingerprint: str):  # type: ignore[no-untyped-def]
+        self.load_closed_cut_verified(fingerprint)
+        return ()
+
+
+def test_historical_replay_uses_frozen_empty_cut_not_active_memory(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    empty = _projection(include_evaluation=False)
+    empty = OnlyExperimentMemoryProjectionV1(empty.source_manifest, ())
+    revisions, empty, policies, decisions = _authorities(tmp_path, empty)
+    bundle = only_seal_novelty_decision(_request(empty), empty.revision_fingerprint, revisions, policies, decisions)
+    cuts = {family: OnlySourceClosedCutV1(family, 1, ()) for family in MANDATORY_FAMILIES}
+    readers = {family: _CutReader(cut) for family, cut in cuts.items()}
+    monkeypatch.setattr(
+        "onlyalpha.research.novelty.decision.only_query_experiment_memory_history",
+        lambda *_: (_ for _ in ()).throw(AssertionError("historical replay queried Memory")),
+    )
+    assert only_verify_historical_novelty_decision(bundle, policies, readers) == bundle.decision
+    revisions._publish_and_activate(_projection())
+    assert only_verify_historical_novelty_decision(bundle, policies, readers) == bundle.decision
+    readers[MANDATORY_FAMILIES[0]].available = False
+    with pytest.raises((OnlyHistoricalProofUnavailableError, ValueError)):
+        only_verify_historical_novelty_decision(bundle, policies, readers)
+
+
+@pytest.mark.parametrize("target", ["decision", "witness", "policy", "source", "proof-order"])
+def test_bundle_semantic_mutation_fails_closed(tmp_path, target: str) -> None:  # type: ignore[no-untyped-def]
+    revisions, projection, policies, decisions = _authorities(tmp_path)
+    only_seal_novelty_decision(_request(projection), projection.revision_fingerprint, revisions, policies, decisions)
+    path = tmp_path / "research" / "novelty-decisions" / COMMAND.value / "bundle.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if target == "decision":
+        payload["decision"]["outcome"] = "ADMIT"
+    elif target == "witness":
+        payload["witness"]["projection_logical_digest"] = "0" * 64
+    elif target == "policy":
+        payload["decision"]["policy_fingerprint"] = "0" * 64
+    elif target == "source":
+        payload["witness"]["source_manifest"]["manifest_fingerprint"] = "0" * 64
+    else:
+        payload["decision"]["ordered_proof_references"][0] = "0" * 64
+    path.write_text(only_canonical_json(payload), encoding="utf-8")
+    with pytest.raises((OnlyNoveltyDecisionCorruptError, OnlyNoveltyWitnessCorruptError)):
+        decisions.load_exact(COMMAND)
+
+
+@pytest.mark.parametrize("member", ["decision", "witness"])
+def test_unsupported_bundle_schema_and_publish_crash_are_explicit(tmp_path, monkeypatch, member: str) -> None:  # type: ignore[no-untyped-def]
+    revisions, projection, policies, decisions = _authorities(tmp_path)
+    bundle = only_build_novelty_decision_bundle(
+        _request(projection), projection.revision_fingerprint, revisions, policies
+    )
+    decisions.seal(bundle)
+    path = tmp_path / "research" / "novelty-decisions" / COMMAND.value / "bundle.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload[member]["schema_version"] = 2
+    path.write_text(only_canonical_json(payload), encoding="utf-8")
+    expected = (
+        OnlyNoveltyWitnessSchemaUnsupportedError if member == "witness" else OnlyNoveltyDecisionSchemaUnsupportedError
+    )
+    with pytest.raises(expected):
+        decisions.load_exact(COMMAND)
+
+    crash_root = tmp_path / "crash"
+    crash = OnlyNoveltyDecisionBundleStore(crash_root)
+    monkeypatch.setattr(os, "rename", lambda *_: (_ for _ in ()).throw(OSError("crash")))
+    with pytest.raises(OnlyNoveltyDecisionCorruptError):
+        crash.seal(bundle)
+    with pytest.raises(OnlyNoveltyDecisionNotFoundError):
+        crash.load_exact(COMMAND)
+
+
+def test_authoritative_api_does_not_accept_condition_or_outcome() -> None:
+    parameters = inspect.signature(only_build_novelty_decision_bundle).parameters
+    assert "condition" not in parameters
+    assert "outcome" not in parameters
+    assert "canonical_intent_fingerprint" not in inspect.signature(OnlyNoveltyDecisionRequestV1).parameters
