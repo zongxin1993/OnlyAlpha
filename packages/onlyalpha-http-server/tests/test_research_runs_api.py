@@ -224,6 +224,7 @@ def _client(readiness_probe=None, *, authoring_generations=True):  # type: ignor
         store=store,
         now_utc=lambda: NOW,
         runtime_generations=_RuntimeGenerations(),  # type: ignore[arg-type]
+        allow_legacy_ungated=True,
     )  # type: ignore[arg-type]
     query = OnlyResearchRunQueryService(store)  # type: ignore[arg-type]
     calculations = registry()

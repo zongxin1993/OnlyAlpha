@@ -34,6 +34,12 @@ from .decision import (
     OnlyNoveltyDecisionError as OnlyNoveltyDecisionError,
 )
 from .decision import (
+    OnlyNoveltyDecisionGroupDisposition as OnlyNoveltyDecisionGroupDisposition,
+)
+from .decision import (
+    OnlyNoveltyDecisionGroupV1 as OnlyNoveltyDecisionGroupV1,
+)
+from .decision import (
     OnlyNoveltyDecisionReason as OnlyNoveltyDecisionReason,
 )
 from .decision import (

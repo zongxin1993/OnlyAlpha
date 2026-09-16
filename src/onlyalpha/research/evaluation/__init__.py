@@ -47,6 +47,7 @@ from .subject import (
     OnlyExactAuthoringGenerationReader,
     OnlyExactEvaluationIntentResolverV1,
     OnlyExactEvaluationIntentSubjectV1,
+    OnlyResearchEvaluationSubjectSetV1,
 )
 from .summary import *  # noqa: F403
 

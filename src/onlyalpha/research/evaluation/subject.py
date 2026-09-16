@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from onlyalpha.research.specification.model import OnlyResearchSpecification
 
 _FINGERPRINT_DOMAIN = "ONLYALPHA_EXACT_EVALUATION_INTENT_SUBJECT_V1"
+_SUBJECT_SET_FINGERPRINT_DOMAIN = "ONLYALPHA_RESEARCH_EVALUATION_SUBJECT_SET_V1"
 
 
 def _sha(value: object, name: str) -> str:
@@ -118,6 +119,70 @@ class OnlyExactEvaluationIntentSubjectV1:
     @property
     def subject_fingerprint(self) -> str:
         return only_canonical_fingerprint({"domain": _FINGERPRINT_DOMAIN, **self.to_dict()})
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyResearchEvaluationSubjectSetV1:
+    """Command-scoped composition of canonical scientific subjects."""
+
+    specification_fingerprint: str
+    subjects: tuple[OnlyExactEvaluationIntentSubjectV1, ...]
+    schema_version: int = 1
+
+    def __post_init__(self) -> None:
+        _sha(self.specification_fingerprint, "specification_fingerprint")
+        if self.schema_version != 1 or not self.subjects:
+            raise OnlyResearchEvaluationError("EVALUATION_SUBJECT_SET_INVALID", "subject set is empty or unsupported")
+        fingerprints = tuple(item.subject_fingerprint for item in self.subjects)
+        if (
+            any(not isinstance(item, OnlyExactEvaluationIntentSubjectV1) for item in self.subjects)
+            or fingerprints != tuple(sorted(fingerprints))
+            or len(set(fingerprints)) != len(fingerprints)
+            or any(item.specification_fingerprint != self.specification_fingerprint for item in self.subjects)
+        ):
+            raise OnlyResearchEvaluationError(
+                "EVALUATION_SUBJECT_SET_INVALID",
+                "subjects must be canonical, unique, and bound to one Specification",
+            )
+
+    @classmethod
+    def from_subjects(
+        cls, subjects: tuple[OnlyExactEvaluationIntentSubjectV1, ...]
+    ) -> OnlyResearchEvaluationSubjectSetV1:
+        if not subjects:
+            raise OnlyResearchEvaluationError("EVALUATION_SUBJECT_SET_INVALID", "subject set is empty")
+        by_fingerprint = {item.subject_fingerprint: item for item in subjects}
+        if len(by_fingerprint) != len(subjects):
+            raise OnlyResearchEvaluationError(
+                "EVALUATION_SUBJECT_SET_INVALID", "duplicate subjects are not authoritative"
+            )
+        canonical = tuple(by_fingerprint[key] for key in sorted(by_fingerprint))
+        return cls(canonical[0].specification_fingerprint, canonical)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "specification_fingerprint": self.specification_fingerprint,
+            "subjects": [item.to_dict() for item in self.subjects],
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchEvaluationSubjectSetV1:
+        raw = payload.get("subjects")
+        if set(payload) != {"schema_version", "specification_fingerprint", "subjects"} or not isinstance(raw, list):
+            raise OnlyResearchEvaluationError("EVALUATION_SUBJECT_SET_INVALID", "subject set fields are invalid")
+        result = cls(
+            cast(str, payload["specification_fingerprint"]),
+            tuple(OnlyExactEvaluationIntentSubjectV1.from_dict(cast(Mapping[str, object], item)) for item in raw),
+            cast(int, payload["schema_version"]),
+        )
+        if result.to_dict() != dict(payload):
+            raise OnlyResearchEvaluationError("EVALUATION_SUBJECT_SET_INVALID", "subject set is not canonical")
+        return result
+
+    @property
+    def subject_set_fingerprint(self) -> str:
+        return only_canonical_fingerprint({"domain": _SUBJECT_SET_FINGERPRINT_DOMAIN, **self.to_dict()})
 
 
 class OnlyExactAuthoringGenerationReader(Protocol):
@@ -271,7 +336,7 @@ def _subjects_from_evidence(
         _candidate_subject(specification, candidates, candidate, payload, catalog, runtime, authoring)
         for candidate in selected
     )
-    canonical = tuple(sorted(subjects, key=lambda item: item.candidate_fingerprint))
+    canonical = tuple(sorted(subjects, key=lambda item: item.subject_fingerprint))
     if len({item.candidate_fingerprint for item in canonical}) != len(canonical):
         raise OnlyResearchEvaluationError("EVALUATION_SUBJECT_AUTHORITY_CORRUPT", "Candidate identities are duplicated")
     return canonical
@@ -380,4 +445,5 @@ __all__ = [
     "OnlyExactAuthoringGenerationReader",
     "OnlyExactEvaluationIntentResolverV1",
     "OnlyExactEvaluationIntentSubjectV1",
+    "OnlyResearchEvaluationSubjectSetV1",
 ]

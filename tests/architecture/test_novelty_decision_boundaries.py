@@ -19,7 +19,7 @@ def test_novelty_decision_authority_is_the_only_public_write_capability() -> Non
     assert not hasattr(novelty, "only_build_novelty_decision_bundle")
     assert not hasattr(novelty, "only_seal_novelty_decision")
     methods = {name for name in vars(OnlyNoveltyDecisionAuthority) if not name.startswith("_")}
-    assert methods == {"seal_from_request", "load_exact"}
+    assert methods == {"seal_from_request", "load_exact", "seal_group_from_requests", "load_group_exact"}
 
 
 def test_novelty_decision_has_no_research_action_or_agent_path() -> None:

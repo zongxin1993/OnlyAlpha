@@ -327,6 +327,7 @@ def _commands(root: Path, dsn: str) -> OnlyParameterResearchCommandGatewayV1:
         runtime_generations=_runtime_generations(root),
         command_admissions=OnlyPostgresProductCommandAuthority(dsn),
         runtime_generation_resolver=_ExactRuntimeAdmissionResolver(_runtime_generations(root)),
+        allow_legacy_ungated=True,
     )
     finalizer = OnlyParameterResearchEvidenceFinalizerV1(
         research_results=research,

@@ -10,8 +10,10 @@ from onlyalpha.research.command import OnlyResearchCommandService, OnlyResearchS
 from onlyalpha.research.command.errors import OnlyNoveltyResearchAdmissionError
 from onlyalpha.research.command.novelty_admission import (
     OnlyResearchNoveltyAdmissionV1,
+    OnlyResearchNoveltyAdmissionV2,
     only_novelty_same_subject_guard_key,
 )
+from onlyalpha.research.evaluation import OnlyExactEvaluationIntentResolverV1
 from onlyalpha.research.memory.projector import OnlyExperimentMemoryProjectionV1
 from onlyalpha.research.memory.source_manifest import MANDATORY_FAMILIES, OnlyExperimentMemorySourceCutManifestV1
 from onlyalpha.research.memory.store import OnlyExperimentMemoryRevisionStore
@@ -96,13 +98,23 @@ class _MemoryBuilder:
 class _GatedStore(_Store):
     def __init__(self) -> None:
         super().__init__()
-        self.admissions: dict[OnlyProductCommandId, OnlyResearchNoveltyAdmissionV1] = {}
+        self.admissions: dict[
+            OnlyProductCommandId, OnlyResearchNoveltyAdmissionV1 | OnlyResearchNoveltyAdmissionV2
+        ] = {}
         self.lock = Lock()
         self.fail_before_commit = False
         self.fail_after_commit = False
 
-    def load_novelty_admission(self, command_id: OnlyProductCommandId) -> OnlyResearchNoveltyAdmissionV1 | None:
+    def load_novelty_admission(
+        self, command_id: OnlyProductCommandId
+    ) -> OnlyResearchNoveltyAdmissionV1 | OnlyResearchNoveltyAdmissionV2 | None:
         return self.admissions.get(command_id)
+
+    @staticmethod
+    def _subjects(admission):  # type: ignore[no-untyped-def]
+        if isinstance(admission, OnlyResearchNoveltyAdmissionV1):
+            return {admission.evaluation_subject_fingerprint}
+        return {item.evaluation_subject_fingerprint for item in admission.members}
 
     def create_queued_with_novelty_admission(self, run, receipt, admission, *, expected_source_frontier):  # type: ignore[no-untyped-def]
         assert expected_source_frontier == 0
@@ -112,8 +124,9 @@ class _GatedStore(_Store):
                 return existing
             if self.fail_before_commit:
                 raise RuntimeError("injected DB rollback")
+            subjects = self._subjects(admission)
             if any(
-                value.evaluation_subject_fingerprint == admission.evaluation_subject_fingerprint
+                subjects & self._subjects(value)
                 and self.runs[value.run_id].state in {OnlyResearchRunState.QUEUED, OnlyResearchRunState.RUNNING}
                 for value in self.admissions.values()
             ):
@@ -148,6 +161,11 @@ def _system(tmp_path, command_id, *, outcome=OnlyNoveltyPolicyOutcome.ADMIT, sta
         changed = replace(bundle, decision=replace(bundle.decision, outcome=outcome))
 
         class _DecisionReader:
+            def load_group_exact(self, requested):  # type: ignore[no-untyped-def]
+                from onlyalpha.research.novelty.decision_store import OnlyNoveltyDecisionNotFoundError
+
+                raise OnlyNoveltyDecisionNotFoundError(requested.value)
+
             def load_exact(self, requested):  # type: ignore[no-untyped-def]
                 assert requested == command_id
                 return changed
@@ -175,6 +193,51 @@ def _system(tmp_path, command_id, *, outcome=OnlyNoveltyPolicyOutcome.ADMIT, sta
     return service, store, runtime, specification, subject
 
 
+def _multi_system(tmp_path, command_id, *, stale_index: int | None = None):  # type: ignore[no-untyped-def]
+    specification = _scientific(swept=True)
+    resolving_runtime = OnlyTestRuntimeGenerationAuthority()
+    resolving_runtime.bind_new_work("resolve", actor="test", occurred_at=NOW)
+    subjects = OnlyExactEvaluationIntentResolverV1(
+        runtime_generations=resolving_runtime,
+        runtime_resolution=_RuntimeAdmissionResolver(),
+    ).resolve_all(specification, runtime_work_id="resolve")
+    revisions = OnlyExperimentMemoryRevisionStore(tmp_path / "experiment-memory")
+    initial = OnlyExperimentMemoryProjectionV1(_manifest(), ())
+    revisions._publish_and_activate(initial)
+    policies = OnlyNoveltyPolicyStore(tmp_path)
+    policies.put(policy())
+    decisions = OnlyNoveltyDecisionAuthority(tmp_path)
+    group = decisions.seal_group_from_requests(
+        tuple(OnlyNoveltyDecisionRequestV2(command_id, "default-novelty", "1", item) for item in subjects),
+        initial.revision_fingerprint,
+        revisions,
+        policies,
+    )
+    store = _GatedStore()
+    runtime = OnlyTestRuntimeGenerationAuthority()
+    admission = OnlyResearchRunAdmissionService(
+        resolver=OnlyResearchSpecificationResolver(registry()),
+        dataset_store=_DatasetStore(),  # type: ignore[arg-type]
+        run_store=store,  # type: ignore[arg-type]
+        now_utc=lambda: NOW,
+    )
+    service = OnlyResearchCommandService(
+        admission=admission,
+        store=store,  # type: ignore[arg-type]
+        now_utc=lambda: NOW,
+        runtime_generations=runtime,
+        command_admissions=_ProductAdmissions(),
+        runtime_generation_resolver=_RuntimeAdmissionResolver(),
+        novelty_decisions=decisions,
+        memory_builder=_MemoryBuilder(
+            revisions,
+            stale_subject=None if stale_index is None else subjects[stale_index],
+        ),  # type: ignore[arg-type]
+        memory_revisions=revisions,
+    )
+    return service, store, runtime, specification, subjects, group
+
+
 def test_admit_creates_one_atomic_relation_and_retry_replays(tmp_path) -> None:  # type: ignore[no-untyped-def]
     command_id = OnlyProductCommandId("00000000-0000-4000-8000-000000000101")
     service, store, runtime, specification, _ = _system(tmp_path, command_id)
@@ -187,6 +250,93 @@ def test_admit_creates_one_atomic_relation_and_retry_replays(tmp_path) -> None: 
     assert replayed.run == created.run
     assert len(store.runs) == len(store.receipts) == len(store.admissions) == 1
     assert runtime.require_work_binding(created.run.run_id.value).active
+
+
+def test_multi_subject_all_admit_creates_one_aggregate_run_and_retry_replays(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    command_id = OnlyProductCommandId("00000000-0000-4000-8000-000000000121")
+    service, store, runtime, specification, subjects, group = _multi_system(tmp_path, command_id)
+
+    created = service.submit_research_run(command_id, specification)
+    replayed = service.submit_research_run(command_id, specification)
+
+    admission = store.admissions[command_id]
+    assert isinstance(admission, OnlyResearchNoveltyAdmissionV2)
+    assert tuple(item.evaluation_subject_fingerprint for item in admission.members) == tuple(
+        item.subject_fingerprint for item in subjects
+    )
+    assert admission.decision_group_fingerprint == group.group_fingerprint
+    assert created.disposition is OnlyResearchSubmitDisposition.CREATED
+    assert replayed.disposition is OnlyResearchSubmitDisposition.REUSED
+    assert replayed.run == created.run
+    assert len(store.runs) == len(store.receipts) == len(store.admissions) == 1
+    assert runtime.require_work_binding(created.run.run_id.value).active
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    (
+        OnlyNoveltyPolicyOutcome.REUSE,
+        OnlyNoveltyPolicyOutcome.SUPPRESS,
+        OnlyNoveltyPolicyOutcome.REVIEW,
+        OnlyNoveltyPolicyOutcome.FAIL_CLOSED,
+    ),
+)
+def test_multi_subject_mixed_outcome_blocks_whole_run(tmp_path, outcome) -> None:  # type: ignore[no-untyped-def]
+    command_id = OnlyProductCommandId("00000000-0000-4000-8000-000000000122")
+    service, store, runtime, specification, _, group = _multi_system(tmp_path, command_id)
+    changed = replace(
+        group,
+        members=(
+            group.members[0],
+            replace(group.members[1], decision=replace(group.members[1].decision, outcome=outcome)),
+        ),
+    )
+
+    class _DecisionReader:
+        def load_group_exact(self, requested):  # type: ignore[no-untyped-def]
+            assert requested == command_id
+            return changed
+
+    service._novelty_decisions = _DecisionReader()  # type: ignore[assignment]
+    with pytest.raises(OnlyNoveltyResearchAdmissionError) as blocked:
+        service.submit_research_run(command_id, specification)
+    assert blocked.value.code == "NOVELTY_DECISION_NOT_ADMIT"
+    assert not store.runs and not store.receipts and not store.admissions and not runtime.bindings
+
+
+def test_multi_subject_one_stale_member_blocks_whole_run_and_releases_binding(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    command_id = OnlyProductCommandId("00000000-0000-4000-8000-000000000123")
+    service, store, runtime, specification, subjects, _ = _multi_system(tmp_path, command_id, stale_index=1)
+    from onlyalpha.research.memory.query import (
+        OnlyMemoryHistoricalMatchV1,
+        OnlyMemoryHistoricalProofStatus,
+        OnlyMemoryHistoricalProofV1,
+    )
+
+    def one_changed_proof(revisions, query):  # type: ignore[no-untyped-def]
+        projection = revisions.load_verified(query.projection_revision_fingerprint)
+        changed = query.exact_selector.intent_subject == subjects[1]
+        matches = ()
+        if changed:
+            record = next(item for item in projection.records if item.kind == "EvaluationProjectionRecord")
+            matches = (OnlyMemoryHistoricalMatchV1(record),)
+        return OnlyMemoryHistoricalProofV1(
+            query.query_fingerprint,
+            projection.revision_fingerprint,
+            projection.logical_digest,
+            projection.source_manifest.manifest_fingerprint,
+            OnlyMemoryHistoricalProofStatus.MATCH if changed else OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH,
+            matches,
+        )
+
+    monkeypatch.setattr("onlyalpha.research.memory.query.only_query_experiment_memory_history", one_changed_proof)
+
+    with pytest.raises(OnlyNoveltyResearchAdmissionError) as stale:
+        service.submit_research_run(command_id, specification)
+
+    assert stale.value.code == "NOVELTY_DECISION_STALE"
+    assert not store.runs and not store.receipts and not store.admissions
+    assert runtime.inactive_work_ids == set(runtime.bindings)
 
 
 @pytest.mark.parametrize(

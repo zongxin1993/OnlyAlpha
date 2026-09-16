@@ -36,12 +36,26 @@ def only_prepare_test_process_generation(
 def only_allow_unsealed_test_process_generation() -> None:
     """Keep the production CLI sealed while test-owned process E2E uses a contract fake."""
 
+    from onlyalpha_runtime_generation_manager import OnlyHistoricalGenerationHostManager
+    from onlyalpha_runtime_generation_manager.search_worker import _execute
+
+    from onlyalpha.application.search_generation_execution import OnlySearchGenerationExecutionResponseV1
+
     def verify_test_generation(self: OnlyRuntimeGenerationRegistry, fingerprint: str) -> None:
         evidence = self.load_validation_evidence(fingerprint)
         if not evidence.verifies(self.load_manifest(fingerprint)):
             raise RuntimeError("RUNTIME_GENERATION_HOSTED_PROCESS_MISMATCH")
 
     OnlyRuntimeGenerationRegistry.verify_hosted_generation = verify_test_generation
+
+    def execute_test_generation(self: OnlyHistoricalGenerationHostManager, request):  # type: ignore[no-untyped-def]
+        return OnlySearchGenerationExecutionResponseV1(
+            request.runtime_generation_fingerprint,
+            request.operation_kind,
+            _execute(request),
+        )
+
+    OnlyHistoricalGenerationHostManager.execute = execute_test_generation  # type: ignore[method-assign]
 
 
 __all__ = ["only_allow_unsealed_test_process_generation", "only_prepare_test_process_generation"]

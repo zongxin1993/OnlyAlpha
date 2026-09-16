@@ -9,7 +9,7 @@ from onlyalpha.research.run.model import OnlyResearchRun, OnlyResearchRunId
 from onlyalpha.research.run.store import OnlyResearchRunStore
 
 from .model import OnlyResearchRunPageCursor
-from .novelty_admission import OnlyResearchNoveltyAdmissionV1
+from .novelty_admission import OnlyResearchNoveltyAdmissionV1, OnlyResearchNoveltyAdmissionV2
 
 
 class OnlyResearchRunReader(Protocol):
@@ -29,13 +29,15 @@ class OnlyResearchCommandStore(OnlyResearchRunStore, OnlyResearchRunReader, Prot
         receipt: OnlyProductCommandReceipt,
     ) -> OnlyProductCommandReceipt: ...
 
-    def load_novelty_admission(self, command_id: OnlyProductCommandId) -> OnlyResearchNoveltyAdmissionV1 | None: ...
+    def load_novelty_admission(
+        self, command_id: OnlyProductCommandId
+    ) -> OnlyResearchNoveltyAdmissionV1 | OnlyResearchNoveltyAdmissionV2 | None: ...
 
     def create_queued_with_novelty_admission(
         self,
         run: OnlyResearchRun,
         receipt: OnlyProductCommandReceipt,
-        admission: OnlyResearchNoveltyAdmissionV1,
+        admission: OnlyResearchNoveltyAdmissionV1 | OnlyResearchNoveltyAdmissionV2,
         *,
         expected_source_frontier: int,
     ) -> OnlyProductCommandReceipt: ...

@@ -10,6 +10,7 @@ from .errors import OnlyResearchRunPageLimitError as OnlyResearchRunPageLimitErr
 from .errors import OnlyResearchSubmissionConflictError as OnlyResearchSubmissionConflictError
 from .model import OnlyDerivedResearchSubmitCommandV2 as OnlyDerivedResearchSubmitCommandV2
 from .model import OnlyNoveltyGatedResearchSubmitCommandV3 as OnlyNoveltyGatedResearchSubmitCommandV3
+from .model import OnlyNoveltyGatedResearchSubmitCommandV4 as OnlyNoveltyGatedResearchSubmitCommandV4
 from .model import OnlyResearchRunPage as OnlyResearchRunPage
 from .model import OnlyResearchRunPageCursor as OnlyResearchRunPageCursor
 from .model import OnlyResearchSubmissionRecord as OnlyResearchSubmissionRecord
@@ -18,7 +19,12 @@ from .model import OnlyResearchSubmitDisposition as OnlyResearchSubmitDispositio
 from .model import OnlyResearchSubmitOutcome as OnlyResearchSubmitOutcome
 from .model import only_derived_research_run_id as only_derived_research_run_id
 from .model import only_novelty_gated_research_run_id as only_novelty_gated_research_run_id
+from .model import only_novelty_gated_research_run_id_v4 as only_novelty_gated_research_run_id_v4
+from .novelty_admission import (
+    OnlyResearchNoveltyAdmissionSubjectV1 as OnlyResearchNoveltyAdmissionSubjectV1,
+)
 from .novelty_admission import OnlyResearchNoveltyAdmissionV1 as OnlyResearchNoveltyAdmissionV1
+from .novelty_admission import OnlyResearchNoveltyAdmissionV2 as OnlyResearchNoveltyAdmissionV2
 from .query import DEFAULT_RESEARCH_RUN_PAGE_SIZE as DEFAULT_RESEARCH_RUN_PAGE_SIZE
 from .query import MAX_RESEARCH_RUN_PAGE_SIZE as MAX_RESEARCH_RUN_PAGE_SIZE
 from .query import OnlyResearchRunQueryService as OnlyResearchRunQueryService

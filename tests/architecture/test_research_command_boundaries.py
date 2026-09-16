@@ -77,6 +77,7 @@ def test_production_research_command_composition_requires_read_to_act_authoritie
         "runtime_generation_resolver=",
     ):
         assert required in composition
+    assert "allow_legacy_ungated=True" not in composition
 
 
 def test_product_and_search_research_creation_share_the_command_service_gate() -> None:
@@ -89,3 +90,17 @@ def test_product_and_search_research_creation_share_the_command_service_gate() -
     for source in (product, symbolic, parameter):
         assert "create_queued_with_receipt(" not in source
         assert "create_queued_with_novelty_admission(" not in source
+
+
+def test_multi_subject_composition_keeps_scientific_identity_and_member_locks_at_owners() -> None:
+    subject = Path("src/onlyalpha/research/evaluation/subject.py").read_text(encoding="utf-8")
+    decision = Path("src/onlyalpha/research/novelty/decision.py").read_text(encoding="utf-8")
+    store = Path("src/onlyalpha/persistence/postgres/research_run_store.py").read_text(encoding="utf-8")
+
+    assert "class OnlyExactEvaluationIntentSubjectV1" in subject
+    assert "class OnlyResearchEvaluationSubjectSetV1" in subject
+    assert "subject_set_fingerprint" in decision
+    assert "OnlyExactEvaluationIntentSubjectV1.from_dict" in decision
+    assert "for guard in guards:" in store
+    assert "pg_advisory_xact_lock" in store
+    assert "hash(subject_set" not in store

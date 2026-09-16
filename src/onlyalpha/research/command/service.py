@@ -25,6 +25,7 @@ from onlyalpha.research.evaluation.subject import (
     OnlyExactAuthoringGenerationReader,
     OnlyExactEvaluationIntentResolverV1,
     OnlyExactEvaluationIntentSubjectV1,
+    OnlyResearchEvaluationSubjectSetV1,
 )
 from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 from onlyalpha.research.run.admission import OnlyResearchRunAdmissionService
@@ -48,18 +49,26 @@ from .errors import (
 from .model import (
     OnlyDerivedResearchSubmitCommandV2,
     OnlyNoveltyGatedResearchSubmitCommandV3,
+    OnlyNoveltyGatedResearchSubmitCommandV4,
     OnlyResearchSubmitCommand,
     OnlyResearchSubmitDisposition,
     OnlyResearchSubmitOutcome,
     only_derived_research_run_id,
     only_novelty_gated_research_run_id,
+    only_novelty_gated_research_run_id_v4,
 )
-from .novelty_admission import OnlyResearchNoveltyAdmissionV1, only_novelty_same_subject_guard_key
+from .novelty_admission import (
+    OnlyResearchNoveltyAdmissionSubjectV1,
+    OnlyResearchNoveltyAdmissionV1,
+    OnlyResearchNoveltyAdmissionV2,
+    only_novelty_same_subject_guard_key,
+)
 from .store import OnlyResearchCommandStore
 
 if TYPE_CHECKING:
     from onlyalpha.research.memory.production import OnlyExperimentMemoryProductionBuilder
     from onlyalpha.research.memory.store import OnlyExperimentMemoryRevisionStore
+    from onlyalpha.research.novelty.decision import OnlyNoveltyDecisionGroupV1
     from onlyalpha.research.novelty.decision_store import OnlyNoveltyDecisionAuthority
 
 
@@ -93,6 +102,7 @@ class OnlyResearchCommandService:
         memory_builder: OnlyExperimentMemoryProductionBuilder | None = None,
         memory_revisions: OnlyExperimentMemoryRevisionStore | None = None,
         cancellation_cas_attempts: int = 3,
+        allow_legacy_ungated: bool = False,
     ) -> None:
         if cancellation_cas_attempts < 1:
             raise ValueError("cancellation_cas_attempts must be positive")
@@ -107,6 +117,11 @@ class OnlyResearchCommandService:
         self._memory_builder = memory_builder
         self._memory_revisions = memory_revisions
         self._cancellation_cas_attempts = cancellation_cas_attempts
+        if allow_legacy_ungated and any(
+            item is not None for item in (novelty_decisions, memory_builder, memory_revisions)
+        ):
+            raise ValueError("legacy ungated mode cannot be combined with Read-to-Act authorities")
+        self._allow_legacy_ungated = allow_legacy_ungated
 
     def submit_research_run(
         self,
@@ -117,9 +132,7 @@ class OnlyResearchCommandService:
         parent_runtime_work_id: str | None = None,
     ) -> OnlyResearchSubmitOutcome:
         strict = OnlyResearchSpecification.from_dict(specification.to_dict())
-        # Historical embedded/test compositions predate Product Read-to-Act.
-        # The production composition root always supplies all three authorities.
-        if self._novelty_decisions is None and self._memory_builder is None and self._memory_revisions is None:
+        if self._allow_legacy_ungated:
             return self._submit_legacy(submission_key, strict, provenance, parent_runtime_work_id)
         legacy: OnlyResearchSubmitCommand | OnlyDerivedResearchSubmitCommandV2
         if parent_runtime_work_id is None:
@@ -160,6 +173,29 @@ class OnlyResearchCommandService:
         )
         from onlyalpha.research.novelty.decision_store import OnlyNoveltyDecisionNotFoundError
         from onlyalpha.research.novelty.model import OnlyNoveltyPolicyOutcome
+
+        try:
+            group = decisions.load_group_exact(submission_key)
+        except OnlyNoveltyDecisionNotFoundError:
+            pass
+        except OnlyNoveltyDecisionSchemaUnsupportedError as exc:
+            raise OnlyNoveltyResearchAdmissionError(
+                "NOVELTY_DECISION_SCHEMA_UNSUPPORTED", "Novelty Decision Group schema is unsupported"
+            ) from exc
+        except OnlyNoveltyDecisionError as exc:
+            raise OnlyNoveltyResearchAdmissionError(
+                "NOVELTY_READ_TO_ACT_CORRUPT", "Novelty Decision Group failed strict verification"
+            ) from exc
+        else:
+            return self._submit_novelty_group(
+                submission_key,
+                strict,
+                provenance,
+                parent_runtime_work_id,
+                group,
+                builder,
+                revisions,
+            )
 
         try:
             bundle = decisions.load_exact(submission_key)
@@ -332,6 +368,187 @@ class OnlyResearchCommandService:
         self._require_expected_binding(run.run_id.value, parent_runtime_work_id)
         return OnlyResearchSubmitOutcome(OnlyResearchSubmitDisposition.CREATED, run)
 
+    def _submit_novelty_group(
+        self,
+        submission_key: OnlyProductCommandId,
+        strict: OnlyResearchSpecification,
+        provenance: OnlyResearchAuthoringProvenance | None,
+        parent_runtime_work_id: str | None,
+        group: OnlyNoveltyDecisionGroupV1,
+        builder: OnlyExperimentMemoryProductionBuilder,
+        revisions: OnlyExperimentMemoryRevisionStore,
+    ) -> OnlyResearchSubmitOutcome:
+        from onlyalpha.research.memory.query import (
+            OnlyExactEvaluationIntentHistorySelectorV1,
+            OnlyMemoryHistoricalProofStatus,
+            OnlyMemoryHistoricalQueryV1,
+            only_query_experiment_memory_history,
+        )
+        from onlyalpha.research.novelty.decision import (
+            OnlyNoveltyDecisionGroupDisposition,
+            OnlyNoveltyProofRole,
+        )
+
+        if (
+            group.product_command_id != submission_key.value
+            or group.specification_fingerprint != strict.specification_fingerprint
+        ):
+            raise OnlyNoveltyResearchAdmissionError(
+                "NOVELTY_DECISION_BINDING_MISMATCH", "Decision Group names another Product Command or Specification"
+            )
+        if group.disposition is not OnlyNoveltyDecisionGroupDisposition.ACTIONABLE:
+            raise OnlyNoveltyResearchAdmissionError(
+                "NOVELTY_DECISION_NOT_ADMIT", "every Decision Group member must be ADMIT"
+            )
+        generations = {item.runtime_generation_fingerprint for item in group.subject_set.subjects}
+        if len(generations) != 1:
+            raise OnlyNoveltyResearchAdmissionError(
+                "RUNTIME_WORK_BINDING_CONFLICT", "Decision Group members require incompatible Runtime Generations"
+            )
+        generation = generations.pop()
+        command = OnlyNoveltyGatedResearchSubmitCommandV4(
+            submission_key,
+            strict,
+            group.group_fingerprint,
+            parent_runtime_work_id,
+            provenance,
+        )
+        self._admit_gated_command(command)
+        expected_run_id = only_novelty_gated_research_run_id_v4(submission_key)
+        bound = False
+        try:
+            binding = self._bind_exact_v3(expected_run_id, generation, parent_runtime_work_id)
+            bound = True
+            if not bool(getattr(binding, "active", False)):
+                raise OnlyNoveltyResearchAdmissionError(
+                    "RUNTIME_WORK_BINDING_RECOVERY_REQUIRED",
+                    "the deterministic Runtime Work Binding was previously released",
+                )
+            if self._runtime_generation_resolver is None:
+                raise OnlyNoveltyResearchAdmissionError(
+                    "NOVELTY_PROOF_UNAVAILABLE", "exact Runtime generation resolution is unavailable"
+                )
+            evidence = self._runtime_generation_resolver.resolve(generation, strict)
+            if not isinstance(evidence, OnlyResearchAdmissionResolutionEvidence):
+                raise OnlyNoveltyResearchAdmissionError(
+                    "NOVELTY_PROOF_UNAVAILABLE", "exact Runtime generation evidence is invalid"
+                )
+            prepared = self._admission.prepare(
+                strict,
+                provenance=provenance,
+                exact_run_id=expected_run_id,
+                exact_admission_evidence=evidence,
+            )
+            actual_set = OnlyResearchEvaluationSubjectSetV1.from_subjects(
+                OnlyExactEvaluationIntentResolverV1(
+                    runtime_generations=self._runtime_generations,
+                    runtime_resolution=_AdmittedResolutionReader(evidence),
+                    authoring_generations=self._authoring_generation_reader,
+                ).resolve_all(
+                    strict,
+                    runtime_work_id=prepared.run_id.value,
+                    authoring_provenance=provenance,
+                )
+            )
+            if actual_set != group.subject_set:
+                raise OnlyNoveltyResearchAdmissionError(
+                    "NOVELTY_DECISION_BINDING_MISMATCH",
+                    "actual Research intent resolves to another canonical Evaluation Subject Set",
+                )
+            manifest = builder.capture_manifest()
+            projection = builder.publish_and_activate(manifest)
+            members: list[OnlyResearchNoveltyAdmissionSubjectV1] = []
+            for ordinal, (subject, bundle) in enumerate(zip(actual_set.subjects, group.members, strict=True)):
+                decision_proof = next(
+                    (item for item in bundle.witness.proofs if item.role is OnlyNoveltyProofRole.EVALUATION),
+                    None,
+                )
+                if decision_proof is None:
+                    raise OnlyNoveltyResearchAdmissionError(
+                        "NOVELTY_READ_TO_ACT_CORRUPT", "Decision-time evaluation proof is missing"
+                    )
+                current_proof = only_query_experiment_memory_history(
+                    revisions,
+                    OnlyMemoryHistoricalQueryV1(
+                        projection.revision_fingerprint,
+                        OnlyExactEvaluationIntentHistorySelectorV1(subject),
+                    ),
+                )
+                if current_proof.proof_status not in {
+                    OnlyMemoryHistoricalProofStatus.MATCH,
+                    OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH,
+                }:
+                    code = (
+                        "NOVELTY_PROOF_INCOMPLETE"
+                        if current_proof.proof_status is OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
+                        else "NOVELTY_PROOF_UNAVAILABLE"
+                    )
+                    raise OnlyNoveltyResearchAdmissionError(code, "action-time historical proof is not complete")
+                frozen = decision_proof.proof
+                if current_proof.proof_status.value != frozen.get("proof_status") or [
+                    item.to_dict() for item in current_proof.ordered_matches
+                ] != frozen.get("ordered_matches"):
+                    raise OnlyNoveltyResearchAdmissionError(
+                        "NOVELTY_DECISION_STALE", "material exact historical proof changed after Decision time"
+                    )
+                members.append(
+                    OnlyResearchNoveltyAdmissionSubjectV1(
+                        ordinal,
+                        subject.subject_fingerprint,
+                        bundle.decision.decision_fingerprint,
+                        bundle.decision.subject.canonical_intent_fingerprint,
+                        decision_proof.result_fingerprint,
+                        current_proof.result_fingerprint,
+                        only_novelty_same_subject_guard_key(subject.subject_fingerprint),
+                    )
+                )
+            expected_frontier = self._postgres_frontier(manifest)
+            admission = OnlyResearchNoveltyAdmissionV2(
+                submission_key,
+                command.command_fingerprint,
+                group.group_fingerprint,
+                actual_set.subject_set_fingerprint,
+                manifest.manifest_fingerprint,
+                prepared.run_id.value,
+                prepared.run_id,
+                tuple(members),
+            )
+            requested = OnlyProductCommandReceipt(
+                command_id=submission_key,
+                command_kind=OnlyProductCommandKind.CREATE_RESEARCH_RUN,
+                command_fingerprint=command.command_fingerprint,
+                outcome_ref=OnlyProductCommandOutcomeRef(
+                    OnlyProductCommandOutcomeKind.RESEARCH_RUN,
+                    prepared.run_id.value,
+                ),
+                accepted_at=prepared.queued_at,
+            )
+            record = self._store.create_queued_with_novelty_admission(
+                prepared,
+                requested,
+                admission,
+                expected_source_frontier=expected_frontier,
+            )
+        except Exception:
+            accepted = self._store.find_product_command_receipt(submission_key)
+            if accepted is not None and accepted.command_fingerprint == command.command_fingerprint:
+                return self._replay_novelty_receipt(accepted, strict, provenance, parent_runtime_work_id)
+            if bound:
+                self._runtime_generations.release_work(
+                    expected_run_id.value,
+                    actor="research-novelty-admission-compensation",
+                    occurred_at=self._now_utc(),
+                )
+            raise
+        run = self._replay_receipt(
+            record,
+            kind=OnlyProductCommandKind.CREATE_RESEARCH_RUN,
+            fingerprint=command.command_fingerprint,
+            expected_run_id=prepared.run_id,
+        )
+        self._require_expected_binding(run.run_id.value, parent_runtime_work_id)
+        return OnlyResearchSubmitOutcome(OnlyResearchSubmitDisposition.CREATED, run)
+
     def _submit_legacy(
         self,
         submission_key: OnlyProductCommandId,
@@ -465,7 +682,9 @@ class OnlyResearchCommandService:
             )
         return self._novelty_decisions, self._memory_builder, self._memory_revisions
 
-    def _admit_gated_command(self, command: OnlyNoveltyGatedResearchSubmitCommandV3) -> None:
+    def _admit_gated_command(
+        self, command: OnlyNoveltyGatedResearchSubmitCommandV3 | OnlyNoveltyGatedResearchSubmitCommandV4
+    ) -> None:
         authority = self._command_admissions
         if authority is None:
             raise OnlyNoveltyResearchAdmissionError(
@@ -553,6 +772,14 @@ class OnlyResearchCommandService:
             raise OnlyNoveltyResearchAdmissionError(
                 "NOVELTY_READ_TO_ACT_CORRUPT", "V3 Product Receipt has no Read-to-Act Admission"
             )
+        if isinstance(admission, OnlyResearchNoveltyAdmissionV2):
+            return self._replay_novelty_group_receipt(
+                receipt, admission, specification, provenance, parent_runtime_work_id
+            )
+        if not isinstance(admission, OnlyResearchNoveltyAdmissionV1):
+            raise OnlyNoveltyResearchAdmissionError(
+                "NOVELTY_READ_TO_ACT_CORRUPT", "Read-to-Act Admission schema is unsupported"
+            )
         decisions, _, _ = self._require_novelty_authorities()
         bundle = decisions.load_exact(receipt.command_id)
         if not isinstance(bundle, OnlyNoveltyDecisionBundleV2):
@@ -590,6 +817,76 @@ class OnlyResearchCommandService:
         ):
             raise OnlyNoveltyResearchAdmissionError(
                 "NOVELTY_READ_TO_ACT_CORRUPT", "accepted Decision/Admission relation is inconsistent"
+            )
+        run = self._replay_receipt(
+            receipt,
+            kind=OnlyProductCommandKind.CREATE_RESEARCH_RUN,
+            fingerprint=command.command_fingerprint,
+            expected_run_id=expected_run_id,
+        )
+        self._require_expected_binding(run.run_id.value, parent_runtime_work_id)
+        return OnlyResearchSubmitOutcome(OnlyResearchSubmitDisposition.REUSED, run)
+
+    def _replay_novelty_group_receipt(
+        self,
+        receipt: OnlyProductCommandReceipt,
+        admission: OnlyResearchNoveltyAdmissionV2,
+        specification: OnlyResearchSpecification,
+        provenance: OnlyResearchAuthoringProvenance | None,
+        parent_runtime_work_id: str | None,
+    ) -> OnlyResearchSubmitOutcome:
+        from onlyalpha.research.novelty.decision import OnlyNoveltyProofRole
+
+        decisions, _, _ = self._require_novelty_authorities()
+        try:
+            group = decisions.load_group_exact(receipt.command_id)
+        except Exception as exc:
+            raise OnlyNoveltyResearchAdmissionError(
+                "NOVELTY_READ_TO_ACT_CORRUPT", "V4 Product Receipt names no valid Decision Group"
+            ) from exc
+        command = OnlyNoveltyGatedResearchSubmitCommandV4(
+            receipt.command_id,
+            specification,
+            group.group_fingerprint,
+            parent_runtime_work_id,
+            provenance,
+        )
+        expected_run_id = only_novelty_gated_research_run_id_v4(receipt.command_id)
+        try:
+            expected_members = tuple(
+                (
+                    subject.subject_fingerprint,
+                    bundle.decision.decision_fingerprint,
+                    bundle.decision.subject.canonical_intent_fingerprint,
+                    next(
+                        item for item in bundle.witness.proofs if item.role is OnlyNoveltyProofRole.EVALUATION
+                    ).result_fingerprint,
+                )
+                for subject, bundle in zip(group.subject_set.subjects, group.members, strict=True)
+            )
+        except Exception as exc:
+            raise OnlyNoveltyResearchAdmissionError(
+                "NOVELTY_READ_TO_ACT_CORRUPT", "accepted Decision Group relation is incomplete"
+            ) from exc
+        actual_members = tuple(
+            (
+                item.evaluation_subject_fingerprint,
+                item.novelty_decision_fingerprint,
+                item.canonical_intent_fingerprint,
+                item.decision_time_proof_fingerprint,
+            )
+            for item in admission.members
+        )
+        if (
+            admission.command_fingerprint != command.command_fingerprint
+            or admission.decision_group_fingerprint != group.group_fingerprint
+            or admission.subject_set_fingerprint != group.subject_set.subject_set_fingerprint
+            or actual_members != expected_members
+            or admission.run_id != expected_run_id
+            or admission.runtime_work_id != expected_run_id.value
+        ):
+            raise OnlyNoveltyResearchAdmissionError(
+                "NOVELTY_READ_TO_ACT_CORRUPT", "accepted Decision Group/Admission relation is inconsistent"
             )
         run = self._replay_receipt(
             receipt,

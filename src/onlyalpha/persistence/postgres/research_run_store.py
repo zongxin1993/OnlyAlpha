@@ -26,7 +26,11 @@ from onlyalpha.application.product_command_receipt import (
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.research.command.errors import OnlyResearchCancellationConflictError
 from onlyalpha.research.command.model import OnlyResearchRunPageCursor
-from onlyalpha.research.command.novelty_admission import OnlyResearchNoveltyAdmissionV1
+from onlyalpha.research.command.novelty_admission import (
+    OnlyResearchNoveltyAdmissionSubjectV1,
+    OnlyResearchNoveltyAdmissionV1,
+    OnlyResearchNoveltyAdmissionV2,
+)
 from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 from onlyalpha.research.run.errors import (
     OnlyResearchRunIntegrityError,
@@ -168,22 +172,36 @@ class OnlyPostgresResearchRunStore:
         except psycopg.Error as exc:
             raise OnlyResearchRunStoreUnavailableError("Create Research Run transaction failed") from exc
 
-    def load_novelty_admission(self, command_id: OnlyProductCommandId) -> OnlyResearchNoveltyAdmissionV1 | None:
+    def load_novelty_admission(
+        self, command_id: OnlyProductCommandId
+    ) -> OnlyResearchNoveltyAdmissionV1 | OnlyResearchNoveltyAdmissionV2 | None:
         try:
             with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
                 row = connection.execute(
                     "SELECT * FROM research_novelty_admission WHERE command_id = %s",
                     (command_id.value,),
                 ).fetchone()
+                members = (
+                    ()
+                    if row is None or int(cast(int, row["schema_version"])) == 1
+                    else tuple(
+                        connection.execute(
+                            "SELECT * FROM research_novelty_admission_subject WHERE command_id = %s ORDER BY ordinal",
+                            (command_id.value,),
+                        ).fetchall()
+                    )
+                )
         except psycopg.Error as exc:
             raise OnlyResearchRunStoreUnavailableError("Research Novelty Admission load failed") from exc
-        return None if row is None else self._decode_novelty_admission(cast(Mapping[str, object], row))
+        if row is None:
+            return None
+        return self._decode_novelty_admission(cast(Mapping[str, object], row), members)
 
     def create_queued_with_novelty_admission(
         self,
         run: OnlyResearchRun,
         receipt: OnlyProductCommandReceipt,
-        admission: OnlyResearchNoveltyAdmissionV1,
+        admission: OnlyResearchNoveltyAdmissionV1 | OnlyResearchNoveltyAdmissionV2,
         *,
         expected_source_frontier: int,
     ) -> OnlyProductCommandReceipt:
@@ -214,19 +232,31 @@ class OnlyPostgresResearchRunStore:
                         receipt.command_fingerprint,
                     ),
                 )
+                existing = authority.load_verified_receipt_in_transaction(connection, receipt.command_id)
+                if existing is not None:
+                    return existing
+                subjects = (
+                    (admission.evaluation_subject_fingerprint,)
+                    if isinstance(admission, OnlyResearchNoveltyAdmissionV1)
+                    else tuple(item.evaluation_subject_fingerprint for item in admission.members)
+                )
+                guards = (
+                    (admission.same_subject_guard_key,)
+                    if isinstance(admission, OnlyResearchNoveltyAdmissionV1)
+                    else tuple(item.same_subject_guard_key for item in admission.members)
+                )
+                for guard in guards:
+                    connection.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (guard,))
                 frontier_row = connection.execute(
                     "SELECT last_index FROM research_source_history_frontier WHERE singleton = TRUE FOR UPDATE"
                 ).fetchone()
                 if frontier_row is None:
                     raise OnlyResearchRunIntegrityError("Research source frontier is missing")
-                existing = authority.load_verified_receipt_in_transaction(connection, receipt.command_id)
-                if existing is not None:
-                    return existing
-                if int(cast(int, frontier_row["last_index"])) != expected_source_frontier:
+                current_frontier = int(cast(int, frontier_row["last_index"]))
+                if current_frontier < expected_source_frontier or self._has_relevant_source_change(
+                    connection, expected_source_frontier, subjects
+                ):
                     raise OnlyResearchRunIntegrityError("NOVELTY_DECISION_STALE")
-                connection.execute(
-                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (admission.same_subject_guard_key,)
-                )
                 existing = authority.load_verified_receipt_in_transaction(connection, receipt.command_id)
                 if existing is not None:
                     return existing
@@ -242,36 +272,17 @@ class OnlyPostgresResearchRunStore:
                 conflict = connection.execute(
                     "SELECT 1 FROM research_novelty_admission AS gated "
                     "JOIN research_run AS run ON run.run_id = gated.run_id "
-                    "WHERE gated.evaluation_subject_fingerprint = %s "
+                    "LEFT JOIN research_novelty_admission_subject AS member "
+                    "ON member.command_id = gated.command_id "
+                    "WHERE (gated.evaluation_subject_fingerprint = ANY(%s) "
+                    "OR member.evaluation_subject_fingerprint = ANY(%s)) "
                     "AND run.state IN ('QUEUED', 'RUNNING') LIMIT 1",
-                    (admission.evaluation_subject_fingerprint,),
+                    (list(subjects), list(subjects)),
                 ).fetchone()
                 if conflict is not None:
                     raise OnlyResearchRunIntegrityError("NOVELTY_SAME_SUBJECT_IN_FLIGHT")
                 connection.execute(run_query, self._values(run))
-                connection.execute(
-                    "INSERT INTO research_novelty_admission ("
-                    "command_id, command_fingerprint, novelty_decision_fingerprint, "
-                    "canonical_intent_fingerprint, evaluation_subject_fingerprint, "
-                    "decision_time_proof_fingerprint, action_time_proof_fingerprint, "
-                    "action_source_manifest_fingerprint, same_subject_guard_key, "
-                    "runtime_work_id, run_id, admission_fingerprint, schema_version"
-                    ") VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)",
-                    (
-                        admission.command_id.value,
-                        admission.command_fingerprint,
-                        admission.novelty_decision_fingerprint,
-                        admission.canonical_intent_fingerprint,
-                        admission.evaluation_subject_fingerprint,
-                        admission.decision_time_proof_fingerprint,
-                        admission.action_time_proof_fingerprint,
-                        admission.action_source_manifest_fingerprint,
-                        admission.same_subject_guard_key,
-                        admission.runtime_work_id,
-                        admission.run_id.value,
-                        admission.admission_fingerprint,
-                    ),
-                )
+                self._insert_novelty_admission(connection, admission)
                 self._insert_receipt(connection, receipt)
             return receipt
         except OnlyProductCommandConflictError as exc:
@@ -287,6 +298,114 @@ class OnlyPostgresResearchRunStore:
             raise OnlyResearchRunIntegrityError("Novelty Admission identity already exists") from exc
         except psycopg.Error as exc:
             raise OnlyResearchRunStoreUnavailableError("Novelty-gated Research transaction failed") from exc
+
+    @staticmethod
+    def _has_relevant_source_change(
+        connection: psycopg.Connection[dict[str, object]],
+        expected_frontier: int,
+        subjects: tuple[str, ...],
+    ) -> bool:
+        relations = connection.execute(
+            "SELECT DISTINCT gated.run_id::text AS run_id, gated.command_id::text AS command_id "
+            "FROM research_novelty_admission AS gated "
+            "LEFT JOIN research_novelty_admission_subject AS member ON member.command_id = gated.command_id "
+            "WHERE gated.evaluation_subject_fingerprint = ANY(%s) "
+            "OR member.evaluation_subject_fingerprint = ANY(%s)",
+            (list(subjects), list(subjects)),
+        ).fetchall()
+        run_ids = {str(item["run_id"]) for item in relations}
+        command_ids = {str(item["command_id"]) for item in relations}
+        classified_run_ids = {
+            str(item["run_id"])
+            for item in connection.execute("SELECT run_id::text AS run_id FROM research_novelty_admission").fetchall()
+        }
+        for event in connection.execute(
+            "SELECT source_family, native_locator, source_row FROM research_source_history "
+            "WHERE event_index > %s ORDER BY event_index",
+            (expected_frontier,),
+        ).fetchall():
+            family = str(event["source_family"])
+            locator = str(event["native_locator"])
+            source_row = event["source_row"]
+            if family == "RESEARCH_RUN" and (locator in run_ids or locator not in classified_run_ids):
+                return True
+            if family == "RESEARCH_ATTEMPT" and isinstance(source_row, Mapping):
+                run_id = source_row.get("run_id")
+                if run_id in run_ids or run_id not in classified_run_ids:
+                    return True
+            if family in {"PRODUCT_COMMAND_ADMISSION", "PRODUCT_COMMAND_RECEIPT"} and locator in command_ids:
+                return True
+        return False
+
+    @staticmethod
+    def _insert_novelty_admission(
+        connection: psycopg.Connection[dict[str, object]],
+        admission: OnlyResearchNoveltyAdmissionV1 | OnlyResearchNoveltyAdmissionV2,
+    ) -> None:
+        if isinstance(admission, OnlyResearchNoveltyAdmissionV1):
+            connection.execute(
+                "INSERT INTO research_novelty_admission ("
+                "command_id, command_fingerprint, novelty_decision_fingerprint, "
+                "canonical_intent_fingerprint, evaluation_subject_fingerprint, "
+                "decision_time_proof_fingerprint, action_time_proof_fingerprint, "
+                "action_source_manifest_fingerprint, same_subject_guard_key, "
+                "runtime_work_id, run_id, admission_fingerprint, schema_version"
+                ") VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)",
+                (
+                    admission.command_id.value,
+                    admission.command_fingerprint,
+                    admission.novelty_decision_fingerprint,
+                    admission.canonical_intent_fingerprint,
+                    admission.evaluation_subject_fingerprint,
+                    admission.decision_time_proof_fingerprint,
+                    admission.action_time_proof_fingerprint,
+                    admission.action_source_manifest_fingerprint,
+                    admission.same_subject_guard_key,
+                    admission.runtime_work_id,
+                    admission.run_id.value,
+                    admission.admission_fingerprint,
+                ),
+            )
+            return
+        connection.execute(
+            "INSERT INTO research_novelty_admission ("
+            "command_id, command_fingerprint, decision_group_fingerprint, subject_set_fingerprint, "
+            "action_source_manifest_fingerprint, runtime_work_id, run_id, admission_fingerprint, schema_version"
+            ") VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 2)",
+            (
+                admission.command_id.value,
+                admission.command_fingerprint,
+                admission.decision_group_fingerprint,
+                admission.subject_set_fingerprint,
+                admission.action_source_manifest_fingerprint,
+                admission.runtime_work_id,
+                admission.run_id.value,
+                admission.admission_fingerprint,
+            ),
+        )
+        with connection.cursor() as cursor:
+            cursor.executemany(
+                "INSERT INTO research_novelty_admission_subject ("
+                "command_id, admission_fingerprint, ordinal, evaluation_subject_fingerprint, "
+                "novelty_decision_fingerprint, canonical_intent_fingerprint, "
+                "decision_time_proof_fingerprint, action_time_proof_fingerprint, "
+                "same_subject_guard_key, schema_version"
+                ") VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1)",
+                [
+                    (
+                        admission.command_id.value,
+                        admission.admission_fingerprint,
+                        member.ordinal,
+                        member.evaluation_subject_fingerprint,
+                        member.novelty_decision_fingerprint,
+                        member.canonical_intent_fingerprint,
+                        member.decision_time_proof_fingerprint,
+                        member.action_time_proof_fingerprint,
+                        member.same_subject_guard_key,
+                    )
+                    for member in admission.members
+                ],
+            )
 
     def request_cancellation_with_receipt(
         self,
@@ -468,22 +587,52 @@ class OnlyPostgresResearchRunStore:
             ) from exc
 
     @staticmethod
-    def _decode_novelty_admission(row: Mapping[str, object]) -> OnlyResearchNoveltyAdmissionV1:
+    def _decode_novelty_admission(
+        row: Mapping[str, object], members: tuple[Mapping[str, object], ...] = ()
+    ) -> OnlyResearchNoveltyAdmissionV1 | OnlyResearchNoveltyAdmissionV2:
         try:
-            value = OnlyResearchNoveltyAdmissionV1(
-                OnlyProductCommandId(str(row["command_id"])),
-                str(row["command_fingerprint"]),
-                str(row["novelty_decision_fingerprint"]),
-                str(row["canonical_intent_fingerprint"]),
-                str(row["evaluation_subject_fingerprint"]),
-                str(row["decision_time_proof_fingerprint"]),
-                str(row["action_time_proof_fingerprint"]),
-                str(row["action_source_manifest_fingerprint"]),
-                str(row["same_subject_guard_key"]),
-                str(row["runtime_work_id"]),
-                OnlyResearchRunId(str(row["run_id"])),
-                int(cast(int, row["schema_version"])),
-            )
+            schema = int(cast(int, row["schema_version"]))
+            if schema == 1:
+                value: OnlyResearchNoveltyAdmissionV1 | OnlyResearchNoveltyAdmissionV2 = OnlyResearchNoveltyAdmissionV1(
+                    OnlyProductCommandId(str(row["command_id"])),
+                    str(row["command_fingerprint"]),
+                    str(row["novelty_decision_fingerprint"]),
+                    str(row["canonical_intent_fingerprint"]),
+                    str(row["evaluation_subject_fingerprint"]),
+                    str(row["decision_time_proof_fingerprint"]),
+                    str(row["action_time_proof_fingerprint"]),
+                    str(row["action_source_manifest_fingerprint"]),
+                    str(row["same_subject_guard_key"]),
+                    str(row["runtime_work_id"]),
+                    OnlyResearchRunId(str(row["run_id"])),
+                    schema,
+                )
+            elif schema == 2:
+                value = OnlyResearchNoveltyAdmissionV2(
+                    OnlyProductCommandId(str(row["command_id"])),
+                    str(row["command_fingerprint"]),
+                    str(row["decision_group_fingerprint"]),
+                    str(row["subject_set_fingerprint"]),
+                    str(row["action_source_manifest_fingerprint"]),
+                    str(row["runtime_work_id"]),
+                    OnlyResearchRunId(str(row["run_id"])),
+                    tuple(
+                        OnlyResearchNoveltyAdmissionSubjectV1(
+                            int(cast(int, item["ordinal"])),
+                            str(item["evaluation_subject_fingerprint"]),
+                            str(item["novelty_decision_fingerprint"]),
+                            str(item["canonical_intent_fingerprint"]),
+                            str(item["decision_time_proof_fingerprint"]),
+                            str(item["action_time_proof_fingerprint"]),
+                            str(item["same_subject_guard_key"]),
+                            int(cast(int, item["schema_version"])),
+                        )
+                        for item in members
+                    ),
+                    schema,
+                )
+            else:
+                raise ValueError("Research Novelty Admission schema is unsupported")
             if row["admission_fingerprint"] != value.admission_fingerprint:
                 raise ValueError("Admission fingerprint mismatch")
             return value

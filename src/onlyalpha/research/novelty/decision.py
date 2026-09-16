@@ -10,7 +10,10 @@ from typing import Protocol, cast
 
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
-from onlyalpha.research.evaluation.subject import OnlyExactEvaluationIntentSubjectV1
+from onlyalpha.research.evaluation.subject import (
+    OnlyExactEvaluationIntentSubjectV1,
+    OnlyResearchEvaluationSubjectSetV1,
+)
 from onlyalpha.research.memory.projector import (
     PROJECTION_SCHEMA_VERSION,
     PROJECTOR_ALGORITHM_VERSION,
@@ -1595,6 +1598,123 @@ class OnlyNoveltyDecisionBundleV2:
 
     def to_dict(self) -> dict[str, object]:
         return {"decision": self.decision.to_dict(), "witness": self.witness.to_dict()}
+
+
+class OnlyNoveltyDecisionGroupDisposition(StrEnum):
+    ACTIONABLE = "ACTIONABLE"
+    BLOCKED = "BLOCKED"
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyNoveltyDecisionGroupV1:
+    """One Research command's complete composition of per-subject Decisions."""
+
+    product_command_id: str
+    specification_fingerprint: str
+    members: tuple[OnlyNoveltyDecisionBundleV2, ...]
+    schema_version: int = 1
+
+    def __post_init__(self) -> None:
+        try:
+            OnlyProductCommandId(self.product_command_id)
+            _sha(self.specification_fingerprint, "Specification fingerprint")
+        except (TypeError, ValueError) as exc:
+            raise OnlyNoveltyDecisionCorruptError("Decision Group identity is invalid") from exc
+        if self.schema_version != 1:
+            raise OnlyNoveltyDecisionSchemaUnsupportedError(str(self.schema_version))
+        if not self.members or any(not isinstance(item, OnlyNoveltyDecisionBundleV2) for item in self.members):
+            raise OnlyNoveltyDecisionCorruptError("Decision Group requires at least one Decision V2 member")
+        subjects = tuple(
+            OnlyExactEvaluationIntentSubjectV1.from_dict(
+                _mapping(item.decision.subject.resolved_subject["evaluation_subject"], "evaluation subject")
+            )
+            for item in self.members
+        )
+        fingerprints = tuple(item.subject_fingerprint for item in subjects)
+        if (
+            fingerprints != tuple(sorted(fingerprints))
+            or len(set(fingerprints)) != len(fingerprints)
+            or any(item.decision.subject.product_command_id != self.product_command_id for item in self.members)
+            or any(item.specification_fingerprint != self.specification_fingerprint for item in subjects)
+        ):
+            raise OnlyNoveltyDecisionCorruptError(
+                "Decision Group members must be canonical, unique, and bound to one command and Specification"
+            )
+
+    @property
+    def subject_set(self) -> OnlyResearchEvaluationSubjectSetV1:
+        return OnlyResearchEvaluationSubjectSetV1.from_subjects(
+            tuple(
+                OnlyExactEvaluationIntentSubjectV1.from_dict(
+                    _mapping(item.decision.subject.resolved_subject["evaluation_subject"], "evaluation subject")
+                )
+                for item in self.members
+            )
+        )
+
+    @property
+    def disposition(self) -> OnlyNoveltyDecisionGroupDisposition:
+        return (
+            OnlyNoveltyDecisionGroupDisposition.ACTIONABLE
+            if all(item.decision.outcome is OnlyNoveltyPolicyOutcome.ADMIT for item in self.members)
+            else OnlyNoveltyDecisionGroupDisposition.BLOCKED
+        )
+
+    @property
+    def group_fingerprint(self) -> str:
+        return only_canonical_fingerprint(
+            {"domain": "onlyalpha.research.novelty-decision-group-v1", **self.to_dict(include_fingerprint=False)}
+        )
+
+    def to_dict(self, *, include_fingerprint: bool = True) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "schema_version": self.schema_version,
+            "product_command_id": self.product_command_id,
+            "specification_fingerprint": self.specification_fingerprint,
+            "subject_set_fingerprint": self.subject_set.subject_set_fingerprint,
+            "members": [item.to_dict() for item in self.members],
+            "disposition": self.disposition.value,
+        }
+        if include_fingerprint:
+            payload["group_fingerprint"] = self.group_fingerprint
+        return payload
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyNoveltyDecisionGroupV1:
+        expected = {
+            "schema_version",
+            "product_command_id",
+            "specification_fingerprint",
+            "subject_set_fingerprint",
+            "members",
+            "disposition",
+            "group_fingerprint",
+        }
+        raw_members = payload.get("members")
+        if set(payload) != expected or not isinstance(raw_members, list):
+            raise OnlyNoveltyDecisionCorruptError("Decision Group fields are invalid")
+        members: list[OnlyNoveltyDecisionBundleV2] = []
+        for raw in raw_members:
+            member = _mapping(raw, "Decision Group member")
+            if set(member) != {"decision", "witness"}:
+                raise OnlyNoveltyDecisionCorruptError("Decision Group member fields are invalid")
+            witness = OnlyNoveltyDecisionWitnessV2.from_dict(_mapping(member["witness"], "witness"))
+            decision = OnlyNoveltyDecisionV2.from_dict(_mapping(member["decision"], "decision"), witness.subject)
+            members.append(OnlyNoveltyDecisionBundleV2(decision, witness))
+        result = cls(
+            str(payload["product_command_id"]),
+            str(payload["specification_fingerprint"]),
+            tuple(members),
+            cast(int, payload["schema_version"]),
+        )
+        if (
+            payload["subject_set_fingerprint"] != result.subject_set.subject_set_fingerprint
+            or payload["disposition"] != result.disposition.value
+            or payload["group_fingerprint"] != result.group_fingerprint
+            or result.to_dict() != dict(payload)
+        ):
+            raise OnlyNoveltyDecisionCorruptError("Decision Group fingerprint or derived disposition differs")
+        return result
 
 
 class OnlyNoveltyQualificationDecisionReader(Protocol):

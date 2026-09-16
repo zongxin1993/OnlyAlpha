@@ -137,6 +137,7 @@ def test_derived_binding_crash_before_real_postgres_commit_recovers_exact_run(
         runtime_generations=runtime_generations,
         command_admissions=product_authority,
         runtime_generation_resolver=_ExactRuntimeAdmissionResolver(runtime_generations),
+        allow_legacy_ungated=True,
     )
     with pytest.raises(RuntimeError, match="injected crash"):
         crashing.submit_research_run(
@@ -159,6 +160,7 @@ def test_derived_binding_crash_before_real_postgres_commit_recovers_exact_run(
         runtime_generations=runtime_generations,
         command_admissions=OnlyPostgresProductCommandAuthority(postgres_dsn),
         runtime_generation_resolver=_ExactRuntimeAdmissionResolver(runtime_generations),
+        allow_legacy_ungated=True,
     )
     recovered = restarted.submit_research_run(
         command_id,
@@ -230,6 +232,7 @@ def test_real_postgres_wrong_derived_receipt_identity_fails_closed_without_repai
         now_utc=lambda: _NOW,
         runtime_generations=runtime_generations,
         command_admissions=product_authority,
+        allow_legacy_ungated=True,
     )
     with pytest.raises(OnlyResearchSubmissionConflictError):
         service.submit_research_run(

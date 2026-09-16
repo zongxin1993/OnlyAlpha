@@ -265,6 +265,7 @@ def _service(
         runtime_generations=runtime_generations or _RuntimeGenerations(),  # type: ignore[arg-type]
         command_admissions=command_admissions or _ProductAdmissions(),  # type: ignore[arg-type]
         runtime_generation_resolver=_RuntimeAdmissionResolver(),
+        allow_legacy_ungated=True,
     )  # type: ignore[arg-type]
 
 

@@ -12,7 +12,10 @@ import pytest
 
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId
 from onlyalpha.canonical import only_canonical_json
-from onlyalpha.research.evaluation import OnlyExactEvaluationIntentSubjectV1
+from onlyalpha.research.evaluation import (
+    OnlyExactEvaluationIntentResolverV1,
+    OnlyExactEvaluationIntentSubjectV1,
+)
 from onlyalpha.research.memory.projector import (
     OnlyExperimentMemoryProjectionV1,
     OnlyMemoryProjectionRecordV1,
@@ -33,6 +36,8 @@ from onlyalpha.research.novelty import (
     OnlyNoveltyDecisionConflictError,
     OnlyNoveltyDecisionCorruptError,
     OnlyNoveltyDecisionError,
+    OnlyNoveltyDecisionGroupDisposition,
+    OnlyNoveltyDecisionGroupV1,
     OnlyNoveltyDecisionNotFoundError,
     OnlyNoveltyDecisionReason,
     OnlyNoveltyDecisionRequestV1,
@@ -57,7 +62,7 @@ from onlyalpha.strategy.qualification import (
     OnlyQualificationGate,
     OnlyQualificationOutcome,
 )
-from tests.research.evaluation.test_subject import _resolve, _scientific
+from tests.research.evaluation.test_subject import _resolve, _RuntimeResolution, _scientific
 from tests.research.memory.test_query import (
     CANDIDATE,
     DATASET,
@@ -70,6 +75,7 @@ from tests.research.memory.test_query import (
     _store,
 )
 from tests.research.novelty.test_policy import policy
+from tests.runtime_generation_support import OnlyTestRuntimeGenerationAuthority
 
 COMMAND = OnlyProductCommandId("00000000-0000-4000-8000-000000000010")
 
@@ -172,6 +178,58 @@ def test_prospective_intent_reaches_certified_absence_decision(tmp_path) -> None
     bundle = decisions.seal_from_request(_request_v2(subject), projection.revision_fingerprint, revisions, policies)
     assert isinstance(bundle, OnlyNoveltyDecisionBundleV2)
     assert bundle.decision.derived_policy_condition is OnlyNoveltyPolicyCondition.CERTIFIED_NO_MATCH
+
+
+def test_multi_subject_decision_group_is_canonical_derived_and_replayable(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    specification = _scientific(swept=True)
+    runtime = OnlyTestRuntimeGenerationAuthority()
+    runtime.bind_new_work("work", actor="test", occurred_at=object())
+    subjects = OnlyExactEvaluationIntentResolverV1(
+        runtime_generations=runtime,
+        runtime_resolution=_RuntimeResolution(),
+    ).resolve_all(specification, runtime_work_id="work")
+    revisions, projection, policies, decisions = _authorities(tmp_path, _projection(include_evaluation=False))
+    requests = tuple(_request_v2(subject) for subject in subjects)
+
+    group = decisions.seal_group_from_requests(
+        requests,
+        projection.revision_fingerprint,
+        revisions,
+        policies,
+    )
+
+    assert len(group.members) == len(subjects) == 2
+    assert group.subject_set.subjects == subjects
+    assert group.disposition is OnlyNoveltyDecisionGroupDisposition.ACTIONABLE
+    assert OnlyNoveltyDecisionGroupV1.from_dict(group.to_dict()) == group
+    assert decisions.load_group_exact(COMMAND) == group
+
+
+def test_decision_group_rejects_noncanonical_duplicate_and_derived_mutation(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    specification = _scientific(swept=True)
+    runtime = OnlyTestRuntimeGenerationAuthority()
+    runtime.bind_new_work("work", actor="test", occurred_at=object())
+    subjects = OnlyExactEvaluationIntentResolverV1(
+        runtime_generations=runtime,
+        runtime_resolution=_RuntimeResolution(),
+    ).resolve_all(specification, runtime_work_id="work")
+    revisions, projection, policies, decisions = _authorities(tmp_path, _projection(include_evaluation=False))
+    requests = tuple(_request_v2(subject) for subject in subjects)
+
+    with pytest.raises(OnlyNoveltyDecisionCorruptError):
+        decisions.seal_group_from_requests(
+            tuple(reversed(requests)), projection.revision_fingerprint, revisions, policies
+        )
+    with pytest.raises(OnlyNoveltyDecisionCorruptError):
+        decisions.seal_group_from_requests(
+            (requests[0], requests[0]), projection.revision_fingerprint, revisions, policies
+        )
+
+    group = decisions.seal_group_from_requests(requests, projection.revision_fingerprint, revisions, policies)
+    payload = group.to_dict()
+    payload["disposition"] = OnlyNoveltyDecisionGroupDisposition.BLOCKED.value
+    with pytest.raises(OnlyNoveltyDecisionCorruptError):
+        OnlyNoveltyDecisionGroupV1.from_dict(payload)
 
 
 def test_prospective_decision_request_is_versioned_and_round_trips_without_result_refs() -> None:

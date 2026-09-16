@@ -142,6 +142,7 @@ def _case(
         runtime_generations=processes.authority,
         command_admissions=authority,
         runtime_generation_resolver=generation_resolver,
+        allow_legacy_ungated=True,
     )
     symbolic = OnlyJsonSymbolicSearchStore(root / "search")
     evaluation = OnlySymbolicResearchEvaluationContractV1.from_specification(

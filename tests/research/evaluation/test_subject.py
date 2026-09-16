@@ -11,6 +11,7 @@ from onlyalpha.research.evaluation import (
     OnlyExactEvaluationIntentResolverV1,
     OnlyExactEvaluationIntentSubjectV1,
     OnlyResearchEvaluationError,
+    OnlyResearchEvaluationSubjectSetV1,
 )
 from onlyalpha.research.memory.query import (
     OnlyExactEvaluationHistorySelectorV1,
@@ -232,7 +233,7 @@ def test_ambiguous_candidate_and_missing_runtime_authority_fail_closed() -> None
         resolver.resolve(swept, runtime_work_id="work")
     subjects = resolver.resolve_all(swept, runtime_work_id="work")
     assert len(subjects) == 2
-    assert subjects == tuple(sorted(subjects, key=lambda item: item.candidate_fingerprint))
+    assert subjects == tuple(sorted(subjects, key=lambda item: item.subject_fingerprint))
 
     runtime = OnlyTestRuntimeGenerationAuthority()
     resolver = OnlyExactEvaluationIntentResolverV1(
@@ -241,6 +242,29 @@ def test_ambiguous_candidate_and_missing_runtime_authority_fail_closed() -> None
     )
     with pytest.raises(OnlyResearchEvaluationError, match="EVALUATION_SUBJECT_AUTHORITY_MISSING"):
         resolver.resolve(_scientific(), runtime_work_id="missing")
+
+
+def test_multi_subject_set_is_canonical_unique_and_fingerprinted() -> None:
+    specification_value = _scientific(swept=True)
+    runtime = OnlyTestRuntimeGenerationAuthority()
+    runtime.bind_new_work("work", actor="test", occurred_at=object())
+    subjects = OnlyExactEvaluationIntentResolverV1(
+        runtime_generations=runtime,
+        runtime_resolution=_RuntimeResolution(),
+    ).resolve_all(specification_value, runtime_work_id="work")
+
+    canonical = OnlyResearchEvaluationSubjectSetV1.from_subjects(subjects)
+    permuted = OnlyResearchEvaluationSubjectSetV1.from_subjects(tuple(reversed(subjects)))
+
+    assert canonical == permuted
+    assert canonical.subject_set_fingerprint == permuted.subject_set_fingerprint
+    assert OnlyResearchEvaluationSubjectSetV1.from_dict(canonical.to_dict()) == canonical
+    changed = OnlyResearchEvaluationSubjectSetV1.from_subjects(
+        (subjects[0], replace(subjects[1], dataset_snapshot_fingerprint="0" * 64))
+    )
+    assert changed.subject_set_fingerprint != canonical.subject_set_fingerprint
+    with pytest.raises(OnlyResearchEvaluationError, match="duplicate subjects"):
+        OnlyResearchEvaluationSubjectSetV1.from_subjects((subjects[0], subjects[0]))
 
 
 def test_unsupported_specification_and_corrupt_resolution_authority_fail_closed() -> None:

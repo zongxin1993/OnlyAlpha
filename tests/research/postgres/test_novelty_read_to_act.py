@@ -17,7 +17,9 @@ from onlyalpha.persistence.postgres import (
 )
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from onlyalpha.research.command.novelty_admission import (
+    OnlyResearchNoveltyAdmissionSubjectV1,
     OnlyResearchNoveltyAdmissionV1,
+    OnlyResearchNoveltyAdmissionV2,
     only_novelty_same_subject_guard_key,
 )
 from onlyalpha.research.run import OnlyResearchRunIntegrityError, OnlyResearchRunStoreUnavailableError
@@ -48,6 +50,32 @@ def _admission(command_id, command_fingerprint, run, subject="4" * 64):  # type:
         only_novelty_same_subject_guard_key(subject),
         run.run_id.value,
         run.run_id,
+    )
+
+
+def _aggregate_admission(command_id, command_fingerprint, run, subjects):  # type: ignore[no-untyped-def]
+    ordered = tuple(sorted(subjects))
+    members = tuple(
+        OnlyResearchNoveltyAdmissionSubjectV1(
+            index,
+            subject,
+            f"{index + 1:x}" * 64,
+            "2" * 64,
+            "5" * 64,
+            "6" * 64,
+            only_novelty_same_subject_guard_key(subject),
+        )
+        for index, subject in enumerate(ordered)
+    )
+    return OnlyResearchNoveltyAdmissionV2(
+        command_id,
+        command_fingerprint,
+        "8" * 64,
+        "9" * 64,
+        "7" * 64,
+        run.run_id.value,
+        run.run_id,
+        members,
     )
 
 
@@ -96,6 +124,81 @@ def test_novelty_admission_run_and_receipt_commit_atomically(postgres_dsn: str) 
             expected_source_frontier=_frontier(postgres_dsn),
         )
     assert store.find_product_command_receipt(second_id) is None
+
+
+def test_aggregate_parent_all_members_run_and_receipt_commit_atomically(postgres_dsn: str) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    store = OnlyPostgresResearchRunStore(postgres_dsn)
+    command_id = OnlyProductCommandId("00000000-0000-4000-8000-000000000921")
+    run = _queued("00000000-0000-4000-8000-000000000931")
+    fingerprint = "a" * 64
+    admission = _aggregate_admission(command_id, fingerprint, run, ("b" * 64, "a" * 64))
+    receipt = _create_receipt(command_id, run, fingerprint)
+    _preadmit(postgres_dsn, command_id, fingerprint)
+
+    assert (
+        store.create_queued_with_novelty_admission(
+            run, receipt, admission, expected_source_frontier=_frontier(postgres_dsn)
+        )
+        == receipt
+    )
+    assert store.load_novelty_admission(command_id) == admission
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute("SELECT count(*) FROM research_novelty_admission").fetchone() == (1,)
+        assert connection.execute("SELECT count(*) FROM research_novelty_admission_subject").fetchone() == (2,)
+        assert connection.execute("SELECT count(*) FROM research_run").fetchone() == (1,)
+        assert connection.execute("SELECT count(*) FROM product_command_receipt").fetchone() == (1,)
+
+
+@pytest.mark.parametrize(
+    ("left", "right", "expected_commits"),
+    (
+        (("a" * 64, "b" * 64), ("b" * 64, "c" * 64), 1),
+        (("a" * 64, "b" * 64), ("c" * 64, "d" * 64), 2),
+    ),
+)
+def test_aggregate_partial_overlap_serializes_while_disjoint_sets_both_commit(
+    postgres_dsn: str,
+    left: tuple[str, ...],
+    right: tuple[str, ...],
+    expected_commits: int,
+) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    command_ids = (
+        OnlyProductCommandId("00000000-0000-4000-8000-000000000922"),
+        OnlyProductCommandId("00000000-0000-4000-8000-000000000923"),
+    )
+    runs = (
+        _queued("00000000-0000-4000-8000-000000000932"),
+        _queued("00000000-0000-4000-8000-000000000933"),
+    )
+    fingerprints = ("c" * 64, "d" * 64)
+    subject_sets = (left, right)
+    for command_id, fingerprint in zip(command_ids, fingerprints, strict=True):
+        _preadmit(postgres_dsn, command_id, fingerprint)
+    expected = _frontier(postgres_dsn)
+    barrier = Barrier(2)
+
+    def submit(index: int) -> str:
+        barrier.wait()
+        try:
+            OnlyPostgresResearchRunStore(postgres_dsn).create_queued_with_novelty_admission(
+                runs[index],
+                _create_receipt(command_ids[index], runs[index], fingerprints[index]),
+                _aggregate_admission(command_ids[index], fingerprints[index], runs[index], subject_sets[index]),
+                expected_source_frontier=expected,
+            )
+            return "COMMITTED"
+        except OnlyResearchRunIntegrityError as exc:
+            return str(exc)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = tuple(pool.map(submit, range(2)))
+    assert outcomes.count("COMMITTED") == expected_commits
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute("SELECT count(*) FROM research_novelty_admission").fetchone() == (expected_commits,)
+        assert connection.execute("SELECT count(*) FROM research_run").fetchone() == (expected_commits,)
+        assert connection.execute("SELECT count(*) FROM product_command_receipt").fetchone() == (expected_commits,)
 
 
 def test_stale_frontier_and_same_subject_in_flight_create_zero_second_run(postgres_dsn: str) -> None:
@@ -196,3 +299,36 @@ def test_receipt_insert_fault_rolls_back_run_and_admission(postgres_dsn: str) ->
         assert connection.execute("SELECT count(*) FROM research_novelty_admission").fetchone() == (0,)
         assert connection.execute("SELECT count(*) FROM research_run").fetchone() == (0,)
         assert connection.execute("SELECT count(*) FROM product_command_receipt").fetchone() == (0,)
+
+
+def test_member_insert_fault_rolls_back_aggregate_parent_run_and_receipt(postgres_dsn: str) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    command_id = OnlyProductCommandId("00000000-0000-4000-8000-000000000924")
+    run = _queued("00000000-0000-4000-8000-000000000934")
+    fingerprint = "e" * 64
+    _preadmit(postgres_dsn, command_id, fingerprint)
+    expected = _frontier(postgres_dsn)
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute(
+            "CREATE FUNCTION reject_second_novelty_member() RETURNS trigger LANGUAGE plpgsql AS $$ "
+            "BEGIN IF NEW.ordinal = 1 THEN RAISE EXCEPTION 'injected member failure'; END IF; RETURN NEW; END $$"
+        )
+        connection.execute(
+            "CREATE TRIGGER reject_second_novelty_member_trigger BEFORE INSERT "
+            "ON research_novelty_admission_subject FOR EACH ROW EXECUTE FUNCTION reject_second_novelty_member()"
+        )
+    with pytest.raises(OnlyResearchRunStoreUnavailableError, match="Novelty-gated Research transaction failed"):
+        OnlyPostgresResearchRunStore(postgres_dsn).create_queued_with_novelty_admission(
+            run,
+            _create_receipt(command_id, run, fingerprint),
+            _aggregate_admission(command_id, fingerprint, run, ("a" * 64, "b" * 64)),
+            expected_source_frontier=expected,
+        )
+    with psycopg.connect(postgres_dsn) as connection:
+        for table in (
+            "research_novelty_admission_subject",
+            "research_novelty_admission",
+            "research_run",
+            "product_command_receipt",
+        ):
+            assert connection.execute(f"SELECT count(*) FROM {table}").fetchone() == (0,)  # noqa: S608

@@ -94,6 +94,7 @@ def _system(*, execution=None, dataset=None, store=None, authoring=None, binding
         runtime_generations=bindings,
         command_admissions=admissions,
         runtime_generation_resolver=resolver,
+        allow_legacy_ungated=True,
     )
     return service, trap, bindings, store, admissions, dataset
 

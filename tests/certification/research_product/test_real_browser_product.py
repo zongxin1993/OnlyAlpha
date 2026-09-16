@@ -78,6 +78,7 @@ def test_real_chromium_product_vertical_survives_refresh_close_and_reopen(
     generation_root, generation = only_prepare_test_process_generation(tmp_path / "runtime-generation-authority")
     environment = {
         **os.environ,
+        "PYTHONPATH": str(Path(__file__).parents[3]),
         "ONLYALPHA_POSTGRES_DSN": postgres_dsn,
         "UV_CACHE_DIR": "/tmp/onlyalpha-uv-cache",
         "ONLYALPHA_REAL_E2E_ALLOW_WORKER": str(barrier),
@@ -86,12 +87,20 @@ def test_real_chromium_product_vertical_survives_refresh_close_and_reopen(
         "ONLYALPHA_REAL_E2E_INSTRUMENTS": ", ".join(str(item) for item in definition.instruments),
         "ONLYALPHA_REAL_E2E_START": definition.time_range.start.isoformat(),
         "ONLYALPHA_REAL_E2E_END": definition.time_range.end.isoformat(),
+        "ONLYALPHA_REAL_E2E_COMMAND_ID": "00000000-0000-4000-8000-000000008602",
+        "ONLYALPHA_REAL_E2E_PYTHON": sys.executable,
+        "ONLYALPHA_REAL_E2E_USER_DATA_ROOT": str(tmp_path),
+        "ONLYALPHA_REAL_E2E_RUNTIME_GENERATION_ROOT": str(generation_root),
     }
+    api_log_path = tmp_path / "api.log"
+    web_log_path = tmp_path / "web.log"
+    api_log = api_log_path.open("w", encoding="utf-8")
+    web_log = web_log_path.open("w", encoding="utf-8")
     api = subprocess.Popen(
         [
             sys.executable,
             "-m",
-            "onlyalpha_http_server.main",
+            "tests.runtime_generation_api_main",
             "--user-data-root",
             str(tmp_path),
             "--port",
@@ -103,16 +112,16 @@ def test_real_chromium_product_vertical_survives_refresh_close_and_reopen(
         ],
         env=environment,
         text=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=api_log,
+        stderr=subprocess.STDOUT,
     )
     web = subprocess.Popen(
         ["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", str(web_port)],
         cwd=Path("packages/onlyalpha-web-console"),
         env=environment,
         text=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=web_log,
+        stderr=subprocess.STDOUT,
     )
     worker: subprocess.Popen[str] | None = None
     worker_failure: list[str] = []
@@ -171,7 +180,14 @@ def test_real_chromium_product_vertical_survives_refresh_close_and_reopen(
             timeout=120,
             check=False,
         )
-        assert completed.returncode == 0, f"{completed.stdout}\n{completed.stderr}"
+        if completed.returncode != 0:
+            api_log.flush()
+            web_log.flush()
+        assert completed.returncode == 0, (
+            f"{completed.stdout}\n{completed.stderr}\n"
+            f"API:\n{api_log_path.read_text(encoding='utf-8')}\n"
+            f"WEB:\n{web_log_path.read_text(encoding='utf-8')}"
+        )
         starter.join(timeout=5)
         assert not starter.is_alive() and not worker_failure
         assert evidence_path.is_file()
@@ -190,4 +206,6 @@ def test_real_chromium_product_vertical_survives_refresh_close_and_reopen(
         _stop(worker)
         _stop(web)
         _stop(api)
+        web_log.close()
+        api_log.close()
         starter.join(timeout=1)

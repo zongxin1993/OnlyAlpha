@@ -45,7 +45,7 @@ from onlyalpha.research.operations.deployment import (
 from onlyalpha.research.run import OnlyResearchRunId
 from onlyalpha.runtime.defaults import only_default_engine_services
 from scripts.database import _backup, _initialize_deployment, _restore_test
-from tests.certification.research_product.support import external_definition
+from tests.certification.research_product.support import authorize_research_specification, external_definition
 from tests.research.calculation.support import snapshot
 from tests.runtime_generation_process_support import only_prepare_test_process_generation
 
@@ -66,7 +66,12 @@ def _request(url: str, *, method: str = "GET", body: object | None = None, heade
             return response.status, json.load(response)
     except HTTPError as error:
         payload = error.read()
-        return error.code, {} if not payload else json.loads(payload)
+        if not payload:
+            return error.code, {}
+        try:
+            return error.code, json.loads(payload)
+        except json.JSONDecodeError:
+            return error.code, {"raw_response": payload.decode(errors="replace")}
 
 
 def _wait_for(url: str, predicate, *, timeout: float = 30.0):  # type: ignore[no-untyped-def]
@@ -126,7 +131,7 @@ def test_external_calculation_runs_through_real_api_worker_engine_and_artifact_q
     api_command = [
         sys.executable,
         "-m",
-        "onlyalpha_http_server.main",
+        "tests.runtime_generation_api_main",
         "--user-data-root",
         str(tmp_path),
         "--port",
@@ -153,13 +158,15 @@ def test_external_calculation_runs_through_real_api_worker_engine_and_artifact_q
         "--runtime-generation-fingerprint",
         generation,
     ]
+    api_log_path = tmp_path / "api.log"
+    api_log = api_log_path.open("w", encoding="utf-8")
     api = subprocess.Popen(
         api_command,
         cwd=Path.cwd(),
         env=environment,
         text=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=api_log,
+        stderr=subprocess.STDOUT,
     )
     worker: subprocess.Popen[str] | None = None
     target_name: str | None = None
@@ -176,13 +183,22 @@ def test_external_calculation_runs_through_real_api_worker_engine_and_artifact_q
         )
         assert status == 200
         idempotency_key = "00000000-0000-4000-8000-000000008601"
+        authorize_research_specification(
+            tmp_path,
+            generation_root,
+            idempotency_key,
+            resolution["exact_specification"],
+        )
         status, submission = _request(
             f"{base}/api/v2/research/runs",
             method="POST",
             body={"specification": resolution["exact_specification"]},
             headers={"Idempotency-Key": idempotency_key},
         )
-        assert status == 202, submission
+        if status != 202:
+            _stop(api)
+        api_log.flush()
+        assert status == 202, (submission, api_log_path.read_text(encoding="utf-8"))
         queued = submission["run"]
         assert queued["state"] == "QUEUED"
         replay_status, replay = _request(
@@ -266,7 +282,7 @@ def test_external_calculation_runs_through_real_api_worker_engine_and_artifact_q
         restored_api_command = [
             sys.executable,
             "-m",
-            "onlyalpha_http_server.main",
+            "tests.runtime_generation_api_main",
             "--user-data-root",
             str(restore_root),
             "--port",
@@ -327,6 +343,7 @@ def test_external_calculation_runs_through_real_api_worker_engine_and_artifact_q
         if worker is not None:
             _stop(worker)
         _stop(api)
+        api_log.close()
         if target_name is not None and admin_dsn is not None:
             with psycopg.connect(admin_dsn, autocommit=True) as connection:
                 connection.execute(

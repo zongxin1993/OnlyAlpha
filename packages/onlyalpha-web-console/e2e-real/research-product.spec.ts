@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { execFileSync } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
 
 const required = (name: string): string => {
@@ -13,6 +14,7 @@ const evidencePath = required("ONLYALPHA_REAL_E2E_EVIDENCE");
 const instruments = required("ONLYALPHA_REAL_E2E_INSTRUMENTS");
 const start = required("ONLYALPHA_REAL_E2E_START");
 const end = required("ONLYALPHA_REAL_E2E_END");
+const commandId = required("ONLYALPHA_REAL_E2E_COMMAND_ID");
 
 interface RunDto {
     readonly state: string;
@@ -59,6 +61,9 @@ test("real Browser to PostgreSQL Worker Engine Artifact and Viewer product verti
     page,
     context
 }) => {
+    await page.addInitScript((id) => {
+        Object.defineProperty(globalThis.crypto, "randomUUID", { value: () => id });
+    }, commandId);
     await page.goto("/research/new");
     await page.getByLabel("Universe kind").selectOption("EXPLICIT_INSTRUMENT_SET");
     await page.getByLabel("Instrument IDs").fill(instruments);
@@ -131,9 +136,26 @@ test("real Browser to PostgreSQL Worker Engine Artifact and Viewer product verti
     const statisticsSelectors = statisticsSection.getByRole("combobox");
     await statisticsSelectors.nth(0).selectOption("momentum.factor_value");
     await statisticsSelectors.nth(1).selectOption("forward_return");
+    const resolutionResponse = page.waitForResponse(
+        (response) => response.url().endsWith("/api/v2/research/definitions/resolve")
+    );
     await page.getByRole("button", { name: "Resolve" }).click();
+    const resolution = await parsed<{ readonly exact_specification: unknown }>(
+        await resolutionResponse
+    );
     await expect(page.getByText("RESOLVED", { exact: true })).toBeVisible();
     await expect(page.getByText("2", { exact: true }).first()).toBeVisible();
+    execFileSync(
+        required("ONLYALPHA_REAL_E2E_PYTHON"),
+        [
+            "-m",
+            "tests.certification.research_product.authorize",
+            required("ONLYALPHA_REAL_E2E_USER_DATA_ROOT"),
+            required("ONLYALPHA_REAL_E2E_RUNTIME_GENERATION_ROOT"),
+            commandId
+        ],
+        { input: JSON.stringify(resolution.exact_specification), env: process.env }
+    );
 
     await page.getByRole("button", { name: "Run" }).click();
     await expect(page).toHaveURL(/\/research\/runs\/[0-9a-f-]+$/);
