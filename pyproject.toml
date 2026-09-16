@@ -5,6 +5,7 @@ description = "A modular, deterministic quantitative trading system skeleton"
 readme = "README.md"
 requires-python = ">=3.12.0, <3.13.0"
 dependencies = [
+    "cryptography>=50,<51",
     "pyarrow>=21.0.0",
     "psycopg[binary]>=3.2,<4",
     "pyyaml>=6.0.2",
@@ -14,6 +15,7 @@ dependencies = [
 [dependency-groups]
 compose-acceptance = [
     "hypothesis>=6.165.5",
+    "httpx2>=2.12,<3",
     "onlyalpha-test-plugin",
     "pytest>=9.0.3",
     "pytest-xdist>=3.8.0",

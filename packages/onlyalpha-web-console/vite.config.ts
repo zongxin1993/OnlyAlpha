@@ -1,9 +1,15 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
+const apiTarget = process.env.ONLYALPHA_WEB_API_TARGET ?? "http://api:8000";
+
 const proxy = {
-    "/api": { target: "http://127.0.0.1:8000", changeOrigin: false },
-    "/health": { target: "http://127.0.0.1:8000", changeOrigin: false }
+    "/api": { target: apiTarget, changeOrigin: false },
+    "/health": {
+        target: apiTarget,
+        changeOrigin: false,
+        rewrite: (path: string) => (path === "/health" ? "/health/ready" : path)
+    }
 };
 
 export default defineConfig({

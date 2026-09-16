@@ -4,9 +4,14 @@ P8.3 使用 `uv run python scripts/test_suite.py research-command` 验证 submis
 architecture boundary；`research-postgres` 串行使用真实 PostgreSQL 验证 migration、唯一约束竞争、CAS、重启与 backup/restore。
 OpenAPI/TypeScript drift 继续由 Web static gate 验证。
 
-本地 PostgreSQL 验收只通过 `deploy/compose/run-acceptance.sh` 运行。Compose 在隔离网络内向 acceptance
+本地 PostgreSQL 验收只通过唯一 `deploy/docker-compose.dev.yml` 的 `test` profile 运行。Compose 在隔离网络内向 test
 容器注入唯一正式连接配置 `ONLYALPHA_POSTGRES_DSN`，不使用第二套 test-only PostgreSQL DSN 变量，
-也不向宿主机暴露数据库端口。
+也不向宿主机暴露数据库端口：
+
+```bash
+docker compose -f deploy/docker-compose.dev.yml --profile test run --rm test \
+  python scripts/test_suite.py database-acceptance
+```
 
 ## 正式测试分层与统一入口
 

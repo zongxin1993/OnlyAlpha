@@ -29,12 +29,12 @@ def _parser() -> argparse.ArgumentParser:
     serve = subparsers.add_parser("serve")
     serve.add_argument("--durable-root", type=Path, required=True)
     serve.add_argument("--coordination-root", type=Path, required=True)
-    serve.add_argument("--product-api-url", required=True)
-    serve.add_argument("--product-api-contract", type=Path, required=True)
-    serve.add_argument("--product-token-file", type=Path, required=True)
-    serve.add_argument("--model-api-url", required=True)
-    serve.add_argument("--model-token-file", type=Path, required=True)
-    serve.add_argument("--control-token-file", type=Path, required=True)
+    serve.add_argument("--product-api-url")
+    serve.add_argument("--product-api-contract", type=Path)
+    serve.add_argument("--product-token-file", type=Path)
+    serve.add_argument("--model-api-url")
+    serve.add_argument("--model-token-file", type=Path)
+    serve.add_argument("--control-token-file", type=Path)
     serve.add_argument("--replica-count", type=int, default=1)
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8010)
@@ -47,6 +47,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise ValueError("AGENT_COMMAND_INVALID")
     if args.replica_count != 1:
         raise ValueError("AGENT_UNSUPPORTED_REPLICA_COUNT")
+    configuration = (
+        args.product_api_url,
+        args.product_api_contract,
+        args.product_token_file,
+        args.model_api_url,
+        args.model_token_file,
+        args.control_token_file,
+    )
+    if any(value is not None for value in configuration) and not all(value is not None for value in configuration):
+        raise ValueError("AGENT_CONFIGURATION_INCOMPLETE")
+    if not all(value is not None for value in configuration):
+        for root in (args.durable_root, args.coordination_root):
+            if not root.is_absolute() or root.is_symlink():
+                raise ValueError("AGENT_PRODUCTION_ROOT_INVALID")
+            root.mkdir(parents=True, exist_ok=True)
+        app = create_agent_node_app(
+            None,
+            control_bearer_token=None,
+            readiness=lambda: False,
+            configured=False,
+        )
+        uvicorn.run(app, host=args.host, port=args.port)
+        return 0
+    assert all(value is not None for value in configuration)
     product = OnlyProductApiEndpointConfigV1(
         args.product_api_url,
         _secret(args.product_token_file),

@@ -5,7 +5,7 @@ This runbook is the operator contract for the single-host/small-team Research AP
 ## Supported environment
 
 - Python 3.12.
-- PostgreSQL server major 18; production, CI, and Compose acceptance pin PostgreSQL 18.6.
+- PostgreSQL server major 18; the development Compose topology pins PostgreSQL 18.6.
 - `pg_dump` and `pg_restore` client major 18. A different major fails closed.
 - One writable, durable Research semantic-store namespace shared by the API and Worker. Local mount paths may differ, but each path must
   expose the same immutable namespace identity.
@@ -17,15 +17,11 @@ Worker presence is diagnostic only. Attempt leases remain the execution-ownershi
 
 Start in this order:
 
-1. Start the pinned PostgreSQL 18.6 service through `deploy/compose/deploy-production.sh`.
-2. Run `deploy/compose/run-operator.sh python scripts/database.py status`.
-3. If and only if status is `BEHIND` or `LEDGER_MISSING`, follow the migration procedure below.
-4. For a new empty semantic root and unbound deployment, explicitly run
-   `deploy/compose/run-operator.sh python scripts/database.py initialize-deployment --user-data-root /var/lib/onlyalpha`.
-5. Start the API through its production node deployment when that node is admitted; it must mount the same `onlyalpha-user-data` volume.
-6. Verify `GET /health/live` and `GET /health/ready`.
-7. Start the Worker: `uv run onlyalpha-research-worker --user-data-root "$USER_DATA_ROOT"`.
-8. Start the Web application if required.
+1. Start the canonical development topology: `docker compose -f deploy/docker-compose.dev.yml up -d --build --wait`.
+2. The one-shot `bootstrap` service runs the explicit PostgreSQL and ClickHouse migration authorities, binds the semantic store,
+   validates the result, and creates the local encrypted-credential root.
+3. Verify `GET http://localhost:8000/health/live` and `GET http://localhost:8000/health/ready`.
+4. API and Workers mount the same `user-data` volume; Web is available at `http://localhost:5173`.
 
 The explicit initialization command creates immutable `research/.onlyalpha-semantic-store.json`, binds that namespace ID to the
 PostgreSQL deployment, and creates the canonical semantic directories. It is idempotent only for the same binding. It refuses a
@@ -89,14 +85,14 @@ Never edit an applied migration, repair the checksum ledger, delete an unknown m
 
 Use this exact procedure:
 
-1. `deploy/compose/run-operator.sh python scripts/database.py status`
-2. `deploy/compose/run-operator.sh python scripts/database.py plan`
-3. `deploy/compose/run-operator.sh python scripts/database.py backup /var/lib/onlyalpha-backups/pre-migration.dump`
+1. `docker compose -f deploy/docker-compose.dev.yml exec api python scripts/database.py status`
+2. `docker compose -f deploy/docker-compose.dev.yml exec api python scripts/database.py plan`
+3. `docker compose -f deploy/docker-compose.dev.yml exec api python scripts/database.py backup /var/lib/onlyalpha-backups/pre-migration.dump`
 4. Create an empty isolated database whose name ends in `_restore_test`.
 5. In an isolated Compose restore environment, set `ONLYALPHA_POSTGRES_RESTORE_TEST_DSN` and run the operator's `database.py restore-test /var/lib/onlyalpha-backups/pre-migration.dump --run-id RUN_ID`.
-6. `deploy/compose/run-operator.sh python scripts/database.py migrate`
-7. `deploy/compose/run-operator.sh python scripts/database.py status`
-8. `deploy/compose/run-operator.sh python scripts/database.py validate --run-id RUN_ID`
+6. `docker compose -f deploy/docker-compose.dev.yml exec api python scripts/database.py migrate`
+7. `docker compose -f deploy/docker-compose.dev.yml exec api python scripts/database.py status`
+8. `docker compose -f deploy/docker-compose.dev.yml exec api python scripts/database.py validate --run-id RUN_ID`
 9. Verify API readiness and Worker startup.
 
 Migration uses an advisory lock and one transaction. Startup never invokes migration.

@@ -181,6 +181,24 @@ def test_private_control_requires_operational_bearer_without_leaking_it(tmp_path
     assert admitted.json()["session_disposition"] == "CREATED"
 
 
+def test_unconfigured_node_is_alive_but_rejects_readiness_and_operations(tmp_path: Path) -> None:
+    client = TestClient(
+        create_agent_node_app(
+            None,
+            control_bearer_token=None,
+            readiness=lambda: False,
+            configured=False,
+        )
+    )
+    assert client.get("/internal/v1/healthz").json() == {"status": "ALIVE"}
+    ready = client.get("/internal/v1/readyz")
+    assert ready.status_code == 503
+    assert ready.json() == {"detail": "AGENT_NOT_CONFIGURED"}
+    rejected = client.post("/internal/v1/sessions", json={"research_brief": _brief().to_dict()})
+    assert rejected.status_code == 503
+    assert rejected.json() == {"detail": "AGENT_NOT_CONFIGURED"}
+
+
 def test_private_control_admits_forward_only_brief_v2_and_preserves_budget(tmp_path: Path) -> None:
     token = "private-secret-token"
     service = _service(tmp_path)

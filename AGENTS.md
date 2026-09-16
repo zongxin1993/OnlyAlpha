@@ -447,9 +447,12 @@ bounded Independent Review 完成
 
 Coverage 是诊断与专项验证工具，不是普通任务默认 Gate，不得为了固定百分比制造低价值测试。
 
-本地 PostgreSQL 测试必须通过 `deploy/compose/run-acceptance.sh` 的 Docker Compose 验收环境执行；
+本地 PostgreSQL 测试必须通过唯一 canonical `deploy/docker-compose.dev.yml` 的 `test` profile 执行；
 不得在宿主机手工启动 PostgreSQL 或为测试引入第二套 PostgreSQL DSN 变量。Compose
 容器只使用正式连接配置 `ONLYALPHA_POSTGRES_DSN`，并必须保留 `_test` 数据库后缀安全校验。
+
+当前开发阶段，`deploy/docker-compose.dev.yml` 是 OnlyAlpha 唯一授权的 Docker Compose 拓扑。
+新增第二个 OnlyAlpha-owned Compose topology 必须先取得明确的 owner approval，并同步更新本治理规则与架构测试。
 
 ---
 

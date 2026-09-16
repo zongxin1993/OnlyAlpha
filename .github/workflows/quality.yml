@@ -317,16 +317,17 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v6
-      - name: Validate production Compose model
+      - name: Validate development Compose model
+        run: docker compose -f deploy/docker-compose.dev.yml config --quiet
+      - name: Boot the canonical development topology
+        run: docker compose -f deploy/docker-compose.dev.yml up -d --build --wait
+      - name: Run containerized real-database acceptance in the same topology
         run: >-
-          docker compose
-          --project-directory deploy/compose
-          --env-file deploy/compose/.env.production.example
-          -f deploy/compose/compose.yaml
-          -f deploy/compose/compose.production.yaml
-          config --quiet
-      - name: Run containerized real-database acceptance
-        run: deploy/compose/run-acceptance.sh
+          docker compose -f deploy/docker-compose.dev.yml --profile test run --rm test
+          python scripts/test_suite.py database-acceptance
+      - name: Remove the test stack
+        if: always()
+        run: docker compose -f deploy/docker-compose.dev.yml down -v
 
   web:
     runs-on: ubuntu-latest

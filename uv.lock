@@ -907,6 +907,7 @@ name = "onlyalpha"
 version = "0.9.9"
 source = { editable = "." }
 dependencies = [
+    { name = "cryptography" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pyarrow" },
     { name = "pyyaml" },
@@ -916,6 +917,7 @@ dependencies = [
 [package.dev-dependencies]
 compose-acceptance = [
     { name = "hypothesis" },
+    { name = "httpx2" },
     { name = "onlyalpha-test-plugin" },
     { name = "pytest" },
     { name = "pytest-split" },
@@ -968,6 +970,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 compose-acceptance = [
     { name = "hypothesis", specifier = ">=6.165.5" },
+    { name = "httpx2", specifier = ">=2.12,<3" },
     { name = "onlyalpha-test-plugin", editable = "tests/fixtures/external_plugins/onlyalpha_test_plugin" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-split", specifier = "==0.11.0" },

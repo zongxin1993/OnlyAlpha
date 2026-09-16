@@ -7,7 +7,7 @@ import pytest
 
 
 def _module():  # type: ignore[no-untyped-def]
-    path = Path(__file__).parents[2] / "deploy/compose/product_acceptance_client.py"
+    path = Path(__file__).parents[2] / "scripts/product_acceptance_client.py"
     spec = importlib.util.spec_from_file_location("onlyalpha_product_acceptance_client", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

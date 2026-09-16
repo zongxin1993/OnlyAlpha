@@ -123,7 +123,13 @@ def test_combined_real_database_authority_recovery_and_maintenance(tmp_path: Pat
     )
 
     before = fresh_client.query_json("SELECT count() count, groupBitXor(cityHash64(tuple(*))) hash FROM market_bar")
-    fresh_client.execute("ALTER TABLE market_bar MOVE PARTITION 202601 TO VOLUME 'cold'")
+    if fresh_client.config.storage_policy == "default":
+        storage = fresh_client.query_json(
+            "SELECT storage_policy FROM system.tables WHERE database = currentDatabase() AND name = 'market_bar'"
+        )
+        assert storage == ({"storage_policy": "default"},)
+    else:
+        fresh_client.execute("ALTER TABLE market_bar MOVE PARTITION 202601 TO VOLUME 'cold'")
     after = fresh_client.query_json("SELECT count() count, groupBitXor(cityHash64(tuple(*))) hash FROM market_bar")
     assert after == before
 

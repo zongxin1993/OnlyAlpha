@@ -53,7 +53,7 @@ def test_worker_and_api_construct_only_schema_verifier() -> None:
 
 def test_database_operator_is_only_production_migration_composer() -> None:
     constructor = next(item for item in CONTRACT.constructors.values() if item.capability == "C11")
-    assert constructor.approved_paths == {"scripts/database.py"}
+    assert constructor.approved_paths == {"scripts/bootstrap.py", "scripts/database.py"}
 
 
 def test_authoring_worker_has_only_exact_research_scheduler_and_worker_constructor_sites() -> None:

@@ -89,6 +89,7 @@ def test_postgres_schema_is_control_catalog_authority_not_high_volume_semantic_s
         "research_source_closed_cut",
         "research_novelty_admission",
         "research_novelty_admission_subject",
+        "product_credential",
     ]
     for forbidden in (
         "dataset_row",

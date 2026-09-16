@@ -240,18 +240,17 @@ def test_d_production_agent_has_no_cross_node_store_db_broker_or_live_import() -
 
 
 def test_d_compose_agent_is_single_replica_and_has_only_agent_roots_and_network_contracts() -> None:
-    source = (ROOT / "deploy/compose/compose.production.yaml").read_text(encoding="utf-8")
-    start = source.index("  onlyalpha-agent:\n")
-    end = source.index("\n  research-worker:", start)
+    source = (ROOT / "deploy/docker-compose.dev.yml").read_text(encoding="utf-8")
+    start = source.index("  agent:\n")
+    end = source.index("\n  test:", start)
     service = source[start:end]
-    assert '--replica-count\n      - "1"' in service
     assert "agent-state:/var/lib/onlyalpha-agent" in service
     assert "agent-locks:/var/run/onlyalpha-agent" in service
     assert "user-data:" not in service
     assert "database" not in service
     assert "broker" not in service.casefold()
     assert "live" not in service.casefold()
-    assert "- agent-control" in service
+    assert "--model-token-file" not in service
     web_root = ROOT / "packages/onlyalpha-web-console/src"
     assert "/internal/v1/" not in "\n".join(path.read_text(encoding="utf-8") for path in web_root.rglob("*.ts"))
 

@@ -70,13 +70,10 @@ def test_examples_are_not_default_production_dependencies() -> None:
     metadata = Path("pyproject.toml").read_text(encoding="utf-8")
     project_dependencies = metadata.split("[dependency-groups]", 1)[0]
     assert "onlyalpha-example" not in project_dependencies
-    dockerfile = Path("deploy/compose/Dockerfile.acceptance").read_text(encoding="utf-8")
-    operator_stage, acceptance_stage = dockerfile.split("FROM operator AS acceptance-operator", 1)
-    assert "--no-install-package onlyalpha-example-alpha" in operator_stage
-    assert "--no-install-package onlyalpha-example-strategies" in operator_stage
-    assert "uv sync --frozen --all-packages --no-dev" in acceptance_stage
-    compose_acceptance = Path("deploy/compose/compose.acceptance.yaml").read_text(encoding="utf-8")
-    assert compose_acceptance.count("target: acceptance-operator") == 2
+    dockerfile = Path("Dockerfile.dev").read_text(encoding="utf-8")
+    assert "--no-install-package onlyalpha-example-alpha" in dockerfile
+    assert "--no-install-package onlyalpha-example-strategies" in dockerfile
+    assert "FROM runtime AS test" in dockerfile
 
 
 def test_example_strategy_is_authoring_data_not_a_python_callback_authority() -> None:

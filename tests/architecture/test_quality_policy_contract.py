@@ -146,7 +146,12 @@ def test_functional_postgres_web_and_broad_lanes_remain_active() -> None:
         jobs["research-product-certification"]
     )
     assert "uv run python scripts/test_suite.py private-asset-contract" in _runs(jobs["private-asset-contract"])
-    assert "deploy/compose/run-acceptance.sh" in _runs(jobs["database-compose"])
+    assert "docker compose -f deploy/docker-compose.dev.yml config --quiet" in _runs(jobs["database-compose"])
+    assert any(
+        "docker compose -f deploy/docker-compose.dev.yml --profile test run --rm test" in command
+        and "python scripts/test_suite.py database-acceptance" in command
+        for command in _runs(jobs["database-compose"])
+    )
     assert jobs["research-product-certification"]["services"]["postgres"]["image"].startswith(  # type: ignore[index]
         "postgres:18.6@sha256:"
     )

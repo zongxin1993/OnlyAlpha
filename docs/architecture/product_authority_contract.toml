@@ -554,6 +554,9 @@ actor = "A09"
 pattern = "scripts/database.py"
 actor = "A10"
 [[actor_paths]]
+pattern = "scripts/bootstrap.py"
+actor = "A10"
+[[actor_paths]]
 pattern = "src/onlyalpha/persistence/postgres/migration.py"
 actor = "A10"
 [[actor_paths]]
@@ -910,7 +913,7 @@ approved_paths = ["src/onlyalpha/application/strategy_authority.py"]
 id = "K05"
 capability = "C11"
 symbol = "onlyalpha.persistence.postgres.migration.OnlyPostgresMigrationAuthority"
-approved_paths = ["scripts/database.py"]
+approved_paths = ["scripts/bootstrap.py", "scripts/database.py"]
 [[constructors]]
 id = "K06"
 capability = "C02"

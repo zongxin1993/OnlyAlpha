@@ -35,8 +35,6 @@ class OnlyBacktestDeploymentCatalog:
     """Operator-owned Market Product/reference resources only."""
 
     def __init__(self, documents: tuple[OnlyClusterRunConfig, ...]) -> None:
-        if not documents:
-            raise ValueError("BACKTEST_PRODUCT_CONFIGURATION_REQUIRED")
         self._documents: dict[str, OnlyBacktestProductResourceDocument] = {}
         instruments: dict[OnlyInstrumentId, OnlyInstrument] = {}
         configurations = OnlyBacktestMarketProductConfigurationRegistry()

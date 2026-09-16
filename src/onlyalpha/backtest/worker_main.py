@@ -79,7 +79,7 @@ def _service_version() -> str:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="onlyalpha-backtest-worker")
     parser.add_argument("--user-data-root", type=Path, required=True)
-    parser.add_argument("--backtest-product-config", action="append", type=Path, required=True)
+    parser.add_argument("--backtest-product-config", action="append", type=Path, default=[])
     parser.add_argument("--backtest-market-resource", action="append", type=Path, default=[])
     parser.add_argument("--poll-interval", type=float, default=1.0)
     parser.add_argument("--runtime-generation-authority-root", type=Path)

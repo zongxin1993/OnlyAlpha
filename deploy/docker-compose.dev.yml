@@ -1,0 +1,206 @@
+name: onlyalpha-dev
+
+services:
+  postgres:
+    image: postgres:18.6@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
+    environment:
+      POSTGRES_USER: onlyalpha
+      POSTGRES_PASSWORD: onlyalpha
+      POSTGRES_DB: onlyalpha
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U onlyalpha -d onlyalpha"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    networks: [database]
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.3@sha256:ad76fddfd4f1787b03cdc0045e0ccdf23a7508e1bc0301295f024389de323568
+    environment:
+      CLICKHOUSE_USER: onlyalpha
+      CLICKHOUSE_PASSWORD: onlyalpha
+      CLICKHOUSE_DB: onlyalpha
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user onlyalpha --password onlyalpha --query 'SELECT 1'"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 15s
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    networks: [database]
+
+  bootstrap:
+    build:
+      context: ..
+      dockerfile: Dockerfile.dev
+      target: runtime
+    command: ["python", "scripts/bootstrap.py"]
+    environment:
+      ONLYALPHA_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha@postgres:5432/onlyalpha
+      ONLYALPHA_CLICKHOUSE_URL: http://clickhouse:8123
+      ONLYALPHA_CLICKHOUSE_USER: onlyalpha
+      ONLYALPHA_CLICKHOUSE_PASSWORD: onlyalpha
+      ONLYALPHA_CLICKHOUSE_DATABASE: onlyalpha
+      ONLYALPHA_CLICKHOUSE_STORAGE_POLICY: default
+      ONLYALPHA_USER_DATA_ROOT: /var/lib/onlyalpha
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    volumes:
+      - user-data:/var/lib/onlyalpha
+    networks: [database]
+
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile.dev
+      target: runtime
+    command:
+      ["onlyalpha-http-server", "--user-data-root", "/var/lib/onlyalpha", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      ONLYALPHA_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha@postgres:5432/onlyalpha
+      ONLYALPHA_CLICKHOUSE_URL: http://clickhouse:8123
+      ONLYALPHA_CLICKHOUSE_USER: onlyalpha
+      ONLYALPHA_CLICKHOUSE_PASSWORD: onlyalpha
+      ONLYALPHA_CLICKHOUSE_DATABASE: onlyalpha
+      ONLYALPHA_CLICKHOUSE_STORAGE_POLICY: default
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    ports:
+      - "${ONLYALPHA_HTTP_PORT:-8000}:8000"
+    volumes:
+      - user-data:/var/lib/onlyalpha
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live')"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+    networks: [database, application]
+
+  web:
+    build:
+      context: ..
+      dockerfile: Dockerfile.dev
+      target: web
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+    environment:
+      ONLYALPHA_WEB_API_TARGET: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${ONLYALPHA_WEB_PORT:-5173}:5173"
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "fetch('http://127.0.0.1:5173/').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    networks: [application]
+
+  research-worker:
+    build:
+      context: ..
+      dockerfile: Dockerfile.dev
+      target: runtime
+    command: ["onlyalpha-research-worker", "--user-data-root", "/var/lib/onlyalpha"]
+    environment:
+      ONLYALPHA_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha@postgres:5432/onlyalpha
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    volumes:
+      - user-data:/var/lib/onlyalpha
+    networks: [database]
+
+  backtest-worker:
+    build:
+      context: ..
+      dockerfile: Dockerfile.dev
+      target: runtime
+    command: ["onlyalpha-backtest-worker", "--user-data-root", "/var/lib/onlyalpha"]
+    environment:
+      ONLYALPHA_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha@postgres:5432/onlyalpha
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    volumes:
+      - user-data:/var/lib/onlyalpha
+    networks: [database]
+
+  agent:
+    build:
+      context: ..
+      dockerfile: Dockerfile.dev
+      target: runtime
+    entrypoint: ["onlyalpha-agent"]
+    command:
+      ["serve", "--durable-root", "/var/lib/onlyalpha-agent", "--coordination-root", "/var/run/onlyalpha-agent", "--host", "0.0.0.0", "--port", "8010"]
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - agent-state:/var/lib/onlyalpha-agent
+      - agent-locks:/var/run/onlyalpha-agent
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/internal/v1/healthz')"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    networks: [application]
+
+  test:
+    profiles: [test]
+    build:
+      context: ..
+      dockerfile: Dockerfile.dev
+      target: test
+    entrypoint: ["python", "scripts/compose_test.py"]
+    command: ["python", "scripts/test_suite.py", "architecture"]
+    environment:
+      ONLYALPHA_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha@postgres:5432/onlyalpha_test
+      ONLYALPHA_TEST_CLICKHOUSE_URL: http://clickhouse:8123
+      ONLYALPHA_TEST_CLICKHOUSE_USER: onlyalpha
+      ONLYALPHA_TEST_CLICKHOUSE_PASSWORD: onlyalpha
+      ONLYALPHA_TEST_CLICKHOUSE_STORAGE_POLICY: default
+      ONLYALPHA_POSTGRES_CLIENT_BIN_DIR: /usr/lib/postgresql/18/bin
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    networks: [database]
+
+networks:
+  database:
+    name: onlyalpha-dev-database
+    internal: true
+  application:
+    name: onlyalpha-dev-application
+
+volumes:
+  postgres-data:
+    name: onlyalpha-dev-postgres-data
+  clickhouse-data:
+    name: onlyalpha-dev-clickhouse-data
+  user-data:
+    name: onlyalpha-dev-user-data
+  agent-state:
+    name: onlyalpha-dev-agent-state
+  agent-locks:
+    name: onlyalpha-dev-agent-locks

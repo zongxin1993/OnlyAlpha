@@ -136,8 +136,8 @@ test("real Browser to PostgreSQL Worker Engine Artifact and Viewer product verti
     const statisticsSelectors = statisticsSection.getByRole("combobox");
     await statisticsSelectors.nth(0).selectOption("momentum.factor_value");
     await statisticsSelectors.nth(1).selectOption("forward_return");
-    const resolutionResponse = page.waitForResponse(
-        (response) => response.url().endsWith("/api/v2/research/definitions/resolve")
+    const resolutionResponse = page.waitForResponse((response) =>
+        response.url().endsWith("/api/v2/research/definitions/resolve")
     );
     await page.getByRole("button", { name: "Resolve" }).click();
     const resolution = await parsed<{ readonly exact_specification: unknown }>(

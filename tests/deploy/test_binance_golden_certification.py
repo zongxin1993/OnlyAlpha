@@ -10,7 +10,7 @@ import pytest
 
 
 def _module():  # type: ignore[no-untyped-def]
-    path = Path(__file__).parents[2] / "deploy/compose/certify_binance_golden_source.py"
+    path = Path(__file__).parents[2] / "scripts/certify_binance_golden_source.py"
     spec = importlib.util.spec_from_file_location("onlyalpha_binance_golden_certification", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

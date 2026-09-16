@@ -42,16 +42,17 @@ class AgentSessionAdvanceResponseDto(_StrictDto):
 
 
 class AgentNodeHealthDto(_StrictDto):
-    status: Literal["ALIVE", "READY", "NOT_READY"]
+    status: Literal["ALIVE", "READY", "NOT_READY", "NOT_CONFIGURED"]
 
 
 def create_agent_node_app(
-    service: OnlyAgentNodeControlServiceV1,
+    service: OnlyAgentNodeControlServiceV1 | None,
     *,
-    control_bearer_token: str,
+    control_bearer_token: str | None,
     readiness: Callable[[], bool],
+    configured: bool = True,
 ) -> FastAPI:
-    if not control_bearer_token:
+    if configured and not control_bearer_token:
         raise ValueError("AGENT_INTERNAL_CONTROL_CREDENTIAL_INVALID")
     accepting = True
 
@@ -78,6 +79,8 @@ def create_agent_node_app(
 
     @router.get("/readyz", response_model=AgentNodeHealthDto)
     def ready() -> AgentNodeHealthDto:
+        if not configured:
+            raise HTTPException(status_code=503, detail="AGENT_NOT_CONFIGURED")
         if not accepting or not readiness():
             raise HTTPException(status_code=503, detail="AGENT_NODE_NOT_READY")
         return AgentNodeHealthDto(status="READY")
@@ -87,6 +90,8 @@ def create_agent_node_app(
         request: AgentSessionAdmissionRequestDto,
         authorization: Annotated[str | None, Header()] = None,
     ) -> AgentSessionAdmissionResponseDto:
+        if not configured or service is None:
+            raise HTTPException(status_code=503, detail="AGENT_NOT_CONFIGURED")
         authorize(authorization)
         try:
             brief = only_agent_research_brief_from_dict(request.research_brief)
@@ -106,6 +111,8 @@ def create_agent_node_app(
     def advance(
         session_fingerprint: str, authorization: Annotated[str | None, Header()] = None
     ) -> AgentSessionAdvanceResponseDto:
+        if not configured or service is None:
+            raise HTTPException(status_code=503, detail="AGENT_NOT_CONFIGURED")
         authorize(authorization)
         try:
             state = service.advance_once(session_fingerprint)

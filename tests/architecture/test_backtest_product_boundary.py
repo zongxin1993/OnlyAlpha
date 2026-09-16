@@ -64,7 +64,7 @@ def test_backtest_core_has_no_concrete_provider_or_mutable_query_path() -> None:
 
 
 def test_compose_acceptance_client_is_http_only_and_has_no_product_credentials() -> None:
-    path = ROOT / "deploy/compose/product_acceptance_client.py"
+    path = ROOT / "scripts/product_acceptance_client.py"
     imports = _imports(path)
     source = path.read_text(encoding="utf-8")
 

@@ -490,10 +490,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--backtest-product-config",
         action="append",
         type=Path,
-        required=True,
+        default=[],
         help="verified operator-owned Product configuration document; repeat for each Market Product",
     )
-    parser.add_argument("--runtime-generation-authority-root", type=Path, required=True)
+    parser.add_argument("--runtime-generation-authority-root", type=Path)
     parser.add_argument("--authoring-generation-root", type=Path)
     parser.add_argument("--agent-node-url")
     parser.add_argument("--agent-control-token-file", type=Path)
@@ -523,20 +523,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     qualification_decisions, qualification_decision_publisher = _only_compose_qualification_decision_authority(
         layout.research_root
     )
-    runtime_generations = OnlyRuntimeGenerationRegistry(args.runtime_generation_authority_root)
+    runtime_generation_root = args.runtime_generation_authority_root or layout.root / "runtime-generations"
+    runtime_generation_root.mkdir(parents=True, exist_ok=True)
+    runtime_generations = OnlyRuntimeGenerationRegistry(runtime_generation_root)
     generation_builder = OnlyRuntimeGenerationBuilder(
-        OnlyLocalImmutableArtifactStore(args.runtime_generation_authority_root / "artifacts"),
+        OnlyLocalImmutableArtifactStore(runtime_generation_root / "artifacts"),
         Path(sys.executable),
     )
     generation_host = OnlyHistoricalGenerationHostManager(
         registry=runtime_generations,
         builder=generation_builder,
-        cache_root=args.runtime_generation_authority_root / "host-cache",
+        cache_root=runtime_generation_root / "host-cache",
     )
     exact_catalog_reader = OnlyRuntimeGenerationExactCatalogDescriptorReader(
         runtime_generations,
         generation_builder,
-        args.runtime_generation_authority_root / "catalog-context-cache",
+        runtime_generation_root / "catalog-context-cache",
     )
     exact_catalog = OnlyExactCatalogContextQueryService(
         exact_catalog_reader,
