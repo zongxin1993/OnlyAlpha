@@ -110,6 +110,7 @@ from tests.research.postgres.migration_support import (
     tamper_migration,
 )
 from tests.research.specification.support import registry, specification
+from tests.support.research_run_seeder import OnlyPostgresResearchRunSeeder
 
 pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
 NOW = datetime(2026, 8, 17, 1, 2, 3, tzinfo=UTC)
@@ -257,7 +258,6 @@ def test_recovering_mutation_rejection_has_zero_postgres_side_effect(postgres_ds
             ),
         )
     )
-    store = OnlyPostgresResearchRunStore(postgres_dsn)
     run = _queued("00000000-0000-4000-8000-000000000427")
     key = OnlyProductCommandId("00000000-0000-4000-8000-000000000407")
     dispatcher = OnlyProductCommandDispatcher(
@@ -265,7 +265,9 @@ def test_recovering_mutation_rejection_has_zero_postgres_side_effect(postgres_ds
         (
             OnlyProductCommandBinding(
                 OnlyCreateResearchRun,
-                lambda _command: store.create_queued_with_receipt(run, _create_receipt(key, run)),
+                lambda _command: OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued_with_receipt(
+                    run, _create_receipt(key, run)
+                ),
             ),
         ),
     )
@@ -310,15 +312,14 @@ def test_specification_v2_postgres_round_trip_is_canonical_exact(postgres_dsn: s
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     store = OnlyPostgresResearchRunStore(postgres_dsn)
     expected = _queued_v2("00000000-0000-4000-8000-000000000098")
-    assert store.load(store.create_queued(expected).run_id) == expected
+    assert store.load(OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(expected).run_id) == expected
 
 
 def test_worker_presence_and_operational_history_use_server_time_and_remain_diagnostic_only(
     postgres_dsn: str,
 ) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    run_store = OnlyPostgresResearchRunStore(postgres_dsn)
-    queued = run_store.create_queued(_queued("00000000-0000-4000-8000-000000000099"))
+    queued = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued("00000000-0000-4000-8000-000000000099"))
     execution = OnlyPostgresResearchExecutionStore(postgres_dsn)
     worker = OnlyResearchWorkerInstanceId("00000000-0000-4000-8002-000000000099")
     claim = execution.claim_next(
@@ -356,16 +357,16 @@ def test_worker_presence_and_operational_history_use_server_time_and_remain_diag
 def test_transactional_claim_is_partitioned_by_exact_authoring_generation(postgres_dsn: str) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     runs = OnlyPostgresResearchRunStore(postgres_dsn)
-    normal = runs.create_queued(_queued("00000000-0000-4000-8000-000000000091"))
+    normal = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued("00000000-0000-4000-8000-000000000091"))
     generation_one = _authoring_provenance()
     generation_two = _authoring_provenance("5" * 40)
-    first = runs.create_queued(
+    first = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(
         replace(
             _queued("00000000-0000-4000-8000-000000000092"),
             authoring_provenance=generation_one,
         )
     )
-    second = runs.create_queued(
+    second = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(
         replace(
             _queued("00000000-0000-4000-8000-000000000093"),
             authoring_provenance=generation_two,
@@ -403,8 +404,7 @@ def test_operational_snapshot_uses_one_read_only_repeatable_read_mvcc_observatio
     postgres_dsn: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    run_store = OnlyPostgresResearchRunStore(postgres_dsn)
-    queued = run_store.create_queued(_queued("00000000-0000-4000-8000-000000000096"))
+    queued = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued("00000000-0000-4000-8000-000000000096"))
     run_read = Event()
     writer_committed = Event()
     original_connect = psycopg.connect
@@ -612,7 +612,7 @@ def test_authoring_provenance_survives_postgres_restart_read_and_rejects_corrupt
         _queued("00000000-0000-4000-8000-000000000420"),
         authoring_provenance=_authoring_provenance(),
     )
-    OnlyPostgresResearchRunStore(postgres_dsn).create_queued(expected)
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(expected)
 
     reloaded = OnlyPostgresResearchRunStore(postgres_dsn).load(expected.run_id)
     assert reloaded == expected
@@ -631,7 +631,7 @@ def test_m12_backfills_legacy_submission_exactly_and_retires_old_authority(postg
     for migration_id in (M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11):
         _copy_migrations(tmp_path, migration_id)
     OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path).migrate()
-    run = OnlyPostgresResearchRunStore(postgres_dsn).create_queued(_queued("00000000-0000-4000-8000-000000000425"))
+    run = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued("00000000-0000-4000-8000-000000000425"))
     key = OnlyProductCommandId("00000000-0000-4000-8000-000000000405")
     with psycopg.connect(postgres_dsn) as connection:
         connection.execute(
@@ -743,8 +743,8 @@ def test_migration_advisory_lock_serializes_two_operator_processes(postgres_dsn:
 def test_create_reload_same_spec_multiple_runs_and_canonical_integrity(postgres_dsn: str) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     store = OnlyPostgresResearchRunStore(postgres_dsn)
-    first = store.create_queued(_queued("00000000-0000-4000-8000-000000000011"))
-    second = store.create_queued(_queued("00000000-0000-4000-8000-000000000012"))
+    first = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued("00000000-0000-4000-8000-000000000011"))
+    second = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued("00000000-0000-4000-8000-000000000012"))
 
     reloaded = OnlyPostgresResearchRunStore(postgres_dsn).load(first.run_id)
     assert reloaded == first
@@ -769,7 +769,7 @@ def test_submission_transaction_is_atomic_concurrent_and_restart_safe(postgres_d
     def submit(run_id: str):  # type: ignore[no-untyped-def]
         barrier.wait()
         run = _queued(run_id)
-        return OnlyPostgresResearchRunStore(postgres_dsn).create_queued_with_receipt(
+        return OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued_with_receipt(
             run, _create_receipt(key, run, command_fingerprint)
         )
 
@@ -803,11 +803,12 @@ from threading import Event
 from onlyalpha.persistence.postgres import OnlyPostgresResearchRunStore
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId
 from tests.research.postgres.test_postgres_authority import _create_receipt, _queued
+from tests.support.research_run_seeder import OnlyPostgresResearchRunSeeder
 
 dsn = os.environ["ONLYALPHA_POSTGRES_DSN"]
 run = _queued("00000000-0000-4000-8000-000000000413")
 key = OnlyProductCommandId("00000000-0000-4000-8000-000000000404")
-OnlyPostgresResearchRunStore(dsn).create_queued_with_receipt(run, _create_receipt(key, run))
+OnlyPostgresResearchRunSeeder(dsn).seed_queued_with_receipt(run, _create_receipt(key, run))
 Path(sys.argv[1]).write_text("K5_CREATE_COMMITTED", encoding="utf-8")
 Event().wait()
 """
@@ -838,11 +839,11 @@ def test_submission_identity_does_not_deduplicate_specification(postgres_dsn: st
     store = OnlyPostgresResearchRunStore(postgres_dsn)
     first_run = _queued("00000000-0000-4000-8000-000000000421")
     second_run = _queued("00000000-0000-4000-8000-000000000422")
-    first = store.create_queued_with_receipt(
+    first = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued_with_receipt(
         first_run,
         _create_receipt(OnlyProductCommandId("00000000-0000-4000-8000-000000000401"), first_run),
     )
-    second = store.create_queued_with_receipt(
+    second = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued_with_receipt(
         second_run,
         _create_receipt(OnlyProductCommandId("00000000-0000-4000-8000-000000000402"), second_run),
     )
@@ -856,7 +857,7 @@ def test_submission_identity_does_not_deduplicate_specification(postgres_dsn: st
 def test_keyed_cancellation_commits_run_effect_and_receipt_atomically(postgres_dsn: str) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     store = OnlyPostgresResearchRunStore(postgres_dsn)
-    run = store.create_queued(_queued("00000000-0000-4000-8000-000000000426"))
+    run = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued("00000000-0000-4000-8000-000000000426"))
     key = OnlyProductCommandId("00000000-0000-4000-8000-000000000406")
     receipt = OnlyProductCommandReceipt(
         key,
@@ -879,12 +880,12 @@ def test_submission_and_recent_read_adapter_reject_invalid_calls_without_partial
     with pytest.raises(ValueError, match="positive"):
         store.list_recent(limit=0)
 
-    queued = store.create_queued(_queued("00000000-0000-4000-8000-000000000423"))
+    queued = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued("00000000-0000-4000-8000-000000000423"))
     running = queued.transition(OnlyResearchRunState.RUNNING, at=NOW + timedelta(seconds=1))
     with pytest.raises(OnlyResearchRunStateConflictError, match="revision-zero"):
-        store.create_queued_with_receipt(running, _create_receipt(key, running))
+        OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued_with_receipt(running, _create_receipt(key, running))
     with pytest.raises(OnlyResearchRunIntegrityError, match="identity already exists"):
-        store.create_queued_with_receipt(queued, _create_receipt(key, queued))
+        OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued_with_receipt(queued, _create_receipt(key, queued))
     assert store.find_product_command_receipt(key) is None
 
 
@@ -894,12 +895,12 @@ def test_recent_keyset_order_is_stable_and_new_rows_do_not_duplicate_existing_cu
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     store = OnlyPostgresResearchRunStore(postgres_dsn)
     for value in range(431, 436):
-        store.create_queued(_queued(f"00000000-0000-4000-8000-{value:012d}"))
+        OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued(f"00000000-0000-4000-8000-{value:012d}"))
     first = store.list_recent(limit=3)
     assert [item.run_id.value for item in first] == sorted([item.run_id.value for item in first], reverse=True)
     cursor = OnlyResearchRunPageCursor(first[-1].queued_at, first[-1].run_id)
     inserted = _queued("00000000-0000-4000-8000-000000000499")
-    store.create_queued(inserted)
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(inserted)
     second = store.list_recent(limit=3, after=cursor)
     assert inserted not in second
     assert not set(item.run_id for item in first) & set(item.run_id for item in second)
@@ -909,7 +910,7 @@ def test_two_independent_connections_cannot_lose_same_revision_update(postgres_d
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     first_store = OnlyPostgresResearchRunStore(postgres_dsn)
     second_store = OnlyPostgresResearchRunStore(postgres_dsn)
-    queued = first_store.create_queued(_queued("00000000-0000-4000-8000-000000000013"))
+    queued = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued("00000000-0000-4000-8000-000000000013"))
     claim = OnlyPostgresResearchExecutionStore(postgres_dsn).claim_next(
         worker_instance_id=OnlyResearchWorkerInstanceId("00000000-0000-4000-8000-000000000091"),
         attempt_id=OnlyResearchRunAttemptId("00000000-0000-4000-8000-000000000092"),
@@ -949,7 +950,7 @@ def test_two_independent_connections_cannot_lose_same_revision_update(postgres_d
 def test_general_run_store_cannot_bypass_attempt_fencing(postgres_dsn: str) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     run_store = OnlyPostgresResearchRunStore(postgres_dsn)
-    run_store.create_queued(_queued("00000000-0000-4000-8000-000000000023"))
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued("00000000-0000-4000-8000-000000000023"))
     claim = OnlyPostgresResearchExecutionStore(postgres_dsn).claim_next(
         worker_instance_id=OnlyResearchWorkerInstanceId("00000000-0000-4000-8000-000000000093"),
         attempt_id=OnlyResearchRunAttemptId("00000000-0000-4000-8000-000000000094"),
@@ -971,7 +972,7 @@ def test_general_run_store_cannot_bypass_attempt_fencing(postgres_dsn: str) -> N
 
 def test_database_constraints_reject_invalid_state_and_incomplete_completion(postgres_dsn: str) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    run = OnlyPostgresResearchRunStore(postgres_dsn).create_queued(_queued("00000000-0000-4000-8000-000000000014"))
+    run = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued("00000000-0000-4000-8000-000000000014"))
     with psycopg.connect(postgres_dsn) as connection, pytest.raises(psycopg.errors.CheckViolation):
         connection.execute("UPDATE research_run SET state = 'UNKNOWN' WHERE run_id = %s", (run.run_id.value,))
     with psycopg.connect(postgres_dsn) as connection, pytest.raises(psycopg.errors.CheckViolation):
@@ -1028,7 +1029,7 @@ def test_hardened_database_constraints_reject_impossible_operational_facts(
     postgres_dsn: str, assignments: str, parameters: tuple[object, ...]
 ) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    run = OnlyPostgresResearchRunStore(postgres_dsn).create_queued(_queued("00000000-0000-4000-8000-000000000022"))
+    run = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued("00000000-0000-4000-8000-000000000022"))
     with psycopg.connect(postgres_dsn) as connection, pytest.raises(psycopg.errors.CheckViolation):
         connection.execute(
             f"UPDATE research_run SET {assignments} WHERE run_id = %s",  # noqa: S608 - fixed test-owned SQL fragments
@@ -1047,18 +1048,17 @@ def test_admission_commit_restart_reload_and_reresolution_are_exact(postgres_dsn
     first_process = OnlyResearchRunAdmissionService(
         resolver=OnlyResearchSpecificationResolver(registry()),
         dataset_store=_VerifiedDatasetStore(),  # type: ignore[arg-type]
-        run_store=OnlyPostgresResearchRunStore(postgres_dsn),
         now_utc=lambda: NOW,
         run_id_factory=lambda: run_id,
     )
-    admitted = first_process.submit(specification())
+    admitted = first_process.prepare(specification())
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(admitted)
 
     second_process_store = OnlyPostgresResearchRunStore(postgres_dsn)
     reloaded = second_process_store.load(run_id)
     second_process = OnlyResearchRunAdmissionService(
         resolver=OnlyResearchSpecificationResolver(registry()),
         dataset_store=_VerifiedDatasetStore(),  # type: ignore[arg-type]
-        run_store=second_process_store,
         now_utc=lambda: NOW,
     )
     second_process.verify_resolution(reloaded)
@@ -1076,7 +1076,7 @@ def test_backup_restore_to_isolated_database_preserves_exact_run_and_source(post
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     authority.migrate()
     run_store = OnlyPostgresResearchRunStore(postgres_dsn)
-    queued = run_store.create_queued(_queued("00000000-0000-4000-8000-000000000016"))
+    queued = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued("00000000-0000-4000-8000-000000000016"))
     claim = OnlyPostgresResearchExecutionStore(postgres_dsn).claim_next(
         worker_instance_id=OnlyResearchWorkerInstanceId("00000000-0000-4000-8002-000000000016"),
         attempt_id=OnlyResearchRunAttemptId("00000000-0000-4000-8001-000000000016"),
@@ -1191,8 +1191,8 @@ def test_operational_statement_timeout_is_repository_owned_and_effective(postgre
         )
     started = time.monotonic()
     try:
-        with pytest.raises(OnlyResearchRunStoreUnavailableError, match="Research Run create transaction failed"):
-            OnlyPostgresResearchRunStore(postgres_dsn, options).create_queued(
+        with pytest.raises(OnlyResearchRunStoreUnavailableError, match="Research Run seed transaction failed"):
+            OnlyPostgresResearchRunSeeder(postgres_dsn, options).seed_queued(
                 _queued("00000000-0000-4000-8000-000000000051")
             )
         assert time.monotonic() - started < 1.5
@@ -1266,7 +1266,7 @@ def test_worker_process_signal_marks_draining_and_uses_application_exit_contract
 def test_api_process_restart_reads_same_postgres_run_authority(postgres_dsn: str, tmp_path: Path) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     _initialize_deployment(postgres_dsn, tmp_path)
-    run = OnlyPostgresResearchRunStore(postgres_dsn).create_queued(_queued("00000000-0000-4000-8000-000000000017"))
+    run = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued("00000000-0000-4000-8000-000000000017"))
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
@@ -1320,7 +1320,7 @@ def test_api_process_restart_reads_same_postgres_run_authority(postgres_dsn: str
 
 def test_worker_process_killed_after_claim_expires_to_fresh_attempt_and_is_fenced(postgres_dsn: str) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    run = OnlyPostgresResearchRunStore(postgres_dsn).create_queued(_queued("00000000-0000-4000-8000-000000000018"))
+    run = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued("00000000-0000-4000-8000-000000000018"))
     old_worker = OnlyResearchWorkerInstanceId("00000000-0000-4000-8002-000000000018")
     old_attempt = OnlyResearchRunAttemptId("00000000-0000-4000-8001-000000000018")
     script = (

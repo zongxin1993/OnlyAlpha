@@ -165,14 +165,10 @@ class _Store:
         self.receipts: dict[OnlyProductCommandId, OnlyProductCommandReceipt] = {}
         self.conflicts = 0
 
-    def create_queued(self, run: OnlyResearchRun) -> OnlyResearchRun:
-        self.runs[run.run_id] = run
-        return run
-
     def find_product_command_receipt(self, key: OnlyProductCommandId) -> OnlyProductCommandReceipt | None:
         return self.receipts.get(key)
 
-    def create_queued_with_receipt(
+    def seed_queued_with_receipt(
         self, run: OnlyResearchRun, receipt: OnlyProductCommandReceipt
     ) -> OnlyProductCommandReceipt:
         existing = self.receipts.get(receipt.command_id)
@@ -253,7 +249,6 @@ def _service(
     admission = OnlyResearchRunAdmissionService(
         resolver=OnlyResearchSpecificationResolver(registry()),
         dataset_store=dataset,  # type: ignore[arg-type]
-        run_store=store,  # type: ignore[arg-type]
         now_utc=lambda: next(clock),
         run_id_factory=lambda: OnlyResearchRunId(next(run_ids)),
         authoring_generation_resolver=_AuthoringGenerations(),
@@ -266,6 +261,7 @@ def _service(
         command_admissions=command_admissions or _ProductAdmissions(),  # type: ignore[arg-type]
         runtime_generation_resolver=_RuntimeAdmissionResolver(),
         allow_legacy_ungated=True,
+        historical_seeder=store,  # type: ignore[arg-type]
     )  # type: ignore[arg-type]
 
 
@@ -482,7 +478,7 @@ def test_derived_post_create_winning_receipt_must_reference_canonical_run(tmp_pa
                 return None
             return super().find_product_command_receipt(key)
 
-        def create_queued_with_receipt(self, run, receipt):  # type: ignore[no-untyped-def]
+        def seed_queued_with_receipt(self, run, receipt):  # type: ignore[no-untyped-def]
             del run, receipt
             return self.receipts[derived_key]
 
@@ -548,11 +544,11 @@ def test_derived_binding_crash_before_run_commit_recovers_same_run_without_orpha
     class CrashOnceStore(_Store):
         crash = True
 
-        def create_queued_with_receipt(self, run, receipt):  # type: ignore[no-untyped-def]
+        def seed_queued_with_receipt(self, run, receipt):  # type: ignore[no-untyped-def]
             if self.crash:
                 self.crash = False
                 raise RuntimeError("injected crash after Runtime binding")
-            return super().create_queued_with_receipt(run, receipt)
+            return super().seed_queued_with_receipt(run, receipt)
 
     authority = OnlyRuntimeGenerationRegistry(tmp_path / "runtime-authority")
     generation = only_ready_test_generation(authority, "a", NOW)
@@ -594,7 +590,7 @@ def test_derived_binding_crash_before_run_commit_recovers_same_run_without_orpha
 
 def test_derived_retry_conflicts_on_different_parent_even_when_generation_matches(tmp_path) -> None:
     class AlwaysCrashStore(_Store):
-        def create_queued_with_receipt(self, run, receipt):  # type: ignore[no-untyped-def]
+        def seed_queued_with_receipt(self, run, receipt):  # type: ignore[no-untyped-def]
             raise RuntimeError("injected crash after Runtime binding")
 
     authority = OnlyRuntimeGenerationRegistry(tmp_path / "runtime-authority")
@@ -668,11 +664,11 @@ def test_new_derived_work_requires_active_parent_but_bound_recovery_does_not(tmp
     class CrashOnceStore(_Store):
         crash = True
 
-        def create_queued_with_receipt(self, run, receipt):  # type: ignore[no-untyped-def]
+        def seed_queued_with_receipt(self, run, receipt):  # type: ignore[no-untyped-def]
             if self.crash:
                 self.crash = False
                 raise RuntimeError("injected crash after Runtime binding")
-            return super().create_queued_with_receipt(run, receipt)
+            return super().seed_queued_with_receipt(run, receipt)
 
     authority = OnlyRuntimeGenerationRegistry(tmp_path / "runtime-authority")
     generation = only_ready_test_generation(authority, "a", NOW)
@@ -707,10 +703,10 @@ def test_concurrent_same_derived_command_converges_on_one_run_and_receipt(tmp_pa
     commit_lock = Lock()
 
     class RacingStore(_Store):
-        def create_queued_with_receipt(self, run, receipt):  # type: ignore[no-untyped-def]
+        def seed_queued_with_receipt(self, run, receipt):  # type: ignore[no-untyped-def]
             gate.wait()
             with commit_lock:
-                return super().create_queued_with_receipt(run, receipt)
+                return super().seed_queued_with_receipt(run, receipt)
 
     authority = OnlyRuntimeGenerationRegistry(tmp_path / "runtime-authority")
     generation = only_ready_test_generation(authority, "a", NOW)
@@ -834,7 +830,7 @@ def test_command_constructor_record_and_cursor_evidence_fail_closed() -> None:
 
 def test_submission_detects_conflicting_record_created_by_store() -> None:
     class ConflictingStore(_Store):
-        def create_queued_with_receipt(self, run, receipt):  # type: ignore[no-untyped-def]
+        def seed_queued_with_receipt(self, run, receipt):  # type: ignore[no-untyped-def]
             self.runs[run.run_id] = run
             return OnlyProductCommandReceipt(
                 receipt.command_id,

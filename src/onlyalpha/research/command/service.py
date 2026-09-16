@@ -63,7 +63,7 @@ from .novelty_admission import (
     OnlyResearchNoveltyAdmissionV2,
     only_novelty_same_subject_guard_key,
 )
-from .store import _OnlyVerifiedNoveltyAdmissionStore
+from .store import _OnlyHistoricalResearchRunSeeder, _OnlyVerifiedNoveltyAdmissionStore
 
 if TYPE_CHECKING:
     from onlyalpha.research.memory.production import OnlyExperimentMemoryProductionBuilder
@@ -103,6 +103,7 @@ class OnlyResearchCommandService:
         memory_revisions: OnlyExperimentMemoryRevisionStore | None = None,
         cancellation_cas_attempts: int = 3,
         allow_legacy_ungated: bool = False,
+        historical_seeder: _OnlyHistoricalResearchRunSeeder | None = None,
     ) -> None:
         if cancellation_cas_attempts < 1:
             raise ValueError("cancellation_cas_attempts must be positive")
@@ -121,7 +122,10 @@ class OnlyResearchCommandService:
             item is not None for item in (novelty_decisions, memory_builder, memory_revisions)
         ):
             raise ValueError("legacy ungated mode cannot be combined with Read-to-Act authorities")
+        if allow_legacy_ungated != (historical_seeder is not None):
+            raise ValueError("legacy ungated mode requires an explicit historical seeder")
         self._allow_legacy_ungated = allow_legacy_ungated
+        self._historical_seeder = historical_seeder
 
     def submit_research_run(
         self,
@@ -640,7 +644,8 @@ class OnlyResearchCommandService:
                     runtime_work_id=prepared.run_id.value,
                     authoring_provenance=provenance,
                 )
-            record = self._store.create_queued_with_receipt(prepared, requested)
+            assert self._historical_seeder is not None
+            record = self._historical_seeder.seed_queued_with_receipt(prepared, requested)
         except Exception:
             if parent_runtime_work_id is None:
                 self._runtime_generations.release_work(

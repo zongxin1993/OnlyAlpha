@@ -15,7 +15,6 @@ from onlyalpha.persistence.postgres import (
     OnlyPostgresResearchDeploymentStore,
 )
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
-from onlyalpha.persistence.postgres.research_run_store import OnlyPostgresResearchRunStore
 from onlyalpha.persistence.postgres.strategy_product_store import OnlyPostgresStrategyProductStore
 from onlyalpha.persistence.postgres.strategy_store import OnlyPostgresStrategyStore
 from onlyalpha.research.operations.deployment import (
@@ -42,6 +41,7 @@ from onlyalpha.strategy.qualification import (
 )
 from tests.research.postgres.migration_support import copy_migrations_through
 from tests.research.postgres.test_postgres_authority import _queued
+from tests.support.research_run_seeder import OnlyPostgresResearchRunSeeder
 
 pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
 NOW = datetime(2026, 8, 24, tzinfo=UTC)
@@ -103,7 +103,7 @@ def test_freeze_workflow_admission_is_distinct_and_exactly_bound_to_global_admis
     postgres_dsn: str,
 ) -> None:
     store = _product_store(postgres_dsn)
-    run = OnlyPostgresResearchRunStore(postgres_dsn).create_queued(_queued("00000000-0000-4000-8000-000000000941"))
+    run = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued("00000000-0000-4000-8000-000000000941"))
     command_id = OnlyProductCommandId("00000000-0000-4000-8000-000000000942")
     request = OnlyStrategyFreezeRequest(run.run_id, "a" * 64, "operator")
     prepared = store.prepare_freeze_admission(command_id, "b" * 64, request, NOW)

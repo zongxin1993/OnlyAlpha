@@ -441,7 +441,7 @@ def test_installed_l3_l4_resolve_research_evidence_freeze_and_revision(tmp_path:
                 del key
                 return self.receipt
 
-            def create_queued_with_receipt(self, candidate, receipt):  # type: ignore[no-untyped-def]
+            def seed_queued_with_receipt(self, candidate, receipt):  # type: ignore[no-untyped-def]
                 self.persisted = candidate
                 self.receipt = receipt
                 return receipt
@@ -457,6 +457,7 @@ def test_installed_l3_l4_resolve_research_evidence_freeze_and_revision(tmp_path:
             now_utc=lambda: NOW,
             runtime_generations=runtime_generations,
             allow_legacy_ungated=True,
+            historical_seeder=commands,  # type: ignore[arg-type]
         ).submit_research_run(
             OnlyProductCommandId("00000000-0000-4000-8000-000000003001"),
             queued.specification,

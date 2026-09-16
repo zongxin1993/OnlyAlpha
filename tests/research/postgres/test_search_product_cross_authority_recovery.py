@@ -77,6 +77,7 @@ from tests.research.specification.support import registry as research_registry
 from tests.research.specification.support import specification
 from tests.research.sweep.support import definition
 from tests.runtime_generation_support import OnlyTestRuntimeGenerationAuthority
+from tests.support.research_run_seeder import OnlyPostgresResearchRunSeeder
 
 from .test_parameter_search_recovery import (
     _PRIMARY,
@@ -119,25 +120,25 @@ def test_derived_binding_crash_before_real_postgres_commit_recovers_exact_run(
         def find_product_command_receipt(self, command_id):  # type: ignore[no-untyped-def]
             return durable_store.find_product_command_receipt(command_id)
 
-        def create_queued_with_receipt(self, run, receipt):  # type: ignore[no-untyped-def]
+        def seed_queued_with_receipt(self, run, receipt):  # type: ignore[no-untyped-def]
             del run, receipt
             raise RuntimeError("injected crash before Research PostgreSQL commit")
 
     admission = OnlyResearchRunAdmissionService(
         resolver=OnlyResearchSpecificationResolver(research_registry()),
         dataset_store=datasets,
-        run_store=durable_store,
         now_utc=lambda: _NOW,
     )
     command_id = OnlyProductCommandId("00000000-0000-4000-8000-0000000000e1")
     crashing = OnlyResearchCommandService(
         admission=admission,
-        store=_CrashBeforePostgresCommit(),  # type: ignore[arg-type]
+        store=durable_store,
         now_utc=lambda: _NOW,
         runtime_generations=runtime_generations,
         command_admissions=product_authority,
         runtime_generation_resolver=_ExactRuntimeAdmissionResolver(runtime_generations),
         allow_legacy_ungated=True,
+        historical_seeder=_CrashBeforePostgresCommit(),  # type: ignore[arg-type]
     )
     with pytest.raises(RuntimeError, match="injected crash"):
         crashing.submit_research_run(
@@ -161,6 +162,7 @@ def test_derived_binding_crash_before_real_postgres_commit_recovers_exact_run(
         command_admissions=OnlyPostgresProductCommandAuthority(postgres_dsn),
         runtime_generation_resolver=_ExactRuntimeAdmissionResolver(runtime_generations),
         allow_legacy_ungated=True,
+        historical_seeder=OnlyPostgresResearchRunSeeder(postgres_dsn),
     )
     recovered = restarted.submit_research_run(
         command_id,
@@ -194,12 +196,11 @@ def test_real_postgres_wrong_derived_receipt_identity_fails_closed_without_repai
     admission = OnlyResearchRunAdmissionService(
         resolver=OnlyResearchSpecificationResolver(research_registry()),
         dataset_store=datasets,
-        run_store=durable_store,
         now_utc=lambda: _NOW,
     )
     wrong_run_id = OnlyResearchRunId("00000000-0000-4000-8000-0000000000e2")
     wrong_run = admission.prepare(exact_specification, exact_run_id=wrong_run_id)
-    durable_store.create_queued(wrong_run)
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(wrong_run)
     runtime_generations.bind_derived_work(
         parent,
         wrong_run_id.value,
@@ -233,6 +234,7 @@ def test_real_postgres_wrong_derived_receipt_identity_fails_closed_without_repai
         runtime_generations=runtime_generations,
         command_admissions=product_authority,
         allow_legacy_ungated=True,
+        historical_seeder=OnlyPostgresResearchRunSeeder(postgres_dsn),
     )
     with pytest.raises(OnlyResearchSubmissionConflictError):
         service.submit_research_run(

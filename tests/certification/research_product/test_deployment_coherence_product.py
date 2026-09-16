@@ -17,10 +17,8 @@ import pytest
 
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.output import OnlyUserDataLayout
-from onlyalpha.persistence.postgres import (
-    OnlyPostgresResearchRunStore,
-)
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
+from onlyalpha.persistence.postgres.research_run_store import OnlyPostgresResearchRunStore
 from onlyalpha.research.operations.deployment import (
     SEMANTIC_STORE_IDENTITY_FILE,
     OnlyResearchSemanticStoreIdentity,
@@ -33,6 +31,7 @@ from onlyalpha.research.run import (
 from onlyalpha.research.specification import OnlyResearchSpecificationResolver
 from scripts.database import _initialize_deployment
 from tests.research.specification.support import registry, specification
+from tests.support.research_run_seeder import OnlyPostgresResearchRunSeeder
 
 pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
 
@@ -164,7 +163,7 @@ def test_incoherent_worker_refuses_startup_and_cannot_claim(
 ) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     _initialize_deployment(postgres_dsn, tmp_path / "correct")
-    OnlyPostgresResearchRunStore(postgres_dsn).create_queued(_queued())
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued())
     wrong = tmp_path / "wrong"
     if local_state == "MISMATCH":
         OnlyResearchSemanticStoreIdentity(OnlyUserDataLayout(wrong).research_root).initialize()

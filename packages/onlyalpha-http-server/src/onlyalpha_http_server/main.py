@@ -625,7 +625,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         admission = OnlyResearchRunAdmissionService(
             resolver=resolver,
             dataset_store=dataset_store,
-            run_store=run_store,
             now_utc=only_system_utc_now,
         )
         readiness = OnlyKernelResearchReadinessProjection(kernel, verification.evidence)

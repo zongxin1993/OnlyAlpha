@@ -23,7 +23,6 @@ from .errors import OnlyResearchRunAdmissionError
 from .evidence import OnlyResearchAdmissionResolutionEvidence, only_research_admission_resolution_fingerprint
 from .generation import OnlyResearchAuthoringGenerationResolver
 from .model import OnlyResearchRun, OnlyResearchRunId
-from .store import OnlyResearchRunStore
 
 
 class OnlyResearchRunAdmissionService:
@@ -32,22 +31,15 @@ class OnlyResearchRunAdmissionService:
         *,
         resolver: OnlyResearchSpecificationResolver,
         dataset_store: OnlyResearchDatasetSnapshotStore,
-        run_store: OnlyResearchRunStore,
         now_utc: Callable[[], datetime],
         run_id_factory: Callable[[], OnlyResearchRunId] = OnlyResearchRunId.new,
         authoring_generation_resolver: OnlyResearchAuthoringGenerationResolver | None = None,
     ) -> None:
         self._resolver = resolver
         self._dataset_store = dataset_store
-        self._run_store = run_store
         self._now_utc = now_utc
         self._run_id_factory = run_id_factory
         self._authoring_generation_resolver = authoring_generation_resolver
-
-    def submit(
-        self, specification: OnlyResearchSpecification, provenance: OnlyResearchAuthoringProvenance | None = None
-    ) -> OnlyResearchRun:
-        return self._run_store.create_queued(self.prepare(specification, provenance=provenance))
 
     def prepare(
         self,

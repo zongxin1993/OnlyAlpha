@@ -105,14 +105,10 @@ class _Store:
         self.runs: dict[OnlyResearchRunId, OnlyResearchRun] = {}
         self.receipts: dict[OnlyProductCommandId, OnlyProductCommandReceipt] = {}
 
-    def create_queued(self, run: OnlyResearchRun) -> OnlyResearchRun:
-        self.runs[run.run_id] = run
-        return run
-
     def find_product_command_receipt(self, key: OnlyProductCommandId) -> OnlyProductCommandReceipt | None:
         return self.receipts.get(key)
 
-    def create_queued_with_receipt(
+    def seed_queued_with_receipt(
         self, run: OnlyResearchRun, receipt: OnlyProductCommandReceipt
     ) -> OnlyProductCommandReceipt:
         existing = self.receipts.get(receipt.command_id)
@@ -214,7 +210,6 @@ def _client(readiness_probe=None, *, authoring_generations=True):  # type: ignor
     admission = OnlyResearchRunAdmissionService(
         resolver=OnlyResearchSpecificationResolver(registry()),
         dataset_store=dataset,  # type: ignore[arg-type]
-        run_store=store,  # type: ignore[arg-type]
         now_utc=lambda: NOW,
         run_id_factory=lambda: OnlyResearchRunId("00000000-0000-4000-8000-000000000510"),
         authoring_generation_resolver=_AuthoringGenerations() if authoring_generations else None,
@@ -225,6 +220,7 @@ def _client(readiness_probe=None, *, authoring_generations=True):  # type: ignor
         now_utc=lambda: NOW,
         runtime_generations=_RuntimeGenerations(),  # type: ignore[arg-type]
         allow_legacy_ungated=True,
+        historical_seeder=store,  # type: ignore[arg-type]
     )  # type: ignore[arg-type]
     query = OnlyResearchRunQueryService(store)  # type: ignore[arg-type]
     calculations = registry()

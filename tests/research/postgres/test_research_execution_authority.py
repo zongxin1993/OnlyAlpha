@@ -60,6 +60,7 @@ from tests.research.postgres.migration_support import current_migrations
 from tests.research.specification.support import registry, specification
 from tests.runtime.research.support import workload_case
 from tests.runtime_generation_support import OnlyTestRuntimeGenerationAuthority
+from tests.support.research_run_seeder import OnlyPostgresResearchRunSeeder
 
 pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
 NOW = datetime(2026, 8, 18, 1, 2, 3, tzinfo=UTC)
@@ -201,7 +202,7 @@ def test_existing_m1_m2_database_plans_exact_forward_suffix_and_preserves_run(
 
 def test_two_workers_claim_one_run_with_one_atomic_active_attempt(postgres_dsn: str) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    OnlyPostgresResearchRunStore(postgres_dsn).create_queued(_queued(311))
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued(311))
     barrier = Barrier(2)
 
     def compete(worker: OnlyResearchWorkerInstanceId, ordinal: int):
@@ -225,9 +226,8 @@ def test_two_workers_claim_one_run_with_one_atomic_active_attempt(postgres_dsn: 
 
 def test_claim_order_is_queued_at_then_run_id_and_workers_do_not_duplicate(postgres_dsn: str) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    run_store = OnlyPostgresResearchRunStore(postgres_dsn)
     for ordinal in (314, 312, 313):
-        run_store.create_queued(_queued(ordinal))
+        OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued(ordinal))
     store = OnlyPostgresResearchExecutionStore(postgres_dsn)
     claims = tuple(_claim(store, WORKER_1, ordinal) for ordinal in (11, 12, 13))
     assert [item.attempt.run_id.value for item in claims if item is not None] == [
@@ -239,9 +239,8 @@ def test_claim_order_is_queued_at_then_run_id_and_workers_do_not_duplicate(postg
 
 def test_four_workers_concurrently_claim_ten_runs_without_authoritative_duplicates(postgres_dsn: str) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    run_store = OnlyPostgresResearchRunStore(postgres_dsn)
     for ordinal in range(330, 340):
-        run_store.create_queued(_queued(ordinal))
+        OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued(ordinal))
     workers = tuple(OnlyResearchWorkerInstanceId(f"00000000-0000-4000-8002-{ordinal:012d}") for ordinal in range(1, 5))
 
     def claim(ordinal: int):
@@ -263,7 +262,7 @@ def test_four_workers_concurrently_claim_ten_runs_without_authoritative_duplicat
 
 def test_active_attempt_claim_collision_retries_after_transaction_rollback(postgres_dsn: str, monkeypatch) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    OnlyPostgresResearchRunStore(postgres_dsn).create_queued(_queued(340))
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued(340))
     original = OnlyPostgresResearchExecutionStore._claim_next_once
     calls = 0
 
@@ -292,8 +291,7 @@ def test_active_attempt_claim_collision_retries_after_transaction_rollback(postg
 
 def test_heartbeat_expiry_reclaim_and_stale_worker_fencing(postgres_dsn: str) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    run_store = OnlyPostgresResearchRunStore(postgres_dsn)
-    run_store.create_queued(_queued(315))
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued(315))
     store = OnlyPostgresResearchExecutionStore(postgres_dsn)
     first = _claim(store, WORKER_1, 21)
     assert first is not None
@@ -352,7 +350,7 @@ def test_heartbeat_expiry_reclaim_and_stale_worker_fencing(postgres_dsn: str) ->
 def test_heartbeat_statement_timeout_is_ownership_uncertainty_without_finalization(postgres_dsn: str) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     run_store = OnlyPostgresResearchRunStore(postgres_dsn)
-    run_store.create_queued(_queued(350))
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued(350))
     authoritative_store = OnlyPostgresResearchExecutionStore(postgres_dsn)
     claim = _claim(authoritative_store, WORKER_1, 91)
     assert claim is not None
@@ -394,7 +392,7 @@ def test_real_postgres_outage_loses_worker_ownership_before_finalization_and_rec
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     queued, resolution = _queued_workload(tmp_path, 325)
     run_store = OnlyPostgresResearchRunStore(postgres_dsn)
-    run_store.create_queued(queued)
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(queued)
     store = OnlyPostgresResearchExecutionStore(postgres_dsn)
     claim = store.claim_next(
         worker_instance_id=WORKER_1,
@@ -474,7 +472,7 @@ def test_real_postgres_outage_loses_worker_ownership_before_finalization_and_rec
 def test_retry_is_attempt_local_bounded_and_terminal_run_never_reopens(postgres_dsn: str) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     run_store = OnlyPostgresResearchRunStore(postgres_dsn)
-    run_store.create_queued(_queued(316))
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued(316))
     store = OnlyPostgresResearchExecutionStore(postgres_dsn)
     failure = OnlyResearchRunFailure(
         OnlyResearchRunFailurePhase.OPERATIONAL, "UNEXPECTED_WORKER_FAILURE", "worker died"
@@ -513,12 +511,12 @@ def test_cancellation_and_completion_race_preserve_committed_semantics(postgres_
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     run_store = OnlyPostgresResearchRunStore(postgres_dsn)
     store = OnlyPostgresResearchExecutionStore(postgres_dsn)
-    queued = run_store.create_queued(_queued(317))
+    queued = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued(317))
     direct = queued.transition(OnlyResearchRunState.CANCELLED, at=NOW + timedelta(seconds=1))
     run_store.commit_transition(queued, direct)
     assert _claim(store, WORKER_1, 41) is None
 
-    run_store.create_queued(_queued(318))
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued(318))
     claim = _claim(store, WORKER_1, 42)
     assert claim is not None
     running = run_store.load(claim.attempt.run_id)
@@ -537,7 +535,7 @@ def test_cancellation_and_completion_race_preserve_committed_semantics(postgres_
 
 def test_database_constraints_reject_duplicate_or_invalid_attempt_facts(postgres_dsn: str) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    OnlyPostgresResearchRunStore(postgres_dsn).create_queued(_queued(319))
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued(319))
     store = OnlyPostgresResearchExecutionStore(postgres_dsn)
     claim = _claim(store, WORKER_1, 51)
     assert claim is not None
@@ -601,7 +599,7 @@ def test_artifact_commit_crash_reenters_real_engine_and_completes_with_new_servi
         queued_at=NOW,
     )
     run_store = OnlyPostgresResearchRunStore(postgres_dsn)
-    run_store.create_queued(queued)
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(queued)
     first_store = OnlyPostgresResearchExecutionStore(postgres_dsn)
     first = _claim(first_store, WORKER_1, 61)
     assert first is not None
@@ -657,7 +655,7 @@ def test_result_commit_crash_reenters_real_engine_without_rewriting_result(
         admission_resolution_fingerprint=only_research_admission_resolution_fingerprint(resolution),
         queued_at=NOW,
     )
-    OnlyPostgresResearchRunStore(postgres_dsn).create_queued(queued)
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(queued)
     first_store = OnlyPostgresResearchExecutionStore(postgres_dsn)
     first = _claim(first_store, WORKER_1, 71)
     assert first is not None
@@ -720,7 +718,7 @@ def test_result_commit_crash_reenters_real_engine_without_rewriting_result(
 def test_expired_cancel_requested_attempt_waits_for_semantic_reconciliation(postgres_dsn: str) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     run_store = OnlyPostgresResearchRunStore(postgres_dsn)
-    run_store.create_queued(_queued(322))
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued(322))
     store = OnlyPostgresResearchExecutionStore(postgres_dsn)
     claim = _claim(store, WORKER_1, 81)
     assert claim is not None
@@ -744,7 +742,7 @@ def test_cancel_crash_after_semantic_commit_reconciles_completed_on_last_attempt
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     queued, resolution = _queued_workload(tmp_path, 323)
     run_store = OnlyPostgresResearchRunStore(postgres_dsn)
-    run_store.create_queued(queued)
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(queued)
     store = OnlyPostgresResearchExecutionStore(postgres_dsn)
     claim = _claim(store, WORKER_1, 82, max_attempts=1)
     assert claim is not None and claim.attempt.attempt_number == 1
@@ -795,7 +793,7 @@ def test_cancel_crash_after_semantic_commit_reconciles_completed_on_last_attempt
 def test_cancel_crash_without_complete_semantics_reconciles_cancelled(postgres_dsn: str, tmp_path: Path) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     run_store = OnlyPostgresResearchRunStore(postgres_dsn)
-    run_store.create_queued(_queued(324))
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued(324))
     store = OnlyPostgresResearchExecutionStore(postgres_dsn)
     claim = _claim(store, WORKER_1, 84)
     assert claim is not None
@@ -822,7 +820,7 @@ def test_partial_result_is_preserved_but_does_not_force_artifact_work(
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     queued, resolution = _queued_workload(tmp_path, 325)
     run_store = OnlyPostgresResearchRunStore(postgres_dsn)
-    run_store.create_queued(queued)
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(queued)
     store = OnlyPostgresResearchExecutionStore(postgres_dsn)
     claim = _claim(store, WORKER_1, 85)
     assert claim is not None
@@ -863,7 +861,7 @@ def test_corrupt_artifact_fails_closed_during_cancellation_recovery(postgres_dsn
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     queued, resolution = _queued_workload(tmp_path, 326)
     run_store = OnlyPostgresResearchRunStore(postgres_dsn)
-    run_store.create_queued(queued)
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(queued)
     store = OnlyPostgresResearchExecutionStore(postgres_dsn)
     claim = _claim(store, WORKER_1, 86)
     assert claim is not None
@@ -895,7 +893,7 @@ def test_corrupt_artifact_fails_closed_during_cancellation_recovery(postgres_dsn
 def test_concurrent_cancellation_reconciliation_has_one_terminal_cas_winner(postgres_dsn: str) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     run_store = OnlyPostgresResearchRunStore(postgres_dsn)
-    run_store.create_queued(_queued(327))
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued(327))
     store = OnlyPostgresResearchExecutionStore(postgres_dsn)
     claim = _claim(store, WORKER_1, 87)
     assert claim is not None

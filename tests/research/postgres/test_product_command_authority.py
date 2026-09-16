@@ -25,7 +25,6 @@ from onlyalpha.backtest.errors import OnlyBacktestError
 from onlyalpha.persistence.postgres import OnlyPostgresProductCommandAuthority
 from onlyalpha.persistence.postgres.backtest_store import OnlyPostgresBacktestStore
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
-from onlyalpha.persistence.postgres.research_run_store import OnlyPostgresResearchRunStore
 from onlyalpha.research.run.errors import OnlyResearchRunStoreUnavailableError
 from tests.research.postgres.migration_support import copy_migrations_through
 from tests.research.postgres.test_backtest_execution_authority import (
@@ -35,6 +34,7 @@ from tests.research.postgres.test_backtest_execution_authority import (
     _receipt as _backtest_receipt,
 )
 from tests.research.postgres.test_postgres_authority import _create_receipt, _queued
+from tests.support.research_run_seeder import OnlyPostgresResearchRunSeeder
 
 pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
 
@@ -175,7 +175,7 @@ def test_research_admission_effect_receipt_transaction_rolls_back_on_injected_ef
             BEFORE INSERT ON research_run FOR EACH ROW EXECUTE FUNCTION reject_research_run_insert()"""
         )
     with pytest.raises(OnlyResearchRunStoreUnavailableError, match="transaction failed"):
-        OnlyPostgresResearchRunStore(postgres_dsn).create_queued_with_receipt(
+        OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued_with_receipt(
             run,
             _create_receipt(command_id, run, "9" * 64),
         )

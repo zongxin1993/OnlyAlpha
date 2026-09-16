@@ -177,7 +177,6 @@ def _system(tmp_path, command_id, *, outcome=OnlyNoveltyPolicyOutcome.ADMIT, sta
     admission = OnlyResearchRunAdmissionService(
         resolver=OnlyResearchSpecificationResolver(registry()),
         dataset_store=_DatasetStore(),  # type: ignore[arg-type]
-        run_store=store,  # type: ignore[arg-type]
         now_utc=lambda: NOW,
     )
     service = OnlyResearchCommandService(
@@ -219,7 +218,6 @@ def _multi_system(tmp_path, command_id, *, stale_index: int | None = None):  # t
     admission = OnlyResearchRunAdmissionService(
         resolver=OnlyResearchSpecificationResolver(registry()),
         dataset_store=_DatasetStore(),  # type: ignore[arg-type]
-        run_store=store,  # type: ignore[arg-type]
         now_utc=lambda: NOW,
     )
     service = OnlyResearchCommandService(

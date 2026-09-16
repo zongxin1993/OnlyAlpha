@@ -169,6 +169,7 @@ from tests.research.specification.support import registry as specification_regis
 from tests.research.specification.support import specification
 from tests.research.sweep.support import definition
 from tests.runtime.search_ownership_support import _plain, _support_wheel
+from tests.support.research_run_seeder import OnlyPostgresResearchRunSeeder
 
 
 class _CandidateOwner:
@@ -759,7 +760,7 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
         authoring_provenance=authoring,
     )
     run_store = OnlyPostgresResearchRunStore(postgres_dsn)
-    run_store.create_queued(run)
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(run)
     runtime_generations.bind_work_exact(
         run_id.value,
         runtime_fingerprint,
@@ -825,7 +826,7 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
         queued_at=NOW + timedelta(seconds=3),
         authoring_provenance=authoring,
     )
-    run_store.create_queued(failed_run)
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(failed_run)
     runtime_generations.bind_work_exact(
         failed_run_id.value,
         runtime_fingerprint,
@@ -873,7 +874,7 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
         queued_at=NOW + timedelta(seconds=5),
         authoring_provenance=authoring,
     )
-    run_store.create_queued(cancelled_run)
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(cancelled_run)
     runtime_generations.bind_work_exact(
         cancelled_run_id.value,
         runtime_fingerprint,
@@ -910,7 +911,7 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
             queued_at=queued_at,
             authoring_provenance=authoring,
         )
-        run_store.create_queued(search_run)
+        OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(search_run)
         intent = OnlyDerivedResearchSubmitCommandV2(command, run_spec, parent, authoring)
         product.admit_exact(
             OnlyProductCommandAdmissionV1(

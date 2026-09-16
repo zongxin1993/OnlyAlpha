@@ -128,7 +128,6 @@ def _case(
     admission = OnlyResearchRunAdmissionService(
         resolver=cast(Any, parent),
         dataset_store=datasets,
-        run_store=cast(Any, runs),
         now_utc=lambda: NOW,
     )
     generation_resolver = OnlyResearchHostedRuntimeGenerationResolver(
@@ -143,6 +142,7 @@ def _case(
         command_admissions=authority,
         runtime_generation_resolver=generation_resolver,
         allow_legacy_ungated=True,
+        historical_seeder=runs,
     )
     symbolic = OnlyJsonSymbolicSearchStore(root / "search")
     evaluation = OnlySymbolicResearchEvaluationContractV1.from_specification(

@@ -1,4 +1,4 @@
-"""Persistence port for durable Research Run operational facts."""
+"""Read and transition ports for durable Research Run operational facts."""
 
 from __future__ import annotations
 
@@ -7,12 +7,12 @@ from typing import Protocol
 from .model import OnlyResearchRun, OnlyResearchRunId
 
 
-class OnlyResearchRunStore(Protocol):
-    def create_queued(self, run: OnlyResearchRun) -> OnlyResearchRun: ...
-
+class OnlyResearchRunReader(Protocol):
     def load(self, run_id: OnlyResearchRunId) -> OnlyResearchRun: ...
 
+
+class OnlyResearchRunTransitionStore(OnlyResearchRunReader, Protocol):
     def commit_transition(self, previous: OnlyResearchRun, transitioned: OnlyResearchRun) -> OnlyResearchRun: ...
 
 
-__all__ = ["OnlyResearchRunStore"]
+__all__ = ["OnlyResearchRunReader", "OnlyResearchRunTransitionStore"]

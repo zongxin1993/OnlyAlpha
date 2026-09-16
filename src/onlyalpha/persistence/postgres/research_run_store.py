@@ -73,41 +73,16 @@ _COLUMNS = (
 )
 
 
+def _insert_run_query(columns: tuple[str, ...] = _COLUMNS) -> sql.Composed:
+    return sql.SQL("INSERT INTO research_run ({}) VALUES ({})").format(
+        sql.SQL(", ").join(map(sql.Identifier, columns)),
+        sql.SQL(", ").join(sql.Placeholder() for _ in columns),
+    )
+
+
 class OnlyPostgresResearchRunStore:
     def __init__(self, dsn: str, options: OnlyPostgresOperationalConnectionOptions | None = None) -> None:
         self._dsn = (options or OnlyPostgresOperationalConnectionOptions()).apply(dsn)
-
-    def create_queued(self, run: OnlyResearchRun) -> OnlyResearchRun:
-        if run.state is not OnlyResearchRunState.QUEUED or run.revision != 0:
-            raise OnlyResearchRunStateConflictError("create_queued requires revision-zero QUEUED Run")
-        query = sql.SQL("INSERT INTO research_run ({}) VALUES ({})").format(
-            sql.SQL(", ").join(map(sql.Identifier, _COLUMNS)),
-            sql.SQL(", ").join(sql.Placeholder() for _ in _COLUMNS),
-        )
-        try:
-            with psycopg.connect(self._dsn) as connection:
-                connection.execute(query, self._values(run))
-            return run
-        except psycopg.errors.UndefinedColumn as exc:
-            if run.authoring_provenance is not None or "authoring_provenance" not in str(exc):
-                raise OnlyResearchRunStoreUnavailableError("Research Run create transaction failed") from exc
-            legacy_columns = _COLUMNS[:-1]
-            legacy_query = sql.SQL("INSERT INTO research_run ({}) VALUES ({})").format(
-                sql.SQL(", ").join(map(sql.Identifier, legacy_columns)),
-                sql.SQL(", ").join(sql.Placeholder() for _ in legacy_columns),
-            )
-            try:
-                with psycopg.connect(self._dsn) as connection:
-                    connection.execute(legacy_query, self._values(run)[:-1])
-                return run
-            except psycopg.errors.UniqueViolation as retry_exc:
-                raise OnlyResearchRunIntegrityError(f"Research Run already exists: {run.run_id}") from retry_exc
-            except psycopg.Error as retry_exc:
-                raise OnlyResearchRunStoreUnavailableError("Research Run create transaction failed") from retry_exc
-        except psycopg.errors.UniqueViolation as exc:
-            raise OnlyResearchRunIntegrityError(f"Research Run already exists: {run.run_id}") from exc
-        except psycopg.Error as exc:
-            raise OnlyResearchRunStoreUnavailableError("Research Run create transaction failed") from exc
 
     def load(self, run_id: OnlyResearchRunId) -> OnlyResearchRun:
         try:
@@ -124,53 +99,6 @@ class OnlyPostgresResearchRunStore:
             return OnlyPostgresProductCommandAuthority(self._dsn).load_verified_receipt(command_id)
         except OnlyProductCommandAuthorityUnavailableError as exc:
             raise OnlyResearchRunStoreUnavailableError("Product Command Receipt load failed") from exc
-
-    def create_queued_with_receipt(
-        self,
-        run: OnlyResearchRun,
-        receipt: OnlyProductCommandReceipt,
-    ) -> OnlyProductCommandReceipt:
-        if run.state is not OnlyResearchRunState.QUEUED or run.revision != 0:
-            raise OnlyResearchRunStateConflictError("submission requires revision-zero QUEUED Run")
-        if (
-            receipt.command_kind is not OnlyProductCommandKind.CREATE_RESEARCH_RUN
-            or receipt.outcome_ref.kind is not OnlyProductCommandOutcomeKind.RESEARCH_RUN
-            or receipt.outcome_ref.outcome_id != run.run_id.value
-            or receipt.accepted_at != run.queued_at
-        ):
-            raise OnlyResearchRunIntegrityError("Create Research Run receipt does not bind the prepared Run")
-        run_query = sql.SQL("INSERT INTO research_run ({}) VALUES ({})").format(
-            sql.SQL(", ").join(map(sql.Identifier, _COLUMNS)),
-            sql.SQL(", ").join(sql.Placeholder() for _ in _COLUMNS),
-        )
-        try:
-            with psycopg.connect(self._dsn) as connection:
-                authority = OnlyPostgresProductCommandAuthority
-                authority.insert_or_verify_admission(
-                    connection,
-                    OnlyProductCommandAdmissionV1(
-                        receipt.command_id,
-                        receipt.command_kind,
-                        receipt.command_fingerprint,
-                    ),
-                )
-                existing = authority.load_verified_receipt_in_transaction(connection, receipt.command_id)
-                if existing is not None:
-                    return existing
-                connection.execute(run_query, self._values(run))
-                self._insert_receipt(connection, receipt)
-            return receipt
-        except OnlyProductCommandConflictError as exc:
-            raise OnlyResearchRunIntegrityError(
-                f"Product Command identity already exists: {receipt.command_id}"
-            ) from exc
-        except psycopg.errors.UniqueViolation as exc:
-            existing = self.find_product_command_receipt(receipt.command_id)
-            if existing is None:
-                raise OnlyResearchRunIntegrityError("Research Run or Product Command identity already exists") from exc
-            return existing
-        except psycopg.Error as exc:
-            raise OnlyResearchRunStoreUnavailableError("Create Research Run transaction failed") from exc
 
     def load_novelty_admission(
         self, command_id: OnlyProductCommandId
@@ -217,10 +145,7 @@ class OnlyPostgresResearchRunStore:
             or admission.run_id != run.run_id
         ):
             raise OnlyResearchRunIntegrityError("Novelty Admission does not bind the prepared Run and Receipt")
-        run_query = sql.SQL("INSERT INTO research_run ({}) VALUES ({})").format(
-            sql.SQL(", ").join(map(sql.Identifier, _COLUMNS)),
-            sql.SQL(", ").join(sql.Placeholder() for _ in _COLUMNS),
-        )
+        run_query = _insert_run_query()
         try:
             with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
                 authority = OnlyPostgresProductCommandAuthority

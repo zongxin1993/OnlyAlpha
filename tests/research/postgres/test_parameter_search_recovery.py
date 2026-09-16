@@ -96,6 +96,7 @@ from tests.research.specification.support import registry as research_registry
 from tests.research.specification.support import specification
 from tests.research.sweep.support import definition
 from tests.runtime_generation_support import only_ready_test_generation
+from tests.support.research_run_seeder import OnlyPostgresResearchRunSeeder
 
 pytestmark = [
     pytest.mark.integration,
@@ -317,7 +318,6 @@ def _commands(root: Path, dsn: str) -> OnlyParameterResearchCommandGatewayV1:
     admission = OnlyResearchRunAdmissionService(
         resolver=OnlyResearchSpecificationResolver(research_registry()),
         dataset_store=datasets,
-        run_store=store,
         now_utc=lambda: _NOW + timedelta(seconds=2),
     )
     commands = OnlyResearchCommandService(
@@ -328,6 +328,7 @@ def _commands(root: Path, dsn: str) -> OnlyParameterResearchCommandGatewayV1:
         command_admissions=OnlyPostgresProductCommandAuthority(dsn),
         runtime_generation_resolver=_ExactRuntimeAdmissionResolver(_runtime_generations(root)),
         allow_legacy_ungated=True,
+        historical_seeder=OnlyPostgresResearchRunSeeder(dsn),
     )
     finalizer = OnlyParameterResearchEvidenceFinalizerV1(
         research_results=research,

@@ -29,9 +29,11 @@ def test_research_run_domain_has_no_database_transport_scheduler_or_trading_depe
         assert token not in source
 
 
-def test_store_port_cannot_arbitrarily_save_or_patch_run() -> None:
+def test_store_ports_cannot_create_or_arbitrarily_mutate_run() -> None:
     source = Path("src/onlyalpha/research/run/store.py").read_text()
-    assert "def create_queued(" in source
+    assert "def create_queued(" not in source
+    assert "OnlyResearchRunReader" in source
+    assert "OnlyResearchRunTransitionStore" in source
     assert "def commit_transition(" in source
     assert "def save(" not in source
     assert "def update(" not in source

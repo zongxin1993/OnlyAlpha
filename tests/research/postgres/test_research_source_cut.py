@@ -44,6 +44,7 @@ from onlyalpha.strategy.qualification_store import OnlyQualificationDecisionStor
 from tests.research.postgres.migration_support import copy_migrations_through
 from tests.research.postgres.test_memory_production_topology_certification import _build_exact_runtime_generation
 from tests.research.postgres.test_postgres_authority import NOW, _queued
+from tests.support.research_run_seeder import OnlyPostgresResearchRunSeeder
 
 pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
 
@@ -53,7 +54,7 @@ def test_transactional_run_cut_preserves_baseline_and_later_revision(postgres_ds
     OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path).migrate()
     run = _queued("00000000-0000-4000-8000-000000000901")
     store = OnlyPostgresResearchRunStore(postgres_dsn)
-    store.create_queued(run)
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(run)
 
     copy_migrations_through(tmp_path, "0023_research_source_closed_cut")
     assert OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path).migrate() == (
@@ -119,7 +120,7 @@ def test_postgres_source_cut_rejects_journal_gap(postgres_dsn: str) -> None:
 def test_attempt_and_product_admission_cuts_survive_later_changes(postgres_dsn: str) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     run = _queued("00000000-0000-4000-8000-000000000911")
-    OnlyPostgresResearchRunStore(postgres_dsn).create_queued(run)
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(run)
     source = OnlyPostgresResearchSourceCutAuthority(postgres_dsn)
     before = source.capture_closed_cut("RESEARCH_ATTEMPT")
     admission = OnlyProductCommandAdmissionV1(
@@ -204,7 +205,7 @@ def test_product_composition_captures_real_mixed_owner_topology(postgres_dsn: st
         authoring_generation_root=tmp_path / "authoring-generations",
     )
     run = _queued("00000000-0000-4000-8000-000000000921")
-    OnlyPostgresResearchRunStore(postgres_dsn).create_queued(run)
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(run)
     admission = OnlyProductCommandAdmissionV1(
         OnlyProductCommandId("00000000-0000-4000-8000-000000000922"),
         OnlyProductCommandKind.CREATE_RESEARCH_RUN,
@@ -252,7 +253,7 @@ def test_product_composition_captures_real_mixed_owner_topology(postgres_dsn: st
 def test_postgres_capture_waits_for_uncommitted_writer(postgres_dsn: str) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     run = _queued("00000000-0000-4000-8000-000000000913")
-    OnlyPostgresResearchRunStore(postgres_dsn).create_queued(run)
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(run)
     source = OnlyPostgresResearchSourceCutAuthority(postgres_dsn)
     entered, release, done = Event(), Event(), Event()
     failures: list[Exception] = []

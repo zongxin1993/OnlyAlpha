@@ -26,7 +26,7 @@ from onlyalpha.research.run.model import (
     OnlyResearchRunId,
     OnlyResearchRunState,
 )
-from onlyalpha.research.run.store import OnlyResearchRunStore
+from onlyalpha.research.run.store import OnlyResearchRunReader
 from onlyalpha.research.specification.errors import OnlyResearchSpecificationError
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 from onlyalpha.research.workload import OnlyResearchWorkloadPlan
@@ -120,7 +120,7 @@ class _LeaseControl:
         *,
         claim: OnlyResearchExecutionClaim,
         store: OnlyResearchExecutionStore,
-        run_store: OnlyResearchRunStore,
+        run_store: OnlyResearchRunReader,
         policy: OnlyResearchExecutionPolicy,
     ) -> None:
         self._claim = claim
@@ -201,7 +201,7 @@ class OnlyResearchWorker:
         *,
         worker_instance_id: OnlyResearchWorkerInstanceId,
         execution_store: OnlyResearchExecutionStore,
-        run_store: OnlyResearchRunStore,
+        run_store: OnlyResearchRunReader,
         resolver: OnlyResearchSpecificationResolver,
         dataset_store: OnlyResearchDatasetSnapshotStore,
         runtime_executor: OnlyResearchRuntimeExecutor,

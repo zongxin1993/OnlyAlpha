@@ -57,10 +57,6 @@ class _RunStore:
     def __init__(self, run: OnlyResearchRun) -> None:
         self.run = run
 
-    def create_queued(self, run: OnlyResearchRun) -> OnlyResearchRun:
-        self.run = run
-        return run
-
     def load(self, run_id: OnlyResearchRunId) -> OnlyResearchRun:
         assert run_id == self.run.run_id
         return self.run

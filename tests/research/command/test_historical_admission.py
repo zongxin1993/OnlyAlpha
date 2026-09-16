@@ -75,7 +75,6 @@ def _system(*, execution=None, dataset=None, store=None, authoring=None, binding
     admission = OnlyResearchRunAdmissionService(
         resolver=trap,
         dataset_store=dataset,
-        run_store=store,
         now_utc=lambda: NOW,
         authoring_generation_resolver=authoring,
     )
@@ -95,6 +94,7 @@ def _system(*, execution=None, dataset=None, store=None, authoring=None, binding
         command_admissions=admissions,
         runtime_generation_resolver=resolver,
         allow_legacy_ungated=True,
+        historical_seeder=store,
     )
     return service, trap, bindings, store, admissions, dataset
 

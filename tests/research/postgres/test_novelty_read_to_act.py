@@ -25,6 +25,7 @@ from onlyalpha.research.command.novelty_admission import (
 )
 from onlyalpha.research.run import OnlyResearchRunIntegrityError, OnlyResearchRunStoreUnavailableError
 from tests.research.postgres.test_postgres_authority import _create_receipt, _queued
+from tests.support.research_run_seeder import OnlyPostgresResearchRunSeeder
 
 pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
 
@@ -240,7 +241,7 @@ def test_stale_frontier_and_same_subject_in_flight_create_zero_second_run(postgr
     stale_fingerprint = "b" * 64
     _preadmit(postgres_dsn, stale_id, stale_fingerprint)
     stale_frontier = _frontier(postgres_dsn)
-    store.create_queued(_queued("00000000-0000-4000-8000-000000000913"))
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued("00000000-0000-4000-8000-000000000913"))
     with pytest.raises(OnlyResearchRunIntegrityError, match="NOVELTY_DECISION_STALE"):
         store._create_queued_with_verified_novelty_admission(
             stale_run,

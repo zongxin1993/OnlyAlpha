@@ -6,7 +6,7 @@ from typing import Protocol
 
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId, OnlyProductCommandReceipt
 from onlyalpha.research.run.model import OnlyResearchRun, OnlyResearchRunId
-from onlyalpha.research.run.store import OnlyResearchRunStore
+from onlyalpha.research.run.store import OnlyResearchRunTransitionStore
 
 from .model import OnlyResearchRunPageCursor
 from .novelty_admission import OnlyResearchNoveltyAdmissionV1, OnlyResearchNoveltyAdmissionV2
@@ -20,14 +20,8 @@ class OnlyResearchRunReader(Protocol):
     def load(self, run_id: OnlyResearchRunId) -> OnlyResearchRun: ...
 
 
-class OnlyResearchCommandStore(OnlyResearchRunStore, OnlyResearchRunReader, Protocol):
+class OnlyResearchCommandStore(OnlyResearchRunTransitionStore, OnlyResearchRunReader, Protocol):
     def find_product_command_receipt(self, command_id: OnlyProductCommandId) -> OnlyProductCommandReceipt | None: ...
-
-    def create_queued_with_receipt(
-        self,
-        run: OnlyResearchRun,
-        receipt: OnlyProductCommandReceipt,
-    ) -> OnlyProductCommandReceipt: ...
 
     def load_novelty_admission(
         self, command_id: OnlyProductCommandId
@@ -50,6 +44,16 @@ class _OnlyVerifiedNoveltyAdmissionStore(OnlyResearchCommandStore, Protocol):
         admission: OnlyResearchNoveltyAdmissionV1 | OnlyResearchNoveltyAdmissionV2,
         *,
         expected_source_frontier: int,
+    ) -> OnlyProductCommandReceipt: ...
+
+
+class _OnlyHistoricalResearchRunSeeder(Protocol):
+    """Explicit test/historical capability, never supplied by production composition."""
+
+    def seed_queued_with_receipt(
+        self,
+        run: OnlyResearchRun,
+        receipt: OnlyProductCommandReceipt,
     ) -> OnlyProductCommandReceipt: ...
 
 

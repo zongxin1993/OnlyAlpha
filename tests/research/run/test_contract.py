@@ -246,15 +246,6 @@ def test_completed_and_failed_require_started_execution_fact() -> None:
         )
 
 
-class _RunStore:
-    def __init__(self) -> None:
-        self.runs: dict[OnlyResearchRunId, OnlyResearchRun] = {}
-
-    def create_queued(self, run: OnlyResearchRun) -> OnlyResearchRun:
-        self.runs[run.run_id] = run
-        return run
-
-
 class _DatasetStore:
     def __init__(self, fail: bool = False) -> None:
         self.fail = fail
@@ -267,37 +258,31 @@ class _DatasetStore:
         return object()
 
 
-def test_admission_verifies_dataset_before_durable_queued_acknowledgement() -> None:
+def test_admission_prepares_verified_queued_run_without_durable_write() -> None:
     spec = specification()
     dataset = _DatasetStore()
-    store = _RunStore()
     service = OnlyResearchRunAdmissionService(
         resolver=OnlyResearchSpecificationResolver(registry()),
         dataset_store=dataset,  # type: ignore[arg-type]
-        run_store=store,  # type: ignore[arg-type]
         now_utc=lambda: NOW,
         run_id_factory=lambda: OnlyResearchRunId("00000000-0000-4000-8000-000000000003"),
     )
 
-    run = service.submit(spec)
+    run = service.prepare(spec)
 
     assert dataset.loaded == [spec.dataset_snapshot_fingerprint]
-    assert store.runs[run.run_id] == run
     assert run.state is OnlyResearchRunState.QUEUED
     service.verify_resolution(run)
 
 
 def test_admission_missing_or_corrupt_dataset_creates_no_run() -> None:
-    store = _RunStore()
     service = OnlyResearchRunAdmissionService(
         resolver=OnlyResearchSpecificationResolver(registry()),
         dataset_store=_DatasetStore(fail=True),  # type: ignore[arg-type]
-        run_store=store,  # type: ignore[arg-type]
         now_utc=lambda: NOW,
     )
     with pytest.raises(OnlyResearchRunAdmissionError):
-        service.submit(specification())
-    assert store.runs == {}
+        service.prepare(specification())
 
 
 def test_cross_deployment_resolution_drift_fails_closed() -> None:
@@ -315,7 +300,6 @@ def test_cross_deployment_resolution_drift_fails_closed() -> None:
     service = OnlyResearchRunAdmissionService(
         resolver=OnlyResearchSpecificationResolver(registry()),
         dataset_store=_DatasetStore(),  # type: ignore[arg-type]
-        run_store=_RunStore(),  # type: ignore[arg-type]
         now_utc=lambda: NOW,
     )
     with pytest.raises(OnlyResearchRunAdmissionError, match="evidence mismatch"):
@@ -423,11 +407,10 @@ def test_admission_preserves_stable_admission_error_without_durable_write() -> N
     service = OnlyResearchRunAdmissionService(
         resolver=OnlyResearchSpecificationResolver(registry()),
         dataset_store=_AdmissionFailureDataset(),  # type: ignore[arg-type]
-        run_store=_RunStore(),  # type: ignore[arg-type]
         now_utc=lambda: NOW,
     )
     with pytest.raises(OnlyResearchRunAdmissionError, match="stable"):
-        service.submit(specification())
+        service.prepare(specification())
 
 
 @pytest.mark.parametrize(
@@ -445,11 +428,10 @@ def test_admission_preserves_typed_dataset_failure(error: Exception, code: str) 
     service = OnlyResearchRunAdmissionService(
         resolver=OnlyResearchSpecificationResolver(registry()),
         dataset_store=_TypedFailureDataset(),  # type: ignore[arg-type]
-        run_store=_RunStore(),  # type: ignore[arg-type]
         now_utc=lambda: NOW,
     )
     with pytest.raises(OnlyResearchRunAdmissionError) as caught:
-        service.submit(specification())
+        service.prepare(specification())
     assert caught.value.code == code
 
 
@@ -465,11 +447,10 @@ def test_admission_preserves_typed_specification_resolution_failure() -> None:
     service = OnlyResearchRunAdmissionService(
         resolver=_FailingResolver(),  # type: ignore[arg-type]
         dataset_store=_DatasetStore(),  # type: ignore[arg-type]
-        run_store=_RunStore(),  # type: ignore[arg-type]
         now_utc=lambda: NOW,
     )
     with pytest.raises(OnlyResearchRunAdmissionError) as caught:
-        service.submit(specification())
+        service.prepare(specification())
     assert caught.value.code == "RESEARCH_SPEC_TYPE_UNKNOWN"
 
 
