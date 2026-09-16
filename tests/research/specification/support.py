@@ -8,6 +8,7 @@ from onlyalpha.research import (
     OnlyResearchCalculationSpec,
     OnlyResearchGraphTemplate,
     OnlyResearchGraphTemplateNode,
+    OnlyResearchScientificEvidenceSpec,
     OnlyResearchSeriesSelector,
     OnlyResearchSpecification,
     OnlyResearchStatisticsDefinition,
@@ -54,6 +55,20 @@ def specification(dataset: str = "a" * 64) -> OnlyResearchSpecification:
                 OnlyResearchStatisticsDefinition(method=OnlyResearchStatisticsMethod.IC),
             ),
         ),
+    )
+
+
+def scientific_specification(dataset: str = "a" * 64) -> OnlyResearchSpecification:
+    base = specification(dataset)
+    return OnlyResearchSpecification(
+        dataset,
+        base.calculations,
+        base.statistics,
+        OnlyResearchScientificEvidenceSpec(
+            "feature",
+            (OnlyResearchSeriesSelector("feature", "momentum", "factor_value"),),
+        ),
+        2,
     )
 
 

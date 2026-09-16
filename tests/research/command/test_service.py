@@ -60,8 +60,8 @@ from onlyalpha.research.run import (
 )
 from onlyalpha.research.run.evidence import OnlyResearchAdmissionResolutionEvidence
 from onlyalpha.research.specification import OnlyResearchSpecificationResolver
-from tests.research.specification.support import registry, specification
-from tests.runtime_generation_support import only_ready_test_generation
+from tests.research.specification.support import registry, scientific_specification, specification
+from tests.runtime_generation_support import OnlyTestRuntimeGenerationAuthority, only_ready_test_generation
 
 NOW = datetime(2026, 8, 18, 1, 2, 3, 456789, tzinfo=UTC)
 KEY = OnlyProductCommandId("00000000-0000-4000-8000-000000000001")
@@ -1048,3 +1048,21 @@ def test_product_boundary_is_semantically_equivalent_to_direct_research_authorit
     direct_cancelled = direct.request_research_run_cancellation(direct_created.run.run_id)
     boundary_cancelled = boundary.commands.dispatch(OnlyCancelResearchRun(direct_created.run.run_id))
     assert boundary_cancelled == direct_cancelled
+
+
+def test_product_boundary_resolves_scientific_subject_before_persisting_run() -> None:
+    store = _Store()
+    runtime = OnlyTestRuntimeGenerationAuthority()
+    service = _service(store, _DatasetStore(), runtime_generations=runtime)
+    kernel = OnlyAlphaKernelHost()
+    kernel.start()
+    boundary = only_compose_research_product_boundary(
+        admission=kernel,
+        commands=service,
+        queries=OnlyResearchRunQueryService(store),  # type: ignore[arg-type]
+    )
+
+    outcome = boundary.commands.dispatch(OnlyCreateResearchRun(KEY, scientific_specification()))
+
+    assert outcome.run == store.load(outcome.run.run_id)
+    assert runtime.require_work_binding(outcome.run.run_id.value).runtime_generation_fingerprint == "f" * 64

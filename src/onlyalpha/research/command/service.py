@@ -20,6 +20,10 @@ from onlyalpha.application.product_command_receipt import (
     only_cancel_research_run_command_fingerprint,
 )
 from onlyalpha.application.runtime_generation import OnlyRuntimeGenerationWorkAuthority
+from onlyalpha.research.evaluation.subject import (
+    OnlyExactAuthoringGenerationReader,
+    OnlyExactEvaluationIntentResolverV1,
+)
 from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 from onlyalpha.research.run.admission import OnlyResearchRunAdmissionService
 from onlyalpha.research.run.errors import (
@@ -48,6 +52,21 @@ from .model import (
 from .store import OnlyResearchCommandStore
 
 
+class _AdmittedResolutionReader:
+    """Internal exact reader over evidence already admitted by the Run authority."""
+
+    def __init__(self, evidence: OnlyResearchAdmissionResolutionEvidence) -> None:
+        self._evidence = evidence
+
+    def resolve(self, _runtime: str, specification: OnlyResearchSpecification) -> object:
+        if self._evidence.specification_fingerprint != specification.specification_fingerprint:
+            raise OnlyResearchRunAdmissionError(
+                "Admission evidence names another Specification",
+                code="RESEARCH_ADMISSION_EVIDENCE_SPECIFICATION_MISMATCH",
+            )
+        return self._evidence
+
+
 class OnlyResearchCommandService:
     def __init__(
         self,
@@ -58,6 +77,7 @@ class OnlyResearchCommandService:
         runtime_generations: OnlyRuntimeGenerationWorkAuthority,
         command_admissions: OnlyProductCommandAdmissionAuthority | None = None,
         runtime_generation_resolver: OnlyResearchRuntimeGenerationResolver | None = None,
+        authoring_generation_reader: OnlyExactAuthoringGenerationReader | None = None,
         cancellation_cas_attempts: int = 3,
     ) -> None:
         if cancellation_cas_attempts < 1:
@@ -68,6 +88,7 @@ class OnlyResearchCommandService:
         self._runtime_generations = runtime_generations
         self._command_admissions = command_admissions
         self._runtime_generation_resolver = runtime_generation_resolver
+        self._authoring_generation_reader = authoring_generation_reader
         self._cancellation_cas_attempts = cancellation_cas_attempts
 
     def submit_research_run(
@@ -103,9 +124,12 @@ class OnlyResearchCommandService:
             self._require_expected_binding(run.run_id.value, parent_runtime_work_id)
             return OnlyResearchSubmitOutcome(OnlyResearchSubmitDisposition.REUSED, run)
         if parent_runtime_work_id is None:
-            # Preserve the standalone admission call contract exactly; the new
-            # exact identity seam belongs only to derived formal work.
-            prepared = self._admission.prepare(strict, provenance=provenance)
+            # Reuse the exact evidence admitted into standalone scientific work.
+            if strict.schema_version == 2:
+                prepared, evidence = self._admission.prepare_with_evidence(strict, provenance=provenance)
+            else:
+                prepared = self._admission.prepare(strict, provenance=provenance)
+                evidence = None
             self._runtime_generations.bind_new_work(
                 prepared.run_id.value,
                 actor="research-product-admission",
@@ -154,6 +178,21 @@ class OnlyResearchCommandService:
             accepted_at=prepared.queued_at,
         )
         try:
+            if strict.schema_version == 2:
+                if evidence is None:
+                    raise OnlyResearchRunAdmissionError(
+                        "Canonical Evaluation Subject evidence is unavailable",
+                        code="EVALUATION_SUBJECT_AUTHORITY_CORRUPT",
+                    )
+                OnlyExactEvaluationIntentResolverV1(
+                    runtime_generations=self._runtime_generations,
+                    runtime_resolution=_AdmittedResolutionReader(evidence),
+                    authoring_generations=self._authoring_generation_reader,
+                ).resolve_all(
+                    strict,
+                    runtime_work_id=prepared.run_id.value,
+                    authoring_provenance=provenance,
+                )
             record = self._store.create_queued_with_receipt(prepared, requested)
         except Exception:
             if parent_runtime_work_id is None:

@@ -82,7 +82,10 @@ from onlyalpha.research.provenance import (
 from onlyalpha.research.result.assembler import OnlyResearchResultAssembler
 from onlyalpha.research.result.result_store import OnlyJsonResearchResultStore
 from onlyalpha.research.run import OnlyResearchRun, OnlyResearchRunId, OnlyResearchRunState
-from onlyalpha.research.run.evidence import only_research_admission_resolution_fingerprint
+from onlyalpha.research.run.evidence import (
+    OnlyResearchAdmissionResolutionEvidence,
+    only_research_admission_resolution_fingerprint,
+)
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 from onlyalpha.research.sweep.executor import OnlyResearchSweepExecutor
 from onlyalpha.runtime.defaults import only_default_engine_services
@@ -424,6 +427,11 @@ def test_installed_l3_l4_resolve_research_evidence_freeze_and_revision(tmp_path:
                 assert specification == queued.specification
                 assert provenance is None
                 return queued
+
+            def prepare_with_evidence(self, specification, *, provenance=None):  # type: ignore[no-untyped-def]
+                return self.prepare(
+                    specification, provenance=provenance
+                ), OnlyResearchAdmissionResolutionEvidence.from_resolution(resolved.specification_resolution)
 
         class _Commands:
             receipt: OnlyProductCommandReceipt | None = None

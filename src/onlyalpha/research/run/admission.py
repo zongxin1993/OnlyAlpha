@@ -59,6 +59,23 @@ class OnlyResearchRunAdmissionService:
     ) -> OnlyResearchRun:
         """Prepare a QUEUED Run without making a durable acknowledgement."""
 
+        return self.prepare_with_evidence(
+            specification,
+            provenance=provenance,
+            exact_run_id=exact_run_id,
+            exact_admission_evidence=exact_admission_evidence,
+        )[0]
+
+    def prepare_with_evidence(
+        self,
+        specification: OnlyResearchSpecification,
+        *,
+        provenance: OnlyResearchAuthoringProvenance | None = None,
+        exact_run_id: OnlyResearchRunId | None = None,
+        exact_admission_evidence: OnlyResearchAdmissionResolutionEvidence | None = None,
+    ) -> tuple[OnlyResearchRun, OnlyResearchAdmissionResolutionEvidence]:
+        """Prepare a Run and return the same typed evidence admitted into it."""
+
         try:
             strict = OnlyResearchSpecification.from_dict(specification.to_dict())
             if exact_admission_evidence is None:
@@ -113,7 +130,7 @@ class OnlyResearchRunAdmissionService:
             ) from exc
         except Exception as exc:
             raise OnlyResearchRunAdmissionError(f"admission failed: {type(exc).__name__}") from exc
-        return run
+        return run, evidence
 
     def verify_resolution(self, run: OnlyResearchRun) -> None:
         current = only_research_admission_resolution_fingerprint(

@@ -9,6 +9,7 @@ from typing import ClassVar, cast
 from uuid import UUID
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
+from onlyalpha.research.evaluation.subject import OnlyExactEvaluationIntentSubjectV1
 from onlyalpha.research.run.model import OnlyResearchRunFailurePhase, OnlyResearchRunState
 
 from .projector import OnlyMemoryProjectionRecordV1, OnlyMemorySourceRefV1
@@ -151,6 +152,22 @@ class OnlyExactEvaluationHistorySelectorV1:
             "statistics_references": [reference.to_dict() for reference in self.statistics_references],
             "search_experiment_fingerprint": self.search_experiment_fingerprint,
         }
+
+    @property
+    def intent_subject(self) -> OnlyExactEvaluationIntentSubjectV1:
+        return OnlyExactEvaluationIntentSubjectV1(
+            self.semantic.graph_fingerprint,
+            self.semantic.candidate_node_fingerprint,
+            self.semantic.output_name,
+            self.candidate_fingerprint,
+            self.dataset_snapshot_fingerprint,
+            self.specification_fingerprint,
+            self.result_plan_fingerprint,
+            tuple(reference.statistics_fingerprint for reference in self.statistics_references),
+            self.catalog_generation_fingerprint,
+            self.runtime_generation_fingerprint,
+            self.authoring_generation_fingerprint,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -689,14 +706,9 @@ def _evaluation(
         for closure in closures
     ):
         return _PredicateVerdict.INCOMPLETE
-    if (
-        semantic is _PredicateVerdict.NO_MATCH
-        or facets["candidate_fingerprint"] != selector.candidate_fingerprint
-        or facets["dataset_snapshot_fingerprint"] != selector.dataset_snapshot_fingerprint
-        or facets["research_result_locator"] != selector.result_plan_fingerprint
-        or statistics != selector.statistics_references
-    ):
+    if statistics != selector.statistics_references:
         return _PredicateVerdict.NO_MATCH
+    expected_subject = selector.intent_subject
     for closure in closures:
         assert isinstance(closure, Mapping)
         if closure["run_state"] != "COMPLETED":
@@ -707,13 +719,20 @@ def _evaluation(
             or lineage.get("experiment_fingerprint") != selector.search_experiment_fingerprint
         ):
             continue
-        if (
-            closure["specification_fingerprint"] == selector.specification_fingerprint
-            and closure["research_result_fingerprint"] == result_fingerprint
-            and closure["catalog_generation_fingerprint"] == selector.catalog_generation_fingerprint
-            and closure["runtime_generation_fingerprint"] == selector.runtime_generation_fingerprint
-            and closure.get("authoring_generation_fingerprint") == selector.authoring_generation_fingerprint
-        ):
+        subject = OnlyExactEvaluationIntentSubjectV1(
+            cast(str, facets["graph_fingerprint"]),
+            cast(str, facets["candidate_node_fingerprint"]),
+            cast(str, facets["output_name"]),
+            cast(str, facets["candidate_fingerprint"]),
+            cast(str, facets["dataset_snapshot_fingerprint"]),
+            cast(str, closure["specification_fingerprint"]),
+            cast(str, facets["research_result_locator"]),
+            tuple(reference.statistics_fingerprint for reference in statistics),
+            cast(str, closure["catalog_generation_fingerprint"]),
+            cast(str, closure["runtime_generation_fingerprint"]),
+            cast(str | None, closure.get("authoring_generation_fingerprint")),
+        )
+        if subject == expected_subject and closure["research_result_fingerprint"] == result_fingerprint:
             return _PredicateVerdict.MATCH
     return _PredicateVerdict.NO_MATCH
 
