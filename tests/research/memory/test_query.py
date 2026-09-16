@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from onlyalpha.canonical import only_canonical_json
+from onlyalpha.research.evaluation import OnlyExactEvaluationIntentSubjectV1
 from onlyalpha.research.memory.projector import (
     OnlyExperimentMemoryProjectionV1,
     OnlyMemoryProjectionRecordV1,
@@ -19,6 +20,7 @@ from onlyalpha.research.memory.query import (
     QUERY_SCHEMA_VERSION,
     OnlyAgentFailureOwnerV1,
     OnlyExactEvaluationHistorySelectorV1,
+    OnlyExactEvaluationIntentHistorySelectorV1,
     OnlyExactFailureEvidenceSelectorV1,
     OnlyExactParameterObservationSelectorV1,
     OnlyExactSemanticHistorySelectorV1,
@@ -139,6 +141,7 @@ def _projection(
         semantic,
         (
             replace(ref("RESEARCH_RESULT", RESULT), locator=PLAN),
+            ref("RESEARCH_STATISTICS", STATISTICS_RESULT),
             completed_run_ref,
             run_ref,
             *tuple(
@@ -373,6 +376,140 @@ def _semantic_query(projection: OnlyExperimentMemoryProjectionV1, *, dataset: st
             (OnlyExactStatisticsReferenceV1(STATISTICS, STATISTICS_RESULT),),
             EXPERIMENT,
         ),
+    )
+
+
+def _intent_subject() -> OnlyExactEvaluationIntentSubjectV1:
+    return OnlyExactEvaluationIntentSubjectV1(
+        GRAPH,
+        NODE,
+        "factor_value",
+        CANDIDATE,
+        DATASET,
+        SPECIFICATION,
+        PLAN,
+        (STATISTICS,),
+        CATALOG,
+        RUNTIME,
+        AUTHORING,
+    )
+
+
+def _intent_query(
+    projection: OnlyExperimentMemoryProjectionV1,
+    subject: OnlyExactEvaluationIntentSubjectV1 | None = None,
+) -> OnlyMemoryHistoricalQueryV1:
+    return OnlyMemoryHistoricalQueryV1(
+        projection.revision_fingerprint,
+        OnlyExactEvaluationIntentHistorySelectorV1(subject or _intent_subject()),
+    )
+
+
+def test_prospective_intent_query_matches_without_post_run_result_identities(tmp_path: Path) -> None:
+    store, projection = _store(tmp_path)
+    query = _intent_query(projection)
+
+    assert query.query_kind.value == "EVALUATION_INTENT_EXACT"
+    assert query.exact_selector.to_dict() == {
+        "selector_schema_version": 1,
+        "intent_subject": _intent_subject().to_dict(),
+    }
+    proof = only_query_experiment_memory_history(store, query)
+    assert proof.proof_status is OnlyMemoryHistoricalProofStatus.MATCH
+    assert proof.ordered_matches
+    facets = proof.ordered_matches[0].to_dict()["facets"]
+    assert facets["research_result_fingerprint"] == RESULT
+    assert facets["statistics_references"][0]["statistics_result_fingerprint"] == STATISTICS_RESULT
+
+
+@pytest.mark.parametrize("state", ("RUNNING", "FAILED", "CANCELLED"))
+def test_prospective_query_never_treats_non_completed_runs_as_matches(tmp_path: Path, state: str) -> None:
+    def update(facets: dict[str, object]) -> None:
+        closure = facets["run_evaluation_closures"][0]
+        assert isinstance(closure, dict)
+        closure["run_state"] = state
+        closure["calculation_execution_evidence_fingerprints"] = []
+
+    projection = _replace_record_facets(_projection(), "EvaluationProjectionRecord", update)
+    store, projection = _store(tmp_path, projection)
+    proof = only_query_experiment_memory_history(store, _intent_query(projection))
+    assert proof.proof_status is OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "dataset_snapshot_fingerprint",
+        "specification_fingerprint",
+        "catalog_generation_fingerprint",
+        "runtime_generation_fingerprint",
+        "authoring_generation_fingerprint",
+    ),
+)
+def test_prospective_query_is_exact_at_every_subject_dimension(tmp_path: Path, field: str) -> None:
+    subject = replace(_intent_subject(), **{field: "0" * 64})
+    store, projection = _store(tmp_path)
+    proof = only_query_experiment_memory_history(store, _intent_query(projection, subject))
+    assert proof.proof_status is OnlyMemoryHistoricalProofStatus.CERTIFIED_NO_MATCH
+
+
+def test_prospective_query_fails_closed_for_incomplete_and_unavailable_history(tmp_path: Path) -> None:
+    incomplete = _projection(incomplete=True)
+    store, incomplete = _store(tmp_path / "incomplete", incomplete)
+    assert (
+        only_query_experiment_memory_history(store, _intent_query(incomplete)).proof_status
+        is OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
+    )
+
+    unavailable = _projection()
+    unavailable_store = OnlyExperimentMemoryRevisionStore(tmp_path / "unavailable" / "experiment-memory")
+    assert (
+        only_query_experiment_memory_history(unavailable_store, _intent_query(unavailable)).proof_status
+        is OnlyMemoryHistoricalProofStatus.PROOF_UNAVAILABLE
+    )
+
+
+def test_prospective_query_treats_missing_run_closure_as_incomplete(tmp_path: Path) -> None:
+    projection = _replace_record_facets(
+        _projection(),
+        "EvaluationProjectionRecord",
+        lambda facets: facets.update(run_evaluation_closures=[]),
+    )
+    store, projection = _store(tmp_path, projection)
+
+    assert only_query_experiment_memory_history(store, _intent_query(projection)).proof_status is (
+        OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
+    )
+
+
+def test_prospective_query_returns_historical_result_and_statistics_refs_as_proof_only(tmp_path: Path) -> None:
+    store, projection = _store(tmp_path)
+    subject = _intent_subject()
+    query = _intent_query(projection, subject)
+    assert "research_result_fingerprint" not in query.exact_selector.to_dict()
+    assert "statistics_result_fingerprint" not in query.exact_selector.to_dict()
+    match = only_query_experiment_memory_history(store, query).ordered_matches[0]
+    assert match.to_dict()["facets"]["research_result_fingerprint"] == RESULT
+
+
+def test_prospective_query_requires_nested_run_and_statistics_source_closure(tmp_path: Path) -> None:
+    projection = _projection()
+    record = next(item for item in projection.records if item.kind == "EvaluationProjectionRecord")
+    facets = json.loads(only_canonical_json(record.facets))
+    facets["run_evaluation_closures"][0]["run_source_ref"]["locator"] = "unbound"
+    malformed_refs = tuple(ref for ref in record.source_refs if ref.source_family != "RESEARCH_STATISTICS")
+    malformed = OnlyMemoryProjectionRecordV1(record.kind, facets, malformed_refs)
+    records = tuple(
+        sorted(
+            (malformed if item is record else item for item in projection.records),
+            key=lambda item: only_canonical_json(item.to_dict()),
+        )
+    )
+    malformed_projection = OnlyExperimentMemoryProjectionV1(projection.source_manifest, records)
+    store, malformed_projection = _store(tmp_path, malformed_projection)
+
+    assert only_query_experiment_memory_history(store, _intent_query(malformed_projection)).proof_status is (
+        OnlyMemoryHistoricalProofStatus.PROOF_INCOMPLETE
     )
 
 

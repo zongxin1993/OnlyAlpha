@@ -12,6 +12,7 @@ import pytest
 
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId
 from onlyalpha.canonical import only_canonical_json
+from onlyalpha.research.evaluation import OnlyExactEvaluationIntentSubjectV1
 from onlyalpha.research.memory.projector import (
     OnlyExperimentMemoryProjectionV1,
     OnlyMemoryProjectionRecordV1,
@@ -19,6 +20,8 @@ from onlyalpha.research.memory.projector import (
 )
 from onlyalpha.research.memory.query import (
     OnlyExactFailureEvidenceSelectorV1,
+    OnlyMemoryHistoricalProofStatus,
+    OnlyMemoryHistoricalProofV1,
     OnlyResearchRunTerminalOwnerV1,
     OnlySearchFailureOwnerV1,
 )
@@ -26,11 +29,14 @@ from onlyalpha.research.memory.source_manifest import MANDATORY_FAMILIES
 from onlyalpha.research.novelty import (
     OnlyHistoricalProofUnavailableError,
     OnlyNoveltyDecisionAuthority,
+    OnlyNoveltyDecisionBundleV2,
     OnlyNoveltyDecisionConflictError,
     OnlyNoveltyDecisionCorruptError,
+    OnlyNoveltyDecisionError,
     OnlyNoveltyDecisionNotFoundError,
     OnlyNoveltyDecisionReason,
     OnlyNoveltyDecisionRequestV1,
+    OnlyNoveltyDecisionRequestV2,
     OnlyNoveltyDecisionSchemaUnsupportedError,
     OnlyNoveltyPolicyCondition,
     OnlyNoveltyPolicyOutcome,
@@ -51,12 +57,14 @@ from onlyalpha.strategy.qualification import (
     OnlyQualificationGate,
     OnlyQualificationOutcome,
 )
+from tests.research.evaluation.test_subject import _resolve, _scientific
 from tests.research.memory.test_query import (
     CANDIDATE,
     DATASET,
     FAILED_RUN_ID,
     PLAN,
     RESULT,
+    _intent_subject,
     _projection,
     _semantic_query,
     _store,
@@ -84,6 +92,157 @@ def _authorities(tmp_path, projection=None, *, novelty_policy=None):  # type: ig
     policies.put(novelty_policy or policy())
     decisions = OnlyNoveltyDecisionAuthority(tmp_path)
     return revisions, projection, policies, decisions
+
+
+def _request_v2(subject: OnlyExactEvaluationIntentSubjectV1) -> OnlyNoveltyDecisionRequestV2:
+    return OnlyNoveltyDecisionRequestV2(COMMAND, "default-novelty", "1", subject)
+
+
+def _projection_for_subject(
+    projection: OnlyExperimentMemoryProjectionV1, subject: OnlyExactEvaluationIntentSubjectV1
+) -> OnlyExperimentMemoryProjectionV1:
+    record = next(item for item in projection.records if item.kind == "EvaluationProjectionRecord")
+    facets = json.loads(only_canonical_json(record.facets))
+    facets.update(
+        {
+            "graph_fingerprint": subject.graph_fingerprint,
+            "candidate_node_fingerprint": subject.candidate_node_fingerprint,
+            "output_name": subject.output_name,
+            "candidate_fingerprint": subject.candidate_fingerprint,
+            "dataset_snapshot_fingerprint": subject.dataset_snapshot_fingerprint,
+            "research_result_locator": subject.result_plan_fingerprint,
+            "statistics_references": [
+                {"statistics_fingerprint": fingerprint, "statistics_result_fingerprint": "0" * 64}
+                for fingerprint in subject.statistics_fingerprints
+            ],
+        }
+    )
+    closures = facets["run_evaluation_closures"]
+    assert isinstance(closures, list)
+    first = closures[0]
+    assert isinstance(first, dict)
+    first.update(
+        {
+            "specification_fingerprint": subject.specification_fingerprint,
+            "catalog_generation_fingerprint": subject.catalog_generation_fingerprint,
+            "runtime_generation_fingerprint": subject.runtime_generation_fingerprint,
+            "authoring_generation_fingerprint": subject.authoring_generation_fingerprint,
+        }
+    )
+    refs = tuple(
+        replace(
+            ref,
+            locator=subject.result_plan_fingerprint,
+            identity=RESULT,
+            content_fingerprint=RESULT,
+        )
+        if ref.source_family == "RESEARCH_RESULT"
+        else ref
+        for ref in record.source_refs
+    )
+    changed = OnlyMemoryProjectionRecordV1(record.kind, facets, refs)
+    records = tuple(
+        sorted(
+            (changed if item is record else item for item in projection.records),
+            key=lambda item: only_canonical_json(item.to_dict()),
+        )
+    )
+    return OnlyExperimentMemoryProjectionV1(projection.source_manifest, records)
+
+
+def test_prospective_intent_reaches_novelty_decision_from_real_resolver(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    subject = _resolve(_scientific())
+    projection = _projection_for_subject(_projection(), subject)
+    revisions, projection, policies, decisions = _authorities(tmp_path, projection)
+
+    bundle = decisions.seal_from_request(_request_v2(subject), projection.revision_fingerprint, revisions, policies)
+    assert isinstance(bundle, OnlyNoveltyDecisionBundleV2)
+    assert bundle.decision.derived_policy_condition is OnlyNoveltyPolicyCondition.EXACT_COMPLETED_EVALUATION
+    assert bundle.witness.proofs[0].query["query_kind"] == "EVALUATION_INTENT_EXACT"
+    assert "research_result_fingerprint" not in bundle.witness.proofs[0].query["exact_selector"]
+    assert bundle.witness.proofs[0].proof["ordered_matches"]
+    assert decisions.load_exact(COMMAND) == bundle
+
+
+def test_prospective_intent_reaches_certified_absence_decision(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    subject = _resolve(_scientific())
+    projection = _projection(include_evaluation=False)
+    revisions, projection, policies, decisions = _authorities(tmp_path, projection)
+
+    bundle = decisions.seal_from_request(_request_v2(subject), projection.revision_fingerprint, revisions, policies)
+    assert isinstance(bundle, OnlyNoveltyDecisionBundleV2)
+    assert bundle.decision.derived_policy_condition is OnlyNoveltyPolicyCondition.CERTIFIED_NO_MATCH
+
+
+def test_prospective_decision_request_is_versioned_and_round_trips_without_result_refs() -> None:
+    request = _request_v2(_intent_subject())
+    payload = request.to_dict()
+    encoded = only_canonical_json(payload)
+    assert "research_result_fingerprint" not in encoded
+    assert "statistics_result_fingerprint" not in encoded
+    assert OnlyNoveltyDecisionRequestV2.from_dict(payload) == request
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        lambda payload: payload.update(schema_version=2.0),
+        lambda payload: payload.update(command_id=1),
+        lambda payload: payload.update(policy_id=1),
+        lambda payload: payload["evaluation_subject"].update(schema_version=True),
+        lambda payload: payload.update(research_result_fingerprint="0" * 64),
+    ),
+)
+def test_prospective_decision_request_v2_rejects_noncanonical_or_result_bound_input(mutation) -> None:  # type: ignore[no-untyped-def]
+    payload = json.loads(only_canonical_json(_request_v2(_intent_subject()).to_dict()))
+    mutation(payload)
+    with pytest.raises(OnlyNoveltyDecisionError):
+        OnlyNoveltyDecisionRequestV2.from_dict(payload)
+
+
+def test_prospective_decision_incomplete_history_fails_closed(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    projection = _projection(incomplete=True)
+    revisions, projection, policies, decisions = _authorities(tmp_path, projection)
+    bundle = decisions.seal_from_request(
+        _request_v2(_intent_subject()), projection.revision_fingerprint, revisions, policies
+    )
+    assert bundle.decision.derived_policy_condition is OnlyNoveltyPolicyCondition.PROOF_INCOMPLETE
+    assert bundle.decision.outcome is OnlyNoveltyPolicyOutcome.FAIL_CLOSED
+
+
+def test_prospective_decision_unavailable_history_fails_closed(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    revisions, projection, policies, decisions = _authorities(tmp_path)
+
+    def unavailable(_revisions, query):  # type: ignore[no-untyped-def]
+        return OnlyMemoryHistoricalProofV1(
+            query.query_fingerprint,
+            query.projection_revision_fingerprint,
+            projection.logical_digest,
+            projection.source_manifest.manifest_fingerprint,
+            OnlyMemoryHistoricalProofStatus.PROOF_UNAVAILABLE,
+            (),
+            "SOURCE_OBSERVATION_UNAVAILABLE",
+        )
+
+    monkeypatch.setattr("onlyalpha.research.novelty.decision.only_query_experiment_memory_history", unavailable)
+    bundle = decisions.seal_from_request(
+        _request_v2(_intent_subject()), projection.revision_fingerprint, revisions, policies
+    )
+    assert bundle.decision.derived_policy_condition is OnlyNoveltyPolicyCondition.PROOF_UNAVAILABLE
+    assert bundle.decision.outcome is OnlyNoveltyPolicyOutcome.FAIL_CLOSED
+
+
+def test_prospective_same_command_changed_subject_conflicts(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    revisions, projection, policies, decisions = _authorities(tmp_path)
+    request = _request_v2(_intent_subject())
+    decisions.seal_from_request(request, projection.revision_fingerprint, revisions, policies)
+    with pytest.raises(OnlyNoveltyDecisionConflictError):
+        decisions.seal_from_request(
+            _request_v2(replace(_intent_subject(), dataset_snapshot_fingerprint="0" * 64)),
+            projection.revision_fingerprint,
+            revisions,
+            policies,
+        )
 
 
 def test_exact_evaluation_and_replication_policy_are_deterministic(tmp_path) -> None:  # type: ignore[no-untyped-def]
@@ -473,6 +632,38 @@ def test_historical_replay_uses_frozen_empty_cut_not_active_memory(tmp_path, mon
     readers[MANDATORY_FAMILIES[0]].available = False
     with pytest.raises((OnlyHistoricalProofUnavailableError, ValueError)):
         only_verify_historical_novelty_decision(bundle, policies, readers)
+
+
+def test_prospective_v2_decision_replays_frozen_absence_without_requery(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    empty = _projection(include_evaluation=False)
+    revisions, empty, policies, decisions = _authorities(tmp_path, empty)
+    bundle = decisions.seal_from_request(
+        _request_v2(_intent_subject()), empty.revision_fingerprint, revisions, policies
+    )
+    cuts = {family: OnlySourceClosedCutV1(family, 1, ()) for family in MANDATORY_FAMILIES}
+    readers = {family: _CutReader(cut) for family, cut in cuts.items()}
+    monkeypatch.setattr(
+        "onlyalpha.research.novelty.decision.only_query_experiment_memory_history",
+        lambda *_: (_ for _ in ()).throw(AssertionError("historical replay queried Memory")),
+    )
+    assert only_verify_historical_novelty_decision(bundle, policies, readers) == bundle.decision
+
+
+def test_prospective_v2_witness_rejects_mutated_nested_subject(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    subject = _intent_subject()
+    request = _request_v2(subject)
+    revisions, projection, policies, decisions = _authorities(tmp_path)
+    decisions.seal_from_request(request, projection.revision_fingerprint, revisions, policies)
+    path = tmp_path / "research" / "novelty-decisions" / COMMAND.value / "bundle.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    resolved = payload["witness"]["subject"]["resolved_subject"]
+    resolved_subject = dict(resolved["evaluation_subject"])
+    assert isinstance(resolved_subject, dict)
+    resolved_subject["dataset_snapshot_fingerprint"] = "0" * 64
+    resolved["evaluation_subject"] = resolved_subject
+    path.write_text(only_canonical_json(payload), encoding="utf-8")
+    with pytest.raises((OnlyNoveltyDecisionError, OnlyNoveltyDecisionCorruptError, OnlyNoveltyWitnessCorruptError)):
+        decisions.load_exact(COMMAND)
 
 
 @pytest.mark.parametrize("target", ["decision", "witness", "policy", "source", "proof-order"])

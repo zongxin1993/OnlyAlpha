@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 
 import pytest
 
 import onlyalpha.research.novelty as novelty
-from onlyalpha.research.novelty import OnlyNoveltyDecisionAuthority
+from onlyalpha.research.novelty import OnlyNoveltyDecisionAuthority, OnlyNoveltyDecisionRequestV2
 from tests.architecture._architecture_imports import imported_modules_for_path
 
 pytestmark = pytest.mark.architecture
@@ -33,3 +34,11 @@ def test_novelty_decision_has_no_research_action_or_agent_path() -> None:
     for path in root.glob("*.py"):
         imports = imported_modules_for_path(path, ROOT)
         assert not any(name.startswith(forbidden) for name in imports), (path, imports)
+
+
+def test_prospective_decision_contract_accepts_only_the_canonical_intent_subject() -> None:
+    parameters = inspect.signature(OnlyNoveltyDecisionRequestV2).parameters
+    assert "evaluation_subject" in parameters
+    assert "research_result_fingerprint" not in parameters
+    assert "statistics_result_fingerprint" not in parameters
+    assert "evaluation_selector" not in parameters

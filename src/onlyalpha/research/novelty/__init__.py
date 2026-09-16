@@ -1,16 +1,28 @@
 """Immutable Novelty Policy and Decision authorities; no Research action."""
 
 from .decision import (
+    NOVELTY_DECISION_REQUEST_SCHEMA_VERSION as NOVELTY_DECISION_REQUEST_SCHEMA_VERSION,
+)
+from .decision import (
     NOVELTY_DECISION_SCHEMA_VERSION as NOVELTY_DECISION_SCHEMA_VERSION,
 )
 from .decision import (
+    NOVELTY_DECISION_V2_SCHEMA_VERSION as NOVELTY_DECISION_V2_SCHEMA_VERSION,
+)
+from .decision import (
     NOVELTY_WITNESS_SCHEMA_VERSION as NOVELTY_WITNESS_SCHEMA_VERSION,
+)
+from .decision import (
+    NOVELTY_WITNESS_V2_SCHEMA_VERSION as NOVELTY_WITNESS_V2_SCHEMA_VERSION,
 )
 from .decision import (
     OnlyHistoricalProofUnavailableError as OnlyHistoricalProofUnavailableError,
 )
 from .decision import (
     OnlyNoveltyDecisionBundleV1 as OnlyNoveltyDecisionBundleV1,
+)
+from .decision import (
+    OnlyNoveltyDecisionBundleV2 as OnlyNoveltyDecisionBundleV2,
 )
 from .decision import (
     OnlyNoveltyDecisionConflictError as OnlyNoveltyDecisionConflictError,
@@ -28,13 +40,25 @@ from .decision import (
     OnlyNoveltyDecisionRequestV1 as OnlyNoveltyDecisionRequestV1,
 )
 from .decision import (
+    OnlyNoveltyDecisionRequestV2 as OnlyNoveltyDecisionRequestV2,
+)
+from .decision import (
     OnlyNoveltyDecisionSchemaUnsupportedError as OnlyNoveltyDecisionSchemaUnsupportedError,
+)
+from .decision import (
+    OnlyNoveltyDecisionSubjectV2 as OnlyNoveltyDecisionSubjectV2,
 )
 from .decision import (
     OnlyNoveltyDecisionV1 as OnlyNoveltyDecisionV1,
 )
 from .decision import (
+    OnlyNoveltyDecisionV2 as OnlyNoveltyDecisionV2,
+)
+from .decision import (
     OnlyNoveltyDecisionWitnessV1 as OnlyNoveltyDecisionWitnessV1,
+)
+from .decision import (
+    OnlyNoveltyDecisionWitnessV2 as OnlyNoveltyDecisionWitnessV2,
 )
 from .decision import (
     OnlyNoveltyQualificationBindingV1 as OnlyNoveltyQualificationBindingV1,

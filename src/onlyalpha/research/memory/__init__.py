@@ -4,6 +4,7 @@ from .projector import OnlyMemoryReferenceKind
 from .query import (
     OnlyAgentFailureOwnerV1,
     OnlyExactEvaluationHistorySelectorV1,
+    OnlyExactEvaluationIntentHistorySelectorV1,
     OnlyExactFailureEvidenceSelectorV1,
     OnlyExactParameterObservationSelectorV1,
     OnlyExactSemanticHistorySelectorV1,
@@ -22,6 +23,7 @@ from .query import (
 __all__ = [
     "OnlyAgentFailureOwnerV1",
     "OnlyExactEvaluationHistorySelectorV1",
+    "OnlyExactEvaluationIntentHistorySelectorV1",
     "OnlyExactFailureEvidenceSelectorV1",
     "OnlyExactParameterObservationSelectorV1",
     "OnlyExactSemanticHistorySelectorV1",

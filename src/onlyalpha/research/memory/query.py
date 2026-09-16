@@ -46,6 +46,7 @@ def _uuid4(value: object, name: str) -> str:
 class OnlyMemoryHistoricalQueryKind(StrEnum):
     SEMANTIC_EXACT = "SEMANTIC_EXACT"
     EVALUATION_EXACT = "EVALUATION_EXACT"
+    EVALUATION_INTENT_EXACT = "EVALUATION_INTENT_EXACT"
     PARAMETER_OBSERVATION_EXACT = "PARAMETER_OBSERVATION_EXACT"
     FAILURE_EVIDENCE_EXACT = "FAILURE_EVIDENCE_EXACT"
 
@@ -167,6 +168,39 @@ class OnlyExactEvaluationHistorySelectorV1:
             self.catalog_generation_fingerprint,
             self.runtime_generation_fingerprint,
             self.authoring_generation_fingerprint,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyExactEvaluationIntentHistorySelectorV1:
+    """Prospective exact lookup by the canonical pre-run evaluation subject."""
+
+    intent_subject: OnlyExactEvaluationIntentSubjectV1
+    selector_schema_version: int = 1
+    query_kind: ClassVar[OnlyMemoryHistoricalQueryKind] = OnlyMemoryHistoricalQueryKind.EVALUATION_INTENT_EXACT
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.intent_subject, OnlyExactEvaluationIntentSubjectV1):
+            raise ValueError("intent_subject is required")
+        if type(self.selector_schema_version) is not int or self.selector_schema_version != 1:
+            raise ValueError("prospective evaluation selector schema is unsupported")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "selector_schema_version": self.selector_schema_version,
+            "intent_subject": self.intent_subject.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyExactEvaluationIntentHistorySelectorV1:
+        if set(payload) != {"selector_schema_version", "intent_subject"}:
+            raise ValueError("prospective evaluation selector fields are invalid")
+        subject = payload.get("intent_subject")
+        if not isinstance(subject, Mapping):
+            raise ValueError("intent_subject must be an object")
+        return cls(
+            OnlyExactEvaluationIntentSubjectV1.from_dict(subject),
+            cast(int, payload["selector_schema_version"]),
         )
 
 
@@ -359,6 +393,7 @@ class OnlyExactFailureEvidenceSelectorV1:
 OnlyMemoryHistoricalSelectorV1 = (
     OnlyExactSemanticHistorySelectorV1
     | OnlyExactEvaluationHistorySelectorV1
+    | OnlyExactEvaluationIntentHistorySelectorV1
     | OnlyExactParameterObservationSelectorV1
     | OnlyExactFailureEvidenceSelectorV1
 )
@@ -377,6 +412,7 @@ class OnlyMemoryHistoricalQueryV1:
             (
                 OnlyExactSemanticHistorySelectorV1,
                 OnlyExactEvaluationHistorySelectorV1,
+                OnlyExactEvaluationIntentHistorySelectorV1,
                 OnlyExactParameterObservationSelectorV1,
                 OnlyExactFailureEvidenceSelectorV1,
             ),
@@ -514,6 +550,21 @@ def _exact_source_ref(record: OnlyMemoryProjectionRecordV1, family: str, locator
 def _nested_ref_matches_record_source(record: OnlyMemoryProjectionRecordV1, value: Mapping[str, object]) -> bool:
     source_part = {name: item for name, item in value.items() if name != "native_locator"}
     return sum(ref.to_dict() == source_part for ref in record.source_refs) == 1
+
+
+def _statistics_source_refs_complete(
+    record: OnlyMemoryProjectionRecordV1, references: tuple[OnlyExactStatisticsReferenceV1, ...]
+) -> bool:
+    families = {"RESEARCH_STATISTICS", "RESEARCH_FACTOR_PAIR_STATISTICS", "RESEARCH_SUMMARY_STATISTICS"}
+    refs = tuple(ref for ref in record.source_refs if ref.source_family in families)
+    return (
+        len(refs) == len(references)
+        and all(_source_ref_complete(ref.to_dict()) for ref in refs)
+        and all(
+            sum(ref.identity == reference.statistics_result_fingerprint for ref in refs) == 1
+            for reference in references
+        )
+    )
 
 
 def _search_lineage_complete(record: OnlyMemoryProjectionRecordV1, value: object) -> bool:
@@ -703,6 +754,7 @@ def _evaluation(
     if any(
         not isinstance(closure, Mapping)
         or not _run_evaluation_closure_complete(record, closure, enclosing_result_fingerprint=result_fingerprint)
+        or not _nested_ref_matches_record_source(record, cast(Mapping[str, object], closure["run_source_ref"]))
         for closure in closures
     ):
         return _PredicateVerdict.INCOMPLETE
@@ -733,6 +785,87 @@ def _evaluation(
             cast(str | None, closure.get("authoring_generation_fingerprint")),
         )
         if subject == expected_subject and closure["research_result_fingerprint"] == result_fingerprint:
+            return _PredicateVerdict.MATCH
+    return _PredicateVerdict.NO_MATCH
+
+
+def _evaluation_intent(
+    record: OnlyMemoryProjectionRecordV1, selector: OnlyExactEvaluationIntentHistorySelectorV1
+) -> _PredicateVerdict:
+    if record.kind != "EvaluationProjectionRecord":
+        return _PredicateVerdict.NOT_APPLICABLE
+    facets = record.facets
+    if (
+        not all(
+            _is_sha(facets.get(name))
+            for name in (
+                "graph_fingerprint",
+                "candidate_node_fingerprint",
+                "candidate_fingerprint",
+                "dataset_snapshot_fingerprint",
+                "research_result_locator",
+                "research_result_fingerprint",
+            )
+        )
+        or not isinstance(facets.get("output_name"), str)
+        or not facets["output_name"]
+    ):
+        return _PredicateVerdict.INCOMPLETE
+    if not isinstance(facets.get("run_evaluation_closures"), list):
+        return _PredicateVerdict.INCOMPLETE
+    statistics = _statistics_references(facets.get("statistics_references"))
+    if (
+        statistics is None
+        or not _statistics_source_refs_complete(record, statistics)
+        or sum(ref.source_family == "RESEARCH_RESULT" for ref in record.source_refs) != 1
+        or not _exact_source_ref(
+            record, "RESEARCH_RESULT", facets["research_result_locator"], facets["research_result_fingerprint"]
+        )
+    ):
+        return _PredicateVerdict.INCOMPLETE
+    closures = cast(list[object], facets["run_evaluation_closures"])
+    if not closures:
+        return _PredicateVerdict.INCOMPLETE
+    result_fingerprint = cast(str, facets["research_result_fingerprint"])
+    closure_keys: set[tuple[object, object]] = set()
+    for raw_closure in closures:
+        if not isinstance(raw_closure, Mapping):
+            return _PredicateVerdict.INCOMPLETE
+        if not _run_evaluation_closure_complete(record, raw_closure, enclosing_result_fingerprint=result_fingerprint):
+            return _PredicateVerdict.INCOMPLETE
+        run_source_ref = raw_closure.get("run_source_ref")
+        if (
+            not isinstance(run_source_ref, Mapping)
+            or run_source_ref.get("source_family") != "RESEARCH_RUN"
+            or not _nested_ref_matches_record_source(record, run_source_ref)
+        ):
+            return _PredicateVerdict.INCOMPLETE
+        key = (raw_closure.get("run_id"), raw_closure.get("run_revision"))
+        if key in closure_keys:
+            return _PredicateVerdict.INCOMPLETE
+        closure_keys.add(key)
+    subject = selector.intent_subject
+    for closure in closures:
+        assert isinstance(closure, Mapping)
+        if closure["run_state"] != "COMPLETED":
+            continue
+        try:
+            historical_subject = OnlyExactEvaluationIntentSubjectV1(
+                cast(str, facets["graph_fingerprint"]),
+                cast(str, facets["candidate_node_fingerprint"]),
+                cast(str, facets["output_name"]),
+                cast(str, facets["candidate_fingerprint"]),
+                cast(str, facets["dataset_snapshot_fingerprint"]),
+                cast(str, closure["specification_fingerprint"]),
+                cast(str, facets["research_result_locator"]),
+                tuple(reference.statistics_fingerprint for reference in statistics),
+                cast(str, closure["catalog_generation_fingerprint"]),
+                cast(str, closure["runtime_generation_fingerprint"]),
+                cast(str | None, closure.get("authoring_generation_fingerprint")),
+            )
+        except (TypeError, ValueError):
+            return _PredicateVerdict.INCOMPLETE
+        if historical_subject == subject:
             return _PredicateVerdict.MATCH
     return _PredicateVerdict.NO_MATCH
 
@@ -1113,6 +1246,8 @@ def only_query_experiment_memory_history(
             outcome = _semantic(record, selector)
         elif isinstance(selector, OnlyExactEvaluationHistorySelectorV1):
             outcome = _evaluation(record, selector)
+        elif isinstance(selector, OnlyExactEvaluationIntentHistorySelectorV1):
+            outcome = _evaluation_intent(record, selector)
         elif isinstance(selector, OnlyExactParameterObservationSelectorV1):
             outcome = _parameter(record, selector)
         else:

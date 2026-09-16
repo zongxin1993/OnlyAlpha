@@ -17,17 +17,22 @@ from onlyalpha.research.memory.store import OnlyExperimentMemoryRevisionStore
 
 from .decision import (
     OnlyNoveltyDecisionBundleV1,
+    OnlyNoveltyDecisionBundleV2,
     OnlyNoveltyDecisionConflictError,
     OnlyNoveltyDecisionCorruptError,
     OnlyNoveltyDecisionError,
     OnlyNoveltyDecisionRequestV1,
+    OnlyNoveltyDecisionRequestV2,
     OnlyNoveltyDecisionSchemaUnsupportedError,
     OnlyNoveltyDecisionV1,
+    OnlyNoveltyDecisionV2,
     OnlyNoveltyDecisionWitnessV1,
+    OnlyNoveltyDecisionWitnessV2,
     OnlyNoveltyFreezeRelationReader,
     OnlyNoveltyQualificationDecisionReader,
     OnlyNoveltyWitnessSchemaUnsupportedError,
     _build_novelty_decision_bundle,
+    _build_novelty_decision_bundle_v2,
 )
 from .store import OnlyNoveltyPolicyStore
 
@@ -45,16 +50,16 @@ class OnlyNoveltyDecisionAuthority:
 
     def seal_from_request(
         self,
-        request: OnlyNoveltyDecisionRequestV1,
+        request: OnlyNoveltyDecisionRequestV1 | OnlyNoveltyDecisionRequestV2,
         projection_revision_fingerprint: str,
         revisions: OnlyExperimentMemoryRevisionStore,
         policies: OnlyNoveltyPolicyStore,
         *,
         qualification_decisions: OnlyNoveltyQualificationDecisionReader | None = None,
         freeze_relations: OnlyNoveltyFreezeRelationReader | None = None,
-    ) -> OnlyNoveltyDecisionBundleV1:
+    ) -> OnlyNoveltyDecisionBundleV1 | OnlyNoveltyDecisionBundleV2:
         """Derive and persist one Decision; retries consult sealed history first."""
-        if not isinstance(request, OnlyNoveltyDecisionRequestV1):
+        if not isinstance(request, (OnlyNoveltyDecisionRequestV1, OnlyNoveltyDecisionRequestV2)):
             raise OnlyNoveltyDecisionCorruptError("authoritative seal requires a Decision request")
         try:
             existing = self.load_exact(request.command_id)
@@ -64,14 +69,25 @@ class OnlyNoveltyDecisionAuthority:
             if existing.decision.subject.canonical_intent_fingerprint != request.canonical_intent_fingerprint:
                 raise OnlyNoveltyDecisionConflictError(request.command_id.value)
             return existing
-        proposed = _build_novelty_decision_bundle(
-            request,
-            projection_revision_fingerprint,
-            revisions,
-            policies,
-            qualification_decisions=qualification_decisions,
-            freeze_relations=freeze_relations,
-        )
+        proposed: OnlyNoveltyDecisionBundleV1 | OnlyNoveltyDecisionBundleV2
+        if isinstance(request, OnlyNoveltyDecisionRequestV2):
+            proposed = _build_novelty_decision_bundle_v2(
+                request,
+                projection_revision_fingerprint,
+                revisions,
+                policies,
+                qualification_decisions=qualification_decisions,
+                freeze_relations=freeze_relations,
+            )
+        else:
+            proposed = _build_novelty_decision_bundle(
+                request,
+                projection_revision_fingerprint,
+                revisions,
+                policies,
+                qualification_decisions=qualification_decisions,
+                freeze_relations=freeze_relations,
+            )
         try:
             return self._put_verified_bundle(proposed)
         except OnlyNoveltyDecisionConflictError:
@@ -80,8 +96,10 @@ class OnlyNoveltyDecisionAuthority:
                 raise
             return existing
 
-    def _put_verified_bundle(self, bundle: OnlyNoveltyDecisionBundleV1) -> OnlyNoveltyDecisionBundleV1:
-        if not isinstance(bundle, OnlyNoveltyDecisionBundleV1):
+    def _put_verified_bundle(
+        self, bundle: OnlyNoveltyDecisionBundleV1 | OnlyNoveltyDecisionBundleV2
+    ) -> OnlyNoveltyDecisionBundleV1 | OnlyNoveltyDecisionBundleV2:
+        if not isinstance(bundle, (OnlyNoveltyDecisionBundleV1, OnlyNoveltyDecisionBundleV2)):
             raise OnlyNoveltyDecisionCorruptError("verified put requires a validated Decision Bundle")
         command_id = OnlyProductCommandId(bundle.decision.subject.product_command_id)
         target = self._target(command_id)
@@ -112,7 +130,7 @@ class OnlyNoveltyDecisionAuthority:
                 shutil.rmtree(stage, ignore_errors=True)
         return self.load_exact(command_id)
 
-    def load_exact(self, command_id: OnlyProductCommandId) -> OnlyNoveltyDecisionBundleV1:
+    def load_exact(self, command_id: OnlyProductCommandId) -> OnlyNoveltyDecisionBundleV1 | OnlyNoveltyDecisionBundleV2:
         target = self._target(command_id)
         self._require_safe(target)
         if not target.exists() and not target.is_symlink():
@@ -137,10 +155,27 @@ class OnlyNoveltyDecisionAuthority:
             decision_payload = payload["decision"]
             if not isinstance(witness_payload, dict) or not isinstance(decision_payload, dict):
                 raise ValueError("Decision Bundle members are invalid")
-            witness = OnlyNoveltyDecisionWitnessV1.from_dict(witness_payload)
-            decision = OnlyNoveltyDecisionV1.from_dict(decision_payload, witness.subject)
-            bundle = OnlyNoveltyDecisionBundleV1(decision, witness)
-            if decision.subject.product_command_id != command_id.value:
+            witness_schema = witness_payload.get("schema_version")
+            if witness_schema == 1:
+                witness_v1 = OnlyNoveltyDecisionWitnessV1.from_dict(witness_payload)
+                decision_v1 = OnlyNoveltyDecisionV1.from_dict(decision_payload, witness_v1.subject)
+                bundle: OnlyNoveltyDecisionBundleV1 | OnlyNoveltyDecisionBundleV2 = OnlyNoveltyDecisionBundleV1(
+                    decision_v1, witness_v1
+                )
+            elif witness_schema == 2:
+                subject = witness_payload.get("subject")
+                if (
+                    not isinstance(subject, dict)
+                    or not isinstance(subject.get("resolved_subject"), dict)
+                    or "evaluation_subject" not in subject["resolved_subject"]
+                ):
+                    raise OnlyNoveltyWitnessSchemaUnsupportedError("Decision Witness V2")
+                witness_v2 = OnlyNoveltyDecisionWitnessV2.from_dict(witness_payload)
+                decision_v2 = OnlyNoveltyDecisionV2.from_dict(decision_payload, witness_v2.subject)
+                bundle = OnlyNoveltyDecisionBundleV2(decision_v2, witness_v2)
+            else:
+                raise OnlyNoveltyWitnessSchemaUnsupportedError(str(witness_schema))
+            if bundle.decision.subject.product_command_id != command_id.value:
                 raise ValueError("Decision path identity differs")
             return bundle
         except (OnlyNoveltyDecisionSchemaUnsupportedError, OnlyNoveltyWitnessSchemaUnsupportedError):
