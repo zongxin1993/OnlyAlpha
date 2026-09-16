@@ -16,6 +16,8 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from psycopg.rows import dict_row
 
+from onlyalpha.core.clock import only_system_utc_now
+
 from .config import OnlyPostgresOperationalConnectionOptions
 
 MASTER_KEY_BYTES = 32
@@ -69,13 +71,13 @@ class OnlyPostgresCredentialAuthority:
         master_key: bytes,
         *,
         options: OnlyPostgresOperationalConnectionOptions | None = None,
-        now: Callable[[], datetime] | None = None,
+        now: Callable[[], datetime] = only_system_utc_now,
     ) -> None:
         if len(master_key) != MASTER_KEY_BYTES:
             raise ValueError("CREDENTIAL_MASTER_KEY_INVALID")
         self._dsn = (options or OnlyPostgresOperationalConnectionOptions()).apply(dsn)
         self._key = bytes(master_key)
-        self._now = now or (lambda: datetime.now(UTC))
+        self._now = now
 
     def put(self, credential_kind: str, provider_id: str, secret: str) -> OnlyCredentialMetadata:
         _validate_text(credential_kind, "CREDENTIAL_KIND_INVALID")
@@ -128,7 +130,7 @@ class OnlyPostgresCredentialAuthority:
     def _encrypt(self, credential_kind: str, provider_id: str, secret: str) -> bytes:
         nonce = secrets.token_bytes(12)
         aad = f"{credential_kind}\0{provider_id}".encode()
-        return nonce + cast(bytes, AESGCM(self._key).encrypt(nonce, secret.encode(), aad))
+        return nonce + AESGCM(self._key).encrypt(nonce, secret.encode(), aad)
 
     def _decrypt(self, credential_kind: str, provider_id: str, ciphertext: bytes) -> str:
         if len(ciphertext) <= 12:
@@ -137,7 +139,7 @@ class OnlyPostgresCredentialAuthority:
             value = AESGCM(self._key).decrypt(
                 ciphertext[:12], ciphertext[12:], f"{credential_kind}\0{provider_id}".encode()
             )
-            return cast(bytes, value).decode("utf-8")
+            return value.decode("utf-8")
         except (InvalidTag, UnicodeDecodeError) as exc:
             raise ValueError("CREDENTIAL_CIPHERTEXT_INVALID") from exc
 

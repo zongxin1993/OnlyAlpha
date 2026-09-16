@@ -805,9 +805,10 @@ class OnlyResearchCommandService:
             raise OnlyNoveltyResearchAdmissionError(
                 "NOVELTY_READ_TO_ACT_CORRUPT", "accepted Decision/Admission relation is incomplete"
             ) from exc
+        if admission.command_fingerprint != command.command_fingerprint:
+            raise OnlyResearchSubmissionConflictError()
         if (
-            admission.command_fingerprint != command.command_fingerprint
-            or admission.novelty_decision_fingerprint != bundle.decision.decision_fingerprint
+            admission.novelty_decision_fingerprint != bundle.decision.decision_fingerprint
             or admission.canonical_intent_fingerprint != bundle.decision.subject.canonical_intent_fingerprint
             or admission.evaluation_subject_fingerprint != subject.subject_fingerprint
             or admission.decision_time_proof_fingerprint != decision_proof.result_fingerprint
@@ -877,9 +878,10 @@ class OnlyResearchCommandService:
             )
             for item in admission.members
         )
+        if admission.command_fingerprint != command.command_fingerprint:
+            raise OnlyResearchSubmissionConflictError()
         if (
-            admission.command_fingerprint != command.command_fingerprint
-            or admission.decision_group_fingerprint != group.group_fingerprint
+            admission.decision_group_fingerprint != group.group_fingerprint
             or admission.subject_set_fingerprint != group.subject_set.subject_set_fingerprint
             or actual_members != expected_members
             or admission.run_id != expected_run_id

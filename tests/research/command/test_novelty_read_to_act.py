@@ -7,7 +7,7 @@ import pytest
 
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId
 from onlyalpha.research.command import OnlyResearchCommandService, OnlyResearchSubmitDisposition
-from onlyalpha.research.command.errors import OnlyNoveltyResearchAdmissionError
+from onlyalpha.research.command.errors import OnlyNoveltyResearchAdmissionError, OnlyResearchSubmissionConflictError
 from onlyalpha.research.command.novelty_admission import (
     OnlyResearchNoveltyAdmissionV1,
     OnlyResearchNoveltyAdmissionV2,
@@ -19,6 +19,7 @@ from onlyalpha.research.memory.source_manifest import MANDATORY_FAMILIES, OnlyEx
 from onlyalpha.research.memory.store import OnlyExperimentMemoryRevisionStore
 from onlyalpha.research.novelty import (
     OnlyNoveltyDecisionAuthority,
+    OnlyNoveltyDecisionGroupV1,
     OnlyNoveltyDecisionRequestV2,
     OnlyNoveltyPolicyOutcome,
     OnlyNoveltyPolicyStore,
@@ -272,6 +273,18 @@ def test_multi_subject_all_admit_creates_one_aggregate_run_and_retry_replays(tmp
     assert runtime.require_work_binding(created.run.run_id.value).active
 
 
+def test_committed_group_replay_rejects_changed_intent_as_command_conflict(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    command_id = OnlyProductCommandId("00000000-0000-4000-8000-000000000124")
+    service, store, _, specification, _, _ = _multi_system(tmp_path, command_id)
+    created = service.submit_research_run(command_id, specification)
+
+    with pytest.raises(OnlyResearchSubmissionConflictError):
+        service.submit_research_run(command_id, _scientific(dataset="b" * 64, swept=True))
+
+    assert len(store.runs) == len(store.receipts) == len(store.admissions) == 1
+    assert next(iter(store.runs.values())) == created.run
+
+
 @pytest.mark.parametrize(
     "outcome",
     (
@@ -337,6 +350,56 @@ def test_multi_subject_one_stale_member_blocks_whole_run_and_releases_binding(tm
     assert stale.value.code == "NOVELTY_DECISION_STALE"
     assert not store.runs and not store.receipts and not store.admissions
     assert runtime.inactive_work_ids == set(runtime.bindings)
+
+
+@pytest.mark.parametrize(
+    ("status", "code"),
+    (("PROOF_INCOMPLETE", "NOVELTY_PROOF_INCOMPLETE"), ("PROOF_UNAVAILABLE", "NOVELTY_PROOF_UNAVAILABLE")),
+)
+def test_multi_subject_incomplete_action_proof_fails_closed(tmp_path, monkeypatch, status, code) -> None:  # type: ignore[no-untyped-def]
+    command_id = OnlyProductCommandId("00000000-0000-4000-8000-000000000125")
+    service, store, runtime, specification, _, _ = _multi_system(tmp_path, command_id)
+    from onlyalpha.research.memory.query import OnlyMemoryHistoricalProofStatus, OnlyMemoryHistoricalProofV1
+
+    def incomplete_proof(revisions, query):  # type: ignore[no-untyped-def]
+        projection = revisions.load_verified(query.projection_revision_fingerprint)
+        return OnlyMemoryHistoricalProofV1(
+            query.query_fingerprint,
+            projection.revision_fingerprint,
+            projection.logical_digest,
+            projection.source_manifest.manifest_fingerprint,
+            OnlyMemoryHistoricalProofStatus(status),
+            (),
+        )
+
+    monkeypatch.setattr("onlyalpha.research.memory.query.only_query_experiment_memory_history", incomplete_proof)
+    with pytest.raises(OnlyNoveltyResearchAdmissionError) as unavailable:
+        service.submit_research_run(command_id, specification)
+
+    assert unavailable.value.code == code
+    assert not store.runs and not store.receipts and not store.admissions
+    assert runtime.inactive_work_ids == set(runtime.bindings)
+
+
+def test_incomplete_decision_group_creates_zero_run(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    command_id = OnlyProductCommandId("00000000-0000-4000-8000-000000000126")
+    service, store, runtime, specification, _, group = _multi_system(tmp_path, command_id)
+    incomplete = OnlyNoveltyDecisionGroupV1(
+        group.product_command_id,
+        group.specification_fingerprint,
+        group.members[:1],
+    )
+
+    class _IncompleteGroupReader:
+        def load_group_exact(self, requested):  # type: ignore[no-untyped-def]
+            assert requested == command_id
+            return incomplete
+
+    service._novelty_decisions = _IncompleteGroupReader()  # type: ignore[assignment]
+    with pytest.raises(OnlyNoveltyResearchAdmissionError) as mismatch:
+        service.submit_research_run(command_id, specification)
+    assert mismatch.value.code == "NOVELTY_DECISION_BINDING_MISMATCH"
+    assert not store.runs and runtime.inactive_work_ids == set(runtime.bindings)
 
 
 @pytest.mark.parametrize(
@@ -409,6 +472,11 @@ def test_db_rollback_releases_exact_runtime_binding(tmp_path) -> None:  # type: 
         service.submit_research_run(command_id, specification)
 
     assert not store.runs and not store.receipts and runtime.inactive_work_ids == set(runtime.bindings)
+    store.fail_before_commit = False
+    with pytest.raises(OnlyNoveltyResearchAdmissionError) as released:
+        service.submit_research_run(command_id, specification)
+    assert released.value.code == "RUNTIME_WORK_BINDING_RECOVERY_REQUIRED"
+    assert not store.runs
 
 
 def test_missing_decision_and_subject_mismatch_create_zero_run(tmp_path) -> None:  # type: ignore[no-untyped-def]

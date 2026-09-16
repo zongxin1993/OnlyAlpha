@@ -1,7 +1,7 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
-const apiTarget = process.env.ONLYALPHA_WEB_API_TARGET ?? "http://api:8000";
+const apiTarget = process.env.ONLYALPHA_WEB_API_TARGET ?? "http://127.0.0.1:8000";
 
 const proxy = {
     "/api": { target: apiTarget, changeOrigin: false },
