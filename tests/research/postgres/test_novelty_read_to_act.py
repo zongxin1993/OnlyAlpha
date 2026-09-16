@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from threading import Barrier
 
 import psycopg
@@ -89,6 +90,35 @@ def _preadmit(dsn: str, command_id: OnlyProductCommandId, fingerprint: str) -> N
     )
 
 
+@pytest.mark.parametrize("forgery", ("group", "member", "proof"))
+def test_caller_authored_admission_forgery_has_no_public_persistence_path(postgres_dsn: str, forgery: str) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    store = OnlyPostgresResearchRunStore(postgres_dsn)
+    command_id = OnlyProductCommandId("00000000-0000-4000-8000-000000000920")
+    run = _queued("00000000-0000-4000-8000-000000000930")
+    admission = _aggregate_admission(command_id, "a" * 64, run, ("b" * 64, "c" * 64))
+    if forgery == "group":
+        admission = replace(admission, decision_group_fingerprint="f" * 64)
+    elif forgery == "member":
+        admission = replace(
+            admission,
+            members=(replace(admission.members[0], novelty_decision_fingerprint="e" * 64), *admission.members[1:]),
+        )
+    else:
+        admission = replace(
+            admission,
+            members=(replace(admission.members[0], action_time_proof_fingerprint="d" * 64), *admission.members[1:]),
+        )
+    assert admission.admission_fingerprint
+    assert not hasattr(store, "create_queued_with_novelty_admission")
+    with pytest.raises(AttributeError):
+        _ = store.create_queued_with_novelty_admission  # type: ignore[attr-defined]
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute("SELECT count(*) FROM research_novelty_admission").fetchone() == (0,)
+        assert connection.execute("SELECT count(*) FROM research_run").fetchone() == (0,)
+        assert connection.execute("SELECT count(*) FROM product_command_receipt").fetchone() == (0,)
+
+
 def test_novelty_admission_run_and_receipt_commit_atomically(postgres_dsn: str) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     store = OnlyPostgresResearchRunStore(postgres_dsn)
@@ -100,7 +130,7 @@ def test_novelty_admission_run_and_receipt_commit_atomically(postgres_dsn: str) 
     _preadmit(postgres_dsn, command_id, fingerprint)
 
     assert (
-        store.create_queued_with_novelty_admission(
+        store._create_queued_with_verified_novelty_admission(
             run,
             receipt,
             admission,
@@ -117,7 +147,7 @@ def test_novelty_admission_run_and_receipt_commit_atomically(postgres_dsn: str) 
     second_fingerprint = "c" * 64
     _preadmit(postgres_dsn, second_id, second_fingerprint)
     with pytest.raises(OnlyResearchRunIntegrityError, match="NOVELTY_SAME_SUBJECT_IN_FLIGHT"):
-        store.create_queued_with_novelty_admission(
+        store._create_queued_with_verified_novelty_admission(
             second_run,
             _create_receipt(second_id, second_run, second_fingerprint),
             _admission(second_id, second_fingerprint, second_run),
@@ -137,7 +167,7 @@ def test_aggregate_parent_all_members_run_and_receipt_commit_atomically(postgres
     _preadmit(postgres_dsn, command_id, fingerprint)
 
     assert (
-        store.create_queued_with_novelty_admission(
+        store._create_queued_with_verified_novelty_admission(
             run, receipt, admission, expected_source_frontier=_frontier(postgres_dsn)
         )
         == receipt
@@ -182,7 +212,7 @@ def test_aggregate_partial_overlap_serializes_while_disjoint_sets_both_commit(
     def submit(index: int) -> str:
         barrier.wait()
         try:
-            OnlyPostgresResearchRunStore(postgres_dsn).create_queued_with_novelty_admission(
+            OnlyPostgresResearchRunStore(postgres_dsn)._create_queued_with_verified_novelty_admission(
                 runs[index],
                 _create_receipt(command_ids[index], runs[index], fingerprints[index]),
                 _aggregate_admission(command_ids[index], fingerprints[index], runs[index], subject_sets[index]),
@@ -212,7 +242,7 @@ def test_stale_frontier_and_same_subject_in_flight_create_zero_second_run(postgr
     stale_frontier = _frontier(postgres_dsn)
     store.create_queued(_queued("00000000-0000-4000-8000-000000000913"))
     with pytest.raises(OnlyResearchRunIntegrityError, match="NOVELTY_DECISION_STALE"):
-        store.create_queued_with_novelty_admission(
+        store._create_queued_with_verified_novelty_admission(
             stale_run,
             _create_receipt(stale_id, stale_run, stale_fingerprint),
             _admission(stale_id, stale_fingerprint, stale_run),
@@ -224,7 +254,7 @@ def test_stale_frontier_and_same_subject_in_flight_create_zero_second_run(postgr
     # blocks every new subject until it reaches a terminal state.
     fresh_frontier = _frontier(postgres_dsn)
     with pytest.raises(OnlyResearchRunIntegrityError, match="NOVELTY_UNCLASSIFIED_RESEARCH_IN_FLIGHT"):
-        store.create_queued_with_novelty_admission(
+        store._create_queued_with_verified_novelty_admission(
             stale_run,
             _create_receipt(stale_id, stale_run, stale_fingerprint),
             _admission(stale_id, stale_fingerprint, stale_run),
@@ -252,7 +282,7 @@ def test_real_concurrent_commands_same_subject_commit_at_most_one_run(postgres_d
     def submit(index: int) -> str:
         barrier.wait()
         try:
-            OnlyPostgresResearchRunStore(postgres_dsn).create_queued_with_novelty_admission(
+            OnlyPostgresResearchRunStore(postgres_dsn)._create_queued_with_verified_novelty_admission(
                 runs[index],
                 _create_receipt(command_ids[index], runs[index], fingerprints[index]),
                 _admission(command_ids[index], fingerprints[index], runs[index]),
@@ -289,7 +319,7 @@ def test_receipt_insert_fault_rolls_back_run_and_admission(postgres_dsn: str) ->
             "FOR EACH ROW EXECUTE FUNCTION reject_novelty_receipt()"
         )
     with pytest.raises(OnlyResearchRunStoreUnavailableError, match="Novelty-gated Research transaction failed"):
-        OnlyPostgresResearchRunStore(postgres_dsn).create_queued_with_novelty_admission(
+        OnlyPostgresResearchRunStore(postgres_dsn)._create_queued_with_verified_novelty_admission(
             run,
             _create_receipt(command_id, run, fingerprint),
             _admission(command_id, fingerprint, run),
@@ -318,7 +348,7 @@ def test_member_insert_fault_rolls_back_aggregate_parent_run_and_receipt(postgre
             "ON research_novelty_admission_subject FOR EACH ROW EXECUTE FUNCTION reject_second_novelty_member()"
         )
     with pytest.raises(OnlyResearchRunStoreUnavailableError, match="Novelty-gated Research transaction failed"):
-        OnlyPostgresResearchRunStore(postgres_dsn).create_queued_with_novelty_admission(
+        OnlyPostgresResearchRunStore(postgres_dsn)._create_queued_with_verified_novelty_admission(
             run,
             _create_receipt(command_id, run, fingerprint),
             _aggregate_admission(command_id, fingerprint, run, ("a" * 64, "b" * 64)),

@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import json
 import os
+import shutil
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from decimal import Decimal
@@ -102,6 +103,16 @@ def _authorities(tmp_path, projection=None, *, novelty_policy=None):  # type: ig
 
 def _request_v2(subject: OnlyExactEvaluationIntentSubjectV1) -> OnlyNoveltyDecisionRequestV2:
     return OnlyNoveltyDecisionRequestV2(COMMAND, "default-novelty", "1", subject)
+
+
+def _group_requests() -> tuple[OnlyNoveltyDecisionRequestV2, ...]:
+    runtime = OnlyTestRuntimeGenerationAuthority()
+    runtime.bind_new_work("work", actor="test", occurred_at=object())
+    subjects = OnlyExactEvaluationIntentResolverV1(
+        runtime_generations=runtime,
+        runtime_resolution=_RuntimeResolution(),
+    ).resolve_all(_scientific(swept=True), runtime_work_id="work")
+    return tuple(_request_v2(subject) for subject in subjects)
 
 
 def _projection_for_subject(
@@ -230,6 +241,101 @@ def test_decision_group_rejects_noncanonical_duplicate_and_derived_mutation(tmp_
     payload["disposition"] = OnlyNoveltyDecisionGroupDisposition.BLOCKED.value
     with pytest.raises(OnlyNoveltyDecisionCorruptError):
         OnlyNoveltyDecisionGroupV1.from_dict(payload)
+
+
+def test_single_then_group_and_group_then_single_conflict(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    revisions, projection, policies, decisions = _authorities(tmp_path / "single-first")
+    decisions.seal_from_request(_request_v2(_intent_subject()), projection.revision_fingerprint, revisions, policies)
+    with pytest.raises(OnlyNoveltyDecisionConflictError):
+        decisions.seal_group_from_requests(_group_requests(), projection.revision_fingerprint, revisions, policies)
+
+    revisions, projection, policies, decisions = _authorities(tmp_path / "group-first")
+    decisions.seal_group_from_requests(_group_requests(), projection.revision_fingerprint, revisions, policies)
+    with pytest.raises(OnlyNoveltyDecisionConflictError):
+        decisions.seal_from_request(
+            _request_v2(_intent_subject()), projection.revision_fingerprint, revisions, policies
+        )
+
+
+def test_decision_group_exact_retry_and_changed_membership_conflict(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    revisions, projection, policies, decisions = _authorities(tmp_path)
+    requests = _group_requests()
+    group = decisions.seal_group_from_requests(requests, projection.revision_fingerprint, revisions, policies)
+
+    assert decisions.seal_group_from_requests(requests, projection.revision_fingerprint, revisions, policies) == group
+    changed = replace(
+        requests[0],
+        evaluation_subject=replace(requests[0].evaluation_subject, dataset_snapshot_fingerprint="0" * 64),
+    )
+    changed_requests = tuple(
+        sorted((changed, *requests[1:]), key=lambda item: item.evaluation_subject.subject_fingerprint)
+    )
+    with pytest.raises(OnlyNoveltyDecisionConflictError):
+        decisions.seal_group_from_requests(changed_requests, projection.revision_fingerprint, revisions, policies)
+
+
+def test_concurrent_single_and_group_have_one_authoritative_winner(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    revisions, projection, policies, decisions = _authorities(tmp_path)
+    barrier = Barrier(2)
+
+    def seal_single():  # type: ignore[no-untyped-def]
+        barrier.wait()
+        return decisions.seal_from_request(
+            _request_v2(_intent_subject()), projection.revision_fingerprint, revisions, policies
+        )
+
+    def seal_group():  # type: ignore[no-untyped-def]
+        barrier.wait()
+        return decisions.seal_group_from_requests(
+            _group_requests(), projection.revision_fingerprint, revisions, policies
+        )
+
+    def attempt(operation):  # type: ignore[no-untyped-def]
+        try:
+            operation()
+            return "SEALED"
+        except OnlyNoveltyDecisionConflictError:
+            return "CONFLICT"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = tuple(pool.map(attempt, (seal_single, seal_group)))
+
+    assert sorted(outcomes) == ["CONFLICT", "SEALED"]
+    single = tmp_path / "research" / "novelty-decisions" / COMMAND.value
+    group = tmp_path / "research" / "novelty-decision-groups" / COMMAND.value
+    assert single.exists() is not group.exists()
+
+
+def test_preexisting_dual_mode_fails_closed_on_every_load(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    revisions, projection, policies, single = _authorities(tmp_path / "single")
+    single.seal_from_request(_request_v2(_intent_subject()), projection.revision_fingerprint, revisions, policies)
+    revisions, projection, policies, group = _authorities(tmp_path / "group")
+    group.seal_group_from_requests(_group_requests(), projection.revision_fingerprint, revisions, policies)
+
+    target = tmp_path / "corrupt"
+    for name, source in (
+        ("novelty-decisions", tmp_path / "single" / "research" / "novelty-decisions"),
+        ("novelty-decision-groups", tmp_path / "group" / "research" / "novelty-decision-groups"),
+    ):
+        shutil.copytree(source, target / "research" / name)
+    authority = OnlyNoveltyDecisionAuthority(target)
+
+    with pytest.raises(OnlyNoveltyDecisionConflictError, match="multiple occurrence modes"):
+        authority.load_exact(COMMAND)
+    with pytest.raises(OnlyNoveltyDecisionConflictError, match="multiple occurrence modes"):
+        authority.load_group_exact(COMMAND)
+
+
+def test_decision_group_publish_crash_leaves_no_occurrence(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    revisions, projection, policies, decisions = _authorities(tmp_path)
+    monkeypatch.setattr(os, "rename", lambda *_: (_ for _ in ()).throw(OSError("crash")))
+
+    with pytest.raises(OnlyNoveltyDecisionCorruptError):
+        decisions.seal_group_from_requests(_group_requests(), projection.revision_fingerprint, revisions, policies)
+    with pytest.raises(OnlyNoveltyDecisionNotFoundError):
+        decisions.load_group_exact(COMMAND)
+    with pytest.raises(OnlyNoveltyDecisionNotFoundError):
+        decisions.load_exact(COMMAND)
 
 
 def test_prospective_decision_request_is_versioned_and_round_trips_without_result_refs() -> None:
@@ -637,19 +743,12 @@ def test_witness_rejects_historical_proof_for_another_exact_subject(tmp_path) ->
         replace(bundle.witness, subject=subject)
 
 
-def test_concurrent_same_command_converges_with_barrier(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def test_concurrent_same_command_converges_with_barrier(tmp_path) -> None:  # type: ignore[no-untyped-def]
     revisions, projection, policies, decisions = _authorities(tmp_path)
     barrier = Barrier(2)
 
-    put_verified = decisions._put_verified_bundle
-
-    def barrier_put(bundle):  # type: ignore[no-untyped-def]
-        barrier.wait()
-        return put_verified(bundle)
-
-    monkeypatch.setattr(decisions, "_put_verified_bundle", barrier_put)
-
     def evaluate():
+        barrier.wait()
         return decisions.seal_from_request(_request(projection), projection.revision_fingerprint, revisions, policies)
 
     with ThreadPoolExecutor(max_workers=2) as pool:

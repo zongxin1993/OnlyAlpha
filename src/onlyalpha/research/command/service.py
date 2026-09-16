@@ -63,7 +63,7 @@ from .novelty_admission import (
     OnlyResearchNoveltyAdmissionV2,
     only_novelty_same_subject_guard_key,
 )
-from .store import OnlyResearchCommandStore
+from .store import _OnlyVerifiedNoveltyAdmissionStore
 
 if TYPE_CHECKING:
     from onlyalpha.research.memory.production import OnlyExperimentMemoryProductionBuilder
@@ -92,7 +92,7 @@ class OnlyResearchCommandService:
         self,
         *,
         admission: OnlyResearchRunAdmissionService,
-        store: OnlyResearchCommandStore,
+        store: _OnlyVerifiedNoveltyAdmissionStore,
         now_utc: Callable[[], datetime],
         runtime_generations: OnlyRuntimeGenerationWorkAuthority,
         command_admissions: OnlyProductCommandAdmissionAuthority | None = None,
@@ -342,7 +342,7 @@ class OnlyResearchCommandService:
                 ),
                 accepted_at=prepared.queued_at,
             )
-            record = self._store.create_queued_with_novelty_admission(
+            record = self._store._create_queued_with_verified_novelty_admission(
                 prepared,
                 requested,
                 admission,
@@ -523,7 +523,7 @@ class OnlyResearchCommandService:
                 ),
                 accepted_at=prepared.queued_at,
             )
-            record = self._store.create_queued_with_novelty_admission(
+            record = self._store._create_queued_with_verified_novelty_admission(
                 prepared,
                 requested,
                 admission,

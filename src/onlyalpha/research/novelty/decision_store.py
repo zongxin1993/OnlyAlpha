@@ -49,6 +49,7 @@ class OnlyNoveltyDecisionAuthority:
         self._semantic_root = semantic_root
         self._root = semantic_root / "research" / "novelty-decisions"
         self._group_root = semantic_root / "research" / "novelty-decision-groups"
+        self._lock_root = semantic_root / "research" / "novelty-decision-authority-locks"
 
     def seal_from_request(
         self,
@@ -63,40 +64,34 @@ class OnlyNoveltyDecisionAuthority:
         """Derive and persist one Decision; retries consult sealed history first."""
         if not isinstance(request, (OnlyNoveltyDecisionRequestV1, OnlyNoveltyDecisionRequestV2)):
             raise OnlyNoveltyDecisionCorruptError("authoritative seal requires a Decision request")
-        try:
-            existing = self.load_exact(request.command_id)
-        except OnlyNoveltyDecisionNotFoundError:
-            pass
-        else:
-            if existing.decision.subject.canonical_intent_fingerprint != request.canonical_intent_fingerprint:
+        with self._command_locked(request.command_id):
+            existing, group = self._load_existing(request.command_id)
+            if group is not None:
                 raise OnlyNoveltyDecisionConflictError(request.command_id.value)
-            return existing
-        proposed: OnlyNoveltyDecisionBundleV1 | OnlyNoveltyDecisionBundleV2
-        if isinstance(request, OnlyNoveltyDecisionRequestV2):
-            proposed = _build_novelty_decision_bundle_v2(
-                request,
-                projection_revision_fingerprint,
-                revisions,
-                policies,
-                qualification_decisions=qualification_decisions,
-                freeze_relations=freeze_relations,
-            )
-        else:
-            proposed = _build_novelty_decision_bundle(
-                request,
-                projection_revision_fingerprint,
-                revisions,
-                policies,
-                qualification_decisions=qualification_decisions,
-                freeze_relations=freeze_relations,
-            )
-        try:
+            if existing is not None:
+                if existing.decision.subject.canonical_intent_fingerprint != request.canonical_intent_fingerprint:
+                    raise OnlyNoveltyDecisionConflictError(request.command_id.value)
+                return existing
+            proposed: OnlyNoveltyDecisionBundleV1 | OnlyNoveltyDecisionBundleV2
+            if isinstance(request, OnlyNoveltyDecisionRequestV2):
+                proposed = _build_novelty_decision_bundle_v2(
+                    request,
+                    projection_revision_fingerprint,
+                    revisions,
+                    policies,
+                    qualification_decisions=qualification_decisions,
+                    freeze_relations=freeze_relations,
+                )
+            else:
+                proposed = _build_novelty_decision_bundle(
+                    request,
+                    projection_revision_fingerprint,
+                    revisions,
+                    policies,
+                    qualification_decisions=qualification_decisions,
+                    freeze_relations=freeze_relations,
+                )
             return self._put_verified_bundle(proposed)
-        except OnlyNoveltyDecisionConflictError:
-            existing = self.load_exact(request.command_id)
-            if existing.decision.subject.canonical_intent_fingerprint != request.canonical_intent_fingerprint:
-                raise
-            return existing
 
     def seal_group_from_requests(
         self,
@@ -119,33 +114,33 @@ class OnlyNoveltyDecisionAuthority:
             or len({item.evaluation_subject.subject_fingerprint for item in requests}) != len(requests)
         ):
             raise OnlyNoveltyDecisionCorruptError("Decision Group requests are not canonical and unique")
-        try:
-            existing = self.load_group_exact(command_id)
-        except OnlyNoveltyDecisionNotFoundError:
-            pass
-        else:
-            if tuple(item.decision.subject.canonical_intent_fingerprint for item in existing.members) != tuple(
-                item.canonical_intent_fingerprint for item in requests
-            ):
+        with self._command_locked(command_id):
+            single, existing = self._load_existing(command_id)
+            if single is not None:
                 raise OnlyNoveltyDecisionConflictError(command_id.value)
-            return existing
-        members = tuple(
-            _build_novelty_decision_bundle_v2(
-                request,
-                projection_revision_fingerprint,
-                revisions,
-                policies,
-                qualification_decisions=qualification_decisions,
-                freeze_relations=freeze_relations,
+            if existing is not None:
+                if tuple(item.decision.subject.canonical_intent_fingerprint for item in existing.members) != tuple(
+                    item.canonical_intent_fingerprint for item in requests
+                ):
+                    raise OnlyNoveltyDecisionConflictError(command_id.value)
+                return existing
+            members = tuple(
+                _build_novelty_decision_bundle_v2(
+                    request,
+                    projection_revision_fingerprint,
+                    revisions,
+                    policies,
+                    qualification_decisions=qualification_decisions,
+                    freeze_relations=freeze_relations,
+                )
+                for request in requests
             )
-            for request in requests
-        )
-        group = OnlyNoveltyDecisionGroupV1(
-            command_id.value,
-            requests[0].evaluation_subject.specification_fingerprint,
-            members,
-        )
-        return self._put_verified_group(group)
+            group = OnlyNoveltyDecisionGroupV1(
+                command_id.value,
+                requests[0].evaluation_subject.specification_fingerprint,
+                members,
+            )
+            return self._put_verified_group(group)
 
     def _put_verified_group(self, group: OnlyNoveltyDecisionGroupV1) -> OnlyNoveltyDecisionGroupV1:
         if not isinstance(group, OnlyNoveltyDecisionGroupV1):
@@ -154,30 +149,28 @@ class OnlyNoveltyDecisionAuthority:
         target = self._group_target(command_id)
         self._require_safe(target)
         target.parent.mkdir(parents=True, exist_ok=True)
-        lock = target.parent / f".{command_id.value}.lock"
-        with self._locked(lock):
-            if target.exists() or target.is_symlink():
-                existing = self.load_group_exact(command_id)
-                if existing != group:
-                    raise OnlyNoveltyDecisionConflictError(command_id.value)
-                return existing
-            stage = target.parent / f".{command_id.value}.{uuid.uuid4().hex}.stage"
-            try:
-                stage.mkdir(mode=0o700)
-                with (stage / "group.json").open("x", encoding="utf-8") as stream:
-                    stream.write(only_canonical_json(group.to_dict()))
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                self._fsync(stage)
-                os.rename(stage, target)
-                self._fsync(target.parent)
-            except OnlyNoveltyDecisionError:
-                raise
-            except Exception as exc:
-                raise OnlyNoveltyDecisionCorruptError(command_id.value) from exc
-            finally:
-                shutil.rmtree(stage, ignore_errors=True)
-        return self.load_group_exact(command_id)
+        if target.exists() or target.is_symlink():
+            existing = self._load_group_unchecked(command_id)
+            if existing != group:
+                raise OnlyNoveltyDecisionConflictError(command_id.value)
+            return existing
+        stage = target.parent / f".{command_id.value}.{uuid.uuid4().hex}.stage"
+        try:
+            stage.mkdir(mode=0o700)
+            with (stage / "group.json").open("x", encoding="utf-8") as stream:
+                stream.write(only_canonical_json(group.to_dict()))
+                stream.flush()
+                os.fsync(stream.fileno())
+            self._fsync(stage)
+            os.rename(stage, target)
+            self._fsync(target.parent)
+        except OnlyNoveltyDecisionError:
+            raise
+        except Exception as exc:
+            raise OnlyNoveltyDecisionCorruptError(command_id.value) from exc
+        finally:
+            shutil.rmtree(stage, ignore_errors=True)
+        return self._load_group_unchecked(command_id)
 
     def _put_verified_bundle(
         self, bundle: OnlyNoveltyDecisionBundleV1 | OnlyNoveltyDecisionBundleV2
@@ -188,32 +181,38 @@ class OnlyNoveltyDecisionAuthority:
         target = self._target(command_id)
         self._require_safe(target)
         target.parent.mkdir(parents=True, exist_ok=True)
-        lock = target.parent / f".{command_id.value}.lock"
-        with self._locked(lock):
-            if target.exists() or target.is_symlink():
-                existing = self.load_exact(command_id)
-                if existing != bundle:
-                    raise OnlyNoveltyDecisionConflictError(command_id.value)
-                return existing
-            stage = target.parent / f".{command_id.value}.{uuid.uuid4().hex}.stage"
-            try:
-                stage.mkdir(mode=0o700)
-                with (stage / "bundle.json").open("x", encoding="utf-8") as stream:
-                    stream.write(only_canonical_json(bundle.to_dict()))
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                self._fsync(stage)
-                os.rename(stage, target)
-                self._fsync(target.parent)
-            except OnlyNoveltyDecisionError:
-                raise
-            except Exception as exc:
-                raise OnlyNoveltyDecisionCorruptError(command_id.value) from exc
-            finally:
-                shutil.rmtree(stage, ignore_errors=True)
-        return self.load_exact(command_id)
+        if target.exists() or target.is_symlink():
+            existing = self._load_exact_unchecked(command_id)
+            if existing != bundle:
+                raise OnlyNoveltyDecisionConflictError(command_id.value)
+            return existing
+        stage = target.parent / f".{command_id.value}.{uuid.uuid4().hex}.stage"
+        try:
+            stage.mkdir(mode=0o700)
+            with (stage / "bundle.json").open("x", encoding="utf-8") as stream:
+                stream.write(only_canonical_json(bundle.to_dict()))
+                stream.flush()
+                os.fsync(stream.fileno())
+            self._fsync(stage)
+            os.rename(stage, target)
+            self._fsync(target.parent)
+        except OnlyNoveltyDecisionError:
+            raise
+        except Exception as exc:
+            raise OnlyNoveltyDecisionCorruptError(command_id.value) from exc
+        finally:
+            shutil.rmtree(stage, ignore_errors=True)
+        return self._load_exact_unchecked(command_id)
 
     def load_exact(self, command_id: OnlyProductCommandId) -> OnlyNoveltyDecisionBundleV1 | OnlyNoveltyDecisionBundleV2:
+        decision, _ = self._load_existing(command_id)
+        if decision is None:
+            raise OnlyNoveltyDecisionNotFoundError(command_id.value)
+        return decision
+
+    def _load_exact_unchecked(
+        self, command_id: OnlyProductCommandId
+    ) -> OnlyNoveltyDecisionBundleV1 | OnlyNoveltyDecisionBundleV2:
         target = self._target(command_id)
         self._require_safe(target)
         if not target.exists() and not target.is_symlink():
@@ -269,6 +268,12 @@ class OnlyNoveltyDecisionAuthority:
             raise OnlyNoveltyDecisionCorruptError(command_id.value) from exc
 
     def load_group_exact(self, command_id: OnlyProductCommandId) -> OnlyNoveltyDecisionGroupV1:
+        _, group = self._load_existing(command_id)
+        if group is None:
+            raise OnlyNoveltyDecisionNotFoundError(command_id.value)
+        return group
+
+    def _load_group_unchecked(self, command_id: OnlyProductCommandId) -> OnlyNoveltyDecisionGroupV1:
         target = self._group_target(command_id)
         self._require_safe(target)
         if not target.exists() and not target.is_symlink():
@@ -305,6 +310,33 @@ class OnlyNoveltyDecisionAuthority:
         if not isinstance(command_id, OnlyProductCommandId):
             raise OnlyNoveltyDecisionCorruptError("Product Command ID is invalid")
         return self._group_root / command_id.value
+
+    def _load_existing(
+        self, command_id: OnlyProductCommandId
+    ) -> tuple[
+        OnlyNoveltyDecisionBundleV1 | OnlyNoveltyDecisionBundleV2 | None,
+        OnlyNoveltyDecisionGroupV1 | None,
+    ]:
+        try:
+            decision = self._load_exact_unchecked(command_id)
+        except OnlyNoveltyDecisionNotFoundError:
+            decision = None
+        try:
+            group = self._load_group_unchecked(command_id)
+        except OnlyNoveltyDecisionNotFoundError:
+            group = None
+        if decision is not None and group is not None:
+            raise OnlyNoveltyDecisionConflictError(f"{command_id.value}: multiple occurrence modes")
+        return decision, group
+
+    @contextmanager
+    def _command_locked(self, command_id: OnlyProductCommandId) -> Iterator[None]:
+        lock = self._lock_root / f"{command_id.value}.lock"
+        self._require_safe(lock)
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        self._require_safe(lock)
+        with self._locked(lock):
+            yield
 
     def _require_safe(self, target: Path) -> None:
         paths = (self._semantic_root, self._semantic_root / "research", target.parent, target)

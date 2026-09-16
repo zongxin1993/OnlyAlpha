@@ -5,6 +5,9 @@ from pathlib import Path
 
 import pytest
 
+from onlyalpha.persistence.postgres import OnlyPostgresResearchRunStore
+from onlyalpha.research.command.store import OnlyResearchCommandStore
+
 pytestmark = pytest.mark.architecture
 
 
@@ -104,3 +107,21 @@ def test_multi_subject_composition_keeps_scientific_identity_and_member_locks_at
     assert "for guard in guards:" in store
     assert "pg_advisory_xact_lock" in store
     assert "hash(subject_set" not in store
+
+
+def test_verified_novelty_admission_write_is_not_a_public_store_capability() -> None:
+    public_name = "create_queued_with_novelty_admission"
+    assert not hasattr(OnlyPostgresResearchRunStore, public_name)
+    assert public_name not in vars(OnlyResearchCommandStore)
+    assert "_create_queued_with_verified_novelty_admission" not in vars(OnlyResearchCommandStore)
+
+    production_uses = {
+        path.relative_to(Path("src"))
+        for path in Path("src").rglob("*.py")
+        if "_create_queued_with_verified_novelty_admission(" in path.read_text(encoding="utf-8")
+    }
+    assert production_uses == {
+        Path("onlyalpha/persistence/postgres/research_run_store.py"),
+        Path("onlyalpha/research/command/service.py"),
+        Path("onlyalpha/research/command/store.py"),
+    }

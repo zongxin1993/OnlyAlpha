@@ -197,7 +197,7 @@ class OnlyPostgresResearchRunStore:
             return None
         return self._decode_novelty_admission(cast(Mapping[str, object], row), members)
 
-    def create_queued_with_novelty_admission(
+    def _create_queued_with_verified_novelty_admission(
         self,
         run: OnlyResearchRun,
         receipt: OnlyProductCommandReceipt,

@@ -116,7 +116,7 @@ class _GatedStore(_Store):
             return {admission.evaluation_subject_fingerprint}
         return {item.evaluation_subject_fingerprint for item in admission.members}
 
-    def create_queued_with_novelty_admission(self, run, receipt, admission, *, expected_source_frontier):  # type: ignore[no-untyped-def]
+    def _create_queued_with_verified_novelty_admission(self, run, receipt, admission, *, expected_source_frontier):  # type: ignore[no-untyped-def]
         assert expected_source_frontier == 0
         with self.lock:
             existing = self.receipts.get(receipt.command_id)

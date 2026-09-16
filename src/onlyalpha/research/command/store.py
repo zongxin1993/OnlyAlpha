@@ -33,19 +33,23 @@ class OnlyResearchCommandStore(OnlyResearchRunStore, OnlyResearchRunReader, Prot
         self, command_id: OnlyProductCommandId
     ) -> OnlyResearchNoveltyAdmissionV1 | OnlyResearchNoveltyAdmissionV2 | None: ...
 
-    def create_queued_with_novelty_admission(
+    def request_cancellation_with_receipt(
+        self,
+        run_id: OnlyResearchRunId,
+        receipt: OnlyProductCommandReceipt,
+    ) -> OnlyProductCommandReceipt: ...
+
+
+class _OnlyVerifiedNoveltyAdmissionStore(OnlyResearchCommandStore, Protocol):
+    """Internal persistence capability held only by the verified Read-to-Act service."""
+
+    def _create_queued_with_verified_novelty_admission(
         self,
         run: OnlyResearchRun,
         receipt: OnlyProductCommandReceipt,
         admission: OnlyResearchNoveltyAdmissionV1 | OnlyResearchNoveltyAdmissionV2,
         *,
         expected_source_frontier: int,
-    ) -> OnlyProductCommandReceipt: ...
-
-    def request_cancellation_with_receipt(
-        self,
-        run_id: OnlyResearchRunId,
-        receipt: OnlyProductCommandReceipt,
     ) -> OnlyProductCommandReceipt: ...
 
 
