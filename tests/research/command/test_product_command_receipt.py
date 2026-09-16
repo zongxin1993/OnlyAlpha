@@ -12,7 +12,11 @@ from onlyalpha.application.product_command_receipt import (
     only_cancel_research_run_command_fingerprint,
 )
 from onlyalpha.canonical import only_canonical_fingerprint
-from onlyalpha.research.command.model import OnlyResearchSubmitCommand
+from onlyalpha.research.command.model import (
+    OnlyNoveltyGatedResearchSubmitCommandV3,
+    OnlyResearchSubmitCommand,
+    only_novelty_gated_research_run_id,
+)
 from onlyalpha.research.provenance import (
     OnlyResearchAuthoringProvenance,
     only_research_execution_generation_fingerprint,
@@ -54,6 +58,18 @@ def test_create_fingerprint_bytes_remain_the_legacy_specification_shape() -> Non
     assert command.command_fingerprint != only_canonical_fingerprint(
         {"command_kind": OnlyProductCommandKind.CREATE_RESEARCH_RUN.value, "specification": strict.to_dict()}
     )
+
+
+def test_v3_create_identity_binds_exact_decision_and_has_deterministic_run_id() -> None:
+    strict = OnlyResearchSpecification.from_dict(specification().to_dict())
+    first = OnlyNoveltyGatedResearchSubmitCommandV3(COMMAND_ID, strict, "a" * 64)
+    same = OnlyNoveltyGatedResearchSubmitCommandV3(COMMAND_ID, strict, "a" * 64)
+    changed = OnlyNoveltyGatedResearchSubmitCommandV3(COMMAND_ID, strict, "b" * 64)
+
+    assert first.schema_version == 3
+    assert first.command_fingerprint == same.command_fingerprint
+    assert first.command_fingerprint != changed.command_fingerprint
+    assert only_novelty_gated_research_run_id(COMMAND_ID) == only_novelty_gated_research_run_id(COMMAND_ID)
 
 
 def test_create_fingerprint_binds_authoritative_provenance_and_excludes_locator() -> None:

@@ -98,6 +98,7 @@ from onlyalpha.research.memory.production import (
     OnlyExperimentMemoryReferenceReadersV1,
 )
 from onlyalpha.research.memory.store import OnlyExperimentMemoryRevisionStore
+from onlyalpha.research.novelty.decision_store import OnlyNoveltyDecisionAuthority
 from onlyalpha.research.operations.deployment import (
     OnlyResearchDeploymentCoherenceVerifier,
     OnlyResearchFrozenDeploymentCheck,
@@ -279,34 +280,16 @@ def _compose_search_product(
     product_commands: OnlyPostgresProductCommandAuthority,
     runtime_generations: OnlyRuntimeGenerationRegistry,
     generation_host: OnlyHistoricalGenerationHostManager,
+    symbolic: OnlyJsonSymbolicSearchStore,
+    parameter: OnlyJsonParameterSearchStore,
+    symbolic_contexts: OnlySymbolicSearchContextResolver,
+    parameter_contexts: OnlyParameterSearchContextResolver,
+    provenance: OnlyJsonSearchProvenanceStore,
 ) -> tuple[
     OnlySearchProductCommandServiceV1,
     OnlySearchProductQueryServiceV1,
     OnlyJsonSearchProvenanceStore,
 ]:
-    symbolic = OnlyJsonSymbolicSearchStore(layout.research_root)
-    parameter = OnlyJsonParameterSearchStore(layout.research_root)
-    catalogs = _GenerationOwnedCatalogReader()
-    symbolic_contexts = OnlySymbolicSearchContextResolver(
-        symbolic_store=symbolic,
-        catalogs=cast(Any, catalogs),
-        datasets=datasets,
-        research_calculation_registry=calculations,
-    )
-    parameter_contexts = OnlyParameterSearchContextResolver(
-        parameter_store=parameter,
-        evaluations=symbolic,
-        catalogs=cast(Any, catalogs),
-        datasets=datasets,
-        research_calculation_registry=calculations,
-    )
-    search_contexts = _SearchContextReader(symbolic_contexts, parameter_contexts)
-    provenance = OnlyJsonSearchProvenanceStore(
-        layout.research_root,
-        catalogs=cast(Any, catalogs),
-        datasets=datasets,
-        search_contexts=cast(Any, search_contexts),
-    )
     symbolic_adapter = OnlySymbolicSearchProductAdapterV1(
         symbolic_store=symbolic,
         provenance=provenance,
@@ -643,18 +626,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             run_store=run_store,
             now_utc=only_system_utc_now,
         )
-        command = OnlyResearchCommandService(
-            admission=admission,
-            store=run_store,
-            now_utc=only_system_utc_now,
-            runtime_generations=runtime_generations,
-            command_admissions=product_commands,
-            runtime_generation_resolver=OnlyResearchHostedRuntimeGenerationResolver(
-                execution=generation_host,
-                dataset_store_root=str(layout.research_dataset_root),
-            ),
-        )
-        research_queries = OnlyResearchRunQueryService(run_store)
         readiness = OnlyKernelResearchReadinessProjection(kernel, verification.evidence)
         artifact_reader = OnlyResearchArtifactProfileReader(layout.research_artifact_root)
         definition_resolver = OnlyResearchDefinitionResolver(calculations, dataset_store)
@@ -681,6 +652,68 @@ def main(argv: Sequence[str] | None = None) -> int:
             summary_statistics_results,
             factor_pair_statistics_results,
         )
+        research_results = OnlyJsonResearchResultStore(
+            layout.research_result_root,
+            statistics_results,
+            calculation_results,
+        )
+        symbolic_store = OnlyJsonSymbolicSearchStore(layout.research_root)
+        parameter_store = OnlyJsonParameterSearchStore(layout.research_root)
+        search_catalogs = _GenerationOwnedCatalogReader()
+        symbolic_contexts = OnlySymbolicSearchContextResolver(
+            symbolic_store=symbolic_store,
+            catalogs=cast(Any, search_catalogs),
+            datasets=dataset_store,
+            research_calculation_registry=calculations,
+        )
+        parameter_contexts = OnlyParameterSearchContextResolver(
+            parameter_store=parameter_store,
+            evaluations=symbolic_store,
+            catalogs=cast(Any, search_catalogs),
+            datasets=dataset_store,
+            research_calculation_registry=calculations,
+        )
+        search_provenance_authority = OnlyJsonSearchProvenanceStore(
+            layout.research_root,
+            catalogs=cast(Any, search_catalogs),
+            datasets=dataset_store,
+            search_contexts=cast(Any, _SearchContextReader(symbolic_contexts, parameter_contexts)),
+        )
+        memory_revisions = OnlyExperimentMemoryRevisionStore(layout.experiment_memory_projection_root)
+        memory_builder = _compose_experiment_memory_projection_builder(
+            layout=layout,
+            postgres_dsn=postgres.dsn,
+            search=search_provenance_authority,
+            results=research_results,
+            statistics=legacy_statistics_results,
+            factor_pair_statistics=factor_pair_statistics_results,
+            summary_statistics=summary_statistics_results,
+            qualification_decisions=qualification_decisions,
+            datasets=dataset_store,
+            catalogs=exact_catalog_reader,
+            calculations=calculation_results,
+            runtime_generations=runtime_generations,
+            authoring_generation_root=args.authoring_generation_root or layout.research_root / "authoring-generations",
+        )
+        authoring_generations = OnlyAuthoringExecutionGenerationStore(
+            args.authoring_generation_root or layout.research_root / "authoring-generations"
+        )
+        command = OnlyResearchCommandService(
+            admission=admission,
+            store=run_store,
+            now_utc=only_system_utc_now,
+            runtime_generations=runtime_generations,
+            command_admissions=product_commands,
+            runtime_generation_resolver=OnlyResearchHostedRuntimeGenerationResolver(
+                execution=generation_host,
+                dataset_store_root=str(layout.research_dataset_root),
+            ),
+            authoring_generation_reader=authoring_generations,
+            novelty_decisions=OnlyNoveltyDecisionAuthority(layout.research_root),
+            memory_builder=memory_builder,
+            memory_revisions=memory_revisions,
+        )
+        research_queries = OnlyResearchRunQueryService(run_store)
         if startup_status.state is OnlyKernelState.FAILED:
             unavailable = _UnavailableProductAuthority()
             strategy_freeze = cast(OnlyStrategyFreezeProductService, unavailable)
@@ -702,11 +735,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 operational_options,
             )
             frozen_strategies = OnlyFrozenStrategyRevisionStore(layout.research_root)
-            research_results = OnlyJsonResearchResultStore(
-                layout.research_result_root,
-                statistics_results,
-                calculation_results,
-            )
             freeze = OnlyStrategyFreezeApplicationService.compose(
                 semantic_root=layout.research_root,
                 postgres_dsn=postgres.dsn,
@@ -774,22 +802,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 product_commands=product_commands,
                 runtime_generations=runtime_generations,
                 generation_host=generation_host,
-            )
-            memory_builder = _compose_experiment_memory_projection_builder(
-                layout=layout,
-                postgres_dsn=postgres.dsn,
-                search=search_provenance,
-                results=research_results,
-                statistics=legacy_statistics_results,
-                factor_pair_statistics=factor_pair_statistics_results,
-                summary_statistics=summary_statistics_results,
-                qualification_decisions=qualification_decisions,
-                datasets=dataset_store,
-                catalogs=exact_catalog_reader,
-                calculations=calculation_results,
-                runtime_generations=runtime_generations,
-                authoring_generation_root=args.authoring_generation_root
-                or layout.research_root / "authoring-generations",
+                symbolic=symbolic_store,
+                parameter=parameter_store,
+                symbolic_contexts=symbolic_contexts,
+                parameter_contexts=parameter_contexts,
+                provenance=search_provenance_authority,
             )
         product_boundary = only_compose_research_product_boundary(
             admission=kernel,

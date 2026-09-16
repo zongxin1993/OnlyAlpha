@@ -26,6 +26,7 @@ from onlyalpha.application.product_command_receipt import (
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.research.command.errors import OnlyResearchCancellationConflictError
 from onlyalpha.research.command.model import OnlyResearchRunPageCursor
+from onlyalpha.research.command.novelty_admission import OnlyResearchNoveltyAdmissionV1
 from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 from onlyalpha.research.run.errors import (
     OnlyResearchRunIntegrityError,
@@ -166,6 +167,126 @@ class OnlyPostgresResearchRunStore:
             return existing
         except psycopg.Error as exc:
             raise OnlyResearchRunStoreUnavailableError("Create Research Run transaction failed") from exc
+
+    def load_novelty_admission(self, command_id: OnlyProductCommandId) -> OnlyResearchNoveltyAdmissionV1 | None:
+        try:
+            with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+                row = connection.execute(
+                    "SELECT * FROM research_novelty_admission WHERE command_id = %s",
+                    (command_id.value,),
+                ).fetchone()
+        except psycopg.Error as exc:
+            raise OnlyResearchRunStoreUnavailableError("Research Novelty Admission load failed") from exc
+        return None if row is None else self._decode_novelty_admission(cast(Mapping[str, object], row))
+
+    def create_queued_with_novelty_admission(
+        self,
+        run: OnlyResearchRun,
+        receipt: OnlyProductCommandReceipt,
+        admission: OnlyResearchNoveltyAdmissionV1,
+        *,
+        expected_source_frontier: int,
+    ) -> OnlyProductCommandReceipt:
+        if run.state is not OnlyResearchRunState.QUEUED or run.revision != 0:
+            raise OnlyResearchRunStateConflictError("submission requires revision-zero QUEUED Run")
+        if (
+            receipt.command_kind is not OnlyProductCommandKind.CREATE_RESEARCH_RUN
+            or receipt.outcome_ref.kind is not OnlyProductCommandOutcomeKind.RESEARCH_RUN
+            or receipt.outcome_ref.outcome_id != run.run_id.value
+            or receipt.accepted_at != run.queued_at
+            or admission.command_id != receipt.command_id
+            or admission.command_fingerprint != receipt.command_fingerprint
+            or admission.run_id != run.run_id
+        ):
+            raise OnlyResearchRunIntegrityError("Novelty Admission does not bind the prepared Run and Receipt")
+        run_query = sql.SQL("INSERT INTO research_run ({}) VALUES ({})").format(
+            sql.SQL(", ").join(map(sql.Identifier, _COLUMNS)),
+            sql.SQL(", ").join(sql.Placeholder() for _ in _COLUMNS),
+        )
+        try:
+            with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+                authority = OnlyPostgresProductCommandAuthority
+                authority.insert_or_verify_admission(
+                    connection,
+                    OnlyProductCommandAdmissionV1(
+                        receipt.command_id,
+                        receipt.command_kind,
+                        receipt.command_fingerprint,
+                    ),
+                )
+                frontier_row = connection.execute(
+                    "SELECT last_index FROM research_source_history_frontier WHERE singleton = TRUE FOR UPDATE"
+                ).fetchone()
+                if frontier_row is None:
+                    raise OnlyResearchRunIntegrityError("Research source frontier is missing")
+                existing = authority.load_verified_receipt_in_transaction(connection, receipt.command_id)
+                if existing is not None:
+                    return existing
+                if int(cast(int, frontier_row["last_index"])) != expected_source_frontier:
+                    raise OnlyResearchRunIntegrityError("NOVELTY_DECISION_STALE")
+                connection.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (admission.same_subject_guard_key,)
+                )
+                existing = authority.load_verified_receipt_in_transaction(connection, receipt.command_id)
+                if existing is not None:
+                    return existing
+                # ponytail: legacy Runs have no canonical subject witness, so one
+                # active legacy Run blocks V3 admission until legacy work drains.
+                legacy = connection.execute(
+                    "SELECT 1 FROM research_run AS run "
+                    "LEFT JOIN research_novelty_admission AS gated ON gated.run_id = run.run_id "
+                    "WHERE run.state IN ('QUEUED', 'RUNNING') AND gated.run_id IS NULL LIMIT 1"
+                ).fetchone()
+                if legacy is not None:
+                    raise OnlyResearchRunIntegrityError("NOVELTY_UNCLASSIFIED_RESEARCH_IN_FLIGHT")
+                conflict = connection.execute(
+                    "SELECT 1 FROM research_novelty_admission AS gated "
+                    "JOIN research_run AS run ON run.run_id = gated.run_id "
+                    "WHERE gated.evaluation_subject_fingerprint = %s "
+                    "AND run.state IN ('QUEUED', 'RUNNING') LIMIT 1",
+                    (admission.evaluation_subject_fingerprint,),
+                ).fetchone()
+                if conflict is not None:
+                    raise OnlyResearchRunIntegrityError("NOVELTY_SAME_SUBJECT_IN_FLIGHT")
+                connection.execute(run_query, self._values(run))
+                connection.execute(
+                    "INSERT INTO research_novelty_admission ("
+                    "command_id, command_fingerprint, novelty_decision_fingerprint, "
+                    "canonical_intent_fingerprint, evaluation_subject_fingerprint, "
+                    "decision_time_proof_fingerprint, action_time_proof_fingerprint, "
+                    "action_source_manifest_fingerprint, same_subject_guard_key, "
+                    "runtime_work_id, run_id, admission_fingerprint, schema_version"
+                    ") VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)",
+                    (
+                        admission.command_id.value,
+                        admission.command_fingerprint,
+                        admission.novelty_decision_fingerprint,
+                        admission.canonical_intent_fingerprint,
+                        admission.evaluation_subject_fingerprint,
+                        admission.decision_time_proof_fingerprint,
+                        admission.action_time_proof_fingerprint,
+                        admission.action_source_manifest_fingerprint,
+                        admission.same_subject_guard_key,
+                        admission.runtime_work_id,
+                        admission.run_id.value,
+                        admission.admission_fingerprint,
+                    ),
+                )
+                self._insert_receipt(connection, receipt)
+            return receipt
+        except OnlyProductCommandConflictError as exc:
+            raise OnlyResearchRunIntegrityError(
+                f"Product Command identity already exists: {receipt.command_id}"
+            ) from exc
+        except (OnlyResearchRunIntegrityError, OnlyResearchRunStateConflictError):
+            raise
+        except psycopg.errors.UniqueViolation as exc:
+            existing = self.find_product_command_receipt(receipt.command_id)
+            if existing is not None:
+                return existing
+            raise OnlyResearchRunIntegrityError("Novelty Admission identity already exists") from exc
+        except psycopg.Error as exc:
+            raise OnlyResearchRunStoreUnavailableError("Novelty-gated Research transaction failed") from exc
 
     def request_cancellation_with_receipt(
         self,
@@ -344,6 +465,31 @@ class OnlyPostgresResearchRunStore:
         except (KeyError, TypeError, ValueError) as exc:
             raise OnlyResearchRunIntegrityError(
                 "PostgreSQL Product Command Receipt row failed strict verification"
+            ) from exc
+
+    @staticmethod
+    def _decode_novelty_admission(row: Mapping[str, object]) -> OnlyResearchNoveltyAdmissionV1:
+        try:
+            value = OnlyResearchNoveltyAdmissionV1(
+                OnlyProductCommandId(str(row["command_id"])),
+                str(row["command_fingerprint"]),
+                str(row["novelty_decision_fingerprint"]),
+                str(row["canonical_intent_fingerprint"]),
+                str(row["evaluation_subject_fingerprint"]),
+                str(row["decision_time_proof_fingerprint"]),
+                str(row["action_time_proof_fingerprint"]),
+                str(row["action_source_manifest_fingerprint"]),
+                str(row["same_subject_guard_key"]),
+                str(row["runtime_work_id"]),
+                OnlyResearchRunId(str(row["run_id"])),
+                int(cast(int, row["schema_version"])),
+            )
+            if row["admission_fingerprint"] != value.admission_fingerprint:
+                raise ValueError("Admission fingerprint mismatch")
+            return value
+        except (KeyError, TypeError, ValueError) as exc:
+            raise OnlyResearchRunIntegrityError(
+                "PostgreSQL Research Novelty Admission row failed strict verification"
             ) from exc
 
     @staticmethod

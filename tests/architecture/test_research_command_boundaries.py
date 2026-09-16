@@ -64,3 +64,28 @@ def test_command_api_does_not_return_artifact_or_result_content() -> None:
     )
     for forbidden in ("statistics_rows", "series", "parquet", "artifact_manifest", "result_content"):
         assert forbidden not in source.lower()
+
+
+def test_production_research_command_composition_requires_read_to_act_authorities() -> None:
+    source = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py").read_text(encoding="utf-8")
+    composition = source[source.index("command = OnlyResearchCommandService(") : source.index("research_queries =")]
+    for required in (
+        "novelty_decisions=",
+        "memory_builder=",
+        "memory_revisions=",
+        "command_admissions=",
+        "runtime_generation_resolver=",
+    ):
+        assert required in composition
+
+
+def test_product_and_search_research_creation_share_the_command_service_gate() -> None:
+    product = Path("src/onlyalpha/application/product_boundary.py").read_text(encoding="utf-8")
+    symbolic = Path("src/onlyalpha/research/search/symbolic/product.py").read_text(encoding="utf-8")
+    parameter = Path("src/onlyalpha/research/search/parameter/integration.py").read_text(encoding="utf-8")
+    assert "commands.submit_research_run(" in product
+    assert "self.commands.submit_research_run(" in symbolic
+    assert "self.commands.submit_research_run(" in parameter
+    for source in (product, symbolic, parameter):
+        assert "create_queued_with_receipt(" not in source
+        assert "create_queued_with_novelty_admission(" not in source

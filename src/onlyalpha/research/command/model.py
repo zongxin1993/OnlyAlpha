@@ -75,6 +75,51 @@ class OnlyDerivedResearchSubmitCommandV2:
         return only_canonical_fingerprint(payload)
 
 
+@dataclass(frozen=True, slots=True)
+class OnlyNoveltyGatedResearchSubmitCommandV3:
+    """Product intent for one Research action authorized by one exact Decision."""
+
+    submission_key: OnlyProductCommandId
+    specification: OnlyResearchSpecification
+    novelty_decision_fingerprint: str
+    parent_runtime_work_id: str | None = None
+    authoring_provenance: OnlyResearchAuthoringProvenance | None = None
+    schema_version: int = 3
+
+    def __post_init__(self) -> None:
+        if self.schema_version != 3 or not isinstance(self.submission_key, OnlyProductCommandId):
+            raise ValueError("Novelty-gated Research Submit command is invalid")
+        if not isinstance(self.specification, OnlyResearchSpecification):
+            raise ValueError("Novelty-gated Research specification is invalid")
+        if (
+            not isinstance(self.novelty_decision_fingerprint, str)
+            or len(self.novelty_decision_fingerprint) != 64
+            or any(char not in "0123456789abcdef" for char in self.novelty_decision_fingerprint)
+        ):
+            raise ValueError("Novelty Decision fingerprint is invalid")
+        if (
+            self.parent_runtime_work_id is not None
+            and _SEARCH_EXPERIMENT_WORK_ID.fullmatch(self.parent_runtime_work_id) is None
+        ):
+            raise ValueError("Novelty-gated Research parent work identity is invalid")
+        if self.authoring_provenance is not None and not isinstance(
+            self.authoring_provenance, OnlyResearchAuthoringProvenance
+        ):
+            raise ValueError("Novelty-gated Research authoring provenance is invalid")
+
+    @property
+    def command_fingerprint(self) -> str:
+        payload: dict[str, object] = {
+            "schema_version": self.schema_version,
+            "specification": self.specification.to_dict(),
+            "novelty_decision_fingerprint": self.novelty_decision_fingerprint,
+            "parent_runtime_work_id": self.parent_runtime_work_id,
+        }
+        if self.authoring_provenance is not None:
+            payload["authoring_provenance"] = self.authoring_provenance.identity_dict()
+        return only_canonical_fingerprint(payload)
+
+
 def only_derived_research_run_id(command_id: OnlyProductCommandId) -> OnlyResearchRunId:
     """Deterministically name one derived Run from its immutable Product identity."""
 
@@ -83,6 +128,15 @@ def only_derived_research_run_id(command_id: OnlyProductCommandId) -> OnlyResear
     payload = b"ONLYALPHA_DERIVED_RESEARCH_RUN_ID_V1\x1f" + command_id.value.encode("ascii")
     raw = hashlib.sha256(payload).digest()[:16]
     return OnlyResearchRunId(str(uuid.UUID(bytes=raw, version=4)))
+
+
+def only_novelty_gated_research_run_id(command_id: OnlyProductCommandId) -> OnlyResearchRunId:
+    """Deterministically name V3 work for crash-safe cross-authority recovery."""
+
+    if not isinstance(command_id, OnlyProductCommandId):
+        raise ValueError("Novelty-gated Research Product Command ID is invalid")
+    payload = b"ONLYALPHA_NOVELTY_GATED_RESEARCH_RUN_ID_V3\x1f" + command_id.value.encode("ascii")
+    return OnlyResearchRunId(str(uuid.UUID(bytes=hashlib.sha256(payload).digest()[:16], version=4)))
 
 
 class OnlyResearchSubmitDisposition(StrEnum):

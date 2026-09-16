@@ -29,6 +29,13 @@ class OnlyResearchSubmissionConflictError(OnlyResearchCommandError):
         )
 
 
+class OnlyNoveltyResearchAdmissionError(OnlyResearchCommandError):
+    """Stable fail-closed error for the Decision-to-Research boundary."""
+
+    def __init__(self, code: str, detail: str) -> None:
+        super().__init__(OnlyResearchCommandPhase.ADMISSION, code, detail)
+
+
 class OnlyResearchCancellationConflictError(OnlyResearchCommandError):
     def __init__(self, detail: str = "terminal Research Run cannot be cancelled") -> None:
         super().__init__(OnlyResearchCommandPhase.COMMAND, "RESEARCH_RUN_CANCELLATION_CONFLICT", detail)

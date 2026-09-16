@@ -110,15 +110,6 @@ def test_search_product_composition_shares_schema_dispatching_provenance(
     queries = object()
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(server, "OnlyJsonSymbolicSearchStore", lambda _root: symbolic_store)
-    monkeypatch.setattr(server, "OnlyJsonParameterSearchStore", lambda _root: parameter_store)
-    monkeypatch.setattr(server, "OnlySymbolicSearchContextResolver", lambda **_kwargs: symbolic_contexts)
-    monkeypatch.setattr(server, "OnlyParameterSearchContextResolver", lambda **_kwargs: parameter_contexts)
-
-    def make_provenance(_root: Path, **kwargs: object) -> object:
-        captured["search_contexts"] = kwargs["search_contexts"]
-        return provenance
-
     def make_symbolic_adapter(**kwargs: object) -> object:
         captured["symbolic_provenance"] = kwargs["provenance"]
         captured["symbolic_contexts"] = kwargs["contexts"]
@@ -133,7 +124,6 @@ def test_search_product_composition_shares_schema_dispatching_provenance(
         captured["adapters"] = kwargs["adapters"]
         return commands
 
-    monkeypatch.setattr(server, "OnlyJsonSearchProvenanceStore", make_provenance)
     monkeypatch.setattr(server, "OnlySymbolicSearchProductAdapterV1", make_symbolic_adapter)
     monkeypatch.setattr(server, "OnlyParameterSearchProductAdapterV1", make_parameter_adapter)
     monkeypatch.setattr(server, "OnlySearchProductCommandServiceV1", make_commands)
@@ -165,10 +155,15 @@ def test_search_product_composition_shares_schema_dispatching_provenance(
         product_commands=cast(Any, object()),
         runtime_generations=cast(Any, object()),
         generation_host=cast(Any, object()),
+        symbolic=cast(Any, symbolic_store),
+        parameter=cast(Any, parameter_store),
+        symbolic_contexts=cast(Any, symbolic_contexts),
+        parameter_contexts=cast(Any, parameter_contexts),
+        provenance=cast(Any, provenance),
     )
 
     assert composed == (commands, queries, provenance)
-    shared_contexts = captured["search_contexts"]
+    shared_contexts = server._SearchContextReader(cast(Any, symbolic_contexts), cast(Any, parameter_contexts))
     assert isinstance(shared_contexts, server._SearchContextReader)
     assert shared_contexts._symbolic is symbolic_contexts
     assert shared_contexts._parameter is parameter_contexts
