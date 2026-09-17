@@ -30,6 +30,27 @@ def test_architecture_and_agent_rules_freeze_public_private_contract_parity() ->
         assert required in agents
 
 
+def test_private_asset_authoring_is_database_native_without_requiring_git_packages() -> None:
+    adr = Path("docs/adr/0129-private-l3-l4-database-native-architecture-freeze.md").read_text(encoding="utf-8")
+    architecture = Path("docs/architecture.md").read_text(encoding="utf-8")
+    agent_architecture = Path("docs/agentic_alpha_discovery_architecture.md").read_text(encoding="utf-8")
+    work_program = Path("docs/agent_factor_mining_work_program.md").read_text(encoding="utf-8")
+    for required in (
+        "PostgreSQL-backed Private Asset Authority",
+        "Private L3 V1",
+        "one exact L3 API Contract",
+        "Private L4 V1",
+        "Search Projection != Factor Authority",
+        "REUSE",
+        "GENERATE_NEW_L3",
+        "Git, source checkouts, wheels and package distributions remain",
+    ):
+        assert required in adr
+    for document in (architecture, agent_architecture, work_program):
+        assert "ADR 0129" in document
+        assert "PR-based private-asset admission" not in document
+
+
 def test_public_examples_do_not_import_or_embed_private_asset_implementations() -> None:
     roots = (Path("examples/onlyalpha-example-alpha"), Path("examples/onlyalpha-example-strategies"))
     for root in roots:

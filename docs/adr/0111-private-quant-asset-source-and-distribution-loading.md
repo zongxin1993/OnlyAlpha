@@ -4,6 +4,10 @@
 - Date: 2026-09-03
 - Related: ADR 0069, 0098, 0108, 0110
 
+> Superseded in part by ADR 0129 for Private L3/L4 production authoring Authority, source-location Authority and mandatory
+> private-repository workflow. This ADR remains applicable to optional import/export/interoperability and to distribution-based
+> execution materialization; it does not require Git, a checkout, a wheel or a package for database-native private authoring.
+
 ## Context
 
 L3 Factor and L4 Strategy authoring libraries have the highest expected change rate and will normally live in private repositories.

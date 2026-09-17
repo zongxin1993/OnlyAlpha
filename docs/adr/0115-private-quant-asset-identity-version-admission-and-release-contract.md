@@ -4,6 +4,11 @@
 - Date: 2026-09-03 (amended 2026-09-04)
 - Related: ADR 0097, 0098, 0110, 0111, 0112, 0113, 0114
 
+> Superseded in part by ADR 0129 for Private L3/L4 production authoring Authority, source-location Authority and mandatory
+> private-repository/Git workflow. The identity, Evidence, Qualification, Admission, Provider, Catalog, Distribution, Runtime and
+> StrategyRevision rules remain authoritative when a database Revision is admitted or materialized for executable work; Git is now
+> optional provenance/interoperability.
+
 ## Context
 
 ADR 0110 places production L3 Factor and L4 Strategy authoring assets in independent private repositories. ADR 0111 defines

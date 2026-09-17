@@ -4,6 +4,10 @@
 - Date: 2026-09-04
 - Related: ADR 0075, 0086, 0088, 0090, 0108, 0110, 0111, 0112, 0115
 
+> Compatibility note: Under ADR 0129, an exact database Private L3 Revision/source fingerprint may supply the authoring source
+> snapshot in a future implementation. Git/source-path and candidate-artifact loading remain optional input mechanisms; this ADR's
+> exact authoring-generation, claim and Evidence-binding rules remain unchanged.
+
 ## Context
 
 ADR 0115 binds a private candidate's Git Snapshot, Provider content and Catalog generation into durable Research authoring

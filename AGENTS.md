@@ -611,10 +611,14 @@ non-production reference libraries explicitly authorized by ADR 0110 under `exam
 `examples/onlyalpha-example-strategies/`. The Agent primarily creates/searches L3/L4. Missing reusable L1/L2 capability must be
 proposed and admitted separately, never hidden inside a Factor or Strategy.
 
-Under ADR 0111, high-change private L3/L4 repositories may be consumed from an explicit source path or editable path installation only in
-development, testing and controlled Agent research. Production L3 discovery requires installed distribution metadata and the public
-Calculation entry point. L4 package/path resources are pre-Freeze authoring inputs only; their path never becomes Strategy identity or
-Runtime authority.
+Under ADR 0129, production Private L3/L4 authoring is PostgreSQL-backed and uses mutable Drafts plus immutable Revisions. Private L3
+V1 is one canonical UTF-8 Python source unit bound to one exact stable L3 API Contract; Private L4 is a canonical structured Strategy
+Definition. Git repositories, source paths, editable installs, wheels and packages are optional interoperability/provenance paths, not
+production authoring Authority. The database source is never direct execution permission; exact API/adapter, validation, Provider,
+Catalog and Runtime Generation boundaries remain mandatory.
+
+ADR 0111's source/distribution loading remains valid for optional import/export and executable materialization. Do not reintroduce
+mandatory per-asset Git/package authoring workflows without a new ADR; private L3/L4 planning must follow ADR 0129.
 
 All L1/L2/L3/L4 libraries expose versioned management providers through `onlyalpha.quant_assets` under ADR 0112. L1/L2/L3 continue to
 execute only through `onlyalpha.calculations`; L4 remains authoring data. Any content change requires a new provider version, and any semantic
@@ -628,9 +632,9 @@ inspect the corresponding public example, update it in the same public change wh
 lane, and assess both `OnlyAlpha-alpha` and `OnlyAlpha-strategies` against the exact Core revision. If private execution is unavailable,
 report `PRIVATE_ASSET_COMPATIBILITY_CERTIFICATION_PENDING`; never claim compatibility without evidence.
 
-When a private repository needs a new Core capability, it must first be expressible through a public OnlyAlpha contract, demonstrated by
-the corresponding public example, and consumed by the private repository through that same contract. Hidden private-only Core integration
-paths are forbidden and must fail closed as `EXAMPLE_CONTRACT_COVERAGE_REQUIRED` until public contract/example coverage exists.
+When a private asset needs a new Core capability, it must first be expressible through a public OnlyAlpha contract, demonstrated by the
+corresponding public example, and consumed through that same contract. Hidden private-only Core integration paths are forbidden and
+must fail closed as `EXAMPLE_CONTRACT_COVERAGE_REQUIRED` until public contract/example coverage exists.
 
 ## External engineering evidence and upstream failure research
 

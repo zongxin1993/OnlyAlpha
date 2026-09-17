@@ -564,30 +564,37 @@ may depend on Core contracts and L1; L3 Alpha may depend on public L1/L2; L4 aut
 identities. Core imports none of their concrete implementations, public packages do not depend on examples, and examples are not
 default production dependencies.
 
-ADR 0111 gives private L3/L4 libraries a source/editable development mode and a uv/pip distribution mode. Production Calculation
-discovery continues to use installed entry-point metadata only. L4 checkout roots and package resources are interchangeable sources of
-the same Product authoring document before Freeze; no filesystem path participates in StrategyRevision or Runtime identity.
+ADR 0129 freezes Private L3/L4 production authoring as PostgreSQL-backed Asset/Draft/Revision content. Git repositories, source
+checkouts, wheels and package distributions remain optional import/export/interoperability and provenance mechanisms; they are not
+private production authoring Authority. The current distribution-based path remains implementation truth for existing public examples
+and any not-yet-migrated admitted assets. When a private Revision is materialized for executable work, the existing exact
+Calculation/Provider/Catalog/Runtime contracts still apply, and no database/path/package location participates in StrategyRevision or
+Runtime identity.
+
+ADR 0111 remains the optional source/distribution loading contract for interoperability and executable materialization. It does not
+require a private checkout, editable install, wheel or package for DB-native authoring.
 
 ADR 0112 defines the common `onlyalpha.quant_assets` management SPI. Each L1-L4 distribution contributes a versioned, content-addressed
 provider to one immutable catalog generation. Refresh validates a complete generation and atomically publishes it for new work; existing
 work retains its prior snapshot. This management catalog does not replace Calculation Graph, `onlyalpha.calculations`, Product API, Freeze
 or StrategyRevision authorities.
 
-ADR 0115 separates the complete private-asset lifecycle: Git commit and deterministic experiment identity are authoring provenance;
-positive-integer asset versions identify immutable L3/L4 semantics; implementation fingerprints identify exact executable code;
-positive-integer provider versions identify admitted content; immutable CalVer distributions identify released artifacts; Catalog
-Generation selects an exact provider set for new work; Research Evidence owns outcomes; and verified Freeze alone creates the
-StrategyRevision used at runtime. These identities cannot substitute for one another. Production private namespaces are
-`private.factor.*` and `private.strategy.*`; no `latest` aliases exist.
+ADR 0115 remains the exact identity/admission contract after authoring: positive-integer asset versions identify immutable L3/L4
+semantics; implementation fingerprints identify exact executable code; positive-integer provider versions identify admitted content;
+immutable distributions identify released artifacts; Catalog Generation selects an exact provider set for new work; Research Evidence
+owns outcomes; and verified Freeze alone creates the StrategyRevision used at runtime. Git commit and deterministic authoring
+experiment identity are optional provenance for imported/exported work, not private authoring Authority. These identities cannot
+substitute for one another. Production private namespaces are `private.factor.*` and `private.strategy.*`; no `latest` aliases exist.
 
-Private release/admission gates reject semantic or provider drift and prevent release artifact overwrite. Experiments use explicit
-isolated source revisions and non-production candidate providers, never normal installed production entry points. Hot plug and rollback
-create/select isolated process generations for new work; they never reload modules or rebind an active Run/StrategyRevision. Missing exact
-historical artifacts fail closed rather than falling forward. Dynamic Research outcomes remain in OnlyAlpha Evidence, not private source
-status files or registries.
+Private Asset Draft/Revision validation and admission reject semantic/provider drift and retain failed history. A future DB-native
+Revision may be exported or materialized into an isolated candidate/provider artifact when an executable Provider is required, but
+that artifact is not the authoring Authority. Hot plug and rollback create/select isolated process generations for new work; they
+never reload modules or rebind an active Run/StrategyRevision. Missing exact historical artifacts fail closed rather than falling
+forward. Dynamic Research outcomes remain in OnlyAlpha Evidence, not Asset/Draft/Revision status fields or registries.
 
-ADR 0116 closes the execution side of candidate provenance. An Authoring Execution Generation binds the exact Snapshot, candidate
-executable content, Candidate Provider and complete Catalog generation to one process-lifetime Calculation composition. The independent
+ADR 0116 closes the execution side of candidate provenance. For a future DB-native private Revision, an Authoring Execution Generation
+binds the exact Revision/source content, candidate executable content, Candidate Provider and complete Catalog generation to one
+process-lifetime Calculation composition. The independent
 `packages/onlyalpha-authoring-execution-worker/` component verifies that generation before it may register presence or claim work. Normal
 Research Workers claim only unbound Runs; an authoring Worker claims only Runs bound to its exact generation fingerprint, with the filter
 inside the existing transactional Attempt authority. Git/path/artifact loading remains outside Core, active Runs are never rebound, and
@@ -633,14 +640,11 @@ private certification selects the private subjects in its own environment and mu
 For any Core change touching Calculation SPI, `onlyalpha.quant_assets`, Catalog discovery, Research specification/API/provenance,
 authoring execution, Strategy resources, Freeze or StrategyRevision admission, `PRIVATE_ASSET_IMPACT = YES`.
 
-Private Git admission uses the repository-tracked commit and pre-push hooks to invoke one canonical local `local_strict_gate.py` on the
-exact clean candidate commit. The gate proves semantic/provider transition correctness, formatting, static quality, tests, wheel build,
-clean isolated installation and provider discovery; the Strategies repository additionally proves its installed Resolve → Research →
-Freeze lifecycle. Agents may never use `--no-verify`, and a bypassed hook is not an admission result. Remote code-quality CI and required
-status checks are intentionally inactive for these two private development repositories. Gitea carries only the candidate branch and PR
-transport; it does not become admission, semantic, Evidence, merge, release, Catalog or LIVE authority. The separate release gate accepts
-only clean admitted `master` to create a new immutable wheel/tag/manifest. `master` means admitted source, not an active Catalog or
-production release, and Git metadata never participates in asset, Provider, Evidence or StrategyRevision identity.
+Private L3/L4 authoring does not require Git hooks, a PR, a wheel or a package release. Optional Git/package import-export pipelines
+may still run their own validation and provenance checks. If a Revision is admitted as executable Provider content, the existing
+distribution/runtime gates validate the exact materialized artifact and Catalog/implementation closure; none of those gates transfers
+authoring Authority to Git, a package index, a branch or a release tag. Public examples remain distribution-based contract witnesses,
+while private database-native assets must use the same public L3/L4 contracts and may not create hidden Core integration paths.
 
 ADR 0113 freezes the common L1 algebra policy: Decimal precision/quantization, inclusive complete windows, null propagation,
 deterministic invalid-domain nulls, population statistics, average-tie normalized ranks, and exact RESEARCH/TRADING/checkpoint

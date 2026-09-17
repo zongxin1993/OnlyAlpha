@@ -24,7 +24,9 @@ Dataset Snapshot
 → Promotion
 ```
 
-Private L3/L4 asset identity, experiment provenance, immutable distributions, Catalog Generation, exact authoring execution generation, and evidence-backed Qualification/Promotion are now formalized by the current architecture and ADRs.
+Private L3/L4 asset identity, database-native Draft/Revision authoring, experiment provenance, immutable distributions, Catalog
+Generation, exact authoring execution generation, and evidence-backed Qualification/Promotion are now formalized by the current
+architecture and ADRs, especially ADR 0129.
 
 The next problem is therefore **not** “how to let an LLM write `factor.py`”.
 
@@ -855,18 +857,21 @@ Allow Agent generation only when a hypothesis cannot be expressed by existing L1
 **Primary work**
 
 ```text
-candidate worktree/source bundle
-non-production candidate provider
+Factor Definition
+database Draft/Revision
+isolated source-unit validation
 engineering validation
 unit/contract/determinism checks
 Research/Trading equivalence when applicable
 Research Evidence
-PR-based private-asset admission
+Qualification/Admission through existing authorities
+optional Provider Snapshot/materialization
 provider/semantic version enforcement
 immutable release / Catalog Generation for new work
 ```
 
-Reuse ADR 0115–0117; do not create a second Agent-specific admission system.
+Reuse ADR 0115–0117 and ADR 0129; do not create a second Agent-specific admission system. Git/package/PR workflows are optional
+interoperability paths, not required production authoring authority.
 
 **Gate**
 
@@ -979,7 +984,7 @@ B3.9 learned / RL search if justified
 
 This order is intentional.
 
-It ensures that when an LLM is introduced, deterministic search, Evidence, provenance, and Qualification already exist. When code generation is introduced, graph reuse and private-asset admission already exist. When RAG is introduced, the system already knows how to avoid duplicate experiments. When RL is introduced, there is already a trustworthy historical dataset of structured search decisions and outcomes.
+It ensures that when an LLM is introduced, deterministic search, Evidence, provenance, and Qualification already exist. When code generation is introduced, graph reuse and database-native private-asset admission already exist. When RAG is introduced, the system already knows how to avoid duplicate experiments. When RL is introduced, there is already a trustworthy historical dataset of structured search decisions and outcomes.
 
 ---
 
@@ -1130,11 +1135,11 @@ Long-term physical/logical direction:
 OnlyAlpha
 → stable Kernel, Calculation/Research/Evidence/Qualification/API contracts
 
-OnlyAlpha-alpha
-→ private admitted L3 Factors
+Private Asset Authority / PostgreSQL
+→ production Private L3/L4 Drafts and immutable Revisions
 
-OnlyAlpha-strategies
-→ private L4 authoring assets
+OnlyAlpha-alpha / OnlyAlpha-strategies
+→ optional private interoperability and release/materialization workflows
 
 OnlyAlpha-Agent
 → high-change research orchestration, search methods, literature/knowledge adapters

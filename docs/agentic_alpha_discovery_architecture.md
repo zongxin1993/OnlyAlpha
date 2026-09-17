@@ -228,27 +228,29 @@ Agent-generated source
 != admitted plugin
 ```
 
-ADR 0115 makes the authoring boundary concrete for private L3/L4 repositories. An experiment has a deterministic manifest-derived
-workflow identity and an exact Git commit or source-bundle revision, but neither identity is a Calculation, Provider, Catalog or
-StrategyRevision identity. Candidate providers are explicit and non-production. Only an admitted registry change with valid semantic
-and provider version transitions may enter an immutable distribution and a Catalog Generation for new work.
+ADR 0129 freezes private L3/L4 production authoring as database-native product assets. A Private L3 has one mutable Draft, one
+immutable Revision, exactly one canonical UTF-8 Python source unit and one exact stable L3 API Contract; a Private L4 has one
+immutable canonical structured Strategy Definition. A Git commit, source bundle, package or wheel may provide optional provenance or
+interoperability, but none is the authoring Authority or runtime identity. Candidate Providers remain explicit and non-production.
+Only an admitted Registry/Provider change with valid semantic and provider version transitions may enter a Catalog Generation for new
+work.
 
 The resulting long-term transition is:
 
 ```text
-isolated experiment → exact candidate revision → engineering validation → OnlyAlpha Research Evidence
-→ admission review → formal Provider version → immutable distribution → new-work Catalog Generation
+isolated experiment → DB Draft → immutable Revision → isolated validation → OnlyAlpha Research Evidence
+→ Qualification → admission review → Provider Snapshot → immutable Catalog Generation → exact Runtime Generation binding
 ```
 
-Package release does not activate a Catalog and Catalog activation does not grant LIVE authority. Active Runs and StrategyRevisions
-remain bound to their exact implementation generation.
+Database authoring does not grant execution permission. Any executable materialization remains subject to exact API/adapter, Provider,
+Catalog, Distribution and Runtime Generation contracts. Catalog activation does not grant LIVE authority, and active Runs and
+StrategyRevisions remain bound to their exact implementation generation.
 
-Formal source admission is PR-only. Repository-tracked hooks give an Agent early feedback, while the independent aggregate
-`private-asset-admission` CI check derives semantic/provider impact from canonical content, builds and installs the candidate wheel, and
-repeats the applicable Research/Freeze boundary. Verified server policy blocks direct or force updates and deletion of `master` and admits
-one atomic squash commit. An Agent may prepare the experiment branch and PR but cannot merge it, bypass CI, release from the experiment,
-activate the resulting Catalog, or treat a commit message as semantic authority. Release from clean admitted `master` is a separate
-immutable tag/wheel/manifest transition.
+Private source admission is not PR-only. Web/Agent authoring commits a Draft and immutable Revision through future formal Product
+boundaries; isolated validation, Research, Evidence, Qualification and Admission remain explicit transitions. Optional Git/package
+interoperability may add its own checks, but a branch, PR, wheel, package index or commit message never becomes semantic, Evidence,
+Catalog or LIVE authority. The Agent still cannot bypass the Product API, declare Qualification, activate a Catalog or acquire LIVE
+authority.
 
 ## 8. Research Designer Agent
 

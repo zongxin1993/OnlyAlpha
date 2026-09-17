@@ -4,6 +4,10 @@
 - Date: 2026-09-03
 - Related: ADR 0020, 0021, 0069 (Calculation), 0070 (Calculation), 0076, 0098, 0108
 
+> Supersession note: ADR 0129 supersedes in part the private-repository placement clause for production L3/L4 authoring. The
+> four-layer taxonomy, public examples and canonical Calculation/Graph boundaries remain preserved; private production authoring is
+> now PostgreSQL-backed and Git/package use is optional interoperability/provenance.
+
 ## Context
 
 OnlyAlpha's one Calculation abstraction currently exposes reusable financial Indicators and an official Factor package containing

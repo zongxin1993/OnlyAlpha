@@ -5,6 +5,10 @@
 - Decision maker: repository owner through the B2.4 implementation authorization
 - Related: ADR 0064, 0069, 0097, 0111, 0112, 0115, 0116
 
+> Compatibility note: ADR 0129 makes database Revision the intended Private L3/L4 authoring Authority. This ADR remains the exact
+> executable materialization and Runtime Generation contract after an admitted Revision is converted into runtime artifacts; it does
+> not make Git, a wheel or a package the required production authoring Authority.
+
 ## Context
 
 ADR 0115 freezes private source, semantic, implementation, Provider, distribution, Catalog and StrategyRevision identities. ADR
