@@ -63,6 +63,8 @@ def test_production_advisory_builder_reads_existing_owners_without_owning_source
     assert {name for name in vars(OnlyExperimentMemoryAdvisoryProjectionBuilder) if not name.startswith("_")} == {
         "build_index",
         "load_representation_verified",
+        "load_snapshot_verified",
+        "load_active_snapshot_verified",
     }
     source = ADVISORY.read_text(encoding="utf-8")
     assert "self._revisions.load_verified(" in source
@@ -71,10 +73,14 @@ def test_production_advisory_builder_reads_existing_owners_without_owning_source
         assert forbidden_write not in source
 
 
-def test_advisory_index_is_disposable_and_has_no_product_agent_or_web_authority_path() -> None:
+def test_advisory_index_is_disposable_and_has_only_the_d2_product_read_path() -> None:
+    allowed = {
+        ROOT / "src/onlyalpha/application/research_advisory.py",
+        ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py",
+    }
     for root in (ROOT / "src", ROOT / "packages"):
         for path in root.rglob("*.py"):
-            if path == ADVISORY:
+            if path == ADVISORY or path in allowed:
                 continue
             assert "onlyalpha.research.memory.advisory" not in imported_modules_for_path(path, ROOT), path
 
@@ -102,3 +108,17 @@ def test_exact_read_to_act_and_research_command_do_not_import_advisory() -> None
         imports = imported_modules_for_path(ROOT / relative, ROOT)
         assert "onlyalpha.research.memory.advisory" not in imports
         assert "onlyalpha.research.memory" not in imports or "command" in relative
+
+
+def test_d2_http_route_dispatches_product_query_without_d1_internals() -> None:
+    route = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/advisory_routes.py"
+    source = route.read_text(encoding="utf-8")
+    assert "product.queries.dispatch(" in source
+    for forbidden in (
+        "only_query_near_duplicates",
+        "OnlyExperimentMemoryAdvisoryProjectionBuilder",
+        "OnlyResearchAdvisorySourceRefV1",
+    ):
+        assert forbidden not in source
+    assert '"RESEARCH_NEAR_DUPLICATE_QUERY"' in source
+    assert '"requires_product_command_id": False' in source

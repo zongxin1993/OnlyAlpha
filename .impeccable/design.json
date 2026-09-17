@@ -1,0 +1,282 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-17T09:58:56+08:00",
+  "title": "Design System: OnlyAlpha Web Console",
+  "extensions": {
+    "colorMeta": {
+      "bg-deep": {
+        "role": "neutral",
+        "displayName": "深夜底色",
+        "canonical": "#090f19",
+        "tonalRamp": ["#090f19", "#101925", "#162233", "#1a2a3e", "#253449", "#53647a", "#96a7bd", "#e4edf7"]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "工作台表面",
+        "canonical": "#101925",
+        "tonalRamp": ["#0b111b", "#101925", "#162233", "#1a2a3e", "#253449", "#53647a", "#96a7bd", "#e4edf7"]
+      },
+      "surface-raised": {
+        "role": "neutral",
+        "displayName": "抬升表面",
+        "canonical": "#162233",
+        "tonalRamp": ["#0b111b", "#101925", "#162233", "#1a2a3e", "#253449", "#53647a", "#96a7bd", "#e4edf7"]
+      },
+      "surface-emphasis": {
+        "role": "neutral",
+        "displayName": "强调表面",
+        "canonical": "#1a2a3e",
+        "tonalRamp": ["#0b111b", "#101925", "#162233", "#1a2a3e", "#253449", "#53647a", "#96a7bd", "#e4edf7"]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "正文白",
+        "canonical": "#e4edf7",
+        "tonalRamp": ["#273646", "#3b4d60", "#53647a", "#6f8299", "#96a7bd", "#b6c5d4", "#d1dde8", "#e4edf7"]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "证据灰",
+        "canonical": "#96a7bd",
+        "tonalRamp": ["#1d2a38", "#2f3e4f", "#475b70", "#64798f", "#8297ad", "#96a7bd", "#b6c5d4", "#e4edf7"]
+      },
+      "primary-accent": {
+        "role": "primary",
+        "displayName": "冷光证据蓝",
+        "canonical": "#53c7f5",
+        "tonalRamp": ["#07334a", "#084a68", "#086489", "#087fab", "#299ec8", "#53c7f5", "#8cddfa", "#d7f5ff"]
+      },
+      "primary-solid": {
+        "role": "primary",
+        "displayName": "深海执行蓝",
+        "canonical": "#106ca8",
+        "tonalRamp": ["#06243d", "#073754", "#08496b", "#0b5a88", "#106ca8", "#4a95c3", "#8bc1dd", "#d3ebf7"]
+      },
+      "accent-soft": {
+        "role": "primary",
+        "displayName": "证据蓝软底",
+        "canonical": "#112c43",
+        "tonalRamp": ["#081622", "#0c2032", "#112c43", "#1a405c", "#2f5d78", "#5e89a1", "#9eb8c8", "#dbe8ef"]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "结构边界",
+        "canonical": "#253449",
+        "tonalRamp": ["#101925", "#172333", "#253449", "#34475e", "#53677e", "#7c8fa2", "#b2c0cc", "#e4edf7"]
+      },
+      "border-soft": {
+        "role": "neutral",
+        "displayName": "弱边界",
+        "canonical": "#1c293a",
+        "tonalRamp": ["#0d141f", "#141e2b", "#1c293a", "#2b3b4e", "#465a70", "#71859a", "#a8b8c7", "#e2ebf2"]
+      },
+      "field-bg": {
+        "role": "neutral",
+        "displayName": "字段底色",
+        "canonical": "#091524",
+        "tonalRamp": ["#091524", "#0f2234", "#18354c", "#28506a", "#47748c", "#789baa", "#b3cbd5", "#e6f1f4"]
+      },
+      "action-bg": {
+        "role": "primary",
+        "displayName": "深青操作底",
+        "canonical": "#0e7490",
+        "tonalRamp": ["#062a35", "#074552", "#0b5c6e", "#0e7490", "#338ea6", "#66b0c1", "#a3d3dc", "#d9f0f3"]
+      },
+      "action-border": {
+        "role": "primary",
+        "displayName": "操作边框",
+        "canonical": "#0891b2",
+        "tonalRamp": ["#032d39", "#064657", "#07677e", "#0881a0", "#0891b2", "#43b2c8", "#8ad3df", "#d3f1f5"]
+      },
+      "danger": {
+        "role": "semantic",
+        "displayName": "危险文字",
+        "canonical": "#fda4af",
+        "tonalRamp": ["#4a0c1a", "#741129", "#a21b3b", "#c8465a", "#e87583", "#fda4af", "#fecbd1", "#fff0f2"]
+      },
+      "danger-bg": {
+        "role": "semantic",
+        "displayName": "危险操作底",
+        "canonical": "#9f1239",
+        "tonalRamp": ["#3a0717", "#5a0a21", "#78102d", "#9f1239", "#bb3e5b", "#d87589", "#efb3bd", "#fce5e8"]
+      },
+      "danger-border": {
+        "role": "semantic",
+        "displayName": "危险边框",
+        "canonical": "#be123c",
+        "tonalRamp": ["#400714", "#62091f", "#86132f", "#a91439", "#be123c", "#d95b73", "#ef9fac", "#fbdadd"]
+      },
+      "danger-strong": {
+        "role": "semantic",
+        "displayName": "危险强调",
+        "canonical": "#fb7185",
+        "tonalRamp": ["#4a0715", "#700b20", "#9d1732", "#d43d57", "#fb7185", "#fd9eac", "#fecbd2", "#fff0f2"]
+      },
+      "warning": {
+        "role": "semantic",
+        "displayName": "警告文字",
+        "canonical": "#fde68a",
+        "tonalRamp": ["#4a3904", "#715707", "#9b780b", "#c49b18", "#e7c85d", "#fde68a", "#feefba", "#fffbe8"]
+      },
+      "warning-border": {
+        "role": "semantic",
+        "displayName": "警告边框",
+        "canonical": "#a16207",
+        "tonalRamp": ["#3e2803", "#604005", "#805507", "#a16207", "#bd8531", "#d8ab68", "#efd7aa", "#fbf0d8"]
+      },
+      "success": {
+        "role": "semantic",
+        "displayName": "成功指示",
+        "canonical": "#34d399",
+        "tonalRamp": ["#063c2c", "#086044", "#0a8a61", "#22b77d", "#34d399", "#7ae8be", "#baf5d8", "#e5fff2"]
+      },
+      "success-text": {
+        "role": "semantic",
+        "displayName": "成功文字",
+        "canonical": "#6ee7b7",
+        "tonalRamp": ["#073c2b", "#096044", "#0c8a60", "#35bd8d", "#6ee7b7", "#a1f0cf", "#cef9e3", "#ecfff6"]
+      },
+      "success-border": {
+        "role": "semantic",
+        "displayName": "成功边框",
+        "canonical": "#047857",
+        "tonalRamp": ["#032d21", "#04523c", "#047857", "#23966f", "#55b494", "#8dccb5", "#c0e5d5", "#e9f8f0"]
+      },
+      "white": {
+        "role": "neutral",
+        "displayName": "操作白",
+        "canonical": "#ffffff",
+        "tonalRamp": ["#252b31", "#454d55", "#68737d", "#8f9aa4", "#b8c1c8", "#d5dbe0", "#edf1f3", "#ffffff"]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "页面标题",
+        "purpose": "工作区标题和页面主标题；保持短、清楚、可扫描。"
+      },
+      "body": {
+        "displayName": "正文",
+        "purpose": "操作者说明、表单内容和状态解释。"
+      },
+      "label": {
+        "displayName": "区域标签",
+        "purpose": "辅助区域和状态标签；不用于凭空制造装饰性层级。"
+      },
+      "mono": {
+        "displayName": "事实等宽",
+        "purpose": "canonical identity、版本、事实值和机器可读内容。"
+      }
+    },
+    "shadows": [
+      {
+        "name": "active-nav-inset",
+        "value": "inset 2px 0 var(--accent)",
+        "purpose": "只标记当前 navigation 项，不表达浮层高度。"
+      }
+    ],
+    "motion": [],
+    "breakpoints": [
+      { "name": "wide-compact", "value": "1279px" },
+      { "name": "shell-compact", "value": "1050px" },
+      { "name": "workspace-compact", "value": "1000px" },
+      { "name": "mobile", "value": "767px" },
+      { "name": "narrow", "value": "700px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "用于明确 command action 的深青按钮。",
+      "html": "<button class=\"ds-btn-primary\">提交研究</button>",
+      "css": ".ds-btn-primary { background: #0e7490; color: #fff; border: 1px solid #0891b2; border-radius: 7px; padding: 0.55rem 0.85rem; font: inherit; cursor: pointer; } .ds-btn-primary:hover { background: #106ca8; } .ds-btn-primary:focus-visible { outline: 3px solid #53c7f5; outline-offset: 3px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "用于低权重但仍可发现的辅助动作。",
+      "html": "<button class=\"ds-btn-secondary\">查看证据</button>",
+      "css": ".ds-btn-secondary { background: transparent; color: #53c7f5; border: 1px solid #0891b2; border-radius: 7px; padding: 0.55rem 0.85rem; font: inherit; cursor: pointer; } .ds-btn-secondary:hover { background: #112c43; } .ds-btn-secondary:focus-visible { outline: 3px solid #53c7f5; outline-offset: 3px; }"
+    },
+    {
+      "name": "Subtle Button",
+      "kind": "button",
+      "refersTo": "button-subtle",
+      "description": "用于删除、取消或次要管理操作，不抢占 accent。",
+      "html": "<button class=\"ds-btn-subtle\">取消</button>",
+      "css": ".ds-btn-subtle { background: transparent; color: #96a7bd; border: 1px solid #253449; border-radius: 7px; padding: 0.45rem 0.7rem; font: inherit; cursor: pointer; } .ds-btn-subtle:hover { color: #e4edf7; background: #162233; } .ds-btn-subtle:focus-visible { outline: 3px solid #53c7f5; outline-offset: 3px; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "用于搜索、筛选和输入 canonical configuration 的字段。",
+      "html": "<label class=\"ds-field\"><span>研究名称</span><input placeholder=\"输入名称\" /></label>",
+      "css": ".ds-field { display: grid; gap: 0.35rem; color: #96a7bd; font-size: 0.78rem; font-weight: 700; } .ds-field input { width: 100%; background: #091524; color: #e4edf7; border: 1px solid #253449; border-radius: 7px; padding: 0.8rem; font: inherit; } .ds-field input::placeholder { color: #96a7bd; } .ds-field input:focus-visible { outline: 3px solid #53c7f5; outline-offset: 3px; }"
+    },
+    {
+      "name": "Navigation Link",
+      "kind": "nav",
+      "refersTo": "nav-link",
+      "description": "左侧 workstation rail 中的默认导航项。",
+      "html": "<a class=\"ds-nav-link\" href=\"#research\">研究</a>",
+      "css": ".ds-nav-link { display: flex; align-items: center; color: #96a7bd; background: transparent; border-radius: 6px; padding: 0.65rem; text-decoration: none; } .ds-nav-link:hover { color: #e4edf7; background: #162233; } .ds-nav-link:focus-visible { outline: 3px solid #53c7f5; outline-offset: 3px; }"
+    },
+    {
+      "name": "Active Navigation Link",
+      "kind": "nav",
+      "refersTo": "nav-link-active",
+      "description": "标记当前工作区位置，不表达业务成功。",
+      "html": "<a class=\"ds-nav-link-active\" href=\"#evidence\" aria-current=\"page\">证据</a>",
+      "css": ".ds-nav-link-active { display: flex; align-items: center; color: #53c7f5; background: #112c43; border-radius: 6px; padding: 0.65rem; text-decoration: none; box-shadow: inset 2px 0 #53c7f5; } .ds-nav-link-active:hover { background: #1a2a3e; } .ds-nav-link-active:focus-visible { outline: 3px solid #53c7f5; outline-offset: 3px; }"
+    },
+    {
+      "name": "Surface Card",
+      "kind": "card",
+      "refersTo": "surface-card",
+      "description": "承载工作区、事实摘要和 evidence 内容的平面容器。",
+      "html": "<section class=\"ds-card\"><h3>证据摘要</h3><p>输入已冻结，等待分析。</p></section>",
+      "css": ".ds-card { background: #101925; color: #e4edf7; border: 1px solid #253449; border-radius: 8px; padding: 1rem; } .ds-card h3 { margin: 0 0 0.5rem; font-size: 0.95rem; } .ds-card p { margin: 0; color: #96a7bd; font-size: 0.875rem; line-height: 1.5; }"
+    },
+    {
+      "name": "Status Badge",
+      "kind": "chip",
+      "refersTo": "status-badge",
+      "description": "把 resolved、running、warning 和 failed 映射成真实状态。",
+      "html": "<span class=\"ds-status\">已解析</span>",
+      "css": ".ds-status { display: inline-flex; align-items: center; color: #6ee7b7; border: 1px solid #047857; border-radius: 999px; padding: 0.3rem 0.55rem; font: 700 0.72rem ui-monospace, monospace; } .ds-status:focus-visible { outline: 3px solid #53c7f5; outline-offset: 3px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Evidence Workbench",
+    "overview": "OnlyAlpha 的 Web Console 应该像一张严谨的证据工作台：操作者首先看到状态、来源、边界和可追溯关系，而不是装饰。视觉层级来自空间、细边框和相邻 surface 的色阶；整体气质务实、克制、严谨，并承认可见证据的有限性。\n\n当前实现是深色工作台：深海军蓝背景承载多层蓝灰 surface，浅蓝 accent 只标记可操作、选中和可追踪关系。组件紧凑、信息密度高，但不通过大阴影或夸张的展示型排版制造权威感。浅色主题与主题切换是已确认的产品要求，当前代码尚未实现；新增页面应保留这项要求，不得把现有深色 token 误写成完整双主题系统。",
+    "keyCharacteristics": [
+      "以 evidence、state、identity 和 provenance 为视觉组织单位。",
+      "通过 tonal surface 与 1px border 建立层次，不依赖大阴影。",
+      "紧凑、工具化、可扫描；稳定 identity 使用等宽字体。",
+      "Web 文案默认使用中文；仅保留有明确语义的英文，如 `API token`、版本号和 canonical identity。"
+    ],
+    "rules": [
+      { "name": "The One Accent Rule", "body": "Primary accent 只标记行动、选择、焦点与关系；surface、border 和 muted text 承担大部分信息层级。", "section": "colors" },
+      { "name": "The Evidence Hierarchy Rule", "body": "先用字号、间距和 muted text 建立层级，再使用 accent；不要用全大写、超大标题或粗重装饰替代信息关系。", "section": "typography" },
+      { "name": "The Flat Surface Rule", "body": "静止表面保持平面；只有明确的状态标记可以使用 inset accent，不能为普通卡片添加大范围阴影。", "section": "elevation" }
+    ],
+    "dos": [
+      "Do 使用现有深色 token 和相邻 surface 色阶，优先靠边框与空间表达结构。",
+      "Do 保持 accent 稀缺，把它留给操作、选择、焦点和可追踪关系。",
+      "Do 为 interactive element 提供明确的 `3px` focus ring 和 `3px` offset。",
+      "Do 用中文写面向操作者的 Web 文案；保留 `API token`、版本号、canonical identity 等明确技术语义。",
+      "Do 在实现主题切换时提供等价的 light/dark token 集合，并让状态语义在两套主题中保持一致。",
+      "Do 让证据、来源、identity、时间和不确定性在视觉上可区分。"
+    ],
+    "donts": [
+      "Don't 为普通卡片、页面或导航添加大范围 drop shadow、玻璃效果或无证据的装饰。",
+      "Don't 把当前深色实现误当作已完成的 light/dark 双主题；浅色主题与切换仍是待实现要求。",
+      "Don't 用 accent、success 或 bold copy 掩盖 UNKNOWN、缺失证据、incomplete 或 failed 状态。",
+      "Don't 为了制造层级新增大标题、kicker、全大写 eyebrow 或展示型 hero；现有辅助标签是实现事实，不是新页面的默认装饰。",
+      "Don't 让 Web 视觉暗示它拥有 Trading Authority；Web 只呈现状态、接收输入并提交正式 command。"
+    ]
+  }
+}

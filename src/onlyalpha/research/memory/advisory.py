@@ -7,6 +7,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Protocol, cast
 
 from onlyalpha.calculation.definition import OnlyCalculationDefinition, OnlyCalculationScalar
@@ -432,6 +433,56 @@ def only_build_research_advisory_index(
         source_cut_fingerprint,
         tuple(sorted(representations, key=lambda item: item.representation_fingerprint)),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyVerifiedResearchAdvisorySnapshotV1:
+    """Request-scoped verified advisory state; never a source-truth authority."""
+
+    projection: OnlyExperimentMemoryProjectionV1
+    representations: tuple[OnlyResearchAdvisoryRepresentationV1, ...]
+    index: OnlyResearchAdvisoryIndexV1
+    representation_by_source_ref: Mapping[OnlyResearchAdvisorySourceRefV1, OnlyResearchAdvisoryRepresentationV1]
+
+    def __post_init__(self) -> None:
+        if self.projection.revision_fingerprint != self.index.projection_revision:
+            raise ValueError("advisory snapshot projection revision differs")
+        source_cut = self.projection.source_manifest.manifest_fingerprint
+        if source_cut != self.index.source_cut_fingerprint:
+            raise ValueError("advisory snapshot source cut differs")
+        if self.representations != self.index.representations:
+            raise ValueError("advisory snapshot representations differ")
+        expected = {item.source_ref: item for item in self.representations}
+        if dict(self.representation_by_source_ref) != expected:
+            raise ValueError("advisory snapshot source map differs")
+        object.__setattr__(self, "representation_by_source_ref", MappingProxyType(expected))
+
+    @property
+    def projection_revision(self) -> str:
+        return self.index.projection_revision
+
+    @property
+    def source_cut_fingerprint(self) -> str:
+        return self.index.source_cut_fingerprint
+
+    @property
+    def index_build_revision(self) -> str:
+        return self.index.index_build_revision
+
+    def load_representation_verified(
+        self,
+        source_ref: OnlyResearchAdvisorySourceRefV1,
+        projection_revision: str,
+        representation_schema_version: int,
+    ) -> OnlyResearchAdvisoryRepresentationV1:
+        if projection_revision != self.projection_revision:
+            raise ValueError("advisory source revision differs")
+        if representation_schema_version != REPRESENTATION_SCHEMA_VERSION:
+            raise ValueError("advisory representation schema is unsupported")
+        try:
+            return self.representation_by_source_ref[source_ref]
+        except KeyError as exc:
+            raise ValueError("advisory source is missing or ambiguous") from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -896,6 +947,14 @@ class OnlyExperimentMemoryAdvisoryProjectionBuilder:
             representations,
         )
 
+    def load_snapshot_verified(self, projection_revision: str) -> OnlyVerifiedResearchAdvisorySnapshotV1:
+        projection, representations = self._load(projection_revision)
+        return self._snapshot(projection, representations)
+
+    def load_active_snapshot_verified(self) -> OnlyVerifiedResearchAdvisorySnapshotV1:
+        projection = self._revisions.load_active_verified()
+        return self._snapshot(projection, self._representations_for_projection(projection))
+
     def load_representation_verified(
         self,
         source_ref: OnlyResearchAdvisorySourceRefV1,
@@ -913,8 +972,12 @@ class OnlyExperimentMemoryAdvisoryProjectionBuilder:
     def _load(
         self, projection_revision: str
     ) -> tuple[OnlyExperimentMemoryProjectionV1, tuple[OnlyResearchAdvisoryRepresentationV1, ...]]:
+        return self._load_projection(self._revisions.load_verified(projection_revision))
+
+    def _load_projection(
+        self, projection: OnlyExperimentMemoryProjectionV1
+    ) -> tuple[OnlyExperimentMemoryProjectionV1, tuple[OnlyResearchAdvisoryRepresentationV1, ...]]:
         try:
-            projection = self._revisions.load_verified(projection_revision)
             observations = only_load_cut_observations(projection.source_manifest, self._sources)
             exact = self._references.for_observations(observations)
         except OnlyMemoryProjectionError as exc:
@@ -925,11 +988,49 @@ class OnlyExperimentMemoryAdvisoryProjectionBuilder:
             (item.source_family, item.cut_fingerprint, item.locator, item.identity, item.content_fingerprint): item
             for item in observations
         }
+        return projection, self._representations_for_projection(projection, by_ref=by_ref, exact=exact)
+
+    def _representations_for_projection(
+        self,
+        projection: OnlyExperimentMemoryProjectionV1,
+        *,
+        by_ref: Mapping[tuple[str, str, str, str, str], OnlySourceObservationV1] | None = None,
+        exact: Callable[[str, str], Mapping[str, object]] | None = None,
+    ) -> tuple[OnlyResearchAdvisoryRepresentationV1, ...]:
+        if by_ref is None or exact is None:
+            try:
+                observations = only_load_cut_observations(projection.source_manifest, self._sources)
+                exact = self._references.for_observations(observations)
+            except OnlyMemoryProjectionError as exc:
+                if str(exc) in {"SOURCE_OBSERVATION_UNAVAILABLE", "REFERENCE_AUTHORITY_UNAVAILABLE"}:
+                    raise OnlyResearchAdvisoryUnavailableError(str(exc)) from exc
+                raise ValueError("advisory projection source verification failed") from exc
+            by_ref = {
+                (item.source_family, item.cut_fingerprint, item.locator, item.identity, item.content_fingerprint): item
+                for item in observations
+            }
         representations: list[OnlyResearchAdvisoryRepresentationV1] = []
         for record in projection.records:
             if record.kind == "EvaluationProjectionRecord":
                 representations.extend(self._representations(projection, record, by_ref, exact))
-        return projection, tuple(sorted(representations, key=lambda item: item.representation_fingerprint))
+        return tuple(sorted(representations, key=lambda item: item.representation_fingerprint))
+
+    @staticmethod
+    def _snapshot(
+        projection: OnlyExperimentMemoryProjectionV1,
+        representations: tuple[OnlyResearchAdvisoryRepresentationV1, ...],
+    ) -> OnlyVerifiedResearchAdvisorySnapshotV1:
+        index = only_build_research_advisory_index(
+            projection.revision_fingerprint,
+            projection.source_manifest.manifest_fingerprint,
+            representations,
+        )
+        return OnlyVerifiedResearchAdvisorySnapshotV1(
+            projection,
+            index.representations,
+            index,
+            {item.source_ref: item for item in index.representations},
+        )
 
     def _representations(
         self,

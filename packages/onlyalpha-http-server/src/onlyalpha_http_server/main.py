@@ -6,6 +6,7 @@ import argparse
 import json
 import sys
 from collections.abc import Mapping, Sequence
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
 
@@ -27,6 +28,7 @@ from onlyalpha.application.qualification_product import (
     OnlyQualificationProductService,
     OnlyQualificationQueryService,
 )
+from onlyalpha.application.research_advisory import OnlyResearchNearDuplicateQueryService
 from onlyalpha.application.search_product import (
     OnlySearchProductCommandServiceV1,
     OnlySearchProductQueryServiceV1,
@@ -84,6 +86,7 @@ from onlyalpha.research.evaluation.factor_pair.result_store import (
     OnlyParquetResearchFactorPairStatisticsResultStore,
 )
 from onlyalpha.research.evaluation.result_store import OnlyParquetResearchStatisticsResultStore
+from onlyalpha.research.evaluation.subject import OnlyExactEvaluationIntentResolverV1
 from onlyalpha.research.evaluation.summary.execution import OnlyResearchEffectSummaryExecutor
 from onlyalpha.research.evaluation.summary.reader import OnlyResearchStatisticsResultReader
 from onlyalpha.research.evaluation.summary.result_store import OnlyJsonResearchSummaryStatisticsResultStore
@@ -91,6 +94,10 @@ from onlyalpha.research.experiment import (
     OnlyJsonSearchProvenanceStore,
     OnlySearchExperimentManifestV2,
     OnlySearchExperimentManifestV3,
+)
+from onlyalpha.research.memory.advisory import (
+    OnlyExperimentMemoryAdvisoryProjectionBuilder,
+    OnlyNearDuplicateThresholdPolicyV1,
 )
 from onlyalpha.research.memory.production import (
     OnlyCapturableMemoryCutReader,
@@ -361,7 +368,7 @@ def _compose_experiment_memory_projection_builder(
     calculations: OnlyParquetResearchCalculationResultStore,
     runtime_generations: OnlyRuntimeGenerationRegistry,
     authoring_generation_root: Path,
-) -> OnlyExperimentMemoryProductionBuilder:
+) -> tuple[OnlyExperimentMemoryProductionBuilder, OnlyExperimentMemoryAdvisoryProjectionBuilder]:
     """The Product root fixes all eleven owners; no external reference callback enters."""
     postgres = OnlyPostgresResearchSourceCutAuthority(postgres_dsn)
     sources: dict[str, OnlyCapturableMemoryCutReader] = {
@@ -393,8 +400,10 @@ def _compose_experiment_memory_projection_builder(
         OnlyQualificationPolicyStore(layout.research_root),
         OnlyBacktestEvidenceStore(layout.root),
     )
-    return OnlyExperimentMemoryProductionBuilder(
-        sources, references, OnlyExperimentMemoryRevisionStore(layout.experiment_memory_projection_root)
+    revisions = OnlyExperimentMemoryRevisionStore(layout.experiment_memory_projection_root)
+    return (
+        OnlyExperimentMemoryProductionBuilder(sources, references, revisions),
+        OnlyExperimentMemoryAdvisoryProjectionBuilder(revisions, sources, references, cast(Any, calculations)),
     )
 
 
@@ -681,7 +690,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             search_contexts=cast(Any, _SearchContextReader(symbolic_contexts, parameter_contexts)),
         )
         memory_revisions = OnlyExperimentMemoryRevisionStore(layout.experiment_memory_projection_root)
-        memory_builder = _compose_experiment_memory_projection_builder(
+        memory_builder, advisory_builder = _compose_experiment_memory_projection_builder(
             layout=layout,
             postgres_dsn=postgres.dsn,
             search=search_provenance_authority,
@@ -699,16 +708,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         authoring_generations = OnlyAuthoringExecutionGenerationStore(
             args.authoring_generation_root or layout.research_root / "authoring-generations"
         )
+        runtime_generation_resolver = OnlyResearchHostedRuntimeGenerationResolver(
+            execution=generation_host,
+            dataset_store_root=str(layout.research_dataset_root),
+        )
+        near_duplicate_queries = OnlyResearchNearDuplicateQueryService(
+            specification_resolver=resolver,
+            subject_resolver=OnlyExactEvaluationIntentResolverV1(
+                runtime_generations=runtime_generations,
+                runtime_resolution=runtime_generation_resolver,
+                authoring_generations=authoring_generations,
+            ),
+            advisory_builder=advisory_builder,
+            threshold_policy=OnlyNearDuplicateThresholdPolicyV1(
+                "structured-default", "1", Decimal("0.5"), Decimal("0.8"), 10
+            ),
+        )
         command = OnlyResearchCommandService(
             admission=admission,
             store=run_store,
             now_utc=only_system_utc_now,
             runtime_generations=runtime_generations,
             command_admissions=product_commands,
-            runtime_generation_resolver=OnlyResearchHostedRuntimeGenerationResolver(
-                execution=generation_host,
-                dataset_store_root=str(layout.research_dataset_root),
-            ),
+            runtime_generation_resolver=runtime_generation_resolver,
             authoring_generation_reader=authoring_generations,
             novelty_decisions=OnlyNoveltyDecisionAuthority(layout.research_root),
             memory_builder=memory_builder,
@@ -816,6 +838,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             exact_catalog_context=exact_catalog,
             search_commands=search_commands,
             search_queries=search_queries,
+            near_duplicate_queries=near_duplicate_queries,
         )
         app = create_product_app(
             artifact_reader,
@@ -856,6 +879,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 OnlyJsonSymbolicSearchStore(layout.research_root),
                 OnlyJsonParameterSearchStore(layout.research_root),
             ),
+            near_duplicate_advisory=near_duplicate_queries,
         )
         if startup_status.state is OnlyKernelState.READY:
             app.state.experiment_memory_projection_builder = memory_builder

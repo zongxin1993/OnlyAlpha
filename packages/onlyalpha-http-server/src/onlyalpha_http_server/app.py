@@ -66,6 +66,7 @@ from .agent_gateway import AGENT_GATEWAY_ROUTE_TAG, OnlyAgentNodeGateway, create
 from .backtest.routes import BACKTEST_ROUTE_TAG, create_backtest_router
 from .backtest.schema import ProductErrorDto, ProductErrorEnvelopeDto
 from .health import OnlyKernelResearchReadinessProjection, OnlyProductExecutionCapacityProbe, create_health_router
+from .research.advisory_routes import RESEARCH_ADVISORY_ROUTE_TAG, create_advisory_router
 from .research.catalog_context_routes import EXACT_CATALOG_ROUTE_TAG, create_exact_catalog_context_router
 from .research.definition_errors import definition_error_response
 from .research.definition_routes import (
@@ -171,6 +172,7 @@ def _request_route_tag(request: Request) -> str | None:
             SEARCH_AUTHORING_ROUTE_TAG,
             SEARCH_PROVENANCE_ROUTE_TAG,
             EXACT_STATISTICS_ROUTE_TAG,
+            RESEARCH_ADVISORY_ROUTE_TAG,
         }
     )
     return known[0] if len(known) == 1 else None
@@ -206,6 +208,7 @@ def create_research_app(
     exact_statistics: OnlyExactResearchStatisticsReader | None = None,
     exact_search_iteration_results: OnlySearchIterationResultReader | None = None,
     exact_search_terminal_projections: OnlySearchTerminalProjectionReader | None = None,
+    near_duplicate_advisory: object | None = None,
 ) -> FastAPI:
     universe_authority = definition_resolver.universe_resolver
     if universe_authority is not None and not isinstance(universe_authority, OnlyResearchUniverseCatalog):
@@ -356,13 +359,20 @@ def create_research_app(
 
     async def product_value_error_handler(request: Request, _error: Exception) -> JSONResponse:
         family = _request_route_tag(request)
-        if family not in {STRATEGY_ROUTE_TAG, BACKTEST_ROUTE_TAG, SEARCH_ROUTE_TAG}:
+        if family not in {STRATEGY_ROUTE_TAG, BACKTEST_ROUTE_TAG, SEARCH_ROUTE_TAG, RESEARCH_ADVISORY_ROUTE_TAG}:
             return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
         if family == SEARCH_ROUTE_TAG:
             search_body = SearchErrorEnvelopeDto(
                 error=SearchErrorDto(code="SEARCH_PRODUCT_REQUEST_INVALID", detail="HTTP request validation failed")
             )
             return JSONResponse(status_code=400, content=search_body.model_dump(mode="json"))
+        if family == RESEARCH_ADVISORY_ROUTE_TAG:
+            return JSONResponse(
+                status_code=400,
+                content=ResearchErrorDto(
+                    code="RESEARCH_ADVISORY_REQUEST_INVALID", detail="HTTP request validation failed"
+                ).model_dump(mode="json"),
+            )
         body = ProductErrorEnvelopeDto(
             error=ProductErrorDto(
                 phase="COMMAND",
@@ -388,6 +398,13 @@ def create_research_app(
                 error=SearchErrorDto(code="SEARCH_PRODUCT_REQUEST_INVALID", detail="HTTP request validation failed")
             )
             return JSONResponse(status_code=400, content=search_body.model_dump(mode="json"))
+        if family == RESEARCH_ADVISORY_ROUTE_TAG:
+            return JSONResponse(
+                status_code=400,
+                content=ResearchErrorDto(
+                    code="RESEARCH_ADVISORY_REQUEST_INVALID", detail="HTTP request validation failed"
+                ).model_dump(mode="json"),
+            )
         if family in {STRATEGY_ROUTE_TAG, BACKTEST_ROUTE_TAG}:
             body = ProductErrorEnvelopeDto(
                 error=ProductErrorDto(
@@ -402,6 +419,8 @@ def create_research_app(
     app.add_exception_handler(RequestValidationError, request_validation_error_handler)
     app.include_router(create_artifact_router(artifact_service), dependencies=readiness_dependencies)
     app.include_router(create_run_router(product_boundary), dependencies=readiness_dependencies)
+    if near_duplicate_advisory is not None:
+        app.include_router(create_advisory_router(product_boundary), dependencies=readiness_dependencies)
     app.include_router(
         create_discovery_router(ResearchDiscoveryService(calculation_registry, universe_authority)),
         dependencies=readiness_dependencies,
@@ -527,6 +546,7 @@ def create_product_app(
     exact_statistics: OnlyExactResearchStatisticsReader | None = None,
     exact_search_iteration_results: OnlySearchIterationResultReader | None = None,
     exact_search_terminal_projections: OnlySearchTerminalProjectionReader | None = None,
+    near_duplicate_advisory: object | None = None,
 ) -> FastAPI:
     app = create_research_app(
         reader,
@@ -552,6 +572,7 @@ def create_product_app(
         exact_statistics,
         exact_search_iteration_results,
         exact_search_terminal_projections,
+        near_duplicate_advisory,
     )
     app.title = "OnlyAlpha Product API"
     return app

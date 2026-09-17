@@ -10,6 +10,11 @@ from onlyalpha.application.catalog_context import (
     OnlyExactCatalogContextV1,
 )
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId
+from onlyalpha.application.research_advisory import (
+    OnlyGetResearchNearDuplicateAdvisoryV1,
+    OnlyResearchNearDuplicateAdvisoryBundleV1,
+    OnlyResearchNearDuplicateQueryService,
+)
 from onlyalpha.application.search_product import (
     OnlyAdvanceSearchExperimentV1,
     OnlyGetSearchExperimentV1,
@@ -87,6 +92,7 @@ def only_compose_research_product_boundary(
     exact_catalog_context: OnlyExactCatalogContextQueryService | None = None,
     search_commands: OnlySearchProductCommandServiceV1 | None = None,
     search_queries: OnlySearchProductQueryServiceV1 | None = None,
+    near_duplicate_queries: OnlyResearchNearDuplicateQueryService | None = None,
 ) -> OnlyResearchProductBoundary:
     """Freeze the one legal Research Product binding topology."""
 
@@ -145,6 +151,13 @@ def only_compose_research_product_boundary(
             raise RuntimeError("SEARCH_PRODUCT_AUTHORITY_UNAVAILABLE")
         return search_queries.get_terminal(query)
 
+    def get_near_duplicates(
+        query: OnlyGetResearchNearDuplicateAdvisoryV1,
+    ) -> OnlyResearchNearDuplicateAdvisoryBundleV1:
+        if near_duplicate_queries is None:  # excluded from bindings below
+            raise RuntimeError("RESEARCH_ADVISORY_QUERY_UNAVAILABLE")
+        return near_duplicate_queries.get(query)
+
     query_bindings: tuple[OnlyProductQueryBinding[Any, Any], ...] = (
         OnlyProductQueryBinding(OnlyGetResearchRun, get),
         OnlyProductQueryBinding(OnlyListResearchRuns, list_runs),
@@ -157,6 +170,8 @@ def only_compose_research_product_boundary(
             OnlyProductQueryBinding(OnlyGetSearchIterationLedgerV1, get_search_ledger),
             OnlyProductQueryBinding(OnlyGetSearchTerminalDecisionV1, get_search_terminal),
         )
+    if near_duplicate_queries is not None:
+        query_bindings += (OnlyProductQueryBinding(OnlyGetResearchNearDuplicateAdvisoryV1, get_near_duplicates),)
 
     command_bindings: tuple[OnlyProductCommandBinding[Any, Any], ...] = (
         OnlyProductCommandBinding(OnlyCreateResearchRun, create),
