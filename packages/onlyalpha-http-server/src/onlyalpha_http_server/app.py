@@ -16,6 +16,15 @@ from onlyalpha.application.qualification_product import (
     OnlyQualificationProductService,
     OnlyQualificationQueryService,
 )
+from onlyalpha.application.research_advisory import (
+    OnlyResearchAdvisoryAuthorityUnavailable,
+    OnlyResearchAdvisoryInvariantViolation,
+    OnlyResearchAdvisoryProductError,
+    OnlyResearchAdvisoryProjectionCorrupt,
+    OnlyResearchAdvisoryRequestInvalid,
+    OnlyResearchAdvisoryRevisionNotFound,
+    OnlyResearchAdvisoryUnsupported,
+)
 from onlyalpha.application.search_product import (
     OnlySearchProductAuthorityUnavailable,
     OnlySearchProductCapabilityUnsupported,
@@ -357,22 +366,33 @@ def create_research_app(
 
     app.add_exception_handler(OnlySearchProductError, search_product_error_handler)
 
+    async def advisory_product_error_handler(_request: Request, error: Exception) -> JSONResponse:
+        assert isinstance(error, OnlyResearchAdvisoryProductError)
+        if isinstance(error, OnlyResearchAdvisoryRequestInvalid | OnlyResearchAdvisoryUnsupported):
+            status = 400
+        elif isinstance(error, OnlyResearchAdvisoryRevisionNotFound):
+            status = 404
+        elif isinstance(error, OnlyResearchAdvisoryAuthorityUnavailable):
+            status = 503
+        else:
+            assert isinstance(error, (OnlyResearchAdvisoryProjectionCorrupt, OnlyResearchAdvisoryInvariantViolation))
+            status = 500
+        return JSONResponse(
+            status_code=status,
+            content=ResearchErrorDto(code=error.code, detail=error.detail).model_dump(mode="json"),
+        )
+
+    app.add_exception_handler(OnlyResearchAdvisoryProductError, advisory_product_error_handler)
+
     async def product_value_error_handler(request: Request, _error: Exception) -> JSONResponse:
         family = _request_route_tag(request)
-        if family not in {STRATEGY_ROUTE_TAG, BACKTEST_ROUTE_TAG, SEARCH_ROUTE_TAG, RESEARCH_ADVISORY_ROUTE_TAG}:
+        if family not in {STRATEGY_ROUTE_TAG, BACKTEST_ROUTE_TAG, SEARCH_ROUTE_TAG}:
             return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
         if family == SEARCH_ROUTE_TAG:
             search_body = SearchErrorEnvelopeDto(
                 error=SearchErrorDto(code="SEARCH_PRODUCT_REQUEST_INVALID", detail="HTTP request validation failed")
             )
             return JSONResponse(status_code=400, content=search_body.model_dump(mode="json"))
-        if family == RESEARCH_ADVISORY_ROUTE_TAG:
-            return JSONResponse(
-                status_code=400,
-                content=ResearchErrorDto(
-                    code="RESEARCH_ADVISORY_REQUEST_INVALID", detail="HTTP request validation failed"
-                ).model_dump(mode="json"),
-            )
         body = ProductErrorEnvelopeDto(
             error=ProductErrorDto(
                 phase="COMMAND",

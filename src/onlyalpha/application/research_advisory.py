@@ -22,10 +22,12 @@ from onlyalpha.research.memory.advisory import (
     OnlyNearDuplicateResultV1,
     OnlyNearDuplicateThresholdPolicyV1,
     OnlyResearchAdvisorySourceRefV1,
+    OnlyResearchAdvisoryUnavailableError,
     OnlyVerifiedResearchAdvisorySnapshotV1,
     only_build_research_advisory_representation,
     only_query_near_duplicates,
 )
+from onlyalpha.research.memory.source_manifest import OnlyMemoryProjectionError
 from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 from onlyalpha.research.specification.model import OnlyResearchSpecification
 from onlyalpha.research.specification.resolver import (
@@ -34,6 +36,38 @@ from onlyalpha.research.specification.resolver import (
 )
 
 BUNDLE_SCHEMA_VERSION = 1
+
+
+class OnlyResearchAdvisoryProductError(RuntimeError):
+    code = "RESEARCH_ADVISORY_PRODUCT_ERROR"
+
+    def __init__(self, detail: str = "") -> None:
+        self.detail = detail
+        super().__init__(f"{self.code}: {detail}" if detail else self.code)
+
+
+class OnlyResearchAdvisoryRequestInvalid(OnlyResearchAdvisoryProductError):
+    code = "RESEARCH_ADVISORY_REQUEST_INVALID"
+
+
+class OnlyResearchAdvisoryRevisionNotFound(OnlyResearchAdvisoryProductError):
+    code = "RESEARCH_ADVISORY_REVISION_NOT_FOUND"
+
+
+class OnlyResearchAdvisoryAuthorityUnavailable(OnlyResearchAdvisoryProductError):
+    code = "RESEARCH_ADVISORY_AUTHORITY_UNAVAILABLE"
+
+
+class OnlyResearchAdvisoryProjectionCorrupt(OnlyResearchAdvisoryProductError):
+    code = "RESEARCH_ADVISORY_PROJECTION_CORRUPT"
+
+
+class OnlyResearchAdvisoryUnsupported(OnlyResearchAdvisoryProductError):
+    code = "RESEARCH_ADVISORY_UNSUPPORTED"
+
+
+class OnlyResearchAdvisoryInvariantViolation(OnlyResearchAdvisoryProductError):
+    code = "RESEARCH_ADVISORY_INVARIANT_VIOLATION"
 
 
 def _sha(value: object, name: str) -> str:
@@ -117,6 +151,8 @@ class OnlyResearchNearDuplicateAdvisoryBundleV1:
     specification_fingerprint: str
     projection_revision: str
     source_cut_fingerprint: str
+    index_build_revision: str
+    requested_result_limit: int
     retrieval_algorithm_id: str
     retrieval_algorithm_version: str
     threshold_policy: OnlyNearDuplicateThresholdPolicyV1
@@ -127,12 +163,15 @@ class OnlyResearchNearDuplicateAdvisoryBundleV1:
         _sha(self.specification_fingerprint, "specification_fingerprint")
         _sha(self.projection_revision, "projection_revision")
         _sha(self.source_cut_fingerprint, "source_cut_fingerprint")
+        _sha(self.index_build_revision, "index_build_revision")
         if (
             self.schema_version != BUNDLE_SCHEMA_VERSION
             or self.retrieval_algorithm_id != STRUCTURED_ALGORITHM_ID
             or self.retrieval_algorithm_version != STRUCTURED_ALGORITHM_VERSION
             or not isinstance(self.threshold_policy, OnlyNearDuplicateThresholdPolicyV1)
             or not self.entries
+            or type(self.requested_result_limit) is not int
+            or not 1 <= self.requested_result_limit <= 100
         ):
             raise ValueError("near-duplicate advisory bundle is unsupported")
         if self.entries != tuple(sorted(self.entries, key=lambda item: item.subject_fingerprint)):
@@ -149,8 +188,19 @@ class OnlyResearchNearDuplicateAdvisoryBundleV1:
                 or result.threshold_policy_id != self.threshold_policy.policy_id
                 or result.threshold_policy_version != self.threshold_policy.policy_version
                 or result.threshold_policy_fingerprint != self.threshold_policy.policy_fingerprint
+                or result.index_build_revision != self.index_build_revision
             ):
                 raise ValueError("advisory bundle entries mix query context")
+            expected_query = OnlyNearDuplicateQueryV1(
+                entry.representation_fingerprint,
+                self.projection_revision,
+                self.source_cut_fingerprint,
+                self.index_build_revision,
+                self.threshold_policy.policy_fingerprint,
+                self.requested_result_limit,
+            )
+            if expected_query.query_fingerprint != result.query_fingerprint:
+                raise ValueError("advisory entry result does not bind its representation query")
 
     @property
     def bundle_fingerprint(self) -> str:
@@ -174,6 +224,8 @@ class OnlyResearchNearDuplicateAdvisoryBundleV1:
             "specification_fingerprint": self.specification_fingerprint,
             "projection_revision": self.projection_revision,
             "source_cut_fingerprint": self.source_cut_fingerprint,
+            "index_build_revision": self.index_build_revision,
+            "requested_result_limit": self.requested_result_limit,
             "retrieval_algorithm_id": self.retrieval_algorithm_id,
             "retrieval_algorithm_version": self.retrieval_algorithm_version,
             "threshold_policy": self.threshold_policy.to_dict(),
@@ -190,6 +242,8 @@ class OnlyResearchNearDuplicateAdvisoryBundleV1:
             "specification_fingerprint",
             "projection_revision",
             "source_cut_fingerprint",
+            "index_build_revision",
+            "requested_result_limit",
             "retrieval_algorithm_id",
             "retrieval_algorithm_version",
             "threshold_policy",
@@ -208,6 +262,8 @@ class OnlyResearchNearDuplicateAdvisoryBundleV1:
             cast(str, payload["specification_fingerprint"]),
             cast(str, payload["projection_revision"]),
             cast(str, payload["source_cut_fingerprint"]),
+            cast(str, payload["index_build_revision"]),
+            cast(int, payload["requested_result_limit"]),
             cast(str, payload["retrieval_algorithm_id"]),
             cast(str, payload["retrieval_algorithm_version"]),
             OnlyNearDuplicateThresholdPolicyV1.from_dict(cast(dict[str, object], payload["threshold_policy"])),
@@ -240,9 +296,9 @@ class OnlyResearchNearDuplicateQueryService:
 
     def get(self, query: OnlyGetResearchNearDuplicateAdvisoryV1) -> OnlyResearchNearDuplicateAdvisoryBundleV1:
         if not isinstance(query, OnlyGetResearchNearDuplicateAdvisoryV1):
-            raise TypeError("near-duplicate service requires its Product Query")
+            raise OnlyResearchAdvisoryRequestInvalid("near-duplicate service requires its Product Query")
         if query.limit > self._policy.maximum_results:
-            raise ValueError("near-duplicate result limit exceeds the Product policy")
+            raise OnlyResearchAdvisoryRequestInvalid("near-duplicate result limit exceeds the Product policy")
         specification = query.specification
         resolution = self._specifications.resolve(specification)
         subjects = self._subjects.resolve_all(
@@ -250,27 +306,49 @@ class OnlyResearchNearDuplicateQueryService:
             runtime_work_id=query.runtime_work_id,
             authoring_provenance=query.authoring_provenance,
         )
-        self._validate_subjects(specification, subjects)
-        snapshot = (
-            self._advisory.load_active_snapshot_verified()
-            if query.projection_revision is None
-            else self._advisory.load_snapshot_verified(query.projection_revision)
-        )
-        entries = tuple(
-            sorted(
-                (self._entry(specification, resolution, subject, snapshot, query.limit) for subject in subjects),
-                key=lambda item: item.subject_fingerprint,
+        try:
+            self._validate_subjects(specification, subjects)
+        except ValueError as exc:
+            raise OnlyResearchAdvisoryInvariantViolation(str(exc)) from exc
+        try:
+            snapshot = (
+                self._advisory.load_active_snapshot_verified()
+                if query.projection_revision is None
+                else self._advisory.load_snapshot_verified(query.projection_revision)
             )
-        )
-        return OnlyResearchNearDuplicateAdvisoryBundleV1(
-            specification.specification_fingerprint,
-            snapshot.projection_revision,
-            snapshot.source_cut_fingerprint,
-            STRUCTURED_ALGORITHM_ID,
-            STRUCTURED_ALGORITHM_VERSION,
-            self._policy,
-            entries,
-        )
+        except OnlyResearchAdvisoryProductError:
+            raise
+        except OnlyResearchAdvisoryUnavailableError as exc:
+            raise OnlyResearchAdvisoryAuthorityUnavailable(str(exc)) from exc
+        except OnlyMemoryProjectionError as exc:
+            code = str(exc)
+            if code == "PROJECTION_NOT_FOUND":
+                raise OnlyResearchAdvisoryRevisionNotFound(code) from exc
+            if code == "PROJECTION_SCHEMA_UNSUPPORTED":
+                raise OnlyResearchAdvisoryUnsupported(code) from exc
+            raise OnlyResearchAdvisoryProjectionCorrupt(code) from exc
+        try:
+            entries = tuple(
+                sorted(
+                    (self._entry(specification, resolution, subject, snapshot, query.limit) for subject in subjects),
+                    key=lambda item: item.subject_fingerprint,
+                )
+            )
+            return OnlyResearchNearDuplicateAdvisoryBundleV1(
+                specification.specification_fingerprint,
+                snapshot.projection_revision,
+                snapshot.source_cut_fingerprint,
+                snapshot.index_build_revision,
+                query.limit,
+                STRUCTURED_ALGORITHM_ID,
+                STRUCTURED_ALGORITHM_VERSION,
+                self._policy,
+                entries,
+            )
+        except OnlyResearchAdvisoryProductError:
+            raise
+        except ValueError as exc:
+            raise OnlyResearchAdvisoryInvariantViolation(str(exc)) from exc
 
     @staticmethod
     def _validate_subjects(
@@ -340,7 +418,7 @@ class OnlyResearchNearDuplicateQueryService:
                 current.representation_fingerprint,
                 result,
             )
-        except Exception:
+        except OnlyResearchAdvisoryUnavailableError:
             return self._unavailable_entry(subject, snapshot, limit, "CURRENT_REPRESENTATION_UNAVAILABLE")
 
     def _unavailable_entry(

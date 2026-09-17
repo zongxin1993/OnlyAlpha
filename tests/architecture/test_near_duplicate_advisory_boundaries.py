@@ -122,3 +122,10 @@ def test_d2_http_route_dispatches_product_query_without_d1_internals() -> None:
         assert forbidden not in source
     assert '"RESEARCH_NEAR_DUPLICATE_QUERY"' in source
     assert '"requires_product_command_id": False' in source
+
+
+def test_d2_product_service_does_not_launder_unexpected_failures() -> None:
+    source = (ROOT / "src/onlyalpha/application/research_advisory.py").read_text(encoding="utf-8")
+    assert "except Exception" not in source
+    assert "OnlyResearchAdvisoryAuthorityUnavailable" in source
+    assert "OnlyResearchAdvisoryProjectionCorrupt" in source

@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue
 from onlyalpha.application.product_boundary import OnlyResearchProductBoundary
 from onlyalpha.application.research_advisory import (
     OnlyGetResearchNearDuplicateAdvisoryV1,
+    OnlyResearchAdvisoryRequestInvalid,
     OnlyResearchNearDuplicateAdvisoryBundleV1,
 )
 from onlyalpha.research.specification.model import OnlyResearchSpecification
@@ -41,6 +42,8 @@ class ResearchNearDuplicateAdvisoryResponseDto(_AdvisoryDto):
     specification_fingerprint: Sha256Dto
     projection_revision: Sha256Dto
     source_cut_fingerprint: Sha256Dto
+    index_build_revision: Sha256Dto
+    requested_result_limit: int
     retrieval_algorithm_id: str
     retrieval_algorithm_version: str
     threshold_policy: dict[str, JsonValue]
@@ -87,8 +90,8 @@ def create_advisory_router(product: OnlyResearchProductBoundary) -> APIRouter:
     def near_duplicates(
         request: ResearchNearDuplicateAdvisoryRequestDto,
     ) -> ResearchNearDuplicateAdvisoryResponseDto:
-        result = product.queries.dispatch(
-            OnlyGetResearchNearDuplicateAdvisoryV1(
+        try:
+            query = OnlyGetResearchNearDuplicateAdvisoryV1(
                 specification=OnlyResearchSpecification.from_dict(request.specification),
                 runtime_work_id=request.runtime_work_id,
                 projection_revision=request.projection_revision,
@@ -97,7 +100,9 @@ def create_advisory_router(product: OnlyResearchProductBoundary) -> APIRouter:
                     None if request.authoring_provenance is None else request.authoring_provenance.to_model()
                 ),
             )
-        )
+        except (TypeError, ValueError) as exc:
+            raise OnlyResearchAdvisoryRequestInvalid("HTTP request contains an invalid Research Specification") from exc
+        result = product.queries.dispatch(query)
         if not isinstance(result, OnlyResearchNearDuplicateAdvisoryBundleV1):
             raise TypeError("Product dispatcher returned the wrong advisory response")
         return ResearchNearDuplicateAdvisoryResponseDto.from_bundle(result)
