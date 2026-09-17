@@ -1,0 +1,21 @@
+{
+  "fixture_schema_version": 1,
+  "fixture_id": "research-product-v1",
+  "command_id": "00000000-0000-4000-8000-000000008602",
+  "instruments": ["A.XNAS", "B.XNAS"],
+  "start": "2026-01-05T01:30:00+00:00",
+  "end": "2026-01-05T01:34:01+00:00",
+  "expected_calculation_selections": [
+    "onlyalpha.indicator.rsi",
+    "onlyalpha.indicator.rolling_return",
+    "example.factor.momentum",
+    "onlyalpha.target.forward_return"
+  ],
+  "expected_parameter_values": {
+    "feature_rsi.period": [2, 3],
+    "returns_short.period": 1,
+    "returns_long.period": 2,
+    "forward_return.exit_offset": 1
+  },
+  "expected_candidate_count": 2
+}

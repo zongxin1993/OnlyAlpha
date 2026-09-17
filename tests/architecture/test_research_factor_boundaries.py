@@ -70,7 +70,7 @@ def test_examples_are_not_default_production_dependencies() -> None:
     metadata = Path("pyproject.toml").read_text(encoding="utf-8")
     project_dependencies = metadata.split("[dependency-groups]", 1)[0]
     assert "onlyalpha-example" not in project_dependencies
-    dockerfile = Path("Dockerfile.dev").read_text(encoding="utf-8")
+    dockerfile = Path("deploy/Dockerfile.dev").read_text(encoding="utf-8")
     assert "--no-install-package onlyalpha-example-alpha" in dockerfile
     assert "--no-install-package onlyalpha-example-strategies" in dockerfile
     assert "FROM runtime AS test" in dockerfile

@@ -1,5 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
+const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:4173";
+
 export default defineConfig({
     testDir: "./e2e-real",
     timeout: 90_000,
@@ -7,7 +9,7 @@ export default defineConfig({
     workers: 1,
     retries: 0,
     use: {
-        baseURL: "http://127.0.0.1:4173",
+        baseURL,
         actionTimeout: 10_000,
         trace: "retain-on-failure"
     }

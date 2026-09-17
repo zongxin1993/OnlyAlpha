@@ -329,6 +329,22 @@ jobs:
         if: always()
         run: docker compose -f deploy/docker-compose.dev.yml down -v
 
+  web-product-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate the canonical Compose model
+        run: docker compose -f deploy/docker-compose.dev.yml config --quiet
+      - name: Run the isolated Compose Web Product journey
+        run: deploy/run-web-e2e.sh
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: web-product-e2e-${{ github.sha }}
+          path: test-results/web-e2e/
+          if-no-files-found: warn
+
   web:
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -403,7 +419,7 @@ jobs:
 
   quality-gate:
     if: always()
-    needs: [static, architecture, openapi-contract, private-asset-contract, gateway-protocol, dependency-audit, pr-lanes, main-lanes, research-product-certification, database-compose, build, web]
+    needs: [static, architecture, openapi-contract, private-asset-contract, gateway-protocol, dependency-audit, pr-lanes, main-lanes, research-product-certification, database-compose, web-product-e2e, build, web]
     runs-on: ubuntu-latest
     steps:
       - name: Require every independent gate
@@ -418,6 +434,7 @@ jobs:
           MAIN_LANES_RESULT: ${{ needs.main-lanes.result }}
           RESEARCH_PRODUCT_CERTIFICATION_RESULT: ${{ needs.research-product-certification.result }}
           DATABASE_COMPOSE_RESULT: ${{ needs.database-compose.result }}
+          WEB_PRODUCT_E2E_RESULT: ${{ needs.web-product-e2e.result }}
           BUILD_RESULT: ${{ needs.build.result }}
           WEB_RESULT: ${{ needs.web.result }}
-        run: test "$STATIC_RESULT" = success -a "$ARCHITECTURE_RESULT" = success -a "$OPENAPI_CONTRACT_RESULT" = success -a "$PRIVATE_ASSET_CONTRACT_RESULT" = success -a "$GATEWAY_PROTOCOL_RESULT" = success -a "$DEPENDENCY_AUDIT_RESULT" = success -a "$RESEARCH_PRODUCT_CERTIFICATION_RESULT" = success -a "$DATABASE_COMPOSE_RESULT" = success -a "$BUILD_RESULT" = success -a "$WEB_RESULT" = success -a \( "$PR_LANES_RESULT" = success -o "$PR_LANES_RESULT" = skipped \) -a \( "$MAIN_LANES_RESULT" = success -o "$MAIN_LANES_RESULT" = skipped \)
+        run: test "$STATIC_RESULT" = success -a "$ARCHITECTURE_RESULT" = success -a "$OPENAPI_CONTRACT_RESULT" = success -a "$PRIVATE_ASSET_CONTRACT_RESULT" = success -a "$GATEWAY_PROTOCOL_RESULT" = success -a "$DEPENDENCY_AUDIT_RESULT" = success -a "$RESEARCH_PRODUCT_CERTIFICATION_RESULT" = success -a "$DATABASE_COMPOSE_RESULT" = success -a "$WEB_PRODUCT_E2E_RESULT" = success -a "$BUILD_RESULT" = success -a "$WEB_RESULT" = success -a \( "$PR_LANES_RESULT" = success -o "$PR_LANES_RESULT" = skipped \) -a \( "$MAIN_LANES_RESULT" = success -o "$MAIN_LANES_RESULT" = skipped \)

@@ -11,6 +11,7 @@ required_gates = [
     "dependency-audit",
     "research-product-certification",
     "database-compose",
+    "web-product-e2e",
     "build",
     "web",
 ]

@@ -14,12 +14,12 @@ const proxy = {
 
 export default defineConfig({
     plugins: [react()],
-    server: { proxy },
+    server: { allowedHosts: ["web"], proxy },
     preview: { proxy },
     test: {
         environment: "jsdom",
         globals: true,
-        exclude: ["e2e/**", "e2e-real/**", "node_modules/**", "dist/**"],
+        exclude: ["e2e/**", "e2e-real/**", "e2e-compose/**", "node_modules/**", "dist/**"],
         setupFiles: "./src/test/setup.ts",
         coverage: {
             provider: "v8",

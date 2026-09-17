@@ -1,4 +1,4 @@
-name: onlyalpha-dev
+name: ${ONLYALPHA_COMPOSE_NAMESPACE:-onlyalpha-dev}
 
 services:
   postgres:
@@ -6,9 +6,9 @@ services:
     environment:
       POSTGRES_USER: onlyalpha
       POSTGRES_PASSWORD: onlyalpha
-      POSTGRES_DB: onlyalpha
+      POSTGRES_DB: ${ONLYALPHA_POSTGRES_DB:-onlyalpha}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U onlyalpha -d onlyalpha"]
+      test: ["CMD-SHELL", "pg_isready -U onlyalpha -d ${ONLYALPHA_POSTGRES_DB:-onlyalpha}"]
       interval: 5s
       timeout: 5s
       retries: 30
@@ -22,7 +22,7 @@ services:
     environment:
       CLICKHOUSE_USER: onlyalpha
       CLICKHOUSE_PASSWORD: onlyalpha
-      CLICKHOUSE_DB: onlyalpha
+      CLICKHOUSE_DB: ${ONLYALPHA_CLICKHOUSE_DATABASE:-onlyalpha}
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
     healthcheck:
       test: ["CMD-SHELL", "clickhouse-client --user onlyalpha --password onlyalpha --query 'SELECT 1'"]
@@ -41,15 +41,15 @@ services:
   bootstrap:
     build:
       context: ..
-      dockerfile: Dockerfile.dev
+      dockerfile: deploy/Dockerfile.dev
       target: runtime
     command: ["python", "scripts/bootstrap.py"]
     environment:
-      ONLYALPHA_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha@postgres:5432/onlyalpha
+      ONLYALPHA_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha@postgres:5432/${ONLYALPHA_POSTGRES_DB:-onlyalpha}
       ONLYALPHA_CLICKHOUSE_URL: http://clickhouse:8123
       ONLYALPHA_CLICKHOUSE_USER: onlyalpha
       ONLYALPHA_CLICKHOUSE_PASSWORD: onlyalpha
-      ONLYALPHA_CLICKHOUSE_DATABASE: onlyalpha
+      ONLYALPHA_CLICKHOUSE_DATABASE: ${ONLYALPHA_CLICKHOUSE_DATABASE:-onlyalpha}
       ONLYALPHA_CLICKHOUSE_STORAGE_POLICY: default
       ONLYALPHA_USER_DATA_ROOT: /var/lib/onlyalpha
     depends_on:
@@ -64,16 +64,16 @@ services:
   api:
     build:
       context: ..
-      dockerfile: Dockerfile.dev
+      dockerfile: deploy/Dockerfile.dev
       target: runtime
     command:
       ["onlyalpha-http-server", "--user-data-root", "/var/lib/onlyalpha", "--host", "0.0.0.0", "--port", "8000"]
     environment:
-      ONLYALPHA_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha@postgres:5432/onlyalpha
+      ONLYALPHA_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha@postgres:5432/${ONLYALPHA_POSTGRES_DB:-onlyalpha}
       ONLYALPHA_CLICKHOUSE_URL: http://clickhouse:8123
       ONLYALPHA_CLICKHOUSE_USER: onlyalpha
       ONLYALPHA_CLICKHOUSE_PASSWORD: onlyalpha
-      ONLYALPHA_CLICKHOUSE_DATABASE: onlyalpha
+      ONLYALPHA_CLICKHOUSE_DATABASE: ${ONLYALPHA_CLICKHOUSE_DATABASE:-onlyalpha}
       ONLYALPHA_CLICKHOUSE_STORAGE_POLICY: default
     depends_on:
       bootstrap:
@@ -93,7 +93,7 @@ services:
   web:
     build:
       context: ..
-      dockerfile: Dockerfile.dev
+      dockerfile: deploy/Dockerfile.dev
       target: web
     command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
     environment:
@@ -115,11 +115,11 @@ services:
   research-worker:
     build:
       context: ..
-      dockerfile: Dockerfile.dev
+      dockerfile: deploy/Dockerfile.dev
       target: runtime
     command: ["onlyalpha-research-worker", "--user-data-root", "/var/lib/onlyalpha"]
     environment:
-      ONLYALPHA_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha@postgres:5432/onlyalpha
+      ONLYALPHA_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha@postgres:5432/${ONLYALPHA_POSTGRES_DB:-onlyalpha}
     depends_on:
       bootstrap:
         condition: service_completed_successfully
@@ -130,11 +130,11 @@ services:
   backtest-worker:
     build:
       context: ..
-      dockerfile: Dockerfile.dev
+      dockerfile: deploy/Dockerfile.dev
       target: runtime
     command: ["onlyalpha-backtest-worker", "--user-data-root", "/var/lib/onlyalpha"]
     environment:
-      ONLYALPHA_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha@postgres:5432/onlyalpha
+      ONLYALPHA_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha@postgres:5432/${ONLYALPHA_POSTGRES_DB:-onlyalpha}
     depends_on:
       bootstrap:
         condition: service_completed_successfully
@@ -145,7 +145,7 @@ services:
   agent:
     build:
       context: ..
-      dockerfile: Dockerfile.dev
+      dockerfile: deploy/Dockerfile.dev
       target: runtime
     entrypoint: ["onlyalpha-agent"]
     command:
@@ -168,12 +168,12 @@ services:
     profiles: [test]
     build:
       context: ..
-      dockerfile: Dockerfile.dev
+      dockerfile: deploy/Dockerfile.dev
       target: test
     entrypoint: ["python", "scripts/compose_test.py"]
     command: ["python", "scripts/test_suite.py", "architecture"]
     environment:
-      ONLYALPHA_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha@postgres:5432/onlyalpha_test
+      ONLYALPHA_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha@postgres:5432/${ONLYALPHA_POSTGRES_DB:-onlyalpha}_test
       ONLYALPHA_TEST_CLICKHOUSE_URL: http://clickhouse:8123
       ONLYALPHA_TEST_CLICKHOUSE_USER: onlyalpha
       ONLYALPHA_TEST_CLICKHOUSE_PASSWORD: onlyalpha
@@ -186,21 +186,57 @@ services:
         condition: service_healthy
     networks: [database]
 
+  web-e2e-fixture:
+    profiles: [web-e2e]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.dev
+      target: test
+    entrypoint: ["python", "scripts/prepare_web_e2e.py"]
+    environment:
+      ONLYALPHA_USER_DATA_ROOT: /var/lib/onlyalpha
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    volumes:
+      - user-data:/var/lib/onlyalpha
+    networks: [database]
+
+  playwright:
+    profiles: [web-e2e]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.dev
+      target: playwright
+    init: true
+    command: ["npx", "playwright", "test", "--config=playwright.compose.config.ts"]
+    environment:
+      CI: "1"
+      PLAYWRIGHT_BASE_URL: http://web:5173
+    depends_on:
+      web:
+        condition: service_healthy
+      web-e2e-fixture:
+        condition: service_completed_successfully
+    volumes:
+      - "${ONLYALPHA_WEB_E2E_ARTIFACTS_DIR:-../test-results/web-e2e}:/workspace/packages/onlyalpha-web-console/test-results"
+    networks: [application]
+
 networks:
   database:
-    name: onlyalpha-dev-database
+    name: ${ONLYALPHA_COMPOSE_NAMESPACE:-onlyalpha-dev}-database
     internal: true
   application:
-    name: onlyalpha-dev-application
+    name: ${ONLYALPHA_COMPOSE_NAMESPACE:-onlyalpha-dev}-application
 
 volumes:
   postgres-data:
-    name: onlyalpha-dev-postgres-data
+    name: ${ONLYALPHA_COMPOSE_NAMESPACE:-onlyalpha-dev}-postgres-data
   clickhouse-data:
-    name: onlyalpha-dev-clickhouse-data
+    name: ${ONLYALPHA_COMPOSE_NAMESPACE:-onlyalpha-dev}-clickhouse-data
   user-data:
-    name: onlyalpha-dev-user-data
+    name: ${ONLYALPHA_COMPOSE_NAMESPACE:-onlyalpha-dev}-user-data
   agent-state:
-    name: onlyalpha-dev-agent-state
+    name: ${ONLYALPHA_COMPOSE_NAMESPACE:-onlyalpha-dev}-agent-state
   agent-locks:
-    name: onlyalpha-dev-agent-locks
+    name: ${ONLYALPHA_COMPOSE_NAMESPACE:-onlyalpha-dev}-agent-locks

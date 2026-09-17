@@ -13,7 +13,9 @@
         "vite.config.ts",
         "playwright.config.ts",
         "playwright.real.config.ts",
+        "playwright.compose.config.ts",
         "e2e/**/*.ts",
-        "e2e-real/**/*.ts"
+        "e2e-real/**/*.ts",
+        "e2e-compose/**/*.ts"
     ]
 }

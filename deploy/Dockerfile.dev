@@ -53,3 +53,7 @@ COPY packages/onlyalpha-web-console/package.json packages/onlyalpha-web-console/
 RUN npm ci
 COPY packages/onlyalpha-web-console/ ./
 EXPOSE 5173
+
+FROM web AS playwright
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN npx playwright install --with-deps chromium
