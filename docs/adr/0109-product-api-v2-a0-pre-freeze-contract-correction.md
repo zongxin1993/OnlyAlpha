@@ -5,6 +5,9 @@
 - Decision maker: repository owner through the A0 PLAN_CONFLICT resolution authorization
 - Related: ADR 0101, ADR 0103, ADR 0108
 
+> Supersession note (2026-09-17): ADR 0130 supersedes the post-A0 Product API v2 freeze while its governed compatibility state is
+> `DEVELOPMENT_UNFROZEN`. This ADR remains the historical record and exact authorization for the A0 correction.
+
 ## Context
 
 Product API v2 is still under A0 construction. The Strategy and Backtest routes first entered the repository on 2026-09-02 and the
@@ -60,4 +63,3 @@ the old family.
 - Preserving knowingly false OpenAPI behavior indefinitely.
 - Creating Product API v3 without a real supported-consumer compatibility obligation.
 - Allowing broad cleanup or a reusable breaking-change allowlist under this exception.
-

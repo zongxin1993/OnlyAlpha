@@ -55,7 +55,7 @@ def test_active_postgres_surfaces_cannot_reintroduce_legacy_major_support() -> N
 def test_postgres_schema_is_control_catalog_authority_not_high_volume_semantic_store() -> None:
     migrations = tuple(sorted(Path("database/postgres/migrations").glob("*.sql")))
     sql = "\n".join(path.read_text() for path in migrations)
-    tables = re.findall(r"CREATE TABLE ([a-z_]+)", sql)
+    tables = re.findall(r"CREATE TABLE ([a-z0-9_]+)", sql)
     assert tables == [
         "onlyalpha_schema_migration",
         "research_run",
@@ -90,6 +90,12 @@ def test_postgres_schema_is_control_catalog_authority_not_high_volume_semantic_s
         "research_novelty_admission",
         "research_novelty_admission_subject",
         "product_credential",
+        "private_l3_asset",
+        "private_l3_revision",
+        "private_l3_draft",
+        "private_l4_asset",
+        "private_l4_revision",
+        "private_l4_draft",
     ]
     for forbidden in (
         "dataset_row",

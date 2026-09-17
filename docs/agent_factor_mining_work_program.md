@@ -1136,7 +1136,7 @@ OnlyAlpha
 → stable Kernel, Calculation/Research/Evidence/Qualification/API contracts
 
 Private Asset Authority / PostgreSQL
-→ production Private L3/L4 Drafts and immutable Revisions
+→ production Private L3/L4 Assets, mutable Drafts and immutable Revisions; stored source is not execution permission
 
 OnlyAlpha-alpha / OnlyAlpha-strategies
 → optional private interoperability and release/materialization workflows
@@ -1146,6 +1146,10 @@ OnlyAlpha-Agent
 ```
 
 OnlyAlpha-Agent should depend on the formal public API/client and authoring workflows, not on private internal Kernel implementation imports.
+
+The implemented PA-1 foundation covers database-native identity, Draft/Revision publication, exact durable reads and DB-native Research
+Authoring Provenance. Private L3 execution, isolated validation/materialization, Registry/Search Projection, Product HTTP/Web/Agent authoring
+surfaces and admission remain later work; existing package execution remains current runtime implementation truth.
 
 Search algorithms belong with the Agent/research-control side unless they are proven generic deterministic quantitative semantics needed independently of Agent orchestration.
 

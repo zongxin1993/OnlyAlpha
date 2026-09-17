@@ -42,6 +42,7 @@ CONTRACT_RELATIVE = Path("contracts/product-api/v2/openapi.json")
 LEGACY_CONTRACT_RELATIVE = Path("contracts/research-api/v2/openapi.json")
 CONTRACT = ROOT / CONTRACT_RELATIVE
 AUTHORIZED_A0_CORRECTIONS = CONTRACT.parent / "authorized-a0-corrections.json"
+CONTRACT_POLICY = CONTRACT.parent / "compatibility-policy.json"
 WEB = ROOT / "packages/onlyalpha-web-console"
 GENERATED_CLIENT = WEB / "src/api/research/generated.ts"
 OPENAPI_TYPESCRIPT = WEB / "node_modules/.bin/openapi-typescript"
@@ -92,6 +93,11 @@ class ContractChange(StrEnum):
     BREAKING = "BREAKING"
 
 
+class CompatibilityState(StrEnum):
+    DEVELOPMENT_UNFROZEN = "DEVELOPMENT_UNFROZEN"
+    COMPATIBILITY_FROZEN = "COMPATIBILITY_FROZEN"
+
+
 @dataclass(frozen=True, slots=True)
 class CompatibilityResult:
     change: ContractChange
@@ -105,6 +111,12 @@ class AuthorizedPreFreezeCorrection:
     base_contract_sha256: str
     corrected_contract_sha256: str
     breaking_changes: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ContractPolicy:
+    adr: str
+    compatibility_state: CompatibilityState
 
 
 class _AdditionalPropertiesKind(StrEnum):
@@ -172,6 +184,38 @@ def parse_document(raw: bytes, *, source: str) -> JsonObject:
 
 def contract_sha256(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
+
+
+def load_contract_policy() -> ContractPolicy:
+    document = parse_document(CONTRACT_POLICY.read_bytes(), source=str(CONTRACT_POLICY))
+    if set(document) != {"adr", "api_major", "compatibility_state", "schema_version"}:
+        raise ValueError("contract compatibility policy has unexpected fields")
+    if document["schema_version"] != 1 or document["api_major"] != API_MAJOR:
+        raise ValueError("contract compatibility policy version is invalid")
+    adr = document["adr"]
+    if not isinstance(adr, str) or not adr.startswith("docs/adr/") or not (ROOT / adr).is_file():
+        raise ValueError("contract compatibility policy ADR is invalid")
+    if "- Status: Accepted" not in (ROOT / adr).read_text(encoding="utf-8"):
+        raise ValueError("contract compatibility policy ADR is not Accepted")
+    try:
+        compatibility_state = CompatibilityState(document["compatibility_state"])
+    except (TypeError, ValueError) as exc:
+        raise ValueError("contract compatibility state is invalid") from exc
+    return ContractPolicy(adr=adr, compatibility_state=compatibility_state)
+
+
+def blocking_breaking_changes(
+    result: CompatibilityResult,
+    policy: ContractPolicy,
+    authorization: AuthorizedPreFreezeCorrection | None,
+) -> tuple[str, ...]:
+    if (
+        result.change is not ContractChange.BREAKING
+        or authorization is not None
+        or policy.compatibility_state is CompatibilityState.DEVELOPMENT_UNFROZEN
+    ):
+        return ()
+    return result.breaking_changes
 
 
 def load_authorized_pre_freeze_correction() -> AuthorizedPreFreezeCorrection:
@@ -959,16 +1003,24 @@ def _verify(base_sha: str) -> None:
         candidate=candidate,
         result=result,
     )
+    policy = load_contract_policy()
+    blocking = blocking_breaking_changes(result, policy, authorization)
     check_generated_client()
     print("OPENAPI CONTRACT VERIFIED")
     print(f"API_MAJOR: {API_MAJOR}")
     print(f"BASE_GIT_SHA: {exact_base}")
     print(f"BASE_CONTRACT_SHA256: {contract_sha256(baseline)}")
     print(f"HEAD_CONTRACT_SHA256: {contract_sha256(candidate)}")
-    print(f"CONTRACT_CHANGE: {'AUTHORIZED_A0_CORRECTION' if authorization else result.change.value}")
+    print(f"CONTRACT_CHANGE: {result.change.value}")
+    print(f"COMPATIBILITY_STATE: {policy.compatibility_state.value}")
+    print(f"COMPATIBILITY_POLICY_ADR: {policy.adr}")
     print(f"BREAKING_CHANGES: {len(result.breaking_changes)}")
     print(f"AUTHORIZED_BREAKING_CHANGES: {len(result.breaking_changes) if authorization else 0}")
-    print(f"UNAUTHORIZED_BREAKING_CHANGES: {0 if authorization else len(result.breaking_changes)}")
+    print(
+        "DEVELOPMENT_UNFROZEN_BREAKING_CHANGES: "
+        f"{len(result.breaking_changes) if policy.compatibility_state is CompatibilityState.DEVELOPMENT_UNFROZEN else 0}"
+    )
+    print(f"BLOCKING_BREAKING_CHANGES: {len(blocking)}")
     if authorization is not None:
         print(f"AUTHORIZATION_ADR: {authorization.adr}")
     print("STRUCTURAL_LINT: PASS")
@@ -976,8 +1028,8 @@ def _verify(base_sha: str) -> None:
     print("GENERATED_TYPESCRIPT_FRESHNESS: PASS")
     for issue in result.breaking_changes:
         print(f"BREAKING: {issue}")
-    if result.change is ContractChange.BREAKING and authorization is None:
-        raise ValueError("v2 breaking changes are forbidden")
+    if blocking:
+        raise ValueError("compatibility-frozen contract has breaking changes")
 
 
 def main(argv: Sequence[str] | None = None) -> int:

@@ -47,6 +47,7 @@ from onlyalpha.research.command import (
 )
 from onlyalpha.research.provenance import (
     OnlyResearchAuthoringProvenance,
+    OnlyResearchPrivateAssetKind,
     only_research_execution_generation_fingerprint,
 )
 from onlyalpha.research.run import (
@@ -119,14 +120,13 @@ class _ProductAdmissions:
             return self.values.get(command_id)
 
 
-def _provenance(
-    *, source_revision: str = "1" * 40, source_locator: str | None = None
-) -> OnlyResearchAuthoringProvenance:
+def _provenance(*, content_fingerprint: str = "2" * 64) -> OnlyResearchAuthoringProvenance:
     identity = {
         "experiment_id": "exp-" + "a" * 32,
-        "source_repository": "OnlyAlpha-alpha",
-        "source_revision": source_revision,
-        "source_tree": "2" * 40,
+        "private_asset_kind": OnlyResearchPrivateAssetKind.L3_FACTOR,
+        "private_asset_id": "private.factor.momentum",
+        "private_asset_revision_fingerprint": "1" * 64,
+        "private_asset_content_fingerprint": content_fingerprint,
         "candidate_provider_id": "private.onlyalpha.alpha.candidate",
         "candidate_provider_version": "candidate-1",
         "candidate_provider_content_fingerprint": "3" * 64,
@@ -136,7 +136,6 @@ def _provenance(
         schema_version=1,
         **identity,
         execution_generation_fingerprint=only_research_execution_generation_fingerprint(**identity),
-        source_locator=source_locator,
     )
 
 
@@ -892,18 +891,18 @@ def test_same_key_different_command_conflicts_but_different_keys_create_distinct
         service.submit_research_run(KEY, spec)
 
 
-def test_submission_identity_binds_authoritative_provenance_but_not_source_locator() -> None:
+def test_submission_identity_binds_exact_db_native_authoring_provenance() -> None:
     store, dataset = _Store(), _DatasetStore()
     service = _service(store, dataset)
-    created = service.submit_research_run(KEY, specification(), _provenance(source_locator="/first"))
+    created = service.submit_research_run(KEY, specification(), _provenance())
 
-    replayed = service.submit_research_run(KEY, specification(), _provenance(source_locator="/second"))
+    replayed = service.submit_research_run(KEY, specification(), _provenance())
     assert replayed.disposition is OnlyResearchSubmitDisposition.REUSED
     assert replayed.run == created.run
-    assert replayed.run.authoring_provenance == _provenance(source_locator="/first")
+    assert replayed.run.authoring_provenance == _provenance()
 
     with pytest.raises(OnlyResearchSubmissionConflictError):
-        service.submit_research_run(KEY, specification(), _provenance(source_revision="5" * 40))
+        service.submit_research_run(KEY, specification(), _provenance(content_fingerprint="5" * 64))
 
 
 def test_admission_failure_persists_nothing() -> None:

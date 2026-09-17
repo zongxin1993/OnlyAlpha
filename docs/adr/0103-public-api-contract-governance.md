@@ -5,6 +5,9 @@
 - Task baseline: `d9713159eeb2e3dcc294d1dbd456e7332ef2cbac`
 - Related: ADR 0087, ADR 0101
 
+> Supersession note (2026-09-17): ADR 0130 supersedes the compatibility prohibition in Decision 6–8 for contract families explicitly
+> marked `DEVELOPMENT_UNFROZEN`. Deterministic projection, comparison, lint and breaking-change detection remain in force.
+
 ## Context
 
 OnlyAlpha already derives a committed Research API v2 OpenAPI document from the canonical FastAPI Product application and derives the

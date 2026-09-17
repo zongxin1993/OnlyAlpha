@@ -1553,19 +1553,22 @@ export interface components {
             execution_generation_fingerprint: string;
             /** Experiment Id */
             experiment_id: string;
+            /** Private Asset Content Fingerprint */
+            private_asset_content_fingerprint: string;
+            /** Private Asset Id */
+            private_asset_id: string;
+            /**
+             * Private Asset Kind
+             * @enum {string}
+             */
+            private_asset_kind: "L3_FACTOR" | "L4_STRATEGY";
+            /** Private Asset Revision Fingerprint */
+            private_asset_revision_fingerprint: string;
             /**
              * Schema Version
              * @constant
              */
             schema_version: 1;
-            /** Source Locator */
-            source_locator?: string | null;
-            /** Source Repository */
-            source_repository: string;
-            /** Source Revision */
-            source_revision: string;
-            /** Source Tree */
-            source_tree: string;
         };
         /** ResearchBarSpecificationDto */
         ResearchBarSpecificationDto: {

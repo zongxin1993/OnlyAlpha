@@ -1,0 +1,6 @@
+{
+  "adr": "docs/adr/0130-development-stage-compatibility-and-contract-evolution-policy.md",
+  "api_major": 2,
+  "compatibility_state": "DEVELOPMENT_UNFROZEN",
+  "schema_version": 1
+}

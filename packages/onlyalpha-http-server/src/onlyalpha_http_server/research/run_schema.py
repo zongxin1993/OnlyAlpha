@@ -25,15 +25,15 @@ def _time(value: datetime | None) -> str | None:
 class ResearchAuthoringProvenanceDto(_RunDto):
     schema_version: Literal[1]
     experiment_id: str
-    source_repository: str
-    source_revision: str
-    source_tree: str
+    private_asset_kind: Literal["L3_FACTOR", "L4_STRATEGY"]
+    private_asset_id: str
+    private_asset_revision_fingerprint: str
+    private_asset_content_fingerprint: str
     candidate_provider_id: str
     candidate_provider_version: str
     candidate_provider_content_fingerprint: str
     catalog_generation_fingerprint: str
     execution_generation_fingerprint: str
-    source_locator: str | None = None
 
     @model_validator(mode="after")
     def _validate_domain_contract(self) -> ResearchAuthoringProvenanceDto:

@@ -91,6 +91,33 @@ def test_canonicalization_and_sha_are_deterministic() -> None:
     assert governance.contract_sha256(first_bytes) != governance.contract_sha256(first_bytes + b" ")
 
 
+def test_development_policy_preserves_detection_without_blocking() -> None:
+    result = governance.CompatibilityResult(governance.ContractChange.BREAKING, ("breaking",))
+    development = governance.ContractPolicy(
+        "docs/adr/0130-development-stage-compatibility-and-contract-evolution-policy.md",
+        governance.CompatibilityState.DEVELOPMENT_UNFROZEN,
+    )
+    frozen = governance.ContractPolicy(
+        "docs/adr/0130-development-stage-compatibility-and-contract-evolution-policy.md",
+        governance.CompatibilityState.COMPATIBILITY_FROZEN,
+    )
+
+    assert governance.blocking_breaking_changes(result, development, None) == ()
+    assert governance.blocking_breaking_changes(result, frozen, None) == ("breaking",)
+
+
+def test_contract_policy_is_strict_and_accepted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert governance.load_contract_policy().compatibility_state is governance.CompatibilityState.DEVELOPMENT_UNFROZEN
+    policy = json.loads(governance.CONTRACT_POLICY.read_text(encoding="utf-8"))
+    policy["bypass"] = True
+    candidate = tmp_path / "compatibility-policy.json"
+    candidate.write_text(json.dumps(policy), encoding="utf-8")
+    monkeypatch.setattr(governance, "CONTRACT_POLICY", candidate)
+
+    with pytest.raises(ValueError, match="unexpected fields"):
+        governance.load_contract_policy()
+
+
 def test_current_render_is_byte_deterministic_and_has_no_build_metadata() -> None:
     first = governance.rendered_contract()
     second = governance.rendered_contract()

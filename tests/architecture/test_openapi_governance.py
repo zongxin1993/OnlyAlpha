@@ -14,17 +14,25 @@ GOVERNANCE = ROOT / "scripts/openapi_contract.py"
 WRAPPER = ROOT / "scripts/export_research_openapi.py"
 
 
-def test_one_v2_canonical_contract_and_one_bounded_pre_freeze_authorization() -> None:
+def test_one_v2_canonical_contract_policy_and_one_bounded_pre_freeze_authorization() -> None:
     contract_root = ROOT / "contracts/product-api"
     contracts = sorted(
         path for path in contract_root.rglob("*") if path.is_file() and path.suffix in {".json", ".yaml", ".yml"}
     )
     authorization = ROOT / "contracts/product-api/v2/authorized-a0-corrections.json"
-    assert contracts == [authorization, ROOT / "contracts/product-api/v2/openapi.json"]
+    policy = ROOT / "contracts/product-api/v2/compatibility-policy.json"
+    assert contracts == [authorization, policy, ROOT / "contracts/product-api/v2/openapi.json"]
     manifest = json.loads(authorization.read_text(encoding="utf-8"))
     assert manifest["classification"] == "REQUIRED_A0_CONTRACT_CORRECTION"
     assert manifest["adr"] == "docs/adr/0109-product-api-v2-a0-pre-freeze-contract-correction.md"
     assert manifest["base_git_sha"] == "8901fec27faf8599c965df792d07a84b902583f3"
+    policy_document = json.loads(policy.read_text(encoding="utf-8"))
+    assert policy_document == {
+        "adr": "docs/adr/0130-development-stage-compatibility-and-contract-evolution-policy.md",
+        "api_major": 2,
+        "compatibility_state": "DEVELOPMENT_UNFROZEN",
+        "schema_version": 1,
+    }
     forbidden = {"baseline.json", "accepted.json", "accepted-openapi.json", "previous.json"}
     assert not any(path.name in forbidden for path in ROOT.rglob("*.json"))
 
@@ -46,6 +54,8 @@ def test_governance_has_immutable_git_baseline_and_no_breaking_bypass() -> None:
     assert "BASE_SHA must be a full lowercase Git object ID" in source
     for forbidden in ("accept-breaking", "ignore-breaking", "force-compatible"):
         assert forbidden not in source
+    assert "DEVELOPMENT_UNFROZEN" in source
+    assert "COMPATIBILITY_FROZEN" in source
 
 
 def test_generated_web_client_has_only_canonical_openapi_source() -> None:

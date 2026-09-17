@@ -235,6 +235,10 @@ interoperability, but none is the authoring Authority or runtime identity. Candi
 Only an admitted Registry/Provider change with valid semantic and provider version transitions may enter a Catalog Generation for new
 work.
 
+PA-1 provides these Asset/Draft/Revision contracts, durable PostgreSQL publication with exact parent/base concurrency, and DB-native
+Research Authoring Provenance. It does not execute stored Python or admit a Revision into a Provider/Catalog. Until later isolated
+materialization work, legacy distribution-based L3 execution remains the only implemented runtime path.
+
 The resulting long-term transition is:
 
 ```text

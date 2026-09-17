@@ -1,45 +1,57 @@
-"""Immutable authoring provenance carried by Research Runs."""
+"""Immutable DB-native authoring provenance carried by Research Runs."""
 
 from __future__ import annotations
 
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import cast
+from enum import StrEnum
 
 from onlyalpha.canonical import only_canonical_fingerprint
+from onlyalpha.quant_assets.private import OnlyPrivateL3Asset, OnlyPrivateL4Asset
 
-_GIT_OBJECT_ID = re.compile(r"^[0-9a-f]{40,64}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _EXPERIMENT_ID = re.compile(r"^exp-[0-9a-f]{24,64}$")
+
+
+class OnlyResearchPrivateAssetKind(StrEnum):
+    L3_FACTOR = "L3_FACTOR"
+    L4_STRATEGY = "L4_STRATEGY"
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyResearchAuthoringProvenance:
     schema_version: int
     experiment_id: str
-    source_repository: str
-    source_revision: str
-    source_tree: str
+    private_asset_kind: OnlyResearchPrivateAssetKind
+    private_asset_id: str
+    private_asset_revision_fingerprint: str
+    private_asset_content_fingerprint: str
     candidate_provider_id: str
     candidate_provider_version: str
     candidate_provider_content_fingerprint: str
     catalog_generation_fingerprint: str
     execution_generation_fingerprint: str
-    source_locator: str | None = None
 
     def __post_init__(self) -> None:
-        if self.schema_version != 1 or not _EXPERIMENT_ID.fullmatch(self.experiment_id):
+        if (
+            type(self.schema_version) is not int
+            or self.schema_version != 1
+            or _EXPERIMENT_ID.fullmatch(self.experiment_id) is None
+            or not self.candidate_provider_id
+            or not self.candidate_provider_version
+            or not isinstance(self.private_asset_kind, OnlyResearchPrivateAssetKind)
+        ):
             raise ValueError("RESEARCH_PROVENANCE_INVALID")
-        if not self.source_repository or not self.source_revision or not self.source_tree:
-            raise ValueError("RESEARCH_PROVENANCE_INVALID")
-        if not self.candidate_provider_id or not self.candidate_provider_version:
-            raise ValueError("RESEARCH_PROVENANCE_INVALID")
-        if not _GIT_OBJECT_ID.fullmatch(self.source_revision) or not _GIT_OBJECT_ID.fullmatch(self.source_tree):
-            raise ValueError("RESEARCH_PROVENANCE_INVALID")
+        if self.private_asset_kind is OnlyResearchPrivateAssetKind.L3_FACTOR:
+            OnlyPrivateL3Asset(self.private_asset_id)
+        else:
+            OnlyPrivateL4Asset(self.private_asset_id)
         if not all(
-            _SHA256.fullmatch(value)
+            _SHA256.fullmatch(value) is not None
             for value in (
+                self.private_asset_revision_fingerprint,
+                self.private_asset_content_fingerprint,
                 self.candidate_provider_content_fingerprint,
                 self.catalog_generation_fingerprint,
                 self.execution_generation_fingerprint,
@@ -48,9 +60,10 @@ class OnlyResearchAuthoringProvenance:
             raise ValueError("RESEARCH_PROVENANCE_INVALID")
         if self.execution_generation_fingerprint != only_research_execution_generation_fingerprint(
             experiment_id=self.experiment_id,
-            source_repository=self.source_repository,
-            source_revision=self.source_revision,
-            source_tree=self.source_tree,
+            private_asset_kind=self.private_asset_kind,
+            private_asset_id=self.private_asset_id,
+            private_asset_revision_fingerprint=self.private_asset_revision_fingerprint,
+            private_asset_content_fingerprint=self.private_asset_content_fingerprint,
             candidate_provider_id=self.candidate_provider_id,
             candidate_provider_version=self.candidate_provider_version,
             candidate_provider_content_fingerprint=self.candidate_provider_content_fingerprint,
@@ -59,14 +72,13 @@ class OnlyResearchAuthoringProvenance:
             raise ValueError("RESEARCH_EXECUTION_GENERATION_MISMATCH")
 
     def identity_dict(self) -> dict[str, object]:
-        """Return authoritative provenance fields, excluding the operational locator."""
-
         return {
             "schema_version": self.schema_version,
             "experiment_id": self.experiment_id,
-            "source_repository": self.source_repository,
-            "source_revision": self.source_revision,
-            "source_tree": self.source_tree,
+            "private_asset_kind": self.private_asset_kind.value,
+            "private_asset_id": self.private_asset_id,
+            "private_asset_revision_fingerprint": self.private_asset_revision_fingerprint,
+            "private_asset_content_fingerprint": self.private_asset_content_fingerprint,
             "candidate_provider_id": self.candidate_provider_id,
             "candidate_provider_version": self.candidate_provider_version,
             "candidate_provider_content_fingerprint": self.candidate_provider_content_fingerprint,
@@ -75,34 +87,63 @@ class OnlyResearchAuthoringProvenance:
         }
 
     def to_dict(self) -> dict[str, object]:
-        result = self.identity_dict()
-        if self.source_locator is not None:
-            result["source_locator"] = self.source_locator
-        return result
+        return self.identity_dict()
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchAuthoringProvenance:
+        expected = {
+            "schema_version",
+            "experiment_id",
+            "private_asset_kind",
+            "private_asset_id",
+            "private_asset_revision_fingerprint",
+            "private_asset_content_fingerprint",
+            "candidate_provider_id",
+            "candidate_provider_version",
+            "candidate_provider_content_fingerprint",
+            "catalog_generation_fingerprint",
+            "execution_generation_fingerprint",
+        }
+        if set(payload) != expected:
+            raise ValueError("RESEARCH_PROVENANCE_INVALID")
+        try:
+            kind = OnlyResearchPrivateAssetKind(_strict_string(payload["private_asset_kind"]))
+        except ValueError as exc:
+            raise ValueError("RESEARCH_PROVENANCE_INVALID") from exc
         return cls(
-            int(cast(str | int, payload["schema_version"])),
-            str(payload["experiment_id"]),
-            str(payload["source_repository"]),
-            str(payload["source_revision"]),
-            str(payload["source_tree"]),
-            str(payload["candidate_provider_id"]),
-            str(payload["candidate_provider_version"]),
-            str(payload["candidate_provider_content_fingerprint"]),
-            str(payload["catalog_generation_fingerprint"]),
-            str(payload["execution_generation_fingerprint"]),
-            None if payload.get("source_locator") is None else str(payload["source_locator"]),
+            _strict_schema_version(payload["schema_version"]),
+            _strict_string(payload["experiment_id"]),
+            kind,
+            _strict_string(payload["private_asset_id"]),
+            _strict_string(payload["private_asset_revision_fingerprint"]),
+            _strict_string(payload["private_asset_content_fingerprint"]),
+            _strict_string(payload["candidate_provider_id"]),
+            _strict_string(payload["candidate_provider_version"]),
+            _strict_string(payload["candidate_provider_content_fingerprint"]),
+            _strict_string(payload["catalog_generation_fingerprint"]),
+            _strict_string(payload["execution_generation_fingerprint"]),
         )
+
+
+def _strict_schema_version(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value != 1:
+        raise ValueError("RESEARCH_PROVENANCE_INVALID")
+    return value
+
+
+def _strict_string(value: object) -> str:
+    if not isinstance(value, str):
+        raise ValueError("RESEARCH_PROVENANCE_INVALID")
+    return value
 
 
 def only_research_execution_generation_fingerprint(
     *,
     experiment_id: str,
-    source_repository: str,
-    source_revision: str,
-    source_tree: str,
+    private_asset_kind: OnlyResearchPrivateAssetKind,
+    private_asset_id: str,
+    private_asset_revision_fingerprint: str,
+    private_asset_content_fingerprint: str,
     candidate_provider_id: str,
     candidate_provider_version: str,
     candidate_provider_content_fingerprint: str,
@@ -110,11 +151,12 @@ def only_research_execution_generation_fingerprint(
 ) -> str:
     return only_canonical_fingerprint(
         {
-            "contract": "ONLYALPHA_AUTHORING_EXECUTION_GENERATION_V1",
+            "contract": "ONLYALPHA_DB_NATIVE_AUTHORING_EXECUTION_GENERATION_V1",
             "experiment_id": experiment_id,
-            "source_repository": source_repository,
-            "source_revision": source_revision,
-            "source_tree": source_tree,
+            "private_asset_kind": private_asset_kind.value,
+            "private_asset_id": private_asset_id,
+            "private_asset_revision_fingerprint": private_asset_revision_fingerprint,
+            "private_asset_content_fingerprint": private_asset_content_fingerprint,
             "candidate_provider_id": candidate_provider_id,
             "candidate_provider_version": candidate_provider_version,
             "candidate_provider_content_fingerprint": candidate_provider_content_fingerprint,
@@ -123,4 +165,4 @@ def only_research_execution_generation_fingerprint(
     )
 
 
-__all__ = ["OnlyResearchAuthoringProvenance", "only_research_execution_generation_fingerprint"]
+__all__ = [name for name in globals() if name.startswith(("Only", "only_"))]

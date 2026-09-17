@@ -77,6 +77,7 @@ from onlyalpha.research.evaluation.result_store import OnlyParquetResearchStatis
 from onlyalpha.research.job.executor import OnlyResearchJobExecutor
 from onlyalpha.research.provenance import (
     OnlyResearchAuthoringProvenance,
+    OnlyResearchPrivateAssetKind,
     only_research_execution_generation_fingerprint,
 )
 from onlyalpha.research.result.assembler import OnlyResearchResultAssembler
@@ -324,9 +325,10 @@ def test_l3_subject_binds_an_exact_authoring_execution_generation(tmp_path: Path
     )
     identity = {
         "experiment_id": "exp-" + "a" * 32,
-        "source_repository": SOURCE_REPOSITORY,
-        "source_revision": "1" * 40,
-        "source_tree": "2" * 40,
+        "private_asset_kind": OnlyResearchPrivateAssetKind.L3_FACTOR,
+        "private_asset_id": "private.factor.momentum",
+        "private_asset_revision_fingerprint": "1" * 64,
+        "private_asset_content_fingerprint": "2" * 64,
         "candidate_provider_id": candidate.manifest.provider_id,
         "candidate_provider_version": candidate.manifest.provider_version,
         "candidate_provider_content_fingerprint": candidate.content_fingerprint,

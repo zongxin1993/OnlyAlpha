@@ -734,9 +734,10 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
         catalog_generation_fingerprint=catalog_fingerprint,
         execution_generation_fingerprint=only_research_execution_generation_fingerprint(
             experiment_id=authoring.experiment_id,
-            source_repository=authoring.source_repository,
-            source_revision=authoring.source_revision,
-            source_tree=authoring.source_tree,
+            private_asset_kind=authoring.private_asset_kind,
+            private_asset_id=authoring.private_asset_id,
+            private_asset_revision_fingerprint=authoring.private_asset_revision_fingerprint,
+            private_asset_content_fingerprint=authoring.private_asset_content_fingerprint,
             candidate_provider_id=provider_id,
             candidate_provider_version=provider_version,
             candidate_provider_content_fingerprint=provider_content_fingerprint,

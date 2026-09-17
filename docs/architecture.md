@@ -571,6 +571,12 @@ and any not-yet-migrated admitted assets. When a private Revision is materialize
 Calculation/Provider/Catalog/Runtime contracts still apply, and no database/path/package location participates in StrategyRevision or
 Runtime identity.
 
+PA-1 implements the Private L3/L4 Asset, mutable Draft and immutable Revision contracts plus their PostgreSQL authoring authority.
+Research Authoring Provenance binds an exact database Revision and content fingerprint; Git repository, commit, tree and checkout fields
+are no longer part of that canonical contract. This authority stores and verifies source/definition content only: Private L3 execution,
+validation/admission, Provider materialization and Runtime Generation integration remain deferred, and the existing distribution-based
+execution path remains current implementation truth.
+
 ADR 0111 remains the optional source/distribution loading contract for interoperability and executable materialization. It does not
 require a private checkout, editable install, wheel or package for DB-native authoring.
 

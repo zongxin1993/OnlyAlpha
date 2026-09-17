@@ -9,7 +9,10 @@ from pathlib import Path
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration
-from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
+from onlyalpha.research.provenance import (
+    OnlyResearchAuthoringProvenance,
+    OnlyResearchPrivateAssetKind,
+)
 from onlyalpha.research.run.errors import OnlyResearchRunAdmissionError
 from onlyalpha.research.specification.model import OnlyResearchSpecification
 from onlyalpha.research.specification.resolver import (
@@ -29,6 +32,8 @@ class OnlyAuthoringExecutionGeneration:
     def __post_init__(self) -> None:
         if self.catalog.generation_fingerprint != self.provenance.catalog_generation_fingerprint:
             raise ValueError("AUTHORING_CATALOG_GENERATION_MISMATCH")
+        if self.provenance.private_asset_kind is not OnlyResearchPrivateAssetKind.L3_FACTOR:
+            raise ValueError("AUTHORING_EXECUTION_PRIVATE_ASSET_KIND_UNSUPPORTED")
         matches = tuple(
             provider
             for provider in self.catalog.providers
@@ -47,7 +52,7 @@ class OnlyAuthoringExecutionGeneration:
 
     def descriptor(self) -> dict[str, object]:
         return {
-            "schema_version": 1,
+            "schema_version": self.provenance.schema_version,
             "execution_generation_fingerprint": self.fingerprint,
             "provenance": self.provenance.identity_dict(),
             "catalog": self.catalog.descriptor(),
@@ -113,8 +118,20 @@ class OnlyAuthoringExecutionGenerationStore:
             if not isinstance(provenance_raw, dict) or not isinstance(catalog, dict):
                 raise ValueError("descriptor fields")
             provenance = OnlyResearchAuthoringProvenance.from_dict(provenance_raw)
+            providers = catalog.get("providers")
+            if not isinstance(providers, list):
+                raise ValueError("catalog providers")
+            matches = [
+                provider
+                for provider in providers
+                if isinstance(provider, dict)
+                and isinstance(provider.get("manifest"), dict)
+                and provider["manifest"].get("provider_id") == provenance.candidate_provider_id
+                and provider["manifest"].get("provider_version") == provenance.candidate_provider_version
+                and provider.get("content_fingerprint") == provenance.candidate_provider_content_fingerprint
+            ]
             if (
-                descriptor["schema_version"] != 1
+                descriptor["schema_version"] != provenance.schema_version
                 or descriptor["execution_generation_fingerprint"] != fingerprint
                 or provenance.identity_dict() != provenance_raw
                 or provenance.execution_generation_fingerprint != fingerprint
@@ -123,6 +140,7 @@ class OnlyAuthoringExecutionGenerationStore:
                     {key: value for key, value in catalog.items() if key != "generation_fingerprint"}
                 )
                 != provenance.catalog_generation_fingerprint
+                or len(matches) != 1
             ):
                 raise ValueError("descriptor identity")
             return descriptor

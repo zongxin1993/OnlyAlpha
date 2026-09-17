@@ -27,6 +27,7 @@ from onlyalpha.research.execution import (
 )
 from onlyalpha.research.provenance import (
     OnlyResearchAuthoringProvenance,
+    OnlyResearchPrivateAssetKind,
     only_research_execution_generation_fingerprint,
 )
 from onlyalpha.research.run import (
@@ -246,14 +247,15 @@ def _case(
     return worker, run_store, execution_store, claim
 
 
-def _authoring_provenance(source_revision: str = "1" * 40) -> OnlyResearchAuthoringProvenance:
+def _authoring_provenance() -> OnlyResearchAuthoringProvenance:
     identity = {
         "experiment_id": "exp-" + "a" * 32,
-        "source_repository": "OnlyAlpha-alpha",
-        "source_revision": source_revision,
-        "source_tree": "2" * 40,
+        "private_asset_kind": OnlyResearchPrivateAssetKind.L3_FACTOR,
+        "private_asset_id": "private.factor.momentum",
+        "private_asset_revision_fingerprint": "1" * 64,
+        "private_asset_content_fingerprint": "2" * 64,
         "candidate_provider_id": "candidate.onlyalpha.alpha." + "a" * 32,
-        "candidate_provider_version": source_revision,
+        "candidate_provider_version": "1",
         "candidate_provider_content_fingerprint": "3" * 64,
         "catalog_generation_fingerprint": "4" * 64,
     }

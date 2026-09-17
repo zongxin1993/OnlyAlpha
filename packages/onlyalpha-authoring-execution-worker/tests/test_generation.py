@@ -21,6 +21,7 @@ from onlyalpha.quant_assets import (
 from onlyalpha.research.execution import OnlyResearchExecutionPolicy
 from onlyalpha.research.provenance import (
     OnlyResearchAuthoringProvenance,
+    OnlyResearchPrivateAssetKind,
     only_research_execution_generation_fingerprint,
 )
 from tests.research.specification.support import specification
@@ -49,9 +50,10 @@ def _generation() -> OnlyAuthoringExecutionGeneration:
     )
     identity = {
         "experiment_id": experiment_id,
-        "source_repository": "OnlyAlpha-example-alpha",
-        "source_revision": revision,
-        "source_tree": "2" * 40,
+        "private_asset_kind": OnlyResearchPrivateAssetKind.L3_FACTOR,
+        "private_asset_id": "private.factor.momentum",
+        "private_asset_revision_fingerprint": "5" * 64,
+        "private_asset_content_fingerprint": "6" * 64,
         "candidate_provider_id": candidate.manifest.provider_id,
         "candidate_provider_version": candidate.manifest.provider_version,
         "candidate_provider_content_fingerprint": candidate.content_fingerprint,
@@ -104,6 +106,16 @@ def test_generation_fails_closed_on_catalog_or_durable_descriptor_drift(tmp_path
         OnlyAuthoringExecutionGenerationRegistry(())
     with pytest.raises(ValueError, match="AUTHORING_PROCESS_REQUIRES_EXACTLY_ONE_GENERATION"):
         OnlyAuthoringExecutionGenerationRegistry((generation, generation))
+
+
+def test_generation_descriptor_carries_only_db_native_provenance(tmp_path: Path) -> None:
+    generation = _generation()
+    assert generation.descriptor()["schema_version"] == 1
+    store = OnlyAuthoringExecutionGenerationStore(tmp_path)
+    store.commit(generation)
+    loaded = store.load_descriptor_verified(generation.fingerprint)
+    assert only_canonical_json(loaded) == only_canonical_json(generation.descriptor())
+    assert "source_repository" not in loaded["provenance"]
 
 
 def test_worker_composition_verifies_descriptor_before_postgres_claim_capability(tmp_path: Path) -> None:

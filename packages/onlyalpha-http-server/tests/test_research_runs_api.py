@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
@@ -9,6 +10,7 @@ from onlyalpha_http_server import RESEARCH_API_SCHEMA_VERSION, create_research_a
 from onlyalpha_http_server.health import OnlyKernelResearchReadinessProjection
 from onlyalpha_http_server.research.run_errors import run_error_response
 from onlyalpha_http_server.research.run_routes import create_run_router
+from onlyalpha_http_server.research.run_schema import ResearchRunExecutionEvidenceDto
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from onlyalpha.application.product_boundary import (
@@ -36,7 +38,11 @@ from onlyalpha.research.operations.readiness import (
     OnlyResearchReadinessCheck,
     OnlyResearchReadinessStatus,
 )
-from onlyalpha.research.provenance import only_research_execution_generation_fingerprint
+from onlyalpha.research.provenance import (
+    OnlyResearchAuthoringProvenance,
+    OnlyResearchPrivateAssetKind,
+    only_research_execution_generation_fingerprint,
+)
 from onlyalpha.research.run import (
     OnlyPostgresSchemaIncompatibleError,
     OnlyResearchRun,
@@ -61,9 +67,10 @@ KEY = "00000000-0000-4000-8000-000000000501"
 def _authoring_provenance() -> dict[str, object]:
     identity = {
         "experiment_id": "exp-" + "a" * 32,
-        "source_repository": "OnlyAlpha-alpha",
-        "source_revision": "1" * 40,
-        "source_tree": "2" * 40,
+        "private_asset_kind": OnlyResearchPrivateAssetKind.L3_FACTOR,
+        "private_asset_id": "private.factor.momentum",
+        "private_asset_revision_fingerprint": "1" * 64,
+        "private_asset_content_fingerprint": "2" * 64,
         "candidate_provider_id": "private.onlyalpha.alpha.candidate",
         "candidate_provider_version": "candidate-1",
         "candidate_provider_content_fingerprint": "3" * 64,
@@ -73,7 +80,6 @@ def _authoring_provenance() -> dict[str, object]:
         "schema_version": 1,
         **identity,
         "execution_generation_fingerprint": only_research_execution_generation_fingerprint(**identity),
-        "source_locator": "/operational/checkout",
     }
 
 
@@ -93,9 +99,7 @@ class _Dataset:
 
 class _AuthoringGenerations:
     def resolve(self, provenance, research_specification):  # type: ignore[no-untyped-def]
-        if provenance.identity_dict() != {
-            key: value for key, value in _authoring_provenance().items() if key != "source_locator"
-        }:
+        if provenance.identity_dict() != _authoring_provenance():
             raise ValueError("generation mismatch")
         return OnlyResearchSpecificationResolver(registry()).resolve(research_specification)
 
@@ -320,18 +324,33 @@ def test_authoring_provenance_round_trips_and_conflicting_retry_fails_closed() -
     }
     assert next(iter(store.runs.values())).authoring_provenance is not None
 
-    changed_identity = {**provenance, "source_revision": "5" * 40}
+    changed_identity = {**provenance, "private_asset_content_fingerprint": "5" * 64}
     changed_identity["execution_generation_fingerprint"] = only_research_execution_generation_fingerprint(
         **{
             key: value
             for key, value in changed_identity.items()
-            if key not in {"schema_version", "execution_generation_fingerprint", "source_locator"}
+            if key not in {"schema_version", "execution_generation_fingerprint"}
         }
     )
     conflict_payload = {**payload, "authoring_provenance": changed_identity}
     conflict = client.post("/api/v2/research/runs", headers={"Idempotency-Key": KEY}, json=conflict_payload)
     assert conflict.status_code == 409
     assert conflict.json()["error"]["code"] == "RESEARCH_SUBMISSION_KEY_CONFLICT"
+
+
+def test_execution_evidence_serializes_db_native_authoring_provenance_without_loss() -> None:
+    _, store, client = _client()
+    response = client.post(
+        "/api/v2/research/runs",
+        headers={"Idempotency-Key": KEY},
+        json={"specification": dict(specification().to_dict())},
+    )
+    assert response.status_code == 202
+    provenance = OnlyResearchAuthoringProvenance.from_dict(_authoring_provenance())
+    run = replace(next(iter(store.runs.values())), authoring_provenance=provenance)
+
+    payload = ResearchRunExecutionEvidenceDto.from_model(run).model_dump(mode="json")
+    assert payload["authoring_provenance"] == provenance.to_dict()
 
 
 def test_authoring_run_requires_server_verified_execution_generation_before_persistence() -> None:
@@ -354,7 +373,10 @@ def test_authoring_run_requires_server_verified_execution_generation_before_pers
 def test_invalid_authoring_provenance_is_rejected_at_http_boundary() -> None:
     payload = {
         "specification": dict(specification().to_dict()),
-        "authoring_provenance": {**_authoring_provenance(), "source_tree": "not-a-tree"},
+        "authoring_provenance": {
+            **_authoring_provenance(),
+            "private_asset_revision_fingerprint": "not-a-fingerprint",
+        },
     }
     response = _client()[2].post("/api/v2/research/runs", headers={"Idempotency-Key": KEY}, json=payload)
     assert response.status_code == 400

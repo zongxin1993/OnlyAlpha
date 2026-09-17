@@ -1518,41 +1518,39 @@
             "title": "Experiment Id",
             "type": "string"
           },
+          "private_asset_content_fingerprint": {
+            "title": "Private Asset Content Fingerprint",
+            "type": "string"
+          },
+          "private_asset_id": {
+            "title": "Private Asset Id",
+            "type": "string"
+          },
+          "private_asset_kind": {
+            "enum": [
+              "L3_FACTOR",
+              "L4_STRATEGY"
+            ],
+            "title": "Private Asset Kind",
+            "type": "string"
+          },
+          "private_asset_revision_fingerprint": {
+            "title": "Private Asset Revision Fingerprint",
+            "type": "string"
+          },
           "schema_version": {
             "const": 1,
             "title": "Schema Version",
             "type": "integer"
-          },
-          "source_locator": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source Locator"
-          },
-          "source_repository": {
-            "title": "Source Repository",
-            "type": "string"
-          },
-          "source_revision": {
-            "title": "Source Revision",
-            "type": "string"
-          },
-          "source_tree": {
-            "title": "Source Tree",
-            "type": "string"
           }
         },
         "required": [
           "schema_version",
           "experiment_id",
-          "source_repository",
-          "source_revision",
-          "source_tree",
+          "private_asset_kind",
+          "private_asset_id",
+          "private_asset_revision_fingerprint",
+          "private_asset_content_fingerprint",
           "candidate_provider_id",
           "candidate_provider_version",
           "candidate_provider_content_fingerprint",

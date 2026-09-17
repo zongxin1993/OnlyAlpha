@@ -20,6 +20,7 @@ from onlyalpha.research.memory.query import (
 )
 from onlyalpha.research.provenance import (
     OnlyResearchAuthoringProvenance,
+    OnlyResearchPrivateAssetKind,
     only_research_execution_generation_fingerprint,
 )
 from onlyalpha.research.run.evidence import OnlyResearchAdmissionResolutionEvidence
@@ -64,29 +65,22 @@ class _RuntimeResolution:
         return OnlyResearchAdmissionResolutionEvidence.from_resolution(self._resolver.resolve(candidate))
 
 
-def _provenance(locator: str) -> OnlyResearchAuthoringProvenance:
+def _provenance() -> OnlyResearchAuthoringProvenance:
     values = {
         "experiment_id": "exp-" + "1" * 24,
-        "source_repository": "private-alpha",
-        "source_revision": "2" * 40,
-        "source_tree": "3" * 40,
+        "private_asset_kind": OnlyResearchPrivateAssetKind.L3_FACTOR,
+        "private_asset_id": "private.factor.momentum",
+        "private_asset_revision_fingerprint": "2" * 64,
+        "private_asset_content_fingerprint": "3" * 64,
         "candidate_provider_id": "private.factor",
         "candidate_provider_version": "1",
         "candidate_provider_content_fingerprint": "4" * 64,
         "catalog_generation_fingerprint": "e" * 64,
     }
     return OnlyResearchAuthoringProvenance(
-        1,
-        values["experiment_id"],
-        values["source_repository"],
-        values["source_revision"],
-        values["source_tree"],
-        values["candidate_provider_id"],
-        values["candidate_provider_version"],
-        values["candidate_provider_content_fingerprint"],
-        values["catalog_generation_fingerprint"],
-        only_research_execution_generation_fingerprint(**values),
-        locator,
+        schema_version=1,
+        **values,
+        execution_generation_fingerprint=only_research_execution_generation_fingerprint(**values),
     )
 
 
@@ -204,9 +198,9 @@ def test_post_run_result_and_search_context_do_not_redefine_intent_subject() -> 
     assert selector("a" * 64, "b" * 64).intent_subject == selector("c" * 64, None).intent_subject == subject
 
 
-def test_physical_authoring_locator_is_not_subject_identity() -> None:
-    first_provenance = _provenance("/first/path")
-    second_provenance = _provenance("/other/path")
+def test_db_native_authoring_identity_is_stable_without_storage_locator() -> None:
+    first_provenance = _provenance()
+    second_provenance = _provenance()
     runtime = OnlyTestRuntimeGenerationAuthority()
     runtime.bind_new_work("work", actor="test", occurred_at=object())
     resolver = OnlyExactEvaluationIntentResolverV1(

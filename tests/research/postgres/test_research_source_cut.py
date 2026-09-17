@@ -189,7 +189,7 @@ def test_product_composition_captures_real_mixed_owner_topology(postgres_dsn: st
     search = OnlyJsonSearchProvenanceStore(
         layout.research_root, catalogs=_GenerationOwnedCatalogReader(), datasets=datasets
     )
-    builder = _compose_experiment_memory_projection_builder(
+    builder, _ = _compose_experiment_memory_projection_builder(
         layout=layout,
         postgres_dsn=postgres_dsn,
         search=search,

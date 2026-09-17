@@ -474,6 +474,10 @@ Coverage 是诊断与专项验证工具，不是普通任务默认 Gate，不得
 
 Breaking change 可以存在，但必须是 Constitution 允许范围内的明确设计决定，不能因为实现方便静默发生。
 
+活跃开发阶段不默认承诺 backward compatibility。只有 repository owner 明确要求，或 Contract 明确标记为
+compatibility-frozen / externally supported 时才必须保留；默认不得增加 compatibility shim、version-family duplication 或
+legacy loader。Breaking-change detection、分类及仓内 consumer 原子迁移仍然必须执行。
+
 数据库 migration 必须明确 precondition、deterministic transformation、failure semantics、transaction/atomicity、compatibility window、restart/retry semantics 和 data integrity。能安全回滚时提供 rollback；不能安全回滚时使用 fail-closed + backup/snapshot/forward-fix。
 
 修改 package metadata、dependencies、entry points、public exports、plugin discovery、frontend build inputs、Docker image contents 或 release/build scripts 时，执行对应 build/package 验证。

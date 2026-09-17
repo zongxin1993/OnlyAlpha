@@ -70,6 +70,7 @@ from onlyalpha.research.operations.diagnostics import (
 from onlyalpha.research.operations.model import OnlyResearchOperationalDiagnosisCode
 from onlyalpha.research.provenance import (
     OnlyResearchAuthoringProvenance,
+    OnlyResearchPrivateAssetKind,
     only_research_execution_generation_fingerprint,
 )
 from onlyalpha.research.run import (
@@ -192,12 +193,13 @@ def _queued(run_id: str) -> OnlyResearchRun:
     )
 
 
-def _authoring_provenance(source_revision: str = "1" * 40) -> OnlyResearchAuthoringProvenance:
+def _authoring_provenance(content_fingerprint: str = "2" * 64) -> OnlyResearchAuthoringProvenance:
     identity = {
         "experiment_id": "exp-" + "a" * 32,
-        "source_repository": "OnlyAlpha-alpha",
-        "source_revision": source_revision,
-        "source_tree": "2" * 40,
+        "private_asset_kind": OnlyResearchPrivateAssetKind.L3_FACTOR,
+        "private_asset_id": "private.factor.momentum",
+        "private_asset_revision_fingerprint": "1" * 64,
+        "private_asset_content_fingerprint": content_fingerprint,
         "candidate_provider_id": "private.onlyalpha.alpha.candidate",
         "candidate_provider_version": "candidate-1",
         "candidate_provider_content_fingerprint": "3" * 64,
@@ -207,7 +209,6 @@ def _authoring_provenance(source_revision: str = "1" * 40) -> OnlyResearchAuthor
         schema_version=1,
         **identity,
         execution_generation_fingerprint=only_research_execution_generation_fingerprint(**identity),
-        source_locator="/operational/checkout",
     )
 
 
@@ -359,7 +360,7 @@ def test_transactional_claim_is_partitioned_by_exact_authoring_generation(postgr
     runs = OnlyPostgresResearchRunStore(postgres_dsn)
     normal = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued("00000000-0000-4000-8000-000000000091"))
     generation_one = _authoring_provenance()
-    generation_two = _authoring_provenance("5" * 40)
+    generation_two = _authoring_provenance("5" * 64)
     first = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(
         replace(
             _queued("00000000-0000-4000-8000-000000000092"),
