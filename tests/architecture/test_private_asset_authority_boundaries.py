@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,8 @@ _GENERATION = Path(
     "packages/onlyalpha-authoring-execution-worker/src/onlyalpha_authoring_execution_worker/generation.py"
 )
 _MIGRATION = Path("database/postgres/migrations/0027_private_asset_authoring_authority.sql")
+_PRODUCT = Path("src/onlyalpha/application/product_boundary.py")
+_HTTP = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server/research/run_schema.py")
 
 
 def _imports(path: Path) -> set[str]:
@@ -80,3 +83,36 @@ def test_private_authoring_has_no_git_checkout_or_package_resource_authority() -
         assert "importlib.resources" not in source
         assert "git checkout" not in source
         assert "source_repository" not in source
+
+
+def test_reference_product_and_http_intent_exclude_authority_derived_provenance() -> None:
+    from onlyalpha_http_server.research.run_schema import SubmitResearchRunRequest
+
+    from onlyalpha.application.product_boundary import OnlyCreateResearchRun
+    from onlyalpha.quant_assets import OnlyPrivateAssetRevisionReferenceV1
+
+    assert {item.name for item in fields(OnlyPrivateAssetRevisionReferenceV1)} == {
+        "private_asset_kind",
+        "private_asset_id",
+        "private_asset_revision_fingerprint",
+    }
+    assert "authoring_provenance" not in {item.name for item in fields(OnlyCreateResearchRun)}
+    assert "authoring_provenance" not in SubmitResearchRunRequest.model_fields
+    assert "authoring_generation_fingerprint" in SubmitResearchRunRequest.model_fields
+
+
+def test_generation_factory_and_reader_reanchor_without_latest_or_source_execution() -> None:
+    generation = _GENERATION.read_text(encoding="utf-8")
+    contract = _CONTRACT.read_text(encoding="utf-8")
+    assert "create_verified" in generation
+    assert "OnlyPrivateAssetRevisionBindingResolver" in generation
+    assert "OnlyVerifiedAuthoringGenerationReader" in generation
+    assert "load_l3_revision" in contract and "load_l4_revision" in contract
+    assert "load_latest" not in generation + contract
+    assert "load_current" not in generation + contract
+    for path in (_GENERATION, _PRODUCT, _HTTP):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        calls = {
+            node.func.id for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        assert calls.isdisjoint({"eval", "exec", "compile"}), path

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
+from onlyalpha.quant_assets import OnlyPrivateAssetKind
 from onlyalpha.research.provenance import (
     OnlyResearchAuthoringProvenance,
-    OnlyResearchPrivateAssetKind,
     only_research_execution_generation_fingerprint,
 )
 
@@ -12,7 +12,7 @@ from onlyalpha.research.provenance import (
 def _provenance() -> OnlyResearchAuthoringProvenance:
     values = {
         "experiment_id": "exp-" + "b" * 32,
-        "private_asset_kind": OnlyResearchPrivateAssetKind.L3_FACTOR,
+        "private_asset_kind": OnlyPrivateAssetKind.L3_FACTOR,
         "private_asset_id": "private.factor.momentum",
         "private_asset_revision_fingerprint": "5" * 64,
         "private_asset_content_fingerprint": "6" * 64,

@@ -4,24 +4,33 @@ from datetime import UTC, datetime
 
 import psycopg
 import pytest
+from onlyalpha_authoring_execution_worker import (
+    OnlyAuthoringExecutionGeneration,
+    OnlyAuthoringExecutionGenerationStore,
+    OnlyVerifiedAuthoringGenerationReader,
+)
 
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.persistence.postgres import OnlyPostgresPrivateAssetStore, OnlyPostgresResearchRunStore
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from onlyalpha.quant_assets import (
     OnlyPrivateAssetCorruptError,
+    OnlyPrivateAssetKind,
     OnlyPrivateAssetNotFoundError,
     OnlyPrivateAssetParentMismatchError,
     OnlyPrivateAssetPutDisposition,
+    OnlyPrivateAssetRevisionBindingResolver,
+    OnlyPrivateAssetRevisionReferenceV1,
     OnlyPrivateAssetStaleBaseError,
     OnlyPrivateL3Asset,
     OnlyPrivateL3Draft,
     OnlyPrivateL4Asset,
     OnlyPrivateL4Draft,
+    OnlyQuantAssetLayer,
+    only_discover_quant_asset_providers,
 )
 from onlyalpha.research.provenance import (
     OnlyResearchAuthoringProvenance,
-    OnlyResearchPrivateAssetKind,
     only_research_execution_generation_fingerprint,
 )
 from onlyalpha.research.run import (
@@ -70,7 +79,7 @@ def _l4(**changes: object) -> OnlyPrivateL4Draft:
 def _provenance() -> OnlyResearchAuthoringProvenance:
     values = {
         "experiment_id": "exp-" + "b" * 32,
-        "private_asset_kind": OnlyResearchPrivateAssetKind.L3_FACTOR,
+        "private_asset_kind": OnlyPrivateAssetKind.L3_FACTOR,
         "private_asset_id": "private.factor.momentum",
         "private_asset_revision_fingerprint": "5" * 64,
         "private_asset_content_fingerprint": "6" * 64,
@@ -226,3 +235,56 @@ def test_research_run_db_native_provenance_survives_postgres_round_trip(postgres
     OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(run)
 
     assert OnlyPostgresResearchRunStore(postgres_dsn).load(run.run_id) == run
+
+
+def test_generation_descriptor_reanchors_to_revision_and_fails_after_authority_removal(
+    postgres_dsn: str, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    private_assets = OnlyPostgresPrivateAssetStore(postgres_dsn)
+    private_assets.put_l3_asset(OnlyPrivateL3Asset("private.factor.momentum"))
+    private_assets.save_l3_draft(_l3())
+    _, revision = private_assets.publish_l3_revision("private.factor.momentum")
+    catalog = only_discover_quant_asset_providers()
+    provider = next(item for item in catalog.providers if item.manifest.layer is OnlyQuantAssetLayer.FACTOR)
+    bindings = OnlyPrivateAssetRevisionBindingResolver(private_assets)
+    generation = OnlyAuthoringExecutionGeneration.create_verified(
+        experiment_id="exp-" + "d" * 32,
+        private_asset_revision_reference=OnlyPrivateAssetRevisionReferenceV1(
+            OnlyPrivateAssetKind.L3_FACTOR, revision.factor_id, revision.revision_fingerprint
+        ),
+        private_asset_revisions=bindings,
+        candidate_provider_id=provider.manifest.provider_id,
+        candidate_provider_version=provider.manifest.provider_version,
+        catalog=catalog,
+    )
+    descriptor_store = OnlyAuthoringExecutionGenerationStore(tmp_path / "authoring-generations")
+    descriptor_store.commit(generation)
+    reader = OnlyVerifiedAuthoringGenerationReader(descriptor_store, bindings)
+    assert reader.load_verified(generation.fingerprint) == generation.provenance
+
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute("ALTER TABLE private_l3_revision DISABLE TRIGGER private_l3_revision_immutable_trigger")
+        connection.execute(
+            "UPDATE private_l3_revision SET source_sha256 = %s WHERE revision_fingerprint = %s",
+            ("f" * 64, revision.revision_fingerprint),
+        )
+        connection.execute("ALTER TABLE private_l3_revision ENABLE TRIGGER private_l3_revision_immutable_trigger")
+
+    with pytest.raises(ValueError, match="AUTHORING_PRIVATE_ASSET_REVISION_CORRUPT"):
+        reader.load_verified(generation.fingerprint)
+
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute(
+            "UPDATE private_l3_asset SET current_revision_fingerprint = NULL WHERE factor_id = %s",
+            (revision.factor_id,),
+        )
+        connection.execute("ALTER TABLE private_l3_revision DISABLE TRIGGER private_l3_revision_immutable_trigger")
+        connection.execute(
+            "DELETE FROM private_l3_revision WHERE revision_fingerprint = %s",
+            (revision.revision_fingerprint,),
+        )
+        connection.execute("ALTER TABLE private_l3_revision ENABLE TRIGGER private_l3_revision_immutable_trigger")
+
+    with pytest.raises(ValueError, match="AUTHORING_PRIVATE_ASSET_REVISION_UNAVAILABLE"):
+        reader.load_verified(generation.fingerprint)

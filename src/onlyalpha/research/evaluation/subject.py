@@ -186,7 +186,7 @@ class OnlyResearchEvaluationSubjectSetV1:
 
 
 class OnlyExactAuthoringGenerationReader(Protocol):
-    def load_descriptor_verified(self, fingerprint: str) -> Mapping[str, object]: ...
+    def load_verified(self, fingerprint: str) -> OnlyResearchAuthoringProvenance: ...
 
 
 class _RuntimeResolutionReader(Protocol):
@@ -212,12 +212,12 @@ class OnlyExactEvaluationIntentResolverV1:
         specification: OnlyResearchSpecification,
         *,
         runtime_work_id: str,
-        authoring_provenance: OnlyResearchAuthoringProvenance | None = None,
+        authoring_generation_fingerprint: str | None = None,
     ) -> OnlyExactEvaluationIntentSubjectV1:
         subjects = self.resolve_all(
             specification,
             runtime_work_id=runtime_work_id,
-            authoring_provenance=authoring_provenance,
+            authoring_generation_fingerprint=authoring_generation_fingerprint,
         )
         if len(subjects) != 1:
             raise OnlyResearchEvaluationError(
@@ -230,7 +230,7 @@ class OnlyExactEvaluationIntentResolverV1:
         specification: OnlyResearchSpecification,
         *,
         runtime_work_id: str,
-        authoring_provenance: OnlyResearchAuthoringProvenance | None = None,
+        authoring_generation_fingerprint: str | None = None,
     ) -> tuple[OnlyExactEvaluationIntentSubjectV1, ...]:
         from onlyalpha.research.run.evidence import OnlyResearchAdmissionResolutionEvidence
         from onlyalpha.research.specification.model import (
@@ -268,32 +268,30 @@ class OnlyExactEvaluationIntentResolverV1:
                 "EVALUATION_SUBJECT_AUTHORITY_MISSING", "exact Runtime evaluation authority is unavailable"
             ) from exc
 
-        authoring = self._verify_authoring(authoring_provenance, catalog)
+        authoring = self._verify_authoring(authoring_generation_fingerprint, catalog)
         return _subjects_from_evidence(strict, evidence, catalog, runtime, authoring)
 
-    def _verify_authoring(self, provenance: OnlyResearchAuthoringProvenance | None, catalog: str) -> str | None:
-        if provenance is None:
+    def _verify_authoring(self, fingerprint: str | None, catalog: str) -> str | None:
+        if fingerprint is None:
             return None
         if self._authoring_generations is None:
             raise OnlyResearchEvaluationError(
                 "EVALUATION_SUBJECT_AUTHORITY_MISSING", "exact Authoring Generation authority is unavailable"
             )
-        identity = provenance.execution_generation_fingerprint
         try:
-            descriptor = self._authoring_generations.load_descriptor_verified(identity)
-            payload = descriptor.get("provenance")
+            provenance = self._authoring_generations.load_verified(fingerprint)
             if (
-                descriptor.get("execution_generation_fingerprint") != identity
-                or not isinstance(payload, Mapping)
-                or dict(payload) != provenance.identity_dict()
+                provenance.execution_generation_fingerprint != fingerprint
                 or provenance.catalog_generation_fingerprint != catalog
             ):
                 raise ValueError("Authoring Generation binding differs")
         except Exception as exc:
+            code = getattr(exc, "code", "EVALUATION_SUBJECT_AUTHORITY_CORRUPT")
             raise OnlyResearchEvaluationError(
-                "EVALUATION_SUBJECT_AUTHORITY_CORRUPT", "exact Authoring Generation proof differs"
+                code if isinstance(code, str) else "EVALUATION_SUBJECT_AUTHORITY_CORRUPT",
+                "exact Authoring Generation proof differs",
             ) from exc
-        return identity
+        return fingerprint
 
 
 def _subjects_from_evidence(

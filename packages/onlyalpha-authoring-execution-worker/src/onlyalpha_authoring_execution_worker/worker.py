@@ -14,6 +14,7 @@ from onlyalpha.persistence.postgres import (
     OnlyPostgresResearchExecutionStore,
     OnlyPostgresResearchRunStore,
 )
+from onlyalpha.quant_assets.private import OnlyPrivateAssetRevisionBindingResolver
 from onlyalpha.research.artifact.reader import OnlyResearchArtifactProfileReader
 from onlyalpha.research.calculation.execution_evidence import OnlyResearchCalculationExecutionEvidenceStore
 from onlyalpha.research.calculation.result_store import OnlyParquetResearchCalculationResultStore
@@ -35,7 +36,11 @@ from onlyalpha.research.result.result_store import OnlyJsonResearchResultStore
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 from onlyalpha.runtime.defaults import OnlyEngineServices
 
-from .generation import OnlyAuthoringExecutionGeneration, OnlyAuthoringExecutionGenerationStore
+from .generation import (
+    OnlyAuthoringExecutionGeneration,
+    OnlyAuthoringExecutionGenerationStore,
+    OnlyVerifiedAuthoringGenerationReader,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +58,7 @@ def only_compose_authoring_research_worker(
     *,
     generation: OnlyAuthoringExecutionGeneration,
     generation_store: OnlyAuthoringExecutionGenerationStore,
+    private_asset_revisions: OnlyPrivateAssetRevisionBindingResolver,
     user_data_root: Path,
     postgres_dsn: str,
     policy: OnlyResearchExecutionPolicy,
@@ -66,6 +72,9 @@ def only_compose_authoring_research_worker(
     """Verify immutable generation evidence before constructing any claim-capable object."""
 
     generation_store.verify(generation)
+    OnlyVerifiedAuthoringGenerationReader(generation_store, private_asset_revisions).load_verified(
+        generation.fingerprint
+    )
     options = operational_options or OnlyPostgresOperationalConnectionOptions()
     options.assert_worker_compatible(
         heartbeat_interval=policy.heartbeat_interval,

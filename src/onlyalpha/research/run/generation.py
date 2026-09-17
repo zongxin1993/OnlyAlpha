@@ -23,9 +23,11 @@ from .evidence import OnlyResearchAdmissionResolutionEvidence
 class OnlyResearchAuthoringGenerationResolver(Protocol):
     """Resolve through the exact generation verified by an external component."""
 
+    def load_verified(self, authoring_generation_fingerprint: str) -> OnlyResearchAuthoringProvenance: ...
+
     def resolve(
         self,
-        provenance: OnlyResearchAuthoringProvenance,
+        authoring_generation_fingerprint: str,
         specification: OnlyResearchSpecification,
     ) -> OnlyResearchSpecificationResolution: ...
 

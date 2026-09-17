@@ -51,6 +51,12 @@ from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.quant_assets import (
+    OnlyPrivateAssetKind,
+    OnlyPrivateAssetNotFoundError,
+    OnlyPrivateAssetRevisionBindingResolver,
+    OnlyPrivateAssetRevisionReferenceV1,
+    OnlyPrivateL3Draft,
+    OnlyPrivateL3Revision,
     OnlyQuantAssetCatalogGeneration,
     OnlyQuantAssetLayer,
     OnlyQuantAssetProvider,
@@ -75,11 +81,6 @@ from onlyalpha.research.definition.resolver import OnlyResearchDefinitionResolve
 from onlyalpha.research.evaluation.execution import OnlyResearchStatisticsExecutor
 from onlyalpha.research.evaluation.result_store import OnlyParquetResearchStatisticsResultStore
 from onlyalpha.research.job.executor import OnlyResearchJobExecutor
-from onlyalpha.research.provenance import (
-    OnlyResearchAuthoringProvenance,
-    OnlyResearchPrivateAssetKind,
-    only_research_execution_generation_fingerprint,
-)
 from onlyalpha.research.result.assembler import OnlyResearchResultAssembler
 from onlyalpha.research.result.result_store import OnlyJsonResearchResultStore
 from onlyalpha.research.run import OnlyResearchRun, OnlyResearchRunId, OnlyResearchRunState
@@ -306,6 +307,7 @@ def test_l3_subject_binds_an_exact_authoring_execution_generation(tmp_path: Path
         OnlyAuthoringExecutionGeneration,
         OnlyAuthoringExecutionGenerationRegistry,
         OnlyAuthoringExecutionGenerationStore,
+        OnlyVerifiedAuthoringGenerationReader,
     )
 
     generation = only_discover_quant_asset_providers()
@@ -323,27 +325,49 @@ def test_l3_subject_binds_an_exact_authoring_execution_generation(tmp_path: Path
     catalog = OnlyQuantAssetCatalogGeneration(
         tuple(candidate if item.manifest.provider_id == L3_PROVIDER_ID else item for item in generation.providers)
     )
-    identity = {
-        "experiment_id": "exp-" + "a" * 32,
-        "private_asset_kind": OnlyResearchPrivateAssetKind.L3_FACTOR,
-        "private_asset_id": "private.factor.momentum",
-        "private_asset_revision_fingerprint": "1" * 64,
-        "private_asset_content_fingerprint": "2" * 64,
-        "candidate_provider_id": candidate.manifest.provider_id,
-        "candidate_provider_version": candidate.manifest.provider_version,
-        "candidate_provider_content_fingerprint": candidate.content_fingerprint,
-        "catalog_generation_fingerprint": catalog.generation_fingerprint,
-    }
-    provenance = OnlyResearchAuthoringProvenance(
-        schema_version=1,
-        **identity,
-        execution_generation_fingerprint=only_research_execution_generation_fingerprint(**identity),
+    revision = OnlyPrivateL3Revision.from_draft(
+        OnlyPrivateL3Draft(
+            factor_id="private.factor.momentum",
+            semantic_version="1",
+            source_text="def calculate(api, inputs, parameters):\n    return inputs\n",
+            l3_api_version=1,
+            l3_api_contract_fingerprint="a" * 64,
+            input_contract={},
+            parameter_contract={},
+            output_contract={},
+            description="Momentum",
+            economic_rationale="Trend",
+            category="momentum",
+        )
     )
-    authoring = OnlyAuthoringExecutionGeneration(provenance, catalog)
+
+    class Revisions:
+        def load_l3_revision(self, factor_id, fingerprint):  # type: ignore[no-untyped-def]
+            if (factor_id, fingerprint) != (revision.factor_id, revision.revision_fingerprint):
+                raise OnlyPrivateAssetNotFoundError()
+            return revision
+
+        def load_l4_revision(self, strategy_id, fingerprint):  # type: ignore[no-untyped-def]
+            del strategy_id, fingerprint
+            raise OnlyPrivateAssetNotFoundError()
+
+    authoring = OnlyAuthoringExecutionGeneration.create_verified(
+        experiment_id="exp-" + "a" * 32,
+        private_asset_revision_reference=OnlyPrivateAssetRevisionReferenceV1(
+            OnlyPrivateAssetKind.L3_FACTOR, revision.factor_id, revision.revision_fingerprint
+        ),
+        private_asset_revisions=OnlyPrivateAssetRevisionBindingResolver(Revisions()),
+        candidate_provider_id=candidate.manifest.provider_id,
+        candidate_provider_version=candidate.manifest.provider_version,
+        catalog=catalog,
+    )
     store = OnlyAuthoringExecutionGenerationStore(tmp_path / "generations")
     store.commit(authoring)
     store.verify(authoring)
-    OnlyAuthoringExecutionGenerationRegistry((authoring,))
+    OnlyAuthoringExecutionGenerationRegistry(
+        (authoring,),
+        OnlyVerifiedAuthoringGenerationReader(store, OnlyPrivateAssetRevisionBindingResolver(Revisions())),
+    )
     definitions = authoring.engine_services().assembler.components.calculations.type_definitions()
     assert {item.type_id for item in definitions} >= {
         registration.type_definition.type_id for registration in candidate.calculation_registrations

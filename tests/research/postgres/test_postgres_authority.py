@@ -51,6 +51,7 @@ from onlyalpha.persistence.postgres import (
     OnlyPostgresSchemaVerifier,
 )
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
+from onlyalpha.quant_assets import OnlyPrivateAssetKind
 from onlyalpha.research.command import OnlyResearchRunPageCursor
 from onlyalpha.research.execution import (
     OnlyResearchExecutionClaim,
@@ -70,7 +71,6 @@ from onlyalpha.research.operations.diagnostics import (
 from onlyalpha.research.operations.model import OnlyResearchOperationalDiagnosisCode
 from onlyalpha.research.provenance import (
     OnlyResearchAuthoringProvenance,
-    OnlyResearchPrivateAssetKind,
     only_research_execution_generation_fingerprint,
 )
 from onlyalpha.research.run import (
@@ -196,7 +196,7 @@ def _queued(run_id: str) -> OnlyResearchRun:
 def _authoring_provenance(content_fingerprint: str = "2" * 64) -> OnlyResearchAuthoringProvenance:
     identity = {
         "experiment_id": "exp-" + "a" * 32,
-        "private_asset_kind": OnlyResearchPrivateAssetKind.L3_FACTOR,
+        "private_asset_kind": OnlyPrivateAssetKind.L3_FACTOR,
         "private_asset_id": "private.factor.momentum",
         "private_asset_revision_fingerprint": "1" * 64,
         "private_asset_content_fingerprint": content_fingerprint,

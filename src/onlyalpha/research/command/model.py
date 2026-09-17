@@ -14,7 +14,6 @@ from typing import cast
 
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
-from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 from onlyalpha.research.run.model import OnlyResearchRun, OnlyResearchRunId
 from onlyalpha.research.specification.model import OnlyResearchSpecification
 
@@ -23,18 +22,26 @@ from .errors import OnlyResearchRunCursorError
 _SEARCH_EXPERIMENT_WORK_ID = re.compile(r"^search-experiment:[0-9a-f]{64}$")
 
 
+def _authoring_generation(value: str | None) -> None:
+    if value is not None and (not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None):
+        raise ValueError("Authoring Generation fingerprint is invalid")
+
+
 @dataclass(frozen=True, slots=True)
 class OnlyResearchSubmitCommand:
     submission_key: OnlyProductCommandId
     specification: OnlyResearchSpecification
-    authoring_provenance: OnlyResearchAuthoringProvenance | None = None
+    authoring_generation_fingerprint: str | None = None
+
+    def __post_init__(self) -> None:
+        _authoring_generation(self.authoring_generation_fingerprint)
 
     @property
     def command_fingerprint(self) -> str:
-        # Provenance is part of command identity, while remaining outside strategy semantics.
-        payload = {"specification": self.specification.to_dict()}
-        if self.authoring_provenance is not None:
-            payload["authoring_provenance"] = self.authoring_provenance.identity_dict()
+        # The exact Generation reference is Product intent; provenance is derived evidence.
+        payload: dict[str, object] = {"specification": self.specification.to_dict()}
+        if self.authoring_generation_fingerprint is not None:
+            payload["authoring_generation_fingerprint"] = self.authoring_generation_fingerprint
         return only_canonical_fingerprint(payload)
 
 
@@ -45,7 +52,7 @@ class OnlyDerivedResearchSubmitCommandV2:
     submission_key: OnlyProductCommandId
     specification: OnlyResearchSpecification
     parent_runtime_work_id: str
-    authoring_provenance: OnlyResearchAuthoringProvenance | None = None
+    authoring_generation_fingerprint: str | None = None
     schema_version: int = 2
 
     def __post_init__(self) -> None:
@@ -58,10 +65,7 @@ class OnlyDerivedResearchSubmitCommandV2:
             or _SEARCH_EXPERIMENT_WORK_ID.fullmatch(self.parent_runtime_work_id) is None
         ):
             raise ValueError("Derived Research parent work identity is invalid")
-        if self.authoring_provenance is not None and not isinstance(
-            self.authoring_provenance, OnlyResearchAuthoringProvenance
-        ):
-            raise ValueError("Derived Research authoring provenance is invalid")
+        _authoring_generation(self.authoring_generation_fingerprint)
 
     @property
     def command_fingerprint(self) -> str:
@@ -70,8 +74,8 @@ class OnlyDerivedResearchSubmitCommandV2:
             "specification": self.specification.to_dict(),
             "parent_runtime_work_id": self.parent_runtime_work_id,
         }
-        if self.authoring_provenance is not None:
-            payload["authoring_provenance"] = self.authoring_provenance.identity_dict()
+        if self.authoring_generation_fingerprint is not None:
+            payload["authoring_generation_fingerprint"] = self.authoring_generation_fingerprint
         return only_canonical_fingerprint(payload)
 
 
@@ -83,7 +87,7 @@ class OnlyNoveltyGatedResearchSubmitCommandV3:
     specification: OnlyResearchSpecification
     novelty_decision_fingerprint: str
     parent_runtime_work_id: str | None = None
-    authoring_provenance: OnlyResearchAuthoringProvenance | None = None
+    authoring_generation_fingerprint: str | None = None
     schema_version: int = 3
 
     def __post_init__(self) -> None:
@@ -102,10 +106,7 @@ class OnlyNoveltyGatedResearchSubmitCommandV3:
             and _SEARCH_EXPERIMENT_WORK_ID.fullmatch(self.parent_runtime_work_id) is None
         ):
             raise ValueError("Novelty-gated Research parent work identity is invalid")
-        if self.authoring_provenance is not None and not isinstance(
-            self.authoring_provenance, OnlyResearchAuthoringProvenance
-        ):
-            raise ValueError("Novelty-gated Research authoring provenance is invalid")
+        _authoring_generation(self.authoring_generation_fingerprint)
 
     @property
     def command_fingerprint(self) -> str:
@@ -115,8 +116,8 @@ class OnlyNoveltyGatedResearchSubmitCommandV3:
             "novelty_decision_fingerprint": self.novelty_decision_fingerprint,
             "parent_runtime_work_id": self.parent_runtime_work_id,
         }
-        if self.authoring_provenance is not None:
-            payload["authoring_provenance"] = self.authoring_provenance.identity_dict()
+        if self.authoring_generation_fingerprint is not None:
+            payload["authoring_generation_fingerprint"] = self.authoring_generation_fingerprint
         return only_canonical_fingerprint(payload)
 
 
@@ -128,7 +129,7 @@ class OnlyNoveltyGatedResearchSubmitCommandV4:
     specification: OnlyResearchSpecification
     novelty_decision_group_fingerprint: str
     parent_runtime_work_id: str | None = None
-    authoring_provenance: OnlyResearchAuthoringProvenance | None = None
+    authoring_generation_fingerprint: str | None = None
     schema_version: int = 4
 
     def __post_init__(self) -> None:
@@ -147,10 +148,7 @@ class OnlyNoveltyGatedResearchSubmitCommandV4:
             and _SEARCH_EXPERIMENT_WORK_ID.fullmatch(self.parent_runtime_work_id) is None
         ):
             raise ValueError("Novelty-gated Research parent work identity is invalid")
-        if self.authoring_provenance is not None and not isinstance(
-            self.authoring_provenance, OnlyResearchAuthoringProvenance
-        ):
-            raise ValueError("Novelty-gated Research authoring provenance is invalid")
+        _authoring_generation(self.authoring_generation_fingerprint)
 
     @property
     def command_fingerprint(self) -> str:
@@ -160,8 +158,8 @@ class OnlyNoveltyGatedResearchSubmitCommandV4:
             "novelty_decision_group_fingerprint": self.novelty_decision_group_fingerprint,
             "parent_runtime_work_id": self.parent_runtime_work_id,
         }
-        if self.authoring_provenance is not None:
-            payload["authoring_provenance"] = self.authoring_provenance.identity_dict()
+        if self.authoring_generation_fingerprint is not None:
+            payload["authoring_generation_fingerprint"] = self.authoring_generation_fingerprint
         return only_canonical_fingerprint(payload)
 
 

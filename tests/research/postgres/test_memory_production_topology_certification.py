@@ -36,11 +36,17 @@ from onlyalpha.calculation.artifact import only_calculation_distribution_artifac
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
+from onlyalpha.persistence.postgres.private_asset_store import OnlyPostgresPrivateAssetStore
 from onlyalpha.persistence.postgres.product_command_authority import OnlyPostgresProductCommandAuthority
 from onlyalpha.persistence.postgres.research_execution_store import OnlyPostgresResearchExecutionStore
 from onlyalpha.persistence.postgres.research_run_store import OnlyPostgresResearchRunStore
 from onlyalpha.persistence.postgres.research_source_cut_store import OnlyPostgresResearchSourceCutAuthority
 from onlyalpha.quant_assets import (
+    OnlyPrivateAssetKind,
+    OnlyPrivateAssetRevisionBindingResolver,
+    OnlyPrivateAssetRevisionReferenceV1,
+    OnlyPrivateL3Asset,
+    OnlyPrivateL3Draft,
     OnlyQuantAssetCatalogGeneration,
     OnlyQuantAssetCatalogManager,
     only_quant_asset_distribution_artifact_manifest,
@@ -161,7 +167,7 @@ from tests.research.agent.test_decision_application_recovery import (
     service as agent_service,
 )
 from tests.research.evaluation.support import factor_pair_effect_case
-from tests.research.postgres.test_postgres_authority import NOW, _authoring_provenance
+from tests.research.postgres.test_postgres_authority import NOW
 from tests.research.search.symbolic.test_research_and_provenance_integration import (
     _fresh_process_e2e,
 )
@@ -719,34 +725,38 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     _publish_agent_facts(root, chain["experiment"])
 
     provider = next(item for item in generation.providers if item.manifest.layer.value == "L3_FACTOR")
-    authoring = _authoring_provenance()
-    from onlyalpha.research.provenance import only_research_execution_generation_fingerprint
-
     provider_id = provider.manifest.provider_id
     provider_version = provider.manifest.provider_version
-    provider_content_fingerprint = provider.content_fingerprint
-    catalog_fingerprint = generation.generation_fingerprint
-    authoring = replace(
-        authoring,
+    private_assets = OnlyPostgresPrivateAssetStore(postgres_dsn)
+    private_assets.put_l3_asset(OnlyPrivateL3Asset("private.factor.momentum"))
+    private_assets.save_l3_draft(
+        OnlyPrivateL3Draft(
+            factor_id="private.factor.momentum",
+            semantic_version="1",
+            source_text="def calculate(api, inputs, parameters):\n    return inputs\n",
+            l3_api_version=1,
+            l3_api_contract_fingerprint="a" * 64,
+            input_contract={},
+            parameter_contract={},
+            output_contract={},
+            description="Momentum",
+            economic_rationale="Trend",
+            category="momentum",
+        )
+    )
+    _, revision = private_assets.publish_l3_revision("private.factor.momentum")
+    authoring_generation = OnlyAuthoringExecutionGeneration.create_verified(
+        experiment_id="exp-" + "b" * 32,
+        private_asset_revision_reference=OnlyPrivateAssetRevisionReferenceV1(
+            OnlyPrivateAssetKind.L3_FACTOR, revision.factor_id, revision.revision_fingerprint
+        ),
+        private_asset_revisions=OnlyPrivateAssetRevisionBindingResolver(private_assets),
         candidate_provider_id=provider_id,
         candidate_provider_version=provider_version,
-        candidate_provider_content_fingerprint=provider_content_fingerprint,
-        catalog_generation_fingerprint=catalog_fingerprint,
-        execution_generation_fingerprint=only_research_execution_generation_fingerprint(
-            experiment_id=authoring.experiment_id,
-            private_asset_kind=authoring.private_asset_kind,
-            private_asset_id=authoring.private_asset_id,
-            private_asset_revision_fingerprint=authoring.private_asset_revision_fingerprint,
-            private_asset_content_fingerprint=authoring.private_asset_content_fingerprint,
-            candidate_provider_id=provider_id,
-            candidate_provider_version=provider_version,
-            candidate_provider_content_fingerprint=provider_content_fingerprint,
-            catalog_generation_fingerprint=catalog_fingerprint,
-        ),
+        catalog=generation,
     )
-    OnlyAuthoringExecutionGenerationStore(authoring_root).commit(
-        OnlyAuthoringExecutionGeneration(authoring, generation)
-    )
+    authoring = authoring_generation.provenance
+    OnlyAuthoringExecutionGenerationStore(authoring_root).commit(authoring_generation)
 
     run_id = OnlyResearchRunId("00000000-0000-4000-8000-000000000931")
     run_spec = specification(result.manifest.dataset_snapshot_fingerprint)
@@ -913,7 +923,9 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
             authoring_provenance=authoring,
         )
         OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(search_run)
-        intent = OnlyDerivedResearchSubmitCommandV2(command, run_spec, parent, authoring)
+        intent = OnlyDerivedResearchSubmitCommandV2(
+            command, run_spec, parent, authoring.execution_generation_fingerprint
+        )
         product.admit_exact(
             OnlyProductCommandAdmissionV1(
                 command, OnlyProductCommandKind.CREATE_RESEARCH_RUN, intent.command_fingerprint

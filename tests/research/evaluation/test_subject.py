@@ -7,6 +7,7 @@ from dataclasses import replace
 
 import pytest
 
+from onlyalpha.quant_assets import OnlyPrivateAssetKind
 from onlyalpha.research.evaluation import (
     OnlyExactEvaluationIntentResolverV1,
     OnlyExactEvaluationIntentSubjectV1,
@@ -20,7 +21,6 @@ from onlyalpha.research.memory.query import (
 )
 from onlyalpha.research.provenance import (
     OnlyResearchAuthoringProvenance,
-    OnlyResearchPrivateAssetKind,
     only_research_execution_generation_fingerprint,
 )
 from onlyalpha.research.run.evidence import OnlyResearchAdmissionResolutionEvidence
@@ -68,7 +68,7 @@ class _RuntimeResolution:
 def _provenance() -> OnlyResearchAuthoringProvenance:
     values = {
         "experiment_id": "exp-" + "1" * 24,
-        "private_asset_kind": OnlyResearchPrivateAssetKind.L3_FACTOR,
+        "private_asset_kind": OnlyPrivateAssetKind.L3_FACTOR,
         "private_asset_id": "private.factor.momentum",
         "private_asset_revision_fingerprint": "2" * 64,
         "private_asset_content_fingerprint": "3" * 64,
@@ -88,12 +88,9 @@ class _Authoring:
     def __init__(self, provenance: OnlyResearchAuthoringProvenance) -> None:
         self.provenance = provenance
 
-    def load_descriptor_verified(self, fingerprint: str) -> dict[str, object]:
+    def load_verified(self, fingerprint: str) -> OnlyResearchAuthoringProvenance:
         assert fingerprint == self.provenance.execution_generation_fingerprint
-        return {
-            "execution_generation_fingerprint": fingerprint,
-            "provenance": self.provenance.identity_dict(),
-        }
+        return self.provenance
 
 
 def _resolve(specification_value: OnlyResearchSpecification):
@@ -209,8 +206,16 @@ def test_db_native_authoring_identity_is_stable_without_storage_locator() -> Non
         authoring_generations=_Authoring(first_provenance),
     )
 
-    first = resolver.resolve(_scientific(), runtime_work_id="work", authoring_provenance=first_provenance)
-    second = resolver.resolve(_scientific(), runtime_work_id="work", authoring_provenance=second_provenance)
+    first = resolver.resolve(
+        _scientific(),
+        runtime_work_id="work",
+        authoring_generation_fingerprint=first_provenance.execution_generation_fingerprint,
+    )
+    second = resolver.resolve(
+        _scientific(),
+        runtime_work_id="work",
+        authoring_generation_fingerprint=second_provenance.execution_generation_fingerprint,
+    )
 
     assert first == second
 

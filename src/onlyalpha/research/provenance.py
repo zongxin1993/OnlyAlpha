@@ -5,25 +5,19 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from enum import StrEnum
 
 from onlyalpha.canonical import only_canonical_fingerprint
-from onlyalpha.quant_assets.private import OnlyPrivateL3Asset, OnlyPrivateL4Asset
+from onlyalpha.quant_assets.private import OnlyPrivateAssetKind, OnlyPrivateL3Asset, OnlyPrivateL4Asset
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _EXPERIMENT_ID = re.compile(r"^exp-[0-9a-f]{24,64}$")
-
-
-class OnlyResearchPrivateAssetKind(StrEnum):
-    L3_FACTOR = "L3_FACTOR"
-    L4_STRATEGY = "L4_STRATEGY"
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyResearchAuthoringProvenance:
     schema_version: int
     experiment_id: str
-    private_asset_kind: OnlyResearchPrivateAssetKind
+    private_asset_kind: OnlyPrivateAssetKind
     private_asset_id: str
     private_asset_revision_fingerprint: str
     private_asset_content_fingerprint: str
@@ -40,10 +34,10 @@ class OnlyResearchAuthoringProvenance:
             or _EXPERIMENT_ID.fullmatch(self.experiment_id) is None
             or not self.candidate_provider_id
             or not self.candidate_provider_version
-            or not isinstance(self.private_asset_kind, OnlyResearchPrivateAssetKind)
+            or not isinstance(self.private_asset_kind, OnlyPrivateAssetKind)
         ):
             raise ValueError("RESEARCH_PROVENANCE_INVALID")
-        if self.private_asset_kind is OnlyResearchPrivateAssetKind.L3_FACTOR:
+        if self.private_asset_kind is OnlyPrivateAssetKind.L3_FACTOR:
             OnlyPrivateL3Asset(self.private_asset_id)
         else:
             OnlyPrivateL4Asset(self.private_asset_id)
@@ -107,7 +101,7 @@ class OnlyResearchAuthoringProvenance:
         if set(payload) != expected:
             raise ValueError("RESEARCH_PROVENANCE_INVALID")
         try:
-            kind = OnlyResearchPrivateAssetKind(_strict_string(payload["private_asset_kind"]))
+            kind = OnlyPrivateAssetKind(_strict_string(payload["private_asset_kind"]))
         except ValueError as exc:
             raise ValueError("RESEARCH_PROVENANCE_INVALID") from exc
         return cls(
@@ -140,7 +134,7 @@ def _strict_string(value: object) -> str:
 def only_research_execution_generation_fingerprint(
     *,
     experiment_id: str,
-    private_asset_kind: OnlyResearchPrivateAssetKind,
+    private_asset_kind: OnlyPrivateAssetKind,
     private_asset_id: str,
     private_asset_revision_fingerprint: str,
     private_asset_content_fingerprint: str,

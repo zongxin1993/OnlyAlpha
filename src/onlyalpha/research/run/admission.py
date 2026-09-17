@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
+from typing import cast
 
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.research.dataset import (
@@ -45,7 +46,7 @@ class OnlyResearchRunAdmissionService:
         self,
         specification: OnlyResearchSpecification,
         *,
-        provenance: OnlyResearchAuthoringProvenance | None = None,
+        authoring_generation_fingerprint: str | None = None,
         exact_run_id: OnlyResearchRunId | None = None,
         exact_admission_evidence: OnlyResearchAdmissionResolutionEvidence | None = None,
     ) -> OnlyResearchRun:
@@ -53,7 +54,7 @@ class OnlyResearchRunAdmissionService:
 
         return self.prepare_with_evidence(
             specification,
-            provenance=provenance,
+            authoring_generation_fingerprint=authoring_generation_fingerprint,
             exact_run_id=exact_run_id,
             exact_admission_evidence=exact_admission_evidence,
         )[0]
@@ -62,7 +63,7 @@ class OnlyResearchRunAdmissionService:
         self,
         specification: OnlyResearchSpecification,
         *,
-        provenance: OnlyResearchAuthoringProvenance | None = None,
+        authoring_generation_fingerprint: str | None = None,
         exact_run_id: OnlyResearchRunId | None = None,
         exact_admission_evidence: OnlyResearchAdmissionResolutionEvidence | None = None,
     ) -> tuple[OnlyResearchRun, OnlyResearchAdmissionResolutionEvidence]:
@@ -70,8 +71,11 @@ class OnlyResearchRunAdmissionService:
 
         try:
             strict = OnlyResearchSpecification.from_dict(specification.to_dict())
+            provenance = self._load_authoring_provenance(authoring_generation_fingerprint)
             if exact_admission_evidence is None:
-                evidence = OnlyResearchAdmissionResolutionEvidence.from_resolution(self._resolve(strict, provenance))
+                evidence = OnlyResearchAdmissionResolutionEvidence.from_resolution(
+                    self._resolve(strict, authoring_generation_fingerprint)
+                )
             else:
                 # Internal Product orchestration only: never part of Product/API intent.
                 if exact_run_id is None or not isinstance(
@@ -92,7 +96,7 @@ class OnlyResearchRunAdmissionService:
                     # Preserve authoring provenance admission, but never replace the
                     # exact Runtime computation with its result or a current Resolver.
                     authoring = OnlyResearchAdmissionResolutionEvidence.from_resolution(
-                        self._resolve(strict, provenance)
+                        self._resolve(strict, authoring_generation_fingerprint)
                     )
                     if authoring.fingerprint != evidence.fingerprint:
                         raise OnlyResearchRunAdmissionError(
@@ -126,7 +130,10 @@ class OnlyResearchRunAdmissionService:
 
     def verify_resolution(self, run: OnlyResearchRun) -> None:
         current = only_research_admission_resolution_fingerprint(
-            self._resolve(run.specification, run.authoring_provenance)
+            self._resolve(
+                run.specification,
+                None if run.authoring_provenance is None else run.authoring_provenance.execution_generation_fingerprint,
+            )
         )
         if current != run.admission_resolution_fingerprint:
             raise OnlyResearchRunAdmissionError("admission resolution evidence mismatch")
@@ -134,9 +141,9 @@ class OnlyResearchRunAdmissionService:
     def _resolve(
         self,
         specification: OnlyResearchSpecification,
-        provenance: OnlyResearchAuthoringProvenance | None,
+        authoring_generation_fingerprint: str | None,
     ) -> OnlyResearchSpecificationResolution:
-        if provenance is None:
+        if authoring_generation_fingerprint is None:
             return self._resolver.resolve(specification)
         if self._authoring_generation_resolver is None:
             raise OnlyResearchRunAdmissionError(
@@ -144,14 +151,40 @@ class OnlyResearchRunAdmissionService:
                 code="RESEARCH_EXECUTION_GENERATION_UNAVAILABLE",
             )
         try:
-            return self._authoring_generation_resolver.resolve(provenance, specification)
+            return self._authoring_generation_resolver.resolve(authoring_generation_fingerprint, specification)
         except OnlyResearchRunAdmissionError:
             raise
         except Exception as exc:
             raise OnlyResearchRunAdmissionError(
                 "Authoring execution generation verification failed",
-                code="RESEARCH_EXECUTION_GENERATION_MISMATCH",
+                code=cast(str, getattr(exc, "code", "RESEARCH_EXECUTION_GENERATION_MISMATCH")),
             ) from exc
+
+    def _load_authoring_provenance(
+        self, authoring_generation_fingerprint: str | None
+    ) -> OnlyResearchAuthoringProvenance | None:
+        if authoring_generation_fingerprint is None:
+            return None
+        if self._authoring_generation_resolver is None:
+            raise OnlyResearchRunAdmissionError(
+                "Authoring execution generation is unavailable",
+                code="RESEARCH_EXECUTION_GENERATION_UNAVAILABLE",
+            )
+        try:
+            provenance = self._authoring_generation_resolver.load_verified(authoring_generation_fingerprint)
+        except OnlyResearchRunAdmissionError:
+            raise
+        except Exception as exc:
+            raise OnlyResearchRunAdmissionError(
+                "Authoring execution generation verification failed",
+                code=cast(str, getattr(exc, "code", "RESEARCH_EXECUTION_GENERATION_MISMATCH")),
+            ) from exc
+        if provenance.execution_generation_fingerprint != authoring_generation_fingerprint:
+            raise OnlyResearchRunAdmissionError(
+                "Authoring execution generation identity differs",
+                code="RESEARCH_EXECUTION_GENERATION_MISMATCH",
+            )
+        return provenance
 
 
 __all__ = ["OnlyResearchRunAdmissionService"]

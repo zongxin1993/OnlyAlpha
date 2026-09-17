@@ -2797,7 +2797,8 @@ export interface components {
         };
         /** SubmitResearchRunRequest */
         SubmitResearchRunRequest: {
-            authoring_provenance?: components["schemas"]["ResearchAuthoringProvenanceDto"] | null;
+            /** Authoring Generation Fingerprint */
+            authoring_generation_fingerprint?: string | null;
             /** Specification */
             specification: {
                 [key: string]: components["schemas"]["JsonValue"];

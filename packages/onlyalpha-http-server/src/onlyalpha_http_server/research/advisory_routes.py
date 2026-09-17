@@ -15,7 +15,6 @@ from onlyalpha.application.research_advisory import (
 )
 from onlyalpha.research.specification.model import OnlyResearchSpecification
 
-from .run_schema import ResearchAuthoringProvenanceDto
 from .schema import ResearchErrorDto, Sha256Dto
 
 
@@ -28,7 +27,7 @@ class ResearchNearDuplicateAdvisoryRequestDto(_AdvisoryDto):
     runtime_work_id: str = Field(min_length=1)
     projection_revision: Sha256Dto | None = None
     limit: int = Field(default=10, ge=1, le=100)
-    authoring_provenance: ResearchAuthoringProvenanceDto | None = None
+    authoring_generation_fingerprint: Sha256Dto | None = None
 
 
 class ResearchNearDuplicateAdvisoryEntryDto(_AdvisoryDto):
@@ -96,9 +95,7 @@ def create_advisory_router(product: OnlyResearchProductBoundary) -> APIRouter:
                 runtime_work_id=request.runtime_work_id,
                 projection_revision=request.projection_revision,
                 limit=request.limit,
-                authoring_provenance=(
-                    None if request.authoring_provenance is None else request.authoring_provenance.to_model()
-                ),
+                authoring_generation_fingerprint=request.authoring_generation_fingerprint,
             )
         except (TypeError, ValueError) as exc:
             raise OnlyResearchAdvisoryRequestInvalid("HTTP request contains an invalid Research Specification") from exc

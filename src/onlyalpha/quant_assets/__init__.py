@@ -18,9 +18,15 @@ from .private import OnlyPrivateAssetCorruptError as OnlyPrivateAssetCorruptErro
 from .private import OnlyPrivateAssetError as OnlyPrivateAssetError
 from .private import OnlyPrivateAssetInvalidError as OnlyPrivateAssetInvalidError
 from .private import OnlyPrivateAssetKind as OnlyPrivateAssetKind
+from .private import OnlyPrivateAssetKindUnsupportedError as OnlyPrivateAssetKindUnsupportedError
 from .private import OnlyPrivateAssetNotFoundError as OnlyPrivateAssetNotFoundError
 from .private import OnlyPrivateAssetParentMismatchError as OnlyPrivateAssetParentMismatchError
 from .private import OnlyPrivateAssetPutDisposition as OnlyPrivateAssetPutDisposition
+from .private import OnlyPrivateAssetReferenceMismatchError as OnlyPrivateAssetReferenceMismatchError
+from .private import OnlyPrivateAssetRevisionBindingResolver as OnlyPrivateAssetRevisionBindingResolver
+from .private import OnlyPrivateAssetRevisionCorruptError as OnlyPrivateAssetRevisionCorruptError
+from .private import OnlyPrivateAssetRevisionNotFoundError as OnlyPrivateAssetRevisionNotFoundError
+from .private import OnlyPrivateAssetRevisionReferenceV1 as OnlyPrivateAssetRevisionReferenceV1
 from .private import OnlyPrivateAssetSchemaUnsupportedError as OnlyPrivateAssetSchemaUnsupportedError
 from .private import OnlyPrivateAssetStaleBaseError as OnlyPrivateAssetStaleBaseError
 from .private import OnlyPrivateL3Asset as OnlyPrivateL3Asset
@@ -29,6 +35,7 @@ from .private import OnlyPrivateL3Revision as OnlyPrivateL3Revision
 from .private import OnlyPrivateL4Asset as OnlyPrivateL4Asset
 from .private import OnlyPrivateL4Draft as OnlyPrivateL4Draft
 from .private import OnlyPrivateL4Revision as OnlyPrivateL4Revision
+from .private import OnlyVerifiedPrivateAssetRevisionBindingV1 as OnlyVerifiedPrivateAssetRevisionBindingV1
 from .private import only_private_l3_revision_fingerprint as only_private_l3_revision_fingerprint
 from .private import only_private_l3_source_sha256 as only_private_l3_source_sha256
 from .private import only_private_l4_definition_fingerprint as only_private_l4_definition_fingerprint

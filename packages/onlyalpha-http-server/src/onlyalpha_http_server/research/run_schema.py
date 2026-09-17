@@ -50,7 +50,7 @@ class ResearchAuthoringProvenanceDto(_RunDto):
 
 class SubmitResearchRunRequest(_RunDto):
     specification: dict[str, JsonValue]
-    authoring_provenance: ResearchAuthoringProvenanceDto | None = None
+    authoring_generation_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 class ResearchRunFailureDto(_RunDto):

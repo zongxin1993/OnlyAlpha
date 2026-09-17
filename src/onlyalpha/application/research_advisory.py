@@ -28,7 +28,6 @@ from onlyalpha.research.memory.advisory import (
     only_query_near_duplicates,
 )
 from onlyalpha.research.memory.source_manifest import OnlyMemoryProjectionError
-from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 from onlyalpha.research.specification.model import OnlyResearchSpecification
 from onlyalpha.research.specification.resolver import (
     OnlyResearchSpecificationResolution,
@@ -91,7 +90,7 @@ class OnlyGetResearchNearDuplicateAdvisoryV1(OnlyProductQuery):
     runtime_work_id: str
     projection_revision: str | None = None
     limit: int = 10
-    authoring_provenance: OnlyResearchAuthoringProvenance | None = None
+    authoring_generation_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.specification, OnlyResearchSpecification):
@@ -102,10 +101,8 @@ class OnlyGetResearchNearDuplicateAdvisoryV1(OnlyProductQuery):
             _sha(self.projection_revision, "projection_revision")
         if type(self.limit) is not int or not 1 <= self.limit <= 100:
             raise ValueError("near-duplicate result limit is invalid")
-        if self.authoring_provenance is not None and not isinstance(
-            self.authoring_provenance, OnlyResearchAuthoringProvenance
-        ):
-            raise TypeError("authoring_provenance is invalid")
+        if self.authoring_generation_fingerprint is not None:
+            _sha(self.authoring_generation_fingerprint, "authoring_generation_fingerprint")
 
 
 @dataclass(frozen=True, slots=True)
@@ -434,7 +431,7 @@ class OnlyResearchNearDuplicateQueryService:
         subjects = self._subjects.resolve_all(
             specification,
             runtime_work_id=query.runtime_work_id,
-            authoring_provenance=query.authoring_provenance,
+            authoring_generation_fingerprint=query.authoring_generation_fingerprint,
         )
         try:
             self._validate_subjects(specification, subjects)

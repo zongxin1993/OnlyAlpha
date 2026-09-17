@@ -7,6 +7,12 @@ import pytest
 from onlyalpha.quant_assets import (
     OnlyPrivateAssetCorruptError,
     OnlyPrivateAssetInvalidError,
+    OnlyPrivateAssetKind,
+    OnlyPrivateAssetNotFoundError,
+    OnlyPrivateAssetReferenceMismatchError,
+    OnlyPrivateAssetRevisionBindingResolver,
+    OnlyPrivateAssetRevisionNotFoundError,
+    OnlyPrivateAssetRevisionReferenceV1,
     OnlyPrivateL3Asset,
     OnlyPrivateL3Draft,
     OnlyPrivateL3Revision,
@@ -14,6 +20,22 @@ from onlyalpha.quant_assets import (
     OnlyPrivateL4Draft,
     OnlyPrivateL4Revision,
 )
+
+
+class _Revisions:
+    def __init__(self, l3: OnlyPrivateL3Revision, l4: OnlyPrivateL4Revision) -> None:
+        self.l3 = l3
+        self.l4 = l4
+
+    def load_l3_revision(self, factor_id: str, revision_fingerprint: str) -> OnlyPrivateL3Revision:
+        if (factor_id, revision_fingerprint) != (self.l3.factor_id, self.l3.revision_fingerprint):
+            raise OnlyPrivateAssetNotFoundError()
+        return self.l3
+
+    def load_l4_revision(self, strategy_id: str, revision_fingerprint: str) -> OnlyPrivateL4Revision:
+        if (strategy_id, revision_fingerprint) != (self.l4.strategy_id, self.l4.revision_fingerprint):
+            raise OnlyPrivateAssetNotFoundError()
+        return self.l4
 
 
 def _l3_draft(**changes: object) -> OnlyPrivateL3Draft:
@@ -142,3 +164,47 @@ def test_draft_cannot_be_loaded_where_revision_is_required() -> None:
         OnlyPrivateL3Revision.from_dict(_l3_draft().to_dict())
     with pytest.raises(OnlyPrivateAssetInvalidError):
         OnlyPrivateL4Revision.from_dict(_l4_draft().to_dict())
+
+
+def test_exact_revision_reference_resolves_authority_derived_binding_without_content_input() -> None:
+    l3 = OnlyPrivateL3Revision.from_draft(_l3_draft())
+    l4 = OnlyPrivateL4Revision.from_draft(_l4_draft())
+    resolver = OnlyPrivateAssetRevisionBindingResolver(_Revisions(l3, l4))
+
+    l3_binding = resolver.resolve(
+        OnlyPrivateAssetRevisionReferenceV1(OnlyPrivateAssetKind.L3_FACTOR, l3.factor_id, l3.revision_fingerprint)
+    )
+    assert l3_binding.private_asset_content_fingerprint == l3.source_sha256
+    assert l3_binding.semantic_version == l3.semantic_version
+    assert l3_binding.l3_api_contract_fingerprint == l3.l3_api_contract_fingerprint
+
+    l4_binding = resolver.resolve(
+        OnlyPrivateAssetRevisionReferenceV1(OnlyPrivateAssetKind.L4_STRATEGY, l4.strategy_id, l4.revision_fingerprint)
+    )
+    assert l4_binding.private_asset_content_fingerprint == l4.definition_fingerprint
+    assert l4_binding.l3_api_version is None
+
+
+def test_exact_revision_reference_never_falls_forward_or_crosses_asset_owner() -> None:
+    l3 = OnlyPrivateL3Revision.from_draft(_l3_draft())
+    resolver = OnlyPrivateAssetRevisionBindingResolver(_Revisions(l3, OnlyPrivateL4Revision.from_draft(_l4_draft())))
+    for asset_id, revision in (
+        (l3.factor_id, "f" * 64),
+        ("private.factor.other", l3.revision_fingerprint),
+    ):
+        with pytest.raises(OnlyPrivateAssetRevisionNotFoundError):
+            resolver.resolve(OnlyPrivateAssetRevisionReferenceV1(OnlyPrivateAssetKind.L3_FACTOR, asset_id, revision))
+
+    class WrongOwner(_Revisions):
+        def load_l3_revision(self, factor_id: str, revision_fingerprint: str) -> OnlyPrivateL3Revision:
+            del factor_id, revision_fingerprint
+            return l3
+
+    with pytest.raises(OnlyPrivateAssetReferenceMismatchError):
+        OnlyPrivateAssetRevisionBindingResolver(WrongOwner(l3, OnlyPrivateL4Revision.from_draft(_l4_draft()))).resolve(
+            OnlyPrivateAssetRevisionReferenceV1(
+                OnlyPrivateAssetKind.L3_FACTOR,
+                "private.factor.other",
+                "f" * 64,
+            )
+        )

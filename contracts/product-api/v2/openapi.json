@@ -5169,15 +5169,17 @@
       "SubmitResearchRunRequest": {
         "additionalProperties": false,
         "properties": {
-          "authoring_provenance": {
+          "authoring_generation_fingerprint": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ResearchAuthoringProvenanceDto"
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
               },
               {
                 "type": "null"
               }
-            ]
+            ],
+            "title": "Authoring Generation Fingerprint"
           },
           "specification": {
             "additionalProperties": {

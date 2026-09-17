@@ -60,6 +60,22 @@ class OnlyPrivateAssetAuthorityUnavailableError(OnlyPrivateAssetError):
     code = "PRIVATE_ASSET_AUTHORITY_UNAVAILABLE"
 
 
+class OnlyPrivateAssetRevisionNotFoundError(OnlyPrivateAssetError):
+    code = "PRIVATE_ASSET_REVISION_NOT_FOUND"
+
+
+class OnlyPrivateAssetRevisionCorruptError(OnlyPrivateAssetError):
+    code = "PRIVATE_ASSET_REVISION_CORRUPT"
+
+
+class OnlyPrivateAssetReferenceMismatchError(OnlyPrivateAssetError):
+    code = "PRIVATE_ASSET_REFERENCE_MISMATCH"
+
+
+class OnlyPrivateAssetKindUnsupportedError(OnlyPrivateAssetError):
+    code = "PRIVATE_ASSET_KIND_UNSUPPORTED"
+
+
 class OnlyPrivateAssetPutDisposition(StrEnum):
     CREATED = "CREATED"
     REUSED = "REUSED"
@@ -68,6 +84,54 @@ class OnlyPrivateAssetPutDisposition(StrEnum):
 class OnlyPrivateAssetKind(StrEnum):
     L3_FACTOR = "L3_FACTOR"
     L4_STRATEGY = "L4_STRATEGY"
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyPrivateAssetRevisionReferenceV1:
+    """Caller-owned exact reference; contains no authority-derived facts."""
+
+    private_asset_kind: OnlyPrivateAssetKind
+    private_asset_id: str
+    private_asset_revision_fingerprint: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.private_asset_kind, OnlyPrivateAssetKind):
+            raise OnlyPrivateAssetKindUnsupportedError(str(self.private_asset_kind))
+        if self.private_asset_kind is OnlyPrivateAssetKind.L3_FACTOR:
+            _factor_id(self.private_asset_id)
+        elif self.private_asset_kind is OnlyPrivateAssetKind.L4_STRATEGY:
+            _strategy_id(self.private_asset_id)
+        else:  # pragma: no cover - StrEnum exhaustiveness guard
+            raise OnlyPrivateAssetKindUnsupportedError(str(self.private_asset_kind))
+        _fingerprint(self.private_asset_revision_fingerprint, "private_asset_revision_fingerprint")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyVerifiedPrivateAssetRevisionBindingV1:
+    """Facts derived by resolving one exact immutable Revision."""
+
+    private_asset_kind: OnlyPrivateAssetKind
+    private_asset_id: str
+    private_asset_revision_fingerprint: str
+    private_asset_content_fingerprint: str
+    semantic_version: str
+    l3_api_version: int | None = None
+    l3_api_contract_fingerprint: str | None = None
+
+    def __post_init__(self) -> None:
+        OnlyPrivateAssetRevisionReferenceV1(
+            self.private_asset_kind,
+            self.private_asset_id,
+            self.private_asset_revision_fingerprint,
+        )
+        _fingerprint(self.private_asset_content_fingerprint, "private_asset_content_fingerprint")
+        _semantic_version(self.semantic_version)
+        if self.private_asset_kind is OnlyPrivateAssetKind.L3_FACTOR:
+            if self.l3_api_version != 1 or self.l3_api_contract_fingerprint is None:
+                raise OnlyPrivateAssetReferenceMismatchError("L3 API binding is incomplete")
+            _fingerprint(self.l3_api_contract_fingerprint, "l3_api_contract_fingerprint")
+        elif self.l3_api_version is not None or self.l3_api_contract_fingerprint is not None:
+            raise OnlyPrivateAssetReferenceMismatchError("L4 Revision cannot carry an L3 API binding")
 
 
 def _invalid(detail: str) -> NoReturn:
@@ -664,6 +728,63 @@ class OnlyPrivateAssetAuthoringAuthority(Protocol):
     def load_l4_revision(self, strategy_id: str, revision_fingerprint: str) -> OnlyPrivateL4Revision: ...
 
     def list_l4_revision_history(self, strategy_id: str) -> tuple[OnlyPrivateL4Revision, ...]: ...
+
+
+class OnlyPrivateAssetExactRevisionAuthority(Protocol):
+    """Minimum owning-authority surface needed to bind exact Revisions."""
+
+    def load_l3_revision(self, factor_id: str, revision_fingerprint: str) -> OnlyPrivateL3Revision: ...
+
+    def load_l4_revision(self, strategy_id: str, revision_fingerprint: str) -> OnlyPrivateL4Revision: ...
+
+
+class OnlyPrivateAssetRevisionBindingResolver:
+    def __init__(self, authority: OnlyPrivateAssetExactRevisionAuthority) -> None:
+        self._authority = authority
+
+    def resolve(self, reference: OnlyPrivateAssetRevisionReferenceV1) -> OnlyVerifiedPrivateAssetRevisionBindingV1:
+        if not isinstance(reference, OnlyPrivateAssetRevisionReferenceV1):
+            raise OnlyPrivateAssetInvalidError("exact Private Asset Revision reference is required")
+        try:
+            if reference.private_asset_kind is OnlyPrivateAssetKind.L3_FACTOR:
+                l3_revision = self._authority.load_l3_revision(
+                    reference.private_asset_id, reference.private_asset_revision_fingerprint
+                )
+                if (
+                    l3_revision.factor_id != reference.private_asset_id
+                    or l3_revision.revision_fingerprint != reference.private_asset_revision_fingerprint
+                ):
+                    raise OnlyPrivateAssetReferenceMismatchError(reference.private_asset_id)
+                return OnlyVerifiedPrivateAssetRevisionBindingV1(
+                    private_asset_kind=reference.private_asset_kind,
+                    private_asset_id=l3_revision.factor_id,
+                    private_asset_revision_fingerprint=l3_revision.revision_fingerprint,
+                    private_asset_content_fingerprint=l3_revision.source_sha256,
+                    semantic_version=l3_revision.semantic_version,
+                    l3_api_version=l3_revision.l3_api_version,
+                    l3_api_contract_fingerprint=l3_revision.l3_api_contract_fingerprint,
+                )
+            if reference.private_asset_kind is OnlyPrivateAssetKind.L4_STRATEGY:
+                l4_revision = self._authority.load_l4_revision(
+                    reference.private_asset_id, reference.private_asset_revision_fingerprint
+                )
+                if (
+                    l4_revision.strategy_id != reference.private_asset_id
+                    or l4_revision.revision_fingerprint != reference.private_asset_revision_fingerprint
+                ):
+                    raise OnlyPrivateAssetReferenceMismatchError(reference.private_asset_id)
+                return OnlyVerifiedPrivateAssetRevisionBindingV1(
+                    private_asset_kind=reference.private_asset_kind,
+                    private_asset_id=l4_revision.strategy_id,
+                    private_asset_revision_fingerprint=l4_revision.revision_fingerprint,
+                    private_asset_content_fingerprint=l4_revision.definition_fingerprint,
+                    semantic_version=l4_revision.semantic_version,
+                )
+            raise OnlyPrivateAssetKindUnsupportedError(str(reference.private_asset_kind))
+        except OnlyPrivateAssetNotFoundError as exc:
+            raise OnlyPrivateAssetRevisionNotFoundError(reference.private_asset_revision_fingerprint) from exc
+        except OnlyPrivateAssetCorruptError as exc:
+            raise OnlyPrivateAssetRevisionCorruptError(reference.private_asset_revision_fingerprint) from exc
 
 
 __all__ = [name for name in globals() if name.startswith(("Only", "only_", "PRIVATE_"))]

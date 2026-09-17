@@ -12,6 +12,7 @@ from onlyalpha.application.product_command_receipt import (
     only_cancel_research_run_command_fingerprint,
 )
 from onlyalpha.canonical import only_canonical_fingerprint
+from onlyalpha.quant_assets import OnlyPrivateAssetKind
 from onlyalpha.research.command.model import (
     OnlyNoveltyGatedResearchSubmitCommandV3,
     OnlyResearchSubmitCommand,
@@ -19,7 +20,6 @@ from onlyalpha.research.command.model import (
 )
 from onlyalpha.research.provenance import (
     OnlyResearchAuthoringProvenance,
-    OnlyResearchPrivateAssetKind,
     only_research_execution_generation_fingerprint,
 )
 from onlyalpha.research.specification.model import OnlyResearchSpecification
@@ -73,11 +73,11 @@ def test_v3_create_identity_binds_exact_decision_and_has_deterministic_run_id() 
     assert only_novelty_gated_research_run_id(COMMAND_ID) == only_novelty_gated_research_run_id(COMMAND_ID)
 
 
-def test_create_fingerprint_binds_exact_db_native_authoring_provenance() -> None:
+def test_create_fingerprint_binds_exact_authoring_generation_reference() -> None:
     strict = OnlyResearchSpecification.from_dict(specification().to_dict())
     identity = {
         "experiment_id": "exp-" + "a" * 32,
-        "private_asset_kind": OnlyResearchPrivateAssetKind.L3_FACTOR,
+        "private_asset_kind": OnlyPrivateAssetKind.L3_FACTOR,
         "private_asset_id": "private.factor.momentum",
         "private_asset_revision_fingerprint": "1" * 64,
         "private_asset_content_fingerprint": "2" * 64,
@@ -91,19 +91,13 @@ def test_create_fingerprint_binds_exact_db_native_authoring_provenance() -> None
         **identity,
         execution_generation_fingerprint=only_research_execution_generation_fingerprint(**identity),
     )
-    first = OnlyResearchSubmitCommand(COMMAND_ID, strict, provenance)
-    second = OnlyResearchSubmitCommand(COMMAND_ID, strict, provenance)
+    first = OnlyResearchSubmitCommand(COMMAND_ID, strict, provenance.execution_generation_fingerprint)
+    second = OnlyResearchSubmitCommand(COMMAND_ID, strict, provenance.execution_generation_fingerprint)
     changed_identity = {**identity, "private_asset_content_fingerprint": "5" * 64}
     changed = OnlyResearchSubmitCommand(
         COMMAND_ID,
         strict,
-        OnlyResearchAuthoringProvenance.from_dict(
-            {
-                **provenance.to_dict(),
-                "private_asset_content_fingerprint": "5" * 64,
-                "execution_generation_fingerprint": only_research_execution_generation_fingerprint(**changed_identity),
-            }
-        ),
+        only_research_execution_generation_fingerprint(**changed_identity),
     )
     assert first.command_fingerprint == second.command_fingerprint
     assert first.command_fingerprint != changed.command_fingerprint

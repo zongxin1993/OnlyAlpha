@@ -190,9 +190,13 @@ def test_derived_authoring_preserves_both_exact_bindings_without_parent_resolver
     class Authoring:
         calls = 0
 
-        def resolve(self, provenance, spec):  # type: ignore[no-untyped-def]
+        def load_verified(self, fingerprint):  # type: ignore[no-untyped-def]
+            assert fingerprint == _provenance().execution_generation_fingerprint
+            return _provenance()
+
+        def resolve(self, fingerprint, spec):  # type: ignore[no-untyped-def]
             self.calls += 1
-            assert provenance == _provenance()
+            self.load_verified(fingerprint)
             resolution = OnlyResearchSpecificationResolver(registry()).resolve(spec)
             return replace(resolution, specification_fingerprint="f" * 64) if drift else resolution
 
@@ -200,12 +204,22 @@ def test_derived_authoring_preserves_both_exact_bindings_without_parent_resolver
     service, trap, bindings, store, _, _ = _system(execution=_Execution(), authoring=authoring)
     if drift:
         with pytest.raises(OnlyResearchRunAdmissionError) as error:
-            service.submit_research_run(KEY, specification(), _provenance(), parent_runtime_work_id=PARENT)
+            service.submit_research_run(
+                KEY,
+                specification(),
+                _provenance().execution_generation_fingerprint,
+                parent_runtime_work_id=PARENT,
+            )
         assert error.value.code == "RESEARCH_EXECUTION_GENERATION_MISMATCH"
         assert bindings.work == {PARENT: G}
         assert not store.runs
     else:
-        run = service.submit_research_run(KEY, specification(), _provenance(), parent_runtime_work_id=PARENT).run
+        run = service.submit_research_run(
+            KEY,
+            specification(),
+            _provenance().execution_generation_fingerprint,
+            parent_runtime_work_id=PARENT,
+        ).run
         assert run.authoring_provenance == _provenance()
         assert bindings.work[run.run_id.value] == G
         assert (

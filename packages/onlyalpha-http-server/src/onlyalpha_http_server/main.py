@@ -11,7 +11,10 @@ from pathlib import Path
 from typing import Any, cast
 
 import uvicorn
-from onlyalpha_authoring_execution_worker.generation import OnlyAuthoringExecutionGenerationStore
+from onlyalpha_authoring_execution_worker.generation import (
+    OnlyAuthoringExecutionGenerationStore,
+    OnlyVerifiedAuthoringGenerationReader,
+)
 from onlyalpha_runtime_generation_manager import (
     OnlyHistoricalGenerationHostManager,
     OnlyLocalImmutableArtifactStore,
@@ -73,8 +76,10 @@ from onlyalpha.persistence.postgres import (
     only_assert_supported_postgres_server,
 )
 from onlyalpha.persistence.postgres.backtest_store import OnlyPostgresBacktestStore
+from onlyalpha.persistence.postgres.private_asset_store import OnlyPostgresPrivateAssetStore
 from onlyalpha.persistence.postgres.research_source_cut_store import OnlyPostgresResearchSourceCutAuthority
 from onlyalpha.persistence.postgres.strategy_product_store import OnlyPostgresStrategyProductStore
+from onlyalpha.quant_assets.private import OnlyPrivateAssetRevisionBindingResolver
 from onlyalpha.research.agent.source_cut import OnlyAgentProvenanceClosedCutAuthority
 from onlyalpha.research.artifact.reader import OnlyResearchArtifactProfileReader
 from onlyalpha.research.calculation.result_store import OnlyParquetResearchCalculationResultStore
@@ -705,8 +710,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             runtime_generations=runtime_generations,
             authoring_generation_root=args.authoring_generation_root or layout.research_root / "authoring-generations",
         )
-        authoring_generations = OnlyAuthoringExecutionGenerationStore(
-            args.authoring_generation_root or layout.research_root / "authoring-generations"
+        authoring_generations = OnlyVerifiedAuthoringGenerationReader(
+            OnlyAuthoringExecutionGenerationStore(
+                args.authoring_generation_root or layout.research_root / "authoring-generations"
+            ),
+            OnlyPrivateAssetRevisionBindingResolver(OnlyPostgresPrivateAssetStore(postgres.dsn, operational_options)),
         )
         runtime_generation_resolver = OnlyResearchHostedRuntimeGenerationResolver(
             execution=generation_host,

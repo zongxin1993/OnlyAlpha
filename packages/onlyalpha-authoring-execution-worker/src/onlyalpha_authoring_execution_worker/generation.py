@@ -8,10 +8,18 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
-from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration
+from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration, OnlyQuantAssetLayer
+from onlyalpha.quant_assets.private import (
+    OnlyPrivateAssetAuthorityUnavailableError,
+    OnlyPrivateAssetKind,
+    OnlyPrivateAssetRevisionBindingResolver,
+    OnlyPrivateAssetRevisionCorruptError,
+    OnlyPrivateAssetRevisionNotFoundError,
+    OnlyPrivateAssetRevisionReferenceV1,
+)
 from onlyalpha.research.provenance import (
     OnlyResearchAuthoringProvenance,
-    OnlyResearchPrivateAssetKind,
+    only_research_execution_generation_fingerprint,
 )
 from onlyalpha.research.run.errors import OnlyResearchRunAdmissionError
 from onlyalpha.research.specification.model import OnlyResearchSpecification
@@ -22,17 +30,105 @@ from onlyalpha.research.specification.resolver import (
 from onlyalpha.runtime.defaults import OnlyEngineServices, only_default_engine_services
 
 
-@dataclass(frozen=True, slots=True)
+class OnlyAuthoringGenerationError(ValueError):
+    code = "AUTHORING_GENERATION_ERROR"
+
+    def __init__(self, detail: str = "") -> None:
+        self.detail = detail
+        super().__init__(f"{self.code}: {detail}" if detail else self.code)
+
+
+class OnlyAuthoringPrivateAssetRevisionUnavailableError(OnlyAuthoringGenerationError):
+    code = "AUTHORING_PRIVATE_ASSET_REVISION_UNAVAILABLE"
+
+
+class OnlyAuthoringPrivateAssetAuthorityUnavailableError(OnlyAuthoringGenerationError):
+    code = "AUTHORING_PRIVATE_ASSET_AUTHORITY_UNAVAILABLE"
+
+
+class OnlyAuthoringPrivateAssetRevisionCorruptError(OnlyAuthoringGenerationError):
+    code = "AUTHORING_PRIVATE_ASSET_REVISION_CORRUPT"
+
+
+class OnlyAuthoringPrivateAssetBindingMismatchError(OnlyAuthoringGenerationError):
+    code = "AUTHORING_PRIVATE_ASSET_BINDING_MISMATCH"
+
+
+@dataclass(frozen=True, slots=True, init=False)
 class OnlyAuthoringExecutionGeneration:
     """One exact candidate Catalog bound to one durable authoring provenance identity."""
 
     provenance: OnlyResearchAuthoringProvenance
     catalog: OnlyQuantAssetCatalogGeneration
 
-    def __post_init__(self) -> None:
+    @classmethod
+    def create_verified(
+        cls,
+        *,
+        experiment_id: str,
+        private_asset_revision_reference: OnlyPrivateAssetRevisionReferenceV1,
+        private_asset_revisions: OnlyPrivateAssetRevisionBindingResolver,
+        candidate_provider_id: str,
+        candidate_provider_version: str,
+        catalog: OnlyQuantAssetCatalogGeneration,
+    ) -> OnlyAuthoringExecutionGeneration:
+        binding = private_asset_revisions.resolve(private_asset_revision_reference)
+        if binding.private_asset_kind is not OnlyPrivateAssetKind.L3_FACTOR:
+            raise ValueError("AUTHORING_EXECUTION_PRIVATE_ASSET_KIND_UNSUPPORTED")
+        by_id = tuple(
+            provider for provider in catalog.providers if provider.manifest.provider_id == candidate_provider_id
+        )
+        if not by_id:
+            raise ValueError("AUTHORING_CANDIDATE_PROVIDER_NOT_FOUND")
+        matches = tuple(
+            provider for provider in by_id if provider.manifest.provider_version == candidate_provider_version
+        )
+        if len(matches) != 1:
+            raise ValueError("AUTHORING_CANDIDATE_PROVIDER_VERSION_MISMATCH")
+        provider = matches[0]
+        if provider.manifest.layer is not OnlyQuantAssetLayer.FACTOR:
+            raise ValueError("AUTHORING_CANDIDATE_PROVIDER_LAYER_MISMATCH")
+        provenance = OnlyResearchAuthoringProvenance(
+            schema_version=1,
+            experiment_id=experiment_id,
+            private_asset_kind=OnlyPrivateAssetKind.L3_FACTOR,
+            private_asset_id=binding.private_asset_id,
+            private_asset_revision_fingerprint=binding.private_asset_revision_fingerprint,
+            private_asset_content_fingerprint=binding.private_asset_content_fingerprint,
+            candidate_provider_id=provider.manifest.provider_id,
+            candidate_provider_version=provider.manifest.provider_version,
+            candidate_provider_content_fingerprint=provider.content_fingerprint,
+            catalog_generation_fingerprint=catalog.generation_fingerprint,
+            execution_generation_fingerprint=only_research_execution_generation_fingerprint(
+                experiment_id=experiment_id,
+                private_asset_kind=OnlyPrivateAssetKind.L3_FACTOR,
+                private_asset_id=binding.private_asset_id,
+                private_asset_revision_fingerprint=binding.private_asset_revision_fingerprint,
+                private_asset_content_fingerprint=binding.private_asset_content_fingerprint,
+                candidate_provider_id=provider.manifest.provider_id,
+                candidate_provider_version=provider.manifest.provider_version,
+                candidate_provider_content_fingerprint=provider.content_fingerprint,
+                catalog_generation_fingerprint=catalog.generation_fingerprint,
+            ),
+        )
+        return cls._from_verified(provenance, catalog)
+
+    @classmethod
+    def _from_verified(
+        cls,
+        provenance: OnlyResearchAuthoringProvenance,
+        catalog: OnlyQuantAssetCatalogGeneration,
+    ) -> OnlyAuthoringExecutionGeneration:
+        self = object.__new__(cls)
+        object.__setattr__(self, "provenance", provenance)
+        object.__setattr__(self, "catalog", catalog)
+        self._verify_composition()
+        return self
+
+    def _verify_composition(self) -> None:
         if self.catalog.generation_fingerprint != self.provenance.catalog_generation_fingerprint:
             raise ValueError("AUTHORING_CATALOG_GENERATION_MISMATCH")
-        if self.provenance.private_asset_kind is not OnlyResearchPrivateAssetKind.L3_FACTOR:
+        if self.provenance.private_asset_kind is not OnlyPrivateAssetKind.L3_FACTOR:
             raise ValueError("AUTHORING_EXECUTION_PRIVATE_ASSET_KIND_UNSUPPORTED")
         matches = tuple(
             provider
@@ -45,6 +141,8 @@ class OnlyAuthoringExecutionGeneration:
             or matches[0].content_fingerprint != self.provenance.candidate_provider_content_fingerprint
         ):
             raise ValueError("AUTHORING_CANDIDATE_PROVIDER_MISMATCH")
+        if matches[0].manifest.layer is not OnlyQuantAssetLayer.FACTOR:
+            raise ValueError("AUTHORING_CANDIDATE_PROVIDER_LAYER_MISMATCH")
 
     @property
     def fingerprint(self) -> str:
@@ -141,6 +239,7 @@ class OnlyAuthoringExecutionGenerationStore:
                 )
                 != provenance.catalog_generation_fingerprint
                 or len(matches) != 1
+                or matches[0]["manifest"].get("layer") != OnlyQuantAssetLayer.FACTOR.value
             ):
                 raise ValueError("descriptor identity")
             return descriptor
@@ -148,14 +247,56 @@ class OnlyAuthoringExecutionGenerationStore:
             raise ValueError("AUTHORING_EXECUTION_GENERATION_NOT_FOUND_OR_CORRUPT") from exc
 
 
+class OnlyVerifiedAuthoringGenerationReader:
+    """Re-anchor immutable descriptor evidence to the owning Private Asset Authority."""
+
+    def __init__(
+        self,
+        store: OnlyAuthoringExecutionGenerationStore,
+        private_asset_revisions: OnlyPrivateAssetRevisionBindingResolver,
+    ) -> None:
+        self._store = store
+        self._private_asset_revisions = private_asset_revisions
+
+    def load_verified(self, fingerprint: str) -> OnlyResearchAuthoringProvenance:
+        descriptor = self._store.load_descriptor_verified(fingerprint)
+        provenance = OnlyResearchAuthoringProvenance.from_dict(descriptor["provenance"])  # type: ignore[arg-type]
+        reference = OnlyPrivateAssetRevisionReferenceV1(
+            OnlyPrivateAssetKind(provenance.private_asset_kind.value),
+            provenance.private_asset_id,
+            provenance.private_asset_revision_fingerprint,
+        )
+        try:
+            binding = self._private_asset_revisions.resolve(reference)
+        except OnlyPrivateAssetRevisionNotFoundError as exc:
+            raise OnlyAuthoringPrivateAssetRevisionUnavailableError() from exc
+        except OnlyPrivateAssetAuthorityUnavailableError as exc:
+            raise OnlyAuthoringPrivateAssetAuthorityUnavailableError() from exc
+        except OnlyPrivateAssetRevisionCorruptError as exc:
+            raise OnlyAuthoringPrivateAssetRevisionCorruptError() from exc
+        if (
+            binding.private_asset_kind.value != provenance.private_asset_kind.value
+            or binding.private_asset_id != provenance.private_asset_id
+            or binding.private_asset_revision_fingerprint != provenance.private_asset_revision_fingerprint
+            or binding.private_asset_content_fingerprint != provenance.private_asset_content_fingerprint
+        ):
+            raise OnlyAuthoringPrivateAssetBindingMismatchError()
+        return provenance
+
+
 class OnlyAuthoringExecutionGenerationRegistry:
     """Immutable Product-admission resolver for verified process generations."""
 
-    def __init__(self, generations: tuple[OnlyAuthoringExecutionGeneration, ...]) -> None:
+    def __init__(
+        self,
+        generations: tuple[OnlyAuthoringExecutionGeneration, ...],
+        verified_reader: OnlyVerifiedAuthoringGenerationReader,
+    ) -> None:
         if len(generations) != 1:
             raise ValueError("AUTHORING_PROCESS_REQUIRES_EXACTLY_ONE_GENERATION")
         indexed = {generation.fingerprint: generation for generation in generations}
         self._generations = indexed
+        self._verified_reader = verified_reader
         self._resolvers = {
             fingerprint: OnlyResearchSpecificationResolver(
                 generation.engine_services().assembler.components.calculations
@@ -163,28 +304,40 @@ class OnlyAuthoringExecutionGenerationRegistry:
             for fingerprint, generation in indexed.items()
         }
 
-    def resolve(
-        self,
-        provenance: OnlyResearchAuthoringProvenance,
-        specification: OnlyResearchSpecification,
-    ) -> OnlyResearchSpecificationResolution:
+    def load_verified(self, fingerprint: str) -> OnlyResearchAuthoringProvenance:
         try:
-            generation = self._generations[provenance.execution_generation_fingerprint]
+            generation = self._generations[fingerprint]
         except KeyError as exc:
             raise OnlyResearchRunAdmissionError(
                 "Authoring execution generation was not admitted",
                 code="RESEARCH_EXECUTION_GENERATION_UNAVAILABLE",
             ) from exc
-        if generation.provenance.identity_dict() != provenance.identity_dict():
+        provenance = self._verified_reader.load_verified(fingerprint)
+        if provenance != generation.provenance:
             raise OnlyResearchRunAdmissionError(
                 "Authoring execution generation provenance differs",
                 code="RESEARCH_EXECUTION_GENERATION_MISMATCH",
             )
+        return provenance
+
+    def resolve(
+        self,
+        authoring_generation_fingerprint: str,
+        specification: OnlyResearchSpecification,
+    ) -> OnlyResearchSpecificationResolution:
+        self.load_verified(authoring_generation_fingerprint)
+        generation = self._generations[authoring_generation_fingerprint]
         return self._resolvers[generation.fingerprint].resolve(specification)
 
 
 __all__ = [
     "OnlyAuthoringExecutionGeneration",
+    "OnlyAuthoringGenerationError",
+    "OnlyAuthoringPrivateAssetAuthorityUnavailableError",
+    "OnlyAuthoringPrivateAssetBindingMismatchError",
+    "OnlyAuthoringPrivateAssetRevisionCorruptError",
+    "OnlyAuthoringPrivateAssetRevisionUnavailableError",
     "OnlyAuthoringExecutionGenerationRegistry",
     "OnlyAuthoringExecutionGenerationStore",
+    "OnlyVerifiedAuthoringGenerationReader",
 ]

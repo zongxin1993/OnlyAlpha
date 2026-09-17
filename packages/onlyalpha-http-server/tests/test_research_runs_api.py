@@ -26,6 +26,7 @@ from onlyalpha.kernel import (
 )
 from onlyalpha.kernel.command import OnlyProductCommandBinding, OnlyProductCommandDispatcher
 from onlyalpha.kernel.query import OnlyProductQueryDispatcher
+from onlyalpha.quant_assets import OnlyPrivateAssetKind
 from onlyalpha.research.artifact.errors import OnlyResearchArtifactStoreError
 from onlyalpha.research.command import (
     OnlyResearchCommandService,
@@ -40,7 +41,6 @@ from onlyalpha.research.operations.readiness import (
 )
 from onlyalpha.research.provenance import (
     OnlyResearchAuthoringProvenance,
-    OnlyResearchPrivateAssetKind,
     only_research_execution_generation_fingerprint,
 )
 from onlyalpha.research.run import (
@@ -67,7 +67,7 @@ KEY = "00000000-0000-4000-8000-000000000501"
 def _authoring_provenance() -> dict[str, object]:
     identity = {
         "experiment_id": "exp-" + "a" * 32,
-        "private_asset_kind": OnlyResearchPrivateAssetKind.L3_FACTOR,
+        "private_asset_kind": OnlyPrivateAssetKind.L3_FACTOR,
         "private_asset_id": "private.factor.momentum",
         "private_asset_revision_fingerprint": "1" * 64,
         "private_asset_content_fingerprint": "2" * 64,
@@ -98,9 +98,14 @@ class _Dataset:
 
 
 class _AuthoringGenerations:
-    def resolve(self, provenance, research_specification):  # type: ignore[no-untyped-def]
-        if provenance.identity_dict() != _authoring_provenance():
+    def load_verified(self, fingerprint):  # type: ignore[no-untyped-def]
+        provenance = OnlyResearchAuthoringProvenance.from_dict(_authoring_provenance())
+        if fingerprint != provenance.execution_generation_fingerprint:
             raise ValueError("generation mismatch")
+        return provenance
+
+    def resolve(self, fingerprint, research_specification):  # type: ignore[no-untyped-def]
+        self.load_verified(fingerprint)
         return OnlyResearchSpecificationResolver(registry()).resolve(research_specification)
 
 
@@ -298,10 +303,13 @@ def test_submit_replay_get_list_and_cancel_contract() -> None:
     assert cancelled.json()["revision"] == "1"
 
 
-def test_authoring_provenance_round_trips_and_conflicting_retry_fails_closed() -> None:
+def test_authoring_generation_reference_derives_run_provenance_and_conflicting_retry_fails_closed() -> None:
     _, store, client = _client()
     provenance = _authoring_provenance()
-    payload = {"specification": dict(specification().to_dict()), "authoring_provenance": provenance}
+    payload = {
+        "specification": dict(specification().to_dict()),
+        "authoring_generation_fingerprint": provenance["execution_generation_fingerprint"],
+    }
     created = client.post("/api/v2/research/runs", headers={"Idempotency-Key": KEY}, json=payload)
     assert created.status_code == 202
     run = created.json()["run"]
@@ -324,15 +332,7 @@ def test_authoring_provenance_round_trips_and_conflicting_retry_fails_closed() -
     }
     assert next(iter(store.runs.values())).authoring_provenance is not None
 
-    changed_identity = {**provenance, "private_asset_content_fingerprint": "5" * 64}
-    changed_identity["execution_generation_fingerprint"] = only_research_execution_generation_fingerprint(
-        **{
-            key: value
-            for key, value in changed_identity.items()
-            if key not in {"schema_version", "execution_generation_fingerprint"}
-        }
-    )
-    conflict_payload = {**payload, "authoring_provenance": changed_identity}
+    conflict_payload = {**payload, "authoring_generation_fingerprint": "5" * 64}
     conflict = client.post("/api/v2/research/runs", headers={"Idempotency-Key": KEY}, json=conflict_payload)
     assert conflict.status_code == 409
     assert conflict.json()["error"]["code"] == "RESEARCH_SUBMISSION_KEY_CONFLICT"
@@ -360,7 +360,7 @@ def test_authoring_run_requires_server_verified_execution_generation_before_pers
         headers={"Idempotency-Key": KEY},
         json={
             "specification": dict(specification().to_dict()),
-            "authoring_provenance": _authoring_provenance(),
+            "authoring_generation_fingerprint": _authoring_provenance()["execution_generation_fingerprint"],
         },
     )
 
@@ -370,7 +370,7 @@ def test_authoring_run_requires_server_verified_execution_generation_before_pers
     assert store.receipts == {}
 
 
-def test_invalid_authoring_provenance_is_rejected_at_http_boundary() -> None:
+def test_full_authoring_provenance_and_invalid_generation_reference_are_rejected_at_http_boundary() -> None:
     payload = {
         "specification": dict(specification().to_dict()),
         "authoring_provenance": {
@@ -381,6 +381,15 @@ def test_invalid_authoring_provenance_is_rejected_at_http_boundary() -> None:
     response = _client()[2].post("/api/v2/research/runs", headers={"Idempotency-Key": KEY}, json=payload)
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "RESEARCH_REQUEST_INVALID"
+    invalid = _client()[2].post(
+        "/api/v2/research/runs",
+        headers={"Idempotency-Key": KEY},
+        json={
+            "specification": dict(specification().to_dict()),
+            "authoring_generation_fingerprint": "not-a-fingerprint",
+        },
+    )
+    assert invalid.status_code == 400
 
 
 def test_cancel_idempotency_header_is_optional_and_keyed_retry_is_strong() -> None:

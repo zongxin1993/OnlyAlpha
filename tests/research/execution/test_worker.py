@@ -9,6 +9,7 @@ import pytest
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.output import OnlyUserDataLayout
+from onlyalpha.quant_assets import OnlyPrivateAssetKind
 from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore
 from onlyalpha.research.execution import (
     OnlyEngineResearchRuntimeExecutor,
@@ -27,7 +28,6 @@ from onlyalpha.research.execution import (
 )
 from onlyalpha.research.provenance import (
     OnlyResearchAuthoringProvenance,
-    OnlyResearchPrivateAssetKind,
     only_research_execution_generation_fingerprint,
 )
 from onlyalpha.research.run import (
@@ -250,7 +250,7 @@ def _case(
 def _authoring_provenance() -> OnlyResearchAuthoringProvenance:
     identity = {
         "experiment_id": "exp-" + "a" * 32,
-        "private_asset_kind": OnlyResearchPrivateAssetKind.L3_FACTOR,
+        "private_asset_kind": OnlyPrivateAssetKind.L3_FACTOR,
         "private_asset_id": "private.factor.momentum",
         "private_asset_revision_fingerprint": "1" * 64,
         "private_asset_content_fingerprint": "2" * 64,

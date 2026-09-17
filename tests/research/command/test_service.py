@@ -30,6 +30,7 @@ from onlyalpha.application.product_command_receipt import (
 from onlyalpha.application.search_product import only_search_experiment_work_id
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.kernel import OnlyAlphaKernelHost
+from onlyalpha.quant_assets import OnlyPrivateAssetKind
 from onlyalpha.research.command import (
     OnlyDerivedResearchSubmitCommandV2,
     OnlyResearchCancellationConflictError,
@@ -47,7 +48,6 @@ from onlyalpha.research.command import (
 )
 from onlyalpha.research.provenance import (
     OnlyResearchAuthoringProvenance,
-    OnlyResearchPrivateAssetKind,
     only_research_execution_generation_fingerprint,
 )
 from onlyalpha.research.run import (
@@ -123,7 +123,7 @@ class _ProductAdmissions:
 def _provenance(*, content_fingerprint: str = "2" * 64) -> OnlyResearchAuthoringProvenance:
     identity = {
         "experiment_id": "exp-" + "a" * 32,
-        "private_asset_kind": OnlyResearchPrivateAssetKind.L3_FACTOR,
+        "private_asset_kind": OnlyPrivateAssetKind.L3_FACTOR,
         "private_asset_id": "private.factor.momentum",
         "private_asset_revision_fingerprint": "1" * 64,
         "private_asset_content_fingerprint": content_fingerprint,
@@ -152,9 +152,14 @@ class _DatasetStore:
 
 
 class _AuthoringGenerations:
-    def resolve(self, provenance, research_specification):  # type: ignore[no-untyped-def]
-        if provenance.identity_dict() != _provenance().identity_dict():
+    def load_verified(self, fingerprint):  # type: ignore[no-untyped-def]
+        provenance = _provenance()
+        if fingerprint != provenance.execution_generation_fingerprint:
             raise ValueError("generation mismatch")
+        return provenance
+
+    def resolve(self, fingerprint, research_specification):  # type: ignore[no-untyped-def]
+        self.load_verified(fingerprint)
         return OnlyResearchSpecificationResolver(registry()).resolve(research_specification)
 
 
@@ -891,18 +896,19 @@ def test_same_key_different_command_conflicts_but_different_keys_create_distinct
         service.submit_research_run(KEY, spec)
 
 
-def test_submission_identity_binds_exact_db_native_authoring_provenance() -> None:
+def test_submission_identity_binds_exact_authoring_generation_reference() -> None:
     store, dataset = _Store(), _DatasetStore()
     service = _service(store, dataset)
-    created = service.submit_research_run(KEY, specification(), _provenance())
+    generation = _provenance().execution_generation_fingerprint
+    created = service.submit_research_run(KEY, specification(), generation)
 
-    replayed = service.submit_research_run(KEY, specification(), _provenance())
+    replayed = service.submit_research_run(KEY, specification(), generation)
     assert replayed.disposition is OnlyResearchSubmitDisposition.REUSED
     assert replayed.run == created.run
     assert replayed.run.authoring_provenance == _provenance()
 
     with pytest.raises(OnlyResearchSubmissionConflictError):
-        service.submit_research_run(KEY, specification(), _provenance(content_fingerprint="5" * 64))
+        service.submit_research_run(KEY, specification(), "5" * 64)
 
 
 def test_admission_failure_persists_nothing() -> None:

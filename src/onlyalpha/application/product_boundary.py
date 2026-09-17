@@ -44,7 +44,6 @@ from onlyalpha.research.command.model import (
 )
 from onlyalpha.research.command.query import DEFAULT_RESEARCH_RUN_PAGE_SIZE, OnlyResearchRunQueryService
 from onlyalpha.research.command.service import OnlyResearchCommandService
-from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 from onlyalpha.research.run.model import OnlyResearchRun, OnlyResearchRunId
 from onlyalpha.research.specification.model import OnlyResearchSpecification
 
@@ -53,7 +52,16 @@ from onlyalpha.research.specification.model import OnlyResearchSpecification
 class OnlyCreateResearchRun(OnlyProductCommand):
     submission_key: OnlyProductCommandId
     specification: OnlyResearchSpecification
-    authoring_provenance: OnlyResearchAuthoringProvenance | None = None
+    authoring_generation_fingerprint: str | None = None
+
+    def __post_init__(self) -> None:
+        value = self.authoring_generation_fingerprint
+        if value is not None and (
+            not isinstance(value, str)
+            or len(value) != 64
+            or any(character not in "0123456789abcdef" for character in value)
+        ):
+            raise ValueError("AUTHORING_EXECUTION_GENERATION_IDENTITY_INVALID")
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,7 +108,7 @@ def only_compose_research_product_boundary(
         return commands.submit_research_run(
             command.submission_key,
             command.specification,
-            command.authoring_provenance,
+            command.authoring_generation_fingerprint,
         )
 
     def cancel(command: OnlyCancelResearchRun) -> OnlyResearchRun:
