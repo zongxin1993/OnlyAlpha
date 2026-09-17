@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import json
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import StrEnum
@@ -12,6 +13,21 @@ from onlyalpha.calculation.definition import OnlyCalculationDefinition, OnlyCalc
 from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 from onlyalpha.research.evaluation.subject import OnlyExactEvaluationIntentSubjectV1
+from onlyalpha.research.memory.projector import (
+    OnlyExperimentMemoryProjectionV1,
+    OnlyMemoryCutReader,
+    OnlyMemoryProjectionRecordV1,
+    OnlyMemorySourceRefV1,
+    only_load_cut_observations,
+)
+from onlyalpha.research.memory.query import (
+    OnlyExactEvaluationHistorySelectorV1,
+    OnlyExactSemanticHistorySelectorV1,
+    OnlyExactStatisticsReferenceV1,
+)
+from onlyalpha.research.memory.source_manifest import MANDATORY_FAMILIES, OnlyMemoryProjectionError
+from onlyalpha.research.memory.store import OnlyExperimentMemoryRevisionStore
+from onlyalpha.research.source_cut import OnlySourceObservationV1
 from onlyalpha.research.specification.model import OnlyResearchSpecification
 
 REPRESENTATION_SCHEMA_VERSION = 1
@@ -20,6 +36,7 @@ RESULT_SCHEMA_VERSION = 1
 INDEX_SCHEMA_VERSION = 1
 STRUCTURED_ALGORITHM_ID = "STRUCTURED_NEAR_DUPLICATE"
 STRUCTURED_ALGORITHM_VERSION = "1"
+_COMPARISON_DIMENSIONS = frozenset({"DATASET", "EVALUATION_CONTEXT", "OPERATORS", "OUTPUT", "PARAMETERS", "TOPOLOGY"})
 
 
 def _sha(value: object, name: str) -> str:
@@ -39,6 +56,18 @@ def _decimal_text(value: Decimal) -> str:
         raise ValueError("score must be finite")
     text = format(value.normalize(), "f")
     return "0" if text == "-0" else text
+
+
+def _decimal(value: object, name: str) -> Decimal:
+    if not isinstance(value, str):
+        raise ValueError(f"{name} must be a canonical decimal string")
+    try:
+        result = Decimal(value)
+    except Exception as exc:
+        raise ValueError(f"{name} must be a canonical decimal string") from exc
+    if _decimal_text(result) != value:
+        raise ValueError(f"{name} must be a canonical decimal string")
+    return result
 
 
 @dataclass(frozen=True, order=True, slots=True)
@@ -116,7 +145,10 @@ class OnlyResearchAdvisoryRepresentationV1:
         _sha(self.source_cut_fingerprint, "source_cut_fingerprint")
         _sha(self.dataset_snapshot_fingerprint, "dataset_snapshot_fingerprint")
         _sha(self.evaluation_context_fingerprint, "evaluation_context_fingerprint")
-        if self.representation_schema_version != REPRESENTATION_SCHEMA_VERSION:
+        if (
+            type(self.representation_schema_version) is not int
+            or self.representation_schema_version != REPRESENTATION_SCHEMA_VERSION
+        ):
             raise ValueError("advisory representation schema is unsupported")
         for name in ("operator_features", "topology_features", "output_features"):
             values = getattr(self, name)
@@ -154,9 +186,6 @@ class OnlyResearchAdvisoryRepresentationV1:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchAdvisoryRepresentationV1:
-        fingerprint = payload.get("representation_fingerprint")
-        fields = dict(payload)
-        fields.pop("representation_fingerprint", None)
         expected = {
             "representation_schema_version",
             "source_ref",
@@ -168,15 +197,20 @@ class OnlyResearchAdvisoryRepresentationV1:
             "output_features",
             "dataset_snapshot_fingerprint",
             "evaluation_context_fingerprint",
+            "representation_fingerprint",
         }
-        if set(fields) != expected:
+        if set(payload) != expected:
             raise ValueError("advisory representation fields are invalid")
+        fields = dict(payload)
+        fingerprint = fields.pop("representation_fingerprint")
         for name in ("source_ref",):
             if not isinstance(fields[name], Mapping):
                 raise ValueError(f"{name} must be an object")
         for name in ("operator_features", "topology_features", "parameter_features", "output_features"):
             if not isinstance(fields[name], list):
                 raise ValueError(f"{name} must be an array")
+        if any(not isinstance(item, Mapping) for item in cast(list[object], fields["parameter_features"])):
+            raise ValueError("parameter_features entries must be objects")
         result = cls(
             OnlyResearchAdvisorySourceRefV1.from_dict(cast(Mapping[str, object], fields["source_ref"])),
             cast(str, fields["projection_revision"]),
@@ -192,7 +226,7 @@ class OnlyResearchAdvisoryRepresentationV1:
             cast(str, fields["evaluation_context_fingerprint"]),
             cast(int, fields["representation_schema_version"]),
         )
-        if fingerprint is not None and fingerprint != result.representation_fingerprint:
+        if fingerprint != result.representation_fingerprint or result.to_dict() != dict(payload):
             raise ValueError("advisory representation fingerprint differs")
         return result
 
@@ -334,7 +368,7 @@ class OnlyResearchAdvisoryIndexV1:
     def __post_init__(self) -> None:
         _sha(self.projection_revision, "projection_revision")
         _sha(self.source_cut_fingerprint, "source_cut_fingerprint")
-        if self.index_schema_version != INDEX_SCHEMA_VERSION:
+        if type(self.index_schema_version) is not int or self.index_schema_version != INDEX_SCHEMA_VERSION:
             raise ValueError("advisory index schema is unsupported")
         expected = tuple(sorted(self.representations, key=lambda item: item.representation_fingerprint))
         if self.representations != expected or len({item.representation_fingerprint for item in expected}) != len(
@@ -365,6 +399,28 @@ class OnlyResearchAdvisoryIndexV1:
             payload["index_build_revision"] = self.index_build_revision
         return payload
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchAdvisoryIndexV1:
+        expected = {
+            "index_schema_version",
+            "projection_revision",
+            "source_cut_fingerprint",
+            "representations",
+            "index_build_revision",
+        }
+        raw = payload.get("representations")
+        if set(payload) != expected or not isinstance(raw, list) or any(not isinstance(item, Mapping) for item in raw):
+            raise ValueError("advisory index fields are invalid")
+        result = cls(
+            cast(str, payload["projection_revision"]),
+            cast(str, payload["source_cut_fingerprint"]),
+            tuple(OnlyResearchAdvisoryRepresentationV1.from_dict(cast(Mapping[str, object], item)) for item in raw),
+            cast(int, payload["index_schema_version"]),
+        )
+        if payload["index_build_revision"] != result.index_build_revision or result.to_dict() != dict(payload):
+            raise ValueError("advisory index build revision differs")
+        return result
+
 
 def only_build_research_advisory_index(
     projection_revision: str,
@@ -391,7 +447,8 @@ class OnlyNearDuplicateThresholdPolicyV1:
         _text(self.policy_id, "threshold policy_id")
         _text(self.policy_version, "threshold policy_version")
         if (
-            self.schema_version != 1
+            type(self.schema_version) is not int
+            or self.schema_version != 1
             or not self.minimum_retrieval_score.is_finite()
             or not self.advisory_similarity_score.is_finite()
             or not Decimal(0) <= self.minimum_retrieval_score <= self.advisory_similarity_score <= Decimal(1)
@@ -417,6 +474,31 @@ class OnlyNearDuplicateThresholdPolicyV1:
             payload["policy_fingerprint"] = self.policy_fingerprint
         return payload
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyNearDuplicateThresholdPolicyV1:
+        expected = {
+            "schema_version",
+            "policy_id",
+            "policy_version",
+            "minimum_retrieval_score",
+            "advisory_similarity_score",
+            "maximum_results",
+            "policy_fingerprint",
+        }
+        if set(payload) != expected:
+            raise ValueError("near-duplicate threshold policy fields are invalid")
+        result = cls(
+            cast(str, payload["policy_id"]),
+            cast(str, payload["policy_version"]),
+            _decimal(payload["minimum_retrieval_score"], "minimum_retrieval_score"),
+            _decimal(payload["advisory_similarity_score"], "advisory_similarity_score"),
+            cast(int, payload["maximum_results"]),
+            cast(int, payload["schema_version"]),
+        )
+        if payload["policy_fingerprint"] != result.policy_fingerprint or result.to_dict() != dict(payload):
+            raise ValueError("near-duplicate threshold policy fingerprint differs")
+        return result
+
 
 @dataclass(frozen=True, slots=True)
 class OnlyNearDuplicateQueryV1:
@@ -440,7 +522,8 @@ class OnlyNearDuplicateQueryV1:
         ):
             _sha(getattr(self, name), name)
         if (
-            self.query_schema_version != QUERY_SCHEMA_VERSION
+            type(self.query_schema_version) is not int
+            or self.query_schema_version != QUERY_SCHEMA_VERSION
             or self.retrieval_algorithm_id != STRUCTURED_ALGORITHM_ID
             or self.retrieval_algorithm_version != STRUCTURED_ALGORITHM_VERSION
             or type(self.requested_result_limit) is not int
@@ -468,13 +551,42 @@ class OnlyNearDuplicateQueryV1:
             payload["query_fingerprint"] = self.query_fingerprint
         return payload
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyNearDuplicateQueryV1:
+        expected = {
+            "query_schema_version",
+            "representation_fingerprint",
+            "projection_revision",
+            "source_cut_fingerprint",
+            "index_build_revision",
+            "retrieval_algorithm_id",
+            "retrieval_algorithm_version",
+            "threshold_policy_fingerprint",
+            "requested_result_limit",
+            "query_fingerprint",
+        }
+        if set(payload) != expected:
+            raise ValueError("near-duplicate query fields are invalid")
+        result = cls(
+            cast(str, payload["representation_fingerprint"]),
+            cast(str, payload["projection_revision"]),
+            cast(str, payload["source_cut_fingerprint"]),
+            cast(str, payload["index_build_revision"]),
+            cast(str, payload["threshold_policy_fingerprint"]),
+            cast(int, payload["requested_result_limit"]),
+            cast(str, payload["retrieval_algorithm_id"]),
+            cast(str, payload["retrieval_algorithm_version"]),
+            cast(int, payload["query_schema_version"]),
+        )
+        if payload["query_fingerprint"] != result.query_fingerprint or result.to_dict() != dict(payload):
+            raise ValueError("near-duplicate query fingerprint differs")
+        return result
 
-class OnlyNearDuplicateContextTier(StrEnum):
+
+class OnlyNearDuplicateAdvisoryContextTier(StrEnum):
     RETRIEVABLE = "RETRIEVABLE"
     COMPARABLE = "COMPARABLE"
     ADVISORY_SIMILAR = "ADVISORY_SIMILAR"
-    HARD_REUSE_ELIGIBLE = "HARD_REUSE_ELIGIBLE"
-    HARD_SUPPRESSION_ELIGIBLE = "HARD_SUPPRESSION_ELIGIBLE"
 
 
 class OnlyNearDuplicateResultStatus(StrEnum):
@@ -491,7 +603,7 @@ class OnlyNearDuplicateMatchV1:
     source_identity: str
     source_revision: str
     score: Decimal
-    context_tiers: tuple[OnlyNearDuplicateContextTier, ...]
+    context_tiers: tuple[OnlyNearDuplicateAdvisoryContextTier, ...]
     representation_fingerprint: str
     same: tuple[str, ...]
     different: tuple[str, ...]
@@ -506,9 +618,18 @@ class OnlyNearDuplicateMatchV1:
             raise ValueError("near-duplicate score is invalid")
         if (
             not self.context_tiers
+            or any(not isinstance(item, OnlyNearDuplicateAdvisoryContextTier) for item in self.context_tiers)
             or self.context_tiers != tuple(sorted(set(self.context_tiers), key=lambda item: item.value))
             or self.same != tuple(sorted(set(self.same)))
             or self.different != tuple(sorted(set(self.different)))
+            or set(self.same) & set(self.different)
+            or set(self.same) | set(self.different) != _COMPARISON_DIMENSIONS
+            or any(not isinstance(item, str) or not item for item in (*self.same, *self.different))
+            or OnlyNearDuplicateAdvisoryContextTier.RETRIEVABLE not in self.context_tiers
+            or (
+                OnlyNearDuplicateAdvisoryContextTier.COMPARABLE in self.context_tiers
+                and not {"DATASET", "EVALUATION_CONTEXT"}.issubset(self.same)
+            )
         ):
             raise ValueError("near-duplicate explanation is not canonical")
 
@@ -524,6 +645,45 @@ class OnlyNearDuplicateMatchV1:
             "same": list(self.same),
             "different": list(self.different),
         }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyNearDuplicateMatchV1:
+        expected = {
+            "source_kind",
+            "native_locator",
+            "source_identity",
+            "source_revision",
+            "score",
+            "context_tiers",
+            "representation_fingerprint",
+            "same",
+            "different",
+        }
+        tiers, same, different = payload.get("context_tiers"), payload.get("same"), payload.get("different")
+        if (
+            set(payload) != expected
+            or not isinstance(tiers, list)
+            or not isinstance(same, list)
+            or not isinstance(different, list)
+        ):
+            raise ValueError("near-duplicate match fields are invalid")
+        try:
+            result = cls(
+                cast(str, payload["source_kind"]),
+                cast(str, payload["native_locator"]),
+                cast(str, payload["source_identity"]),
+                cast(str, payload["source_revision"]),
+                _decimal(payload["score"], "score"),
+                tuple(OnlyNearDuplicateAdvisoryContextTier(cast(str, item)) for item in tiers),
+                cast(str, payload["representation_fingerprint"]),
+                tuple(cast(list[str], same)),
+                tuple(cast(list[str], different)),
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("near-duplicate match is invalid") from exc
+        if result.to_dict() != dict(payload):
+            raise ValueError("near-duplicate match is not canonical")
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -556,14 +716,33 @@ class OnlyNearDuplicateResultV1:
         ):
             _sha(getattr(self, name), name)
         if (
-            self.result_schema_version != RESULT_SCHEMA_VERSION
+            type(self.result_schema_version) is not int
+            or self.result_schema_version != RESULT_SCHEMA_VERSION
+            or type(self.representation_schema_version) is not int
             or self.representation_schema_version != REPRESENTATION_SCHEMA_VERSION
+            or self.retrieval_algorithm_id != STRUCTURED_ALGORITHM_ID
+            or self.retrieval_algorithm_version != STRUCTURED_ALGORITHM_VERSION
         ):
             raise ValueError("near-duplicate result schema is unsupported")
+        _text(self.threshold_policy_id, "threshold_policy_id")
+        _text(self.threshold_policy_version, "threshold_policy_version")
+        if not isinstance(self.status, OnlyNearDuplicateResultStatus):
+            raise ValueError("near-duplicate result status is invalid")
         if self.status is OnlyNearDuplicateResultStatus.ADVISORY_OK and self.failure_code is not None:
             raise ValueError("successful advisory result cannot carry a failure code")
-        if self.status is not OnlyNearDuplicateResultStatus.ADVISORY_OK and not self.failure_code:
+        if self.status is not OnlyNearDuplicateResultStatus.ADVISORY_OK and (
+            not isinstance(self.failure_code, str) or not self.failure_code
+        ):
             raise ValueError("non-success advisory result requires a failure code")
+        if (
+            self.status
+            in {
+                OnlyNearDuplicateResultStatus.ADVISORY_UNAVAILABLE,
+                OnlyNearDuplicateResultStatus.ADVISORY_UNSUPPORTED,
+            }
+            and self.matches
+        ):
+            raise ValueError("unavailable or unsupported advisory result cannot carry matches")
         if self.matches != tuple(
             sorted(
                 self.matches,
@@ -571,11 +750,20 @@ class OnlyNearDuplicateResultV1:
             )
         ):
             raise ValueError("near-duplicate matches are not deterministically ordered")
+        match_sources = tuple(
+            (item.source_kind, item.native_locator, item.source_identity, item.source_revision) for item in self.matches
+        )
+        if len(match_sources) != len(set(match_sources)):
+            raise ValueError("near-duplicate matches contain duplicate sources")
         if any(value is not None for value in (self.model_id, self.model_version, self.model_content_fingerprint)):
             raise ValueError("STRUCTURED_NEAR_DUPLICATE_V1 does not accept model identity")
 
-    def to_dict(self) -> dict[str, object]:
-        return {
+    @property
+    def result_fingerprint(self) -> str:
+        return only_canonical_fingerprint(self.to_dict(include_fingerprint=False))
+
+    def to_dict(self, *, include_fingerprint: bool = True) -> dict[str, object]:
+        payload: dict[str, object] = {
             "result_schema_version": self.result_schema_version,
             "query_fingerprint": self.query_fingerprint,
             "projection_revision": self.projection_revision,
@@ -594,6 +782,60 @@ class OnlyNearDuplicateResultV1:
             "matches": [item.to_dict() for item in self.matches],
             "failure_code": self.failure_code,
         }
+        if include_fingerprint:
+            payload["result_fingerprint"] = self.result_fingerprint
+        return payload
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyNearDuplicateResultV1:
+        expected = {
+            "result_schema_version",
+            "query_fingerprint",
+            "projection_revision",
+            "source_cut_fingerprint",
+            "representation_schema_version",
+            "retrieval_algorithm_id",
+            "retrieval_algorithm_version",
+            "model_id",
+            "model_version",
+            "model_content_fingerprint",
+            "threshold_policy_id",
+            "threshold_policy_version",
+            "threshold_policy_fingerprint",
+            "index_build_revision",
+            "status",
+            "matches",
+            "failure_code",
+            "result_fingerprint",
+        }
+        raw = payload.get("matches")
+        if set(payload) != expected or not isinstance(raw, list) or any(not isinstance(item, Mapping) for item in raw):
+            raise ValueError("near-duplicate result fields are invalid")
+        try:
+            result = cls(
+                cast(str, payload["query_fingerprint"]),
+                cast(str, payload["projection_revision"]),
+                cast(str, payload["source_cut_fingerprint"]),
+                cast(int, payload["representation_schema_version"]),
+                cast(str, payload["retrieval_algorithm_id"]),
+                cast(str, payload["retrieval_algorithm_version"]),
+                cast(str, payload["threshold_policy_id"]),
+                cast(str, payload["threshold_policy_version"]),
+                cast(str, payload["threshold_policy_fingerprint"]),
+                cast(str, payload["index_build_revision"]),
+                OnlyNearDuplicateResultStatus(cast(str, payload["status"])),
+                tuple(OnlyNearDuplicateMatchV1.from_dict(cast(Mapping[str, object], item)) for item in raw),
+                cast(str | None, payload["failure_code"]),
+                cast(str | None, payload["model_id"]),
+                cast(str | None, payload["model_version"]),
+                cast(str | None, payload["model_content_fingerprint"]),
+                cast(int, payload["result_schema_version"]),
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("near-duplicate result is invalid") from exc
+        if payload["result_fingerprint"] != result.result_fingerprint or result.to_dict() != dict(payload):
+            raise ValueError("near-duplicate result fingerprint differs")
+        return result
 
 
 class OnlyResearchAdvisorySourceVerifier(Protocol):
@@ -607,6 +849,370 @@ class OnlyResearchAdvisorySourceVerifier(Protocol):
 
 class OnlyResearchAdvisoryUnavailableError(RuntimeError):
     pass
+
+
+class _OnlyResearchAdvisoryCalculationManifest(Protocol):
+    calculation_fingerprint: str
+    calculation_graph_fingerprint: str
+    calculation_graph: OnlyCalculationGraphDefinition
+
+
+class _OnlyResearchAdvisoryCalculationResult(Protocol):
+    manifest: _OnlyResearchAdvisoryCalculationManifest
+
+
+class OnlyResearchAdvisoryCalculationResultReader(Protocol):
+    def load_verified(self, calculation_fingerprint: str) -> _OnlyResearchAdvisoryCalculationResult: ...
+
+
+class OnlyResearchAdvisoryReferenceReaders(Protocol):
+    def for_observations(
+        self, observations: tuple[OnlySourceObservationV1, ...]
+    ) -> Callable[[str, str], Mapping[str, object]]: ...
+
+
+class OnlyExperimentMemoryAdvisoryProjectionBuilder:
+    """Rebuild and verify disposable advice from frozen owning source facts."""
+
+    def __init__(
+        self,
+        revisions: OnlyExperimentMemoryRevisionStore,
+        source_readers: Mapping[str, OnlyMemoryCutReader],
+        reference_readers: OnlyResearchAdvisoryReferenceReaders,
+        calculation_results: OnlyResearchAdvisoryCalculationResultReader,
+    ) -> None:
+        if set(source_readers) != set(MANDATORY_FAMILIES):
+            raise ValueError("advisory source readers are incomplete")
+        self._revisions = revisions
+        self._sources = dict(source_readers)
+        self._references = reference_readers
+        self._calculations = calculation_results
+
+    def build_index(self, projection_revision: str) -> OnlyResearchAdvisoryIndexV1:
+        projection, representations = self._load(projection_revision)
+        return only_build_research_advisory_index(
+            projection.revision_fingerprint,
+            projection.source_manifest.manifest_fingerprint,
+            representations,
+        )
+
+    def load_representation_verified(
+        self,
+        source_ref: OnlyResearchAdvisorySourceRefV1,
+        projection_revision: str,
+        representation_schema_version: int,
+    ) -> OnlyResearchAdvisoryRepresentationV1:
+        if representation_schema_version != REPRESENTATION_SCHEMA_VERSION:
+            raise ValueError("advisory representation schema is unsupported")
+        _, representations = self._load(projection_revision)
+        matches = tuple(item for item in representations if item.source_ref == source_ref)
+        if len(matches) != 1:
+            raise ValueError("advisory source is missing or ambiguous")
+        return matches[0]
+
+    def _load(
+        self, projection_revision: str
+    ) -> tuple[OnlyExperimentMemoryProjectionV1, tuple[OnlyResearchAdvisoryRepresentationV1, ...]]:
+        try:
+            projection = self._revisions.load_verified(projection_revision)
+            observations = only_load_cut_observations(projection.source_manifest, self._sources)
+            exact = self._references.for_observations(observations)
+        except OnlyMemoryProjectionError as exc:
+            if str(exc) in {"SOURCE_OBSERVATION_UNAVAILABLE", "REFERENCE_AUTHORITY_UNAVAILABLE"}:
+                raise OnlyResearchAdvisoryUnavailableError(str(exc)) from exc
+            raise ValueError("advisory projection source verification failed") from exc
+        by_ref = {
+            (item.source_family, item.cut_fingerprint, item.locator, item.identity, item.content_fingerprint): item
+            for item in observations
+        }
+        representations: list[OnlyResearchAdvisoryRepresentationV1] = []
+        for record in projection.records:
+            if record.kind == "EvaluationProjectionRecord":
+                representations.extend(self._representations(projection, record, by_ref, exact))
+        return projection, tuple(sorted(representations, key=lambda item: item.representation_fingerprint))
+
+    def _representations(
+        self,
+        projection: OnlyExperimentMemoryProjectionV1,
+        record: OnlyMemoryProjectionRecordV1,
+        by_ref: Mapping[tuple[str, str, str, str, str], OnlySourceObservationV1],
+        exact: Callable[[str, str], Mapping[str, object]],
+    ) -> tuple[OnlyResearchAdvisoryRepresentationV1, ...]:
+        facets = record.facets
+        result_ref = self._one_record_ref(
+            record,
+            "RESEARCH_RESULT",
+            facets.get("research_result_locator"),
+            facets.get("research_result_fingerprint"),
+        )
+        result = self._observation(result_ref, by_ref)
+        graph = self._graph(result, facets.get("graph_fingerprint"))
+        raw_statistics = facets.get("statistics_references")
+        closures = facets.get("run_evaluation_closures")
+        if not isinstance(raw_statistics, list) or not raw_statistics or not isinstance(closures, list) or not closures:
+            raise ValueError("advisory evaluation projection is incomplete")
+        self._verify_result_facets(record, result, facets, raw_statistics, by_ref)
+        try:
+            dataset = exact("DATASET_SNAPSHOT", cast(str, facets.get("dataset_snapshot_fingerprint")))
+            graph_identity = exact("CALCULATION_GRAPH", graph.fingerprint)
+        except OnlyMemoryProjectionError as exc:
+            raise OnlyResearchAdvisoryUnavailableError(str(exc)) from exc
+        if (
+            dataset.get("snapshot_fingerprint") != facets.get("dataset_snapshot_fingerprint")
+            or graph_identity.get("graph_fingerprint") != graph.fingerprint
+        ):
+            raise ValueError("advisory exact reference differs from the projection")
+        output: list[OnlyResearchAdvisoryRepresentationV1] = []
+        for raw in closures:
+            if not isinstance(raw, Mapping):
+                raise ValueError("advisory Run closure is invalid")
+            run_ref = self._memory_ref(raw.get("run_source_ref"))
+            if run_ref not in record.source_refs:
+                raise ValueError("advisory Run relation is absent from the projection")
+            run = self._observation(run_ref, by_ref)
+            specification = self._specification(run, raw.get("specification_fingerprint"))
+            self._verify_run_closure(run, raw)
+            try:
+                verified_specification = exact("RESEARCH_SPECIFICATION", specification.specification_fingerprint)
+                binding = exact("RUNTIME_WORK_BINDING", cast(str, raw.get("run_id")))
+                authoring = raw.get("authoring_generation_fingerprint")
+                if isinstance(authoring, str):
+                    exact("AUTHORING_GENERATION", authoring)
+            except OnlyMemoryProjectionError as exc:
+                raise OnlyResearchAdvisoryUnavailableError(str(exc)) from exc
+            if (
+                verified_specification != specification.to_dict()
+                or binding.get("work_id") != raw.get("run_id")
+                or binding.get("runtime_generation_fingerprint") != raw.get("runtime_generation_fingerprint")
+                or binding.get("catalog_generation_fingerprint") != raw.get("catalog_generation_fingerprint")
+            ):
+                raise ValueError("advisory Run exact references differ from the projection")
+            subject = OnlyExactEvaluationHistorySelectorV1(
+                OnlyExactSemanticHistorySelectorV1(
+                    cast(str, facets.get("graph_fingerprint")),
+                    cast(str, facets.get("candidate_node_fingerprint")),
+                    cast(str, facets.get("output_name")),
+                ),
+                cast(str, facets.get("candidate_fingerprint")),
+                cast(str, facets.get("dataset_snapshot_fingerprint")),
+                specification.specification_fingerprint,
+                cast(str, facets.get("research_result_locator")),
+                cast(str, raw.get("catalog_generation_fingerprint")),
+                cast(str, raw.get("runtime_generation_fingerprint")),
+                cast(str | None, raw.get("authoring_generation_fingerprint")),
+                tuple(
+                    OnlyExactStatisticsReferenceV1(
+                        cast(str, item["statistics_fingerprint"]),
+                        cast(str, item["statistics_result_fingerprint"]),
+                    )
+                    for item in raw_statistics
+                ),
+            ).intent_subject
+            source_ref = self._entry_ref(result_ref, run_ref, subject)
+            output.append(
+                only_build_research_advisory_representation(
+                    subject=subject,
+                    graph=graph,
+                    specification=specification,
+                    source_ref=source_ref,
+                    projection_revision=projection.revision_fingerprint,
+                    source_cut_fingerprint=projection.source_manifest.manifest_fingerprint,
+                )
+            )
+        return tuple(output)
+
+    @staticmethod
+    def _verify_result_facets(
+        record: OnlyMemoryProjectionRecordV1,
+        result: OnlySourceObservationV1,
+        facets: Mapping[str, object],
+        statistics: list[object],
+        by_ref: Mapping[tuple[str, str, str, str, str], OnlySourceObservationV1],
+    ) -> None:
+        payload = result.canonical_payload
+        plan = payload.get("plan")
+        if not isinstance(plan, Mapping):
+            raise ValueError("advisory Result plan is unavailable")
+        candidates = plan.get("candidates")
+        series = (*cast(list[object], plan.get("published_series", [])), *cast(list[object], plan.get("signals", [])))
+        candidate = (
+            tuple(
+                item
+                for item in cast(list[object], candidates)
+                if isinstance(item, Mapping)
+                and item.get("candidate_fingerprint") == facets.get("candidate_fingerprint")
+                and item.get("graph_fingerprint") == facets.get("graph_fingerprint")
+            )
+            if isinstance(candidates, list)
+            else ()
+        )
+        output = tuple(
+            item
+            for item in series
+            if isinstance(item, Mapping)
+            and item.get("candidate_fingerprint") == facets.get("candidate_fingerprint")
+            and item.get("node_fingerprint") == facets.get("candidate_node_fingerprint")
+            and item.get("output_name") == facets.get("output_name")
+        )
+        available_statistics = payload.get("statistics_results")
+        statistic_fingerprints = {
+            item.get("statistics_fingerprint") for item in statistics if isinstance(item, Mapping)
+        }
+        candidate_statistics = candidate[0].get("statistics_fingerprints") if candidate else None
+        for item in statistics:
+            if not isinstance(item, Mapping):
+                raise ValueError("advisory Statistics reference is invalid")
+            matches = tuple(
+                ref
+                for ref in record.source_refs
+                if ref.source_family
+                in {"RESEARCH_STATISTICS", "RESEARCH_FACTOR_PAIR_STATISTICS", "RESEARCH_SUMMARY_STATISTICS"}
+                and ref.identity == item.get("statistics_result_fingerprint")
+            )
+            if len(matches) != 1:
+                raise ValueError("advisory Statistics relation is incomplete")
+            observation = OnlyExperimentMemoryAdvisoryProjectionBuilder._observation(matches[0], by_ref)
+            if observation.canonical_payload.get("statistics_fingerprint") != item.get(
+                "statistics_fingerprint"
+            ) or observation.canonical_payload.get("statistics_result_fingerprint") != item.get(
+                "statistics_result_fingerprint"
+            ):
+                raise ValueError("advisory Statistics source differs from the Result")
+        if (
+            payload.get("dataset_snapshot_fingerprint") != facets.get("dataset_snapshot_fingerprint")
+            or len(candidate) != 1
+            or len(output) != 1
+            or not isinstance(available_statistics, list)
+            or any(item not in available_statistics for item in statistics)
+            or not isinstance(candidate_statistics, list)
+            or set(candidate_statistics) != statistic_fingerprints
+        ):
+            raise ValueError("advisory Result facts differ from the projection")
+
+    @staticmethod
+    def _verify_run_closure(run: OnlySourceObservationV1, closure: Mapping[str, object]) -> None:
+        row = run.canonical_payload.get("source_row")
+        if not isinstance(row, Mapping):
+            raise ValueError("advisory Run source row is unavailable")
+        for field in (
+            "run_id",
+            "revision",
+            "state",
+            "specification_fingerprint",
+            "research_result_fingerprint",
+            "artifact_content_fingerprint",
+            "calculation_execution_evidence_fingerprints",
+        ):
+            projection_name = {"revision": "run_revision", "state": "run_state"}.get(field, field)
+            if row.get(field) != closure.get(projection_name):
+                raise ValueError("advisory Run facts differ from the projection")
+        provenance = row.get("authoring_provenance")
+        authoring = provenance.get("execution_generation_fingerprint") if isinstance(provenance, Mapping) else None
+        if authoring != closure.get("authoring_generation_fingerprint"):
+            raise ValueError("advisory Run authoring generation differs from the projection")
+
+    def _graph(self, result: OnlySourceObservationV1, graph_fingerprint: object) -> OnlyCalculationGraphDefinition:
+        plan = result.canonical_payload.get("plan")
+        calculations = plan.get("calculations") if isinstance(plan, Mapping) else None
+        if not isinstance(graph_fingerprint, str) or not isinstance(calculations, list):
+            raise ValueError("advisory Result calculation closure is incomplete")
+        identities = {
+            item.get("calculation_fingerprint")
+            for item in calculations
+            if isinstance(item, Mapping) and item.get("graph_fingerprint") == graph_fingerprint
+        }
+        if len(identities) != 1 or not isinstance(identity := next(iter(identities)), str):
+            raise ValueError("advisory Result calculation closure is ambiguous")
+        try:
+            loaded = self._calculations.load_verified(identity)
+            manifest = loaded.manifest
+            graph = manifest.calculation_graph
+        except Exception as exc:
+            raise OnlyResearchAdvisoryUnavailableError("Calculation authority is unavailable") from exc
+        if (
+            not isinstance(graph, OnlyCalculationGraphDefinition)
+            or manifest.calculation_fingerprint != identity
+            or manifest.calculation_graph_fingerprint != graph_fingerprint
+            or graph.fingerprint != graph_fingerprint
+        ):
+            raise ValueError("advisory Calculation Graph differs from the Result")
+        return graph
+
+    @staticmethod
+    def _specification(run: OnlySourceObservationV1, identity: object) -> OnlyResearchSpecification:
+        row = run.canonical_payload.get("source_row")
+        if not isinstance(row, Mapping) or row.get("specification_fingerprint") != identity:
+            raise ValueError("advisory Run Specification binding differs")
+        raw = row.get("specification_payload")
+        try:
+            payload = json.loads(raw) if isinstance(raw, str) else raw
+            if not isinstance(payload, Mapping):
+                raise ValueError("Specification payload")
+            specification = OnlyResearchSpecification.from_dict(payload)
+        except Exception as exc:
+            raise ValueError("advisory Run Specification is invalid") from exc
+        if specification.specification_fingerprint != identity:
+            raise ValueError("advisory Run Specification identity differs")
+        return specification
+
+    @staticmethod
+    def _memory_ref(value: object) -> OnlyMemorySourceRefV1:
+        if not isinstance(value, Mapping) or set(value) != {
+            "source_family",
+            "cut_fingerprint",
+            "locator",
+            "identity",
+            "content_fingerprint",
+        }:
+            raise ValueError("advisory source reference is invalid")
+        return OnlyMemorySourceRefV1(**cast(dict[str, str], value))
+
+    @staticmethod
+    def _one_record_ref(
+        record: OnlyMemoryProjectionRecordV1, family: str, locator: object, identity: object
+    ) -> OnlyMemorySourceRefV1:
+        matches = tuple(
+            ref
+            for ref in record.source_refs
+            if ref.source_family == family and ref.locator == locator and ref.identity == identity
+        )
+        if len(matches) != 1:
+            raise ValueError("advisory owning Result relation is incomplete")
+        return matches[0]
+
+    @staticmethod
+    def _observation(
+        ref: OnlyMemorySourceRefV1,
+        by_ref: Mapping[tuple[str, str, str, str, str], OnlySourceObservationV1],
+    ) -> OnlySourceObservationV1:
+        key = (ref.source_family, ref.cut_fingerprint, ref.locator, ref.identity, ref.content_fingerprint)
+        try:
+            return by_ref[key]
+        except KeyError as exc:
+            raise ValueError("advisory owning source fact is missing") from exc
+
+    @staticmethod
+    def _entry_ref(
+        result: OnlyMemorySourceRefV1,
+        run: OnlyMemorySourceRefV1,
+        subject: OnlyExactEvaluationIntentSubjectV1,
+    ) -> OnlyResearchAdvisorySourceRefV1:
+        relation = {
+            "result_source_ref": result.to_dict(),
+            "run_source_ref": run.to_dict(),
+            "subject_fingerprint": subject.subject_fingerprint,
+        }
+        return OnlyResearchAdvisorySourceRefV1(
+            "EXPERIMENT_MEMORY_EVALUATION",
+            only_canonical_json(relation),
+            only_canonical_fingerprint({"domain": "onlyalpha.advisory-source", **relation}),
+            only_canonical_fingerprint(
+                {
+                    "result_content_fingerprint": result.content_fingerprint,
+                    "run_content_fingerprint": run.content_fingerprint,
+                }
+            ),
+        )
 
 
 def _jaccard(left: tuple[str, ...], right: tuple[str, ...]) -> Decimal:
@@ -744,11 +1350,11 @@ def only_query_near_duplicates(
             "PARAMETERS": current.parameter_features == historical.parameter_features,
             "TOPOLOGY": current.topology_features == historical.topology_features,
         }
-        tiers = [OnlyNearDuplicateContextTier.RETRIEVABLE]
+        tiers = [OnlyNearDuplicateAdvisoryContextTier.RETRIEVABLE]
         if score >= policy.advisory_similarity_score:
-            tiers.append(OnlyNearDuplicateContextTier.ADVISORY_SIMILAR)
+            tiers.append(OnlyNearDuplicateAdvisoryContextTier.ADVISORY_SIMILAR)
         if comparisons["DATASET"] and comparisons["EVALUATION_CONTEXT"]:
-            tiers.append(OnlyNearDuplicateContextTier.COMPARABLE)
+            tiers.append(OnlyNearDuplicateAdvisoryContextTier.COMPARABLE)
         matches.append(
             OnlyNearDuplicateMatchV1(
                 historical.source_ref.source_kind,
