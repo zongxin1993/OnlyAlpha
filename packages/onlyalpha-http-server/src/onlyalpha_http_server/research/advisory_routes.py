@@ -11,7 +11,7 @@ from onlyalpha.application.product_boundary import OnlyResearchProductBoundary
 from onlyalpha.application.research_advisory import (
     OnlyGetResearchNearDuplicateAdvisoryV1,
     OnlyResearchAdvisoryRequestInvalid,
-    OnlyResearchNearDuplicateAdvisoryBundleV1,
+    OnlyResearchNearDuplicateAdvisoryBundleV2,
 )
 from onlyalpha.research.specification.model import OnlyResearchSpecification
 
@@ -38,7 +38,7 @@ class ResearchNearDuplicateAdvisoryEntryDto(_AdvisoryDto):
 
 
 class ResearchNearDuplicateAdvisoryResponseDto(_AdvisoryDto):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     specification_fingerprint: Sha256Dto
     projection_revision: Sha256Dto
     source_cut_fingerprint: Sha256Dto
@@ -51,7 +51,7 @@ class ResearchNearDuplicateAdvisoryResponseDto(_AdvisoryDto):
     bundle_fingerprint: Sha256Dto
 
     @classmethod
-    def from_bundle(cls, value: OnlyResearchNearDuplicateAdvisoryBundleV1) -> ResearchNearDuplicateAdvisoryResponseDto:
+    def from_bundle(cls, value: OnlyResearchNearDuplicateAdvisoryBundleV2) -> ResearchNearDuplicateAdvisoryResponseDto:
         payload = value.to_dict()
         payload["entries"] = tuple(cast(list[dict[str, JsonValue]], payload["entries"]))
         return cls.model_validate(cast(object, payload))
@@ -103,7 +103,7 @@ def create_advisory_router(product: OnlyResearchProductBoundary) -> APIRouter:
         except (TypeError, ValueError) as exc:
             raise OnlyResearchAdvisoryRequestInvalid("HTTP request contains an invalid Research Specification") from exc
         result = product.queries.dispatch(query)
-        if not isinstance(result, OnlyResearchNearDuplicateAdvisoryBundleV1):
+        if not isinstance(result, OnlyResearchNearDuplicateAdvisoryBundleV2):
             raise TypeError("Product dispatcher returned the wrong advisory response")
         return ResearchNearDuplicateAdvisoryResponseDto.from_bundle(result)
 

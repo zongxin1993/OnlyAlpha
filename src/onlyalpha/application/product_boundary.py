@@ -12,7 +12,7 @@ from onlyalpha.application.catalog_context import (
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId
 from onlyalpha.application.research_advisory import (
     OnlyGetResearchNearDuplicateAdvisoryV1,
-    OnlyResearchNearDuplicateAdvisoryBundleV1,
+    OnlyResearchNearDuplicateAdvisoryBundleV2,
     OnlyResearchNearDuplicateQueryService,
 )
 from onlyalpha.application.search_product import (
@@ -153,7 +153,7 @@ def only_compose_research_product_boundary(
 
     def get_near_duplicates(
         query: OnlyGetResearchNearDuplicateAdvisoryV1,
-    ) -> OnlyResearchNearDuplicateAdvisoryBundleV1:
+    ) -> OnlyResearchNearDuplicateAdvisoryBundleV2:
         if near_duplicate_queries is None:  # excluded from bindings below
             raise RuntimeError("RESEARCH_ADVISORY_QUERY_UNAVAILABLE")
         return near_duplicate_queries.get(query)

@@ -35,7 +35,8 @@ from onlyalpha.research.specification.resolver import (
     OnlyResearchSpecificationResolver,
 )
 
-BUNDLE_SCHEMA_VERSION = 1
+BUNDLE_V1_SCHEMA_VERSION = 1
+BUNDLE_SCHEMA_VERSION = 2
 
 
 class OnlyResearchAdvisoryProductError(RuntimeError):
@@ -146,8 +147,139 @@ class OnlyResearchNearDuplicateAdvisoryEntryV1:
         )
 
 
+def _validate_advisory_bundle_context(
+    specification_fingerprint: str,
+    projection_revision: str,
+    source_cut_fingerprint: str,
+    retrieval_algorithm_id: str,
+    retrieval_algorithm_version: str,
+    threshold_policy: OnlyNearDuplicateThresholdPolicyV1,
+    entries: tuple[OnlyResearchNearDuplicateAdvisoryEntryV1, ...],
+) -> None:
+    _sha(specification_fingerprint, "specification_fingerprint")
+    _sha(projection_revision, "projection_revision")
+    _sha(source_cut_fingerprint, "source_cut_fingerprint")
+    if (
+        retrieval_algorithm_id != STRUCTURED_ALGORITHM_ID
+        or retrieval_algorithm_version != STRUCTURED_ALGORITHM_VERSION
+        or not isinstance(threshold_policy, OnlyNearDuplicateThresholdPolicyV1)
+        or not entries
+    ):
+        raise ValueError("near-duplicate advisory bundle is unsupported")
+    if entries != tuple(sorted(entries, key=lambda item: item.subject_fingerprint)):
+        raise ValueError("advisory entries are not ordered by subject fingerprint")
+    if len({item.subject_fingerprint for item in entries}) != len(entries):
+        raise ValueError("advisory entries contain duplicate subjects")
+    for entry in entries:
+        result = entry.result
+        if (
+            result.projection_revision != projection_revision
+            or result.source_cut_fingerprint != source_cut_fingerprint
+            or result.retrieval_algorithm_id != retrieval_algorithm_id
+            or result.retrieval_algorithm_version != retrieval_algorithm_version
+            or result.threshold_policy_id != threshold_policy.policy_id
+            or result.threshold_policy_version != threshold_policy.policy_version
+            or result.threshold_policy_fingerprint != threshold_policy.policy_fingerprint
+        ):
+            raise ValueError("advisory bundle entries mix query context")
+
+
 @dataclass(frozen=True, slots=True)
 class OnlyResearchNearDuplicateAdvisoryBundleV1:
+    specification_fingerprint: str
+    projection_revision: str
+    source_cut_fingerprint: str
+    retrieval_algorithm_id: str
+    retrieval_algorithm_version: str
+    threshold_policy: OnlyNearDuplicateThresholdPolicyV1
+    entries: tuple[OnlyResearchNearDuplicateAdvisoryEntryV1, ...]
+    schema_version: int = BUNDLE_V1_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if self.schema_version != BUNDLE_V1_SCHEMA_VERSION:
+            raise ValueError("near-duplicate advisory bundle is unsupported")
+        _validate_advisory_bundle_context(
+            self.specification_fingerprint,
+            self.projection_revision,
+            self.source_cut_fingerprint,
+            self.retrieval_algorithm_id,
+            self.retrieval_algorithm_version,
+            self.threshold_policy,
+            self.entries,
+        )
+
+    @property
+    def bundle_fingerprint(self) -> str:
+        return only_canonical_fingerprint(self.to_dict(include_fingerprint=False))
+
+    @property
+    def threshold_policy_id(self) -> str:
+        return self.threshold_policy.policy_id
+
+    @property
+    def threshold_policy_version(self) -> str:
+        return self.threshold_policy.policy_version
+
+    @property
+    def threshold_policy_fingerprint(self) -> str:
+        return self.threshold_policy.policy_fingerprint
+
+    def to_dict(self, *, include_fingerprint: bool = True) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "schema_version": self.schema_version,
+            "specification_fingerprint": self.specification_fingerprint,
+            "projection_revision": self.projection_revision,
+            "source_cut_fingerprint": self.source_cut_fingerprint,
+            "retrieval_algorithm_id": self.retrieval_algorithm_id,
+            "retrieval_algorithm_version": self.retrieval_algorithm_version,
+            "threshold_policy": self.threshold_policy.to_dict(),
+            "entries": [item.to_dict() for item in self.entries],
+        }
+        if include_fingerprint:
+            payload["bundle_fingerprint"] = self.bundle_fingerprint
+        return payload
+
+    @classmethod
+    def from_dict(cls, payload: object) -> OnlyResearchNearDuplicateAdvisoryBundleV1:
+        expected = {
+            "schema_version",
+            "specification_fingerprint",
+            "projection_revision",
+            "source_cut_fingerprint",
+            "retrieval_algorithm_id",
+            "retrieval_algorithm_version",
+            "threshold_policy",
+            "entries",
+            "bundle_fingerprint",
+        }
+        if (
+            not isinstance(payload, dict)
+            or set(payload) != expected
+            or not isinstance(payload["threshold_policy"], dict)
+            or not isinstance(payload["entries"], list)
+            or any(not isinstance(item, dict) for item in cast(list[object], payload["entries"]))
+        ):
+            raise ValueError("near-duplicate advisory bundle fields are invalid")
+        result = cls(
+            cast(str, payload["specification_fingerprint"]),
+            cast(str, payload["projection_revision"]),
+            cast(str, payload["source_cut_fingerprint"]),
+            cast(str, payload["retrieval_algorithm_id"]),
+            cast(str, payload["retrieval_algorithm_version"]),
+            OnlyNearDuplicateThresholdPolicyV1.from_dict(cast(dict[str, object], payload["threshold_policy"])),
+            tuple(
+                OnlyResearchNearDuplicateAdvisoryEntryV1.from_dict(item)
+                for item in cast(list[dict[str, object]], payload["entries"])
+            ),
+            cast(int, payload["schema_version"]),
+        )
+        if payload["bundle_fingerprint"] != result.bundle_fingerprint or result.to_dict() != payload:
+            raise ValueError("near-duplicate advisory bundle fingerprint differs")
+        return result
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyResearchNearDuplicateAdvisoryBundleV2:
     specification_fingerprint: str
     projection_revision: str
     source_cut_fingerprint: str
@@ -160,36 +292,22 @@ class OnlyResearchNearDuplicateAdvisoryBundleV1:
     schema_version: int = BUNDLE_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        _sha(self.specification_fingerprint, "specification_fingerprint")
-        _sha(self.projection_revision, "projection_revision")
-        _sha(self.source_cut_fingerprint, "source_cut_fingerprint")
-        _sha(self.index_build_revision, "index_build_revision")
-        if (
-            self.schema_version != BUNDLE_SCHEMA_VERSION
-            or self.retrieval_algorithm_id != STRUCTURED_ALGORITHM_ID
-            or self.retrieval_algorithm_version != STRUCTURED_ALGORITHM_VERSION
-            or not isinstance(self.threshold_policy, OnlyNearDuplicateThresholdPolicyV1)
-            or not self.entries
-            or type(self.requested_result_limit) is not int
-            or not 1 <= self.requested_result_limit <= 100
-        ):
+        if self.schema_version != BUNDLE_SCHEMA_VERSION:
             raise ValueError("near-duplicate advisory bundle is unsupported")
-        if self.entries != tuple(sorted(self.entries, key=lambda item: item.subject_fingerprint)):
-            raise ValueError("advisory entries are not ordered by subject fingerprint")
-        if len({item.subject_fingerprint for item in self.entries}) != len(self.entries):
-            raise ValueError("advisory entries contain duplicate subjects")
+        _sha(self.index_build_revision, "index_build_revision")
+        if type(self.requested_result_limit) is not int or not 1 <= self.requested_result_limit <= 100:
+            raise ValueError("near-duplicate result limit is invalid")
+        _validate_advisory_bundle_context(
+            self.specification_fingerprint,
+            self.projection_revision,
+            self.source_cut_fingerprint,
+            self.retrieval_algorithm_id,
+            self.retrieval_algorithm_version,
+            self.threshold_policy,
+            self.entries,
+        )
         for entry in self.entries:
-            result = entry.result
-            if (
-                result.projection_revision != self.projection_revision
-                or result.source_cut_fingerprint != self.source_cut_fingerprint
-                or result.retrieval_algorithm_id != self.retrieval_algorithm_id
-                or result.retrieval_algorithm_version != self.retrieval_algorithm_version
-                or result.threshold_policy_id != self.threshold_policy.policy_id
-                or result.threshold_policy_version != self.threshold_policy.policy_version
-                or result.threshold_policy_fingerprint != self.threshold_policy.policy_fingerprint
-                or result.index_build_revision != self.index_build_revision
-            ):
+            if entry.result.index_build_revision != self.index_build_revision:
                 raise ValueError("advisory bundle entries mix query context")
             expected_query = OnlyNearDuplicateQueryV1(
                 entry.representation_fingerprint,
@@ -199,7 +317,7 @@ class OnlyResearchNearDuplicateAdvisoryBundleV1:
                 self.threshold_policy.policy_fingerprint,
                 self.requested_result_limit,
             )
-            if expected_query.query_fingerprint != result.query_fingerprint:
+            if expected_query.query_fingerprint != entry.result.query_fingerprint:
                 raise ValueError("advisory entry result does not bind its representation query")
 
     @property
@@ -236,7 +354,7 @@ class OnlyResearchNearDuplicateAdvisoryBundleV1:
         return payload
 
     @classmethod
-    def from_dict(cls, payload: object) -> OnlyResearchNearDuplicateAdvisoryBundleV1:
+    def from_dict(cls, payload: object) -> OnlyResearchNearDuplicateAdvisoryBundleV2:
         expected = {
             "schema_version",
             "specification_fingerprint",
@@ -278,6 +396,18 @@ class OnlyResearchNearDuplicateAdvisoryBundleV1:
         return result
 
 
+def only_load_research_near_duplicate_advisory_bundle(
+    payload: object,
+) -> OnlyResearchNearDuplicateAdvisoryBundleV1 | OnlyResearchNearDuplicateAdvisoryBundleV2:
+    if not isinstance(payload, dict) or type(payload.get("schema_version")) is not int:
+        raise ValueError("near-duplicate advisory bundle schema_version is invalid")
+    if payload["schema_version"] == BUNDLE_V1_SCHEMA_VERSION:
+        return OnlyResearchNearDuplicateAdvisoryBundleV1.from_dict(payload)
+    if payload["schema_version"] == BUNDLE_SCHEMA_VERSION:
+        return OnlyResearchNearDuplicateAdvisoryBundleV2.from_dict(payload)
+    raise ValueError("near-duplicate advisory bundle schema_version is unsupported")
+
+
 class OnlyResearchNearDuplicateQueryService:
     """Resolve exact subjects and expose only disposable advisory evidence."""
 
@@ -294,7 +424,7 @@ class OnlyResearchNearDuplicateQueryService:
         self._advisory = advisory_builder
         self._policy = threshold_policy
 
-    def get(self, query: OnlyGetResearchNearDuplicateAdvisoryV1) -> OnlyResearchNearDuplicateAdvisoryBundleV1:
+    def get(self, query: OnlyGetResearchNearDuplicateAdvisoryV1) -> OnlyResearchNearDuplicateAdvisoryBundleV2:
         if not isinstance(query, OnlyGetResearchNearDuplicateAdvisoryV1):
             raise OnlyResearchAdvisoryRequestInvalid("near-duplicate service requires its Product Query")
         if query.limit > self._policy.maximum_results:
@@ -334,7 +464,7 @@ class OnlyResearchNearDuplicateQueryService:
                     key=lambda item: item.subject_fingerprint,
                 )
             )
-            return OnlyResearchNearDuplicateAdvisoryBundleV1(
+            return OnlyResearchNearDuplicateAdvisoryBundleV2(
                 specification.specification_fingerprint,
                 snapshot.projection_revision,
                 snapshot.source_cut_fingerprint,

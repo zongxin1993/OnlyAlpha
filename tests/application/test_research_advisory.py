@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -20,8 +22,10 @@ from onlyalpha.application.research_advisory import (
     OnlyResearchAdvisoryRevisionNotFound,
     OnlyResearchAdvisoryUnsupported,
     OnlyResearchNearDuplicateAdvisoryBundleV1,
+    OnlyResearchNearDuplicateAdvisoryBundleV2,
     OnlyResearchNearDuplicateAdvisoryEntryV1,
     OnlyResearchNearDuplicateQueryService,
+    only_load_research_near_duplicate_advisory_bundle,
 )
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.kernel import OnlyAlphaKernelHost
@@ -54,9 +58,10 @@ from tests.research.specification.support import registry, scientific_specificat
 SHA = "a" * 64
 PROJECTION = "b" * 64
 CUT = "c" * 64
+V1_FIXTURE = Path(__file__).parents[1] / "fixtures/contracts/research_near_duplicate_advisory_bundle_v1.json"
 
 
-def _bundle() -> OnlyResearchNearDuplicateAdvisoryBundleV1:
+def _bundle() -> OnlyResearchNearDuplicateAdvisoryBundleV2:
     policy = OnlyNearDuplicateThresholdPolicyV1("structured-default", "1", Decimal("0.5"), Decimal("0.8"), 10)
     query = OnlyNearDuplicateQueryV1(SHA, PROJECTION, CUT, SHA, policy.policy_fingerprint, 10)
     result = OnlyNearDuplicateResultV1(
@@ -73,7 +78,7 @@ def _bundle() -> OnlyResearchNearDuplicateAdvisoryBundleV1:
         OnlyNearDuplicateResultStatus.ADVISORY_OK,
         (),
     )
-    return OnlyResearchNearDuplicateAdvisoryBundleV1(
+    return OnlyResearchNearDuplicateAdvisoryBundleV2(
         SHA,
         PROJECTION,
         CUT,
@@ -94,16 +99,85 @@ def test_query_is_read_only_and_does_not_accept_scientific_identity() -> None:
 
 def test_bundle_round_trip_and_tamper_detection() -> None:
     bundle = _bundle()
-    assert OnlyResearchNearDuplicateAdvisoryBundleV1.from_dict(bundle.to_dict()) == bundle
+    assert bundle.schema_version == 2
+    assert OnlyResearchNearDuplicateAdvisoryBundleV2.from_dict(bundle.to_dict()) == bundle
     tampered = bundle.to_dict()
     tampered["bundle_fingerprint"] = "0" * 64
     with pytest.raises(ValueError, match="fingerprint"):
-        OnlyResearchNearDuplicateAdvisoryBundleV1.from_dict(tampered)
+        OnlyResearchNearDuplicateAdvisoryBundleV2.from_dict(tampered)
     second = replace(bundle.entries[0], subject_fingerprint="0" * 64)
     with pytest.raises(ValueError, match="ordered"):
         replace(bundle, entries=(bundle.entries[0], second))
     with pytest.raises(ValueError, match="duplicate"):
         replace(bundle, entries=(bundle.entries[0], replace(bundle.entries[0])))
+
+
+def test_historical_v1_fixture_exact_load_and_round_trip() -> None:
+    payload = json.loads(V1_FIXTURE.read_text(encoding="utf-8"))
+    bundle = OnlyResearchNearDuplicateAdvisoryBundleV1.from_dict(payload)
+    current = _bundle()
+    assert bundle.schema_version == 1
+    assert current.schema_version == 2
+    assert bundle.bundle_fingerprint != current.bundle_fingerprint
+    assert set(bundle.to_dict()) == {
+        "schema_version",
+        "specification_fingerprint",
+        "projection_revision",
+        "source_cut_fingerprint",
+        "retrieval_algorithm_id",
+        "retrieval_algorithm_version",
+        "threshold_policy",
+        "entries",
+        "bundle_fingerprint",
+    }
+    assert bundle.to_dict() == payload
+    assert bundle.bundle_fingerprint == payload["bundle_fingerprint"]
+    assert only_load_research_near_duplicate_advisory_bundle(payload) == bundle
+
+
+def test_historical_v1_does_not_require_v2_relation_proof() -> None:
+    payload = json.loads(V1_FIXTURE.read_text(encoding="utf-8"))
+    entry = dict(payload["entries"][0])
+    entry["representation_fingerprint"] = "d" * 64
+    payload["entries"] = [entry]
+    payload.pop("bundle_fingerprint")
+    payload["bundle_fingerprint"] = only_canonical_fingerprint(payload)
+
+    bundle = OnlyResearchNearDuplicateAdvisoryBundleV1.from_dict(payload)
+    assert bundle.entries[0].representation_fingerprint == "d" * 64
+
+
+def test_versioned_loader_rejects_cross_version_shapes_and_unknown_schema() -> None:
+    historical = json.loads(V1_FIXTURE.read_text(encoding="utf-8"))
+    current = _bundle().to_dict()
+    assert isinstance(
+        only_load_research_near_duplicate_advisory_bundle(historical), OnlyResearchNearDuplicateAdvisoryBundleV1
+    )
+    assert isinstance(
+        only_load_research_near_duplicate_advisory_bundle(current), OnlyResearchNearDuplicateAdvisoryBundleV2
+    )
+
+    historical_declared_v2 = {**historical, "schema_version": 2}
+    with pytest.raises(ValueError):
+        only_load_research_near_duplicate_advisory_bundle(historical_declared_v2)
+
+    current_declared_v1 = {**current, "schema_version": 1}
+    with pytest.raises(ValueError):
+        only_load_research_near_duplicate_advisory_bundle(current_declared_v1)
+
+    historical_with_v2_fields = {**historical, "index_build_revision": SHA, "requested_result_limit": 10}
+    with pytest.raises(ValueError):
+        only_load_research_near_duplicate_advisory_bundle(historical_with_v2_fields)
+
+    for field in ("index_build_revision", "requested_result_limit"):
+        missing = dict(current)
+        missing.pop(field)
+        with pytest.raises(ValueError):
+            only_load_research_near_duplicate_advisory_bundle(missing)
+
+    unknown = {**current, "schema_version": 99}
+    with pytest.raises(ValueError, match="unsupported"):
+        only_load_research_near_duplicate_advisory_bundle(unknown)
 
 
 def _repack_bundle(payload: dict[str, object]) -> dict[str, object]:
@@ -151,7 +225,7 @@ def test_bundle_rejects_valid_but_mismatched_query_provenance(tamper: str) -> No
         result["threshold_policy_fingerprint"] = "e" * 64
         entry["result"] = _repack_result(result)
     with pytest.raises(ValueError):
-        OnlyResearchNearDuplicateAdvisoryBundleV1.from_dict(_repack_bundle(payload))
+        OnlyResearchNearDuplicateAdvisoryBundleV2.from_dict(_repack_bundle(payload))
 
 
 def test_bundle_rejects_a_result_from_another_representation() -> None:
@@ -172,7 +246,7 @@ def test_bundle_rejects_a_result_from_another_representation() -> None:
     result["query_fingerprint"] = other_query.query_fingerprint
     entry["result"] = _repack_result(result)
     with pytest.raises(ValueError):
-        OnlyResearchNearDuplicateAdvisoryBundleV1.from_dict(_repack_bundle(payload))
+        OnlyResearchNearDuplicateAdvisoryBundleV2.from_dict(_repack_bundle(payload))
 
 
 def test_product_boundary_registers_query_without_command() -> None:
@@ -195,7 +269,7 @@ def test_product_boundary_registers_query_without_command() -> None:
             raise AssertionError
 
     class Advisory:
-        def get(self, _query: OnlyGetResearchNearDuplicateAdvisoryV1) -> OnlyResearchNearDuplicateAdvisoryBundleV1:
+        def get(self, _query: OnlyGetResearchNearDuplicateAdvisoryV1) -> OnlyResearchNearDuplicateAdvisoryBundleV2:
             return bundle
 
     boundary = only_compose_research_product_boundary(
@@ -330,8 +404,11 @@ def test_http_route_dispatches_only_the_product_query_contract() -> None:
         json={"specification": specification().to_dict(), "runtime_work_id": "work"},
     )
     assert response.status_code == 200
+    assert response.json()["schema_version"] == 2
     assert response.json()["bundle_fingerprint"] == bundle.bundle_fingerprint
     assert "product_command_id" not in response.json()
+    response_schema = app.openapi()["components"]["schemas"]["ResearchNearDuplicateAdvisoryResponseDto"]
+    assert response_schema["properties"]["schema_version"]["const"] == 2
 
 
 def test_real_specification_to_d1_to_http_vertical_is_read_only() -> None:
@@ -439,6 +516,7 @@ def test_real_specification_to_d1_to_http_vertical_is_read_only() -> None:
     )
     assert response.status_code == 200
     payload = response.json()
+    assert payload["schema_version"] == 2
     assert payload["entries"][0]["result"]["status"] == "ADVISORY_OK"
     assert payload["entries"][0]["result"]["matches"]
     assert payload["entries"][0]["result"]["query_fingerprint"]
