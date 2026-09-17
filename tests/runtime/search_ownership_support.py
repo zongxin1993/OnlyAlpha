@@ -25,6 +25,7 @@ from onlyalpha_runtime_generation_manager import (
     OnlyRuntimeGenerationBuilder,
     OnlyRuntimeGenerationRegistry,
 )
+from packaging.tags import parse_tag, sys_tags
 
 from onlyalpha.calculation.artifact import only_calculation_distribution_artifact_manifest
 from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration, only_quant_asset_distribution_artifact_manifest
@@ -60,7 +61,12 @@ def _support_wheel(name: str, output: Path) -> Path:
     wheel_metadata = distribution.read_text("WHEEL")
     assert wheel_metadata is not None
     tags = tuple(line[5:] for line in wheel_metadata.splitlines() if line.startswith("Tag: "))
-    tag = next((item for item in tags if item.startswith(("py3-", "py2.py3-"))), tags[0])
+    supported_tags = set(sys_tags())
+    tag = next(
+        (item for item in tags if any(candidate in supported_tags for candidate in parse_tag(item))),
+        None,
+    )
+    assert tag is not None, (name, distribution.version, tags)
     target = output / f"{name.replace('-', '_')}-{distribution.version}-{tag}.whl"
     output.mkdir(parents=True, exist_ok=True)
     assert distribution.files is not None
