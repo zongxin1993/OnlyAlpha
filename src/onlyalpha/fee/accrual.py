@@ -6,17 +6,17 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from onlyalpha.domain.base import OnlyDomainModel
-from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId, OnlyOrderId, OnlyRuntimeId, OnlyTradeId
-from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyQuantity
-from onlyalpha.fee.application import OnlyFeeApplicationComponent, OnlyFeeApplicationInstruction
-from onlyalpha.fee.models import (
+from onlyalpha.domain.fee import (
     OnlyFeeAssessment,
     OnlyFeeCalculationScope,
     OnlyFeeComponentIdentity,
     OnlyFeeEconomicDirection,
     only_fee_fingerprint,
 )
+from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId, OnlyOrderId, OnlyRuntimeId, OnlyTradeId
+from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyQuantity
+from onlyalpha.fee.application import OnlyFeeApplicationComponent, OnlyFeeApplicationInstruction
 
 
 @dataclass(frozen=True, slots=True)

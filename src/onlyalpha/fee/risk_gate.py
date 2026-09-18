@@ -3,11 +3,11 @@
 from dataclasses import dataclass
 
 from onlyalpha.domain.base import OnlyDomainModel
+from onlyalpha.domain.fee import only_fee_fingerprint
 from onlyalpha.domain.identifiers import OnlyAccountId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.fee.adjustment import OnlyFeeDifferenceReason
 from onlyalpha.fee.evidence_scope import OnlyExternalFeeEvidenceScope
-from onlyalpha.fee.models import only_fee_fingerprint
 from onlyalpha.fee.reconciliation_policy import OnlyFeeReconciliationPolicyIdentity
 from onlyalpha.risk.enums import OnlyOrderRiskChange
 

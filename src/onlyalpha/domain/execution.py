@@ -18,6 +18,7 @@ from onlyalpha.domain.enums import (
     OnlyTimeInForce,
 )
 from onlyalpha.domain.errors import OnlyValidationError
+from onlyalpha.domain.fee import OnlyOrderFeeEstimate, OnlyOrderFeePolicyBinding, OnlyOrderFundingPlan
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
     OnlyClientOrderId,
@@ -33,8 +34,6 @@ from onlyalpha.domain.identifiers import (
 from onlyalpha.domain.time import OnlyTimestamp, only_require_utc
 from onlyalpha.domain.trading import OnlyExecutionIntent
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
-from onlyalpha.fee.estimate import OnlyOrderFeeEstimate, OnlyOrderFundingPlan
-from onlyalpha.fee.models import OnlyOrderFeePolicyBinding
 
 
 def _freeze_metadata(metadata: Mapping[str, str]) -> Mapping[str, str]:

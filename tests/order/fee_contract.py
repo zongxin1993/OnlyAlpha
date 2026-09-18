@@ -3,10 +3,7 @@
 from decimal import Decimal
 
 from onlyalpha.domain.execution import OnlyOrderSnapshot
-from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
-from onlyalpha.fee.estimate import OnlyOrderFeeEstimate, OnlyOrderFundingPlan
-from onlyalpha.fee.models import (
+from onlyalpha.domain.fee import (
     OnlyBrokerFeeAccountScope,
     OnlyBrokerFeeAccountScopeType,
     OnlyBrokerFeeContractIdentity,
@@ -15,8 +12,12 @@ from onlyalpha.fee.models import (
     OnlyLocalFeeFinality,
     OnlyMarketFeePackIdentity,
     OnlyOrderFeeApplicabilityScopeIdentity,
+    OnlyOrderFeeEstimate,
     OnlyOrderFeePolicyBinding,
+    OnlyOrderFundingPlan,
 )
+from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
 
 
 def only_test_zero_fee_contract(

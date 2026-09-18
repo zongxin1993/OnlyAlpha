@@ -12,6 +12,7 @@ from onlyalpha.domain.execution import (
     OnlyOrderRequest,
     OnlyOrderSnapshot,
 )
+from onlyalpha.domain.fee import OnlyOrderFeeEstimate, OnlyOrderFeePolicyBinding, OnlyOrderFundingPlan
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
     OnlyClientOrderId,
@@ -26,8 +27,6 @@ from onlyalpha.domain.identifiers import (
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyPrice
 from onlyalpha.event.model import OnlyEvent
-from onlyalpha.fee.estimate import OnlyOrderFeeEstimate, OnlyOrderFundingPlan
-from onlyalpha.fee.models import OnlyOrderFeePolicyBinding
 from onlyalpha.order.entities import OnlyOrder, OnlyOrderEntityResult
 from onlyalpha.order.enums import OnlyOrderApplyResult, OnlyOrderMutationType
 from onlyalpha.order.events import (

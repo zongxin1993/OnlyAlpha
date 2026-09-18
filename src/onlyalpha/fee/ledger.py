@@ -6,6 +6,7 @@ from bisect import bisect_left
 from dataclasses import dataclass
 
 from onlyalpha.domain.base import OnlyDomainModel
+from onlyalpha.domain.fee import OnlyFeeComponentIdentity, OnlyLocalFeeFinality
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
     OnlyClusterId,
@@ -17,7 +18,6 @@ from onlyalpha.domain.identifiers import (
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
 from onlyalpha.fee.application import OnlyFeeApplicationInstruction
-from onlyalpha.fee.models import OnlyFeeComponentIdentity, OnlyLocalFeeFinality
 
 
 @dataclass(frozen=True, slots=True)

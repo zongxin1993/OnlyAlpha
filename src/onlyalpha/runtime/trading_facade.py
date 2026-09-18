@@ -77,6 +77,7 @@ from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.calendar import OnlyTradingCalendar
 from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide
 from onlyalpha.domain.execution import OnlyOrderRequest, OnlyOrderSnapshot
+from onlyalpha.domain.fee import OnlyOrderFeeEstimate, OnlyOrderFeePolicyBinding, OnlyOrderFundingPlan
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
     OnlyCalendarId,
@@ -153,12 +154,10 @@ from onlyalpha.execution.terminal_planner import OnlyTerminalExecutionTransactio
 from onlyalpha.execution.trade_planner import OnlyTradeExecutionTransactionPlanner
 from onlyalpha.fee.accrual_manager import OnlyOrderFeeAccrualManager
 from onlyalpha.fee.engine import OnlyFeeEngine
-from onlyalpha.fee.estimate import OnlyOrderFeeEstimate, OnlyOrderFundingPlan
 from onlyalpha.fee.evidence import (
     OnlyExternalFeeEvidence,
     OnlyFeeReconciliationComponentIdentity,
 )
-from onlyalpha.fee.models import OnlyOrderFeePolicyBinding
 from onlyalpha.fee.reconciliation import (
     OnlyFeeReconciliationDecision,
     OnlyFeeReconciliationInput,

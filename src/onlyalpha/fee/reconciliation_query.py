@@ -2,11 +2,11 @@
 
 from typing import Protocol
 
+from onlyalpha.domain.fee import only_fee_fingerprint
 from onlyalpha.domain.identifiers import OnlyAccountId
 from onlyalpha.fee.evidence import OnlyExternalFeeEvidence
 from onlyalpha.fee.evidence_scope import OnlyExternalFeeEvidenceScopeType
 from onlyalpha.fee.ledger import OnlyFeeApplicationLedger, OnlyFeeApplicationRecord
-from onlyalpha.fee.models import only_fee_fingerprint
 
 
 class OnlyFeeReconciliationLocalFactQuery(Protocol):

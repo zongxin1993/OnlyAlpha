@@ -1,4 +1,4 @@
-"""Market-neutral immutable fee domain vocabulary."""
+"""Market-neutral immutable fee domain vocabulary, including Order fee contracts."""
 
 from __future__ import annotations
 
@@ -522,6 +522,47 @@ def _json_default(value: object) -> object:
 def _require_digest(value: str, label: str) -> None:
     if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
         raise ValueError(f"{label} must be a lowercase SHA-256 digest")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyOrderFeeEstimate(OnlyDomainModel):
+    schema_version = 2
+
+    expected: OnlyFeeAssessment
+    maximum: OnlyFeeAssessment
+    reservation_charge: OnlyMoney
+    estimated_rebate: OnlyMoney
+    assumptions_fingerprint: str
+
+    def __post_init__(self) -> None:
+        values = (
+            self.expected.total_charges,
+            self.expected.total_rebates,
+            self.maximum.total_charges,
+            self.maximum.total_rebates,
+            self.reservation_charge,
+            self.estimated_rebate,
+        )
+        if len({item.currency for item in values}) != 1:
+            raise ValueError("fee estimate currency mismatch")
+        if self.reservation_charge != self.maximum.total_charges:
+            raise ValueError("fee reservation must equal maximum charges")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyOrderFundingPlan(OnlyDomainModel):
+    order_id: OnlyOrderId
+    principal_reservation: OnlyMoney
+    fee_reservation: OnlyMoney
+    total_reservation: OnlyMoney
+    binding_fingerprint: str
+    estimate_fingerprint: str
+
+    def __post_init__(self) -> None:
+        if self.principal_reservation.currency != self.fee_reservation.currency:
+            raise ValueError("funding plan currency mismatch")
+        if self.total_reservation != self.principal_reservation + self.fee_reservation:
+            raise ValueError("funding plan total does not conserve principal and fee")
 
 
 __all__ = [name for name in globals() if name.startswith("Only") or name.startswith("only_")]

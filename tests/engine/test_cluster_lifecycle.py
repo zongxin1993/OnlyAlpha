@@ -12,13 +12,13 @@ from onlyalpha.config import (
     OnlyFeeReconciliationPolicyConfig,
 )
 from onlyalpha.core.errors import OnlyDuplicateIdError
+from onlyalpha.domain.fee import OnlyBrokerFeeAccountScope, OnlyBrokerFeeAccountScopeType
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyEngineId
 from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.engine import OnlyClusterLoadError, OnlyClusterRemovalPolicy, OnlyEngineConfig
 from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.engine.infrastructure import OnlyResourceConfigurationConflict
 from onlyalpha.fee.broker_contract import OnlyBrokerFeeContract
-from onlyalpha.fee.models import OnlyBrokerFeeAccountScope, OnlyBrokerFeeAccountScopeType
 from onlyalpha.fee.reconciliation_policy import (
     OnlyFeeReconciliationAction,
     OnlyFeeReconciliationPolicy,

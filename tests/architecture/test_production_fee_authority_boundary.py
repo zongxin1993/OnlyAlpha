@@ -5,7 +5,7 @@ from onlyalpha_plugin_cn_ashare.fee_sources import (
     CN_A_SHARE_FEE_AUTHORITY_SOURCE_BY_ID,
 )
 
-from onlyalpha.fee.models import OnlyFeeAuthority, OnlyFeeType
+from onlyalpha.domain.fee import OnlyFeeAuthority, OnlyFeeType
 
 
 def test_test_fee_pack_is_absent_from_production_defaults_examples_and_public_exports() -> None:

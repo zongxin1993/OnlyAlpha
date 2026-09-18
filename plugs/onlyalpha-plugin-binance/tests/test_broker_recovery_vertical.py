@@ -32,6 +32,19 @@ from onlyalpha.broker.reconciliation import (
 from onlyalpha.broker.updates import OnlyBrokerOrderAcceptedUpdate, OnlyBrokerTradeUpdate
 from onlyalpha.domain.enums import OnlyOrderSide, OnlyOrderStatus, OnlyOrderType
 from onlyalpha.domain.execution import OnlyOrderRequest
+from onlyalpha.domain.fee import (
+    OnlyBrokerFeeAccountScope,
+    OnlyBrokerFeeAccountScopeType,
+    OnlyBrokerFeeContractIdentity,
+    OnlyFeeAssessment,
+    OnlyFeeSubject,
+    OnlyLocalFeeFinality,
+    OnlyMarketFeePackIdentity,
+    OnlyOrderFeeApplicabilityScopeIdentity,
+    OnlyOrderFeeEstimate,
+    OnlyOrderFeePolicyBinding,
+    OnlyOrderFundingPlan,
+)
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
     OnlyClusterId,
@@ -42,18 +55,6 @@ from onlyalpha.domain.identifiers import (
 )
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity
-from onlyalpha.fee.estimate import OnlyOrderFeeEstimate, OnlyOrderFundingPlan
-from onlyalpha.fee.models import (
-    OnlyBrokerFeeAccountScope,
-    OnlyBrokerFeeAccountScopeType,
-    OnlyBrokerFeeContractIdentity,
-    OnlyFeeAssessment,
-    OnlyFeeSubject,
-    OnlyLocalFeeFinality,
-    OnlyMarketFeePackIdentity,
-    OnlyOrderFeeApplicabilityScopeIdentity,
-    OnlyOrderFeePolicyBinding,
-)
 from onlyalpha.order.execution.models import OnlyExecutionSubmissionOutcome
 from onlyalpha.order.id_generator import OnlySequenceClientOrderIdGenerator, OnlySequenceOrderIdGenerator
 from onlyalpha.order.manager import OnlyOrderManager

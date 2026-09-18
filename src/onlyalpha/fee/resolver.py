@@ -8,17 +8,7 @@ from decimal import Decimal
 
 from onlyalpha.domain.enums import OnlyLiquiditySide
 from onlyalpha.domain.execution import OnlyOrderSnapshot
-from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyTradeId
-from onlyalpha.domain.instrument import OnlyCryptoPerpetual, OnlyCryptoSpot, OnlyFuture, OnlyInstrument
-from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
-from onlyalpha.domain.value import OnlyMoney, OnlyPrice
-from onlyalpha.fee.assessment import OnlyTradeFeeAssessmentRequest
-from onlyalpha.fee.basis import OnlyFeeBasisProviderRegistry
-from onlyalpha.fee.broker_contract import OnlyBrokerFeeContract
-from onlyalpha.fee.engine import OnlyFeeEngine
-from onlyalpha.fee.estimate import OnlyOrderFeeEstimate, OnlyOrderFeeEstimateRequest, OnlyOrderFundingPlan
-from onlyalpha.fee.market_pack import OnlyMarketFeePack
-from onlyalpha.fee.models import (
+from onlyalpha.domain.fee import (
     OnlyFeeAssessment,
     OnlyFeeBasisValues,
     OnlyFeeResolutionPolicy,
@@ -28,9 +18,21 @@ from onlyalpha.fee.models import (
     OnlyFeeSubject,
     OnlyLocalFeeFinality,
     OnlyOrderFeeApplicabilityScopeIdentity,
+    OnlyOrderFeeEstimate,
     OnlyOrderFeePolicyBinding,
+    OnlyOrderFundingPlan,
     only_fee_fingerprint,
 )
+from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyTradeId
+from onlyalpha.domain.instrument import OnlyCryptoPerpetual, OnlyCryptoSpot, OnlyFuture, OnlyInstrument
+from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
+from onlyalpha.domain.value import OnlyMoney, OnlyPrice
+from onlyalpha.fee.assessment import OnlyTradeFeeAssessmentRequest
+from onlyalpha.fee.basis import OnlyFeeBasisProviderRegistry
+from onlyalpha.fee.broker_contract import OnlyBrokerFeeContract
+from onlyalpha.fee.engine import OnlyFeeEngine
+from onlyalpha.fee.estimate import OnlyOrderFeeEstimateRequest
+from onlyalpha.fee.market_pack import OnlyMarketFeePack
 from onlyalpha.fee.policy import OnlyResolvedFeePolicySet
 from onlyalpha.fee.resolution import OnlyFeePolicyResolution
 from onlyalpha.fee.schedules import (

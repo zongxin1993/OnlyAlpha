@@ -5,10 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-from onlyalpha.domain.identifiers import OnlyAccountId, OnlyInstrumentId
-from onlyalpha.domain.time import OnlyTradingDay
-from onlyalpha.domain.value import OnlyCurrency
-from onlyalpha.fee.models import (
+from onlyalpha.domain.fee import (
     OnlyBrokerFeeAccountScope,
     OnlyBrokerFeeAccountScopeType,
     OnlyFeeAuthority,
@@ -17,6 +14,9 @@ from onlyalpha.fee.models import (
     OnlyFeeScheduleIdentity,
     only_fee_fingerprint,
 )
+from onlyalpha.domain.identifiers import OnlyAccountId, OnlyInstrumentId
+from onlyalpha.domain.time import OnlyTradingDay
+from onlyalpha.domain.value import OnlyCurrency
 from onlyalpha.fee.policy import OnlyFeeRule, OnlyResolvedFeePolicy
 
 

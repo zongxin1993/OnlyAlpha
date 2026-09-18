@@ -7,11 +7,11 @@ from decimal import Decimal
 from enum import StrEnum
 
 from onlyalpha.domain.base import OnlyDomainModel
+from onlyalpha.domain.fee import OnlyFeeAuthority, OnlyFeeEconomicDirection, OnlyFeeType, only_fee_fingerprint
 from onlyalpha.domain.identifiers import OnlyAccountId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
 from onlyalpha.fee.evidence_scope import OnlyExternalFeeEvidenceScope
-from onlyalpha.fee.models import OnlyFeeAuthority, OnlyFeeEconomicDirection, OnlyFeeType, only_fee_fingerprint
 
 
 class OnlyExternalFeeEvidenceMode(StrEnum):

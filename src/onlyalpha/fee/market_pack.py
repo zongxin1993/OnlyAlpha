@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from onlyalpha.fee.models import OnlyMarketFeePackIdentity, only_fee_fingerprint
+from onlyalpha.domain.fee import OnlyMarketFeePackIdentity, only_fee_fingerprint
 from onlyalpha.fee.schedules import OnlyMarketFeeSchedule, OnlyMarketFeeScheduleRegistry
 
 

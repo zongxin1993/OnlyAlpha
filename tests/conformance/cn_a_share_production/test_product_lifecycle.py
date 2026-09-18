@@ -7,10 +7,10 @@ from pathlib import Path
 import pytest
 
 from onlyalpha.domain.enums import OnlyOrderSide, OnlyOrderStatus
+from onlyalpha.domain.fee import OnlyFeeType
 from onlyalpha.execution.accepted_fact import OnlyCommittedOrderAcceptedFact
 from onlyalpha.execution.committed import OnlyCommittedExecutionFact
 from onlyalpha.execution.terminal_fact import OnlyCommittedTerminalExecutionFact
-from onlyalpha.fee.models import OnlyFeeType
 from onlyalpha.settlement.facts import OnlyCommittedSettlementMaturityFact
 from tests.conformance.cn_a_share_production.support import (
     BROKER_FEE_CONTRACT_ID,

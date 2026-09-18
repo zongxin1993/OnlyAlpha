@@ -2,13 +2,13 @@
 
 from dataclasses import dataclass
 
-from onlyalpha.domain.identifiers import OnlyAccountId
-from onlyalpha.fee.models import (
+from onlyalpha.domain.fee import (
     OnlyBrokerFeeAccountScope,
     OnlyBrokerFeeAccountScopeType,
     OnlyBrokerFeeContractIdentity,
     only_fee_fingerprint,
 )
+from onlyalpha.domain.identifiers import OnlyAccountId
 from onlyalpha.fee.schedules import OnlyBrokerFeeSchedule, OnlyBrokerFeeScheduleRegistry
 
 

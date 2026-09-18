@@ -5,9 +5,9 @@ from __future__ import annotations
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Protocol
 
+from onlyalpha.domain.fee import OnlyFeeBasisValues
 from onlyalpha.domain.instrument import OnlyFuture, OnlyInstrument
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice
-from onlyalpha.fee.models import OnlyFeeBasisValues
 
 
 class OnlyFeeBasisProvider(Protocol):

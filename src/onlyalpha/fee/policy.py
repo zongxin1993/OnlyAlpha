@@ -6,9 +6,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from onlyalpha.domain.enums import OnlyLiquiditySide, OnlyOffset, OnlyOrderSide
-from onlyalpha.domain.value import OnlyCurrency, only_decimal
-from onlyalpha.fee.formula import OnlyFeeFormula
-from onlyalpha.fee.models import (
+from onlyalpha.domain.fee import (
     OnlyFeeAuthority,
     OnlyFeeCalculationPipeline,
     OnlyFeeCalculationScope,
@@ -18,6 +16,8 @@ from onlyalpha.fee.models import (
     OnlyFeeType,
     only_fee_fingerprint,
 )
+from onlyalpha.domain.value import OnlyCurrency, only_decimal
+from onlyalpha.fee.formula import OnlyFeeFormula
 from onlyalpha.fee.rounding import OnlyFeeRoundingPolicy
 
 

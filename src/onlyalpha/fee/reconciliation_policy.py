@@ -5,8 +5,8 @@ from decimal import Decimal
 from enum import StrEnum
 
 from onlyalpha.domain.base import OnlyDomainModel
+from onlyalpha.domain.fee import only_fee_fingerprint
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
-from onlyalpha.fee.models import only_fee_fingerprint
 
 
 class OnlyFeeReconciliationAction(StrEnum):

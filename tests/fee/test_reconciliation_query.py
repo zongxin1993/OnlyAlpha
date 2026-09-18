@@ -1,6 +1,15 @@
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from onlyalpha.domain.fee import (
+    OnlyFeeAuthority,
+    OnlyFeeCalculationScope,
+    OnlyFeeComponentIdentity,
+    OnlyFeeEconomicDirection,
+    OnlyFeeResolutionPolicy,
+    OnlyFeeType,
+    OnlyLocalFeeFinality,
+)
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
     OnlyClusterId,
@@ -16,15 +25,6 @@ from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
 from onlyalpha.fee.evidence import OnlyExternalFeeEvidence, OnlyExternalFeeEvidenceMode
 from onlyalpha.fee.evidence_scope import OnlyExternalFeeEvidenceScope, OnlyFeeStatementScope
 from onlyalpha.fee.ledger import OnlyFeeApplicationLedger, OnlyFeeApplicationRecord
-from onlyalpha.fee.models import (
-    OnlyFeeAuthority,
-    OnlyFeeCalculationScope,
-    OnlyFeeComponentIdentity,
-    OnlyFeeEconomicDirection,
-    OnlyFeeResolutionPolicy,
-    OnlyFeeType,
-    OnlyLocalFeeFinality,
-)
 from onlyalpha.fee.reconciliation_query import OnlyFeeApplicationLocalFactQuery
 
 _CURRENCY = OnlyCurrency("CNY", 2)

@@ -7,6 +7,7 @@ from decimal import Decimal
 from enum import StrEnum
 
 from onlyalpha.domain.base import OnlyDomainModel
+from onlyalpha.domain.fee import OnlyFeeAuthority, OnlyFeeEconomicDirection, OnlyFeeType, only_fee_fingerprint
 from onlyalpha.domain.identifiers import OnlyClusterId
 from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.fee.adjustment import OnlyFeeAdjustment, OnlyFeeAdjustmentDirection, OnlyFeeDifferenceReason
@@ -15,7 +16,6 @@ from onlyalpha.fee.evidence import (
     OnlyExternalFeeEvidenceMode,
     OnlyFeeReconciliationComponentIdentity,
 )
-from onlyalpha.fee.models import OnlyFeeAuthority, OnlyFeeEconomicDirection, OnlyFeeType, only_fee_fingerprint
 from onlyalpha.fee.reconciliation_policy import (
     OnlyFeeReconciliationAction,
     OnlyFeeReconciliationPolicy,

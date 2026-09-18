@@ -8,11 +8,7 @@ from decimal import Decimal, InvalidOperation
 from typing import cast
 
 from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide
-from onlyalpha.domain.identifiers import OnlyAccountId
-from onlyalpha.domain.value import OnlyCurrency
-from onlyalpha.fee.broker_contract import OnlyBrokerFeeContract, OnlyBrokerFeeContractRegistry
-from onlyalpha.fee.formula import OnlyFeeFormula, OnlyFeeRateTerm
-from onlyalpha.fee.models import (
+from onlyalpha.domain.fee import (
     OnlyBrokerFeeAccountScope,
     OnlyBrokerFeeAccountScopeType,
     OnlyFeeAuthority,
@@ -24,6 +20,10 @@ from onlyalpha.fee.models import (
     OnlyFeeRoundingMode,
     OnlyFeeType,
 )
+from onlyalpha.domain.identifiers import OnlyAccountId
+from onlyalpha.domain.value import OnlyCurrency
+from onlyalpha.fee.broker_contract import OnlyBrokerFeeContract, OnlyBrokerFeeContractRegistry
+from onlyalpha.fee.formula import OnlyFeeFormula, OnlyFeeRateTerm
 from onlyalpha.fee.policy import OnlyFeeRule
 from onlyalpha.fee.rounding import OnlyFeeRoundingPolicy
 from onlyalpha.fee.schedules import OnlyBrokerFeeSchedule

@@ -7,11 +7,11 @@ from decimal import Decimal
 
 from onlyalpha.account.performance import OnlyAccountEquityPoint
 from onlyalpha.broker.updates import OnlyBrokerOrderAcceptedUpdate, OnlyBrokerTradeUpdate
+from onlyalpha.domain.fee import OnlyFeeAssessment
 from onlyalpha.domain.identifiers import OnlyEngineId, OnlyPositionId
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney, OnlyMultiplier, OnlyPrice
 from onlyalpha.fee.accrual import OnlyOrderFeeAccrualState
-from onlyalpha.fee.models import OnlyFeeAssessment
 from onlyalpha.market.runtime_rules import OnlyTradeApplicationInstruction
 from onlyalpha.position.identifiers import OnlyPositionAllocationId
 from onlyalpha.strategy.identifiers import OnlyStrategyId

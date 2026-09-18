@@ -4,14 +4,14 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from onlyalpha.domain.base import OnlyDomainModel
-from onlyalpha.domain.identifiers import OnlyTradeId
-from onlyalpha.domain.value import OnlyMoney
-from onlyalpha.fee.models import (
+from onlyalpha.domain.fee import (
     OnlyFeeComponentIdentity,
     OnlyFeeEconomicDirection,
     OnlyFeeSubject,
     OnlyLocalFeeFinality,
 )
+from onlyalpha.domain.identifiers import OnlyTradeId
+from onlyalpha.domain.value import OnlyMoney
 
 
 @dataclass(frozen=True, slots=True)

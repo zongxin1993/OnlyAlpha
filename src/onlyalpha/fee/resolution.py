@@ -2,13 +2,13 @@
 
 from dataclasses import dataclass
 
-from onlyalpha.domain.time import OnlyTradingDay
-from onlyalpha.fee.models import (
+from onlyalpha.domain.fee import (
     OnlyBrokerFeeContractIdentity,
     OnlyFeeScheduleIdentity,
     OnlyMarketFeePackIdentity,
     only_fee_fingerprint,
 )
+from onlyalpha.domain.time import OnlyTradingDay
 from onlyalpha.fee.policy import OnlyResolvedFeePolicySet
 
 

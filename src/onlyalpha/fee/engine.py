@@ -5,12 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from decimal import ROUND_HALF_EVEN, Decimal
 
-from onlyalpha.domain.identifiers import OnlyTradeId
-from onlyalpha.domain.value import OnlyMoney
-from onlyalpha.fee.assessment import OnlyTradeFeeAssessmentRequest
-from onlyalpha.fee.estimate import OnlyOrderFeeEstimate, OnlyOrderFeeEstimateRequest
-from onlyalpha.fee.formula import OnlyFeeFixedTerm
-from onlyalpha.fee.models import (
+from onlyalpha.domain.fee import (
     OnlyFeeAssessment,
     OnlyFeeBasisValues,
     OnlyFeeCalculationScope,
@@ -18,9 +13,15 @@ from onlyalpha.fee.models import (
     OnlyFeeEconomicDirection,
     OnlyFeeTargetComponent,
     OnlyLocalFeeFinality,
+    OnlyOrderFeeEstimate,
     OnlyOrderFeePolicyBinding,
     only_fee_fingerprint,
 )
+from onlyalpha.domain.identifiers import OnlyTradeId
+from onlyalpha.domain.value import OnlyMoney
+from onlyalpha.fee.assessment import OnlyTradeFeeAssessmentRequest
+from onlyalpha.fee.estimate import OnlyOrderFeeEstimateRequest
+from onlyalpha.fee.formula import OnlyFeeFixedTerm
 from onlyalpha.fee.policy import OnlyResolvedFeePolicy, OnlyResolvedFeePolicySet
 from onlyalpha.fee.resolution import OnlyFeePolicyResolution
 from onlyalpha.fee.rounding import only_apply_fee_pipeline
@@ -174,7 +175,7 @@ class OnlyFeeEngine:
         discriminator: str,
         binding: OnlyOrderFeePolicyBinding,
     ) -> OnlyFeeAssessment:
-        from onlyalpha.fee.models import OnlyFeeSubject
+        from onlyalpha.domain.fee import OnlyFeeSubject
 
         assert isinstance(subject, OnlyFeeSubject)
         ordered = tuple(sorted(components, key=lambda item: item.identity.sort_key))

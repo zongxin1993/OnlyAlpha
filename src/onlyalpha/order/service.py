@@ -10,13 +10,12 @@ from onlyalpha.domain.execution import (
     OnlyOrderRequest,
     OnlyOrderSnapshot,
 )
+from onlyalpha.domain.fee import OnlyOrderFeeEstimate, OnlyOrderFeePolicyBinding, OnlyOrderFundingPlan
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.trading import OnlyPositionEffect
 from onlyalpha.domain.value import OnlyPrice
 from onlyalpha.execution.reference import OnlyExecutionReferencePlanningService
-from onlyalpha.fee.estimate import OnlyOrderFeeEstimate, OnlyOrderFundingPlan
-from onlyalpha.fee.models import OnlyOrderFeePolicyBinding
 from onlyalpha.fee.risk_gate import OnlyFeeReconciliationRiskGate
 from onlyalpha.order.cash_port import OnlyOrderCashReservationPort
 from onlyalpha.order.enums import OnlyOrderFailureCode

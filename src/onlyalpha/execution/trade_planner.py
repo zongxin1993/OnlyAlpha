@@ -10,11 +10,11 @@ from typing import NoReturn
 from onlyalpha.account.enums import OnlyAccountReservationState, OnlyAccountStatus
 from onlyalpha.account.performance import OnlyAccountEquityPoint, OnlyAccountValuationSource
 from onlyalpha.domain.enums import OnlyOrderSide, OnlyOrderStatus
+from onlyalpha.domain.fee import OnlyFeeAuthority, OnlyFeeType
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyQuantity, OnlyRate
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.fee.application import OnlyFeeApplicationComponent, OnlyFeeApplicationInstruction
-from onlyalpha.fee.models import OnlyFeeAuthority, OnlyFeeType
 from onlyalpha.market.models import OnlyPositionEffect
 from onlyalpha.position.enums import (
     OnlyPositionReservationState,

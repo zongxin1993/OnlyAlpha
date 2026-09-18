@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal, localcontext
 
+from onlyalpha.domain.fee import OnlyFeeCalculationPipeline, OnlyFeeRoundingMode
 from onlyalpha.domain.value import only_decimal
-from onlyalpha.fee.models import OnlyFeeCalculationPipeline, OnlyFeeRoundingMode
 
 _ROUNDING = {
     OnlyFeeRoundingMode.HALF_EVEN: ROUND_HALF_EVEN,

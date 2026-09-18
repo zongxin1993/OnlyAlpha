@@ -3,14 +3,14 @@
 from dataclasses import dataclass
 
 from onlyalpha.domain.enums import OnlyLiquiditySide
-from onlyalpha.domain.identifiers import OnlyTradeId
-from onlyalpha.domain.time import OnlyTradingDay
-from onlyalpha.fee.models import (
+from onlyalpha.domain.fee import (
     OnlyFeeBasisValues,
     OnlyFeeSubject,
     OnlyLocalFeeFinality,
     OnlyOrderFeePolicyBinding,
 )
+from onlyalpha.domain.identifiers import OnlyTradeId
+from onlyalpha.domain.time import OnlyTradingDay
 from onlyalpha.fee.resolution import OnlyFeePolicyResolution
 
 

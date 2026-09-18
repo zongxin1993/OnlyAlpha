@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal, localcontext
 
+from onlyalpha.domain.fee import OnlyFeeBasisValues, OnlyFeeCalculationBasis
 from onlyalpha.domain.value import only_decimal
-from onlyalpha.fee.models import OnlyFeeBasisValues, OnlyFeeCalculationBasis
 
 
 @dataclass(frozen=True, slots=True)

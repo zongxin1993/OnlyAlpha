@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 
 from onlyalpha.account.enums import OnlyAccountStatus, OnlyAccountType
+from onlyalpha.domain.fee import OnlyFeeAuthority, OnlyFeeEconomicDirection, OnlyFeeType
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
@@ -16,7 +17,6 @@ from onlyalpha.fee.evidence import (
     OnlyFeeReconciliationComponentIdentity,
 )
 from onlyalpha.fee.evidence_scope import OnlyExternalFeeEvidenceScope, OnlyFeeStatementScope
-from onlyalpha.fee.models import OnlyFeeAuthority, OnlyFeeEconomicDirection, OnlyFeeType
 from onlyalpha.fee.reconciliation import (
     OnlyFeeReconciliationInput,
     OnlyFeeReconciliationPlanner,

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from onlyalpha.domain.fee import OnlyFeeAssessment
 from onlyalpha.event.model import OnlyEventSource, OnlyEventType
 from onlyalpha.fee.accrual import OnlyOrderFeeAccrualAuthority, OnlyOrderFeeAccrualState
 from onlyalpha.fee.application import OnlyFeeApplicationInstruction
-from onlyalpha.fee.models import OnlyFeeAssessment
 from onlyalpha.transaction.projection import OnlyOrderFeeAccrualProjection, OnlyRuntimeProjectionComponent
 from onlyalpha.transaction.projection_builder import OnlyRuntimeProjectionBuilder
 

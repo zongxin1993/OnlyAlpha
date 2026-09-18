@@ -2,8 +2,8 @@ from decimal import Decimal
 
 from onlyalpha_plugin_generic_t0_cash.fee_pack import only_generic_t0_cash_market_fee_pack
 
+from onlyalpha.domain.fee import OnlyFeeBasisValues
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
-from onlyalpha.fee.models import OnlyFeeBasisValues
 
 
 def test_generic_market_fee_pack_matches_frozen_economic_vector() -> None:

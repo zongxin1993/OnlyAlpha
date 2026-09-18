@@ -4,10 +4,10 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from onlyalpha.domain.base import OnlyDomainModel
+from onlyalpha.domain.fee import only_fee_fingerprint
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyOrderId, OnlyTradeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency
-from onlyalpha.fee.models import only_fee_fingerprint
 
 
 class OnlyExternalFeeEvidenceScopeType(StrEnum):

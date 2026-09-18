@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from onlyalpha.fee.models import OnlyMarketFeePackIdentity
+from onlyalpha.domain.fee import OnlyMarketFeePackIdentity
 from onlyalpha.identity import only_identity_fingerprint
 from onlyalpha.market.product.errors import OnlyMarketProductAuthorityConflictError
 
