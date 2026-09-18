@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import subprocess
 import sys
 import zipfile
 from dataclasses import replace
 from datetime import UTC, datetime
+from decimal import Decimal
 from importlib import metadata
 from pathlib import Path
 
 import pytest
-from onlyalpha_example_strategies.provider import quant_asset_provider
 from onlyalpha_runtime_generation_manager import (
     OnlyHistoricalExecutableRuntimeGenerationResolver,
     OnlyHistoricalGenerationHostManager,
@@ -19,16 +18,27 @@ from onlyalpha_runtime_generation_manager import (
     OnlyRuntimeGenerationBuilder,
     OnlyRuntimeGenerationRegistry,
 )
+from onlyalpha_runtime_generation_manager import builder as runtime_builder_module
 from onlyalpha_runtime_generation_manager.catalog_context import OnlyRuntimeGenerationExactCatalogDescriptorReader
 from onlyalpha_runtime_generation_manager.hosted import _verify_installed_wheel
+from onlyalpha_test_strategy_provider.provider import quant_asset_provider
 
 from onlyalpha.application.catalog_context import (
     OnlyExactCatalogContextQueryService,
     OnlyExactCatalogContextUnavailable,
 )
-from onlyalpha.calculation.artifact import only_calculation_distribution_artifact_manifest
+from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.quant_assets import (
+    ONLY_PRIVATE_ALPHA_API_V1,
+    OnlyPrivateAlphaDraft,
+    OnlyPrivateAlphaExecutableClosureV1,
+    OnlyPrivateAlphaIsolatedProgramHost,
+    OnlyPrivateAlphaRevision,
+    OnlyPrivateAlphaSnapshotProviderSource,
     OnlyQuantAssetCatalogGeneration,
+    OnlyQuantAssetKind,
+    OnlyQuantAssetProvider,
+    OnlyQuantAssetProviderManifest,
     only_quant_asset_distribution_artifact_manifest,
 )
 from onlyalpha.runtime.generation import (
@@ -123,7 +133,9 @@ def _wheel_distribution_name(wheel: Path) -> str:
     return next(line[6:] for line in content.splitlines() if line.startswith("Name: "))
 
 
-def test_builder_installs_exact_public_example_in_clean_environment_and_is_deterministic(tmp_path: Path) -> None:
+def test_builder_installs_exact_distribution_fixture_in_clean_environment_and_is_deterministic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     repository = Path(__file__).resolve().parents[3]
     core_wheel = _build_wheel(repository, tmp_path / "core-wheel")
     manager_wheel = _build_wheel(
@@ -131,7 +143,7 @@ def test_builder_installs_exact_public_example_in_clean_environment_and_is_deter
         tmp_path / "manager-wheel",
     )
     strategy_wheel = _build_wheel(
-        repository / "examples/onlyalpha-example-strategies",
+        repository / "tests/fixtures/runtime_strategy_provider",
         tmp_path / "strategy-wheel",
     )
     pyarrow_wheel = _installed_distribution_wheel("pyarrow", tmp_path / "support-wheel")
@@ -155,7 +167,7 @@ def test_builder_installs_exact_public_example_in_clean_environment_and_is_deter
     provider = quant_asset_provider()
     strategy_bytes = strategy_wheel.read_bytes()
     strategy_artifact = only_quant_asset_distribution_artifact_manifest(
-        source_repository="OnlyAlpha-example-strategies",
+        source_repository="OnlyAlpha-test-strategy-provider",
         source_revision="2" * 40,
         artifact_logical_name=strategy_wheel.name,
         artifact_bytes=strategy_bytes,
@@ -199,10 +211,94 @@ def test_builder_installs_exact_public_example_in_clean_environment_and_is_deter
     assert first.manifest.catalog_generation_fingerprint == catalog.generation_fingerprint
     assert first.validation_evidence.verifies(first.manifest)
     assert first.manifest.runtime_generation_fingerprint == second.manifest.runtime_generation_fingerprint
+    revision = OnlyPrivateAlphaRevision.from_draft(
+        OnlyPrivateAlphaDraft(
+            alpha_id="private.alpha.runtime_native",
+            semantic_version="1",
+            source_text=(
+                "def calculate(api, inputs, parameters):\n"
+                "    return {'value': api.sub(inputs['close'], parameters['offset'])}\n"
+            ),
+            alpha_api_version=1,
+            alpha_api_contract_fingerprint=ONLY_PRIVATE_ALPHA_API_V1.api_contract_fingerprint,
+            input_contract={"close": {"type": "DECIMAL"}},
+            parameter_contract={"offset": {"type": "DECIMAL"}},
+            output_contract={"value": {"type": "DECIMAL"}},
+            description="Runtime native",
+            economic_rationale="Historical rebuild proof",
+            category="test",
+        )
+    )
+    closure = OnlyPrivateAlphaExecutableClosureV1.create(
+        revision,
+        ({"close": Decimal("2")},),
+        {"offset": Decimal("1")},
+        host=OnlyPrivateAlphaIsolatedProgramHost(3),
+    )
+    native_provider = OnlyQuantAssetProvider(
+        OnlyQuantAssetProviderManifest(
+            "private.runtime.factor",
+            revision.revision_fingerprint,
+            OnlyQuantAssetKind.ALPHA,
+            OnlyPrivateAlphaSnapshotProviderSource(closure.provider_snapshot.snapshot_fingerprint),
+        ),
+        calculation_registrations=closure.registrations,
+        private_alpha_snapshot=closure.provider_snapshot,
+    )
+    native_catalog = OnlyQuantAssetCatalogGeneration((provider, native_provider))
+    native_manifest = builder.bind_private_alpha_closure(
+        base_manifest=first.manifest,
+        expected_catalog=native_catalog,
+        closure=closure,
+    )
+    assert builder.rebuild_private_alpha_providers(native_manifest)[0].descriptor() == native_provider.descriptor()
+
+    def current_adapter_forbidden(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise AssertionError("CURRENT_PRIVATE_ALPHA_ADAPTER_SUBSTITUTION_FORBIDDEN")
+
+    monkeypatch.setattr(runtime_builder_module, "OnlyPrivateAlphaAdapterV1", current_adapter_forbidden)
+    native_rebuilt = builder.rebuild_validated(
+        expected_manifest=native_manifest,
+        environment_root=tmp_path / "runtime-native-rebuilt",
+    )
+    assert native_rebuilt.manifest == native_manifest
+    native_bundle = builder.rebuild_catalog_context_bundle(
+        expected_manifest=native_manifest,
+        environment_root=tmp_path / "runtime-native-catalog",
+    )
+    assert only_canonical_fingerprint(native_bundle["catalog"]) == only_canonical_fingerprint(
+        native_catalog.descriptor()
+    )
+    hosted_native = subprocess.run(
+        [
+            str(tmp_path / "runtime-native-catalog" / "bin" / "python"),
+            "-I",
+            "-c",
+            "from decimal import Decimal; from pathlib import Path; import json; import pyarrow as pa; "
+            "from onlyalpha.calculation import OnlyCalculationBackendKind, OnlyCalculationKind, OnlyCalculationReference; "
+            "from onlyalpha.runtime.generation import OnlyRuntimeGenerationValidationEvidence; "
+            "from onlyalpha_runtime_generation_manager.hosted import only_load_hosted_quant_asset_catalog; "
+            "e=OnlyRuntimeGenerationValidationEvidence.from_dict(json.loads(Path('onlyalpha-runtime-generation-validation.json').read_text())); "
+            "r=only_load_hosted_quant_asset_catalog(e).calculation_registry(); "
+            "research=r.resolve(OnlyCalculationKind.FACTOR,'private.alpha.runtime_native','1',OnlyCalculationBackendKind.RESEARCH); "
+            "definition=research.definition_resolver.resolve({'offset':Decimal('1')},{'close':OnlyCalculationReference(None,'close','close')}); "
+            "assert research.provider.execute(definition,{'close':pa.array([Decimal('2')],type=pa.decimal128(38,12))})['value'].to_pylist()==[Decimal('1.000000000000')]; "
+            "trading=r.resolve(OnlyCalculationKind.FACTOR,'private.alpha.runtime_native','1',OnlyCalculationBackendKind.TRADING); "
+            "assert trading.provider.create(definition,object()).update({'close':Decimal('2')})=={'value':Decimal('1')}",
+        ],
+        cwd=tmp_path / "runtime-native-catalog",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert hosted_native.returncode == 0, hosted_native.stdout + hosted_native.stderr
     authority_root = tmp_path / "exact-catalog-authority"
     authority = OnlyRuntimeGenerationRegistry(authority_root)
     authority.prepare(first.manifest, actor="operator", occurred_at=NOW)
     authority.admit_ready(first.validation_evidence, actor="validator", occurred_at=NOW)
+    authority.prepare(native_manifest, actor="operator", occurred_at=NOW)
+    authority.admit_ready(native_rebuilt.validation_evidence, actor="validator", occurred_at=NOW)
     generation = first.manifest.runtime_generation_fingerprint
     host = OnlyHistoricalGenerationHostManager(
         registry=OnlyRuntimeGenerationRegistry(authority_root),
@@ -260,6 +356,14 @@ def test_builder_installs_exact_public_example_in_clean_environment_and_is_deter
     assert exact_context == OnlyExactCatalogContextQueryService(
         fresh_reader, fresh_reader, fresh_reader, fresh_reader
     ).get_exact_catalog_context(catalog.generation_fingerprint)
+    native_context = OnlyExactCatalogContextQueryService(
+        fresh_reader, fresh_reader, fresh_reader, fresh_reader
+    ).get_exact_catalog_context(native_catalog.generation_fingerprint)
+    assert native_context.catalog_generation_fingerprint == native_catalog.generation_fingerprint
+    assert {item.provider_id for item in native_context.ordered_providers} == {
+        provider.manifest.provider_id,
+        native_provider.manifest.provider_id,
+    }
     hosted = subprocess.run(
         [
             str(tmp_path / "runtime-a" / "bin" / "python"),
@@ -279,7 +383,7 @@ def test_builder_installs_exact_public_example_in_clean_environment_and_is_deter
     )
     assert hosted.returncode == 0, hosted.stdout + hosted.stderr
     installed_provider = next(
-        (tmp_path / "runtime-b").glob("lib/python*/site-packages/onlyalpha_example_strategies/provider.py")
+        (tmp_path / "runtime-b").glob("lib/python*/site-packages/onlyalpha_test_strategy_provider/provider.py")
     )
     installed_provider.write_bytes(installed_provider.read_bytes() + b"\n")
     mismatched_host = subprocess.run(
@@ -340,165 +444,11 @@ def test_builder_installs_exact_public_example_in_clean_environment_and_is_deter
         )
 
 
-def test_public_examples_execute_research_and_freeze_on_one_exact_runtime_generation(tmp_path: Path) -> None:
-    from onlyalpha_example_alpha.provider import quant_asset_provider as alpha_provider
-    from onlyalpha_example_strategies.provider import quant_asset_provider as strategy_provider
-    from onlyalpha_plugin_indicators.provider import quant_asset_provider as indicator_provider
-    from onlyalpha_plugin_operators.provider import quant_asset_provider as operator_provider
-    from onlyalpha_plugin_targets.registration import registrations as target_registrations
-    from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry
-
-    repository = Path(__file__).resolve().parents[3]
-    projects = {
-        "onlyalpha": repository,
-        "onlyalpha-runtime-generation-manager": repository / "packages/onlyalpha-runtime-generation-manager",
-        "onlyalpha-example-alpha": repository / "examples/onlyalpha-example-alpha",
-        "onlyalpha-example-strategies": repository / "examples/onlyalpha-example-strategies",
-        "onlyalpha-plugin-operators": repository / "plugs/onlyalpha-plugin-operators",
-        "onlyalpha-plugin-indicators": repository / "plugs/onlyalpha-plugin-indicators",
-        "onlyalpha-plugin-targets": repository / "plugs/onlyalpha-plugin-targets",
-    }
-    wheels = {name: _build_wheel(project, tmp_path / "wheels" / name) for name, project in projects.items()}
-    core_wheel = wheels["onlyalpha"]
-    core_bytes = core_wheel.read_bytes()
-    core_artifact = OnlyDistributionArtifactManifest(
-        role=OnlyDistributionArtifactRole.CORE,
-        source_provenance_authority=OnlyArtifactSourceProvenanceAuthority.ONLYALPHA_GIT,
-        source_repository="OnlyAlpha",
-        source_revision="1" * 40,
-        distribution_name="onlyalpha",
-        distribution_version=metadata.version("onlyalpha"),
-        artifact_logical_name=core_wheel.name,
-        artifact_sha256=hashlib.sha256(core_bytes).hexdigest(),
-        artifact_size=len(core_bytes),
-    )
-    core_identity = OnlyCoreExecutionIdentity(
-        core_artifact.distribution_name,
-        core_artifact.distribution_version,
-        core_artifact.artifact_sha256,
-    )
-    providers = (operator_provider(), indicator_provider(), alpha_provider(), strategy_provider())
-    provider_wheels = {
-        "onlyalpha.operator.library": wheels["onlyalpha-plugin-operators"],
-        "onlyalpha.indicator.library": wheels["onlyalpha-plugin-indicators"],
-        "example.alpha.library": wheels["onlyalpha-example-alpha"],
-        "example.strategy.library": wheels["onlyalpha-example-strategies"],
-    }
-    quant_artifacts = tuple(
-        only_quant_asset_distribution_artifact_manifest(
-            source_repository=provider.manifest.distribution_name,
-            source_revision="2" * 40,
-            artifact_logical_name=provider_wheels[provider.manifest.provider_id].name,
-            artifact_bytes=provider_wheels[provider.manifest.provider_id].read_bytes(),
-            tested_core_execution_fingerprint=core_identity.fingerprint,
-            provider=provider,
-        )
-        for provider in providers
-    )
-    target_wheel = wheels["onlyalpha-plugin-targets"]
-    target_artifact = only_calculation_distribution_artifact_manifest(
-        source_repository="OnlyAlpha",
-        source_revision="3" * 40,
-        distribution_name="onlyalpha-plugin-targets",
-        distribution_version=metadata.version("onlyalpha-plugin-targets"),
-        artifact_logical_name=target_wheel.name,
-        artifact_bytes=target_wheel.read_bytes(),
-        tested_core_execution_fingerprint=core_identity.fingerprint,
-        registrations=target_registrations(),
-    )
-    manager_artifact = _plain_artifact(
-        wheels["onlyalpha-runtime-generation-manager"],
-        role=OnlyDistributionArtifactRole.SUPPORT,
-        authority=OnlyArtifactSourceProvenanceAuthority.ONLYALPHA_GIT,
-        repository="OnlyAlpha",
-        revision="4" * 40,
-    )
-    support_wheels = tuple(
-        _installed_distribution_wheel(name, tmp_path / "wheels" / "support")
-        for name in (
-            "pyarrow",
-            "numpy",
-            "pytest",
-            "iniconfig",
-            "packaging",
-            "pluggy",
-            "pygments",
-            "hypothesis",
-            "sortedcontainers",
-            "pyyaml",
-            "psycopg",
-            "psycopg-binary",
-        )
-    )
-    support_artifacts = tuple(
-        _plain_artifact(
-            wheel,
-            role=OnlyDistributionArtifactRole.SUPPORT,
-            authority=OnlyArtifactSourceProvenanceAuthority.EXTERNAL_RELEASE,
-            repository=_wheel_distribution_name(wheel),
-            revision=f"release-{metadata.version(_wheel_distribution_name(wheel))}",
-        )
-        for wheel in support_wheels
-    )
-    artifacts = (core_artifact, manager_artifact, target_artifact, *quant_artifacts, *support_artifacts)
-    store = OnlyLocalImmutableArtifactStore(tmp_path / "artifact-store")
-    content_by_name = {wheel.name: wheel.read_bytes() for wheel in (*wheels.values(), *support_wheels)}
-    for artifact in artifacts:
-        store.put_once(artifact, content_by_name[artifact.artifact_logical_name])
-
-    validated = OnlyRuntimeGenerationBuilder(store, Path(sys.executable)).build_validated(
-        artifacts=artifacts,
-        expected_catalog=OnlyQuantAssetCatalogGeneration(providers),
-        environment_root=tmp_path / "runtime",
-    )
-    authority_root = tmp_path / "authority"
-    authority = OnlyRuntimeGenerationRegistry(authority_root)
-    authority.prepare(validated.manifest, actor="operator", occurred_at=NOW)
-    authority.admit_ready(validated.validation_evidence, actor="validator", occurred_at=NOW)
-    generation = validated.manifest.runtime_generation_fingerprint
-    authority.activate_for_new_work(
-        expected_current=None,
-        target=generation,
-        actor="operator",
-        occurred_at=NOW,
-    )
-
-    environment = os.environ.copy()
-    environment.update(
-        {
-            "PYTHONNOUSERSITE": "1",
-            "PYTHONDONTWRITEBYTECODE": "1",
-            "ONLYALPHA_EXACT_RUNTIME_GENERATION_FINGERPRINT": generation,
-            "ONLYALPHA_EXACT_RUNTIME_GENERATION_AUTHORITY_ROOT": str(authority_root),
-        }
-    )
-    conformance = repository / "tests/quant_assets/test_private_asset_contract_conformance.py"
-    command = (
-        "from pathlib import Path; import pytest; "
-        "from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry; "
-        f"a=OnlyRuntimeGenerationRegistry(Path({str(authority_root)!r})); "
-        f"a.verify_hosted_generation({generation!r}); "
-        f"raise SystemExit(pytest.main([{str(conformance)!r}, '-q', '-k', "
-        "'installed_l3_l4_resolve_research_evidence_freeze_and_revision']))"
-    )
-    completed = subprocess.run(
-        [str(tmp_path / "runtime" / "bin" / "python"), "-I", "-c", command],
-        cwd=tmp_path / "runtime",
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert completed.returncode == 0, completed.stdout + completed.stderr
-    binding = authority.require_work_binding("00000000-0000-4000-8000-000000003000")
-    assert binding.runtime_generation_fingerprint == generation
-
-
 def test_catalog_mismatch_never_produces_a_generation(tmp_path: Path) -> None:
     repository = Path(__file__).resolve().parents[3]
     core_wheel = _build_wheel(repository, tmp_path / "core-wheel")
     strategy_wheel = _build_wheel(
-        repository / "examples/onlyalpha-example-strategies",
+        repository / "tests/fixtures/runtime_strategy_provider",
         tmp_path / "strategy-wheel",
     )
     pyarrow_wheel = _installed_distribution_wheel("pyarrow", tmp_path / "support-wheel")
@@ -517,7 +467,7 @@ def test_catalog_mismatch_never_produces_a_generation(tmp_path: Path) -> None:
     provider = quant_asset_provider()
     strategy_bytes = strategy_wheel.read_bytes()
     strategy_artifact = only_quant_asset_distribution_artifact_manifest(
-        source_repository="OnlyAlpha-example-strategies",
+        source_repository="OnlyAlpha-test-strategy-provider",
         source_revision="2" * 40,
         artifact_logical_name=strategy_wheel.name,
         artifact_bytes=strategy_bytes,
@@ -582,12 +532,12 @@ def test_builder_rejects_duplicate_distribution_identity_before_environment_crea
     assert not environment.exists()
 
 
-def test_builder_clean_installs_public_l3_example_with_exact_support_artifact(tmp_path: Path) -> None:
-    from onlyalpha_example_alpha.provider import quant_asset_provider as alpha_provider
+def test_builder_clean_installs_alpha_distribution_fixture_with_exact_support_artifact(tmp_path: Path) -> None:
+    from onlyalpha_test_alpha_provider.provider import quant_asset_provider as alpha_provider
 
     repository = Path(__file__).resolve().parents[3]
     core_wheel = _build_wheel(repository, tmp_path / "core-wheel")
-    alpha_wheel = _build_wheel(repository / "examples/onlyalpha-example-alpha", tmp_path / "alpha-wheel")
+    alpha_wheel = _build_wheel(repository / "tests/fixtures/runtime_alpha_provider", tmp_path / "alpha-wheel")
     pyarrow_wheel = _installed_distribution_wheel("pyarrow", tmp_path / "support-wheel")
     core_bytes = core_wheel.read_bytes()
     core_artifact = OnlyDistributionArtifactManifest(
@@ -605,7 +555,7 @@ def test_builder_clean_installs_public_l3_example_with_exact_support_artifact(tm
     provider = alpha_provider()
     alpha_bytes = alpha_wheel.read_bytes()
     alpha_artifact = only_quant_asset_distribution_artifact_manifest(
-        source_repository="OnlyAlpha-example-alpha",
+        source_repository="OnlyAlpha-test-alpha-provider",
         source_revision="2" * 40,
         artifact_logical_name=alpha_wheel.name,
         artifact_bytes=alpha_bytes,

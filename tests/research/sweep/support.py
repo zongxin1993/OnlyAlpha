@@ -4,10 +4,10 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
-from onlyalpha_example_alpha.registration import registrations as factor_registrations
 from onlyalpha_plugin_indicators.registration import TYPES
 from onlyalpha_plugin_indicators.registration import registrations as indicator_registrations
 from onlyalpha_plugin_operators.registration import registrations as operator_registrations
+from onlyalpha_test_alpha_provider.registration import registrations as factor_registrations
 
 from onlyalpha.calculation import (
     OnlyCalculationKind,

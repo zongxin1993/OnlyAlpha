@@ -54,6 +54,7 @@ from onlyalpha.calculation.registry import (
     OnlyTradingCalculationBackend,
     OnlyTradingCalculationBackendResolver,
 )
+from onlyalpha.calculation.value_semantics import OnlyCanonicalValueSemanticsV1 as OnlyCanonicalValueSemanticsV1
 
 __all__ = [
     name

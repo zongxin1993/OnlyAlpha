@@ -3,12 +3,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from onlyalpha_example_alpha.registration import registrations as factor_registrations
-from onlyalpha_example_alpha.registration import resolve_momentum
 from onlyalpha_plugin_indicators.registration import TYPES, resolve_definition
 from onlyalpha_plugin_indicators.registration import registrations as indicator_registrations
 from onlyalpha_plugin_operators.registration import registrations as operator_registrations
 from onlyalpha_plugin_operators.registration import resolve_cross_section_percentile
+from onlyalpha_test_alpha_provider.registration import registrations as factor_registrations
+from onlyalpha_test_alpha_provider.registration import resolve_momentum
 
 from onlyalpha.calculation import (
     OnlyCalculationGraphDefinition,

@@ -1,7 +1,8 @@
-"""L1 quantitative asset provider facade."""
+"""Operator quantitative asset provider facade."""
 
 from onlyalpha.quant_assets import (
-    OnlyQuantAssetLayer,
+    OnlyDistributionProviderSource,
+    OnlyQuantAssetKind,
     OnlyQuantAssetProvider,
     OnlyQuantAssetProviderManifest,
 )
@@ -13,9 +14,11 @@ def quant_asset_provider() -> OnlyQuantAssetProvider:
         OnlyQuantAssetProviderManifest(
             provider_id="onlyalpha.operator.library",
             provider_version="4",
-            layer=OnlyQuantAssetLayer.OPERATOR,
-            distribution_name="onlyalpha-plugin-operators",
-            distribution_version="0.9.9",
+            kind=OnlyQuantAssetKind.OPERATOR,
+            source=OnlyDistributionProviderSource(
+                distribution_name="onlyalpha-plugin-operators",
+                distribution_version="0.9.9",
+            ),
         ),
         calculation_registrations=registrations(),
     )

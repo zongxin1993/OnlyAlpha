@@ -8,8 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-from onlyalpha.canonical import only_canonical_json
+from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 from onlyalpha.distribution import OnlyDistributionArtifactManifest
+from onlyalpha.quant_assets.catalog import OnlyQuantAssetProvider
+from onlyalpha.quant_assets.private_alpha_execution import (
+    OnlyPrivateAlphaExecutableClosureV1,
+    OnlyPrivateAlphaSourceArtifactManifestV1,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,11 +74,114 @@ class OnlyLocalImmutableArtifactStore:
                 raise ValueError("RUNTIME_GENERATION_ARTIFACT_MISMATCH") from exc
         return tuple(result)
 
+    def put_private_alpha_source(self, manifest: OnlyPrivateAlphaSourceArtifactManifestV1, source_bytes: bytes) -> Path:
+        manifest.verify(source_bytes)
+        artifact_path, manifest_path = self._private_alpha_paths(manifest.source_artifact_fingerprint)
+        artifact_path.parent.mkdir(parents=True, exist_ok=True)
+        self._write_once(artifact_path, source_bytes, "PRIVATE_ALPHA_SOURCE_ARTIFACT_CONFLICT")
+        encoded = (only_canonical_json(manifest.to_dict()) + "\n").encode()
+        self._write_once(manifest_path, encoded, "PRIVATE_ALPHA_SOURCE_ARTIFACT_MANIFEST_CONFLICT")
+        self.verify_private_alpha_source(manifest)
+        return artifact_path
+
+    def fetch_private_alpha_source(
+        self, source_artifact_fingerprint: str
+    ) -> tuple[OnlyPrivateAlphaSourceArtifactManifestV1, bytes]:
+        artifact_path, manifest_path = self._private_alpha_paths(source_artifact_fingerprint)
+        try:
+            payload: Any = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError
+            manifest = OnlyPrivateAlphaSourceArtifactManifestV1.from_dict(cast(dict[str, object], payload))
+            source = artifact_path.read_bytes()
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise ValueError("PRIVATE_ALPHA_SOURCE_ARTIFACT_MISMATCH") from exc
+        if manifest.source_artifact_fingerprint != source_artifact_fingerprint:
+            raise ValueError("PRIVATE_ALPHA_SOURCE_ARTIFACT_MISMATCH")
+        manifest.verify(source)
+        return manifest, source
+
+    def verify_private_alpha_source(self, expected: OnlyPrivateAlphaSourceArtifactManifestV1) -> Path:
+        actual, source = self.fetch_private_alpha_source(expected.source_artifact_fingerprint)
+        if actual != expected:
+            raise ValueError("PRIVATE_ALPHA_SOURCE_ARTIFACT_MANIFEST_MISMATCH")
+        expected.verify(source)
+        return self._private_alpha_paths(expected.source_artifact_fingerprint)[0]
+
+    def put_private_alpha_runtime(
+        self,
+        closure: OnlyPrivateAlphaExecutableClosureV1,
+        provider: OnlyQuantAssetProvider,
+    ) -> str:
+        OnlyPrivateAlphaExecutableClosureV1.verify_canonical(closure)
+        if provider.private_alpha_snapshot != closure.provider_snapshot:
+            raise ValueError("PRIVATE_ALPHA_RUNTIME_ARTIFACT_MISMATCH")
+        revision = closure.revision.to_dict()
+        del revision["source_text"]
+        payload = {
+            "schema_version": 1,
+            "revision_metadata": revision,
+            "source_artifact": closure.source_artifact.to_dict(),
+            "equivalence_evidence": closure.equivalence_evidence.to_dict(),
+            "provider_snapshot": closure.provider_snapshot.to_dict(),
+            "provider": provider.descriptor(),
+        }
+        fingerprint = only_canonical_fingerprint(payload)
+        target = self._private_alpha_runtime_path(fingerprint)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        self._write_once(
+            target,
+            (only_canonical_json({**payload, "runtime_artifact_fingerprint": fingerprint}) + "\n").encode(),
+            "PRIVATE_ALPHA_RUNTIME_ARTIFACT_CONFLICT",
+        )
+        self.fetch_private_alpha_runtime(fingerprint)
+        return fingerprint
+
+    def fetch_private_alpha_runtime(self, fingerprint: str) -> dict[str, object]:
+        target = self._private_alpha_runtime_path(fingerprint)
+        try:
+            raw = target.read_text(encoding="utf-8")
+            payload: Any = json.loads(raw)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError("PRIVATE_ALPHA_RUNTIME_ARTIFACT_MISMATCH") from exc
+        if (
+            not isinstance(payload, dict)
+            or set(payload)
+            != {
+                "schema_version",
+                "revision_metadata",
+                "source_artifact",
+                "equivalence_evidence",
+                "provider_snapshot",
+                "provider",
+                "runtime_artifact_fingerprint",
+            }
+            or payload["schema_version"] != 1
+            or payload["runtime_artifact_fingerprint"] != fingerprint
+            or raw != only_canonical_json(payload) + "\n"
+        ):
+            raise ValueError("PRIVATE_ALPHA_RUNTIME_ARTIFACT_MISMATCH")
+        content = {key: value for key, value in payload.items() if key != "runtime_artifact_fingerprint"}
+        if only_canonical_fingerprint(content) != fingerprint:
+            raise ValueError("PRIVATE_ALPHA_RUNTIME_ARTIFACT_MISMATCH")
+        return cast(dict[str, object], payload)
+
     def _paths(self, artifact_sha256: str) -> tuple[Path, Path]:
         if len(artifact_sha256) != 64 or any(char not in "0123456789abcdef" for char in artifact_sha256):
             raise ValueError("RUNTIME_GENERATION_ARTIFACT_MISMATCH")
         directory = self.root / artifact_sha256[:2] / artifact_sha256
         return directory / "artifact.whl", directory / "manifest.json"
+
+    def _private_alpha_paths(self, fingerprint: str) -> tuple[Path, Path]:
+        if len(fingerprint) != 64 or any(char not in "0123456789abcdef" for char in fingerprint):
+            raise ValueError("PRIVATE_ALPHA_SOURCE_ARTIFACT_MISMATCH")
+        directory = self.root / "private-alpha" / fingerprint[:2] / fingerprint
+        return directory / "source.py", directory / "manifest.json"
+
+    def _private_alpha_runtime_path(self, fingerprint: str) -> Path:
+        if len(fingerprint) != 64 or any(char not in "0123456789abcdef" for char in fingerprint):
+            raise ValueError("PRIVATE_ALPHA_RUNTIME_ARTIFACT_MISMATCH")
+        return self.root / "private-alpha-runtime" / fingerprint[:2] / f"{fingerprint}.json"
 
     @staticmethod
     def _verify_bytes(manifest: OnlyDistributionArtifactManifest, content: bytes) -> None:

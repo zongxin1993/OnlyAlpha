@@ -43,8 +43,8 @@ Stable Kernel
 └── Promotion / permission boundaries when implemented
 
 High-change Domain Plugins
-├── Public L1 Operators / L2 Indicators
-├── Private L3 Factors / L4 Strategies
+├── Public Operator Operators / Indicator Indicators
+├── Private Alpha Factors / Strategy Strategies
 ├── Targets
 └── Statistics Methods
 
@@ -195,8 +195,8 @@ not generating another near-duplicate plugin.
 
 This keeps the semantic catalog small, reusable, and auditable.
 
-ADR 0110 makes L3 Factor and L4 Strategy the Agent's primary creation/search space. Missing reusable generic mathematics belongs
-in public L1; missing stable financial/descriptive knowledge belongs in public L2. Either capability must be proposed and admitted
+ADR 0110 makes Alpha Factor and Strategy Strategy the Agent's primary creation/search space. Missing reusable generic mathematics belongs
+in public Operator; missing stable financial/descriptive knowledge belongs in public Indicator. Either capability must be proposed and admitted
 separately instead of being embedded in one private Factor or Strategy.
 
 ## 7. Generated code is quarantined until admission
@@ -228,8 +228,8 @@ Agent-generated source
 != admitted plugin
 ```
 
-ADR 0129 freezes private L3/L4 production authoring as database-native product assets. A Private L3 has one mutable Draft, one
-immutable Revision, exactly one canonical UTF-8 Python source unit and one exact stable L3 API Contract; a Private L4 has one
+ADR 0129 freezes private Alpha/Strategy production authoring as database-native product assets. A Private Alpha has one mutable Draft, one
+immutable Revision, exactly one canonical UTF-8 Python source unit and one exact stable Alpha API Contract; a Private Strategy has one
 immutable canonical structured Strategy Definition. A Git commit, source bundle, package or wheel may provide optional provenance or
 interoperability, but none is the authoring Authority or runtime identity. Candidate Providers remain explicit and non-production.
 Only an admitted Registry/Provider change with valid semantic and provider version transitions may enter a Catalog Generation for new
@@ -237,7 +237,7 @@ work.
 
 PA-1 provides these Asset/Draft/Revision contracts, durable PostgreSQL publication with exact parent/base concurrency, and DB-native
 Research Authoring Provenance. It does not execute stored Python or admit a Revision into a Provider/Catalog. Until later isolated
-materialization work, legacy distribution-based L3 execution remains the only implemented runtime path.
+materialization work, legacy distribution-based Alpha execution remains the only implemented runtime path.
 
 The resulting long-term transition is:
 

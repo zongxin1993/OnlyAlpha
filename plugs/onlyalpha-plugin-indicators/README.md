@@ -1,4 +1,4 @@
-# OnlyAlpha L2 Indicators
+# OnlyAlpha Indicator Indicators
 
 This official public package owns deterministic calculations with stable financial/descriptive meaning and no predictive Target
 hypothesis. Its existing Indicator semantic identities are retained. Each named Feature remains a Calculation output port; this

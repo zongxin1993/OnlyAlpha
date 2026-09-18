@@ -1,0 +1,23 @@
+{
+  "alpha": {
+    "alpha_id": "private.alpha.simple_momentum",
+    "category": "momentum",
+    "economic_rationale": "Recent relative price strength can persist over the next observation.",
+    "input_contract": {
+      "close": {"type": "DECIMAL"},
+      "previous_close": {"type": "DECIMAL"}
+    },
+    "output_contract": {
+      "value": {"semantic_type": "FACTOR_VALUE", "type": "DECIMAL"}
+    },
+    "parameter_contract": {},
+    "semantic_version": "1",
+    "tags": ["momentum", "reference"]
+  },
+  "asset_kind": "ALPHA",
+  "dependencies": [],
+  "description": "A minimal DB-native momentum Alpha seed.",
+  "display_name": "Simple Momentum Alpha",
+  "example_id": "alpha.simple_momentum",
+  "schema_version": 1
+}

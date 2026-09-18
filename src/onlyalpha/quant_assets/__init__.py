@@ -1,16 +1,24 @@
-"""Versioned four-layer quantitative asset provider and catalog contracts."""
+"""Versioned four-kind quantitative asset provider and catalog contracts."""
 
 from .artifact import only_quant_asset_distribution_artifact_manifest as only_quant_asset_distribution_artifact_manifest
 from .catalog import ONLYALPHA_QUANT_ASSET_ENTRY_POINT as ONLYALPHA_QUANT_ASSET_ENTRY_POINT
+from .catalog import OnlyDistributionProviderSource as OnlyDistributionProviderSource
+from .catalog import OnlyPrivateAlphaSnapshotProviderSource as OnlyPrivateAlphaSnapshotProviderSource
 from .catalog import OnlyQuantAssetCatalogGeneration as OnlyQuantAssetCatalogGeneration
 from .catalog import OnlyQuantAssetCatalogManager as OnlyQuantAssetCatalogManager
-from .catalog import OnlyQuantAssetLayer as OnlyQuantAssetLayer
+from .catalog import OnlyQuantAssetKind as OnlyQuantAssetKind
 from .catalog import OnlyQuantAssetProvider as OnlyQuantAssetProvider
 from .catalog import OnlyQuantAssetProviderManifest as OnlyQuantAssetProviderManifest
 from .catalog import OnlyStrategyAuthoringAsset as OnlyStrategyAuthoringAsset
 from .catalog import OnlyStrategyAuthoringResource as OnlyStrategyAuthoringResource
 from .catalog import only_discover_quant_asset_providers as only_discover_quant_asset_providers
+from .example_seed import OnlyPrivateAssetExampleBundleV1 as OnlyPrivateAssetExampleBundleV1
+from .example_seed import OnlyPrivateAssetExampleImporterV1 as OnlyPrivateAssetExampleImporterV1
+from .example_seed import only_load_private_asset_example_bundle as only_load_private_asset_example_bundle
 from .private import PRIVATE_ASSET_SCHEMA_VERSION as PRIVATE_ASSET_SCHEMA_VERSION
+from .private import OnlyPrivateAlphaAsset as OnlyPrivateAlphaAsset
+from .private import OnlyPrivateAlphaDraft as OnlyPrivateAlphaDraft
+from .private import OnlyPrivateAlphaRevision as OnlyPrivateAlphaRevision
 from .private import OnlyPrivateAssetAuthoringAuthority as OnlyPrivateAssetAuthoringAuthority
 from .private import OnlyPrivateAssetAuthorityUnavailableError as OnlyPrivateAssetAuthorityUnavailableError
 from .private import OnlyPrivateAssetConflictError as OnlyPrivateAssetConflictError
@@ -29,16 +37,35 @@ from .private import OnlyPrivateAssetRevisionNotFoundError as OnlyPrivateAssetRe
 from .private import OnlyPrivateAssetRevisionReferenceV1 as OnlyPrivateAssetRevisionReferenceV1
 from .private import OnlyPrivateAssetSchemaUnsupportedError as OnlyPrivateAssetSchemaUnsupportedError
 from .private import OnlyPrivateAssetStaleBaseError as OnlyPrivateAssetStaleBaseError
-from .private import OnlyPrivateL3Asset as OnlyPrivateL3Asset
-from .private import OnlyPrivateL3Draft as OnlyPrivateL3Draft
-from .private import OnlyPrivateL3Revision as OnlyPrivateL3Revision
-from .private import OnlyPrivateL4Asset as OnlyPrivateL4Asset
-from .private import OnlyPrivateL4Draft as OnlyPrivateL4Draft
-from .private import OnlyPrivateL4Revision as OnlyPrivateL4Revision
+from .private import OnlyPrivateStrategyAsset as OnlyPrivateStrategyAsset
+from .private import OnlyPrivateStrategyDraft as OnlyPrivateStrategyDraft
+from .private import OnlyPrivateStrategyRevision as OnlyPrivateStrategyRevision
 from .private import OnlyVerifiedPrivateAssetRevisionBindingV1 as OnlyVerifiedPrivateAssetRevisionBindingV1
-from .private import only_private_l3_revision_fingerprint as only_private_l3_revision_fingerprint
-from .private import only_private_l3_source_sha256 as only_private_l3_source_sha256
-from .private import only_private_l4_definition_fingerprint as only_private_l4_definition_fingerprint
-from .private import only_private_l4_revision_fingerprint as only_private_l4_revision_fingerprint
+from .private import only_private_alpha_revision_fingerprint as only_private_alpha_revision_fingerprint
+from .private import only_private_alpha_source_sha256 as only_private_alpha_source_sha256
+from .private import only_private_strategy_definition_fingerprint as only_private_strategy_definition_fingerprint
+from .private import only_private_strategy_revision_fingerprint as only_private_strategy_revision_fingerprint
+from .private_alpha_execution import ONLY_PRIVATE_ALPHA_API_V1 as ONLY_PRIVATE_ALPHA_API_V1
+from .private_alpha_execution import ONLY_PRIVATE_ALPHA_VALIDATION_POLICY_V1 as ONLY_PRIVATE_ALPHA_VALIDATION_POLICY_V1
+from .private_alpha_execution import OnlyPrivateAlphaAdapterV1 as OnlyPrivateAlphaAdapterV1
+from .private_alpha_execution import OnlyPrivateAlphaApiContractV1 as OnlyPrivateAlphaApiContractV1
+from .private_alpha_execution import OnlyPrivateAlphaExecutableClosureV1 as OnlyPrivateAlphaExecutableClosureV1
+from .private_alpha_execution import OnlyPrivateAlphaIsolatedProgramHost as OnlyPrivateAlphaIsolatedProgramHost
+from .private_alpha_execution import OnlyPrivateAlphaProviderSnapshotEntryV1 as OnlyPrivateAlphaProviderSnapshotEntryV1
+from .private_alpha_execution import OnlyPrivateAlphaProviderSnapshotV1 as OnlyPrivateAlphaProviderSnapshotV1
+from .private_alpha_execution import (
+    OnlyPrivateAlphaResearchTradingEquivalenceEvidenceV1 as OnlyPrivateAlphaResearchTradingEquivalenceEvidenceV1,
+)
+from .private_alpha_execution import (
+    OnlyPrivateAlphaSourceArtifactManifestV1 as OnlyPrivateAlphaSourceArtifactManifestV1,
+)
+from .private_alpha_execution import OnlyPrivateAlphaValidationDisposition as OnlyPrivateAlphaValidationDisposition
+from .private_alpha_execution import OnlyPrivateAlphaValidationEvidenceV1 as OnlyPrivateAlphaValidationEvidenceV1
+from .private_alpha_execution import OnlyPrivateAlphaValidationPolicyV1 as OnlyPrivateAlphaValidationPolicyV1
+from .private_alpha_execution import (
+    only_private_alpha_backend_registrations as only_private_alpha_backend_registrations,
+)
+from .private_alpha_execution import only_private_alpha_type_definition as only_private_alpha_type_definition
+from .private_alpha_execution import only_validate_private_alpha_revision as only_validate_private_alpha_revision
 
 __all__ = [name for name in globals() if name.startswith(("Only", "only_", "ONLYALPHA_"))]

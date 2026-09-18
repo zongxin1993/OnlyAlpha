@@ -15,7 +15,6 @@ from datetime import UTC, datetime
 from importlib import metadata
 from pathlib import Path
 
-from onlyalpha_example_alpha.provider import quant_asset_provider as alpha_provider
 from onlyalpha_plugin_indicators.provider import quant_asset_provider as indicator_provider
 from onlyalpha_plugin_operators.provider import quant_asset_provider as operator_provider
 from onlyalpha_plugin_targets.registration import registrations as target_registrations
@@ -25,6 +24,7 @@ from onlyalpha_runtime_generation_manager import (
     OnlyRuntimeGenerationBuilder,
     OnlyRuntimeGenerationRegistry,
 )
+from onlyalpha_test_alpha_provider.provider import quant_asset_provider as alpha_provider
 from packaging.tags import parse_tag, sys_tags
 
 from onlyalpha.calculation.artifact import only_calculation_distribution_artifact_manifest
@@ -118,7 +118,7 @@ def build_exact_search_processes(root: Path) -> ExactSearchProcesses:
     projects = {
         "onlyalpha": repository,
         "onlyalpha-runtime-generation-manager": repository / "packages/onlyalpha-runtime-generation-manager",
-        "onlyalpha-example-alpha": repository / "examples/onlyalpha-example-alpha",
+        "onlyalpha-test-alpha-provider": repository / "tests/fixtures/runtime_alpha_provider",
         "onlyalpha-plugin-operators": repository / "plugs/onlyalpha-plugin-operators",
         "onlyalpha-plugin-indicators": repository / "plugs/onlyalpha-plugin-indicators",
         "onlyalpha-plugin-targets": repository / "plugs/onlyalpha-plugin-targets",
@@ -222,12 +222,12 @@ def _build_variant(
     authority: OnlyRuntimeGenerationRegistry,
 ) -> tuple[str, str]:
     """Change fixture bytes in a new wheel, regenerate RECORD, and seal exact B."""
-    original = wheels["onlyalpha-example-alpha"]
+    original = wheels["onlyalpha-test-alpha-provider"]
     variant = root / "variant" / original.name
     variant.parent.mkdir()
     with zipfile.ZipFile(original) as archive:
         contents = {name: archive.read(name) for name in archive.namelist()}
-    registration = "onlyalpha_example_alpha/registration.py"
+    registration = "onlyalpha_test_alpha_provider/registration.py"
     source = contents[registration].decode()
     assert '"example.factor.momentum",\n    "1",' in source
     source = source.replace('"example.factor.momentum",\n    "1",', '"example.factor.momentum",\n    "2",')
@@ -237,10 +237,10 @@ def _build_variant(
         'OnlyWarmupDefinition(2, "fixture B needs two upstream values"',
     )
     contents[registration] = source.encode()
-    provider = "onlyalpha_example_alpha/provider.py"
+    provider = "onlyalpha_test_alpha_provider/provider.py"
     contents[provider] = contents[provider].replace(b'provider_version="1"', b'provider_version="2"')
     for backend in ("research.py", "trading.py"):
-        name = f"onlyalpha_example_alpha/{backend}"
+        name = f"onlyalpha_test_alpha_provider/{backend}"
         contents[name] = contents[name].replace(b'semantic_version != "1"', b'semantic_version != "2"')
         contents[name] = contents[name].replace(
             b"short_weight * left + long_weight * right", b"short_weight * left - long_weight * right"
@@ -265,7 +265,11 @@ def _build_variant(
     # Resolve only the known wheel inputs already prepared offline above.
     available = {wheel.name: wheel for wheel in (*wheels.values(), *(root / "support").glob("*.whl"))}
     install_wheels = [
-        str(variant if item.distribution_name == "onlyalpha-example-alpha" else available[item.artifact_logical_name])
+        str(
+            variant
+            if item.distribution_name == "onlyalpha-test-alpha-provider"
+            else available[item.artifact_logical_name]
+        )
         for item in artifacts
     ]
     completed = subprocess.run(

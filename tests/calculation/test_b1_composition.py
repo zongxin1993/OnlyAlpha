@@ -1,6 +1,5 @@
 from decimal import Decimal
 
-from onlyalpha_example_alpha.registration import resolve_momentum
 from onlyalpha_plugin_indicators.registration import (
     ROC,
     STOCHASTIC,
@@ -40,6 +39,7 @@ from onlyalpha_plugin_operators.registration import (
 from onlyalpha_plugin_operators.registration import (
     registrations as operator_registrations,
 )
+from onlyalpha_test_alpha_provider.registration import resolve_momentum
 
 from onlyalpha.calculation import (
     OnlyCalculationGraphDefinition,

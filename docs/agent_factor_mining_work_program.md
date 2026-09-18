@@ -24,7 +24,7 @@ Dataset Snapshot
 → Promotion
 ```
 
-Private L3/L4 asset identity, database-native Draft/Revision authoring, experiment provenance, immutable distributions, Catalog
+Private Alpha/Strategy asset identity, database-native Draft/Revision authoring, experiment provenance, immutable distributions, Catalog
 Generation, exact authoring execution generation, and evidence-backed Qualification/Promotion are now formalized by the current
 architecture and ADRs, especially ADR 0129.
 
@@ -176,8 +176,8 @@ Useful ideas:
    This maps naturally to OnlyAlpha:
 
    ```text
-   L1 Operators
-   + L2 Indicators / stable financial primitives
+   Operator Operators
+   + Indicator Indicators / stable financial primitives
    + canonical parameters
    → OnlyCalculationGraphDefinition
    ```
@@ -236,7 +236,7 @@ Useful ideas:
 
    Qlib’s expression/data pipeline demonstrates that a large factor space can be represented as composable operations rather than one Python strategy class per idea.
 
-   OnlyAlpha already has the canonical equivalent direction in `OnlyCalculationGraphDefinition` and L1/L2/L3 quant-asset layers.
+   OnlyAlpha already has the canonical equivalent direction in `OnlyCalculationGraphDefinition` and Operator/Indicator/Alpha quant-asset layers.
 
 2. **Loose coupling of data, learning, workflow, backtest, and analysis**
 
@@ -365,16 +365,16 @@ For each research idea:
 1. Does the Catalog already contain the required Factor/Calculation?
    YES → reuse exact semantic identity.
 
-2. Can existing L1/L2 components express it as a canonical graph?
+2. Can existing Operator/Indicator components express it as a canonical graph?
    YES → compose OnlyCalculationGraphDefinition.
 
 3. Is the change only a parameter/sweep question?
    YES → use deterministic parameter search.
 
 4. Is a reusable generic mathematical/financial capability actually missing?
-   YES → propose an L1/L2 capability through its normal public admission path.
+   YES → propose an Operator/Indicator capability through its normal public admission path.
 
-5. Is this genuinely a new hypothesis-bearing atomic L3 Factor?
+5. Is this genuinely a new hypothesis-bearing atomic Alpha Factor?
    YES → isolated code-generation/admission workflow.
 ```
 
@@ -385,7 +385,7 @@ The desired long-term distribution is approximately:
 ```text
 most experiments      → graph composition / parameter variation
 some experiments      → factor-pool combinations
-few experiments       → genuinely new L3 executable code
+few experiments       → genuinely new Alpha executable code
 ```
 
 ---
@@ -733,7 +733,7 @@ Prove high-volume factor discovery without arbitrary code generation.
 **Primary work**
 
 ```text
-query exact L1/L2 Catalog
+query exact Operator/Indicator Catalog
 bounded legal graph grammar over existing components
 canonical graph candidate generation
 semantic duplicate elimination
@@ -848,11 +848,11 @@ Known duplicate or already-explored candidates are rejected/skipped before Resea
 
 ---
 
-### B3.6 — Isolated L3 Code Generation & Admission
+### B3.6 — Isolated Alpha Code Generation & Admission
 
 **Goal**
 
-Allow Agent generation only when a hypothesis cannot be expressed by existing L1/L2 composition.
+Allow Agent generation only when a hypothesis cannot be expressed by existing Operator/Indicator composition.
 
 **Primary work**
 
@@ -875,7 +875,7 @@ interoperability paths, not required production authoring authority.
 
 **Gate**
 
-An Agent-generated L3 candidate can move from isolated experiment to formal admitted asset only through the same private-asset lifecycle as human-authored assets.
+An Agent-generated Alpha candidate can move from isolated experiment to formal admitted asset only through the same private-asset lifecycle as human-authored assets.
 
 ---
 
@@ -973,7 +973,7 @@ B3.4 LLM Agent Orchestrator MVP
         ↓
 B3.5 Novelty / Experiment Memory
         ↓
-B3.6 L3 Code Generation / Admission
+B3.6 Alpha Code Generation / Admission
         ↓
 B3.7 Factor Pool Search
         ↓
@@ -997,7 +997,7 @@ Input:
 ```text
 one manually supplied structured hypothesis
 one fixed Dataset/Universe/Target specification
-existing admitted L1/L2 Catalog
+existing admitted Operator/Indicator Catalog
 ```
 
 System:
@@ -1136,10 +1136,10 @@ OnlyAlpha
 → stable Kernel, Calculation/Research/Evidence/Qualification/API contracts
 
 Private Asset Authority / PostgreSQL
-→ production Private L3/L4 Assets, mutable Drafts and immutable Revisions; stored source is not execution permission
+→ production Private Alpha/Strategy Assets, mutable Drafts and immutable Revisions; stored source is not execution permission
 
-OnlyAlpha-alpha / OnlyAlpha-strategies
-→ optional private interoperability and release/materialization workflows
+examples/private-assets/
+→ portable import/demo seeds; never authoring or Runtime Authority
 
 OnlyAlpha-Agent
 → high-change research orchestration, search methods, literature/knowledge adapters
@@ -1148,8 +1148,8 @@ OnlyAlpha-Agent
 OnlyAlpha-Agent should depend on the formal public API/client and authoring workflows, not on private internal Kernel implementation imports.
 
 The implemented PA-1 foundation covers database-native identity, Draft/Revision publication, exact durable reads and DB-native Research
-Authoring Provenance. Private L3 execution, isolated validation/materialization, Registry/Search Projection, Product HTTP/Web/Agent authoring
-surfaces and admission remain later work; existing package execution remains current runtime implementation truth.
+Authoring Provenance. Private Alpha native validation/materialization and exact Runtime binding are implemented through Revision-derived
+artifacts; Registry/Search Projection and Product HTTP/Web/Agent authoring surfaces remain later work.
 
 Search algorithms belong with the Agent/research-control side unless they are proven generic deterministic quantitative semantics needed independently of Agent orchestration.
 
@@ -1179,7 +1179,7 @@ The program is successful when a new alpha idea can move through this chain with
 ```text
 Human / Paper / Agent hypothesis
         ↓
-Search / Composition / isolated L3 candidate
+Search / Composition / isolated Alpha candidate
         ↓
 Experiment identity + exact provenance
         ↓
@@ -1189,7 +1189,7 @@ Immutable Evidence
         ↓
 Evidence-backed Qualification
         ↓
-Private L3 admission when required
+Private Alpha admission when required
         ↓
 Factor Pool / Strategy Research
         ↓

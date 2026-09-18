@@ -232,16 +232,16 @@ Broker command、同步、对账和长期恢复闭环。
 ADR 0110 freezes the quantitative asset boundary without adding execution frameworks:
 
 ```text
-L1 Mathematical Operator → L2 Financial Indicator → Feature
-→ L3 Alpha Factor → Factor Value/Score
-→ L4 Strategy → Signal/Selection/Rank
+Operator → Indicator → Feature
+→ Alpha → Factor Value/Score
+→ Strategy → Signal/Selection/Rank
 → Portfolio/Risk/Execution
 ```
 
-Calculation and its Graph remain the only calculation abstraction and DAG authority. L1/L2 are public reusable capabilities;
-production L3/L4 are private, while the main repository keeps only two non-production reference libraries. Feature remains an
+Calculation and its Graph remain the only calculation abstraction and DAG authority. Operator/Indicator are public reusable capabilities;
+production Alpha/Strategy are private, while the main repository keeps non-production DB import seeds. Feature remains an
 output port, Factor carries a hypothesis, and immutable StrategyRevision remains runtime Strategy authority. Generic
-cross-sectional rank/percentile is L1 mathematics rather than an Alpha hypothesis. Target and Research statistics remain
+cross-sectional rank/percentile is Operator mathematics rather than an Alpha hypothesis. Target and Research statistics remain
 orthogonal evaluation infrastructure.
 
 Cluster 是 Trading Runtime workload：
@@ -559,38 +559,37 @@ Virtual Broker、Tushare 和 MiniQMT 位于各自 distribution。插件必须提
 
 缺失或不兼容插件必须明确失败，Core 不提供隐藏 Synthetic/Virtual/Placeholder fallback。
 
-Quantitative capability dependencies follow ADR 0110: L1 Operators may depend only on public Calculation contracts; L2 Indicators
-may depend on Core contracts and L1; L3 Alpha may depend on public L1/L2; L4 authoring assets may reference admitted L1/L2/L3
+Quantitative capability dependencies follow ADR 0110: Operators may depend only on public Calculation contracts; Indicators
+may depend on Core contracts and Operators; Alpha may depend on public Operators/Indicators; Strategy authoring assets may reference admitted Operator/Indicator/Alpha
 identities. Core imports none of their concrete implementations, public packages do not depend on examples, and examples are not
 default production dependencies.
 
-ADR 0129 freezes Private L3/L4 production authoring as PostgreSQL-backed Asset/Draft/Revision content. Git repositories, source
+ADR 0129 freezes Private Alpha/Strategy production authoring as PostgreSQL-backed Asset/Draft/Revision content. Git repositories, source
 checkouts, wheels and package distributions remain optional import/export/interoperability and provenance mechanisms; they are not
-private production authoring Authority. The current distribution-based path remains implementation truth for existing public examples
-and any not-yet-migrated admitted assets. When a private Revision is materialized for executable work, the existing exact
+private production authoring Authority. Examples under `examples/private-assets/` are portable import inputs, never package or Runtime
+Authority. When a private Revision is materialized for executable work, the existing exact
 Calculation/Provider/Catalog/Runtime contracts still apply, and no database/path/package location participates in StrategyRevision or
 Runtime identity.
 
-PA-1 implements the Private L3/L4 Asset, mutable Draft and immutable Revision contracts plus their PostgreSQL authoring authority.
+PA-1 implements the Private Alpha/Strategy Asset, mutable Draft and immutable Revision contracts plus their PostgreSQL authoring authority.
 Research Authoring Provenance binds an exact database Revision and content fingerprint; Git repository, commit, tree and checkout fields
-are no longer part of that canonical contract. This authority stores and verifies source/definition content only: Private L3 execution,
-validation/admission, Provider materialization and Runtime Generation integration remain deferred, and the existing distribution-based
-execution path remains current implementation truth.
+are no longer part of that canonical contract. This authority stores and verifies source/definition content only: Private Alpha execution,
+validation, native Provider materialization and Runtime Generation integration use the exact Revision-derived source artifact.
 
 ADR 0111 remains the optional source/distribution loading contract for interoperability and executable materialization. It does not
 require a private checkout, editable install, wheel or package for DB-native authoring.
 
-ADR 0112 defines the common `onlyalpha.quant_assets` management SPI. Each L1-L4 distribution contributes a versioned, content-addressed
+ADR 0112 defines the common `onlyalpha.quant_assets` management SPI. Each Operator/Indicator/Alpha/Strategy distribution contributes a versioned, content-addressed
 provider to one immutable catalog generation. Refresh validates a complete generation and atomically publishes it for new work; existing
 work retains its prior snapshot. This management catalog does not replace Calculation Graph, `onlyalpha.calculations`, Product API, Freeze
 or StrategyRevision authorities.
 
-ADR 0115 remains the exact identity/admission contract after authoring: positive-integer asset versions identify immutable L3/L4
+ADR 0115 remains the exact identity/admission contract after authoring: positive-integer asset versions identify immutable Alpha/Strategy
 semantics; implementation fingerprints identify exact executable code; positive-integer provider versions identify admitted content;
 immutable distributions identify released artifacts; Catalog Generation selects an exact provider set for new work; Research Evidence
 owns outcomes; and verified Freeze alone creates the StrategyRevision used at runtime. Git commit and deterministic authoring
 experiment identity are optional provenance for imported/exported work, not private authoring Authority. These identities cannot
-substitute for one another. Production private namespaces are `private.factor.*` and `private.strategy.*`; no `latest` aliases exist.
+substitute for one another. Production private namespaces are `private.alpha.*` and `private.strategy.*`; no `latest` aliases exist.
 
 Private Asset Draft/Revision validation and admission reject semantic/provider drift and retain failed history. A future DB-native
 Revision may be exported or materialized into an isolated candidate/provider artifact when an executable Provider is required, but
@@ -631,30 +630,22 @@ If a Worker is started without both RuntimeGeneration arguments, it enters an ex
 presence and shutdown remain operable, but the authority returns no eligible work and all bind/require operations fail closed. Supplying
 only one argument is invalid; formal claim capability always requires the pair and successful hosted-generation verification.
 
-### Public Example / Private Asset Contract Parity
+### DB-native Example / Private Asset Contract Parity
 
-`examples/onlyalpha-example-alpha` and `examples/onlyalpha-example-strategies` are the public executable reference consumers of the L3
-and L4 private-asset contracts. They are compatibility witnesses, not source mirrors, semantic authorities or runtime authorities. A
-public-contract change affecting L3/L4 authoring, discovery, execution, Research, Evidence or Freeze must keep the corresponding example
-executable in the same public change. A private capability that cannot be expressed and verified through that public contract and example
-fails closed as an example-contract coverage gap; no hidden private-only Core integration path is permitted.
+`examples/private-assets/alpha` and `examples/private-assets/strategy` are portable import/demo seeds for the public Private Asset
+contracts. They are not packages, Providers, execution sources or Runtime Authority. Contract coverage imports each seed through the
+Private Asset Authority and then exercises the same validation, immutable Revision, Calculation Registry, Catalog and Runtime boundaries
+used by production assets. A hidden private-only Core integration path fails closed as `EXAMPLE_CONTRACT_COVERAGE_REQUIRED`.
+There is no hidden private-only Core integration path.
 
-Public examples and `OnlyAlpha-alpha` / `OnlyAlpha-strategies` satisfy the same provider-neutral conformance suite against the exact Core
-revision they target. Parity means equal public SPI/protocol requirements and observable contract behavior. Provider IDs, asset IDs,
-source code, hypotheses and Factor/Strategy semantics intentionally differ. Public CI proves the example subjects without private secrets;
-private certification selects the private subjects in its own environment and must not claim compatibility without executable evidence.
-For any Core change touching Calculation SPI, `onlyalpha.quant_assets`, Catalog discovery, Research specification/API/provenance,
-authoring execution, Strategy resources, Freeze or StrategyRevision admission, `PRIVATE_ASSET_IMPACT = YES`.
-
-Private L3/L4 authoring does not require Git hooks, a PR, a wheel or a package release. Optional Git/package import-export pipelines
+Private Alpha/Strategy authoring does not require Git hooks, a PR, a wheel or a package release. Optional Git/package import-export pipelines
 may still run their own validation and provenance checks. If a Revision is admitted as executable Provider content, the existing
 distribution/runtime gates validate the exact materialized artifact and Catalog/implementation closure; none of those gates transfers
-authoring Authority to Git, a package index, a branch or a release tag. Public examples remain distribution-based contract witnesses,
-while private database-native assets must use the same public L3/L4 contracts and may not create hidden Core integration paths.
+authoring Authority to Git, a package index, a branch or a release tag.
 
-ADR 0113 freezes the common L1 algebra policy: Decimal precision/quantization, inclusive complete windows, null propagation,
+ADR 0113 freezes the common Operator algebra policy: Decimal precision/quantization, inclusive complete windows, null propagation,
 deterministic invalid-domain nulls, population statistics, average-tie normalized ranks, and exact RESEARCH/TRADING/checkpoint
-equivalence. Cross-section L1 remains RESEARCH-only until a separate trading-plane contract exists. Public L2 WMA, ROC, windowed VWAP,
+equivalence. Cross-section Operator remains RESEARCH-only until a separate trading-plane contract exists. Public Indicator WMA, ROC, windowed VWAP,
 OBV and Stochastic retain explicit financial inputs and do not create a second Feature or calculation authority.
 
 ## 18. Public vs Internal API

@@ -28,7 +28,7 @@ def _manifest(seed: str, implementations: tuple[str, ...] = ()) -> OnlyRuntimeGe
     calculation_bindings = tuple(
         OnlyArtifactCalculationImplementation(
             "FACTOR",
-            f"private.factor.asset{index}",
+            f"private.alpha.asset{index}",
             "1",
             "RESEARCH" if index % 2 == 0 else "TRADING",
             fingerprint,

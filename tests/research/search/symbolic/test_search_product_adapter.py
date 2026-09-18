@@ -631,8 +631,8 @@ def test_symbolic_replay_reconstructs_authoring_intent_from_run_evidence(tmp_pat
     run_id = only_derived_research_run_id(command_id)
     identity = {
         "experiment_id": "exp-" + "a" * 32,
-        "private_asset_kind": OnlyPrivateAssetKind.L3_FACTOR,
-        "private_asset_id": "private.factor.momentum",
+        "private_asset_kind": OnlyPrivateAssetKind.ALPHA,
+        "private_asset_id": "private.alpha.momentum",
         "private_asset_revision_fingerprint": "1" * 64,
         "private_asset_content_fingerprint": "2" * 64,
         "candidate_provider_id": "private.onlyalpha.alpha.candidate",
@@ -725,7 +725,7 @@ def test_submit_v1_fingerprint_is_frozen_and_v2_separates_science_from_runtime_i
         submit.catalog_generation_fingerprint,
         submit.dataset_snapshot_fingerprint,
     )
-    assert v1.command_fingerprint == "3d086644c6b8705bb2674e001be9f83f9ba0d45bef8a1ff63534ee11dd1eb6f2"
+    assert v1.command_fingerprint == "e8c50216b61096708923017076ac9268f8fa1d09a7acbee8cffb6e713f5fcb88"
     with pytest.raises(OnlySearchRuntimeGenerationUnbound):
         service.submit(v1)
 

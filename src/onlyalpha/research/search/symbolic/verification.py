@@ -16,7 +16,7 @@ from onlyalpha.calculation import (
 from onlyalpha.calculation.compatibility import only_calculation_output_compatibility
 from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition, OnlyCalculationNodeDefinition
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
-from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration, OnlyQuantAssetLayer, OnlyQuantAssetProvider
+from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration, OnlyQuantAssetKind, OnlyQuantAssetProvider
 from onlyalpha.research.calculation.binding import (
     OnlyResearchDatasetSourceContractV1,
     only_research_dataset_source_contract,
@@ -89,20 +89,20 @@ def verify_symbolic_search_space(
                 "SEARCH_COMPONENT_NOT_IN_CATALOG",
                 f"{reference.type_id}@{reference.semantic_version}",
             )
-        layer = exact_provider.manifest.layer
+        kind = exact_provider.manifest.kind
         is_bridge = component.component_instance_fingerprint == (
             search_space.candidate_output_contract.component_instance_fingerprint
         )
         if is_bridge:
-            if layer is not OnlyQuantAssetLayer.FACTOR or reference.kind is not OnlyCalculationKind.FACTOR:
+            if kind is not OnlyQuantAssetKind.ALPHA or reference.kind is not OnlyCalculationKind.FACTOR:
                 raise OnlySymbolicSearchError(
-                    "SEARCH_CANDIDATE_OUTPUT_INVALID", "candidate component is not an admitted L3 Factor"
+                    "SEARCH_CANDIDATE_OUTPUT_INVALID", "candidate component is not an admitted Alpha"
                 )
             bridges.append(component)
-        elif layer not in {OnlyQuantAssetLayer.OPERATOR, OnlyQuantAssetLayer.INDICATOR}:
+        elif kind not in {OnlyQuantAssetKind.OPERATOR, OnlyQuantAssetKind.INDICATOR}:
             raise OnlySymbolicSearchError(
                 "SEARCH_COMPONENT_LAYER_FORBIDDEN",
-                f"{reference.type_id}@{reference.semantic_version} belongs to {layer.value}",
+                f"{reference.type_id}@{reference.semantic_version} belongs to {kind.value}",
             )
         try:
             type_definition = registry.resolve_type(reference)
@@ -441,7 +441,7 @@ def verify_symbolic_proposal_reconstruction(
     )
     if candidate is None or output is None:
         raise OnlySymbolicSearchError("SEARCH_CANDIDATE_OUTPUT_INVALID", proposal.proposal_fingerprint)
-    # Local import avoids making the persistence/model layer depend on enumeration.
+    # Local import avoids making the persistence/model kind depend on enumeration.
     from .enumeration import symbolic_graph_complexity
 
     complexity = symbolic_graph_complexity(graph, verified_space)

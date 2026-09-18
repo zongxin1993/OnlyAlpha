@@ -16,12 +16,22 @@ from typing import Any, cast
 
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.distribution import OnlyArtifactCalculationImplementation
-from onlyalpha.quant_assets import only_discover_quant_asset_providers
+from onlyalpha.quant_assets import (
+    OnlyQuantAssetCatalogGeneration,
+    OnlyQuantAssetProvider,
+    only_discover_quant_asset_providers,
+)
 from onlyalpha.research.calculation.predicate import only_register_research_predicate_primitives
 from onlyalpha.runtime.generation import OnlyRuntimeGenerationValidationEvidence
 from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_primitives
 
-from .builder import _HOSTED_GENERATION_SEAL, _normalized_distribution_name
+from .artifact_store import OnlyLocalImmutableArtifactStore
+from .builder import (
+    _HOSTED_GENERATION_SEAL,
+    _PRIVATE_ALPHA_ARTIFACT_ROOT,
+    OnlyRuntimeGenerationBuilder,
+    _normalized_distribution_name,
+)
 
 
 def only_verify_hosted_runtime_generation(
@@ -50,7 +60,7 @@ def only_verify_hosted_runtime_generation(
     for wheel in wheels:
         _verify_installed_wheel(wheel)
 
-    catalog = only_discover_quant_asset_providers()
+    catalog = only_load_hosted_quant_asset_catalog(expected)
     if catalog.generation_fingerprint != expected.catalog_generation_fingerprint:
         raise RuntimeError("RUNTIME_GENERATION_HOSTED_PROCESS_MISMATCH")
     providers = tuple(
@@ -61,6 +71,7 @@ def only_verify_hosted_runtime_generation(
                 provider.content_fingerprint,
             )
             for provider in catalog.providers
+            if provider.private_alpha_snapshot is None
         )
     )
     expected_providers = tuple(
@@ -70,11 +81,25 @@ def only_verify_hosted_runtime_generation(
     )
     if providers != expected_providers:
         raise RuntimeError("RUNTIME_GENERATION_HOSTED_PROCESS_MISMATCH")
-    if _installed_implementations() != expected.implementations:
+    native = tuple(provider for provider in catalog.providers if provider.private_alpha_snapshot is not None)
+    if _installed_implementations(native) != expected.implementations:
         raise RuntimeError("RUNTIME_GENERATION_HOSTED_PROCESS_MISMATCH")
 
 
-def _installed_implementations() -> tuple[OnlyArtifactCalculationImplementation, ...]:
+def only_load_hosted_quant_asset_catalog(
+    expected: OnlyRuntimeGenerationValidationEvidence,
+) -> OnlyQuantAssetCatalogGeneration:
+    distribution = only_discover_quant_asset_providers()
+    native = OnlyRuntimeGenerationBuilder(
+        OnlyLocalImmutableArtifactStore(Path(sys.prefix) / _PRIVATE_ALPHA_ARTIFACT_ROOT),
+        Path(sys.executable),
+    ).rebuild_private_alpha_providers_from_bindings(expected.private_alpha_bindings)
+    return OnlyQuantAssetCatalogGeneration((*distribution.providers, *native))
+
+
+def _installed_implementations(
+    native_providers: tuple[OnlyQuantAssetProvider, ...] = (),
+) -> tuple[OnlyArtifactCalculationImplementation, ...]:
     result: list[OnlyArtifactCalculationImplementation] = []
     registry = OnlyCalculationRegistry()
     entries = metadata.entry_points().select(group="onlyalpha.calculations")
@@ -82,6 +107,9 @@ def _installed_implementations() -> tuple[OnlyArtifactCalculationImplementation,
         loaded = entry.load()
         registrations = loaded() if callable(loaded) else tuple(loaded)
         for registration in registrations:
+            registry.register(registration)
+    for provider in native_providers:
+        for registration in provider.calculation_registrations:
             registry.register(registration)
     only_register_research_predicate_primitives(registry)
     only_register_trading_predicate_primitives(registry)
@@ -151,4 +179,4 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-__all__ = ["only_verify_hosted_runtime_generation"]
+__all__ = ["only_load_hosted_quant_asset_catalog", "only_verify_hosted_runtime_generation"]

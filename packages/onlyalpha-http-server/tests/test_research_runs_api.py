@@ -67,8 +67,8 @@ KEY = "00000000-0000-4000-8000-000000000501"
 def _authoring_provenance() -> dict[str, object]:
     identity = {
         "experiment_id": "exp-" + "a" * 32,
-        "private_asset_kind": OnlyPrivateAssetKind.L3_FACTOR,
-        "private_asset_id": "private.factor.momentum",
+        "private_asset_kind": OnlyPrivateAssetKind.ALPHA,
+        "private_asset_id": "private.alpha.momentum",
         "private_asset_revision_fingerprint": "1" * 64,
         "private_asset_content_fingerprint": "2" * 64,
         "candidate_provider_id": "private.onlyalpha.alpha.candidate",

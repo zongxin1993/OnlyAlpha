@@ -71,7 +71,7 @@ export function FactorExplorerPage() {
                             setSearch(event.target.value);
                         }}
                     />
-                    <p className="factor-caption">Current API catalog · L3 Factors only</p>
+                    <p className="factor-caption">Current API catalog · Alpha only</p>
                     {catalog.isError ? (
                         <QueryError error={catalog.error} retry={() => void catalog.refetch()} />
                     ) : catalog.isPending ? (

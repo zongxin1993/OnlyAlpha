@@ -191,7 +191,7 @@ def test_agent_orchestrator_lane_mechanically_owns_package_and_shared_contract_t
 def test_research_factor_lane_owns_semantics_execution_architecture_and_full_coverage() -> None:
     lane = LANES[OnlyTestLane.RESEARCH_FACTOR]
     assert "tests/research/factor" in lane.paths
-    assert "examples/onlyalpha-example-alpha/tests" in lane.paths
+    assert "tests/quant_assets/test_private_alpha_native_execution.py" in lane.paths
     assert "plugs/onlyalpha-plugin-operators/tests" in lane.paths
     assert "tests/research/calculation/test_execution.py" in lane.paths
     assert "tests/architecture/test_research_factor_boundaries.py" in lane.paths

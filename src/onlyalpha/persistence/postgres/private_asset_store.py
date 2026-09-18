@@ -1,4 +1,4 @@
-"""PostgreSQL Private L3/L4 authoring authority."""
+"""PostgreSQL Private Alpha/Strategy authoring authority."""
 
 from __future__ import annotations
 
@@ -10,6 +10,9 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from onlyalpha.quant_assets.private import (
+    OnlyPrivateAlphaAsset,
+    OnlyPrivateAlphaDraft,
+    OnlyPrivateAlphaRevision,
     OnlyPrivateAssetAuthorityUnavailableError,
     OnlyPrivateAssetConflictError,
     OnlyPrivateAssetCorruptError,
@@ -18,18 +21,15 @@ from onlyalpha.quant_assets.private import (
     OnlyPrivateAssetParentMismatchError,
     OnlyPrivateAssetPutDisposition,
     OnlyPrivateAssetStaleBaseError,
-    OnlyPrivateL3Asset,
-    OnlyPrivateL3Draft,
-    OnlyPrivateL3Revision,
-    OnlyPrivateL4Asset,
-    OnlyPrivateL4Draft,
-    OnlyPrivateL4Revision,
+    OnlyPrivateStrategyAsset,
+    OnlyPrivateStrategyDraft,
+    OnlyPrivateStrategyRevision,
 )
 
 from .config import OnlyPostgresOperationalConnectionOptions
 
-_Revision = TypeVar("_Revision", OnlyPrivateL3Revision, OnlyPrivateL4Revision)
-_Draft = TypeVar("_Draft", OnlyPrivateL3Draft, OnlyPrivateL4Draft)
+_Revision = TypeVar("_Revision", OnlyPrivateAlphaRevision, OnlyPrivateStrategyRevision)
+_Draft = TypeVar("_Draft", OnlyPrivateAlphaDraft, OnlyPrivateStrategyDraft)
 
 
 class OnlyPostgresPrivateAssetStore:
@@ -38,70 +38,72 @@ class OnlyPostgresPrivateAssetStore:
     def __init__(self, dsn: str, options: OnlyPostgresOperationalConnectionOptions | None = None) -> None:
         self._dsn = (options or OnlyPostgresOperationalConnectionOptions()).apply(dsn)
 
-    def put_l3_asset(self, asset: OnlyPrivateL3Asset) -> OnlyPrivateAssetPutDisposition:
-        return self._put_asset("private_l3_asset", "factor_id", asset.factor_id, asset.schema_version)
+    def put_alpha_asset(self, asset: OnlyPrivateAlphaAsset) -> OnlyPrivateAssetPutDisposition:
+        return self._put_asset("private_alpha_asset", "alpha_id", asset.alpha_id, asset.schema_version)
 
-    def load_l3_asset(self, factor_id: str) -> OnlyPrivateL3Asset:
-        return OnlyPrivateL3Asset.from_dict(self._load_asset("private_l3_asset", "factor_id", factor_id))
+    def load_alpha_asset(self, alpha_id: str) -> OnlyPrivateAlphaAsset:
+        return OnlyPrivateAlphaAsset.from_dict(self._load_asset("private_alpha_asset", "alpha_id", alpha_id))
 
-    def save_l3_draft(self, draft: OnlyPrivateL3Draft) -> None:
-        clean = OnlyPrivateL3Draft.from_dict(draft.to_dict())
+    def save_alpha_draft(self, draft: OnlyPrivateAlphaDraft) -> None:
+        clean = OnlyPrivateAlphaDraft.from_dict(draft.to_dict())
         self._save_draft(
-            "private_l3_asset",
-            "private_l3_draft",
-            "factor_id",
-            clean.factor_id,
+            "private_alpha_asset",
+            "private_alpha_draft",
+            "alpha_id",
+            clean.alpha_id,
             clean.base_revision_fingerprint,
             clean.to_dict(),
             clean.schema_version,
         )
 
-    def load_l3_draft(self, factor_id: str) -> OnlyPrivateL3Draft | None:
-        payload = self._load_draft("private_l3_draft", "factor_id", factor_id)
-        return None if payload is None else OnlyPrivateL3Draft.from_dict(payload)
+    def load_alpha_draft(self, alpha_id: str) -> OnlyPrivateAlphaDraft | None:
+        payload = self._load_draft("private_alpha_draft", "alpha_id", alpha_id)
+        return None if payload is None else OnlyPrivateAlphaDraft.from_dict(payload)
 
-    def clear_l3_draft(self, factor_id: str) -> bool:
-        return self._clear_draft("private_l3_draft", "factor_id", factor_id)
+    def clear_alpha_draft(self, alpha_id: str) -> bool:
+        return self._clear_draft("private_alpha_draft", "alpha_id", alpha_id)
 
-    def publish_l3_revision(self, factor_id: str) -> tuple[OnlyPrivateAssetPutDisposition, OnlyPrivateL3Revision]:
+    def publish_alpha_revision(self, alpha_id: str) -> tuple[OnlyPrivateAssetPutDisposition, OnlyPrivateAlphaRevision]:
         return self._publish(
-            asset_table="private_l3_asset",
-            draft_table="private_l3_draft",
-            revision_table="private_l3_revision",
-            id_column="factor_id",
-            asset_id=factor_id,
-            draft_loader=OnlyPrivateL3Draft.from_dict,
-            revision_builder=OnlyPrivateL3Revision.from_draft,
-            revision_loader=OnlyPrivateL3Revision.from_dict,
+            asset_table="private_alpha_asset",
+            draft_table="private_alpha_draft",
+            revision_table="private_alpha_revision",
+            id_column="alpha_id",
+            asset_id=alpha_id,
+            draft_loader=OnlyPrivateAlphaDraft.from_dict,
+            revision_builder=OnlyPrivateAlphaRevision.from_draft,
+            revision_loader=OnlyPrivateAlphaRevision.from_dict,
             extra_columns=("source_text", "source_sha256"),
             extra_values=lambda revision: (revision.source_text, revision.source_sha256),
         )
 
-    def load_l3_revision(self, factor_id: str, revision_fingerprint: str) -> OnlyPrivateL3Revision:
+    def load_alpha_revision(self, alpha_id: str, revision_fingerprint: str) -> OnlyPrivateAlphaRevision:
         return self._load_revision(
-            "private_l3_revision", "factor_id", factor_id, revision_fingerprint, OnlyPrivateL3Revision.from_dict
+            "private_alpha_revision", "alpha_id", alpha_id, revision_fingerprint, OnlyPrivateAlphaRevision.from_dict
         )
 
-    def list_l3_revision_history(self, factor_id: str) -> tuple[OnlyPrivateL3Revision, ...]:
+    def list_alpha_revision_history(self, alpha_id: str) -> tuple[OnlyPrivateAlphaRevision, ...]:
         return self._history(
-            "private_l3_asset",
-            "private_l3_revision",
-            "factor_id",
-            factor_id,
-            OnlyPrivateL3Revision.from_dict,
+            "private_alpha_asset",
+            "private_alpha_revision",
+            "alpha_id",
+            alpha_id,
+            OnlyPrivateAlphaRevision.from_dict,
         )
 
-    def put_l4_asset(self, asset: OnlyPrivateL4Asset) -> OnlyPrivateAssetPutDisposition:
-        return self._put_asset("private_l4_asset", "strategy_id", asset.strategy_id, asset.schema_version)
+    def put_strategy_asset(self, asset: OnlyPrivateStrategyAsset) -> OnlyPrivateAssetPutDisposition:
+        return self._put_asset("private_strategy_asset", "strategy_id", asset.strategy_id, asset.schema_version)
 
-    def load_l4_asset(self, strategy_id: str) -> OnlyPrivateL4Asset:
-        return OnlyPrivateL4Asset.from_dict(self._load_asset("private_l4_asset", "strategy_id", strategy_id))
+    def load_strategy_asset(self, strategy_id: str) -> OnlyPrivateStrategyAsset:
+        return OnlyPrivateStrategyAsset.from_dict(
+            self._load_asset("private_strategy_asset", "strategy_id", strategy_id)
+        )
 
-    def save_l4_draft(self, draft: OnlyPrivateL4Draft) -> None:
-        clean = OnlyPrivateL4Draft.from_dict(draft.to_dict())
+    def save_strategy_draft(self, draft: OnlyPrivateStrategyDraft) -> None:
+        clean = OnlyPrivateStrategyDraft.from_dict(draft.to_dict())
         self._save_draft(
-            "private_l4_asset",
-            "private_l4_draft",
+            "private_strategy_asset",
+            "private_strategy_draft",
             "strategy_id",
             clean.strategy_id,
             clean.base_revision_fingerprint,
@@ -109,43 +111,45 @@ class OnlyPostgresPrivateAssetStore:
             clean.schema_version,
         )
 
-    def load_l4_draft(self, strategy_id: str) -> OnlyPrivateL4Draft | None:
-        payload = self._load_draft("private_l4_draft", "strategy_id", strategy_id)
-        return None if payload is None else OnlyPrivateL4Draft.from_dict(payload)
+    def load_strategy_draft(self, strategy_id: str) -> OnlyPrivateStrategyDraft | None:
+        payload = self._load_draft("private_strategy_draft", "strategy_id", strategy_id)
+        return None if payload is None else OnlyPrivateStrategyDraft.from_dict(payload)
 
-    def clear_l4_draft(self, strategy_id: str) -> bool:
-        return self._clear_draft("private_l4_draft", "strategy_id", strategy_id)
+    def clear_strategy_draft(self, strategy_id: str) -> bool:
+        return self._clear_draft("private_strategy_draft", "strategy_id", strategy_id)
 
-    def publish_l4_revision(self, strategy_id: str) -> tuple[OnlyPrivateAssetPutDisposition, OnlyPrivateL4Revision]:
+    def publish_strategy_revision(
+        self, strategy_id: str
+    ) -> tuple[OnlyPrivateAssetPutDisposition, OnlyPrivateStrategyRevision]:
         return self._publish(
-            asset_table="private_l4_asset",
-            draft_table="private_l4_draft",
-            revision_table="private_l4_revision",
+            asset_table="private_strategy_asset",
+            draft_table="private_strategy_draft",
+            revision_table="private_strategy_revision",
             id_column="strategy_id",
             asset_id=strategy_id,
-            draft_loader=OnlyPrivateL4Draft.from_dict,
-            revision_builder=OnlyPrivateL4Revision.from_draft,
-            revision_loader=OnlyPrivateL4Revision.from_dict,
+            draft_loader=OnlyPrivateStrategyDraft.from_dict,
+            revision_builder=OnlyPrivateStrategyRevision.from_draft,
+            revision_loader=OnlyPrivateStrategyRevision.from_dict,
             extra_columns=("definition_fingerprint",),
             extra_values=lambda revision: (revision.definition_fingerprint,),
         )
 
-    def load_l4_revision(self, strategy_id: str, revision_fingerprint: str) -> OnlyPrivateL4Revision:
+    def load_strategy_revision(self, strategy_id: str, revision_fingerprint: str) -> OnlyPrivateStrategyRevision:
         return self._load_revision(
-            "private_l4_revision",
+            "private_strategy_revision",
             "strategy_id",
             strategy_id,
             revision_fingerprint,
-            OnlyPrivateL4Revision.from_dict,
+            OnlyPrivateStrategyRevision.from_dict,
         )
 
-    def list_l4_revision_history(self, strategy_id: str) -> tuple[OnlyPrivateL4Revision, ...]:
+    def list_strategy_revision_history(self, strategy_id: str) -> tuple[OnlyPrivateStrategyRevision, ...]:
         return self._history(
-            "private_l4_asset",
-            "private_l4_revision",
+            "private_strategy_asset",
+            "private_strategy_revision",
             "strategy_id",
             strategy_id,
-            OnlyPrivateL4Revision.from_dict,
+            OnlyPrivateStrategyRevision.from_dict,
         )
 
     def _put_asset(
@@ -410,12 +414,12 @@ class OnlyPostgresPrivateAssetStore:
             or row.get("schema_version") != result.schema_version
         ):
             raise OnlyPrivateAssetCorruptError(revision_fingerprint)
-        if isinstance(result, OnlyPrivateL3Revision) and (
+        if isinstance(result, OnlyPrivateAlphaRevision) and (
             row.get("source_text") != result.source_text or row.get("source_sha256") != result.source_sha256
         ):
             raise OnlyPrivateAssetCorruptError(revision_fingerprint)
         if (
-            isinstance(result, OnlyPrivateL4Revision)
+            isinstance(result, OnlyPrivateStrategyRevision)
             and row.get("definition_fingerprint") != result.definition_fingerprint
         ):
             raise OnlyPrivateAssetCorruptError(revision_fingerprint)

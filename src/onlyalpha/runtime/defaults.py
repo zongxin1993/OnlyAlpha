@@ -18,7 +18,7 @@ from onlyalpha.indicator.registry import OnlyIndicatorFactoryRegistry
 from onlyalpha.market.product import OnlyMarketProductFactoryRegistry, OnlyMarketProductResourceResolver
 from onlyalpha.plugin.descriptor import OnlyPluginOrigin, OnlyPluginOriginType
 from onlyalpha.plugin.discovery import OnlyPluginDiscoveryReport, only_discover_plugins
-from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration
+from onlyalpha.quant_assets import OnlyDistributionProviderSource, OnlyQuantAssetCatalogGeneration
 from onlyalpha.research.calculation.predicate import only_register_research_predicate_primitives
 from onlyalpha.runtime.assembler import OnlyComponentFactoryRegistries, OnlyEngineRunAssembler
 from onlyalpha.runtime.backtest.factory import OnlyBacktestRuntimeFactory
@@ -68,7 +68,11 @@ def only_default_engine_services(
         excluded_calculation_distributions=(
             frozenset()
             if calculation_catalog_generation is None
-            else frozenset(provider.manifest.distribution_name for provider in calculation_catalog_generation.providers)
+            else frozenset(
+                provider.manifest.source.distribution_name
+                for provider in calculation_catalog_generation.providers
+                if isinstance(provider.manifest.source, OnlyDistributionProviderSource)
+            )
         ),
     )
     only_register_research_predicate_primitives(calculations)

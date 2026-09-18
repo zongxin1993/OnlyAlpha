@@ -1561,7 +1561,7 @@ export interface components {
              * Private Asset Kind
              * @enum {string}
              */
-            private_asset_kind: "L3_FACTOR" | "L4_STRATEGY";
+            private_asset_kind: "ALPHA" | "STRATEGY";
             /** Private Asset Revision Fingerprint */
             private_asset_revision_fingerprint: string;
             /**

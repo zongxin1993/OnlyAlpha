@@ -10,7 +10,7 @@ from typing import Any, cast
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
 
-class CustomBuildHook(BuildHookInterface[Any]):
+class CustomBuildHook(BuildHookInterface):  # type: ignore[type-arg]
     def initialize(self, version: str, build_data: dict[str, Any]) -> None:
         del version
         root = Path(self.root)

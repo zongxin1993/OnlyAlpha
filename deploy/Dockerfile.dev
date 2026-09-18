@@ -36,9 +36,7 @@ RUN python scripts/embed_build_provenance.py --revision "${ONLYALPHA_BUILD_SOURC
     && python packages/onlyalpha-agent-orchestrator/provenance_build.py \
         --revision "${ONLYALPHA_BUILD_SOURCE_REVISION}"
 
-RUN uv sync --frozen --all-packages --no-dev \
-    --no-install-package onlyalpha-example-alpha \
-    --no-install-package onlyalpha-example-strategies
+RUN uv sync --frozen --all-packages --no-dev
 
 ENV PATH="/workspace/.venv/bin:${PATH}" \
     ONLYALPHA_POSTGRES_CLIENT_BIN_DIR=/usr/lib/postgresql/18/bin \

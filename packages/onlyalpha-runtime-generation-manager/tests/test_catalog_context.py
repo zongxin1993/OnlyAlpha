@@ -5,13 +5,13 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from onlyalpha_example_alpha.provider import quant_asset_provider as alpha_provider
 from onlyalpha_plugin_operators.provider import quant_asset_provider as operator_provider
 from onlyalpha_runtime_generation_manager import (
     OnlyRuntimeGenerationBuilder,
     OnlyRuntimeGenerationRegistry,
 )
 from onlyalpha_runtime_generation_manager.catalog_context import OnlyRuntimeGenerationExactCatalogDescriptorReader
+from onlyalpha_test_alpha_provider.provider import quant_asset_provider as alpha_provider
 
 from onlyalpha.application.catalog_context import (
     OnlyExactCatalogContextNotFound,

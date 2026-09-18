@@ -2,16 +2,16 @@ import json
 from dataclasses import replace
 
 import pytest
-from onlyalpha_example_alpha.provider import quant_asset_provider as alpha_provider
-from onlyalpha_example_strategies.provider import quant_asset_provider as strategy_provider
 from onlyalpha_plugin_indicators.provider import quant_asset_provider as indicator_provider
 from onlyalpha_plugin_operators.provider import quant_asset_provider as operator_provider
+from onlyalpha_test_alpha_provider.provider import quant_asset_provider as alpha_provider
+from onlyalpha_test_strategy_provider.provider import quant_asset_provider as strategy_provider
 
 from onlyalpha.calculation import OnlyCalculationBackendKind, OnlyCalculationKind
 from onlyalpha.quant_assets import (
     OnlyQuantAssetCatalogGeneration,
     OnlyQuantAssetCatalogManager,
-    OnlyQuantAssetLayer,
+    OnlyQuantAssetKind,
     OnlyQuantAssetProvider,
     OnlyStrategyAuthoringAsset,
     OnlyStrategyAuthoringResource,
@@ -26,9 +26,9 @@ def _generation() -> OnlyQuantAssetCatalogGeneration:
     )
 
 
-def test_four_layers_form_one_content_addressed_catalog_generation() -> None:
+def test_four_kinds_form_one_content_addressed_catalog_generation() -> None:
     generation = _generation()
-    assert {provider.manifest.layer for provider in generation.providers} == set(OnlyQuantAssetLayer)
+    assert {provider.manifest.kind for provider in generation.providers} == set(OnlyQuantAssetKind)
     assert len(generation.generation_fingerprint) == 64
     registry = generation.calculation_registry()
     assert registry.resolve(
@@ -62,9 +62,9 @@ def test_four_layers_form_one_content_addressed_catalog_generation() -> None:
     assert len(strategy_inventory["strategies"][0]["resources"][0]["content_sha256"]) == 64
 
 
-def test_installed_quant_asset_entry_points_discover_all_four_layers() -> None:
+def test_installed_quant_asset_entry_points_discover_all_four_kinds() -> None:
     generation = only_discover_quant_asset_providers()
-    assert {provider.manifest.layer for provider in generation.providers} >= set(OnlyQuantAssetLayer)
+    assert {provider.manifest.kind for provider in generation.providers} >= set(OnlyQuantAssetKind)
     assert {provider.manifest.provider_id for provider in generation.providers} >= {
         "onlyalpha.operator.library",
         "onlyalpha.indicator.library",
@@ -137,7 +137,10 @@ def test_distribution_rebuild_changes_generation_without_false_content_drift() -
     strategy = strategy_provider()
     repackaged = replace(
         strategy,
-        manifest=replace(strategy.manifest, distribution_version="0.9.10"),
+        manifest=replace(
+            strategy.manifest,
+            source=replace(strategy.manifest.source, distribution_version="0.9.10"),
+        ),
     )
     assert repackaged.content_fingerprint == strategy.content_fingerprint
     candidate = OnlyQuantAssetCatalogGeneration(

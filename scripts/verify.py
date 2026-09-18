@@ -426,7 +426,7 @@ IMPACT_RULES = (
         (
             "src/onlyalpha/quant_assets/",
             "tests/plugin/test_quant_asset_catalog.py",
-            "examples/onlyalpha-example-strategies/",
+            "examples/private-assets/strategy/",
         ),
         (),
         (
@@ -445,7 +445,7 @@ IMPACT_RULES = (
             "tests/research/factor/",
             "plugs/onlyalpha-plugin-factors/",
             "plugs/onlyalpha-plugin-operators/",
-            "examples/onlyalpha-example-alpha/",
+            "examples/private-assets/alpha/",
         ),
         (),
         (

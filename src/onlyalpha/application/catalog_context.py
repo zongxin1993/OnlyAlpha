@@ -19,7 +19,12 @@ from onlyalpha.calculation.definition import (
 )
 from onlyalpha.calculation.implementation import OnlyCalculationStateCapability
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
-from onlyalpha.quant_assets.catalog import OnlyQuantAssetLayer
+from onlyalpha.quant_assets.catalog import (
+    OnlyPrivateAlphaSnapshotProviderSource,
+    OnlyQuantAssetKind,
+    OnlyQuantAssetProviderSource,
+    only_quant_asset_provider_source_from_dict,
+)
 
 EXACT_CATALOG_CONTEXT_SCHEMA_VERSION = 1
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -243,9 +248,8 @@ _STATISTICS_FIELDS = (
 class OnlyExactCatalogProviderV1:
     provider_id: str
     provider_version: str
-    layer: OnlyQuantAssetLayer
-    distribution_name: str
-    distribution_version: str
+    kind: OnlyQuantAssetKind
+    provider_source: OnlyQuantAssetProviderSource
     provider_content_fingerprint: str
 
     def __post_init__(self) -> None:
@@ -254,24 +258,23 @@ class OnlyExactCatalogProviderV1:
             for value in (
                 self.provider_id,
                 self.provider_version,
-                self.distribution_name,
-                self.distribution_version,
             )
         ):
+            raise OnlyExactCatalogContextCorrupt
+        if not hasattr(self.provider_source, "to_dict"):
             raise OnlyExactCatalogContextCorrupt
         _require_sha(self.provider_content_fingerprint)
 
     @property
     def sort_key(self) -> tuple[str, str, str]:
-        return self.layer.value, self.provider_id, self.provider_version
+        return self.kind.value, self.provider_id, self.provider_version
 
     def to_dict(self) -> dict[str, object]:
         return {
             "provider_id": self.provider_id,
             "provider_version": self.provider_version,
-            "layer": self.layer.value,
-            "distribution_name": self.distribution_name,
-            "distribution_version": self.distribution_version,
+            "kind": self.kind.value,
+            "provider_source": self.provider_source.to_dict(),
             "provider_content_fingerprint": self.provider_content_fingerprint,
         }
 
@@ -282,9 +285,8 @@ class OnlyExactCatalogProviderV1:
             {
                 "provider_id",
                 "provider_version",
-                "layer",
-                "distribution_name",
-                "distribution_version",
+                "kind",
+                "provider_source",
                 "provider_content_fingerprint",
             },
         )
@@ -292,9 +294,8 @@ class OnlyExactCatalogProviderV1:
             return cls(
                 _string(payload, "provider_id"),
                 _string(payload, "provider_version"),
-                OnlyQuantAssetLayer(_string(payload, "layer")),
-                _string(payload, "distribution_name"),
-                _string(payload, "distribution_version"),
+                OnlyQuantAssetKind(_string(payload, "kind")),
+                only_quant_asset_provider_source_from_dict(_mapping(payload, "provider_source")),
                 _string(payload, "provider_content_fingerprint"),
             )
         except (TypeError, ValueError) as exc:
@@ -305,7 +306,7 @@ class OnlyExactCatalogProviderV1:
 class OnlyExactCatalogCalculationCapabilityV1:
     provider_id: str
     provider_version: str
-    provider_layer: OnlyQuantAssetLayer
+    provider_kind: OnlyQuantAssetKind
     kind: OnlyCalculationKind
     type_id: str
     semantic_version: str
@@ -329,10 +330,10 @@ class OnlyExactCatalogCalculationCapabilityV1:
             or descriptor["semantic_version"] != self.semantic_version
         ):
             raise OnlyExactCatalogContextCorrupt
-        if self.provider_layer is OnlyQuantAssetLayer.FACTOR:
+        if self.provider_kind is OnlyQuantAssetKind.ALPHA:
             if self.kind is not OnlyCalculationKind.FACTOR:
                 raise OnlyExactCatalogContextCorrupt
-        elif self.kind is OnlyCalculationKind.FACTOR or self.provider_layer is OnlyQuantAssetLayer.STRATEGY:
+        elif self.kind is OnlyCalculationKind.FACTOR or self.provider_kind is OnlyQuantAssetKind.STRATEGY:
             raise OnlyExactCatalogContextCorrupt
         if self.backend is OnlyCalculationBackendKind.TRADING:
             if self.state_capability is OnlyCalculationStateCapability.STATELESS:
@@ -354,7 +355,7 @@ class OnlyExactCatalogCalculationCapabilityV1:
     @property
     def sort_key(self) -> tuple[str, str, str, str, str, str, str]:
         return (
-            self.provider_layer.value,
+            self.provider_kind.value,
             self.provider_id,
             self.provider_version,
             self.kind.value,
@@ -367,7 +368,7 @@ class OnlyExactCatalogCalculationCapabilityV1:
         return {
             "provider_id": self.provider_id,
             "provider_version": self.provider_version,
-            "provider_layer": self.provider_layer.value,
+            "provider_kind": self.provider_kind.value,
             "kind": self.kind.value,
             "type_id": self.type_id,
             "semantic_version": self.semantic_version,
@@ -385,7 +386,7 @@ class OnlyExactCatalogCalculationCapabilityV1:
             {
                 "provider_id",
                 "provider_version",
-                "provider_layer",
+                "provider_kind",
                 "kind",
                 "type_id",
                 "semantic_version",
@@ -409,7 +410,7 @@ class OnlyExactCatalogCalculationCapabilityV1:
             return cls(
                 _string(payload, "provider_id"),
                 _string(payload, "provider_version"),
-                OnlyQuantAssetLayer(_string(payload, "provider_layer")),
+                OnlyQuantAssetKind(_string(payload, "provider_kind")),
                 OnlyCalculationKind(_string(payload, "kind")),
                 _string(payload, "type_id"),
                 _string(payload, "semantic_version"),
@@ -441,15 +442,14 @@ _PROJECTION_SCHEMA_DESCRIPTOR: Mapping[str, object] = MappingProxyType(
         "provider_fields": (
             "provider_id",
             "provider_version",
-            "layer",
-            "distribution_name",
-            "distribution_version",
+            "kind",
+            "provider_source",
             "provider_content_fingerprint",
         ),
         "calculation_capability_fields": (
             "provider_id",
             "provider_version",
-            "provider_layer",
+            "provider_kind",
             "kind",
             "type_id",
             "semantic_version",
@@ -488,9 +488,9 @@ _PROJECTION_SCHEMA_DESCRIPTOR: Mapping[str, object] = MappingProxyType(
         ),
         "port_descriptor_fields": ("name", "data_type", "nullable", "dimensions", "semantic_type", "unit"),
         "numeric_descriptor_fields": ("representation", "precision", "output_quantum", "rounding"),
-        "provider_order": ("layer", "provider_id", "provider_version"),
+        "provider_order": ("kind", "provider_id", "provider_version"),
         "calculation_capability_order": (
-            "provider_layer",
+            "provider_kind",
             "provider_id",
             "provider_version",
             "kind",
@@ -501,7 +501,7 @@ _PROJECTION_SCHEMA_DESCRIPTOR: Mapping[str, object] = MappingProxyType(
         "registered_universe_order": ("kind", "registered_id"),
         "dataset_field_contract_order": ("source_id", "source_contract_fingerprint"),
         "statistics_capability_order": ("statistic_type", "capability_fingerprint"),
-        "layer_discriminants": tuple(item.value for item in OnlyQuantAssetLayer),
+        "kind_discriminants": tuple(item.value for item in OnlyQuantAssetKind),
         "calculation_kind_discriminants": tuple(item.value for item in OnlyCalculationKind),
         "backend_discriminants": tuple(item.value for item in OnlyCalculationBackendKind),
         "state_capability_discriminants": tuple(item.value for item in OnlyCalculationStateCapability),
@@ -705,7 +705,10 @@ def only_project_exact_catalog_context(
 def _project_provider(
     payload: Mapping[str, object],
 ) -> tuple[OnlyExactCatalogProviderV1, tuple[OnlyExactCatalogCalculationCapabilityV1, ...]]:
-    _require_exact_fields(payload, {"manifest", "content_fingerprint", "calculations", "strategies"})
+    _require_exact_fields(
+        payload,
+        {"manifest", "content_fingerprint", "calculations", "strategies", "private_alpha_snapshot"},
+    )
     manifest = _mapping(payload, "manifest")
     _require_exact_fields(
         manifest,
@@ -713,15 +716,14 @@ def _project_provider(
             "schema_version",
             "provider_id",
             "provider_version",
-            "layer",
-            "distribution_name",
-            "distribution_version",
+            "kind",
+            "source",
         },
     )
     if _integer(manifest, "schema_version") != 1:
         raise OnlyExactCatalogContextSchemaUnsupported
     try:
-        layer = OnlyQuantAssetLayer(_string(manifest, "layer"))
+        kind = OnlyQuantAssetKind(_string(manifest, "kind"))
     except ValueError as exc:
         raise OnlyExactCatalogContextCorrupt from exc
     calculations = _mapping_sequence(payload, "calculations")
@@ -732,28 +734,40 @@ def _project_provider(
         raise OnlyExactCatalogContextCorrupt
     for strategy in strategies:
         _validate_strategy_descriptor(strategy)
-    if (layer is OnlyQuantAssetLayer.STRATEGY) != (not calculations and bool(strategies)):
+    private_alpha_snapshot = payload["private_alpha_snapshot"]
+    if (kind is OnlyQuantAssetKind.STRATEGY) != (not calculations and bool(strategies)):
         raise OnlyExactCatalogContextCorrupt
     content_fingerprint = _string(payload, "content_fingerprint")
     _require_sha(content_fingerprint)
     if (
         only_canonical_fingerprint(
             {
-                "layer": layer.value,
+                "kind": kind.value,
                 "calculations": list(calculations),
                 "strategies": list(strategies),
+                "private_alpha_snapshot": private_alpha_snapshot,
             }
         )
         != content_fingerprint
     ):
         raise OnlyExactCatalogContextCorrupt
 
+    source = _mapping(manifest, "source")
+    try:
+        provider_source = only_quant_asset_provider_source_from_dict(source)
+    except ValueError as exc:
+        raise OnlyExactCatalogContextCorrupt from exc
+    if isinstance(provider_source, OnlyPrivateAlphaSnapshotProviderSource):
+        snapshot = _mapping(payload, "private_alpha_snapshot")
+        if _string(snapshot, "snapshot_fingerprint") != provider_source.private_alpha_provider_snapshot_fingerprint:
+            raise OnlyExactCatalogContextCorrupt
+    elif private_alpha_snapshot is not None:
+        raise OnlyExactCatalogContextCorrupt
     provider = OnlyExactCatalogProviderV1(
         _string(manifest, "provider_id"),
         _string(manifest, "provider_version"),
-        layer,
-        _string(manifest, "distribution_name"),
-        _string(manifest, "distribution_version"),
+        kind,
+        provider_source,
         content_fingerprint,
     )
     result = tuple(_project_calculation(provider, item) for item in calculations)
@@ -789,7 +803,7 @@ def _project_calculation(
         return OnlyExactCatalogCalculationCapabilityV1(
             provider.provider_id,
             provider.provider_version,
-            provider.layer,
+            provider.kind,
             OnlyCalculationKind(cast(str, validated["kind"])),
             cast(str, validated["type_id"]),
             cast(str, validated["semantic_version"]),

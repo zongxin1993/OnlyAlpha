@@ -1528,8 +1528,8 @@
           },
           "private_asset_kind": {
             "enum": [
-              "L3_FACTOR",
-              "L4_STRATEGY"
+              "ALPHA",
+              "STRATEGY"
             ],
             "title": "Private Asset Kind",
             "type": "string"

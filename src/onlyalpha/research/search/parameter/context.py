@@ -12,7 +12,7 @@ from onlyalpha.calculation.definition import (
     OnlyCalculationKind,
 )
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
-from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration, OnlyQuantAssetLayer
+from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration, OnlyQuantAssetKind
 from onlyalpha.research.dataset.ports import OnlyVerifiedResearchDataset
 from onlyalpha.research.experiment import (
     OnlySearchDecisionMode,
@@ -379,15 +379,15 @@ class OnlyParameterSearchContextResolver:
                     None,
                 )
                 if (
-                    provider.manifest.layer is not OnlyQuantAssetLayer.FACTOR
+                    provider.manifest.kind is not OnlyQuantAssetKind.ALPHA
                     or definition.kind is not OnlyCalculationKind.FACTOR
                     or output is None
                     or output.semantic_type not in {FACTOR_VALUE_SEMANTIC_TYPE, FACTOR_SCORE_SEMANTIC_TYPE}
                 ):
                     raise OnlyParameterSearchError("SEARCH_CANDIDATE_OUTPUT_INVALID", node.template_node_id)
-            elif provider.manifest.layer not in {
-                OnlyQuantAssetLayer.OPERATOR,
-                OnlyQuantAssetLayer.INDICATOR,
+            elif provider.manifest.kind not in {
+                OnlyQuantAssetKind.OPERATOR,
+                OnlyQuantAssetKind.INDICATOR,
             }:
                 raise OnlyParameterSearchError("SEARCH_COMPONENT_LAYER_FORBIDDEN", definition.type_id)
         if candidate_count != 1:

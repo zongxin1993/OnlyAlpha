@@ -33,8 +33,8 @@ from onlyalpha.calculation.implementation import (
     only_python_stdlib_semantic_dependency,
 )
 from onlyalpha.calculation.registry import OnlyCalculationBackendRegistration
-from onlyalpha_example_alpha.research import OnlyExampleResearchMomentumBackend
-from onlyalpha_example_alpha.trading import OnlyExampleTradingMomentumBackendFactory
+from onlyalpha_test_alpha_provider.research import OnlyExampleResearchMomentumBackend
+from onlyalpha_test_alpha_provider.trading import OnlyExampleTradingMomentumBackendFactory
 
 _NUMERIC = OnlyNumericDefinition(
     representation="DECIMAL",
@@ -106,7 +106,7 @@ def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
             only_python_implementation_manifest(
                 calculation_type_reference=reference,
                 backend_kind=OnlyCalculationBackendKind.RESEARCH,
-                entrypoint_identity="onlyalpha_example_alpha.research:OnlyExampleResearchMomentumBackend",
+                entrypoint_identity="onlyalpha_test_alpha_provider.research:OnlyExampleResearchMomentumBackend",
                 package_root=package_root,
                 resource_paths=("registration.py", "research.py"),
                 semantic_dependencies=(
@@ -123,7 +123,7 @@ def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
             only_python_implementation_manifest(
                 calculation_type_reference=reference,
                 backend_kind=OnlyCalculationBackendKind.TRADING,
-                entrypoint_identity="onlyalpha_example_alpha.trading:OnlyExampleTradingMomentumBackendFactory",
+                entrypoint_identity="onlyalpha_test_alpha_provider.trading:OnlyExampleTradingMomentumBackendFactory",
                 package_root=package_root,
                 resource_paths=("registration.py", "trading.py"),
                 semantic_dependencies=(only_python_stdlib_semantic_dependency("decimal"),),

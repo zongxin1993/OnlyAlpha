@@ -6,14 +6,11 @@ from onlyalpha.runtime.defaults import only_default_engine_services
 
 def test_installed_distribution_is_discovered_through_real_entry_points() -> None:
     assert {item.name for item in metadata.entry_points().select(group="onlyalpha.calculations")} >= {
-        "example-alpha",
         "official-operators",
         "standard-indicators",
         "official-targets",
     }
     assert {item.name for item in metadata.entry_points().select(group="onlyalpha.quant_assets")} >= {
-        "example-alpha",
-        "example-strategies",
         "official-operators",
         "standard-indicators",
     }

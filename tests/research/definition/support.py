@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from onlyalpha_example_alpha.registration import MOMENTUM
 from onlyalpha_plugin_indicators.registration import TYPES
 from onlyalpha_plugin_targets.registration import FORWARD_RETURN
+from onlyalpha_test_alpha_provider.registration import MOMENTUM
 
 from onlyalpha.calculation import OnlyCalculationDataType, OnlyCalculationKind, OnlyCalculationTypeReference
 from onlyalpha.research import (

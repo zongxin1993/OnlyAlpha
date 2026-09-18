@@ -1,6 +1,6 @@
-# OnlyAlpha L1 Operators
+# OnlyAlpha Operator Operators
 
-This public L1 library exposes exact Calculation registrations through `onlyalpha.calculations` and a versioned management provider through
+This public Operator library exposes exact Calculation registrations through `onlyalpha.calculations` and a versioned management provider through
 `onlyalpha.quant_assets`. Install it from a checkout with `uv add --editable /path/to/operators` or
 `python -m pip install -e /path/to/operators`; released environments may use a wheel or package index.
 

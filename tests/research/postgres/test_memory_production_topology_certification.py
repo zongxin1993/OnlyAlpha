@@ -7,6 +7,7 @@ import subprocess
 import sys
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from importlib import metadata
 from pathlib import Path
 from typing import cast
@@ -18,7 +19,6 @@ from onlyalpha_authoring_execution_worker import (
     OnlyAuthoringExecutionGenerationStore,
     OnlyVerifiedAuthoringGenerationReader,
 )
-from onlyalpha_example_alpha.provider import quant_asset_provider as alpha_provider
 from onlyalpha_http_server.main import _GenerationOwnedCatalogReader, _SearchContextReader
 from onlyalpha_plugin_indicators.provider import quant_asset_provider as indicator_provider
 from onlyalpha_plugin_operators.provider import quant_asset_provider as operator_provider
@@ -31,6 +31,7 @@ from onlyalpha_runtime_generation_manager import (
 from onlyalpha_runtime_generation_manager.catalog_context import (
     OnlyRuntimeGenerationExactCatalogDescriptorReader,
 )
+from onlyalpha_test_alpha_provider.provider import quant_asset_provider as alpha_provider
 
 from onlyalpha.application.search_product import only_search_experiment_work_id
 from onlyalpha.backtest.evidence import OnlyBacktestEvidenceManifest, OnlyBacktestEvidenceStore
@@ -44,13 +45,15 @@ from onlyalpha.persistence.postgres.research_execution_store import OnlyPostgres
 from onlyalpha.persistence.postgres.research_run_store import OnlyPostgresResearchRunStore
 from onlyalpha.persistence.postgres.research_source_cut_store import OnlyPostgresResearchSourceCutAuthority
 from onlyalpha.quant_assets import (
+    ONLY_PRIVATE_ALPHA_API_V1,
+    OnlyPrivateAlphaAsset,
+    OnlyPrivateAlphaDraft,
+    OnlyPrivateAlphaExecutableClosureV1,
     OnlyPrivateAssetCorruptError,
     OnlyPrivateAssetKind,
     OnlyPrivateAssetNotFoundError,
     OnlyPrivateAssetRevisionBindingResolver,
     OnlyPrivateAssetRevisionReferenceV1,
-    OnlyPrivateL3Asset,
-    OnlyPrivateL3Draft,
     OnlyQuantAssetCatalogGeneration,
     OnlyQuantAssetCatalogManager,
     only_quant_asset_distribution_artifact_manifest,
@@ -211,7 +214,7 @@ def _build_exact_runtime_generation(root: Path):  # type: ignore[no-untyped-def]
     package_names = (
         "onlyalpha",
         "onlyalpha-runtime-generation-manager",
-        "onlyalpha-example-alpha",
+        "onlyalpha-test-alpha-provider",
         "onlyalpha-plugin-operators",
         "onlyalpha-plugin-indicators",
         "onlyalpha-plugin-targets",
@@ -731,39 +734,53 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     parameter_experiment = _publish_parameter_experiment(root, generation, values)
     _publish_agent_facts(root, chain["experiment"])
 
-    provider = next(item for item in generation.providers if item.manifest.layer.value == "L3_FACTOR")
-    provider_id = provider.manifest.provider_id
-    provider_version = provider.manifest.provider_version
     private_assets = OnlyPostgresPrivateAssetStore(postgres_dsn)
-    private_assets.put_l3_asset(OnlyPrivateL3Asset("private.factor.momentum"))
-    private_assets.save_l3_draft(
-        OnlyPrivateL3Draft(
-            factor_id="private.factor.momentum",
+    private_assets.put_alpha_asset(OnlyPrivateAlphaAsset("private.alpha.momentum"))
+    private_assets.save_alpha_draft(
+        OnlyPrivateAlphaDraft(
+            alpha_id="private.alpha.momentum",
             semantic_version="1",
-            source_text="def calculate(api, inputs, parameters):\n    return inputs\n",
-            l3_api_version=1,
-            l3_api_contract_fingerprint="a" * 64,
-            input_contract={},
+            source_text='def calculate(api, inputs, parameters):\n    return {"value": inputs["close"]}\n',
+            alpha_api_version=1,
+            alpha_api_contract_fingerprint=ONLY_PRIVATE_ALPHA_API_V1.api_contract_fingerprint,
+            input_contract={"close": {"type": "DECIMAL"}},
             parameter_contract={},
-            output_contract={},
+            output_contract={"value": {"type": "DECIMAL"}},
             description="Momentum",
             economic_rationale="Trend",
             category="momentum",
         )
     )
-    _, revision = private_assets.publish_l3_revision("private.factor.momentum")
+    _, revision = private_assets.publish_alpha_revision("private.alpha.momentum")
+    private_alpha_closure = OnlyPrivateAlphaExecutableClosureV1.create(revision, ({"close": Decimal("1")},), {})
     authoring_generation = OnlyAuthoringExecutionGeneration.create_verified(
         experiment_id="exp-" + "b" * 32,
         private_asset_revision_reference=OnlyPrivateAssetRevisionReferenceV1(
-            OnlyPrivateAssetKind.L3_FACTOR, revision.factor_id, revision.revision_fingerprint
+            OnlyPrivateAssetKind.ALPHA, revision.alpha_id, revision.revision_fingerprint
         ),
         private_asset_revisions=OnlyPrivateAssetRevisionBindingResolver(private_assets),
-        candidate_provider_id=provider_id,
-        candidate_provider_version=provider_version,
-        catalog=generation,
+        private_alpha_executable_closure=private_alpha_closure,
+        candidate_provider_id="candidate.private.alpha",
+        base_catalog=generation,
     )
     authoring = authoring_generation.provenance
     OnlyAuthoringExecutionGenerationStore(authoring_root).commit(authoring_generation)
+    authoring_manifest = runtime_builder.bind_private_alpha_closure(
+        base_manifest=runtime_generations.load_manifest(runtime_fingerprint),
+        expected_catalog=authoring_generation.catalog,
+        closure=private_alpha_closure,
+    )
+    authoring_runtime = runtime_builder.rebuild_validated(
+        expected_manifest=authoring_manifest,
+        environment_root=runtime_root / "authoring-build",
+    )
+    runtime_generations.prepare(authoring_manifest, actor="topology-certifier", occurred_at=NOW)
+    runtime_generations.admit_ready(
+        authoring_runtime.validation_evidence,
+        actor="topology-certifier",
+        occurred_at=NOW,
+    )
+    authoring_runtime_fingerprint = authoring_manifest.runtime_generation_fingerprint
 
     run_id = OnlyResearchRunId("00000000-0000-4000-8000-000000000931")
     run_spec = specification(result.manifest.dataset_snapshot_fingerprint)
@@ -781,7 +798,7 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(run)
     runtime_generations.bind_work_exact(
         run_id.value,
-        runtime_fingerprint,
+        authoring_runtime_fingerprint,
         actor="topology-certifier",
         occurred_at=NOW,
     )
@@ -847,7 +864,7 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(failed_run)
     runtime_generations.bind_work_exact(
         failed_run_id.value,
-        runtime_fingerprint,
+        authoring_runtime_fingerprint,
         actor="topology-certifier",
         occurred_at=NOW + timedelta(seconds=3),
     )
@@ -895,7 +912,7 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(cancelled_run)
     runtime_generations.bind_work_exact(
         cancelled_run_id.value,
-        runtime_fingerprint,
+        authoring_runtime_fingerprint,
         actor="topology-certifier",
         occurred_at=NOW + timedelta(seconds=5),
     )
@@ -916,7 +933,9 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
         zip(search_plans, search_commands, search_run_ids, strict=True)
     ):
         parent = only_search_experiment_work_id(plan.experiment_fingerprint)
-        runtime_generations.bind_work_exact(parent, runtime_fingerprint, actor="topology-certifier", occurred_at=NOW)
+        runtime_generations.bind_work_exact(
+            parent, authoring_runtime_fingerprint, actor="topology-certifier", occurred_at=NOW
+        )
         queued_at = NOW + timedelta(seconds=6 + 3 * index)
         runtime_generations.bind_derived_work(
             parent, search_run_id.value, actor="topology-certifier", occurred_at=queued_at
@@ -1082,8 +1101,8 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     assert completed_closure["specification_fingerprint"] == run_spec.specification_fingerprint
     assert completed_closure["research_result_fingerprint"] == chain["research"]
     assert completed_closure["artifact_content_fingerprint"] == "c" * 64
-    assert completed_closure["runtime_generation_fingerprint"] == runtime_fingerprint
-    assert completed_closure["catalog_generation_fingerprint"] == generation.generation_fingerprint
+    assert completed_closure["runtime_generation_fingerprint"] == authoring_runtime_fingerprint
+    assert completed_closure["catalog_generation_fingerprint"] == authoring_generation.catalog.generation_fingerprint
     assert (
         runtime_generations.require_runtime_generation(
             runtime_generations.require_work_binding(run_id.value).runtime_generation_fingerprint
@@ -1099,10 +1118,10 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
         def __init__(self, error: Exception) -> None:
             self._error = error
 
-        def load_l3_revision(self, _factor_id: str, _revision_fingerprint: str) -> object:
+        def load_alpha_revision(self, _alpha_id: str, _revision_fingerprint: str) -> object:
             raise self._error
 
-        def load_l4_revision(self, _strategy_id: str, _revision_fingerprint: str) -> object:
+        def load_strategy_revision(self, _strategy_id: str, _revision_fingerprint: str) -> object:
             raise self._error
 
     for label, error in (
@@ -1119,7 +1138,7 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
         invalid_builder = OnlyExperimentMemoryProductionBuilder(
             builder._sources,
             invalid_references,
-            OnlyExperimentMemoryRevisionStore(tmp_path / f"invalid-authority-{label}"),
+            OnlyExperimentMemoryRevisionStore(tmp_path / f"invalid-authority-{label}" / "experiment-memory"),
         )
         with pytest.raises(OnlyMemoryProjectionError, match="REFERENCE_AUTHORITY_UNAVAILABLE"):
             invalid_builder.build(manifest)
@@ -1149,8 +1168,8 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     assert context["research_result_fingerprint"] is None
     assert context["artifact_content_fingerprint"] is None
     assert context["specification_fingerprint"] == run_spec.specification_fingerprint
-    assert context["runtime_generation_fingerprint"] == runtime_fingerprint
-    assert context["catalog_generation_fingerprint"] == generation.generation_fingerprint
+    assert context["runtime_generation_fingerprint"] == authoring_runtime_fingerprint
+    assert context["catalog_generation_fingerprint"] == authoring_generation.catalog.generation_fingerprint
     assert context["authoring_generation_fingerprint"] == authoring.execution_generation_fingerprint
     assert context["calculation_execution_evidence_fingerprints"] == []
     assert failure_record.facets["failure_code"] == "SEARCH_EXECUTION_FAILED"
@@ -1211,8 +1230,8 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     assert failed_closure["specification_fingerprint"] == failed.specification_fingerprint
     assert failed_closure["research_result_fingerprint"] == chain["research"]
     assert failed_closure["artifact_content_fingerprint"] is None
-    assert failed_closure["runtime_generation_fingerprint"] == runtime_fingerprint
-    assert failed_closure["catalog_generation_fingerprint"] == generation.generation_fingerprint
+    assert failed_closure["runtime_generation_fingerprint"] == authoring_runtime_fingerprint
+    assert failed_closure["catalog_generation_fingerprint"] == authoring_generation.catalog.generation_fingerprint
     assert (
         runtime_generations.require_runtime_generation(
             runtime_generations.require_work_binding(failed.run_id.value).runtime_generation_fingerprint
@@ -1287,7 +1306,7 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     } == {
         run_id.value: completed_closure["catalog_generation_fingerprint"],
         failed.run_id.value: failed_closure["catalog_generation_fingerprint"],
-        search_run_ids[0].value: generation.generation_fingerprint,
+        search_run_ids[0].value: authoring_generation.catalog.generation_fingerprint,
     }
     rebuilt_failures = {
         record["facets"]["run_context"]["run_id"]: record

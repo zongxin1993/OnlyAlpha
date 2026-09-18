@@ -22,8 +22,6 @@ WEB_LOCK_PATH = Path("packages/onlyalpha-web-console/package-lock.json")
 QUANT_ASSET_PROVIDER_PATHS = (
     Path("plugs/onlyalpha-plugin-operators/src/onlyalpha_plugin_operators/provider.py"),
     Path("plugs/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators/provider.py"),
-    Path("examples/onlyalpha-example-alpha/src/onlyalpha_example_alpha/provider.py"),
-    Path("examples/onlyalpha-example-strategies/src/onlyalpha_example_strategies/provider.py"),
 )
 _DISTRIBUTION_VERSION = re.compile(
     r'(?m)^(?P<prefix>\s*distribution_version\s*=\s*)"(?P<version>[^"]+)"(?P<suffix>,\s*)$'

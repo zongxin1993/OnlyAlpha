@@ -17,6 +17,8 @@ compose-acceptance = [
     "hypothesis>=6.165.5",
     "httpx2>=2.12,<3",
     "onlyalpha-test-plugin",
+    "onlyalpha-test-alpha-provider",
+    "onlyalpha-test-strategy-provider",
     "pytest>=9.0.3",
     "pytest-xdist>=3.8.0",
     "pytest-split==0.11.0",
@@ -37,8 +39,8 @@ dev = [
     "tomlkit>=0.13",
     "twine>=6",
     "onlyalpha-test-plugin",
-    "onlyalpha-example-alpha",
-    "onlyalpha-example-strategies",
+    "onlyalpha-test-alpha-provider",
+    "onlyalpha-test-strategy-provider",
     "onlyalpha-plugin-operators",
     "onlyalpha-plugin-indicators",
     "onlyalpha-plugin-targets",
@@ -74,8 +76,6 @@ members = [
     "plugs/onlyalpha-plugin-indicators",
     "plugs/onlyalpha-plugin-operators",
     "plugs/onlyalpha-plugin-targets",
-    "examples/onlyalpha-example-alpha",
-    "examples/onlyalpha-example-strategies",
     "packages/onlyalpha-http-server",
     "packages/onlyalpha-gateway-protocol",
     "packages/onlyalpha-authoring-execution-worker",
@@ -120,8 +120,6 @@ files = [
     "plugs/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators",
     "plugs/onlyalpha-plugin-operators/src/onlyalpha_plugin_operators",
     "plugs/onlyalpha-plugin-targets/src/onlyalpha_plugin_targets",
-    "examples/onlyalpha-example-alpha/src/onlyalpha_example_alpha",
-    "examples/onlyalpha-example-strategies/src/onlyalpha_example_strategies",
     "packages/onlyalpha-http-server/src/onlyalpha_http_server",
     "packages/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol",
     "packages/onlyalpha-authoring-execution-worker/src/onlyalpha_authoring_execution_worker",
@@ -138,8 +136,8 @@ ignore_errors = true
 
 [tool.uv.sources]
 onlyalpha-test-plugin = { path = "tests/fixtures/external_plugins/onlyalpha_test_plugin", editable = true }
-onlyalpha-example-alpha = { workspace = true }
-onlyalpha-example-strategies = { workspace = true }
+onlyalpha-test-alpha-provider = { path = "tests/fixtures/runtime_alpha_provider", editable = true }
+onlyalpha-test-strategy-provider = { path = "tests/fixtures/runtime_strategy_provider", editable = true }
 onlyalpha-plugin-operators = { workspace = true }
 onlyalpha-plugin-indicators = { workspace = true }
 onlyalpha-plugin-targets = { workspace = true }
@@ -166,8 +164,6 @@ testpaths = [
     "plugs/onlyalpha-plugin-indicators/tests",
     "plugs/onlyalpha-plugin-operators/tests",
     "plugs/onlyalpha-plugin-targets/tests",
-    "examples/onlyalpha-example-alpha/tests",
-    "examples/onlyalpha-example-strategies/tests",
     "packages/onlyalpha-http-server/tests",
     "packages/onlyalpha-gateway-protocol/tests",
     "packages/onlyalpha-authoring-execution-worker/tests",
@@ -255,8 +251,8 @@ forbidden_modules = [
     "onlyalpha_plugin_binance",
     "onlyalpha_plugin_indicators",
     "onlyalpha_plugin_operators",
-    "onlyalpha_example_alpha",
-    "onlyalpha_example_strategies",
+    "onlyalpha_test_alpha_provider",
+    "onlyalpha_test_strategy_provider",
     "onlyalpha_plugin_targets",
 ]
 

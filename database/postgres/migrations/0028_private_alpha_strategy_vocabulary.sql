@@ -1,0 +1,67 @@
+DO $$
+BEGIN
+    IF EXISTS (SELECT FROM private_l3_asset LIMIT 1)
+       OR EXISTS (SELECT FROM private_l4_asset LIMIT 1) THEN
+        RAISE EXCEPTION 'Private Asset vocabulary migration requires empty development authoring tables';
+    END IF;
+END
+$$;
+
+ALTER TABLE private_l3_draft RENAME TO private_alpha_draft;
+ALTER TABLE private_l3_revision RENAME TO private_alpha_revision;
+ALTER TABLE private_l3_asset RENAME TO private_alpha_asset;
+
+ALTER TABLE private_alpha_asset RENAME COLUMN factor_id TO alpha_id;
+ALTER TABLE private_alpha_draft RENAME COLUMN factor_id TO alpha_id;
+ALTER TABLE private_alpha_revision RENAME COLUMN factor_id TO alpha_id;
+
+ALTER TABLE private_alpha_asset RENAME CONSTRAINT private_l3_asset_pkey TO private_alpha_asset_pkey;
+ALTER TABLE private_alpha_asset RENAME CONSTRAINT private_l3_asset_factor_id_check TO private_alpha_asset_alpha_id_check;
+ALTER TABLE private_alpha_asset RENAME CONSTRAINT private_l3_asset_schema_version_check TO private_alpha_asset_schema_version_check;
+ALTER TABLE private_alpha_asset RENAME CONSTRAINT private_l3_asset_current_revision_fk TO private_alpha_asset_current_revision_fk;
+
+ALTER TABLE private_alpha_draft RENAME CONSTRAINT private_l3_draft_pkey TO private_alpha_draft_pkey;
+ALTER TABLE private_alpha_draft RENAME CONSTRAINT private_l3_draft_factor_id_fkey TO private_alpha_draft_alpha_id_fkey;
+ALTER TABLE private_alpha_draft RENAME CONSTRAINT private_l3_draft_factor_id_base_revision_fingerprint_fkey TO private_alpha_draft_base_revision_fk;
+ALTER TABLE private_alpha_draft RENAME CONSTRAINT private_l3_draft_schema_version_check TO private_alpha_draft_schema_version_check;
+
+ALTER TABLE private_alpha_revision RENAME CONSTRAINT private_l3_revision_pkey TO private_alpha_revision_pkey;
+ALTER TABLE private_alpha_revision RENAME CONSTRAINT private_l3_revision_factor_id_fkey TO private_alpha_revision_alpha_id_fkey;
+ALTER TABLE private_alpha_revision RENAME CONSTRAINT private_l3_revision_factor_id_revision_fingerprint_key TO private_alpha_revision_alpha_id_revision_fingerprint_key;
+ALTER TABLE private_alpha_revision RENAME CONSTRAINT private_l3_revision_factor_id_parent_revision_fingerprint_fkey TO private_alpha_revision_parent_fk;
+ALTER TABLE private_alpha_revision RENAME CONSTRAINT private_l3_revision_revision_fingerprint_check TO private_alpha_revision_revision_fingerprint_check;
+ALTER TABLE private_alpha_revision RENAME CONSTRAINT private_l3_revision_source_sha256_check TO private_alpha_revision_source_sha256_check;
+ALTER TABLE private_alpha_revision RENAME CONSTRAINT private_l3_revision_source_text_check TO private_alpha_revision_source_text_check;
+ALTER TABLE private_alpha_revision RENAME CONSTRAINT private_l3_revision_schema_version_check TO private_alpha_revision_schema_version_check;
+
+ALTER TABLE private_alpha_asset DROP CONSTRAINT private_alpha_asset_alpha_id_check;
+ALTER TABLE private_alpha_asset
+    ADD CONSTRAINT private_alpha_asset_alpha_id_check
+    CHECK (alpha_id ~ '^private\.alpha\.[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$');
+
+ALTER TABLE private_l4_draft RENAME TO private_strategy_draft;
+ALTER TABLE private_l4_revision RENAME TO private_strategy_revision;
+ALTER TABLE private_l4_asset RENAME TO private_strategy_asset;
+
+ALTER TABLE private_strategy_asset RENAME CONSTRAINT private_l4_asset_pkey TO private_strategy_asset_pkey;
+ALTER TABLE private_strategy_asset RENAME CONSTRAINT private_l4_asset_strategy_id_check TO private_strategy_asset_strategy_id_check;
+ALTER TABLE private_strategy_asset RENAME CONSTRAINT private_l4_asset_schema_version_check TO private_strategy_asset_schema_version_check;
+ALTER TABLE private_strategy_asset RENAME CONSTRAINT private_l4_asset_current_revision_fk TO private_strategy_asset_current_revision_fk;
+
+ALTER TABLE private_strategy_draft RENAME CONSTRAINT private_l4_draft_pkey TO private_strategy_draft_pkey;
+ALTER TABLE private_strategy_draft RENAME CONSTRAINT private_l4_draft_strategy_id_fkey TO private_strategy_draft_strategy_id_fkey;
+ALTER TABLE private_strategy_draft RENAME CONSTRAINT private_l4_draft_strategy_id_base_revision_fingerprint_fkey TO private_strategy_draft_base_revision_fk;
+ALTER TABLE private_strategy_draft RENAME CONSTRAINT private_l4_draft_schema_version_check TO private_strategy_draft_schema_version_check;
+
+ALTER TABLE private_strategy_revision RENAME CONSTRAINT private_l4_revision_pkey TO private_strategy_revision_pkey;
+ALTER TABLE private_strategy_revision RENAME CONSTRAINT private_l4_revision_strategy_id_fkey TO private_strategy_revision_strategy_id_fkey;
+ALTER TABLE private_strategy_revision RENAME CONSTRAINT private_l4_revision_strategy_id_revision_fingerprint_key TO private_strategy_revision_strategy_id_revision_fingerprint_key;
+ALTER TABLE private_strategy_revision RENAME CONSTRAINT private_l4_revision_strategy_id_parent_revision_fingerprin_fkey TO private_strategy_revision_parent_fk;
+ALTER TABLE private_strategy_revision RENAME CONSTRAINT private_l4_revision_revision_fingerprint_check TO private_strategy_revision_revision_fingerprint_check;
+ALTER TABLE private_strategy_revision RENAME CONSTRAINT private_l4_revision_definition_fingerprint_check TO private_strategy_revision_definition_fingerprint_check;
+ALTER TABLE private_strategy_revision RENAME CONSTRAINT private_l4_revision_schema_version_check TO private_strategy_revision_schema_version_check;
+
+ALTER TRIGGER private_l3_revision_immutable_trigger ON private_alpha_revision
+    RENAME TO private_alpha_revision_immutable_trigger;
+ALTER TRIGGER private_l4_revision_immutable_trigger ON private_strategy_revision
+    RENAME TO private_strategy_revision_immutable_trigger;

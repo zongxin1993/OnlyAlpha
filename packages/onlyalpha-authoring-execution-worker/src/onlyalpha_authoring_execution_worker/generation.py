@@ -8,7 +8,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
-from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration, OnlyQuantAssetLayer
+from onlyalpha.quant_assets import (
+    OnlyPrivateAlphaExecutableClosureV1,
+    OnlyPrivateAlphaSnapshotProviderSource,
+    OnlyQuantAssetCatalogGeneration,
+    OnlyQuantAssetKind,
+    OnlyQuantAssetProvider,
+    OnlyQuantAssetProviderManifest,
+)
 from onlyalpha.quant_assets.private import (
     OnlyPrivateAssetAuthorityUnavailableError,
     OnlyPrivateAssetKind,
@@ -68,30 +75,42 @@ class OnlyAuthoringExecutionGeneration:
         experiment_id: str,
         private_asset_revision_reference: OnlyPrivateAssetRevisionReferenceV1,
         private_asset_revisions: OnlyPrivateAssetRevisionBindingResolver,
+        private_alpha_executable_closure: OnlyPrivateAlphaExecutableClosureV1,
         candidate_provider_id: str,
-        candidate_provider_version: str,
-        catalog: OnlyQuantAssetCatalogGeneration,
+        base_catalog: OnlyQuantAssetCatalogGeneration,
     ) -> OnlyAuthoringExecutionGeneration:
         binding = private_asset_revisions.resolve(private_asset_revision_reference)
-        if binding.private_asset_kind is not OnlyPrivateAssetKind.L3_FACTOR:
+        if binding.private_asset_kind is not OnlyPrivateAssetKind.ALPHA:
             raise ValueError("AUTHORING_EXECUTION_PRIVATE_ASSET_KIND_UNSUPPORTED")
-        by_id = tuple(
-            provider for provider in catalog.providers if provider.manifest.provider_id == candidate_provider_id
+        closure = private_alpha_executable_closure
+        OnlyPrivateAlphaExecutableClosureV1.verify_canonical(closure)
+        revision = closure.revision
+        if (
+            revision.alpha_id != binding.private_asset_id
+            or revision.semantic_version != binding.semantic_version
+            or revision.revision_fingerprint != binding.private_asset_revision_fingerprint
+            or revision.source_sha256 != binding.private_asset_content_fingerprint
+            or revision.alpha_api_version != binding.alpha_api_version
+            or revision.alpha_api_contract_fingerprint != binding.alpha_api_contract_fingerprint
+        ):
+            raise ValueError("AUTHORING_PRIVATE_ALPHA_EXECUTION_BINDING_MISMATCH")
+        if any(provider.manifest.provider_id == candidate_provider_id for provider in base_catalog.providers):
+            raise ValueError("AUTHORING_CANDIDATE_PROVIDER_DUPLICATE")
+        provider = OnlyQuantAssetProvider(
+            OnlyQuantAssetProviderManifest(
+                candidate_provider_id,
+                revision.revision_fingerprint,
+                OnlyQuantAssetKind.ALPHA,
+                OnlyPrivateAlphaSnapshotProviderSource(closure.provider_snapshot.snapshot_fingerprint),
+            ),
+            calculation_registrations=closure.registrations,
+            private_alpha_snapshot=closure.provider_snapshot,
         )
-        if not by_id:
-            raise ValueError("AUTHORING_CANDIDATE_PROVIDER_NOT_FOUND")
-        matches = tuple(
-            provider for provider in by_id if provider.manifest.provider_version == candidate_provider_version
-        )
-        if len(matches) != 1:
-            raise ValueError("AUTHORING_CANDIDATE_PROVIDER_VERSION_MISMATCH")
-        provider = matches[0]
-        if provider.manifest.layer is not OnlyQuantAssetLayer.FACTOR:
-            raise ValueError("AUTHORING_CANDIDATE_PROVIDER_LAYER_MISMATCH")
+        catalog = OnlyQuantAssetCatalogGeneration((*base_catalog.providers, provider))
         provenance = OnlyResearchAuthoringProvenance(
             schema_version=1,
             experiment_id=experiment_id,
-            private_asset_kind=OnlyPrivateAssetKind.L3_FACTOR,
+            private_asset_kind=OnlyPrivateAssetKind.ALPHA,
             private_asset_id=binding.private_asset_id,
             private_asset_revision_fingerprint=binding.private_asset_revision_fingerprint,
             private_asset_content_fingerprint=binding.private_asset_content_fingerprint,
@@ -101,7 +120,7 @@ class OnlyAuthoringExecutionGeneration:
             catalog_generation_fingerprint=catalog.generation_fingerprint,
             execution_generation_fingerprint=only_research_execution_generation_fingerprint(
                 experiment_id=experiment_id,
-                private_asset_kind=OnlyPrivateAssetKind.L3_FACTOR,
+                private_asset_kind=OnlyPrivateAssetKind.ALPHA,
                 private_asset_id=binding.private_asset_id,
                 private_asset_revision_fingerprint=binding.private_asset_revision_fingerprint,
                 private_asset_content_fingerprint=binding.private_asset_content_fingerprint,
@@ -128,7 +147,7 @@ class OnlyAuthoringExecutionGeneration:
     def _verify_composition(self) -> None:
         if self.catalog.generation_fingerprint != self.provenance.catalog_generation_fingerprint:
             raise ValueError("AUTHORING_CATALOG_GENERATION_MISMATCH")
-        if self.provenance.private_asset_kind is not OnlyPrivateAssetKind.L3_FACTOR:
+        if self.provenance.private_asset_kind is not OnlyPrivateAssetKind.ALPHA:
             raise ValueError("AUTHORING_EXECUTION_PRIVATE_ASSET_KIND_UNSUPPORTED")
         matches = tuple(
             provider
@@ -141,8 +160,8 @@ class OnlyAuthoringExecutionGeneration:
             or matches[0].content_fingerprint != self.provenance.candidate_provider_content_fingerprint
         ):
             raise ValueError("AUTHORING_CANDIDATE_PROVIDER_MISMATCH")
-        if matches[0].manifest.layer is not OnlyQuantAssetLayer.FACTOR:
-            raise ValueError("AUTHORING_CANDIDATE_PROVIDER_LAYER_MISMATCH")
+        if matches[0].manifest.kind is not OnlyQuantAssetKind.ALPHA:
+            raise ValueError("AUTHORING_CANDIDATE_PROVIDER_KIND_MISMATCH")
 
     @property
     def fingerprint(self) -> str:
@@ -239,7 +258,7 @@ class OnlyAuthoringExecutionGenerationStore:
                 )
                 != provenance.catalog_generation_fingerprint
                 or len(matches) != 1
-                or matches[0]["manifest"].get("layer") != OnlyQuantAssetLayer.FACTOR.value
+                or matches[0]["manifest"].get("kind") != OnlyQuantAssetKind.ALPHA.value
             ):
                 raise ValueError("descriptor identity")
             return descriptor

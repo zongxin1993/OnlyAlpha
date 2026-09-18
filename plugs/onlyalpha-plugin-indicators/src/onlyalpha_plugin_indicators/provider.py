@@ -1,7 +1,8 @@
-"""L2 quantitative asset provider facade."""
+"""Indicator quantitative asset provider facade."""
 
 from onlyalpha.quant_assets import (
-    OnlyQuantAssetLayer,
+    OnlyDistributionProviderSource,
+    OnlyQuantAssetKind,
     OnlyQuantAssetProvider,
     OnlyQuantAssetProviderManifest,
 )
@@ -13,9 +14,11 @@ def quant_asset_provider() -> OnlyQuantAssetProvider:
         OnlyQuantAssetProviderManifest(
             provider_id="onlyalpha.indicator.library",
             provider_version="4",
-            layer=OnlyQuantAssetLayer.INDICATOR,
-            distribution_name="onlyalpha-plugin-indicators",
-            distribution_version="0.9.9",
+            kind=OnlyQuantAssetKind.INDICATOR,
+            source=OnlyDistributionProviderSource(
+                distribution_name="onlyalpha-plugin-indicators",
+                distribution_version="0.9.9",
+            ),
         ),
         calculation_registrations=registrations(),
     )

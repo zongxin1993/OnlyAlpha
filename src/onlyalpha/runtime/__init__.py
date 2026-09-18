@@ -10,6 +10,7 @@ _EXPORTS = {
     "OnlyDistributionArtifactRole": "onlyalpha.runtime.generation",
     "OnlyRuntimeGenerationManifest": "onlyalpha.runtime.generation",
     "OnlyRuntimeProviderBinding": "onlyalpha.runtime.generation",
+    "OnlyRuntimePrivateAlphaBinding": "onlyalpha.runtime.generation",
     "OnlyRuntimeContext": "onlyalpha.runtime.context",
     "OnlyResearchRuntimeEnvironmentIdentity": "onlyalpha.runtime.research.environment",
     "OnlyResearchRuntimeError": "onlyalpha.research.runtime_errors",

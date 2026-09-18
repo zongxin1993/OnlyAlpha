@@ -12,8 +12,8 @@ from onlyalpha.research.provenance import (
 def _provenance() -> OnlyResearchAuthoringProvenance:
     values = {
         "experiment_id": "exp-" + "b" * 32,
-        "private_asset_kind": OnlyPrivateAssetKind.L3_FACTOR,
-        "private_asset_id": "private.factor.momentum",
+        "private_asset_kind": OnlyPrivateAssetKind.ALPHA,
+        "private_asset_id": "private.alpha.momentum",
         "private_asset_revision_fingerprint": "5" * 64,
         "private_asset_content_fingerprint": "6" * 64,
         "candidate_provider_id": "candidate.private.alpha",
@@ -31,7 +31,7 @@ def _provenance() -> OnlyResearchAuthoringProvenance:
 def test_db_native_provenance_round_trip_and_generation_identity_are_deterministic() -> None:
     provenance = _provenance()
     assert provenance.execution_generation_fingerprint == (
-        "97fb52508349a71517f479f5ea5415dffd7d471bcc2b4f0554fa6b781c7b000c"
+        "de56afec973b2052a99d502b7a701040abd4906711631596adb2618df5121783"
     )
     assert OnlyResearchAuthoringProvenance.from_dict(provenance.to_dict()) == provenance
 

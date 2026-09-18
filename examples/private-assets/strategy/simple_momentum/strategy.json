@@ -1,0 +1,18 @@
+{
+  "asset_kind": "STRATEGY",
+  "dependencies": ["alpha.simple_momentum"],
+  "description": "A minimal structured Strategy seed bound to the imported momentum Alpha Revision.",
+  "display_name": "Simple Momentum Strategy",
+  "example_id": "strategy.simple_momentum",
+  "schema_version": 1,
+  "strategy": {
+    "definition": {
+      "entry": {"alpha_output": "value", "operator": "GREATER_THAN", "value": "0"},
+      "exit": {"alpha_output": "value", "operator": "LESS_THAN_OR_EQUAL", "value": "0"},
+      "schema_version": 1
+    },
+    "semantic_version": "1",
+    "strategy_id": "private.strategy.simple_momentum",
+    "tags": ["momentum", "reference"]
+  }
+}

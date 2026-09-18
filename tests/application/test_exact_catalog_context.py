@@ -5,11 +5,11 @@ from dataclasses import replace
 from typing import cast
 
 import pytest
-from onlyalpha_example_alpha.provider import quant_asset_provider as alpha_provider
-from onlyalpha_example_strategies.provider import quant_asset_provider as strategy_provider
 from onlyalpha_plugin_indicators.provider import quant_asset_provider as indicator_provider
 from onlyalpha_plugin_operators.provider import quant_asset_provider as operator_provider
 from onlyalpha_plugin_targets.registration import registrations as target_registrations
+from onlyalpha_test_alpha_provider.provider import quant_asset_provider as alpha_provider
+from onlyalpha_test_strategy_provider.provider import quant_asset_provider as strategy_provider
 
 from onlyalpha.application.catalog_context import (
     EXACT_CATALOG_CONTEXT_PROJECTION_SCHEMA_FINGERPRINT,

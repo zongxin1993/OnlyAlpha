@@ -1,4 +1,4 @@
-"""Canonical L1 Operator definitions and exact backend registrations."""
+"""Canonical Operator Operator definitions and exact backend registrations."""
 
 from collections.abc import Mapping
 from dataclasses import dataclass

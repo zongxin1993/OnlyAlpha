@@ -1,11 +1,12 @@
-"""L3 quantitative asset provider facade."""
+"""Test-only Alpha quantitative asset provider facade."""
 
 from onlyalpha.quant_assets import (
-    OnlyQuantAssetLayer,
+    OnlyDistributionProviderSource,
+    OnlyQuantAssetKind,
     OnlyQuantAssetProvider,
     OnlyQuantAssetProviderManifest,
 )
-from onlyalpha_example_alpha.registration import registrations
+from onlyalpha_test_alpha_provider.registration import registrations
 
 
 def quant_asset_provider() -> OnlyQuantAssetProvider:
@@ -13,9 +14,8 @@ def quant_asset_provider() -> OnlyQuantAssetProvider:
         OnlyQuantAssetProviderManifest(
             provider_id="example.alpha.library",
             provider_version="1",
-            layer=OnlyQuantAssetLayer.FACTOR,
-            distribution_name="onlyalpha-example-alpha",
-            distribution_version="0.9.9",
+            kind=OnlyQuantAssetKind.ALPHA,
+            source=OnlyDistributionProviderSource("onlyalpha-test-alpha-provider", "0.9.9"),
         ),
         calculation_registrations=registrations(),
     )

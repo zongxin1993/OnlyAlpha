@@ -1,15 +1,16 @@
-"""L4 quantitative asset provider facade."""
+"""Test-only Strategy quantitative asset provider facade."""
 
 import json
 
 from onlyalpha.quant_assets import (
-    OnlyQuantAssetLayer,
+    OnlyDistributionProviderSource,
+    OnlyQuantAssetKind,
     OnlyQuantAssetProvider,
     OnlyQuantAssetProviderManifest,
     OnlyStrategyAuthoringAsset,
     OnlyStrategyAuthoringResource,
 )
-from onlyalpha_example_strategies import read_strategy_definition, strategy_asset_resource
+from onlyalpha_test_strategy_provider import read_strategy_definition, strategy_asset_resource
 
 
 def quant_asset_provider() -> OnlyQuantAssetProvider:
@@ -30,9 +31,8 @@ def quant_asset_provider() -> OnlyQuantAssetProvider:
         OnlyQuantAssetProviderManifest(
             provider_id="example.strategy.library",
             provider_version="1",
-            layer=OnlyQuantAssetLayer.STRATEGY,
-            distribution_name="onlyalpha-example-strategies",
-            distribution_version="0.9.9",
+            kind=OnlyQuantAssetKind.STRATEGY,
+            source=OnlyDistributionProviderSource("onlyalpha-test-strategy-provider", "0.9.9"),
         ),
         strategy_assets=(asset,),
     )

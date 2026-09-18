@@ -50,10 +50,7 @@ def _console_entry_points() -> dict[str, str]:
 
 def test_retired_repository_and_product_surfaces_are_absent() -> None:
     assert not (ROOT / "prompts").exists()
-    assert {path.name for path in (ROOT / "examples").iterdir() if path.is_dir()} == {
-        "onlyalpha-example-alpha",
-        "onlyalpha-example-strategies",
-    }
+    assert {path.name for path in (ROOT / "examples").iterdir() if path.is_dir()} == {"private-assets"}
     assert not (ROOT / "packages/client/onlyalpha-client").exists()
     assert not (ROOT / "src/onlyalpha/cli.py").exists()
     assert not (ROOT / "scripts/openapi_clients.py").exists()

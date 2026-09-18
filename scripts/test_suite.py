@@ -158,7 +158,7 @@ LANES = {
     OnlyTestLane.RESEARCH_FACTOR: Lane(
         (
             "tests/research/factor",
-            "examples/onlyalpha-example-alpha/tests",
+            "tests/quant_assets/test_private_alpha_native_execution.py",
             "plugs/onlyalpha-plugin-operators/tests",
             "tests/research/calculation/test_execution.py",
             (
@@ -352,8 +352,8 @@ LANES = {
             "packages/onlyalpha-authoring-execution-worker/tests",
             "packages/onlyalpha-runtime-generation-manager/tests",
             "packages/onlyalpha-http-server/tests/test_research_runs_api.py",
-            "examples/onlyalpha-example-alpha/tests",
-            "examples/onlyalpha-example-strategies/tests",
+            "tests/quant_assets/test_private_alpha_native_execution.py",
+            "tests/quant_assets/test_private_asset_example_seed.py",
             "tests/architecture/test_private_asset_contract_parity.py",
         ),
         "not external",
@@ -672,8 +672,7 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             OnlyTestLane.RESEARCH_FACTOR: (
                 "onlyalpha.research.calculation.execution",
                 "onlyalpha_plugin_operators",
-                "onlyalpha_example_alpha",
-                "onlyalpha_example_strategies",
+                "onlyalpha_test_alpha_provider",
             ),
             OnlyTestLane.RESEARCH_JOB: ("src/onlyalpha/research/job",),
             OnlyTestLane.RESEARCH_CALCULATION: ("src/onlyalpha/research/calculation",),

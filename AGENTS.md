@@ -605,36 +605,35 @@ the OpenAPI Product Contract remains a first-class contract under `contracts/`.
 
 Classify each new quantitative capability under ADR 0110:
 
-1. Generic mathematics without financial context is an L1 Operator.
-2. Stable financial meaning without a predictive Target hypothesis is an L2 Indicator.
-3. A testable predictive or explanatory Alpha hypothesis is an L3 Factor.
-4. Composition of admitted Features/Factors into eligibility, selection, entry or exit decisions is an L4 Strategy.
+1. Generic mathematics without financial context is an Operator.
+2. Stable financial meaning without a predictive Target hypothesis is an Indicator.
+3. A testable predictive or explanatory hypothesis is an Alpha.
+4. Composition of admitted Features/Alpha into eligibility, selection, entry or exit decisions is a Strategy.
 
-L1/L2 are public reusable capabilities. Production L3/L4 assets are private; the main repository's only L3/L4 assets are the
-non-production reference libraries explicitly authorized by ADR 0110 under `examples/onlyalpha-example-alpha/` and
-`examples/onlyalpha-example-strategies/`. The Agent primarily creates/searches L3/L4. Missing reusable L1/L2 capability must be
+Operator/Indicator are public reusable capabilities. Production Alpha/Strategy assets are private; the main repository's examples are
+non-production DB import seeds under `examples/private-assets/alpha/` and `examples/private-assets/strategy/`. The Agent primarily
+creates/searches Alpha/Strategy. Missing reusable Operator/Indicator capability must be
 proposed and admitted separately, never hidden inside a Factor or Strategy.
 
-Under ADR 0129, production Private L3/L4 authoring is PostgreSQL-backed and uses mutable Drafts plus immutable Revisions. Private L3
-V1 is one canonical UTF-8 Python source unit bound to one exact stable L3 API Contract; Private L4 is a canonical structured Strategy
+Under ADR 0129 and ADR 0131, production Private Alpha/Strategy authoring is PostgreSQL-backed and uses mutable Drafts plus immutable
+Revisions. Private Alpha V1 is one canonical UTF-8 Python source unit bound to one exact stable Alpha API Contract; Private Strategy is a canonical structured Strategy
 Definition. Git repositories, source paths, editable installs, wheels and packages are optional interoperability/provenance paths, not
 production authoring Authority. The database source is never direct execution permission; exact API/adapter, validation, Provider,
 Catalog and Runtime Generation boundaries remain mandatory.
 
 ADR 0111's source/distribution loading remains valid for optional import/export and executable materialization. Do not reintroduce
-mandatory per-asset Git/package authoring workflows without a new ADR; private L3/L4 planning must follow ADR 0129.
+mandatory per-asset Git/package authoring workflows without a new ADR; private Alpha/Strategy planning must follow ADR 0129 and ADR 0131.
 
-All L1/L2/L3/L4 libraries expose versioned management providers through `onlyalpha.quant_assets` under ADR 0112. L1/L2/L3 continue to
-execute only through `onlyalpha.calculations`; L4 remains authoring data. Any content change requires a new provider version, and any semantic
+Operator/Indicator distributions and snapshot-backed Alpha providers use `onlyalpha.quant_assets` under ADR 0112. Operator/Indicator/Alpha
+execute only through `onlyalpha.calculations`; Strategy remains authoring data. Any content change requires a new provider version, and any semantic
 change additionally requires a new Calculation or Strategy-asset semantic version. Hot plug switches an immutable catalog generation only
 for new work; never reload modules in place or rebind an active Run/StrategyRevision.
 
 ## Public example / private asset contract parity
 
-When a public Core change affects an L3/L4 authoring, discovery, execution, Research, Evidence or Freeze contract, the implementer must
-inspect the corresponding public example, update it in the same public change when behavior changes, run the public example conformance
-lane, and assess both `OnlyAlpha-alpha` and `OnlyAlpha-strategies` against the exact Core revision. If private execution is unavailable,
-report `PRIVATE_ASSET_COMPATIBILITY_CERTIFICATION_PENDING`; never claim compatibility without evidence.
+When a public Core change affects an Alpha/Strategy authoring, discovery, execution, Research, Evidence or Freeze contract, the
+implementer must inspect the corresponding DB-native seed, update it in the same public change when behavior changes, and run the seed
+import/native execution conformance lane.
 
 When a private asset needs a new Core capability, it must first be expressible through a public OnlyAlpha contract, demonstrated by the
 corresponding public example, and consumed through that same contract. Hidden private-only Core integration paths are forbidden and
