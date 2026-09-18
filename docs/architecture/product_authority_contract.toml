@@ -7,6 +7,7 @@ sensitive_path_patterns = [
   "src/onlyalpha/__init__.py",
   "src/onlyalpha/kernel/*.py",
   "src/onlyalpha/application/product_boundary.py",
+  "src/onlyalpha/application/private_strategy_research.py",
   "src/onlyalpha/application/strategy_authority.py",
   "src/onlyalpha/application/strategy_product.py",
   "src/onlyalpha/application/qualification_product.py",
@@ -578,6 +579,9 @@ actor = "A14"
 pattern = "src/onlyalpha/application/product_boundary.py"
 actor = "A17"
 [[actor_paths]]
+pattern = "src/onlyalpha/application/private_strategy_research.py"
+actor = "A16"
+[[actor_paths]]
 pattern = "src/onlyalpha/strategy/__init__.py"
 actor = "A14"
 [[actor_paths]]
@@ -727,7 +731,7 @@ actor = "A23"
 
 [[bindings]]
 capability = "C01"
-symbols = ["onlyalpha.research.command.service.OnlyResearchCommandService", "onlyalpha.persistence.postgres.research_run_store.OnlyPostgresResearchRunStore"]
+symbols = ["onlyalpha.research.command.service.OnlyResearchCommandService", "onlyalpha.persistence.postgres.research_run_store.OnlyPostgresResearchRunStore", "onlyalpha.application.private_strategy_research.OnlyPrivateStrategyResearchApplicationService"]
 [[bindings]]
 capability = "C02"
 symbols = ["onlyalpha.research.execution.scheduler.OnlyResearchScheduler", "onlyalpha.persistence.postgres.research_execution_store.OnlyPostgresResearchExecutionStore"]

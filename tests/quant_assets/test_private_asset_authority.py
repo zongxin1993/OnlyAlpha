@@ -57,15 +57,75 @@ def _factor_draft(**changes: object) -> OnlyPrivateFactorDraft:
     return OnlyPrivateFactorDraft(**values)  # type: ignore[arg-type]
 
 
+def _strategy_definition(instruments: tuple[str, ...] = ("TEST.XSHG",)) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "universe": {"kind": "SINGLE_INSTRUMENT", "instruments": list(instruments)},
+        "market_input": {
+            "schema_version": 1,
+            "data_kind": "BAR",
+            "bar_specification": {"step": 1, "aggregation": "TIME", "price_type": "LAST"},
+            "aggregation_source": "EXTERNAL",
+            "adjustment_type": "RAW",
+            "adjustment_reference": None,
+            "observation_admission": "FINAL_ONLY",
+        },
+        "calculations": [
+            {
+                "instance_key": "signal",
+                "type_reference": {
+                    "kind": "INDICATOR",
+                    "type_id": "onlyalpha.indicator.liquidity",
+                    "semantic_version": "1",
+                },
+                "parameters": {},
+                "published_outputs": ["value"],
+                "input_bindings": [{"input_name": "close", "source": "bar.close"}],
+                "primary_output": "value",
+            }
+        ],
+        "factor_revision_dependencies": [],
+        "eligibility": {
+            "kind": "COMPARISON",
+            "operator": ">",
+            "left": {"kind": "DATASET_FIELD", "field_name": "close"},
+            "right": {
+                "kind": "LITERAL",
+                "data_type": "DECIMAL",
+                "value": {"type": "DECIMAL", "value": "0"},
+            },
+        },
+        "signals": {
+            "entry": {
+                "kind": "COMPARISON",
+                "operator": ">",
+                "left": {"kind": "VARIABLE", "instance_key": "signal", "output_name": "value"},
+                "right": {
+                    "kind": "LITERAL",
+                    "data_type": "DECIMAL",
+                    "value": {"type": "DECIMAL", "value": "0"},
+                },
+            },
+            "exit": {
+                "kind": "COMPARISON",
+                "operator": "<=",
+                "left": {"kind": "VARIABLE", "instance_key": "signal", "output_name": "value"},
+                "right": {
+                    "kind": "LITERAL",
+                    "data_type": "DECIMAL",
+                    "value": {"type": "DECIMAL", "value": "0"},
+                },
+            },
+        },
+    }
+
+
 def _strategy_draft(**changes: object) -> OnlyPrivateStrategyDraft:
     values: dict[str, object] = {
         "strategy_id": "private.strategy.simple_momentum",
         "semantic_version": "1",
         "definition": {
-            "schema_version": 1,
-            "eligibility": {"calculation": "onlyalpha.indicator.liquidity@1"},
-            "entry": {"factor": "private.factor.momentum@1"},
-            "exit": {"operator": "<="},
+            **_strategy_definition(),
         },
         "description": "Simple momentum",
         "tags": ("long_only",),
@@ -113,17 +173,10 @@ def test_strategy_definition_and_revision_identity_are_deterministic_and_distinc
     revision = OnlyPrivateStrategyRevision.from_draft(_strategy_draft())
     reordered = OnlyPrivateStrategyRevision.from_draft(
         _strategy_draft(
-            definition={
-                "exit": {"operator": "<="},
-                "entry": {"factor": "private.factor.momentum@1"},
-                "eligibility": {"calculation": "onlyalpha.indicator.liquidity@1"},
-                "schema_version": 1,
-            }
+            definition=_strategy_definition(),
         )
     )
-    changed = OnlyPrivateStrategyRevision.from_draft(
-        _strategy_draft(definition={"schema_version": 1, "entry": {"factor": "private.factor.reversal@1"}})
-    )
+    changed = OnlyPrivateStrategyRevision.from_draft(_strategy_draft(definition=_strategy_definition(("OTHER.XSHG",))))
     assert revision == reordered
     assert revision.definition_fingerprint != revision.revision_fingerprint
     assert changed.definition_fingerprint != revision.definition_fingerprint
@@ -154,7 +207,7 @@ def test_revision_load_detects_source_definition_and_revision_tampering() -> Non
 
     strategy = OnlyPrivateStrategyRevision.from_draft(_strategy_draft())
     definition_changed = strategy.to_dict()
-    definition_changed["definition"] = {"schema_version": 1, "entry": "tampered"}
+    definition_changed["definition"] = _strategy_definition(("OTHER.XSHG",))
     with pytest.raises(OnlyPrivateAssetCorruptError, match="DEFINITION_FINGERPRINT"):
         OnlyPrivateStrategyRevision.from_dict(definition_changed)
 

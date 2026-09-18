@@ -18,7 +18,11 @@ from onlyalpha_runtime_generation_manager import OnlyLocalImmutableArtifactStore
 
 from onlyalpha.calculation import OnlyCalculationBackendKind, OnlyCalculationKind, OnlyCalculationReference
 from onlyalpha.canonical import only_canonical_json
-from onlyalpha.persistence.postgres import OnlyPostgresPrivateAssetStore, OnlyPostgresResearchRunStore
+from onlyalpha.persistence.postgres import (
+    OnlyPostgresPrivateAssetStore,
+    OnlyPostgresPrivateStrategyResearchCompositionStore,
+    OnlyPostgresResearchRunStore,
+)
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from onlyalpha.quant_assets import (
     ONLY_PRIVATE_FACTOR_API_V1,
@@ -38,6 +42,7 @@ from onlyalpha.quant_assets import (
     OnlyPrivateFactorSnapshotProviderSource,
     OnlyPrivateStrategyAsset,
     OnlyPrivateStrategyDraft,
+    OnlyPrivateStrategyResearchCompositionV1,
     OnlyQuantAssetCatalogGeneration,
     OnlyQuantAssetKind,
     OnlyQuantAssetProvider,
@@ -64,6 +69,7 @@ from onlyalpha.runtime.generation import (
     OnlyRuntimeGenerationManifest,
     OnlyRuntimeProviderBinding,
 )
+from tests.quant_assets.test_private_strategy_composition import _case
 from tests.research.specification.support import registry, specification
 from tests.support.research_run_seeder import OnlyPostgresResearchRunSeeder
 
@@ -90,10 +96,58 @@ def _factor(factor_id: str = "private.factor.momentum", **changes: object) -> On
 
 
 def _strategy(**changes: object) -> OnlyPrivateStrategyDraft:
+    definition = {
+        "schema_version": 1,
+        "universe": {"kind": "SINGLE_INSTRUMENT", "instruments": ["TEST.XSHG"]},
+        "market_input": {
+            "schema_version": 1,
+            "data_kind": "BAR",
+            "bar_specification": {"step": 1, "aggregation": "TIME", "price_type": "LAST"},
+            "aggregation_source": "EXTERNAL",
+            "adjustment_type": "RAW",
+            "adjustment_reference": None,
+            "observation_admission": "FINAL_ONLY",
+        },
+        "calculations": [
+            {
+                "instance_key": "signal",
+                "type_reference": {
+                    "kind": "INDICATOR",
+                    "type_id": "onlyalpha.indicator.liquidity",
+                    "semantic_version": "1",
+                },
+                "parameters": {},
+                "published_outputs": ["value"],
+                "input_bindings": [{"input_name": "close", "source": "bar.close"}],
+                "primary_output": "value",
+            }
+        ],
+        "factor_revision_dependencies": [],
+        "eligibility": {
+            "kind": "COMPARISON",
+            "operator": ">",
+            "left": {"kind": "DATASET_FIELD", "field_name": "close"},
+            "right": {"kind": "LITERAL", "data_type": "DECIMAL", "value": {"type": "DECIMAL", "value": "0"}},
+        },
+        "signals": {
+            "entry": {
+                "kind": "COMPARISON",
+                "operator": ">",
+                "left": {"kind": "VARIABLE", "instance_key": "signal", "output_name": "value"},
+                "right": {"kind": "LITERAL", "data_type": "DECIMAL", "value": {"type": "DECIMAL", "value": "0"}},
+            },
+            "exit": {
+                "kind": "COMPARISON",
+                "operator": "<=",
+                "left": {"kind": "VARIABLE", "instance_key": "signal", "output_name": "value"},
+                "right": {"kind": "LITERAL", "data_type": "DECIMAL", "value": {"type": "DECIMAL", "value": "0"}},
+            },
+        },
+    }
     values: dict[str, object] = {
         "strategy_id": "private.strategy.momentum",
         "semantic_version": "1",
-        "definition": {"schema_version": 1, "entry": {"factor": "private.factor.momentum@1"}},
+        "definition": definition,
         "description": "Momentum strategy",
         "tags": ("long_only",),
     }
@@ -121,7 +175,7 @@ def _provenance() -> OnlyResearchAuthoringProvenance:
 
 
 def test_private_factor_strategy_authoring_round_trip_publish_and_history(postgres_dsn: str) -> None:
-    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate()[-1] == "0029_private_factor_strategy_vocabulary"
+    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate()[-1] == "0030_private_strategy_research_composition"
     store = OnlyPostgresPrivateAssetStore(postgres_dsn)
 
     factor_asset = OnlyPrivateFactorAsset("private.factor.momentum")
@@ -179,7 +233,6 @@ def test_private_example_seed_import_is_idempotent_and_binds_exact_factor_revisi
     )
     assert strategy.definition["factor_revision_dependencies"] == (
         {
-            "example_id": "factor.simple_momentum",
             "factor_id": factor.private_asset_id,
             "revision_fingerprint": factor.private_asset_revision_fingerprint,
         },
@@ -432,6 +485,36 @@ def test_research_run_db_native_provenance_survives_postgres_round_trip(postgres
     OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(run)
 
     assert OnlyPostgresResearchRunStore(postgres_dsn).load(run.run_id) == run
+
+
+def test_private_strategy_research_composition_survives_postgres_reload(postgres_dsn: str) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    assets = OnlyPostgresPrivateAssetStore(postgres_dsn)
+    strategy_asset = OnlyPrivateStrategyAsset("private.strategy.composition_reload")
+    assets.put_strategy_asset(strategy_asset)
+    assets.save_strategy_draft(_strategy(strategy_id=strategy_asset.strategy_id))
+    _, revision = assets.publish_strategy_revision(strategy_asset.strategy_id)
+    _, _, context, _ = _case()
+    composition = OnlyPrivateStrategyResearchCompositionV1.create(
+        private_strategy_id=revision.strategy_id,
+        private_strategy_revision_fingerprint=revision.revision_fingerprint,
+        private_strategy_definition_fingerprint=revision.definition_fingerprint,
+        research_context_fingerprint=context.research_context_fingerprint,
+        factor_revision_bindings=(),
+        catalog_generation_fingerprint="a" * 64,
+        research_definition_fingerprint="b" * 64,
+    )
+    store = OnlyPostgresPrivateStrategyResearchCompositionStore(postgres_dsn)
+    store.put(composition, context)
+
+    restarted = OnlyPostgresPrivateStrategyResearchCompositionStore(postgres_dsn)
+    assert restarted.load(composition.composition_fingerprint) == composition
+    assert restarted.load_context(composition.composition_fingerprint) == context
+    with pytest.raises(psycopg.errors.RaiseException), psycopg.connect(postgres_dsn) as connection:
+        connection.execute(
+            "DELETE FROM private_strategy_research_composition WHERE composition_fingerprint = %s",
+            (composition.composition_fingerprint,),
+        )
 
 
 def test_generation_descriptor_reanchors_to_revision_and_fails_after_authority_removal(

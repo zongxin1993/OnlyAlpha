@@ -210,6 +210,10 @@ class OnlyResearchCalculationInput:
             "source": self.source if isinstance(self.source, str) else self.source.to_dict(),
         }
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchCalculationInput:
+        return _input(payload)
+
 
 @dataclass(frozen=True, slots=True)
 class OnlyResearchCalculationInstance:
@@ -248,6 +252,10 @@ class OnlyResearchCalculationInstance:
         result.pop("primary_output")
         return result
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchCalculationInstance:
+        return _calculation(payload)
+
 
 @dataclass(frozen=True, slots=True)
 class OnlyResearchSignals:
@@ -259,6 +267,14 @@ class OnlyResearchSignals:
             "entry": None if self.entry is None else self.entry.to_dict(),
             "exit": None if self.exit is None else self.exit.to_dict(),
         }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchSignals:
+        _exact(payload, {"entry", "exit"}, "signals")
+        return cls(
+            None if payload["entry"] is None else only_research_expression_from_dict(_mapping(payload["entry"])),
+            None if payload["exit"] is None else only_research_expression_from_dict(_mapping(payload["exit"])),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,6 +289,10 @@ class OnlyResearchStatisticsRequest:
             "target_instance_key": self.target_instance_key,
             "definition": self.definition.to_dict(),
         }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchStatisticsRequest:
+        return _statistics(payload)
 
 
 @dataclass(frozen=True, slots=True)

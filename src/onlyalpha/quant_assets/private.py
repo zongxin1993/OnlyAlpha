@@ -242,12 +242,22 @@ def only_private_factor_source_sha256(source_text: str) -> str:
 
 
 def only_private_strategy_definition_fingerprint(definition: Mapping[str, object]) -> str:
-    return only_canonical_fingerprint(
-        {
-            "contract": "ONLYALPHA_PRIVATE_STRATEGY_DEFINITION_V1",
-            "definition": _object(definition, "definition", nonempty=True),
-        }
-    )
+    from onlyalpha.quant_assets.private_strategy import OnlyPrivateStrategyDefinitionV1
+
+    thawed = _thaw_json(_mapping(definition, "definition"))
+    return OnlyPrivateStrategyDefinitionV1.from_dict(cast(Mapping[str, object], thawed)).definition_fingerprint
+
+
+def _strategy_definition(value: object) -> Mapping[str, object]:
+    from onlyalpha.quant_assets.private_strategy import OnlyPrivateStrategyDefinitionV1
+
+    try:
+        parsed = OnlyPrivateStrategyDefinitionV1.from_dict(
+            cast(Mapping[str, object], _thaw_json(_mapping(value, "definition")))
+        )
+    except (TypeError, ValueError) as exc:
+        raise OnlyPrivateAssetInvalidError(f"PRIVATE_STRATEGY_DEFINITION_INVALID: {exc}") from exc
+    return cast(Mapping[str, object], _freeze_json(parsed.to_dict(), "definition"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -546,7 +556,7 @@ class OnlyPrivateStrategyDraft:
     def __post_init__(self) -> None:
         self.strategy_id = _strategy_id(self.strategy_id)
         self.semantic_version = _semantic_version(self.semantic_version)
-        self.definition = _object(self.definition, "definition", nonempty=True)
+        self.definition = _strategy_definition(self.definition)
         self.description = _string(self.description, "description", nonempty=False)
         self.tags = _tags(self.tags)
         self.base_revision_fingerprint = _fingerprint(
@@ -614,7 +624,7 @@ class OnlyPrivateStrategyRevision:
         object.__setattr__(
             self, "parent_revision_fingerprint", _fingerprint(self.parent_revision_fingerprint, "parent", optional=True)
         )
-        object.__setattr__(self, "definition", _object(self.definition, "definition", nonempty=True))
+        object.__setattr__(self, "definition", _strategy_definition(self.definition))
         object.__setattr__(self, "description", _string(self.description, "description", nonempty=False))
         object.__setattr__(self, "tags", _tags(self.tags))
         _schema(self.schema_version)

@@ -8,6 +8,10 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import NoReturn, Protocol
 
+from onlyalpha.quant_assets.private import OnlyPrivateAssetKind
+from onlyalpha.quant_assets.private_strategy_composition import (
+    OnlyPrivateStrategyResearchCompositionError,
+)
 from onlyalpha.research.calculation.execution_evidence import (
     OnlyResearchCalculationExecutionEvidence,
 )
@@ -55,6 +59,10 @@ class _CalculationExecutionEvidenceStore(Protocol):
 
 class _DatasetStore(Protocol):
     def load_verified_table(self, snapshot_fingerprint: str) -> OnlyVerifiedResearchDataset: ...
+
+
+class _StrategyCompositionVerifier(Protocol):
+    def verify(self, run: OnlyResearchRun) -> None: ...
 
 
 class OnlyStrategyFreezeDisposition(StrEnum):
@@ -248,6 +256,7 @@ class OnlyStrategyFreezeService:
         strategy_publisher: _OnlyFrozenStrategyPublisher,
         catalog: OnlyStrategyCatalogWriter,
         audit_time: Callable[[], datetime],
+        strategy_composition_verifier: _StrategyCompositionVerifier | None = None,
     ) -> None:
         self._runs = runs
         self._research_results = research_results
@@ -260,6 +269,7 @@ class OnlyStrategyFreezeService:
         self._strategy_publisher = strategy_publisher
         self._catalog = catalog
         self._audit_time = audit_time
+        self._strategy_composition_verifier = strategy_composition_verifier
 
     def freeze(self, request: OnlyStrategyFreezeRequest) -> OnlyStrategyFreezeOutcome:
         try:
@@ -267,6 +277,27 @@ class OnlyStrategyFreezeService:
                 run = self._runs.load(request.research_run_id)
             except Exception as exc:
                 self._fail("CANDIDATE_NOT_FOUND", str(request.research_run_id), exc)
+            if (
+                run.authoring_provenance is not None
+                and run.authoring_provenance.private_asset_kind is OnlyPrivateAssetKind.STRATEGY
+                and run.strategy_research_composition_fingerprint is None
+            ):
+                self._fail(
+                    "STRATEGY_COMPOSITION_UNAVAILABLE",
+                    "Strategy-authored Run has no exact Composition reference",
+                )
+            if run.strategy_research_composition_fingerprint is not None:
+                if self._strategy_composition_verifier is None:
+                    self._fail(
+                        "STRATEGY_COMPOSITION_UNAVAILABLE",
+                        "Strategy-authored Run has no composition verifier",
+                    )
+                try:
+                    self._strategy_composition_verifier.verify(run)
+                except OnlyPrivateStrategyResearchCompositionError as exc:
+                    self._fail(exc.code, exc.detail, exc)
+                except Exception as exc:
+                    self._fail("STRATEGY_COMPOSITION_MISMATCH", str(exc), exc)
             if run.state is not OnlyResearchRunState.COMPLETED or run.research_result_fingerprint is None:
                 self._fail("CANDIDATE_NOT_FOUND", "Research Run is not completed with exact Result evidence")
             if not run.calculation_execution_evidence_fingerprints:

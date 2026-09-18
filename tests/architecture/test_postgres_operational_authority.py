@@ -96,6 +96,7 @@ def test_postgres_schema_is_control_catalog_authority_not_high_volume_semantic_s
         "private_l4_asset",
         "private_l4_revision",
         "private_l4_draft",
+        "private_strategy_research_composition",
     ]
     vocabulary_migration = "\n".join(
         Path(path).read_text()
@@ -125,6 +126,7 @@ def test_postgres_schema_is_control_catalog_authority_not_high_volume_semantic_s
         "calculation_progress",
     ):
         assert forbidden not in sql
+    assert "UNIQUE (private_strategy_id, private_strategy_revision_fingerprint)" not in sql
     assert "UNIQUE(specification_fingerprint)" not in sql
 
 

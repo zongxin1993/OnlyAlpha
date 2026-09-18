@@ -191,7 +191,6 @@ class OnlyPrivateAssetExampleImporterV1:
         definition = dict(raw_definition)
         definition["factor_revision_dependencies"] = [
             {
-                "example_id": item,
                 "factor_id": imported[item].private_asset_id,
                 "revision_fingerprint": imported[item].private_asset_revision_fingerprint,
             }

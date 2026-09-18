@@ -32,6 +32,9 @@ from .migration import OnlyPostgresSchemaVerdict as OnlyPostgresSchemaVerdict
 from .migration import OnlyPostgresSchemaVerifier as OnlyPostgresSchemaVerifier
 from .migration import only_discover_postgres_migrations as only_discover_postgres_migrations
 from .private_asset_store import OnlyPostgresPrivateAssetStore as OnlyPostgresPrivateAssetStore
+from .private_strategy_research_composition_store import (
+    OnlyPostgresPrivateStrategyResearchCompositionStore as OnlyPostgresPrivateStrategyResearchCompositionStore,
+)
 from .product_command_authority import (
     OnlyPostgresProductCommandAuthority as OnlyPostgresProductCommandAuthority,
 )

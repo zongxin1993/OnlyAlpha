@@ -117,6 +117,7 @@ class OnlyResearchRun:
     failure: OnlyResearchRunFailure | None = None
     calculation_execution_evidence_fingerprints: tuple[str, ...] = ()
     authoring_provenance: OnlyResearchAuthoringProvenance | None = None
+    strategy_research_composition_fingerprint: str | None = None
 
     @property
     def authoring_generation_fingerprint(self) -> str | None:
@@ -144,6 +145,8 @@ class OnlyResearchRun:
                 value = getattr(self, name)
                 if value is not None:
                     _sha(value, name)
+            if self.strategy_research_composition_fingerprint is not None:
+                _sha(self.strategy_research_composition_fingerprint, "strategy_research_composition_fingerprint")
             evidence = tuple(sorted(self.calculation_execution_evidence_fingerprints))
             if evidence != self.calculation_execution_evidence_fingerprints or len(evidence) != len(set(evidence)):
                 raise ValueError("Calculation Execution Evidence references must be canonical and unique")
@@ -228,6 +231,7 @@ class OnlyResearchRun:
         admission_resolution_fingerprint: str,
         queued_at: datetime,
         authoring_provenance: OnlyResearchAuthoringProvenance | None = None,
+        strategy_research_composition_fingerprint: str | None = None,
     ) -> OnlyResearchRun:
         return cls(
             run_id,
@@ -239,6 +243,7 @@ class OnlyResearchRun:
             admission_resolution_fingerprint,
             queued_at,
             authoring_provenance=authoring_provenance,
+            strategy_research_composition_fingerprint=strategy_research_composition_fingerprint,
         )
 
     def transition(
@@ -290,6 +295,7 @@ class OnlyResearchRun:
                 else calculation_execution_evidence_fingerprints
             ),
             authoring_provenance=self.authoring_provenance,
+            strategy_research_composition_fingerprint=self.strategy_research_composition_fingerprint,
         )
 
     def is_exact_successor_of(self, previous: OnlyResearchRun) -> bool:

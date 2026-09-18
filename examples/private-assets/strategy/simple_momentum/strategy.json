@@ -7,9 +7,54 @@
   "schema_version": 1,
   "strategy": {
     "definition": {
-      "entry": {"alpha_output": "value", "operator": "GREATER_THAN", "value": "0"},
-      "exit": {"alpha_output": "value", "operator": "LESS_THAN_OR_EQUAL", "value": "0"},
-      "schema_version": 1
+      "calculations": [
+        {
+          "input_bindings": [
+            {"input_name": "close", "source": "bar.close"},
+            {"input_name": "previous_close", "source": "bar.open"}
+          ],
+          "instance_key": "momentum",
+          "parameters": {},
+          "primary_output": "value",
+          "published_outputs": ["value"],
+          "type_reference": {
+            "kind": "FACTOR",
+            "semantic_version": "1",
+            "type_id": "private.factor.simple_momentum"
+          }
+        }
+      ],
+      "eligibility": {
+        "kind": "COMPARISON",
+        "left": {"kind": "DATASET_FIELD", "field_name": "close"},
+        "operator": ">",
+        "right": {"data_type": "DECIMAL", "kind": "LITERAL", "value": {"type": "DECIMAL", "value": "0"}}
+      },
+      "market_input": {
+        "adjustment_reference": null,
+        "adjustment_type": "RAW",
+        "aggregation_source": "EXTERNAL",
+        "bar_specification": {"aggregation": "TIME", "price_type": "LAST", "step": 1},
+        "data_kind": "BAR",
+        "observation_admission": "FINAL_ONLY",
+        "schema_version": 1
+      },
+      "schema_version": 1,
+      "signals": {
+        "entry": {
+          "kind": "COMPARISON",
+          "left": {"instance_key": "momentum", "kind": "VARIABLE", "output_name": "value"},
+          "operator": ">",
+          "right": {"data_type": "DECIMAL", "kind": "LITERAL", "value": {"type": "DECIMAL", "value": "0"}}
+        },
+        "exit": {
+          "kind": "COMPARISON",
+          "left": {"instance_key": "momentum", "kind": "VARIABLE", "output_name": "value"},
+          "operator": "<=",
+          "right": {"data_type": "DECIMAL", "kind": "LITERAL", "value": {"type": "DECIMAL", "value": "0"}}
+        }
+      },
+      "universe": {"instruments": ["TEST.XSHG"], "kind": "SINGLE_INSTRUMENT"}
     },
     "semantic_version": "1",
     "strategy_id": "private.strategy.simple_momentum",

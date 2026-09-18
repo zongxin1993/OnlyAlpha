@@ -138,3 +138,18 @@ def test_memory_composition_does_not_use_raw_generation_descriptor_store_as_auth
         node.func.id for node in ast.walk(composition) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     }
     assert "OnlyAuthoringExecutionGenerationStore" not in calls
+
+
+def test_private_strategy_revision_is_not_a_runtime_strategy_identity() -> None:
+    runtime_paths = (
+        Path("src/onlyalpha/backtest"),
+        Path("src/onlyalpha/runtime"),
+        Path("src/onlyalpha/strategy/adapter.py"),
+        Path("src/onlyalpha/strategy/execution.py"),
+        Path("src/onlyalpha/strategy/store.py"),
+    )
+    sources = []
+    for path in runtime_paths:
+        paths = (path,) if path.is_file() else tuple(path.rglob("*.py"))
+        sources.extend(item.read_text(encoding="utf-8") for item in paths)
+    assert all("OnlyPrivateStrategyRevision" not in source for source in sources)

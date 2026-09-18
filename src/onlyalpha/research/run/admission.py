@@ -47,6 +47,7 @@ class OnlyResearchRunAdmissionService:
         specification: OnlyResearchSpecification,
         *,
         authoring_generation_fingerprint: str | None = None,
+        strategy_research_composition_fingerprint: str | None = None,
         exact_run_id: OnlyResearchRunId | None = None,
         exact_admission_evidence: OnlyResearchAdmissionResolutionEvidence | None = None,
     ) -> OnlyResearchRun:
@@ -55,6 +56,7 @@ class OnlyResearchRunAdmissionService:
         return self.prepare_with_evidence(
             specification,
             authoring_generation_fingerprint=authoring_generation_fingerprint,
+            strategy_research_composition_fingerprint=strategy_research_composition_fingerprint,
             exact_run_id=exact_run_id,
             exact_admission_evidence=exact_admission_evidence,
         )[0]
@@ -64,6 +66,7 @@ class OnlyResearchRunAdmissionService:
         specification: OnlyResearchSpecification,
         *,
         authoring_generation_fingerprint: str | None = None,
+        strategy_research_composition_fingerprint: str | None = None,
         exact_run_id: OnlyResearchRunId | None = None,
         exact_admission_evidence: OnlyResearchAdmissionResolutionEvidence | None = None,
     ) -> tuple[OnlyResearchRun, OnlyResearchAdmissionResolutionEvidence]:
@@ -111,6 +114,7 @@ class OnlyResearchRunAdmissionService:
                 admission_resolution_fingerprint=evidence.fingerprint,
                 queued_at=self._now_utc(),
                 authoring_provenance=provenance,
+                strategy_research_composition_fingerprint=strategy_research_composition_fingerprint,
             )
         except OnlyResearchRunAdmissionError:
             raise

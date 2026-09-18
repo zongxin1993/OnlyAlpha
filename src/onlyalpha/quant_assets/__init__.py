@@ -70,4 +70,60 @@ from .private_factor_execution import (
 from .private_factor_execution import only_private_factor_type_definition as only_private_factor_type_definition
 from .private_factor_execution import only_validate_private_factor_revision as only_validate_private_factor_revision
 
+_LAZY_STRATEGY_EXPORTS = {
+    "PRIVATE_STRATEGY_DEFINITION_SCHEMA_VERSION": ("private_strategy", "PRIVATE_STRATEGY_DEFINITION_SCHEMA_VERSION"),
+    "PRIVATE_STRATEGY_RESEARCH_CONTEXT_SCHEMA_VERSION": (
+        "private_strategy",
+        "PRIVATE_STRATEGY_RESEARCH_CONTEXT_SCHEMA_VERSION",
+    ),
+    "OnlyPrivateStrategyDefinitionV1": ("private_strategy", "OnlyPrivateStrategyDefinitionV1"),
+    "OnlyPrivateStrategyFactorRevisionDependencyV1": (
+        "private_strategy",
+        "OnlyPrivateStrategyFactorRevisionDependencyV1",
+    ),
+    "OnlyPrivateStrategyResearchContextV1": ("private_strategy", "OnlyPrivateStrategyResearchContextV1"),
+    "PRIVATE_STRATEGY_COMPOSITION_SCHEMA_VERSION": (
+        "private_strategy_composition",
+        "PRIVATE_STRATEGY_COMPOSITION_SCHEMA_VERSION",
+    ),
+    "OnlyInMemoryPrivateStrategyResearchCompositionStore": (
+        "private_strategy_composition",
+        "OnlyInMemoryPrivateStrategyResearchCompositionStore",
+    ),
+    "OnlyPrivateStrategyResearchCompositionError": (
+        "private_strategy_composition",
+        "OnlyPrivateStrategyResearchCompositionError",
+    ),
+    "OnlyPrivateStrategyResearchCompositionResult": (
+        "private_strategy_composition",
+        "OnlyPrivateStrategyResearchCompositionResult",
+    ),
+    "OnlyPrivateStrategyResearchCompositionStore": (
+        "private_strategy_composition",
+        "OnlyPrivateStrategyResearchCompositionStore",
+    ),
+    "OnlyPrivateStrategyResearchCompositionV1": (
+        "private_strategy_composition",
+        "OnlyPrivateStrategyResearchCompositionV1",
+    ),
+    "OnlyPrivateStrategyResearchComposer": ("private_strategy_composition", "OnlyPrivateStrategyResearchComposer"),
+    "OnlyPrivateStrategyResearchCompositionVerifier": (
+        "private_strategy_composition",
+        "OnlyPrivateStrategyResearchCompositionVerifier",
+    ),
+}
+
+
+def __getattr__(name: str) -> object:
+    target = _LAZY_STRATEGY_EXPORTS.get(name)
+    if target is None:
+        raise AttributeError(name)
+    from importlib import import_module
+
+    value = getattr(import_module(f"{__name__}.{target[0]}"), target[1])
+    globals()[name] = value
+    return value
+
+
 __all__ = [name for name in globals() if name.startswith(("Only", "only_", "ONLYALPHA_"))]
+__all__ += sorted(_LAZY_STRATEGY_EXPORTS)

@@ -50,6 +50,15 @@ class OnlyPostgresResearchRunSeeder:
                         OnlyPostgresResearchRunStore._values(run)[:-1],
                     )
                 return run
+            except psycopg.errors.UndefinedColumn as retry_exc:
+                if run.authoring_provenance is not None or "authoring_provenance" not in str(retry_exc):
+                    raise OnlyResearchRunStoreUnavailableError("Research Run seed transaction failed") from retry_exc
+                with psycopg.connect(self._dsn) as connection:
+                    connection.execute(
+                        _insert_run_query(_COLUMNS[:-2]),
+                        OnlyPostgresResearchRunStore._values(run)[:-2],
+                    )
+                return run
             except psycopg.errors.UniqueViolation as retry_exc:
                 raise OnlyResearchRunIntegrityError(f"Research Run already exists: {run.run_id}") from retry_exc
             except psycopg.Error as retry_exc:

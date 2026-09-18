@@ -70,6 +70,7 @@ _COLUMNS = (
     "failure_code",
     "failure_detail",
     "authoring_provenance",
+    "strategy_research_composition_fingerprint",
 )
 
 
@@ -439,19 +440,20 @@ class OnlyPostgresResearchRunStore:
             raise OnlyResearchRunStateConflictError(
                 "Claim and execution outcomes require the fenced Research Execution Store"
             )
-        assignments = tuple(name for name in _COLUMNS if name != "run_id")
-        query = sql.SQL("UPDATE research_run SET {} WHERE run_id = %s AND revision = %s AND state = %s").format(
-            sql.SQL(", ").join(
-                sql.Composed([sql.Identifier(name), sql.SQL(" = "), sql.Placeholder()]) for name in assignments
+
+        def update(columns: tuple[str, ...]) -> OnlyResearchRun:
+            assignments = tuple(name for name in columns if name != "run_id")
+            query = sql.SQL("UPDATE research_run SET {} WHERE run_id = %s AND revision = %s AND state = %s").format(
+                sql.SQL(", ").join(
+                    sql.Composed([sql.Identifier(name), sql.SQL(" = "), sql.Placeholder()]) for name in assignments
+                )
             )
-        )
-        values = self._values(transitioned)
-        parameters = tuple(values[_COLUMNS.index(name)] for name in assignments) + (
-            previous.run_id.value,
-            previous.revision,
-            previous.state.value,
-        )
-        try:
+            values = self._values(transitioned)
+            parameters = tuple(values[_COLUMNS.index(name)] for name in assignments) + (
+                previous.run_id.value,
+                previous.revision,
+                previous.state.value,
+            )
             with psycopg.connect(self._dsn) as connection:
                 cursor = connection.execute(query, parameters)
                 if cursor.rowcount != 1:
@@ -459,6 +461,18 @@ class OnlyPostgresResearchRunStore:
                         f"Run {previous.run_id} revision/state changed concurrently"
                     )
             return transitioned
+
+        try:
+            return update(_COLUMNS)
+        except psycopg.errors.UndefinedColumn as exc:
+            if "strategy_research_composition_fingerprint" not in str(exc):
+                raise OnlyResearchRunStoreUnavailableError("Research Run transition transaction failed") from exc
+            try:
+                return update(_COLUMNS[:-1])
+            except OnlyResearchRunRevisionConflictError:
+                raise
+            except psycopg.Error as retry_exc:
+                raise OnlyResearchRunStoreUnavailableError("Research Run transition transaction failed") from retry_exc
         except OnlyResearchRunRevisionConflictError:
             raise
         except psycopg.Error as exc:
@@ -486,6 +500,7 @@ class OnlyPostgresResearchRunStore:
             None if failure is None else failure.code,
             None if failure is None else failure.detail,
             None if run.authoring_provenance is None else only_canonical_json(run.authoring_provenance.to_dict()),
+            run.strategy_research_composition_fingerprint,
         )
 
     @staticmethod
@@ -611,6 +626,9 @@ class OnlyPostgresResearchRunStore:
                 failure=failure,
                 calculation_execution_evidence_fingerprints=evidence,
                 authoring_provenance=_decode_authoring_provenance(row.get("authoring_provenance")),
+                strategy_research_composition_fingerprint=cast(
+                    str | None, row.get("strategy_research_composition_fingerprint")
+                ),
             )
         except (KeyError, TypeError, ValueError, OnlyResearchRunIntegrityError) as exc:
             raise OnlyResearchRunIntegrityError("PostgreSQL Research Run row failed strict verification") from exc
