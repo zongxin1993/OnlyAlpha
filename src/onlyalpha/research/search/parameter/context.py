@@ -379,7 +379,7 @@ class OnlyParameterSearchContextResolver:
                     None,
                 )
                 if (
-                    provider.manifest.kind is not OnlyQuantAssetKind.ALPHA
+                    provider.manifest.kind is not OnlyQuantAssetKind.FACTOR
                     or definition.kind is not OnlyCalculationKind.FACTOR
                     or output is None
                     or output.semantic_type not in {FACTOR_VALUE_SEMANTIC_TYPE, FACTOR_SCORE_SEMANTIC_TYPE}

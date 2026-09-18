@@ -4,12 +4,19 @@ from decimal import Decimal
 
 import pyarrow as pa
 
-from onlyalpha.calculation import OnlyCalculationReference, OnlyCalculationRegistry
+from onlyalpha.calculation import (
+    OnlyCalculationBackendKind,
+    OnlyCalculationReference,
+    OnlyCalculationRegistry,
+    OnlyCanonicalValueSemanticsV1,
+)
+from onlyalpha.calculation.definition import OnlyNumericDefinition
 from onlyalpha.research.calculation import OnlyResearchCalculationBackendResolver
 from onlyalpha.research.calculation.predicate import (
     only_predicate_type_reference,
     only_register_research_predicate_primitives,
 )
+from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_primitives
 
 
 def _execute(
@@ -117,3 +124,55 @@ def test_predicate_comparisons_cover_every_operator_layout_and_operand_type() ->
             "right": pa.array([True, True, False]),
         },
     ) == [True, False, None]
+
+
+def _execute_trading(
+    registry: OnlyCalculationRegistry,
+    name: str,
+    rows: tuple[dict[str, object], ...],
+    parameters: dict[str, object] | None = None,
+) -> list[object]:
+    reference = only_predicate_type_reference(name)
+    bindings = {key: OnlyCalculationReference(None, key, "bar.close") for key in rows[0]}
+    definition = registry.rematerialize_definition(reference, parameters or {}, bindings)
+    registration = registry.resolve(
+        definition.kind,
+        definition.type_id,
+        definition.semantic_version,
+        OnlyCalculationBackendKind.TRADING,
+    )
+    backend = registration.provider.create(definition, object())
+    return [backend.update(row)["value"] for row in rows]  # type: ignore[union-attr]
+
+
+def test_research_and_trading_predicates_conform_to_canonical_decimal_and_boolean_semantics() -> None:
+    decimals = ((Decimal("1"), Decimal("2")), (Decimal("2"), Decimal("2")), (None, Decimal("3")))
+    canonical = OnlyCanonicalValueSemanticsV1(OnlyNumericDefinition())
+    for operator in ("eq", "ne", "lt", "le", "gt", "ge"):
+        expected = [getattr(canonical, operator)(left, right) for left, right in decimals]
+        research = OnlyCalculationRegistry()
+        only_register_research_predicate_primitives(research)
+        decimal_left = pa.array([left for left, _ in decimals], type=pa.decimal128(38, 12))
+        decimal_right = pa.array([right for _, right in decimals], type=pa.decimal128(38, 12))
+        assert (
+            _execute(research, f"compare.{operator}.decimal.refs", {"left": decimal_left, "right": decimal_right})
+            == expected
+        )
+
+        trading = OnlyCalculationRegistry()
+        only_register_trading_predicate_primitives(trading)
+        rows = tuple({"left": left, "right": right} for left, right in decimals)
+        assert _execute_trading(trading, f"compare.{operator}.decimal.refs", rows) == expected
+
+    boolean_cases = ((True, None), (None, False), (False, None), (None, None))
+    for name, operation in (("and", "and_"), ("or", "or_")):
+        expected = [getattr(canonical, operation)(left, right) for left, right in boolean_cases]
+        research = OnlyCalculationRegistry()
+        only_register_research_predicate_primitives(research)
+        left = pa.array([item[0] for item in boolean_cases], type=pa.bool_())
+        right = pa.array([item[1] for item in boolean_cases], type=pa.bool_())
+        assert _execute(research, f"boolean.{name}", {"left": left, "right": right}) == expected
+        trading = OnlyCalculationRegistry()
+        only_register_trading_predicate_primitives(trading)
+        rows = tuple({"left": left_value, "right": right_value} for left_value, right_value in boolean_cases)
+        assert _execute_trading(trading, f"boolean.{name}", rows) == expected

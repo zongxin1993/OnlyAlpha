@@ -7,7 +7,7 @@ from onlyalpha.factor.identifiers import OnlyFactorId
 
 
 class OnlyFactorScoreDimension(StrEnum):
-    ALPHA = "ALPHA"
+    FACTOR = "FACTOR"
     DIRECTION = "DIRECTION"
     MOMENTUM = "MOMENTUM"
     VALUE = "VALUE"

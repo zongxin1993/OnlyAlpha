@@ -68,8 +68,8 @@ class _RuntimeResolution:
 def _provenance() -> OnlyResearchAuthoringProvenance:
     values = {
         "experiment_id": "exp-" + "1" * 24,
-        "private_asset_kind": OnlyPrivateAssetKind.ALPHA,
-        "private_asset_id": "private.alpha.momentum",
+        "private_asset_kind": OnlyPrivateAssetKind.FACTOR,
+        "private_asset_id": "private.factor.momentum",
         "private_asset_revision_fingerprint": "2" * 64,
         "private_asset_content_fingerprint": "3" * 64,
         "candidate_provider_id": "private.factor",

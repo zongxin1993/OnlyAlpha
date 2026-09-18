@@ -931,9 +931,8 @@ dependencies = [
 compose-acceptance = [
     { name = "httpx2" },
     { name = "hypothesis" },
-    { name = "onlyalpha-test-alpha-provider" },
+    { name = "onlyalpha-test-factor-provider" },
     { name = "onlyalpha-test-plugin" },
-    { name = "onlyalpha-test-strategy-provider" },
     { name = "pytest" },
     { name = "pytest-split" },
     { name = "pytest-timeout" },
@@ -957,9 +956,8 @@ dev = [
     { name = "onlyalpha-plugin-operators" },
     { name = "onlyalpha-plugin-targets" },
     { name = "onlyalpha-runtime-generation-manager" },
-    { name = "onlyalpha-test-alpha-provider" },
+    { name = "onlyalpha-test-factor-provider" },
     { name = "onlyalpha-test-plugin" },
-    { name = "onlyalpha-test-strategy-provider" },
     { name = "packaging" },
     { name = "pre-commit" },
     { name = "pytest" },
@@ -987,9 +985,8 @@ requires-dist = [
 compose-acceptance = [
     { name = "httpx2", specifier = ">=2.12,<3" },
     { name = "hypothesis", specifier = ">=6.165.5" },
-    { name = "onlyalpha-test-alpha-provider", editable = "tests/fixtures/runtime_alpha_provider" },
+    { name = "onlyalpha-test-factor-provider", editable = "tests/fixtures/runtime_factor_provider" },
     { name = "onlyalpha-test-plugin", editable = "tests/fixtures/external_plugins/onlyalpha_test_plugin" },
-    { name = "onlyalpha-test-strategy-provider", editable = "tests/fixtures/runtime_strategy_provider" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-split", specifier = "==0.11.0" },
     { name = "pytest-timeout", specifier = ">=2.3.1,<3" },
@@ -1013,9 +1010,8 @@ dev = [
     { name = "onlyalpha-plugin-operators", editable = "plugs/onlyalpha-plugin-operators" },
     { name = "onlyalpha-plugin-targets", editable = "plugs/onlyalpha-plugin-targets" },
     { name = "onlyalpha-runtime-generation-manager", editable = "packages/onlyalpha-runtime-generation-manager" },
-    { name = "onlyalpha-test-alpha-provider", editable = "tests/fixtures/runtime_alpha_provider" },
+    { name = "onlyalpha-test-factor-provider", editable = "tests/fixtures/runtime_factor_provider" },
     { name = "onlyalpha-test-plugin", editable = "tests/fixtures/external_plugins/onlyalpha_test_plugin" },
-    { name = "onlyalpha-test-strategy-provider", editable = "tests/fixtures/runtime_strategy_provider" },
     { name = "packaging", specifier = ">=25" },
     { name = "pre-commit", specifier = ">=4.6" },
     { name = "pytest", specifier = ">=9.0.3" },
@@ -1359,9 +1355,9 @@ dependencies = [
 requires-dist = [{ name = "onlyalpha", editable = "." }]
 
 [[package]]
-name = "onlyalpha-test-alpha-provider"
+name = "onlyalpha-test-factor-provider"
 version = "0.9.9"
-source = { editable = "tests/fixtures/runtime_alpha_provider" }
+source = { editable = "tests/fixtures/runtime_factor_provider" }
 dependencies = [
     { name = "onlyalpha" },
     { name = "onlyalpha-plugin-indicators" },
@@ -1389,17 +1385,6 @@ requires-dist = [
     { name = "onlyalpha", specifier = "==0.9.9" },
     { name = "onlyalpha-plugin-indicators", specifier = "==0.9.9" },
 ]
-
-[[package]]
-name = "onlyalpha-test-strategy-provider"
-version = "0.9.9"
-source = { editable = "tests/fixtures/runtime_strategy_provider" }
-dependencies = [
-    { name = "onlyalpha" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "onlyalpha", specifier = "==0.9.9" }]
 
 [[package]]
 name = "packaging"

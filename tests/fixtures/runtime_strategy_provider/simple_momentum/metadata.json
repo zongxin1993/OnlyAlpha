@@ -1,8 +1,0 @@
-{
-  "asset_name": "simple_momentum",
-  "asset_version": "1",
-  "kind": "STRATEGY",
-  "production": false,
-  "runtime_identity_authority": "VERIFIED_STRATEGY_FREEZE",
-  "summary": "A simple momentum signal using public Rolling Return features and the example Momentum Factor."
-}

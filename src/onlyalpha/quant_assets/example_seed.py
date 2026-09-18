@@ -12,17 +12,17 @@ from typing import cast
 from onlyalpha.canonical import only_canonical_fingerprint
 
 from .private import (
-    OnlyPrivateAlphaAsset,
-    OnlyPrivateAlphaDraft,
     OnlyPrivateAssetAuthoringAuthority,
     OnlyPrivateAssetKind,
     OnlyPrivateAssetRevisionReferenceV1,
+    OnlyPrivateFactorAsset,
+    OnlyPrivateFactorDraft,
     OnlyPrivateStrategyAsset,
     OnlyPrivateStrategyDraft,
 )
-from .private_alpha_execution import ONLY_PRIVATE_ALPHA_API_V1
+from .private_factor_execution import ONLY_PRIVATE_FACTOR_API_V1
 
-_EXAMPLE_ID = re.compile(r"^(?:alpha|strategy)\.[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$")
+_EXAMPLE_ID = re.compile(r"^(?:factor|strategy)\.[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,9 +57,9 @@ class OnlyPrivateAssetExampleBundleV1:
             or tuple(sorted(set(self.dependencies))) != self.dependencies
         ):
             raise ValueError("PRIVATE_ASSET_EXAMPLE_DEPENDENCIES_INVALID")
-        if self.asset_kind is OnlyPrivateAssetKind.ALPHA:
+        if self.asset_kind is OnlyPrivateAssetKind.FACTOR:
             if self.dependencies or not isinstance(self.source_text, str):
-                raise ValueError("PRIVATE_ALPHA_EXAMPLE_BUNDLE_INVALID")
+                raise ValueError("PRIVATE_FACTOR_EXAMPLE_BUNDLE_INVALID")
         elif self.asset_kind is OnlyPrivateAssetKind.STRATEGY:
             if self.source_text is not None:
                 raise ValueError("PRIVATE_STRATEGY_EXAMPLE_BUNDLE_INVALID")
@@ -83,7 +83,7 @@ class OnlyPrivateAssetExampleBundleV1:
 
 
 def only_load_private_asset_example_bundle(root: Path) -> OnlyPrivateAssetExampleBundleV1:
-    metadata_path = root / ("asset.json" if root.parent.name == "alpha" else "strategy.json")
+    metadata_path = root / ("asset.json" if root.parent.name == "factor" else "strategy.json")
     try:
         raw = metadata_path.read_text(encoding="utf-8")
         payload = json.loads(raw)
@@ -96,18 +96,18 @@ def only_load_private_asset_example_bundle(root: Path) -> OnlyPrivateAssetExampl
     if not isinstance(asset_kind, str):
         raise ValueError("PRIVATE_ASSET_EXAMPLE_BUNDLE_INVALID")
     kind = OnlyPrivateAssetKind(asset_kind)
-    body_name = "alpha" if kind is OnlyPrivateAssetKind.ALPHA else "strategy"
+    body_name = "factor" if kind is OnlyPrivateAssetKind.FACTOR else "strategy"
     if set(payload) != common | {body_name} or not isinstance(payload[body_name], dict):
         raise ValueError("PRIVATE_ASSET_EXAMPLE_BUNDLE_INVALID")
     dependencies = payload["dependencies"]
     if not isinstance(dependencies, list) or any(not isinstance(item, str) for item in dependencies):
         raise ValueError("PRIVATE_ASSET_EXAMPLE_DEPENDENCIES_INVALID")
     source_text = None
-    if kind is OnlyPrivateAssetKind.ALPHA:
+    if kind is OnlyPrivateAssetKind.FACTOR:
         try:
             source_text = (root / "source.py").read_text(encoding="utf-8")
         except (OSError, UnicodeError) as exc:
-            raise ValueError("PRIVATE_ALPHA_EXAMPLE_SOURCE_INVALID") from exc
+            raise ValueError("PRIVATE_FACTOR_EXAMPLE_SOURCE_INVALID") from exc
     return OnlyPrivateAssetExampleBundleV1(
         example_id=_string(payload["example_id"], "PRIVATE_ASSET_EXAMPLE_BUNDLE_INVALID"),
         display_name=_string(payload["display_name"], "PRIVATE_ASSET_EXAMPLE_BUNDLE_INVALID"),
@@ -141,9 +141,9 @@ class OnlyPrivateAssetExampleImporterV1:
         imported: Mapping[str, OnlyPrivateAssetRevisionReferenceV1],
     ) -> OnlyPrivateAssetRevisionReferenceV1:
         payload = dict(bundle.payload)
-        if bundle.asset_kind is OnlyPrivateAssetKind.ALPHA:
+        if bundle.asset_kind is OnlyPrivateAssetKind.FACTOR:
             if set(payload) != {
-                "alpha_id",
+                "factor_id",
                 "semantic_version",
                 "input_contract",
                 "parameter_contract",
@@ -152,47 +152,47 @@ class OnlyPrivateAssetExampleImporterV1:
                 "category",
                 "tags",
             }:
-                raise ValueError("PRIVATE_ALPHA_EXAMPLE_BUNDLE_INVALID")
-            alpha_id = _string(payload.pop("alpha_id"), "PRIVATE_ALPHA_EXAMPLE_BUNDLE_INVALID")
-            self.authority.put_alpha_asset(OnlyPrivateAlphaAsset(alpha_id))
-            alpha_draft = OnlyPrivateAlphaDraft(
-                alpha_id=alpha_id,
+                raise ValueError("PRIVATE_FACTOR_EXAMPLE_BUNDLE_INVALID")
+            factor_id = _string(payload.pop("factor_id"), "PRIVATE_FACTOR_EXAMPLE_BUNDLE_INVALID")
+            self.authority.put_factor_asset(OnlyPrivateFactorAsset(factor_id))
+            factor_draft = OnlyPrivateFactorDraft(
+                factor_id=factor_id,
                 source_text=cast(str, bundle.source_text),
                 description=bundle.description,
-                alpha_api_version=1,
-                alpha_api_contract_fingerprint=ONLY_PRIVATE_ALPHA_API_V1.api_contract_fingerprint,
-                semantic_version=_string(payload["semantic_version"], "PRIVATE_ALPHA_EXAMPLE_BUNDLE_INVALID"),
+                factor_api_version=1,
+                factor_api_contract_fingerprint=ONLY_PRIVATE_FACTOR_API_V1.api_contract_fingerprint,
+                semantic_version=_string(payload["semantic_version"], "PRIVATE_FACTOR_EXAMPLE_BUNDLE_INVALID"),
                 input_contract=cast(Mapping[str, object], payload["input_contract"]),
                 parameter_contract=cast(Mapping[str, object], payload["parameter_contract"]),
                 output_contract=cast(Mapping[str, object], payload["output_contract"]),
                 economic_rationale=_string(
-                    payload["economic_rationale"], "PRIVATE_ALPHA_EXAMPLE_BUNDLE_INVALID", nonempty=False
+                    payload["economic_rationale"], "PRIVATE_FACTOR_EXAMPLE_BUNDLE_INVALID", nonempty=False
                 ),
-                category=_string(payload["category"], "PRIVATE_ALPHA_EXAMPLE_BUNDLE_INVALID"),
-                tags=_tags(payload["tags"], "PRIVATE_ALPHA_EXAMPLE_BUNDLE_INVALID"),
+                category=_string(payload["category"], "PRIVATE_FACTOR_EXAMPLE_BUNDLE_INVALID"),
+                tags=_tags(payload["tags"], "PRIVATE_FACTOR_EXAMPLE_BUNDLE_INVALID"),
             )
-            self.authority.save_alpha_draft(alpha_draft)
-            _, alpha_revision = self.authority.publish_alpha_revision(alpha_id)
+            self.authority.save_factor_draft(factor_draft)
+            _, factor_revision = self.authority.publish_factor_revision(factor_id)
             return OnlyPrivateAssetRevisionReferenceV1(
-                OnlyPrivateAssetKind.ALPHA, alpha_revision.alpha_id, alpha_revision.revision_fingerprint
+                OnlyPrivateAssetKind.FACTOR, factor_revision.factor_id, factor_revision.revision_fingerprint
             )
 
         if set(payload) != {"strategy_id", "semantic_version", "definition", "tags"}:
             raise ValueError("PRIVATE_STRATEGY_EXAMPLE_BUNDLE_INVALID")
         missing = set(bundle.dependencies) - set(imported)
         if missing or any(
-            imported[item].private_asset_kind is not OnlyPrivateAssetKind.ALPHA for item in bundle.dependencies
+            imported[item].private_asset_kind is not OnlyPrivateAssetKind.FACTOR for item in bundle.dependencies
         ):
             raise ValueError("PRIVATE_STRATEGY_EXAMPLE_DEPENDENCY_UNRESOLVED")
         strategy_id = _string(payload.pop("strategy_id"), "PRIVATE_STRATEGY_EXAMPLE_BUNDLE_INVALID")
         raw_definition = payload.pop("definition")
-        if not isinstance(raw_definition, dict) or "alpha_revision_dependencies" in raw_definition:
+        if not isinstance(raw_definition, dict) or "factor_revision_dependencies" in raw_definition:
             raise ValueError("PRIVATE_STRATEGY_EXAMPLE_DEFINITION_INVALID")
         definition = dict(raw_definition)
-        definition["alpha_revision_dependencies"] = [
+        definition["factor_revision_dependencies"] = [
             {
                 "example_id": item,
-                "alpha_id": imported[item].private_asset_id,
+                "factor_id": imported[item].private_asset_id,
                 "revision_fingerprint": imported[item].private_asset_revision_fingerprint,
             }
             for item in bundle.dependencies

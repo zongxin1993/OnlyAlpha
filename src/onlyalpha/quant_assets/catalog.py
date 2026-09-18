@@ -1,11 +1,10 @@
-"""Immutable catalog generations for versioned Operator/Indicator/Alpha/Strategy asset providers."""
+"""Immutable catalog generations for versioned Operator/Indicator/Factor/Strategy asset providers."""
 
 from __future__ import annotations
 
-import hashlib
 import re
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 from importlib import metadata
 from threading import RLock
@@ -14,18 +13,17 @@ from types import MappingProxyType
 from onlyalpha.calculation.definition import OnlyCalculationKind
 from onlyalpha.calculation.registry import OnlyCalculationBackendRegistration, OnlyCalculationRegistry
 from onlyalpha.canonical import only_canonical_fingerprint
-from onlyalpha.quant_assets.private_alpha_execution import OnlyPrivateAlphaProviderSnapshotV1
+from onlyalpha.quant_assets.private_factor_execution import OnlyPrivateFactorProviderSnapshotV1
 
 ONLYALPHA_QUANT_ASSET_ENTRY_POINT = "onlyalpha.quant_assets"
 _ID = re.compile(r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$")
 _VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")
-_RESOURCE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._/-]*$")
 
 
 class OnlyQuantAssetKind(StrEnum):
     OPERATOR = "OPERATOR"
     INDICATOR = "INDICATOR"
-    ALPHA = "ALPHA"
+    FACTOR = "FACTOR"
     STRATEGY = "STRATEGY"
 
 
@@ -53,40 +51,40 @@ class OnlyDistributionProviderSource:
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyPrivateAlphaSnapshotProviderSource:
-    private_alpha_provider_snapshot_fingerprint: str
+class OnlyPrivateFactorSnapshotProviderSource:
+    private_factor_provider_snapshot_fingerprint: str
 
     def __post_init__(self) -> None:
-        if len(self.private_alpha_provider_snapshot_fingerprint) != 64 or any(
-            char not in "0123456789abcdef" for char in self.private_alpha_provider_snapshot_fingerprint
+        if len(self.private_factor_provider_snapshot_fingerprint) != 64 or any(
+            char not in "0123456789abcdef" for char in self.private_factor_provider_snapshot_fingerprint
         ):
-            raise ValueError("QUANT_ASSET_PRIVATE_ALPHA_SNAPSHOT_INVALID")
+            raise ValueError("QUANT_ASSET_PRIVATE_FACTOR_SNAPSHOT_INVALID")
 
     def to_dict(self) -> dict[str, str]:
         return {
-            "kind": "PRIVATE_ALPHA_SNAPSHOT",
-            "private_alpha_provider_snapshot_fingerprint": self.private_alpha_provider_snapshot_fingerprint,
+            "kind": "PRIVATE_FACTOR_SNAPSHOT",
+            "private_factor_provider_snapshot_fingerprint": self.private_factor_provider_snapshot_fingerprint,
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, object]) -> OnlyPrivateAlphaSnapshotProviderSource:
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyPrivateFactorSnapshotProviderSource:
         if (
-            set(payload) != {"kind", "private_alpha_provider_snapshot_fingerprint"}
-            or payload["kind"] != "PRIVATE_ALPHA_SNAPSHOT"
+            set(payload) != {"kind", "private_factor_provider_snapshot_fingerprint"}
+            or payload["kind"] != "PRIVATE_FACTOR_SNAPSHOT"
         ):
             raise ValueError("QUANT_ASSET_PROVIDER_SOURCE_INVALID")
-        return cls(str(payload["private_alpha_provider_snapshot_fingerprint"]))
+        return cls(str(payload["private_factor_provider_snapshot_fingerprint"]))
 
 
 def only_quant_asset_provider_source_from_dict(payload: Mapping[str, object]) -> OnlyQuantAssetProviderSource:
     if payload.get("kind") == "DISTRIBUTION":
         return OnlyDistributionProviderSource.from_dict(payload)
-    if payload.get("kind") == "PRIVATE_ALPHA_SNAPSHOT":
-        return OnlyPrivateAlphaSnapshotProviderSource.from_dict(payload)
+    if payload.get("kind") == "PRIVATE_FACTOR_SNAPSHOT":
+        return OnlyPrivateFactorSnapshotProviderSource.from_dict(payload)
     raise ValueError("QUANT_ASSET_PROVIDER_SOURCE_INVALID")
 
 
-OnlyQuantAssetProviderSource = OnlyDistributionProviderSource | OnlyPrivateAlphaSnapshotProviderSource
+OnlyQuantAssetProviderSource = OnlyDistributionProviderSource | OnlyPrivateFactorSnapshotProviderSource
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,13 +100,13 @@ class OnlyQuantAssetProviderManifest:
             raise ValueError("QUANT_ASSET_PROVIDER_ID_INVALID")
         if _VERSION.fullmatch(self.provider_version) is None:
             raise ValueError("QUANT_ASSET_PROVIDER_VERSION_INVALID")
-        if not isinstance(self.source, (OnlyDistributionProviderSource, OnlyPrivateAlphaSnapshotProviderSource)):
+        if not isinstance(self.source, (OnlyDistributionProviderSource, OnlyPrivateFactorSnapshotProviderSource)):
             raise ValueError("QUANT_ASSET_PROVIDER_SOURCE_INVALID")
         if (
-            isinstance(self.source, OnlyPrivateAlphaSnapshotProviderSource)
-            and self.kind is not OnlyQuantAssetKind.ALPHA
+            isinstance(self.source, OnlyPrivateFactorSnapshotProviderSource)
+            and self.kind is not OnlyQuantAssetKind.FACTOR
         ):
-            raise ValueError("QUANT_ASSET_PRIVATE_ALPHA_SNAPSHOT_INVALID")
+            raise ValueError("QUANT_ASSET_PRIVATE_FACTOR_SNAPSHOT_INVALID")
 
     @property
     def distribution_name(self) -> str:
@@ -133,99 +131,34 @@ class OnlyQuantAssetProviderManifest:
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyStrategyAuthoringResource:
-    relative_path: str
-    content: bytes = field(repr=False)
-
-    def __post_init__(self) -> None:
-        if (
-            _RESOURCE.fullmatch(self.relative_path) is None
-            or self.relative_path.startswith("/")
-            or ".." in self.relative_path.split("/")
-            or not self.content
-        ):
-            raise ValueError("STRATEGY_AUTHORING_RESOURCE_INVALID")
-
-    @property
-    def content_sha256(self) -> str:
-        return hashlib.sha256(self.content).hexdigest()
-
-    def descriptor(self) -> dict[str, object]:
-        return {
-            "relative_path": self.relative_path,
-            "content_sha256": self.content_sha256,
-            "size": len(self.content),
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyStrategyAuthoringAsset:
-    asset_id: str
-    semantic_version: str
-    resources: tuple[OnlyStrategyAuthoringResource, ...]
-    schema_version: int = 1
-
-    def __post_init__(self) -> None:
-        if self.schema_version != 1 or _ID.fullmatch(self.asset_id) is None:
-            raise ValueError("STRATEGY_AUTHORING_ASSET_ID_INVALID")
-        if _VERSION.fullmatch(self.semantic_version) is None:
-            raise ValueError("STRATEGY_AUTHORING_ASSET_VERSION_INVALID")
-        canonical = tuple(sorted(self.resources, key=lambda item: item.relative_path))
-        if not canonical or len({item.relative_path for item in canonical}) != len(canonical):
-            raise ValueError("STRATEGY_AUTHORING_ASSET_RESOURCES_INVALID")
-        if "research-definition.json" not in {item.relative_path for item in canonical}:
-            raise ValueError("STRATEGY_AUTHORING_DEFINITION_REQUIRED")
-        object.__setattr__(self, "resources", canonical)
-
-    @property
-    def content_fingerprint(self) -> str:
-        return only_canonical_fingerprint(self.descriptor())
-
-    def descriptor(self) -> dict[str, object]:
-        return {
-            "schema_version": self.schema_version,
-            "asset_id": self.asset_id,
-            "semantic_version": self.semantic_version,
-            "resources": [item.descriptor() for item in self.resources],
-        }
-
-    def resource_bytes(self, relative_path: str) -> bytes:
-        for resource in self.resources:
-            if resource.relative_path == relative_path:
-                return resource.content
-        raise KeyError(relative_path)
-
-
-@dataclass(frozen=True, slots=True)
 class OnlyQuantAssetProvider:
     manifest: OnlyQuantAssetProviderManifest
     calculation_registrations: tuple[OnlyCalculationBackendRegistration, ...] = ()
-    strategy_assets: tuple[OnlyStrategyAuthoringAsset, ...] = ()
-    private_alpha_snapshot: OnlyPrivateAlphaProviderSnapshotV1 | None = None
+    private_factor_snapshot: OnlyPrivateFactorProviderSnapshotV1 | None = None
 
     def __post_init__(self) -> None:
-        calculation_kind = self.manifest.kind is not OnlyQuantAssetKind.STRATEGY
-        private_alpha_source = (
-            self.manifest.source if isinstance(self.manifest.source, OnlyPrivateAlphaSnapshotProviderSource) else None
+        if self.manifest.kind is OnlyQuantAssetKind.STRATEGY:
+            raise ValueError("STRATEGY_PROVIDER_UNSUPPORTED")
+        private_factor_source = (
+            self.manifest.source if isinstance(self.manifest.source, OnlyPrivateFactorSnapshotProviderSource) else None
         )
-        private_alpha = private_alpha_source is not None
-        if private_alpha_source is not None:
+        private_factor = private_factor_source is not None
+        if private_factor_source is not None:
             if (
-                self.private_alpha_snapshot is None
-                or self.private_alpha_snapshot.snapshot_fingerprint
-                != private_alpha_source.private_alpha_provider_snapshot_fingerprint
-                or self.strategy_assets
+                self.private_factor_snapshot is None
+                or self.private_factor_snapshot.snapshot_fingerprint
+                != private_factor_source.private_factor_provider_snapshot_fingerprint
             ):
-                raise ValueError("PRIVATE_ALPHA_PROVIDER_SNAPSHOT_MISMATCH")
+                raise ValueError("PRIVATE_FACTOR_PROVIDER_SNAPSHOT_MISMATCH")
             entry_by_key = {
-                (entry.alpha_id, entry.semantic_version): entry for entry in self.private_alpha_snapshot.entries
+                (entry.factor_id, entry.semantic_version): entry for entry in self.private_factor_snapshot.entries
             }
             registrations_by_key: dict[tuple[str, str], list[OnlyCalculationBackendRegistration]] = {}
             for registration in self.calculation_registrations:
                 key = (registration.type_definition.type_id, registration.type_definition.semantic_version)
                 registrations_by_key.setdefault(key, []).append(registration)
             if set(registrations_by_key) != set(entry_by_key):
-                raise ValueError("PRIVATE_ALPHA_PROVIDER_SNAPSHOT_MISMATCH")
+                raise ValueError("PRIVATE_FACTOR_PROVIDER_SNAPSHOT_MISMATCH")
             for key, registrations in registrations_by_key.items():
                 entry = entry_by_key[key]
                 identities = {
@@ -240,26 +173,19 @@ class OnlyQuantAssetProvider:
                     "RESEARCH": entry.research_implementation_fingerprint,
                     "TRADING": entry.trading_implementation_fingerprint,
                 }:
-                    raise ValueError("PRIVATE_ALPHA_PROVIDER_SNAPSHOT_MISMATCH")
-        elif self.private_alpha_snapshot is not None:
-            raise ValueError("PRIVATE_ALPHA_PROVIDER_SNAPSHOT_MISMATCH")
-        if calculation_kind and not private_alpha and (not self.calculation_registrations or self.strategy_assets):
+                    raise ValueError("PRIVATE_FACTOR_PROVIDER_SNAPSHOT_MISMATCH")
+        elif self.private_factor_snapshot is not None:
+            raise ValueError("PRIVATE_FACTOR_PROVIDER_SNAPSHOT_MISMATCH")
+        if not private_factor and not self.calculation_registrations:
             raise ValueError("CALCULATION_ASSET_PROVIDER_CONTENT_INVALID")
-        if not calculation_kind and (self.calculation_registrations or not self.strategy_assets):
-            raise ValueError("STRATEGY_ASSET_PROVIDER_CONTENT_INVALID")
-        if calculation_kind and any(
-            registration.implementation_manifest is None for registration in self.calculation_registrations
-        ):
+        if any(registration.implementation_manifest is None for registration in self.calculation_registrations):
             raise ValueError("QUANT_ASSET_IMPLEMENTATION_MANIFEST_REQUIRED")
-        alpha_kind = self.manifest.kind is OnlyQuantAssetKind.ALPHA
-        if calculation_kind and any(
-            (registration.type_definition.kind is OnlyCalculationKind.FACTOR) is not alpha_kind
+        factor_kind = self.manifest.kind is OnlyQuantAssetKind.FACTOR
+        if any(
+            (registration.type_definition.kind is OnlyCalculationKind.FACTOR) is not factor_kind
             for registration in self.calculation_registrations
         ):
             raise ValueError("QUANT_ASSET_KIND_CLASSIFICATION_INVALID")
-        asset_keys = {(item.asset_id, item.semantic_version) for item in self.strategy_assets}
-        if len(asset_keys) != len(self.strategy_assets):
-            raise ValueError("STRATEGY_AUTHORING_ASSET_DUPLICATE")
 
     @property
     def content_fingerprint(self) -> str:
@@ -283,16 +209,12 @@ class OnlyQuantAssetProvider:
         return {
             "kind": self.manifest.kind.value,
             "calculations": sorted(calculations, key=only_canonical_fingerprint),
-            "strategies": sorted(
-                (item.descriptor() for item in self.strategy_assets),
-                key=only_canonical_fingerprint,
-            ),
-            "private_alpha_snapshot": (
+            "private_factor_snapshot": (
                 None
-                if self.private_alpha_snapshot is None
+                if self.private_factor_snapshot is None
                 else {
-                    "snapshot_fingerprint": self.private_alpha_snapshot.snapshot_fingerprint,
-                    "entries": [item.to_dict() for item in self.private_alpha_snapshot.entries],
+                    "snapshot_fingerprint": self.private_factor_snapshot.snapshot_fingerprint,
+                    "entries": [item.to_dict() for item in self.private_factor_snapshot.entries],
                 }
             ),
         }
@@ -303,8 +225,7 @@ class OnlyQuantAssetProvider:
             "manifest": self.manifest.to_dict(),
             "content_fingerprint": self.content_fingerprint,
             "calculations": content["calculations"],
-            "strategies": content["strategies"],
-            "private_alpha_snapshot": content["private_alpha_snapshot"],
+            "private_factor_snapshot": content["private_factor_snapshot"],
         }
 
 
@@ -351,25 +272,6 @@ class OnlyQuantAssetCatalogGeneration:
             for registration in provider.calculation_registrations:
                 registry.register(registration)
         return registry
-
-    def resolve_strategy_asset(
-        self,
-        provider_id: str,
-        provider_version: str,
-        asset_id: str,
-        semantic_version: str,
-    ) -> OnlyStrategyAuthoringAsset:
-        matches = (
-            asset
-            for provider in self.providers
-            if provider.manifest.provider_id == provider_id and provider.manifest.provider_version == provider_version
-            for asset in provider.strategy_assets
-            if asset.asset_id == asset_id and asset.semantic_version == semantic_version
-        )
-        try:
-            return next(matches)
-        except StopIteration as exc:
-            raise KeyError((provider_id, provider_version, asset_id, semantic_version)) from exc
 
 
 class OnlyQuantAssetCatalogManager:

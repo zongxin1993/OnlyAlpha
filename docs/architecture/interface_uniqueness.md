@@ -33,7 +33,7 @@
 
 ## Quantitative asset boundary
 
-ADR 0110 replaces the old three-repository example placement. Public reusable L1 Operators and L2 Indicators are official
-plugins; production L3 Factors and L4 Strategies are private assets. The main repository contains only the two local
-non-production L3/L4 reference libraries named by ADR 0110. Dependency direction is
-`L4 examples → L3 examples → public L1/L2 plugins → OnlyAlpha contracts`; Core and public plugins never depend on examples.
+ADR 0110 and ADR 0132 define the active quant-asset boundary. Public reusable Operators and Indicators are official plugins;
+production Factors and Strategies are PostgreSQL-native private assets. The main repository contains only non-production import seeds.
+Dependency direction is `Strategy seeds → Factor seeds → public Operator/Indicator plugins → OnlyAlpha contracts`; Core and public
+plugins never depend on examples.

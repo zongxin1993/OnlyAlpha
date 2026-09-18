@@ -8,19 +8,19 @@ import pytest
 
 from onlyalpha.quant_assets import OnlyPrivateAssetKind, only_load_private_asset_example_bundle
 
-ALPHA = Path("examples/private-assets/alpha/simple_momentum")
+FACTOR = Path("examples/private-assets/factor/simple_momentum")
 STRATEGY = Path("examples/private-assets/strategy/simple_momentum")
 
 
 def test_portable_example_bundles_are_strict_and_deterministic() -> None:
-    alpha = only_load_private_asset_example_bundle(ALPHA)
+    factor = only_load_private_asset_example_bundle(FACTOR)
     strategy = only_load_private_asset_example_bundle(STRATEGY)
 
-    assert alpha.asset_kind is OnlyPrivateAssetKind.ALPHA
+    assert factor.asset_kind is OnlyPrivateAssetKind.FACTOR
     assert strategy.asset_kind is OnlyPrivateAssetKind.STRATEGY
-    assert strategy.dependencies == (alpha.example_id,)
-    assert len(alpha.bundle_fingerprint) == len(strategy.bundle_fingerprint) == 64
-    assert only_load_private_asset_example_bundle(ALPHA).bundle_fingerprint == alpha.bundle_fingerprint
+    assert strategy.dependencies == (factor.example_id,)
+    assert len(factor.bundle_fingerprint) == len(strategy.bundle_fingerprint) == 64
+    assert only_load_private_asset_example_bundle(FACTOR).bundle_fingerprint == factor.bundle_fingerprint
 
 
 def test_example_source_is_input_only_and_importer_has_no_execution_or_sql_path() -> None:
@@ -35,16 +35,16 @@ def test_example_source_is_input_only_and_importer_has_no_execution_or_sql_path(
 
 
 def test_old_numbered_kind_and_factor_namespace_are_rejected(tmp_path: Path) -> None:
-    root = tmp_path / "alpha" / "legacy"
+    root = tmp_path / "factor" / "legacy"
     root.mkdir(parents=True)
     root.joinpath("asset.json").write_text(
-        ALPHA.joinpath("asset.json")
+        FACTOR.joinpath("asset.json")
         .read_text(encoding="utf-8")
-        .replace('"ALPHA"', '"L3_FACTOR"')
-        .replace("private.alpha.", "private.factor."),
+        .replace('"FACTOR"', '"L3_FACTOR"')
+        .replace("private.factor.", "private.factor."),
         encoding="utf-8",
     )
-    root.joinpath("source.py").write_text(ALPHA.joinpath("source.py").read_text(encoding="utf-8"), encoding="utf-8")
+    root.joinpath("source.py").write_text(FACTOR.joinpath("source.py").read_text(encoding="utf-8"), encoding="utf-8")
 
     with pytest.raises(ValueError):
         only_load_private_asset_example_bundle(root)
@@ -55,12 +55,12 @@ def test_old_numbered_kind_and_factor_namespace_are_rejected(tmp_path: Path) -> 
     [("schema_version", True), ("example_id", 1), ("display_name", 1), ("description", 1), ("dependencies", [1])],
 )
 def test_example_bundle_rejects_type_coercion(tmp_path: Path, field: str, value: object) -> None:
-    root = tmp_path / "alpha" / "malformed"
+    root = tmp_path / "factor" / "malformed"
     root.mkdir(parents=True)
-    payload = json.loads(ALPHA.joinpath("asset.json").read_text(encoding="utf-8"))
+    payload = json.loads(FACTOR.joinpath("asset.json").read_text(encoding="utf-8"))
     payload[field] = value
     root.joinpath("asset.json").write_text(json.dumps(payload), encoding="utf-8")
-    root.joinpath("source.py").write_text(ALPHA.joinpath("source.py").read_text(encoding="utf-8"), encoding="utf-8")
+    root.joinpath("source.py").write_text(FACTOR.joinpath("source.py").read_text(encoding="utf-8"), encoding="utf-8")
 
     with pytest.raises(ValueError):
         only_load_private_asset_example_bundle(root)

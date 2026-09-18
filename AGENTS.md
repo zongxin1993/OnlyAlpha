@@ -607,31 +607,31 @@ Classify each new quantitative capability under ADR 0110:
 
 1. Generic mathematics without financial context is an Operator.
 2. Stable financial meaning without a predictive Target hypothesis is an Indicator.
-3. A testable predictive or explanatory hypothesis is an Alpha.
-4. Composition of admitted Features/Alpha into eligibility, selection, entry or exit decisions is a Strategy.
+3. A testable predictive or explanatory hypothesis is a Factor.
+4. Composition of admitted Features/Factor into eligibility, selection, entry or exit decisions is a Strategy.
 
-Operator/Indicator are public reusable capabilities. Production Alpha/Strategy assets are private; the main repository's examples are
-non-production DB import seeds under `examples/private-assets/alpha/` and `examples/private-assets/strategy/`. The Agent primarily
-creates/searches Alpha/Strategy. Missing reusable Operator/Indicator capability must be
+Operator/Indicator are public reusable capabilities. Production Factor/Strategy assets are private; the main repository's examples are
+non-production DB import seeds under `examples/private-assets/factor/` and `examples/private-assets/strategy/`. The Agent primarily
+creates/searches Factor/Strategy. Missing reusable Operator/Indicator capability must be
 proposed and admitted separately, never hidden inside a Factor or Strategy.
 
-Under ADR 0129 and ADR 0131, production Private Alpha/Strategy authoring is PostgreSQL-backed and uses mutable Drafts plus immutable
-Revisions. Private Alpha V1 is one canonical UTF-8 Python source unit bound to one exact stable Alpha API Contract; Private Strategy is a canonical structured Strategy
+Under ADR 0129, ADR 0131 and ADR 0132, production Private Factor/Strategy authoring is PostgreSQL-backed and uses mutable Drafts plus immutable
+Revisions. Private Factor V1 is one canonical UTF-8 Python source unit bound to one exact stable Factor API Contract; Private Strategy is a canonical structured Strategy
 Definition. Git repositories, source paths, editable installs, wheels and packages are optional interoperability/provenance paths, not
 production authoring Authority. The database source is never direct execution permission; exact API/adapter, validation, Provider,
 Catalog and Runtime Generation boundaries remain mandatory.
 
 ADR 0111's source/distribution loading remains valid for optional import/export and executable materialization. Do not reintroduce
-mandatory per-asset Git/package authoring workflows without a new ADR; private Alpha/Strategy planning must follow ADR 0129 and ADR 0131.
+mandatory per-asset Git/package authoring workflows without a new ADR; private Factor/Strategy planning must follow ADR 0129–0132.
 
-Operator/Indicator distributions and snapshot-backed Alpha providers use `onlyalpha.quant_assets` under ADR 0112. Operator/Indicator/Alpha
+Operator/Indicator distributions and snapshot-backed Factor providers use `onlyalpha.quant_assets` under ADR 0112. Operator/Indicator/Factor
 execute only through `onlyalpha.calculations`; Strategy remains authoring data. Any content change requires a new provider version, and any semantic
 change additionally requires a new Calculation or Strategy-asset semantic version. Hot plug switches an immutable catalog generation only
 for new work; never reload modules in place or rebind an active Run/StrategyRevision.
 
 ## Public example / private asset contract parity
 
-When a public Core change affects an Alpha/Strategy authoring, discovery, execution, Research, Evidence or Freeze contract, the
+When a public Core change affects a Factor/Strategy authoring, discovery, execution, Research, Evidence or Freeze contract, the
 implementer must inspect the corresponding DB-native seed, update it in the same public change when behavior changes, and run the seed
 import/native execution conformance lane.
 

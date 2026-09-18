@@ -11,7 +11,7 @@ from onlyalpha_runtime_generation_manager import (
     OnlyRuntimeGenerationRegistry,
 )
 from onlyalpha_runtime_generation_manager.catalog_context import OnlyRuntimeGenerationExactCatalogDescriptorReader
-from onlyalpha_test_alpha_provider.provider import quant_asset_provider as alpha_provider
+from onlyalpha_test_factor_provider.provider import quant_asset_provider as factor_provider
 
 from onlyalpha.application.catalog_context import (
     OnlyExactCatalogContextNotFound,
@@ -105,7 +105,7 @@ def _reader(
 
 def test_retired_generation_is_exact_after_activation_switch_and_fresh_reader_restart(tmp_path: Path) -> None:
     first_catalog = OnlyQuantAssetCatalogGeneration((operator_provider(),))
-    second_catalog = OnlyQuantAssetCatalogGeneration((alpha_provider(),))
+    second_catalog = OnlyQuantAssetCatalogGeneration((factor_provider(),))
     first_manifest = _manifest("a", first_catalog)
     second_manifest = _manifest("b", second_catalog)
     registry = OnlyRuntimeGenerationRegistry(tmp_path / "authority")

@@ -1,7 +1,7 @@
 {
   "asset_kind": "STRATEGY",
-  "dependencies": ["alpha.simple_momentum"],
-  "description": "A minimal structured Strategy seed bound to the imported momentum Alpha Revision.",
+  "dependencies": ["factor.simple_momentum"],
+  "description": "A minimal structured Strategy seed bound to the imported momentum Factor Revision.",
   "display_name": "Simple Momentum Strategy",
   "example_id": "strategy.simple_momentum",
   "schema_version": 1,

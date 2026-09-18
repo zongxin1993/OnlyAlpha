@@ -25,7 +25,7 @@ def _time(value: datetime | None) -> str | None:
 class ResearchAuthoringProvenanceDto(_RunDto):
     schema_version: Literal[1]
     experiment_id: str
-    private_asset_kind: Literal["ALPHA", "STRATEGY"]
+    private_asset_kind: Literal["FACTOR", "STRATEGY"]
     private_asset_id: str
     private_asset_revision_fingerprint: str
     private_asset_content_fingerprint: str

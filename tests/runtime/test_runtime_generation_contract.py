@@ -2,11 +2,11 @@ from dataclasses import replace
 
 import pytest
 from onlyalpha_plugin_targets.registration import registrations as target_registrations
-from onlyalpha_test_alpha_provider.provider import quant_asset_provider
+from onlyalpha_test_factor_provider.provider import quant_asset_provider
 
 from onlyalpha.calculation import only_calculation_distribution_artifact_manifest
 from onlyalpha.quant_assets import (
-    OnlyPrivateAlphaProviderSnapshotEntryV1,
+    OnlyPrivateFactorProviderSnapshotEntryV1,
     only_quant_asset_distribution_artifact_manifest,
 )
 from onlyalpha.runtime.generation import (
@@ -16,7 +16,7 @@ from onlyalpha.runtime.generation import (
     OnlyDistributionArtifactManifest,
     OnlyDistributionArtifactRole,
     OnlyRuntimeGenerationManifest,
-    OnlyRuntimePrivateAlphaBinding,
+    OnlyRuntimePrivateFactorBinding,
     OnlyRuntimeProviderBinding,
 )
 
@@ -25,9 +25,9 @@ def test_artifact_identity_is_exact_bytes_and_locator_independent() -> None:
     core = OnlyCoreExecutionIdentity("onlyalpha", "0.9.9", "a" * 64)
     provider = quant_asset_provider()
     first = only_quant_asset_distribution_artifact_manifest(
-        source_repository="OnlyAlpha-test-alpha-provider",
+        source_repository="OnlyAlpha-test-factor-provider",
         source_revision="1" * 40,
-        artifact_logical_name="onlyalpha_test_alpha_provider-0.9.9-py3-none-any.whl",
+        artifact_logical_name="onlyalpha_test_factor_provider-0.9.9-py3-none-any.whl",
         artifact_bytes=b"exact wheel bytes",
         tested_core_execution_fingerprint=core.fingerprint,
         provider=provider,
@@ -44,9 +44,9 @@ def test_runtime_generation_identity_excludes_operational_process_details() -> N
     core = OnlyCoreExecutionIdentity("onlyalpha", "0.9.9", "a" * 64)
     provider = quant_asset_provider()
     artifact = only_quant_asset_distribution_artifact_manifest(
-        source_repository="OnlyAlpha-test-alpha-provider",
+        source_repository="OnlyAlpha-test-factor-provider",
         source_revision="1" * 40,
-        artifact_logical_name="onlyalpha_test_alpha_provider-0.9.9-py3-none-any.whl",
+        artifact_logical_name="onlyalpha_test_factor_provider-0.9.9-py3-none-any.whl",
         artifact_bytes=b"exact wheel bytes",
         tested_core_execution_fingerprint=core.fingerprint,
         provider=provider,
@@ -72,9 +72,9 @@ def test_runtime_generation_identity_excludes_operational_process_details() -> N
     assert replace(manifest).runtime_generation_fingerprint == manifest.runtime_generation_fingerprint
 
 
-def test_runtime_generation_transitively_binds_exact_private_alpha_execution_closure() -> None:
-    entry = OnlyPrivateAlphaProviderSnapshotEntryV1(
-        "private.alpha.native",
+def test_runtime_generation_transitively_binds_exact_private_factor_execution_closure() -> None:
+    entry = OnlyPrivateFactorProviderSnapshotEntryV1(
+        "private.factor.native",
         "1",
         "1" * 64,
         "2" * 64,
@@ -88,8 +88,8 @@ def test_runtime_generation_transitively_binds_exact_private_alpha_execution_clo
         "9" * 64,
     )
     implementations = (
-        OnlyArtifactCalculationImplementation("FACTOR", entry.alpha_id, entry.semantic_version, "RESEARCH", "7" * 64),
-        OnlyArtifactCalculationImplementation("FACTOR", entry.alpha_id, entry.semantic_version, "TRADING", "8" * 64),
+        OnlyArtifactCalculationImplementation("FACTOR", entry.factor_id, entry.semantic_version, "RESEARCH", "7" * 64),
+        OnlyArtifactCalculationImplementation("FACTOR", entry.factor_id, entry.semantic_version, "TRADING", "8" * 64),
     )
     manifest = OnlyRuntimeGenerationManifest(
         core_execution=OnlyCoreExecutionIdentity("onlyalpha", "0.9.9", "a" * 64),
@@ -98,13 +98,13 @@ def test_runtime_generation_transitively_binds_exact_private_alpha_execution_clo
         providers=(OnlyRuntimeProviderBinding("provider.core", "1", "c" * 64, "a" * 64),),
         catalog_generation_fingerprint="d" * 64,
         implementations=implementations,
-        private_alpha_bindings=(OnlyRuntimePrivateAlphaBinding("e" * 64, "0" * 64, entry),),
+        private_factor_bindings=(OnlyRuntimePrivateFactorBinding("e" * 64, "0" * 64, entry),),
     )
     assert OnlyRuntimeGenerationManifest.from_dict(manifest.to_dict()) == manifest
     assert (
         replace(
             manifest,
-            private_alpha_bindings=(OnlyRuntimePrivateAlphaBinding("f" * 64, "0" * 64, entry),),
+            private_factor_bindings=(OnlyRuntimePrivateFactorBinding("f" * 64, "0" * 64, entry),),
         ).runtime_generation_fingerprint
         != manifest.runtime_generation_fingerprint
     )

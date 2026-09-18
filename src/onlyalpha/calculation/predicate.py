@@ -25,6 +25,7 @@ from onlyalpha.calculation.definition import (
     OnlyTimestampSemantic,
     OnlyWarmupDefinition,
 )
+from onlyalpha.calculation.value_semantics import OnlyCanonicalValueSemanticsV1
 
 PREDICATE_VALUE_SEMANTIC_TYPE = "PREDICATE_VALUE"
 PREDICATE_SEMANTIC_VERSION = "1"
@@ -121,6 +122,9 @@ def only_predicate_type_definitions() -> tuple[OnlyCalculationTypeDefinition, ..
 
 
 def only_predicate_compare(operator: str, left: object, right: object) -> bool:
+    if isinstance(left, Decimal) and isinstance(right, Decimal):
+        canonical = OnlyCanonicalValueSemanticsV1(OnlyNumericDefinition())
+        return bool(getattr(canonical, operator)(left, right))
     if operator == "eq":
         return left == right
     if operator == "ne":

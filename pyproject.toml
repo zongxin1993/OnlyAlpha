@@ -17,8 +17,7 @@ compose-acceptance = [
     "hypothesis>=6.165.5",
     "httpx2>=2.12,<3",
     "onlyalpha-test-plugin",
-    "onlyalpha-test-alpha-provider",
-    "onlyalpha-test-strategy-provider",
+    "onlyalpha-test-factor-provider",
     "pytest>=9.0.3",
     "pytest-xdist>=3.8.0",
     "pytest-split==0.11.0",
@@ -39,8 +38,7 @@ dev = [
     "tomlkit>=0.13",
     "twine>=6",
     "onlyalpha-test-plugin",
-    "onlyalpha-test-alpha-provider",
-    "onlyalpha-test-strategy-provider",
+    "onlyalpha-test-factor-provider",
     "onlyalpha-plugin-operators",
     "onlyalpha-plugin-indicators",
     "onlyalpha-plugin-targets",
@@ -136,8 +134,7 @@ ignore_errors = true
 
 [tool.uv.sources]
 onlyalpha-test-plugin = { path = "tests/fixtures/external_plugins/onlyalpha_test_plugin", editable = true }
-onlyalpha-test-alpha-provider = { path = "tests/fixtures/runtime_alpha_provider", editable = true }
-onlyalpha-test-strategy-provider = { path = "tests/fixtures/runtime_strategy_provider", editable = true }
+onlyalpha-test-factor-provider = { path = "tests/fixtures/runtime_factor_provider", editable = true }
 onlyalpha-plugin-operators = { workspace = true }
 onlyalpha-plugin-indicators = { workspace = true }
 onlyalpha-plugin-targets = { workspace = true }
@@ -251,8 +248,7 @@ forbidden_modules = [
     "onlyalpha_plugin_binance",
     "onlyalpha_plugin_indicators",
     "onlyalpha_plugin_operators",
-    "onlyalpha_test_alpha_provider",
-    "onlyalpha_test_strategy_provider",
+    "onlyalpha_test_factor_provider",
     "onlyalpha_plugin_targets",
 ]
 

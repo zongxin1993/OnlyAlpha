@@ -1,4 +1,4 @@
-"""PostgreSQL Private Alpha/Strategy authoring authority."""
+"""PostgreSQL Private Factor/Strategy authoring authority."""
 
 from __future__ import annotations
 
@@ -10,9 +10,6 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from onlyalpha.quant_assets.private import (
-    OnlyPrivateAlphaAsset,
-    OnlyPrivateAlphaDraft,
-    OnlyPrivateAlphaRevision,
     OnlyPrivateAssetAuthorityUnavailableError,
     OnlyPrivateAssetConflictError,
     OnlyPrivateAssetCorruptError,
@@ -21,6 +18,9 @@ from onlyalpha.quant_assets.private import (
     OnlyPrivateAssetParentMismatchError,
     OnlyPrivateAssetPutDisposition,
     OnlyPrivateAssetStaleBaseError,
+    OnlyPrivateFactorAsset,
+    OnlyPrivateFactorDraft,
+    OnlyPrivateFactorRevision,
     OnlyPrivateStrategyAsset,
     OnlyPrivateStrategyDraft,
     OnlyPrivateStrategyRevision,
@@ -28,8 +28,8 @@ from onlyalpha.quant_assets.private import (
 
 from .config import OnlyPostgresOperationalConnectionOptions
 
-_Revision = TypeVar("_Revision", OnlyPrivateAlphaRevision, OnlyPrivateStrategyRevision)
-_Draft = TypeVar("_Draft", OnlyPrivateAlphaDraft, OnlyPrivateStrategyDraft)
+_Revision = TypeVar("_Revision", OnlyPrivateFactorRevision, OnlyPrivateStrategyRevision)
+_Draft = TypeVar("_Draft", OnlyPrivateFactorDraft, OnlyPrivateStrategyDraft)
 
 
 class OnlyPostgresPrivateAssetStore:
@@ -38,57 +38,59 @@ class OnlyPostgresPrivateAssetStore:
     def __init__(self, dsn: str, options: OnlyPostgresOperationalConnectionOptions | None = None) -> None:
         self._dsn = (options or OnlyPostgresOperationalConnectionOptions()).apply(dsn)
 
-    def put_alpha_asset(self, asset: OnlyPrivateAlphaAsset) -> OnlyPrivateAssetPutDisposition:
-        return self._put_asset("private_alpha_asset", "alpha_id", asset.alpha_id, asset.schema_version)
+    def put_factor_asset(self, asset: OnlyPrivateFactorAsset) -> OnlyPrivateAssetPutDisposition:
+        return self._put_asset("private_factor_asset", "factor_id", asset.factor_id, asset.schema_version)
 
-    def load_alpha_asset(self, alpha_id: str) -> OnlyPrivateAlphaAsset:
-        return OnlyPrivateAlphaAsset.from_dict(self._load_asset("private_alpha_asset", "alpha_id", alpha_id))
+    def load_factor_asset(self, factor_id: str) -> OnlyPrivateFactorAsset:
+        return OnlyPrivateFactorAsset.from_dict(self._load_asset("private_factor_asset", "factor_id", factor_id))
 
-    def save_alpha_draft(self, draft: OnlyPrivateAlphaDraft) -> None:
-        clean = OnlyPrivateAlphaDraft.from_dict(draft.to_dict())
+    def save_factor_draft(self, draft: OnlyPrivateFactorDraft) -> None:
+        clean = OnlyPrivateFactorDraft.from_dict(draft.to_dict())
         self._save_draft(
-            "private_alpha_asset",
-            "private_alpha_draft",
-            "alpha_id",
-            clean.alpha_id,
+            "private_factor_asset",
+            "private_factor_draft",
+            "factor_id",
+            clean.factor_id,
             clean.base_revision_fingerprint,
             clean.to_dict(),
             clean.schema_version,
         )
 
-    def load_alpha_draft(self, alpha_id: str) -> OnlyPrivateAlphaDraft | None:
-        payload = self._load_draft("private_alpha_draft", "alpha_id", alpha_id)
-        return None if payload is None else OnlyPrivateAlphaDraft.from_dict(payload)
+    def load_factor_draft(self, factor_id: str) -> OnlyPrivateFactorDraft | None:
+        payload = self._load_draft("private_factor_draft", "factor_id", factor_id)
+        return None if payload is None else OnlyPrivateFactorDraft.from_dict(payload)
 
-    def clear_alpha_draft(self, alpha_id: str) -> bool:
-        return self._clear_draft("private_alpha_draft", "alpha_id", alpha_id)
+    def clear_factor_draft(self, factor_id: str) -> bool:
+        return self._clear_draft("private_factor_draft", "factor_id", factor_id)
 
-    def publish_alpha_revision(self, alpha_id: str) -> tuple[OnlyPrivateAssetPutDisposition, OnlyPrivateAlphaRevision]:
+    def publish_factor_revision(
+        self, factor_id: str
+    ) -> tuple[OnlyPrivateAssetPutDisposition, OnlyPrivateFactorRevision]:
         return self._publish(
-            asset_table="private_alpha_asset",
-            draft_table="private_alpha_draft",
-            revision_table="private_alpha_revision",
-            id_column="alpha_id",
-            asset_id=alpha_id,
-            draft_loader=OnlyPrivateAlphaDraft.from_dict,
-            revision_builder=OnlyPrivateAlphaRevision.from_draft,
-            revision_loader=OnlyPrivateAlphaRevision.from_dict,
+            asset_table="private_factor_asset",
+            draft_table="private_factor_draft",
+            revision_table="private_factor_revision",
+            id_column="factor_id",
+            asset_id=factor_id,
+            draft_loader=OnlyPrivateFactorDraft.from_dict,
+            revision_builder=OnlyPrivateFactorRevision.from_draft,
+            revision_loader=OnlyPrivateFactorRevision.from_dict,
             extra_columns=("source_text", "source_sha256"),
             extra_values=lambda revision: (revision.source_text, revision.source_sha256),
         )
 
-    def load_alpha_revision(self, alpha_id: str, revision_fingerprint: str) -> OnlyPrivateAlphaRevision:
+    def load_factor_revision(self, factor_id: str, revision_fingerprint: str) -> OnlyPrivateFactorRevision:
         return self._load_revision(
-            "private_alpha_revision", "alpha_id", alpha_id, revision_fingerprint, OnlyPrivateAlphaRevision.from_dict
+            "private_factor_revision", "factor_id", factor_id, revision_fingerprint, OnlyPrivateFactorRevision.from_dict
         )
 
-    def list_alpha_revision_history(self, alpha_id: str) -> tuple[OnlyPrivateAlphaRevision, ...]:
+    def list_factor_revision_history(self, factor_id: str) -> tuple[OnlyPrivateFactorRevision, ...]:
         return self._history(
-            "private_alpha_asset",
-            "private_alpha_revision",
-            "alpha_id",
-            alpha_id,
-            OnlyPrivateAlphaRevision.from_dict,
+            "private_factor_asset",
+            "private_factor_revision",
+            "factor_id",
+            factor_id,
+            OnlyPrivateFactorRevision.from_dict,
         )
 
     def put_strategy_asset(self, asset: OnlyPrivateStrategyAsset) -> OnlyPrivateAssetPutDisposition:
@@ -414,7 +416,7 @@ class OnlyPostgresPrivateAssetStore:
             or row.get("schema_version") != result.schema_version
         ):
             raise OnlyPrivateAssetCorruptError(revision_fingerprint)
-        if isinstance(result, OnlyPrivateAlphaRevision) and (
+        if isinstance(result, OnlyPrivateFactorRevision) and (
             row.get("source_text") != result.source_text or row.get("source_sha256") != result.source_sha256
         ):
             raise OnlyPrivateAssetCorruptError(revision_fingerprint)

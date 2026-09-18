@@ -445,7 +445,7 @@ IMPACT_RULES = (
             "tests/research/factor/",
             "plugs/onlyalpha-plugin-factors/",
             "plugs/onlyalpha-plugin-operators/",
-            "examples/private-assets/alpha/",
+            "examples/private-assets/factor/",
         ),
         (),
         (

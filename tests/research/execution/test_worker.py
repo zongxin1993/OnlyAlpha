@@ -250,11 +250,11 @@ def _case(
 def _authoring_provenance() -> OnlyResearchAuthoringProvenance:
     identity = {
         "experiment_id": "exp-" + "a" * 32,
-        "private_asset_kind": OnlyPrivateAssetKind.ALPHA,
-        "private_asset_id": "private.alpha.momentum",
+        "private_asset_kind": OnlyPrivateAssetKind.FACTOR,
+        "private_asset_id": "private.factor.momentum",
         "private_asset_revision_fingerprint": "1" * 64,
         "private_asset_content_fingerprint": "2" * 64,
-        "candidate_provider_id": "candidate.onlyalpha.alpha." + "a" * 32,
+        "candidate_provider_id": "candidate.onlyalpha.factor." + "a" * 32,
         "candidate_provider_version": "1",
         "candidate_provider_content_fingerprint": "3" * 64,
         "catalog_generation_fingerprint": "4" * 64,

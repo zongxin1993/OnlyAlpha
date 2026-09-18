@@ -12,11 +12,11 @@ from onlyalpha.research.provenance import (
 def _provenance() -> OnlyResearchAuthoringProvenance:
     values = {
         "experiment_id": "exp-" + "b" * 32,
-        "private_asset_kind": OnlyPrivateAssetKind.ALPHA,
-        "private_asset_id": "private.alpha.momentum",
+        "private_asset_kind": OnlyPrivateAssetKind.FACTOR,
+        "private_asset_id": "private.factor.momentum",
         "private_asset_revision_fingerprint": "5" * 64,
         "private_asset_content_fingerprint": "6" * 64,
-        "candidate_provider_id": "candidate.private.alpha",
+        "candidate_provider_id": "candidate.private.factor",
         "candidate_provider_version": "7",
         "candidate_provider_content_fingerprint": "8" * 64,
         "catalog_generation_fingerprint": "9" * 64,
@@ -40,10 +40,10 @@ def test_git_native_and_malformed_db_native_payloads_are_rejected() -> None:
     git_native = {
         "schema_version": 1,
         "experiment_id": "exp-" + "a" * 32,
-        "source_repository": "OnlyAlpha-alpha",
+        "source_repository": "OnlyAlpha-factor",
         "source_revision": "1" * 40,
         "source_tree": "2" * 40,
-        "candidate_provider_id": "candidate.private.alpha",
+        "candidate_provider_id": "candidate.private.factor",
         "candidate_provider_version": "1",
         "candidate_provider_content_fingerprint": "3" * 64,
         "catalog_generation_fingerprint": "4" * 64,

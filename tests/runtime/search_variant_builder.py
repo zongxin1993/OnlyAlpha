@@ -9,7 +9,7 @@ from pathlib import Path
 from onlyalpha_plugin_indicators.provider import quant_asset_provider as indicator_provider
 from onlyalpha_plugin_operators.provider import quant_asset_provider as operator_provider
 from onlyalpha_runtime_generation_manager import OnlyLocalImmutableArtifactStore, OnlyRuntimeGenerationBuilder
-from onlyalpha_test_alpha_provider.provider import quant_asset_provider as alpha_provider
+from onlyalpha_test_factor_provider.provider import quant_asset_provider as factor_provider
 
 from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration, only_quant_asset_distribution_artifact_manifest
 from onlyalpha.runtime.generation import OnlyDistributionArtifactManifest
@@ -26,14 +26,14 @@ def main() -> None:
         artifact_logical_name=wheel.name,
         artifact_bytes=wheel.read_bytes(),
         tested_core_execution_fingerprint=configuration["core_identity"],
-        provider=alpha_provider(),
+        provider=factor_provider(),
     )
     store = OnlyLocalImmutableArtifactStore(root / "artifacts")
     store.put_once(variant, wheel.read_bytes())
-    selected = tuple(item for item in artifacts if item.distribution_name != "onlyalpha-test-alpha-provider") + (
+    selected = tuple(item for item in artifacts if item.distribution_name != "onlyalpha-test-factor-provider") + (
         variant,
     )
-    catalog = OnlyQuantAssetCatalogGeneration((operator_provider(), indicator_provider(), alpha_provider()))
+    catalog = OnlyQuantAssetCatalogGeneration((operator_provider(), indicator_provider(), factor_provider()))
     validated = OnlyRuntimeGenerationBuilder(store, Path(sys.executable)).build_validated(
         artifacts=selected, expected_catalog=catalog, environment_root=root / "variant-built"
     )

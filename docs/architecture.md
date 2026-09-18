@@ -233,15 +233,15 @@ ADR 0110 freezes the quantitative asset boundary without adding execution framew
 
 ```text
 Operator → Indicator → Feature
-→ Alpha → Factor Value/Score
+→ Factor → Factor Value/Score
 → Strategy → Signal/Selection/Rank
 → Portfolio/Risk/Execution
 ```
 
 Calculation and its Graph remain the only calculation abstraction and DAG authority. Operator/Indicator are public reusable capabilities;
-production Alpha/Strategy are private, while the main repository keeps non-production DB import seeds. Feature remains an
+production Factor/Strategy assets are private, while the main repository keeps non-production DB import seeds. Feature remains an
 output port, Factor carries a hypothesis, and immutable StrategyRevision remains runtime Strategy authority. Generic
-cross-sectional rank/percentile is Operator mathematics rather than an Alpha hypothesis. Target and Research statistics remain
+cross-sectional rank/percentile is Operator mathematics rather than a Factor hypothesis. Target and Research statistics remain
 orthogonal evaluation infrastructure.
 
 Cluster 是 Trading Runtime workload：
@@ -559,37 +559,37 @@ Virtual Broker、Tushare 和 MiniQMT 位于各自 distribution。插件必须提
 
 缺失或不兼容插件必须明确失败，Core 不提供隐藏 Synthetic/Virtual/Placeholder fallback。
 
-Quantitative capability dependencies follow ADR 0110: Operators may depend only on public Calculation contracts; Indicators
-may depend on Core contracts and Operators; Alpha may depend on public Operators/Indicators; Strategy authoring assets may reference admitted Operator/Indicator/Alpha
+Quantitative capability dependencies follow ADR 0110 and ADR 0132: Operators may depend only on public Calculation contracts; Indicators
+may depend on Core contracts and Operators; Factors may depend on public Operators/Indicators; Strategy authoring assets may reference admitted Operator/Indicator/Factor
 identities. Core imports none of their concrete implementations, public packages do not depend on examples, and examples are not
 default production dependencies.
 
-ADR 0129 freezes Private Alpha/Strategy production authoring as PostgreSQL-backed Asset/Draft/Revision content. Git repositories, source
+ADR 0129 freezes Private Factor/Strategy production authoring as PostgreSQL-backed Asset/Draft/Revision content. Git repositories, source
 checkouts, wheels and package distributions remain optional import/export/interoperability and provenance mechanisms; they are not
 private production authoring Authority. Examples under `examples/private-assets/` are portable import inputs, never package or Runtime
 Authority. When a private Revision is materialized for executable work, the existing exact
 Calculation/Provider/Catalog/Runtime contracts still apply, and no database/path/package location participates in StrategyRevision or
 Runtime identity.
 
-PA-1 implements the Private Alpha/Strategy Asset, mutable Draft and immutable Revision contracts plus their PostgreSQL authoring authority.
+PA-1 implements the Private Factor/Strategy Asset, mutable Draft and immutable Revision contracts plus their PostgreSQL authoring authority.
 Research Authoring Provenance binds an exact database Revision and content fingerprint; Git repository, commit, tree and checkout fields
-are no longer part of that canonical contract. This authority stores and verifies source/definition content only: Private Alpha execution,
+are no longer part of that canonical contract. This authority stores and verifies source/definition content only: Private Factor execution,
 validation, native Provider materialization and Runtime Generation integration use the exact Revision-derived source artifact.
 
 ADR 0111 remains the optional source/distribution loading contract for interoperability and executable materialization. It does not
 require a private checkout, editable install, wheel or package for DB-native authoring.
 
-ADR 0112 defines the common `onlyalpha.quant_assets` management SPI. Each Operator/Indicator/Alpha/Strategy distribution contributes a versioned, content-addressed
+ADR 0112 defines the common `onlyalpha.quant_assets` management SPI. Each Operator/Indicator/Factor distribution contributes a versioned, content-addressed
 provider to one immutable catalog generation. Refresh validates a complete generation and atomically publishes it for new work; existing
 work retains its prior snapshot. This management catalog does not replace Calculation Graph, `onlyalpha.calculations`, Product API, Freeze
 or StrategyRevision authorities.
 
-ADR 0115 remains the exact identity/admission contract after authoring: positive-integer asset versions identify immutable Alpha/Strategy
+ADR 0115 remains the exact identity/admission contract after authoring: positive-integer asset versions identify immutable Factor/Strategy
 semantics; implementation fingerprints identify exact executable code; positive-integer provider versions identify admitted content;
 immutable distributions identify released artifacts; Catalog Generation selects an exact provider set for new work; Research Evidence
 owns outcomes; and verified Freeze alone creates the StrategyRevision used at runtime. Git commit and deterministic authoring
 experiment identity are optional provenance for imported/exported work, not private authoring Authority. These identities cannot
-substitute for one another. Production private namespaces are `private.alpha.*` and `private.strategy.*`; no `latest` aliases exist.
+substitute for one another. Production private namespaces are `private.factor.*` and `private.strategy.*`; no `latest` aliases exist.
 
 Private Asset Draft/Revision validation and admission reject semantic/provider drift and retain failed history. A future DB-native
 Revision may be exported or materialized into an isolated candidate/provider artifact when an executable Provider is required, but
@@ -632,13 +632,13 @@ only one argument is invalid; formal claim capability always requires the pair a
 
 ### DB-native Example / Private Asset Contract Parity
 
-`examples/private-assets/alpha` and `examples/private-assets/strategy` are portable import/demo seeds for the public Private Asset
+`examples/private-assets/factor` and `examples/private-assets/strategy` are portable import/demo seeds for the public Private Asset
 contracts. They are not packages, Providers, execution sources or Runtime Authority. Contract coverage imports each seed through the
 Private Asset Authority and then exercises the same validation, immutable Revision, Calculation Registry, Catalog and Runtime boundaries
 used by production assets. A hidden private-only Core integration path fails closed as `EXAMPLE_CONTRACT_COVERAGE_REQUIRED`.
 There is no hidden private-only Core integration path.
 
-Private Alpha/Strategy authoring does not require Git hooks, a PR, a wheel or a package release. Optional Git/package import-export pipelines
+Private Factor/Strategy authoring does not require Git hooks, a PR, a wheel or a package release. Optional Git/package import-export pipelines
 may still run their own validation and provenance checks. If a Revision is admitted as executable Provider content, the existing
 distribution/runtime gates validate the exact materialized artifact and Catalog/implementation closure; none of those gates transfers
 authoring Authority to Git, a package index, a branch or a release tag.

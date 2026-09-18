@@ -14,7 +14,7 @@ _PROVENANCE = Path("src/onlyalpha/research/provenance.py")
 _GENERATION = Path(
     "packages/onlyalpha-authoring-execution-worker/src/onlyalpha_authoring_execution_worker/generation.py"
 )
-_MIGRATION = Path("database/postgres/migrations/0028_private_alpha_strategy_vocabulary.sql")
+_MIGRATION = Path("database/postgres/migrations/0029_private_factor_strategy_vocabulary.sql")
 _PRODUCT = Path("src/onlyalpha/application/product_boundary.py")
 _HTTP = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server/research/run_schema.py")
 _HTTP_MAIN = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py")
@@ -56,21 +56,24 @@ def test_pa1_private_asset_boundary_contains_no_source_execution_path() -> None:
 
 def test_revision_store_has_no_semantic_update_or_delete_api() -> None:
     source = _PERSISTENCE.read_text(encoding="utf-8")
-    assert "UPDATE private_alpha_revision" not in source
+    assert "UPDATE private_factor_revision" not in source
     assert "UPDATE private_strategy_revision" not in source
-    assert "DELETE FROM private_alpha_revision" not in source
+    assert "DELETE FROM private_factor_revision" not in source
     assert "DELETE FROM private_strategy_revision" not in source
 
 
 def test_revision_tables_reject_update_delete_and_truncate() -> None:
     source = _MIGRATION.read_text(encoding="utf-8")
+    strategy_migration = Path("database/postgres/migrations/0028_private_alpha_strategy_vocabulary.sql").read_text(
+        encoding="utf-8"
+    )
     history = Path("database/postgres/migrations/0027_private_asset_authoring_authority.sql").read_text(
         encoding="utf-8"
     )
     assert "BEFORE UPDATE OR DELETE OR TRUNCATE" in history
     assert "Private Asset Revisions are immutable" in history
-    assert "RENAME TO private_alpha_revision_immutable_trigger" in source
-    assert "RENAME TO private_strategy_revision_immutable_trigger" in source
+    assert "RENAME TO private_factor_revision_immutable_trigger" in source
+    assert "RENAME TO private_strategy_revision_immutable_trigger" in strategy_migration
 
 
 def test_authoring_provenance_is_db_native_and_rejects_git_shape() -> None:
@@ -112,7 +115,7 @@ def test_generation_factory_and_reader_reanchor_without_latest_or_source_executi
     assert "create_verified" in generation
     assert "OnlyPrivateAssetRevisionBindingResolver" in generation
     assert "OnlyVerifiedAuthoringGenerationReader" in generation
-    assert "load_alpha_revision" in contract and "load_strategy_revision" in contract
+    assert "load_factor_revision" in contract and "load_strategy_revision" in contract
     assert "load_latest" not in generation + contract
     assert "load_current" not in generation + contract
     for path in (_GENERATION, _PRODUCT, _HTTP):

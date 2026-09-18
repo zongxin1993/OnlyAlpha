@@ -30,6 +30,7 @@ def test_private_asset_authoring_is_database_native_without_requiring_git_packag
     architecture = Path("docs/architecture.md").read_text(encoding="utf-8")
     agent_architecture = Path("docs/agentic_alpha_discovery_architecture.md").read_text(encoding="utf-8")
     work_program = Path("docs/agent_factor_mining_work_program.md").read_text(encoding="utf-8")
+    vocabulary = Path("docs/adr/0132-canonical-quant-asset-vocabulary-finalization.md").read_text(encoding="utf-8")
     for required in (
         "PostgreSQL-backed Private Asset Authority",
         "Private L3 V1",
@@ -44,12 +45,13 @@ def test_private_asset_authoring_is_database_native_without_requiring_git_packag
     for document in (architecture, agent_architecture, work_program):
         assert "ADR 0129" in document
         assert "PR-based private-asset admission" not in document
+    assert "OPERATOR" in vocabulary and "FACTOR" in vocabulary and "STRATEGY" in vocabulary
 
 
 def test_private_examples_are_unpacked_database_import_seeds() -> None:
     root = Path("examples/private-assets")
-    assert (root / "alpha/simple_momentum/asset.json").is_file()
-    assert (root / "alpha/simple_momentum/source.py").is_file()
+    assert (root / "factor/simple_momentum/asset.json").is_file()
+    assert (root / "factor/simple_momentum/source.py").is_file()
     assert (root / "strategy/simple_momentum/strategy.json").is_file()
     assert not tuple(root.rglob("pyproject.toml"))
     assert not tuple(root.rglob("provider.py"))
@@ -62,6 +64,6 @@ def test_private_asset_contract_lane_is_provider_neutral_and_executable() -> Non
     assert "packages/onlyalpha-runtime-generation-manager/tests" in lane.paths
     assert lane.expression == "not external"
     source = Path("tests/quant_assets/test_private_asset_contract_conformance.py").read_text(encoding="utf-8")
-    assert "OnlyPrivateAlphaExecutableClosureV1" in source
-    assert "onlyalpha_alpha" not in source
+    assert "OnlyPrivateFactorExecutableClosureV1" in source
+    assert "onlyalpha_factor" not in source
     assert "onlyalpha_strategies" not in source

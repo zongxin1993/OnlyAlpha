@@ -28,7 +28,7 @@ from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_
 from .artifact_store import OnlyLocalImmutableArtifactStore
 from .builder import (
     _HOSTED_GENERATION_SEAL,
-    _PRIVATE_ALPHA_ARTIFACT_ROOT,
+    _PRIVATE_FACTOR_ARTIFACT_ROOT,
     OnlyRuntimeGenerationBuilder,
     _normalized_distribution_name,
 )
@@ -71,7 +71,7 @@ def only_verify_hosted_runtime_generation(
                 provider.content_fingerprint,
             )
             for provider in catalog.providers
-            if provider.private_alpha_snapshot is None
+            if provider.private_factor_snapshot is None
         )
     )
     expected_providers = tuple(
@@ -81,7 +81,7 @@ def only_verify_hosted_runtime_generation(
     )
     if providers != expected_providers:
         raise RuntimeError("RUNTIME_GENERATION_HOSTED_PROCESS_MISMATCH")
-    native = tuple(provider for provider in catalog.providers if provider.private_alpha_snapshot is not None)
+    native = tuple(provider for provider in catalog.providers if provider.private_factor_snapshot is not None)
     if _installed_implementations(native) != expected.implementations:
         raise RuntimeError("RUNTIME_GENERATION_HOSTED_PROCESS_MISMATCH")
 
@@ -91,9 +91,9 @@ def only_load_hosted_quant_asset_catalog(
 ) -> OnlyQuantAssetCatalogGeneration:
     distribution = only_discover_quant_asset_providers()
     native = OnlyRuntimeGenerationBuilder(
-        OnlyLocalImmutableArtifactStore(Path(sys.prefix) / _PRIVATE_ALPHA_ARTIFACT_ROOT),
+        OnlyLocalImmutableArtifactStore(Path(sys.prefix) / _PRIVATE_FACTOR_ARTIFACT_ROOT),
         Path(sys.executable),
-    ).rebuild_private_alpha_providers_from_bindings(expected.private_alpha_bindings)
+    ).rebuild_private_factor_providers_from_bindings(expected.private_factor_bindings)
     return OnlyQuantAssetCatalogGeneration((*distribution.providers, *native))
 
 

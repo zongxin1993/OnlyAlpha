@@ -1528,7 +1528,7 @@
           },
           "private_asset_kind": {
             "enum": [
-              "ALPHA",
+              "FACTOR",
               "STRATEGY"
             ],
             "title": "Private Asset Kind",

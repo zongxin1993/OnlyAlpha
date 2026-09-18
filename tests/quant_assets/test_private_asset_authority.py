@@ -5,9 +5,6 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 from onlyalpha.quant_assets import (
-    OnlyPrivateAlphaAsset,
-    OnlyPrivateAlphaDraft,
-    OnlyPrivateAlphaRevision,
     OnlyPrivateAssetCorruptError,
     OnlyPrivateAssetInvalidError,
     OnlyPrivateAssetKind,
@@ -16,6 +13,9 @@ from onlyalpha.quant_assets import (
     OnlyPrivateAssetRevisionBindingResolver,
     OnlyPrivateAssetRevisionNotFoundError,
     OnlyPrivateAssetRevisionReferenceV1,
+    OnlyPrivateFactorAsset,
+    OnlyPrivateFactorDraft,
+    OnlyPrivateFactorRevision,
     OnlyPrivateStrategyAsset,
     OnlyPrivateStrategyDraft,
     OnlyPrivateStrategyRevision,
@@ -23,14 +23,14 @@ from onlyalpha.quant_assets import (
 
 
 class _Revisions:
-    def __init__(self, alpha: OnlyPrivateAlphaRevision, strategy: OnlyPrivateStrategyRevision) -> None:
-        self.alpha = alpha
+    def __init__(self, factor: OnlyPrivateFactorRevision, strategy: OnlyPrivateStrategyRevision) -> None:
+        self.factor = factor
         self.strategy = strategy
 
-    def load_alpha_revision(self, alpha_id: str, revision_fingerprint: str) -> OnlyPrivateAlphaRevision:
-        if (alpha_id, revision_fingerprint) != (self.alpha.alpha_id, self.alpha.revision_fingerprint):
+    def load_factor_revision(self, factor_id: str, revision_fingerprint: str) -> OnlyPrivateFactorRevision:
+        if (factor_id, revision_fingerprint) != (self.factor.factor_id, self.factor.revision_fingerprint):
             raise OnlyPrivateAssetNotFoundError()
-        return self.alpha
+        return self.factor
 
     def load_strategy_revision(self, strategy_id: str, revision_fingerprint: str) -> OnlyPrivateStrategyRevision:
         if (strategy_id, revision_fingerprint) != (self.strategy.strategy_id, self.strategy.revision_fingerprint):
@@ -38,13 +38,13 @@ class _Revisions:
         return self.strategy
 
 
-def _alpha_draft(**changes: object) -> OnlyPrivateAlphaDraft:
+def _factor_draft(**changes: object) -> OnlyPrivateFactorDraft:
     values: dict[str, object] = {
-        "alpha_id": "private.alpha.momentum",
+        "factor_id": "private.factor.momentum",
         "semantic_version": "1",
         "source_text": "def calculate(api, inputs, parameters):\n    return inputs\n",
-        "alpha_api_version": 1,
-        "alpha_api_contract_fingerprint": "a" * 64,
+        "factor_api_version": 1,
+        "factor_api_contract_fingerprint": "a" * 64,
         "input_contract": {"close": {"type": "DECIMAL"}},
         "parameter_contract": {"window": {"type": "INTEGER"}},
         "output_contract": {"value": {"type": "DECIMAL"}},
@@ -54,7 +54,7 @@ def _alpha_draft(**changes: object) -> OnlyPrivateAlphaDraft:
         "tags": ("daily", "trend"),
     }
     values.update(changes)
-    return OnlyPrivateAlphaDraft(**values)  # type: ignore[arg-type]
+    return OnlyPrivateFactorDraft(**values)  # type: ignore[arg-type]
 
 
 def _strategy_draft(**changes: object) -> OnlyPrivateStrategyDraft:
@@ -64,7 +64,7 @@ def _strategy_draft(**changes: object) -> OnlyPrivateStrategyDraft:
         "definition": {
             "schema_version": 1,
             "eligibility": {"calculation": "onlyalpha.indicator.liquidity@1"},
-            "entry": {"factor": "private.alpha.momentum@1"},
+            "entry": {"factor": "private.factor.momentum@1"},
             "exit": {"operator": "<="},
         },
         "description": "Simple momentum",
@@ -75,27 +75,27 @@ def _strategy_draft(**changes: object) -> OnlyPrivateStrategyDraft:
 
 
 def test_private_asset_identity_families_are_strict() -> None:
-    assert OnlyPrivateAlphaAsset("private.alpha.momentum").alpha_id == "private.alpha.momentum"
+    assert OnlyPrivateFactorAsset("private.factor.momentum").factor_id == "private.factor.momentum"
     assert OnlyPrivateStrategyAsset("private.strategy.momentum").strategy_id == "private.strategy.momentum"
-    for invalid in ("factor.momentum", "private.strategy.momentum", "private.alpha.Momentum"):
+    for invalid in ("factor.momentum", "private.strategy.momentum", "private.factor.Momentum"):
         with pytest.raises(OnlyPrivateAssetInvalidError):
-            OnlyPrivateAlphaAsset(invalid)
-    for invalid in ("strategy.momentum", "private.alpha.momentum", "private.strategy.Momentum"):
+            OnlyPrivateFactorAsset(invalid)
+    for invalid in ("strategy.momentum", "private.factor.momentum", "private.strategy.Momentum"):
         with pytest.raises(OnlyPrivateAssetInvalidError):
             OnlyPrivateStrategyAsset(invalid)
 
 
-def test_alpha_revision_identity_separates_source_revision_semantics_and_api() -> None:
-    draft = _alpha_draft()
-    revision = OnlyPrivateAlphaRevision.from_draft(draft)
+def test_factor_revision_identity_separates_source_revision_semantics_and_api() -> None:
+    draft = _factor_draft()
+    revision = OnlyPrivateFactorRevision.from_draft(draft)
     assert revision.source_sha256 != revision.revision_fingerprint
     assert revision.semantic_version != revision.revision_fingerprint
-    assert "alpha_api_version" != "semantic_version"
-    assert OnlyPrivateAlphaRevision.from_draft(_alpha_draft()) == revision
+    assert "factor_api_version" != "semantic_version"
+    assert OnlyPrivateFactorRevision.from_draft(_factor_draft()) == revision
 
-    changed_source = OnlyPrivateAlphaRevision.from_draft(_alpha_draft(source_text=draft.source_text + "\n"))
-    changed_semantics = OnlyPrivateAlphaRevision.from_draft(_alpha_draft(semantic_version="2"))
-    changed_api = OnlyPrivateAlphaRevision.from_draft(_alpha_draft(alpha_api_contract_fingerprint="b" * 64))
+    changed_source = OnlyPrivateFactorRevision.from_draft(_factor_draft(source_text=draft.source_text + "\n"))
+    changed_semantics = OnlyPrivateFactorRevision.from_draft(_factor_draft(semantic_version="2"))
+    changed_api = OnlyPrivateFactorRevision.from_draft(_factor_draft(factor_api_contract_fingerprint="b" * 64))
     assert (
         len(
             {
@@ -115,14 +115,14 @@ def test_strategy_definition_and_revision_identity_are_deterministic_and_distinc
         _strategy_draft(
             definition={
                 "exit": {"operator": "<="},
-                "entry": {"factor": "private.alpha.momentum@1"},
+                "entry": {"factor": "private.factor.momentum@1"},
                 "eligibility": {"calculation": "onlyalpha.indicator.liquidity@1"},
                 "schema_version": 1,
             }
         )
     )
     changed = OnlyPrivateStrategyRevision.from_draft(
-        _strategy_draft(definition={"schema_version": 1, "entry": {"factor": "private.alpha.reversal@1"}})
+        _strategy_draft(definition={"schema_version": 1, "entry": {"factor": "private.factor.reversal@1"}})
     )
     assert revision == reordered
     assert revision.definition_fingerprint != revision.revision_fingerprint
@@ -131,9 +131,9 @@ def test_strategy_definition_and_revision_identity_are_deterministic_and_distinc
 
 
 def test_drafts_are_mutable_but_revisions_are_deeply_immutable() -> None:
-    draft = _alpha_draft()
+    draft = _factor_draft()
     draft.description = "Edited"
-    revision = OnlyPrivateAlphaRevision.from_draft(draft)
+    revision = OnlyPrivateFactorRevision.from_draft(draft)
     assert revision.description == "Edited"
     with pytest.raises(FrozenInstanceError):
         revision.description = "mutated"  # type: ignore[misc]
@@ -142,15 +142,15 @@ def test_drafts_are_mutable_but_revisions_are_deeply_immutable() -> None:
 
 
 def test_revision_load_detects_source_definition_and_revision_tampering() -> None:
-    alpha = OnlyPrivateAlphaRevision.from_draft(_alpha_draft())
-    source_changed = alpha.to_dict()
-    source_changed["source_text"] = alpha.source_text + "# tampered\n"
+    factor = OnlyPrivateFactorRevision.from_draft(_factor_draft())
+    source_changed = factor.to_dict()
+    source_changed["source_text"] = factor.source_text + "# tampered\n"
     with pytest.raises(OnlyPrivateAssetCorruptError, match="SOURCE_HASH"):
-        OnlyPrivateAlphaRevision.from_dict(source_changed)
-    identity_changed = alpha.to_dict()
+        OnlyPrivateFactorRevision.from_dict(source_changed)
+    identity_changed = factor.to_dict()
     identity_changed["revision_fingerprint"] = "f" * 64
     with pytest.raises(OnlyPrivateAssetCorruptError, match="REVISION_FINGERPRINT"):
-        OnlyPrivateAlphaRevision.from_dict(identity_changed)
+        OnlyPrivateFactorRevision.from_dict(identity_changed)
 
     strategy = OnlyPrivateStrategyRevision.from_draft(_strategy_draft())
     definition_changed = strategy.to_dict()
@@ -161,22 +161,22 @@ def test_revision_load_detects_source_definition_and_revision_tampering() -> Non
 
 def test_draft_cannot_be_loaded_where_revision_is_required() -> None:
     with pytest.raises(OnlyPrivateAssetInvalidError):
-        OnlyPrivateAlphaRevision.from_dict(_alpha_draft().to_dict())
+        OnlyPrivateFactorRevision.from_dict(_factor_draft().to_dict())
     with pytest.raises(OnlyPrivateAssetInvalidError):
         OnlyPrivateStrategyRevision.from_dict(_strategy_draft().to_dict())
 
 
 def test_exact_revision_reference_resolves_authority_derived_binding_without_content_input() -> None:
-    alpha = OnlyPrivateAlphaRevision.from_draft(_alpha_draft())
+    factor = OnlyPrivateFactorRevision.from_draft(_factor_draft())
     strategy = OnlyPrivateStrategyRevision.from_draft(_strategy_draft())
-    resolver = OnlyPrivateAssetRevisionBindingResolver(_Revisions(alpha, strategy))
+    resolver = OnlyPrivateAssetRevisionBindingResolver(_Revisions(factor, strategy))
 
-    alpha_binding = resolver.resolve(
-        OnlyPrivateAssetRevisionReferenceV1(OnlyPrivateAssetKind.ALPHA, alpha.alpha_id, alpha.revision_fingerprint)
+    factor_binding = resolver.resolve(
+        OnlyPrivateAssetRevisionReferenceV1(OnlyPrivateAssetKind.FACTOR, factor.factor_id, factor.revision_fingerprint)
     )
-    assert alpha_binding.private_asset_content_fingerprint == alpha.source_sha256
-    assert alpha_binding.semantic_version == alpha.semantic_version
-    assert alpha_binding.alpha_api_contract_fingerprint == alpha.alpha_api_contract_fingerprint
+    assert factor_binding.private_asset_content_fingerprint == factor.source_sha256
+    assert factor_binding.semantic_version == factor.semantic_version
+    assert factor_binding.factor_api_contract_fingerprint == factor.factor_api_contract_fingerprint
 
     strategy_binding = resolver.resolve(
         OnlyPrivateAssetRevisionReferenceV1(
@@ -184,33 +184,33 @@ def test_exact_revision_reference_resolves_authority_derived_binding_without_con
         )
     )
     assert strategy_binding.private_asset_content_fingerprint == strategy.definition_fingerprint
-    assert strategy_binding.alpha_api_version is None
+    assert strategy_binding.factor_api_version is None
 
 
 def test_exact_revision_reference_never_falls_forward_or_crosses_asset_owner() -> None:
-    alpha = OnlyPrivateAlphaRevision.from_draft(_alpha_draft())
+    factor = OnlyPrivateFactorRevision.from_draft(_factor_draft())
     resolver = OnlyPrivateAssetRevisionBindingResolver(
-        _Revisions(alpha, OnlyPrivateStrategyRevision.from_draft(_strategy_draft()))
+        _Revisions(factor, OnlyPrivateStrategyRevision.from_draft(_strategy_draft()))
     )
     for asset_id, revision in (
-        (alpha.alpha_id, "f" * 64),
-        ("private.alpha.other", alpha.revision_fingerprint),
+        (factor.factor_id, "f" * 64),
+        ("private.factor.other", factor.revision_fingerprint),
     ):
         with pytest.raises(OnlyPrivateAssetRevisionNotFoundError):
-            resolver.resolve(OnlyPrivateAssetRevisionReferenceV1(OnlyPrivateAssetKind.ALPHA, asset_id, revision))
+            resolver.resolve(OnlyPrivateAssetRevisionReferenceV1(OnlyPrivateAssetKind.FACTOR, asset_id, revision))
 
     class WrongOwner(_Revisions):
-        def load_alpha_revision(self, alpha_id: str, revision_fingerprint: str) -> OnlyPrivateAlphaRevision:
-            del alpha_id, revision_fingerprint
-            return alpha
+        def load_factor_revision(self, factor_id: str, revision_fingerprint: str) -> OnlyPrivateFactorRevision:
+            del factor_id, revision_fingerprint
+            return factor
 
     with pytest.raises(OnlyPrivateAssetReferenceMismatchError):
         OnlyPrivateAssetRevisionBindingResolver(
-            WrongOwner(alpha, OnlyPrivateStrategyRevision.from_draft(_strategy_draft()))
+            WrongOwner(factor, OnlyPrivateStrategyRevision.from_draft(_strategy_draft()))
         ).resolve(
             OnlyPrivateAssetRevisionReferenceV1(
-                OnlyPrivateAssetKind.ALPHA,
-                "private.alpha.other",
+                OnlyPrivateAssetKind.FACTOR,
+                "private.factor.other",
                 "f" * 64,
             )
         )

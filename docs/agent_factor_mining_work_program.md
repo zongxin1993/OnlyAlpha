@@ -24,7 +24,7 @@ Dataset Snapshot
 → Promotion
 ```
 
-Private Alpha/Strategy asset identity, database-native Draft/Revision authoring, experiment provenance, immutable distributions, Catalog
+Private Factor/Strategy asset identity, database-native Draft/Revision authoring, experiment provenance, immutable distributions, Catalog
 Generation, exact authoring execution generation, and evidence-backed Qualification/Promotion are now formalized by the current
 architecture and ADRs, especially ADR 0129.
 
@@ -236,11 +236,11 @@ Useful ideas:
 
    Qlib’s expression/data pipeline demonstrates that a large factor space can be represented as composable operations rather than one Python strategy class per idea.
 
-   OnlyAlpha already has the canonical equivalent direction in `OnlyCalculationGraphDefinition` and Operator/Indicator/Alpha quant-asset layers.
+   OnlyAlpha already has the canonical equivalent direction in `OnlyCalculationGraphDefinition` and the Operator/Indicator/Factor/Strategy quant-asset vocabulary.
 
 2. **Loose coupling of data, learning, workflow, backtest, and analysis**
 
-   OnlyAlpha should preserve the same separation principle while retaining its own stronger Authority/recovery/evidence contracts.
+OnlyAlpha should preserve the same separation principle while retaining its own stronger Authority/recovery/evidence contracts.
 
 3. **Reusable experimental workflow**
 
@@ -848,7 +848,7 @@ Known duplicate or already-explored candidates are rejected/skipped before Resea
 
 ---
 
-### B3.6 — Isolated Alpha Code Generation & Admission
+### B3.6 — Isolated Factor Code Generation & Admission
 
 **Goal**
 
@@ -875,7 +875,7 @@ interoperability paths, not required production authoring authority.
 
 **Gate**
 
-An Agent-generated Alpha candidate can move from isolated experiment to formal admitted asset only through the same private-asset lifecycle as human-authored assets.
+An Agent-generated Factor candidate can move from isolated experiment to formal admitted asset only through the same private-asset lifecycle as human-authored assets.
 
 ---
 
@@ -973,7 +973,7 @@ B3.4 LLM Agent Orchestrator MVP
         ↓
 B3.5 Novelty / Experiment Memory
         ↓
-B3.6 Alpha Code Generation / Admission
+B3.6 Factor Code Generation / Admission
         ↓
 B3.7 Factor Pool Search
         ↓
@@ -1136,7 +1136,7 @@ OnlyAlpha
 → stable Kernel, Calculation/Research/Evidence/Qualification/API contracts
 
 Private Asset Authority / PostgreSQL
-→ production Private Alpha/Strategy Assets, mutable Drafts and immutable Revisions; stored source is not execution permission
+→ production Private Factor/Strategy Assets, mutable Drafts and immutable Revisions; stored source is not execution permission
 
 examples/private-assets/
 → portable import/demo seeds; never authoring or Runtime Authority
@@ -1148,7 +1148,7 @@ OnlyAlpha-Agent
 OnlyAlpha-Agent should depend on the formal public API/client and authoring workflows, not on private internal Kernel implementation imports.
 
 The implemented PA-1 foundation covers database-native identity, Draft/Revision publication, exact durable reads and DB-native Research
-Authoring Provenance. Private Alpha native validation/materialization and exact Runtime binding are implemented through Revision-derived
+Authoring Provenance. Private Factor native validation/materialization and exact Runtime binding are implemented through Revision-derived
 artifacts; Registry/Search Projection and Product HTTP/Web/Agent authoring surfaces remain later work.
 
 Search algorithms belong with the Agent/research-control side unless they are proven generic deterministic quantitative semantics needed independently of Agent orchestration.
@@ -1179,7 +1179,7 @@ The program is successful when a new alpha idea can move through this chain with
 ```text
 Human / Paper / Agent hypothesis
         ↓
-Search / Composition / isolated Alpha candidate
+Search / Composition / isolated Factor candidate
         ↓
 Experiment identity + exact provenance
         ↓
@@ -1189,7 +1189,7 @@ Immutable Evidence
         ↓
 Evidence-backed Qualification
         ↓
-Private Alpha admission when required
+Private Factor admission when required
         ↓
 Factor Pool / Strategy Research
         ↓

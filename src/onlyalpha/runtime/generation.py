@@ -23,7 +23,7 @@ from onlyalpha.distribution import (
 from onlyalpha.distribution import (
     OnlyDistributionArtifactRole as OnlyDistributionArtifactRole,
 )
-from onlyalpha.quant_assets.private_alpha_execution import OnlyPrivateAlphaProviderSnapshotEntryV1
+from onlyalpha.quant_assets.private_factor_execution import OnlyPrivateFactorProviderSnapshotEntryV1
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _IDENTITY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,255}$")
@@ -94,14 +94,14 @@ class OnlyRuntimeProviderBinding:
 
 
 @dataclass(frozen=True, order=True, slots=True)
-class OnlyRuntimePrivateAlphaBinding:
+class OnlyRuntimePrivateFactorBinding:
     provider_snapshot_fingerprint: str
     runtime_artifact_fingerprint: str
-    entry: OnlyPrivateAlphaProviderSnapshotEntryV1
+    entry: OnlyPrivateFactorProviderSnapshotEntryV1
 
     def __post_init__(self) -> None:
-        _sha(self.provider_snapshot_fingerprint, "RUNTIME_GENERATION_PRIVATE_ALPHA_MISMATCH")
-        _sha(self.runtime_artifact_fingerprint, "RUNTIME_GENERATION_PRIVATE_ALPHA_MISMATCH")
+        _sha(self.provider_snapshot_fingerprint, "RUNTIME_GENERATION_PRIVATE_FACTOR_MISMATCH")
+        _sha(self.runtime_artifact_fingerprint, "RUNTIME_GENERATION_PRIVATE_FACTOR_MISMATCH")
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -111,13 +111,13 @@ class OnlyRuntimePrivateAlphaBinding:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, object]) -> OnlyRuntimePrivateAlphaBinding:
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyRuntimePrivateFactorBinding:
         _exact(payload, {"provider_snapshot_fingerprint", "runtime_artifact_fingerprint", "entry"})
         entry = _mapping(payload, "entry")
         return cls(
             _string(payload, "provider_snapshot_fingerprint"),
             _string(payload, "runtime_artifact_fingerprint"),
-            OnlyPrivateAlphaProviderSnapshotEntryV1.from_dict(entry),
+            OnlyPrivateFactorProviderSnapshotEntryV1.from_dict(entry),
         )
 
 
@@ -129,7 +129,7 @@ class OnlyRuntimeGenerationManifest:
     providers: tuple[OnlyRuntimeProviderBinding, ...]
     catalog_generation_fingerprint: str
     implementations: tuple[OnlyArtifactCalculationImplementation, ...]
-    private_alpha_bindings: tuple[OnlyRuntimePrivateAlphaBinding, ...] = ()
+    private_factor_bindings: tuple[OnlyRuntimePrivateFactorBinding, ...] = ()
     schema_version: int = 1
 
     def __post_init__(self) -> None:
@@ -139,7 +139,7 @@ class OnlyRuntimeGenerationManifest:
         artifacts = tuple(sorted(self.artifact_sha256s))
         providers = tuple(sorted(self.providers))
         implementations = tuple(sorted(self.implementations))
-        private_alpha = tuple(sorted(self.private_alpha_bindings))
+        private_factor = tuple(sorted(self.private_factor_bindings))
         for values in (manifests, artifacts):
             if not values or len(values) != len(set(values)):
                 raise ValueError("RUNTIME_GENERATION_MANIFEST_INVALID")
@@ -154,31 +154,31 @@ class OnlyRuntimeGenerationManifest:
             raise ValueError("RUNTIME_GENERATION_PROVIDER_MISMATCH")
         if len(implementations) != len(set(implementations)):
             raise ValueError("RUNTIME_GENERATION_IMPLEMENTATION_MISMATCH")
-        if len(private_alpha) != len(set(private_alpha)) or len({item.entry.alpha_id for item in private_alpha}) != len(
-            private_alpha
-        ):
-            raise ValueError("RUNTIME_GENERATION_PRIVATE_ALPHA_MISMATCH")
+        if len(private_factor) != len(set(private_factor)) or len(
+            {item.entry.factor_id for item in private_factor}
+        ) != len(private_factor):
+            raise ValueError("RUNTIME_GENERATION_PRIVATE_FACTOR_MISMATCH")
         required_private_implementations = {
             OnlyArtifactCalculationImplementation(
                 "FACTOR",
-                item.entry.alpha_id,
+                item.entry.factor_id,
                 item.entry.semantic_version,
                 backend,
                 fingerprint,
             )
-            for item in private_alpha
+            for item in private_factor
             for backend, fingerprint in (
                 ("RESEARCH", item.entry.research_implementation_fingerprint),
                 ("TRADING", item.entry.trading_implementation_fingerprint),
             )
         }
         if not required_private_implementations <= set(implementations):
-            raise ValueError("RUNTIME_GENERATION_PRIVATE_ALPHA_MISMATCH")
+            raise ValueError("RUNTIME_GENERATION_PRIVATE_FACTOR_MISMATCH")
         object.__setattr__(self, "artifact_manifest_fingerprints", manifests)
         object.__setattr__(self, "artifact_sha256s", artifacts)
         object.__setattr__(self, "providers", providers)
         object.__setattr__(self, "implementations", implementations)
-        object.__setattr__(self, "private_alpha_bindings", private_alpha)
+        object.__setattr__(self, "private_factor_bindings", private_factor)
 
     @property
     def runtime_generation_fingerprint(self) -> str:
@@ -193,7 +193,7 @@ class OnlyRuntimeGenerationManifest:
             "providers": [item.to_dict() for item in self.providers],
             "catalog_generation_fingerprint": self.catalog_generation_fingerprint,
             "implementations": [item.to_dict() for item in self.implementations],
-            "private_alpha_bindings": [item.to_dict() for item in self.private_alpha_bindings],
+            "private_factor_bindings": [item.to_dict() for item in self.private_factor_bindings],
         }
         if include_fingerprint:
             result["runtime_generation_fingerprint"] = self.runtime_generation_fingerprint
@@ -209,7 +209,7 @@ class OnlyRuntimeGenerationManifest:
             "providers",
             "catalog_generation_fingerprint",
             "implementations",
-            "private_alpha_bindings",
+            "private_factor_bindings",
             "runtime_generation_fingerprint",
         }
         _exact(payload, expected)
@@ -224,8 +224,8 @@ class OnlyRuntimeGenerationManifest:
                 for item in _mapping_list(payload, "implementations")
             ),
             tuple(
-                OnlyRuntimePrivateAlphaBinding.from_dict(item)
-                for item in _mapping_list(payload, "private_alpha_bindings")
+                OnlyRuntimePrivateFactorBinding.from_dict(item)
+                for item in _mapping_list(payload, "private_factor_bindings")
             ),
             _integer(payload, "schema_version"),
         )
@@ -245,7 +245,7 @@ class OnlyRuntimeGenerationValidationEvidence:
     providers: tuple[OnlyRuntimeProviderBinding, ...]
     catalog_generation_fingerprint: str
     implementations: tuple[OnlyArtifactCalculationImplementation, ...]
-    private_alpha_bindings: tuple[OnlyRuntimePrivateAlphaBinding, ...] = ()
+    private_factor_bindings: tuple[OnlyRuntimePrivateFactorBinding, ...] = ()
     validation_contract_version: str = "ONLYALPHA_RUNTIME_GENERATION_VALIDATION@1"
     schema_version: int = 1
 
@@ -268,7 +268,7 @@ class OnlyRuntimeGenerationValidationEvidence:
             raise ValueError("RUNTIME_GENERATION_VALIDATION_EVIDENCE_INVALID")
         if self.implementations != tuple(sorted(set(self.implementations))):
             raise ValueError("RUNTIME_GENERATION_VALIDATION_EVIDENCE_INVALID")
-        if self.private_alpha_bindings != tuple(sorted(set(self.private_alpha_bindings))):
+        if self.private_factor_bindings != tuple(sorted(set(self.private_factor_bindings))):
             raise ValueError("RUNTIME_GENERATION_VALIDATION_EVIDENCE_INVALID")
 
     @classmethod
@@ -281,7 +281,7 @@ class OnlyRuntimeGenerationValidationEvidence:
             providers=manifest.providers,
             catalog_generation_fingerprint=manifest.catalog_generation_fingerprint,
             implementations=manifest.implementations,
-            private_alpha_bindings=manifest.private_alpha_bindings,
+            private_factor_bindings=manifest.private_factor_bindings,
         )
 
     def verifies(self, manifest: OnlyRuntimeGenerationManifest) -> bool:
@@ -302,7 +302,7 @@ class OnlyRuntimeGenerationValidationEvidence:
             "providers": [item.to_dict() for item in self.providers],
             "catalog_generation_fingerprint": self.catalog_generation_fingerprint,
             "implementations": [item.to_dict() for item in self.implementations],
-            "private_alpha_bindings": [item.to_dict() for item in self.private_alpha_bindings],
+            "private_factor_bindings": [item.to_dict() for item in self.private_factor_bindings],
         }
         if include_fingerprint:
             result["validation_evidence_fingerprint"] = self.validation_evidence_fingerprint
@@ -322,7 +322,7 @@ class OnlyRuntimeGenerationValidationEvidence:
                 "providers",
                 "catalog_generation_fingerprint",
                 "implementations",
-                "private_alpha_bindings",
+                "private_factor_bindings",
                 "validation_evidence_fingerprint",
             },
         )
@@ -337,9 +337,9 @@ class OnlyRuntimeGenerationValidationEvidence:
                 OnlyArtifactCalculationImplementation.from_dict(item)
                 for item in _mapping_list(payload, "implementations")
             ),
-            private_alpha_bindings=tuple(
-                OnlyRuntimePrivateAlphaBinding.from_dict(item)
-                for item in _mapping_list(payload, "private_alpha_bindings")
+            private_factor_bindings=tuple(
+                OnlyRuntimePrivateFactorBinding.from_dict(item)
+                for item in _mapping_list(payload, "private_factor_bindings")
             ),
             validation_contract_version=_string(payload, "validation_contract_version"),
             schema_version=_integer(payload, "schema_version"),

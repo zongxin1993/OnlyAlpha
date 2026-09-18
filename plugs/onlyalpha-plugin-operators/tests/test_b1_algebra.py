@@ -332,9 +332,9 @@ def test_cross_section_p0_is_research_only_and_preserves_missing(type_definition
 def test_p0_discovery_and_provider_version_are_complete() -> None:
     provider = quant_asset_provider()
     assert provider.manifest.provider_id == "onlyalpha.operator.library"
-    assert provider.manifest.provider_version == "4"
+    assert provider.manifest.provider_version == "5"
     assert {item.type_definition for item in provider.calculation_registrations} == set(P0_TYPES)
-    assert provider.content_fingerprint == "aa0131efd0f7c9c033ca4423fa4b20ad70940cba3f41f4782b870f62ccdba122"
+    assert provider.content_fingerprint == "9979602dac96a43c129660d3d13edb1f1b5372f30fe42d36535f5de9ad39c367"
     assert all(
         any(
             dependency.dependency_id == "onlyalpha.decimal.execution"

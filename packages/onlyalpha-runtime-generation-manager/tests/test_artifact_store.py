@@ -6,11 +6,11 @@ import pytest
 from onlyalpha_runtime_generation_manager import OnlyLocalImmutableArtifactStore
 
 from onlyalpha.quant_assets import (
-    ONLY_PRIVATE_ALPHA_API_V1,
-    OnlyPrivateAlphaDraft,
-    OnlyPrivateAlphaRevision,
-    OnlyPrivateAlphaSourceArtifactManifestV1,
-    only_validate_private_alpha_revision,
+    ONLY_PRIVATE_FACTOR_API_V1,
+    OnlyPrivateFactorDraft,
+    OnlyPrivateFactorRevision,
+    OnlyPrivateFactorSourceArtifactManifestV1,
+    only_validate_private_factor_revision,
 )
 from onlyalpha.runtime.generation import (
     OnlyArtifactSourceProvenanceAuthority,
@@ -66,14 +66,14 @@ def test_corrupt_stored_bytes_fail_closed(tmp_path: Path) -> None:
         store.fetch_exact(manifest.artifact_sha256)
 
 
-def test_private_alpha_source_artifact_is_native_immutable_and_tamper_closed(tmp_path: Path) -> None:
-    revision = OnlyPrivateAlphaRevision.from_draft(
-        OnlyPrivateAlphaDraft(
-            alpha_id="private.alpha.store",
+def test_private_factor_source_artifact_is_native_immutable_and_tamper_closed(tmp_path: Path) -> None:
+    revision = OnlyPrivateFactorRevision.from_draft(
+        OnlyPrivateFactorDraft(
+            factor_id="private.factor.store",
             semantic_version="1",
             source_text="def calculate(api, inputs, parameters):\n    return inputs\n",
-            alpha_api_version=1,
-            alpha_api_contract_fingerprint=ONLY_PRIVATE_ALPHA_API_V1.api_contract_fingerprint,
+            factor_api_version=1,
+            factor_api_contract_fingerprint=ONLY_PRIVATE_FACTOR_API_V1.api_contract_fingerprint,
             input_contract={},
             parameter_contract={},
             output_contract={},
@@ -82,20 +82,20 @@ def test_private_alpha_source_artifact_is_native_immutable_and_tamper_closed(tmp
             category="test",
         )
     )
-    artifact, source = OnlyPrivateAlphaSourceArtifactManifestV1.materialize(
-        revision, only_validate_private_alpha_revision(revision)
+    artifact, source = OnlyPrivateFactorSourceArtifactManifestV1.materialize(
+        revision, only_validate_private_factor_revision(revision)
     )
     store = OnlyLocalImmutableArtifactStore(tmp_path)
-    path = store.put_private_alpha_source(artifact, source)
+    path = store.put_private_factor_source(artifact, source)
     assert path.name == "source.py"
-    assert store.fetch_private_alpha_source(artifact.source_artifact_fingerprint) == (artifact, source)
+    assert store.fetch_private_factor_source(artifact.source_artifact_fingerprint) == (artifact, source)
     path.write_bytes(b"tamper")
-    with pytest.raises(ValueError, match="PRIVATE_ALPHA_SOURCE_ARTIFACT_MISMATCH"):
-        store.fetch_private_alpha_source(artifact.source_artifact_fingerprint)
+    with pytest.raises(ValueError, match="PRIVATE_FACTOR_SOURCE_ARTIFACT_MISMATCH"):
+        store.fetch_private_factor_source(artifact.source_artifact_fingerprint)
     path.write_bytes(source)
-    _, manifest_path = store._private_alpha_paths(artifact.source_artifact_fingerprint)
+    _, manifest_path = store._private_factor_paths(artifact.source_artifact_fingerprint)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     del payload["source_artifact_fingerprint"]
     manifest_path.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="PRIVATE_ALPHA_SOURCE_ARTIFACT_MISMATCH"):
-        store.fetch_private_alpha_source(artifact.source_artifact_fingerprint)
+    with pytest.raises(ValueError, match="PRIVATE_FACTOR_SOURCE_ARTIFACT_MISMATCH"):
+        store.fetch_private_factor_source(artifact.source_artifact_fingerprint)

@@ -4,18 +4,29 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
+from typing import cast
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 from onlyalpha.quant_assets import (
-    OnlyPrivateAlphaExecutableClosureV1,
-    OnlyPrivateAlphaSnapshotProviderSource,
+    OnlyPrivateFactorAdapterV1,
+    OnlyPrivateFactorExecutableClosureV1,
+    OnlyPrivateFactorIsolatedProgramHost,
+    OnlyPrivateFactorProviderSnapshotEntryV1,
+    OnlyPrivateFactorProviderSnapshotV1,
+    OnlyPrivateFactorResearchTradingEquivalenceEvidenceV1,
+    OnlyPrivateFactorRevision,
+    OnlyPrivateFactorSnapshotProviderSource,
+    OnlyPrivateFactorSourceArtifactManifestV1,
     OnlyQuantAssetCatalogGeneration,
     OnlyQuantAssetKind,
     OnlyQuantAssetProvider,
     OnlyQuantAssetProviderManifest,
 )
+from onlyalpha.quant_assets.catalog import only_quant_asset_provider_source_from_dict
 from onlyalpha.quant_assets.private import (
     OnlyPrivateAssetAuthorityUnavailableError,
     OnlyPrivateAssetKind,
@@ -23,6 +34,11 @@ from onlyalpha.quant_assets.private import (
     OnlyPrivateAssetRevisionCorruptError,
     OnlyPrivateAssetRevisionNotFoundError,
     OnlyPrivateAssetRevisionReferenceV1,
+)
+from onlyalpha.quant_assets.private_factor_execution import (
+    _ADAPTER_FINGERPRINTS,
+    only_private_factor_backend_registrations,
+    only_validate_private_factor_revision,
 )
 from onlyalpha.research.provenance import (
     OnlyResearchAuthoringProvenance,
@@ -67,6 +83,7 @@ class OnlyAuthoringExecutionGeneration:
 
     provenance: OnlyResearchAuthoringProvenance
     catalog: OnlyQuantAssetCatalogGeneration
+    private_factor_executable_closure: OnlyPrivateFactorExecutableClosureV1
 
     @classmethod
     def create_verified(
@@ -75,42 +92,42 @@ class OnlyAuthoringExecutionGeneration:
         experiment_id: str,
         private_asset_revision_reference: OnlyPrivateAssetRevisionReferenceV1,
         private_asset_revisions: OnlyPrivateAssetRevisionBindingResolver,
-        private_alpha_executable_closure: OnlyPrivateAlphaExecutableClosureV1,
+        private_factor_executable_closure: OnlyPrivateFactorExecutableClosureV1,
         candidate_provider_id: str,
         base_catalog: OnlyQuantAssetCatalogGeneration,
     ) -> OnlyAuthoringExecutionGeneration:
         binding = private_asset_revisions.resolve(private_asset_revision_reference)
-        if binding.private_asset_kind is not OnlyPrivateAssetKind.ALPHA:
+        if binding.private_asset_kind is not OnlyPrivateAssetKind.FACTOR:
             raise ValueError("AUTHORING_EXECUTION_PRIVATE_ASSET_KIND_UNSUPPORTED")
-        closure = private_alpha_executable_closure
-        OnlyPrivateAlphaExecutableClosureV1.verify_canonical(closure)
+        closure = private_factor_executable_closure
+        OnlyPrivateFactorExecutableClosureV1.verify_canonical(closure)
         revision = closure.revision
         if (
-            revision.alpha_id != binding.private_asset_id
+            revision.factor_id != binding.private_asset_id
             or revision.semantic_version != binding.semantic_version
             or revision.revision_fingerprint != binding.private_asset_revision_fingerprint
             or revision.source_sha256 != binding.private_asset_content_fingerprint
-            or revision.alpha_api_version != binding.alpha_api_version
-            or revision.alpha_api_contract_fingerprint != binding.alpha_api_contract_fingerprint
+            or revision.factor_api_version != binding.factor_api_version
+            or revision.factor_api_contract_fingerprint != binding.factor_api_contract_fingerprint
         ):
-            raise ValueError("AUTHORING_PRIVATE_ALPHA_EXECUTION_BINDING_MISMATCH")
+            raise ValueError("AUTHORING_PRIVATE_FACTOR_EXECUTION_BINDING_MISMATCH")
         if any(provider.manifest.provider_id == candidate_provider_id for provider in base_catalog.providers):
             raise ValueError("AUTHORING_CANDIDATE_PROVIDER_DUPLICATE")
         provider = OnlyQuantAssetProvider(
             OnlyQuantAssetProviderManifest(
                 candidate_provider_id,
                 revision.revision_fingerprint,
-                OnlyQuantAssetKind.ALPHA,
-                OnlyPrivateAlphaSnapshotProviderSource(closure.provider_snapshot.snapshot_fingerprint),
+                OnlyQuantAssetKind.FACTOR,
+                OnlyPrivateFactorSnapshotProviderSource(closure.provider_snapshot.snapshot_fingerprint),
             ),
             calculation_registrations=closure.registrations,
-            private_alpha_snapshot=closure.provider_snapshot,
+            private_factor_snapshot=closure.provider_snapshot,
         )
         catalog = OnlyQuantAssetCatalogGeneration((*base_catalog.providers, provider))
         provenance = OnlyResearchAuthoringProvenance(
             schema_version=1,
             experiment_id=experiment_id,
-            private_asset_kind=OnlyPrivateAssetKind.ALPHA,
+            private_asset_kind=OnlyPrivateAssetKind.FACTOR,
             private_asset_id=binding.private_asset_id,
             private_asset_revision_fingerprint=binding.private_asset_revision_fingerprint,
             private_asset_content_fingerprint=binding.private_asset_content_fingerprint,
@@ -120,7 +137,7 @@ class OnlyAuthoringExecutionGeneration:
             catalog_generation_fingerprint=catalog.generation_fingerprint,
             execution_generation_fingerprint=only_research_execution_generation_fingerprint(
                 experiment_id=experiment_id,
-                private_asset_kind=OnlyPrivateAssetKind.ALPHA,
+                private_asset_kind=OnlyPrivateAssetKind.FACTOR,
                 private_asset_id=binding.private_asset_id,
                 private_asset_revision_fingerprint=binding.private_asset_revision_fingerprint,
                 private_asset_content_fingerprint=binding.private_asset_content_fingerprint,
@@ -130,24 +147,26 @@ class OnlyAuthoringExecutionGeneration:
                 catalog_generation_fingerprint=catalog.generation_fingerprint,
             ),
         )
-        return cls._from_verified(provenance, catalog)
+        return cls._from_verified(provenance, catalog, closure)
 
     @classmethod
     def _from_verified(
         cls,
         provenance: OnlyResearchAuthoringProvenance,
         catalog: OnlyQuantAssetCatalogGeneration,
+        closure: OnlyPrivateFactorExecutableClosureV1,
     ) -> OnlyAuthoringExecutionGeneration:
         self = object.__new__(cls)
         object.__setattr__(self, "provenance", provenance)
         object.__setattr__(self, "catalog", catalog)
+        object.__setattr__(self, "private_factor_executable_closure", closure)
         self._verify_composition()
         return self
 
     def _verify_composition(self) -> None:
         if self.catalog.generation_fingerprint != self.provenance.catalog_generation_fingerprint:
             raise ValueError("AUTHORING_CATALOG_GENERATION_MISMATCH")
-        if self.provenance.private_asset_kind is not OnlyPrivateAssetKind.ALPHA:
+        if self.provenance.private_asset_kind is not OnlyPrivateAssetKind.FACTOR:
             raise ValueError("AUTHORING_EXECUTION_PRIVATE_ASSET_KIND_UNSUPPORTED")
         matches = tuple(
             provider
@@ -160,7 +179,7 @@ class OnlyAuthoringExecutionGeneration:
             or matches[0].content_fingerprint != self.provenance.candidate_provider_content_fingerprint
         ):
             raise ValueError("AUTHORING_CANDIDATE_PROVIDER_MISMATCH")
-        if matches[0].manifest.kind is not OnlyQuantAssetKind.ALPHA:
+        if matches[0].manifest.kind is not OnlyQuantAssetKind.FACTOR:
             raise ValueError("AUTHORING_CANDIDATE_PROVIDER_KIND_MISMATCH")
 
     @property
@@ -173,6 +192,14 @@ class OnlyAuthoringExecutionGeneration:
             "execution_generation_fingerprint": self.fingerprint,
             "provenance": self.provenance.identity_dict(),
             "catalog": self.catalog.descriptor(),
+            "private_factor_execution": {
+                "source_artifact": self.private_factor_executable_closure.source_artifact.to_dict(),
+                "equivalence_evidence": self.private_factor_executable_closure.equivalence_evidence.to_dict(),
+                "certification_vectors": [
+                    dict(item) for item in self.private_factor_executable_closure.certification_vectors
+                ],
+                "certification_parameters": dict(self.private_factor_executable_closure.certification_parameters),
+            },
         }
 
     def engine_services(self) -> OnlyEngineServices:
@@ -226,7 +253,14 @@ class OnlyAuthoringExecutionGenerationStore:
             descriptor = json.loads(raw)
             if (
                 not isinstance(descriptor, dict)
-                or set(descriptor) != {"schema_version", "execution_generation_fingerprint", "provenance", "catalog"}
+                or set(descriptor)
+                != {
+                    "schema_version",
+                    "execution_generation_fingerprint",
+                    "provenance",
+                    "catalog",
+                    "private_factor_execution",
+                }
                 or raw != only_canonical_json(descriptor) + "\n"
             ):
                 raise ValueError("descriptor is not canonical")
@@ -258,7 +292,7 @@ class OnlyAuthoringExecutionGenerationStore:
                 )
                 != provenance.catalog_generation_fingerprint
                 or len(matches) != 1
-                or matches[0]["manifest"].get("kind") != OnlyQuantAssetKind.ALPHA.value
+                or matches[0]["manifest"].get("kind") != OnlyQuantAssetKind.FACTOR.value
             ):
                 raise ValueError("descriptor identity")
             return descriptor
@@ -310,7 +344,157 @@ class OnlyVerifiedAuthoringGenerationReader:
             or binding.private_asset_content_fingerprint != provenance.private_asset_content_fingerprint
         ):
             raise OnlyAuthoringPrivateAssetBindingMismatchError()
+        try:
+            revision = self._private_asset_revisions.resolve_factor_revision(reference)
+            self._verify_native_factor_closure(descriptor, provenance, revision)
+        except (
+            KeyError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise OnlyAuthoringPrivateAssetBindingMismatchError() from exc
         return descriptor, provenance
+
+    @staticmethod
+    def _verify_native_factor_closure(
+        descriptor: Mapping[str, object],
+        provenance: OnlyResearchAuthoringProvenance,
+        revision: object,
+    ) -> None:
+        if not hasattr(revision, "factor_id"):
+            raise ValueError("AUTHORING_PRIVATE_FACTOR_REVISION_INVALID")
+        factor_revision = cast(OnlyPrivateFactorRevision, revision)
+        catalog = descriptor["catalog"]
+        execution = descriptor["private_factor_execution"]
+        if not isinstance(catalog, Mapping) or not isinstance(execution, Mapping):
+            raise ValueError("AUTHORING_PRIVATE_FACTOR_CLOSURE_INVALID")
+        if set(execution) != {
+            "source_artifact",
+            "equivalence_evidence",
+            "certification_vectors",
+            "certification_parameters",
+        }:
+            raise ValueError("AUTHORING_PRIVATE_FACTOR_CLOSURE_INVALID")
+        providers = catalog.get("providers")
+        if not isinstance(providers, list):
+            raise ValueError("AUTHORING_PRIVATE_FACTOR_CLOSURE_INVALID")
+        candidates = [
+            provider
+            for provider in providers
+            if isinstance(provider, Mapping)
+            and isinstance(provider.get("manifest"), Mapping)
+            and provider["manifest"].get("provider_id") == provenance.candidate_provider_id
+            and provider["manifest"].get("provider_version") == provenance.candidate_provider_version
+        ]
+        if len(candidates) != 1 or not isinstance(candidates[0], Mapping):
+            raise ValueError("AUTHORING_PRIVATE_FACTOR_PROVIDER_INVALID")
+        candidate = candidates[0]
+        manifest_raw = candidate.get("manifest")
+        source_raw = manifest_raw.get("source") if isinstance(manifest_raw, Mapping) else None
+        if (
+            not isinstance(manifest_raw, Mapping)
+            or manifest_raw.get("kind") != OnlyQuantAssetKind.FACTOR.value
+            or not isinstance(source_raw, Mapping)
+            or source_raw.get("kind") != "PRIVATE_FACTOR_SNAPSHOT"
+        ):
+            raise ValueError("AUTHORING_PRIVATE_FACTOR_PROVIDER_INVALID")
+        snapshot_raw = candidate.get("private_factor_snapshot")
+        if not isinstance(snapshot_raw, Mapping):
+            raise ValueError("AUTHORING_PRIVATE_FACTOR_SNAPSHOT_INVALID")
+        snapshot = OnlyPrivateFactorProviderSnapshotV1.from_dict(snapshot_raw)
+        if len(snapshot.entries) != 1:
+            raise ValueError("AUTHORING_PRIVATE_FACTOR_SNAPSHOT_INVALID")
+        entry = snapshot.entries[0]
+        if (
+            entry.factor_id != factor_revision.factor_id
+            or entry.semantic_version != factor_revision.semantic_version
+            or entry.revision_fingerprint != factor_revision.revision_fingerprint
+            or entry.source_sha256 != factor_revision.source_sha256
+            or entry.factor_api_version != factor_revision.factor_api_version
+            or entry.factor_api_contract_fingerprint != factor_revision.factor_api_contract_fingerprint
+            or entry.factor_id != provenance.private_asset_id
+            or entry.revision_fingerprint != provenance.private_asset_revision_fingerprint
+        ):
+            raise ValueError("AUTHORING_PRIVATE_FACTOR_SNAPSHOT_MISMATCH")
+        expected_validation = only_validate_private_factor_revision(factor_revision)
+        expected_artifact, source = OnlyPrivateFactorSourceArtifactManifestV1.materialize(
+            factor_revision, expected_validation
+        )
+        artifact_raw = execution.get("source_artifact")
+        evidence_raw = execution.get("equivalence_evidence")
+        vectors = execution.get("certification_vectors")
+        parameters = execution.get("certification_parameters")
+        if (
+            not isinstance(artifact_raw, Mapping)
+            or not isinstance(evidence_raw, Mapping)
+            or not isinstance(vectors, list)
+            or any(not isinstance(item, Mapping) for item in vectors)
+            or not isinstance(parameters, Mapping)
+        ):
+            raise ValueError("AUTHORING_PRIVATE_FACTOR_CLOSURE_INVALID")
+        artifact = OnlyPrivateFactorSourceArtifactManifestV1.from_dict(artifact_raw)
+        evidence = OnlyPrivateFactorResearchTradingEquivalenceEvidenceV1.from_dict(evidence_raw)
+        if artifact != expected_artifact:
+            raise ValueError("AUTHORING_PRIVATE_FACTOR_SOURCE_ARTIFACT_MISMATCH")
+        research = OnlyPrivateFactorAdapterV1(
+            "RESEARCH", _ADAPTER_FINGERPRINTS["RESEARCH"], OnlyPrivateFactorIsolatedProgramHost()
+        )
+        trading = OnlyPrivateFactorAdapterV1(
+            "TRADING", _ADAPTER_FINGERPRINTS["TRADING"], OnlyPrivateFactorIsolatedProgramHost()
+        )
+        registrations = only_private_factor_backend_registrations(factor_revision, artifact, source, research, trading)
+        recomputed_evidence = OnlyPrivateFactorResearchTradingEquivalenceEvidenceV1.certify(
+            artifact,
+            source,
+            registrations,
+            tuple(
+                _restore_factor_values(cast(Mapping[str, object], item), factor_revision.input_contract)
+                for item in vectors
+            ),
+            _restore_factor_values(parameters, factor_revision.parameter_contract),
+        )
+        expected_snapshot = OnlyPrivateFactorProviderSnapshotV1(
+            (OnlyPrivateFactorProviderSnapshotEntryV1.derive(expected_artifact, recomputed_evidence),)
+        )
+        if evidence != recomputed_evidence or snapshot != expected_snapshot:
+            raise ValueError("AUTHORING_PRIVATE_FACTOR_EQUIVALENCE_MISMATCH")
+        manifest = OnlyQuantAssetProviderManifest(
+            cast(str, manifest_raw["provider_id"]),
+            cast(str, manifest_raw["provider_version"]),
+            OnlyQuantAssetKind.FACTOR,
+            only_quant_asset_provider_source_from_dict(source_raw),
+            cast(int, manifest_raw.get("schema_version", 1)),
+        )
+        provider = OnlyQuantAssetProvider(
+            manifest,
+            calculation_registrations=registrations,
+            private_factor_snapshot=snapshot,
+        )
+        if (
+            provider.content_fingerprint != provenance.candidate_provider_content_fingerprint
+            or only_canonical_fingerprint(provider.descriptor()) != only_canonical_fingerprint(candidate)
+        ):
+            raise ValueError("AUTHORING_PRIVATE_FACTOR_PROVIDER_MISMATCH")
+
+
+def _restore_factor_values(values: Mapping[str, object], contract: Mapping[str, object]) -> dict[str, object]:
+    restored: dict[str, object] = {}
+    if set(values) != set(contract):
+        raise ValueError("AUTHORING_PRIVATE_FACTOR_CERTIFICATION_INPUT_MISMATCH")
+    for name, value in values.items():
+        definition = contract[name]
+        if not isinstance(definition, Mapping) or not isinstance(definition.get("type"), str):
+            raise ValueError("AUTHORING_PRIVATE_FACTOR_CERTIFICATION_CONTRACT_INVALID")
+        data_type = definition["type"]
+        if value is None or data_type in {"STRING", "BOOLEAN"}:
+            restored[name] = value
+        elif data_type == "DECIMAL":
+            restored[name] = Decimal(value) if isinstance(value, str) else value
+        elif data_type == "INTEGER":
+            restored[name] = int(value) if isinstance(value, str) else value
+        else:
+            raise ValueError("AUTHORING_PRIVATE_FACTOR_CERTIFICATION_CONTRACT_INVALID")
+    return restored
 
 
 class OnlyAuthoringExecutionGenerationRegistry:

@@ -3,7 +3,12 @@
 from collections.abc import Mapping, Sequence
 from decimal import Decimal, localcontext
 
-from onlyalpha.calculation import OnlyCalculationDefinition, only_decimal_context, only_quantize_decimal
+from onlyalpha.calculation import (
+    OnlyCalculationDefinition,
+    OnlyCanonicalValueSemanticsV1,
+    only_decimal_context,
+    only_quantize_decimal,
+)
 
 
 def evaluate(
@@ -36,17 +41,12 @@ def _at(
     name = definition.type_id.removeprefix("onlyalpha.operator.")
     if name in {"add", "subtract", "multiply", "divide"}:
         left, right = inputs["left"][index], inputs["right"][index]
-        if left is None or right is None or (name == "divide" and right == 0):
-            return None
-        if name == "add":
-            result = left + right
-        elif name == "subtract":
-            result = left - right
-        elif name == "multiply":
-            result = left * right
-        else:
-            result = left / right
-        return _q(definition, result)
+        return {
+            "add": OnlyCanonicalValueSemanticsV1(definition.numeric).add,
+            "subtract": OnlyCanonicalValueSemanticsV1(definition.numeric).sub,
+            "multiply": OnlyCanonicalValueSemanticsV1(definition.numeric).mul,
+            "divide": OnlyCanonicalValueSemanticsV1(definition.numeric).div,
+        }[name](left, right)
     value = inputs.get("value", (None,) * (index + 1))[index]
     if name in {"abs", "sign", "log", "scale"}:
         if value is None or (name == "log" and value <= 0):

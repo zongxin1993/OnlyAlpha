@@ -56,13 +56,6 @@ def only_quant_asset_distribution_artifact_manifest(
                 implementation_fingerprint=implementation.implementation_fingerprint,
             )
         )
-    for asset in provider.strategy_assets:
-        semantic_assets[("STRATEGY", asset.asset_id, asset.semantic_version)] = OnlyArtifactAssetIdentity(
-            "STRATEGY",
-            asset.asset_id,
-            asset.semantic_version,
-            asset.content_fingerprint,
-        )
     return OnlyDistributionArtifactManifest(
         role=OnlyDistributionArtifactRole.QUANT_ASSET,
         source_provenance_authority=source_provenance_authority,

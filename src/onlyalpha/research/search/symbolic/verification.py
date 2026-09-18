@@ -94,9 +94,9 @@ def verify_symbolic_search_space(
             search_space.candidate_output_contract.component_instance_fingerprint
         )
         if is_bridge:
-            if kind is not OnlyQuantAssetKind.ALPHA or reference.kind is not OnlyCalculationKind.FACTOR:
+            if kind is not OnlyQuantAssetKind.FACTOR or reference.kind is not OnlyCalculationKind.FACTOR:
                 raise OnlySymbolicSearchError(
-                    "SEARCH_CANDIDATE_OUTPUT_INVALID", "candidate component is not an admitted Alpha"
+                    "SEARCH_CANDIDATE_OUTPUT_INVALID", "candidate component is not an admitted Factor"
                 )
             bridges.append(component)
         elif kind not in {OnlyQuantAssetKind.OPERATOR, OnlyQuantAssetKind.INDICATOR}:

@@ -11,7 +11,7 @@ import pyarrow as pa  # type: ignore[import-untyped]
 import pytest
 from onlyalpha_runtime_generation_manager import OnlyLocalImmutableArtifactStore, OnlyRuntimeGenerationBuilder
 from onlyalpha_runtime_generation_manager import builder as runtime_builder_module
-from onlyalpha_test_alpha_provider.provider import quant_asset_provider as example_factor_provider
+from onlyalpha_test_factor_provider.provider import quant_asset_provider as example_factor_provider
 
 from onlyalpha.application.catalog_context import OnlyExactCatalogContextV1, only_project_exact_catalog_context
 from onlyalpha.calculation import (
@@ -21,28 +21,28 @@ from onlyalpha.calculation import (
     OnlyCanonicalValueSemanticsV1,
 )
 from onlyalpha.quant_assets import (
-    ONLY_PRIVATE_ALPHA_API_V1,
-    OnlyPrivateAlphaAdapterV1,
-    OnlyPrivateAlphaDraft,
-    OnlyPrivateAlphaExecutableClosureV1,
-    OnlyPrivateAlphaIsolatedProgramHost,
-    OnlyPrivateAlphaProviderSnapshotEntryV1,
-    OnlyPrivateAlphaProviderSnapshotV1,
-    OnlyPrivateAlphaResearchTradingEquivalenceEvidenceV1,
-    OnlyPrivateAlphaRevision,
-    OnlyPrivateAlphaSnapshotProviderSource,
-    OnlyPrivateAlphaSourceArtifactManifestV1,
-    OnlyPrivateAlphaValidationDisposition,
+    ONLY_PRIVATE_FACTOR_API_V1,
+    OnlyPrivateFactorAdapterV1,
+    OnlyPrivateFactorDraft,
+    OnlyPrivateFactorExecutableClosureV1,
+    OnlyPrivateFactorIsolatedProgramHost,
+    OnlyPrivateFactorProviderSnapshotEntryV1,
+    OnlyPrivateFactorProviderSnapshotV1,
+    OnlyPrivateFactorResearchTradingEquivalenceEvidenceV1,
+    OnlyPrivateFactorRevision,
+    OnlyPrivateFactorSnapshotProviderSource,
+    OnlyPrivateFactorSourceArtifactManifestV1,
+    OnlyPrivateFactorValidationDisposition,
     OnlyQuantAssetCatalogGeneration,
     OnlyQuantAssetKind,
     OnlyQuantAssetProvider,
     OnlyQuantAssetProviderManifest,
-    only_private_alpha_backend_registrations,
-    only_private_alpha_type_definition,
+    only_private_factor_backend_registrations,
+    only_private_factor_type_definition,
     only_quant_asset_distribution_artifact_manifest,
-    only_validate_private_alpha_revision,
+    only_validate_private_factor_revision,
 )
-from onlyalpha.quant_assets.private_alpha_execution import ONLY_PRIVATE_ALPHA_NUMERIC_V1
+from onlyalpha.quant_assets.private_factor_execution import ONLY_PRIVATE_FACTOR_NUMERIC_V1
 from onlyalpha.runtime.generation import (
     OnlyArtifactSourceProvenanceAuthority,
     OnlyCoreExecutionIdentity,
@@ -56,15 +56,15 @@ from onlyalpha.runtime.generation import (
 def _revision(
     source: str = "def calculate(api, inputs, parameters):\n    return {'value': api.sub(inputs['close'], parameters['offset'])}\n",
     **draft_changes: object,
-) -> OnlyPrivateAlphaRevision:
-    return OnlyPrivateAlphaRevision.from_draft(
+) -> OnlyPrivateFactorRevision:
+    return OnlyPrivateFactorRevision.from_draft(
         replace(
-            OnlyPrivateAlphaDraft(
-                alpha_id="private.alpha.native",
+            OnlyPrivateFactorDraft(
+                factor_id="private.factor.native",
                 semantic_version="1",
                 source_text=source,
-                alpha_api_version=1,
-                alpha_api_contract_fingerprint=ONLY_PRIVATE_ALPHA_API_V1.api_contract_fingerprint,
+                factor_api_version=1,
+                factor_api_contract_fingerprint=ONLY_PRIVATE_FACTOR_API_V1.api_contract_fingerprint,
                 input_contract={"close": {"type": "DECIMAL", "missing": True}},
                 parameter_contract={"offset": {"type": "DECIMAL"}},
                 output_contract={"value": {"type": "DECIMAL", "missing": True}},
@@ -77,18 +77,18 @@ def _revision(
     )
 
 
-def _artifact() -> tuple[OnlyPrivateAlphaRevision, OnlyPrivateAlphaSourceArtifactManifestV1, bytes]:
+def _artifact() -> tuple[OnlyPrivateFactorRevision, OnlyPrivateFactorSourceArtifactManifestV1, bytes]:
     revision = _revision()
-    evidence = only_validate_private_alpha_revision(revision)
-    assert evidence.validation_disposition is OnlyPrivateAlphaValidationDisposition.PASS
-    manifest, source = OnlyPrivateAlphaSourceArtifactManifestV1.materialize(revision, evidence)
+    evidence = only_validate_private_factor_revision(revision)
+    assert evidence.validation_disposition is OnlyPrivateFactorValidationDisposition.PASS
+    manifest, source = OnlyPrivateFactorSourceArtifactManifestV1.materialize(revision, evidence)
     return revision, manifest, source
 
 
 def _forged_closure(
-    source: OnlyPrivateAlphaExecutableClosureV1, **changes: object
-) -> OnlyPrivateAlphaExecutableClosureV1:
-    forged = object.__new__(OnlyPrivateAlphaExecutableClosureV1)
+    source: OnlyPrivateFactorExecutableClosureV1, **changes: object
+) -> OnlyPrivateFactorExecutableClosureV1:
+    forged = object.__new__(OnlyPrivateFactorExecutableClosureV1)
     for name in source.__dataclass_fields__:
         object.__setattr__(forged, name, changes.get(name, getattr(source, name)))
     return forged
@@ -96,12 +96,12 @@ def _forged_closure(
 
 def test_executable_closure_requires_canonical_producer() -> None:
     revision, artifact, source = _artifact()
-    with pytest.raises(TypeError, match="PRIVATE_ALPHA_EXECUTABLE_CLOSURE_CANONICAL_PRODUCER_REQUIRED"):
-        OnlyPrivateAlphaExecutableClosureV1()
+    with pytest.raises(TypeError, match="PRIVATE_FACTOR_EXECUTABLE_CLOSURE_CANONICAL_PRODUCER_REQUIRED"):
+        OnlyPrivateFactorExecutableClosureV1()
     with pytest.raises(TypeError):
-        OnlyPrivateAlphaExecutableClosureV1(  # type: ignore[call-arg]
+        OnlyPrivateFactorExecutableClosureV1(  # type: ignore[call-arg]
             revision,
-            only_validate_private_alpha_revision(revision),
+            only_validate_private_factor_revision(revision),
             artifact,
             source,
             (),
@@ -109,11 +109,11 @@ def test_executable_closure_requires_canonical_producer() -> None:
             object(),
         )
 
-    closure = OnlyPrivateAlphaExecutableClosureV1.create(
+    closure = OnlyPrivateFactorExecutableClosureV1.create(
         revision,
         ({"close": Decimal("1")},),
         {"offset": Decimal("0")},
-        host=OnlyPrivateAlphaIsolatedProgramHost(3),
+        host=OnlyPrivateFactorIsolatedProgramHost(3),
     )
     assert closure.revision == revision
     forged = _forged_closure(
@@ -124,25 +124,25 @@ def test_executable_closure_requires_canonical_producer() -> None:
             trading_output_fingerprint="f" * 64,
         ),
     )
-    with pytest.raises(ValueError, match="PRIVATE_ALPHA_EXECUTABLE_CLOSURE_MISMATCH"):
+    with pytest.raises(ValueError, match="PRIVATE_FACTOR_EXECUTABLE_CLOSURE_MISMATCH"):
         forged.verify_canonical()
-    host = OnlyPrivateAlphaIsolatedProgramHost(3)
-    forged_registrations = only_private_alpha_backend_registrations(
+    host = OnlyPrivateFactorIsolatedProgramHost(3)
+    forged_registrations = only_private_factor_backend_registrations(
         closure.revision,
         closure.source_artifact,
         closure.source,
-        OnlyPrivateAlphaAdapterV1("RESEARCH", "e" * 64, host),
-        OnlyPrivateAlphaAdapterV1("TRADING", "d" * 64, host),
+        OnlyPrivateFactorAdapterV1("RESEARCH", "e" * 64, host),
+        OnlyPrivateFactorAdapterV1("TRADING", "d" * 64, host),
     )
-    forged_equivalence = OnlyPrivateAlphaResearchTradingEquivalenceEvidenceV1.certify(
+    forged_equivalence = OnlyPrivateFactorResearchTradingEquivalenceEvidenceV1.certify(
         closure.source_artifact,
         closure.source,
         forged_registrations,
         closure.certification_vectors,
         closure.certification_parameters,
     )
-    forged_snapshot = OnlyPrivateAlphaProviderSnapshotV1(
-        (OnlyPrivateAlphaProviderSnapshotEntryV1.derive(closure.source_artifact, forged_equivalence),)
+    forged_snapshot = OnlyPrivateFactorProviderSnapshotV1(
+        (OnlyPrivateFactorProviderSnapshotEntryV1.derive(closure.source_artifact, forged_equivalence),)
     )
     coherent_forgery = _forged_closure(
         closure,
@@ -150,7 +150,7 @@ def test_executable_closure_requires_canonical_producer() -> None:
         equivalence_evidence=forged_equivalence,
         provider_snapshot=forged_snapshot,
     )
-    with pytest.raises(ValueError, match="PRIVATE_ALPHA_EXECUTABLE_CLOSURE_MISMATCH"):
+    with pytest.raises(ValueError, match="PRIVATE_FACTOR_EXECUTABLE_CLOSURE_MISMATCH"):
         coherent_forgery.verify_canonical()
 
 
@@ -171,30 +171,30 @@ def test_executable_closure_requires_canonical_producer() -> None:
     ],
 )
 def test_validation_fails_closed_for_non_v1_source(source: str) -> None:
-    evidence = only_validate_private_alpha_revision(_revision(source))
-    assert evidence.validation_disposition is OnlyPrivateAlphaValidationDisposition.FAIL
-    with pytest.raises(ValueError, match="PRIVATE_ALPHA_VALIDATION_EVIDENCE_MISMATCH"):
-        OnlyPrivateAlphaSourceArtifactManifestV1.materialize(_revision(source), evidence)
+    evidence = only_validate_private_factor_revision(_revision(source))
+    assert evidence.validation_disposition is OnlyPrivateFactorValidationDisposition.FAIL
+    with pytest.raises(ValueError, match="PRIVATE_FACTOR_VALIDATION_EVIDENCE_MISMATCH"):
+        OnlyPrivateFactorSourceArtifactManifestV1.materialize(_revision(source), evidence)
 
 
 def test_validation_and_artifact_identities_are_deterministic_and_tamper_closed() -> None:
     revision, manifest, source = _artifact()
-    assert only_validate_private_alpha_revision(revision) == only_validate_private_alpha_revision(revision)
+    assert only_validate_private_factor_revision(revision) == only_validate_private_factor_revision(revision)
     assert manifest.source_sha256 != manifest.source_artifact_fingerprint
-    with pytest.raises(ValueError, match="PRIVATE_ALPHA_SOURCE_ARTIFACT_MISMATCH"):
+    with pytest.raises(ValueError, match="PRIVATE_FACTOR_SOURCE_ARTIFACT_MISMATCH"):
         manifest.verify(source + b"# tamper")
-    with pytest.raises(ValueError, match="PRIVATE_ALPHA_VALIDATION_EVIDENCE_MISMATCH"):
-        OnlyPrivateAlphaSourceArtifactManifestV1.materialize(
-            revision, replace(only_validate_private_alpha_revision(revision), revision_fingerprint="a" * 64)
+    with pytest.raises(ValueError, match="PRIVATE_FACTOR_VALIDATION_EVIDENCE_MISMATCH"):
+        OnlyPrivateFactorSourceArtifactManifestV1.materialize(
+            revision, replace(only_validate_private_factor_revision(revision), revision_fingerprint="a" * 64)
         )
     forbidden = _revision("import os\ndef calculate(api, inputs, parameters):\n    return inputs\n")
-    failed = only_validate_private_alpha_revision(forbidden)
-    with pytest.raises(ValueError, match="PRIVATE_ALPHA_VALIDATION_EVIDENCE_MISMATCH"):
-        OnlyPrivateAlphaSourceArtifactManifestV1.materialize(
+    failed = only_validate_private_factor_revision(forbidden)
+    with pytest.raises(ValueError, match="PRIVATE_FACTOR_VALIDATION_EVIDENCE_MISMATCH"):
+        OnlyPrivateFactorSourceArtifactManifestV1.materialize(
             forbidden,
             replace(
                 failed,
-                validation_disposition=OnlyPrivateAlphaValidationDisposition.PASS,
+                validation_disposition=OnlyPrivateFactorValidationDisposition.PASS,
                 errors=(),
             ),
         )
@@ -210,46 +210,46 @@ def test_validation_and_artifact_identities_are_deterministic_and_tamper_closed(
         {"parameter_contract": {"offset": {"type": "DECIMAL", "unknown": 1}}},
     ],
 )
-def test_alpha_contracts_reject_type_coercion_and_unknown_fields(changes: dict[str, object]) -> None:
+def test_factor_contracts_reject_type_coercion_and_unknown_fields(changes: dict[str, object]) -> None:
     with pytest.raises(ValueError):
-        only_private_alpha_type_definition(_revision(**changes))
+        only_private_factor_type_definition(_revision(**changes))
 
 
 def test_isolated_research_trading_equivalence_and_snapshot_are_exact() -> None:
     revision, manifest, source = _artifact()
-    host = OnlyPrivateAlphaIsolatedProgramHost(timeout_seconds=3)
-    research = OnlyPrivateAlphaAdapterV1("RESEARCH", "a" * 64, host)
-    trading = OnlyPrivateAlphaAdapterV1("TRADING", "b" * 64, host)
+    host = OnlyPrivateFactorIsolatedProgramHost(timeout_seconds=3)
+    research = OnlyPrivateFactorAdapterV1("RESEARCH", "a" * 64, host)
+    trading = OnlyPrivateFactorAdapterV1("TRADING", "b" * 64, host)
     vectors = (
         {"close": Decimal("2")},
         {"close": Decimal("-2")},
         {"close": Decimal("0")},
         {"close": None},
     )
-    registrations = only_private_alpha_backend_registrations(revision, manifest, source, research, trading)
-    evidence = OnlyPrivateAlphaResearchTradingEquivalenceEvidenceV1.certify(
+    registrations = only_private_factor_backend_registrations(revision, manifest, source, research, trading)
+    evidence = OnlyPrivateFactorResearchTradingEquivalenceEvidenceV1.certify(
         manifest, source, registrations, vectors, {"offset": Decimal("1")}
     )
-    snapshot_entry = OnlyPrivateAlphaProviderSnapshotEntryV1.derive(manifest, evidence)
-    snapshot = OnlyPrivateAlphaProviderSnapshotV1((snapshot_entry,))
+    snapshot_entry = OnlyPrivateFactorProviderSnapshotEntryV1.derive(manifest, evidence)
+    snapshot = OnlyPrivateFactorProviderSnapshotV1((snapshot_entry,))
     assert evidence.research_output_fingerprint == evidence.trading_output_fingerprint
     assert snapshot.entries[0].revision_fingerprint == revision.revision_fingerprint
     assert snapshot.snapshot_fingerprint != manifest.source_artifact_fingerprint
-    with pytest.raises(ValueError, match="PRIVATE_ALPHA_EQUIVALENCE_ADAPTER_MISMATCH"):
-        OnlyPrivateAlphaResearchTradingEquivalenceEvidenceV1.certify(
+    with pytest.raises(ValueError, match="PRIVATE_FACTOR_EQUIVALENCE_ADAPTER_MISMATCH"):
+        OnlyPrivateFactorResearchTradingEquivalenceEvidenceV1.certify(
             manifest, source, registrations, (), {"offset": Decimal("1")}
         )
-    with pytest.raises(ValueError, match="PRIVATE_ALPHA_EQUIVALENCE_EVIDENCE_MISMATCH"):
+    with pytest.raises(ValueError, match="PRIVATE_FACTOR_EQUIVALENCE_EVIDENCE_MISMATCH"):
         replace(evidence, trading_output_fingerprint="f" * 64)
 
 
 def test_infinite_loop_is_terminated() -> None:
     revision = _revision("def calculate(api, inputs, parameters):\n    while True:\n        inputs = inputs\n")
-    evidence = only_validate_private_alpha_revision(revision)
-    assert evidence.validation_disposition is OnlyPrivateAlphaValidationDisposition.PASS
-    manifest, source = OnlyPrivateAlphaSourceArtifactManifestV1.materialize(revision, evidence)
-    with pytest.raises(TimeoutError, match="PRIVATE_ALPHA_EXECUTION_TIMEOUT"):
-        OnlyPrivateAlphaIsolatedProgramHost(timeout_seconds=0.1).execute(manifest, source, {}, {})
+    evidence = only_validate_private_factor_revision(revision)
+    assert evidence.validation_disposition is OnlyPrivateFactorValidationDisposition.PASS
+    manifest, source = OnlyPrivateFactorSourceArtifactManifestV1.materialize(revision, evidence)
+    with pytest.raises(TimeoutError, match="PRIVATE_FACTOR_EXECUTION_TIMEOUT"):
+        OnlyPrivateFactorIsolatedProgramHost(timeout_seconds=0.1).execute(manifest, source, {}, {})
 
 
 def test_api_operations_equal_canonical_value_semantics() -> None:
@@ -268,8 +268,8 @@ def test_api_operations_equal_canonical_value_semantics() -> None:
         'coalesce': api.coalesce(inputs['missing'], inputs['b'])}
 """
     revision = _revision(source_text)
-    evidence = only_validate_private_alpha_revision(revision)
-    manifest, source = OnlyPrivateAlphaSourceArtifactManifestV1.materialize(revision, evidence)
+    evidence = only_validate_private_factor_revision(revision)
+    manifest, source = OnlyPrivateFactorSourceArtifactManifestV1.materialize(revision, evidence)
     inputs = {
         "a": Decimal("2"),
         "b": Decimal("-1"),
@@ -277,8 +277,8 @@ def test_api_operations_equal_canonical_value_semantics() -> None:
         "truth": True,
         "missing": None,
     }
-    actual = OnlyPrivateAlphaIsolatedProgramHost(3).execute(manifest, source, inputs, {})
-    canonical = OnlyCanonicalValueSemanticsV1(ONLY_PRIVATE_ALPHA_NUMERIC_V1)
+    actual = OnlyPrivateFactorIsolatedProgramHost(3).execute(manifest, source, inputs, {})
+    canonical = OnlyCanonicalValueSemanticsV1(ONLY_PRIVATE_FACTOR_NUMERIC_V1)
     assert actual == {
         "add": canonical.add(inputs["a"], inputs["b"]),
         "sub": canonical.sub(inputs["a"], inputs["b"]),
@@ -302,33 +302,33 @@ def test_api_operations_equal_canonical_value_semantics() -> None:
     }
 
 
-def test_private_alpha_catalog_provider_is_snapshot_backed_not_distribution_backed() -> None:
-    closure = OnlyPrivateAlphaExecutableClosureV1.create(
+def test_private_factor_catalog_provider_is_snapshot_backed_not_distribution_backed() -> None:
+    closure = OnlyPrivateFactorExecutableClosureV1.create(
         _revision(),
         ({"close": Decimal("1")},),
         {"offset": Decimal("0")},
-        host=OnlyPrivateAlphaIsolatedProgramHost(3),
+        host=OnlyPrivateFactorIsolatedProgramHost(3),
     )
     provider = OnlyQuantAssetProvider(
         OnlyQuantAssetProviderManifest(
             "private.native.factor",
             "1",
-            OnlyQuantAssetKind.ALPHA,
-            OnlyPrivateAlphaSnapshotProviderSource(closure.provider_snapshot.snapshot_fingerprint),
+            OnlyQuantAssetKind.FACTOR,
+            OnlyPrivateFactorSnapshotProviderSource(closure.provider_snapshot.snapshot_fingerprint),
         ),
         calculation_registrations=closure.registrations,
-        private_alpha_snapshot=closure.provider_snapshot,
+        private_factor_snapshot=closure.provider_snapshot,
     )
     catalog = OnlyQuantAssetCatalogGeneration((provider,))
     research = catalog.calculation_registry().resolve(
         OnlyCalculationKind.FACTOR,
-        closure.revision.alpha_id,
+        closure.revision.factor_id,
         closure.revision.semantic_version,
         OnlyCalculationBackendKind.RESEARCH,
     )
     trading = catalog.calculation_registry().resolve(
         OnlyCalculationKind.FACTOR,
-        closure.revision.alpha_id,
+        closure.revision.factor_id,
         closure.revision.semantic_version,
         OnlyCalculationBackendKind.TRADING,
     )
@@ -343,7 +343,7 @@ def test_private_alpha_catalog_provider_is_snapshot_backed_not_distribution_back
     trading_output = trading.provider.create(definition, object()).update({"close": Decimal("2")})
     assert research_output["value"].to_pylist() == [Decimal("2.000000000000")]
     assert trading_output == {"value": Decimal("2")}
-    assert catalog.providers[0].private_alpha_snapshot == closure.provider_snapshot
+    assert catalog.providers[0].private_factor_snapshot == closure.provider_snapshot
     exact = only_project_exact_catalog_context(
         catalog.generation_fingerprint,
         catalog.descriptor(),
@@ -361,21 +361,21 @@ def test_private_alpha_catalog_provider_is_snapshot_backed_not_distribution_back
 
 
 def test_runtime_artifacts_rebuild_native_registry_without_authoring_authority(tmp_path: Path) -> None:
-    closure = OnlyPrivateAlphaExecutableClosureV1.create(
+    closure = OnlyPrivateFactorExecutableClosureV1.create(
         _revision(),
         ({"close": Decimal("1")},),
         {"offset": Decimal("0")},
-        host=OnlyPrivateAlphaIsolatedProgramHost(3),
+        host=OnlyPrivateFactorIsolatedProgramHost(3),
     )
     native = OnlyQuantAssetProvider(
         OnlyQuantAssetProviderManifest(
             "private.native.factor",
             closure.revision.revision_fingerprint,
-            OnlyQuantAssetKind.ALPHA,
-            OnlyPrivateAlphaSnapshotProviderSource(closure.provider_snapshot.snapshot_fingerprint),
+            OnlyQuantAssetKind.FACTOR,
+            OnlyPrivateFactorSnapshotProviderSource(closure.provider_snapshot.snapshot_fingerprint),
         ),
         calculation_registrations=closure.registrations,
-        private_alpha_snapshot=closure.provider_snapshot,
+        private_factor_snapshot=closure.provider_snapshot,
     )
     base = example_factor_provider()
     core_bytes = b"core"
@@ -395,7 +395,7 @@ def test_runtime_artifacts_rebuild_native_registry_without_authoring_authority(t
     provider_artifact = only_quant_asset_distribution_artifact_manifest(
         source_repository="OnlyAlpha",
         source_revision="2" * 40,
-        artifact_logical_name="onlyalpha_test_alpha_provider-0.9.9-py3-none-any.whl",
+        artifact_logical_name="onlyalpha_test_factor_provider-0.9.9-py3-none-any.whl",
         artifact_bytes=provider_bytes,
         tested_core_execution_fingerprint=core.fingerprint,
         provider=base,
@@ -429,46 +429,46 @@ def test_runtime_artifacts_rebuild_native_registry_without_authoring_authority(t
             trading_output_fingerprint="f" * 64,
         ),
     )
-    with pytest.raises(ValueError, match="PRIVATE_ALPHA_EXECUTABLE_CLOSURE_MISMATCH"):
-        store.put_private_alpha_runtime(forged, native)
-    manifest = builder.bind_private_alpha_closure(
+    with pytest.raises(ValueError, match="PRIVATE_FACTOR_EXECUTABLE_CLOSURE_MISMATCH"):
+        store.put_private_factor_runtime(forged, native)
+    manifest = builder.bind_private_factor_closure(
         base_manifest=base_manifest,
         expected_catalog=catalog,
         closure=closure,
     )
 
-    binding = manifest.private_alpha_bindings[0]
+    binding = manifest.private_factor_bindings[0]
     mutations = (
         replace(binding, provider_snapshot_fingerprint="f" * 64),
         replace(binding, entry=replace(binding.entry, revision_fingerprint="f" * 64)),
         replace(binding, entry=replace(binding.entry, source_artifact_fingerprint="f" * 64)),
     )
     for index, mutation in enumerate(mutations):
-        mismatched = replace(manifest, private_alpha_bindings=(mutation,))
-        with pytest.raises(ValueError, match="RUNTIME_GENERATION_PRIVATE_ALPHA_MISMATCH"):
+        mismatched = replace(manifest, private_factor_bindings=(mutation,))
+        with pytest.raises(ValueError, match="RUNTIME_GENERATION_PRIVATE_FACTOR_MISMATCH"):
             builder.verify_exact_artifacts(mismatched)
-        with pytest.raises(ValueError, match="RUNTIME_GENERATION_PRIVATE_ALPHA_MISMATCH"):
-            builder.rebuild_private_alpha_providers(mismatched)
-        with pytest.raises(ValueError, match="RUNTIME_GENERATION_PRIVATE_ALPHA_MISMATCH"):
+        with pytest.raises(ValueError, match="RUNTIME_GENERATION_PRIVATE_FACTOR_MISMATCH"):
+            builder.rebuild_private_factor_providers(mismatched)
+        with pytest.raises(ValueError, match="RUNTIME_GENERATION_PRIVATE_FACTOR_MISMATCH"):
             builder.rebuild_validated(
                 expected_manifest=mismatched,
                 environment_root=tmp_path / f"mismatched-{index}",
             )
     manifest_rejections = (
         replace(binding, entry=replace(binding.entry, semantic_version="2")),
-        replace(binding, entry=replace(binding.entry, alpha_id="private.strategy.wrong_family")),
+        replace(binding, entry=replace(binding.entry, factor_id="private.strategy.wrong_family")),
         replace(
             binding,
             provider_snapshot_fingerprint="e" * 64,
             runtime_artifact_fingerprint="e" * 64,
             entry=replace(
                 binding.entry,
-                alpha_id="private.alpha.complete_different",
+                factor_id="private.factor.complete_different",
                 semantic_version="9",
                 revision_fingerprint="e" * 64,
                 source_sha256="e" * 64,
                 source_artifact_fingerprint="e" * 64,
-                alpha_api_contract_fingerprint="e" * 64,
+                factor_api_contract_fingerprint="e" * 64,
                 research_adapter_fingerprint="e" * 64,
                 trading_adapter_fingerprint="e" * 64,
                 research_implementation_fingerprint="e" * 64,
@@ -478,18 +478,18 @@ def test_runtime_artifacts_rebuild_native_registry_without_authoring_authority(t
         ),
     )
     for mutation in manifest_rejections:
-        with pytest.raises(ValueError, match="RUNTIME_GENERATION_PRIVATE_ALPHA_MISMATCH"):
-            replace(manifest, private_alpha_bindings=(mutation,))
-    with pytest.raises(ValueError, match="RUNTIME_GENERATION_PRIVATE_ALPHA_MISMATCH"):
-        replace(manifest, private_alpha_bindings=(binding, binding))
+        with pytest.raises(ValueError, match="RUNTIME_GENERATION_PRIVATE_FACTOR_MISMATCH"):
+            replace(manifest, private_factor_bindings=(mutation,))
+    with pytest.raises(ValueError, match="RUNTIME_GENERATION_PRIVATE_FACTOR_MISMATCH"):
+        replace(manifest, private_factor_bindings=(binding, binding))
 
     del closure
-    rebuilt = builder.rebuild_private_alpha_providers(manifest)[0]
+    rebuilt = builder.rebuild_private_factor_providers(manifest)[0]
     assert rebuilt.descriptor() == native.descriptor()
     registry = OnlyQuantAssetCatalogGeneration((rebuilt,)).calculation_registry()
     research = registry.resolve(
         OnlyCalculationKind.FACTOR,
-        "private.alpha.native",
+        "private.factor.native",
         "1",
         OnlyCalculationBackendKind.RESEARCH,
     )
@@ -504,18 +504,18 @@ def test_runtime_artifacts_rebuild_native_registry_without_authoring_authority(t
     )["value"].to_pylist() == [Decimal("2.000000000000")]
     trading = registry.resolve(
         OnlyCalculationKind.FACTOR,
-        "private.alpha.native",
+        "private.factor.native",
         "1",
         OnlyCalculationBackendKind.TRADING,
     )
     assert trading.provider.create(definition, object()).update({"close": Decimal("2")}) == {"value": Decimal("2")}
-    store._private_alpha_runtime_path(manifest.private_alpha_bindings[0].runtime_artifact_fingerprint).unlink()
-    with pytest.raises(ValueError, match="PRIVATE_ALPHA_RUNTIME_ARTIFACT_MISMATCH"):
-        builder.rebuild_private_alpha_providers(manifest)
+    store._private_factor_runtime_path(manifest.private_factor_bindings[0].runtime_artifact_fingerprint).unlink()
+    with pytest.raises(ValueError, match="PRIVATE_FACTOR_RUNTIME_ARTIFACT_MISMATCH"):
+        builder.rebuild_private_factor_providers(manifest)
 
 
 def test_historical_native_builder_has_no_current_private_asset_resolution_path() -> None:
     source = inspect.getsource(runtime_builder_module)
     assert "OnlyPostgresPrivateAssetStore" not in source
-    assert "load_alpha_revision" not in source
+    assert "load_factor_revision" not in source
     assert "latest_revision" not in source

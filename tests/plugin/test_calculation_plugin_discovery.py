@@ -2,7 +2,7 @@ import pytest
 from onlyalpha_plugin_indicators.registration import registrations as indicator_registrations
 from onlyalpha_plugin_operators.registration import registrations as operator_registrations
 from onlyalpha_plugin_targets.registration import registrations as target_registrations
-from onlyalpha_test_alpha_provider.registration import registrations as factor_registrations
+from onlyalpha_test_factor_provider.registration import registrations as factor_registrations
 
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.calculation import OnlyCalculationRegistry
@@ -51,7 +51,7 @@ def _discover(monkeypatch, entries, *, fail_fast=True):
 
 def test_calculation_discovery_is_stable_and_registers_research_evaluation_types(monkeypatch) -> None:
     entries = (
-        _Entry("z-example-alpha", "alpha:registrations", factor_registrations),
+        _Entry("z-example-factor", "alpha:registrations", factor_registrations),
         _Entry("a-indicators", "indicator:registrations", indicator_registrations),
         _Entry("m-targets", "target:registrations", target_registrations),
         _Entry("b-operators", "operator:registrations", operator_registrations),
@@ -61,7 +61,7 @@ def test_calculation_discovery_is_stable_and_registers_research_evaluation_types
         "a-indicators",
         "b-operators",
         "m-targets",
-        "z-example-alpha",
+        "z-example-factor",
     )
     assert {item.type_id for item in registry.type_definitions()} >= {
         "example.factor.momentum",

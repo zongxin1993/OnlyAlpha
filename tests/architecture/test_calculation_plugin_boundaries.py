@@ -17,8 +17,7 @@ def test_core_does_not_import_calculation_plugins_or_own_concrete_algorithms() -
                 (
                     "onlyalpha_plugin_indicators",
                     "onlyalpha_plugin_operators",
-                    "onlyalpha_test_alpha_provider",
-                    "onlyalpha_test_strategy_provider",
+                    "onlyalpha_test_factor_provider",
                     "onlyalpha_plugin_targets",
                     "onlyalpha_test_plugin",
                 )

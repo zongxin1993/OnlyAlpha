@@ -39,7 +39,7 @@ from onlyalpha_plugin_operators.registration import (
 from onlyalpha_plugin_operators.registration import (
     registrations as operator_registrations,
 )
-from onlyalpha_test_alpha_provider.registration import resolve_momentum
+from onlyalpha_test_factor_provider.registration import resolve_momentum
 
 from onlyalpha.calculation import (
     OnlyCalculationGraphDefinition,

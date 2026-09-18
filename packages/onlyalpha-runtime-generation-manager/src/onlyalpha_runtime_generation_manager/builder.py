@@ -19,25 +19,25 @@ from onlyalpha.distribution import (
     OnlyDistributionArtifactRole,
 )
 from onlyalpha.quant_assets import (
-    OnlyPrivateAlphaAdapterV1,
-    OnlyPrivateAlphaExecutableClosureV1,
-    OnlyPrivateAlphaIsolatedProgramHost,
-    OnlyPrivateAlphaProviderSnapshotV1,
-    OnlyPrivateAlphaResearchTradingEquivalenceEvidenceV1,
-    OnlyPrivateAlphaSnapshotProviderSource,
-    OnlyPrivateAlphaSourceArtifactManifestV1,
+    OnlyPrivateFactorAdapterV1,
+    OnlyPrivateFactorExecutableClosureV1,
+    OnlyPrivateFactorIsolatedProgramHost,
+    OnlyPrivateFactorProviderSnapshotV1,
+    OnlyPrivateFactorResearchTradingEquivalenceEvidenceV1,
+    OnlyPrivateFactorSnapshotProviderSource,
+    OnlyPrivateFactorSourceArtifactManifestV1,
     OnlyQuantAssetCatalogGeneration,
     OnlyQuantAssetKind,
     OnlyQuantAssetProvider,
     OnlyQuantAssetProviderManifest,
-    only_private_alpha_backend_registrations,
+    only_private_factor_backend_registrations,
 )
-from onlyalpha.quant_assets.private import OnlyPrivateAlphaRevision
+from onlyalpha.quant_assets.private import OnlyPrivateFactorRevision
 from onlyalpha.runtime.generation import (
     OnlyCoreExecutionIdentity,
     OnlyRuntimeGenerationManifest,
     OnlyRuntimeGenerationValidationEvidence,
-    OnlyRuntimePrivateAlphaBinding,
+    OnlyRuntimePrivateFactorBinding,
     OnlyRuntimeProviderBinding,
 )
 
@@ -154,7 +154,7 @@ print(only_canonical_json({
 """
 
 _HOSTED_GENERATION_SEAL = "onlyalpha-runtime-generation-validation.json"
-_PRIVATE_ALPHA_ARTIFACT_ROOT = "private-alpha-artifacts"
+_PRIVATE_FACTOR_ARTIFACT_ROOT = "private-factor-artifacts"
 
 
 @dataclass(frozen=True, slots=True)
@@ -357,7 +357,7 @@ class OnlyRuntimeGenerationBuilder:
             actual: Any = json.loads(probed.stdout)
             distribution_catalog = actual.get("catalog") if isinstance(actual, dict) else None
             catalog = (
-                self._catalog_with_private_alpha(distribution_catalog, expected_manifest)
+                self._catalog_with_private_factor(distribution_catalog, expected_manifest)
                 if isinstance(distribution_catalog, dict)
                 else None
             )
@@ -406,7 +406,7 @@ class OnlyRuntimeGenerationBuilder:
                 raise ValueError("RUNTIME_GENERATION_IMPLEMENTATION_MISMATCH")
             runtime_implementations = tuple(
                 sorted(
-                    (*self._runtime_implementations(actual), *self._private_alpha_implementations(expected_manifest))
+                    (*self._runtime_implementations(actual), *self._private_factor_implementations(expected_manifest))
                 )
             )
             if runtime_implementations != expected_manifest.implementations:
@@ -418,7 +418,7 @@ class OnlyRuntimeGenerationBuilder:
                 providers=actual_providers,
                 catalog_generation_fingerprint=cast(str, catalog["generation_fingerprint"]),
                 implementations=runtime_implementations,
-                private_alpha_bindings=expected_manifest.private_alpha_bindings,
+                private_factor_bindings=expected_manifest.private_factor_bindings,
             )
             if rebuilt != expected_manifest:
                 raise ValueError("RUNTIME_GENERATION_MANIFEST_MISMATCH")
@@ -426,9 +426,9 @@ class OnlyRuntimeGenerationBuilder:
                 rebuilt,
                 OnlyRuntimeGenerationValidationEvidence.from_manifest(rebuilt),
             )
-            self._materialize_private_alpha_artifacts(
-                rebuilt.private_alpha_bindings,
-                environment_root / _PRIVATE_ALPHA_ARTIFACT_ROOT,
+            self._materialize_private_factor_artifacts(
+                rebuilt.private_factor_bindings,
+                environment_root / _PRIVATE_FACTOR_ARTIFACT_ROOT,
             )
             self._seal_environment(environment_root, validated.validation_evidence)
             self._verify_hosted_environment(environment_root, validated.validation_evidence)
@@ -457,40 +457,40 @@ class OnlyRuntimeGenerationBuilder:
 
         for artifact_sha256 in expected_manifest.artifact_sha256s:
             self.artifact_store.fetch_exact(artifact_sha256)
-        for binding in expected_manifest.private_alpha_bindings:
-            runtime = self.artifact_store.fetch_private_alpha_runtime(binding.runtime_artifact_fingerprint)
-            snapshot = OnlyPrivateAlphaProviderSnapshotV1.from_dict(
+        for binding in expected_manifest.private_factor_bindings:
+            runtime = self.artifact_store.fetch_private_factor_runtime(binding.runtime_artifact_fingerprint)
+            snapshot = OnlyPrivateFactorProviderSnapshotV1.from_dict(
                 cast(dict[str, object], runtime["provider_snapshot"])
             )
             if (
                 snapshot.snapshot_fingerprint != binding.provider_snapshot_fingerprint
                 or binding.entry not in snapshot.entries
             ):
-                raise ValueError("RUNTIME_GENERATION_PRIVATE_ALPHA_MISMATCH")
-            artifact, _ = self.artifact_store.fetch_private_alpha_source(binding.entry.source_artifact_fingerprint)
+                raise ValueError("RUNTIME_GENERATION_PRIVATE_FACTOR_MISMATCH")
+            artifact, _ = self.artifact_store.fetch_private_factor_source(binding.entry.source_artifact_fingerprint)
             if (
-                artifact.alpha_id != binding.entry.alpha_id
+                artifact.factor_id != binding.entry.factor_id
                 or artifact.semantic_version != binding.entry.semantic_version
                 or artifact.revision_fingerprint != binding.entry.revision_fingerprint
                 or artifact.source_sha256 != binding.entry.source_sha256
-                or artifact.alpha_api_contract_fingerprint != binding.entry.alpha_api_contract_fingerprint
+                or artifact.factor_api_contract_fingerprint != binding.entry.factor_api_contract_fingerprint
             ):
-                raise ValueError("RUNTIME_GENERATION_PRIVATE_ALPHA_MISMATCH")
+                raise ValueError("RUNTIME_GENERATION_PRIVATE_FACTOR_MISMATCH")
 
-    def bind_private_alpha_closure(
+    def bind_private_factor_closure(
         self,
         *,
         base_manifest: OnlyRuntimeGenerationManifest,
         expected_catalog: OnlyQuantAssetCatalogGeneration,
-        closure: OnlyPrivateAlphaExecutableClosureV1,
+        closure: OnlyPrivateFactorExecutableClosureV1,
     ) -> OnlyRuntimeGenerationManifest:
         matching = tuple(
             provider
             for provider in expected_catalog.providers
-            if provider.private_alpha_snapshot == closure.provider_snapshot
+            if provider.private_factor_snapshot == closure.provider_snapshot
         )
         if len(matching) != 1:
-            raise ValueError("RUNTIME_GENERATION_PRIVATE_ALPHA_MISMATCH")
+            raise ValueError("RUNTIME_GENERATION_PRIVATE_FACTOR_MISMATCH")
         provider = matching[0]
         expected_base = {
             (
@@ -499,17 +499,17 @@ class OnlyRuntimeGenerationBuilder:
                 item.content_fingerprint,
             )
             for item in expected_catalog.providers
-            if item.private_alpha_snapshot is None
+            if item.private_factor_snapshot is None
         }
         if {
             (item.provider_id, item.provider_version, item.provider_content_fingerprint)
             for item in base_manifest.providers
         } != expected_base:
             raise ValueError("RUNTIME_GENERATION_PROVIDER_MISMATCH")
-        self.artifact_store.put_private_alpha_source(closure.source_artifact, closure.source)
-        runtime_artifact_fingerprint = self.artifact_store.put_private_alpha_runtime(closure, provider)
+        self.artifact_store.put_private_factor_source(closure.source_artifact, closure.source)
+        runtime_artifact_fingerprint = self.artifact_store.put_private_factor_runtime(closure, provider)
         bindings = tuple(
-            OnlyRuntimePrivateAlphaBinding(
+            OnlyRuntimePrivateFactorBinding(
                 closure.provider_snapshot.snapshot_fingerprint,
                 runtime_artifact_fingerprint,
                 entry,
@@ -517,17 +517,17 @@ class OnlyRuntimeGenerationBuilder:
             for entry in closure.provider_snapshot.entries
         )
         implementations = tuple(
-            sorted((*base_manifest.implementations, *self._private_alpha_implementations_from_bindings(bindings)))
+            sorted((*base_manifest.implementations, *self._private_factor_implementations_from_bindings(bindings)))
         )
         candidate = replace(
             base_manifest,
             catalog_generation_fingerprint=expected_catalog.generation_fingerprint,
             implementations=implementations,
-            private_alpha_bindings=bindings,
+            private_factor_bindings=bindings,
         )
         self.verify_exact_artifacts(candidate)
         if only_canonical_json(
-            self._catalog_with_private_alpha(self._base_catalog_descriptor(expected_catalog), candidate)
+            self._catalog_with_private_factor(self._base_catalog_descriptor(expected_catalog), candidate)
         ) != only_canonical_json(expected_catalog.descriptor()):
             raise ValueError("RUNTIME_GENERATION_CATALOG_MISMATCH")
         return candidate
@@ -564,90 +564,90 @@ class OnlyRuntimeGenerationBuilder:
             raise ValueError("RUNTIME_GENERATION_CATALOG_MISMATCH")
         return cast(dict[str, object], bundle)
 
-    def rebuild_private_alpha_providers(
+    def rebuild_private_factor_providers(
         self, expected_manifest: OnlyRuntimeGenerationManifest
     ) -> tuple[OnlyQuantAssetProvider, ...]:
-        return self.rebuild_private_alpha_providers_from_bindings(expected_manifest.private_alpha_bindings)
+        return self.rebuild_private_factor_providers_from_bindings(expected_manifest.private_factor_bindings)
 
-    def rebuild_private_alpha_providers_from_bindings(
-        self, bindings: tuple[OnlyRuntimePrivateAlphaBinding, ...]
+    def rebuild_private_factor_providers_from_bindings(
+        self, bindings: tuple[OnlyRuntimePrivateFactorBinding, ...]
     ) -> tuple[OnlyQuantAssetProvider, ...]:
         providers = []
         for fingerprint in sorted({item.runtime_artifact_fingerprint for item in bindings}):
-            provider = self._private_alpha_provider(fingerprint)
+            provider = self._private_factor_provider(fingerprint)
             expected = tuple(
                 sorted(item.entry for item in bindings if item.runtime_artifact_fingerprint == fingerprint)
             )
             if (
-                provider.private_alpha_snapshot is None
-                or provider.private_alpha_snapshot.entries != expected
+                provider.private_factor_snapshot is None
+                or provider.private_factor_snapshot.entries != expected
                 or any(
-                    item.provider_snapshot_fingerprint != provider.private_alpha_snapshot.snapshot_fingerprint
+                    item.provider_snapshot_fingerprint != provider.private_factor_snapshot.snapshot_fingerprint
                     for item in bindings
                     if item.runtime_artifact_fingerprint == fingerprint
                 )
             ):
-                raise ValueError("RUNTIME_GENERATION_PRIVATE_ALPHA_MISMATCH")
+                raise ValueError("RUNTIME_GENERATION_PRIVATE_FACTOR_MISMATCH")
             providers.append(provider)
         return tuple(providers)
 
-    def _private_alpha_provider(self, fingerprint: str) -> OnlyQuantAssetProvider:
-        payload = self.artifact_store.fetch_private_alpha_runtime(fingerprint)
-        source_artifact = OnlyPrivateAlphaSourceArtifactManifestV1.from_dict(
+    def _private_factor_provider(self, fingerprint: str) -> OnlyQuantAssetProvider:
+        payload = self.artifact_store.fetch_private_factor_runtime(fingerprint)
+        source_artifact = OnlyPrivateFactorSourceArtifactManifestV1.from_dict(
             cast(dict[str, object], payload["source_artifact"])
         )
-        stored_artifact, source = self.artifact_store.fetch_private_alpha_source(
+        stored_artifact, source = self.artifact_store.fetch_private_factor_source(
             source_artifact.source_artifact_fingerprint
         )
         if stored_artifact != source_artifact:
-            raise ValueError("RUNTIME_GENERATION_PRIVATE_ALPHA_MISMATCH")
+            raise ValueError("RUNTIME_GENERATION_PRIVATE_FACTOR_MISMATCH")
         revision_payload = dict(cast(dict[str, object], payload["revision_metadata"]))
         try:
             revision_payload["source_text"] = source.decode("utf-8")
         except UnicodeDecodeError as exc:
-            raise ValueError("RUNTIME_GENERATION_PRIVATE_ALPHA_MISMATCH") from exc
-        revision = OnlyPrivateAlphaRevision.from_dict(revision_payload)
-        snapshot = OnlyPrivateAlphaProviderSnapshotV1.from_dict(cast(dict[str, object], payload["provider_snapshot"]))
-        evidence = OnlyPrivateAlphaResearchTradingEquivalenceEvidenceV1.from_dict(
+            raise ValueError("RUNTIME_GENERATION_PRIVATE_FACTOR_MISMATCH") from exc
+        revision = OnlyPrivateFactorRevision.from_dict(revision_payload)
+        snapshot = OnlyPrivateFactorProviderSnapshotV1.from_dict(cast(dict[str, object], payload["provider_snapshot"]))
+        evidence = OnlyPrivateFactorResearchTradingEquivalenceEvidenceV1.from_dict(
             cast(dict[str, object], payload["equivalence_evidence"])
         )
         if len(snapshot.entries) != 1:
-            raise ValueError("RUNTIME_GENERATION_PRIVATE_ALPHA_MISMATCH")
+            raise ValueError("RUNTIME_GENERATION_PRIVATE_FACTOR_MISMATCH")
         entry = snapshot.entries[0]
         if evidence.equivalence_evidence_fingerprint != entry.equivalence_evidence_fingerprint:
-            raise ValueError("RUNTIME_GENERATION_PRIVATE_ALPHA_MISMATCH")
-        host = OnlyPrivateAlphaIsolatedProgramHost()
-        registrations = only_private_alpha_backend_registrations(
+            raise ValueError("RUNTIME_GENERATION_PRIVATE_FACTOR_MISMATCH")
+        host = OnlyPrivateFactorIsolatedProgramHost()
+        registrations = only_private_factor_backend_registrations(
             revision,
             source_artifact,
             source,
-            OnlyPrivateAlphaAdapterV1("RESEARCH", entry.research_adapter_fingerprint, host),
-            OnlyPrivateAlphaAdapterV1("TRADING", entry.trading_adapter_fingerprint, host),
+            OnlyPrivateFactorAdapterV1("RESEARCH", entry.research_adapter_fingerprint, host),
+            OnlyPrivateFactorAdapterV1("TRADING", entry.trading_adapter_fingerprint, host),
         )
         provider_payload = cast(dict[str, object], payload["provider"])
         manifest_payload = cast(dict[str, object], provider_payload["manifest"])
         source_payload = cast(dict[str, object], manifest_payload["source"])
         schema_version = manifest_payload["schema_version"]
         if isinstance(schema_version, bool) or not isinstance(schema_version, int):
-            raise ValueError("RUNTIME_GENERATION_PRIVATE_ALPHA_MISMATCH")
+            raise ValueError("RUNTIME_GENERATION_PRIVATE_FACTOR_MISMATCH")
         provider = OnlyQuantAssetProvider(
             OnlyQuantAssetProviderManifest(
                 str(manifest_payload["provider_id"]),
                 str(manifest_payload["provider_version"]),
                 OnlyQuantAssetKind(str(manifest_payload["kind"])),
-                OnlyPrivateAlphaSnapshotProviderSource(
-                    str(source_payload["private_alpha_provider_snapshot_fingerprint"])
+                OnlyPrivateFactorSnapshotProviderSource(
+                    str(source_payload["private_factor_provider_snapshot_fingerprint"])
                 ),
                 schema_version,
             ),
             calculation_registrations=registrations,
-            private_alpha_snapshot=snapshot,
+            private_factor_snapshot=snapshot,
         )
         if only_canonical_json(provider.descriptor()) != only_canonical_json(provider_payload):
-            raise ValueError("RUNTIME_GENERATION_PRIVATE_ALPHA_MISMATCH")
+            raise ValueError("RUNTIME_GENERATION_PRIVATE_FACTOR_MISMATCH")
         return provider
 
-    def _catalog_with_private_alpha(
+    def _catalog_with_private_factor(
         self,
         catalog: dict[str, object],
         manifest: OnlyRuntimeGenerationManifest,
@@ -656,10 +656,10 @@ class OnlyRuntimeGenerationBuilder:
         if not isinstance(providers, list):
             raise ValueError("RUNTIME_GENERATION_CATALOG_MISMATCH")
         native: list[dict[str, object]] = []
-        for fingerprint in sorted({item.runtime_artifact_fingerprint for item in manifest.private_alpha_bindings}):
-            descriptor = self.artifact_store.fetch_private_alpha_runtime(fingerprint).get("provider")
+        for fingerprint in sorted({item.runtime_artifact_fingerprint for item in manifest.private_factor_bindings}):
+            descriptor = self.artifact_store.fetch_private_factor_runtime(fingerprint).get("provider")
             if not isinstance(descriptor, dict):
-                raise ValueError("RUNTIME_GENERATION_PRIVATE_ALPHA_MISMATCH")
+                raise ValueError("RUNTIME_GENERATION_PRIVATE_FACTOR_MISMATCH")
             native.append(cast(dict[str, object], descriptor))
         combined = sorted(
             [*providers, *native],
@@ -676,17 +676,17 @@ class OnlyRuntimeGenerationBuilder:
     @staticmethod
     def _base_catalog_descriptor(catalog: OnlyQuantAssetCatalogGeneration) -> dict[str, object]:
         return OnlyQuantAssetCatalogGeneration(
-            tuple(provider for provider in catalog.providers if provider.private_alpha_snapshot is None)
+            tuple(provider for provider in catalog.providers if provider.private_factor_snapshot is None)
         ).descriptor()
 
-    def _private_alpha_implementations(
+    def _private_factor_implementations(
         self, manifest: OnlyRuntimeGenerationManifest
     ) -> tuple[OnlyArtifactCalculationImplementation, ...]:
-        return self._private_alpha_implementations_from_bindings(manifest.private_alpha_bindings)
+        return self._private_factor_implementations_from_bindings(manifest.private_factor_bindings)
 
     @staticmethod
-    def _private_alpha_implementations_from_bindings(
-        bindings: tuple[OnlyRuntimePrivateAlphaBinding, ...],
+    def _private_factor_implementations_from_bindings(
+        bindings: tuple[OnlyRuntimePrivateFactorBinding, ...],
     ) -> tuple[OnlyArtifactCalculationImplementation, ...]:
         return tuple(
             sorted(
@@ -695,14 +695,14 @@ class OnlyRuntimeGenerationBuilder:
                 for implementation in (
                     OnlyArtifactCalculationImplementation(
                         "FACTOR",
-                        binding.entry.alpha_id,
+                        binding.entry.factor_id,
                         binding.entry.semantic_version,
                         OnlyCalculationBackendKind.RESEARCH.value,
                         binding.entry.research_implementation_fingerprint,
                     ),
                     OnlyArtifactCalculationImplementation(
                         "FACTOR",
-                        binding.entry.alpha_id,
+                        binding.entry.factor_id,
                         binding.entry.semantic_version,
                         OnlyCalculationBackendKind.TRADING.value,
                         binding.entry.trading_implementation_fingerprint,
@@ -801,23 +801,23 @@ class OnlyRuntimeGenerationBuilder:
             result.append(target)
         return tuple(result)
 
-    def _materialize_private_alpha_artifacts(
+    def _materialize_private_factor_artifacts(
         self,
-        bindings: tuple[OnlyRuntimePrivateAlphaBinding, ...],
+        bindings: tuple[OnlyRuntimePrivateFactorBinding, ...],
         root: Path,
     ) -> None:
         target_store = OnlyLocalImmutableArtifactStore(root)
         for binding in bindings:
-            source_manifest, source = self.artifact_store.fetch_private_alpha_source(
+            source_manifest, source = self.artifact_store.fetch_private_factor_source(
                 binding.entry.source_artifact_fingerprint
             )
-            target_store.put_private_alpha_source(source_manifest, source)
+            target_store.put_private_factor_source(source_manifest, source)
         for fingerprint in sorted({item.runtime_artifact_fingerprint for item in bindings}):
-            payload = self.artifact_store.fetch_private_alpha_runtime(fingerprint)
-            target = target_store._private_alpha_runtime_path(fingerprint)
+            payload = self.artifact_store.fetch_private_factor_runtime(fingerprint)
+            target = target_store._private_factor_runtime_path(fingerprint)
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(only_canonical_json(payload) + "\n", encoding="utf-8")
-            target_store.fetch_private_alpha_runtime(fingerprint)
+            target_store.fetch_private_factor_runtime(fingerprint)
 
     def _environment_python(self, root: Path) -> Path:
         executable = root / ("Scripts/python.exe" if os.name == "nt" else "bin/python")

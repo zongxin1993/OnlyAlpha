@@ -97,11 +97,17 @@ def test_postgres_schema_is_control_catalog_authority_not_high_volume_semantic_s
         "private_l4_revision",
         "private_l4_draft",
     ]
-    vocabulary_migration = Path("database/postgres/migrations/0028_private_alpha_strategy_vocabulary.sql").read_text()
+    vocabulary_migration = "\n".join(
+        Path(path).read_text()
+        for path in (
+            "database/postgres/migrations/0028_private_alpha_strategy_vocabulary.sql",
+            "database/postgres/migrations/0029_private_factor_strategy_vocabulary.sql",
+        )
+    )
     for table in (
-        "private_alpha_asset",
-        "private_alpha_revision",
-        "private_alpha_draft",
+        "private_factor_asset",
+        "private_factor_revision",
+        "private_factor_draft",
         "private_strategy_asset",
         "private_strategy_revision",
         "private_strategy_draft",

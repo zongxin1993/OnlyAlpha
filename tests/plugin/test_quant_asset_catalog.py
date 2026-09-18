@@ -1,11 +1,9 @@
-import json
 from dataclasses import replace
 
 import pytest
 from onlyalpha_plugin_indicators.provider import quant_asset_provider as indicator_provider
 from onlyalpha_plugin_operators.provider import quant_asset_provider as operator_provider
-from onlyalpha_test_alpha_provider.provider import quant_asset_provider as alpha_provider
-from onlyalpha_test_strategy_provider.provider import quant_asset_provider as strategy_provider
+from onlyalpha_test_factor_provider.provider import quant_asset_provider as factor_provider
 
 from onlyalpha.calculation import OnlyCalculationBackendKind, OnlyCalculationKind
 from onlyalpha.quant_assets import (
@@ -13,22 +11,30 @@ from onlyalpha.quant_assets import (
     OnlyQuantAssetCatalogManager,
     OnlyQuantAssetKind,
     OnlyQuantAssetProvider,
-    OnlyStrategyAuthoringAsset,
-    OnlyStrategyAuthoringResource,
     only_discover_quant_asset_providers,
 )
 
 
 def _generation() -> OnlyQuantAssetCatalogGeneration:
     return only_discover_quant_asset_providers(
-        (operator_provider(), indicator_provider(), alpha_provider(), strategy_provider()),
+        (operator_provider(), indicator_provider(), factor_provider()),
         include_installed=False,
     )
 
 
-def test_four_kinds_form_one_content_addressed_catalog_generation() -> None:
+def test_public_calculation_kinds_form_one_content_addressed_catalog_generation() -> None:
     generation = _generation()
-    assert {provider.manifest.kind for provider in generation.providers} == set(OnlyQuantAssetKind)
+    assert set(OnlyQuantAssetKind) == {
+        OnlyQuantAssetKind.OPERATOR,
+        OnlyQuantAssetKind.INDICATOR,
+        OnlyQuantAssetKind.FACTOR,
+        OnlyQuantAssetKind.STRATEGY,
+    }
+    assert {provider.manifest.kind for provider in generation.providers} == {
+        OnlyQuantAssetKind.OPERATOR,
+        OnlyQuantAssetKind.INDICATOR,
+        OnlyQuantAssetKind.FACTOR,
+    }
     assert len(generation.generation_fingerprint) == 64
     registry = generation.calculation_registry()
     assert registry.resolve(
@@ -43,33 +49,22 @@ def test_four_kinds_form_one_content_addressed_catalog_generation() -> None:
         "1",
         OnlyCalculationBackendKind.TRADING,
     )
-    strategy = generation.resolve_strategy_asset(
-        "example.strategy.library",
-        "1",
-        "example.strategy.simple_momentum",
-        "1",
-    )
-    payload = json.loads(strategy.resource_bytes("research-definition.json"))
-    assert payload["display_metadata"]["name"] == "Simple Momentum Signal"
     descriptor = generation.descriptor()
     assert descriptor["generation_fingerprint"] == generation.generation_fingerprint
-    strategy_inventory = next(
-        provider
-        for provider in descriptor["providers"]
-        if provider["manifest"]["provider_id"] == "example.strategy.library"
-    )
-    assert strategy_inventory["strategies"][0]["semantic_version"] == "1"
-    assert len(strategy_inventory["strategies"][0]["resources"][0]["content_sha256"]) == 64
 
 
-def test_installed_quant_asset_entry_points_discover_all_four_kinds() -> None:
+def test_installed_quant_asset_entry_points_discover_public_calculation_kinds() -> None:
     generation = only_discover_quant_asset_providers()
-    assert {provider.manifest.kind for provider in generation.providers} >= set(OnlyQuantAssetKind)
+    assert {provider.manifest.kind for provider in generation.providers} >= {
+        OnlyQuantAssetKind.OPERATOR,
+        OnlyQuantAssetKind.INDICATOR,
+        OnlyQuantAssetKind.FACTOR,
+    }
+    assert OnlyQuantAssetKind.STRATEGY not in {provider.manifest.kind for provider in generation.providers}
     assert {provider.manifest.provider_id for provider in generation.providers} >= {
         "onlyalpha.operator.library",
         "onlyalpha.indicator.library",
-        "example.alpha.library",
-        "example.strategy.library",
+        "example.factor.library",
     }
 
 
@@ -77,23 +72,22 @@ def test_refresh_is_atomic_and_rejects_same_version_content_drift() -> None:
     initial = _generation()
     manager = OnlyQuantAssetCatalogManager(initial)
     old_snapshot = manager.snapshot()
-    strategy = strategy_provider()
-    original = strategy.strategy_assets[0]
-    changed = OnlyStrategyAuthoringAsset(
-        original.asset_id,
-        original.semantic_version,
-        tuple(
-            replace(resource, content=resource.content + b"\n")
-            if resource.relative_path == "metadata.json"
-            else resource
-            for resource in original.resources
-        ),
+    factor = factor_provider()
+    original = factor.calculation_registrations[0]
+    assert original.implementation_manifest is not None
+    changed_manifest = replace(
+        original.implementation_manifest,
+        resources=(replace(original.implementation_manifest.resources[0], byte_sha256="f" * 64),)
+        + original.implementation_manifest.resources[1:],
     )
-    drifted = OnlyQuantAssetProvider(strategy.manifest, strategy_assets=(changed,))
+    changed_registration = replace(original, implementation_manifest=changed_manifest)
+    drifted = replace(
+        factor,
+        calculation_registrations=(changed_registration,) + factor.calculation_registrations[1:],
+    )
     candidate = OnlyQuantAssetCatalogGeneration(
         tuple(
-            drifted if item.manifest.provider_id == strategy.manifest.provider_id else item
-            for item in initial.providers
+            drifted if item.manifest.provider_id == factor.manifest.provider_id else item for item in initial.providers
         )
     )
     with pytest.raises(ValueError, match="CONTENT_DRIFT"):
@@ -105,21 +99,14 @@ def test_refresh_is_atomic_and_rejects_same_version_content_drift() -> None:
 def test_new_provider_version_switches_only_new_catalog_snapshot() -> None:
     initial = _generation()
     manager = OnlyQuantAssetCatalogManager(initial)
-    strategy = strategy_provider()
+    factor = factor_provider()
     version_two = OnlyQuantAssetProvider(
-        replace(strategy.manifest, provider_version="2"),
-        strategy_assets=(
-            replace(
-                strategy.strategy_assets[0],
-                semantic_version="2",
-                resources=strategy.strategy_assets[0].resources
-                + (OnlyStrategyAuthoringResource("notes/v2.txt", b"new version"),),
-            ),
-        ),
+        replace(factor.manifest, provider_version="2"),
+        calculation_registrations=factor.calculation_registrations,
     )
     candidate = OnlyQuantAssetCatalogGeneration(
         tuple(
-            version_two if item.manifest.provider_id == strategy.manifest.provider_id else item
+            version_two if item.manifest.provider_id == factor.manifest.provider_id else item
             for item in initial.providers
         )
     )
@@ -127,25 +114,23 @@ def test_new_provider_version_switches_only_new_catalog_snapshot() -> None:
     assert current.generation_fingerprint != initial.generation_fingerprint
     assert manager.snapshot() is current
     assert manager.generation(initial.generation_fingerprint) is initial
-    with pytest.raises(KeyError):
-        initial.resolve_strategy_asset("example.strategy.library", "2", "example.strategy.simple_momentum", "2")
 
 
 def test_distribution_rebuild_changes_generation_without_false_content_drift() -> None:
     initial = _generation()
     manager = OnlyQuantAssetCatalogManager(initial)
-    strategy = strategy_provider()
+    factor = factor_provider()
     repackaged = replace(
-        strategy,
+        factor,
         manifest=replace(
-            strategy.manifest,
-            source=replace(strategy.manifest.source, distribution_version="0.9.10"),
+            factor.manifest,
+            source=replace(factor.manifest.source, distribution_version="0.9.10"),
         ),
     )
-    assert repackaged.content_fingerprint == strategy.content_fingerprint
+    assert repackaged.content_fingerprint == factor.content_fingerprint
     candidate = OnlyQuantAssetCatalogGeneration(
         tuple(
-            repackaged if item.manifest.provider_id == strategy.manifest.provider_id else item
+            repackaged if item.manifest.provider_id == factor.manifest.provider_id else item
             for item in initial.providers
         )
     )

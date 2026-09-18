@@ -119,9 +119,9 @@ Research Specification
 
 ## 4. Indicator、Feature、Factor、Eligibility 的角色
 
-ADR 0110 refines this model into four layers: generic mathematical Operators (L1), financial Indicators (L2), hypothesis-bearing
-Alpha Factors (L3), and canonical Strategy decisions (L4). L1/L2 are public reusable capabilities; production L3/L4 are private.
-Calculation/Graph remain the sole engineering/DAG authorities and Feature remains an output port.
+ADR 0110 and ADR 0132 define four active quant-asset kinds: generic mathematical Operators, financial Indicators, hypothesis-bearing
+Factors, and canonical Strategies. Operators/Indicators are public reusable capabilities; production Factors/Strategies are private
+database-native assets. Calculation/Graph remain the sole engineering/DAG authorities and Feature remains an output port.
 
 ### 4.1 Indicator → Named Feature
 
@@ -539,14 +539,13 @@ LLM / Agent 可以在用户授权下：
 
 Human Author 与 LLM Author 必须经过同一验证、identity、freeze 和 promotion contract。
 
-The Agent primarily creates and searches L3 Factors and L4 Strategies, while querying and composing admitted L1 Operators and L2
-Indicators. If reusable mathematics or financial knowledge is missing, the Agent proposes a separate L1/L2 admission; it must not
-hide that capability inside a Factor or Strategy.
+The Agent primarily creates and searches Factors and Strategies, while querying and composing admitted Operators and Indicators. If
+reusable mathematics or financial knowledge is missing, the Agent proposes a separate Operator/Indicator admission; it must not hide
+that capability inside a Factor or Strategy.
 
-ADR 0111 permits high-change private L3/L4 repositories to be consumed from an explicit source/editable path during controlled Agent
-research, or from an installed uv/pip distribution. L3 source import and installed entry-point discovery expose the same registrations;
-L4 explicit-root and package-resource reads expose the same authoring JSON. Paths remain pre-Freeze authoring inputs and are excluded from
-Strategy identity and Runtime authority.
+Private Factor and Strategy authoring is PostgreSQL-native under ADR 0129 and ADR 0132. Portable example seeds are explicit import
+inputs; they are not repositories, packages, Providers, execution sources or Runtime authority. Optional source/distribution
+interoperability does not become private authoring authority or Strategy identity.
 
 ## 12. 代码与依赖证据
 

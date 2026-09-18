@@ -1,4 +1,4 @@
-"""Database-native Private Alpha/Strategy authoring contracts."""
+"""Database-native Private Factor/Strategy authoring contracts."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from onlyalpha.canonical import only_canonical_fingerprint
 
 PRIVATE_ASSET_SCHEMA_VERSION = 1
 
-_ALPHA_ID = re.compile(r"^private\.alpha\.[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$")
+_FACTOR_ID = re.compile(r"^private\.factor\.[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$")
 _STRATEGY_ID = re.compile(r"^private\.strategy\.[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$")
 _SEMANTIC_VERSION = re.compile(r"^[1-9][0-9]*$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -82,7 +82,7 @@ class OnlyPrivateAssetPutDisposition(StrEnum):
 
 
 class OnlyPrivateAssetKind(StrEnum):
-    ALPHA = "ALPHA"
+    FACTOR = "FACTOR"
     STRATEGY = "STRATEGY"
 
 
@@ -97,8 +97,8 @@ class OnlyPrivateAssetRevisionReferenceV1:
     def __post_init__(self) -> None:
         if not isinstance(self.private_asset_kind, OnlyPrivateAssetKind):
             raise OnlyPrivateAssetKindUnsupportedError(str(self.private_asset_kind))
-        if self.private_asset_kind is OnlyPrivateAssetKind.ALPHA:
-            _alpha_id(self.private_asset_id)
+        if self.private_asset_kind is OnlyPrivateAssetKind.FACTOR:
+            _factor_id(self.private_asset_id)
         elif self.private_asset_kind is OnlyPrivateAssetKind.STRATEGY:
             _strategy_id(self.private_asset_id)
         else:  # pragma: no cover - StrEnum exhaustiveness guard
@@ -115,8 +115,8 @@ class OnlyVerifiedPrivateAssetRevisionBindingV1:
     private_asset_revision_fingerprint: str
     private_asset_content_fingerprint: str
     semantic_version: str
-    alpha_api_version: int | None = None
-    alpha_api_contract_fingerprint: str | None = None
+    factor_api_version: int | None = None
+    factor_api_contract_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         OnlyPrivateAssetRevisionReferenceV1(
@@ -126,12 +126,12 @@ class OnlyVerifiedPrivateAssetRevisionBindingV1:
         )
         _fingerprint(self.private_asset_content_fingerprint, "private_asset_content_fingerprint")
         _semantic_version(self.semantic_version)
-        if self.private_asset_kind is OnlyPrivateAssetKind.ALPHA:
-            if self.alpha_api_version != 1 or self.alpha_api_contract_fingerprint is None:
-                raise OnlyPrivateAssetReferenceMismatchError("Alpha API binding is incomplete")
-            _fingerprint(self.alpha_api_contract_fingerprint, "alpha_api_contract_fingerprint")
-        elif self.alpha_api_version is not None or self.alpha_api_contract_fingerprint is not None:
-            raise OnlyPrivateAssetReferenceMismatchError("Strategy Revision cannot carry an Alpha API binding")
+        if self.private_asset_kind is OnlyPrivateAssetKind.FACTOR:
+            if self.factor_api_version != 1 or self.factor_api_contract_fingerprint is None:
+                raise OnlyPrivateAssetReferenceMismatchError("Factor API binding is incomplete")
+            _fingerprint(self.factor_api_contract_fingerprint, "factor_api_contract_fingerprint")
+        elif self.factor_api_version is not None or self.factor_api_contract_fingerprint is not None:
+            raise OnlyPrivateAssetReferenceMismatchError("Strategy Revision cannot carry an Factor API binding")
 
 
 def _invalid(detail: str) -> NoReturn:
@@ -160,10 +160,10 @@ def _fingerprint(value: object, name: str, *, optional: bool = False) -> str | N
     return cast(str | None, value)
 
 
-def _alpha_id(value: object) -> str:
-    value = _string(value, "alpha_id")
-    if _ALPHA_ID.fullmatch(value) is None:
-        _invalid("alpha_id must use private.alpha.<name>")
+def _factor_id(value: object) -> str:
+    value = _string(value, "factor_id")
+    if _FACTOR_ID.fullmatch(value) is None:
+        _invalid("factor_id must use private.factor.<name>")
     return value
 
 
@@ -237,7 +237,7 @@ def _exact(payload: Mapping[str, object], expected: set[str], name: str) -> None
         _invalid(f"{name} fields are invalid")
 
 
-def only_private_alpha_source_sha256(source_text: str) -> str:
+def only_private_factor_source_sha256(source_text: str) -> str:
     return hashlib.sha256(_source(source_text).encode("utf-8")).hexdigest()
 
 
@@ -251,30 +251,30 @@ def only_private_strategy_definition_fingerprint(definition: Mapping[str, object
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyPrivateAlphaAsset:
-    alpha_id: str
+class OnlyPrivateFactorAsset:
+    factor_id: str
     schema_version: int = PRIVATE_ASSET_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "alpha_id", _alpha_id(self.alpha_id))
+        object.__setattr__(self, "factor_id", _factor_id(self.factor_id))
         _schema(self.schema_version)
 
     def to_dict(self) -> dict[str, object]:
-        return {"schema_version": self.schema_version, "alpha_id": self.alpha_id}
+        return {"schema_version": self.schema_version, "factor_id": self.factor_id}
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, object]) -> OnlyPrivateAlphaAsset:
-        _exact(payload, {"schema_version", "alpha_id"}, "Private Alpha Asset")
-        return cls(_alpha_id(payload["alpha_id"]), _schema(payload["schema_version"]))
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyPrivateFactorAsset:
+        _exact(payload, {"schema_version", "factor_id"}, "Private Factor Asset")
+        return cls(_factor_id(payload["factor_id"]), _schema(payload["schema_version"]))
 
 
 @dataclass(slots=True)
-class OnlyPrivateAlphaDraft:
-    alpha_id: str
+class OnlyPrivateFactorDraft:
+    factor_id: str
     semantic_version: str
     source_text: str
-    alpha_api_version: int
-    alpha_api_contract_fingerprint: str
+    factor_api_version: int
+    factor_api_contract_fingerprint: str
     input_contract: Mapping[str, object]
     parameter_contract: Mapping[str, object]
     output_contract: Mapping[str, object]
@@ -286,13 +286,13 @@ class OnlyPrivateAlphaDraft:
     schema_version: int = PRIVATE_ASSET_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        self.alpha_id = _alpha_id(self.alpha_id)
+        self.factor_id = _factor_id(self.factor_id)
         self.semantic_version = _semantic_version(self.semantic_version)
         self.source_text = _source(self.source_text)
-        if isinstance(self.alpha_api_version, bool) or self.alpha_api_version != 1:
-            _invalid("alpha_api_version must equal 1")
-        self.alpha_api_contract_fingerprint = cast(
-            str, _fingerprint(self.alpha_api_contract_fingerprint, "alpha_api_contract_fingerprint")
+        if isinstance(self.factor_api_version, bool) or self.factor_api_version != 1:
+            _invalid("factor_api_version must equal 1")
+        self.factor_api_contract_fingerprint = cast(
+            str, _fingerprint(self.factor_api_contract_fingerprint, "factor_api_contract_fingerprint")
         )
         self.input_contract = _object(self.input_contract, "input_contract")
         self.parameter_contract = _object(self.parameter_contract, "parameter_contract")
@@ -308,17 +308,17 @@ class OnlyPrivateAlphaDraft:
 
     @property
     def source_sha256(self) -> str:
-        return only_private_alpha_source_sha256(self.source_text)
+        return only_private_factor_source_sha256(self.source_text)
 
     def to_dict(self) -> dict[str, object]:
         return {
             "schema_version": self.schema_version,
-            "alpha_id": self.alpha_id,
+            "factor_id": self.factor_id,
             "base_revision_fingerprint": self.base_revision_fingerprint,
             "semantic_version": self.semantic_version,
             "source_text": self.source_text,
-            "alpha_api_version": self.alpha_api_version,
-            "alpha_api_contract_fingerprint": self.alpha_api_contract_fingerprint,
+            "factor_api_version": self.factor_api_version,
+            "factor_api_contract_fingerprint": self.factor_api_contract_fingerprint,
             "input_contract": _thaw_json(self.input_contract),
             "parameter_contract": _thaw_json(self.parameter_contract),
             "output_contract": _thaw_json(self.output_contract),
@@ -329,15 +329,15 @@ class OnlyPrivateAlphaDraft:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, object]) -> OnlyPrivateAlphaDraft:
-        _exact(payload, _ALPHA_DRAFT_FIELDS, "Private Alpha Draft")
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyPrivateFactorDraft:
+        _exact(payload, _FACTOR_DRAFT_FIELDS, "Private Factor Draft")
         return cls(
-            alpha_id=_alpha_id(payload["alpha_id"]),
+            factor_id=_factor_id(payload["factor_id"]),
             semantic_version=_semantic_version(payload["semantic_version"]),
             source_text=_source(payload["source_text"]),
-            alpha_api_version=cast(int, payload["alpha_api_version"]),
-            alpha_api_contract_fingerprint=cast(
-                str, _fingerprint(payload["alpha_api_contract_fingerprint"], "alpha_api_contract_fingerprint")
+            factor_api_version=cast(int, payload["factor_api_version"]),
+            factor_api_contract_fingerprint=cast(
+                str, _fingerprint(payload["factor_api_contract_fingerprint"], "factor_api_contract_fingerprint")
             ),
             input_contract=_mapping(payload["input_contract"], "input_contract"),
             parameter_contract=_mapping(payload["parameter_contract"], "parameter_contract"),
@@ -353,14 +353,14 @@ class OnlyPrivateAlphaDraft:
         )
 
 
-_ALPHA_DRAFT_FIELDS = {
+_FACTOR_DRAFT_FIELDS = {
     "schema_version",
-    "alpha_id",
+    "factor_id",
     "base_revision_fingerprint",
     "semantic_version",
     "source_text",
-    "alpha_api_version",
-    "alpha_api_contract_fingerprint",
+    "factor_api_version",
+    "factor_api_contract_fingerprint",
     "input_contract",
     "parameter_contract",
     "output_contract",
@@ -372,15 +372,15 @@ _ALPHA_DRAFT_FIELDS = {
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyPrivateAlphaRevision:
-    alpha_id: str
+class OnlyPrivateFactorRevision:
+    factor_id: str
     semantic_version: str
     revision_fingerprint: str
     parent_revision_fingerprint: str | None
     source_text: str
     source_sha256: str
-    alpha_api_version: int
-    alpha_api_contract_fingerprint: str
+    factor_api_version: int
+    factor_api_contract_fingerprint: str
     input_contract: Mapping[str, object]
     parameter_contract: Mapping[str, object]
     output_contract: Mapping[str, object]
@@ -391,7 +391,7 @@ class OnlyPrivateAlphaRevision:
     schema_version: int = PRIVATE_ASSET_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "alpha_id", _alpha_id(self.alpha_id))
+        object.__setattr__(self, "factor_id", _factor_id(self.factor_id))
         object.__setattr__(self, "semantic_version", _semantic_version(self.semantic_version))
         object.__setattr__(
             self, "parent_revision_fingerprint", _fingerprint(self.parent_revision_fingerprint, "parent", optional=True)
@@ -407,27 +407,27 @@ class OnlyPrivateAlphaRevision:
         object.__setattr__(self, "category", _string(self.category, "category"))
         object.__setattr__(self, "tags", _tags(self.tags))
         _schema(self.schema_version)
-        if isinstance(self.alpha_api_version, bool) or self.alpha_api_version != 1:
-            _invalid("alpha_api_version must equal 1")
-        _fingerprint(self.alpha_api_contract_fingerprint, "alpha_api_contract_fingerprint")
+        if isinstance(self.factor_api_version, bool) or self.factor_api_version != 1:
+            _invalid("factor_api_version must equal 1")
+        _fingerprint(self.factor_api_contract_fingerprint, "factor_api_contract_fingerprint")
         _fingerprint(self.source_sha256, "source_sha256")
         _fingerprint(self.revision_fingerprint, "revision_fingerprint")
-        if self.source_sha256 != only_private_alpha_source_sha256(self.source_text):
-            raise OnlyPrivateAssetCorruptError("PRIVATE_ALPHA_SOURCE_HASH_MISMATCH")
-        if self.revision_fingerprint != only_private_alpha_revision_fingerprint(self):
-            raise OnlyPrivateAssetCorruptError("PRIVATE_ALPHA_REVISION_FINGERPRINT_MISMATCH")
+        if self.source_sha256 != only_private_factor_source_sha256(self.source_text):
+            raise OnlyPrivateAssetCorruptError("PRIVATE_FACTOR_SOURCE_HASH_MISMATCH")
+        if self.revision_fingerprint != only_private_factor_revision_fingerprint(self):
+            raise OnlyPrivateAssetCorruptError("PRIVATE_FACTOR_REVISION_FINGERPRINT_MISMATCH")
 
     @classmethod
-    def from_draft(cls, draft: OnlyPrivateAlphaDraft) -> OnlyPrivateAlphaRevision:
-        clean = OnlyPrivateAlphaDraft.from_dict(draft.to_dict())
+    def from_draft(cls, draft: OnlyPrivateFactorDraft) -> OnlyPrivateFactorRevision:
+        clean = OnlyPrivateFactorDraft.from_dict(draft.to_dict())
         values: dict[str, object] = {
-            "alpha_id": clean.alpha_id,
+            "factor_id": clean.factor_id,
             "semantic_version": clean.semantic_version,
             "parent_revision_fingerprint": clean.base_revision_fingerprint,
             "source_text": clean.source_text,
             "source_sha256": clean.source_sha256,
-            "alpha_api_version": clean.alpha_api_version,
-            "alpha_api_contract_fingerprint": clean.alpha_api_contract_fingerprint,
+            "factor_api_version": clean.factor_api_version,
+            "factor_api_contract_fingerprint": clean.factor_api_contract_fingerprint,
             "input_contract": clean.input_contract,
             "parameter_contract": clean.parameter_contract,
             "output_contract": clean.output_contract,
@@ -438,14 +438,14 @@ class OnlyPrivateAlphaRevision:
             "schema_version": clean.schema_version,
         }
         return cls(
-            alpha_id=clean.alpha_id,
+            factor_id=clean.factor_id,
             semantic_version=clean.semantic_version,
-            revision_fingerprint=only_private_alpha_revision_fingerprint(values),
+            revision_fingerprint=only_private_factor_revision_fingerprint(values),
             parent_revision_fingerprint=clean.base_revision_fingerprint,
             source_text=clean.source_text,
             source_sha256=clean.source_sha256,
-            alpha_api_version=clean.alpha_api_version,
-            alpha_api_contract_fingerprint=clean.alpha_api_contract_fingerprint,
+            factor_api_version=clean.factor_api_version,
+            factor_api_contract_fingerprint=clean.factor_api_contract_fingerprint,
             input_contract=clean.input_contract,
             parameter_contract=clean.parameter_contract,
             output_contract=clean.output_contract,
@@ -457,26 +457,26 @@ class OnlyPrivateAlphaRevision:
         )
 
     def identity_payload(self) -> dict[str, object]:
-        return _alpha_revision_payload(self)
+        return _factor_revision_payload(self)
 
     def to_dict(self) -> dict[str, object]:
         return {"revision_fingerprint": self.revision_fingerprint, **self.identity_payload()}
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, object]) -> OnlyPrivateAlphaRevision:
-        expected = (_ALPHA_DRAFT_FIELDS | {"revision_fingerprint", "parent_revision_fingerprint", "source_sha256"}) - {
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyPrivateFactorRevision:
+        expected = (_FACTOR_DRAFT_FIELDS | {"revision_fingerprint", "parent_revision_fingerprint", "source_sha256"}) - {
             "base_revision_fingerprint"
         }
-        _exact(payload, expected, "Private Alpha Revision")
+        _exact(payload, expected, "Private Factor Revision")
         return cls(
-            alpha_id=_alpha_id(payload["alpha_id"]),
+            factor_id=_factor_id(payload["factor_id"]),
             semantic_version=_semantic_version(payload["semantic_version"]),
             revision_fingerprint=cast(str, payload["revision_fingerprint"]),
             parent_revision_fingerprint=cast(str | None, payload["parent_revision_fingerprint"]),
             source_text=_source(payload["source_text"]),
             source_sha256=cast(str, payload["source_sha256"]),
-            alpha_api_version=cast(int, payload["alpha_api_version"]),
-            alpha_api_contract_fingerprint=cast(str, payload["alpha_api_contract_fingerprint"]),
+            factor_api_version=cast(int, payload["factor_api_version"]),
+            factor_api_contract_fingerprint=cast(str, payload["factor_api_contract_fingerprint"]),
             input_contract=_mapping(payload["input_contract"], "input_contract"),
             parameter_contract=_mapping(payload["parameter_contract"], "parameter_contract"),
             output_contract=_mapping(payload["output_contract"], "output_contract"),
@@ -488,17 +488,17 @@ class OnlyPrivateAlphaRevision:
         )
 
 
-def _alpha_revision_payload(value: OnlyPrivateAlphaRevision | Mapping[str, object]) -> dict[str, object]:
+def _factor_revision_payload(value: OnlyPrivateFactorRevision | Mapping[str, object]) -> dict[str, object]:
     get = value.__getitem__ if isinstance(value, Mapping) else lambda name: getattr(value, name)
     return {
         "schema_version": get("schema_version"),
-        "alpha_id": get("alpha_id"),
+        "factor_id": get("factor_id"),
         "semantic_version": get("semantic_version"),
         "parent_revision_fingerprint": get("parent_revision_fingerprint"),
         "source_text": get("source_text"),
         "source_sha256": get("source_sha256"),
-        "alpha_api_version": get("alpha_api_version"),
-        "alpha_api_contract_fingerprint": get("alpha_api_contract_fingerprint"),
+        "factor_api_version": get("factor_api_version"),
+        "factor_api_contract_fingerprint": get("factor_api_contract_fingerprint"),
         "input_contract": _thaw_json(get("input_contract")),
         "parameter_contract": _thaw_json(get("parameter_contract")),
         "output_contract": _thaw_json(get("output_contract")),
@@ -509,9 +509,9 @@ def _alpha_revision_payload(value: OnlyPrivateAlphaRevision | Mapping[str, objec
     }
 
 
-def only_private_alpha_revision_fingerprint(value: OnlyPrivateAlphaRevision | Mapping[str, object]) -> str:
+def only_private_factor_revision_fingerprint(value: OnlyPrivateFactorRevision | Mapping[str, object]) -> str:
     return only_canonical_fingerprint(
-        {"contract": "ONLYALPHA_PRIVATE_ALPHA_REVISION_V1", **_alpha_revision_payload(value)}
+        {"contract": "ONLYALPHA_PRIVATE_FACTOR_REVISION_V1", **_factor_revision_payload(value)}
     )
 
 
@@ -701,23 +701,23 @@ def only_private_strategy_revision_fingerprint(value: OnlyPrivateStrategyRevisio
 
 
 class OnlyPrivateAssetAuthoringAuthority(Protocol):
-    def put_alpha_asset(self, asset: OnlyPrivateAlphaAsset) -> OnlyPrivateAssetPutDisposition: ...
+    def put_factor_asset(self, asset: OnlyPrivateFactorAsset) -> OnlyPrivateAssetPutDisposition: ...
 
-    def load_alpha_asset(self, alpha_id: str) -> OnlyPrivateAlphaAsset: ...
+    def load_factor_asset(self, factor_id: str) -> OnlyPrivateFactorAsset: ...
 
-    def save_alpha_draft(self, draft: OnlyPrivateAlphaDraft) -> None: ...
+    def save_factor_draft(self, draft: OnlyPrivateFactorDraft) -> None: ...
 
-    def load_alpha_draft(self, alpha_id: str) -> OnlyPrivateAlphaDraft | None: ...
+    def load_factor_draft(self, factor_id: str) -> OnlyPrivateFactorDraft | None: ...
 
-    def clear_alpha_draft(self, alpha_id: str) -> bool: ...
+    def clear_factor_draft(self, factor_id: str) -> bool: ...
 
-    def publish_alpha_revision(
-        self, alpha_id: str
-    ) -> tuple[OnlyPrivateAssetPutDisposition, OnlyPrivateAlphaRevision]: ...
+    def publish_factor_revision(
+        self, factor_id: str
+    ) -> tuple[OnlyPrivateAssetPutDisposition, OnlyPrivateFactorRevision]: ...
 
-    def load_alpha_revision(self, alpha_id: str, revision_fingerprint: str) -> OnlyPrivateAlphaRevision: ...
+    def load_factor_revision(self, factor_id: str, revision_fingerprint: str) -> OnlyPrivateFactorRevision: ...
 
-    def list_alpha_revision_history(self, alpha_id: str) -> tuple[OnlyPrivateAlphaRevision, ...]: ...
+    def list_factor_revision_history(self, factor_id: str) -> tuple[OnlyPrivateFactorRevision, ...]: ...
 
     def put_strategy_asset(self, asset: OnlyPrivateStrategyAsset) -> OnlyPrivateAssetPutDisposition: ...
 
@@ -741,7 +741,7 @@ class OnlyPrivateAssetAuthoringAuthority(Protocol):
 class OnlyPrivateAssetExactRevisionAuthority(Protocol):
     """Minimum owning-authority surface needed to bind exact Revisions."""
 
-    def load_alpha_revision(self, alpha_id: str, revision_fingerprint: str) -> OnlyPrivateAlphaRevision: ...
+    def load_factor_revision(self, factor_id: str, revision_fingerprint: str) -> OnlyPrivateFactorRevision: ...
 
     def load_strategy_revision(self, strategy_id: str, revision_fingerprint: str) -> OnlyPrivateStrategyRevision: ...
 
@@ -750,27 +750,40 @@ class OnlyPrivateAssetRevisionBindingResolver:
     def __init__(self, authority: OnlyPrivateAssetExactRevisionAuthority) -> None:
         self._authority = authority
 
+    def resolve_factor_revision(self, reference: OnlyPrivateAssetRevisionReferenceV1) -> OnlyPrivateFactorRevision:
+        if not isinstance(reference, OnlyPrivateAssetRevisionReferenceV1):
+            raise OnlyPrivateAssetInvalidError("exact Private Asset Revision reference is required")
+        if reference.private_asset_kind is not OnlyPrivateAssetKind.FACTOR:
+            raise OnlyPrivateAssetKindUnsupportedError(str(reference.private_asset_kind))
+        try:
+            revision = self._authority.load_factor_revision(
+                reference.private_asset_id, reference.private_asset_revision_fingerprint
+            )
+            if (
+                revision.factor_id != reference.private_asset_id
+                or revision.revision_fingerprint != reference.private_asset_revision_fingerprint
+            ):
+                raise OnlyPrivateAssetReferenceMismatchError(reference.private_asset_id)
+            return revision
+        except OnlyPrivateAssetNotFoundError as exc:
+            raise OnlyPrivateAssetRevisionNotFoundError(reference.private_asset_revision_fingerprint) from exc
+        except OnlyPrivateAssetCorruptError as exc:
+            raise OnlyPrivateAssetRevisionCorruptError(reference.private_asset_revision_fingerprint) from exc
+
     def resolve(self, reference: OnlyPrivateAssetRevisionReferenceV1) -> OnlyVerifiedPrivateAssetRevisionBindingV1:
         if not isinstance(reference, OnlyPrivateAssetRevisionReferenceV1):
             raise OnlyPrivateAssetInvalidError("exact Private Asset Revision reference is required")
         try:
-            if reference.private_asset_kind is OnlyPrivateAssetKind.ALPHA:
-                alpha_revision = self._authority.load_alpha_revision(
-                    reference.private_asset_id, reference.private_asset_revision_fingerprint
-                )
-                if (
-                    alpha_revision.alpha_id != reference.private_asset_id
-                    or alpha_revision.revision_fingerprint != reference.private_asset_revision_fingerprint
-                ):
-                    raise OnlyPrivateAssetReferenceMismatchError(reference.private_asset_id)
+            if reference.private_asset_kind is OnlyPrivateAssetKind.FACTOR:
+                factor_revision = self.resolve_factor_revision(reference)
                 return OnlyVerifiedPrivateAssetRevisionBindingV1(
                     private_asset_kind=reference.private_asset_kind,
-                    private_asset_id=alpha_revision.alpha_id,
-                    private_asset_revision_fingerprint=alpha_revision.revision_fingerprint,
-                    private_asset_content_fingerprint=alpha_revision.source_sha256,
-                    semantic_version=alpha_revision.semantic_version,
-                    alpha_api_version=alpha_revision.alpha_api_version,
-                    alpha_api_contract_fingerprint=alpha_revision.alpha_api_contract_fingerprint,
+                    private_asset_id=factor_revision.factor_id,
+                    private_asset_revision_fingerprint=factor_revision.revision_fingerprint,
+                    private_asset_content_fingerprint=factor_revision.source_sha256,
+                    semantic_version=factor_revision.semantic_version,
+                    factor_api_version=factor_revision.factor_api_version,
+                    factor_api_contract_fingerprint=factor_revision.factor_api_contract_fingerprint,
                 )
             if reference.private_asset_kind is OnlyPrivateAssetKind.STRATEGY:
                 strategy_revision = self._authority.load_strategy_revision(

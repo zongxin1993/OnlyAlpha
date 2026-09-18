@@ -77,11 +77,11 @@ def test_create_fingerprint_binds_exact_authoring_generation_reference() -> None
     strict = OnlyResearchSpecification.from_dict(specification().to_dict())
     identity = {
         "experiment_id": "exp-" + "a" * 32,
-        "private_asset_kind": OnlyPrivateAssetKind.ALPHA,
-        "private_asset_id": "private.alpha.momentum",
+        "private_asset_kind": OnlyPrivateAssetKind.FACTOR,
+        "private_asset_id": "private.factor.momentum",
         "private_asset_revision_fingerprint": "1" * 64,
         "private_asset_content_fingerprint": "2" * 64,
-        "candidate_provider_id": "private.onlyalpha.alpha.candidate",
+        "candidate_provider_id": "private.onlyalpha.factor.candidate",
         "candidate_provider_version": "candidate-1",
         "candidate_provider_content_fingerprint": "3" * 64,
         "catalog_generation_fingerprint": "4" * 64,

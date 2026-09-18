@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pyarrow as pa
 from onlyalpha_plugin_indicators.provider import quant_asset_provider as indicator_provider
 from onlyalpha_plugin_operators.provider import quant_asset_provider as operator_provider
-from onlyalpha_test_alpha_provider.provider import quant_asset_provider as factor_provider
+from onlyalpha_test_factor_provider.provider import quant_asset_provider as factor_provider
 
 from onlyalpha.calculation import OnlyCalculationKind, OnlyCalculationTypeReference
 from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration

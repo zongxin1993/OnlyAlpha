@@ -9,7 +9,7 @@ from .definition import OnlyNumericDefinition
 
 
 class OnlyCanonicalValueSemanticsV1:
-    """Single owner of Private Alpha V1 arithmetic, comparison and missing semantics."""
+    """Single owner of Private Factor V1 arithmetic, comparison and missing semantics."""
 
     def __init__(self, numeric: OnlyNumericDefinition) -> None:
         self.numeric = numeric

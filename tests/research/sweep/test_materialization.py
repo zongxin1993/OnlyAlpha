@@ -10,7 +10,7 @@ from decimal import Decimal
 import pytest
 from onlyalpha_plugin_indicators.registration import TYPES, resolve_definition
 from onlyalpha_plugin_operators.registration import resolve_cross_section_percentile
-from onlyalpha_test_alpha_provider.registration import resolve_momentum
+from onlyalpha_test_factor_provider.registration import resolve_momentum
 
 from onlyalpha.calculation import (
     OnlyCalculationBackendKind,

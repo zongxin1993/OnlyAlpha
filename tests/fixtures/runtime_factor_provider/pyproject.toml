@@ -1,7 +1,7 @@
 [project]
-name = "onlyalpha-test-alpha-provider"
+name = "onlyalpha-test-factor-provider"
 version = "0.9.9"
-description = "Test-only Alpha provider fixture for OnlyAlpha"
+description = "Test-only Factor provider fixture for OnlyAlpha"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "onlyalpha==0.9.9",
@@ -10,14 +10,14 @@ dependencies = [
 ]
 
 [project.entry-points."onlyalpha.calculations"]
-example-alpha = "onlyalpha_test_alpha_provider.registration:registrations"
+example-factor = "onlyalpha_test_factor_provider.registration:registrations"
 
 [project.entry-points."onlyalpha.quant_assets"]
-example-alpha = "onlyalpha_test_alpha_provider.provider:quant_asset_provider"
+example-factor = "onlyalpha_test_factor_provider.provider:quant_asset_provider"
 
 [build-system]
 requires = ["hatchling>=1.26,<2"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/onlyalpha_test_alpha_provider"]
+packages = ["src/onlyalpha_test_factor_provider"]

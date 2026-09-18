@@ -8,8 +8,7 @@ import pytest
 from onlyalpha_plugin_indicators.provider import quant_asset_provider as indicator_provider
 from onlyalpha_plugin_operators.provider import quant_asset_provider as operator_provider
 from onlyalpha_plugin_targets.registration import registrations as target_registrations
-from onlyalpha_test_alpha_provider.provider import quant_asset_provider as alpha_provider
-from onlyalpha_test_strategy_provider.provider import quant_asset_provider as strategy_provider
+from onlyalpha_test_factor_provider.provider import quant_asset_provider as factor_provider
 
 from onlyalpha.application.catalog_context import (
     EXACT_CATALOG_CONTEXT_PROJECTION_SCHEMA_FINGERPRINT,
@@ -37,7 +36,7 @@ def _generation(
     operator = operator_provider()
     if reverse_registrations:
         operator = replace(operator, calculation_registrations=tuple(reversed(operator.calculation_registrations)))
-    providers = (operator, indicator_provider(), alpha_provider(), strategy_provider())
+    providers = (operator, indicator_provider(), factor_provider())
     if reverse_providers:
         providers = tuple(reversed(providers))
     return OnlyQuantAssetCatalogGeneration(providers)
@@ -129,8 +128,7 @@ def test_projection_is_complete_and_includes_exact_authority_capabilities() -> N
     assert {item.provider_id for item in context.ordered_providers} == {
         "onlyalpha.operator.library",
         "onlyalpha.indicator.library",
-        "example.alpha.library",
-        "example.strategy.library",
+        "example.factor.library",
     }
     assert {item.type_id for item in context.ordered_calculation_capabilities}
     assert not {item.type_definition.type_id for item in target_registrations()} & {

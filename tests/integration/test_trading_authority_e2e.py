@@ -33,8 +33,6 @@ from onlyalpha.domain.identifiers import OnlyEngineId, OnlyInstrumentId
 from onlyalpha.domain.market import OnlyBarType
 from onlyalpha.engine import OnlyEngineConfig
 from onlyalpha.engine.engine import OnlyEngine
-from onlyalpha.quant_assets import only_discover_quant_asset_providers
-from onlyalpha.research.definition import OnlyResearchDefinition
 from onlyalpha.runtime.sim.runtime import OnlySimRuntime
 from onlyalpha.strategy.adapter import OnlyRevisionStrategyAdapter
 from onlyalpha.strategy.freeze import OnlyStrategyFreezeRequest
@@ -119,17 +117,10 @@ def test_research_evidence_freeze_publishes_one_strategy_for_backtest_and_sim(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     user_data = tmp_path / "user_data"
-    strategy_asset = only_discover_quant_asset_providers().resolve_strategy_asset(
-        "example.strategy.library", "1", "example.strategy.simple_momentum", "1"
-    )
-    source_definition = OnlyResearchDefinition.from_dict(
-        json.loads(strategy_asset.resource_bytes("research-definition.json"))
-    )
     service, run, candidate, frozen_store, _catalog = _freeze_case(
         tmp_path / "research-authorities",
         semantic_root=user_data / "research",
         values=_research_bars(),
-        source_definition=source_definition,
     )
     frozen = service.freeze(OnlyStrategyFreezeRequest(run.run_id, candidate.candidate_fingerprint, "certifier"))
     fingerprint = frozen.strategy_fingerprint

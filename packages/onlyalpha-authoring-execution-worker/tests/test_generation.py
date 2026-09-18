@@ -16,14 +16,14 @@ from onlyalpha_authoring_execution_worker import (
 from onlyalpha.calculation import OnlyCalculationKind, OnlyCalculationTypeReference
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.quant_assets import (
-    ONLY_PRIVATE_ALPHA_API_V1,
-    OnlyPrivateAlphaDraft,
-    OnlyPrivateAlphaExecutableClosureV1,
-    OnlyPrivateAlphaRevision,
+    ONLY_PRIVATE_FACTOR_API_V1,
     OnlyPrivateAssetKind,
     OnlyPrivateAssetNotFoundError,
     OnlyPrivateAssetRevisionBindingResolver,
     OnlyPrivateAssetRevisionReferenceV1,
+    OnlyPrivateFactorDraft,
+    OnlyPrivateFactorExecutableClosureV1,
+    OnlyPrivateFactorRevision,
     OnlyPrivateStrategyDraft,
     OnlyPrivateStrategyRevision,
     OnlyQuantAssetCatalogGeneration,
@@ -51,14 +51,14 @@ from tests.research.specification.support import specification
 
 
 class _Revisions:
-    def __init__(self, alpha: OnlyPrivateAlphaRevision, strategy: OnlyPrivateStrategyRevision | None = None) -> None:
-        self.alpha = alpha
+    def __init__(self, factor: OnlyPrivateFactorRevision, strategy: OnlyPrivateStrategyRevision | None = None) -> None:
+        self.factor = factor
         self.strategy = strategy
 
-    def load_alpha_revision(self, alpha_id: str, fingerprint: str) -> OnlyPrivateAlphaRevision:
-        if (alpha_id, fingerprint) != (self.alpha.alpha_id, self.alpha.revision_fingerprint):
+    def load_factor_revision(self, factor_id: str, fingerprint: str) -> OnlyPrivateFactorRevision:
+        if (factor_id, fingerprint) != (self.factor.factor_id, self.factor.revision_fingerprint):
             raise OnlyPrivateAssetNotFoundError()
-        return self.alpha
+        return self.factor
 
     def load_strategy_revision(self, strategy_id: str, fingerprint: str) -> OnlyPrivateStrategyRevision:
         if self.strategy is None or (strategy_id, fingerprint) != (
@@ -69,17 +69,17 @@ class _Revisions:
         return self.strategy
 
 
-def _alpha_revision(alpha_id: str = "private.alpha.momentum") -> OnlyPrivateAlphaRevision:
-    return OnlyPrivateAlphaRevision.from_draft(
-        OnlyPrivateAlphaDraft(
-            alpha_id=alpha_id,
+def _factor_revision(factor_id: str = "private.factor.momentum") -> OnlyPrivateFactorRevision:
+    return OnlyPrivateFactorRevision.from_draft(
+        OnlyPrivateFactorDraft(
+            factor_id=factor_id,
             semantic_version="1",
             source_text=(
                 "def calculate(api, inputs, parameters):\n"
                 "    return {'factor_value': api.sub(inputs['value'], parameters['offset'])}\n"
             ),
-            alpha_api_version=1,
-            alpha_api_contract_fingerprint=ONLY_PRIVATE_ALPHA_API_V1.api_contract_fingerprint,
+            factor_api_version=1,
+            factor_api_contract_fingerprint=ONLY_PRIVATE_FACTOR_API_V1.api_contract_fingerprint,
             input_contract={"value": {"type": "DECIMAL", "nullable": True}},
             parameter_contract={"offset": {"type": "DECIMAL"}},
             output_contract={"factor_value": {"type": "DECIMAL", "nullable": True}},
@@ -90,14 +90,14 @@ def _alpha_revision(alpha_id: str = "private.alpha.momentum") -> OnlyPrivateAlph
     )
 
 
-def _closure(revision: OnlyPrivateAlphaRevision | None = None) -> OnlyPrivateAlphaExecutableClosureV1:
-    return OnlyPrivateAlphaExecutableClosureV1.create(
-        revision or _alpha_revision(), ({"value": Decimal("1")},), {"offset": Decimal("0")}
+def _closure(revision: OnlyPrivateFactorRevision | None = None) -> OnlyPrivateFactorExecutableClosureV1:
+    return OnlyPrivateFactorExecutableClosureV1.create(
+        revision or _factor_revision(), ({"value": Decimal("1")},), {"offset": Decimal("0")}
     )
 
 
-def _forged_closure(source: OnlyPrivateAlphaExecutableClosureV1) -> OnlyPrivateAlphaExecutableClosureV1:
-    forged = object.__new__(OnlyPrivateAlphaExecutableClosureV1)
+def _forged_closure(source: OnlyPrivateFactorExecutableClosureV1) -> OnlyPrivateFactorExecutableClosureV1:
+    forged = object.__new__(OnlyPrivateFactorExecutableClosureV1)
     for name in source.__dataclass_fields__:
         value = getattr(source, name)
         if name == "equivalence_evidence":
@@ -111,16 +111,16 @@ def _forged_closure(source: OnlyPrivateAlphaExecutableClosureV1) -> OnlyPrivateA
 
 
 def test_authoring_rejects_reflection_forged_executable_closure() -> None:
-    revision = _alpha_revision()
-    with pytest.raises(ValueError, match="PRIVATE_ALPHA_EXECUTABLE_CLOSURE_MISMATCH"):
+    revision = _factor_revision()
+    with pytest.raises(ValueError, match="PRIVATE_FACTOR_EXECUTABLE_CLOSURE_MISMATCH"):
         OnlyAuthoringExecutionGeneration.create_verified(
             experiment_id="exp-" + "f" * 32,
             private_asset_revision_reference=OnlyPrivateAssetRevisionReferenceV1(
-                OnlyPrivateAssetKind.ALPHA, revision.alpha_id, revision.revision_fingerprint
+                OnlyPrivateAssetKind.FACTOR, revision.factor_id, revision.revision_fingerprint
             ),
             private_asset_revisions=OnlyPrivateAssetRevisionBindingResolver(_Revisions(revision)),
-            private_alpha_executable_closure=_forged_closure(_closure(revision)),
-            candidate_provider_id="candidate.private.alpha.forged",
+            private_factor_executable_closure=_forged_closure(_closure(revision)),
+            candidate_provider_id="candidate.private.factor.forged",
             base_catalog=only_discover_quant_asset_providers(),
         )
 
@@ -131,7 +131,7 @@ def _native_specification() -> OnlyResearchSpecification:
         (
             OnlyResearchGraphTemplateNode(
                 "native",
-                OnlyCalculationTypeReference(OnlyCalculationKind.FACTOR, "private.alpha.momentum", "1"),
+                OnlyCalculationTypeReference(OnlyCalculationKind.FACTOR, "private.factor.momentum", "1"),
                 {"offset": Decimal("0")},
                 (OnlyResearchTemplateInputBinding("value", OnlyResearchTemplateReference(None, "value", "bar.close")),),
             ),
@@ -152,7 +152,7 @@ def _native_specification() -> OnlyResearchSpecification:
 
 def _generation() -> tuple[OnlyAuthoringExecutionGeneration, OnlyPrivateAssetRevisionBindingResolver]:
     experiment_id = "exp-" + "a" * 32
-    revision = _alpha_revision()
+    revision = _factor_revision()
     closure = _closure(revision)
     installed = only_discover_quant_asset_providers()
     revisions = OnlyPrivateAssetRevisionBindingResolver(_Revisions(revision))
@@ -160,11 +160,11 @@ def _generation() -> tuple[OnlyAuthoringExecutionGeneration, OnlyPrivateAssetRev
         OnlyAuthoringExecutionGeneration.create_verified(
             experiment_id=experiment_id,
             private_asset_revision_reference=OnlyPrivateAssetRevisionReferenceV1(
-                OnlyPrivateAssetKind.ALPHA, revision.alpha_id, revision.revision_fingerprint
+                OnlyPrivateAssetKind.FACTOR, revision.factor_id, revision.revision_fingerprint
             ),
             private_asset_revisions=revisions,
-            private_alpha_executable_closure=closure,
-            candidate_provider_id=f"candidate.private.alpha.{experiment_id.removeprefix('exp-')}",
+            private_factor_executable_closure=closure,
+            candidate_provider_id=f"candidate.private.factor.{experiment_id.removeprefix('exp-')}",
             base_catalog=installed,
         ),
         revisions,
@@ -175,7 +175,7 @@ def test_generation_owns_exact_catalog_and_process_composition(tmp_path: Path) -
     generation, revisions = _generation()
     services = generation.engine_services()
     definitions = services.assembler.components.calculations.type_definitions()
-    assert any(item.type_id == "private.alpha.momentum" for item in definitions)
+    assert any(item.type_id == "private.factor.momentum" for item in definitions)
     assert any(item.type_id == "onlyalpha.target.forward_return" for item in definitions)
     store = OnlyAuthoringExecutionGenerationStore(tmp_path)
     assert store.commit(generation) == store.commit(generation)
@@ -202,12 +202,12 @@ def test_generation_fails_closed_on_catalog_or_durable_descriptor_drift(tmp_path
         OnlyAuthoringExecutionGeneration.create_verified(
             experiment_id=generation.provenance.experiment_id,
             private_asset_revision_reference=OnlyPrivateAssetRevisionReferenceV1(
-                OnlyPrivateAssetKind.ALPHA,
+                OnlyPrivateAssetKind.FACTOR,
                 generation.provenance.private_asset_id,
                 generation.provenance.private_asset_revision_fingerprint,
             ),
-            private_asset_revisions=OnlyPrivateAssetRevisionBindingResolver(_Revisions(_alpha_revision())),
-            private_alpha_executable_closure=_closure(),
+            private_asset_revisions=OnlyPrivateAssetRevisionBindingResolver(_Revisions(_factor_revision())),
+            private_factor_executable_closure=_closure(),
             candidate_provider_id=generation.provenance.candidate_provider_id,
             base_catalog=generation.catalog,
         )
@@ -225,12 +225,27 @@ def test_generation_fails_closed_on_catalog_or_durable_descriptor_drift(tmp_path
         OnlyAuthoringExecutionGenerationRegistry((generation, generation), reader)
 
 
+def test_verified_reader_rejects_unknown_native_closure_fields(tmp_path: Path) -> None:
+    generation, revisions = _generation()
+    descriptor = generation.descriptor()
+    execution = descriptor["private_factor_execution"]
+    assert isinstance(execution, dict)
+    descriptor["private_factor_execution"] = {**execution, "unexpected": True}
+    path = tmp_path / f"{generation.fingerprint}.json"
+    path.write_text(only_canonical_json(descriptor) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="AUTHORING_PRIVATE_ASSET_BINDING_MISMATCH"):
+        OnlyVerifiedAuthoringGenerationReader(OnlyAuthoringExecutionGenerationStore(tmp_path), revisions).load_verified(
+            generation.fingerprint
+        )
+
+
 def test_descriptor_rejects_candidate_provider_content_mismatch(tmp_path: Path) -> None:
     generation, revisions = _generation()
     descriptor = generation.descriptor()
     identity = generation.provenance.identity_dict()
     identity["candidate_provider_content_fingerprint"] = "f" * 64
-    identity["private_asset_kind"] = OnlyPrivateAssetKind.ALPHA
+    identity["private_asset_kind"] = OnlyPrivateAssetKind.FACTOR
     identity.pop("execution_generation_fingerprint")
     forged = OnlyResearchAuthoringProvenance(
         **identity,  # type: ignore[arg-type]
@@ -253,7 +268,7 @@ def test_descriptor_rejects_candidate_provider_content_mismatch(tmp_path: Path) 
 
 def test_registry_reanchors_revision_authority_on_every_read(tmp_path: Path) -> None:
     generation, _ = _generation()
-    authority = _Revisions(_alpha_revision())
+    authority = _Revisions(_factor_revision())
     revisions = OnlyPrivateAssetRevisionBindingResolver(authority)
     store = OnlyAuthoringExecutionGenerationStore(tmp_path)
     store.commit(generation)
@@ -262,13 +277,13 @@ def test_registry_reanchors_revision_authority_on_every_read(tmp_path: Path) -> 
     )
     assert registry.load_verified(generation.fingerprint) == generation.provenance
 
-    authority.alpha = OnlyPrivateAlphaRevision.from_draft(
-        OnlyPrivateAlphaDraft(
-            alpha_id="private.alpha.other",
+    authority.factor = OnlyPrivateFactorRevision.from_draft(
+        OnlyPrivateFactorDraft(
+            factor_id="private.factor.other",
             semantic_version="1",
             source_text="def calculate(api, inputs, parameters):\n    return inputs\n",
-            alpha_api_version=1,
-            alpha_api_contract_fingerprint="a" * 64,
+            factor_api_version=1,
+            factor_api_contract_fingerprint="a" * 64,
             input_contract={},
             parameter_contract={},
             output_contract={},
@@ -370,7 +385,7 @@ def test_worker_composition_resolves_native_revision_registration(tmp_path: Path
 
     resolution = composition.resolver.resolve(_native_specification())
     assert any(
-        node.definition.type_id == "private.alpha.momentum"
+        node.definition.type_id == "private.factor.momentum"
         for candidate in resolution.candidates
         for node in candidate.graph.nodes
     )
@@ -379,7 +394,7 @@ def test_worker_composition_resolves_native_revision_registration(tmp_path: Path
 def test_factory_rejects_duplicate_provider_mismatched_closure_and_strategy_execution() -> None:
     generation, revisions = _generation()
     reference = OnlyPrivateAssetRevisionReferenceV1(
-        OnlyPrivateAssetKind.ALPHA,
+        OnlyPrivateAssetKind.FACTOR,
         generation.provenance.private_asset_id,
         generation.provenance.private_asset_revision_fingerprint,
     )
@@ -388,18 +403,18 @@ def test_factory_rejects_duplicate_provider_mismatched_closure_and_strategy_exec
             experiment_id=generation.provenance.experiment_id,
             private_asset_revision_reference=reference,
             private_asset_revisions=revisions,
-            private_alpha_executable_closure=_closure(),
+            private_factor_executable_closure=_closure(),
             candidate_provider_id=generation.provenance.candidate_provider_id,
             base_catalog=generation.catalog,
         )
 
-    other = _alpha_revision("private.alpha.other")
-    with pytest.raises(ValueError, match="AUTHORING_PRIVATE_ALPHA_EXECUTION_BINDING_MISMATCH"):
+    other = _factor_revision("private.factor.other")
+    with pytest.raises(ValueError, match="AUTHORING_PRIVATE_FACTOR_EXECUTION_BINDING_MISMATCH"):
         OnlyAuthoringExecutionGeneration.create_verified(
             experiment_id=generation.provenance.experiment_id,
             private_asset_revision_reference=reference,
             private_asset_revisions=revisions,
-            private_alpha_executable_closure=_closure(other),
+            private_factor_executable_closure=_closure(other),
             candidate_provider_id="candidate.private.other",
             base_catalog=OnlyQuantAssetCatalogGeneration(()),
         )
@@ -417,8 +432,8 @@ def test_factory_rejects_duplicate_provider_mismatched_closure_and_strategy_exec
             private_asset_revision_reference=OnlyPrivateAssetRevisionReferenceV1(
                 OnlyPrivateAssetKind.STRATEGY, strategy.strategy_id, strategy.revision_fingerprint
             ),
-            private_asset_revisions=OnlyPrivateAssetRevisionBindingResolver(_Revisions(_alpha_revision(), strategy)),
-            private_alpha_executable_closure=_closure(),
+            private_asset_revisions=OnlyPrivateAssetRevisionBindingResolver(_Revisions(_factor_revision(), strategy)),
+            private_factor_executable_closure=_closure(),
             candidate_provider_id=generation.provenance.candidate_provider_id,
             base_catalog=OnlyQuantAssetCatalogGeneration(()),
         )
@@ -428,7 +443,7 @@ def test_verified_reader_rejects_self_consistent_descriptor_not_backed_by_revisi
     generation, revisions = _generation()
     identity = generation.provenance.identity_dict()
     identity["private_asset_content_fingerprint"] = "f" * 64
-    identity["private_asset_kind"] = OnlyPrivateAssetKind.ALPHA
+    identity["private_asset_kind"] = OnlyPrivateAssetKind.FACTOR
     identity.pop("execution_generation_fingerprint")
     forged = OnlyResearchAuthoringProvenance(
         **identity,  # type: ignore[arg-type]
@@ -449,13 +464,13 @@ def test_verified_reader_rejects_self_consistent_descriptor_not_backed_by_revisi
 
     missing = OnlyPrivateAssetRevisionBindingResolver(
         _Revisions(
-            OnlyPrivateAlphaRevision.from_draft(
-                OnlyPrivateAlphaDraft(
-                    alpha_id="private.alpha.other",
+            OnlyPrivateFactorRevision.from_draft(
+                OnlyPrivateFactorDraft(
+                    factor_id="private.factor.other",
                     semantic_version="1",
                     source_text="def calculate(api, inputs, parameters):\n    return inputs\n",
-                    alpha_api_version=1,
-                    alpha_api_contract_fingerprint="a" * 64,
+                    factor_api_version=1,
+                    factor_api_contract_fingerprint="a" * 64,
                     input_contract={},
                     parameter_contract={},
                     output_contract={},

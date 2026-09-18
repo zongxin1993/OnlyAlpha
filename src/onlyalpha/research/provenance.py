@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from onlyalpha.canonical import only_canonical_fingerprint
-from onlyalpha.quant_assets.private import OnlyPrivateAlphaAsset, OnlyPrivateAssetKind, OnlyPrivateStrategyAsset
+from onlyalpha.quant_assets.private import OnlyPrivateAssetKind, OnlyPrivateFactorAsset, OnlyPrivateStrategyAsset
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _EXPERIMENT_ID = re.compile(r"^exp-[0-9a-f]{24,64}$")
@@ -37,8 +37,8 @@ class OnlyResearchAuthoringProvenance:
             or not isinstance(self.private_asset_kind, OnlyPrivateAssetKind)
         ):
             raise ValueError("RESEARCH_PROVENANCE_INVALID")
-        if self.private_asset_kind is OnlyPrivateAssetKind.ALPHA:
-            OnlyPrivateAlphaAsset(self.private_asset_id)
+        if self.private_asset_kind is OnlyPrivateAssetKind.FACTOR:
+            OnlyPrivateFactorAsset(self.private_asset_id)
         else:
             OnlyPrivateStrategyAsset(self.private_asset_id)
         if not all(

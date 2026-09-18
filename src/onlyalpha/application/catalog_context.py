@@ -20,7 +20,7 @@ from onlyalpha.calculation.definition import (
 from onlyalpha.calculation.implementation import OnlyCalculationStateCapability
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 from onlyalpha.quant_assets.catalog import (
-    OnlyPrivateAlphaSnapshotProviderSource,
+    OnlyPrivateFactorSnapshotProviderSource,
     OnlyQuantAssetKind,
     OnlyQuantAssetProviderSource,
     only_quant_asset_provider_source_from_dict,
@@ -330,7 +330,7 @@ class OnlyExactCatalogCalculationCapabilityV1:
             or descriptor["semantic_version"] != self.semantic_version
         ):
             raise OnlyExactCatalogContextCorrupt
-        if self.provider_kind is OnlyQuantAssetKind.ALPHA:
+        if self.provider_kind is OnlyQuantAssetKind.FACTOR:
             if self.kind is not OnlyCalculationKind.FACTOR:
                 raise OnlyExactCatalogContextCorrupt
         elif self.kind is OnlyCalculationKind.FACTOR or self.provider_kind is OnlyQuantAssetKind.STRATEGY:
@@ -705,10 +705,7 @@ def only_project_exact_catalog_context(
 def _project_provider(
     payload: Mapping[str, object],
 ) -> tuple[OnlyExactCatalogProviderV1, tuple[OnlyExactCatalogCalculationCapabilityV1, ...]]:
-    _require_exact_fields(
-        payload,
-        {"manifest", "content_fingerprint", "calculations", "strategies", "private_alpha_snapshot"},
-    )
+    _require_exact_fields(payload, {"manifest", "content_fingerprint", "calculations", "private_factor_snapshot"})
     manifest = _mapping(payload, "manifest")
     _require_exact_fields(
         manifest,
@@ -727,15 +724,11 @@ def _project_provider(
     except ValueError as exc:
         raise OnlyExactCatalogContextCorrupt from exc
     calculations = _mapping_sequence(payload, "calculations")
-    strategies = _mapping_sequence(payload, "strategies")
     canonical_calculations = tuple(sorted(calculations, key=only_canonical_fingerprint))
-    canonical_strategies = tuple(sorted(strategies, key=only_canonical_fingerprint))
-    if calculations != canonical_calculations or strategies != canonical_strategies:
+    if calculations != canonical_calculations:
         raise OnlyExactCatalogContextCorrupt
-    for strategy in strategies:
-        _validate_strategy_descriptor(strategy)
-    private_alpha_snapshot = payload["private_alpha_snapshot"]
-    if (kind is OnlyQuantAssetKind.STRATEGY) != (not calculations and bool(strategies)):
+    private_factor_snapshot = payload["private_factor_snapshot"]
+    if kind is OnlyQuantAssetKind.STRATEGY or not calculations:
         raise OnlyExactCatalogContextCorrupt
     content_fingerprint = _string(payload, "content_fingerprint")
     _require_sha(content_fingerprint)
@@ -744,8 +737,7 @@ def _project_provider(
             {
                 "kind": kind.value,
                 "calculations": list(calculations),
-                "strategies": list(strategies),
-                "private_alpha_snapshot": private_alpha_snapshot,
+                "private_factor_snapshot": private_factor_snapshot,
             }
         )
         != content_fingerprint
@@ -757,11 +749,11 @@ def _project_provider(
         provider_source = only_quant_asset_provider_source_from_dict(source)
     except ValueError as exc:
         raise OnlyExactCatalogContextCorrupt from exc
-    if isinstance(provider_source, OnlyPrivateAlphaSnapshotProviderSource):
-        snapshot = _mapping(payload, "private_alpha_snapshot")
-        if _string(snapshot, "snapshot_fingerprint") != provider_source.private_alpha_provider_snapshot_fingerprint:
+    if isinstance(provider_source, OnlyPrivateFactorSnapshotProviderSource):
+        snapshot = _mapping(payload, "private_factor_snapshot")
+        if _string(snapshot, "snapshot_fingerprint") != provider_source.private_factor_provider_snapshot_fingerprint:
             raise OnlyExactCatalogContextCorrupt
-    elif private_alpha_snapshot is not None:
+    elif private_factor_snapshot is not None:
         raise OnlyExactCatalogContextCorrupt
     provider = OnlyExactCatalogProviderV1(
         _string(manifest, "provider_id"),
@@ -926,23 +918,6 @@ def _validate_port_descriptor(payload: Mapping[str, object]) -> None:
     _string(payload, "semantic_type")
     if payload["unit"] is not None and not isinstance(payload["unit"], str):
         raise OnlyExactCatalogContextCorrupt
-
-
-def _validate_strategy_descriptor(payload: Mapping[str, object]) -> None:
-    _require_exact_fields(payload, {"schema_version", "asset_id", "semantic_version", "resources"})
-    if _integer(payload, "schema_version") != 1:
-        raise OnlyExactCatalogContextSchemaUnsupported
-    _string(payload, "asset_id")
-    _string(payload, "semantic_version")
-    resources = _mapping_sequence(payload, "resources")
-    if not resources:
-        raise OnlyExactCatalogContextCorrupt
-    for resource in resources:
-        _require_exact_fields(resource, {"relative_path", "content_sha256", "size"})
-        _string(resource, "relative_path")
-        _require_sha(_string(resource, "content_sha256"))
-        if _integer(resource, "size") < 1:
-            raise OnlyExactCatalogContextCorrupt
 
 
 def _require_sha(value: object) -> str:

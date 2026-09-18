@@ -31,7 +31,7 @@ from onlyalpha_runtime_generation_manager import (
 from onlyalpha_runtime_generation_manager.catalog_context import (
     OnlyRuntimeGenerationExactCatalogDescriptorReader,
 )
-from onlyalpha_test_alpha_provider.provider import quant_asset_provider as alpha_provider
+from onlyalpha_test_factor_provider.provider import quant_asset_provider as factor_provider
 
 from onlyalpha.application.search_product import only_search_experiment_work_id
 from onlyalpha.backtest.evidence import OnlyBacktestEvidenceManifest, OnlyBacktestEvidenceStore
@@ -45,15 +45,15 @@ from onlyalpha.persistence.postgres.research_execution_store import OnlyPostgres
 from onlyalpha.persistence.postgres.research_run_store import OnlyPostgresResearchRunStore
 from onlyalpha.persistence.postgres.research_source_cut_store import OnlyPostgresResearchSourceCutAuthority
 from onlyalpha.quant_assets import (
-    ONLY_PRIVATE_ALPHA_API_V1,
-    OnlyPrivateAlphaAsset,
-    OnlyPrivateAlphaDraft,
-    OnlyPrivateAlphaExecutableClosureV1,
+    ONLY_PRIVATE_FACTOR_API_V1,
     OnlyPrivateAssetCorruptError,
     OnlyPrivateAssetKind,
     OnlyPrivateAssetNotFoundError,
     OnlyPrivateAssetRevisionBindingResolver,
     OnlyPrivateAssetRevisionReferenceV1,
+    OnlyPrivateFactorAsset,
+    OnlyPrivateFactorDraft,
+    OnlyPrivateFactorExecutableClosureV1,
     OnlyQuantAssetCatalogGeneration,
     OnlyQuantAssetCatalogManager,
     only_quant_asset_distribution_artifact_manifest,
@@ -214,7 +214,7 @@ def _build_exact_runtime_generation(root: Path):  # type: ignore[no-untyped-def]
     package_names = (
         "onlyalpha",
         "onlyalpha-runtime-generation-manager",
-        "onlyalpha-test-alpha-provider",
+        "onlyalpha-test-factor-provider",
         "onlyalpha-plugin-operators",
         "onlyalpha-plugin-indicators",
         "onlyalpha-plugin-targets",
@@ -227,7 +227,7 @@ def _build_exact_runtime_generation(root: Path):  # type: ignore[no-untyped-def]
     wheels = {name: _support_wheel(name, root / "wheels") for name in package_names}
     core = _plain(wheels["onlyalpha"], "onlyalpha", OnlyDistributionArtifactRole.CORE)
     core_identity = OnlyCoreExecutionIdentity(core.distribution_name, core.distribution_version, core.artifact_sha256)
-    providers = (operator_provider(), indicator_provider(), alpha_provider())
+    providers = (operator_provider(), indicator_provider(), factor_provider())
     catalog = OnlyQuantAssetCatalogGeneration(providers)
     quant_artifacts = tuple(
         only_quant_asset_distribution_artifact_manifest(
@@ -735,14 +735,14 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     _publish_agent_facts(root, chain["experiment"])
 
     private_assets = OnlyPostgresPrivateAssetStore(postgres_dsn)
-    private_assets.put_alpha_asset(OnlyPrivateAlphaAsset("private.alpha.momentum"))
-    private_assets.save_alpha_draft(
-        OnlyPrivateAlphaDraft(
-            alpha_id="private.alpha.momentum",
+    private_assets.put_factor_asset(OnlyPrivateFactorAsset("private.factor.momentum"))
+    private_assets.save_factor_draft(
+        OnlyPrivateFactorDraft(
+            factor_id="private.factor.momentum",
             semantic_version="1",
             source_text='def calculate(api, inputs, parameters):\n    return {"value": inputs["close"]}\n',
-            alpha_api_version=1,
-            alpha_api_contract_fingerprint=ONLY_PRIVATE_ALPHA_API_V1.api_contract_fingerprint,
+            factor_api_version=1,
+            factor_api_contract_fingerprint=ONLY_PRIVATE_FACTOR_API_V1.api_contract_fingerprint,
             input_contract={"close": {"type": "DECIMAL"}},
             parameter_contract={},
             output_contract={"value": {"type": "DECIMAL"}},
@@ -751,24 +751,24 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
             category="momentum",
         )
     )
-    _, revision = private_assets.publish_alpha_revision("private.alpha.momentum")
-    private_alpha_closure = OnlyPrivateAlphaExecutableClosureV1.create(revision, ({"close": Decimal("1")},), {})
+    _, revision = private_assets.publish_factor_revision("private.factor.momentum")
+    private_factor_closure = OnlyPrivateFactorExecutableClosureV1.create(revision, ({"close": Decimal("1")},), {})
     authoring_generation = OnlyAuthoringExecutionGeneration.create_verified(
         experiment_id="exp-" + "b" * 32,
         private_asset_revision_reference=OnlyPrivateAssetRevisionReferenceV1(
-            OnlyPrivateAssetKind.ALPHA, revision.alpha_id, revision.revision_fingerprint
+            OnlyPrivateAssetKind.FACTOR, revision.factor_id, revision.revision_fingerprint
         ),
         private_asset_revisions=OnlyPrivateAssetRevisionBindingResolver(private_assets),
-        private_alpha_executable_closure=private_alpha_closure,
-        candidate_provider_id="candidate.private.alpha",
+        private_factor_executable_closure=private_factor_closure,
+        candidate_provider_id="candidate.private.factor",
         base_catalog=generation,
     )
     authoring = authoring_generation.provenance
     OnlyAuthoringExecutionGenerationStore(authoring_root).commit(authoring_generation)
-    authoring_manifest = runtime_builder.bind_private_alpha_closure(
+    authoring_manifest = runtime_builder.bind_private_factor_closure(
         base_manifest=runtime_generations.load_manifest(runtime_fingerprint),
         expected_catalog=authoring_generation.catalog,
-        closure=private_alpha_closure,
+        closure=private_factor_closure,
     )
     authoring_runtime = runtime_builder.rebuild_validated(
         expected_manifest=authoring_manifest,
@@ -1118,7 +1118,7 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
         def __init__(self, error: Exception) -> None:
             self._error = error
 
-        def load_alpha_revision(self, _alpha_id: str, _revision_fingerprint: str) -> object:
+        def load_factor_revision(self, _factor_id: str, _revision_fingerprint: str) -> object:
             raise self._error
 
         def load_strategy_revision(self, _strategy_id: str, _revision_fingerprint: str) -> object:

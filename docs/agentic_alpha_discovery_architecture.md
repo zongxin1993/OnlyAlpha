@@ -44,7 +44,7 @@ Stable Kernel
 
 High-change Domain Plugins
 ├── Public Operator Operators / Indicator Indicators
-├── Private Alpha Factors / Strategy Strategies
+├── Private Factor Factors / Strategy Strategies
 ├── Targets
 └── Statistics Methods
 
@@ -195,7 +195,7 @@ not generating another near-duplicate plugin.
 
 This keeps the semantic catalog small, reusable, and auditable.
 
-ADR 0110 makes Alpha Factor and Strategy Strategy the Agent's primary creation/search space. Missing reusable generic mathematics belongs
+ADR 0110 and ADR 0132 make Factor and Strategy the Agent's primary creation/search space. Missing reusable generic mathematics belongs
 in public Operator; missing stable financial/descriptive knowledge belongs in public Indicator. Either capability must be proposed and admitted
 separately instead of being embedded in one private Factor or Strategy.
 
@@ -228,8 +228,8 @@ Agent-generated source
 != admitted plugin
 ```
 
-ADR 0129 freezes private Alpha/Strategy production authoring as database-native product assets. A Private Alpha has one mutable Draft, one
-immutable Revision, exactly one canonical UTF-8 Python source unit and one exact stable Alpha API Contract; a Private Strategy has one
+ADR 0129 and ADR 0132 freeze private Factor/Strategy production authoring as database-native product assets. A Private Factor has one mutable Draft, one
+immutable Revision, exactly one canonical UTF-8 Python source unit and one exact stable Factor API Contract; a Private Strategy has one
 immutable canonical structured Strategy Definition. A Git commit, source bundle, package or wheel may provide optional provenance or
 interoperability, but none is the authoring Authority or runtime identity. Candidate Providers remain explicit and non-production.
 Only an admitted Registry/Provider change with valid semantic and provider version transitions may enter a Catalog Generation for new
@@ -237,7 +237,7 @@ work.
 
 PA-1 provides these Asset/Draft/Revision contracts, durable PostgreSQL publication with exact parent/base concurrency, and DB-native
 Research Authoring Provenance. It does not execute stored Python or admit a Revision into a Provider/Catalog. Until later isolated
-materialization work, legacy distribution-based Alpha execution remains the only implemented runtime path.
+materialization work, legacy distribution-based Factor execution remains the only implemented runtime path.
 
 The resulting long-term transition is:
 
