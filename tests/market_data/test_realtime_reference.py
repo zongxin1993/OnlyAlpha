@@ -8,7 +8,7 @@ from onlyalpha.domain.market import OnlyMarketReferenceKind, OnlyMarketReference
 from onlyalpha.domain.value import OnlyPrice
 from onlyalpha.market.models import OnlyCompiledDynamicPriceRequirement
 from onlyalpha.market.realtime_reference import OnlyRealtimeMarketReferenceAuthority
-from tests.domain_conformance.support.market_data import NOW, build_trade_tick
+from tests.domain.conformance.support.market_data import NOW, build_trade_tick
 
 
 def _requirement(kind: str, minutes: int | None) -> OnlyCompiledDynamicPriceRequirement:

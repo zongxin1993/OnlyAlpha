@@ -27,7 +27,7 @@ check_versions = VERSION_SYNC.check_versions
 rewrite_internal_requirement = VERSION_SYNC.rewrite_internal_requirement
 rewrite_workspace = VERSION_SYNC.rewrite_workspace
 
-FIXTURE_PATH = Path("tests/fixtures/external_plugins/onlyalpha_test_plugin/pyproject.toml")
+FIXTURE_PATH = Path("test-data/external_plugins/onlyalpha_test_plugin/pyproject.toml")
 
 
 def _write(path: Path, content: str) -> None:

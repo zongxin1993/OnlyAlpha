@@ -59,7 +59,7 @@ from onlyalpha.runtime.result import OnlyRuntimeResultStatus
 from tests.research.postgres.migration_support import current_migrations
 from tests.research.specification.support import registry, specification
 from tests.runtime.research.support import workload_case
-from tests.runtime_generation_support import OnlyTestRuntimeGenerationAuthority
+from tests.runtime_support.generation_support import OnlyTestRuntimeGenerationAuthority
 from tests.support.research_run_seeder import OnlyPostgresResearchRunSeeder
 
 pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]

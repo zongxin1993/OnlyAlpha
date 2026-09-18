@@ -167,7 +167,7 @@
 - Rule: 共享基础设施必须通过 Registry、配置冲突检查和引用计数管理。
 - Rule: 同一资源 ID 对应不同配置必须拒绝，禁止后配置覆盖前配置。
 - Rule: 所有非源码运行产物必须写入 user_data。
-- Rule: 测试配置只位于 tests/fixtures，并明确不是 Product Runtime surface。
+- Rule: 测试配置只位于 `test-data/`（跨区域/golden）或对应 `tests/<area>/fixtures/`（单区域），并明确不是 Product Runtime surface。
 - Rule: 示例 Strategy 和 Factor 必须位于独立插件包。
 - Rule: Human 通过 Web、Agent 通过 Versioned Product API 使用 OnlyAlpha；不存在 Product CLI。
 - Rule: 回测必须通过 Synthetic DataSource、Virtual Broker 和完整 ExecutionProcessor 链。

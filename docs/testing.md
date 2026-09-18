@@ -73,7 +73,7 @@ Golden Dataset 是只读冻结输入。`miniqmt-local` 仅串行运行，要求 
 
 ### 固定测试数据与重生成
 
-标准 Result Fixture 位于 `tests/fixtures/results/`，由正式 `OnlyEngine` 场景生成；Analytics、Report、Artifact、
+标准 Result Fixture 位于 `test-data/results/`，由正式 `OnlyEngine` 场景生成；Analytics、Report、Artifact、
 Collector 等纯下游测试应读取该不可变结果，不应为了验证渲染或序列化而重复运行 Engine。正式结果合同变化后，先确认不是
 业务回归，再显式执行：
 
@@ -81,7 +81,7 @@ Collector 等纯下游测试应读取该不可变结果，不应为了验证渲�
 uv run python scripts/regenerate_result_fixtures.py
 ```
 
-Recovery Baseline 位于 `tests/fixtures/recovery/`。提交的是规范投影、Manifest 和内容寻址的只读 SQLite 压缩源；测试运行时
+Recovery Baseline 位于 `test-data/recovery/`。提交的是规范投影、Manifest 和内容寻址的只读 SQLite 压缩源；测试运行时
 在 `.test-cache/recovery/` 原子物化并校验完整性，再复制到各自的 `tmp_path`。不得提交 `.test-cache/`，也不得让 Worker
 共享可写数据库。需要维护基线时显式执行：
 
@@ -89,14 +89,14 @@ Recovery Baseline 位于 `tests/fixtures/recovery/`。提交的是规范投影�
 uv run python scripts/regenerate_recovery_baselines.py
 ```
 
-MiniQMT 冻结数据位于 `tests/fixtures/miniqmt/cn_a_share_v1/`。第一版只承诺未复权历史日 Bar；历史 ST、停牌和 effective
+MiniQMT 冻结数据位于 `test-data/miniqmt/cn_a_share_v1/`。第一版只承诺未复权历史日 Bar；历史 ST、停牌和 effective
 reference 明确缺失。离线 Reader 校验文件指纹后，经标准 MarketData Inbound/Pipeline 进入 `OnlyEngine`，不导入
 `xtquant`、不访问网络。仅在本地 QMT 可用时重新采集：
 
 ```powershell
 uv run python scripts/capture_miniqmt_golden.py --userdata-mini "C:\path\userdata_mini" `
   --instrument 600000.XSHG --bar 1d --start 2025-01-02 --end 2025-01-10 `
-  --adjustment none --output tests/fixtures/miniqmt/cn_a_share_v1
+  --adjustment none --output test-data/miniqmt/cn_a_share_v1
 ```
 
 PR 的语义 lane 仍由 `scripts/test_suite.py` 负责本地/问题定位，CI 只执行不重复的 impact/capability topology；`research-evaluation` 在 PR 由四个

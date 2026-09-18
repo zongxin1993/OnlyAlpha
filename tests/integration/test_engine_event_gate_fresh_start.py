@@ -5,13 +5,13 @@ from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngineConfig
 from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.runtime.events import OnlyRuntimeEventGatePhase
-from tests.runtime_runner import only_migrate_cluster_to_strategy
+from tests.runtime_support.runner import only_migrate_cluster_to_strategy
 
 
 def test_fresh_runtime_flushes_bootstrap_fifo_before_runtime_started(tmp_path: Path) -> None:
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("fresh-event-gate"), tmp_path))
     engine.add_cluster(
-        only_migrate_cluster_to_strategy(OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json"), tmp_path)
+        only_migrate_cluster_to_strategy(OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json"), tmp_path)
     )
     engine.initialize()
     runtime = engine.runtime_sessions[0].runtime

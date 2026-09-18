@@ -44,7 +44,7 @@ from onlyalpha.strategy.promotion import (
     _only_authorize_qualified_promotion,
 )
 from tests.research.calculation.support import bars
-from tests.runtime_generation_support import OnlyTestRuntimeGenerationAuthority
+from tests.runtime_support.generation_support import OnlyTestRuntimeGenerationAuthority
 from tests.strategy.test_strategy_freeze import _freeze_case
 
 pytestmark = pytest.mark.integration
@@ -97,7 +97,7 @@ def _research_bars():
 
 
 def _runtime_config(runtime_type: str, strategy_fingerprint: str, tmp_path: Path) -> OnlyClusterRunConfig:
-    baseline = OnlyClusterRunConfig.load("tests/fixtures/runtime/miniqmt_sim_acceptance.yaml")
+    baseline = OnlyClusterRunConfig.load("test-data/runtime/miniqmt_sim_acceptance.yaml")
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["cluster"]["runtime_type"] = runtime_type
     payload["strategy"] = {"fingerprint": strategy_fingerprint}

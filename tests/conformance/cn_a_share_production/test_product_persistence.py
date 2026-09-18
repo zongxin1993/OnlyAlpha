@@ -18,7 +18,7 @@ from tests.conformance.cn_a_share_production.support import (
     only_run_cn_a_share_product,
 )
 from tests.integration.virtual_multi_fill_support import OnlyPlanCursorCheckpointFailureStoreFactory
-from tests.runtime_runner import only_copy_cluster_strategy_revision, only_migrate_cluster_to_strategy
+from tests.runtime_support.runner import only_copy_cluster_strategy_revision, only_migrate_cluster_to_strategy
 
 pytestmark = pytest.mark.conformance
 

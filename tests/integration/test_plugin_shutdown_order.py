@@ -7,7 +7,7 @@ from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngineConfig
 from onlyalpha.engine.engine import OnlyEngine
-from tests.runtime_runner import only_migrate_cluster_to_strategy
+from tests.runtime_support.runner import only_migrate_cluster_to_strategy
 
 
 def test_plugin_shutdown_order_is_broker_then_data_source(tmp_path: Path, monkeypatch: object) -> None:
@@ -40,7 +40,7 @@ def test_plugin_shutdown_order_is_broker_then_data_source(tmp_path: Path, monkey
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("shutdown-order"), tmp_path))
     engine.add_cluster(
         only_migrate_cluster_to_strategy(
-            OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster_external_plugins.yaml"), tmp_path
+            OnlyClusterRunConfig.load("test-data/legacy_macd/cluster_external_plugins.yaml"), tmp_path
         )
     )
     assert engine.run().status == "COMPLETED"

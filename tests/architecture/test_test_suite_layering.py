@@ -118,8 +118,8 @@ def test_miniqmt_golden_reader_is_offline_test_support() -> None:
     assert "urllib" not in source
     assert "socket" not in source
     assert not (ROOT / "src/onlyalpha/golden_data.py").exists()
-    assert (ROOT / "tests/fixtures/miniqmt/cn_a_share_v1/bars.parquet").is_file()
-    assert (ROOT / "tests/fixtures/miniqmt/cn_a_share_v1/capture_manifest.json").is_file()
+    assert (ROOT / "test-data/miniqmt/cn_a_share_v1/bars.parquet").is_file()
+    assert (ROOT / "test-data/miniqmt/cn_a_share_v1/capture_manifest.json").is_file()
 
 
 def test_ashare_lane_selects_offline_miniqmt_golden_conformance() -> None:

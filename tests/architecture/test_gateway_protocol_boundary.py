@@ -64,7 +64,7 @@ def test_protocol_package_is_independent_of_core_product_and_api_packages() -> N
 
 @pytest.mark.architecture
 def test_test_gateway_is_fixture_infrastructure_not_product_authority() -> None:
-    path = ROOT / "tests/fixtures/remote_gateway/server.py"
+    path = ROOT / "test-data/remote_gateway/server.py"
     imports = _imports(path)
     forbidden = (
         "onlyalpha.application",

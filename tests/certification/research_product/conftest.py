@@ -25,4 +25,4 @@ def postgres_dsn() -> str:
 def backtest_product_config() -> Path:
     """Deterministic Product config required by the real HTTP composition root."""
 
-    return Path(__file__).parents[2] / "fixtures" / "legacy_macd" / "cluster.json"
+    return Path(__file__).parents[3] / "test-data" / "legacy_macd" / "cluster.json"

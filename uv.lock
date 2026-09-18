@@ -991,8 +991,8 @@ compose-acceptance = [
     { name = "hatchling", specifier = ">=1.26,<2" },
     { name = "httpx2", specifier = ">=2.12,<3" },
     { name = "hypothesis", specifier = ">=6.165.5" },
-    { name = "onlyalpha-test-factor-provider", editable = "tests/fixtures/runtime_factor_provider" },
-    { name = "onlyalpha-test-plugin", editable = "tests/fixtures/external_plugins/onlyalpha_test_plugin" },
+    { name = "onlyalpha-test-factor-provider", editable = "test-data/runtime_factor_provider" },
+    { name = "onlyalpha-test-plugin", editable = "test-data/external_plugins/onlyalpha_test_plugin" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-split", specifier = "==0.11.0" },
     { name = "pytest-timeout", specifier = ">=2.3.1,<3" },
@@ -1016,8 +1016,8 @@ dev = [
     { name = "onlyalpha-plugin-operators", editable = "plugs/onlyalpha-plugin-operators" },
     { name = "onlyalpha-plugin-targets", editable = "plugs/onlyalpha-plugin-targets" },
     { name = "onlyalpha-runtime-generation-manager", editable = "packages/onlyalpha-runtime-generation-manager" },
-    { name = "onlyalpha-test-factor-provider", editable = "tests/fixtures/runtime_factor_provider" },
-    { name = "onlyalpha-test-plugin", editable = "tests/fixtures/external_plugins/onlyalpha_test_plugin" },
+    { name = "onlyalpha-test-factor-provider", editable = "test-data/runtime_factor_provider" },
+    { name = "onlyalpha-test-plugin", editable = "test-data/external_plugins/onlyalpha_test_plugin" },
     { name = "packaging", specifier = ">=25" },
     { name = "pre-commit", specifier = ">=4.6" },
     { name = "pytest", specifier = ">=9.0.3" },
@@ -1363,7 +1363,7 @@ requires-dist = [{ name = "onlyalpha", editable = "." }]
 [[package]]
 name = "onlyalpha-test-factor-provider"
 version = "0.9.9"
-source = { editable = "tests/fixtures/runtime_factor_provider" }
+source = { editable = "test-data/runtime_factor_provider" }
 dependencies = [
     { name = "onlyalpha" },
     { name = "onlyalpha-plugin-indicators" },
@@ -1380,7 +1380,7 @@ requires-dist = [
 [[package]]
 name = "onlyalpha-test-plugin"
 version = "0.1.0"
-source = { editable = "tests/fixtures/external_plugins/onlyalpha_test_plugin" }
+source = { editable = "test-data/external_plugins/onlyalpha_test_plugin" }
 dependencies = [
     { name = "onlyalpha" },
     { name = "onlyalpha-plugin-indicators" },

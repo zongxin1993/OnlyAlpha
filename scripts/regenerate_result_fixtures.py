@@ -22,15 +22,15 @@ from onlyalpha.engine.engine import OnlyEngine  # noqa: E402
 from onlyalpha.result import only_backtest_business_projection, only_result_fingerprint  # noqa: E402
 from tests.integration.test_engine_multi_cluster_close_cost_authority import _configs  # noqa: E402
 from tests.integration.virtual_multi_fill_support import only_virtual_multi_fill_config  # noqa: E402
-from tests.runtime_runner import only_migrate_cluster_to_strategy  # noqa: E402
+from tests.runtime_support.runner import only_migrate_cluster_to_strategy  # noqa: E402
 from tests.support.canonical import canonical_value, write_canonical_json  # noqa: E402
 
-TARGET = ROOT / "tests" / "fixtures" / "results"
+TARGET = ROOT / "test-data" / "results"
 SCENARIOS = ("minimal_round_trip", "multi_fill_round_trip", "multi_cluster_close")
 
 
 def _minimal_config(user_data_root: Path) -> OnlyClusterRunConfig:
-    baseline = OnlyClusterRunConfig.load(ROOT / "tests" / "fixtures" / "legacy_macd" / "cluster_fast.json")
+    baseline = OnlyClusterRunConfig.load(ROOT / "test-data" / "legacy_macd" / "cluster_fast.json")
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     start = datetime(2026, 1, 5, 1, 30, tzinfo=UTC)
     payload["runtime"]["start_time"] = start.isoformat().replace("+00:00", "Z")

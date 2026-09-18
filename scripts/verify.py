@@ -623,7 +623,7 @@ IMPACT_RULES = (
     ),
     VerificationImpactRule(
         "shared-test-infrastructure",
-        ("tests/fixtures/", "tests/support/", "tests/architecture/"),
+        ("test-data/", "tests/support/", "tests/architecture/"),
         (),
         (OnlyTestLane.ARCHITECTURE, OnlyTestLane.FAST, OnlyTestLane.INTEGRATION),
         STATIC,

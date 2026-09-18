@@ -136,8 +136,8 @@ module = ["onlyalpha_gateway_protocol.v1.*"]
 ignore_errors = true
 
 [tool.uv.sources]
-onlyalpha-test-plugin = { path = "tests/fixtures/external_plugins/onlyalpha_test_plugin", editable = true }
-onlyalpha-test-factor-provider = { path = "tests/fixtures/runtime_factor_provider", editable = true }
+onlyalpha-test-plugin = { path = "test-data/external_plugins/onlyalpha_test_plugin", editable = true }
+onlyalpha-test-factor-provider = { path = "test-data/runtime_factor_provider", editable = true }
 onlyalpha-plugin-operators = { workspace = true }
 onlyalpha-plugin-indicators = { workspace = true }
 onlyalpha-plugin-targets = { workspace = true }
@@ -273,11 +273,11 @@ output = "test-results/coverage/coverage.xml"
 [tool.mutmut]
 source_paths = ["src/onlyalpha"]
 only_mutate = ["src/onlyalpha/domain/value.py"]
-also_copy = ["tests/property", "tests/domain_conformance"]
+also_copy = ["tests/property", "tests/domain/conformance"]
 pytest_add_cli_args = ["-q", "--tb=short", "--maxfail=1"]
 pytest_add_cli_args_test_selection = [
     "tests/property/test_domain_properties.py",
-    "tests/domain_conformance",
+    "tests/domain/conformance",
     "-k",
     "financial_value_types or precision_and_increment",
 ]

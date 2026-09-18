@@ -3,9 +3,9 @@ from pathlib import Path
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.runtime.backtest.result import OnlyBacktestStatus
 
-from ..runtime_runner import only_run_cluster_runtime
+from ..runtime_support.runner import only_run_cluster_runtime
 
-CONFIG = Path("tests/fixtures/legacy_macd/cluster.json")
+CONFIG = Path("test-data/legacy_macd/cluster.json")
 
 
 def test_synthetic_macd_full_product_vertical_slice() -> None:

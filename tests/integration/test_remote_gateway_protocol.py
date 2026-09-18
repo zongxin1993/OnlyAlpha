@@ -20,7 +20,7 @@ from onlyalpha_gateway_protocol import (
 from onlyalpha_gateway_protocol.v1 import common_pb2, error_pb2
 
 ROOT = Path(__file__).resolve().parents[2]
-SERVER = ROOT / "tests/fixtures/remote_gateway/server.py"
+SERVER = ROOT / "test-data/remote_gateway/server.py"
 
 
 @dataclass(frozen=True, slots=True)

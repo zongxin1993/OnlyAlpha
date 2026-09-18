@@ -21,12 +21,12 @@ from onlyalpha.runtime.planning import OnlyRuntimePlanner
 from onlyalpha.runtime.research import only_research_runtime_plan
 from onlyalpha.runtime.sim.factory import OnlySimRuntimeFactory
 from tests.runtime.research.support import workload_case
-from tests.runtime_runner import only_migrate_cluster_to_strategy
 from tests.runtime_support.market_product import only_generic_market_product
+from tests.runtime_support.runner import only_migrate_cluster_to_strategy
 
 
 def _plan(runtime_type: str, user_data_root: Path | None = None):
-    baseline = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
+    baseline = OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json")
     if user_data_root is not None:
         baseline = only_migrate_cluster_to_strategy(baseline, user_data_root)
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
@@ -34,7 +34,7 @@ def _plan(runtime_type: str, user_data_root: Path | None = None):
     payload["factors"] = []
     payload["runtime"]["type"] = runtime_type
     payload["cluster"]["runtime_type"] = runtime_type
-    config = OnlyClusterRunConfig.from_mapping(payload, source_path="tests/fixtures/legacy_macd/cluster.json")
+    config = OnlyClusterRunConfig.from_mapping(payload, source_path="test-data/legacy_macd/cluster.json")
     binding = only_generic_market_product(config.reference_data.instruments[0])
     return (
         OnlyRuntimePlanner()
@@ -44,7 +44,7 @@ def _plan(runtime_type: str, user_data_root: Path | None = None):
 
 
 def _sim_plan(change: Callable[[dict[str, Any]], None] | None = None):
-    baseline = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
+    baseline = OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json")
     payload: dict[str, Any] = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["runtime"]["type"] = "SIM"
     payload["runtime"]["start_time"] = None
@@ -54,7 +54,7 @@ def _sim_plan(change: Callable[[dict[str, Any]], None] | None = None):
     payload["data_sources"][0]["plugin"] = "miniqmt"
     if change is not None:
         change(payload)
-    config = OnlyClusterRunConfig.from_mapping(payload, source_path="tests/fixtures/legacy_macd/cluster.json")
+    config = OnlyClusterRunConfig.from_mapping(payload, source_path="test-data/legacy_macd/cluster.json")
     binding = only_generic_market_product(config.reference_data.instruments[0])
     return (
         OnlyRuntimePlanner()

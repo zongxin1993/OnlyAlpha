@@ -362,7 +362,7 @@ def test_docs_only_selects_no_runtime_lane_and_mixed_change_cannot_downgrade() -
 
 def test_shared_core_and_shared_test_fixture_are_conservative() -> None:
     core = _plan("src/onlyalpha/execution/processor.py")
-    fixture = _plan("tests/fixtures/shared_state.py")
+    fixture = _plan("test-data/shared_state.py")
 
     assert set(core.impact.lanes) == set(verify.CORE_RECOVERY)
     assert core.impact.escalation is VerificationEscalation.BROAD

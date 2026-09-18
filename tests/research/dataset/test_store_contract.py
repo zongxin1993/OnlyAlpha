@@ -19,7 +19,7 @@ from onlyalpha.research.dataset.parquet_store import (
     OnlyResearchDatasetStoreError,
 )
 from onlyalpha.research.dataset.schema import RESEARCH_BAR_DATASET_SCHEMA_V1
-from tests.domain_conformance.support.market_data import build_bar
+from tests.domain.conformance.support.market_data import build_bar
 
 
 def _snapshot(created_at: datetime = datetime(2026, 1, 1, tzinfo=UTC)) -> tuple[OnlyResearchDatasetSnapshot, tuple]:

@@ -5,13 +5,13 @@ from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngineConfig
 from onlyalpha.engine.engine import OnlyEngine
-from tests.runtime_runner import only_migrate_cluster_to_strategy
+from tests.runtime_support.runner import only_migrate_cluster_to_strategy
 
 
 def test_macd_backtest_product_api_and_result_export(tmp_path: Path) -> None:
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("product-api"), tmp_path))
     engine.add_cluster(
-        only_migrate_cluster_to_strategy(OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json"), tmp_path)
+        only_migrate_cluster_to_strategy(OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json"), tmp_path)
     )
     result = engine.run()
     assert result.status == "COMPLETED"

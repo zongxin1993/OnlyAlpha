@@ -23,11 +23,11 @@ from onlyalpha.market.product import OnlyResolvedMarketProductBinding
 from onlyalpha.runtime.defaults import only_default_engine_services
 from onlyalpha.runtime.factory import OnlyRuntimeBuildResult
 from onlyalpha.runtime.planning import OnlyRuntimePlanner
-from tests.runtime_runner import only_migrate_cluster_to_strategy
 from tests.runtime_support.market_product import only_generic_market_product
+from tests.runtime_support.runner import only_migrate_cluster_to_strategy
 
-CONFIG = "tests/fixtures/legacy_macd/cluster.json"
-FAST_CONFIG = "tests/fixtures/legacy_macd/cluster_fast.json"
+CONFIG = "test-data/legacy_macd/cluster.json"
+FAST_CONFIG = "test-data/legacy_macd/cluster_fast.json"
 
 
 def _bindings(

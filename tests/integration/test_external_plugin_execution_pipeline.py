@@ -5,13 +5,13 @@ from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngineConfig
 from onlyalpha.engine.engine import OnlyEngine
-from tests.runtime_runner import only_migrate_cluster_to_strategy
+from tests.runtime_support.runner import only_migrate_cluster_to_strategy
 
 
 def test_external_broker_updates_flow_through_execution_processor(tmp_path: Path) -> None:
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("external-pipeline"), tmp_path))
     config = only_migrate_cluster_to_strategy(
-        OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster_external_plugins.yaml"), tmp_path
+        OnlyClusterRunConfig.load("test-data/legacy_macd/cluster_external_plugins.yaml"), tmp_path
     )
     actions = (
         {

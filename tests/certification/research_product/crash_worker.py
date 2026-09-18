@@ -14,7 +14,7 @@ from onlyalpha.research.artifact.store import OnlyParquetResearchArtifactStore
 from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore
 from onlyalpha.research.result.result_store import OnlyJsonResearchResultStore
 from onlyalpha.research.worker_main import main as worker_main
-from tests.runtime_generation_process_support import only_allow_unsealed_test_process_generation
+from tests.runtime_support.generation_process_support import only_allow_unsealed_test_process_generation
 
 
 def _block(barrier: Path, boundary: str) -> None:

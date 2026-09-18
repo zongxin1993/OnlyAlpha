@@ -19,7 +19,7 @@ from tests.execution.support.execution_fault_injection import (
     OnlyFailOnceRuntimePersistenceStore,
     OnlyTestRuntimePersistenceFault,
 )
-from tests.runtime_runner import only_migrate_cluster_to_strategy
+from tests.runtime_support.runner import only_migrate_cluster_to_strategy
 
 
 class OnlyFaultInjectingRuntimePersistenceStoreFactory:
@@ -38,7 +38,7 @@ class OnlyFaultInjectingRuntimePersistenceStoreFactory:
 
 
 def _sqlite_config(user_data_root: Path) -> OnlyClusterRunConfig:
-    baseline = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
+    baseline = OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json")
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["runtime"]["end_time"] = "2026-01-05T01:53:00Z"
     payload["runtime"]["persistence"] = {

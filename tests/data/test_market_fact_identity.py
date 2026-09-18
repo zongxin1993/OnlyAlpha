@@ -8,7 +8,7 @@ from onlyalpha.data.processor import OnlyMarketDataDeduplicator, OnlyMarketDataS
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.time import OnlyTimestamp
 
-from ..domain_conformance.support.market_data import build_bar, build_trade_tick
+from ..domain.conformance.support.market_data import build_bar, build_trade_tick
 from ..integration_demo.environment import OnlyIntegrationEnvironment
 
 

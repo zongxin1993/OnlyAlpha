@@ -24,7 +24,7 @@ from tests.strategy.product_support import publish_frozen_strategy_for_execution
 
 
 def _deployment(case) -> OnlyClusterRunConfig:  # type: ignore[no-untyped-def]
-    payload = json.loads(Path("tests/fixtures/legacy_macd/cluster.json").read_text(encoding="utf-8"))
+    payload = json.loads(Path("test-data/legacy_macd/cluster.json").read_text(encoding="utf-8"))
     payload["runtime"].update(
         {
             "start_time": case.bars[0].bar_start.isoformat(),

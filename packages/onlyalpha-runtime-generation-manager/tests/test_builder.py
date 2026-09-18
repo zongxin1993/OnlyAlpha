@@ -537,7 +537,7 @@ def test_builder_clean_installs_factor_distribution_fixture_with_exact_support_a
 
     repository = Path(__file__).resolve().parents[3]
     core_wheel = _build_wheel(repository, tmp_path / "core-wheel")
-    factor_wheel = _build_wheel(repository / "tests/fixtures/runtime_factor_provider", tmp_path / "factor-wheel")
+    factor_wheel = _build_wheel(repository / "test-data/runtime_factor_provider", tmp_path / "factor-wheel")
     pyarrow_wheel = _installed_distribution_wheel("pyarrow", tmp_path / "support-wheel")
     core_bytes = core_wheel.read_bytes()
     core_artifact = OnlyDistributionArtifactManifest(

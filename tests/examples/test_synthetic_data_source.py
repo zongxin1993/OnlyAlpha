@@ -17,7 +17,7 @@ from onlyalpha.event.model import OnlyEventScope
 from onlyalpha.plugin import OnlyDataSourceCapabilities, OnlyPluginLifecycleState
 from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
 
-CONFIG = Path("tests/fixtures/legacy_macd/cluster.json")
+CONFIG = Path("test-data/legacy_macd/cluster.json")
 
 
 def _source(config: OnlyClusterRunConfig) -> OnlySyntheticHistoricalDataSource:

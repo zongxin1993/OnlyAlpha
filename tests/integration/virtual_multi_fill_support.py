@@ -23,7 +23,7 @@ from tests.execution.support.execution_fault_injection import (
     OnlyFailOnceRuntimePersistenceStore,
     OnlyTestRuntimePersistenceFault,
 )
-from tests.runtime_runner import only_copy_cluster_strategy_revision, only_migrate_cluster_to_strategy
+from tests.runtime_support.runner import only_copy_cluster_strategy_revision, only_migrate_cluster_to_strategy
 from tests.support.canonical import canonical_value
 from tests.support.recovery_baselines import (
     assert_recovery_baseline_compatible,
@@ -39,7 +39,7 @@ def only_virtual_multi_fill_config(
     fill_latency_ns: int = 0,
     long_close: bool = False,
 ) -> OnlyClusterRunConfig:
-    baseline = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
+    baseline = OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json")
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["runtime"]["persistence"] = {
         "backend": "SQLITE",

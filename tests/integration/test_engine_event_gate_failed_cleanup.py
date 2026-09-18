@@ -11,7 +11,7 @@ from onlyalpha.event.bus import OnlyEventCapacityError
 from onlyalpha.runtime.events import OnlyRuntimeEventGatePhase
 from onlyalpha.strategy.adapter import OnlyRevisionStrategyAdapter
 from tests.integration.test_engine_recovery_same_bar_continuation import _same_bar_config, _services
-from tests.runtime_runner import only_migrate_cluster_to_strategy
+from tests.runtime_support.runner import only_migrate_cluster_to_strategy
 
 
 def test_plugin_start_failure_close_is_silent_and_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -23,7 +23,7 @@ def test_plugin_start_failure_close_is_silent_and_idempotent(tmp_path: Path, mon
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("failed-cleanup-plugin"), tmp_path))
     engine.add_cluster(
         only_migrate_cluster_to_strategy(
-            OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster_external_plugins.yaml"), tmp_path
+            OnlyClusterRunConfig.load("test-data/legacy_macd/cluster_external_plugins.yaml"), tmp_path
         )
     )
     engine.initialize()
@@ -40,7 +40,7 @@ def test_plugin_start_failure_close_is_silent_and_idempotent(tmp_path: Path, mon
 def test_router_open_failure_close_keeps_queue_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("failed-cleanup-router"), tmp_path))
     engine.add_cluster(
-        only_migrate_cluster_to_strategy(OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json"), tmp_path)
+        only_migrate_cluster_to_strategy(OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json"), tmp_path)
     )
     engine.initialize()
     runtime = engine.runtime_sessions[0].runtime

@@ -24,7 +24,7 @@ from tests.runtime_support.market_product import only_cn_ashare_market_product, 
 
 
 def _config() -> OnlyClusterRunConfig:
-    return OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
+    return OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json")
 
 
 def _binding(config: OnlyClusterRunConfig) -> OnlyResolvedMarketProductBinding:

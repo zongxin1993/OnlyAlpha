@@ -7,7 +7,7 @@ from onlyalpha_plugin_cn_ashare.reference import (
     OnlyCnAshareReferenceAuthority,
 )
 
-FIXTURE = Path("tests/fixtures/reference/cn_a_share_v1")
+FIXTURE = Path("test-data/reference/cn_a_share_v1")
 
 
 def test_frozen_reference_dataset_manifest_and_coverage() -> None:

@@ -8,7 +8,7 @@ from tests.integration.virtual_multi_fill_support import (
     OnlyMultiFillFaultStoreFactory,
     only_virtual_multi_fill_config,
 )
-from tests.runtime_runner import only_copy_cluster_strategy_revision
+from tests.runtime_support.runner import only_copy_cluster_strategy_revision
 
 
 def test_multi_fill_a_b_c_restart_matches_no_fault_baseline(tmp_path) -> None:  # type: ignore[no-untyped-def]

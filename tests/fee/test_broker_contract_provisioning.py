@@ -272,7 +272,7 @@ def _commission_increments(
 
 
 def test_minimum_commission_reference_matrix() -> None:
-    payload = json.loads(Path("tests/reference_data/cn_a_share_fee_vectors.json").read_text(encoding="utf-8"))
+    payload = json.loads(Path("tests/fee/fixtures/cn_a_share_fee_vectors.json").read_text(encoding="utf-8"))
     for vector in payload["broker_commission_vectors"]:
         document = _document()
         document["schedules"][0]["rules"][0]["rate"] = vector["rate"]

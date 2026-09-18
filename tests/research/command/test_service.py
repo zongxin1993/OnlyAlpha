@@ -62,7 +62,7 @@ from onlyalpha.research.run import (
 from onlyalpha.research.run.evidence import OnlyResearchAdmissionResolutionEvidence
 from onlyalpha.research.specification import OnlyResearchSpecificationResolver
 from tests.research.specification.support import registry, scientific_specification, specification
-from tests.runtime_generation_support import OnlyTestRuntimeGenerationAuthority, only_ready_test_generation
+from tests.runtime_support.generation_support import OnlyTestRuntimeGenerationAuthority, only_ready_test_generation
 
 NOW = datetime(2026, 8, 18, 1, 2, 3, 456789, tzinfo=UTC)
 KEY = OnlyProductCommandId("00000000-0000-4000-8000-000000000001")

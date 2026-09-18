@@ -58,7 +58,7 @@ from tests.research.specification.support import registry, scientific_specificat
 SHA = "a" * 64
 PROJECTION = "b" * 64
 CUT = "c" * 64
-V1_FIXTURE = Path(__file__).parents[1] / "fixtures/contracts/research_near_duplicate_advisory_bundle_v1.json"
+V1_FIXTURE = Path(__file__).parents[2] / "test-data/contracts/research_near_duplicate_advisory_bundle_v1.json"
 
 
 def _bundle() -> OnlyResearchNearDuplicateAdvisoryBundleV2:

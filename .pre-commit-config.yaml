@@ -97,7 +97,7 @@ repos:
               pyproject\.toml
             | uv\.lock
             | packages/.*/pyproject\.toml
-            | tests/fixtures/external_plugins/.*/pyproject\.toml
+            | test-data/external_plugins/.*/pyproject\.toml
           )$
 
       - id: onlyalpha-python-version-check

@@ -4,9 +4,9 @@ from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngineConfig
 from onlyalpha.engine.engine import OnlyEngine
-from tests.runtime_runner import only_write_migrated_cluster_config
+from tests.runtime_support.runner import only_write_migrated_cluster_config
 
-CONFIG = "tests/fixtures/legacy_macd/cluster.json"
+CONFIG = "test-data/legacy_macd/cluster.json"
 
 
 def test_engine_publishes_concise_reports_without_recalculating(tmp_path: Path) -> None:

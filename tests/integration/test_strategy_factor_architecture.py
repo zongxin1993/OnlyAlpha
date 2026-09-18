@@ -30,7 +30,7 @@ def test_bar_subscription_has_no_indicator_ids_and_runtime_factory_is_algorithm_
 
 
 def test_config_uses_strategy_fingerprint_while_legacy_factor_config_is_not_strategy_authority() -> None:
-    config = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
+    config = OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json")
     cluster = config.cluster
     assert OnlyStrategyFingerprint(cluster.strategy.fingerprint).value == cluster.strategy.fingerprint
     assert len(cluster.factors) == 1

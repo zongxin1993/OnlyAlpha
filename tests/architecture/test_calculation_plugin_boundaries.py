@@ -86,11 +86,9 @@ def test_calculation_semantic_identity_is_separate_from_explicit_implementation_
 
 
 def test_external_calculation_fixture_uses_only_public_calculation_contract() -> None:
-    fixture = Path(
-        "tests/fixtures/external_plugins/onlyalpha_test_plugin/src/onlyalpha_test_plugin/research_calculation.py"
-    )
+    fixture = Path("test-data/external_plugins/onlyalpha_test_plugin/src/onlyalpha_test_plugin/research_calculation.py")
     onlyalpha_imports = {name for name in _imports(fixture) if name.startswith("onlyalpha")}
     assert onlyalpha_imports == {"onlyalpha.calculation"}
-    metadata = Path("tests/fixtures/external_plugins/onlyalpha_test_plugin/pyproject.toml").read_text(encoding="utf-8")
+    metadata = Path("test-data/external_plugins/onlyalpha_test_plugin/pyproject.toml").read_text(encoding="utf-8")
     assert '[project.entry-points."onlyalpha.calculations"]' in metadata
     assert "onlyalpha_test_plugin.research_calculation:registrations" in metadata

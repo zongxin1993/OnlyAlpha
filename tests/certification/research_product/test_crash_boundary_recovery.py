@@ -39,7 +39,7 @@ from onlyalpha.runtime.result import OnlyRuntimeResultStatus
 from scripts.database import _initialize_deployment
 from tests.research.specification.support import registry, specification
 from tests.runtime.research.support import workload_case
-from tests.runtime_generation_process_support import only_prepare_test_process_generation
+from tests.runtime_support.generation_process_support import only_prepare_test_process_generation
 from tests.support.research_run_seeder import OnlyPostgresResearchRunSeeder
 
 pytestmark = [pytest.mark.recovery, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
@@ -195,7 +195,7 @@ def test_process_kill_boundaries_reenter_and_converge_exact_semantic_truth(
         [
             sys.executable,
             "-m",
-            "tests.runtime_generation_worker_main",
+            "tests.runtime_support.generation_worker_main",
             "--user-data-root",
             str(tmp_path),
             "--polling-seconds",

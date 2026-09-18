@@ -16,12 +16,12 @@ from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.engine import OnlyEngineConfig
 from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.execution import OnlyCommittedExecutionFact
-from tests.runtime_runner import only_migrate_cluster_to_strategy
+from tests.runtime_support.runner import only_migrate_cluster_to_strategy
 
 
 def _configs(user_data_root: Path) -> tuple[OnlyClusterRunConfig, OnlyClusterRunConfig]:
     baseline = only_migrate_cluster_to_strategy(
-        OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json"), user_data_root
+        OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json"), user_data_root
     )
     capital = OnlyClusterCapitalConfig(
         OnlyClusterCapitalMode.FIXED_CAPITAL,

@@ -19,7 +19,7 @@ from onlyalpha.research.dataset.strict import (
     require_utc_datetime,
 )
 from onlyalpha.research.dataset.validation import OnlyResearchDatasetError, only_validate_dataset_bars
-from tests.domain_conformance.support.market_data import build_bar
+from tests.domain.conformance.support.market_data import build_bar
 
 
 def _definition() -> OnlyResearchDatasetDefinition:

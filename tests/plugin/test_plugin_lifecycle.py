@@ -6,7 +6,7 @@ from onlyalpha.engine import OnlyEngineConfig
 from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.plugin import OnlyPluginHealthStatus, OnlyPluginLifecycleState
 from onlyalpha.runtime.defaults import only_default_engine_services
-from tests.runtime_runner import only_write_migrated_cluster_config
+from tests.runtime_support.runner import only_write_migrated_cluster_config
 
 
 def test_plugin_lifecycle_stops_and_closes_idempotently(tmp_path: Path) -> None:
@@ -15,7 +15,7 @@ def test_plugin_lifecycle_stops_and_closes_idempotently(tmp_path: Path) -> None:
     engine.add_cluster(
         OnlyClusterRunConfig.load(
             only_write_migrated_cluster_config(
-                "tests/fixtures/legacy_macd/cluster_external_plugins.yaml",
+                "test-data/legacy_macd/cluster_external_plugins.yaml",
                 tmp_path,
             )
         )

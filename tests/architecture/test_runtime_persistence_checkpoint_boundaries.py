@@ -23,7 +23,7 @@ def test_parser_and_validate_do_not_create_store_resources(tmp_path: Path) -> No
     assert "execution_store" not in parser_source
     assert "runtime_persistence_stores.create" not in validate_source
     OnlyDefaultRuntimePersistenceStoreFactory().validate(
-        OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json").runtime.persistence
+        OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json").runtime.persistence
     )
     assert tuple(tmp_path.iterdir()) == ()
 

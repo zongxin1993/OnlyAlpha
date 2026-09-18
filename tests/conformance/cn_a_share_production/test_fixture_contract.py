@@ -54,7 +54,7 @@ from tests.runtime_support.market_product import _NoResources
 pytestmark = pytest.mark.conformance
 
 ROOT = Path(__file__).resolve().parents[3]
-DATASET = ROOT / "tests" / "fixtures" / "conformance" / "cn_a_share_production_v1"
+DATASET = ROOT / "test-data" / "conformance" / "cn_a_share_production_v1"
 DATA_FILES = frozenset({"bars.json", "references.json"})
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 

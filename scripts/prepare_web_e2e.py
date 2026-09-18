@@ -14,7 +14,7 @@ from onlyalpha.output import OnlyUserDataLayout  # noqa: E402
 from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore  # noqa: E402
 from tests.research.calculation.support import snapshot  # noqa: E402
 
-MANIFEST = ROOT / "tests/fixtures/web/research-product-v1.json"
+MANIFEST = ROOT / "test-data/web/research-product-v1.json"
 
 
 def main() -> int:

@@ -80,7 +80,7 @@ from onlyalpha.research.search.symbolic import (
 )
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 from tests.research.specification.support import registry as specification_registry
-from tests.runtime_generation_support import OnlyTestRuntimeGenerationAuthority
+from tests.runtime_support.generation_support import OnlyTestRuntimeGenerationAuthority
 
 from .support import space, verified_dataset
 from .test_research_and_provenance_integration import _scientific_template

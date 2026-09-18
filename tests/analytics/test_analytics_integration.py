@@ -4,11 +4,11 @@ from onlyalpha.analytics import OnlyBacktestAnalyticsService
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.runtime.backtest.result import OnlyBacktestResult
 
-from ..runtime_runner import only_run_cluster_runtime
+from ..runtime_support.runner import only_run_cluster_runtime
 
 
 def test_analytics_consumes_formal_result_without_changing_it() -> None:
-    config = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
+    config = OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json")
     result = cast(OnlyBacktestResult, only_run_cluster_runtime(config))
     before = result.to_dict()
 

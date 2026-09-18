@@ -38,7 +38,7 @@ from tests.research.evaluation.test_subject import _resolve, _scientific
 from tests.research.novelty.test_decision import _projection, _projection_for_subject
 from tests.research.novelty.test_policy import policy
 from tests.research.specification.support import registry
-from tests.runtime_generation_support import OnlyTestRuntimeGenerationAuthority
+from tests.runtime_support.generation_support import OnlyTestRuntimeGenerationAuthority
 
 
 def _manifest(frontier: int = 0) -> OnlyExperimentMemorySourceCutManifestV1:

@@ -20,8 +20,8 @@ from onlyalpha.research.dataset import (
     OnlyResearchDatasetMaterializationPlan,
     OnlyResearchDatasetMaterializer,
 )
-from tests.domain_conformance.support.instruments import build_instruments
-from tests.domain_conformance.support.market_data import build_bar
+from tests.domain.conformance.support.instruments import build_instruments
+from tests.domain.conformance.support.market_data import build_bar
 
 
 class _Provider:

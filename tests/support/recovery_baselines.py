@@ -12,7 +12,7 @@ from tests.support.canonical import canonical_value
 from tests.support.sqlite_templates import materialize_sqlite_archive
 
 ROOT = Path(__file__).resolve().parents[2]
-RECOVERY_FIXTURE_ROOT = ROOT / "tests" / "fixtures" / "recovery"
+RECOVERY_FIXTURE_ROOT = ROOT / "test-data" / "recovery"
 RECOVERY_CACHE_ROOT = ROOT / ".test-cache" / "recovery"
 
 

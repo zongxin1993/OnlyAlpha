@@ -23,10 +23,10 @@ from onlyalpha.runtime.backtest.result import OnlyBacktestResult
 from onlyalpha.runtime.defaults import OnlyEngineServices, only_default_engine_services
 from onlyalpha.scenario.data_source import OnlyScenarioDataSourceFactory
 from onlyalpha.transaction import OnlyCommittedRuntimeTransaction
-from tests.runtime_runner import only_migrate_cluster_to_strategy
+from tests.runtime_support.runner import only_migrate_cluster_to_strategy
 
 ROOT = Path(__file__).resolve().parents[3]
-DATASET = ROOT / "tests" / "fixtures" / "conformance" / "cn_a_share_production_v1"
+DATASET = ROOT / "test-data" / "conformance" / "cn_a_share_production_v1"
 PRODUCT_ID = "CN_A_SHARE_DURABLE_BACKTEST_V1"
 PRODUCT_CONTRACT_VERSION = "1"
 MARKET_PRODUCT_ID = "CN_A_SHARE_CASH"
@@ -197,7 +197,7 @@ def only_cn_a_share_product_config(
     if not selected_bars:
         raise ValueError(f"fixture has no Bars for {instrument_id}")
 
-    baseline = OnlyClusterRunConfig.load(ROOT / "tests" / "fixtures" / "legacy_macd" / "cluster.json")
+    baseline = OnlyClusterRunConfig.load(ROOT / "test-data" / "legacy_macd" / "cluster.json")
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["authorities"] = {"broker_fee_contracts": [only_cn_a_share_product_broker_fee_contract()]}
     payload["market"] = {

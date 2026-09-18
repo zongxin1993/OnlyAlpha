@@ -47,7 +47,7 @@ def test_corrupt_dataset_fails_closed_and_is_not_rebuilt(tmp_path: Path) -> None
 def test_mixed_research_and_trading_engine_fails_closed(tmp_path: Path) -> None:
     engine, workload = workload_case(tmp_path)
     engine.add_research_workload(workload)
-    engine.add_cluster(OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json"))
+    engine.add_cluster(OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json"))
     validation = engine.validate()
     assert not validation.valid
     assert "MIXED_RESEARCH_TRADING_NOT_SUPPORTED" in validation.errors

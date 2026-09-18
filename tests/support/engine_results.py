@@ -10,7 +10,7 @@ from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine.models import OnlyEngineRunResult
 
 ROOT = Path(__file__).resolve().parents[2]
-RESULT_FIXTURE_ROOT = ROOT / "tests" / "fixtures" / "results"
+RESULT_FIXTURE_ROOT = ROOT / "test-data" / "results"
 
 
 @dataclass(frozen=True, slots=True)

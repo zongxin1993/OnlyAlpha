@@ -21,7 +21,7 @@ from onlyalpha.data.historical import (
 from onlyalpha.domain.errors import OnlyValidationError
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyTradeId
 
-from ..domain_conformance.support.market_data import build_bar, build_trade_tick
+from ..domain.conformance.support.market_data import build_bar, build_trade_tick
 
 
 def test_time_ranges_merge_adjacency_and_find_middle_gap() -> None:

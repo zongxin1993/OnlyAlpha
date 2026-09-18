@@ -1285,7 +1285,7 @@ def test_api_process_restart_reads_same_postgres_run_authority(postgres_dsn: str
                 "--port",
                 str(port),
                 "--backtest-product-config",
-                str(Path("tests/fixtures/legacy_macd/cluster.json").resolve()),
+                str(Path("test-data/legacy_macd/cluster.json").resolve()),
                 "--runtime-generation-authority-root",
                 str(tmp_path / "runtime-generation-authority"),
             ],

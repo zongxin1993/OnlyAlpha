@@ -7,7 +7,7 @@ from pathlib import Path
 
 from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry
 
-from tests.runtime_generation_support import only_ready_test_generation
+from tests.runtime_support.generation_support import only_ready_test_generation
 
 
 def only_prepare_test_process_generation(

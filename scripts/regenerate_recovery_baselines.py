@@ -26,7 +26,7 @@ from tests.integration.virtual_multi_fill_support import (  # noqa: E402
 from tests.support.canonical import canonical_value, write_canonical_json  # noqa: E402
 from tests.support.sqlite_templates import publish_sqlite_template, sqlite_fingerprint  # noqa: E402
 
-TARGET = ROOT / "tests" / "fixtures" / "recovery"
+TARGET = ROOT / "test-data" / "recovery"
 CACHE = ROOT / ".test-cache" / "recovery"
 BASELINES = (
     "long_close_whole_baseline",

@@ -47,7 +47,7 @@ from onlyalpha.runtime.defaults import only_default_engine_services
 from scripts.database import _backup, _initialize_deployment, _restore_test
 from tests.certification.research_product.support import authorize_research_specification, external_definition
 from tests.research.calculation.support import snapshot
-from tests.runtime_generation_process_support import only_prepare_test_process_generation
+from tests.runtime_support.generation_process_support import only_prepare_test_process_generation
 
 pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
 
@@ -131,7 +131,7 @@ def test_external_calculation_runs_through_real_api_worker_engine_and_artifact_q
     api_command = [
         sys.executable,
         "-m",
-        "tests.runtime_generation_api_main",
+        "tests.runtime_support.generation_api_main",
         "--user-data-root",
         str(tmp_path),
         "--port",
@@ -144,7 +144,7 @@ def test_external_calculation_runs_through_real_api_worker_engine_and_artifact_q
     worker_command = [
         sys.executable,
         "-m",
-        "tests.runtime_generation_worker_main",
+        "tests.runtime_support.generation_worker_main",
         "--user-data-root",
         str(tmp_path),
         "--polling-seconds",
@@ -282,7 +282,7 @@ def test_external_calculation_runs_through_real_api_worker_engine_and_artifact_q
         restored_api_command = [
             sys.executable,
             "-m",
-            "tests.runtime_generation_api_main",
+            "tests.runtime_support.generation_api_main",
             "--user-data-root",
             str(restore_root),
             "--port",

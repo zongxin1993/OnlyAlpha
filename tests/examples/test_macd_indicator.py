@@ -41,7 +41,7 @@ def _bar(config: OnlyClusterRunConfig, index: int, close: str) -> OnlyBar:
 
 
 def test_macd_decimal_values_warmup_and_duplicate_idempotency() -> None:
-    config = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
+    config = OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json")
     bar_type = (
         config.cluster.factors[0]
         .subscriptions.instrument_bars[0]
@@ -67,7 +67,7 @@ def test_macd_decimal_values_warmup_and_duplicate_idempotency() -> None:
 
 
 def test_macd_rejects_out_of_order_and_open_bars() -> None:
-    config = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
+    config = OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json")
     bar_type = (
         config.cluster.factors[0]
         .subscriptions.instrument_bars[0]

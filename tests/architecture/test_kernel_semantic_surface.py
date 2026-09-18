@@ -96,7 +96,7 @@ def test_factory_registries_have_one_resolution_entrypoint() -> None:
 @pytest.mark.parametrize(
     ("source", "test"),
     (
-        ("src/onlyalpha/core/clock.py", "tests/unit/test_clock_event.py"),
+        ("src/onlyalpha/core/clock.py", "tests/clock/test_clock_event.py"),
         ("src/onlyalpha/domain/calendar.py", "tests/time_model/test_04_trading_calendar.py"),
         ("src/onlyalpha/runtime/context.py", "tests/architecture/test_committed_execution_boundaries.py"),
         (

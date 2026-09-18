@@ -12,7 +12,7 @@ from onlyalpha.engine import OnlyEngineConfig
 from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.plugin.descriptor import OnlyPluginOrigin, OnlyPluginOriginType
 from onlyalpha.runtime.defaults import OnlyEngineServices, only_default_engine_services
-from tests.runtime_runner import only_migrate_cluster_to_strategy
+from tests.runtime_support.runner import only_migrate_cluster_to_strategy
 from tests.support.golden_data import (
     OnlyMiniQmtGoldenDataSourceFactory,
     load_miniqmt_golden_dataset,
@@ -22,8 +22,8 @@ from tests.support.golden_data import (
 pytestmark = [pytest.mark.conformance, pytest.mark.miniqmt]
 
 ROOT = Path(__file__).resolve().parents[3]
-DATASET = ROOT / "tests" / "fixtures" / "miniqmt" / "cn_a_share_v1"
-BASE_CONFIG = ROOT / "tests" / "fixtures" / "legacy_macd" / "cluster_fast.json"
+DATASET = ROOT / "test-data" / "miniqmt" / "cn_a_share_v1"
+BASE_CONFIG = ROOT / "test-data" / "legacy_macd" / "cluster_fast.json"
 
 
 def _config() -> OnlyClusterRunConfig:

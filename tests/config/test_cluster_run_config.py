@@ -8,7 +8,7 @@ from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.runtime.planning import OnlyRuntimePlanner
 from tests.runtime_support.market_product import only_generic_market_product
 
-CONFIG = "tests/fixtures/legacy_macd/cluster.json"
+CONFIG = "test-data/legacy_macd/cluster.json"
 
 
 def test_single_cluster_document_parses_to_typed_config() -> None:

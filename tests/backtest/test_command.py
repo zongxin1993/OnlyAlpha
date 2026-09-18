@@ -12,7 +12,7 @@ from onlyalpha.backtest import (
     OnlyInMemoryBacktestCommandStore,
 )
 from onlyalpha.backtest.errors import OnlyBacktestError
-from tests.runtime_generation_support import only_ready_test_generation
+from tests.runtime_support.generation_support import only_ready_test_generation
 
 
 class _Admission:

@@ -13,7 +13,7 @@ from onlyalpha.engine.engine import OnlyEngine
 
 
 def _sim_config() -> OnlyClusterRunConfig:
-    baseline = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
+    baseline = OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json")
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["runtime"]["type"] = "SIM"
     payload["runtime"]["start_time"] = None
@@ -23,7 +23,7 @@ def _sim_config() -> OnlyClusterRunConfig:
     payload["data_sources"][0]["plugin"] = "miniqmt"
     return OnlyClusterRunConfig.from_mapping(
         payload,
-        source_path="tests/fixtures/legacy_macd/cluster.json",
+        source_path="test-data/legacy_macd/cluster.json",
     )
 
 

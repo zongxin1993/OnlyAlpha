@@ -89,7 +89,7 @@ def test_no_python_callback_strategy_authoring_or_cluster_injection_surface_exis
         Path("src"),
         Path("packages"),
         Path("examples"),
-        Path("tests/fixtures/external_plugins"),
+        Path("test-data/external_plugins"),
     ):
         for path in root.rglob("*.py"):
             source = path.read_text(encoding="utf-8")

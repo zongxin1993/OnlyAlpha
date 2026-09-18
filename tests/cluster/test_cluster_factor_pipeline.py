@@ -1,10 +1,10 @@
 from onlyalpha.config import OnlyClusterRunConfig
 
-from ..runtime_runner import only_run_cluster_runtime
+from ..runtime_support.runner import only_run_cluster_runtime
 
 
 def test_product_cluster_runs_only_the_revision_backed_strategy_projection() -> None:
-    result = only_run_cluster_runtime(OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json"))
+    result = only_run_cluster_runtime(OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json"))
     cluster = result.cluster_results[0]
     extension = cluster.strategy_result_extension
     assert len(extension["strategy_fingerprint"]) == 64

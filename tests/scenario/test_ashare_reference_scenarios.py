@@ -13,8 +13,8 @@ from onlyalpha.market.product import OnlyMarketProductResolutionContext
 from onlyalpha.scenario import OnlyMarketScenarioParser
 from tests.runtime_support.market_product import _NoResources
 
-SCENARIO = Path("tests/fixtures/scenarios/cn_a_share_t1.yaml")
-REFERENCES = Path("tests/fixtures/reference/cn_a_share_v1/references.json")
+SCENARIO = Path("test-data/scenarios/cn_a_share_t1.yaml")
+REFERENCES = Path("test-data/reference/cn_a_share_v1/references.json")
 
 
 def _scenario_payload() -> dict[str, object]:

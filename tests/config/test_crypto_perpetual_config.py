@@ -10,7 +10,7 @@ from onlyalpha.domain.instrument import OnlyCryptoPerpetual
 
 
 def _payload() -> dict[str, object]:
-    baseline = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
+    baseline = OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json")
     payload = deepcopy(dict(baseline.normalized_payload))
     payload["runtime"]["base_currency"] = "USDT"  # type: ignore[index]
     payload["reference_data"]["calendars"] = [  # type: ignore[index]

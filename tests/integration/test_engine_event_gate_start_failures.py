@@ -17,7 +17,7 @@ from onlyalpha.runtime.runtime import OnlyRuntimeState
 from onlyalpha.strategy.adapter import OnlyRevisionStrategyAdapter
 from tests.integration.recovery_finalization_support import only_create_tail_failure
 from tests.integration.test_engine_recovery_same_bar_continuation import _same_bar_config, _services
-from tests.runtime_runner import only_migrate_cluster_to_strategy
+from tests.runtime_support.runner import only_migrate_cluster_to_strategy
 
 
 def _event_types(runtime: object) -> tuple[str, ...]:
@@ -33,7 +33,7 @@ def test_plugin_start_failure_is_completely_silent_before_open(tmp_path: Path, m
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("event-gate-plugin-start"), tmp_path))
     engine.add_cluster(
         only_migrate_cluster_to_strategy(
-            OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster_external_plugins.yaml"), tmp_path
+            OnlyClusterRunConfig.load("test-data/legacy_macd/cluster_external_plugins.yaml"), tmp_path
         )
     )
     engine.initialize()
@@ -54,7 +54,7 @@ def test_router_open_failure_is_atomic_and_blocks_later_start_steps(
 ) -> None:
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("event-gate-router-open"), tmp_path))
     engine.add_cluster(
-        only_migrate_cluster_to_strategy(OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json"), tmp_path)
+        only_migrate_cluster_to_strategy(OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json"), tmp_path)
     )
     engine.initialize()
     runtime = engine.runtime_sessions[0].runtime
@@ -171,7 +171,7 @@ def test_runtime_started_publication_failure_preserves_original_error(
 ) -> None:
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("event-gate-lifecycle"), tmp_path))
     engine.add_cluster(
-        only_migrate_cluster_to_strategy(OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json"), tmp_path)
+        only_migrate_cluster_to_strategy(OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json"), tmp_path)
     )
     engine.initialize()
     runtime = engine.runtime_sessions[0].runtime

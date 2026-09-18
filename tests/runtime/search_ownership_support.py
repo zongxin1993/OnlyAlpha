@@ -118,7 +118,7 @@ def build_exact_search_processes(root: Path) -> ExactSearchProcesses:
     projects = {
         "onlyalpha": repository,
         "onlyalpha-runtime-generation-manager": repository / "packages/onlyalpha-runtime-generation-manager",
-        "onlyalpha-test-factor-provider": repository / "tests/fixtures/runtime_factor_provider",
+        "onlyalpha-test-factor-provider": repository / "test-data/runtime_factor_provider",
         "onlyalpha-plugin-operators": repository / "plugs/onlyalpha-plugin-operators",
         "onlyalpha-plugin-indicators": repository / "plugs/onlyalpha-plugin-indicators",
         "onlyalpha-plugin-targets": repository / "plugs/onlyalpha-plugin-targets",

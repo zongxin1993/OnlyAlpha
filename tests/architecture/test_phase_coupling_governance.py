@@ -41,7 +41,7 @@ SERIALIZED_CONTRACT_ALLOWLIST = {
 
 SERIALIZED_CONTRACT_PATH_ALLOWLIST = {
     "contracts/product-api/v2/authorized-a0-corrections.json": "one-shot OpenAPI correction manifest",
-    "tests/fixtures/a0_binance_golden/source-manifest.json": "approved immutable Binance source manifest fixture",
+    "test-data/a0_binance_golden/source-manifest.json": "approved immutable Binance source manifest fixture",
 }
 
 

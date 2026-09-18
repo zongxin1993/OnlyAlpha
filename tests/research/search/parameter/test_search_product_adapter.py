@@ -71,7 +71,7 @@ from onlyalpha.research.specification.resolver import OnlyResearchSpecificationR
 from tests.research.search.symbolic.test_research_and_provenance_integration import _scientific_template
 from tests.research.search.symbolic.test_search_product_adapter import _ProductAuthority
 from tests.research.specification.support import registry as specification_registry
-from tests.runtime_generation_support import OnlyTestRuntimeGenerationAuthority
+from tests.runtime_support.generation_support import OnlyTestRuntimeGenerationAuthority
 
 from .test_adaptive_parameter_search_v1 import (
     _completed_initial_round,

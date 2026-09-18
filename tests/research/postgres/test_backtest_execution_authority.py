@@ -107,7 +107,7 @@ def test_backtest_worker_process_signal_marks_draining_and_uses_application_exit
             "--user-data-root",
             str(tmp_path),
             "--backtest-product-config",
-            str(Path("tests/fixtures/legacy_macd/cluster.json").resolve()),
+            str(Path("test-data/legacy_macd/cluster.json").resolve()),
             "--poll-interval",
             "0.05",
         ],

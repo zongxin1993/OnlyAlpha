@@ -35,7 +35,7 @@ from onlyalpha.research.sweep.definition import (
     OnlyResearchSweepParameterTarget,
 )
 from tests.research.specification.support import registry, scientific_specification, specification
-from tests.runtime_generation_support import OnlyTestRuntimeGenerationAuthority
+from tests.runtime_support.generation_support import OnlyTestRuntimeGenerationAuthority
 
 
 def _scientific(*, dataset: str = "a" * 64, swept: bool = False) -> OnlyResearchSpecification:

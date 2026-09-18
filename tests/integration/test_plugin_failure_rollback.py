@@ -8,13 +8,13 @@ from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngineConfig
 from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.plugin import OnlyPluginLifecycleState
-from tests.runtime_runner import only_migrate_cluster_to_strategy
+from tests.runtime_support.runner import only_migrate_cluster_to_strategy
 
 
 def _add(engine: OnlyEngine, root: Path) -> None:
     engine.add_cluster(
         only_migrate_cluster_to_strategy(
-            OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster_external_plugins.yaml"), root
+            OnlyClusterRunConfig.load("test-data/legacy_macd/cluster_external_plugins.yaml"), root
         )
     )
 

@@ -16,7 +16,7 @@ from onlyalpha.research.dataset.codec import only_bars_to_table, only_table_to_b
 from onlyalpha.research.dataset.definition import OnlyResearchDatasetDefinition
 from onlyalpha.research.dataset.identity import only_content_fingerprint, only_snapshot_fingerprint
 from onlyalpha.research.dataset.schema import RESEARCH_BAR_DATASET_SCHEMA_V1
-from tests.domain_conformance.support.market_data import build_bar
+from tests.domain.conformance.support.market_data import build_bar
 
 
 def _definition(*instruments: OnlyInstrumentId) -> OnlyResearchDatasetDefinition:
@@ -85,7 +85,7 @@ from datetime import timedelta
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.research.dataset.definition import OnlyResearchDatasetDefinition
 from onlyalpha.research.dataset.identity import only_content_fingerprint
-from tests.domain_conformance.support.market_data import build_bar
+from tests.domain.conformance.support.market_data import build_bar
 bar = build_bar()
 definition = OnlyResearchDatasetDefinition((bar.instrument_id,), bar.bar_type.specification, bar.bar_type.aggregation_source, OnlyTimeRange(bar.bar_start, bar.ts_event + timedelta(seconds=1)))
 print(definition.fingerprint)

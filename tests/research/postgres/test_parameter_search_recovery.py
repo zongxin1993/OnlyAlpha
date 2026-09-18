@@ -95,7 +95,7 @@ from tests.research.search.symbolic.support import catalog
 from tests.research.specification.support import registry as research_registry
 from tests.research.specification.support import specification
 from tests.research.sweep.support import definition
-from tests.runtime_generation_support import only_ready_test_generation
+from tests.runtime_support.generation_support import only_ready_test_generation
 from tests.support.research_run_seeder import OnlyPostgresResearchRunSeeder
 
 pytestmark = [

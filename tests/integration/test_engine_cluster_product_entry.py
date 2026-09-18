@@ -9,10 +9,10 @@ from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.engine import OnlyEngineConfig
 from onlyalpha.engine.engine import OnlyEngine
-from tests.runtime_runner import only_migrate_cluster_to_strategy
+from tests.runtime_support.runner import only_migrate_cluster_to_strategy
 
-CONFIG = "tests/fixtures/legacy_macd/cluster.json"
-FAST_CONFIG = "tests/fixtures/legacy_macd/cluster_fast.json"
+CONFIG = "test-data/legacy_macd/cluster.json"
+FAST_CONFIG = "test-data/legacy_macd/cluster_fast.json"
 
 
 def _run(tmp_path: Path, *configs: str):

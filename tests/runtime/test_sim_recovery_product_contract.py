@@ -16,7 +16,7 @@ pytestmark = [pytest.mark.contract, pytest.mark.sim_recovery]
 
 
 def _plan(change: object | None = None):  # type: ignore[no-untyped-def]
-    baseline = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
+    baseline = OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json")
     payload: dict[str, Any] = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["runtime"]["type"] = "SIM"
     payload["runtime"]["start_time"] = None

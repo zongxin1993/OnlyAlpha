@@ -7,10 +7,10 @@ from onlyalpha.config.document import OnlyClusterConfigError
 
 
 def test_cluster_document_round_trip_preserves_typed_configuration() -> None:
-    config = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
+    config = OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json")
     restored = OnlyClusterRunConfig.from_mapping(
         json.loads(json.dumps(dict(config.normalized_payload))),
-        source_path="tests/fixtures/legacy_macd/cluster.json",
+        source_path="test-data/legacy_macd/cluster.json",
     )
     assert restored.runtime == config.runtime
     assert restored.reference_data == config.reference_data
@@ -20,7 +20,7 @@ def test_cluster_document_round_trip_preserves_typed_configuration() -> None:
 
 @pytest.mark.parametrize("legacy_field", ("class_path", "config_path", "extensions"))
 def test_legacy_strategy_configuration_is_rejected(legacy_field: str) -> None:
-    baseline = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
+    baseline = OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json")
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["strategy"][legacy_field] = "legacy"
 
@@ -29,7 +29,7 @@ def test_legacy_strategy_configuration_is_rejected(legacy_field: str) -> None:
 
 
 def test_common_parser_accepts_every_runtime_type_without_reading_extensions() -> None:
-    baseline = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
+    baseline = OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json")
     for runtime_type in ("RESEARCH", "BACKTEST", "SIM", "LIVE"):
         payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
         payload["runtime"]["type"] = runtime_type
@@ -43,7 +43,7 @@ def test_common_parser_accepts_every_runtime_type_without_reading_extensions() -
 
 
 def test_sim_runtime_spelling_is_canonicalized_without_aliases() -> None:
-    baseline = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
+    baseline = OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json")
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["runtime"]["type"] = "sim"
     payload["cluster"]["runtime_type"] = "sim"
@@ -61,7 +61,7 @@ def test_sim_runtime_spelling_is_canonicalized_without_aliases() -> None:
 
 @pytest.mark.parametrize("legacy", ("PAPER", "SHADOW"))
 def test_legacy_runtime_products_are_rejected_without_aliases(legacy: str) -> None:
-    baseline = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
+    baseline = OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json")
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["runtime"]["type"] = legacy
     payload["cluster"]["runtime_type"] = legacy

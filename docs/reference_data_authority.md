@@ -32,7 +32,7 @@ rule diagnostics carry the selected record fingerprint.
 缺失、冲突、失效、停牌和非 ACTIVE 状态分别产生稳定诊断，不再合并为 `INSTRUMENT_NOT_TRADABLE`。Checkpoint
 恢复同时校验 Registry、Resolved Profile 与 Compiled Rules 指纹；任一权威变化都拒绝恢复。
 
-The offline fixture at `tests/fixtures/reference/cn_a_share_v1/` covers SSE/SZSE main boards, ST, ChiNext, STAR,
+The offline fixture at `test-data/reference/cn_a_share_v1/` covers SSE/SZSE main boards, ST, ChiNext, STAR,
 suspension, and previous close. Its manifest verifies file SHA-256 before use.
 
 This authority does not claim A-share durable execution, full T+1 settlement, fee closure, corporate-action

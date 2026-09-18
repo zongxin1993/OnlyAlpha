@@ -76,7 +76,7 @@ from tests.research.memory.test_query import (
     _store,
 )
 from tests.research.novelty.test_policy import policy
-from tests.runtime_generation_support import OnlyTestRuntimeGenerationAuthority
+from tests.runtime_support.generation_support import OnlyTestRuntimeGenerationAuthority
 
 COMMAND = OnlyProductCommandId("00000000-0000-4000-8000-000000000010")
 

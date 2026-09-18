@@ -76,7 +76,7 @@ from tests.research.search.symbolic.test_search_product_adapter import _case
 from tests.research.specification.support import registry as research_registry
 from tests.research.specification.support import specification
 from tests.research.sweep.support import definition
-from tests.runtime_generation_support import OnlyTestRuntimeGenerationAuthority
+from tests.runtime_support.generation_support import OnlyTestRuntimeGenerationAuthority
 from tests.support.research_run_seeder import OnlyPostgresResearchRunSeeder
 
 from .test_parameter_search_recovery import (

@@ -15,15 +15,15 @@ from onlyalpha.fee.reconciliation_policy import (
     OnlyFeeReconciliationPolicy,
 )
 from onlyalpha.runtime.defaults import only_default_engine_services
-from tests.runtime_runner import only_migrate_cluster_to_strategy
+from tests.runtime_support.runner import only_migrate_cluster_to_strategy
 
 
 def _payload() -> dict[str, object]:
-    config = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
+    config = OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json")
     return json.loads(json.dumps(dict(config.normalized_payload)))
 
 
-SOURCE_PATH = Path("tests/fixtures/legacy_macd/cluster.json")
+SOURCE_PATH = Path("test-data/legacy_macd/cluster.json")
 
 
 def _inline_contract() -> dict[str, object]:

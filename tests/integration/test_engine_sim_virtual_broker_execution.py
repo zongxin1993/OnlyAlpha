@@ -59,7 +59,7 @@ from onlyalpha.runtime.streaming.phase import OnlyStreamingPhase
 from onlyalpha.runtime.streaming.phase_controller import OnlyStreamingPhaseSnapshot
 from onlyalpha.strategy_ledger.enums import OnlyStrategyCashReservationState
 from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
-from tests.runtime_runner import only_migrate_cluster_to_strategy
+from tests.runtime_support.runner import only_migrate_cluster_to_strategy
 
 pytestmark = pytest.mark.integration
 
@@ -95,7 +95,7 @@ class _FakeLiveXtData:
 
 
 def _config(tmp_path: Path, *, checkpoint: bool = False) -> OnlyClusterRunConfig:
-    baseline = OnlyClusterRunConfig.load("tests/fixtures/runtime/miniqmt_sim_acceptance.yaml")
+    baseline = OnlyClusterRunConfig.load("test-data/runtime/miniqmt_sim_acceptance.yaml")
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["runtime"]["extensions"]["streaming"]["bootstrap_bars"] = 10
     payload["runtime"]["persistence"] = {
@@ -350,7 +350,7 @@ def test_engine_sim_recovery_checkpoint_supports_second_restart(
 
 @pytest.mark.sim_recovery
 def test_engine_sim_restart_crosses_real_process_boundary(tmp_path: Path) -> None:
-    helper = Path("tests/helpers/sim_recovery_process.py").resolve()
+    helper = Path("tests/support/sim_recovery_process.py").resolve()
     for stage in ("write", "recover"):
         completed = subprocess.run(
             [sys.executable, str(helper), stage, str(tmp_path)],

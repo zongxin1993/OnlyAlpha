@@ -639,6 +639,30 @@ When a private asset needs a new Core capability, it must first be expressible t
 corresponding public example, and consumed through that same contract. Hidden private-only Core integration paths are forbidden and
 must fail closed as `EXAMPLE_CONTRACT_COVERAGE_REQUIRED` until public contract/example coverage exists.
 
+## Test placement standard（测试目录与测试数据标准）
+
+`tests/` 采用单一分类法：**按被测模块区域分目录，测试目的用 pytest marker 与区域子目录表达**，禁止用平行目录表达目的。
+
+### 测试代码归属
+
+1. `src/onlyalpha/<area>/` 的测试默认落 `tests/<area>/`；同一模块的测试 MUST NOT 分散到多个历史平行目录（如 `tests/unit/<area>`、`tests/<area>_conformance` 与 `tests/<area>` 并存）。合并时保留 git 历史（`git mv`）。
+2. `scripts/` 工具自身的测试落 `tests/tools/`；`packages/<component>/` 与 `plugs/<plugin>/` 的测试只落各自组件目录内的 `tests/`，根 `tests/` 不接受组件专属测试。
+3. 跨切验证区域（architecture、conformance、contracts、integration、scenario、performance、property、formal、certification、examples、deploy、cli 等）各自承载一种验证视角，不得为同一模块再造目的重复目录；新增跨切区域必须在节内登记。
+4. unit / contract / recovery / scenario 等目的区分使用 `pyproject.toml` 已注册的 pytest markers，不用目录层级复制。
+5. 每个测试包目录 MUST 含 `__init__.py`；共享测试辅助代码统一放 `tests/support/`（可按职责建子包）；被 subprocess 以模块方式拉起的测试入口脚本统一放 `tests/runtime_support/`。tests 根目录 MUST NOT 存放非测试模块的散文件。
+6. 空壳目录（无受跟踪测试文件的目录，含仅存 `__pycache__`）属于遗留垃圾，发现即删除；`tests/` 内 MUST NOT 出现 `.DS_Store` 等系统文件被跟踪。
+
+### 测试数据归属
+
+测试数据只允许两个落点：
+
+1. **`tests/<area>/fixtures/`**：唯一消费者是某区域的场景绑定数据，与该区域 co-locate，随场景在同一 commit 原子更新。
+2. **`test-data/`**：跨多个区域消费的数据、golden 基线（如 recovery baselines）、共享参考向量包与生成型工件（如 `test-durations.json`）。子目录按 owning domain 命名并保留 `README` 级可发现性，MUST NOT 倾倒为无结构散件。
+
+禁止新增第三类测试数据目录（如 `tests/fixtures/`、`tests/reference_data/` 式的根内异构数据树）。与代码原子演进的 golden 数据必须由再生脚本 + 一致性守卫（fail closed）绑定，路径变更 MUST 同步更新守卫与再生脚本。生成物与测试产物缓存（`test-results/`、`.test-cache/`）保持 gitignored，不入 `test-data/`。
+
+存量迁移按上述两规则执行；每次触碰某数据目录时按本标准收敛，不做无验证范围的全仓一次性搬迁。
+
 ## External engineering evidence and upstream failure research
 
 External projects, upstream documentation, issues, pull requests and incident reports are engineering evidence only; they never supersede `PROJECT_CONSTITUTION.md`, OnlyAlpha Architecture / Contracts / Accepted ADRs, current Task Contract or current implementation truth.

@@ -53,7 +53,7 @@ def test_data_source_factory_validates_requested_capabilities_before_create() ->
         OnlyRuntimeId("runtime"),
         OnlyDataVersion("v1"),
         1,
-        Path("tests/fixtures/legacy_macd"),
+        Path("test-data/legacy_macd"),
         logging.getLogger(__name__),
     )
     issues = factory.validate_request(request)

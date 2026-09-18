@@ -17,5 +17,5 @@ Web / Agent
 → distinct Runtime instance identity and lifecycle
 ```
 
-测试可以从 `tests/fixtures/` 解析 legacy JSON/YAML 以证明现有 Kernel semantics；这些 fixture 不进入 Product API，不成为
+测试可以从 `test-data/` 解析 legacy JSON/YAML 以证明现有 Kernel semantics；这些 fixture 不进入 Product API，不成为
 Runtime Authority。Deployment YAML/ENV 只允许配置 infrastructure，不允许隐式承载 Trading semantic configuration。

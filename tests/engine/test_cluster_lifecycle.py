@@ -25,8 +25,8 @@ from onlyalpha.fee.reconciliation_policy import (
 )
 from onlyalpha.runtime.defaults import only_default_engine_services
 
-CONFIG = "tests/fixtures/legacy_macd/cluster.json"
-FAST_CONFIG = "tests/fixtures/legacy_macd/cluster_fast.json"
+CONFIG = "test-data/legacy_macd/cluster.json"
+FAST_CONFIG = "test-data/legacy_macd/cluster_fast.json"
 
 
 def _engine(tmp_path: Path) -> OnlyEngine:

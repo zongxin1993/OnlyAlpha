@@ -24,8 +24,8 @@ def _config(path: str, capital: str) -> OnlyClusterRunConfig:
 
 
 def test_engine_multi_cluster_performance_full_vertical_slice(tmp_path: Path) -> None:
-    first = _config("tests/fixtures/legacy_macd/cluster.json", "400000.00")
-    second = _config("tests/fixtures/legacy_macd/cluster_fast.json", "600000.00")
+    first = _config("test-data/legacy_macd/cluster.json", "400000.00")
+    second = _config("test-data/legacy_macd/cluster_fast.json", "600000.00")
     subscription = first.factors[0].subscriptions.instrument_bars[0]
     case = strategy_product_case(tmp_path / "research")
     revision = replace(

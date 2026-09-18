@@ -10,7 +10,7 @@ from tests.runtime_support.market_product import only_cn_ashare_market_product, 
 
 
 def _instrument():  # type: ignore[no-untyped-def]
-    return OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json").reference_data.instruments[0]
+    return OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json").reference_data.instruments[0]
 
 
 def _policy(binding, day: date):  # type: ignore[no-untyped-def]

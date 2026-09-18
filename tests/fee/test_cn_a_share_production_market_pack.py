@@ -56,7 +56,7 @@ from onlyalpha.fee.reconciliation_policy import only_standard_fee_reconciliation
 from onlyalpha.fee.schedules import OnlyMarketFeeApplicabilityContext, OnlyMarketFeeScheduleRegistry
 
 CNY = OnlyCurrency("CNY", 2)
-VECTORS = Path("tests/reference_data/cn_a_share_fee_vectors.json")
+VECTORS = Path("tests/fee/fixtures/cn_a_share_fee_vectors.json")
 
 
 def _assessment(vector: dict[str, object]):
