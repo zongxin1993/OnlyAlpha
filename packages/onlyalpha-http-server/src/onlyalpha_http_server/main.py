@@ -372,7 +372,7 @@ def _compose_experiment_memory_projection_builder(
     catalogs: OnlyRuntimeGenerationExactCatalogDescriptorReader,
     calculations: OnlyParquetResearchCalculationResultStore,
     runtime_generations: OnlyRuntimeGenerationRegistry,
-    authoring_generation_root: Path,
+    authoring_generations: OnlyVerifiedAuthoringGenerationReader,
 ) -> tuple[OnlyExperimentMemoryProductionBuilder, OnlyExperimentMemoryAdvisoryProjectionBuilder]:
     """The Product root fixes all eleven owners; no external reference callback enters."""
     postgres = OnlyPostgresResearchSourceCutAuthority(postgres_dsn)
@@ -401,7 +401,7 @@ def _compose_experiment_memory_projection_builder(
         OnlyJsonParameterSearchStore(layout.research_root),
         calculations,
         runtime_generations,
-        OnlyAuthoringExecutionGenerationStore(authoring_generation_root),
+        authoring_generations,
         OnlyQualificationPolicyStore(layout.research_root),
         OnlyBacktestEvidenceStore(layout.root),
     )
@@ -695,6 +695,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             search_contexts=cast(Any, _SearchContextReader(symbolic_contexts, parameter_contexts)),
         )
         memory_revisions = OnlyExperimentMemoryRevisionStore(layout.experiment_memory_projection_root)
+        authoring_generations = OnlyVerifiedAuthoringGenerationReader(
+            OnlyAuthoringExecutionGenerationStore(
+                args.authoring_generation_root or layout.research_root / "authoring-generations"
+            ),
+            OnlyPrivateAssetRevisionBindingResolver(OnlyPostgresPrivateAssetStore(postgres.dsn, operational_options)),
+        )
         memory_builder, advisory_builder = _compose_experiment_memory_projection_builder(
             layout=layout,
             postgres_dsn=postgres.dsn,
@@ -708,13 +714,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             catalogs=exact_catalog_reader,
             calculations=calculation_results,
             runtime_generations=runtime_generations,
-            authoring_generation_root=args.authoring_generation_root or layout.research_root / "authoring-generations",
-        )
-        authoring_generations = OnlyVerifiedAuthoringGenerationReader(
-            OnlyAuthoringExecutionGenerationStore(
-                args.authoring_generation_root or layout.research_root / "authoring-generations"
-            ),
-            OnlyPrivateAssetRevisionBindingResolver(OnlyPostgresPrivateAssetStore(postgres.dsn, operational_options)),
+            authoring_generations=authoring_generations,
         )
         runtime_generation_resolver = OnlyResearchHostedRuntimeGenerationResolver(
             execution=generation_host,

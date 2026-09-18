@@ -259,6 +259,16 @@ class OnlyVerifiedAuthoringGenerationReader:
         self._private_asset_revisions = private_asset_revisions
 
     def load_verified(self, fingerprint: str) -> OnlyResearchAuthoringProvenance:
+        _, provenance = self._load_verified_generation(fingerprint)
+        return provenance
+
+    def load_descriptor_verified(self, fingerprint: str) -> dict[str, object]:
+        """Return descriptor evidence only after re-anchoring its Private Asset Revision."""
+
+        descriptor, _ = self._load_verified_generation(fingerprint)
+        return descriptor
+
+    def _load_verified_generation(self, fingerprint: str) -> tuple[dict[str, object], OnlyResearchAuthoringProvenance]:
         descriptor = self._store.load_descriptor_verified(fingerprint)
         provenance = OnlyResearchAuthoringProvenance.from_dict(descriptor["provenance"])  # type: ignore[arg-type]
         reference = OnlyPrivateAssetRevisionReferenceV1(
@@ -281,7 +291,7 @@ class OnlyVerifiedAuthoringGenerationReader:
             or binding.private_asset_content_fingerprint != provenance.private_asset_content_fingerprint
         ):
             raise OnlyAuthoringPrivateAssetBindingMismatchError()
-        return provenance
+        return descriptor, provenance
 
 
 class OnlyAuthoringExecutionGenerationRegistry:

@@ -130,10 +130,7 @@ class OnlyResearchRunAdmissionService:
 
     def verify_resolution(self, run: OnlyResearchRun) -> None:
         current = only_research_admission_resolution_fingerprint(
-            self._resolve(
-                run.specification,
-                None if run.authoring_provenance is None else run.authoring_provenance.execution_generation_fingerprint,
-            )
+            self._resolve(run.specification, run.authoring_generation_fingerprint)
         )
         if current != run.admission_resolution_fingerprint:
             raise OnlyResearchRunAdmissionError("admission resolution evidence mismatch")

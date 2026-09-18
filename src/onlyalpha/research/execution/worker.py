@@ -281,9 +281,7 @@ class OnlyResearchWorker:
         try:
             control.start()
             run = self._run_store.load(claim.attempt.run_id)
-            actual_generation = (
-                None if run.authoring_provenance is None else run.authoring_provenance.execution_generation_fingerprint
-            )
+            actual_generation = run.authoring_generation_fingerprint
             if actual_generation != self._authoring_execution_generation_fingerprint:
                 raise OnlyResearchExecutionOwnershipLostError("Claim belongs to another execution generation")
             control.checkpoint(OnlyResearchRuntimeBoundary.BEFORE_DATASET_VERIFICATION)

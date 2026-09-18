@@ -10,6 +10,10 @@ from threading import Event, Thread
 
 import psycopg
 import pytest
+from onlyalpha_authoring_execution_worker import (
+    OnlyAuthoringExecutionGenerationStore,
+    OnlyVerifiedAuthoringGenerationReader,
+)
 from onlyalpha_http_server.main import _compose_experiment_memory_projection_builder, _GenerationOwnedCatalogReader
 from onlyalpha_runtime_generation_manager import (
     OnlyLocalImmutableArtifactStore,
@@ -27,10 +31,12 @@ from onlyalpha.application.product_command_receipt import (
 )
 from onlyalpha.output.user_data import OnlyUserDataLayout
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
+from onlyalpha.persistence.postgres.private_asset_store import OnlyPostgresPrivateAssetStore
 from onlyalpha.persistence.postgres.product_command_authority import OnlyPostgresProductCommandAuthority
 from onlyalpha.persistence.postgres.research_execution_store import OnlyPostgresResearchExecutionStore
 from onlyalpha.persistence.postgres.research_run_store import OnlyPostgresResearchRunStore
 from onlyalpha.persistence.postgres.research_source_cut_store import OnlyPostgresResearchSourceCutAuthority
+from onlyalpha.quant_assets.private import OnlyPrivateAssetRevisionBindingResolver
 from onlyalpha.research.calculation.result_store import OnlyParquetResearchCalculationResultStore
 from onlyalpha.research.dataset.parquet_store import OnlyParquetResearchDatasetSnapshotStore
 from onlyalpha.research.evaluation.factor_pair.result_store import OnlyParquetResearchFactorPairStatisticsResultStore
@@ -202,7 +208,10 @@ def test_product_composition_captures_real_mixed_owner_topology(postgres_dsn: st
         catalogs=catalog,
         calculations=calculations,
         runtime_generations=generations,
-        authoring_generation_root=tmp_path / "authoring-generations",
+        authoring_generations=OnlyVerifiedAuthoringGenerationReader(
+            OnlyAuthoringExecutionGenerationStore(tmp_path / "authoring-generations"),
+            OnlyPrivateAssetRevisionBindingResolver(OnlyPostgresPrivateAssetStore(postgres_dsn)),
+        ),
     )
     run = _queued("00000000-0000-4000-8000-000000000921")
     OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(run)

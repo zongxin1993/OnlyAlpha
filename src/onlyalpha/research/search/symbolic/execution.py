@@ -238,7 +238,7 @@ def load_hosted_research_run_historical(
         command_id,
         specification,
         only_search_experiment_work_id(plan.experiment_fingerprint),
-        run.authoring_provenance,
+        run.authoring_generation_fingerprint,
     )
     receipt = receipts.load_verified_receipt(command_id)
     if (

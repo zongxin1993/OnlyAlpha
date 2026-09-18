@@ -24,7 +24,10 @@ from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 from onlyalpha.research.command.model import OnlyDerivedResearchSubmitCommandV2, only_derived_research_run_id
 from onlyalpha.research.experiment.model import OnlySearchIterationPlanV1
 from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
-from onlyalpha.research.run.model import OnlyResearchRunState
+from onlyalpha.research.run.model import (
+    OnlyResearchRunState,
+    only_research_authoring_generation_fingerprint,
+)
 from onlyalpha.research.search.parameter.integration import parameter_submission_key
 from onlyalpha.research.search.symbolic.controller import symbolic_submission_key
 from onlyalpha.research.source_cut import OnlySourceClosedCutV1, OnlySourceCutError, OnlySourceObservationV1
@@ -363,11 +366,14 @@ def _search_lineages(
                     raise ValueError("Run specification is unavailable")
                 specification = OnlyResearchSpecification.from_dict(decoded)
                 provenance = row.get("authoring_provenance")
+                authoring_evidence = (
+                    OnlyResearchAuthoringProvenance.from_dict(provenance) if isinstance(provenance, Mapping) else None
+                )
                 expected = OnlyDerivedResearchSubmitCommandV2(
                     command_id,
                     specification,
                     only_search_experiment_work_id(plan.experiment_fingerprint),
-                    OnlyResearchAuthoringProvenance.from_dict(provenance) if isinstance(provenance, Mapping) else None,
+                    only_research_authoring_generation_fingerprint(authoring_evidence),
                 )
                 if (
                     row["run_id"] != run_id

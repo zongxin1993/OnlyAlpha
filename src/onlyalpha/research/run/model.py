@@ -17,6 +17,14 @@ from .errors import OnlyResearchRunIntegrityError, OnlyResearchRunStateConflictE
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
+def only_research_authoring_generation_fingerprint(
+    provenance: OnlyResearchAuthoringProvenance | None,
+) -> str | None:
+    """Project Product intent from verified persisted authoring evidence."""
+
+    return None if provenance is None else provenance.execution_generation_fingerprint
+
+
 @dataclass(frozen=True, order=True, slots=True)
 class OnlyResearchRunId:
     value: str
@@ -109,6 +117,12 @@ class OnlyResearchRun:
     failure: OnlyResearchRunFailure | None = None
     calculation_execution_evidence_fingerprints: tuple[str, ...] = ()
     authoring_provenance: OnlyResearchAuthoringProvenance | None = None
+
+    @property
+    def authoring_generation_fingerprint(self) -> str | None:
+        """Project Product intent from the Run's verified authoring evidence."""
+
+        return only_research_authoring_generation_fingerprint(self.authoring_provenance)
 
     def __post_init__(self) -> None:
         try:
@@ -321,3 +335,4 @@ def _utc(value: object, name: str) -> datetime:
 
 
 __all__ = [name for name in globals() if name.startswith("Only")]
+__all__.append("only_research_authoring_generation_fingerprint")

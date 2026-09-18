@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from onlyalpha_authoring_execution_worker import OnlyAuthoringExecutionGenerationStore
 from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry
 
 from onlyalpha.backtest.evidence import OnlyBacktestEvidenceStore
@@ -21,6 +20,11 @@ from tests.strategy.test_strategy_freeze import _freeze_case
 class _UnavailableCatalog:
     def load_verified_catalog_descriptor(self, fingerprint: str) -> dict[str, object]:
         raise RuntimeError(f"catalog unavailable: {fingerprint}")
+
+
+class _UnavailableAuthoringGenerationAuthority:
+    def load_descriptor_verified(self, fingerprint: str) -> dict[str, object]:
+        raise RuntimeError(f"authoring generation unavailable: {fingerprint}")
 
 
 def test_production_reference_kind_contract_is_exhaustive() -> None:
@@ -41,7 +45,7 @@ def test_real_dataset_calculation_graph_and_missing_reference_fail_closed(tmp_pa
         OnlyJsonParameterSearchStore(tmp_path / "semantic"),
         service._calculation_results,
         OnlyRuntimeGenerationRegistry(tmp_path / "runtime-generations"),
-        OnlyAuthoringExecutionGenerationStore(tmp_path / "authoring-generations"),
+        _UnavailableAuthoringGenerationAuthority(),
         OnlyQualificationPolicyStore(tmp_path / "semantic"),
         OnlyBacktestEvidenceStore(tmp_path),
     )

@@ -275,6 +275,22 @@ def test_admission_prepares_verified_queued_run_without_durable_write() -> None:
     service.verify_resolution(run)
 
 
+def test_generation_neutral_admission_rejects_authoring_work_without_default_fallback() -> None:
+    class _ResolverTrap:
+        def resolve(self, _specification: object) -> object:
+            raise AssertionError("default resolver must not resolve authoring work")
+
+    service = OnlyResearchRunAdmissionService(
+        resolver=_ResolverTrap(),  # type: ignore[arg-type]
+        dataset_store=_DatasetStore(),  # type: ignore[arg-type]
+        now_utc=lambda: NOW,
+    )
+
+    with pytest.raises(OnlyResearchRunAdmissionError) as caught:
+        service.prepare(specification(), authoring_generation_fingerprint="a" * 64)
+    assert caught.value.code == "RESEARCH_EXECUTION_GENERATION_UNAVAILABLE"
+
+
 def test_admission_missing_or_corrupt_dataset_creates_no_run() -> None:
     service = OnlyResearchRunAdmissionService(
         resolver=OnlyResearchSpecificationResolver(registry()),

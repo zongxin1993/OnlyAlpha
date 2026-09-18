@@ -9,12 +9,14 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from importlib import metadata
 from pathlib import Path
+from typing import cast
 
 import psycopg
 import pytest
 from onlyalpha_authoring_execution_worker import (
     OnlyAuthoringExecutionGeneration,
     OnlyAuthoringExecutionGenerationStore,
+    OnlyVerifiedAuthoringGenerationReader,
 )
 from onlyalpha_example_alpha.provider import quant_asset_provider as alpha_provider
 from onlyalpha_http_server.main import _GenerationOwnedCatalogReader, _SearchContextReader
@@ -42,7 +44,9 @@ from onlyalpha.persistence.postgres.research_execution_store import OnlyPostgres
 from onlyalpha.persistence.postgres.research_run_store import OnlyPostgresResearchRunStore
 from onlyalpha.persistence.postgres.research_source_cut_store import OnlyPostgresResearchSourceCutAuthority
 from onlyalpha.quant_assets import (
+    OnlyPrivateAssetCorruptError,
     OnlyPrivateAssetKind,
+    OnlyPrivateAssetNotFoundError,
     OnlyPrivateAssetRevisionBindingResolver,
     OnlyPrivateAssetRevisionReferenceV1,
     OnlyPrivateL3Asset,
@@ -342,7 +346,10 @@ def _build_builder(
         parameter,
         calculations,
         runtime_generations,
-        OnlyAuthoringExecutionGenerationStore(authoring_generation_root),
+        OnlyVerifiedAuthoringGenerationReader(
+            OnlyAuthoringExecutionGenerationStore(authoring_generation_root),
+            OnlyPrivateAssetRevisionBindingResolver(OnlyPostgresPrivateAssetStore(postgres_dsn)),
+        ),
         OnlyQualificationPolicyStore(root),
         OnlyBacktestEvidenceStore(root),
     )
@@ -924,8 +931,9 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
         )
         OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(search_run)
         intent = OnlyDerivedResearchSubmitCommandV2(
-            command, run_spec, parent, authoring.execution_generation_fingerprint
+            command, run_spec, parent, search_run.authoring_generation_fingerprint
         )
+        assert search_run.authoring_generation_fingerprint == authoring.execution_generation_fingerprint
         product.admit_exact(
             OnlyProductCommandAdmissionV1(
                 command, OnlyProductCommandKind.CREATE_RESEARCH_RUN, intent.command_fingerprint
@@ -1086,6 +1094,36 @@ def test_real_production_topology_closes_and_rebuilds_from_source_truth(postgres
     assert completed_closure["calculation_execution_evidence_fingerprints"] == ["d" * 64]
     assert completed_closure["run_source_ref"]["source_family"] == "RESEARCH_RUN"
     assert completed_closure["search_lineage"] is None
+
+    class _InvalidRevisionAuthority:
+        def __init__(self, error: Exception) -> None:
+            self._error = error
+
+        def load_l3_revision(self, _factor_id: str, _revision_fingerprint: str) -> object:
+            raise self._error
+
+        def load_l4_revision(self, _strategy_id: str, _revision_fingerprint: str) -> object:
+            raise self._error
+
+    for label, error in (
+        ("missing", OnlyPrivateAssetNotFoundError("missing")),
+        ("corrupt", OnlyPrivateAssetCorruptError("corrupt")),
+    ):
+        invalid_references = replace(
+            cast(OnlyExperimentMemoryReferenceReadersV1, values["references"]),
+            authoring_generations=OnlyVerifiedAuthoringGenerationReader(
+                OnlyAuthoringExecutionGenerationStore(authoring_root),
+                OnlyPrivateAssetRevisionBindingResolver(_InvalidRevisionAuthority(error)),  # type: ignore[arg-type]
+            ),
+        )
+        invalid_builder = OnlyExperimentMemoryProductionBuilder(
+            builder._sources,
+            invalid_references,
+            OnlyExperimentMemoryRevisionStore(tmp_path / f"invalid-authority-{label}"),
+        )
+        with pytest.raises(OnlyMemoryProjectionError, match="REFERENCE_AUTHORITY_UNAVAILABLE"):
+            invalid_builder.build(manifest)
+
     failure_records = {
         record.facets["run_context"]["run_id"]: record
         for record in initial.records

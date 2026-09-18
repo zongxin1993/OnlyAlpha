@@ -449,14 +449,18 @@ def test_installed_l3_l4_resolve_research_evidence_freeze_and_revision(tmp_path:
         runtime_generations = OnlyRuntimeGenerationRegistry(Path(generation_authority_root))
 
         class _Admission:
-            def prepare(self, specification, *, provenance=None):  # type: ignore[no-untyped-def]
+            def prepare(  # type: ignore[no-untyped-def]
+                self, specification, *, authoring_generation_fingerprint=None
+            ):
                 assert specification == queued.specification
-                assert provenance is None
+                assert authoring_generation_fingerprint is None
                 return queued
 
-            def prepare_with_evidence(self, specification, *, provenance=None):  # type: ignore[no-untyped-def]
+            def prepare_with_evidence(  # type: ignore[no-untyped-def]
+                self, specification, *, authoring_generation_fingerprint=None
+            ):
                 return self.prepare(
-                    specification, provenance=provenance
+                    specification, authoring_generation_fingerprint=authoring_generation_fingerprint
                 ), OnlyResearchAdmissionResolutionEvidence.from_resolution(resolved.specification_resolution)
 
         class _Commands:

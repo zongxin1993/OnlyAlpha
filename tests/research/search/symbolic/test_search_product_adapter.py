@@ -46,7 +46,7 @@ from onlyalpha.application.search_product import (
     only_search_experiment_work_id,
 )
 from onlyalpha.canonical import only_canonical_json
-from onlyalpha.quant_assets import OnlyQuantAssetCatalogManager
+from onlyalpha.quant_assets import OnlyPrivateAssetKind, OnlyQuantAssetCatalogManager
 from onlyalpha.research.command.model import (
     OnlyDerivedResearchSubmitCommandV2,
     OnlyResearchSubmitDisposition,
@@ -60,6 +60,10 @@ from onlyalpha.research.experiment import (
     OnlySearchHypothesisV1,
     OnlySearchResearchResultReferenceV1,
     OnlySearchWorkflowBindingV1,
+)
+from onlyalpha.research.provenance import (
+    OnlyResearchAuthoringProvenance,
+    only_research_execution_generation_fingerprint,
 )
 from onlyalpha.research.run.model import OnlyResearchRun, OnlyResearchRunId, OnlyResearchRunState
 from onlyalpha.research.search.parameter import parameter_submission_key
@@ -600,6 +604,61 @@ def test_submit_and_bounded_symbolic_advance_reconcile_recovery(tmp_path) -> Non
     repaired = service.advance(advance)
     assert len(repaired.ledger.plans) == 2
     assert advance.command_id in authority.receipts
+
+
+def test_symbolic_replay_reconstructs_authoring_intent_from_run_evidence(tmp_path) -> None:
+    service, query, authority, commands, submit = _case(tmp_path)
+    created = service.submit(submit)
+    advanced = service.advance(
+        OnlyAdvanceSearchExperimentV1(
+            _command_id(),
+            OnlySearchMethodV1.SYMBOLIC,
+            OnlySearchBoundedOperationV1.ADVANCE_ONE_SYMBOLIC_OCCURRENCE,
+            created.ledger.expected_state,
+        )
+    )
+    plan = advanced.ledger.plans[0]
+    state = cast(OnlySymbolicExpectedStateV1, advanced.ledger.expected_state)
+    service.advance(
+        OnlyAdvanceSearchExperimentV1(
+            _command_id(),
+            OnlySearchMethodV1.SYMBOLIC,
+            OnlySearchBoundedOperationV1.RECONCILE_ONE_SYMBOLIC_OCCURRENCE,
+            _reconcile_expected(state, plan.iteration_plan_fingerprint),
+        )
+    )
+    command_id = symbolic_submission_key(plan)
+    run_id = only_derived_research_run_id(command_id)
+    identity = {
+        "experiment_id": "exp-" + "a" * 32,
+        "private_asset_kind": OnlyPrivateAssetKind.L3_FACTOR,
+        "private_asset_id": "private.factor.momentum",
+        "private_asset_revision_fingerprint": "1" * 64,
+        "private_asset_content_fingerprint": "2" * 64,
+        "candidate_provider_id": "private.onlyalpha.alpha.candidate",
+        "candidate_provider_version": "candidate-1",
+        "candidate_provider_content_fingerprint": "3" * 64,
+        "catalog_generation_fingerprint": "4" * 64,
+    }
+    provenance = OnlyResearchAuthoringProvenance(
+        schema_version=1,
+        **identity,
+        execution_generation_fingerprint=only_research_execution_generation_fingerprint(**identity),
+    )
+    run = replace(commands.runs[run_id], authoring_provenance=provenance)
+    commands.runs[run_id] = run
+    fingerprint = OnlyDerivedResearchSubmitCommandV2(
+        command_id,
+        run.specification,
+        only_search_experiment_work_id(plan.experiment_fingerprint),
+        run.authoring_generation_fingerprint,
+    ).command_fingerprint
+    authority.admissions[command_id] = replace(authority.admissions[command_id], command_fingerprint=fingerprint)
+    authority.receipts[command_id] = replace(authority.receipts[command_id], command_fingerprint=fingerprint)
+
+    replayed = query.get_ledger(OnlyGetSearchIterationLedgerV1(created.experiment.experiment_fingerprint))
+
+    assert replayed.expected_state.ordered_plan_states[0].research_product_command_id == command_id.value
 
 
 def test_search_command_fingerprint_excludes_product_identity_and_conflicts_before_search(tmp_path) -> None:

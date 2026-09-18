@@ -17,6 +17,7 @@ _GENERATION = Path(
 _MIGRATION = Path("database/postgres/migrations/0027_private_asset_authoring_authority.sql")
 _PRODUCT = Path("src/onlyalpha/application/product_boundary.py")
 _HTTP = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server/research/run_schema.py")
+_HTTP_MAIN = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py")
 
 
 def _imports(path: Path) -> set[str]:
@@ -116,3 +117,17 @@ def test_generation_factory_and_reader_reanchor_without_latest_or_source_executi
             node.func.id for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
         }
         assert calls.isdisjoint({"eval", "exec", "compile"}), path
+
+
+def test_memory_composition_does_not_use_raw_generation_descriptor_store_as_authority() -> None:
+    tree = ast.parse(_HTTP_MAIN.read_text(encoding="utf-8"))
+    composition = next(
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "_compose_experiment_memory_projection_builder"
+    )
+    calls = {
+        node.func.id for node in ast.walk(composition) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert "OnlyAuthoringExecutionGenerationStore" not in calls

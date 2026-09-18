@@ -101,6 +101,8 @@ def test_create_fingerprint_binds_exact_authoring_generation_reference() -> None
     )
     assert first.command_fingerprint == second.command_fingerprint
     assert first.command_fingerprint != changed.command_fingerprint
+    with pytest.raises(ValueError, match="Authoring Generation fingerprint is invalid"):
+        OnlyResearchSubmitCommand(COMMAND_ID, strict, provenance)  # type: ignore[arg-type]
 
 
 def test_cancel_fingerprint_depends_only_on_exact_target_run() -> None:

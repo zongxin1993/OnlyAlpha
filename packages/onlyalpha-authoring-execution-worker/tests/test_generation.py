@@ -7,6 +7,7 @@ from onlyalpha_authoring_execution_worker import (
     OnlyAuthoringExecutionGenerationRegistry,
     OnlyAuthoringExecutionGenerationStore,
     OnlyVerifiedAuthoringGenerationReader,
+    only_compose_authoring_research_admission,
     only_compose_authoring_research_worker,
 )
 from onlyalpha_example_alpha.provider import quant_asset_provider
@@ -32,6 +33,7 @@ from onlyalpha.research.provenance import (
     OnlyResearchAuthoringProvenance,
     only_research_execution_generation_fingerprint,
 )
+from onlyalpha.research.run import OnlyResearchRunAdmissionError, OnlyResearchRunId
 from tests.research.specification.support import specification
 
 
@@ -128,6 +130,9 @@ def test_generation_owns_exact_catalog_and_process_composition(tmp_path: Path) -
         generation.descriptor()
     )
     assert reader.load_verified(generation.fingerprint) == generation.provenance
+    assert only_canonical_json(reader.load_descriptor_verified(generation.fingerprint)) == only_canonical_json(
+        generation.descriptor()
+    )
     with pytest.raises(ValueError, match="AUTHORING_EXECUTION_GENERATION_NOT_FOUND_OR_CORRUPT"):
         store.load_descriptor_verified("0" * 64)
 
@@ -215,6 +220,41 @@ def test_registry_reanchors_revision_authority_on_every_read(tmp_path: Path) -> 
     )
     with pytest.raises(ValueError, match="AUTHORING_PRIVATE_ASSET_REVISION_UNAVAILABLE"):
         registry.load_verified(generation.fingerprint)
+    with pytest.raises(ValueError, match="AUTHORING_PRIVATE_ASSET_REVISION_UNAVAILABLE"):
+        OnlyVerifiedAuthoringGenerationReader(store, revisions).load_descriptor_verified(generation.fingerprint)
+
+
+def test_authoring_admission_composition_uses_exact_generation_resolver(tmp_path: Path) -> None:
+    generation, revisions = _generation()
+    store = OnlyAuthoringExecutionGenerationStore(tmp_path)
+    store.commit(generation)
+
+    class _DefaultResolverTrap:
+        def resolve(self, _specification: object) -> object:
+            raise AssertionError("default resolver must not resolve authoring work")
+
+    class _DatasetStore:
+        def load_verified_table(self, _fingerprint: str) -> object:
+            return object()
+
+    service = only_compose_authoring_research_admission(
+        generation=generation,
+        generation_store=store,
+        private_asset_revisions=revisions,
+        default_resolver=_DefaultResolverTrap(),  # type: ignore[arg-type]
+        dataset_store=_DatasetStore(),  # type: ignore[arg-type]
+        now_utc=lambda: datetime(2026, 9, 18, tzinfo=UTC),
+        run_id_factory=lambda: OnlyResearchRunId("00000000-0000-4000-8000-000000000116"),
+    )
+
+    run = service.prepare(specification(), authoring_generation_fingerprint=generation.fingerprint)
+
+    assert run.authoring_provenance == generation.provenance
+    assert run.authoring_generation_fingerprint == generation.fingerprint
+
+    with pytest.raises(OnlyResearchRunAdmissionError) as caught:
+        service.prepare(specification(), authoring_generation_fingerprint="0" * 64)
+    assert caught.value.code == "RESEARCH_EXECUTION_GENERATION_UNAVAILABLE"
 
 
 def test_generation_descriptor_carries_only_db_native_provenance(tmp_path: Path) -> None:

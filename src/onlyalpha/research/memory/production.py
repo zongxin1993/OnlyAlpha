@@ -59,6 +59,8 @@ class _RuntimeManifest(Protocol):
 
 
 class OnlyExactAuthoringGenerationReader(Protocol):
+    """Authority-backed reader that re-verifies the exact Private Asset Revision."""
+
     def load_descriptor_verified(self, fingerprint: str) -> Mapping[str, object]: ...
 
 
