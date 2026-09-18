@@ -179,6 +179,11 @@ services:
       ONLYALPHA_TEST_CLICKHOUSE_PASSWORD: onlyalpha
       ONLYALPHA_TEST_CLICKHOUSE_STORAGE_POLICY: default
       ONLYALPHA_POSTGRES_CLIENT_BIN_DIR: /usr/lib/postgresql/18/bin
+    volumes:
+      - type: bind
+        source: ../.git
+        target: /workspace/.git
+        read_only: true
     depends_on:
       postgres:
         condition: service_healthy

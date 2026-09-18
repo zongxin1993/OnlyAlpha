@@ -22,7 +22,10 @@ def main() -> int:
             connection.execute(f'CREATE DATABASE "{database}"')
     if len(sys.argv) < 2:
         raise ValueError("COMPOSE_TEST_COMMAND_REQUIRED")
-    completed = subprocess.run(sys.argv[1:], check=False)
+    command = sys.argv[1:]
+    if "research-postgres" in command:
+        subprocess.run((sys.executable, "scripts/embed_build_provenance.py"), check=True)
+    completed = subprocess.run(command, check=False)
     return completed.returncode
 
 

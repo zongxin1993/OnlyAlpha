@@ -929,6 +929,9 @@ dependencies = [
 
 [package.dev-dependencies]
 compose-acceptance = [
+    { name = "build" },
+    { name = "grpcio-tools" },
+    { name = "hatchling" },
     { name = "httpx2" },
     { name = "hypothesis" },
     { name = "onlyalpha-test-factor-provider" },
@@ -983,6 +986,9 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 compose-acceptance = [
+    { name = "build", specifier = ">=1.2" },
+    { name = "grpcio-tools", specifier = "==1.73.1" },
+    { name = "hatchling", specifier = ">=1.26,<2" },
     { name = "httpx2", specifier = ">=2.12,<3" },
     { name = "hypothesis", specifier = ">=6.165.5" },
     { name = "onlyalpha-test-factor-provider", editable = "tests/fixtures/runtime_factor_provider" },

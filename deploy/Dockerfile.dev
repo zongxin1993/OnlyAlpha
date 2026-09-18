@@ -43,7 +43,16 @@ ENV PATH="/workspace/.venv/bin:${PATH}" \
     UV_NO_SYNC=1
 
 FROM runtime AS test
+USER root
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+USER onlyalpha
+RUN git config --global --add safe.directory /workspace
 RUN uv sync --frozen --all-packages --no-dev --group compose-acceptance
+USER root
+RUN rm -f /workspace/src/onlyalpha/_build_provenance.json /workspace/src/onlyalpha/_build_provenance.sha256
+USER onlyalpha
 
 FROM node:24-bookworm-slim AS web
 WORKDIR /workspace/packages/onlyalpha-web-console

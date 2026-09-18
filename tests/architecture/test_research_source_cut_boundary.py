@@ -118,6 +118,6 @@ def test_product_memory_composition_has_fixed_owners_and_no_callback_parameter()
         "catalogs",
         "calculations",
         "runtime_generations",
-        "authoring_generation_root",
+        "authoring_generations",
         "postgres_dsn",
     } <= parameters

@@ -131,7 +131,7 @@ class OnlyVerifiedPrivateAssetRevisionBindingV1:
                 raise OnlyPrivateAssetReferenceMismatchError("Factor API binding is incomplete")
             _fingerprint(self.factor_api_contract_fingerprint, "factor_api_contract_fingerprint")
         elif self.factor_api_version is not None or self.factor_api_contract_fingerprint is not None:
-            raise OnlyPrivateAssetReferenceMismatchError("Strategy Revision cannot carry an Factor API binding")
+            raise OnlyPrivateAssetReferenceMismatchError("Strategy Revision cannot carry a Factor API binding")
 
 
 def _invalid(detail: str) -> NoReturn:
