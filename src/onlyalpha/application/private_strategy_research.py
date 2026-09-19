@@ -21,7 +21,9 @@ from onlyalpha.quant_assets.private_strategy_composition import (
 from onlyalpha.research.command.model import OnlyResearchSubmitOutcome
 from onlyalpha.research.definition.resolver import OnlyResearchDefinitionResolver
 from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
+from onlyalpha.research.run.generation import OnlyResearchHostedRuntimeGenerationResolver
 from onlyalpha.research.specification.model import OnlyResearchSpecification
+from onlyalpha.runtime.generation import OnlyRuntimeGenerationManifest
 
 
 class _ExactAuthoringGeneration(Protocol):
@@ -39,8 +41,13 @@ class _ResearchCommands(Protocol):
         specification: OnlyResearchSpecification,
         authoring_generation_fingerprint: str | None = None,
         *,
+        runtime_generation_fingerprint: str | None = None,
         strategy_research_composition_fingerprint: str | None = None,
     ) -> OnlyResearchSubmitOutcome: ...
+
+
+class _ExactRuntimeGenerations(Protocol):
+    def require_runtime_generation(self, fingerprint: str) -> OnlyRuntimeGenerationManifest: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,7 +55,7 @@ class OnlyPrivateStrategyResearchRequest:
     submission_key: OnlyProductCommandId
     strategy_revision: OnlyPrivateAssetRevisionReferenceV1
     research_context: OnlyPrivateStrategyResearchContextV1
-    authoring_generation_fingerprint: str | None = None
+    runtime_generation_fingerprint: str
 
     def __post_init__(self) -> None:
         if (
@@ -57,11 +64,10 @@ class OnlyPrivateStrategyResearchRequest:
             or not isinstance(self.research_context, OnlyPrivateStrategyResearchContextV1)
         ):
             raise ValueError("PRIVATE_STRATEGY_REVISION_INVALID")
-        if self.authoring_generation_fingerprint is not None and (
-            len(self.authoring_generation_fingerprint) != 64
-            or any(char not in "0123456789abcdef" for char in self.authoring_generation_fingerprint)
+        if len(self.runtime_generation_fingerprint) != 64 or any(
+            char not in "0123456789abcdef" for char in self.runtime_generation_fingerprint
         ):
-            raise ValueError("AUTHORING_EXECUTION_GENERATION_IDENTITY_INVALID")
+            raise ValueError("RUNTIME_GENERATION_IDENTITY_INVALID")
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,39 +87,48 @@ class OnlyPrivateStrategyResearchApplicationService:
         definitions: OnlyResearchDefinitionResolver,
         research: _ResearchCommands,
         authoring_generations: _ExactAuthoringGeneration | None = None,
+        runtime_generations: _ExactRuntimeGenerations | None = None,
+        runtime_definition_resolver: OnlyResearchHostedRuntimeGenerationResolver | None = None,
     ) -> None:
         self._composer = composer
         self._compositions = compositions
         self._definitions = definitions
         self._research = research
         self._authoring_generations = authoring_generations
+        self._runtime_generations = runtime_generations
+        self._runtime_definition_resolver = runtime_definition_resolver
 
     def submit(self, request: OnlyPrivateStrategyResearchRequest) -> OnlyPrivateStrategyResearchOutcome:
         composer = self._composer
-        definitions = self._definitions
-        provenance: OnlyResearchAuthoringProvenance | None = None
-        if self._authoring_generations is not None:
-            if request.authoring_generation_fingerprint is None:
-                raise ValueError("AUTHORING_EXECUTION_GENERATION_REQUIRED")
-            provenance = self._authoring_generations.load_verified(request.authoring_generation_fingerprint)
-            catalog = self._authoring_generations.load_catalog_verified(request.authoring_generation_fingerprint)
-            if catalog.generation_fingerprint != provenance.catalog_generation_fingerprint:
-                raise ValueError("AUTHORING_CATALOG_GENERATION_MISMATCH")
-            composer = composer.for_catalog(catalog)
-            definitions = definitions.for_calculation_registry(
-                self._authoring_generations.load_calculation_registry_verified(request.authoring_generation_fingerprint)
+        # AuthoringExecutionGeneration is a Factor-scoped authority. It is
+        # deliberately not accepted as Strategy Research execution context.
+        if (self._runtime_generations is None) != (self._runtime_definition_resolver is None):
+            raise ValueError("PRIVATE_STRATEGY_RUNTIME_AUTHORITY_INCOMPLETE")
+        if self._runtime_generations is None or self._runtime_definition_resolver is None:
+            composed = composer.compose(request.strategy_revision, request.research_context)
+            specification = self._definitions.resolve(composed.research_definition).specification
+        else:
+            manifest = self._runtime_generations.require_runtime_generation(request.runtime_generation_fingerprint)
+            composed = composer.compose(
+                request.strategy_revision,
+                request.research_context,
+                runtime_manifest=manifest,
             )
-        composed = composer.compose(request.strategy_revision, request.research_context)
-        if provenance is not None and (
-            composed.composition.catalog_generation_fingerprint != provenance.catalog_generation_fingerprint
-        ):
-            raise ValueError("PRIVATE_STRATEGY_COMPOSITION_EXECUTION_CONTEXT_MISMATCH")
-        resolved = definitions.resolve(composed.research_definition)
+            exact = self._runtime_definition_resolver.resolve_definition(
+                request.runtime_generation_fingerprint,
+                composed.research_definition,
+            )
+            if (
+                exact.research_definition_fingerprint != composed.composition.research_definition_fingerprint
+                or exact.specification_fingerprint != exact.specification.specification_fingerprint
+            ):
+                raise ValueError("PRIVATE_STRATEGY_RUNTIME_DEFINITION_MISMATCH")
+            specification = exact.specification
         self._compositions.put(composed.composition, request.research_context)
         submission = self._research.submit_research_run(
             request.submission_key,
-            resolved.specification,
-            request.authoring_generation_fingerprint,
+            specification,
+            runtime_generation_fingerprint=request.runtime_generation_fingerprint,
             strategy_research_composition_fingerprint=composed.composition.composition_fingerprint,
         )
         return OnlyPrivateStrategyResearchOutcome(composed, submission)
@@ -123,14 +138,14 @@ class OnlyPrivateStrategyResearchApplicationService:
         submission_key: OnlyProductCommandId,
         strategy_revision: OnlyPrivateAssetRevisionReferenceV1,
         research_context: OnlyPrivateStrategyResearchContextV1,
-        authoring_generation_fingerprint: str,
+        runtime_generation_fingerprint: str,
     ) -> OnlyPrivateStrategyResearchOutcome:
         return self.submit(
             OnlyPrivateStrategyResearchRequest(
                 submission_key,
                 strategy_revision,
                 research_context,
-                authoring_generation_fingerprint,
+                runtime_generation_fingerprint,
             )
         )
 

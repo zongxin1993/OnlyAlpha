@@ -35,6 +35,7 @@ class _Research:
         specification,
         authoring_generation_fingerprint=None,
         *,
+        runtime_generation_fingerprint=None,
         strategy_research_composition_fingerprint=None,
     ):  # type: ignore[no-untyped-def]
         self.fingerprint = strategy_research_composition_fingerprint
@@ -64,6 +65,7 @@ def test_private_strategy_research_application_binds_derived_composition() -> No
             OnlyProductCommandId("00000000-0000-4000-8000-000000000933"),
             reference,
             context,
+            "f" * 64,
         )
     )
 

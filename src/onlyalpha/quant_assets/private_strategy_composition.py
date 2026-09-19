@@ -29,6 +29,9 @@ from onlyalpha.research.definition.resolver import (
     OnlyResearchDefinitionResolver,
 )
 from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
+from onlyalpha.research.run import OnlyResearchRun
+from onlyalpha.research.run.generation import OnlyResearchDefinitionRuntimeResolutionV1
+from onlyalpha.runtime.generation import OnlyRuntimeGenerationManifest
 
 from .private_factor_execution import OnlyPrivateFactorProviderSnapshotEntryV1
 from .private_strategy import (
@@ -198,6 +201,18 @@ class _ExactAuthoringGeneration(Protocol):
     def load_calculation_registry_verified(self, fingerprint: str) -> OnlyCalculationRegistry: ...
 
 
+class _ExactRuntimeGeneration(Protocol):
+    def require_work_binding(self, work_id: str) -> object: ...
+
+    def require_runtime_generation(self, fingerprint: str) -> OnlyRuntimeGenerationManifest: ...
+
+
+class _ExactRuntimeDefinitionResolver(Protocol):
+    def resolve_definition(
+        self, runtime_generation_fingerprint: str, definition: OnlyResearchDefinition
+    ) -> OnlyResearchDefinitionRuntimeResolutionV1: ...
+
+
 class OnlyPrivateStrategyResearchCompositionVerifier:
     """Re-derive a persisted Composition before a Strategy Freeze can use it."""
 
@@ -208,15 +223,21 @@ class OnlyPrivateStrategyResearchCompositionVerifier:
         definition_resolver: OnlyResearchDefinitionResolver,
         authoring_generations: _ExactAuthoringGeneration | None = None,
         execution_evidence: OnlyResearchCalculationExecutionEvidenceStore | None = None,
+        runtime_generations: _ExactRuntimeGeneration | None = None,
+        runtime_definition_resolver: _ExactRuntimeDefinitionResolver | None = None,
+        calculations: OnlyCalculationRegistry | None = None,
     ) -> None:
         self._composer = composer
         self._store = store
         self._definition_resolver = definition_resolver
         self._authoring_generations = authoring_generations
         self._execution_evidence = execution_evidence
+        self._runtime_generations = runtime_generations
+        self._runtime_definition_resolver = runtime_definition_resolver
+        self._calculations = calculations
 
-    def verify(self, run: object) -> None:
-        fingerprint = getattr(run, "strategy_research_composition_fingerprint", None)
+    def verify(self, run: OnlyResearchRun) -> OnlyResearchDefinitionRuntimeResolutionV1 | None:
+        fingerprint = run.strategy_research_composition_fingerprint
         if not isinstance(fingerprint, str):
             _fail("PRIVATE_STRATEGY_COMPOSITION_UNAVAILABLE", "Strategy-authored Run has no Composition reference")
         try:
@@ -226,6 +247,47 @@ class OnlyPrivateStrategyResearchCompositionVerifier:
             definitions = self._definition_resolver
             exact_calculations: OnlyCalculationRegistry | None = None
             authoring_generation: str | None = None
+            runtime_manifest: OnlyRuntimeGenerationManifest | None = None
+            runtime_generation: str | None = None
+            if self._runtime_generations is not None:
+                binding = self._runtime_generations.require_work_binding(run.run_id.value)
+                runtime_generation = getattr(binding, "runtime_generation_fingerprint", None)
+                if not isinstance(runtime_generation, str):
+                    _fail("PRIVATE_STRATEGY_COMPOSITION_UNAVAILABLE", "Strategy Run has no exact Runtime binding")
+                runtime_manifest = self._runtime_generations.require_runtime_generation(runtime_generation)
+                if composition.catalog_generation_fingerprint != runtime_manifest.catalog_generation_fingerprint:
+                    _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Composition Catalog differs from Runtime Catalog")
+                composer_result = composer.verify(
+                    composition,
+                    OnlyPrivateAssetRevisionReferenceV1(
+                        OnlyPrivateAssetKind.STRATEGY,
+                        composition.private_strategy_id,
+                        composition.private_strategy_revision_fingerprint,
+                    ),
+                    context,
+                    runtime_manifest=runtime_manifest,
+                )
+                if self._runtime_definition_resolver is None:
+                    _fail(
+                        "PRIVATE_STRATEGY_COMPOSITION_UNAVAILABLE", "exact Runtime Definition resolver is unavailable"
+                    )
+                exact = self._runtime_definition_resolver.resolve_definition(
+                    runtime_generation,
+                    composer_result.research_definition,
+                )
+                if (
+                    exact.research_definition_fingerprint != composition.research_definition_fingerprint
+                    or exact.specification_fingerprint != getattr(run, "specification_fingerprint", None)
+                    or exact.admission_evidence.fingerprint != getattr(run, "admission_resolution_fingerprint", None)
+                    or exact.private_factor_bindings
+                    != tuple(item.to_dict() for item in runtime_manifest.private_factor_bindings)
+                ):
+                    _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "exact Runtime Definition resolution differs")
+                self._verify_runtime_implementations(exact, runtime_manifest)
+                evidence_refs = getattr(run, "calculation_execution_evidence_fingerprints", ())
+                if evidence_refs:
+                    self._verify_execution_evidence(evidence_refs, exact, runtime_manifest)
+                return exact
             if self._authoring_generations is not None:
                 authoring_generation = getattr(run, "authoring_generation_fingerprint", None)
                 if not isinstance(authoring_generation, str):
@@ -273,13 +335,48 @@ class OnlyPrivateStrategyResearchCompositionVerifier:
             raise
         except Exception as exc:
             _fail("PRIVATE_STRATEGY_COMPOSITION_UNAVAILABLE", str(exc), exc)
+        return None
+
+    def _verify_runtime_implementations(
+        self,
+        resolved: OnlyResearchDefinitionResolution | OnlyResearchDefinitionRuntimeResolutionV1,
+        manifest: OnlyRuntimeGenerationManifest,
+    ) -> None:
+        candidates = (
+            resolved.candidates
+            if isinstance(resolved, OnlyResearchDefinitionRuntimeResolutionV1)
+            else resolved.specification_resolution.candidates
+        )
+        for lineage in candidates:
+            for node in lineage.graph.ordered_nodes:
+                backends = (
+                    (OnlyCalculationBackendKind.RESEARCH.value,)
+                    if node.definition.kind is OnlyCalculationKind.TARGET
+                    else (OnlyCalculationBackendKind.RESEARCH.value, OnlyCalculationBackendKind.TRADING.value)
+                )
+                for backend in backends:
+                    matches = tuple(
+                        item
+                        for item in manifest.implementations
+                        if item.kind == node.definition.kind.value
+                        and item.type_id == node.definition.type_id
+                        and item.semantic_version == node.definition.semantic_version
+                        and item.backend == backend
+                    )
+                    if len(matches) != 1:
+                        _fail(
+                            "PRIVATE_STRATEGY_COMPOSITION_MISMATCH",
+                            "Runtime implementation binding is incomplete: "
+                            f"{node.definition.kind.value}:{node.definition.type_id}@"
+                            f"{node.definition.semantic_version}/{backend}",
+                        )
 
     def _verify_execution_evidence(
         self,
         evidence_refs: object,
-        resolved: OnlyResearchDefinitionResolution,
-        calculations: OnlyCalculationRegistry,
-        authoring_generation_fingerprint: str,
+        resolved: OnlyResearchDefinitionResolution | OnlyResearchDefinitionRuntimeResolutionV1,
+        exact_runtime: OnlyRuntimeGenerationManifest | OnlyCalculationRegistry,
+        authoring_generation_fingerprint: str | None = None,
     ) -> None:
         if not isinstance(evidence_refs, tuple) or not all(isinstance(item, str) for item in evidence_refs):
             _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Research Execution Evidence references are invalid")
@@ -289,12 +386,22 @@ class OnlyPrivateStrategyResearchCompositionVerifier:
                 evidence = self._execution_evidence.load_verified(evidence_ref)
             except Exception as exc:
                 _fail("PRIVATE_STRATEGY_COMPOSITION_UNAVAILABLE", str(exc), exc)
-            if evidence.authoring_generation_fingerprint != authoring_generation_fingerprint:
+            if isinstance(exact_runtime, OnlyRuntimeGenerationManifest):
+                if evidence.authoring_generation_fingerprint is not None:
+                    _fail(
+                        "PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Strategy Evidence names Factor authoring generation"
+                    )
+            elif evidence.authoring_generation_fingerprint != authoring_generation_fingerprint:
                 _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Execution Evidence names another generation")
+            candidates = (
+                resolved.candidates
+                if isinstance(resolved, OnlyResearchDefinitionRuntimeResolutionV1)
+                else resolved.specification_resolution.candidates
+            )
             lineage = next(
                 (
                     item
-                    for item in resolved.specification_resolution.candidates
+                    for item in candidates
                     if item.calculation_fingerprint == evidence.calculation_fingerprint
                     and item.graph_fingerprint == evidence.calculation_graph_fingerprint
                 ),
@@ -304,19 +411,36 @@ class OnlyPrivateStrategyResearchCompositionVerifier:
                 _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Execution Evidence names another Calculation Graph")
             expected: dict[str, str] = {}
             for node in lineage.graph.ordered_nodes:
-                try:
-                    registration = calculations.resolve(
-                        node.definition.kind,
-                        node.definition.type_id,
-                        node.definition.semantic_version,
-                        OnlyCalculationBackendKind.RESEARCH,
+                if isinstance(exact_runtime, OnlyRuntimeGenerationManifest):
+                    matches = tuple(
+                        item
+                        for item in exact_runtime.implementations
+                        if item.kind == node.definition.kind.value
+                        and item.type_id == node.definition.type_id
+                        and item.semantic_version == node.definition.semantic_version
+                        and item.backend == OnlyCalculationBackendKind.RESEARCH.value
                     )
-                except (TypeError, ValueError) as exc:
-                    _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", str(exc), exc)
-                manifest = registration.implementation_manifest
-                if manifest is None:
-                    _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Research implementation identity is unavailable")
-                expected[node.fingerprint] = manifest.implementation_fingerprint
+                    if len(matches) != 1:
+                        _fail(
+                            "PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Research implementation identity is unavailable"
+                        )
+                    expected[node.fingerprint] = matches[0].implementation_fingerprint
+                else:
+                    try:
+                        registration = exact_runtime.resolve(
+                            node.definition.kind,
+                            node.definition.type_id,
+                            node.definition.semantic_version,
+                            OnlyCalculationBackendKind.RESEARCH,
+                        )
+                    except (TypeError, ValueError) as exc:
+                        _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", str(exc), exc)
+                    implementation = registration.implementation_manifest
+                    if implementation is None:
+                        _fail(
+                            "PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Research implementation identity is unavailable"
+                        )
+                    expected[node.fingerprint] = implementation.implementation_fingerprint
             actual = {
                 item.node_fingerprint: item.research_implementation_fingerprint
                 for item in evidence.research_implementation_bindings
@@ -349,6 +473,8 @@ class OnlyPrivateStrategyResearchComposer:
         self,
         strategy_reference: OnlyPrivateAssetRevisionReferenceV1,
         context: OnlyPrivateStrategyResearchContextV1,
+        *,
+        runtime_manifest: OnlyRuntimeGenerationManifest | None = None,
     ) -> OnlyPrivateStrategyResearchCompositionResult:
         if (
             not isinstance(strategy_reference, OnlyPrivateAssetRevisionReferenceV1)
@@ -378,8 +504,13 @@ class OnlyPrivateStrategyResearchComposer:
             )
         except (TypeError, ValueError) as exc:
             _fail("PRIVATE_STRATEGY_REVISION_CORRUPT", str(exc), exc)
-        registry = self._catalog.calculation_registry()
-        self._verify_calculations(definition, registry)
+        if runtime_manifest is None:
+            if self._catalog is None:
+                _fail("PRIVATE_STRATEGY_CATALOG_UNAVAILABLE", "exact Catalog Generation is required")
+            registry = self._catalog.calculation_registry()
+            self._verify_calculations(definition, registry)
+        else:
+            self._verify_runtime_calculations(definition, runtime_manifest)
         research_definition = OnlyResearchDefinition(
             _dataset(definition, context),
             definition.calculations,
@@ -396,7 +527,11 @@ class OnlyPrivateStrategyResearchComposer:
             private_strategy_definition_fingerprint=revision.definition_fingerprint,
             research_context_fingerprint=context.research_context_fingerprint,
             factor_revision_bindings=definition.factor_revision_dependencies,
-            catalog_generation_fingerprint=self._catalog.generation_fingerprint,
+            catalog_generation_fingerprint=(
+                runtime_manifest.catalog_generation_fingerprint
+                if runtime_manifest is not None
+                else self._catalog.generation_fingerprint
+            ),
             research_definition_fingerprint=research_definition.definition_fingerprint,
         )
         return OnlyPrivateStrategyResearchCompositionResult(composition, research_definition)
@@ -406,11 +541,41 @@ class OnlyPrivateStrategyResearchComposer:
         expected: OnlyPrivateStrategyResearchCompositionV1,
         strategy_reference: OnlyPrivateAssetRevisionReferenceV1,
         context: OnlyPrivateStrategyResearchContextV1,
+        *,
+        runtime_manifest: OnlyRuntimeGenerationManifest | None = None,
     ) -> OnlyPrivateStrategyResearchCompositionResult:
-        actual = self.compose(strategy_reference, context)
+        actual = self.compose(strategy_reference, context, runtime_manifest=runtime_manifest)
         if actual.composition != expected:
             _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "independent composition differs")
         return actual
+
+    def _verify_runtime_calculations(
+        self,
+        definition: OnlyPrivateStrategyDefinitionV1,
+        manifest: OnlyRuntimeGenerationManifest,
+    ) -> None:
+        private = {item.entry.factor_id: item.entry for item in manifest.private_factor_bindings}
+        declared = {item.factor_id: item for item in definition.factor_revision_dependencies}
+        used = {
+            item.type_reference.type_id
+            for item in definition.calculations
+            if item.type_reference.kind is OnlyCalculationKind.FACTOR
+            and item.type_reference.type_id.startswith("private.factor.")
+        }
+        if used != set(declared):
+            _fail("PRIVATE_STRATEGY_FACTOR_DEPENDENCY_MISMATCH", "Factor usage/dependency closure is not exact")
+        for dependency in definition.factor_revision_dependencies:
+            entry = private.get(dependency.factor_id)
+            if entry is None:
+                _fail("PRIVATE_STRATEGY_FACTOR_CATALOG_UNAVAILABLE", dependency.factor_id)
+            factor = self._load_factor(dependency)
+            if (
+                entry.revision_fingerprint != factor.revision_fingerprint
+                or entry.semantic_version != factor.semantic_version
+                or entry.source_sha256 != factor.source_sha256
+                or entry.factor_api_contract_fingerprint != factor.factor_api_contract_fingerprint
+            ):
+                _fail("PRIVATE_STRATEGY_FACTOR_DEPENDENCY_MISMATCH", dependency.factor_id)
 
     def _verify_calculations(
         self, definition: OnlyPrivateStrategyDefinitionV1, registry: OnlyCalculationRegistry

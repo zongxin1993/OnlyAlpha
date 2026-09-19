@@ -9,7 +9,6 @@ from enum import StrEnum
 from typing import NoReturn, Protocol
 
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
-from onlyalpha.quant_assets.private import OnlyPrivateAssetKind
 from onlyalpha.quant_assets.private_strategy_composition import (
     OnlyPrivateStrategyResearchCompositionError,
 )
@@ -19,7 +18,8 @@ from onlyalpha.research.calculation.execution_evidence import (
 from onlyalpha.research.calculation.result import OnlyResearchCalculationResult
 from onlyalpha.research.dataset import OnlyVerifiedResearchDataset
 from onlyalpha.research.result.result import OnlyResearchResult
-from onlyalpha.research.run import OnlyResearchRun, OnlyResearchRunId, OnlyResearchRunState
+from onlyalpha.research.run import OnlyResearchOriginKind, OnlyResearchRun, OnlyResearchRunId, OnlyResearchRunState
+from onlyalpha.research.run.generation import OnlyResearchDefinitionRuntimeResolutionV1
 from onlyalpha.research.specification.identity import only_research_candidate_fingerprint
 from onlyalpha.research.specification.resolver import (
     OnlyResearchSignalLineage,
@@ -63,7 +63,7 @@ class _DatasetStore(Protocol):
 
 
 class _StrategyCompositionVerifier(Protocol):
-    def verify(self, run: OnlyResearchRun) -> None: ...
+    def verify(self, run: OnlyResearchRun) -> OnlyResearchDefinitionRuntimeResolutionV1 | None: ...
 
 
 class _ExactAuthoringGeneration(Protocol):
@@ -288,48 +288,28 @@ class OnlyStrategyFreezeService:
             except Exception as exc:
                 self._fail("CANDIDATE_NOT_FOUND", str(request.research_run_id), exc)
             if (
-                run.authoring_provenance is not None
-                and run.authoring_provenance.private_asset_kind is OnlyPrivateAssetKind.STRATEGY
+                run.origin_kind is OnlyResearchOriginKind.PRIVATE_STRATEGY
                 and run.strategy_research_composition_fingerprint is None
             ):
                 self._fail(
                     "STRATEGY_COMPOSITION_UNAVAILABLE",
                     "Strategy-authored Run has no exact Composition reference",
                 )
-            if run.strategy_research_composition_fingerprint is not None:
+            exact_resolution: OnlyResearchDefinitionRuntimeResolutionV1 | None = None
+            if run.origin_kind is OnlyResearchOriginKind.PRIVATE_STRATEGY:
                 if self._strategy_composition_verifier is None:
                     self._fail(
                         "STRATEGY_COMPOSITION_UNAVAILABLE",
                         "Strategy-authored Run has no composition verifier",
                     )
                 try:
-                    self._strategy_composition_verifier.verify(run)
+                    exact_resolution = self._strategy_composition_verifier.verify(run)
                 except OnlyPrivateStrategyResearchCompositionError as exc:
                     self._fail(exc.code, exc.detail, exc)
                 except Exception as exc:
                     self._fail("STRATEGY_COMPOSITION_MISMATCH", str(exc), exc)
             specification_resolver = self._specification_resolver
             admission = self._admission
-            if (
-                run.authoring_provenance is not None
-                and run.authoring_provenance.private_asset_kind is OnlyPrivateAssetKind.STRATEGY
-            ):
-                generation = run.authoring_generation_fingerprint
-                if (
-                    self._authoring_generations is None
-                    or self._strategy_admission_factory is None
-                    or generation is None
-                ):
-                    self._fail(
-                        "STRATEGY_COMPOSITION_UNAVAILABLE",
-                        "Strategy-authored Run has no exact execution registry",
-                    )
-                try:
-                    exact_calculations = self._authoring_generations.load_calculation_registry_verified(generation)
-                    specification_resolver = self._specification_resolver.for_calculation_registry(exact_calculations)
-                    admission = self._strategy_admission_factory(exact_calculations)
-                except Exception as exc:
-                    self._fail("STRATEGY_COMPOSITION_UNAVAILABLE", "exact execution registry verification failed", exc)
             if run.state is not OnlyResearchRunState.COMPLETED or run.research_result_fingerprint is None:
                 self._fail("CANDIDATE_NOT_FOUND", "Research Run is not completed with exact Result evidence")
             if not run.calculation_execution_evidence_fingerprints:
@@ -340,18 +320,26 @@ class OnlyStrategyFreezeService:
             # The immutable Result Store is addressed by the resolved Plan
             # identity, while the operational Run records the committed Result
             # content identity.  Re-resolve first, then verify both linkages.
+            if exact_resolution is None:
+                try:
+                    resolution = specification_resolver.resolve(run.specification)
+                except Exception as exc:
+                    self._fail("CANDIDATE_IDENTITY_MISMATCH", "Research Specification cannot be resolved exactly", exc)
+                result_plan = resolution.workload.result_plan
+                candidates = resolution.candidates
+                signal_lineage = resolution.signals
+            else:
+                result_plan = exact_resolution.result_plan
+                candidates = exact_resolution.candidates
+                signal_lineage = exact_resolution.signals
             try:
-                resolution = specification_resolver.resolve(run.specification)
-            except Exception as exc:
-                self._fail("CANDIDATE_IDENTITY_MISMATCH", "Research Specification cannot be resolved exactly", exc)
-            try:
-                result = self._research_results.load_verified(resolution.workload.result_plan.fingerprint)
+                result = self._research_results.load_verified(result_plan.fingerprint)
             except Exception as exc:
                 self._fail("RESEARCH_RESULT_CORRUPT", "exact Research Result verification failed", exc)
             if result.manifest.research_result_fingerprint != run.research_result_fingerprint:
                 self._fail("RESEARCH_RESULT_CORRUPT", "Research Run and Result identity differ")
             candidates = tuple(
-                item for item in resolution.candidates if item.candidate_fingerprint == request.candidate_fingerprint
+                item for item in candidates if item.candidate_fingerprint == request.candidate_fingerprint
             )
             if len(candidates) != 1:
                 self._fail("CANDIDATE_NOT_FOUND", request.candidate_fingerprint)
@@ -376,7 +364,7 @@ class OnlyStrategyFreezeService:
                 or plan_candidate.graph_fingerprint != candidate.graph_fingerprint
             ):
                 self._fail("CANDIDATE_IDENTITY_MISMATCH", "Research Result Candidate linkage differs")
-            signals = self._signals(resolution.signals, result, recomputed, candidate.calculation_fingerprint)
+            signals = self._signals(signal_lineage, result, recomputed, candidate.calculation_fingerprint)
             try:
                 calculation = self._calculation_results.load_verified(candidate.calculation_fingerprint)
             except Exception as exc:

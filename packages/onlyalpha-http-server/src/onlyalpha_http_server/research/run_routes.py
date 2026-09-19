@@ -197,7 +197,7 @@ def create_run_router(product: OnlyResearchProductBoundary) -> APIRouter:
                         request.strategy_revision_fingerprint,
                     ),
                     OnlyPrivateStrategyResearchContextV1.from_dict(request.research_context),
-                    request.authoring_generation_fingerprint,
+                    request.runtime_generation_fingerprint,
                 )
             ),
             OnlyResearchSubmitOutcome,

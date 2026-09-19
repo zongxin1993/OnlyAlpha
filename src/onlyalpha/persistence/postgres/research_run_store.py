@@ -40,6 +40,7 @@ from onlyalpha.research.run.errors import (
     OnlyResearchRunStoreUnavailableError,
 )
 from onlyalpha.research.run.model import (
+    OnlyResearchOriginKind,
     OnlyResearchRun,
     OnlyResearchRunFailure,
     OnlyResearchRunFailurePhase,
@@ -71,6 +72,7 @@ _COLUMNS = (
     "failure_detail",
     "authoring_provenance",
     "strategy_research_composition_fingerprint",
+    "origin_kind",
 )
 
 
@@ -492,6 +494,7 @@ class OnlyPostgresResearchRunStore:
             None if failure is None else failure.detail,
             None if run.authoring_provenance is None else only_canonical_json(run.authoring_provenance.to_dict()),
             run.strategy_research_composition_fingerprint,
+            run.origin_kind.value,
         )
 
     @staticmethod
@@ -620,6 +623,7 @@ class OnlyPostgresResearchRunStore:
                 strategy_research_composition_fingerprint=cast(
                     str | None, row.get("strategy_research_composition_fingerprint")
                 ),
+                origin_kind=OnlyResearchOriginKind(str(row["origin_kind"])),
             )
         except (KeyError, TypeError, ValueError, OnlyResearchRunIntegrityError) as exc:
             raise OnlyResearchRunIntegrityError("PostgreSQL Research Run row failed strict verification") from exc

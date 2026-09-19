@@ -81,9 +81,7 @@ class OnlyResearchRunAdmissionService:
                 )
             else:
                 # Internal Product orchestration only: never part of Product/API intent.
-                if exact_run_id is None or not isinstance(
-                    exact_admission_evidence, OnlyResearchAdmissionResolutionEvidence
-                ):
+                if not isinstance(exact_admission_evidence, OnlyResearchAdmissionResolutionEvidence):
                     raise OnlyResearchRunAdmissionError(
                         "Exact Runtime evidence requires a derived Run identity",
                         code="RESEARCH_ADMISSION_EVIDENCE_INVALID",

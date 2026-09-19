@@ -204,6 +204,14 @@ mutation_capability = "C28"
 read_capability = "C29"
 semantic_persistence_relation = "append-only PostgreSQL Composition Authority is the durable lineage authority"
 
+[[facts]]
+id = "F21"
+name = "Research Run origin"
+identity_authority = "OnlyResearchOriginKind plus the exact Composition reference"
+mutation_capability = "C01"
+read_capability = "C01"
+semantic_persistence_relation = "PostgreSQL Research Run origin is durable integrity evidence; PRIVATE_STRATEGY requires Composition and GENERAL forbids it"
+
 [[capabilities]]
 id = "C01"
 name = "RESEARCH_RUN_MUTATE"

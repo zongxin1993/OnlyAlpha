@@ -72,13 +72,13 @@ class OnlySubmitPrivateStrategyResearch(OnlyProductCommand):
     submission_key: OnlyProductCommandId
     strategy_revision: OnlyPrivateAssetRevisionReferenceV1
     research_context: OnlyPrivateStrategyResearchContextV1
-    authoring_generation_fingerprint: str
+    runtime_generation_fingerprint: str
 
     def __post_init__(self) -> None:
-        if len(self.authoring_generation_fingerprint) != 64 or any(
-            character not in "0123456789abcdef" for character in self.authoring_generation_fingerprint
+        if len(self.runtime_generation_fingerprint) != 64 or any(
+            character not in "0123456789abcdef" for character in self.runtime_generation_fingerprint
         ):
-            raise ValueError("AUTHORING_EXECUTION_GENERATION_IDENTITY_INVALID")
+            raise ValueError("RUNTIME_GENERATION_IDENTITY_INVALID")
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,7 +93,7 @@ class _PrivateStrategyResearchSubmission(Protocol):
         submission_key: OnlyProductCommandId,
         strategy_revision: OnlyPrivateAssetRevisionReferenceV1,
         research_context: OnlyPrivateStrategyResearchContextV1,
-        authoring_generation_fingerprint: str,
+        runtime_generation_fingerprint: str,
     ) -> OnlyPrivateStrategyResearchOutcome: ...
 
 
@@ -152,7 +152,7 @@ def only_compose_research_product_boundary(
             command.submission_key,
             command.strategy_revision,
             command.research_context,
-            command.authoring_generation_fingerprint,
+            command.runtime_generation_fingerprint,
         )
         return result.submission
 

@@ -25,12 +25,15 @@ from onlyalpha.application.search_generation_execution import (
 )
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.canonical import only_canonical_json
-from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration
+from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration, only_discover_quant_asset_providers
 from onlyalpha.research.calculation.predicate import only_register_research_predicate_primitives
 from onlyalpha.research.dataset.parquet_store import OnlyParquetResearchDatasetSnapshotStore
+from onlyalpha.research.definition.model import OnlyResearchDefinition
+from onlyalpha.research.definition.resolver import OnlyResearchDefinitionResolver
 from onlyalpha.research.evaluation.summary.scalar import OnlyResearchSummaryScalar
 from onlyalpha.research.experiment import OnlySearchExperimentManifestV2, OnlySearchExperimentManifestV3
 from onlyalpha.research.run.evidence import OnlyResearchAdmissionResolutionEvidence
+from onlyalpha.research.run.generation import OnlyResearchDefinitionRuntimeResolutionV1
 from onlyalpha.research.search.parameter.algorithm import decide_parameter_search_v1
 from onlyalpha.research.search.parameter.context import (
     OnlyParameterSearchContextResolver,
@@ -75,6 +78,7 @@ from .hosted import only_load_hosted_quant_asset_catalog, only_verify_hosted_run
 
 _CAPABILITIES = (
     OnlySearchGenerationOperationV1.RESOLVE_RESEARCH_ADMISSION,
+    OnlySearchGenerationOperationV1.RESOLVE_RESEARCH_DEFINITION,
     OnlySearchGenerationOperationV1.DERIVE_PARAMETER_DECISION,
     OnlySearchGenerationOperationV1.DERIVE_SYMBOLIC_ENUMERATION,
     OnlySearchGenerationOperationV1.RESOLVE_PARAMETER_RESEARCH,
@@ -127,7 +131,7 @@ def main() -> int:
             request = OnlySearchGenerationExecutionRequestV1.from_dict(_mapping(raw, "request"))
             if request.runtime_generation_fingerprint != evidence.runtime_generation_fingerprint:
                 raise OnlyHistoricalGenerationHostMismatch("request names another Runtime Generation")
-            result = _execute(request, catalog)
+            result = _execute(request, catalog, evidence)
             _write(
                 OnlySearchGenerationExecutionResponseV1(
                     evidence.runtime_generation_fingerprint,
@@ -143,7 +147,27 @@ def main() -> int:
 def _execute(
     request: OnlySearchGenerationExecutionRequestV1,
     catalog: OnlyQuantAssetCatalogGeneration,
+    evidence: OnlyRuntimeGenerationValidationEvidence,
 ) -> Mapping[str, object]:
+    if request.operation_kind is OnlySearchGenerationOperationV1.RESOLVE_RESEARCH_DEFINITION:
+        payload = request.request_payload
+        _exact(payload, {"definition", "dataset_store_root"})
+        definition = OnlyResearchDefinition.from_dict(_mapping(payload["definition"], "definition"))
+        resolver = OnlyResearchDefinitionResolver(
+            _calculation_registry(catalog.calculation_registry()),
+            OnlyParquetResearchDatasetSnapshotStore(Path(_string(payload, "dataset_store_root"))),
+        )
+        definition_resolution = resolver.resolve(definition)
+        return OnlyResearchDefinitionRuntimeResolutionV1(
+            definition.definition_fingerprint,
+            definition_resolution.specification,
+            definition_resolution.specification_fingerprint,
+            OnlyResearchAdmissionResolutionEvidence.from_resolution(definition_resolution.specification_resolution),
+            tuple(item.to_dict() for item in evidence.private_factor_bindings),
+            definition_resolution.specification_resolution.candidates,
+            definition_resolution.specification_resolution.signals,
+            definition_resolution.workload.result_plan,
+        ).to_dict()
     if request.operation_kind is OnlySearchGenerationOperationV1.RESOLVE_RESEARCH_ADMISSION:
         payload = request.request_payload
         _exact(payload, {"specification", "dataset_store_root"})
@@ -151,10 +175,14 @@ def _execute(
         OnlyParquetResearchDatasetSnapshotStore(Path(_string(payload, "dataset_store_root"))).load_verified_table(
             specification.dataset_snapshot_fingerprint
         )
-        resolution = OnlyResearchSpecificationResolver(_calculation_registry(catalog.calculation_registry())).resolve(
-            specification
-        )
-        return {"admission_evidence": OnlyResearchAdmissionResolutionEvidence.from_resolution(resolution).to_dict()}
+        specification_resolution = OnlyResearchSpecificationResolver(
+            _calculation_registry(catalog.calculation_registry())
+        ).resolve(specification)
+        return {
+            "admission_evidence": OnlyResearchAdmissionResolutionEvidence.from_resolution(
+                specification_resolution
+            ).to_dict()
+        }
     if request.operation_kind is OnlySearchGenerationOperationV1.DERIVE_SYMBOLIC_ENUMERATION:
         return _derive_symbolic(request.request_payload, catalog)
     if request.operation_kind is OnlySearchGenerationOperationV1.DERIVE_PARAMETER_DECISION:
@@ -166,7 +194,10 @@ def _execute(
     raise OnlyHistoricalGenerationCapabilityUnsupported(request.operation_kind.value)
 
 
-def _derive_symbolic(payload: Mapping[str, object], catalog: OnlyQuantAssetCatalogGeneration) -> Mapping[str, object]:
+def _derive_symbolic(
+    payload: Mapping[str, object], catalog: OnlyQuantAssetCatalogGeneration | None = None
+) -> Mapping[str, object]:
+    catalog = catalog or only_discover_quant_asset_providers()
     _exact(
         payload,
         {
@@ -231,7 +262,10 @@ def _derive_symbolic(payload: Mapping[str, object], catalog: OnlyQuantAssetCatal
     }
 
 
-def _derive_parameter(payload: Mapping[str, object], catalog: OnlyQuantAssetCatalogGeneration) -> Mapping[str, object]:
+def _derive_parameter(
+    payload: Mapping[str, object], catalog: OnlyQuantAssetCatalogGeneration | None = None
+) -> Mapping[str, object]:
+    catalog = catalog or only_discover_quant_asset_providers()
     _exact(
         payload,
         {
@@ -349,8 +383,9 @@ def _parameter_evidence(
 
 
 def _resolve_symbolic_research(
-    payload: Mapping[str, object], catalog: OnlyQuantAssetCatalogGeneration
+    payload: Mapping[str, object], catalog: OnlyQuantAssetCatalogGeneration | None = None
 ) -> Mapping[str, object]:
+    catalog = catalog or only_discover_quant_asset_providers()
     _exact(payload, {"evaluation_contract", "proposal"})
     evaluation = OnlySymbolicResearchEvaluationContractV1.from_dict(
         _mapping(payload["evaluation_contract"], "evaluation_contract")
@@ -360,8 +395,9 @@ def _resolve_symbolic_research(
 
 
 def _resolve_parameter_research(
-    payload: Mapping[str, object], catalog: OnlyQuantAssetCatalogGeneration
+    payload: Mapping[str, object], catalog: OnlyQuantAssetCatalogGeneration | None = None
 ) -> Mapping[str, object]:
+    catalog = catalog or only_discover_quant_asset_providers()
     _exact(payload, {"evaluation_contract", "proposal"})
     evaluation = OnlySymbolicResearchEvaluationContractV1.from_dict(
         _mapping(payload["evaluation_contract"], "evaluation_contract")

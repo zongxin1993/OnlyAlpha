@@ -226,7 +226,18 @@ class OnlyPostgresResearchSourceCutAuthority:
             raise OnlySourceCutError("SOURCE_CUT_LOCATOR_CONFLICT")
         try:
             if family == "RESEARCH_RUN":
-                run = OnlyPostgresResearchRunStore._decode(decoded)
+                # Pre-0031 journal payloads have no durable origin field. Keep
+                # the current Run decoder strict and normalize only this
+                # historical source representation from its existing Strategy
+                # Composition reference.
+                historical_run = dict(decoded)
+                historical_run.setdefault(
+                    "origin_kind",
+                    "PRIVATE_STRATEGY"
+                    if historical_run.get("strategy_research_composition_fingerprint") is not None
+                    else "GENERAL",
+                )
+                run = OnlyPostgresResearchRunStore._decode(historical_run)
                 if run.run_id.value != row["native_locator"]:
                     raise ValueError("Run identity mismatch")
             elif family == "RESEARCH_ATTEMPT":

@@ -32,16 +32,23 @@ def _strategy_composition(value: str | None) -> None:
         raise ValueError("Strategy Research Composition fingerprint is invalid")
 
 
+def _runtime_generation(value: str | None) -> None:
+    if value is not None and (not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None):
+        raise ValueError("Runtime Generation fingerprint is invalid")
+
+
 @dataclass(frozen=True, slots=True)
 class OnlyResearchSubmitCommand:
     submission_key: OnlyProductCommandId
     specification: OnlyResearchSpecification
     authoring_generation_fingerprint: str | None = None
     strategy_research_composition_fingerprint: str | None = None
+    runtime_generation_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         _authoring_generation(self.authoring_generation_fingerprint)
         _strategy_composition(self.strategy_research_composition_fingerprint)
+        _runtime_generation(self.runtime_generation_fingerprint)
 
     @property
     def command_fingerprint(self) -> str:
@@ -51,6 +58,8 @@ class OnlyResearchSubmitCommand:
             payload["authoring_generation_fingerprint"] = self.authoring_generation_fingerprint
         if self.strategy_research_composition_fingerprint is not None:
             payload["strategy_research_composition_fingerprint"] = self.strategy_research_composition_fingerprint
+        if self.runtime_generation_fingerprint is not None:
+            payload["runtime_generation_fingerprint"] = self.runtime_generation_fingerprint
         return only_canonical_fingerprint(payload)
 
 
@@ -64,6 +73,7 @@ class OnlyDerivedResearchSubmitCommandV2:
     authoring_generation_fingerprint: str | None = None
     schema_version: int = 2
     strategy_research_composition_fingerprint: str | None = None
+    runtime_generation_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         if self.schema_version != 2 or not isinstance(self.submission_key, OnlyProductCommandId):
@@ -77,6 +87,7 @@ class OnlyDerivedResearchSubmitCommandV2:
             raise ValueError("Derived Research parent work identity is invalid")
         _authoring_generation(self.authoring_generation_fingerprint)
         _strategy_composition(self.strategy_research_composition_fingerprint)
+        _runtime_generation(self.runtime_generation_fingerprint)
 
     @property
     def command_fingerprint(self) -> str:
@@ -89,6 +100,8 @@ class OnlyDerivedResearchSubmitCommandV2:
             payload["authoring_generation_fingerprint"] = self.authoring_generation_fingerprint
         if self.strategy_research_composition_fingerprint is not None:
             payload["strategy_research_composition_fingerprint"] = self.strategy_research_composition_fingerprint
+        if self.runtime_generation_fingerprint is not None:
+            payload["runtime_generation_fingerprint"] = self.runtime_generation_fingerprint
         return only_canonical_fingerprint(payload)
 
 
@@ -103,6 +116,7 @@ class OnlyNoveltyGatedResearchSubmitCommandV3:
     authoring_generation_fingerprint: str | None = None
     schema_version: int = 3
     strategy_research_composition_fingerprint: str | None = None
+    runtime_generation_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         if self.schema_version != 3 or not isinstance(self.submission_key, OnlyProductCommandId):
@@ -122,6 +136,7 @@ class OnlyNoveltyGatedResearchSubmitCommandV3:
             raise ValueError("Novelty-gated Research parent work identity is invalid")
         _authoring_generation(self.authoring_generation_fingerprint)
         _strategy_composition(self.strategy_research_composition_fingerprint)
+        _runtime_generation(self.runtime_generation_fingerprint)
 
     @property
     def command_fingerprint(self) -> str:
@@ -135,6 +150,8 @@ class OnlyNoveltyGatedResearchSubmitCommandV3:
             payload["authoring_generation_fingerprint"] = self.authoring_generation_fingerprint
         if self.strategy_research_composition_fingerprint is not None:
             payload["strategy_research_composition_fingerprint"] = self.strategy_research_composition_fingerprint
+        if self.runtime_generation_fingerprint is not None:
+            payload["runtime_generation_fingerprint"] = self.runtime_generation_fingerprint
         return only_canonical_fingerprint(payload)
 
 
@@ -149,6 +166,7 @@ class OnlyNoveltyGatedResearchSubmitCommandV4:
     authoring_generation_fingerprint: str | None = None
     schema_version: int = 4
     strategy_research_composition_fingerprint: str | None = None
+    runtime_generation_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         if self.schema_version != 4 or not isinstance(self.submission_key, OnlyProductCommandId):
@@ -168,6 +186,7 @@ class OnlyNoveltyGatedResearchSubmitCommandV4:
             raise ValueError("Novelty-gated Research parent work identity is invalid")
         _authoring_generation(self.authoring_generation_fingerprint)
         _strategy_composition(self.strategy_research_composition_fingerprint)
+        _runtime_generation(self.runtime_generation_fingerprint)
 
     @property
     def command_fingerprint(self) -> str:
@@ -181,6 +200,8 @@ class OnlyNoveltyGatedResearchSubmitCommandV4:
             payload["authoring_generation_fingerprint"] = self.authoring_generation_fingerprint
         if self.strategy_research_composition_fingerprint is not None:
             payload["strategy_research_composition_fingerprint"] = self.strategy_research_composition_fingerprint
+        if self.runtime_generation_fingerprint is not None:
+            payload["runtime_generation_fingerprint"] = self.runtime_generation_fingerprint
         return only_canonical_fingerprint(payload)
 
 

@@ -28,6 +28,7 @@ from onlyalpha.calculation import (
     OnlyCalculationTypeReference,
 )
 from onlyalpha.canonical import only_canonical_fingerprint
+from onlyalpha.distribution import OnlyArtifactCalculationImplementation
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.market import OnlyBarType
 from onlyalpha.kernel import OnlyAlphaKernelHost
@@ -91,8 +92,16 @@ from onlyalpha.research.operations.deployment import OnlyResearchSemanticStoreId
 from onlyalpha.research.result.result_store import OnlyJsonResearchResultStore
 from onlyalpha.research.run.admission import OnlyResearchRunAdmissionService
 from onlyalpha.research.run.evidence import OnlyResearchAdmissionResolutionEvidence
+from onlyalpha.research.run.generation import OnlyResearchDefinitionRuntimeResolutionV1
 from onlyalpha.research.source_cut import OnlySourceClosedCutV1
 from onlyalpha.research.specification import OnlyResearchSpecificationResolver
+from onlyalpha.runtime.defaults import only_default_engine_services
+from onlyalpha.runtime.generation import (
+    OnlyCoreExecutionIdentity,
+    OnlyRuntimeGenerationManifest,
+    OnlyRuntimePrivateFactorBinding,
+    OnlyRuntimeProviderBinding,
+)
 from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_primitives
 from onlyalpha.strategy.freeze import OnlyStrategyFreezeRequest
 from onlyalpha.strategy.store import OnlyFrozenStrategyRevisionStore
@@ -191,6 +200,57 @@ def _generation(
     )
 
 
+def _runtime_manifest(generation: OnlyAuthoringExecutionGeneration) -> OnlyRuntimeGenerationManifest:
+    calculations = only_default_engine_services(
+        calculation_catalog_generation=generation.catalog
+    ).assembler.components.calculations
+    implementations = tuple(
+        OnlyArtifactCalculationImplementation(
+            registration.type_definition.kind.value,
+            registration.type_definition.type_id,
+            registration.type_definition.semantic_version,
+            registration.backend.value,
+            registration.implementation_manifest.implementation_fingerprint,
+        )
+        for registration in calculations.backend_registrations()
+        if registration.implementation_manifest is not None
+    )
+    closure = generation.private_factor_executable_closure
+    return OnlyRuntimeGenerationManifest(
+        OnlyCoreExecutionIdentity("onlyalpha-test-runtime", "1", "a" * 64),
+        ("b" * 64, "c" * 64),
+        ("a" * 64, "d" * 64),
+        (OnlyRuntimeProviderBinding("onlyalpha.test.runtime", "1", "e" * 64, "d" * 64),),
+        generation.catalog.generation_fingerprint,
+        implementations,
+        (
+            OnlyRuntimePrivateFactorBinding(
+                closure.provider_snapshot.snapshot_fingerprint,
+                only_canonical_fingerprint({"runtime": generation.fingerprint}),
+                closure.provider_snapshot.entries[0],
+            ),
+        ),
+    )
+
+
+class _ExactRuntimeGenerationAuthority(OnlyTestRuntimeGenerationAuthority):
+    def __init__(self, manifests: tuple[OnlyRuntimeGenerationManifest, ...]) -> None:
+        if not manifests:
+            raise ValueError("RUNTIME_GENERATION_REQUIRED")
+        first = manifests[0]
+        super().__init__(first.runtime_generation_fingerprint, first.catalog_generation_fingerprint)
+        self._manifests = {item.runtime_generation_fingerprint: item for item in manifests}
+        self.available_generations = {
+            item.runtime_generation_fingerprint: item.catalog_generation_fingerprint for item in manifests
+        }
+
+    def require_runtime_generation(self, runtime_generation_fingerprint: str) -> OnlyRuntimeGenerationManifest:
+        try:
+            return self._manifests[runtime_generation_fingerprint]
+        except KeyError as exc:
+            raise ValueError("RUNTIME_GENERATION_NOT_FOUND") from exc
+
+
 def _memory_manifest() -> OnlyExperimentMemorySourceCutManifestV1:
     postgres_families = {
         "RESEARCH_RUN",
@@ -269,23 +329,28 @@ def test_private_strategy_production_chain_is_exact_and_generation_bound(postgre
     )
     run_store = OnlyPostgresResearchRunStore(postgres_dsn)
     submission_key = OnlyProductCommandId("00000000-0000-4000-8000-000000000952")
-    runtime_generations = OnlyTestRuntimeGenerationAuthority(
-        generation.fingerprint,
-        generation.provenance.catalog_generation_fingerprint,
-    )
+    runtime_manifest = _runtime_manifest(generation)
+    runtime_manifest_two = _runtime_manifest(generation_two)
+    runtime_generations = _ExactRuntimeGenerationAuthority((runtime_manifest, runtime_manifest_two))
     preview = OnlyPrivateStrategyResearchComposer(assets, generation.catalog).compose(strategy_reference, context)
     preview_two = OnlyPrivateStrategyResearchComposer(assets, generation_two.catalog).compose(
         strategy_reference, context
     )
     assert preview.research_definition == preview_two.research_definition
     expected_run_id = only_novelty_gated_research_run_id(submission_key)
-    runtime_generations.bind_work_exact(expected_run_id.value, generation.fingerprint)
+    runtime_generations.bind_work_exact(expected_run_id.value, runtime_manifest.runtime_generation_fingerprint)
 
     class _ExactRuntimeAdmissionResolver:
         def __init__(self) -> None:
             self._resolvers = {
-                generation.fingerprint: OnlyResearchSpecificationResolver(exact_calculations),
-                generation_two.fingerprint: OnlyResearchSpecificationResolver(exact_calculations_two),
+                runtime_manifest.runtime_generation_fingerprint: OnlyResearchSpecificationResolver(exact_calculations),
+                runtime_manifest_two.runtime_generation_fingerprint: OnlyResearchSpecificationResolver(
+                    exact_calculations_two
+                ),
+            }
+            self._definition_resolvers = {
+                runtime_manifest.runtime_generation_fingerprint: definition_resolver,
+                runtime_manifest_two.runtime_generation_fingerprint: definition_resolver_two,
             }
 
         def resolve(self, fingerprint: str, specification):  # type: ignore[no-untyped-def]
@@ -295,6 +360,23 @@ def test_private_strategy_production_chain_is_exact_and_generation_bound(postgre
             resolution = resolver.resolve(specification)
             return OnlyResearchAdmissionResolutionEvidence.from_resolution(resolution)
 
+        def resolve_definition(self, fingerprint: str, definition):  # type: ignore[no-untyped-def]
+            resolver = self._definition_resolvers.get(fingerprint)
+            manifest = runtime_generations.require_runtime_generation(fingerprint)
+            if resolver is None:
+                raise ValueError("RUNTIME_GENERATION_NOT_FOUND")
+            resolution = resolver.resolve(definition)
+            return OnlyResearchDefinitionRuntimeResolutionV1(
+                definition.definition_fingerprint,
+                resolution.specification,
+                resolution.specification_fingerprint,
+                OnlyResearchAdmissionResolutionEvidence.from_resolution(resolution.specification_resolution),
+                tuple(item.to_dict() for item in manifest.private_factor_bindings),
+                resolution.specification_resolution.candidates,
+                resolution.specification_resolution.signals,
+                resolution.workload.result_plan,
+            )
+
     runtime_resolution = _ExactRuntimeAdmissionResolver()
     subject = OnlyExactEvaluationIntentResolverV1(
         runtime_generations=runtime_generations,
@@ -303,7 +385,6 @@ def test_private_strategy_production_chain_is_exact_and_generation_bound(postgre
     ).resolve(
         definition_resolver.resolve(preview.research_definition).specification,
         runtime_work_id=expected_run_id.value,
-        authoring_generation_fingerprint=generation.fingerprint,
     )
     memory_revisions = OnlyExperimentMemoryRevisionStore(layout.experiment_memory_projection_root)
     initial_memory = OnlyExperimentMemoryProjectionV1(_memory_manifest(), ())
@@ -348,6 +429,8 @@ def test_private_strategy_production_chain_is_exact_and_generation_bound(postgre
         definitions=definition_resolver,
         research=command,
         authoring_generations=authoring,
+        runtime_generations=runtime_generations,
+        runtime_definition_resolver=runtime_resolution,
     )
     kernel = OnlyAlphaKernelHost()
     kernel.start()
@@ -363,23 +446,20 @@ def test_private_strategy_production_chain_is_exact_and_generation_bound(postgre
                 submission_key=submission_key,
                 strategy_revision=strategy_reference,
                 research_context=context,
-                authoring_generation_fingerprint=generation.fingerprint,
+                runtime_generation_fingerprint=runtime_manifest.runtime_generation_fingerprint,
             )
         )
     finally:
         kernel.stop()
 
     composition = compositions.load(outcome.run.strategy_research_composition_fingerprint or "")
-    assert composition.catalog_generation_fingerprint == generation.provenance.catalog_generation_fingerprint
-    assert outcome.run.authoring_generation_fingerprint == generation.fingerprint
+    assert composition.catalog_generation_fingerprint == runtime_manifest.catalog_generation_fingerprint
+    assert outcome.run.authoring_generation_fingerprint is None
     restarted_compositions = OnlyPostgresPrivateStrategyResearchCompositionStore(postgres_dsn)
     assert restarted_compositions.load(composition.composition_fingerprint) == composition
     assert restarted_compositions.load_context(composition.composition_fingerprint) == context
 
-    execution_store = OnlyPostgresResearchExecutionStore(
-        postgres_dsn,
-        authoring_execution_generation_fingerprint=generation.fingerprint,
-    )
+    execution_store = OnlyPostgresResearchExecutionStore(postgres_dsn)
     claim = execution_store.claim_next(
         worker_instance_id=OnlyResearchWorkerInstanceId("00000000-0000-4000-8000-000000000953"),
         attempt_id=OnlyResearchRunAttemptId("00000000-0000-4000-8000-000000000954"),
@@ -395,18 +475,20 @@ def test_private_strategy_production_chain_is_exact_and_generation_bound(postgre
         run_store=OnlyPostgresResearchRunStore(postgres_dsn),
         resolver=OnlyResearchSpecificationResolver(exact_calculations),
         dataset_store=dataset_store,
-        runtime_executor=OnlyEngineResearchRuntimeExecutor(layout.root, generation.engine_services()),
+        runtime_executor=OnlyEngineResearchRuntimeExecutor(
+            layout.root,
+            only_default_engine_services(calculation_catalog_generation=generation.catalog),
+        ),
         policy=OnlyResearchExecutionPolicy(max_attempts=1),
         now_utc=lambda: NOW + timedelta(seconds=2),
         runtime_generations=runtime_generations,
-        process_generation_fingerprint=runtime_generations.generation_fingerprint,
-        authoring_execution_generation_fingerprint=generation.fingerprint,
+        process_generation_fingerprint=runtime_manifest.runtime_generation_fingerprint,
     )
     execution = worker.execute_claim(claim)
     assert execution.run is not None and execution.run.state.value == "COMPLETED"
     completed = OnlyPostgresResearchRunStore(postgres_dsn).load(outcome.run.run_id)
     assert completed.strategy_research_composition_fingerprint == composition.composition_fingerprint
-    assert completed.authoring_generation_fingerprint == generation.fingerprint
+    assert completed.authoring_generation_fingerprint is None
     assert completed.calculation_execution_evidence_fingerprints
 
     verifier = OnlyPrivateStrategyResearchCompositionVerifier(
@@ -415,22 +497,24 @@ def test_private_strategy_production_chain_is_exact_and_generation_bound(postgre
         definition_resolver,
         authoring_generations=authoring,
         execution_evidence=OnlyResearchCalculationExecutionEvidenceStore(layout.research_root),
+        runtime_generations=runtime_generations,
+        runtime_definition_resolver=runtime_resolution,
     )
     verifier.verify(completed)
     evidence_store = OnlyResearchCalculationExecutionEvidenceStore(layout.research_root)
     assert all(
         evidence_store.load_verified(item).research_implementation_bindings
-        and evidence_store.load_verified(item).authoring_generation_fingerprint == generation.fingerprint
+        and evidence_store.load_verified(item).authoring_generation_fingerprint is None
         for item in completed.calculation_execution_evidence_fingerprints
     )
 
     submission_key_two = OnlyProductCommandId("00000000-0000-4000-8000-000000000955")
     expected_run_id_two = only_novelty_gated_research_run_id(submission_key_two)
     runtime_generations.activate(
-        generation_two.fingerprint,
-        catalog_generation_fingerprint=generation_two.provenance.catalog_generation_fingerprint,
+        runtime_manifest_two.runtime_generation_fingerprint,
+        catalog_generation_fingerprint=runtime_manifest_two.catalog_generation_fingerprint,
     )
-    runtime_generations.bind_work_exact(expected_run_id_two.value, generation_two.fingerprint)
+    runtime_generations.bind_work_exact(expected_run_id_two.value, runtime_manifest_two.runtime_generation_fingerprint)
     subject_two = OnlyExactEvaluationIntentResolverV1(
         runtime_generations=runtime_generations,
         runtime_resolution=runtime_resolution,
@@ -438,7 +522,6 @@ def test_private_strategy_production_chain_is_exact_and_generation_bound(postgre
     ).resolve(
         definition_resolver_two.resolve(preview_two.research_definition).specification,
         runtime_work_id=expected_run_id_two.value,
-        authoring_generation_fingerprint=generation_two.fingerprint,
     )
     novelty_decisions.seal_from_request(
         OnlyNoveltyDecisionRequestV2(
@@ -471,13 +554,10 @@ def test_private_strategy_production_chain_is_exact_and_generation_bound(postgre
     drifted = command_two.submit_research_run(
         submission_key_two,
         definition_resolver.resolve(preview.research_definition).specification,
-        generation_two.fingerprint,
+        runtime_generation_fingerprint=runtime_manifest_two.runtime_generation_fingerprint,
         strategy_research_composition_fingerprint=composition.composition_fingerprint,
     )
-    execution_store_two = OnlyPostgresResearchExecutionStore(
-        postgres_dsn,
-        authoring_execution_generation_fingerprint=generation_two.fingerprint,
-    )
+    execution_store_two = OnlyPostgresResearchExecutionStore(postgres_dsn)
     claim_two = execution_store_two.claim_next(
         worker_instance_id=OnlyResearchWorkerInstanceId("00000000-0000-4000-8000-000000000956"),
         attempt_id=OnlyResearchRunAttemptId("00000000-0000-4000-8000-000000000957"),
@@ -493,18 +573,22 @@ def test_private_strategy_production_chain_is_exact_and_generation_bound(postgre
         run_store=OnlyPostgresResearchRunStore(postgres_dsn),
         resolver=OnlyResearchSpecificationResolver(exact_calculations_two),
         dataset_store=dataset_store,
-        runtime_executor=OnlyEngineResearchRuntimeExecutor(layout.root, generation_two.engine_services()),
+        runtime_executor=OnlyEngineResearchRuntimeExecutor(
+            layout.root,
+            only_default_engine_services(calculation_catalog_generation=generation_two.catalog),
+        ),
         policy=OnlyResearchExecutionPolicy(max_attempts=1),
         now_utc=lambda: NOW + timedelta(seconds=5),
         runtime_generations=runtime_generations,
-        process_generation_fingerprint=generation_two.fingerprint,
-        authoring_execution_generation_fingerprint=generation_two.fingerprint,
+        process_generation_fingerprint=runtime_manifest_two.runtime_generation_fingerprint,
     ).execute_claim(claim_two)
     assert execution_two.run is not None and execution_two.run.state.value == "COMPLETED"
     completed_two = OnlyPostgresResearchRunStore(postgres_dsn).load(drifted.run.run_id)
-    assert completed_two.authoring_generation_fingerprint == generation_two.fingerprint
+    assert completed_two.authoring_generation_fingerprint is None
     assert completed_two.calculation_execution_evidence_fingerprints
-    with pytest.raises(OnlyPrivateStrategyResearchCompositionError, match="Composition execution context differs"):
+    with pytest.raises(
+        OnlyPrivateStrategyResearchCompositionError, match="Composition Catalog differs from Runtime Catalog"
+    ):
         verifier.verify(completed_two)
 
     OnlyPostgresResearchDeploymentStore(postgres_dsn).initialize(namespace)
@@ -520,9 +604,12 @@ def test_private_strategy_production_chain_is_exact_and_generation_bound(postgre
         statistics_results,
         calculation_results,
     )
-    exact_specification = authoring.resolve(generation.fingerprint, completed.specification)
+    exact_resolution = runtime_resolution.resolve_definition(
+        runtime_manifest.runtime_generation_fingerprint,
+        preview.research_definition,
+    )
     only_register_trading_predicate_primitives(exact_calculations)
-    decision_candidate = next(item for item in exact_specification.candidates if item.calculation_id == "decision")
+    decision_candidate = next(item for item in exact_resolution.candidates if item.calculation_id == "decision")
     certification = OnlyCalculationEquivalenceCertificationApplicationService(
         exact_calculations,
         OnlyCalculationEquivalenceEvidenceV2Store(semantic_root),

@@ -26,6 +26,8 @@ from onlyalpha.research import (
     OnlyResearchTypedLiteral,
     OnlyResearchVariableRef,
 )
+from onlyalpha.research.run.evidence import OnlyResearchAdmissionResolutionEvidence
+from onlyalpha.research.run.generation import OnlyResearchDefinitionRuntimeResolutionV1
 from tests.research.calculation.support import snapshot
 from tests.research.definition.support import definition
 from tests.research.evaluation.support import evaluation_registry
@@ -89,6 +91,30 @@ def test_global_candidates_role_terminals_and_existing_specification_equivalence
     assert result.specification == manual_exact_specification
     assert result.workload == manual.workload
     assert result.specification_fingerprint == manual.specification_fingerprint
+
+
+def test_exact_runtime_definition_resolution_round_trips_freeze_snapshot(tmp_path) -> None:
+    committed, store, registry, resolver = _case(tmp_path)
+    result = resolver.resolve(definition(committed.definition))
+    exact = OnlyResearchDefinitionRuntimeResolutionV1(
+        result.authoring_definition_fingerprint,
+        result.specification,
+        result.specification.specification_fingerprint,
+        OnlyResearchAdmissionResolutionEvidence.from_resolution(result.specification_resolution),
+        (),
+        result.specification_resolution.candidates,
+        result.specification_resolution.signals,
+        result.workload.result_plan,
+    )
+
+    restored = OnlyResearchDefinitionRuntimeResolutionV1.from_dict(exact.to_dict())
+
+    assert restored == exact
+    assert tuple(item.graph.fingerprint for item in restored.candidates) == tuple(
+        item.graph_fingerprint for item in result.specification_resolution.candidates
+    )
+    assert restored.signals == result.specification_resolution.signals
+    assert restored.result_plan == result.workload.result_plan
 
 
 def test_specification_v2_publication_and_candidate_identity_survive_fresh_resolution(tmp_path) -> None:

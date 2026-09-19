@@ -281,9 +281,15 @@ class OnlyResearchWorker:
         try:
             control.start()
             run = self._run_store.load(claim.attempt.run_id)
-            actual_generation = run.authoring_generation_fingerprint
-            if actual_generation != self._authoring_execution_generation_fingerprint:
-                raise OnlyResearchExecutionOwnershipLostError("Claim belongs to another execution generation")
+            self._runtime_generations.require_work_generation(
+                run.run_id.value,
+                self._process_generation_fingerprint,
+            )
+            if (
+                self._authoring_execution_generation_fingerprint is not None
+                and run.authoring_generation_fingerprint != self._authoring_execution_generation_fingerprint
+            ):
+                raise OnlyResearchExecutionOwnershipLostError("Claim has another Factor authoring generation")
             control.checkpoint(OnlyResearchRuntimeBoundary.BEFORE_DATASET_VERIFICATION)
             try:
                 self._dataset_store.load_verified_table(run.specification.dataset_snapshot_fingerprint)

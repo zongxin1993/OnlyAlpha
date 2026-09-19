@@ -484,14 +484,21 @@ class OnlyRuntimeGenerationBuilder:
         expected_catalog: OnlyQuantAssetCatalogGeneration,
         closure: OnlyPrivateFactorExecutableClosureV1,
     ) -> OnlyRuntimeGenerationManifest:
-        matching = tuple(
-            provider
-            for provider in expected_catalog.providers
-            if provider.private_factor_snapshot == closure.provider_snapshot
+        return self.bind_private_factor_closures(
+            base_manifest=base_manifest,
+            expected_catalog=expected_catalog,
+            closures=(closure,),
         )
-        if len(matching) != 1:
+
+    def bind_private_factor_closures(
+        self,
+        *,
+        base_manifest: OnlyRuntimeGenerationManifest,
+        expected_catalog: OnlyQuantAssetCatalogGeneration,
+        closures: tuple[OnlyPrivateFactorExecutableClosureV1, ...],
+    ) -> OnlyRuntimeGenerationManifest:
+        if base_manifest.private_factor_bindings:
             raise ValueError("RUNTIME_GENERATION_PRIVATE_FACTOR_MISMATCH")
-        provider = matching[0]
         expected_base = {
             (
                 item.manifest.provider_id,
@@ -506,16 +513,42 @@ class OnlyRuntimeGenerationBuilder:
             for item in base_manifest.providers
         } != expected_base:
             raise ValueError("RUNTIME_GENERATION_PROVIDER_MISMATCH")
-        self.artifact_store.put_private_factor_source(closure.source_artifact, closure.source)
-        runtime_artifact_fingerprint = self.artifact_store.put_private_factor_runtime(closure, provider)
-        bindings = tuple(
-            OnlyRuntimePrivateFactorBinding(
-                closure.provider_snapshot.snapshot_fingerprint,
-                runtime_artifact_fingerprint,
-                entry,
-            )
-            for entry in closure.provider_snapshot.entries
+        private_providers = tuple(
+            item for item in expected_catalog.providers if item.private_factor_snapshot is not None
         )
+        if len(private_providers) != len(closures):
+            raise ValueError("RUNTIME_GENERATION_PRIVATE_FACTOR_MISMATCH")
+        expected_snapshots = tuple(
+            sorted(
+                item.private_factor_snapshot.snapshot_fingerprint
+                for item in private_providers
+                if item.private_factor_snapshot
+            )
+        )
+        supplied_snapshots = tuple(sorted(item.provider_snapshot.snapshot_fingerprint for item in closures))
+        if supplied_snapshots != expected_snapshots or len(supplied_snapshots) != len(set(supplied_snapshots)):
+            raise ValueError("RUNTIME_GENERATION_PRIVATE_FACTOR_MISMATCH")
+        bindings_list: list[OnlyRuntimePrivateFactorBinding] = []
+        for closure in closures:
+            matching = tuple(
+                provider
+                for provider in private_providers
+                if provider.private_factor_snapshot == closure.provider_snapshot
+            )
+            if len(matching) != 1 or len(closure.provider_snapshot.entries) != 1:
+                raise ValueError("RUNTIME_GENERATION_PRIVATE_FACTOR_MISMATCH")
+            provider = matching[0]
+            self.artifact_store.put_private_factor_source(closure.source_artifact, closure.source)
+            runtime_artifact_fingerprint = self.artifact_store.put_private_factor_runtime(closure, provider)
+            bindings_list.extend(
+                OnlyRuntimePrivateFactorBinding(
+                    closure.provider_snapshot.snapshot_fingerprint,
+                    runtime_artifact_fingerprint,
+                    entry,
+                )
+                for entry in closure.provider_snapshot.entries
+            )
+        bindings = tuple(sorted(bindings_list))
         implementations = tuple(
             sorted((*base_manifest.implementations, *self._private_factor_implementations_from_bindings(bindings)))
         )

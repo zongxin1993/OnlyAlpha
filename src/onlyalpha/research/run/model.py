@@ -66,6 +66,13 @@ class OnlyResearchRunFailurePhase(StrEnum):
     OPERATIONAL = "OPERATIONAL"
 
 
+class OnlyResearchOriginKind(StrEnum):
+    """Durable Product origin; independent from per-Factor authoring evidence."""
+
+    GENERAL = "GENERAL"
+    PRIVATE_STRATEGY = "PRIVATE_STRATEGY"
+
+
 @dataclass(frozen=True, slots=True)
 class OnlyResearchRunFailure:
     phase: OnlyResearchRunFailurePhase
@@ -118,6 +125,7 @@ class OnlyResearchRun:
     calculation_execution_evidence_fingerprints: tuple[str, ...] = ()
     authoring_provenance: OnlyResearchAuthoringProvenance | None = None
     strategy_research_composition_fingerprint: str | None = None
+    origin_kind: OnlyResearchOriginKind = OnlyResearchOriginKind.GENERAL
 
     @property
     def authoring_generation_fingerprint(self) -> str | None:
@@ -147,6 +155,13 @@ class OnlyResearchRun:
                     _sha(value, name)
             if self.strategy_research_composition_fingerprint is not None:
                 _sha(self.strategy_research_composition_fingerprint, "strategy_research_composition_fingerprint")
+            if not isinstance(self.origin_kind, OnlyResearchOriginKind):
+                raise ValueError("Research Run origin is invalid")
+            if self.origin_kind is OnlyResearchOriginKind.PRIVATE_STRATEGY:
+                if self.strategy_research_composition_fingerprint is None:
+                    raise ValueError("PRIVATE_STRATEGY Run requires Composition reference")
+            elif self.strategy_research_composition_fingerprint is not None:
+                raise ValueError("GENERAL Run cannot contain Strategy Composition reference")
             evidence = tuple(sorted(self.calculation_execution_evidence_fingerprints))
             if evidence != self.calculation_execution_evidence_fingerprints or len(evidence) != len(set(evidence)):
                 raise ValueError("Calculation Execution Evidence references must be canonical and unique")
@@ -244,6 +259,11 @@ class OnlyResearchRun:
             queued_at,
             authoring_provenance=authoring_provenance,
             strategy_research_composition_fingerprint=strategy_research_composition_fingerprint,
+            origin_kind=(
+                OnlyResearchOriginKind.PRIVATE_STRATEGY
+                if strategy_research_composition_fingerprint is not None
+                else OnlyResearchOriginKind.GENERAL
+            ),
         )
 
     def transition(
@@ -296,6 +316,7 @@ class OnlyResearchRun:
             ),
             authoring_provenance=self.authoring_provenance,
             strategy_research_composition_fingerprint=self.strategy_research_composition_fingerprint,
+            origin_kind=self.origin_kind,
         )
 
     def is_exact_successor_of(self, previous: OnlyResearchRun) -> bool:

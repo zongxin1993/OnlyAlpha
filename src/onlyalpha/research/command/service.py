@@ -132,6 +132,7 @@ class OnlyResearchCommandService:
         specification: OnlyResearchSpecification,
         authoring_generation_fingerprint: str | None = None,
         *,
+        runtime_generation_fingerprint: str | None = None,
         parent_runtime_work_id: str | None = None,
         strategy_research_composition_fingerprint: str | None = None,
     ) -> OnlyResearchSubmitOutcome:
@@ -143,6 +144,7 @@ class OnlyResearchCommandService:
                 authoring_generation_fingerprint,
                 parent_runtime_work_id,
                 strategy_research_composition_fingerprint,
+                runtime_generation_fingerprint,
             )
         legacy: OnlyResearchSubmitCommand | OnlyDerivedResearchSubmitCommandV2
         if parent_runtime_work_id is None:
@@ -151,6 +153,7 @@ class OnlyResearchCommandService:
                 strict,
                 authoring_generation_fingerprint,
                 strategy_research_composition_fingerprint,
+                runtime_generation_fingerprint=runtime_generation_fingerprint,
             )
         else:
             legacy = OnlyDerivedResearchSubmitCommandV2(
@@ -159,6 +162,7 @@ class OnlyResearchCommandService:
                 parent_runtime_work_id,
                 authoring_generation_fingerprint,
                 strategy_research_composition_fingerprint=strategy_research_composition_fingerprint,
+                runtime_generation_fingerprint=runtime_generation_fingerprint,
             )
         existing = self._store.find_product_command_receipt(submission_key)
         if existing is not None:
@@ -179,6 +183,7 @@ class OnlyResearchCommandService:
                 authoring_generation_fingerprint,
                 parent_runtime_work_id,
                 strategy_research_composition_fingerprint,
+                runtime_generation_fingerprint,
             )
 
         decisions, builder, revisions = self._require_novelty_authorities()
@@ -216,6 +221,7 @@ class OnlyResearchCommandService:
                 authoring_generation_fingerprint,
                 parent_runtime_work_id,
                 strategy_research_composition_fingerprint,
+                runtime_generation_fingerprint,
                 group,
                 builder,
                 revisions,
@@ -256,6 +262,13 @@ class OnlyResearchCommandService:
             raise OnlyNoveltyResearchAdmissionError(
                 "NOVELTY_READ_TO_ACT_CORRUPT", "Novelty Decision has no valid canonical Evaluation Subject"
             ) from exc
+        if (
+            runtime_generation_fingerprint is not None
+            and runtime_generation_fingerprint != decision_subject.runtime_generation_fingerprint
+        ):
+            raise OnlyNoveltyResearchAdmissionError(
+                "RUNTIME_WORK_BINDING_CONFLICT", "requested Runtime Generation differs from Novelty Decision"
+            )
         command = OnlyNoveltyGatedResearchSubmitCommandV3(
             submission_key,
             strict,
@@ -263,6 +276,7 @@ class OnlyResearchCommandService:
             parent_runtime_work_id,
             authoring_generation_fingerprint,
             strategy_research_composition_fingerprint=strategy_research_composition_fingerprint,
+            runtime_generation_fingerprint=runtime_generation_fingerprint,
         )
         self._admit_gated_command(command)
         expected_run_id = only_novelty_gated_research_run_id(submission_key)
@@ -383,6 +397,7 @@ class OnlyResearchCommandService:
                     authoring_generation_fingerprint,
                     parent_runtime_work_id,
                     strategy_research_composition_fingerprint,
+                    runtime_generation_fingerprint,
                 )
             if bound:
                 self._runtime_generations.release_work(
@@ -407,6 +422,7 @@ class OnlyResearchCommandService:
         authoring_generation_fingerprint: str | None,
         parent_runtime_work_id: str | None,
         strategy_research_composition_fingerprint: str | None,
+        runtime_generation_fingerprint: str | None,
         group: OnlyNoveltyDecisionGroupV1,
         builder: OnlyExperimentMemoryProductionBuilder,
         revisions: OnlyExperimentMemoryRevisionStore,
@@ -439,6 +455,10 @@ class OnlyResearchCommandService:
                 "RUNTIME_WORK_BINDING_CONFLICT", "Decision Group members require incompatible Runtime Generations"
             )
         generation = generations.pop()
+        if runtime_generation_fingerprint is not None and runtime_generation_fingerprint != generation:
+            raise OnlyNoveltyResearchAdmissionError(
+                "RUNTIME_WORK_BINDING_CONFLICT", "requested Runtime Generation differs from Decision Group"
+            )
         command = OnlyNoveltyGatedResearchSubmitCommandV4(
             submission_key,
             strict,
@@ -446,6 +466,7 @@ class OnlyResearchCommandService:
             parent_runtime_work_id,
             authoring_generation_fingerprint,
             strategy_research_composition_fingerprint=strategy_research_composition_fingerprint,
+            runtime_generation_fingerprint=runtime_generation_fingerprint,
         )
         self._admit_gated_command(command)
         expected_run_id = only_novelty_gated_research_run_id_v4(submission_key)
@@ -573,6 +594,7 @@ class OnlyResearchCommandService:
                     authoring_generation_fingerprint,
                     parent_runtime_work_id,
                     strategy_research_composition_fingerprint,
+                    runtime_generation_fingerprint,
                 )
             if bound:
                 self._runtime_generations.release_work(
@@ -597,6 +619,7 @@ class OnlyResearchCommandService:
         authoring_generation_fingerprint: str | None,
         parent_runtime_work_id: str | None,
         strategy_research_composition_fingerprint: str | None,
+        runtime_generation_fingerprint: str | None,
     ) -> OnlyResearchSubmitOutcome:
         command: OnlyResearchSubmitCommand | OnlyDerivedResearchSubmitCommandV2
         expected_run_id: OnlyResearchRunId | None = None
@@ -606,6 +629,7 @@ class OnlyResearchCommandService:
                 strict,
                 authoring_generation_fingerprint,
                 strategy_research_composition_fingerprint,
+                runtime_generation_fingerprint,
             )
         else:
             command = OnlyDerivedResearchSubmitCommandV2(
@@ -614,6 +638,7 @@ class OnlyResearchCommandService:
                 parent_runtime_work_id,
                 authoring_generation_fingerprint,
                 strategy_research_composition_fingerprint=strategy_research_composition_fingerprint,
+                runtime_generation_fingerprint=runtime_generation_fingerprint,
             )
             expected_run_id = only_derived_research_run_id(submission_key)
             self._admit_derived_command(command)
@@ -629,7 +654,26 @@ class OnlyResearchCommandService:
             self._require_strategy_composition(run, strategy_research_composition_fingerprint)
             return OnlyResearchSubmitOutcome(OnlyResearchSubmitDisposition.REUSED, run)
         if parent_runtime_work_id is None:
-            if strict.schema_version == 2:
+            if runtime_generation_fingerprint is not None:
+                self._runtime_generations.require_new_work_generation(runtime_generation_fingerprint)
+                if self._runtime_generation_resolver is None:
+                    raise OnlyResearchRunAdmissionError(
+                        "Exact Runtime generation admission resolver is unavailable",
+                        code="RESEARCH_RUNTIME_GENERATION_RESOLUTION_UNAVAILABLE",
+                    )
+                exact_evidence = self._runtime_generation_resolver.resolve(runtime_generation_fingerprint, strict)
+                if not isinstance(exact_evidence, OnlyResearchAdmissionResolutionEvidence):
+                    raise OnlyResearchRunAdmissionError(
+                        "Exact generation resolver did not return admission evidence",
+                        code="RESEARCH_ADMISSION_EVIDENCE_INVALID",
+                    )
+                prepared, evidence = self._admission.prepare_with_evidence(
+                    strict,
+                    authoring_generation_fingerprint=authoring_generation_fingerprint,
+                    strategy_research_composition_fingerprint=strategy_research_composition_fingerprint,
+                    exact_admission_evidence=exact_evidence,
+                )
+            elif strict.schema_version == 2:
                 prepared, evidence = self._admission.prepare_with_evidence(
                     strict,
                     authoring_generation_fingerprint=authoring_generation_fingerprint,
@@ -642,11 +686,19 @@ class OnlyResearchCommandService:
                     strategy_research_composition_fingerprint=strategy_research_composition_fingerprint,
                 )
                 evidence = None
-            self._runtime_generations.bind_new_work(
-                prepared.run_id.value,
-                actor="research-product-admission",
-                occurred_at=prepared.queued_at,
-            )
+            if runtime_generation_fingerprint is None:
+                self._runtime_generations.bind_new_work(
+                    prepared.run_id.value,
+                    actor="research-product-admission",
+                    occurred_at=prepared.queued_at,
+                )
+            else:
+                self._runtime_generations.bind_work_exact(
+                    prepared.run_id.value,
+                    runtime_generation_fingerprint,
+                    actor="research-product-admission-exact-generation",
+                    occurred_at=prepared.queued_at,
+                )
         else:
             assert expected_run_id is not None
             parent = self._runtime_generations.require_work_binding(parent_runtime_work_id)
@@ -830,6 +882,7 @@ class OnlyResearchCommandService:
         authoring_generation_fingerprint: str | None,
         parent_runtime_work_id: str | None,
         strategy_research_composition_fingerprint: str | None,
+        runtime_generation_fingerprint: str | None,
     ) -> OnlyResearchSubmitOutcome:
         from onlyalpha.research.novelty.decision import OnlyNoveltyDecisionBundleV2, OnlyNoveltyProofRole
 
@@ -846,6 +899,7 @@ class OnlyResearchCommandService:
                 authoring_generation_fingerprint,
                 parent_runtime_work_id,
                 strategy_research_composition_fingerprint,
+                runtime_generation_fingerprint,
             )
         if not isinstance(admission, OnlyResearchNoveltyAdmissionV1):
             raise OnlyNoveltyResearchAdmissionError(
@@ -864,6 +918,7 @@ class OnlyResearchCommandService:
             parent_runtime_work_id,
             authoring_generation_fingerprint,
             strategy_research_composition_fingerprint=strategy_research_composition_fingerprint,
+            runtime_generation_fingerprint=runtime_generation_fingerprint,
         )
         expected_run_id = only_novelty_gated_research_run_id(receipt.command_id)
         try:
@@ -909,6 +964,7 @@ class OnlyResearchCommandService:
         authoring_generation_fingerprint: str | None,
         parent_runtime_work_id: str | None,
         strategy_research_composition_fingerprint: str | None,
+        runtime_generation_fingerprint: str | None,
     ) -> OnlyResearchSubmitOutcome:
         from onlyalpha.research.novelty.decision import OnlyNoveltyProofRole
 
@@ -926,6 +982,7 @@ class OnlyResearchCommandService:
             parent_runtime_work_id,
             authoring_generation_fingerprint,
             strategy_research_composition_fingerprint=strategy_research_composition_fingerprint,
+            runtime_generation_fingerprint=runtime_generation_fingerprint,
         )
         expected_run_id = only_novelty_gated_research_run_id_v4(receipt.command_id)
         try:

@@ -38,16 +38,38 @@ class OnlyPostgresResearchRunSeeder:
         if tuple(columns) != _COLUMNS[: len(columns)]:
             raise OnlyResearchRunIntegrityError("Historical Research Run columns must be an ordered prefix")
         values = OnlyPostgresResearchRunStore._values(run)
-        if "authoring_provenance" not in columns and values[_COLUMNS.index("authoring_provenance")] is not None:
-            raise OnlyResearchRunIntegrityError("Historical schema cannot seed authoring provenance")
-        if (
-            "strategy_research_composition_fingerprint" not in columns
-            and values[_COLUMNS.index("strategy_research_composition_fingerprint")] is not None
-        ):
-            raise OnlyResearchRunIntegrityError("Historical schema cannot seed strategy composition")
+        value_by_column = dict(zip(_COLUMNS, values, strict=True))
+        optional_tail = (
+            "authoring_provenance",
+            "strategy_research_composition_fingerprint",
+            "origin_kind",
+        )
         try:
             with psycopg.connect(self._dsn) as connection:
-                connection.execute(_insert_run_query(columns), values[: len(columns)])
+                available = {
+                    str(row[0])
+                    for row in connection.execute(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema = 'public' AND table_name = 'research_run'"
+                    ).fetchall()
+                }
+                missing = tuple(column for column in columns if column not in available)
+                if missing:
+                    first_missing = columns.index(missing[0])
+                    if columns[first_missing:] != missing or any(column not in optional_tail for column in missing):
+                        raise OnlyResearchRunIntegrityError("Historical Research Run columns are not available")
+                    columns = columns[:first_missing]
+                for column in optional_tail:
+                    if (
+                        column not in columns
+                        and value_by_column[column] is not None
+                        and not (column == "origin_kind" and value_by_column[column] == "GENERAL")
+                    ):
+                        raise OnlyResearchRunIntegrityError(f"Historical schema cannot seed {column}")
+                connection.execute(
+                    _insert_run_query(columns),
+                    tuple(value_by_column[column] for column in columns),
+                )
             return run
         except psycopg.errors.UniqueViolation as exc:
             raise OnlyResearchRunIntegrityError(f"Research Run already exists: {run.run_id}") from exc

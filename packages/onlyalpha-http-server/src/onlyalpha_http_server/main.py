@@ -769,6 +769,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             definitions=definition_resolver,
             research=command,
             authoring_generations=authoring_generations,
+            runtime_generations=runtime_generations,
+            runtime_definition_resolver=runtime_generation_resolver,
         )
         research_queries = OnlyResearchRunQueryService(run_store)
         if startup_status.state is OnlyKernelState.FAILED:
@@ -809,6 +811,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     definition_resolver,
                     authoring_generations=authoring_generations,
                     execution_evidence=execution_evidence,
+                    runtime_generations=runtime_generations,
+                    runtime_definition_resolver=runtime_generation_resolver,
+                    calculations=calculations,
                 ),
                 authoring_generations=authoring_generations,
             )
