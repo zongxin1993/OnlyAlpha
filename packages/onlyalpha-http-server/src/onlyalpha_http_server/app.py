@@ -11,6 +11,10 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
 from onlyalpha.application.catalog_context import OnlyExactCatalogContextQueryService
+from onlyalpha.application.private_asset_product import (
+    OnlyPrivateAssetProductService,
+    OnlyProductAssetSearchProjectionService,
+)
 from onlyalpha.application.product_boundary import OnlyResearchProductBoundary
 from onlyalpha.application.qualification_product import (
     OnlyQualificationProductService,
@@ -75,6 +79,13 @@ from .agent_gateway import AGENT_GATEWAY_ROUTE_TAG, OnlyAgentNodeGateway, create
 from .backtest.routes import BACKTEST_ROUTE_TAG, create_backtest_router
 from .backtest.schema import ProductErrorDto, ProductErrorEnvelopeDto
 from .health import OnlyKernelResearchReadinessProjection, OnlyProductExecutionCapacityProbe, create_health_router
+from .private_assets import (
+    PRIVATE_ASSET_ROUTE_TAG,
+    PrivateAssetErrorDto,
+    PrivateAssetErrorEnvelopeDto,
+    create_private_asset_router,
+    install_private_asset_error_handlers,
+)
 from .research.advisory_routes import RESEARCH_ADVISORY_ROUTE_TAG, create_advisory_router
 from .research.catalog_context_routes import EXACT_CATALOG_ROUTE_TAG, create_exact_catalog_context_router
 from .research.definition_errors import definition_error_response
@@ -182,6 +193,7 @@ def _request_route_tag(request: Request) -> str | None:
             SEARCH_PROVENANCE_ROUTE_TAG,
             EXACT_STATISTICS_ROUTE_TAG,
             RESEARCH_ADVISORY_ROUTE_TAG,
+            PRIVATE_ASSET_ROUTE_TAG,
         }
     )
     return known[0] if len(known) == 1 else None
@@ -218,6 +230,8 @@ def create_research_app(
     exact_search_iteration_results: OnlySearchIterationResultReader | None = None,
     exact_search_terminal_projections: OnlySearchTerminalProjectionReader | None = None,
     near_duplicate_advisory: object | None = None,
+    private_asset_product: OnlyPrivateAssetProductService | None = None,
+    private_asset_search: OnlyProductAssetSearchProjectionService | None = None,
 ) -> FastAPI:
     universe_authority = definition_resolver.universe_resolver
     if universe_authority is not None and not isinstance(universe_authority, OnlyResearchUniverseCatalog):
@@ -386,21 +400,29 @@ def create_research_app(
 
     async def product_value_error_handler(request: Request, _error: Exception) -> JSONResponse:
         family = _request_route_tag(request)
-        if family not in {STRATEGY_ROUTE_TAG, BACKTEST_ROUTE_TAG, SEARCH_ROUTE_TAG}:
+        if family not in {STRATEGY_ROUTE_TAG, BACKTEST_ROUTE_TAG, SEARCH_ROUTE_TAG, PRIVATE_ASSET_ROUTE_TAG}:
             return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
+        if family == PRIVATE_ASSET_ROUTE_TAG:
+            private_body = PrivateAssetErrorEnvelopeDto(
+                error=PrivateAssetErrorDto(
+                    code="PRIVATE_ASSET_PRODUCT_REQUEST_INVALID",
+                    detail="HTTP request validation failed",
+                )
+            )
+            return JSONResponse(status_code=400, content=private_body.model_dump(mode="json"))
         if family == SEARCH_ROUTE_TAG:
             search_body = SearchErrorEnvelopeDto(
                 error=SearchErrorDto(code="SEARCH_PRODUCT_REQUEST_INVALID", detail="HTTP request validation failed")
             )
             return JSONResponse(status_code=400, content=search_body.model_dump(mode="json"))
-        body = ProductErrorEnvelopeDto(
+        product_body = ProductErrorEnvelopeDto(
             error=ProductErrorDto(
                 phase="COMMAND",
                 code="PRODUCT_REQUEST_INVALID",
                 detail="HTTP request validation failed",
             )
         )
-        return JSONResponse(status_code=400, content=body.model_dump(mode="json"))
+        return JSONResponse(status_code=400, content=product_body.model_dump(mode="json"))
 
     app.add_exception_handler(ValueError, product_value_error_handler)
 
@@ -425,15 +447,23 @@ def create_research_app(
                     code="RESEARCH_ADVISORY_REQUEST_INVALID", detail="HTTP request validation failed"
                 ).model_dump(mode="json"),
             )
+        if family == PRIVATE_ASSET_ROUTE_TAG:
+            private_body = PrivateAssetErrorEnvelopeDto(
+                error=PrivateAssetErrorDto(
+                    code="PRIVATE_ASSET_PRODUCT_REQUEST_INVALID",
+                    detail="HTTP request validation failed",
+                )
+            )
+            return JSONResponse(status_code=400, content=private_body.model_dump(mode="json"))
         if family in {STRATEGY_ROUTE_TAG, BACKTEST_ROUTE_TAG}:
-            body = ProductErrorEnvelopeDto(
+            product_body = ProductErrorEnvelopeDto(
                 error=ProductErrorDto(
                     phase="COMMAND",
                     code="PRODUCT_REQUEST_INVALID",
                     detail="HTTP request validation failed",
                 )
             )
-            return JSONResponse(status_code=400, content=body.model_dump(mode="json"))
+            return JSONResponse(status_code=400, content=product_body.model_dump(mode="json"))
         return JSONResponse(status_code=400, content={"detail": "HTTP request validation failed"})
 
     app.add_exception_handler(RequestValidationError, request_validation_error_handler)
@@ -441,6 +471,14 @@ def create_research_app(
     app.include_router(create_run_router(product_boundary), dependencies=readiness_dependencies)
     if near_duplicate_advisory is not None:
         app.include_router(create_advisory_router(product_boundary), dependencies=readiness_dependencies)
+    if private_asset_product is not None or private_asset_search is not None:
+        if private_asset_product is None or private_asset_search is None:
+            raise TypeError("Private Asset Product routes require Registry and Search services")
+        install_private_asset_error_handlers(app)
+        app.include_router(
+            create_private_asset_router(private_asset_product, private_asset_search),
+            dependencies=readiness_dependencies,
+        )
     app.include_router(
         create_discovery_router(ResearchDiscoveryService(calculation_registry, universe_authority)),
         dependencies=readiness_dependencies,
@@ -533,7 +571,7 @@ def _install_exact_product_openapi(app: FastAPI) -> None:
                     responses = operation.get("responses", {})
                     if (
                         isinstance(tags, list)
-                        and ({STRATEGY_ROUTE_TAG, BACKTEST_ROUTE_TAG} & set(tags))
+                        and ({STRATEGY_ROUTE_TAG, BACKTEST_ROUTE_TAG, PRIVATE_ASSET_ROUTE_TAG} & set(tags))
                         and isinstance(responses, dict)
                     ):
                         responses.pop("422", None)
@@ -567,6 +605,8 @@ def create_product_app(
     exact_search_iteration_results: OnlySearchIterationResultReader | None = None,
     exact_search_terminal_projections: OnlySearchTerminalProjectionReader | None = None,
     near_duplicate_advisory: object | None = None,
+    private_asset_product: OnlyPrivateAssetProductService | None = None,
+    private_asset_search: OnlyProductAssetSearchProjectionService | None = None,
 ) -> FastAPI:
     app = create_research_app(
         reader,
@@ -593,6 +633,8 @@ def create_product_app(
         exact_search_iteration_results,
         exact_search_terminal_projections,
         near_duplicate_advisory,
+        private_asset_product,
+        private_asset_search,
     )
     app.title = "OnlyAlpha Product API"
     return app

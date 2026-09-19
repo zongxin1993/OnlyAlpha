@@ -7,15 +7,25 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from onlyalpha_authoring_execution_worker import (
     OnlyAuthoringExecutionGeneration,
     OnlyAuthoringExecutionGenerationStore,
     OnlyVerifiedAuthoringGenerationReader,
 )
+from onlyalpha_http_server.private_assets import (
+    create_private_asset_router,
+    install_private_asset_error_handlers,
+)
 
 from onlyalpha.application import (
     OnlyCalculationEquivalenceCertificationApplicationService,
     OnlyProductCommandId,
+)
+from onlyalpha.application.private_asset_product import (
+    OnlyPrivateAssetProductService,
+    OnlyProductAssetSearchProjectionService,
 )
 from onlyalpha.application.private_strategy_research import OnlyPrivateStrategyResearchApplicationService
 from onlyalpha.application.product_boundary import (
@@ -38,6 +48,7 @@ from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
 from onlyalpha.kernel import OnlyAlphaKernelHost
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
+    OnlyPostgresPrivateAssetProductProjectionStore,
     OnlyPostgresPrivateAssetStore,
     OnlyPostgresPrivateStrategyResearchCompositionStore,
     OnlyPostgresProductCommandAuthority,
@@ -540,6 +551,48 @@ def test_private_strategy_production_chain_is_exact_and_generation_bound(postgre
     )
     factor_reference = imported["factor.simple_momentum"]
     strategy_reference = imported["strategy.simple_momentum"]
+    product_assets = OnlyPrivateAssetProductService(assets)
+    product_search = OnlyProductAssetSearchProjectionService(
+        product_assets,
+        OnlyPostgresPrivateAssetProductProjectionStore(postgres_dsn),
+        lambda: NOW,
+    )
+    product_search.rebuild()
+    product_app = FastAPI()
+    install_private_asset_error_handlers(product_app)
+    product_app.include_router(create_private_asset_router(product_assets, product_search))
+    product_client = TestClient(product_app)
+    factor_search = product_client.get(
+        "/api/v2/private-assets/search",
+        params={"text": factor_reference.private_asset_id, "kind": "FACTOR"},
+    ).json()
+    factor_locator = factor_search["results"][0]["locator"]
+    assert factor_locator["revision_fingerprint"] == factor_reference.private_asset_revision_fingerprint
+    factor_read = product_client.get(
+        "/api/v2/private-assets/factors/"
+        f"{factor_locator['private_asset_id']}/revisions/{factor_locator['revision_fingerprint']}",
+        params={"content_fingerprint": factor_locator["content_fingerprint"]},
+    )
+    assert factor_read.status_code == 200
+    assert factor_read.json()["source_sha256"] == factor_locator["content_fingerprint"]
+    strategy_search = product_client.get(
+        "/api/v2/private-assets/search",
+        params={"text": strategy_reference.private_asset_id, "kind": "STRATEGY"},
+    ).json()
+    strategy_locator = strategy_search["results"][0]["locator"]
+    discovered_strategy_reference = OnlyPrivateAssetRevisionReferenceV1(
+        OnlyPrivateAssetKind.STRATEGY,
+        strategy_locator["private_asset_id"],
+        strategy_locator["revision_fingerprint"],
+    )
+    assert discovered_strategy_reference == strategy_reference
+    strategy_read = product_client.get(
+        "/api/v2/private-assets/strategies/"
+        f"{strategy_locator['private_asset_id']}/revisions/{strategy_locator['revision_fingerprint']}",
+        params={"content_fingerprint": strategy_locator["content_fingerprint"]},
+    )
+    assert strategy_read.status_code == 200
+    assert strategy_read.json()["definition_fingerprint"] == strategy_locator["content_fingerprint"]
     generation, authoring = _generation(
         assets,
         factor_reference,

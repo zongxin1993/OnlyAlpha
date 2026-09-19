@@ -123,6 +123,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/private-assets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Browse Current */
+        get: operations["browse_current_private_assets_v2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/private-assets/factors/{factor_id}/revisions/{revision_fingerprint}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Factor */
+        get: operations["get_exact_private_factor_revision_v2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/private-assets/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search Assets */
+        get: operations["search_private_assets_v2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/private-assets/strategies/{strategy_id}/revisions/{revision_fingerprint}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Strategy */
+        get: operations["get_exact_private_strategy_revision_v2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/qualification-decisions/{decision_fingerprint}": {
         parameters: {
             query?: never;
@@ -1305,6 +1373,21 @@ export interface components {
          */
         OnlyPriceType: "LAST" | "BID" | "ASK" | "MID" | "MARK";
         /**
+         * OnlyPrivateAssetKind
+         * @enum {string}
+         */
+        OnlyPrivateAssetKind: "FACTOR" | "STRATEGY";
+        /**
+         * OnlyProductAssetProjectionCompleteness
+         * @enum {string}
+         */
+        OnlyProductAssetProjectionCompleteness: "CERTIFIED_COMPLETE" | "INCOMPLETE";
+        /**
+         * OnlyProductAssetSearchStatus
+         * @enum {string}
+         */
+        OnlyProductAssetSearchStatus: "MATCH" | "NO_MATCH_ON_CERTIFIED_COMPLETE_PROJECTION" | "PROJECTION_INCOMPLETE" | "PROJECTION_UNAVAILABLE";
+        /**
          * OnlyResearchPairingPolicy
          * @enum {string}
          */
@@ -1381,6 +1464,146 @@ export interface components {
             workflow_binding: {
                 [key: string]: components["schemas"]["JsonValue"];
             };
+        };
+        /** PrivateAssetErrorDto */
+        PrivateAssetErrorDto: {
+            /** Code */
+            code: string;
+            /** Detail */
+            detail: string;
+        };
+        /** PrivateAssetErrorEnvelopeDto */
+        PrivateAssetErrorEnvelopeDto: {
+            error: components["schemas"]["PrivateAssetErrorDto"];
+        };
+        /** PrivateAssetLocatorDto */
+        PrivateAssetLocatorDto: {
+            /** Content Fingerprint */
+            content_fingerprint: string;
+            /** Private Asset Id */
+            private_asset_id: string;
+            private_asset_kind: components["schemas"]["OnlyPrivateAssetKind"];
+            /** Revision Fingerprint */
+            revision_fingerprint: string;
+        };
+        /** PrivateAssetRegistryDto */
+        PrivateAssetRegistryDto: {
+            /** Entries */
+            entries: components["schemas"]["PrivateAssetRegistryEntryDto"][];
+            /** Registry Fingerprint */
+            registry_fingerprint: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** PrivateAssetRegistryEntryDto */
+        PrivateAssetRegistryEntryDto: {
+            /** Category */
+            category: string | null;
+            /** Description */
+            description: string;
+            locator: components["schemas"]["PrivateAssetLocatorDto"];
+            /** Semantic Version */
+            semantic_version: string;
+            /** Tags */
+            tags: string[];
+        };
+        /** PrivateAssetSearchResultDto */
+        PrivateAssetSearchResultDto: {
+            /** Built At */
+            built_at: string | null;
+            completeness: components["schemas"]["OnlyProductAssetProjectionCompleteness"] | null;
+            /** Projection Fingerprint */
+            projection_fingerprint?: string | null;
+            /** Projection Stale */
+            projection_stale: boolean;
+            /** Registry Fingerprint */
+            registry_fingerprint?: string | null;
+            /** Results */
+            results: components["schemas"]["PrivateAssetRegistryEntryDto"][];
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            status: components["schemas"]["OnlyProductAssetSearchStatus"];
+        };
+        /** PrivateFactorRevisionDto */
+        PrivateFactorRevisionDto: {
+            /** Category */
+            category: string;
+            /** Description */
+            description: string;
+            /** Economic Rationale */
+            economic_rationale: string;
+            /** Factor Api Contract Fingerprint */
+            factor_api_contract_fingerprint: string;
+            /**
+             * Factor Api Version
+             * @constant
+             */
+            factor_api_version: 1;
+            /** Factor Id */
+            factor_id: string;
+            /** Input Contract */
+            input_contract: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Output Contract */
+            output_contract: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Parameter Contract */
+            parameter_contract: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Parent Revision Fingerprint */
+            parent_revision_fingerprint: string | null;
+            /** Revision Fingerprint */
+            revision_fingerprint: string;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /** Semantic Version */
+            semantic_version: string;
+            /** Source Sha256 */
+            source_sha256: string;
+            /** Source Text */
+            source_text: string;
+            /** Tags */
+            tags: string[];
+        };
+        /** PrivateStrategyRevisionDto */
+        PrivateStrategyRevisionDto: {
+            /** Definition */
+            definition: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Definition Fingerprint */
+            definition_fingerprint: string;
+            /** Description */
+            description: string;
+            /** Parent Revision Fingerprint */
+            parent_revision_fingerprint: string | null;
+            /** Revision Fingerprint */
+            revision_fingerprint: string;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /** Semantic Version */
+            semantic_version: string;
+            /** Strategy Id */
+            strategy_id: string;
+            /** Tags */
+            tags: string[];
         };
         /** ProductErrorDto */
         ProductErrorDto: {
@@ -2814,12 +3037,12 @@ export interface components {
         };
         /** SubmitPrivateStrategyResearchRequest */
         SubmitPrivateStrategyResearchRequest: {
-            /** Authoring Generation Fingerprint */
-            authoring_generation_fingerprint: string;
             /** Research Context */
             research_context: {
                 [key: string]: components["schemas"]["JsonValue"];
             };
+            /** Runtime Generation Fingerprint */
+            runtime_generation_fingerprint: string;
             /** Strategy Id */
             strategy_id: string;
             /** Strategy Revision Fingerprint */
@@ -3308,6 +3531,281 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    browse_current_private_assets_v2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateAssetRegistryDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    get_exact_private_factor_revision_v2: {
+        parameters: {
+            query: {
+                content_fingerprint: string;
+            };
+            header?: never;
+            path: {
+                factor_id: string;
+                revision_fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateFactorRevisionDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    search_private_assets_v2: {
+        parameters: {
+            query?: {
+                text?: string | null;
+                kind?: components["schemas"]["OnlyPrivateAssetKind"] | null;
+                category?: string | null;
+                tag?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateAssetSearchResultDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    get_exact_private_strategy_revision_v2: {
+        parameters: {
+            query: {
+                content_fingerprint: string;
+            };
+            header?: never;
+            path: {
+                strategy_id: string;
+                revision_fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateStrategyRevisionDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
                 };
             };
         };

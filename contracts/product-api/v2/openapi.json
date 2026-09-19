@@ -888,6 +888,32 @@
         "title": "OnlyPriceType",
         "type": "string"
       },
+      "OnlyPrivateAssetKind": {
+        "enum": [
+          "FACTOR",
+          "STRATEGY"
+        ],
+        "title": "OnlyPrivateAssetKind",
+        "type": "string"
+      },
+      "OnlyProductAssetProjectionCompleteness": {
+        "enum": [
+          "CERTIFIED_COMPLETE",
+          "INCOMPLETE"
+        ],
+        "title": "OnlyProductAssetProjectionCompleteness",
+        "type": "string"
+      },
+      "OnlyProductAssetSearchStatus": {
+        "enum": [
+          "MATCH",
+          "NO_MATCH_ON_CERTIFIED_COMPLETE_PROJECTION",
+          "PROJECTION_INCOMPLETE",
+          "PROJECTION_UNAVAILABLE"
+        ],
+        "title": "OnlyProductAssetSearchStatus",
+        "type": "string"
+      },
       "OnlyResearchPairingPolicy": {
         "enum": [
           "PAIRWISE_COMPLETE"
@@ -1066,6 +1092,404 @@
           "search_policy"
         ],
         "title": "ParameterSearchSubmitRequestDto",
+        "type": "object"
+      },
+      "PrivateAssetErrorDto": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "detail"
+        ],
+        "title": "PrivateAssetErrorDto",
+        "type": "object"
+      },
+      "PrivateAssetErrorEnvelopeDto": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/PrivateAssetErrorDto"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "PrivateAssetErrorEnvelopeDto",
+        "type": "object"
+      },
+      "PrivateAssetLocatorDto": {
+        "additionalProperties": false,
+        "properties": {
+          "content_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Content Fingerprint",
+            "type": "string"
+          },
+          "private_asset_id": {
+            "title": "Private Asset Id",
+            "type": "string"
+          },
+          "private_asset_kind": {
+            "$ref": "#/components/schemas/OnlyPrivateAssetKind"
+          },
+          "revision_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Revision Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "private_asset_kind",
+          "private_asset_id",
+          "revision_fingerprint",
+          "content_fingerprint"
+        ],
+        "title": "PrivateAssetLocatorDto",
+        "type": "object"
+      },
+      "PrivateAssetRegistryDto": {
+        "additionalProperties": false,
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/PrivateAssetRegistryEntryDto"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "registry_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Registry Fingerprint",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "registry_fingerprint",
+          "entries"
+        ],
+        "title": "PrivateAssetRegistryDto",
+        "type": "object"
+      },
+      "PrivateAssetRegistryEntryDto": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "locator": {
+            "$ref": "#/components/schemas/PrivateAssetLocatorDto"
+          },
+          "semantic_version": {
+            "title": "Semantic Version",
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": [
+          "locator",
+          "semantic_version",
+          "description",
+          "category",
+          "tags"
+        ],
+        "title": "PrivateAssetRegistryEntryDto",
+        "type": "object"
+      },
+      "PrivateAssetSearchResultDto": {
+        "additionalProperties": false,
+        "properties": {
+          "built_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Built At"
+          },
+          "completeness": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OnlyProductAssetProjectionCompleteness"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "projection_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projection Fingerprint"
+          },
+          "projection_stale": {
+            "title": "Projection Stale",
+            "type": "boolean"
+          },
+          "registry_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Registry Fingerprint"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/PrivateAssetRegistryEntryDto"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OnlyProductAssetSearchStatus"
+          }
+        },
+        "required": [
+          "status",
+          "results",
+          "completeness",
+          "built_at",
+          "projection_stale"
+        ],
+        "title": "PrivateAssetSearchResultDto",
+        "type": "object"
+      },
+      "PrivateFactorRevisionDto": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "economic_rationale": {
+            "title": "Economic Rationale",
+            "type": "string"
+          },
+          "factor_api_contract_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Factor Api Contract Fingerprint",
+            "type": "string"
+          },
+          "factor_api_version": {
+            "const": 1,
+            "title": "Factor Api Version",
+            "type": "integer"
+          },
+          "factor_id": {
+            "title": "Factor Id",
+            "type": "string"
+          },
+          "input_contract": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Input Contract",
+            "type": "object"
+          },
+          "output_contract": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Output Contract",
+            "type": "object"
+          },
+          "parameter_contract": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Parameter Contract",
+            "type": "object"
+          },
+          "parent_revision_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Revision Fingerprint"
+          },
+          "revision_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Revision Fingerprint",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "semantic_version": {
+            "title": "Semantic Version",
+            "type": "string"
+          },
+          "source_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Sha256",
+            "type": "string"
+          },
+          "source_text": {
+            "title": "Source Text",
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": [
+          "schema_version",
+          "factor_id",
+          "semantic_version",
+          "revision_fingerprint",
+          "parent_revision_fingerprint",
+          "source_text",
+          "source_sha256",
+          "factor_api_version",
+          "factor_api_contract_fingerprint",
+          "input_contract",
+          "parameter_contract",
+          "output_contract",
+          "description",
+          "economic_rationale",
+          "category",
+          "tags"
+        ],
+        "title": "PrivateFactorRevisionDto",
+        "type": "object"
+      },
+      "PrivateStrategyRevisionDto": {
+        "additionalProperties": false,
+        "properties": {
+          "definition": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Definition",
+            "type": "object"
+          },
+          "definition_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Definition Fingerprint",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "parent_revision_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Revision Fingerprint"
+          },
+          "revision_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Revision Fingerprint",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "semantic_version": {
+            "title": "Semantic Version",
+            "type": "string"
+          },
+          "strategy_id": {
+            "title": "Strategy Id",
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": [
+          "schema_version",
+          "strategy_id",
+          "semantic_version",
+          "revision_fingerprint",
+          "parent_revision_fingerprint",
+          "definition",
+          "definition_fingerprint",
+          "description",
+          "tags"
+        ],
+        "title": "PrivateStrategyRevisionDto",
         "type": "object"
       },
       "ProductErrorDto": {
@@ -5169,17 +5593,17 @@
       "SubmitPrivateStrategyResearchRequest": {
         "additionalProperties": false,
         "properties": {
-          "authoring_generation_fingerprint": {
-            "pattern": "^[0-9a-f]{64}$",
-            "title": "Authoring Generation Fingerprint",
-            "type": "string"
-          },
           "research_context": {
             "additionalProperties": {
               "$ref": "#/components/schemas/JsonValue"
             },
             "title": "Research Context",
             "type": "object"
+          },
+          "runtime_generation_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Runtime Generation Fingerprint",
+            "type": "string"
           },
           "strategy_id": {
             "title": "Strategy Id",
@@ -5195,7 +5619,7 @@
           "strategy_id",
           "strategy_revision_fingerprint",
           "research_context",
-          "authoring_generation_fingerprint"
+          "runtime_generation_fingerprint"
         ],
         "title": "SubmitPrivateStrategyResearchRequest",
         "type": "object"
@@ -5934,6 +6358,420 @@
         "summary": "Get Artifact",
         "tags": [
           "backtest"
+        ]
+      }
+    },
+    "/api/v2/private-assets": {
+      "get": {
+        "operationId": "browse_current_private_assets_v2",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateAssetRegistryDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateAssetErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateAssetErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateAssetErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateAssetErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateAssetErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Browse Current",
+        "tags": [
+          "private-asset-product"
+        ]
+      }
+    },
+    "/api/v2/private-assets/factors/{factor_id}/revisions/{revision_fingerprint}": {
+      "get": {
+        "operationId": "get_exact_private_factor_revision_v2",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "factor_id",
+            "required": true,
+            "schema": {
+              "pattern": "^private\\.factor\\.[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$",
+              "title": "Factor Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "revision_fingerprint",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Revision Fingerprint",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "content_fingerprint",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Content Fingerprint",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateFactorRevisionDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateAssetErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateAssetErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateAssetErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateAssetErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateAssetErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Factor",
+        "tags": [
+          "private-asset-product"
+        ]
+      }
+    },
+    "/api/v2/private-assets/search": {
+      "get": {
+        "operationId": "search_private_assets_v2",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "text",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Text"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/OnlyPrivateAssetKind"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tag",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tag"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateAssetSearchResultDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateAssetErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateAssetErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateAssetErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateAssetErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateAssetErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Search Assets",
+        "tags": [
+          "private-asset-product"
+        ]
+      }
+    },
+    "/api/v2/private-assets/strategies/{strategy_id}/revisions/{revision_fingerprint}": {
+      "get": {
+        "operationId": "get_exact_private_strategy_revision_v2",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "strategy_id",
+            "required": true,
+            "schema": {
+              "pattern": "^private\\.strategy\\.[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$",
+              "title": "Strategy Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "revision_fingerprint",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Revision Fingerprint",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "content_fingerprint",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Content Fingerprint",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateStrategyRevisionDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateAssetErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateAssetErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateAssetErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateAssetErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateAssetErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Strategy",
+        "tags": [
+          "private-asset-product"
         ]
       }
     },

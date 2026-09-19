@@ -608,10 +608,12 @@ def test_m19_preserves_legacy_runs_as_explicitly_unbound_provenance(postgres_dsn
     assert OnlyPostgresResearchRunStore(postgres_dsn).load(legacy.run_id).authoring_provenance is None
 
 
-def test_current_research_run_store_fails_closed_before_private_strategy_composition_schema(
+def test_current_research_run_store_fails_closed_before_research_origin_schema(
     postgres_dsn: str, tmp_path: Path
 ) -> None:
-    assert copy_migrations_through(tmp_path, CURRENT_MIGRATIONS[-2]) == CURRENT_MIGRATIONS[:-1]
+    assert copy_migrations_through(tmp_path, "0030_private_strategy_research_composition")[-1] == (
+        "0030_private_strategy_research_composition"
+    )
     OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path).migrate()
     run = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(
         _queued("00000000-0000-4000-8000-000000000421"),

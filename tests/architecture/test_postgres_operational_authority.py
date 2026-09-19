@@ -97,6 +97,8 @@ def test_postgres_schema_is_control_catalog_authority_not_high_volume_semantic_s
         "private_l4_revision",
         "private_l4_draft",
         "private_strategy_research_composition",
+        "private_asset_search_projection_revision",
+        "private_asset_search_projection_active",
     ]
     vocabulary_migration = "\n".join(
         Path(path).read_text()

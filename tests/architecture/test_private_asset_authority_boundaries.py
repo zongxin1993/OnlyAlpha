@@ -18,6 +18,9 @@ _MIGRATION = Path("database/postgres/migrations/0029_private_factor_strategy_voc
 _PRODUCT = Path("src/onlyalpha/application/product_boundary.py")
 _HTTP = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server/research/run_schema.py")
 _HTTP_MAIN = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py")
+_PRODUCT_PROJECTION = Path("src/onlyalpha/application/private_asset_product.py")
+_PRODUCT_HTTP = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server/private_assets.py")
+_PRODUCT_STORE = Path("src/onlyalpha/persistence/postgres/private_asset_product_store.py")
 
 
 def _imports(path: Path) -> set[str]:
@@ -153,3 +156,51 @@ def test_private_strategy_revision_is_not_a_runtime_strategy_identity() -> None:
         paths = (path,) if path.is_file() else tuple(path.rglob("*.py"))
         sources.extend(item.read_text(encoding="utf-8") for item in paths)
     assert all("OnlyPrivateStrategyRevision" not in source for source in sources)
+
+
+def test_private_asset_registry_and_search_are_projection_only() -> None:
+    from onlyalpha.application.private_asset_product import OnlyProductAssetRegistryEntryV1
+
+    assert {item.name for item in fields(OnlyProductAssetRegistryEntryV1)} == {
+        "locator",
+        "semantic_version",
+        "description",
+        "category",
+        "tags",
+    }
+    source = _PRODUCT_PROJECTION.read_text(encoding="utf-8")
+    assert "onlyalpha.factor.registry" not in source
+    assert "onlyalpha.quant_assets.catalog" not in source
+    assert "qualification" not in source.casefold()
+    assert "novelty" not in source.casefold()
+
+
+def test_product_search_store_and_authority_content_have_no_production_bypass() -> None:
+    production_roots = (Path("src"), Path("packages"))
+    sources = {path: path.read_text(encoding="utf-8") for root in production_roots for path in root.rglob("*.py")}
+    projection_store_users = {
+        path for path, source in sources.items() if "OnlyPostgresPrivateAssetProductProjectionStore" in source
+    }
+    assert projection_store_users == {
+        _PRODUCT_STORE,
+        Path("src/onlyalpha/persistence/postgres/__init__.py"),
+        _HTTP_MAIN,
+    }
+    for path, source in sources.items():
+        if "runtime" in path.parts or "onlyalpha-agent-orchestrator" in path.parts:
+            assert "onlyalpha.application.private_asset_product" not in source, path
+            assert "private_asset_product_store" not in source, path
+
+
+def test_exact_product_read_has_no_current_latest_or_legacy_fallback() -> None:
+    tree = ast.parse(_PRODUCT_PROJECTION.read_text(encoding="utf-8"))
+    service = next(
+        node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "OnlyPrivateAssetProductService"
+    )
+    exact_read = next(node for node in service.body if isinstance(node, ast.FunctionDef) and node.name == "read_exact")
+    names = {node.attr for node in ast.walk(exact_read) if isinstance(node, ast.Attribute)}
+    assert {"load_factor_revision", "load_strategy_revision"} <= names
+    assert names.isdisjoint({"current_registry", "list_current_factor_revisions", "list_current_strategy_revisions"})
+    assert "source_text" not in _PRODUCT_STORE.read_text(encoding="utf-8")
+    assert "definition" not in _PRODUCT_STORE.read_text(encoding="utf-8")
+    assert "create_private_asset_router" in _PRODUCT_HTTP.read_text(encoding="utf-8")

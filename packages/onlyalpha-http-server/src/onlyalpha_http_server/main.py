@@ -26,6 +26,10 @@ from onlyalpha_runtime_generation_manager.catalog_context import (
 )
 
 from onlyalpha.application.catalog_context import OnlyExactCatalogContextQueryService
+from onlyalpha.application.private_asset_product import (
+    OnlyPrivateAssetProductService,
+    OnlyProductAssetSearchProjectionService,
+)
 from onlyalpha.application.private_strategy_research import OnlyPrivateStrategyResearchApplicationService
 from onlyalpha.application.product_boundary import only_compose_research_product_boundary
 from onlyalpha.application.qualification_product import (
@@ -70,6 +74,7 @@ from onlyalpha.persistence.postgres import (
     OnlyPostgresConfig,
     OnlyPostgresKernelAuthorityGuard,
     OnlyPostgresOperationalConnectionOptions,
+    OnlyPostgresPrivateAssetProductProjectionStore,
     OnlyPostgresProductCommandAuthority,
     OnlyPostgresResearchDeploymentStore,
     OnlyPostgresResearchRunStore,
@@ -572,6 +577,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     run_store = OnlyPostgresResearchRunStore(postgres.dsn, operational_options)
     private_assets = OnlyPostgresPrivateAssetStore(postgres.dsn, operational_options)
+    private_asset_product = OnlyPrivateAssetProductService(private_assets)
+    private_asset_search = OnlyProductAssetSearchProjectionService(
+        private_asset_product,
+        OnlyPostgresPrivateAssetProductProjectionStore(postgres.dsn, operational_options),
+        only_system_utc_now,
+    )
     private_asset_revisions = OnlyPrivateAssetRevisionBindingResolver(private_assets)
     authoring_generations = OnlyVerifiedAuthoringGenerationReader(
         OnlyAuthoringExecutionGenerationStore(
@@ -652,6 +663,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise RuntimeError("Product Kernel failure evidence diverged from lifecycle status") from error
     if startup_status.state not in {OnlyKernelState.READY, OnlyKernelState.FAILED}:
         raise RuntimeError("Product Kernel startup did not reach a closed outcome")
+    if startup_status.state is OnlyKernelState.READY:
+        private_asset_search.rebuild()
     try:
         resolver = OnlyResearchSpecificationResolver(calculations)
         admission = OnlyResearchRunAdmissionService(
@@ -923,6 +936,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 OnlyJsonParameterSearchStore(layout.research_root),
             ),
             near_duplicate_advisory=near_duplicate_queries,
+            private_asset_product=private_asset_product,
+            private_asset_search=private_asset_search,
         )
         if startup_status.state is OnlyKernelState.READY:
             app.state.experiment_memory_projection_builder = memory_builder

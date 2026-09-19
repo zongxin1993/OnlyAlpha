@@ -93,6 +93,14 @@ class OnlyPostgresPrivateAssetStore:
             OnlyPrivateFactorRevision.from_dict,
         )
 
+    def list_current_factor_revisions(self) -> tuple[OnlyPrivateFactorRevision, ...]:
+        return self._current_revisions(
+            "private_factor_asset",
+            "private_factor_revision",
+            "factor_id",
+            OnlyPrivateFactorRevision.from_dict,
+        )
+
     def put_strategy_asset(self, asset: OnlyPrivateStrategyAsset) -> OnlyPrivateAssetPutDisposition:
         return self._put_asset("private_strategy_asset", "strategy_id", asset.strategy_id, asset.schema_version)
 
@@ -151,6 +159,14 @@ class OnlyPostgresPrivateAssetStore:
             "private_strategy_revision",
             "strategy_id",
             strategy_id,
+            OnlyPrivateStrategyRevision.from_dict,
+        )
+
+    def list_current_strategy_revisions(self) -> tuple[OnlyPrivateStrategyRevision, ...]:
+        return self._current_revisions(
+            "private_strategy_asset",
+            "private_strategy_revision",
+            "strategy_id",
             OnlyPrivateStrategyRevision.from_dict,
         )
 
@@ -472,6 +488,38 @@ class OnlyPostgresPrivateAssetStore:
             return tuple(reversed(ordered))
         except (KeyError, TypeError, ValueError) as exc:
             raise OnlyPrivateAssetCorruptError(asset_id) from exc
+
+    def _current_revisions(
+        self,
+        asset_table: str,
+        revision_table: str,
+        id_column: str,
+        loader: Callable[[Mapping[str, object]], _Revision],
+    ) -> tuple[_Revision, ...]:
+        try:
+            with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+                rows = connection.execute(
+                    f"SELECT revision.* FROM {asset_table} AS asset JOIN {revision_table} AS revision "
+                    f"ON revision.{id_column} = asset.{id_column} "
+                    "AND revision.revision_fingerprint = asset.current_revision_fingerprint "
+                    f"WHERE asset.current_revision_fingerprint IS NOT NULL ORDER BY asset.{id_column}"
+                ).fetchall()
+            return tuple(
+                self._revision_from_row(
+                    row,
+                    id_column,
+                    str(row[id_column]),
+                    str(row["revision_fingerprint"]),
+                    loader,
+                )
+                for row in rows
+            )
+        except OnlyPrivateAssetCorruptError:
+            raise
+        except psycopg.Error as exc:
+            raise OnlyPrivateAssetAuthorityUnavailableError(id_column) from exc
+        except (KeyError, TypeError, ValueError) as exc:
+            raise OnlyPrivateAssetCorruptError(id_column) from exc
 
 
 __all__ = ["OnlyPostgresPrivateAssetStore"]

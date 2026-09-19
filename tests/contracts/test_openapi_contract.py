@@ -127,6 +127,24 @@ def test_current_render_is_byte_deterministic_and_has_no_build_metadata() -> Non
         assert forbidden not in lowered
 
 
+def test_private_asset_product_discovery_and_exact_read_paths_are_canonical() -> None:
+    document = governance.render_document()
+    paths = document["paths"]
+
+    assert "/api/v2/private-assets" in paths
+    assert "/api/v2/private-assets/search" in paths
+    for path in (
+        "/api/v2/private-assets/factors/{factor_id}/revisions/{revision_fingerprint}",
+        "/api/v2/private-assets/strategies/{strategy_id}/revisions/{revision_fingerprint}",
+    ):
+        operation = paths[path]["get"]
+        parameters = {item["name"]: item for item in operation["parameters"]}
+        assert parameters["revision_fingerprint"]["required"] is True
+        assert parameters["content_fingerprint"]["required"] is True
+        assert "400" in operation["responses"]
+        assert "422" not in operation["responses"]
+
+
 def test_lint_rejects_duplicate_operation_id_and_external_reference() -> None:
     document = _fixture("compatible_add_path.json")
     paths = document["paths"]

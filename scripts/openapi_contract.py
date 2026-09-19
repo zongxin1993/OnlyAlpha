@@ -19,6 +19,10 @@ from onlyalpha_http_server.health import OnlyKernelResearchReadinessProjection
 from onlyalpha_http_server.search import OnlySearchProductHttpBoundary
 
 from onlyalpha.application.catalog_context import OnlyExactCatalogContextQueryService
+from onlyalpha.application.private_asset_product import (
+    OnlyPrivateAssetProductService,
+    OnlyProductAssetSearchProjectionService,
+)
 from onlyalpha.application.product_boundary import only_compose_research_product_boundary
 from onlyalpha.application.qualification_product import (
     OnlyQualificationProductService,
@@ -343,6 +347,8 @@ def render_document() -> JsonObject:
             cast(Any, _ContractRuntimeGenerations()),
             cast(Any, _ContractSearchAuthoring()),
             cast(Any, _ContractExactStatistics()),
+            private_asset_product=cast(OnlyPrivateAssetProductService, object()),
+            private_asset_search=cast(OnlyProductAssetSearchProjectionService, object()),
         )
         return app.openapi()
     finally:
