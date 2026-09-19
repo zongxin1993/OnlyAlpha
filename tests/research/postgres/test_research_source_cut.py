@@ -34,7 +34,7 @@ from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthor
 from onlyalpha.persistence.postgres.private_asset_store import OnlyPostgresPrivateAssetStore
 from onlyalpha.persistence.postgres.product_command_authority import OnlyPostgresProductCommandAuthority
 from onlyalpha.persistence.postgres.research_execution_store import OnlyPostgresResearchExecutionStore
-from onlyalpha.persistence.postgres.research_run_store import OnlyPostgresResearchRunStore
+from onlyalpha.persistence.postgres.research_run_store import _COLUMNS
 from onlyalpha.persistence.postgres.research_source_cut_store import OnlyPostgresResearchSourceCutAuthority
 from onlyalpha.quant_assets.private import OnlyPrivateAssetRevisionBindingResolver
 from onlyalpha.research.calculation.result_store import OnlyParquetResearchCalculationResultStore
@@ -59,8 +59,7 @@ def test_transactional_run_cut_preserves_baseline_and_later_revision(postgres_ds
     copy_migrations_through(tmp_path, "0022_product_command_legacy_admission_closure")
     OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path).migrate()
     run = _queued("00000000-0000-4000-8000-000000000901")
-    store = OnlyPostgresResearchRunStore(postgres_dsn)
-    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(run)
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(run, columns=_COLUMNS[:-1])
 
     copy_migrations_through(tmp_path, "0023_research_source_closed_cut")
     assert OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path).migrate() == (
@@ -72,10 +71,24 @@ def test_transactional_run_cut_preserves_baseline_and_later_revision(postgres_ds
     assert old.cut_boundary == "JOURNAL_INDEX:1"
     assert len(old.entries) == 1
 
-    # The ordinary official writer and even a direct SQL update are covered by
-    # the database trigger; no process-local hook can be bypassed.
+    # This test intentionally remains on the pre-0030 schema; use an explicit
+    # historical fixture update instead of the current-schema production store.
     cancelled = run.transition(run.state.CANCELLED, at=run.queued_at)
-    store.commit_transition(run, cancelled)
+    with psycopg.connect(postgres_dsn) as connection:
+        assert (
+            connection.execute(
+                "UPDATE research_run SET revision = %s, state = %s, finished_at = %s "
+                "WHERE run_id = %s AND revision = %s",
+                (
+                    cancelled.revision,
+                    cancelled.state.value,
+                    cancelled.finished_at,
+                    run.run_id.value,
+                    run.revision,
+                ),
+            ).rowcount
+            == 1
+        )
     newer = source.capture_closed_cut("RESEARCH_RUN")
     assert len(newer.entries) == 2
     assert source.load_closed_cut_verified(old.cut_fingerprint, "RESEARCH_RUN") == old

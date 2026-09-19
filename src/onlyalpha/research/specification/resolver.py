@@ -123,8 +123,12 @@ class OnlyResearchSpecificationResolver:
         # be resolvable in a fresh process without Definition-Resolver side effects.
         only_register_research_predicate_primitives(calculation_registry)
         self._registry = calculation_registry
+        self._max_cells = max_cells
         self._materializer = OnlyResearchGraphTemplateMaterializer(calculation_registry)
         self._sweep_planner = OnlyResearchSweepPlanner(calculation_registry, max_cells=max_cells)
+
+    def for_calculation_registry(self, registry: OnlyCalculationRegistry) -> OnlyResearchSpecificationResolver:
+        return OnlyResearchSpecificationResolver(registry, max_cells=self._max_cells)
 
     def verify_deferred_calculation_template(
         self,

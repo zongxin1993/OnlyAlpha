@@ -56,7 +56,12 @@ class OnlyResearchRuntimeFactory:
             OnlyResearchCalculationBackendResolver(request.components.calculations),
         )
         execution_evidence = OnlyResearchCalculationExecutionEvidenceStore(layout.research_root)
-        job = OnlyResearchJobExecutor(calculation, calculation_store, execution_evidence)
+        job = OnlyResearchJobExecutor(
+            calculation,
+            calculation_store,
+            execution_evidence,
+            request.components.authoring_generation_fingerprint,
+        )
         sweep = OnlyResearchSweepExecutor(job)
         statistics_store = OnlyParquetResearchStatisticsResultStore(
             layout.research_statistics_result_root,

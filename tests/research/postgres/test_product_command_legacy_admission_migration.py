@@ -19,6 +19,7 @@ from onlyalpha.persistence.postgres import (
 )
 from onlyalpha.persistence.postgres.backtest_store import OnlyPostgresBacktestStore
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
+from onlyalpha.persistence.postgres.research_run_store import _COLUMNS
 from onlyalpha.persistence.postgres.strategy_product_store import OnlyPostgresStrategyProductStore
 from onlyalpha.persistence.postgres.strategy_store import OnlyPostgresStrategyStore
 from onlyalpha.research.operations.deployment import OnlyResearchSemanticStoreId
@@ -52,7 +53,7 @@ def _migrate_through(postgres_dsn: str, root: Path, migration_id: str) -> tuple[
 def _seed_prerequisites(postgres_dsn: str) -> None:
     OnlyPostgresResearchDeploymentStore(postgres_dsn).initialize(NAMESPACE)
     OnlyPostgresStrategyStore(postgres_dsn, NAMESPACE).ensure_strategy(STRATEGY_FINGERPRINT, 1)
-    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued(RESEARCH_RUN_ID))
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued(RESEARCH_RUN_ID), columns=_COLUMNS[:-1])
 
 
 def _insert_freeze(

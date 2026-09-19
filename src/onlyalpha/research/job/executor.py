@@ -38,10 +38,12 @@ class OnlyResearchJobExecutor:
         calculation_executor: _OnlyResearchCalculationExecutor,
         result_store: OnlyResearchCalculationResultStore,
         execution_evidence_store: OnlyResearchCalculationExecutionEvidenceStore,
+        authoring_generation_fingerprint: str | None = None,
     ) -> None:
         self._calculation_executor = calculation_executor
         self._result_store = result_store
         self._execution_evidence_store = execution_evidence_store
+        self._authoring_generation_fingerprint = authoring_generation_fingerprint
 
     def execute(self, plan: OnlyResearchJobPlan) -> OnlyResearchJobOutcome:
         if not isinstance(plan, OnlyResearchJobPlan):
@@ -64,7 +66,10 @@ class OnlyResearchJobExecutor:
             ) from exc
         else:
             try:
-                evidence = self._execution_evidence_store.require_for_result(existing)
+                evidence = self._execution_evidence_store.require_for_result(
+                    existing,
+                    self._authoring_generation_fingerprint,
+                )
             except OnlyResearchCalculationError as exc:
                 raise _job_error(OnlyResearchJobPhase.RESULT_REUSE, exc) from exc
             return _outcome(
@@ -105,7 +110,11 @@ class OnlyResearchJobExecutor:
                 str(exc),
             ) from exc
         try:
-            evidence = self._execution_evidence_store._publish_verified(verified_execution, committed)
+            evidence = self._execution_evidence_store._publish_verified(
+                verified_execution,
+                committed,
+                self._authoring_generation_fingerprint,
+            )
         except OnlyResearchCalculationError as exc:
             raise _job_error(OnlyResearchJobPhase.RESULT_COMMIT, exc) from exc
         return _outcome(

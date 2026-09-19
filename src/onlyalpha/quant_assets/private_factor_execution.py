@@ -389,7 +389,7 @@ def _execute_child(
 
 @dataclass(frozen=True, slots=True)
 class OnlyPrivateFactorIsolatedProgramHost:
-    timeout_seconds: float = 1.0
+    timeout_seconds: float = 3.0
 
     def execute(
         self,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from onlyalpha_plugin_targets.registration import FORWARD_RETURN
@@ -15,6 +16,7 @@ from onlyalpha.domain.enums import (
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.market import OnlyBarSpecification
 from onlyalpha.quant_assets import (
+    OnlyInMemoryPrivateStrategyResearchCompositionStore,
     OnlyPrivateAssetKind,
     OnlyPrivateAssetRevisionReferenceV1,
     OnlyPrivateFactorSnapshotProviderSource,
@@ -22,6 +24,8 @@ from onlyalpha.quant_assets import (
     OnlyPrivateStrategyDraft,
     OnlyPrivateStrategyFactorRevisionDependencyV1,
     OnlyPrivateStrategyResearchComposer,
+    OnlyPrivateStrategyResearchCompositionError,
+    OnlyPrivateStrategyResearchCompositionVerifier,
     OnlyPrivateStrategyResearchContextV1,
     OnlyPrivateStrategyRevision,
     OnlyQuantAssetCatalogGeneration,
@@ -149,6 +153,40 @@ def test_private_strategy_composer_is_exact_and_deterministic() -> None:
     assert changed.research_definition.definition_fingerprint != first.research_definition.definition_fingerprint
     assert changed.composition.composition_fingerprint != first.composition.composition_fingerprint
     assert strategy.revision_fingerprint == first.composition.private_strategy_revision_fingerprint
+
+
+def test_private_strategy_composition_rejects_admission_generation_drift() -> None:
+    strategy, factor, context, catalog = _case()
+    composer = OnlyPrivateStrategyResearchComposer(_Assets(strategy, factor), catalog)
+    reference = OnlyPrivateAssetRevisionReferenceV1(
+        OnlyPrivateAssetKind.STRATEGY, strategy.strategy_id, strategy.revision_fingerprint
+    )
+    composed = composer.compose(reference, context)
+    store = OnlyInMemoryPrivateStrategyResearchCompositionStore()
+    store.put(composed.composition, context)
+    admitted_catalog = OnlyQuantAssetCatalogGeneration(())
+
+    class _Generation:
+        def load_verified(self, _fingerprint: str) -> object:
+            return SimpleNamespace(catalog_generation_fingerprint=admitted_catalog.generation_fingerprint)
+
+        def load_catalog_verified(self, _fingerprint: str) -> OnlyQuantAssetCatalogGeneration:
+            return admitted_catalog
+
+    verifier = OnlyPrivateStrategyResearchCompositionVerifier(
+        composer,
+        store,
+        SimpleNamespace(),  # generation mismatch is checked before definition resolution
+        authoring_generations=_Generation(),  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(OnlyPrivateStrategyResearchCompositionError, match="Composition execution context differs"):
+        verifier.verify(
+            SimpleNamespace(
+                strategy_research_composition_fingerprint=composed.composition_fingerprint,
+                authoring_generation_fingerprint="b" * 64,
+            )
+        )
 
 
 def test_private_strategy_definition_rejects_unknown_and_sweep_fields() -> None:

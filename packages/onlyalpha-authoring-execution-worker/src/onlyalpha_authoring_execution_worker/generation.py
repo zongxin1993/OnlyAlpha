@@ -10,6 +10,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import cast
 
+from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 from onlyalpha.quant_assets import (
     OnlyPrivateFactorAdapterV1,
@@ -25,8 +26,9 @@ from onlyalpha.quant_assets import (
     OnlyQuantAssetKind,
     OnlyQuantAssetProvider,
     OnlyQuantAssetProviderManifest,
+    only_discover_quant_asset_providers,
 )
-from onlyalpha.quant_assets.catalog import only_quant_asset_provider_source_from_dict
+from onlyalpha.quant_assets.catalog import OnlyDistributionProviderSource, only_quant_asset_provider_source_from_dict
 from onlyalpha.quant_assets.private import (
     OnlyPrivateAssetAuthorityUnavailableError,
     OnlyPrivateAssetKind,
@@ -205,7 +207,11 @@ class OnlyAuthoringExecutionGeneration:
     def engine_services(self) -> OnlyEngineServices:
         """Build one process composition with Catalog-owned distributions fixed to this generation."""
 
-        return only_default_engine_services(calculation_catalog_generation=self.catalog, fail_fast=True)
+        return only_default_engine_services(
+            calculation_catalog_generation=self.catalog,
+            authoring_generation_fingerprint=self.fingerprint,
+            fail_fast=True,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -312,16 +318,77 @@ class OnlyVerifiedAuthoringGenerationReader:
         self._private_asset_revisions = private_asset_revisions
 
     def load_verified(self, fingerprint: str) -> OnlyResearchAuthoringProvenance:
-        _, provenance = self._load_verified_generation(fingerprint)
+        _, provenance, _ = self._load_verified_generation(fingerprint)
         return provenance
 
     def load_descriptor_verified(self, fingerprint: str) -> dict[str, object]:
         """Return descriptor evidence only after re-anchoring its Private Asset Revision."""
 
-        descriptor, _ = self._load_verified_generation(fingerprint)
+        descriptor, _, _ = self._load_verified_generation(fingerprint)
         return descriptor
 
-    def _load_verified_generation(self, fingerprint: str) -> tuple[dict[str, object], OnlyResearchAuthoringProvenance]:
+    def load_catalog_verified(self, fingerprint: str) -> OnlyQuantAssetCatalogGeneration:
+        """Rebuild the exact immutable Catalog named by verified generation evidence."""
+
+        descriptor, provenance, private_provider = self._load_verified_generation(fingerprint)
+        catalog = descriptor.get("catalog")
+        if not isinstance(catalog, Mapping) or not isinstance(catalog.get("providers"), list):
+            raise OnlyAuthoringPrivateAssetBindingMismatchError()
+        expected = cast(list[object], catalog["providers"])
+        public = tuple(
+            provider
+            for provider in only_discover_quant_asset_providers().providers
+            if isinstance(provider.manifest.source, OnlyDistributionProviderSource)
+        )
+        public_by_key = {
+            (provider.manifest.provider_id, provider.manifest.provider_version): provider for provider in public
+        }
+        providers: list[OnlyQuantAssetProvider] = []
+        for raw in expected:
+            if not isinstance(raw, Mapping) or not isinstance(raw.get("manifest"), Mapping):
+                raise OnlyAuthoringPrivateAssetBindingMismatchError()
+            manifest = cast(Mapping[str, object], raw["manifest"])
+            key = (manifest.get("provider_id"), manifest.get("provider_version"))
+            source = manifest.get("source")
+            if isinstance(source, Mapping) and source.get("kind") == "DISTRIBUTION":
+                provider = public_by_key.get(key)  # type: ignore[arg-type]
+                if provider is None or only_canonical_json(provider.descriptor()) != only_canonical_json(raw):
+                    raise OnlyAuthoringPrivateAssetBindingMismatchError()
+                providers.append(provider)
+                continue
+            if (
+                manifest.get("provider_id") != provenance.candidate_provider_id
+                or manifest.get("provider_version") != provenance.candidate_provider_version
+                or only_canonical_json(private_provider.descriptor()) != only_canonical_json(raw)
+            ):
+                raise OnlyAuthoringPrivateAssetBindingMismatchError()
+            providers.append(private_provider)
+        result = OnlyQuantAssetCatalogGeneration(tuple(providers))
+        if result.generation_fingerprint != provenance.catalog_generation_fingerprint:
+            raise OnlyAuthoringPrivateAssetBindingMismatchError()
+        return result
+
+    def resolve(
+        self,
+        authoring_generation_fingerprint: str,
+        specification: OnlyResearchSpecification,
+    ) -> OnlyResearchSpecificationResolution:
+        calculations = self.load_calculation_registry_verified(authoring_generation_fingerprint)
+        strict = OnlyResearchSpecification.from_dict(specification.to_dict())
+        return OnlyResearchSpecificationResolver(calculations).resolve(strict)
+
+    def load_calculation_registry_verified(self, fingerprint: str) -> OnlyCalculationRegistry:
+        """Build the exact generation-bound registry used by Research admission."""
+
+        catalog = self.load_catalog_verified(fingerprint)
+        return only_default_engine_services(
+            calculation_catalog_generation=catalog,
+            fail_fast=True,
+        ).assembler.components.calculations
+
+    def _load_verified_generation(
+        self, fingerprint: str
+    ) -> tuple[dict[str, object], OnlyResearchAuthoringProvenance, OnlyQuantAssetProvider]:
         descriptor = self._store.load_descriptor_verified(fingerprint)
         provenance = OnlyResearchAuthoringProvenance.from_dict(descriptor["provenance"])  # type: ignore[arg-type]
         reference = OnlyPrivateAssetRevisionReferenceV1(
@@ -346,21 +413,21 @@ class OnlyVerifiedAuthoringGenerationReader:
             raise OnlyAuthoringPrivateAssetBindingMismatchError()
         try:
             revision = self._private_asset_revisions.resolve_factor_revision(reference)
-            self._verify_native_factor_closure(descriptor, provenance, revision)
+            private_provider = self._verify_native_factor_closure(descriptor, provenance, revision)
         except (
             KeyError,
             TypeError,
             ValueError,
         ) as exc:
             raise OnlyAuthoringPrivateAssetBindingMismatchError() from exc
-        return descriptor, provenance
+        return descriptor, provenance, private_provider
 
     @staticmethod
     def _verify_native_factor_closure(
         descriptor: Mapping[str, object],
         provenance: OnlyResearchAuthoringProvenance,
         revision: object,
-    ) -> None:
+    ) -> OnlyQuantAssetProvider:
         if not hasattr(revision, "factor_id"):
             raise ValueError("AUTHORING_PRIVATE_FACTOR_REVISION_INVALID")
         factor_revision = cast(OnlyPrivateFactorRevision, revision)
@@ -475,6 +542,7 @@ class OnlyVerifiedAuthoringGenerationReader:
             or only_canonical_fingerprint(provider.descriptor()) != only_canonical_fingerprint(candidate)
         ):
             raise ValueError("AUTHORING_PRIVATE_FACTOR_PROVIDER_MISMATCH")
+        return provider
 
 
 def _restore_factor_values(values: Mapping[str, object], contract: Mapping[str, object]) -> dict[str, object]:

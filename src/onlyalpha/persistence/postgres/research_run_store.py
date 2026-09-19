@@ -464,15 +464,6 @@ class OnlyPostgresResearchRunStore:
 
         try:
             return update(_COLUMNS)
-        except psycopg.errors.UndefinedColumn as exc:
-            if "strategy_research_composition_fingerprint" not in str(exc):
-                raise OnlyResearchRunStoreUnavailableError("Research Run transition transaction failed") from exc
-            try:
-                return update(_COLUMNS[:-1])
-            except OnlyResearchRunRevisionConflictError:
-                raise
-            except psycopg.Error as retry_exc:
-                raise OnlyResearchRunStoreUnavailableError("Research Run transition transaction failed") from retry_exc
         except OnlyResearchRunRevisionConflictError:
             raise
         except psycopg.Error as exc:

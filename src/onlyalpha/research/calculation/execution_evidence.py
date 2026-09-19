@@ -29,6 +29,7 @@ class OnlyResearchCalculationExecutionEvidence:
     calculation_result_fingerprint: str
     result_content_fingerprint: str
     research_implementation_bindings: tuple[OnlyResearchCalculationImplementationBinding, ...]
+    authoring_generation_fingerprint: str | None = None
     execution_contract_version: str = "RESEARCH_CALCULATION_EXECUTION_V1"
     schema_version: int = 1
 
@@ -43,6 +44,8 @@ class OnlyResearchCalculationExecutionEvidence:
             "result_content_fingerprint",
         ):
             _sha(getattr(self, name), name)
+        if self.authoring_generation_fingerprint is not None:
+            _sha(self.authoring_generation_fingerprint, "authoring_generation_fingerprint")
         canonical = tuple(sorted(self.research_implementation_bindings))
         if canonical != self.research_implementation_bindings or len(
             {item.node_fingerprint for item in canonical}
@@ -75,6 +78,8 @@ class OnlyResearchCalculationExecutionEvidence:
             ],
             "execution_contract_version": self.execution_contract_version,
         }
+        if self.authoring_generation_fingerprint is not None:
+            payload["authoring_generation_fingerprint"] = self.authoring_generation_fingerprint
         if include_fingerprint:
             payload["evidence_fingerprint"] = self.evidence_fingerprint
         return payload
@@ -92,7 +97,9 @@ class OnlyResearchCalculationExecutionEvidence:
             "execution_contract_version",
             "evidence_fingerprint",
         }
-        if set(payload) != expected or not isinstance(payload["research_implementation_bindings"], list):
+        if set(payload) not in (expected, expected | {"authoring_generation_fingerprint"}) or not isinstance(
+            payload["research_implementation_bindings"], list
+        ):
             raise ValueError("Research Execution Evidence fields are invalid")
         bindings: list[OnlyResearchCalculationImplementationBinding] = []
         for raw in payload["research_implementation_bindings"]:
@@ -114,6 +121,9 @@ class OnlyResearchCalculationExecutionEvidence:
             _string(payload, "calculation_result_fingerprint"),
             _string(payload, "result_content_fingerprint"),
             tuple(bindings),
+            None
+            if "authoring_generation_fingerprint" not in payload
+            else _string(payload, "authoring_generation_fingerprint"),
             _string(payload, "execution_contract_version"),
             _integer(payload, "schema_version"),
         )
@@ -135,6 +145,7 @@ class OnlyResearchCalculationExecutionEvidenceStore:
         self,
         verified_execution: _OnlyVerifiedResearchCalculationExecution,
         result: OnlyResearchCalculationResult,
+        authoring_generation_fingerprint: str | None = None,
     ) -> OnlyResearchCalculationExecutionEvidence:
         execution = _only_require_verified_research_calculation_execution(verified_execution)
         manifest = result.manifest
@@ -157,6 +168,7 @@ class OnlyResearchCalculationExecutionEvidenceStore:
             manifest.calculation_result_fingerprint,
             manifest.result_content_fingerprint,
             execution.research_implementation_bindings,
+            authoring_generation_fingerprint,
         )
         return self._publish(evidence)
 
@@ -164,7 +176,11 @@ class OnlyResearchCalculationExecutionEvidenceStore:
         fingerprint = _fingerprint(evidence_fingerprint)
         return self._read_verified(self._target(fingerprint), fingerprint)
 
-    def require_for_result(self, result: OnlyResearchCalculationResult) -> OnlyResearchCalculationExecutionEvidence:
+    def require_for_result(
+        self,
+        result: OnlyResearchCalculationResult,
+        authoring_generation_fingerprint: str | None = None,
+    ) -> OnlyResearchCalculationExecutionEvidence:
         manifest = result.manifest
         if not self._root.exists():
             raise OnlyResearchCalculationError(
@@ -185,6 +201,10 @@ class OnlyResearchCalculationExecutionEvidenceStore:
                         and evidence.calculation_graph_fingerprint == manifest.calculation_graph_fingerprint
                         and evidence.calculation_result_fingerprint == manifest.calculation_result_fingerprint
                         and evidence.result_content_fingerprint == manifest.result_content_fingerprint
+                        and (
+                            authoring_generation_fingerprint is None
+                            or evidence.authoring_generation_fingerprint == authoring_generation_fingerprint
+                        )
                     ):
                         matches.append(evidence)
         except OnlyResearchCalculationError:

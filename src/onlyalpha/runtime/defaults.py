@@ -45,6 +45,7 @@ def only_default_engine_services(
     runtime_persistence_store_factory: OnlyRuntimePersistenceStoreFactory | None = None,
     market_product_resources: OnlyMarketProductResourceResolver | None = None,
     calculation_catalog_generation: OnlyQuantAssetCatalogGeneration | None = None,
+    authoring_generation_fingerprint: str | None = None,
 ) -> OnlyEngineServices:
     data_sources = OnlyDataSourceFactoryRegistry()
     builtin = OnlyPluginOrigin(OnlyPluginOriginType.BUILTIN, "onlyalpha")
@@ -101,6 +102,7 @@ def only_default_engine_services(
             reconciliation_policies,
             runtime_persistence_store_factory or OnlyDefaultRuntimePersistenceStoreFactory(),
             market_product_resources,
+            authoring_generation_fingerprint,
         ),
     )
     return OnlyEngineServices(assembler, discovery)

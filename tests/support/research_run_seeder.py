@@ -32,37 +32,23 @@ class OnlyPostgresResearchRunSeeder:
     def __init__(self, dsn: str, options: OnlyPostgresOperationalConnectionOptions | None = None) -> None:
         self._dsn = (options or OnlyPostgresOperationalConnectionOptions()).apply(dsn)
 
-    def seed_queued(self, run: OnlyResearchRun) -> OnlyResearchRun:
+    def seed_queued(self, run: OnlyResearchRun, *, columns: tuple[str, ...] = _COLUMNS) -> OnlyResearchRun:
         if run.state is not OnlyResearchRunState.QUEUED or run.revision != 0:
             raise OnlyResearchRunStateConflictError("seed_queued requires revision-zero QUEUED Run")
+        if tuple(columns) != _COLUMNS[: len(columns)]:
+            raise OnlyResearchRunIntegrityError("Historical Research Run columns must be an ordered prefix")
+        values = OnlyPostgresResearchRunStore._values(run)
+        if "authoring_provenance" not in columns and values[_COLUMNS.index("authoring_provenance")] is not None:
+            raise OnlyResearchRunIntegrityError("Historical schema cannot seed authoring provenance")
+        if (
+            "strategy_research_composition_fingerprint" not in columns
+            and values[_COLUMNS.index("strategy_research_composition_fingerprint")] is not None
+        ):
+            raise OnlyResearchRunIntegrityError("Historical schema cannot seed strategy composition")
         try:
             with psycopg.connect(self._dsn) as connection:
-                connection.execute(_insert_run_query(), OnlyPostgresResearchRunStore._values(run))
+                connection.execute(_insert_run_query(columns), values[: len(columns)])
             return run
-        except psycopg.errors.UndefinedColumn as exc:
-            if run.authoring_provenance is not None or "authoring_provenance" not in str(exc):
-                raise OnlyResearchRunStoreUnavailableError("Research Run seed transaction failed") from exc
-            legacy_columns = _COLUMNS[:-1]
-            try:
-                with psycopg.connect(self._dsn) as connection:
-                    connection.execute(
-                        _insert_run_query(legacy_columns),
-                        OnlyPostgresResearchRunStore._values(run)[:-1],
-                    )
-                return run
-            except psycopg.errors.UndefinedColumn as retry_exc:
-                if run.authoring_provenance is not None or "authoring_provenance" not in str(retry_exc):
-                    raise OnlyResearchRunStoreUnavailableError("Research Run seed transaction failed") from retry_exc
-                with psycopg.connect(self._dsn) as connection:
-                    connection.execute(
-                        _insert_run_query(_COLUMNS[:-2]),
-                        OnlyPostgresResearchRunStore._values(run)[:-2],
-                    )
-                return run
-            except psycopg.errors.UniqueViolation as retry_exc:
-                raise OnlyResearchRunIntegrityError(f"Research Run already exists: {run.run_id}") from retry_exc
-            except psycopg.Error as retry_exc:
-                raise OnlyResearchRunStoreUnavailableError("Research Run seed transaction failed") from retry_exc
         except psycopg.errors.UniqueViolation as exc:
             raise OnlyResearchRunIntegrityError(f"Research Run already exists: {run.run_id}") from exc
         except psycopg.Error as exc:

@@ -34,6 +34,8 @@ sensitive_path_patterns = [
   "src/onlyalpha/persistence/postgres/backtest_store.py",
   "src/onlyalpha/persistence/postgres/strategy_product_store.py",
   "src/onlyalpha/persistence/postgres/research_*_store.py",
+  "src/onlyalpha/persistence/postgres/private_strategy_research_composition_store.py",
+  "src/onlyalpha/quant_assets/private_strategy_composition.py",
   "packages/onlyalpha-http-server/src/onlyalpha_http_server/*.py",
   "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/*.py",
   "packages/onlyalpha-http-server/src/onlyalpha_http_server/search/*.py",
@@ -193,6 +195,14 @@ identity_authority = "exact Strategy Revision, Policy Revision, typed Evidence a
 mutation_capability = "C26"
 read_capability = "C27"
 semantic_persistence_relation = "immutable semantic Decision store is authority; PostgreSQL stores command admission and receipt only"
+
+[[facts]]
+id = "F20"
+name = "Private Strategy Research Composition"
+identity_authority = "composition_fingerprint"
+mutation_capability = "C28"
+read_capability = "C29"
+semantic_persistence_relation = "append-only PostgreSQL Composition Authority is the durable lineage authority"
 
 [[capabilities]]
 id = "C01"
@@ -356,6 +366,24 @@ name = "QUALIFICATION_READ"
 kind = "READ"
 privileged = true
 
+[[capabilities]]
+id = "C28"
+name = "PRIVATE_STRATEGY_RESEARCH_COMPOSITION_PUBLISH"
+kind = "PUBLISH"
+privileged = true
+
+[[capabilities]]
+id = "C29"
+name = "PRIVATE_STRATEGY_RESEARCH_COMPOSITION_READ"
+kind = "READ"
+privileged = true
+
+[[capabilities]]
+id = "C30"
+name = "PRIVATE_STRATEGY_RESEARCH_COMPOSITION_VERIFY"
+kind = "VERIFY"
+privileged = true
+
 [[actors]]
 id = "A01"
 name = "PUBLIC_PYTHON_SURFACE"
@@ -366,7 +394,7 @@ allowed_capabilities = []
 id = "A03"
 name = "HTTP_COMPOSITION_ROOT"
 production = true
-allowed_capabilities = ["C01", "C05", "C06", "C09", "C10", "C17", "C18", "C19", "C20", "C21", "C23", "C24", "C25", "C26", "C27"]
+allowed_capabilities = ["C01", "C05", "C06", "C09", "C10", "C17", "C18", "C19", "C20", "C21", "C23", "C24", "C25", "C26", "C27", "C28", "C29", "C30"]
 
 [[actors]]
 id = "A04"
@@ -432,7 +460,7 @@ allowed_capabilities = ["C05", "C17", "C18"]
 id = "A14"
 name = "STRATEGY_APPLICATION"
 production = true
-allowed_capabilities = ["C05", "C06", "C07", "C08", "C09", "C25", "C26", "C27"]
+allowed_capabilities = ["C05", "C06", "C07", "C08", "C09", "C25", "C26", "C27", "C30"]
 
 [[actors]]
 id = "A15"
@@ -444,7 +472,7 @@ allowed_capabilities = ["C04", "C05", "C12", "C13", "C14"]
 id = "A16"
 name = "RESEARCH_APPLICATION"
 production = true
-allowed_capabilities = ["C01", "C02", "C03", "C04", "C10"]
+allowed_capabilities = ["C01", "C02", "C03", "C04", "C10", "C28", "C29", "C30"]
 
 [[actors]]
 id = "A17"
@@ -582,6 +610,9 @@ actor = "A17"
 pattern = "src/onlyalpha/application/private_strategy_research.py"
 actor = "A16"
 [[actor_paths]]
+pattern = "src/onlyalpha/quant_assets/private_strategy_composition.py"
+actor = "A16"
+[[actor_paths]]
 pattern = "src/onlyalpha/strategy/__init__.py"
 actor = "A14"
 [[actor_paths]]
@@ -711,6 +742,9 @@ actor = "A16"
 pattern = "src/onlyalpha/persistence/postgres/research_*_store.py"
 actor = "A16"
 [[actor_paths]]
+pattern = "src/onlyalpha/persistence/postgres/private_strategy_research_composition_store.py"
+actor = "A16"
+[[actor_paths]]
 pattern = "scripts/regenerate_*.py"
 actor = "T01"
 [[actor_paths]]
@@ -810,6 +844,15 @@ symbols = ["onlyalpha.strategy.qualification.OnlyQualificationEvaluator", "onlya
 [[bindings]]
 capability = "C27"
 symbols = ["onlyalpha.strategy.qualification_store.OnlyQualificationDecisionStore", "onlyalpha.application.qualification_product.OnlyQualificationQueryService"]
+[[bindings]]
+capability = "C28"
+symbols = ["onlyalpha.application.private_strategy_research.OnlyPrivateStrategyResearchApplicationService", "onlyalpha.persistence.postgres.private_strategy_research_composition_store.OnlyPostgresPrivateStrategyResearchCompositionStore"]
+[[bindings]]
+capability = "C29"
+symbols = ["onlyalpha.quant_assets.private_strategy_composition.OnlyPrivateStrategyResearchCompositionStore", "onlyalpha.persistence.postgres.private_strategy_research_composition_store.OnlyPostgresPrivateStrategyResearchCompositionStore"]
+[[bindings]]
+capability = "C30"
+symbols = ["onlyalpha.quant_assets.private_strategy_composition.OnlyPrivateStrategyResearchCompositionVerifier", "onlyalpha.strategy.freeze.OnlyStrategyFreezeService"]
 
 [[ownership]]
 capability = "C01"
@@ -892,6 +935,15 @@ approved_production_holders = ["A03", "A04", "A14"]
 [[ownership]]
 capability = "C27"
 approved_production_holders = ["A03", "A04", "A14"]
+[[ownership]]
+capability = "C28"
+approved_production_holders = ["A03", "A16"]
+[[ownership]]
+capability = "C29"
+approved_production_holders = ["A03", "A16"]
+[[ownership]]
+capability = "C30"
+approved_production_holders = ["A03", "A14", "A16"]
 
 [[constructors]]
 id = "K01"
@@ -983,3 +1035,18 @@ id = "K18"
 capability = "C07"
 symbol = "onlyalpha.strategy.promotion._only_authorize_qualified_promotion"
 approved_paths = ["src/onlyalpha/application/strategy_product.py"]
+[[constructors]]
+id = "K19"
+capability = "C28"
+symbol = "onlyalpha.application.private_strategy_research.OnlyPrivateStrategyResearchApplicationService"
+approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"]
+[[constructors]]
+id = "K20"
+capability = "C28"
+symbol = "onlyalpha.persistence.postgres.private_strategy_research_composition_store.OnlyPostgresPrivateStrategyResearchCompositionStore"
+approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"]
+[[constructors]]
+id = "K21"
+capability = "C30"
+symbol = "onlyalpha.quant_assets.private_strategy_composition.OnlyPrivateStrategyResearchCompositionVerifier"
+approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"]

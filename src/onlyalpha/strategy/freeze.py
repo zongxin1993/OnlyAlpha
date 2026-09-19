@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import NoReturn, Protocol
 
+from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.quant_assets.private import OnlyPrivateAssetKind
 from onlyalpha.quant_assets.private_strategy_composition import (
     OnlyPrivateStrategyResearchCompositionError,
@@ -63,6 +64,10 @@ class _DatasetStore(Protocol):
 
 class _StrategyCompositionVerifier(Protocol):
     def verify(self, run: OnlyResearchRun) -> None: ...
+
+
+class _ExactAuthoringGeneration(Protocol):
+    def load_calculation_registry_verified(self, fingerprint: str) -> OnlyCalculationRegistry: ...
 
 
 class OnlyStrategyFreezeDisposition(StrEnum):
@@ -257,6 +262,9 @@ class OnlyStrategyFreezeService:
         catalog: OnlyStrategyCatalogWriter,
         audit_time: Callable[[], datetime],
         strategy_composition_verifier: _StrategyCompositionVerifier | None = None,
+        authoring_generations: _ExactAuthoringGeneration | None = None,
+        strategy_admission_factory: Callable[[OnlyCalculationRegistry], OnlyStrategyTradingAdmissionService]
+        | None = None,
     ) -> None:
         self._runs = runs
         self._research_results = research_results
@@ -270,6 +278,8 @@ class OnlyStrategyFreezeService:
         self._catalog = catalog
         self._audit_time = audit_time
         self._strategy_composition_verifier = strategy_composition_verifier
+        self._authoring_generations = authoring_generations
+        self._strategy_admission_factory = strategy_admission_factory
 
     def freeze(self, request: OnlyStrategyFreezeRequest) -> OnlyStrategyFreezeOutcome:
         try:
@@ -298,6 +308,28 @@ class OnlyStrategyFreezeService:
                     self._fail(exc.code, exc.detail, exc)
                 except Exception as exc:
                     self._fail("STRATEGY_COMPOSITION_MISMATCH", str(exc), exc)
+            specification_resolver = self._specification_resolver
+            admission = self._admission
+            if (
+                run.authoring_provenance is not None
+                and run.authoring_provenance.private_asset_kind is OnlyPrivateAssetKind.STRATEGY
+            ):
+                generation = run.authoring_generation_fingerprint
+                if (
+                    self._authoring_generations is None
+                    or self._strategy_admission_factory is None
+                    or generation is None
+                ):
+                    self._fail(
+                        "STRATEGY_COMPOSITION_UNAVAILABLE",
+                        "Strategy-authored Run has no exact execution registry",
+                    )
+                try:
+                    exact_calculations = self._authoring_generations.load_calculation_registry_verified(generation)
+                    specification_resolver = self._specification_resolver.for_calculation_registry(exact_calculations)
+                    admission = self._strategy_admission_factory(exact_calculations)
+                except Exception as exc:
+                    self._fail("STRATEGY_COMPOSITION_UNAVAILABLE", "exact execution registry verification failed", exc)
             if run.state is not OnlyResearchRunState.COMPLETED or run.research_result_fingerprint is None:
                 self._fail("CANDIDATE_NOT_FOUND", "Research Run is not completed with exact Result evidence")
             if not run.calculation_execution_evidence_fingerprints:
@@ -309,7 +341,7 @@ class OnlyStrategyFreezeService:
             # identity, while the operational Run records the committed Result
             # content identity.  Re-resolve first, then verify both linkages.
             try:
-                resolution = self._specification_resolver.resolve(run.specification)
+                resolution = specification_resolver.resolve(run.specification)
             except Exception as exc:
                 self._fail("CANDIDATE_IDENTITY_MISMATCH", "Research Specification cannot be resolved exactly", exc)
             try:
@@ -408,7 +440,7 @@ class OnlyStrategyFreezeService:
                 dataset_definition.adjustment_type,
                 dataset_definition.adjustment_reference,
             )
-            admitted = self._admission.admit(
+            admitted = admission.admit(
                 candidate.graph,
                 signals,
                 market_input_contract,

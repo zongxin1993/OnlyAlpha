@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol, cast
 
 from onlyalpha.application.catalog_context import (
     OnlyExactCatalogContextQueryService,
     OnlyExactCatalogContextV1,
 )
+from onlyalpha.application.private_strategy_research import OnlyPrivateStrategyResearchOutcome
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId
 from onlyalpha.application.research_advisory import (
     OnlyGetResearchNearDuplicateAdvisoryV1,
@@ -38,6 +39,8 @@ from onlyalpha.kernel.command import (
     OnlyProductMutationAdmission,
 )
 from onlyalpha.kernel.query import OnlyProductQuery, OnlyProductQueryBinding, OnlyProductQueryDispatcher
+from onlyalpha.quant_assets.private import OnlyPrivateAssetRevisionReferenceV1
+from onlyalpha.quant_assets.private_strategy import OnlyPrivateStrategyResearchContextV1
 from onlyalpha.research.command.model import (
     OnlyResearchRunPage,
     OnlyResearchSubmitOutcome,
@@ -65,9 +68,33 @@ class OnlyCreateResearchRun(OnlyProductCommand):
 
 
 @dataclass(frozen=True, slots=True)
+class OnlySubmitPrivateStrategyResearch(OnlyProductCommand):
+    submission_key: OnlyProductCommandId
+    strategy_revision: OnlyPrivateAssetRevisionReferenceV1
+    research_context: OnlyPrivateStrategyResearchContextV1
+    authoring_generation_fingerprint: str
+
+    def __post_init__(self) -> None:
+        if len(self.authoring_generation_fingerprint) != 64 or any(
+            character not in "0123456789abcdef" for character in self.authoring_generation_fingerprint
+        ):
+            raise ValueError("AUTHORING_EXECUTION_GENERATION_IDENTITY_INVALID")
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyCancelResearchRun(OnlyProductCommand):
     run_id: OnlyResearchRunId
     command_id: OnlyProductCommandId | None = None
+
+
+class _PrivateStrategyResearchSubmission(Protocol):
+    def submit_reference(
+        self,
+        submission_key: OnlyProductCommandId,
+        strategy_revision: OnlyPrivateAssetRevisionReferenceV1,
+        research_context: OnlyPrivateStrategyResearchContextV1,
+        authoring_generation_fingerprint: str,
+    ) -> OnlyPrivateStrategyResearchOutcome: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +118,9 @@ class OnlyResearchProductBoundary:
     commands: OnlyProductCommandDispatcher
     queries: OnlyProductQueryDispatcher
 
+    def submit_private_strategy_research(self, command: OnlySubmitPrivateStrategyResearch) -> OnlyResearchSubmitOutcome:
+        return cast(OnlyResearchSubmitOutcome, self.commands.dispatch(command))
+
 
 def only_compose_research_product_boundary(
     *,
@@ -101,6 +131,7 @@ def only_compose_research_product_boundary(
     search_commands: OnlySearchProductCommandServiceV1 | None = None,
     search_queries: OnlySearchProductQueryServiceV1 | None = None,
     near_duplicate_queries: OnlyResearchNearDuplicateQueryService | None = None,
+    strategy_research: _PrivateStrategyResearchSubmission | None = None,
 ) -> OnlyResearchProductBoundary:
     """Freeze the one legal Research Product binding topology."""
 
@@ -113,6 +144,17 @@ def only_compose_research_product_boundary(
 
     def cancel(command: OnlyCancelResearchRun) -> OnlyResearchRun:
         return commands.request_research_run_cancellation(command.run_id, command.command_id)
+
+    def submit_private_strategy(command: OnlySubmitPrivateStrategyResearch) -> OnlyResearchSubmitOutcome:
+        if strategy_research is None:  # excluded from bindings below
+            raise RuntimeError("PRIVATE_STRATEGY_RESEARCH_AUTHORITY_UNAVAILABLE")
+        result = strategy_research.submit_reference(
+            command.submission_key,
+            command.strategy_revision,
+            command.research_context,
+            command.authoring_generation_fingerprint,
+        )
+        return result.submission
 
     def get(query: OnlyGetResearchRun) -> OnlyResearchRun:
         return queries.get_run(query.run_id)
@@ -185,6 +227,8 @@ def only_compose_research_product_boundary(
         OnlyProductCommandBinding(OnlyCreateResearchRun, create),
         OnlyProductCommandBinding(OnlyCancelResearchRun, cancel),
     )
+    if strategy_research is not None:
+        command_bindings += (OnlyProductCommandBinding(OnlySubmitPrivateStrategyResearch, submit_private_strategy),)
     if search_commands is not None:
         command_bindings += (
             OnlyProductCommandBinding(OnlySubmitSymbolicSearchExperimentV1, submit_symbolic),

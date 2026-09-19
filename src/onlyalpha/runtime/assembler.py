@@ -31,6 +31,7 @@ class OnlyComponentFactoryRegistries:
     fee_reconciliation_policies: OnlyFeeReconciliationPolicyRegistry
     runtime_persistence_stores: OnlyRuntimePersistenceStoreFactory
     market_product_resources: OnlyMarketProductResourceResolver | None = None
+    authoring_generation_fingerprint: str | None = None
 
 
 class OnlyEngineRunAssembler:

@@ -53,6 +53,13 @@ class SubmitResearchRunRequest(_RunDto):
     authoring_generation_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
+class SubmitPrivateStrategyResearchRequest(_RunDto):
+    strategy_id: str
+    strategy_revision_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    research_context: dict[str, JsonValue]
+    authoring_generation_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class ResearchRunFailureDto(_RunDto):
     phase: str
     code: str

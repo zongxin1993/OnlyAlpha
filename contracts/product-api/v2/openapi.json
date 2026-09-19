@@ -5166,6 +5166,40 @@
         "title": "StrategyPromotionResponse",
         "type": "object"
       },
+      "SubmitPrivateStrategyResearchRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "authoring_generation_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Authoring Generation Fingerprint",
+            "type": "string"
+          },
+          "research_context": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Research Context",
+            "type": "object"
+          },
+          "strategy_id": {
+            "title": "Strategy Id",
+            "type": "string"
+          },
+          "strategy_revision_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Strategy Revision Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "strategy_id",
+          "strategy_revision_fingerprint",
+          "research_context",
+          "authoring_generation_fingerprint"
+        ],
+        "title": "SubmitPrivateStrategyResearchRequest",
+        "type": "object"
+      },
       "SubmitResearchRunRequest": {
         "additionalProperties": false,
         "properties": {
@@ -7985,6 +8019,116 @@
           "schema_version": 1,
           "tool_class": "RESEARCH_RUN_SUBMIT"
         }
+      }
+    },
+    "/api/v2/research/runs/private-strategy": {
+      "post": {
+        "operationId": "submit_private_strategy_research_v2",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitPrivateStrategyResearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmitResearchRunResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Idempotency-Key": {
+                "description": "Exact admitted Product Command identity",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchRunErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchRunErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchRunErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchRunErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchRunErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Submit Private Strategy Run",
+        "tags": [
+          "research-runs"
+        ]
       }
     },
     "/api/v2/research/runs/{run_id}": {

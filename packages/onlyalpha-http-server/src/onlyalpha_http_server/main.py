@@ -26,6 +26,7 @@ from onlyalpha_runtime_generation_manager.catalog_context import (
 )
 
 from onlyalpha.application.catalog_context import OnlyExactCatalogContextQueryService
+from onlyalpha.application.private_strategy_research import OnlyPrivateStrategyResearchApplicationService
 from onlyalpha.application.product_boundary import only_compose_research_product_boundary
 from onlyalpha.application.qualification_product import (
     OnlyQualificationProductService,
@@ -77,11 +78,20 @@ from onlyalpha.persistence.postgres import (
 )
 from onlyalpha.persistence.postgres.backtest_store import OnlyPostgresBacktestStore
 from onlyalpha.persistence.postgres.private_asset_store import OnlyPostgresPrivateAssetStore
+from onlyalpha.persistence.postgres.private_strategy_research_composition_store import (
+    OnlyPostgresPrivateStrategyResearchCompositionStore,
+)
 from onlyalpha.persistence.postgres.research_source_cut_store import OnlyPostgresResearchSourceCutAuthority
 from onlyalpha.persistence.postgres.strategy_product_store import OnlyPostgresStrategyProductStore
+from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration
 from onlyalpha.quant_assets.private import OnlyPrivateAssetRevisionBindingResolver
+from onlyalpha.quant_assets.private_strategy_composition import (
+    OnlyPrivateStrategyResearchComposer,
+    OnlyPrivateStrategyResearchCompositionVerifier,
+)
 from onlyalpha.research.agent.source_cut import OnlyAgentProvenanceClosedCutAuthority
 from onlyalpha.research.artifact.reader import OnlyResearchArtifactProfileReader
+from onlyalpha.research.calculation.execution_evidence import OnlyResearchCalculationExecutionEvidenceStore
 from onlyalpha.research.calculation.result_store import OnlyParquetResearchCalculationResultStore
 from onlyalpha.research.command.query import OnlyResearchRunQueryService
 from onlyalpha.research.command.service import OnlyResearchCommandService
@@ -561,6 +571,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         exact_catalog_reader,
     )
     run_store = OnlyPostgresResearchRunStore(postgres.dsn, operational_options)
+    private_assets = OnlyPostgresPrivateAssetStore(postgres.dsn, operational_options)
+    private_asset_revisions = OnlyPrivateAssetRevisionBindingResolver(private_assets)
+    authoring_generations = OnlyVerifiedAuthoringGenerationReader(
+        OnlyAuthoringExecutionGenerationStore(
+            args.authoring_generation_root or layout.research_root / "authoring-generations"
+        ),
+        private_asset_revisions,
+    )
     product_commands = OnlyPostgresProductCommandAuthority(postgres.dsn, operational_options)
     calculations = OnlyCalculationRegistry()
     data_sources = OnlyDataSourceFactoryRegistry()
@@ -640,6 +658,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             resolver=resolver,
             dataset_store=dataset_store,
             now_utc=only_system_utc_now,
+            authoring_generation_resolver=authoring_generations,
         )
         readiness = OnlyKernelResearchReadinessProjection(kernel, verification.evidence)
         artifact_reader = OnlyResearchArtifactProfileReader(layout.research_artifact_root)
@@ -648,6 +667,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             layout.research_calculation_result_root,
             dataset_store,
         )
+        execution_evidence = OnlyResearchCalculationExecutionEvidenceStore(layout.research_root)
         legacy_statistics_results = OnlyParquetResearchStatisticsResultStore(
             layout.research_statistics_result_root,
             calculation_results,
@@ -695,12 +715,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             search_contexts=cast(Any, _SearchContextReader(symbolic_contexts, parameter_contexts)),
         )
         memory_revisions = OnlyExperimentMemoryRevisionStore(layout.experiment_memory_projection_root)
-        authoring_generations = OnlyVerifiedAuthoringGenerationReader(
-            OnlyAuthoringExecutionGenerationStore(
-                args.authoring_generation_root or layout.research_root / "authoring-generations"
-            ),
-            OnlyPrivateAssetRevisionBindingResolver(OnlyPostgresPrivateAssetStore(postgres.dsn, operational_options)),
-        )
         memory_builder, advisory_builder = _compose_experiment_memory_projection_builder(
             layout=layout,
             postgres_dsn=postgres.dsn,
@@ -744,6 +758,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             memory_builder=memory_builder,
             memory_revisions=memory_revisions,
         )
+        strategy_compositions = OnlyPostgresPrivateStrategyResearchCompositionStore(postgres.dsn, operational_options)
+        strategy_research_composer = OnlyPrivateStrategyResearchComposer(
+            private_assets,
+            OnlyQuantAssetCatalogGeneration(()),
+        )
+        strategy_research = OnlyPrivateStrategyResearchApplicationService(
+            composer=strategy_research_composer,
+            compositions=strategy_compositions,
+            definitions=definition_resolver,
+            research=command,
+            authoring_generations=authoring_generations,
+        )
         research_queries = OnlyResearchRunQueryService(run_store)
         if startup_status.state is OnlyKernelState.FAILED:
             unavailable = _UnavailableProductAuthority()
@@ -777,6 +803,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 specification_resolver=resolver,
                 calculations=calculations,
                 audit_time=only_system_utc_now,
+                strategy_composition_verifier=OnlyPrivateStrategyResearchCompositionVerifier(
+                    strategy_research_composer,
+                    strategy_compositions,
+                    definition_resolver,
+                    authoring_generations=authoring_generations,
+                    execution_evidence=execution_evidence,
+                ),
+                authoring_generations=authoring_generations,
             )
             strategy_freeze = OnlyStrategyFreezeProductService(
                 freeze=freeze,
@@ -847,6 +881,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             search_commands=search_commands,
             search_queries=search_queries,
             near_duplicate_queries=near_duplicate_queries,
+            strategy_research=strategy_research,
         )
         app = create_product_app(
             artifact_reader,

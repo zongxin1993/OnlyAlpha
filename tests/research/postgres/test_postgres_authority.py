@@ -51,6 +51,7 @@ from onlyalpha.persistence.postgres import (
     OnlyPostgresSchemaVerifier,
 )
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
+from onlyalpha.persistence.postgres.research_run_store import _COLUMNS
 from onlyalpha.quant_assets import OnlyPrivateAssetKind
 from onlyalpha.research.command import OnlyResearchRunPageCursor
 from onlyalpha.research.execution import (
@@ -607,6 +608,21 @@ def test_m19_preserves_legacy_runs_as_explicitly_unbound_provenance(postgres_dsn
     assert OnlyPostgresResearchRunStore(postgres_dsn).load(legacy.run_id).authoring_provenance is None
 
 
+def test_current_research_run_store_fails_closed_before_private_strategy_composition_schema(
+    postgres_dsn: str, tmp_path: Path
+) -> None:
+    assert copy_migrations_through(tmp_path, CURRENT_MIGRATIONS[-2]) == CURRENT_MIGRATIONS[:-1]
+    OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path).migrate()
+    run = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(
+        _queued("00000000-0000-4000-8000-000000000421"),
+        columns=_COLUMNS[:-1],
+    )
+    cancelled = run.transition(OnlyResearchRunState.CANCELLED, at=NOW + timedelta(seconds=1))
+
+    with pytest.raises(OnlyResearchRunStoreUnavailableError):
+        OnlyPostgresResearchRunStore(postgres_dsn).commit_transition(run, cancelled)
+
+
 def test_authoring_provenance_survives_postgres_restart_read_and_rejects_corruption(postgres_dsn: str) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     expected = replace(
@@ -632,7 +648,10 @@ def test_m12_backfills_legacy_submission_exactly_and_retires_old_authority(postg
     for migration_id in (M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11):
         _copy_migrations(tmp_path, migration_id)
     OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path).migrate()
-    run = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued("00000000-0000-4000-8000-000000000425"))
+    run = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(
+        _queued("00000000-0000-4000-8000-000000000425"),
+        columns=_COLUMNS[:-2],
+    )
     key = OnlyProductCommandId("00000000-0000-4000-8000-000000000405")
     with psycopg.connect(postgres_dsn) as connection:
         connection.execute(

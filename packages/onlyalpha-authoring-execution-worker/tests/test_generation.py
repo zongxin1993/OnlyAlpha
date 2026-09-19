@@ -2,6 +2,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from onlyalpha_authoring_execution_worker import (
@@ -24,7 +25,6 @@ from onlyalpha.quant_assets import (
     OnlyPrivateFactorDraft,
     OnlyPrivateFactorExecutableClosureV1,
     OnlyPrivateFactorRevision,
-    OnlyPrivateStrategyDraft,
     OnlyPrivateStrategyRevision,
     OnlyQuantAssetCatalogGeneration,
     only_discover_quant_asset_providers,
@@ -189,6 +189,12 @@ def test_generation_owns_exact_catalog_and_process_composition(tmp_path: Path) -
         generation.descriptor()
     )
     assert reader.load_verified(generation.fingerprint) == generation.provenance
+    assert only_canonical_json(
+        reader.load_catalog_verified(generation.fingerprint).descriptor()
+    ) == only_canonical_json(generation.catalog.descriptor())
+    assert reader.resolve(generation.fingerprint, _native_specification()).specification_fingerprint == (
+        _native_specification().specification_fingerprint
+    )
     assert only_canonical_json(reader.load_descriptor_verified(generation.fingerprint)) == only_canonical_json(
         generation.descriptor()
     )
@@ -419,12 +425,11 @@ def test_factory_rejects_duplicate_provider_mismatched_closure_and_strategy_exec
             base_catalog=OnlyQuantAssetCatalogGeneration(()),
         )
 
-    strategy = OnlyPrivateStrategyRevision.from_draft(
-        OnlyPrivateStrategyDraft(
-            strategy_id="private.strategy.momentum",
-            semantic_version="1",
-            definition={"schema_version": 1},
-        )
+    strategy = SimpleNamespace(
+        strategy_id="private.strategy.momentum",
+        revision_fingerprint="a" * 64,
+        definition_fingerprint="b" * 64,
+        semantic_version="1",
     )
     with pytest.raises(ValueError, match="AUTHORING_EXECUTION_PRIVATE_ASSET_KIND_UNSUPPORTED"):
         OnlyAuthoringExecutionGeneration.create_verified(

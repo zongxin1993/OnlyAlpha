@@ -18,12 +18,17 @@ from onlyalpha.quant_assets.private import (
     OnlyPrivateFactorRevision,
     OnlyPrivateStrategyRevision,
 )
+from onlyalpha.research.calculation.execution_evidence import OnlyResearchCalculationExecutionEvidenceStore
 from onlyalpha.research.definition.model import (
     OnlyResearchDatasetSelection,
     OnlyResearchDefinition,
     OnlyResearchUniverseKind,
 )
-from onlyalpha.research.definition.resolver import OnlyResearchDefinitionResolver
+from onlyalpha.research.definition.resolver import (
+    OnlyResearchDefinitionResolution,
+    OnlyResearchDefinitionResolver,
+)
+from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 
 from .private_factor_execution import OnlyPrivateFactorProviderSnapshotEntryV1
 from .private_strategy import (
@@ -185,6 +190,14 @@ class OnlyPrivateStrategyResearchCompositionResult:
         return self.composition.research_definition_fingerprint
 
 
+class _ExactAuthoringGeneration(Protocol):
+    def load_verified(self, fingerprint: str) -> OnlyResearchAuthoringProvenance: ...
+
+    def load_catalog_verified(self, fingerprint: str) -> OnlyQuantAssetCatalogGeneration: ...
+
+    def load_calculation_registry_verified(self, fingerprint: str) -> OnlyCalculationRegistry: ...
+
+
 class OnlyPrivateStrategyResearchCompositionVerifier:
     """Re-derive a persisted Composition before a Strategy Freeze can use it."""
 
@@ -193,10 +206,14 @@ class OnlyPrivateStrategyResearchCompositionVerifier:
         composer: OnlyPrivateStrategyResearchComposer,
         store: OnlyPrivateStrategyResearchCompositionStore,
         definition_resolver: OnlyResearchDefinitionResolver,
+        authoring_generations: _ExactAuthoringGeneration | None = None,
+        execution_evidence: OnlyResearchCalculationExecutionEvidenceStore | None = None,
     ) -> None:
         self._composer = composer
         self._store = store
         self._definition_resolver = definition_resolver
+        self._authoring_generations = authoring_generations
+        self._execution_evidence = execution_evidence
 
     def verify(self, run: object) -> None:
         fingerprint = getattr(run, "strategy_research_composition_fingerprint", None)
@@ -205,13 +222,50 @@ class OnlyPrivateStrategyResearchCompositionVerifier:
         try:
             composition = self._store.load(fingerprint)
             context = self._store.load_context(fingerprint)
+            composer = self._composer
+            definitions = self._definition_resolver
+            exact_calculations: OnlyCalculationRegistry | None = None
+            authoring_generation: str | None = None
+            if self._authoring_generations is not None:
+                authoring_generation = getattr(run, "authoring_generation_fingerprint", None)
+                if not isinstance(authoring_generation, str):
+                    _fail(
+                        "PRIVATE_STRATEGY_COMPOSITION_MISMATCH",
+                        "Strategy-authored Run has no exact execution generation",
+                    )
+                provenance = self._authoring_generations.load_verified(authoring_generation)
+                catalog = self._authoring_generations.load_catalog_verified(authoring_generation)
+                if (
+                    catalog.generation_fingerprint != provenance.catalog_generation_fingerprint
+                    or composition.catalog_generation_fingerprint != provenance.catalog_generation_fingerprint
+                ):
+                    _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Composition execution context differs from Run")
+                composer = composer.for_catalog(catalog)
+                exact_calculations = self._authoring_generations.load_calculation_registry_verified(
+                    authoring_generation
+                )
+                definitions = definitions.for_calculation_registry(exact_calculations)
             reference = OnlyPrivateAssetRevisionReferenceV1(
                 OnlyPrivateAssetKind.STRATEGY,
                 composition.private_strategy_id,
                 composition.private_strategy_revision_fingerprint,
             )
-            result = self._composer.verify(composition, reference, context)
-            resolved = self._definition_resolver.resolve(result.research_definition)
+            result = composer.verify(composition, reference, context)
+            resolved = definitions.resolve(result.research_definition)
+            evidence_refs = getattr(run, "calculation_execution_evidence_fingerprints", ())
+            if evidence_refs:
+                if self._execution_evidence is None or exact_calculations is None:
+                    _fail(
+                        "PRIVATE_STRATEGY_COMPOSITION_UNAVAILABLE",
+                        "exact Strategy Research execution evidence authority is unavailable",
+                    )
+                assert authoring_generation is not None
+                self._verify_execution_evidence(
+                    evidence_refs,
+                    resolved,
+                    exact_calculations,
+                    authoring_generation,
+                )
             run_specification_fingerprint = getattr(run, "specification_fingerprint", None)
             if resolved.specification.specification_fingerprint != run_specification_fingerprint:
                 _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Run Specification differs from Composition")
@@ -219,6 +273,56 @@ class OnlyPrivateStrategyResearchCompositionVerifier:
             raise
         except Exception as exc:
             _fail("PRIVATE_STRATEGY_COMPOSITION_UNAVAILABLE", str(exc), exc)
+
+    def _verify_execution_evidence(
+        self,
+        evidence_refs: object,
+        resolved: OnlyResearchDefinitionResolution,
+        calculations: OnlyCalculationRegistry,
+        authoring_generation_fingerprint: str,
+    ) -> None:
+        if not isinstance(evidence_refs, tuple) or not all(isinstance(item, str) for item in evidence_refs):
+            _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Research Execution Evidence references are invalid")
+        for evidence_ref in evidence_refs:
+            assert self._execution_evidence is not None
+            try:
+                evidence = self._execution_evidence.load_verified(evidence_ref)
+            except Exception as exc:
+                _fail("PRIVATE_STRATEGY_COMPOSITION_UNAVAILABLE", str(exc), exc)
+            if evidence.authoring_generation_fingerprint != authoring_generation_fingerprint:
+                _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Execution Evidence names another generation")
+            lineage = next(
+                (
+                    item
+                    for item in resolved.specification_resolution.candidates
+                    if item.calculation_fingerprint == evidence.calculation_fingerprint
+                    and item.graph_fingerprint == evidence.calculation_graph_fingerprint
+                ),
+                None,
+            )
+            if lineage is None:
+                _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Execution Evidence names another Calculation Graph")
+            expected: dict[str, str] = {}
+            for node in lineage.graph.ordered_nodes:
+                try:
+                    registration = calculations.resolve(
+                        node.definition.kind,
+                        node.definition.type_id,
+                        node.definition.semantic_version,
+                        OnlyCalculationBackendKind.RESEARCH,
+                    )
+                except (TypeError, ValueError) as exc:
+                    _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", str(exc), exc)
+                manifest = registration.implementation_manifest
+                if manifest is None:
+                    _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Research implementation identity is unavailable")
+                expected[node.fingerprint] = manifest.implementation_fingerprint
+            actual = {
+                item.node_fingerprint: item.research_implementation_fingerprint
+                for item in evidence.research_implementation_bindings
+            }
+            if actual != expected:
+                _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Execution Evidence generation differs from Run")
 
 
 class OnlyPrivateStrategyResearchComposer:
@@ -237,6 +341,9 @@ class OnlyPrivateStrategyResearchComposer:
     @property
     def catalog(self) -> OnlyQuantAssetCatalogGeneration:
         return self._catalog
+
+    def for_catalog(self, catalog: OnlyQuantAssetCatalogGeneration) -> OnlyPrivateStrategyResearchComposer:
+        return OnlyPrivateStrategyResearchComposer(self._assets, catalog)
 
     def compose(
         self,

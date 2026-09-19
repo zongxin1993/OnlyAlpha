@@ -12,8 +12,11 @@ from onlyalpha.application.product_boundary import (
     OnlyGetResearchRun,
     OnlyListResearchRuns,
     OnlyResearchProductBoundary,
+    OnlySubmitPrivateStrategyResearch,
 )
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId
+from onlyalpha.quant_assets.private import OnlyPrivateAssetKind, OnlyPrivateAssetRevisionReferenceV1
+from onlyalpha.quant_assets.private_strategy import OnlyPrivateStrategyResearchContextV1
 from onlyalpha.research.command.errors import OnlyResearchCommandError, OnlyResearchCommandPhase
 from onlyalpha.research.command.model import (
     OnlyResearchRunPage,
@@ -28,6 +31,7 @@ from .run_schema import (
     ResearchRunErrorEnvelopeDto,
     ResearchRunExecutionEvidenceDto,
     ResearchRunPageDto,
+    SubmitPrivateStrategyResearchRequest,
     SubmitResearchRunRequest,
     SubmitResearchRunResponse,
 )
@@ -169,6 +173,38 @@ def create_run_router(product: OnlyResearchProductBoundary) -> APIRouter:
         idempotency_key: RequiredIdempotencyKeyHeader,
     ) -> SubmitResearchRunResponse:
         return submit(request, response, idempotency_key)
+
+    @router.post(
+        "/private-strategy",
+        operation_id="submit_private_strategy_research_v2",
+        status_code=202,
+        response_model=SubmitResearchRunResponse,
+        responses=_SUBMIT_RESPONSES,
+    )
+    def submit_private_strategy_run(
+        request: SubmitPrivateStrategyResearchRequest,
+        response: Response,
+        idempotency_key: RequiredIdempotencyKeyHeader,
+    ) -> SubmitResearchRunResponse:
+        submission_key = _submission_key(idempotency_key)
+        outcome = _expected_result(
+            product.submit_private_strategy_research(
+                OnlySubmitPrivateStrategyResearch(
+                    submission_key,
+                    OnlyPrivateAssetRevisionReferenceV1(
+                        OnlyPrivateAssetKind.STRATEGY,
+                        request.strategy_id,
+                        request.strategy_revision_fingerprint,
+                    ),
+                    OnlyPrivateStrategyResearchContextV1.from_dict(request.research_context),
+                    request.authoring_generation_fingerprint,
+                )
+            ),
+            OnlyResearchSubmitOutcome,
+        )
+        response.headers["Location"] = f"/api/v2/research/runs/{outcome.run.run_id.value}"
+        response.headers["Idempotency-Key"] = submission_key.value
+        return SubmitResearchRunResponse.from_model(outcome)
 
     @router.get(
         "/{run_id}",

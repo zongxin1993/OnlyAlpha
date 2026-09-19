@@ -147,6 +147,14 @@ class OnlyResearchDefinitionResolver:
 
         return self._universes
 
+    def for_calculation_registry(self, registry: OnlyCalculationRegistry) -> OnlyResearchDefinitionResolver:
+        return OnlyResearchDefinitionResolver(
+            registry,
+            self._datasets,
+            universe_resolver=self._universes,
+            max_candidates=self._max_candidates,
+        )
+
     def resolve(self, definition: OnlyResearchDefinition) -> OnlyResearchDefinitionResolution:
         if not isinstance(definition, OnlyResearchDefinition):
             self._fail(

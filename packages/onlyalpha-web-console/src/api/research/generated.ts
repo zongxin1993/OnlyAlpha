@@ -518,6 +518,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/research/runs/private-strategy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit Private Strategy Run */
+        post: operations["submit_private_strategy_research_v2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/research/runs/{run_id}": {
         parameters: {
             query?: never;
@@ -2795,6 +2812,19 @@ export interface components {
             /** To Stage */
             to_stage: string;
         };
+        /** SubmitPrivateStrategyResearchRequest */
+        SubmitPrivateStrategyResearchRequest: {
+            /** Authoring Generation Fingerprint */
+            authoring_generation_fingerprint: string;
+            /** Research Context */
+            research_context: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Strategy Id */
+            strategy_id: string;
+            /** Strategy Revision Fingerprint */
+            strategy_revision_fingerprint: string;
+        };
         /** SubmitResearchRunRequest */
         SubmitResearchRunRequest: {
             /** Authoring Generation Fingerprint */
@@ -4535,6 +4565,88 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["SubmitResearchRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    /** @description Exact admitted Product Command identity */
+                    "Idempotency-Key"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmitResearchRunResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    submit_private_strategy_research_v2: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitPrivateStrategyResearchRequest"];
             };
         };
         responses: {
