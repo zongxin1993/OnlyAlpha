@@ -24,11 +24,6 @@ from onlyalpha.research.definition.model import (
     OnlyResearchDefinition,
     OnlyResearchUniverseKind,
 )
-from onlyalpha.research.definition.resolver import (
-    OnlyResearchDefinitionResolution,
-    OnlyResearchDefinitionResolver,
-)
-from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 from onlyalpha.research.run import OnlyResearchRun
 from onlyalpha.research.run.generation import OnlyResearchDefinitionRuntimeResolutionV1
 from onlyalpha.runtime.generation import OnlyRuntimeGenerationManifest
@@ -193,14 +188,6 @@ class OnlyPrivateStrategyResearchCompositionResult:
         return self.composition.research_definition_fingerprint
 
 
-class _ExactAuthoringGeneration(Protocol):
-    def load_verified(self, fingerprint: str) -> OnlyResearchAuthoringProvenance: ...
-
-    def load_catalog_verified(self, fingerprint: str) -> OnlyQuantAssetCatalogGeneration: ...
-
-    def load_calculation_registry_verified(self, fingerprint: str) -> OnlyCalculationRegistry: ...
-
-
 class _ExactRuntimeGeneration(Protocol):
     def require_work_binding(self, work_id: str) -> object: ...
 
@@ -220,23 +207,17 @@ class OnlyPrivateStrategyResearchCompositionVerifier:
         self,
         composer: OnlyPrivateStrategyResearchComposer,
         store: OnlyPrivateStrategyResearchCompositionStore,
-        definition_resolver: OnlyResearchDefinitionResolver,
-        authoring_generations: _ExactAuthoringGeneration | None = None,
-        execution_evidence: OnlyResearchCalculationExecutionEvidenceStore | None = None,
-        runtime_generations: _ExactRuntimeGeneration | None = None,
-        runtime_definition_resolver: _ExactRuntimeDefinitionResolver | None = None,
-        calculations: OnlyCalculationRegistry | None = None,
+        execution_evidence: OnlyResearchCalculationExecutionEvidenceStore,
+        runtime_generations: _ExactRuntimeGeneration,
+        runtime_definition_resolver: _ExactRuntimeDefinitionResolver,
     ) -> None:
         self._composer = composer
         self._store = store
-        self._definition_resolver = definition_resolver
-        self._authoring_generations = authoring_generations
         self._execution_evidence = execution_evidence
         self._runtime_generations = runtime_generations
         self._runtime_definition_resolver = runtime_definition_resolver
-        self._calculations = calculations
 
-    def verify(self, run: OnlyResearchRun) -> OnlyResearchDefinitionRuntimeResolutionV1 | None:
+    def verify(self, run: OnlyResearchRun) -> tuple[str, OnlyResearchDefinitionRuntimeResolutionV1]:
         fingerprint = run.strategy_research_composition_fingerprint
         if not isinstance(fingerprint, str):
             _fail("PRIVATE_STRATEGY_COMPOSITION_UNAVAILABLE", "Strategy-authored Run has no Composition reference")
@@ -244,110 +225,51 @@ class OnlyPrivateStrategyResearchCompositionVerifier:
             composition = self._store.load(fingerprint)
             context = self._store.load_context(fingerprint)
             composer = self._composer
-            definitions = self._definition_resolver
-            exact_calculations: OnlyCalculationRegistry | None = None
-            authoring_generation: str | None = None
-            runtime_manifest: OnlyRuntimeGenerationManifest | None = None
-            runtime_generation: str | None = None
-            if self._runtime_generations is not None:
-                binding = self._runtime_generations.require_work_binding(run.run_id.value)
-                runtime_generation = getattr(binding, "runtime_generation_fingerprint", None)
-                if not isinstance(runtime_generation, str):
-                    _fail("PRIVATE_STRATEGY_COMPOSITION_UNAVAILABLE", "Strategy Run has no exact Runtime binding")
-                runtime_manifest = self._runtime_generations.require_runtime_generation(runtime_generation)
-                if composition.catalog_generation_fingerprint != runtime_manifest.catalog_generation_fingerprint:
-                    _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Composition Catalog differs from Runtime Catalog")
-                composer_result = composer.verify(
-                    composition,
-                    OnlyPrivateAssetRevisionReferenceV1(
-                        OnlyPrivateAssetKind.STRATEGY,
-                        composition.private_strategy_id,
-                        composition.private_strategy_revision_fingerprint,
-                    ),
-                    context,
-                    runtime_manifest=runtime_manifest,
-                )
-                if self._runtime_definition_resolver is None:
-                    _fail(
-                        "PRIVATE_STRATEGY_COMPOSITION_UNAVAILABLE", "exact Runtime Definition resolver is unavailable"
-                    )
-                exact = self._runtime_definition_resolver.resolve_definition(
-                    runtime_generation,
-                    composer_result.research_definition,
-                )
-                if (
-                    exact.research_definition_fingerprint != composition.research_definition_fingerprint
-                    or exact.specification_fingerprint != getattr(run, "specification_fingerprint", None)
-                    or exact.admission_evidence.fingerprint != getattr(run, "admission_resolution_fingerprint", None)
-                    or exact.private_factor_bindings
-                    != tuple(item.to_dict() for item in runtime_manifest.private_factor_bindings)
-                ):
-                    _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "exact Runtime Definition resolution differs")
-                self._verify_runtime_implementations(exact, runtime_manifest)
-                evidence_refs = getattr(run, "calculation_execution_evidence_fingerprints", ())
-                if evidence_refs:
-                    self._verify_execution_evidence(evidence_refs, exact, runtime_manifest)
-                return exact
-            if self._authoring_generations is not None:
-                authoring_generation = getattr(run, "authoring_generation_fingerprint", None)
-                if not isinstance(authoring_generation, str):
-                    _fail(
-                        "PRIVATE_STRATEGY_COMPOSITION_MISMATCH",
-                        "Strategy-authored Run has no exact execution generation",
-                    )
-                provenance = self._authoring_generations.load_verified(authoring_generation)
-                catalog = self._authoring_generations.load_catalog_verified(authoring_generation)
-                if (
-                    catalog.generation_fingerprint != provenance.catalog_generation_fingerprint
-                    or composition.catalog_generation_fingerprint != provenance.catalog_generation_fingerprint
-                ):
-                    _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Composition execution context differs from Run")
-                composer = composer.for_catalog(catalog)
-                exact_calculations = self._authoring_generations.load_calculation_registry_verified(
-                    authoring_generation
-                )
-                definitions = definitions.for_calculation_registry(exact_calculations)
-            reference = OnlyPrivateAssetRevisionReferenceV1(
-                OnlyPrivateAssetKind.STRATEGY,
-                composition.private_strategy_id,
-                composition.private_strategy_revision_fingerprint,
+            binding = self._runtime_generations.require_work_binding(run.run_id.value)
+            runtime_generation = getattr(binding, "runtime_generation_fingerprint", None)
+            if not isinstance(runtime_generation, str):
+                _fail("PRIVATE_STRATEGY_COMPOSITION_UNAVAILABLE", "Strategy Run has no exact Runtime binding")
+            runtime_manifest = self._runtime_generations.require_runtime_generation(runtime_generation)
+            if composition.catalog_generation_fingerprint != runtime_manifest.catalog_generation_fingerprint:
+                _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Composition Catalog differs from Runtime Catalog")
+            composer_result = composer.verify(
+                composition,
+                OnlyPrivateAssetRevisionReferenceV1(
+                    OnlyPrivateAssetKind.STRATEGY,
+                    composition.private_strategy_id,
+                    composition.private_strategy_revision_fingerprint,
+                ),
+                context,
+                runtime_manifest=runtime_manifest,
             )
-            result = composer.verify(composition, reference, context)
-            resolved = definitions.resolve(result.research_definition)
+            exact = self._runtime_definition_resolver.resolve_definition(
+                runtime_generation,
+                composer_result.research_definition,
+            )
+            if (
+                exact.research_definition_fingerprint != composition.research_definition_fingerprint
+                or exact.specification_fingerprint != getattr(run, "specification_fingerprint", None)
+                or exact.admission_evidence.fingerprint != getattr(run, "admission_resolution_fingerprint", None)
+                or exact.private_factor_bindings
+                != tuple(item.to_dict() for item in runtime_manifest.private_factor_bindings)
+            ):
+                _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "exact Runtime Definition resolution differs")
+            self._verify_runtime_implementations(exact, runtime_manifest)
             evidence_refs = getattr(run, "calculation_execution_evidence_fingerprints", ())
             if evidence_refs:
-                if self._execution_evidence is None or exact_calculations is None:
-                    _fail(
-                        "PRIVATE_STRATEGY_COMPOSITION_UNAVAILABLE",
-                        "exact Strategy Research execution evidence authority is unavailable",
-                    )
-                assert authoring_generation is not None
-                self._verify_execution_evidence(
-                    evidence_refs,
-                    resolved,
-                    exact_calculations,
-                    authoring_generation,
-                )
-            run_specification_fingerprint = getattr(run, "specification_fingerprint", None)
-            if resolved.specification.specification_fingerprint != run_specification_fingerprint:
-                _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Run Specification differs from Composition")
+                self._verify_execution_evidence(evidence_refs, exact, runtime_manifest)
+            return runtime_generation, exact
         except OnlyPrivateStrategyResearchCompositionError:
             raise
         except Exception as exc:
             _fail("PRIVATE_STRATEGY_COMPOSITION_UNAVAILABLE", str(exc), exc)
-        return None
 
     def _verify_runtime_implementations(
         self,
-        resolved: OnlyResearchDefinitionResolution | OnlyResearchDefinitionRuntimeResolutionV1,
+        resolved: OnlyResearchDefinitionRuntimeResolutionV1,
         manifest: OnlyRuntimeGenerationManifest,
     ) -> None:
-        candidates = (
-            resolved.candidates
-            if isinstance(resolved, OnlyResearchDefinitionRuntimeResolutionV1)
-            else resolved.specification_resolution.candidates
-        )
-        for lineage in candidates:
+        for lineage in resolved.candidates:
             for node in lineage.graph.ordered_nodes:
                 backends = (
                     (OnlyCalculationBackendKind.RESEARCH.value,)
@@ -374,9 +296,8 @@ class OnlyPrivateStrategyResearchCompositionVerifier:
     def _verify_execution_evidence(
         self,
         evidence_refs: object,
-        resolved: OnlyResearchDefinitionResolution | OnlyResearchDefinitionRuntimeResolutionV1,
-        exact_runtime: OnlyRuntimeGenerationManifest | OnlyCalculationRegistry,
-        authoring_generation_fingerprint: str | None = None,
+        resolved: OnlyResearchDefinitionRuntimeResolutionV1,
+        exact_runtime: OnlyRuntimeGenerationManifest,
     ) -> None:
         if not isinstance(evidence_refs, tuple) or not all(isinstance(item, str) for item in evidence_refs):
             _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Research Execution Evidence references are invalid")
@@ -386,18 +307,9 @@ class OnlyPrivateStrategyResearchCompositionVerifier:
                 evidence = self._execution_evidence.load_verified(evidence_ref)
             except Exception as exc:
                 _fail("PRIVATE_STRATEGY_COMPOSITION_UNAVAILABLE", str(exc), exc)
-            if isinstance(exact_runtime, OnlyRuntimeGenerationManifest):
-                if evidence.authoring_generation_fingerprint is not None:
-                    _fail(
-                        "PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Strategy Evidence names Factor authoring generation"
-                    )
-            elif evidence.authoring_generation_fingerprint != authoring_generation_fingerprint:
-                _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Execution Evidence names another generation")
-            candidates = (
-                resolved.candidates
-                if isinstance(resolved, OnlyResearchDefinitionRuntimeResolutionV1)
-                else resolved.specification_resolution.candidates
-            )
+            if evidence.authoring_generation_fingerprint is not None:
+                _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Strategy Evidence names Factor authoring generation")
+            candidates = resolved.candidates
             lineage = next(
                 (
                     item
@@ -411,36 +323,17 @@ class OnlyPrivateStrategyResearchCompositionVerifier:
                 _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Execution Evidence names another Calculation Graph")
             expected: dict[str, str] = {}
             for node in lineage.graph.ordered_nodes:
-                if isinstance(exact_runtime, OnlyRuntimeGenerationManifest):
-                    matches = tuple(
-                        item
-                        for item in exact_runtime.implementations
-                        if item.kind == node.definition.kind.value
-                        and item.type_id == node.definition.type_id
-                        and item.semantic_version == node.definition.semantic_version
-                        and item.backend == OnlyCalculationBackendKind.RESEARCH.value
-                    )
-                    if len(matches) != 1:
-                        _fail(
-                            "PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Research implementation identity is unavailable"
-                        )
-                    expected[node.fingerprint] = matches[0].implementation_fingerprint
-                else:
-                    try:
-                        registration = exact_runtime.resolve(
-                            node.definition.kind,
-                            node.definition.type_id,
-                            node.definition.semantic_version,
-                            OnlyCalculationBackendKind.RESEARCH,
-                        )
-                    except (TypeError, ValueError) as exc:
-                        _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", str(exc), exc)
-                    implementation = registration.implementation_manifest
-                    if implementation is None:
-                        _fail(
-                            "PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Research implementation identity is unavailable"
-                        )
-                    expected[node.fingerprint] = implementation.implementation_fingerprint
+                matches = tuple(
+                    item
+                    for item in exact_runtime.implementations
+                    if item.kind == node.definition.kind.value
+                    and item.type_id == node.definition.type_id
+                    and item.semantic_version == node.definition.semantic_version
+                    and item.backend == OnlyCalculationBackendKind.RESEARCH.value
+                )
+                if len(matches) != 1:
+                    _fail("PRIVATE_STRATEGY_COMPOSITION_MISMATCH", "Research implementation identity is unavailable")
+                expected[node.fingerprint] = matches[0].implementation_fingerprint
             actual = {
                 item.node_fingerprint: item.research_implementation_fingerprint
                 for item in evidence.research_implementation_bindings

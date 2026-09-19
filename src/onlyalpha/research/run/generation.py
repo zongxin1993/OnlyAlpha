@@ -30,6 +30,8 @@ from onlyalpha.research.specification.resolver import (
     OnlyResearchSignalLineage,
     OnlyResearchSpecificationResolution,
 )
+from onlyalpha.strategy.admission import OnlyRuntimeStrategyTradingResolutionV1
+from onlyalpha.strategy.revision import OnlyStrategyMarketInputContract, OnlyStrategySignalSemantics
 
 from .errors import OnlyResearchRunAdmissionError
 from .evidence import OnlyResearchAdmissionResolutionEvidence
@@ -228,6 +230,38 @@ class OnlyResearchHostedRuntimeGenerationResolver:
             raise OnlyResearchRunAdmissionError(
                 "Research definition response fields differ", code="RESEARCH_DEFINITION_RESOLUTION_INVALID"
             ) from exc
+
+    def resolve_strategy_trading_admission(
+        self,
+        runtime_generation_fingerprint: str,
+        graph: OnlyCalculationGraphDefinition,
+        signals: OnlyStrategySignalSemantics,
+        market_input_contract: OnlyStrategyMarketInputContract,
+        research_implementation_bindings: tuple[Mapping[str, object], ...],
+    ) -> OnlyRuntimeStrategyTradingResolutionV1:
+        request = OnlySearchGenerationExecutionRequestV1(
+            runtime_generation_fingerprint,
+            OnlySearchGenerationOperationV1.RESOLVE_STRATEGY_TRADING_ADMISSION,
+            {
+                "graph": graph.to_dict(),
+                "signals": signals.to_dict(),
+                "market_input_contract": market_input_contract.to_dict(),
+                "research_implementation_bindings": [dict(item) for item in research_implementation_bindings],
+            },
+        )
+        response = OnlySearchGenerationExecutionResponseV1.from_dict(self._execution.execute(request).to_dict())
+        if (
+            response.runtime_generation_fingerprint != runtime_generation_fingerprint
+            or response.operation_kind is not request.operation_kind
+        ):
+            raise OnlyHistoricalGenerationExecutionMismatch("Strategy Trading response generation/operation differs")
+        try:
+            resolution = OnlyRuntimeStrategyTradingResolutionV1.from_dict(response.result_payload)
+        except (TypeError, ValueError, KeyError) as exc:
+            raise OnlyHistoricalGenerationExecutionMismatch("Strategy Trading response fields differ") from exc
+        if resolution.runtime_generation_fingerprint != runtime_generation_fingerprint:
+            raise OnlyHistoricalGenerationExecutionMismatch("Strategy Trading response generation differs")
+        return resolution
 
 
 def _sha(value: object) -> str:

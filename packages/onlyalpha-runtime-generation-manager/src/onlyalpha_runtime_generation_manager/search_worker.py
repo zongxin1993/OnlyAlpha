@@ -23,9 +23,11 @@ from onlyalpha.application.search_generation_execution import (
     OnlySearchGenerationOperationV1,
     OnlySearchGenerationWorkerHandshakeV1,
 )
+from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration, only_discover_quant_asset_providers
+from onlyalpha.research.calculation.execution import OnlyResearchCalculationImplementationBinding
 from onlyalpha.research.calculation.predicate import only_register_research_predicate_primitives
 from onlyalpha.research.dataset.parquet_store import OnlyParquetResearchDatasetSnapshotStore
 from onlyalpha.research.definition.model import OnlyResearchDefinition
@@ -73,12 +75,16 @@ from onlyalpha.research.search.symbolic.verification import (
 from onlyalpha.research.specification.model import OnlyResearchSpecification
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 from onlyalpha.runtime.generation import OnlyRuntimeGenerationValidationEvidence
+from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_primitives
+from onlyalpha.strategy.admission import only_resolve_runtime_strategy_trading
+from onlyalpha.strategy.revision import OnlyStrategyMarketInputContract, OnlyStrategySignalSemantics
 
 from .hosted import only_load_hosted_quant_asset_catalog, only_verify_hosted_runtime_generation
 
 _CAPABILITIES = (
     OnlySearchGenerationOperationV1.RESOLVE_RESEARCH_ADMISSION,
     OnlySearchGenerationOperationV1.RESOLVE_RESEARCH_DEFINITION,
+    OnlySearchGenerationOperationV1.RESOLVE_STRATEGY_TRADING_ADMISSION,
     OnlySearchGenerationOperationV1.DERIVE_PARAMETER_DECISION,
     OnlySearchGenerationOperationV1.DERIVE_SYMBOLIC_ENUMERATION,
     OnlySearchGenerationOperationV1.RESOLVE_PARAMETER_RESEARCH,
@@ -167,6 +173,35 @@ def _execute(
             definition_resolution.specification_resolution.candidates,
             definition_resolution.specification_resolution.signals,
             definition_resolution.workload.result_plan,
+        ).to_dict()
+    if request.operation_kind is OnlySearchGenerationOperationV1.RESOLVE_STRATEGY_TRADING_ADMISSION:
+        payload = request.request_payload
+        _exact(
+            payload,
+            {"graph", "signals", "market_input_contract", "research_implementation_bindings"},
+        )
+        raw_bindings = payload["research_implementation_bindings"]
+        if not isinstance(raw_bindings, list):
+            raise OnlyHistoricalGenerationProtocolMismatch("Research implementation bindings must be an array")
+        bindings: list[OnlyResearchCalculationImplementationBinding] = []
+        for item in raw_bindings:
+            binding = _mapping(item, "Research implementation binding")
+            _exact(binding, {"node_fingerprint", "research_implementation_fingerprint"})
+            bindings.append(
+                OnlyResearchCalculationImplementationBinding(
+                    _string(binding, "node_fingerprint"),
+                    _string(binding, "research_implementation_fingerprint"),
+                )
+            )
+        return only_resolve_runtime_strategy_trading(
+            runtime_generation_fingerprint=evidence.runtime_generation_fingerprint,
+            calculations=_calculation_registry(catalog.calculation_registry()),
+            graph=OnlyCalculationGraphDefinition.from_dict(_mapping(payload["graph"], "graph")),
+            signals=OnlyStrategySignalSemantics.from_dict(_mapping(payload["signals"], "signals")),
+            market_input_contract=OnlyStrategyMarketInputContract.from_dict(
+                _mapping(payload["market_input_contract"], "market_input_contract")
+            ),
+            research_implementation_bindings=tuple(bindings),
         ).to_dict()
     if request.operation_kind is OnlySearchGenerationOperationV1.RESOLVE_RESEARCH_ADMISSION:
         payload = request.request_payload
@@ -471,6 +506,7 @@ def _calculation_registry(base: OnlyCalculationRegistry) -> OnlyCalculationRegis
                 ):
                     raise
     only_register_research_predicate_primitives(base)
+    only_register_trading_predicate_primitives(base)
     return base
 
 

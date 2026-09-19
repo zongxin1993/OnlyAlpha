@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import NoReturn, Protocol
 
-from onlyalpha.calculation.registry import OnlyCalculationRegistry
+from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
 from onlyalpha.quant_assets.private_strategy_composition import (
     OnlyPrivateStrategyResearchCompositionError,
 )
@@ -25,7 +25,10 @@ from onlyalpha.research.specification.resolver import (
     OnlyResearchSignalLineage,
     OnlyResearchSpecificationResolver,
 )
-from onlyalpha.strategy.admission import OnlyStrategyTradingAdmissionService
+from onlyalpha.strategy.admission import (
+    OnlyRuntimeStrategyTradingResolutionV1,
+    OnlyStrategyTradingAdmissionService,
+)
 from onlyalpha.strategy.errors import OnlyStrategyAdmissionError, OnlyStrategyFreezeError
 from onlyalpha.strategy.freeze_relation import OnlyStrategyFreezeRelation
 from onlyalpha.strategy.revision import (
@@ -63,11 +66,18 @@ class _DatasetStore(Protocol):
 
 
 class _StrategyCompositionVerifier(Protocol):
-    def verify(self, run: OnlyResearchRun) -> OnlyResearchDefinitionRuntimeResolutionV1 | None: ...
+    def verify(self, run: OnlyResearchRun) -> tuple[str, OnlyResearchDefinitionRuntimeResolutionV1]: ...
 
 
-class _ExactAuthoringGeneration(Protocol):
-    def load_calculation_registry_verified(self, fingerprint: str) -> OnlyCalculationRegistry: ...
+class _ExactRuntimeTradingResolver(Protocol):
+    def resolve_strategy_trading_admission(
+        self,
+        runtime_generation_fingerprint: str,
+        graph: OnlyCalculationGraphDefinition,
+        signals: OnlyStrategySignalSemantics,
+        market_input_contract: OnlyStrategyMarketInputContract,
+        research_implementation_bindings: tuple[dict[str, object], ...],
+    ) -> OnlyRuntimeStrategyTradingResolutionV1: ...
 
 
 class OnlyStrategyFreezeDisposition(StrEnum):
@@ -262,9 +272,7 @@ class OnlyStrategyFreezeService:
         catalog: OnlyStrategyCatalogWriter,
         audit_time: Callable[[], datetime],
         strategy_composition_verifier: _StrategyCompositionVerifier | None = None,
-        authoring_generations: _ExactAuthoringGeneration | None = None,
-        strategy_admission_factory: Callable[[OnlyCalculationRegistry], OnlyStrategyTradingAdmissionService]
-        | None = None,
+        runtime_trading_resolver: _ExactRuntimeTradingResolver | None = None,
     ) -> None:
         self._runs = runs
         self._research_results = research_results
@@ -278,8 +286,7 @@ class OnlyStrategyFreezeService:
         self._catalog = catalog
         self._audit_time = audit_time
         self._strategy_composition_verifier = strategy_composition_verifier
-        self._authoring_generations = authoring_generations
-        self._strategy_admission_factory = strategy_admission_factory
+        self._runtime_trading_resolver = runtime_trading_resolver
 
     def freeze(self, request: OnlyStrategyFreezeRequest) -> OnlyStrategyFreezeOutcome:
         try:
@@ -296,14 +303,15 @@ class OnlyStrategyFreezeService:
                     "Strategy-authored Run has no exact Composition reference",
                 )
             exact_resolution: OnlyResearchDefinitionRuntimeResolutionV1 | None = None
+            exact_runtime_generation: str | None = None
             if run.origin_kind is OnlyResearchOriginKind.PRIVATE_STRATEGY:
-                if self._strategy_composition_verifier is None:
+                if self._strategy_composition_verifier is None or self._runtime_trading_resolver is None:
                     self._fail(
                         "STRATEGY_COMPOSITION_UNAVAILABLE",
                         "Strategy-authored Run has no composition verifier",
                     )
                 try:
-                    exact_resolution = self._strategy_composition_verifier.verify(run)
+                    exact_runtime_generation, exact_resolution = self._strategy_composition_verifier.verify(run)
                 except OnlyPrivateStrategyResearchCompositionError as exc:
                     self._fail(exc.code, exc.detail, exc)
                 except Exception as exc:
@@ -428,12 +436,42 @@ class OnlyStrategyFreezeService:
                 dataset_definition.adjustment_type,
                 dataset_definition.adjustment_reference,
             )
-            admitted = admission.admit(
-                candidate.graph,
-                signals,
-                market_input_contract,
-                execution_evidence,
-            )
+            if exact_resolution is None:
+                admitted = admission.admit(
+                    candidate.graph,
+                    signals,
+                    market_input_contract,
+                    execution_evidence,
+                )
+            else:
+                runtime_trading_resolver = self._runtime_trading_resolver
+                assert runtime_trading_resolver is not None
+                assert exact_runtime_generation is not None
+                trading_resolution = runtime_trading_resolver.resolve_strategy_trading_admission(
+                    exact_runtime_generation,
+                    candidate.graph,
+                    signals,
+                    market_input_contract,
+                    tuple(
+                        {
+                            "node_fingerprint": item.node_fingerprint,
+                            "research_implementation_fingerprint": item.research_implementation_fingerprint,
+                        }
+                        for item in execution_evidence.research_implementation_bindings
+                    ),
+                )
+                if trading_resolution.runtime_generation_fingerprint != exact_runtime_generation:
+                    self._fail(
+                        "IMPLEMENTATION_IDENTITY_MISMATCH",
+                        "Runtime Trading resolution names another Runtime Generation",
+                    )
+                admitted = admission.admit_resolved(
+                    candidate.graph,
+                    signals,
+                    market_input_contract,
+                    execution_evidence,
+                    trading_resolution,
+                )
             revision = OnlyStrategyRevision(
                 OnlyStrategyUniverse(dataset_definition.instruments),
                 market_input_contract,

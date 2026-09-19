@@ -146,6 +146,20 @@ def test_official_freeze_and_promotion_application_composition_exists() -> None:
     assert "OnlyResearchSemanticStoreId" in source
 
 
+def test_private_strategy_execution_has_one_runtime_generation_authority() -> None:
+    research = Path("src/onlyalpha/application/private_strategy_research.py").read_text(encoding="utf-8")
+    composition = Path("src/onlyalpha/quant_assets/private_strategy_composition.py").read_text(encoding="utf-8")
+    freeze = Path("src/onlyalpha/strategy/freeze.py").read_text(encoding="utf-8")
+    application = Path("src/onlyalpha/application/strategy_authority.py").read_text(encoding="utf-8")
+
+    assert "authoring_generations" not in research
+    assert "authoring_generations" not in composition
+    assert "_authoring_generations" not in freeze
+    assert "strategy_admission_factory" not in freeze
+    assert "authoring_generations" not in application
+    assert "resolve_strategy_trading_admission" in freeze
+
+
 def test_admission_uses_historical_execution_evidence_and_never_current_research_registry() -> None:
     source = Path("src/onlyalpha/strategy/admission.py").read_text(encoding="utf-8")
     assert "research_execution_evidence" in source

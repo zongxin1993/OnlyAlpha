@@ -766,9 +766,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         strategy_research = OnlyPrivateStrategyResearchApplicationService(
             composer=strategy_research_composer,
             compositions=strategy_compositions,
-            definitions=definition_resolver,
             research=command,
-            authoring_generations=authoring_generations,
             runtime_generations=runtime_generations,
             runtime_definition_resolver=runtime_generation_resolver,
         )
@@ -808,14 +806,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 strategy_composition_verifier=OnlyPrivateStrategyResearchCompositionVerifier(
                     strategy_research_composer,
                     strategy_compositions,
-                    definition_resolver,
-                    authoring_generations=authoring_generations,
                     execution_evidence=execution_evidence,
                     runtime_generations=runtime_generations,
                     runtime_definition_resolver=runtime_generation_resolver,
-                    calculations=calculations,
                 ),
-                authoring_generations=authoring_generations,
+                runtime_trading_resolver=runtime_generation_resolver,
             )
             strategy_freeze = OnlyStrategyFreezeProductService(
                 freeze=freeze,

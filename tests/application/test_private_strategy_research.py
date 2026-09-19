@@ -16,13 +16,32 @@ from onlyalpha.quant_assets import (
 from tests.quant_assets.test_private_strategy_composition import _Assets, _case
 
 
+class _Runtime:
+    def __init__(self, catalog) -> None:  # type: ignore[no-untyped-def]
+        provider = next(item for item in catalog.providers if item.private_factor_snapshot is not None)
+        entry = provider.private_factor_snapshot.entries[0]
+        self.manifest = SimpleNamespace(
+            catalog_generation_fingerprint=catalog.generation_fingerprint,
+            private_factor_bindings=(SimpleNamespace(entry=entry),),
+        )
+
+    def require_runtime_generation(self, _fingerprint: str):  # type: ignore[no-untyped-def]
+        return self.manifest
+
+
 class _Definitions:
     def __init__(self) -> None:
         self.definition = None
 
-    def resolve(self, definition):  # type: ignore[no-untyped-def]
+    def resolve_definition(self, runtime_generation_fingerprint, definition):  # type: ignore[no-untyped-def]
         self.definition = definition
-        return SimpleNamespace(specification=object())
+        specification = SimpleNamespace(specification_fingerprint="e" * 64)
+        return SimpleNamespace(
+            runtime_generation_fingerprint=runtime_generation_fingerprint,
+            research_definition_fingerprint=definition.definition_fingerprint,
+            specification_fingerprint=specification.specification_fingerprint,
+            specification=specification,
+        )
 
 
 class _Research:
@@ -51,8 +70,9 @@ def test_private_strategy_research_application_binds_derived_composition() -> No
     service = OnlyPrivateStrategyResearchApplicationService(
         composer=composer,
         compositions=compositions,
-        definitions=definitions,
         research=research,
+        runtime_generations=_Runtime(catalog),  # type: ignore[arg-type]
+        runtime_definition_resolver=definitions,  # type: ignore[arg-type]
     )
     reference = OnlyPrivateAssetRevisionReferenceV1(
         OnlyPrivateAssetKind.STRATEGY,

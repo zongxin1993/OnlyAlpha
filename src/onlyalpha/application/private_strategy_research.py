@@ -6,8 +6,6 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId
-from onlyalpha.calculation.registry import OnlyCalculationRegistry
-from onlyalpha.quant_assets.catalog import OnlyQuantAssetCatalogGeneration
 from onlyalpha.quant_assets.private import (
     OnlyPrivateAssetKind,
     OnlyPrivateAssetRevisionReferenceV1,
@@ -19,19 +17,9 @@ from onlyalpha.quant_assets.private_strategy_composition import (
     OnlyPrivateStrategyResearchCompositionStore,
 )
 from onlyalpha.research.command.model import OnlyResearchSubmitOutcome
-from onlyalpha.research.definition.resolver import OnlyResearchDefinitionResolver
-from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 from onlyalpha.research.run.generation import OnlyResearchHostedRuntimeGenerationResolver
 from onlyalpha.research.specification.model import OnlyResearchSpecification
 from onlyalpha.runtime.generation import OnlyRuntimeGenerationManifest
-
-
-class _ExactAuthoringGeneration(Protocol):
-    def load_verified(self, fingerprint: str) -> OnlyResearchAuthoringProvenance: ...
-
-    def load_catalog_verified(self, fingerprint: str) -> OnlyQuantAssetCatalogGeneration: ...
-
-    def load_calculation_registry_verified(self, fingerprint: str) -> OnlyCalculationRegistry: ...
 
 
 class _ResearchCommands(Protocol):
@@ -39,7 +27,6 @@ class _ResearchCommands(Protocol):
         self,
         submission_key: OnlyProductCommandId,
         specification: OnlyResearchSpecification,
-        authoring_generation_fingerprint: str | None = None,
         *,
         runtime_generation_fingerprint: str | None = None,
         strategy_research_composition_fingerprint: str | None = None,
@@ -84,46 +71,33 @@ class OnlyPrivateStrategyResearchApplicationService:
         *,
         composer: OnlyPrivateStrategyResearchComposer,
         compositions: OnlyPrivateStrategyResearchCompositionStore,
-        definitions: OnlyResearchDefinitionResolver,
         research: _ResearchCommands,
-        authoring_generations: _ExactAuthoringGeneration | None = None,
-        runtime_generations: _ExactRuntimeGenerations | None = None,
-        runtime_definition_resolver: OnlyResearchHostedRuntimeGenerationResolver | None = None,
+        runtime_generations: _ExactRuntimeGenerations,
+        runtime_definition_resolver: OnlyResearchHostedRuntimeGenerationResolver,
     ) -> None:
         self._composer = composer
         self._compositions = compositions
-        self._definitions = definitions
         self._research = research
-        self._authoring_generations = authoring_generations
         self._runtime_generations = runtime_generations
         self._runtime_definition_resolver = runtime_definition_resolver
 
     def submit(self, request: OnlyPrivateStrategyResearchRequest) -> OnlyPrivateStrategyResearchOutcome:
-        composer = self._composer
-        # AuthoringExecutionGeneration is a Factor-scoped authority. It is
-        # deliberately not accepted as Strategy Research execution context.
-        if (self._runtime_generations is None) != (self._runtime_definition_resolver is None):
-            raise ValueError("PRIVATE_STRATEGY_RUNTIME_AUTHORITY_INCOMPLETE")
-        if self._runtime_generations is None or self._runtime_definition_resolver is None:
-            composed = composer.compose(request.strategy_revision, request.research_context)
-            specification = self._definitions.resolve(composed.research_definition).specification
-        else:
-            manifest = self._runtime_generations.require_runtime_generation(request.runtime_generation_fingerprint)
-            composed = composer.compose(
-                request.strategy_revision,
-                request.research_context,
-                runtime_manifest=manifest,
-            )
-            exact = self._runtime_definition_resolver.resolve_definition(
-                request.runtime_generation_fingerprint,
-                composed.research_definition,
-            )
-            if (
-                exact.research_definition_fingerprint != composed.composition.research_definition_fingerprint
-                or exact.specification_fingerprint != exact.specification.specification_fingerprint
-            ):
-                raise ValueError("PRIVATE_STRATEGY_RUNTIME_DEFINITION_MISMATCH")
-            specification = exact.specification
+        manifest = self._runtime_generations.require_runtime_generation(request.runtime_generation_fingerprint)
+        composed = self._composer.compose(
+            request.strategy_revision,
+            request.research_context,
+            runtime_manifest=manifest,
+        )
+        exact = self._runtime_definition_resolver.resolve_definition(
+            request.runtime_generation_fingerprint,
+            composed.research_definition,
+        )
+        if (
+            exact.research_definition_fingerprint != composed.composition.research_definition_fingerprint
+            or exact.specification_fingerprint != exact.specification.specification_fingerprint
+        ):
+            raise ValueError("PRIVATE_STRATEGY_RUNTIME_DEFINITION_MISMATCH")
+        specification = exact.specification
         self._compositions.put(composed.composition, request.research_context)
         submission = self._research.submit_research_run(
             request.submission_key,

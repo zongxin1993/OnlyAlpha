@@ -11,6 +11,10 @@ from onlyalpha.calculation import (
 from onlyalpha.domain.enums import OnlyAdjustmentType
 from onlyalpha.research import OnlyResearchCalculationImplementationBinding
 from onlyalpha.strategy import OnlyStrategyAdmissionError, OnlyStrategyTradingAdmissionService
+from onlyalpha.strategy.admission import (
+    OnlyRuntimeStrategyTradingResolutionV1,
+    only_resolve_runtime_strategy_trading,
+)
 from tests.strategy.product_support import strategy_product_case
 
 
@@ -149,6 +153,46 @@ def test_admission_uses_historical_evidence_without_current_research_backend(tmp
     )
 
     assert admitted.implementation_bindings == case.revision.implementation_bindings
+
+
+def test_exact_runtime_trading_resolution_ignores_conflicting_ambient_registry(tmp_path) -> None:
+    case = strategy_product_case(tmp_path)
+    resolution = only_resolve_runtime_strategy_trading(
+        runtime_generation_fingerprint="1" * 64,
+        calculations=case.registry,
+        graph=case.revision.decision_graph,
+        signals=case.revision.signal_semantics,
+        market_input_contract=case.revision.market_input_contract,
+        research_implementation_bindings=case.execution_evidence[0].research_implementation_bindings,
+    )
+    restored = OnlyRuntimeStrategyTradingResolutionV1.from_dict(resolution.to_dict())
+    conflicting = OnlyCalculationRegistry()
+    for registration in case.registry.backend_registrations():
+        if registration.backend is OnlyCalculationBackendKind.TRADING:
+            assert registration.implementation_manifest is not None
+            registration = replace(
+                registration,
+                implementation_manifest=only_implementation_manifest_from_bytes(
+                    calculation_type_reference=registration.implementation_manifest.calculation_type_reference,
+                    backend_kind=registration.backend,
+                    entrypoint_identity=registration.implementation_manifest.entrypoint_identity,
+                    resources={"ambient.py": b"must-not-win"},
+                ),
+            )
+        conflicting.register(registration)
+
+    admitted = OnlyStrategyTradingAdmissionService(conflicting, case.equivalence).admit_resolved(
+        case.revision.decision_graph,
+        case.revision.signal_semantics,
+        case.revision.market_input_contract,
+        case.execution_evidence[0],
+        restored,
+    )
+
+    assert admitted.implementation_bindings == case.revision.implementation_bindings
+    assert tuple(item.trading_implementation_fingerprint for item in admitted.implementation_bindings) == tuple(
+        item.trading_implementation_fingerprint for item in resolution.node_bindings
+    )
 
 
 @pytest.mark.parametrize("changed_backend", ("RESEARCH", "TRADING"))

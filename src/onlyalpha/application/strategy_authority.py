@@ -33,6 +33,7 @@ from onlyalpha.strategy.freeze import (
     OnlyStrategyFreezeRecord,
     OnlyStrategyFreezeRequest,
     OnlyStrategyFreezeService,
+    _ExactRuntimeTradingResolver,
     _StrategyCompositionVerifier,
 )
 from onlyalpha.strategy.promotion import (
@@ -63,10 +64,6 @@ class _Datasets(Protocol):
     def load_verified_table(self, snapshot_fingerprint: str) -> OnlyVerifiedResearchDataset: ...
 
 
-class _ExactAuthoringGeneration(Protocol):
-    def load_calculation_registry_verified(self, fingerprint: str) -> OnlyCalculationRegistry: ...
-
-
 class OnlyStrategyFreezeApplicationService:
     """Single product operation; callers provide only exact Candidate Freeze intent."""
 
@@ -88,7 +85,7 @@ class OnlyStrategyFreezeApplicationService:
         calculations: OnlyCalculationRegistry,
         audit_time: Callable[[], datetime],
         strategy_composition_verifier: _StrategyCompositionVerifier | None = None,
-        authoring_generations: _ExactAuthoringGeneration | None = None,
+        runtime_trading_resolver: _ExactRuntimeTradingResolver | None = None,
     ) -> OnlyStrategyFreezeApplicationService:
         _assert_local_namespace(semantic_root, semantic_namespace_id)
         only_register_trading_predicate_primitives(calculations)
@@ -110,8 +107,7 @@ class OnlyStrategyFreezeApplicationService:
                 catalog=catalog,
                 audit_time=audit_time,
                 strategy_composition_verifier=strategy_composition_verifier,
-                authoring_generations=authoring_generations,
-                strategy_admission_factory=lambda exact: OnlyStrategyTradingAdmissionService(exact, evidence),
+                runtime_trading_resolver=runtime_trading_resolver,
             )
         )
 

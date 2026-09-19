@@ -167,24 +167,27 @@ def test_private_strategy_composition_rejects_admission_generation_drift() -> No
     admitted_catalog = OnlyQuantAssetCatalogGeneration(())
 
     class _Generation:
-        def load_verified(self, _fingerprint: str) -> object:
-            return SimpleNamespace(catalog_generation_fingerprint=admitted_catalog.generation_fingerprint)
+        def require_work_binding(self, _work_id: str) -> object:
+            return SimpleNamespace(runtime_generation_fingerprint="b" * 64)
 
-        def load_catalog_verified(self, _fingerprint: str) -> OnlyQuantAssetCatalogGeneration:
-            return admitted_catalog
+        def require_runtime_generation(self, _fingerprint: str) -> object:
+            return SimpleNamespace(catalog_generation_fingerprint=admitted_catalog.generation_fingerprint)
 
     verifier = OnlyPrivateStrategyResearchCompositionVerifier(
         composer,
         store,
-        SimpleNamespace(),  # generation mismatch is checked before definition resolution
-        authoring_generations=_Generation(),  # type: ignore[arg-type]
+        execution_evidence=SimpleNamespace(),  # type: ignore[arg-type]
+        runtime_generations=_Generation(),  # type: ignore[arg-type]
+        runtime_definition_resolver=SimpleNamespace(),  # type: ignore[arg-type]
     )
 
-    with pytest.raises(OnlyPrivateStrategyResearchCompositionError, match="Composition execution context differs"):
+    with pytest.raises(
+        OnlyPrivateStrategyResearchCompositionError, match="Composition Catalog differs from Runtime Catalog"
+    ):
         verifier.verify(
             SimpleNamespace(
                 strategy_research_composition_fingerprint=composed.composition_fingerprint,
-                authoring_generation_fingerprint="b" * 64,
+                run_id=SimpleNamespace(value="run"),
             )
         )
 

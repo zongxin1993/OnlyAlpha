@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import cast
 
 import pytest
+from onlyalpha_runtime_generation_manager import search_worker
 from onlyalpha_runtime_generation_manager.host_manager import (
     OnlyHistoricalGenerationHostManager,
     _HostedWorker,
@@ -20,6 +21,9 @@ from onlyalpha.application.search_generation_execution import (
     OnlySearchGenerationOperationV1,
     OnlySearchGenerationWorkerHandshakeV1,
 )
+from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration
+from onlyalpha.strategy.admission import OnlyRuntimeStrategyTradingResolutionV1
+from tests.strategy.product_support import strategy_product_case
 
 G = "1" * 64
 K = "2" * 64
@@ -161,6 +165,45 @@ def test_unadvertised_operation_fails_before_worker_write(tmp_path: Path, monkey
                 {},
             )
         )
+
+
+def test_hosted_worker_resolves_strict_strategy_trading_admission(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = strategy_product_case(tmp_path)
+    revision = case.revision
+    evidence = case.execution_evidence[0]
+    monkeypatch.setattr(search_worker, "_calculation_registry", lambda _base: case.registry)
+    request = OnlySearchGenerationExecutionRequestV1(
+        G,
+        OnlySearchGenerationOperationV1.RESOLVE_STRATEGY_TRADING_ADMISSION,
+        {
+            "graph": revision.decision_graph.to_dict(),
+            "signals": revision.signal_semantics.to_dict(),
+            "market_input_contract": revision.market_input_contract.to_dict(),
+            "research_implementation_bindings": [
+                {
+                    "node_fingerprint": item.node_fingerprint,
+                    "research_implementation_fingerprint": item.research_implementation_fingerprint,
+                }
+                for item in evidence.research_implementation_bindings
+            ],
+        },
+    )
+    result = OnlyRuntimeStrategyTradingResolutionV1.from_dict(
+        search_worker._execute(
+            request,
+            OnlyQuantAssetCatalogGeneration(()),
+            cast(object, SimpleNamespace(runtime_generation_fingerprint=G)),
+        )
+    )
+    assert result.runtime_generation_fingerprint == G
+    assert result.calculation_graph_fingerprint == revision.decision_graph.fingerprint
+    assert tuple(item.node_fingerprint for item in result.node_bindings) == tuple(
+        sorted(item.node_fingerprint for item in revision.implementation_bindings)
+    )
+    assert OnlySearchGenerationOperationV1.RESOLVE_STRATEGY_TRADING_ADMISSION in search_worker._CAPABILITIES
 
 
 @pytest.mark.parametrize(

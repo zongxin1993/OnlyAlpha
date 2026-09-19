@@ -436,6 +436,67 @@ def test_runtime_artifacts_rebuild_native_registry_without_authoring_authority(t
         expected_catalog=catalog,
         closure=closure,
     )
+    assert (
+        builder.bind_private_factor_closures(
+            base_manifest=base_manifest,
+            expected_catalog=base_catalog,
+            closures=(),
+        )
+        == base_manifest
+    )
+
+    second_closure = OnlyPrivateFactorExecutableClosureV1.create(
+        _revision(factor_id="private.factor.native_second"),
+        ({"close": Decimal("2")},),
+        {"offset": Decimal("1")},
+        host=OnlyPrivateFactorIsolatedProgramHost(3),
+    )
+    second_native = OnlyQuantAssetProvider(
+        OnlyQuantAssetProviderManifest(
+            "private.native.factor.second",
+            second_closure.revision.revision_fingerprint,
+            OnlyQuantAssetKind.FACTOR,
+            OnlyPrivateFactorSnapshotProviderSource(second_closure.provider_snapshot.snapshot_fingerprint),
+        ),
+        calculation_registrations=second_closure.registrations,
+        private_factor_snapshot=second_closure.provider_snapshot,
+    )
+    two_catalog = OnlyQuantAssetCatalogGeneration((base, native, second_native))
+    two_ab = builder.bind_private_factor_closures(
+        base_manifest=base_manifest,
+        expected_catalog=two_catalog,
+        closures=(closure, second_closure),
+    )
+    two_ba = builder.bind_private_factor_closures(
+        base_manifest=base_manifest,
+        expected_catalog=two_catalog,
+        closures=(second_closure, closure),
+    )
+    assert two_ab == two_ba
+    assert {item.entry.factor_id for item in two_ab.private_factor_bindings} == {
+        "private.factor.native",
+        "private.factor.native_second",
+    }
+    assert (
+        builder.bind_private_factor_closures(
+            base_manifest=base_manifest,
+            expected_catalog=two_catalog,
+            closures=(closure, second_closure),
+        ).runtime_generation_fingerprint
+        == two_ab.runtime_generation_fingerprint
+    )
+    assert OnlyRuntimeGenerationManifest.from_dict(two_ab.to_dict()) == two_ab
+    assert {item.manifest.provider_id for item in builder.rebuild_private_factor_providers(two_ab)} == {
+        "private.native.factor",
+        "private.native.factor.second",
+    }
+    for invalid in ((closure,), (closure, closure)):
+        with pytest.raises(ValueError, match="RUNTIME_GENERATION_PRIVATE_FACTOR_MISMATCH"):
+            builder.bind_private_factor_closures(
+                base_manifest=base_manifest,
+                expected_catalog=two_catalog,
+                closures=invalid,
+            )
 
     binding = manifest.private_factor_bindings[0]
     mutations = (
