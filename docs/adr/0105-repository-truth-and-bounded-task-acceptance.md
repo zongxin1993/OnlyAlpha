@@ -45,6 +45,16 @@ The repository no longer versions:
 
 Roadmaps may describe future construction order and dependencies, but never current completion/progress state.
 
+### Repository semantic identity
+
+Permanent repository identifiers describe stable domain semantics, responsibility, observable behavior, schema change or invariant.
+Roadmap phases, implementation tasks, closure rounds, milestones, temporary migration stages, PRs and issues remain Git or process-document
+history and do not become source, test, migration, fixture, configuration or runtime identity.
+
+Process-document roots may retain process labels. Exact serialized identities required by an accepted Contract, immutable evidence or replay
+remain unchanged, but every mechanical-gate exception is an exact token or exact path with a recorded reason; broad path or pattern waivers
+are forbidden. PostgreSQL migration ordering prefixes remain schema-order identity, while each suffix states the schema change itself.
+
 ### Acceptance shape
 
 Normal tasks use targeted tests, affected static/type checks and the nearest affected canonical lanes. Validation expands only according to real Impact Scope.

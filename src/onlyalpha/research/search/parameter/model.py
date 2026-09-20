@@ -1,4 +1,4 @@
-"""Immutable B3.3 parameter-search authority contracts."""
+"""Immutable parameter-search authority contracts."""
 
 from __future__ import annotations
 

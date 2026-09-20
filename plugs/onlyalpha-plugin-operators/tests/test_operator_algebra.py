@@ -30,7 +30,7 @@ from onlyalpha_plugin_operators.registration import (
     DIVIDE,
     LOG,
     MULTIPLY,
-    P0_TYPES,
+    OPERATOR_TYPES,
     ROLLING_CORRELATION,
     ROLLING_COVARIANCE,
     ROLLING_MAX,
@@ -107,7 +107,7 @@ def _make_hostile(caller, variant=0):
         DECAY_LINEAR,
     ),
 )
-def test_all_time_series_p0_research_trading_and_restore_are_exact(type_definition) -> None:
+def test_all_time_series_operators_match_research_trading_and_restore(type_definition) -> None:
     parameters = {"period": 3} if any(item.name == "period" for item in type_definition.parameters.fields) else {}
     if type_definition is SCALE:
         parameters = {"factor": Decimal("2.5")}
@@ -314,7 +314,7 @@ def test_shared_numeric_vectors_cover_alternating_quantum_large_and_population_r
 
 
 @pytest.mark.parametrize("type_definition", (CROSS_SECTION_RANK, CROSS_SECTION_ZSCORE, CROSS_SECTION_DEMEAN))
-def test_cross_section_p0_is_research_only_and_preserves_missing(type_definition) -> None:
+def test_cross_section_operators_are_research_only_and_preserve_missing(type_definition) -> None:
     definition = _definition(type_definition)
     values = pa.array([Decimal("1"), None, Decimal("1"), Decimal("3")], type=_D)
     output = (
@@ -329,12 +329,12 @@ def test_cross_section_p0_is_research_only_and_preserves_missing(type_definition
     )
 
 
-def test_p0_discovery_and_provider_version_are_complete() -> None:
+def test_operator_discovery_and_provider_version_are_complete() -> None:
     provider = quant_asset_provider()
     assert provider.manifest.provider_id == "onlyalpha.operator.library"
-    assert provider.manifest.provider_version == "5"
-    assert {item.type_definition for item in provider.calculation_registrations} == set(P0_TYPES)
-    assert provider.content_fingerprint == "9979602dac96a43c129660d3d13edb1f1b5372f30fe42d36535f5de9ad39c367"
+    assert provider.manifest.provider_version == "6"
+    assert {item.type_definition for item in provider.calculation_registrations} == set(OPERATOR_TYPES)
+    assert provider.content_fingerprint == "17513d5fd9d826dadef0f368471ff9aff81a8a595a2ba861e0b4953547098806"
     assert all(
         any(
             dependency.dependency_id == "onlyalpha.decimal.execution"

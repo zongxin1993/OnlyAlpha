@@ -12,7 +12,7 @@ from onlyalpha.research import (
 from tests.research.calculation.support import snapshot
 
 
-def test_p75_preserves_preexisting_indicator_graph_calculation_and_result_identities(tmp_path) -> None:
+def test_indicator_graph_calculation_and_result_identities_remain_exact(tmp_path) -> None:
     registry = OnlyCalculationRegistry()
     for registration in registrations():
         registry.register(registration)

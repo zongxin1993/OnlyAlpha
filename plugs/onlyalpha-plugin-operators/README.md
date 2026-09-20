@@ -12,7 +12,7 @@ change also requires a new Operator semantic version. Hot-plug refresh affects n
 The public semantic policy is frozen by ADR 0113. This inventory is a development-facing Alpha101-style vocabulary coverage aid, not a
 Factor catalog or product authority.
 
-| Primitive family | Status | B1 support / reason |
+| Primitive family | Status | Support / reason |
 |---|---|---|
 | add, subtract, multiply, divide | Supported | Exact pointwise Decimal; divide-by-zero is null |
 | abs, sign, log | Supported | Exact unary Decimal; invalid log domain is null |
@@ -23,7 +23,7 @@ Factor catalog or product authority.
 | scale, decay linear | Supported | Explicit scale factor and oldest-to-newest linear weights |
 | cross-section percentile/rank/z-score/demean | Supported (Research) | Stable plane order; per-instrument null propagation |
 | group/industry rank, demean, z-score | Deferred | Requires versioned classification membership authority |
-| winsorize and generic normalize | Deferred | P2/P1; no B1 composition need proves another semantic identity |
+| winsorize and generic normalize | Deferred | no admitted composition requires another semantic identity |
 
-Every supported time-series primitive has RESEARCH and TRADING implementations. Cross-section primitives intentionally have no B1
+Every supported time-series primitive has RESEARCH and TRADING implementations. Cross-section primitives intentionally have no
 TRADING backend.

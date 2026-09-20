@@ -65,7 +65,7 @@ def verify_symbolic_search_space(
     """Contextually prove Search Space against Catalog, Source contracts and exact Dataset."""
 
     if not isinstance(search_space, OnlySymbolicFactorSearchSpaceV2):
-        raise OnlySymbolicSearchError("SEARCH_SPACE_SCHEMA_UNSUPPORTED", "B3.2 requires Search Space V2")
+        raise OnlySymbolicSearchError("SEARCH_SPACE_SCHEMA_UNSUPPORTED", "symbolic search requires Search Space V2")
 
     if catalog_generation.generation_fingerprint != search_space.catalog_generation_fingerprint:
         raise OnlySymbolicSearchError(
@@ -176,7 +176,7 @@ def verify_symbolic_experiment_binding(
     search_space: OnlySymbolicFactorSearchSpaceV2,
 ) -> None:
     if not isinstance(experiment, OnlySearchExperimentManifestV2):
-        raise OnlySymbolicSearchError("SEARCH_EXPERIMENT_SCHEMA_UNSUPPORTED", "B3.2 requires Experiment V2")
+        raise OnlySymbolicSearchError("SEARCH_EXPERIMENT_SCHEMA_UNSUPPORTED", "symbolic search requires Experiment V2")
     reference = experiment.search_space_reference
     if (
         reference.search_space_kind != SYMBOLIC_SEARCH_SPACE_KIND
@@ -192,17 +192,17 @@ def verify_symbolic_experiment_binding(
     ):
         raise OnlySymbolicSearchError(
             "SEARCH_ALGORITHM_INVALID",
-            "B3.2 requires the exact deterministic-enumeration algorithm binding",
+            "symbolic search requires the exact deterministic-enumeration algorithm binding",
         )
     if experiment.randomness_mode is not OnlySearchRandomnessMode.NONE or experiment.seed is not None:
         raise OnlySymbolicSearchError(
             "SEARCH_RANDOMNESS_INVALID",
-            "B3.2 deterministic enumeration requires randomness NONE and a null seed",
+            "deterministic enumeration requires randomness NONE and a null seed",
         )
     if experiment.decision_engine_binding.mode is not OnlySearchDecisionMode.DETERMINISTIC:
         raise OnlySymbolicSearchError(
             "SEARCH_DECISION_ENGINE_INVALID",
-            "B3.2 proposal generation requires the deterministic decision-engine binding",
+            "symbolic proposal generation requires the deterministic decision-engine binding",
         )
 
 

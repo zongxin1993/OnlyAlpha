@@ -27,7 +27,7 @@ def only_calculation_output_compatibility(
         return OnlyCalculationCompatibility(False, "nullability")
     if output.dimensions != target.dimensions:
         return OnlyCalculationCompatibility(False, "dimensions")
-    # P8.4 internal Predicate primitives preserve the exact data type while
+    # Internal Predicate primitives preserve the exact data type while
     # intentionally accepting any published/source series semantic role. The
     # wildcard is input-only and cannot weaken ordinary Calculation ports.
     if target.semantic_type != PREDICATE_OPERAND_SEMANTIC_TYPE and output.semantic_type != target.semantic_type:

@@ -391,7 +391,7 @@ def test_rename_and_delete_have_deterministic_impact_semantics() -> None:
         HEAD,
         (
             VerificationChangedPath(
-                "docs/old_runtime.md",
+                "docs/removed_runtime.md",
                 ChangeKind.DELETED,
             ),
             VerificationChangedPath(
@@ -406,7 +406,7 @@ def test_rename_and_delete_have_deterministic_impact_semantics() -> None:
 
     assert plan.impact.escalation is VerificationEscalation.BROAD
     assert set(plan.impact.lanes) == set(verify.CORE_RECOVERY)
-    assert [item.path for item in plan.change_set.changed_paths] == ["docs/new_name.md", "docs/old_runtime.md"]
+    assert [item.path for item in plan.change_set.changed_paths] == ["docs/new_name.md", "docs/removed_runtime.md"]
 
 
 def test_name_status_parser_preserves_rename_and_delete() -> None:

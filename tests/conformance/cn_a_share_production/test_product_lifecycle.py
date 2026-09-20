@@ -42,7 +42,7 @@ def _run(
 ) -> OnlyCnAshareProductRun:
     run = only_run_cn_a_share_product(
         tmp_path / name,
-        engine_id=f"p43-{name}",
+        engine_id=f"product-{name}",
         config=only_cn_a_share_product_config(
             instrument_id=instrument_id,
             scenario=scenario,

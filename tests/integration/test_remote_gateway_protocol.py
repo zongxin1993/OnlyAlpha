@@ -74,7 +74,7 @@ def test_handshake_proves_identity_instance_protocol_and_capabilities() -> None:
         assert handshake.gateway_instance_id == gateway.gateway_instance_id
         assert handshake.protocol_major == 1
         assert handshake.contract_sha256 == "5cb5005475e24019669a8658a5189b9d6321488f3e3c675bdc0195b826dfd67e"
-        assert handshake.implementation_version == "K7_TEST_FIXTURE_V1"
+        assert handshake.implementation_version == "REMOTE_GATEWAY_TEST_FIXTURE_V1"
         assert handshake.capabilities == frozenset((common_pb2.TEST_UNARY, common_pb2.TEST_STREAM))
         assert client.state is OnlyGatewayConnectionState.READY
 

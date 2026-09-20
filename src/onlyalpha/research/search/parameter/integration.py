@@ -1,4 +1,4 @@
-"""Normal Research resolution and recoverable B3.1 occurrence integration."""
+"""Normal Research resolution and recoverable search-occurrence integration."""
 
 from __future__ import annotations
 

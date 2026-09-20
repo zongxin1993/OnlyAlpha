@@ -155,7 +155,7 @@ def _representative_compositions() -> dict[str, OnlyCalculationGraphDefinition]:
     }
 
 
-def test_eighteen_representative_compositions_close_b1_expression_classes() -> None:
+def test_representative_expression_compositions_have_distinct_identities() -> None:
     graphs = _representative_compositions()
     assert len(graphs) == 18
     assert len({graph.fingerprint for graph in graphs.values()}) == 18

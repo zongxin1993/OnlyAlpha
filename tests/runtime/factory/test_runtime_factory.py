@@ -79,7 +79,7 @@ class _DescriptorOnlyFactory:
     @staticmethod
     def create(request: object) -> object:
         del request
-        raise AssertionError("SIM P6.2 validation must not create plugin resources")
+        raise AssertionError("SIM validation must not create plugin resources")
 
 
 def _descriptor(

@@ -367,7 +367,7 @@ def only_calculation_equivalence_comparison_fingerprint(
 def only_required_calculation_equivalence_profile(
     definition: OnlyCalculationDefinition,
 ) -> OnlyCalculationEquivalenceCertificationProfile:
-    """Resolve the closed P9.0 profile from exact node semantics."""
+    """Resolve the closed equivalence profile from exact node semantics."""
 
     if definition.factor_kind is OnlyFactorKind.CROSS_SECTION or definition.kind is OnlyCalculationKind.TARGET:
         raise OnlyCalculationEquivalenceError(

@@ -1,4 +1,4 @@
-"""Pure Decimal semantics for the B1 financial feature family."""
+"""Pure Decimal semantics for the financial Indicator family."""
 
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
@@ -85,7 +85,7 @@ def _at(
             Decimal(0),
         )
         return _q(definition, weighted / aggregate_volume)
-    raise ValueError(f"unsupported B1 financial Indicator: {definition.type_id}")
+    raise ValueError(f"unsupported financial Indicator: {definition.type_id}")
 
 
 def _obv(

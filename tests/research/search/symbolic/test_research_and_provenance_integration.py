@@ -200,7 +200,7 @@ def _scientific_template(dataset: str) -> OnlyResearchSpecification:
     )
 
 
-def test_b31_search_space_and_proposal_references_exact_load(tmp_path) -> None:
+def test_search_space_and_proposal_references_exact_load(tmp_path) -> None:
     generation, search_space = space(max_nodes=1)
     dataset = "a" * 64
     symbolic, experiment, context, context_resolver = _verified_context(tmp_path, generation, search_space, dataset)
@@ -228,7 +228,7 @@ def test_b31_search_space_and_proposal_references_exact_load(tmp_path) -> None:
     assert provenance.load_iteration_plan_verified(plan.iteration_plan_fingerprint) == plan
 
 
-def test_b31_missing_symbolic_authority_fails_closed(tmp_path) -> None:
+def test_missing_symbolic_authority_fails_closed(tmp_path) -> None:
     generation, search_space = space(max_nodes=1)
     dataset = "a" * 64
     evaluation = _evaluation(dataset)
@@ -752,7 +752,7 @@ def test_runtime_upgrade_preserves_terminal_history_but_blocks_reenumeration(tmp
         upgraded_reader.certify_current_runtime_enumeration_reproduction(experiment)
 
 
-def test_existing_qualification_and_b31_subject_chain_close_without_copying_outcome(tmp_path) -> None:
+def test_existing_qualification_and_subject_chain_close_without_copying_outcome(tmp_path) -> None:
     chain = _fresh_process_e2e(tmp_path)
     layout = OnlyUserDataLayout(tmp_path)
     datasets = OnlyParquetResearchDatasetSnapshotStore(layout.research_dataset_root)

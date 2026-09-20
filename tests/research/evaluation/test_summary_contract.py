@@ -112,7 +112,7 @@ def test_metric_registry_is_exact_immutable_and_method_typed() -> None:
 
 
 def test_factor_pair_effect_definition_plan_and_registry_are_exact() -> None:
-    # Operand construction is already pinned by the B3.0.4A contract; use simple exact public values here.
+    # Operand construction is already pinned by the summary contract; use simple exact public values here.
     from onlyalpha.research import OnlyResearchFactorPairOperand
 
     first = OnlyResearchFactorPairOperand(

@@ -37,7 +37,7 @@ class OnlyClusterCompositionPlan:
 
 
 class _NoExternalMarketProductResources(OnlyMarketProductResourceResolver):
-    """P5.3 products build their plugin-owned authorities from typed config."""
+    """Products build their plugin-owned authorities from typed config."""
 
     def require_reference_authority(self, resource_id: str) -> OnlyMarketReferenceAuthority:
         raise ValueError(f"EXTERNAL_MARKET_REFERENCE_RESOURCE_NOT_CONFIGURED: {resource_id}")

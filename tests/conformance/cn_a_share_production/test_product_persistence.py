@@ -63,12 +63,12 @@ def _economic_summary(run: OnlyCnAshareProductRun) -> Mapping[str, object]:
 def test_memory_and_sqlite_execute_the_same_production_economics(tmp_path: Path) -> None:
     memory = only_run_cn_a_share_product(
         tmp_path / "memory",
-        engine_id="p43-persistence-equivalence",
+        engine_id="product-persistence-equivalence",
         config=only_cn_a_share_product_config(persistence_backend="MEMORY", multi_fill=True),
     )
     sqlite = only_run_cn_a_share_product(
         tmp_path / "sqlite",
-        engine_id="p43-persistence-equivalence",
+        engine_id="product-persistence-equivalence",
         config=only_cn_a_share_product_config(persistence_backend="SQLITE", multi_fill=True),
     )
 
@@ -83,8 +83,8 @@ def test_same_product_input_has_deterministic_result_and_artifact(
     persistence_backend: str,
 ) -> None:
     config = only_cn_a_share_product_config(persistence_backend=persistence_backend, multi_fill=True)
-    first = only_run_cn_a_share_product(tmp_path / "first", engine_id="p43-determinism", config=config)
-    second = only_run_cn_a_share_product(tmp_path / "second", engine_id="p43-determinism", config=config)
+    first = only_run_cn_a_share_product(tmp_path / "first", engine_id="product-determinism", config=config)
+    second = only_run_cn_a_share_product(tmp_path / "second", engine_id="product-determinism", config=config)
 
     assert first.engine_result.status == "COMPLETED", first.engine_result.failures
     assert second.engine_result.status == "COMPLETED", second.engine_result.failures
@@ -102,7 +102,7 @@ def test_sqlite_a_b_c_forward_recovery_equals_uninterrupted_product_history(tmp_
     config = only_migrate_cluster_to_strategy(
         only_cn_a_share_product_config(persistence_backend="SQLITE", multi_fill=True), recovered_root
     )
-    engine_id = OnlyEngineId("p43-abc-recovery")
+    engine_id = OnlyEngineId("product-forward-recovery")
 
     engine_a = OnlyEngine(
         OnlyEngineConfig(engine_id, recovered_root),

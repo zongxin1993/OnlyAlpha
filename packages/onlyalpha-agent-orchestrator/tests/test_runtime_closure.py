@@ -501,8 +501,8 @@ def test_public_package_imports_keep_canonical_objects_and_export_counts() -> No
     assert len(research.__all__) == 533
     assert len(experiment.__all__) == 52
     assert len(agent.__all__) == 129
-    # PA-3 (c36afc13) added the three private-strategy application symbols;
-    # PA3-TC2 (0250fe8b) added OriginKind and renamed the public Run store port
+    # Private-strategy execution requires the application symbols, OriginKind,
+    # and the public Run store port in the exact historical resource set.
     # to the read-only Reader boundary. These are intentional public changes.
     assert len(application.__all__) == 24
     assert onlyalpha.OnlyClock is OnlyClock

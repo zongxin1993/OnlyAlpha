@@ -5,7 +5,7 @@ OnlyAlpha 测试数据根目录。放置规则见根目录 `AGENTS.md` 的 “Te
 
 | 目录 | 内容 | 再生/守卫 |
 | --- | --- | --- |
-| `a0_binance_golden/` | A0 Binance 录制的 golden 数据清单 | 部署认证测试消费 |
+| `binance/public_archive_certification/` | immutable Binance golden 数据清单 | 部署认证测试消费 |
 | `clickhouse/` | ClickHouse 存储策略配置样例 | 当前无代码消费者，保留待集成 |
 | `conformance/` | cn_a_share_production 冻结数据集 | `tests/conformance/cn_a_share_production` |
 | `contracts/` | Research advisory bundle 合同样例 | `tests/application`、`tests/contracts` |

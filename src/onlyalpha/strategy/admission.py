@@ -370,7 +370,7 @@ class OnlyStrategyTradingAdmissionService:
         ):
             raise OnlyStrategyAdmissionError(
                 "STRATEGY_NOT_TRADING_ADMISSIBLE",
-                "P9.0 Trading Strategy input must be RAW without an adjustment reference",
+                "Trading Strategy input must be RAW without an adjustment reference",
             )
         for node in graph.ordered_nodes:
             definition = node.definition
@@ -384,7 +384,7 @@ class OnlyStrategyTradingAdmissionService:
                 )
             if definition.factor_kind is OnlyFactorKind.CROSS_SECTION:
                 raise OnlyStrategyAdmissionError(
-                    "STRATEGY_NOT_TRADING_ADMISSIBLE", "P9.0 does not admit cross-section Trading execution"
+                    "STRATEGY_NOT_TRADING_ADMISSIBLE", "Trading execution does not admit cross-section Strategy inputs"
                 )
             unsupported = sorted(
                 {

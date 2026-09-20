@@ -56,7 +56,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.require
 
 
 def test_transactional_run_cut_preserves_baseline_and_later_revision(postgres_dsn: str, tmp_path: Path) -> None:
-    copy_migrations_through(tmp_path, "0022_product_command_legacy_admission_closure")
+    copy_migrations_through(tmp_path, "0022_product_command_admission_convergence")
     OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path).migrate()
     run = _queued("00000000-0000-4000-8000-000000000901")
     OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(run, columns=_COLUMNS[:-1])

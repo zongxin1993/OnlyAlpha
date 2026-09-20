@@ -196,7 +196,9 @@ class OnlySymbolicSearchContextResolver:
         self, experiment: OnlySearchExperimentManifestV2
     ) -> OnlyVerifiedSymbolicSearchContextV1:
         if not isinstance(experiment, OnlySearchExperimentManifestV2):
-            raise OnlySymbolicSearchError("SEARCH_EXPERIMENT_SCHEMA_UNSUPPORTED", "B3.2 requires Experiment V2")
+            raise OnlySymbolicSearchError(
+                "SEARCH_EXPERIMENT_SCHEMA_UNSUPPORTED", "symbolic search requires Experiment V2"
+            )
         try:
             catalog = self._catalogs.generation(experiment.catalog_generation_fingerprint)
             if catalog.generation_fingerprint != experiment.catalog_generation_fingerprint:
@@ -217,7 +219,7 @@ class OnlySymbolicSearchContextResolver:
             experiment.search_space_reference.search_space_fingerprint
         )
         if not isinstance(space_value, OnlySymbolicFactorSearchSpaceV2):
-            raise OnlySymbolicSearchError("SEARCH_SPACE_SCHEMA_UNSUPPORTED", "B3.2 requires Search Space V2")
+            raise OnlySymbolicSearchError("SEARCH_SPACE_SCHEMA_UNSUPPORTED", "symbolic search requires Search Space V2")
         evaluation = self._symbolic_store.load_evaluation_contract_intrinsic_verified(
             experiment.evaluation_context_reference.evaluation_fingerprint
         )

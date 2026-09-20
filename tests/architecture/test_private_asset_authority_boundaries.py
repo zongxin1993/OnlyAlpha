@@ -48,7 +48,7 @@ def test_private_asset_contract_owns_no_postgres_web_agent_or_evidence_dependenc
     assert "onlyalpha.quant_assets.private" in _imports(_PERSISTENCE)
 
 
-def test_pa1_private_asset_boundary_contains_no_source_execution_path() -> None:
+def test_private_asset_boundary_contains_no_source_execution_path() -> None:
     for path in (_CONTRACT, _PERSISTENCE, _PROVENANCE):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         calls = {

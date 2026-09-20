@@ -366,7 +366,7 @@ def _verified(
     )
 
 
-def test_at_b1_b2_b3_b5_deterministic_decision_ignores_load_and_completion_order() -> None:
+def test_deterministic_decision_ignores_load_and_completion_order() -> None:
     proposals = _proposals()
     first = _decide()
     assert first.ordered_next_proposal_fingerprints == tuple(
@@ -385,7 +385,7 @@ def test_at_b1_b2_b3_b5_deterministic_decision_ignores_load_and_completion_order
     )
 
 
-def test_at_b4_b6_b7_b8_canonical_identity_and_no_numeric_search_truth() -> None:
+def test_canonical_identity_and_no_numeric_search_truth() -> None:
     left = _space((9, 1, 7, 3, 5))
     right = _space((1, 3, 5, 7, 9))
     assert left.search_space_fingerprint == right.search_space_fingerprint
@@ -407,7 +407,7 @@ def test_at_b4_b6_b7_b8_canonical_identity_and_no_numeric_search_truth() -> None
     assert len({item.proposal_fingerprint for item in proposals}) == left.cardinality
 
 
-def test_at_b8_parameter_candidate_is_created_only_by_normal_research_resolver() -> None:
+def test_parameter_candidate_is_created_only_by_normal_research_resolver() -> None:
     base = specification(_SHA)
     scientific = OnlyResearchSpecification(
         base.dataset_snapshot_fingerprint,
@@ -431,14 +431,14 @@ def test_at_b8_parameter_candidate_is_created_only_by_normal_research_resolver()
     assert resolved.candidate.graph_fingerprint == context.proposals[0].graph_fingerprint
 
 
-def test_at_b9_v1_v2_readers_and_identity_are_unchanged() -> None:
+def test_readers_and_identity_are_unchanged() -> None:
     assert OnlySearchExperimentManifestV1.from_dict.__func__ is not None
     assert OnlySearchExperimentManifestV2.from_dict.__func__ is not None
     v3 = _manifest(_policy())
     assert OnlySearchExperimentManifestV3.from_dict(v3.to_dict()) == v3
 
 
-def test_at_16_17_identical_verified_decisions_converge_to_created_and_reused(tmp_path) -> None:
+def test_identical_verified_decisions_converge_to_created_and_reused(tmp_path) -> None:
     store = OnlyJsonParameterSearchStore(tmp_path)
     first = _decision_for_context()
     verified = _verified(first)
@@ -465,7 +465,7 @@ def test_at_16_17_identical_verified_decisions_converge_to_created_and_reused(tm
     assert committed == first
 
 
-def test_at_01_formal_controller_has_no_metric_bearing_argument() -> None:
+def test_formal_controller_has_no_metric_bearing_argument() -> None:
     assert tuple(signature(OnlyParameterSearchControllerV1.advance).parameters) == ("self", "context")
     assert tuple(signature(OnlyParameterSearchControllerV1.__init__).parameters) == (
         "self",
@@ -500,7 +500,7 @@ def test_at_01_formal_controller_has_no_metric_bearing_argument() -> None:
         lambda value, proposals, results: replace(value, start_iteration_index=value.start_iteration_index + 1),
     ),
 )
-def test_at_12_15_semantically_fabricated_feedback_decision_is_rejected(mutation) -> None:  # type: ignore[no-untyped-def]
+def test_semantically_fabricated_feedback_decision_is_rejected(mutation) -> None:  # type: ignore[no-untyped-def]
     context = _context()
     initial, plans, results, evidence = _completed_initial_round(context)
     exact = decide_parameter_search_v1(
@@ -525,13 +525,13 @@ def test_at_12_15_semantically_fabricated_feedback_decision_is_rejected(mutation
         )
 
 
-def test_at_11_exact_algorithm_decision_is_occurrence_verified() -> None:
+def test_exact_algorithm_decision_is_occurrence_verified() -> None:
     context = _context()
     decision = _decision_for_context(context)
     assert _verified(decision, context=context).decision == decision
 
 
-def test_at_02_formal_controller_derives_metrics_from_its_authority_reader(tmp_path) -> None:
+def test_formal_controller_derives_metrics_from_its_authority_reader(tmp_path) -> None:
     context = _context()
     initial, plans, results, evidence = _completed_initial_round(context)
     store = OnlyJsonParameterSearchStore(tmp_path)
@@ -564,7 +564,7 @@ def test_unverified_structurally_valid_decision_cannot_enter_store(tmp_path) -> 
         OnlyJsonParameterSearchStore(tmp_path).commit_feedback_decision(cast(Any, decision))
 
 
-def test_at_07_10_current_runtime_mismatch_blocks_execution_not_historical_load(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def test_current_runtime_mismatch_blocks_execution_not_historical_load(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     context = _context()
     decision, plans, results, evidence = _completed_initial_round(context)
     store = OnlyJsonParameterSearchStore(tmp_path)
@@ -595,7 +595,7 @@ def test_at_07_10_current_runtime_mismatch_blocks_execution_not_historical_load(
         controller.certify_historical_reproduction(context, decision, ())
 
 
-def test_at_h1_h2_runtime_admission_precedes_partial_plan_recovery(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def test_runtime_admission_precedes_partial_plan_recovery(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     context = _context()
     decision = _decision_for_context(context)
     store = _persist_legacy_frontier(tmp_path, decision)
@@ -622,7 +622,7 @@ def test_at_h1_h2_runtime_admission_precedes_partial_plan_recovery(tmp_path, mon
     assert tuple(provenance.plans.values()) == exact[:1]
 
 
-def test_at_h3_fabricated_legacy_frontier_exact_loads_but_cannot_authorize_work(tmp_path) -> None:
+def test_fabricated_legacy_frontier_exact_loads_but_cannot_authorize_work(tmp_path) -> None:
     context = _context()
     exact = _decision_for_context(context)
     fabricated = replace(
@@ -642,7 +642,7 @@ def test_at_h3_fabricated_legacy_frontier_exact_loads_but_cannot_authorize_work(
     assert not provenance.plans and not provenance.results
 
 
-def test_at_h4_p1_p2_p3_legitimate_legacy_frontier_recovers_only_missing_suffix(tmp_path) -> None:
+def test_legitimate_legacy_frontier_recovers_only_missing_suffix(tmp_path) -> None:
     context = _context()
     decision = _decision_for_context(context)
     store = _persist_legacy_frontier(tmp_path, decision)
@@ -663,7 +663,7 @@ def test_at_h4_p1_p2_p3_legitimate_legacy_frontier_recovers_only_missing_suffix(
 
 
 @pytest.mark.parametrize("existing_indices", ((1,), (0, 2)))
-def test_at_p4_gapped_or_non_prefix_plan_batch_fails_closed(tmp_path, existing_indices) -> None:  # type: ignore[no-untyped-def]
+def test_gapped_or_non_prefix_plan_batch_fails_closed(tmp_path, existing_indices) -> None:  # type: ignore[no-untyped-def]
     context = _context()
     decision = _decision_for_context(context)
     store = _persist_legacy_frontier(tmp_path, decision)
@@ -683,7 +683,7 @@ def test_at_p4_gapped_or_non_prefix_plan_batch_fails_closed(tmp_path, existing_i
     assert provenance.plans == before
 
 
-def test_at_d6_fabricated_prior_decision_cannot_influence_next_decision() -> None:
+def test_fabricated_prior_decision_cannot_influence_next_decision() -> None:
     context = _context()
     initial, _plans, _results, _evidence_values = _completed_initial_round(context)
     fabricated = replace(
@@ -840,7 +840,7 @@ def test_tampered_algorithm_resource_blocks_new_work(
     assert store.load_frontier_fingerprint(context.experiment.experiment_fingerprint) is None
 
 
-def test_at_b11_b12_b13_policy_changes_change_experiment_identity() -> None:
+def test_policy_changes_change_experiment_identity() -> None:
     baseline = _policy()
     variants = (
         _policy(primary_metric_selector=_TIE),
@@ -856,7 +856,7 @@ def test_at_b11_b12_b13_policy_changes_change_experiment_identity() -> None:
     )
 
 
-def test_at_b14_b24_b25_failure_is_unavailable_not_a_score() -> None:
+def test_failure_is_unavailable_not_a_score() -> None:
     proposals = _proposals()
     failed = OnlyParameterResearchEvidenceV1("1" * 64, proposals[0], {}, True, False)
     decision = _decide((failed,))
@@ -923,7 +923,7 @@ def _real_research_evidence_case(root, *, result_identity: str | None = None):  
     return context, plan, iteration, reader, summary
 
 
-def test_at_02_06_evidence_reader_uses_exact_research_and_statistics_authorities(tmp_path) -> None:
+def test_evidence_reader_uses_exact_research_and_statistics_authorities(tmp_path) -> None:
     context, plan, iteration, reader, _summary = _real_research_evidence_case(tmp_path)
     proposal = next(item for item in context.proposals if item.proposal_fingerprint == plan.proposal_fingerprint)
     evidence = reader.load_required(
@@ -936,7 +936,7 @@ def test_at_02_06_evidence_reader_uses_exact_research_and_statistics_authorities
     assert evidence.metric_scalars[_TIE].metric_id == _TIE
 
 
-def test_at_03_tampered_research_result_reference_fails_closed(tmp_path) -> None:
+def test_tampered_research_result_reference_fails_closed(tmp_path) -> None:
     context, plan, iteration, reader, _summary = _real_research_evidence_case(
         tmp_path,
         result_identity="f" * 64,
@@ -950,7 +950,7 @@ def test_at_03_tampered_research_result_reference_fails_closed(tmp_path) -> None
         )
 
 
-def test_at_04_tampered_statistics_identity_fails_closed(tmp_path) -> None:
+def test_tampered_statistics_identity_fails_closed(tmp_path) -> None:
     context, plan, iteration, _reader, summary = _real_research_evidence_case(tmp_path)
     proposal = next(item for item in context.proposals if item.proposal_fingerprint == plan.proposal_fingerprint)
     statistics = _ExactValues({"f" * 64: replace(summary)})
@@ -980,7 +980,7 @@ def test_at_04_tampered_statistics_identity_fails_closed(tmp_path) -> None:
         )
 
 
-def test_at_b16_b17_feedback_batch_resumes_exact_plans() -> None:
+def test_feedback_batch_resumes_exact_plans() -> None:
     decision = _decision_for_context()
     plans = plans_for_feedback_decision(decision, _proposals())
     assert tuple(item.iteration_index for item in plans) == (0, 1, 2)
@@ -988,7 +988,7 @@ def test_at_b16_b17_feedback_batch_resumes_exact_plans() -> None:
     assert tuple(item.proposal_fingerprint for item in plans) == decision.ordered_next_proposal_fingerprints
 
 
-def test_at_b15_b16_b17_controller_restart_completes_exact_partial_batch(tmp_path) -> None:
+def test_controller_restart_completes_exact_partial_batch(tmp_path) -> None:
     context = _context()
     uninterrupted_store = OnlyJsonParameterSearchStore(tmp_path / "uninterrupted")
     uninterrupted_provenance = _Provenance()
@@ -1022,7 +1022,7 @@ def test_at_b15_b16_b17_controller_restart_completes_exact_partial_batch(tmp_pat
     assert uninterrupted.plans == exact
 
 
-def test_at_b19_budget_is_derived_and_never_returns() -> None:
+def test_budget_is_derived_and_never_returns() -> None:
     proposals = _proposals()
     evidence = tuple(_evidence(item, f"0.{index + 1:012d}") for index, item in enumerate(proposals[:3]))
     decision = decide_parameter_search_v1(
@@ -1037,7 +1037,7 @@ def test_at_b19_budget_is_derived_and_never_returns() -> None:
     assert _decide(tuple(reversed(evidence))) == _decide(evidence)
 
 
-def test_at_b18_completed_run_reconciles_exact_terminal_iteration_result() -> None:
+def test_completed_run_reconciles_exact_terminal_iteration_result() -> None:
     decision = _decide()
     plan = plans_for_feedback_decision(decision, _proposals())[0]
     provenance = _Provenance()
@@ -1236,7 +1236,7 @@ def test_completed_run_rejects_unsupported_summary_family_before_composition() -
         )
 
 
-def test_at_b20_ambiguous_command_receipt_fails_closed_without_retry() -> None:
+def test_ambiguous_command_receipt_fails_closed_without_retry() -> None:
     decision = _decide()
     plan = plans_for_feedback_decision(decision, _proposals())[0]
     provenance = _Provenance()
@@ -1263,7 +1263,7 @@ def test_at_b20_ambiguous_command_receipt_fails_closed_without_retry() -> None:
     assert not provenance.results
 
 
-def test_at_b21_b23_full_terminal_prefix_is_canonical_input() -> None:
+def test_full_terminal_prefix_is_canonical_input() -> None:
     proposals = _proposals()
     evidence = tuple(_evidence(item, f"0.{index + 1:012d}") for index, item in enumerate(proposals[:3]))
     decision = _decide(tuple(reversed(evidence)))
@@ -1272,7 +1272,7 @@ def test_at_b21_b23_full_terminal_prefix_is_canonical_input() -> None:
     )
 
 
-def test_at_b26_b27_missing_and_mismatched_evidence_fail_closed() -> None:
+def test_missing_and_mismatched_evidence_fail_closed() -> None:
     proposals = _proposals()
     missing = OnlyParameterResearchEvidenceV1("1" * 64, proposals[0], {_METRIC: _scalar(_METRIC, "0.1")}, True, True)
     with pytest.raises(OnlyParameterSearchError, match="MISSING_REQUIRED_EVIDENCE"):
@@ -1282,7 +1282,7 @@ def test_at_b26_b27_missing_and_mismatched_evidence_fail_closed() -> None:
         _decide((_evidence(foreign, "0.100000000000"),))
 
 
-def test_at_b28_b29_b30_history_load_is_independent_of_current_algorithm(tmp_path) -> None:
+def test_history_load_is_independent_of_current_algorithm(tmp_path) -> None:
     store = OnlyJsonParameterSearchStore(tmp_path)
     historical = OnlyParameterSearchAlgorithmManifestV1(
         DETERMINISTIC_COARSE_TO_FINE_ALGORITHM_ID, "1", "old", ("1" * 64,)
@@ -1297,7 +1297,7 @@ def test_at_b28_b29_b30_history_load_is_independent_of_current_algorithm(tmp_pat
     assert store.load_feedback_decision_intrinsic_verified(decision.feedback_decision_fingerprint) == decision
 
 
-def test_at_b31_b32_b33_exact_coarse_to_fine_and_exhaustion() -> None:
+def test_exact_coarse_to_fine_and_exhaustion() -> None:
     proposals = _proposals()
     initial = _decide()
     first_evidence = (
@@ -1317,7 +1317,7 @@ def test_at_b31_b32_b33_exact_coarse_to_fine_and_exhaustion() -> None:
     assert len({item.proposal.proposal_fingerprint for item in all_evidence}) == 5
 
 
-def test_at_b34_convergence_is_a_durable_stop() -> None:
+def test_convergence_is_a_durable_stop() -> None:
     proposals = _proposals()
     evidence = (
         _evidence(proposals[0], "0.100000000000"),

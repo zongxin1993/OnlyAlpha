@@ -173,7 +173,7 @@ def test_legal_proposal_outside_exact_budget_prefix_cannot_be_substituted(tmp_pa
         resolver.load_proposal_occurrence_contextual_verified(experiment, _plan(experiment, outside, 0))
 
 
-def test_b31_context_adapter_rejects_swapped_ordinal_occurrence(tmp_path) -> None:
+def test_context_adapter_rejects_swapped_ordinal_occurrence(tmp_path) -> None:
     generation, search_space = space(max_nodes=2)
     store, experiment, context, resolver = _verified_context(tmp_path, generation, search_space, "a" * 64)
     provenance = OnlyJsonSearchProvenanceStore(

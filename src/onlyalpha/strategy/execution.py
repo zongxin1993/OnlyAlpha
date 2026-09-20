@@ -86,7 +86,7 @@ class OnlyStrategyExecutionResolver:
             ):
                 raise OnlyStrategyResolutionError(
                     "STRATEGY_OBSERVATION_NOT_ADMITTED",
-                    "P9.0 Trading Strategy input must be RAW without an adjustment reference",
+                    "Trading Strategy input must be RAW without an adjustment reference",
                 )
             expected = {item.node_fingerprint: item for item in revision.implementation_bindings}
             for node in revision.decision_graph.nodes:
@@ -156,7 +156,7 @@ class OnlyStrategyIncrementalExecutor:
             if previous.observation_fingerprint != observation_fingerprint:
                 raise OnlyStrategyResolutionError(
                     "CORRECTED_FINAL_BAR_UNSUPPORTED",
-                    "P9.0 does not roll back finalized Strategy state",
+                    "Trading execution does not roll back finalized Strategy state",
                 )
             return previous
         if previous is not None and key.bar_end_ns <= previous.observation_key.bar_end_ns:

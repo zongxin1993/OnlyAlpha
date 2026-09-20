@@ -18,7 +18,7 @@ def test_analytics_consumes_formal_result_without_changing_it() -> None:
     assert result.to_dict() == before
     assert first == second
     assert first.analysis_fingerprint == second.analysis_fingerprint
-    # P9.0 Strategy ends at Decision semantics. Portfolio/order generation is
+    # Strategy ends at Decision semantics. Portfolio/order generation is
     # deliberately downstream and is not fabricated by this foundation test.
     assert first.orders.submitted_count == 0
     assert first.orders.filled_count == 0

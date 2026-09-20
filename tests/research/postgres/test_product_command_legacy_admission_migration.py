@@ -38,7 +38,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.require
 
 M20 = "0020_strategy_qualification_authority"
 M21 = "0021_product_command_admission_authority"
-M22 = "0022_product_command_legacy_admission_closure"
+M22 = "0022_product_command_admission_convergence"
 NOW = datetime(2026, 9, 8, 1, 2, 3, tzinfo=UTC)
 NAMESPACE = OnlyResearchSemanticStoreId("00000000-0000-4000-8000-000000000971")
 RESEARCH_RUN_ID = "00000000-0000-4000-8000-000000000972"

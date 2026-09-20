@@ -1,4 +1,4 @@
-CREATE TEMPORARY TABLE product_command_legacy_binding_closure
+CREATE TEMPORARY TABLE product_command_legacy_binding_snapshot
 ON COMMIT DROP
 AS
 SELECT
@@ -43,7 +43,7 @@ DO $$
 BEGIN
     IF EXISTS (
         SELECT 1
-        FROM product_command_legacy_binding_closure
+        FROM product_command_legacy_binding_snapshot
         WHERE schema_version <> 1
            OR command_fingerprint !~ '^[0-9a-f]{64}$'
            OR command_kind NOT IN (
@@ -66,7 +66,7 @@ BEGIN
 
     IF EXISTS (
         SELECT command_id
-        FROM product_command_legacy_binding_closure
+        FROM product_command_legacy_binding_snapshot
         GROUP BY command_id
         HAVING count(DISTINCT (command_kind, command_fingerprint)) <> 1
     ) THEN
@@ -88,7 +88,7 @@ SELECT DISTINCT
     legacy.command_kind,
     legacy.command_fingerprint,
     1
-FROM product_command_legacy_binding_closure AS legacy
+FROM product_command_legacy_binding_snapshot AS legacy
 WHERE legacy.source <> 'product_command_admission'
   AND NOT EXISTS (
       SELECT 1
@@ -101,7 +101,7 @@ DO $$
 BEGIN
     IF EXISTS (
         SELECT 1
-        FROM product_command_legacy_binding_closure AS legacy
+        FROM product_command_legacy_binding_snapshot AS legacy
         LEFT JOIN product_command_admission AS admission
           ON admission.command_id = legacy.command_id
          AND admission.command_kind = legacy.command_kind

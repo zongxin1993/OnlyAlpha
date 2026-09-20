@@ -63,7 +63,7 @@ def trade_update(sequence: int = 10, *, price: str = "100.12000000") -> OnlyMark
     )
     return OnlyMarketDataInboundUpdate(
         only_trade_update_id(SOURCE, INSTRUMENT, trade_id, VERSION),
-        OnlyRuntimeId("runtime-p93"),
+        OnlyRuntimeId("market-data-runtime"),
         SOURCE,
         OnlyDataSequence(sequence),
         VERSION,
@@ -102,7 +102,7 @@ def bar_update(index: int = 0, *, close: str = "101.00000000") -> OnlyMarketData
     )
     return OnlyMarketDataInboundUpdate(
         only_bar_update_id(SOURCE, INSTRUMENT, BAR_TYPE, start, VERSION),
-        OnlyRuntimeId("runtime-p93"),
+        OnlyRuntimeId("market-data-runtime"),
         SOURCE,
         OnlyDataSequence(int(start.timestamp()) // 60),
         VERSION,
@@ -134,7 +134,7 @@ def reference_update(sequence: int = 10) -> OnlyMarketDataInboundUpdate:
             event,
             VERSION,
         ),
-        OnlyRuntimeId("runtime-p93"),
+        OnlyRuntimeId("market-data-runtime"),
         SOURCE,
         OnlyDataSequence(sequence),
         VERSION,

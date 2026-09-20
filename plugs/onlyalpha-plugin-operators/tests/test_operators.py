@@ -5,7 +5,7 @@ import pyarrow as pa
 import pytest
 from onlyalpha_plugin_operators.registration import (
     CROSS_SECTION_PERCENTILE,
-    P0_TYPES,
+    OPERATOR_TYPES,
     ROLLING_MEAN,
     registrations,
     resolve_cross_section_percentile,
@@ -42,7 +42,7 @@ def test_l1_definitions_are_generic_non_factor_calculations() -> None:
     assert only_calculation_execution_shape(percentile) is OnlyFactorKind.CROSS_SECTION
 
 
-def test_pre_b1_l1_definition_identities_are_exactly_preserved() -> None:
+def test_existing_operator_definition_identities_are_exactly_preserved() -> None:
     rolling_one = resolve_rolling_mean({"period": 1}, _source())
     rolling_three = resolve_rolling_mean({"period": 3}, _source())
     percentile = resolve_cross_section_percentile({}, _source())
@@ -100,7 +100,7 @@ def test_rolling_mean_trading_checkpoint_continuation_is_exact() -> None:
 
 def test_operator_registrations_have_exact_manifests_and_capabilities() -> None:
     actual = registrations()
-    assert {item.type_definition for item in actual} == set(P0_TYPES)
+    assert {item.type_definition for item in actual} == set(OPERATOR_TYPES)
     assert {item.backend for item in actual} == {
         OnlyCalculationBackendKind.RESEARCH,
         OnlyCalculationBackendKind.TRADING,

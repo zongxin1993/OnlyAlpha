@@ -124,17 +124,17 @@ M5 = "0005_research_specification_v2_admission"
 M6 = "0006_research_worker_presence"
 M7 = "0007_research_deployment_semantic_store_binding"
 M8 = "0008_strategy_revision_promotion_foundation"
-M9 = "0009_strategy_authority_closure"
-M10 = "0010_p9_0_closure_2_authority_hardening"
-M11 = "0011_p9_0_freeze_projection_convergence"
+M9 = "0009_strategy_freeze_evidence_and_promotion_index"
+M10 = "0010_research_and_strategy_execution_evidence"
+M11 = "0011_strategy_freeze_schema_version_convergence"
 M12 = "0012_product_command_receipt"
 M13 = "0013_market_data_catalog"
 M14 = "0014_market_data_durable_ownership"
-M18 = "0018_a0_backtest_worker_presence"
+M18 = "0018_backtest_worker_presence"
 M19 = "0019_research_authoring_provenance"
 M20 = "0020_strategy_qualification_authority"
 M21 = "0021_product_command_admission_authority"
-M22 = "0022_product_command_legacy_admission_closure"
+M22 = "0022_product_command_admission_convergence"
 CURRENT_MIGRATIONS = current_migrations()
 EXECUTION_EVIDENCE = ("e" * 64,)
 
@@ -816,7 +816,7 @@ def test_submission_transaction_is_atomic_concurrent_and_restart_safe(postgres_d
 
 def test_process_loss_after_create_commit_restarts_to_same_authoritative_run(postgres_dsn: str, tmp_path: Path) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    marker = tmp_path / "K5_CREATE_COMMITTED"
+    marker = tmp_path / "CONCURRENT_CREATE_COMMITTED"
     script = """
 import os
 import sys
@@ -831,7 +831,7 @@ dsn = os.environ["ONLYALPHA_POSTGRES_DSN"]
 run = _queued("00000000-0000-4000-8000-000000000413")
 key = OnlyProductCommandId("00000000-0000-4000-8000-000000000404")
 OnlyPostgresResearchRunSeeder(dsn).seed_queued_with_receipt(run, _create_receipt(key, run))
-Path(sys.argv[1]).write_text("K5_CREATE_COMMITTED", encoding="utf-8")
+Path(sys.argv[1]).write_text("CONCURRENT_CREATE_COMMITTED", encoding="utf-8")
 Event().wait()
 """
     environment = dict(os.environ)
@@ -840,8 +840,8 @@ Event().wait()
     deadline = time.monotonic() + 10
     while not marker.is_file() and child.poll() is None and time.monotonic() < deadline:
         time.sleep(0.01)
-    assert marker.is_file(), f"child exited before K5 barrier: returncode={child.poll()}"
-    assert marker.read_text(encoding="utf-8") == "K5_CREATE_COMMITTED"
+    assert marker.is_file(), f"child exited before concurrent-create barrier: returncode={child.poll()}"
+    assert marker.read_text(encoding="utf-8") == "CONCURRENT_CREATE_COMMITTED"
     child.send_signal(signal.SIGKILL)
     assert child.wait(timeout=10) == -signal.SIGKILL
 

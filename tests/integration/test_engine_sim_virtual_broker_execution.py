@@ -164,7 +164,7 @@ def _engine(
 
 
 @pytest.mark.sim_recovery
-def test_engine_sim_checkpoint_reopens_in_new_runtime_instance(
+def test_engine_sim_checkpoint_reopens_in_replacement_runtime_instance(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

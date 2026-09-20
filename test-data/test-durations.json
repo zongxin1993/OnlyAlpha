@@ -19,7 +19,7 @@
     "tests/architecture/test_research_evaluation_boundaries.py::test_target_consuming_any_calculation_node_fails_in_v1[indicator]": 0.0004383739724289626,
     "tests/architecture/test_research_evaluation_boundaries.py::test_target_consuming_any_calculation_node_fails_in_v1[target]": 0.0005178740248084068,
     "tests/architecture/test_research_evaluation_boundaries.py::test_target_dataset_source_is_allowed_and_target_graph_is_independent": 0.0007191660115495324,
-    "tests/research/evaluation/test_coverage_summary.py::test_b3_0_2_coverage_identities_and_canonical_payloads_are_pinned": 0.17452637598034926,
+    "tests/research/evaluation/test_coverage_summary.py::test_coverage_summary_identities_and_canonical_payloads_are_pinned": 0.17452637598034926,
     "tests/research/evaluation/test_coverage_summary.py::test_coverage_decimal_poisoning_cannot_change_values_or_identity": 0.12520262601901777,
     "tests/research/evaluation/test_coverage_summary.py::test_coverage_deterministic_conflict_never_overwrites": 0.18751741602318361,
     "tests/research/evaluation/test_coverage_summary.py::test_coverage_executor_commits_then_reuses_and_rank_ic_is_typed": 0.3844734999584034,
@@ -57,7 +57,7 @@
     "tests/research/evaluation/test_coverage_summary_store.py::test_unknown_summary_kind_is_not_inferred_from_coverage_fields": 0.16122154201730154,
     "tests/research/evaluation/test_effect_summary.py::test_all_invalid_single_observation_and_zero_variance_statuses_are_exact": 0.13190249999752268,
     "tests/research/evaluation/test_effect_summary.py::test_ambient_decimal_poisoning_cannot_change_summary_or_identity": 0.12609470897587016,
-    "tests/research/evaluation/test_effect_summary.py::test_b3_0_1_effect_identities_and_canonical_payloads_are_pinned": 0.19350500003201887,
+    "tests/research/evaluation/test_effect_summary.py::test_effect_summary_identities_and_canonical_payloads_are_pinned": 0.19350500003201887,
     "tests/research/evaluation/test_effect_summary.py::test_effect_summary_golden_mean_sample_stddev_and_nonannualized_ir": 0.14563037498737685,
     "tests/research/evaluation/test_effect_summary.py::test_effect_summary_sign_counts_ratios_and_mixed_invalid_rows": 0.1333793749799952,
     "tests/research/evaluation/test_effect_summary.py::test_executor_commits_then_reuses_exact_verified_summary": 0.1899982919858303,
@@ -360,5 +360,5 @@
     "tests/research/evaluation/test_validation_fail_closed.py::test_statistics_plan_reader_is_exact[unknown-True]": 0.0003557500021997839,
     "tests/research/evaluation/test_validation_fail_closed.py::test_statistics_store_admission_rejects_linkage_rows_and_timestamp_order": 0.1625174579967279,
     "tests/research/evaluation/test_validation_fail_closed.py::test_upstream_reference_node_output_and_result_identity_validation": 0.12988325001788326,
-    "tests/research/factor/test_indicator_identity_regression.py::test_p75_preserves_preexisting_indicator_graph_calculation_and_result_identities": 0.027141124999616295
+    "tests/research/factor/test_indicator_identity_regression.py::test_indicator_graph_calculation_and_result_identities_remain_exact": 0.027141124999616295
 }

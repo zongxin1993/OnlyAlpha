@@ -1,4 +1,4 @@
-"""TEST ONLY provider-neutral Gateway subprocess for the K7 protocol foundation."""
+"""TEST ONLY provider-neutral Gateway subprocess for the remote Gateway protocol contract."""
 
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ class _TestGateway(gateway_pb2_grpc.GatewayServiceServicer, stream_pb2_grpc.Gate
         self._lock = threading.Lock()
         descriptor = files("onlyalpha_gateway_protocol.v1").joinpath("descriptor.pb").read_bytes()
         self.contract_sha256 = "" if omit_contract_identity else hashlib.sha256(descriptor).hexdigest()
-        self.implementation_version = "" if omit_implementation_version else "K7_TEST_FIXTURE_V1"
+        self.implementation_version = "" if omit_implementation_version else "REMOTE_GATEWAY_TEST_FIXTURE_V1"
 
     def Handshake(
         self,
@@ -198,7 +198,7 @@ def _stream_error(value: str) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run the TEST ONLY K7 remote Gateway fixture")
+    parser = argparse.ArgumentParser(description="Run the TEST ONLY remote Gateway fixture")
     parser.add_argument("--gateway-id", default="test-gateway")
     parser.add_argument("--capability", action="append", type=_capability, default=[])
     parser.add_argument("--events", type=_events, default=(1, 2, 3, 4))

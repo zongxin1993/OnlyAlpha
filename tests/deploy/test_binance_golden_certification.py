@@ -55,7 +55,9 @@ def test_certification_verifies_archive_content_count_and_timestamp_domain(tmp_p
 
 def test_committed_source_manifest_freezes_required_spot_and_usdm_feeds() -> None:
     manifest = json.loads(
-        (Path(__file__).parents[2] / "test-data/a0_binance_golden/source-manifest.json").read_text(encoding="utf-8")
+        (Path(__file__).parents[2] / "test-data/binance/public_archive_certification/source-manifest.json").read_text(
+            encoding="utf-8"
+        )
     )
     sources = manifest["sources"]
 

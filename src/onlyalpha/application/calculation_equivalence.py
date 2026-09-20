@@ -79,7 +79,7 @@ class _CertificationHorizon:
 
 
 class OnlyCalculationEquivalenceCertificationProfileAuthority:
-    """Closed P9.0 profile selection; callers cannot supply profiles or corpora."""
+    """Closed equivalence profile selection; callers cannot supply profiles or corpora."""
 
     def resolve(self, definition: OnlyCalculationDefinition) -> OnlyCalculationEquivalenceCertificationProfile:
         return only_required_calculation_equivalence_profile(definition)

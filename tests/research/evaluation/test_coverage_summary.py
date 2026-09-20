@@ -291,7 +291,7 @@ def test_coverage_deterministic_conflict_never_overwrites(tmp_path) -> None:
     assert captured.value.code == "DETERMINISTIC_RESULT_CONFLICT"
 
 
-def test_b3_0_2_coverage_identities_and_canonical_payloads_are_pinned(tmp_path) -> None:
+def test_coverage_summary_identities_and_canonical_payloads_are_pinned(tmp_path) -> None:
     case = coverage_case(tmp_path)
     case[13].execute(case[11])
     loaded = case[12].load_verified(case[11].statistics_fingerprint)

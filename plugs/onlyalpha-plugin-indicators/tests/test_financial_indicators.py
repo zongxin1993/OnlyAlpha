@@ -4,7 +4,7 @@ import pyarrow as pa
 import pytest
 from onlyalpha_plugin_indicators.provider import quant_asset_provider
 from onlyalpha_plugin_indicators.registration import (
-    B1_FINANCIAL_TYPES,
+    FINANCIAL_TYPES,
     OBV,
     ROC,
     STOCHASTIC,
@@ -78,7 +78,9 @@ def _make_hostile(caller, variant=0):
         ),
     ),
 )
-def test_b1_financial_exact_research_trading_and_checkpoint(type_definition, parameters, inputs, expected) -> None:
+def test_financial_indicators_match_research_trading_and_checkpoint(
+    type_definition, parameters, inputs, expected
+) -> None:
     definition = _definition(type_definition, parameters)
     research_registration = _registration(type_definition, OnlyCalculationBackendKind.RESEARCH)
     arrays = {name: pa.array([Decimal(value) for value in values], type=_D) for name, values in inputs.items()}
@@ -110,22 +112,20 @@ def test_b1_financial_exact_research_trading_and_checkpoint(type_definition, par
     ]
 
 
-def test_b1_financial_catalog_contracts_are_explicit() -> None:
+def test_financial_indicator_catalog_contracts_are_explicit() -> None:
     actual = registrations()
-    assert all(item.semantic_version == "1" for item in B1_FINANCIAL_TYPES)
-    assert all(item.missing_values.value == "PROPAGATE" for item in B1_FINANCIAL_TYPES)
-    assert {item.type_definition for item in actual if item.type_definition in B1_FINANCIAL_TYPES} == set(
-        B1_FINANCIAL_TYPES
-    )
+    assert all(item.semantic_version == "1" for item in FINANCIAL_TYPES)
+    assert all(item.missing_values.value == "PROPAGATE" for item in FINANCIAL_TYPES)
+    assert {item.type_definition for item in actual if item.type_definition in FINANCIAL_TYPES} == set(FINANCIAL_TYPES)
     assert all(item.implementation_manifest is not None for item in actual)
     provider = quant_asset_provider()
     assert provider.manifest.provider_id == "onlyalpha.indicator.library"
-    assert provider.manifest.provider_version == "4"
+    assert provider.manifest.provider_version == "5"
     # ADR 0131/0132 replaced the historical layer/strategy descriptor with
     # the canonical kind/private-factor provider descriptor.
-    assert provider.content_fingerprint == "494b55117b8d331d2c4427959992cfada978af8d6e4bb4e867a07fac44c60ab1"
+    assert provider.content_fingerprint == "b898c242aad85a6cfa5925488c266328df7280afebcfac1e622ca4f1474e3907"
     assert provider.content_fingerprint == quant_asset_provider().content_fingerprint
-    financial = tuple(item for item in actual if item.type_definition in B1_FINANCIAL_TYPES)
+    financial = tuple(item for item in actual if item.type_definition in FINANCIAL_TYPES)
     assert all(
         any(
             dependency.dependency_id == "onlyalpha.decimal.execution"

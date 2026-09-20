@@ -432,7 +432,7 @@ class OnlyAgentModelOccurrenceServiceV1:
         if retry_of_plan_fingerprint is not None:
             raise OnlyAgentContextError(
                 "AGENT_POLICY_VIOLATION",
-                "B3.4 V1 defines NO_AUTOMATIC_RETRY and no independent retry-authorization Authority is admitted",
+                "Agent occurrence V1 defines NO_AUTOMATIC_RETRY and admits no independent retry-authorization Authority",
             )
         role = _role(context, role_policy_fingerprint, logical_role)
         if prompt_template_fingerprint not in role.allowed_prompt_template_fingerprints:

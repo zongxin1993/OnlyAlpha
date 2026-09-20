@@ -64,7 +64,7 @@ def _with_evidence(
     )
 
 
-def test_direct_resolution_reproduces_manual_p7_graph_job_statistics_and_result_identities() -> None:
+def test_direct_resolution_reproduces_manual_graph_job_statistics_and_result_identities() -> None:
     resolved = OnlyResearchSpecificationResolver(registry()).resolve(specification())
     feature, target = resolved.workload.direct_jobs
     assert feature.calculation_graph.fingerprint == factor_graph().fingerprint

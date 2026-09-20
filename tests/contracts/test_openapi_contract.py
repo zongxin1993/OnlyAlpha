@@ -185,7 +185,7 @@ def test_git_baseline_is_exact_immutable_artifact_and_invalid_sha_fails_closed(m
 
 
 @pytest.mark.historical_git
-def test_a0_pre_freeze_authorization_is_exact_and_non_reusable() -> None:
+def test_pre_freeze_authorization_is_exact_and_non_reusable() -> None:
     base_sha = "8901fec27faf8599c965df792d07a84b902583f3"
     exact, baseline_document, baseline = governance.load_git_baseline(base_sha)
     corrected_sha = "a09da64745e92848b0f618f7ba5f2bf6ca6771b8"
@@ -226,7 +226,7 @@ def test_a0_pre_freeze_authorization_is_exact_and_non_reusable() -> None:
     )
 
 
-def test_a0_pre_freeze_authorization_manifest_fails_closed_on_extra_fields(
+def test_pre_freeze_authorization_manifest_fails_closed_on_extra_fields(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     manifest = json.loads(governance.AUTHORIZED_A0_CORRECTIONS.read_text(encoding="utf-8"))
@@ -266,7 +266,7 @@ def test_generated_client_staleness_fails_closed(tmp_path: Path, monkeypatch: py
 
 
 @pytest.mark.parametrize(
-    ("direction", "old_schema", "new_schema", "expected"),
+    ("direction", "old_schema", "candidate_schema", "expected"),
     (
         ("request", {"const": "A"}, {"const": "A"}, "UNCHANGED"),
         ("request", {"const": "A"}, {}, "COMPATIBLE"),
@@ -281,9 +281,9 @@ def test_generated_client_staleness_fails_closed(tmp_path: Path, monkeypatch: py
     ),
 )
 def test_const_and_enum_compatibility_is_direction_aware(
-    direction: str, old_schema: dict[str, object], new_schema: dict[str, object], expected: str
+    direction: str, old_schema: dict[str, object], candidate_schema: dict[str, object], expected: str
 ) -> None:
-    assert _comparison_with_schema(old_schema, new_schema, direction=direction).change.value == expected
+    assert _comparison_with_schema(old_schema, candidate_schema, direction=direction).change.value == expected
 
 
 @pytest.mark.parametrize(

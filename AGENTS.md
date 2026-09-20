@@ -515,6 +515,31 @@ lint / mypy / test discovery configuration
 
 ## 9. 文档与仓库卫生
 
+### 9.1 Repository Semantic Identity
+
+永久仓库 identifier 必须描述稳定的 domain semantics、responsibility、observable behavior、schema change 或 invariant，
+不得描述它来自哪个 roadmap phase、implementation task、closure round、milestone、temporary migration stage、PR 或 issue。
+
+本规则适用于 `src/`、`packages/`、`plugs/`、`database/`、`tests/`、`test-data/`、`scripts/`、`examples/`、
+`contracts/` 与 deployment / CI 资产中的路径、模块、类型、函数、fixture、helper、test name、parametrize ID、
+golden/case ID、migration suffix、SQL object、error code、runtime resource 和长期配置名。
+
+例如：
+
+```text
+test_b3_registry.py                  → test_factor_registry.py
+test_p9_case_2()                    → test_unknown_order_is_reconciled_without_duplicate_submission()
+0010_p9_0_authority_hardening.sql   → 0010_strategy_revision_authority.sql
+a0_binance_golden                   → binance_spot_price_filter
+```
+
+Migration 的数字顺序前缀、正式 schema/API version、稳定 domain 编号以及 exact replay / immutable identity 所要求的
+既有序列化身份不是开发过程标签。此类例外必须由当前 Architecture / Contract / Accepted ADR 明确要求，并在机械 Gate 中
+使用精确 token 或精确 path 记录原因；禁止目录级、glob 或模糊 allowlist。
+
+过程文档（`docs/tasks/`、`docs/plans/`、`docs/audits/`、`docs/handoffs/`、Roadmap、Prompt）可以保留过程身份，
+因为其职责就是记录开发历史。Git 记录何时发生；源码、测试、迁移与 fixture 描述当前产品事实。
+
 仓库只保存系统长期需要的信息：
 
 - Project Constitution；

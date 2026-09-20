@@ -118,7 +118,7 @@ CROSS_SECTION_RANK = _type("cross_section_rank", output="rank", shape=OnlyFactor
 CROSS_SECTION_ZSCORE = _type("cross_section_zscore", output="zscore", shape=OnlyFactorKind.CROSS_SECTION)
 CROSS_SECTION_DEMEAN = _type("cross_section_demean", output="demeaned", shape=OnlyFactorKind.CROSS_SECTION)
 
-P0_TYPES = (
+OPERATOR_TYPES = (
     ADD,
     SUBTRACT,
     MULTIPLY,
@@ -214,7 +214,7 @@ def resolve_cross_section_percentile(
 def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
     package_root = Path(__file__).resolve().parent
     research_backend = OnlyOfficialResearchOperatorBackend()
-    resolvers = {item: OnlyOfficialOperatorDefinitionResolver(item) for item in P0_TYPES}
+    resolvers = {item: OnlyOfficialOperatorDefinitionResolver(item) for item in OPERATOR_TYPES}
 
     def manifest(
         item: OnlyCalculationTypeDefinition, backend: OnlyCalculationBackendKind
@@ -247,7 +247,7 @@ def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
             resolvers[item],
             manifest(item, OnlyCalculationBackendKind.RESEARCH),
         )
-        for item in P0_TYPES
+        for item in OPERATOR_TYPES
     )
     trading = tuple(
         OnlyCalculationBackendRegistration(
@@ -261,7 +261,7 @@ def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
             else OnlyCalculationStateCapability.CHECKPOINTABLE,
             None if item in _STATELESS else (2 if item is ROLLING_MEAN else 1),
         )
-        for item in P0_TYPES
+        for item in OPERATOR_TYPES
         if item not in _CROSS_SECTION
     )
     return research + trading

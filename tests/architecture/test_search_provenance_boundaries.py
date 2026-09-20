@@ -106,7 +106,7 @@ def test_historical_context_runtime_admission_and_evaluation_projection_are_dist
     assert evaluation == {"evaluation_contract", "fixed_resolution"}
 
 
-def test_generic_b31_does_not_import_symbolic_enumerator_or_research_qualification() -> None:
+def test_generic_search_provenance_does_not_import_symbolic_enumerator_or_research_qualification() -> None:
     root = Path("src/onlyalpha/research/experiment")
     source = "\n".join(path.read_text(encoding="utf-8") for path in root.glob("*.py"))
     assert "research.search.symbolic.enumeration" not in source

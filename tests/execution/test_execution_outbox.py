@@ -89,7 +89,7 @@ def test_sqlite_restart_preserves_pending_payload_and_event_identity(tmp_path: P
     recovered.close()
 
 
-def test_outbox_publisher_stops_on_failure_and_new_runtime_retries_same_event_id() -> None:
+def test_outbox_publisher_stops_on_failure_and_replacement_runtime_retries_same_event_id() -> None:
     store = OnlyInMemoryRuntimePersistenceStore()
     prepared = _append(store)
     events = prepared.outbox_events

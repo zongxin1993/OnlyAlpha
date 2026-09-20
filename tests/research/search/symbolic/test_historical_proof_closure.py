@@ -35,8 +35,8 @@ from onlyalpha.research.search.symbolic import (
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 
 from .support import space
-from .test_final_closure import _plan
 from .test_research_and_provenance_integration import _Datasets, _verified_context
+from .test_symbolic_occurrence_contract import _plan
 
 
 @dataclass(frozen=True)

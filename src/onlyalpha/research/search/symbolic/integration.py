@@ -1,4 +1,4 @@
-"""Minimal normal Research/Qualification/B3.1 integration for B3.2."""
+"""Normal Research, Qualification, and symbolic-search integration."""
 
 from __future__ import annotations
 

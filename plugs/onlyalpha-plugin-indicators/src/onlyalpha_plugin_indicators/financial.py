@@ -1,4 +1,4 @@
-"""Checkpointable incremental TRADING backend for B1 financial features."""
+"""Checkpointable incremental TRADING backend for financial Indicators."""
 
 from collections import deque
 from collections.abc import Mapping
@@ -23,7 +23,7 @@ class OnlyFinancialTradingBackendFactory:
             "onlyalpha.indicator.obv",
             "onlyalpha.indicator.stochastic",
         }:
-            raise ValueError(f"unsupported B1 financial Indicator: {definition.type_id}@{definition.semantic_version}")
+            raise ValueError(f"unsupported financial Indicator: {definition.type_id}@{definition.semantic_version}")
         return OnlyFinancialTradingBackend(definition)
 
 

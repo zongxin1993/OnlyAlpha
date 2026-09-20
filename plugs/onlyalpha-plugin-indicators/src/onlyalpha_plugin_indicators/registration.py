@@ -249,7 +249,7 @@ ATR_V2 = OnlyCalculationTypeDefinition(
     TYPES[3].numeric,
 )
 
-_B1_NUMERIC = OnlyNumericDefinition("DECIMAL", 28, Decimal("0.000000000001"), "ROUND_HALF_EVEN")
+_FINANCIAL_NUMERIC = OnlyNumericDefinition("DECIMAL", 28, Decimal("0.000000000001"), "ROUND_HALF_EVEN")
 _PRICE = OnlyInputDefinition("price", OnlyCalculationDataType.DECIMAL, True, semantic_type="PRICE")
 _VOLUME = OnlyInputDefinition("volume", OnlyCalculationDataType.DECIMAL, True, semantic_type="VOLUME")
 _CLOSE = OnlyInputDefinition("close", OnlyCalculationDataType.DECIMAL, True, semantic_type="PRICE")
@@ -257,7 +257,7 @@ _HIGH = OnlyInputDefinition("high", OnlyCalculationDataType.DECIMAL, True, seman
 _LOW = OnlyInputDefinition("low", OnlyCalculationDataType.DECIMAL, True, semantic_type="PRICE")
 
 
-def _b1_indicator(
+def _financial_indicator(
     name: str,
     parameters: tuple[OnlyParameterDefinition, ...],
     inputs: tuple[OnlyInputDefinition, ...],
@@ -272,16 +272,16 @@ def _b1_indicator(
         tuple(OnlyOutputDefinition(output, OnlyCalculationDataType.DECIMAL, True) for output in outputs),
         OnlyMissingValuePolicy.PROPAGATE,
         OnlyTimestampSemantic.EVENT_TIME,
-        _B1_NUMERIC,
+        _FINANCIAL_NUMERIC,
     )
 
 
 _REQUIRED_PERIOD = (OnlyParameterDefinition("period", OnlyParameterType.INTEGER, True, minimum=1),)
-WMA = _b1_indicator("wma", _REQUIRED_PERIOD, (_PRICE,), ("value",))
-ROC = _b1_indicator("roc", _REQUIRED_PERIOD, (_PRICE,), ("roc",))
-VWAP = _b1_indicator("vwap", _REQUIRED_PERIOD, (_PRICE, _VOLUME), ("vwap",))
-OBV = _b1_indicator("obv", (), (_CLOSE, _VOLUME), ("obv",))
-STOCHASTIC = _b1_indicator(
+WMA = _financial_indicator("wma", _REQUIRED_PERIOD, (_PRICE,), ("value",))
+ROC = _financial_indicator("roc", _REQUIRED_PERIOD, (_PRICE,), ("roc",))
+VWAP = _financial_indicator("vwap", _REQUIRED_PERIOD, (_PRICE, _VOLUME), ("vwap",))
+OBV = _financial_indicator("obv", (), (_CLOSE, _VOLUME), ("obv",))
+STOCHASTIC = _financial_indicator(
     "stochastic",
     (
         OnlyParameterDefinition("k_period", OnlyParameterType.INTEGER, True, minimum=1),
@@ -290,7 +290,7 @@ STOCHASTIC = _b1_indicator(
     (_HIGH, _LOW, _CLOSE),
     ("k", "d"),
 )
-B1_FINANCIAL_TYPES = (WMA, ROC, VWAP, OBV, STOCHASTIC)
+FINANCIAL_TYPES = (WMA, ROC, VWAP, OBV, STOCHASTIC)
 
 
 @dataclass(frozen=True, slots=True)
@@ -368,7 +368,7 @@ def resolve_definition(
 
 def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
     resolvers = tuple(OnlyOfficialIndicatorDefinitionResolver(item) for item in (*TYPES, ATR_V2))
-    financial_resolvers = tuple(OnlyFinancialIndicatorDefinitionResolver(item) for item in B1_FINANCIAL_TYPES)
+    financial_resolvers = tuple(OnlyFinancialIndicatorDefinitionResolver(item) for item in FINANCIAL_TYPES)
 
     def resolver_for(item: OnlyCalculationTypeDefinition) -> OnlyOfficialIndicatorDefinitionResolver:
         return next(resolver for resolver in resolvers if resolver.type_definition is item)
@@ -388,7 +388,7 @@ def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
             package_root=package_root,
             resource_paths=resources,
             semantic_dependencies=(
-                *((only_decimal_execution_semantic_dependency(),) if item in B1_FINANCIAL_TYPES else ()),
+                *((only_decimal_execution_semantic_dependency(),) if item in FINANCIAL_TYPES else ()),
                 only_python_stdlib_semantic_dependency("decimal"),
                 *(
                     (only_distribution_semantic_dependency("pyarrow"),)
@@ -453,7 +453,7 @@ def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
             OnlyCalculationStateCapability.CHECKPOINTABLE,
             1,
         )
-        for item in B1_FINANCIAL_TYPES
+        for item in FINANCIAL_TYPES
     )
     financial_research = tuple(
         OnlyCalculationBackendRegistration(
@@ -468,6 +468,6 @@ def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
                 ("registration.py", "research.py", "financial_semantics.py"),
             ),
         )
-        for item in B1_FINANCIAL_TYPES
+        for item in FINANCIAL_TYPES
     )
     return trading + research + financial_trading + financial_research

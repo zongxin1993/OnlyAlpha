@@ -725,10 +725,10 @@ def test_submit_v1_fingerprint_is_frozen_and_v2_separates_science_from_runtime_i
         submit.catalog_generation_fingerprint,
         submit.dataset_snapshot_fingerprint,
     )
-    # PA2-TC2 (46863c31) canonically re-anchored the Factor catalog/provider and
+    # The canonical Factor catalog/provider and
     # implementation-resource identities; the Search Product payload remains
     # deterministic and its semantic assertions below are unchanged.
-    assert v1.command_fingerprint == "48fdba83fcf14207e2fc8acaaf81f1aba88d4ab717e71a1662be9bdceb29b905"
+    assert v1.command_fingerprint == "796179dc26dac9d3bf618298ef58d27e6c16fbbc5a208dcafa795b16745d181c"
     with pytest.raises(OnlySearchRuntimeGenerationUnbound):
         service.submit(v1)
 

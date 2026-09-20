@@ -31,7 +31,7 @@ class OnlyOfficialResearchIndicatorBackend:
             "onlyalpha.indicator.stochastic",
         }:
             if any(not pa.types.is_decimal(array.type) for array in inputs.values()):
-                raise ValueError("B1 financial Indicator inputs must use Arrow Decimal")
+                raise ValueError("financial Indicator inputs must use Arrow Decimal")
             result = evaluate_financial(definition, {name: tuple(array.to_pylist()) for name, array in inputs.items()})
             return {name: _decimal_array(values) for name, values in result.items()}
         if definition.missing_values is not OnlyMissingValuePolicy.FAIL:

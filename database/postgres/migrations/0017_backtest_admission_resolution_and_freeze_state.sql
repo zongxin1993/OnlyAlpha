@@ -3,7 +3,7 @@ BEGIN
     IF EXISTS (SELECT 1 FROM backtest_run) THEN
         RAISE EXCEPTION USING
             ERRCODE = 'check_violation',
-            MESSAGE = 'A0 admission-resolution migration requires an empty pre-product backtest_run table';
+            MESSAGE = 'Backtest admission-resolution migration requires an empty pre-product backtest_run table';
     END IF;
     IF EXISTS (
         SELECT 1

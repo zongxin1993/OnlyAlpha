@@ -155,7 +155,7 @@ class OnlyParameterSearchContextResolver:
         self, experiment: OnlySearchExperimentManifestV3
     ) -> OnlyVerifiedParameterSearchContextV1:
         if not isinstance(experiment, OnlySearchExperimentManifestV3):
-            raise OnlyParameterSearchError("SEARCH_EXPERIMENT_SCHEMA_UNSUPPORTED", "B3.3 requires V3")
+            raise OnlyParameterSearchError("SEARCH_EXPERIMENT_SCHEMA_UNSUPPORTED", "parameter search requires V3")
         space = self._store.load_search_space_intrinsic_verified(
             experiment.search_space_reference.search_space_fingerprint
         )

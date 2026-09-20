@@ -1,4 +1,4 @@
-"""Pure deterministic Research Specification to existing P7 plan resolution."""
+"""Pure deterministic Research Specification to workload-plan resolution."""
 
 from __future__ import annotations
 

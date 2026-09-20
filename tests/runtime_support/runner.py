@@ -1,4 +1,4 @@
-"""Test helper for exercising Runtime through a pre-committed P9 Strategy Revision."""
+"""Test helper for exercising Runtime through a pre-committed Strategy Revision."""
 
 import json
 from dataclasses import replace
@@ -68,7 +68,7 @@ def only_migrate_cluster_to_strategy(
     config: OnlyClusterRunConfig,
     user_data_root: Path,
 ) -> OnlyClusterRunConfig:
-    """Explicitly seed a P9 test Revision and replace one legacy fixture reference."""
+    """Explicitly seed a test Revision and replace one legacy fixture reference."""
 
     case = strategy_product_case(user_data_root / "research")
     subscriptions = tuple(
@@ -120,7 +120,7 @@ def only_write_migrated_cluster_config(source: str | Path, user_data_root: Path)
         market_config = extensions.get("market_config")
         if market_config is not None:
             extensions["market_config"] = str((source_path.parent / str(market_config)).resolve())
-    target = user_data_root / f"p9-{source_path.stem}.json"
+    target = user_data_root / f"strategy-{source_path.stem}.json"
     target.write_text(json.dumps(payload), encoding="utf-8")
     return target
 

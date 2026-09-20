@@ -345,7 +345,7 @@ def test_m20_preserves_legacy_promotion_without_fabricating_qualification(postgr
         OnlyStrategyPromotionStage.BACKTEST,
         ("b" * 64,),
         OnlyStrategyPromotionDecision.APPROVED,
-        "pre-B2.5 historical fact",
+        "historical pre-migration fact",
         "operator",
         NOW,
     )

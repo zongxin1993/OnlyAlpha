@@ -193,7 +193,7 @@ def _initialize(root: Path, *, partial_plan_batch: bool) -> None:
     parameters.commit_algorithm_manifest(algorithm)
     evaluations.commit_evaluation_contract(evaluation)
     experiment = OnlySearchExperimentManifestV3(
-        OnlySearchHypothesisV1("B3.3 real-authority deterministic recovery"),
+        OnlySearchHypothesisV1("parameter-search real-authority deterministic recovery"),
         OnlySearchAlgorithmBindingV1(
             algorithm.algorithm_id,
             algorithm.algorithm_semantic_version,

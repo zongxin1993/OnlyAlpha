@@ -215,7 +215,7 @@ print(json.dumps({"logical": plan.statistics_fingerprint, "result": outcome.stat
     }
 
 
-def test_b3_0_1_effect_identities_and_canonical_payloads_are_pinned(tmp_path) -> None:
+def test_effect_summary_identities_and_canonical_payloads_are_pinned(tmp_path) -> None:
     case = summary_case(tmp_path)
     case[13].execute(case[11])
     loaded = case[12].load_verified(case[11].statistics_fingerprint)
