@@ -3,13 +3,14 @@ from collections.abc import Mapping, Sequence
 from onlyalpha.plugin.capabilities import OnlyPluginValidationIssue
 from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
 
-from ...descriptor import DATA_CAPABILITIES, DATA_DESCRIPTOR
+from ...descriptor import DATA_CAPABILITIES, DATA_DESCRIPTOR, SPOT_DATA_INTEGRATION_TYPE
 from .config import OnlyBinanceSpotDataSourceConfig
 from .resource import OnlyBinanceSpotDataSource
 
 
 class OnlyBinanceSpotDataSourceFactory:
     descriptor = DATA_DESCRIPTOR
+    integration_type = SPOT_DATA_INTEGRATION_TYPE
 
     def parse_config(self, extensions: Mapping[str, object]) -> OnlyBinanceSpotDataSourceConfig:
         return OnlyBinanceSpotDataSourceConfig.parse(extensions)

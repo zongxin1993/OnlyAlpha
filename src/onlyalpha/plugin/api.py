@@ -184,6 +184,20 @@ from onlyalpha.plugin.errors import (
     OnlyPluginLifecycleError,
     OnlyPluginRegistryError,
 )
+from onlyalpha.plugin.integration import (
+    OnlyIntegrationCategory,
+    OnlyIntegrationConfigurationContractV1,
+    OnlyIntegrationConfigurationFieldV1,
+    OnlyIntegrationContractError,
+    OnlyIntegrationProbeCheck,
+    OnlyIntegrationProbeContractV1,
+    OnlyIntegrationProbeMode,
+    OnlyIntegrationTypeDescriptorV1,
+    OnlyIntegrationTypeId,
+    OnlyIntegrationTypeProvider,
+    OnlyIntegrationValueKind,
+    only_integration_capability_ids,
+)
 from onlyalpha.plugin.lifecycle import (
     OnlyPluginHealth,
     OnlyPluginHealthStatus,

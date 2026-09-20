@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
 from onlyalpha.application.catalog_context import OnlyExactCatalogContextQueryService
+from onlyalpha.application.integration_type_catalog import OnlyIntegrationTypeCatalog
 from onlyalpha.application.private_asset_product import (
     OnlyPrivateAssetProductService,
     OnlyProductAssetSearchProjectionService,
@@ -79,6 +80,11 @@ from .agent_gateway import AGENT_GATEWAY_ROUTE_TAG, OnlyAgentNodeGateway, create
 from .backtest.routes import BACKTEST_ROUTE_TAG, create_backtest_router
 from .backtest.schema import ProductErrorDto, ProductErrorEnvelopeDto
 from .health import OnlyKernelResearchReadinessProjection, OnlyProductExecutionCapacityProbe, create_health_router
+from .integration_types import (
+    INTEGRATION_TYPE_ROUTE_TAG,
+    create_integration_type_router,
+    integration_type_error_response,
+)
 from .private_assets import (
     PRIVATE_ASSET_ROUTE_TAG,
     PrivateAssetErrorDto,
@@ -194,6 +200,7 @@ def _request_route_tag(request: Request) -> str | None:
             EXACT_STATISTICS_ROUTE_TAG,
             RESEARCH_ADVISORY_ROUTE_TAG,
             PRIVATE_ASSET_ROUTE_TAG,
+            INTEGRATION_TYPE_ROUTE_TAG,
         }
     )
     return known[0] if len(known) == 1 else None
@@ -232,6 +239,7 @@ def create_research_app(
     near_duplicate_advisory: object | None = None,
     private_asset_product: OnlyPrivateAssetProductService | None = None,
     private_asset_search: OnlyProductAssetSearchProjectionService | None = None,
+    integration_types: OnlyIntegrationTypeCatalog | None = None,
 ) -> FastAPI:
     universe_authority = definition_resolver.universe_resolver
     if universe_authority is not None and not isinstance(universe_authority, OnlyResearchUniverseCatalog):
@@ -455,6 +463,12 @@ def create_research_app(
                 )
             )
             return JSONResponse(status_code=400, content=private_body.model_dump(mode="json"))
+        if family == INTEGRATION_TYPE_ROUTE_TAG:
+            return integration_type_error_response(
+                400,
+                "INTEGRATION_TYPE_CONTRACT_INVALID",
+                "HTTP request validation failed",
+            )
         if family in {STRATEGY_ROUTE_TAG, BACKTEST_ROUTE_TAG}:
             product_body = ProductErrorEnvelopeDto(
                 error=ProductErrorDto(
@@ -548,6 +562,8 @@ def create_research_app(
             create_backtest_router(backtest_commands, backtest_queries),
             dependencies=readiness_dependencies,
         )
+    if integration_types is not None:
+        app.include_router(create_integration_type_router(integration_types))
     _install_exact_product_openapi(app)
     return app
 
@@ -571,7 +587,15 @@ def _install_exact_product_openapi(app: FastAPI) -> None:
                     responses = operation.get("responses", {})
                     if (
                         isinstance(tags, list)
-                        and ({STRATEGY_ROUTE_TAG, BACKTEST_ROUTE_TAG, PRIVATE_ASSET_ROUTE_TAG} & set(tags))
+                        and (
+                            {
+                                STRATEGY_ROUTE_TAG,
+                                BACKTEST_ROUTE_TAG,
+                                PRIVATE_ASSET_ROUTE_TAG,
+                                INTEGRATION_TYPE_ROUTE_TAG,
+                            }
+                            & set(tags)
+                        )
                         and isinstance(responses, dict)
                     ):
                         responses.pop("422", None)
@@ -607,7 +631,10 @@ def create_product_app(
     near_duplicate_advisory: object | None = None,
     private_asset_product: OnlyPrivateAssetProductService | None = None,
     private_asset_search: OnlyProductAssetSearchProjectionService | None = None,
+    integration_types: OnlyIntegrationTypeCatalog | None = None,
 ) -> FastAPI:
+    if integration_types is None:
+        raise TypeError("Product API requires an Integration Type catalog")
     app = create_research_app(
         reader,
         product_boundary,
@@ -635,6 +662,7 @@ def create_product_app(
         near_duplicate_advisory,
         private_asset_product,
         private_asset_search,
+        integration_types,
     )
     app.title = "OnlyAlpha Product API"
     return app

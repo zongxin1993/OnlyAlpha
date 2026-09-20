@@ -5,7 +5,7 @@ from onlyalpha.plugin.capabilities import OnlyPluginValidationIssue
 from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
 
 from ..config import OnlyTushareConfig
-from ..descriptor import DATA_CAPABILITIES, DATA_DESCRIPTOR
+from ..descriptor import DATA_CAPABILITIES, DATA_DESCRIPTOR, DATA_INTEGRATION_TYPE
 from ..sdk.adapter import OnlyTushareSdkClient
 from ..sdk.loader import load_tushare
 from .provider import OnlyTushareHistoricalDataProvider
@@ -14,6 +14,7 @@ from .resource import OnlyTushareHistoricalDataSource
 
 class OnlyTushareDataSourceFactory:
     descriptor = DATA_DESCRIPTOR
+    integration_type = DATA_INTEGRATION_TYPE
 
     def parse_config(self, extensions: Mapping[str, object]) -> OnlyTushareConfig:
         return OnlyTushareConfig.parse(dict(extensions))

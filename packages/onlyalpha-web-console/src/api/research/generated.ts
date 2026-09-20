@@ -123,6 +123,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/integration-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Integration Types */
+        get: operations["list_integration_types_api_v2_integration_types_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/integration-types/{type_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Integration Type */
+        get: operations["get_integration_type_api_v2_integration_types__type_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/private-assets": {
         parameters: {
             query?: never;
@@ -1346,6 +1380,106 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** IntegrationConfigurationContractDto */
+        IntegrationConfigurationContractDto: {
+            /** Fields */
+            fields: components["schemas"]["IntegrationConfigurationFieldDto"][];
+            /** Fingerprint */
+            fingerprint: string;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** IntegrationConfigurationFieldDto */
+        IntegrationConfigurationFieldDto: {
+            /** Advanced */
+            advanced: boolean;
+            /** Default */
+            default: string | number | boolean | null;
+            /** Description */
+            description: string;
+            /** Display Name */
+            display_name: string;
+            /** Enum Values */
+            enum_values: string[];
+            /** Exclusive Minimum */
+            exclusive_minimum: boolean;
+            /** Field Id */
+            field_id: string;
+            /** Maximum */
+            maximum: number | null;
+            /** Minimum */
+            minimum: number | null;
+            /** Required */
+            required: boolean;
+            /** Secret */
+            secret: boolean;
+            value_kind: components["schemas"]["OnlyIntegrationValueKind"];
+        };
+        /** IntegrationProbeContractDto */
+        IntegrationProbeContractDto: {
+            /** Default Probe Instrument */
+            default_probe_instrument: string | null;
+            /** Fingerprint */
+            fingerprint: string;
+            /** Probe Checks */
+            probe_checks: components["schemas"]["OnlyIntegrationProbeCheck"][];
+            probe_mode: components["schemas"]["OnlyIntegrationProbeMode"];
+            /**
+             * Probe Version
+             * @constant
+             */
+            probe_version: 1;
+            /** User Selectable Probe Instrument */
+            user_selectable_probe_instrument: boolean;
+        };
+        /** IntegrationTypeDto */
+        IntegrationTypeDto: {
+            /** Capabilities */
+            capabilities: string[];
+            category: components["schemas"]["OnlyIntegrationCategory"];
+            configuration_contract: components["schemas"]["IntegrationConfigurationContractDto"];
+            /** Description */
+            description: string;
+            /** Display Name */
+            display_name: string;
+            /** Fingerprint */
+            fingerprint: string;
+            /** Implementation Id */
+            implementation_id: string;
+            /** Implementation Version */
+            implementation_version: string;
+            probe_contract: components["schemas"]["IntegrationProbeContractDto"] | null;
+            /** Provider Id */
+            provider_id: string;
+            /** Public Api Version */
+            public_api_version: string;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /** Type Id */
+            type_id: string;
+        };
+        /** IntegrationTypeErrorDto */
+        IntegrationTypeErrorDto: {
+            /** Code */
+            code: string;
+            /** Detail */
+            detail: string;
+        };
+        /** IntegrationTypeErrorEnvelopeDto */
+        IntegrationTypeErrorEnvelopeDto: {
+            error: components["schemas"]["IntegrationTypeErrorDto"];
+        };
+        /** IntegrationTypeListDto */
+        IntegrationTypeListDto: {
+            /** Items */
+            items: components["schemas"]["IntegrationTypeDto"][];
+        };
         JsonValue: unknown;
         /**
          * OnlyAdjustmentType
@@ -1367,6 +1501,26 @@ export interface components {
          * @enum {string}
          */
         OnlyCalculationDataType: "DECIMAL" | "INTEGER" | "BOOLEAN" | "STRING";
+        /**
+         * OnlyIntegrationCategory
+         * @enum {string}
+         */
+        OnlyIntegrationCategory: "DATA_SOURCE" | "BROKER" | "AGENT_PROVIDER";
+        /**
+         * OnlyIntegrationProbeCheck
+         * @enum {string}
+         */
+        OnlyIntegrationProbeCheck: "CONNECTIVITY" | "AUTHENTICATION" | "REFERENCE_DATA" | "HISTORICAL_DATA" | "REALTIME_DATA";
+        /**
+         * OnlyIntegrationProbeMode
+         * @enum {string}
+         */
+        OnlyIntegrationProbeMode: "DEFAULT_INSTRUMENT";
+        /**
+         * OnlyIntegrationValueKind
+         * @enum {string}
+         */
+        OnlyIntegrationValueKind: "STRING" | "INTEGER" | "NUMBER" | "BOOLEAN" | "ENUM" | "DURATION" | "PATH" | "STRING_INTEGER_MAP";
         /**
          * OnlyPriceType
          * @enum {string}
@@ -3531,6 +3685,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    list_integration_types_api_v2_integration_types_get: {
+        parameters: {
+            query?: {
+                category?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationTypeListDto"];
+                };
+            };
+            /** @description Invalid Integration Type query */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationTypeErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    get_integration_type_api_v2_integration_types__type_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                type_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationTypeDto"];
+                };
+            };
+            /** @description Integration Type not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationTypeErrorEnvelopeDto"];
                 };
             };
         };

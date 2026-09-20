@@ -41,6 +41,7 @@ sensitive_path_patterns = [
   "packages/onlyalpha-http-server/src/onlyalpha_http_server/search/*.py",
   "packages/onlyalpha-http-server/src/onlyalpha_http_server/strategy/*.py",
   "packages/onlyalpha-http-server/src/onlyalpha_http_server/backtest/*.py",
+  "packages/onlyalpha-http-server/src/onlyalpha_http_server/integration_types/*.py",
   "scripts/database.py",
   "scripts/regenerate_*.py",
 ]
@@ -574,6 +575,9 @@ pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/strategy/*.p
 actor = "A04"
 [[actor_paths]]
 pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/backtest/*.py"
+actor = "A04"
+[[actor_paths]]
+pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/integration_types/*.py"
 actor = "A04"
 [[actor_paths]]
 pattern = "src/onlyalpha/research/worker_main.py"

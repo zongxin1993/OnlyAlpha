@@ -26,6 +26,7 @@ from onlyalpha_runtime_generation_manager.catalog_context import (
 )
 
 from onlyalpha.application.catalog_context import OnlyExactCatalogContextQueryService
+from onlyalpha.application.integration_type_catalog import OnlyIntegrationTypeCatalog
 from onlyalpha.application.private_asset_product import (
     OnlyPrivateAssetProductService,
     OnlyProductAssetSearchProjectionService,
@@ -938,6 +939,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             near_duplicate_advisory=near_duplicate_queries,
             private_asset_product=private_asset_product,
             private_asset_search=private_asset_search,
+            integration_types=OnlyIntegrationTypeCatalog(data_sources, brokers),
         )
         if startup_status.state is OnlyKernelState.READY:
             app.state.experiment_memory_projection_builder = memory_builder

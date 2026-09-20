@@ -19,6 +19,7 @@ from onlyalpha_http_server.health import OnlyKernelResearchReadinessProjection
 from onlyalpha_http_server.search import OnlySearchProductHttpBoundary
 
 from onlyalpha.application.catalog_context import OnlyExactCatalogContextQueryService
+from onlyalpha.application.integration_type_catalog import OnlyIntegrationTypeCatalog
 from onlyalpha.application.private_asset_product import (
     OnlyPrivateAssetProductService,
     OnlyProductAssetSearchProjectionService,
@@ -34,7 +35,9 @@ from onlyalpha.application.strategy_product import (
     OnlyStrategyQueryService,
 )
 from onlyalpha.backtest import OnlyBacktestCommandService, OnlyBacktestQueryService
+from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
+from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.kernel import OnlyAlphaKernelHost
 from onlyalpha.research.artifact.model import OnlyResearchArtifact
 from onlyalpha.research.command import OnlyResearchCommandService, OnlyResearchRunQueryService
@@ -349,6 +352,7 @@ def render_document() -> JsonObject:
             cast(Any, _ContractExactStatistics()),
             private_asset_product=cast(OnlyPrivateAssetProductService, object()),
             private_asset_search=cast(OnlyProductAssetSearchProjectionService, object()),
+            integration_types=OnlyIntegrationTypeCatalog(OnlyDataSourceFactoryRegistry(), OnlyBrokerFactoryRegistry()),
         )
         return app.openapi()
     finally:

@@ -28,7 +28,7 @@ from onlyalpha_plugin_binance.common.private_http import (
     OnlyBinancePrivateHttpClient,
     OnlyBinancePrivateTransport,
 )
-from onlyalpha_plugin_binance.descriptor import BROKER_DESCRIPTOR
+from onlyalpha_plugin_binance.descriptor import BROKER_DESCRIPTOR, SPOT_BROKER_INTEGRATION_TYPE
 from onlyalpha_plugin_binance.spot.broker.discovery import OnlyBinanceSpotVenueDiscovery
 from onlyalpha_plugin_binance.spot.broker.gateway import OnlyBinanceSpotBrokerGateway
 from onlyalpha_plugin_binance.spot.broker.rest import OnlyBinanceSpotPrivateRestClient
@@ -169,6 +169,8 @@ class OnlyBinanceSpotBrokerResource:
 
 
 class OnlyBinanceSpotBrokerFactory:
+    integration_type = SPOT_BROKER_INTEGRATION_TYPE
+
     def __init__(
         self,
         *,

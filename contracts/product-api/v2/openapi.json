@@ -839,6 +839,324 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "IntegrationConfigurationContractDto": {
+        "additionalProperties": false,
+        "properties": {
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/IntegrationConfigurationFieldDto"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "fields",
+          "fingerprint"
+        ],
+        "title": "IntegrationConfigurationContractDto",
+        "type": "object"
+      },
+      "IntegrationConfigurationFieldDto": {
+        "additionalProperties": false,
+        "properties": {
+          "advanced": {
+            "title": "Advanced",
+            "type": "boolean"
+          },
+          "default": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "enum_values": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Enum Values",
+            "type": "array"
+          },
+          "exclusive_minimum": {
+            "title": "Exclusive Minimum",
+            "type": "boolean"
+          },
+          "field_id": {
+            "title": "Field Id",
+            "type": "string"
+          },
+          "maximum": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maximum"
+          },
+          "minimum": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minimum"
+          },
+          "required": {
+            "title": "Required",
+            "type": "boolean"
+          },
+          "secret": {
+            "title": "Secret",
+            "type": "boolean"
+          },
+          "value_kind": {
+            "$ref": "#/components/schemas/OnlyIntegrationValueKind"
+          }
+        },
+        "required": [
+          "field_id",
+          "value_kind",
+          "required",
+          "default",
+          "secret",
+          "advanced",
+          "display_name",
+          "description",
+          "enum_values",
+          "minimum",
+          "maximum",
+          "exclusive_minimum"
+        ],
+        "title": "IntegrationConfigurationFieldDto",
+        "type": "object"
+      },
+      "IntegrationProbeContractDto": {
+        "additionalProperties": false,
+        "properties": {
+          "default_probe_instrument": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Probe Instrument"
+          },
+          "fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "probe_checks": {
+            "items": {
+              "$ref": "#/components/schemas/OnlyIntegrationProbeCheck"
+            },
+            "title": "Probe Checks",
+            "type": "array"
+          },
+          "probe_mode": {
+            "$ref": "#/components/schemas/OnlyIntegrationProbeMode"
+          },
+          "probe_version": {
+            "const": 1,
+            "title": "Probe Version",
+            "type": "integer"
+          },
+          "user_selectable_probe_instrument": {
+            "title": "User Selectable Probe Instrument",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "probe_version",
+          "probe_mode",
+          "default_probe_instrument",
+          "user_selectable_probe_instrument",
+          "probe_checks",
+          "fingerprint"
+        ],
+        "title": "IntegrationProbeContractDto",
+        "type": "object"
+      },
+      "IntegrationTypeDto": {
+        "additionalProperties": false,
+        "properties": {
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "category": {
+            "$ref": "#/components/schemas/OnlyIntegrationCategory"
+          },
+          "configuration_contract": {
+            "$ref": "#/components/schemas/IntegrationConfigurationContractDto"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "implementation_id": {
+            "title": "Implementation Id",
+            "type": "string"
+          },
+          "implementation_version": {
+            "title": "Implementation Version",
+            "type": "string"
+          },
+          "probe_contract": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IntegrationProbeContractDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provider_id": {
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "public_api_version": {
+            "title": "Public Api Version",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "type_id": {
+            "title": "Type Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "type_id",
+          "category",
+          "display_name",
+          "description",
+          "provider_id",
+          "implementation_id",
+          "implementation_version",
+          "public_api_version",
+          "capabilities",
+          "configuration_contract",
+          "probe_contract",
+          "fingerprint"
+        ],
+        "title": "IntegrationTypeDto",
+        "type": "object"
+      },
+      "IntegrationTypeErrorDto": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "detail"
+        ],
+        "title": "IntegrationTypeErrorDto",
+        "type": "object"
+      },
+      "IntegrationTypeErrorEnvelopeDto": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/IntegrationTypeErrorDto"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "IntegrationTypeErrorEnvelopeDto",
+        "type": "object"
+      },
+      "IntegrationTypeListDto": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/IntegrationTypeDto"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "IntegrationTypeListDto",
+        "type": "object"
+      },
       "JsonValue": {},
       "OnlyAdjustmentType": {
         "enum": [
@@ -875,6 +1193,47 @@
           "STRING"
         ],
         "title": "OnlyCalculationDataType",
+        "type": "string"
+      },
+      "OnlyIntegrationCategory": {
+        "enum": [
+          "DATA_SOURCE",
+          "BROKER",
+          "AGENT_PROVIDER"
+        ],
+        "title": "OnlyIntegrationCategory",
+        "type": "string"
+      },
+      "OnlyIntegrationProbeCheck": {
+        "enum": [
+          "CONNECTIVITY",
+          "AUTHENTICATION",
+          "REFERENCE_DATA",
+          "HISTORICAL_DATA",
+          "REALTIME_DATA"
+        ],
+        "title": "OnlyIntegrationProbeCheck",
+        "type": "string"
+      },
+      "OnlyIntegrationProbeMode": {
+        "enum": [
+          "DEFAULT_INSTRUMENT"
+        ],
+        "title": "OnlyIntegrationProbeMode",
+        "type": "string"
+      },
+      "OnlyIntegrationValueKind": {
+        "enum": [
+          "STRING",
+          "INTEGER",
+          "NUMBER",
+          "BOOLEAN",
+          "ENUM",
+          "DURATION",
+          "PATH",
+          "STRING_INTEGER_MAP"
+        ],
+        "title": "OnlyIntegrationValueKind",
         "type": "string"
       },
       "OnlyPriceType": {
@@ -6358,6 +6717,97 @@
         "summary": "Get Artifact",
         "tags": [
           "backtest"
+        ]
+      }
+    },
+    "/api/v2/integration-types": {
+      "get": {
+        "operationId": "list_integration_types_api_v2_integration_types_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationTypeListDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationTypeErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Invalid Integration Type query"
+          }
+        },
+        "summary": "List Integration Types",
+        "tags": [
+          "integration-types"
+        ]
+      }
+    },
+    "/api/v2/integration-types/{type_id}": {
+      "get": {
+        "operationId": "get_integration_type_api_v2_integration_types__type_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "type_id",
+            "required": true,
+            "schema": {
+              "title": "Type Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationTypeDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationTypeErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration Type not found"
+          }
+        },
+        "summary": "Get Integration Type",
+        "tags": [
+          "integration-types"
         ]
       }
     },
