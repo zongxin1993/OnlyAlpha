@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import secrets
 import uuid
 from collections.abc import Callable
@@ -16,6 +17,7 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from psycopg.rows import dict_row
 
+from onlyalpha.canonical import only_canonical_json
 from onlyalpha.core.clock import only_system_utc_now
 
 from .config import OnlyPostgresOperationalConnectionOptions
@@ -23,6 +25,14 @@ from .config import OnlyPostgresOperationalConnectionOptions
 MASTER_KEY_BYTES = 32
 MASTER_KEY_VERSION = 1
 MASTER_KEY_FILE = Path("secrets") / "dev-master-key"
+_SECRET_NAME_PATTERN = re.compile(r"[a-z][a-z0-9_]*")
+
+
+class OnlyCredentialError(RuntimeError):
+    def __init__(self, code: str, detail: str = "") -> None:
+        self.code = code
+        self.detail = detail
+        super().__init__(f"{code}: {detail}" if detail else code)
 
 
 def only_ensure_dev_master_key(path: Path) -> bytes:
@@ -55,11 +65,13 @@ def only_ensure_dev_master_key(path: Path) -> bytes:
 class OnlyCredentialMetadata:
     credential_id: str
     credential_kind: str
-    provider_id: str
+    subject_id: str
+    secret_name: str
+    generation: int
     key_version: int
-    masked_value: str
     created_at: datetime
     updated_at: datetime
+    configured: bool = True
 
 
 class OnlyPostgresCredentialAuthority:
@@ -79,93 +91,240 @@ class OnlyPostgresCredentialAuthority:
         self._key = bytes(master_key)
         self._now = now
 
-    def put(self, credential_kind: str, provider_id: str, secret: str) -> OnlyCredentialMetadata:
-        _validate_text(credential_kind, "CREDENTIAL_KIND_INVALID")
-        _validate_text(provider_id, "CREDENTIAL_PROVIDER_INVALID")
-        if not isinstance(secret, str) or not secret:
-            raise ValueError("CREDENTIAL_SECRET_INVALID")
+    def create(
+        self,
+        credential_kind: str,
+        subject_id: str,
+        secret_name: str,
+        secret: str,
+    ) -> OnlyCredentialMetadata:
+        _validate_slot(credential_kind, subject_id, secret_name)
+        _validate_secret(secret)
         credential_id = str(uuid.uuid4())
         created_at = self._now()
-        if created_at.tzinfo is None or created_at.utcoffset() != UTC.utcoffset(created_at):
-            raise ValueError("CREDENTIAL_TIMESTAMP_INVALID")
-        ciphertext = self._encrypt(credential_kind, provider_id, secret)
-        with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
-            row = connection.execute(
-                "INSERT INTO product_credential "
-                "(credential_id, credential_kind, provider_id, ciphertext, key_version, created_at, updated_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s) "
-                "ON CONFLICT (credential_kind, provider_id) DO UPDATE SET "
-                "ciphertext = EXCLUDED.ciphertext, key_version = EXCLUDED.key_version, "
-                "updated_at = EXCLUDED.updated_at "
-                "RETURNING credential_id, credential_kind, provider_id, key_version, created_at, updated_at",
-                (credential_id, credential_kind, provider_id, ciphertext, MASTER_KEY_VERSION, created_at, created_at),
-            ).fetchone()
+        _validate_timestamp(created_at)
+        ciphertext = self._encrypt(
+            credential_id,
+            credential_kind,
+            subject_id,
+            secret_name,
+            1,
+            MASTER_KEY_VERSION,
+            secret,
+        )
+        try:
+            with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+                row = connection.execute(
+                    "INSERT INTO product_credential "
+                    "(credential_id, credential_kind, subject_id, secret_name, generation, ciphertext, "
+                    "key_version, created_at, updated_at) "
+                    "VALUES (%s, %s, %s, %s, 1, %s, %s, %s, %s) "
+                    "RETURNING credential_id::text, credential_kind, subject_id, secret_name, generation, "
+                    "key_version, created_at, updated_at",
+                    (
+                        credential_id,
+                        credential_kind,
+                        subject_id,
+                        secret_name,
+                        ciphertext,
+                        MASTER_KEY_VERSION,
+                        created_at,
+                        created_at,
+                    ),
+                ).fetchone()
+        except psycopg.IntegrityError as exc:
+            raise OnlyCredentialError("CREDENTIAL_GENERATION_CONFLICT", "credential slot already exists") from exc
+        except psycopg.Error as exc:
+            raise OnlyCredentialError("CREDENTIAL_PERSISTENCE_UNAVAILABLE") from exc
         if row is None:
-            raise RuntimeError("CREDENTIAL_WRITE_NOT_OBSERVED")
-        return _metadata(row, secret)
+            raise OnlyCredentialError("CREDENTIAL_PERSISTENCE_CONFLICT", "credential write was not observed")
+        return _metadata(row)
+
+    def rotate(self, credential_id: str, expected_generation: int, secret: str) -> OnlyCredentialMetadata:
+        _validate_credential_id(credential_id)
+        if not isinstance(expected_generation, int) or isinstance(expected_generation, bool) or expected_generation < 1:
+            raise OnlyCredentialError("CREDENTIAL_GENERATION_CONFLICT", "expected generation is invalid")
+        _validate_secret(secret)
+        updated_at = self._now()
+        _validate_timestamp(updated_at)
+        try:
+            with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+                current = connection.execute(
+                    "SELECT credential_id::text, credential_kind, subject_id, secret_name, generation, key_version "
+                    "FROM product_credential WHERE credential_id = %s",
+                    (credential_id,),
+                ).fetchone()
+                if current is None:
+                    raise OnlyCredentialError("CREDENTIAL_NOT_FOUND")
+                if int(cast(int, current["generation"])) != expected_generation:
+                    raise OnlyCredentialError("CREDENTIAL_GENERATION_CONFLICT")
+                key_version = int(cast(int, current["key_version"]))
+                if key_version != MASTER_KEY_VERSION:
+                    raise OnlyCredentialError("CREDENTIAL_KEY_VERSION_UNSUPPORTED")
+                generation = expected_generation + 1
+                ciphertext = self._encrypt(
+                    credential_id,
+                    str(current["credential_kind"]),
+                    str(current["subject_id"]),
+                    str(current["secret_name"]),
+                    generation,
+                    key_version,
+                    secret,
+                )
+                row = connection.execute(
+                    "UPDATE product_credential SET generation = %s, ciphertext = %s, updated_at = %s "
+                    "WHERE credential_id = %s AND generation = %s "
+                    "RETURNING credential_id::text, credential_kind, subject_id, secret_name, generation, "
+                    "key_version, created_at, updated_at",
+                    (generation, ciphertext, updated_at, credential_id, expected_generation),
+                ).fetchone()
+                if row is None:
+                    raise OnlyCredentialError("CREDENTIAL_GENERATION_CONFLICT")
+        except OnlyCredentialError:
+            raise
+        except psycopg.Error as exc:
+            raise OnlyCredentialError("CREDENTIAL_PERSISTENCE_UNAVAILABLE") from exc
+        return _metadata(row)
 
     def list_metadata(self) -> tuple[OnlyCredentialMetadata, ...]:
-        with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
-            rows = connection.execute(
-                "SELECT credential_id, credential_kind, provider_id, key_version, created_at, updated_at "
-                "FROM product_credential ORDER BY credential_kind, provider_id"
-            ).fetchall()
-        return tuple(_metadata(row, None) for row in rows)
+        try:
+            with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+                rows = connection.execute(
+                    "SELECT credential_id::text, credential_kind, subject_id, secret_name, generation, "
+                    "key_version, created_at, updated_at FROM product_credential "
+                    "ORDER BY credential_kind, subject_id, secret_name"
+                ).fetchall()
+        except psycopg.Error as exc:
+            raise OnlyCredentialError("CREDENTIAL_PERSISTENCE_UNAVAILABLE") from exc
+        return tuple(_metadata(row) for row in rows)
 
-    def read_secret(self, credential_kind: str, provider_id: str) -> str:
-        _validate_text(credential_kind, "CREDENTIAL_KIND_INVALID")
-        _validate_text(provider_id, "CREDENTIAL_PROVIDER_INVALID")
-        with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
-            row = connection.execute(
-                "SELECT ciphertext, key_version FROM product_credential "
-                "WHERE credential_kind = %s AND provider_id = %s",
-                (credential_kind, provider_id),
-            ).fetchone()
+    def read_secret(self, credential_id: str, credential_generation: int) -> str:
+        _validate_credential_id(credential_id)
+        if not isinstance(credential_generation, int) or isinstance(credential_generation, bool):
+            raise OnlyCredentialError("CREDENTIAL_GENERATION_MISMATCH")
+        try:
+            with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+                row = connection.execute(
+                    "SELECT credential_id::text, credential_kind, subject_id, secret_name, generation, "
+                    "ciphertext, key_version FROM product_credential WHERE credential_id = %s",
+                    (credential_id,),
+                ).fetchone()
+        except psycopg.Error as exc:
+            raise OnlyCredentialError("CREDENTIAL_PERSISTENCE_UNAVAILABLE") from exc
         if row is None:
-            raise LookupError("CREDENTIAL_NOT_FOUND")
-        if int(row["key_version"]) != MASTER_KEY_VERSION:
-            raise ValueError("CREDENTIAL_KEY_VERSION_UNSUPPORTED")
-        return self._decrypt(credential_kind, provider_id, bytes(row["ciphertext"]))
+            raise OnlyCredentialError("CREDENTIAL_NOT_FOUND")
+        generation = int(cast(int, row["generation"]))
+        if generation != credential_generation:
+            raise OnlyCredentialError("CREDENTIAL_GENERATION_MISMATCH")
+        key_version = int(cast(int, row["key_version"]))
+        if key_version != MASTER_KEY_VERSION:
+            raise OnlyCredentialError("CREDENTIAL_KEY_VERSION_UNSUPPORTED")
+        return self._decrypt(
+            str(row["credential_id"]),
+            str(row["credential_kind"]),
+            str(row["subject_id"]),
+            str(row["secret_name"]),
+            generation,
+            key_version,
+            bytes(row["ciphertext"]),
+        )
 
-    def _encrypt(self, credential_kind: str, provider_id: str, secret: str) -> bytes:
+    def _encrypt(
+        self,
+        credential_id: str,
+        credential_kind: str,
+        subject_id: str,
+        secret_name: str,
+        generation: int,
+        key_version: int,
+        secret: str,
+    ) -> bytes:
         nonce = secrets.token_bytes(12)
-        aad = f"{credential_kind}\0{provider_id}".encode()
+        aad = _aad(credential_id, credential_kind, subject_id, secret_name, generation, key_version)
         return nonce + AESGCM(self._key).encrypt(nonce, secret.encode(), aad)
 
-    def _decrypt(self, credential_kind: str, provider_id: str, ciphertext: bytes) -> str:
+    def _decrypt(
+        self,
+        credential_id: str,
+        credential_kind: str,
+        subject_id: str,
+        secret_name: str,
+        generation: int,
+        key_version: int,
+        ciphertext: bytes,
+    ) -> str:
         if len(ciphertext) <= 12:
-            raise ValueError("CREDENTIAL_CIPHERTEXT_INVALID")
+            raise OnlyCredentialError("CREDENTIAL_CIPHERTEXT_INVALID")
         try:
             value = AESGCM(self._key).decrypt(
-                ciphertext[:12], ciphertext[12:], f"{credential_kind}\0{provider_id}".encode()
+                ciphertext[:12],
+                ciphertext[12:],
+                _aad(credential_id, credential_kind, subject_id, secret_name, generation, key_version),
             )
             return value.decode("utf-8")
         except (InvalidTag, UnicodeDecodeError) as exc:
-            raise ValueError("CREDENTIAL_CIPHERTEXT_INVALID") from exc
+            raise OnlyCredentialError("CREDENTIAL_CIPHERTEXT_INVALID") from exc
 
 
-def _metadata(row: object, secret: str | None) -> OnlyCredentialMetadata:
+def _metadata(row: object) -> OnlyCredentialMetadata:
     values = cast(dict[str, object], row)
     return OnlyCredentialMetadata(
         credential_id=str(values["credential_id"]),
         credential_kind=str(values["credential_kind"]),
-        provider_id=str(values["provider_id"]),
+        subject_id=str(values["subject_id"]),
+        secret_name=str(values["secret_name"]),
+        generation=int(cast(int, values["generation"])),
         key_version=int(cast(int, values["key_version"])),
-        masked_value=only_mask_credential(secret),
         created_at=cast(datetime, values["created_at"]),
         updated_at=cast(datetime, values["updated_at"]),
     )
 
 
-def only_mask_credential(secret: str | None) -> str:
-    if not secret:
-        return "****"
-    return "****" if len(secret) <= 7 else f"{secret[:3]}****{secret[-4:]}"
+def _aad(
+    credential_id: str,
+    credential_kind: str,
+    subject_id: str,
+    secret_name: str,
+    generation: int,
+    key_version: int,
+) -> bytes:
+    return only_canonical_json(
+        {
+            "credential_id": credential_id,
+            "credential_kind": credential_kind,
+            "subject_id": subject_id,
+            "secret_name": secret_name,
+            "generation": generation,
+            "key_version": key_version,
+        }
+    ).encode("utf-8")
 
 
-def _validate_text(value: str, error: str) -> None:
-    if not isinstance(value, str) or not value.strip() or any(character.isspace() for character in value):
-        raise ValueError(error)
+def _validate_slot(credential_kind: str, subject_id: str, secret_name: str) -> None:
+    for value in (credential_kind, subject_id, secret_name):
+        if not isinstance(value, str) or not value.strip() or any(character.isspace() for character in value):
+            raise OnlyCredentialError("CREDENTIAL_SLOT_INVALID")
+    if _SECRET_NAME_PATTERN.fullmatch(secret_name) is None:
+        raise OnlyCredentialError("CREDENTIAL_SLOT_INVALID")
+
+
+def _validate_secret(secret: str) -> None:
+    if not isinstance(secret, str) or not secret:
+        raise OnlyCredentialError("CREDENTIAL_SLOT_INVALID", "secret must be non-empty")
+
+
+def _validate_credential_id(credential_id: str) -> None:
+    try:
+        parsed = uuid.UUID(credential_id)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise OnlyCredentialError("CREDENTIAL_SLOT_INVALID", "credential_id is invalid") from exc
+    if parsed.version != 4 or str(parsed) != credential_id:
+        raise OnlyCredentialError("CREDENTIAL_SLOT_INVALID", "credential_id is invalid")
+
+
+def _validate_timestamp(value: datetime) -> None:
+    if value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
+        raise OnlyCredentialError("CREDENTIAL_SLOT_INVALID", "timestamp must be timezone-aware UTC")
 
 
 __all__ = [name for name in globals() if name.startswith(("Only", "only_", "MASTER_"))]

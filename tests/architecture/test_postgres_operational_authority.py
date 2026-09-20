@@ -15,6 +15,7 @@ def test_active_postgres_surfaces_cannot_reintroduce_legacy_major_support() -> N
         ROOT / ".github/workflows",
         ROOT / "deploy",
         ROOT / "src/onlyalpha/persistence/postgres",
+        ROOT / "tests/persistence",
         ROOT / "tests/research/postgres",
         ROOT / "tests/architecture",
     )
@@ -99,6 +100,11 @@ def test_postgres_schema_is_control_catalog_authority_not_high_volume_semantic_s
         "private_strategy_research_composition",
         "private_asset_search_projection_revision",
         "private_asset_search_projection_active",
+        "integration",
+        "integration_revision",
+        "integration_draft",
+        "integration_draft_secret_binding",
+        "integration_revision_secret_binding",
     ]
     vocabulary_migration = "\n".join(
         Path(path).read_text()

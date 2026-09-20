@@ -249,7 +249,11 @@ LANES = {
         "worksteal",
     ),
     OnlyTestLane.RESEARCH_POSTGRES: Lane(
-        ("tests/research/postgres", "tests/architecture/test_postgres_operational_authority.py"),
+        (
+            "tests/research/postgres",
+            "tests/persistence",
+            "tests/architecture/test_postgres_operational_authority.py",
+        ),
         "postgres or architecture",
         "0",
         "no",
@@ -362,7 +366,7 @@ LANES = {
     ),
     OnlyTestLane.FAST: Lane(
         WORKSPACE_TESTS,
-        "(unit or contract or architecture) and not (historical_git or recovery or sim_recovery or conformance or external or exhaustive or slow)",
+        "(unit or contract or architecture) and not (historical_git or recovery or sim_recovery or conformance or external or postgres or exhaustive or slow)",
         "8",
         "worksteal",
         timeout_seconds=300,
