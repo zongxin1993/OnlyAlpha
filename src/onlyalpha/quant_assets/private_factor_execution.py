@@ -6,7 +6,7 @@ import ast
 import hashlib
 import multiprocessing
 import os
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import StrEnum
@@ -369,17 +369,109 @@ class OnlyPrivateFactorSourceArtifactManifestV1:
             raise ValueError("PRIVATE_FACTOR_SOURCE_ARTIFACT_MISMATCH")
 
 
+class _PrivateFactorAstInterpreter:
+    def __init__(
+        self,
+        function: ast.FunctionDef,
+        api: OnlyCanonicalValueSemanticsV1,
+        inputs: dict[str, object],
+        parameters: dict[str, object],
+    ) -> None:
+        self._function = function
+        self._values: dict[str, object] = {"api": api, "inputs": inputs, "parameters": parameters}
+
+    def run(self) -> object:
+        returned, result = self._execute_block(self._function.body)
+        return result if returned else None
+
+    def _execute_block(self, statements: Sequence[ast.stmt]) -> tuple[bool, object]:
+        for statement in statements:
+            returned, result = self._execute_statement(statement)
+            if returned:
+                return True, result
+        return False, None
+
+    def _execute_statement(self, statement: ast.stmt) -> tuple[bool, object]:
+        if isinstance(statement, ast.Assign):
+            value = self._evaluate(statement.value)
+            for target in statement.targets:
+                self._assign(target, value)
+            return False, None
+        if isinstance(statement, ast.Return):
+            return True, None if statement.value is None else self._evaluate(statement.value)
+        if isinstance(statement, ast.Expr):
+            self._evaluate(statement.value)
+            return False, None
+        if isinstance(statement, ast.If):
+            branch = statement.body if self._evaluate(statement.test) else statement.orelse
+            return self._execute_block(branch)
+        if isinstance(statement, ast.While):
+            while self._evaluate(statement.test):
+                returned, result = self._execute_block(statement.body)
+                if returned:
+                    return True, result
+            return self._execute_block(statement.orelse)
+        raise ValueError(f"PRIVATE_FACTOR_FORBIDDEN_AST:{type(statement).__name__}")
+
+    def _assign(self, target: ast.expr, value: object) -> None:
+        if isinstance(target, ast.Name):
+            self._values[target.id] = value
+            return
+        if isinstance(target, ast.Subscript):
+            container = self._evaluate(target.value)
+            key = self._evaluate(target.slice)
+            cast(Any, container)[key] = value
+            return
+        raise ValueError(f"PRIVATE_FACTOR_FORBIDDEN_AST:{type(target).__name__}")
+
+    def _evaluate(self, expression: ast.expr) -> object:
+        if isinstance(expression, ast.Name):
+            return self._values[expression.id]
+        if isinstance(expression, ast.Constant):
+            return expression.value
+        if isinstance(expression, ast.Dict):
+            if any(key is None for key in expression.keys):
+                raise ValueError("PRIVATE_FACTOR_FORBIDDEN_AST:DictUnpack")
+            return {
+                self._evaluate(cast(ast.expr, key)): self._evaluate(value)
+                for key, value in zip(expression.keys, expression.values, strict=True)
+            }
+        if isinstance(expression, ast.Tuple):
+            return tuple(self._evaluate(item) for item in expression.elts)
+        if isinstance(expression, ast.List):
+            return [self._evaluate(item) for item in expression.elts]
+        if isinstance(expression, ast.Subscript):
+            return cast(Any, self._evaluate(expression.value))[self._evaluate(expression.slice)]
+        if isinstance(expression, ast.Attribute):
+            if (
+                not isinstance(expression.value, ast.Name)
+                or expression.value.id != "api"
+                or expression.attr not in _OPERATIONS
+            ):
+                raise ValueError("PRIVATE_FACTOR_FORBIDDEN_ATTRIBUTE")
+            return getattr(self._values["api"], expression.attr)
+        if isinstance(expression, ast.Call):
+            if not isinstance(expression.func, ast.Attribute) or expression.keywords:
+                raise ValueError("PRIVATE_FACTOR_FORBIDDEN_CALL")
+            function = self._evaluate(expression.func)
+            return cast(Any, function)(*(self._evaluate(argument) for argument in expression.args))
+        raise ValueError(f"PRIVATE_FACTOR_FORBIDDEN_AST:{type(expression).__name__}")
+
+
 def _execute_child(
     connection: Connection, source: bytes, inputs: Mapping[str, object], parameters: Mapping[str, object]
 ) -> None:
     os.environ.clear()
     try:
-        namespace: dict[str, object] = {"__builtins__": {}}
-        exec(compile(source, "<private-factor-artifact>", "exec"), namespace, namespace)
-        calculate = cast(Callable[[object, object, object], object], namespace["calculate"])
-        result = calculate(
-            OnlyCanonicalValueSemanticsV1(ONLY_PRIVATE_FACTOR_NUMERIC_V1), dict(inputs), dict(parameters)
-        )
+        tree = ast.parse(source.decode("utf-8"), mode="exec")
+        if len(tree.body) != 1 or not isinstance(tree.body[0], ast.FunctionDef) or tree.body[0].name != "calculate":
+            raise ValueError("PRIVATE_FACTOR_ENTRYPOINT_INVALID")
+        result = _PrivateFactorAstInterpreter(
+            tree.body[0],
+            OnlyCanonicalValueSemanticsV1(ONLY_PRIVATE_FACTOR_NUMERIC_V1),
+            dict(inputs),
+            dict(parameters),
+        ).run()
         connection.send((True, result))
     except BaseException as exc:
         connection.send((False, f"{type(exc).__name__}:{exc}"))

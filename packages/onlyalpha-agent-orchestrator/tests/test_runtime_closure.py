@@ -480,19 +480,40 @@ def test_public_package_imports_keep_canonical_objects_and_export_counts() -> No
     import onlyalpha.research as research
     import onlyalpha.research.agent as agent
     import onlyalpha.research.experiment as experiment
+    from onlyalpha.application.private_strategy_research import (
+        OnlyPrivateStrategyResearchApplicationService as CanonicalPrivateStrategyResearchApplicationService,
+    )
+    from onlyalpha.application.private_strategy_research import (
+        OnlyPrivateStrategyResearchOutcome as CanonicalPrivateStrategyResearchOutcome,
+    )
+    from onlyalpha.application.private_strategy_research import (
+        OnlyPrivateStrategyResearchRequest as CanonicalPrivateStrategyResearchRequest,
+    )
     from onlyalpha.application.product_command_receipt import OnlyProductCommandId
     from onlyalpha.core.clock import OnlyClock
     from onlyalpha.research.agent.errors import OnlyAgentContextError as CanonicalAgentContextError
     from onlyalpha.research.experiment.model import OnlySearchBudgetV1
+    from onlyalpha.research.run import OnlyResearchOriginKind as CanonicalResearchOriginKind
+    from onlyalpha.research.run import OnlyResearchRunReader as CanonicalResearchRunReader
     from onlyalpha.research.workload import OnlyResearchWorkloadPlan
 
     assert len(onlyalpha.__all__) == 17
-    assert len(research.__all__) == 532
+    assert len(research.__all__) == 533
     assert len(experiment.__all__) == 52
     assert len(agent.__all__) == 129
-    assert len(application.__all__) == 21
+    # PA-3 (c36afc13) added the three private-strategy application symbols;
+    # PA3-TC2 (0250fe8b) added OriginKind and renamed the public Run store port
+    # to the read-only Reader boundary. These are intentional public changes.
+    assert len(application.__all__) == 24
     assert onlyalpha.OnlyClock is OnlyClock
     assert research.OnlyResearchWorkloadPlan is OnlyResearchWorkloadPlan
+    assert research.OnlyResearchOriginKind is CanonicalResearchOriginKind
+    assert research.OnlyResearchRunReader is CanonicalResearchRunReader
+    assert (
+        application.OnlyPrivateStrategyResearchApplicationService is CanonicalPrivateStrategyResearchApplicationService
+    )
+    assert application.OnlyPrivateStrategyResearchOutcome is CanonicalPrivateStrategyResearchOutcome
+    assert application.OnlyPrivateStrategyResearchRequest is CanonicalPrivateStrategyResearchRequest
     assert experiment.OnlySearchBudgetV1 is OnlySearchBudgetV1
     assert agent.OnlyAgentContextError is CanonicalAgentContextError
     assert application.OnlyProductCommandId is OnlyProductCommandId

@@ -30,8 +30,10 @@ def _provenance() -> OnlyResearchAuthoringProvenance:
 
 def test_db_native_provenance_round_trip_and_generation_identity_are_deterministic() -> None:
     provenance = _provenance()
+    # PA2-TC1R/TC2 (fa261231/46863c31) moved immutable authoring provenance
+    # from ALPHA/private.alpha to FACTOR/private.factor identities.
     assert provenance.execution_generation_fingerprint == (
-        "de56afec973b2052a99d502b7a701040abd4906711631596adb2618df5121783"
+        "e5908e97094b5fdef890d9b0fa5f92c20cf851cb114396545ad167040e1746de"
     )
     assert OnlyResearchAuthoringProvenance.from_dict(provenance.to_dict()) == provenance
 

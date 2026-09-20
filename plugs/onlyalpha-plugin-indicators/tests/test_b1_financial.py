@@ -121,7 +121,9 @@ def test_b1_financial_catalog_contracts_are_explicit() -> None:
     provider = quant_asset_provider()
     assert provider.manifest.provider_id == "onlyalpha.indicator.library"
     assert provider.manifest.provider_version == "4"
-    assert provider.content_fingerprint == "b580296fd98c1fbcecf2856fc723f2774f27e788ae51f9d3d6ec54ca86e61f94"
+    # ADR 0131/0132 replaced the historical layer/strategy descriptor with
+    # the canonical kind/private-factor provider descriptor.
+    assert provider.content_fingerprint == "494b55117b8d331d2c4427959992cfada978af8d6e4bb4e867a07fac44c60ab1"
     assert provider.content_fingerprint == quant_asset_provider().content_fingerprint
     financial = tuple(item for item in actual if item.type_definition in B1_FINANCIAL_TYPES)
     assert all(

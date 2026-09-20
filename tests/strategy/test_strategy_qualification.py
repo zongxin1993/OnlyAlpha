@@ -350,7 +350,10 @@ def test_same_subject_policy_and_research_evidence_is_deterministic_and_replayab
 
     assert first == second == decisions.load_verified(first.decision_fingerprint)
     assert first.outcome is OnlyQualificationOutcome.APPROVED
-    assert first.decision_fingerprint == "0a4c1a6002a3a9cf657f9e6e92264de6650223ea51f880115cdc52cae7d9d3bd"
+    # 06e91082 moved this lane from the legacy fixture to the canonical
+    # Strategy Product fixture; only the exact StrategyRevision/evidence
+    # binding changed, while the qualification outcome and criterion remain.
+    assert first.decision_fingerprint == "a3cbdecc816c7cfbaf85ae84bee0a1c52c924532bf2d5c81c3c626e7fdf4446a"
     assert evaluator.replay(first.decision_fingerprint) == first
 
 

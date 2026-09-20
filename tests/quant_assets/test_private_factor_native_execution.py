@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import builtins
 import hashlib
 import inspect
+import multiprocessing
+import os
 import sys
 from dataclasses import replace
 from decimal import Decimal
@@ -42,7 +45,10 @@ from onlyalpha.quant_assets import (
     only_quant_asset_distribution_artifact_manifest,
     only_validate_private_factor_revision,
 )
-from onlyalpha.quant_assets.private_factor_execution import ONLY_PRIVATE_FACTOR_NUMERIC_V1
+from onlyalpha.quant_assets.private_factor_execution import (
+    ONLY_PRIVATE_FACTOR_NUMERIC_V1,
+    _execute_child,
+)
 from onlyalpha.runtime.generation import (
     OnlyArtifactSourceProvenanceAuthority,
     OnlyCoreExecutionIdentity,
@@ -83,6 +89,19 @@ def _artifact() -> tuple[OnlyPrivateFactorRevision, OnlyPrivateFactorSourceArtif
     assert evidence.validation_disposition is OnlyPrivateFactorValidationDisposition.PASS
     manifest, source = OnlyPrivateFactorSourceArtifactManifestV1.materialize(revision, evidence)
     return revision, manifest, source
+
+
+def _run_child(source: bytes, inputs: dict[str, object], parameters: dict[str, object]) -> tuple[bool, object]:
+    parent, child = multiprocessing.get_context("spawn").Pipe(False)
+    environment = os.environ.copy()
+    try:
+        _execute_child(child, source, inputs, parameters)
+    finally:
+        os.environ.clear()
+        os.environ.update(environment)
+    result = parent.recv()
+    parent.close()
+    return result
 
 
 def _forged_closure(
@@ -250,6 +269,90 @@ def test_infinite_loop_is_terminated() -> None:
     manifest, source = OnlyPrivateFactorSourceArtifactManifestV1.materialize(revision, evidence)
     with pytest.raises(TimeoutError, match="PRIVATE_FACTOR_EXECUTION_TIMEOUT"):
         OnlyPrivateFactorIsolatedProgramHost(timeout_seconds=0.1).execute(manifest, source, {}, {})
+
+
+def test_child_execution_does_not_use_python_dynamic_exec(monkeypatch: pytest.MonkeyPatch) -> None:
+    _, _, source = _artifact()
+
+    def forbidden_exec(*args: object, **kwargs: object) -> None:
+        raise AssertionError("dynamic exec is forbidden")
+
+    monkeypatch.setattr(builtins, "exec", forbidden_exec)
+    assert _run_child(source, {"close": Decimal("2")}, {"offset": Decimal("1")}) == (
+        True,
+        {"value": Decimal("1")},
+    )
+
+
+def test_child_ast_interpreter_supports_restricted_control_flow_and_containers() -> None:
+    source = b"""def calculate(api, inputs, parameters):
+    result = {"value": [inputs["close"], (parameters["offset"],)]}
+    if parameters["enabled"]:
+        api.is_missing(inputs["close"])
+    else:
+        api.is_missing(parameters["offset"])
+    while parameters["loop"]:
+        parameters["loop"] = False
+    return result
+"""
+    expected = (True, {"value": [Decimal("2"), (Decimal("1"),)]})
+    assert (
+        _run_child(
+            source,
+            {"close": Decimal("2")},
+            {"offset": Decimal("1"), "enabled": True, "loop": True},
+        )
+        == expected
+    )
+    assert (
+        _run_child(
+            source,
+            {"close": Decimal("2")},
+            {"offset": Decimal("1"), "enabled": False, "loop": False},
+        )
+        == expected
+    )
+
+
+def test_child_ast_interpreter_returns_none_without_a_return() -> None:
+    source = b"def calculate(api, inputs, parameters):\n    inputs = inputs\n"
+    assert _run_child(source, {}, {}) == (True, None)
+
+
+@pytest.mark.parametrize(
+    ("source", "error"),
+    [
+        (b"x = 1\n", "PRIVATE_FACTOR_ENTRYPOINT_INVALID"),
+        (
+            b"def calculate(api, inputs, parameters):\n    return {**inputs}\n",
+            "PRIVATE_FACTOR_FORBIDDEN_AST:DictUnpack",
+        ),
+        (
+            b"def calculate(api, inputs, parameters):\n    return inputs['close'] + 1\n",
+            "PRIVATE_FACTOR_FORBIDDEN_AST:BinOp",
+        ),
+        (
+            b"def calculate(api, inputs, parameters):\n    api.add = inputs['close']\n    return inputs\n",
+            "PRIVATE_FACTOR_FORBIDDEN_AST:Attribute",
+        ),
+        (
+            b"def calculate(api, inputs, parameters):\n    return inputs.get('close')\n",
+            "PRIVATE_FACTOR_FORBIDDEN_ATTRIBUTE",
+        ),
+        (
+            b"def calculate(api, inputs, parameters):\n    return api.add(**inputs)\n",
+            "PRIVATE_FACTOR_FORBIDDEN_CALL",
+        ),
+        (
+            b"def calculate(api, inputs, parameters):\n    def helper():\n        return inputs\n    return inputs\n",
+            "PRIVATE_FACTOR_FORBIDDEN_AST:FunctionDef",
+        ),
+    ],
+)
+def test_child_ast_interpreter_fails_closed_for_uninterpretable_source(source: bytes, error: str) -> None:
+    success, result = _run_child(source, {"close": Decimal("1")}, {})
+    assert success is False
+    assert error in str(result)
 
 
 def test_api_operations_equal_canonical_value_semantics() -> None:
