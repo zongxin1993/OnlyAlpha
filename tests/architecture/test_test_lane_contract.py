@@ -49,6 +49,7 @@ def test_lane_expressions_keep_concerns_separate() -> None:
     core = LANES[OnlyTestLane.CORE_FULL].expression
     assert core.startswith("not (")
     assert all(concern in core for concern in ("recovery", "conformance", "exhaustive", "postgres", "clickhouse"))
+    assert "postgres" in LANES[OnlyTestLane.FAST].expression
     assert LANES[OnlyTestLane.RECOVERY].expression == "recovery and not external and not exhaustive"
     assert LANES[OnlyTestLane.SIM_RECOVERY].expression == "sim_recovery and not external and not exhaustive"
     assert LANES[OnlyTestLane.ASHARE].expression == "conformance and not external and not exhaustive"
@@ -318,6 +319,7 @@ def test_research_run_and_postgres_lanes_separate_pure_domain_from_real_database
     assert postgres.expression == "postgres or architecture"
     assert postgres.workers == "0"
     assert "tests/research/postgres" in postgres.paths
+    assert "tests/persistence" in postgres.paths
     assert "Research Run branch coverage must be 100%" in source
     assert "Research Run line coverage must be 100%" in source
 

@@ -4,10 +4,16 @@ from .config import OnlyPostgresConfig as OnlyPostgresConfig
 from .config import OnlyPostgresOperationalConnectionOptions as OnlyPostgresOperationalConnectionOptions
 from .config import only_assert_postgres_test_database as only_assert_postgres_test_database
 from .credentials import (
+    MASTER_KEY_BYTES as MASTER_KEY_BYTES,
+)
+from .credentials import (
     MASTER_KEY_FILE as MASTER_KEY_FILE,
 )
 from .credentials import (
     MASTER_KEY_VERSION as MASTER_KEY_VERSION,
+)
+from .credentials import (
+    OnlyCredentialError as OnlyCredentialError,
 )
 from .credentials import (
     OnlyCredentialMetadata as OnlyCredentialMetadata,
@@ -18,9 +24,7 @@ from .credentials import (
 from .credentials import (
     only_ensure_dev_master_key as only_ensure_dev_master_key,
 )
-from .credentials import (
-    only_mask_credential as only_mask_credential,
-)
+from .integration_store import OnlyPostgresIntegrationStore as OnlyPostgresIntegrationStore
 from .kernel_authority import OnlyPostgresKernelAuthorityGuard as OnlyPostgresKernelAuthorityGuard
 from .market_data_catalog import OnlyPostgresMarketDataCatalog as OnlyPostgresMarketDataCatalog
 from .migration import (
