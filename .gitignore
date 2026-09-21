@@ -238,6 +238,7 @@ mutants/
 .mutmut-cache/
 .benchmarks/
 .asv/env/
+.worktrees/
 .asv/results/
 .asv/html/
 .env
