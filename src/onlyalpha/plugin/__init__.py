@@ -8,6 +8,16 @@ from onlyalpha.plugin.capabilities import (
 )
 from onlyalpha.plugin.descriptor import OnlyPluginDescriptor, OnlyPluginOrigin, OnlyPluginOriginType, OnlyPluginType
 from onlyalpha.plugin.errors import OnlyPluginError
+from onlyalpha.plugin.integration_probe import (
+    OnlyIntegrationProbeCheckResult,
+    OnlyIntegrationProbeCheckStatus,
+    OnlyIntegrationProbeFailureKind,
+    OnlyIntegrationProbePolicy,
+    OnlyIntegrationProbeProvider,
+    OnlyIntegrationProbeRequest,
+    OnlyIntegrationProbeResult,
+    OnlyIntegrationProbeStatus,
+)
 from onlyalpha.plugin.lifecycle import OnlyPluginHealth, OnlyPluginHealthStatus, OnlyPluginLifecycleState
 from onlyalpha.plugin.version import ONLYALPHA_PLUGIN_API_VERSION, OnlyPluginApiVersion
 
@@ -16,6 +26,14 @@ __all__ = [
     "OnlyBrokerPluginCapabilities",
     "OnlyCheckpointCapability",
     "OnlyDataSourceCapabilities",
+    "OnlyIntegrationProbeCheckResult",
+    "OnlyIntegrationProbeCheckStatus",
+    "OnlyIntegrationProbeFailureKind",
+    "OnlyIntegrationProbePolicy",
+    "OnlyIntegrationProbeProvider",
+    "OnlyIntegrationProbeRequest",
+    "OnlyIntegrationProbeResult",
+    "OnlyIntegrationProbeStatus",
     "OnlyPluginApiVersion",
     "OnlyPluginDescriptor",
     "OnlyPluginError",

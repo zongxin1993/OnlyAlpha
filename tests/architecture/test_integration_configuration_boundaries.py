@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -15,10 +16,13 @@ pytestmark = pytest.mark.architecture
 ROOT = Path(__file__).resolve().parents[2]
 CONFIGURATION = ROOT / "src/onlyalpha/application/integration_configuration.py"
 APPLICATION = ROOT / "src/onlyalpha/application/integration_application.py"
+PROBE_APPLICATION = ROOT / "src/onlyalpha/application/integration_probe.py"
+BINANCE_SPOT_PROBE = ROOT / "plugs/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance/spot/data_source/probe.py"
 POSTGRES = ROOT / "src/onlyalpha/persistence/postgres"
 INTEGRATION_STORE = POSTGRES / "integration_store.py"
 PRODUCT_STORE = POSTGRES / "integration_product_store.py"
 CREDENTIALS = POSTGRES / "credentials.py"
+INTEGRATION_TYPE_CATALOG = ROOT / "src/onlyalpha/application/integration_type_catalog.py"
 CONCRETE_PLUGINS = {
     "onlyalpha_plugin_binance",
     "onlyalpha_plugin_binance_spot",
@@ -65,7 +69,7 @@ def test_plugins_do_not_import_integration_authority_and_http_routes_stay_transp
     assert route_violations == {}
 
 
-def test_integration_http_has_no_probe_delete_or_master_key_creation_authority() -> None:
+def test_integration_http_has_only_declared_probe_and_no_delete_or_master_key_creation_authority() -> None:
     http_root = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server"
     integration_source = "\n".join(
         path.read_text(encoding="utf-8") for path in _python_files(http_root / "integrations")
@@ -73,7 +77,10 @@ def test_integration_http_has_no_probe_delete_or_master_key_creation_authority()
     main_source = (http_root / "main.py").read_text(encoding="utf-8")
 
     assert 'router.delete("/{integration_id}")' not in integration_source
-    assert "/probe" not in integration_source and "/test-connection" not in integration_source
+    assert '"/{integration_id}/probe"' in integration_source
+    assert '"/{integration_id}/probe-attempts"' in integration_source
+    assert '"/{integration_id}/probe-attempts/{probe_attempt_id}"' in integration_source
+    assert "/test-connection" not in integration_source
     assert "only_ensure_dev_master_key" not in main_source
     assert "only_load_master_key" in main_source
 
@@ -98,6 +105,21 @@ def test_runtime_research_and_backtest_do_not_bind_integration_revision() -> Non
         if imported_modules_for_path(path, ROOT) & forbidden
     }
     assert violations == {}
+
+
+def test_web_integration_workspace_is_provider_neutral_and_secret_storage_free() -> None:
+    web_root = ROOT / "packages/onlyalpha-web-console/src"
+    roots = (web_root / "api/integrations", web_root / "features/data/sources")
+    sources = {
+        str(path.relative_to(ROOT)): path.read_text(encoding="utf-8").lower()
+        for root in roots
+        for path in root.rglob("*")
+        if path.suffix in {".ts", ".tsx"} and ".test." not in path.name
+    }
+    provider_tokens = ("binance", "tushare", "miniqmt")
+    persistence_tokens = ("localstorage", "sessionstorage", "indexeddb")
+    assert {path: token for path, source in sources.items() for token in provider_tokens if token in source} == {}
+    assert {path: token for path, source in sources.items() for token in persistence_tokens if token in source} == {}
 
 
 def test_schema_has_no_integration_type_table_and_store_has_no_revision_update_surface() -> None:
@@ -147,6 +169,34 @@ def test_one_integration_command_service_and_no_second_idempotency_authority() -
     assert re.search(r"CREATE\s+TABLE\s+integration_(?:command|receipt|admission)\b", sql, re.IGNORECASE) is None
 
 
+def test_integration_type_catalog_does_not_create_a_second_plugin_discovery_path() -> None:
+    imports = imported_modules_for_path(INTEGRATION_TYPE_CATALOG, ROOT)
+    source = INTEGRATION_TYPE_CATALOG.read_text(encoding="utf-8")
+
+    assert "importlib.metadata" not in imports
+    assert "onlyalpha.plugin.discovery" not in imports
+    assert "entry_points(" not in source
+    assert "only_discover_plugins" not in source
+
+
+def test_first_party_product_data_source_entry_points_have_permanent_coverage() -> None:
+    entry_points: dict[str, str] = {}
+    for relative in (
+        "plugs/onlyalpha-plugin-binance/pyproject.toml",
+        "plugs/onlyalpha-plugin-miniqmt/pyproject.toml",
+        "plugs/onlyalpha-plugin-tushare/pyproject.toml",
+    ):
+        project = tomllib.loads((ROOT / relative).read_text(encoding="utf-8"))["project"]
+        entry_points.update(project["entry-points"]["onlyalpha.data_sources"])
+
+    assert entry_points == {
+        "binance": "onlyalpha_plugin_binance.spot.data_source.factory:factory",
+        "binance-usdm": "onlyalpha_plugin_binance.usdm.data_source:factory",
+        "miniqmt": "onlyalpha_plugin_miniqmt.data_source.factory:factory",
+        "tushare": "onlyalpha_plugin_tushare.data_source.factory:factory",
+    }
+
+
 def test_integration_application_has_no_probe_transport_or_caller_runtime_fingerprint_authority() -> None:
     imports = imported_modules_for_path(APPLICATION, ROOT)
     product_source = PRODUCT_STORE.read_text(encoding="utf-8")
@@ -164,3 +214,35 @@ def test_integration_application_has_no_probe_transport_or_caller_runtime_finger
     assert not (imports & {"httpx", "requests", "socket", "urllib"})
     assert "runtime_configuration_fingerprint" not in command_fields
     assert ".from_draft(" not in product_source
+
+
+def test_probe_application_has_no_runtime_engine_event_bus_or_provider_transport_dependency() -> None:
+    imports = imported_modules_for_path(PROBE_APPLICATION, ROOT)
+
+    assert not (
+        imports
+        & {
+            "onlyalpha.engine",
+            "onlyalpha.runtime",
+            "onlyalpha.event_bus",
+            "httpx",
+            "requests",
+            "socket",
+            "urllib",
+        }
+    )
+    source = PROBE_APPLICATION.read_text(encoding="utf-8")
+    assert ".create(request)" not in source
+
+
+def test_binance_probe_has_no_market_data_authority_or_runtime_resource_dependency() -> None:
+    imports = imported_modules_for_path(BINANCE_SPOT_PROBE, ROOT)
+    forbidden = (
+        "onlyalpha.cache",
+        "onlyalpha.engine",
+        "onlyalpha.event_bus",
+        "onlyalpha.persistence",
+        "onlyalpha.research",
+        "onlyalpha.runtime",
+    )
+    assert not {module for module in imports if module.startswith(forbidden)}

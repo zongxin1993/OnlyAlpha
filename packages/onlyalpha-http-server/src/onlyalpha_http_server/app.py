@@ -16,6 +16,10 @@ from onlyalpha.application.integration_application import (
     OnlyIntegrationQueryService,
 )
 from onlyalpha.application.integration_configuration import OnlyIntegrationError
+from onlyalpha.application.integration_probe import (
+    OnlyIntegrationOperationalQueryService,
+    OnlyIntegrationProbeService,
+)
 from onlyalpha.application.integration_type_catalog import OnlyIntegrationTypeCatalog
 from onlyalpha.application.private_asset_product import (
     OnlyPrivateAssetProductService,
@@ -251,12 +255,19 @@ def create_research_app(
     integration_types: OnlyIntegrationTypeCatalog | None = None,
     integration_commands: OnlyIntegrationCommandService | None = None,
     integration_queries: OnlyIntegrationQueryService | None = None,
+    integration_probes: OnlyIntegrationProbeService | None = None,
+    integration_operational_queries: OnlyIntegrationOperationalQueryService | None = None,
 ) -> FastAPI:
     integration_authorities = (integration_types, integration_commands, integration_queries)
     if any(item is not None for item in integration_authorities) and any(
         item is None for item in integration_authorities
     ):
         raise TypeError("Integration Product routes require Type, Command, and Query authorities")
+    probe_authorities = (integration_probes, integration_operational_queries)
+    if any(item is not None for item in probe_authorities) and any(item is None for item in probe_authorities):
+        raise TypeError("Integration Probe routes require command and query services")
+    if integration_types is None and any(item is not None for item in probe_authorities):
+        raise TypeError("Integration Probe routes require Integration Product authorities")
     universe_authority = definition_resolver.universe_resolver
     if universe_authority is not None and not isinstance(universe_authority, OnlyResearchUniverseCatalog):
         raise TypeError("Research API registered Universe authority must support both resolution and discovery")
@@ -585,7 +596,14 @@ def create_research_app(
     if integration_types is not None:
         app.include_router(create_integration_type_router(integration_types))
         assert integration_commands is not None and integration_queries is not None
-        app.include_router(create_integration_router(integration_commands, integration_queries))
+        app.include_router(
+            create_integration_router(
+                integration_commands,
+                integration_queries,
+                integration_probes,
+                integration_operational_queries,
+            )
+        )
     _install_exact_product_openapi(app)
     return app
 
@@ -657,8 +675,16 @@ def create_product_app(
     integration_types: OnlyIntegrationTypeCatalog | None = None,
     integration_commands: OnlyIntegrationCommandService | None = None,
     integration_queries: OnlyIntegrationQueryService | None = None,
+    integration_probes: OnlyIntegrationProbeService | None = None,
+    integration_operational_queries: OnlyIntegrationOperationalQueryService | None = None,
 ) -> FastAPI:
-    if integration_types is None or integration_commands is None or integration_queries is None:
+    if (
+        integration_types is None
+        or integration_commands is None
+        or integration_queries is None
+        or integration_probes is None
+        or integration_operational_queries is None
+    ):
         raise TypeError("Product API requires complete Integration Product authorities")
     app = create_research_app(
         reader,
@@ -690,6 +716,8 @@ def create_product_app(
         integration_types,
         integration_commands,
         integration_queries,
+        integration_probes,
+        integration_operational_queries,
     )
     app.title = "OnlyAlpha Product API"
     return app

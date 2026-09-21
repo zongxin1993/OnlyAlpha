@@ -9,6 +9,8 @@ export ONLYALPHA_CLICKHOUSE_DATABASE=onlyalpha_web_e2e
 export ONLYALPHA_HTTP_PORT="${ONLYALPHA_HTTP_PORT:-18000}"
 export ONLYALPHA_WEB_PORT="${ONLYALPHA_WEB_PORT:-15173}"
 export ONLYALPHA_WEB_E2E_ARTIFACTS_DIR="${ONLYALPHA_WEB_E2E_ARTIFACTS_DIR:-$ROOT/test-results/web-e2e}"
+export ONLYALPHA_SSL_CERT_FILE=/var/lib/onlyalpha/probe-fixture/ca.crt
+export ONLYALPHA_NO_PROXY=api.binance.com,stream.binance.com,binance-probe-fixture
 
 mkdir -p "$ONLYALPHA_WEB_E2E_ARTIFACTS_DIR"
 

@@ -11,6 +11,7 @@ from onlyalpha.plugin.integration import (
     OnlyIntegrationTypeProvider,
     only_integration_capability_ids,
 )
+from onlyalpha.plugin.integration_probe import OnlyIntegrationProbeProvider
 
 
 class OnlyIntegrationTypeCatalogError(LookupError):
@@ -79,4 +80,39 @@ class OnlyIntegrationTypeCatalog:
         raise OnlyIntegrationTypeCatalogError("INTEGRATION_TYPE_CONTRACT_INVALID", f"{plugin.plugin_id}: {detail}")
 
 
-__all__ = ["OnlyIntegrationTypeCatalog", "OnlyIntegrationTypeCatalogError"]
+class OnlyIntegrationProbeCatalog:
+    """Executable Probe projection over the already-discovered factory registries."""
+
+    def __init__(
+        self,
+        data_sources: OnlyDataSourceFactoryRegistry,
+        brokers: OnlyBrokerFactoryRegistry,
+    ) -> None:
+        providers: dict[str, OnlyIntegrationProbeProvider] = {}
+        for record in (*data_sources.records(), *brokers.records()):
+            factory = record.factory
+            if not isinstance(factory, OnlyIntegrationTypeProvider) or not isinstance(
+                factory, OnlyIntegrationProbeProvider
+            ):
+                continue
+            type_id = factory.integration_type.type_id.value
+            if type_id in providers:
+                raise OnlyIntegrationTypeCatalogError(
+                    "INTEGRATION_TYPE_CONTRACT_INVALID", f"duplicate Probe provider for {type_id}"
+                )
+            providers[type_id] = factory
+        self._providers = providers
+
+    def supports(self, type_id: str) -> bool:
+        return type_id in self._providers
+
+    def require(self, type_id: str) -> OnlyIntegrationProbeProvider:
+        try:
+            return self._providers[type_id]
+        except KeyError as exc:
+            raise OnlyIntegrationTypeCatalogError(
+                "INTEGRATION_PROBE_UNSUPPORTED", "Integration Probe is unavailable for this type"
+            ) from exc
+
+
+__all__ = ["OnlyIntegrationProbeCatalog", "OnlyIntegrationTypeCatalog", "OnlyIntegrationTypeCatalogError"]

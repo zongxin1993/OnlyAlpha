@@ -669,6 +669,48 @@ th {
 .selected-row {
     background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
+.data-source-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem);
+    gap: 1rem;
+    align-items: start;
+}
+.integration-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem 1rem;
+}
+.integration-fields fieldset,
+.integration-field {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0.85rem;
+}
+.integration-fields fieldset {
+    grid-column: 1 / -1;
+}
+.integration-fields fieldset .integration-field {
+    margin-top: 0.75rem;
+}
+.integration-checkbox {
+    display: flex;
+    gap: 0.65rem;
+    align-items: center;
+    min-height: 3rem;
+}
+.integration-checkbox input {
+    width: auto;
+    margin: 0;
+}
+.integration-fields small {
+    display: block;
+    margin-top: -0.7rem;
+    margin-bottom: 0.8rem;
+}
+.lifecycle-actions {
+    flex-wrap: wrap;
+    margin-top: 1rem;
+}
 @media (max-width: 700px) {
     .facts {
         grid-template-columns: 1fr;
@@ -684,6 +726,10 @@ th {
     }
     .node-inspector {
         position: static;
+    }
+    .data-source-layout,
+    .integration-fields {
+        grid-template-columns: 1fr;
     }
 }
 @media (max-width: 1050px) {

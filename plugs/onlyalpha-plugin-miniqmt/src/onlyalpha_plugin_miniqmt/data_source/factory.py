@@ -5,7 +5,7 @@ from onlyalpha.plugin.capabilities import OnlyPluginValidationIssue
 from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
 
 from ..config import OnlyMiniQmtConfig
-from ..descriptor import DATA_CAPABILITIES, DATA_DESCRIPTOR
+from ..descriptor import DATA_CAPABILITIES, DATA_DESCRIPTOR, DATA_INTEGRATION_TYPE
 from ..sdk.loader import load_xtquant
 from .provider import OnlyMiniQmtHistoricalDataProvider
 from .resource import OnlyMiniQmtDataSource
@@ -13,6 +13,7 @@ from .resource import OnlyMiniQmtDataSource
 
 class OnlyMiniQmtDataSourceFactory:
     descriptor = DATA_DESCRIPTOR
+    integration_type = DATA_INTEGRATION_TYPE
 
     def parse_config(self, extensions: Mapping[str, object]) -> OnlyMiniQmtConfig:
         return OnlyMiniQmtConfig.parse(dict(extensions))

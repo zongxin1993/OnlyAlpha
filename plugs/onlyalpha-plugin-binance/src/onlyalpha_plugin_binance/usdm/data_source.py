@@ -54,7 +54,7 @@ from onlyalpha.plugin.lifecycle import OnlyPluginHealth, OnlyPluginHealthStatus,
 from onlyalpha_plugin_binance.common.http import OnlyBinancePublicHttpClient
 from onlyalpha_plugin_binance.errors import OnlyBinanceError
 
-from ..descriptor import USDM_DATA_CAPABILITIES, USDM_DATA_DESCRIPTOR
+from ..descriptor import USDM_DATA_CAPABILITIES, USDM_DATA_DESCRIPTOR, USDM_DATA_INTEGRATION_TYPE
 from .historical import OnlyBinanceUsdmHistoricalNormalizer
 
 
@@ -481,6 +481,7 @@ class OnlyBinanceUsdmDataSource:
 
 class OnlyBinanceUsdmDataSourceFactory:
     descriptor = USDM_DATA_DESCRIPTOR
+    integration_type = USDM_DATA_INTEGRATION_TYPE
 
     def __init__(self, historical_client: OnlyBinanceUsdmHistoricalClient | None = None) -> None:
         self._historical_client = historical_client

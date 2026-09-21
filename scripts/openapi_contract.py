@@ -361,6 +361,8 @@ def render_document() -> JsonObject:
             integration_types=OnlyIntegrationTypeCatalog(OnlyDataSourceFactoryRegistry(), OnlyBrokerFactoryRegistry()),
             integration_commands=cast(OnlyIntegrationCommandService, object()),
             integration_queries=cast(OnlyIntegrationQueryService, object()),
+            integration_probes=cast(Any, object()),
+            integration_operational_queries=cast(Any, object()),
         )
         return app.openapi()
     finally:

@@ -1,11 +1,18 @@
+import time
 from collections.abc import Mapping, Sequence
 
 from onlyalpha.plugin.capabilities import OnlyPluginValidationIssue
 from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
+from onlyalpha.plugin.integration_probe import OnlyIntegrationProbeRequest, OnlyIntegrationProbeResult
 
+from ...common.http import OnlyBinancePublicHttpClient
 from ...descriptor import DATA_CAPABILITIES, DATA_DESCRIPTOR, SPOT_DATA_INTEGRATION_TYPE
+from ..reference.client import OnlyBinanceSpotReferenceClient
 from .config import OnlyBinanceSpotDataSourceConfig
+from .historical import OnlyBinanceSpotHistoricalClient
+from .probe import OnlyBinanceSpotProbe
 from .resource import OnlyBinanceSpotDataSource
+from .websocket import OnlyBinanceWebSocketTransport
 
 
 class OnlyBinanceSpotDataSourceFactory:
@@ -49,6 +56,36 @@ class OnlyBinanceSpotDataSourceFactory:
         if request.durable_recording_required and request.provider_evidence_sink is None:
             raise RuntimeError("DURABLE_MARKET_DATA_RECORDER_REQUIRED")
         return OnlyBinanceSpotDataSource(request, request.plugin_config)
+
+    def probe(self, request: OnlyIntegrationProbeRequest) -> OnlyIntegrationProbeResult:
+        config = self.parse_config(request.public_configuration)
+        remaining = request.deadline_monotonic - time.monotonic()
+        timeout = min(config.timeout_seconds, request.policy.per_check_timeout_seconds, remaining)
+        if timeout <= 0:
+            timeout = 0.001
+        http = OnlyBinancePublicHttpClient(
+            config.environment.rest_base_url,
+            timeout_seconds=timeout,
+            max_response_bytes=config.max_response_bytes,
+            deadline_monotonic=request.deadline_monotonic,
+        )
+        websocket = OnlyBinanceWebSocketTransport(
+            timeout_seconds=timeout,
+            max_message_bytes=config.max_ws_message_bytes,
+            deadline_monotonic=request.deadline_monotonic,
+        )
+
+        def bind_deadline(deadline_monotonic: float) -> None:
+            http.bind_deadline(deadline_monotonic)
+            websocket.bind_deadline(deadline_monotonic)
+
+        return OnlyBinanceSpotProbe(
+            OnlyBinanceSpotReferenceClient(http),
+            OnlyBinanceSpotHistoricalClient(http),
+            websocket,
+            websocket_base_url=config.environment.websocket_base_url,
+            bind_deadline=bind_deadline,
+        ).probe(request)
 
 
 factory = OnlyBinanceSpotDataSourceFactory()

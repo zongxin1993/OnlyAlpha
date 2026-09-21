@@ -75,6 +75,9 @@ services:
       ONLYALPHA_CLICKHOUSE_PASSWORD: onlyalpha
       ONLYALPHA_CLICKHOUSE_DATABASE: ${ONLYALPHA_CLICKHOUSE_DATABASE:-onlyalpha}
       ONLYALPHA_CLICKHOUSE_STORAGE_POLICY: default
+      SSL_CERT_FILE: ${ONLYALPHA_SSL_CERT_FILE:-/etc/ssl/certs/ca-certificates.crt}
+      NO_PROXY: ${ONLYALPHA_NO_PROXY:-}
+      no_proxy: ${ONLYALPHA_NO_PROXY:-}
     depends_on:
       bootstrap:
         condition: service_completed_successfully
@@ -207,6 +210,36 @@ services:
       - user-data:/var/lib/onlyalpha
     networks: [database]
 
+  binance-probe-fixture:
+    profiles: [web-e2e]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.dev
+      target: runtime
+    command:
+      [
+        "python",
+        "-m",
+        "tests.runtime_support.binance_spot_probe_fixture",
+        "--certificate-directory",
+        "/var/lib/onlyalpha/probe-fixture",
+      ]
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    volumes:
+      - user-data:/var/lib/onlyalpha
+    healthcheck:
+      test:
+        ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+      start_period: 2s
+    networks:
+      application:
+        aliases: [api.binance.com, stream.binance.com]
+
   playwright:
     profiles: [web-e2e]
     build:
@@ -223,6 +256,8 @@ services:
         condition: service_healthy
       web-e2e-fixture:
         condition: service_completed_successfully
+      binance-probe-fixture:
+        condition: service_healthy
     volumes:
       - "${ONLYALPHA_WEB_E2E_ARTIFACTS_DIR:-../test-results/web-e2e}:/workspace/packages/onlyalpha-web-console/test-results"
     networks: [application]

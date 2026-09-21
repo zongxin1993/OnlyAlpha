@@ -11,6 +11,7 @@ const destinations = [
     { path: "/research/library", label: "Research Library" },
     { path: "/research/factors", label: "Factor Explorer" },
     { path: "/data/inputs", label: "Research Inputs" },
+    { path: "/data/sources", label: "Data Sources" },
     { path: "/strategies", label: "Strategies" },
     { path: "/backtest/runs", label: "Backtests" },
     { path: "/system/health", label: "System Health" }

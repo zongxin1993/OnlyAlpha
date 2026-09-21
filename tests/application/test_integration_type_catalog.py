@@ -1,6 +1,10 @@
 from dataclasses import dataclass, replace
 
 import pytest
+from onlyalpha_plugin_binance.spot.data_source.factory import OnlyBinanceSpotDataSourceFactory
+from onlyalpha_plugin_binance.usdm.data_source import OnlyBinanceUsdmDataSourceFactory
+from onlyalpha_plugin_miniqmt.data_source.factory import OnlyMiniQmtDataSourceFactory
+from onlyalpha_plugin_tushare.data_source.factory import OnlyTushareDataSourceFactory
 
 from onlyalpha.application.integration_type_catalog import (
     OnlyIntegrationTypeCatalog,
@@ -143,3 +147,31 @@ def test_catalog_fails_closed_on_duplicate_type_or_implementation_mismatch() -> 
     with pytest.raises(OnlyIntegrationTypeCatalogError) as mismatch:
         OnlyIntegrationTypeCatalog(mismatched_sources, OnlyBrokerFactoryRegistry())
     assert mismatch.value.code == "INTEGRATION_TYPE_CONTRACT_INVALID"
+
+
+def test_all_first_party_product_data_sources_declare_unique_types_without_provider_io(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    factories = (
+        OnlyBinanceSpotDataSourceFactory(),
+        OnlyBinanceUsdmDataSourceFactory(),
+        OnlyMiniQmtDataSourceFactory(),
+        OnlyTushareDataSourceFactory(),
+    )
+    data_sources = OnlyDataSourceFactoryRegistry()
+    for factory in factories:
+        monkeypatch.setattr(factory, "create", lambda request: pytest.fail("provider I/O path was invoked"))
+        data_sources.register(factory)
+
+    descriptors = OnlyIntegrationTypeCatalog(data_sources, OnlyBrokerFactoryRegistry()).list(
+        OnlyIntegrationCategory.DATA_SOURCE
+    )
+
+    assert {descriptor.type_id.value for descriptor in descriptors} == {
+        "binance.spot.market_data",
+        "binance.usdm.market_data",
+        "miniqmt.market_data",
+        "tushare.daily.market_data",
+    }
+    assert len({descriptor.type_id.value for descriptor in descriptors}) == len(descriptors)
+    assert all(descriptor.category is OnlyIntegrationCategory.DATA_SOURCE for descriptor in descriptors)
