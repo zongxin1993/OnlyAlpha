@@ -11,6 +11,7 @@ sensitive_path_patterns = [
   "src/onlyalpha/application/strategy_authority.py",
   "src/onlyalpha/application/strategy_product.py",
   "src/onlyalpha/application/qualification_product.py",
+  "src/onlyalpha/application/integration_probe.py",
   "src/onlyalpha/backtest/*.py",
   "src/onlyalpha/strategy/freeze.py",
   "src/onlyalpha/strategy/promotion.py",
@@ -35,6 +36,7 @@ sensitive_path_patterns = [
   "src/onlyalpha/persistence/postgres/strategy_product_store.py",
   "src/onlyalpha/persistence/postgres/research_*_store.py",
   "src/onlyalpha/persistence/postgres/private_strategy_research_composition_store.py",
+  "src/onlyalpha/persistence/postgres/integration_probe_store.py",
   "src/onlyalpha/quant_assets/private_strategy_composition.py",
   "packages/onlyalpha-http-server/src/onlyalpha_http_server/*.py",
   "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/*.py",
@@ -213,6 +215,14 @@ identity_authority = "OnlyResearchOriginKind plus the exact Composition referenc
 mutation_capability = "C01"
 read_capability = "C01"
 semantic_persistence_relation = "PostgreSQL Research Run origin is durable integrity evidence; PRIVATE_STRATEGY requires Composition and GENERAL forbids it"
+
+[[facts]]
+id = "F22"
+name = "Integration Probe Attempt"
+identity_authority = "canonical UUID4 attempt ID bound to exact Integration Revision and fingerprint-verified result"
+mutation_capability = "C31"
+read_capability = "C31"
+semantic_persistence_relation = "append-only PostgreSQL Probe Attempt is operational observation evidence; current status is an exact-Revision projection and never Runtime admission authority"
 
 [[capabilities]]
 id = "C01"
@@ -394,6 +404,12 @@ name = "PRIVATE_STRATEGY_RESEARCH_COMPOSITION_VERIFY"
 kind = "VERIFY"
 privileged = true
 
+[[capabilities]]
+id = "C31"
+name = "INTEGRATION_PROBE_OBSERVE"
+kind = "EXECUTE"
+privileged = true
+
 [[actors]]
 id = "A01"
 name = "PUBLIC_PYTHON_SURFACE"
@@ -404,13 +420,13 @@ allowed_capabilities = []
 id = "A03"
 name = "HTTP_COMPOSITION_ROOT"
 production = true
-allowed_capabilities = ["C01", "C05", "C06", "C09", "C10", "C17", "C18", "C19", "C20", "C21", "C23", "C24", "C25", "C26", "C27", "C28", "C29", "C30"]
+allowed_capabilities = ["C01", "C05", "C06", "C09", "C10", "C17", "C18", "C19", "C20", "C21", "C23", "C24", "C25", "C26", "C27", "C28", "C29", "C30", "C31"]
 
 [[actors]]
 id = "A04"
 name = "HTTP_TRANSPORT_ADAPTER"
 production = true
-allowed_capabilities = ["C05", "C18", "C19", "C20", "C26", "C27"]
+allowed_capabilities = ["C05", "C18", "C19", "C20", "C26", "C27", "C31"]
 
 [[actors]]
 id = "A05"
@@ -527,16 +543,28 @@ production = true
 allowed_capabilities = ["C01", "C02", "C03"]
 
 [[actors]]
+id = "A24"
+name = "INTEGRATION_APPLICATION"
+production = true
+allowed_capabilities = ["C31"]
+
+[[actors]]
+id = "A25"
+name = "INTEGRATION_PERSISTENCE_ADAPTER"
+production = true
+allowed_capabilities = ["C31"]
+
+[[actors]]
 id = "T01"
 name = "TEST"
 production = false
-allowed_capabilities = ["C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08", "C09", "C10", "C11", "C12", "C13", "C14", "C15", "C16"]
+allowed_capabilities = ["C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08", "C09", "C10", "C11", "C12", "C13", "C14", "C15", "C16", "C31"]
 
 [[actors]]
 id = "T02"
 name = "CERTIFICATION"
 production = false
-allowed_capabilities = ["C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08", "C09", "C10", "C11", "C12", "C13", "C14", "C15", "C16", "C17"]
+allowed_capabilities = ["C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08", "C09", "C10", "C11", "C12", "C13", "C14", "C15", "C16", "C17", "C31"]
 
 [[actor_paths]]
 pattern = "src/onlyalpha/__init__.py"
@@ -628,6 +656,9 @@ actor = "A17"
 [[actor_paths]]
 pattern = "src/onlyalpha/application/private_strategy_research.py"
 actor = "A16"
+[[actor_paths]]
+pattern = "src/onlyalpha/application/integration_probe.py"
+actor = "A24"
 [[actor_paths]]
 pattern = "src/onlyalpha/quant_assets/private_strategy_composition.py"
 actor = "A16"
@@ -764,6 +795,9 @@ actor = "A16"
 pattern = "src/onlyalpha/persistence/postgres/private_strategy_research_composition_store.py"
 actor = "A16"
 [[actor_paths]]
+pattern = "src/onlyalpha/persistence/postgres/integration_probe_store.py"
+actor = "A25"
+[[actor_paths]]
 pattern = "scripts/regenerate_*.py"
 actor = "T01"
 [[actor_paths]]
@@ -872,6 +906,9 @@ symbols = ["onlyalpha.quant_assets.private_strategy_composition.OnlyPrivateStrat
 [[bindings]]
 capability = "C30"
 symbols = ["onlyalpha.quant_assets.private_strategy_composition.OnlyPrivateStrategyResearchCompositionVerifier", "onlyalpha.strategy.freeze.OnlyStrategyFreezeService"]
+[[bindings]]
+capability = "C31"
+symbols = ["onlyalpha.application.integration_probe.OnlyIntegrationProbeService", "onlyalpha.application.integration_probe.OnlyIntegrationOperationalQueryService", "onlyalpha.persistence.postgres.integration_probe_store.OnlyPostgresIntegrationProbeStore"]
 
 [[ownership]]
 capability = "C01"
@@ -963,6 +1000,9 @@ approved_production_holders = ["A03", "A16"]
 [[ownership]]
 capability = "C30"
 approved_production_holders = ["A03", "A14", "A16"]
+[[ownership]]
+capability = "C31"
+approved_production_holders = ["A03", "A04", "A24", "A25"]
 
 [[constructors]]
 id = "K01"
@@ -1068,4 +1108,14 @@ approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main
 id = "K21"
 capability = "C30"
 symbol = "onlyalpha.quant_assets.private_strategy_composition.OnlyPrivateStrategyResearchCompositionVerifier"
+approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"]
+[[constructors]]
+id = "K22"
+capability = "C31"
+symbol = "onlyalpha.application.integration_probe.OnlyIntegrationProbeService"
+approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"]
+[[constructors]]
+id = "K23"
+capability = "C31"
+symbol = "onlyalpha.persistence.postgres.integration_probe_store.OnlyPostgresIntegrationProbeStore"
 approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"]

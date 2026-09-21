@@ -1350,6 +1350,251 @@
         "title": "IntegrationListDto",
         "type": "object"
       },
+      "IntegrationOperationalStatusDto": {
+        "additionalProperties": false,
+        "properties": {
+          "checked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "integration_id": {
+            "title": "Integration Id",
+            "type": "string"
+          },
+          "probe_attempt_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Probe Attempt Id"
+          },
+          "probe_supported": {
+            "title": "Probe Supported",
+            "type": "boolean"
+          },
+          "revision_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision Fingerprint"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "integration_id",
+          "status",
+          "probe_attempt_id",
+          "checked_at",
+          "probe_supported"
+        ],
+        "title": "IntegrationOperationalStatusDto",
+        "type": "object"
+      },
+      "IntegrationProbeAttemptDto": {
+        "additionalProperties": false,
+        "properties": {
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/IntegrationProbeCheckDto"
+            },
+            "title": "Checks",
+            "type": "array"
+          },
+          "completed_at": {
+            "title": "Completed At",
+            "type": "string"
+          },
+          "integration_id": {
+            "title": "Integration Id",
+            "type": "string"
+          },
+          "overall_status": {
+            "title": "Overall Status",
+            "type": "string"
+          },
+          "probe_attempt_id": {
+            "title": "Probe Attempt Id",
+            "type": "string"
+          },
+          "probe_configuration_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Probe Configuration Fingerprint"
+          },
+          "probe_contract_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Probe Contract Fingerprint",
+            "type": "string"
+          },
+          "probe_instrument": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Probe Instrument"
+          },
+          "revision_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Revision Fingerprint",
+            "type": "string"
+          },
+          "runtime_configuration_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Runtime Configuration Fingerprint",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "type_descriptor_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Type Descriptor Fingerprint",
+            "type": "string"
+          },
+          "type_id": {
+            "title": "Type Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "probe_attempt_id",
+          "integration_id",
+          "revision_fingerprint",
+          "type_id",
+          "type_descriptor_fingerprint",
+          "probe_contract_fingerprint",
+          "runtime_configuration_fingerprint",
+          "started_at",
+          "completed_at",
+          "overall_status",
+          "probe_instrument",
+          "checks"
+        ],
+        "title": "IntegrationProbeAttemptDto",
+        "type": "object"
+      },
+      "IntegrationProbeAttemptListDto": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/IntegrationProbeAttemptDto"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "IntegrationProbeAttemptListDto",
+        "type": "object"
+      },
+      "IntegrationProbeCheckDto": {
+        "additionalProperties": false,
+        "properties": {
+          "check": {
+            "title": "Check",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "failure_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Kind"
+          },
+          "latency_ms": {
+            "title": "Latency Ms",
+            "type": "integer"
+          },
+          "observations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Observations",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "check",
+          "status",
+          "latency_ms",
+          "failure_kind",
+          "error_code",
+          "detail",
+          "observations"
+        ],
+        "title": "IntegrationProbeCheckDto",
+        "type": "object"
+      },
       "IntegrationProbeContractDto": {
         "additionalProperties": false,
         "properties": {
@@ -1398,6 +1643,27 @@
           "fingerprint"
         ],
         "title": "IntegrationProbeContractDto",
+        "type": "object"
+      },
+      "IntegrationProbeRequestDto": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Revision Fingerprint",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "expected_revision_fingerprint"
+        ],
+        "title": "IntegrationProbeRequestDto",
         "type": "object"
       },
       "IntegrationPublishRequestDto": {
@@ -8413,6 +8679,353 @@
           }
         },
         "summary": "Set Integration Lifecycle",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v2/integrations/{integration_id}/operational-status": {
+      "get": {
+        "operationId": "get_integration_operational_status_api_v2_integrations__integration_id__operational_status_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "integration_id",
+            "required": true,
+            "schema": {
+              "title": "Integration Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationOperationalStatusDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Invalid Integration request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration resource not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration state conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority corrupt"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority unavailable"
+          }
+        },
+        "summary": "Get Integration Operational Status",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v2/integrations/{integration_id}/probe": {
+      "post": {
+        "operationId": "probe_integration_api_v2_integrations__integration_id__probe_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "integration_id",
+            "required": true,
+            "schema": {
+              "title": "Integration Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IntegrationProbeRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationProbeAttemptDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Invalid Integration request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration resource not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration state conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority corrupt"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority unavailable"
+          }
+        },
+        "summary": "Probe Integration",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v2/integrations/{integration_id}/probe-attempts": {
+      "get": {
+        "operationId": "list_integration_probe_attempts_api_v2_integrations__integration_id__probe_attempts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "integration_id",
+            "required": true,
+            "schema": {
+              "title": "Integration Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationProbeAttemptListDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Invalid Integration request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration resource not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration state conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority corrupt"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority unavailable"
+          }
+        },
+        "summary": "List Integration Probe Attempts",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v2/integrations/{integration_id}/probe-attempts/{probe_attempt_id}": {
+      "get": {
+        "operationId": "get_integration_probe_attempt_api_v2_integrations__integration_id__probe_attempts__probe_attempt_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "integration_id",
+            "required": true,
+            "schema": {
+              "title": "Integration Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "probe_attempt_id",
+            "required": true,
+            "schema": {
+              "title": "Probe Attempt Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationProbeAttemptDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Invalid Integration request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration resource not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration state conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority corrupt"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority unavailable"
+          }
+        },
+        "summary": "Get Integration Probe Attempt",
         "tags": [
           "integrations"
         ]

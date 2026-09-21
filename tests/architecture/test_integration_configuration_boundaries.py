@@ -16,6 +16,7 @@ pytestmark = pytest.mark.architecture
 ROOT = Path(__file__).resolve().parents[2]
 CONFIGURATION = ROOT / "src/onlyalpha/application/integration_configuration.py"
 APPLICATION = ROOT / "src/onlyalpha/application/integration_application.py"
+PROBE_APPLICATION = ROOT / "src/onlyalpha/application/integration_probe.py"
 POSTGRES = ROOT / "src/onlyalpha/persistence/postgres"
 INTEGRATION_STORE = POSTGRES / "integration_store.py"
 PRODUCT_STORE = POSTGRES / "integration_product_store.py"
@@ -67,7 +68,7 @@ def test_plugins_do_not_import_integration_authority_and_http_routes_stay_transp
     assert route_violations == {}
 
 
-def test_integration_http_has_no_probe_delete_or_master_key_creation_authority() -> None:
+def test_integration_http_has_only_declared_probe_and_no_delete_or_master_key_creation_authority() -> None:
     http_root = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server"
     integration_source = "\n".join(
         path.read_text(encoding="utf-8") for path in _python_files(http_root / "integrations")
@@ -75,7 +76,10 @@ def test_integration_http_has_no_probe_delete_or_master_key_creation_authority()
     main_source = (http_root / "main.py").read_text(encoding="utf-8")
 
     assert 'router.delete("/{integration_id}")' not in integration_source
-    assert "/probe" not in integration_source and "/test-connection" not in integration_source
+    assert '"/{integration_id}/probe"' in integration_source
+    assert '"/{integration_id}/probe-attempts"' in integration_source
+    assert '"/{integration_id}/probe-attempts/{probe_attempt_id}"' in integration_source
+    assert "/test-connection" not in integration_source
     assert "only_ensure_dev_master_key" not in main_source
     assert "only_load_master_key" in main_source
 
@@ -194,3 +198,22 @@ def test_integration_application_has_no_probe_transport_or_caller_runtime_finger
     assert not (imports & {"httpx", "requests", "socket", "urllib"})
     assert "runtime_configuration_fingerprint" not in command_fields
     assert ".from_draft(" not in product_source
+
+
+def test_probe_application_has_no_runtime_engine_event_bus_or_provider_transport_dependency() -> None:
+    imports = imported_modules_for_path(PROBE_APPLICATION, ROOT)
+
+    assert not (
+        imports
+        & {
+            "onlyalpha.engine",
+            "onlyalpha.runtime",
+            "onlyalpha.event_bus",
+            "httpx",
+            "requests",
+            "socket",
+            "urllib",
+        }
+    )
+    source = PROBE_APPLICATION.read_text(encoding="utf-8")
+    assert ".create(request)" not in source

@@ -24,6 +24,10 @@ from onlyalpha.application.integration_configuration import (
     OnlyIntegrationId,
     OnlyIntegrationLifecycleState,
 )
+from onlyalpha.application.integration_probe import (
+    OnlyIntegrationOperationalQueryService,
+    OnlyIntegrationProbeService,
+)
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId
 
 from ..integration_types.schema import IntegrationTypeDto
@@ -38,6 +42,10 @@ from .schema import (
     IntegrationErrorEnvelopeDto,
     IntegrationLifecycleUpdateRequestDto,
     IntegrationListDto,
+    IntegrationOperationalStatusDto,
+    IntegrationProbeAttemptDto,
+    IntegrationProbeAttemptListDto,
+    IntegrationProbeRequestDto,
     IntegrationPublishRequestDto,
     IntegrationRevisionDto,
     IntegrationRevisionListDto,
@@ -68,11 +76,32 @@ _NOT_FOUND = {
     "INTEGRATION_NOT_FOUND",
     "INTEGRATION_DRAFT_NOT_FOUND",
     "INTEGRATION_REVISION_NOT_FOUND",
+    "INTEGRATION_PROBE_ATTEMPT_NOT_FOUND",
 }
 _CORRUPT = {
     "INTEGRATION_REVISION_CORRUPT",
     "PRODUCT_COMMAND_RECEIPT_CORRUPT",
     "PRODUCT_COMMAND_ADMISSION_CORRUPT",
+    "INTEGRATION_PROBE_RESULT_CORRUPT",
+}
+_UNAVAILABLE = {
+    "INTEGRATION_PERSISTENCE_CONFLICT",
+    "PRODUCT_COMMAND_AUTHORITY_UNAVAILABLE",
+    "INTEGRATION_PROBE_PROVIDER_UNAVAILABLE",
+    "INTEGRATION_PROBE_PERSISTENCE_UNAVAILABLE",
+    "INTEGRATION_PROBE_SECRET_UNAVAILABLE",
+    "INTEGRATION_PROBE_TIMEOUT",
+}
+_PROBE_DETAILS = {
+    "INTEGRATION_PROBE_ATTEMPT_NOT_FOUND": "Integration Probe Attempt was not found",
+    "INTEGRATION_CURRENT_REVISION_CONFLICT": "Requested Revision is not the current published Revision",
+    "INTEGRATION_ARCHIVED": "Archived Integration cannot be probed",
+    "INTEGRATION_PROBE_RESULT_CORRUPT": "Verified Integration Probe authority is corrupt",
+    "INTEGRATION_PROBE_PROVIDER_UNAVAILABLE": "Integration Probe provider is unavailable",
+    "INTEGRATION_PROBE_PERSISTENCE_UNAVAILABLE": "Integration Probe authority is unavailable",
+    "INTEGRATION_PROBE_SECRET_UNAVAILABLE": "Required Integration Probe secret is unavailable",
+    "INTEGRATION_PROBE_TIMEOUT": "Integration Probe timed out",
+    "INTEGRATION_PROBE_UNSUPPORTED": "Integration Probe is unavailable for this provider",
 }
 
 
@@ -105,19 +134,21 @@ async def integration_error_response(_request: Request, error: Exception) -> JSO
     code = getattr(error, "code", "INTEGRATION_REQUEST_INVALID")
     detail = getattr(error, "detail", "") or "Integration request failed"
     if code in _NOT_FOUND:
-        return _error(404, code, "Integration resource not found")
+        return _error(404, code, _PROBE_DETAILS.get(code, "Integration resource not found"))
     if code in _CORRUPT:
-        return _error(500, code, "Verified Integration Product authority is corrupt")
-    if code in {"INTEGRATION_PERSISTENCE_CONFLICT", "PRODUCT_COMMAND_AUTHORITY_UNAVAILABLE"}:
-        return _error(503, code, "Required Integration Product authority is unavailable")
+        return _error(500, code, _PROBE_DETAILS.get(code, "Verified Integration Product authority is corrupt"))
+    if code in _UNAVAILABLE:
+        return _error(503, code, _PROBE_DETAILS.get(code, "Required Integration Product authority is unavailable"))
     if code in _BAD_REQUEST:
         return _error(400, "INTEGRATION_REQUEST_INVALID" if code == "INTEGRATION_ID_INVALID" else code, detail)
-    return _error(409, code, detail)
+    return _error(409, code, _PROBE_DETAILS.get(code, detail))
 
 
 def create_integration_router(
     commands: OnlyIntegrationCommandService,
     queries: OnlyIntegrationQueryService,
+    probes: OnlyIntegrationProbeService | None = None,
+    operational_queries: OnlyIntegrationOperationalQueryService | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v2/integrations", tags=[INTEGRATION_ROUTE_TAG])
 
@@ -298,6 +329,59 @@ def create_integration_router(
             )
         )
         return IntegrationCommandResponseDto.from_result(integration_id, result)
+
+    if probes is not None and operational_queries is not None:
+
+        @router.post(
+            "/{integration_id}/probe",
+            response_model=IntegrationProbeAttemptDto,
+            responses=_ERROR_RESPONSES,
+        )
+        def probe_integration(
+            integration_id: str,
+            request: IntegrationProbeRequestDto,
+        ) -> IntegrationProbeAttemptDto:
+            attempt = probes.probe(
+                _integration_id(integration_id),
+                request.expected_revision_fingerprint,
+            )
+            return IntegrationProbeAttemptDto.from_model(attempt)
+
+        @router.get(
+            "/{integration_id}/operational-status",
+            response_model=IntegrationOperationalStatusDto,
+            responses=_ERROR_RESPONSES,
+        )
+        def get_integration_operational_status(integration_id: str) -> IntegrationOperationalStatusDto:
+            return IntegrationOperationalStatusDto.from_model(
+                operational_queries.get_operational_status(_integration_id(integration_id))
+            )
+
+        @router.get(
+            "/{integration_id}/probe-attempts",
+            response_model=IntegrationProbeAttemptListDto,
+            responses=_ERROR_RESPONSES,
+        )
+        def list_integration_probe_attempts(integration_id: str) -> IntegrationProbeAttemptListDto:
+            attempts = operational_queries.list_probe_attempts(_integration_id(integration_id))
+            return IntegrationProbeAttemptListDto(
+                items=tuple(IntegrationProbeAttemptDto.from_model(item) for item in attempts)
+            )
+
+        @router.get(
+            "/{integration_id}/probe-attempts/{probe_attempt_id}",
+            response_model=IntegrationProbeAttemptDto,
+            responses=_ERROR_RESPONSES,
+        )
+        def get_integration_probe_attempt(
+            integration_id: str,
+            probe_attempt_id: str,
+        ) -> IntegrationProbeAttemptDto:
+            identity = _integration_id(integration_id)
+            attempt = operational_queries.get_probe_attempt(probe_attempt_id)
+            if attempt.integration_id != identity:
+                raise OnlyIntegrationError("INTEGRATION_PROBE_ATTEMPT_NOT_FOUND")
+            return IntegrationProbeAttemptDto.from_model(attempt)
 
     return router
 

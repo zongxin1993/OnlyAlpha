@@ -30,7 +30,11 @@ from onlyalpha.application.integration_application import (
     OnlyIntegrationCommandService,
     OnlyIntegrationQueryService,
 )
-from onlyalpha.application.integration_type_catalog import OnlyIntegrationTypeCatalog
+from onlyalpha.application.integration_probe import (
+    OnlyIntegrationOperationalQueryService,
+    OnlyIntegrationProbeService,
+)
+from onlyalpha.application.integration_type_catalog import OnlyIntegrationProbeCatalog, OnlyIntegrationTypeCatalog
 from onlyalpha.application.private_asset_product import (
     OnlyPrivateAssetProductService,
     OnlyProductAssetSearchProjectionService,
@@ -78,6 +82,7 @@ from onlyalpha.output.user_data import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
     MASTER_KEY_FILE,
     OnlyPostgresConfig,
+    OnlyPostgresCredentialAuthority,
     OnlyPostgresIntegrationProductStore,
     OnlyPostgresKernelAuthorityGuard,
     OnlyPostgresOperationalConnectionOptions,
@@ -90,6 +95,7 @@ from onlyalpha.persistence.postgres import (
     only_load_master_key,
 )
 from onlyalpha.persistence.postgres.backtest_store import OnlyPostgresBacktestStore
+from onlyalpha.persistence.postgres.integration_probe_store import OnlyPostgresIntegrationProbeStore
 from onlyalpha.persistence.postgres.private_asset_store import OnlyPostgresPrivateAssetStore
 from onlyalpha.persistence.postgres.private_strategy_research_composition_store import (
     OnlyPostgresPrivateStrategyResearchCompositionStore,
@@ -917,6 +923,26 @@ def main(argv: Sequence[str] | None = None) -> int:
             integration_master_key,
         )
         integration_queries = OnlyIntegrationQueryService(integration_store)
+        integration_probe_catalog = OnlyIntegrationProbeCatalog(data_sources, brokers)
+        integration_probe_store = OnlyPostgresIntegrationProbeStore(
+            postgres.dsn,
+            options=operational_options,
+        )
+        integration_probes = OnlyIntegrationProbeService(
+            integration_store,
+            integration_probe_store,
+            OnlyPostgresCredentialAuthority(
+                postgres.dsn,
+                integration_master_key,
+                options=operational_options,
+            ),
+            integration_probe_catalog,
+        )
+        integration_operational_queries = OnlyIntegrationOperationalQueryService(
+            integration_store,
+            integration_probe_store,
+            integration_probe_catalog,
+        )
         app = create_product_app(
             artifact_reader,
             product_boundary,
@@ -962,6 +988,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             integration_types=integration_types,
             integration_commands=integration_commands,
             integration_queries=integration_queries,
+            integration_probes=integration_probes,
+            integration_operational_queries=integration_operational_queries,
         )
         if startup_status.state is OnlyKernelState.READY:
             app.state.experiment_memory_projection_builder = memory_builder

@@ -262,6 +262,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/integrations/{integration_id}/operational-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Integration Operational Status */
+        get: operations["get_integration_operational_status_api_v2_integrations__integration_id__operational_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/integrations/{integration_id}/probe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Probe Integration */
+        post: operations["probe_integration_api_v2_integrations__integration_id__probe_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/integrations/{integration_id}/probe-attempts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Integration Probe Attempts */
+        get: operations["list_integration_probe_attempts_api_v2_integrations__integration_id__probe_attempts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/integrations/{integration_id}/probe-attempts/{probe_attempt_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Integration Probe Attempt */
+        get: operations["get_integration_probe_attempt_api_v2_integrations__integration_id__probe_attempts__probe_attempt_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/integrations/{integration_id}/revisions": {
         parameters: {
             query?: never;
@@ -1715,6 +1783,84 @@ export interface components {
             /** Items */
             items: components["schemas"]["IntegrationSummaryDto"][];
         };
+        /** IntegrationOperationalStatusDto */
+        IntegrationOperationalStatusDto: {
+            /** Checked At */
+            checked_at: string | null;
+            /** Integration Id */
+            integration_id: string;
+            /** Probe Attempt Id */
+            probe_attempt_id: string | null;
+            /** Probe Supported */
+            probe_supported: boolean;
+            /** Revision Fingerprint */
+            revision_fingerprint?: string | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Status */
+            status: string;
+        };
+        /** IntegrationProbeAttemptDto */
+        IntegrationProbeAttemptDto: {
+            /** Checks */
+            checks: components["schemas"]["IntegrationProbeCheckDto"][];
+            /** Completed At */
+            completed_at: string;
+            /** Integration Id */
+            integration_id: string;
+            /** Overall Status */
+            overall_status: string;
+            /** Probe Attempt Id */
+            probe_attempt_id: string;
+            /** Probe Configuration Fingerprint */
+            probe_configuration_fingerprint?: string | null;
+            /** Probe Contract Fingerprint */
+            probe_contract_fingerprint: string;
+            /** Probe Instrument */
+            probe_instrument: string | null;
+            /** Revision Fingerprint */
+            revision_fingerprint: string;
+            /** Runtime Configuration Fingerprint */
+            runtime_configuration_fingerprint: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Started At */
+            started_at: string;
+            /** Type Descriptor Fingerprint */
+            type_descriptor_fingerprint: string;
+            /** Type Id */
+            type_id: string;
+        };
+        /** IntegrationProbeAttemptListDto */
+        IntegrationProbeAttemptListDto: {
+            /** Items */
+            items: components["schemas"]["IntegrationProbeAttemptDto"][];
+        };
+        /** IntegrationProbeCheckDto */
+        IntegrationProbeCheckDto: {
+            /** Check */
+            check: string;
+            /** Detail */
+            detail: string;
+            /** Error Code */
+            error_code: string | null;
+            /** Failure Kind */
+            failure_kind: string | null;
+            /** Latency Ms */
+            latency_ms: number;
+            /** Observations */
+            observations: string[];
+            /** Status */
+            status: string;
+        };
         /** IntegrationProbeContractDto */
         IntegrationProbeContractDto: {
             /** Default Probe Instrument */
@@ -1731,6 +1877,16 @@ export interface components {
             probe_version: 1;
             /** User Selectable Probe Instrument */
             user_selectable_probe_instrument: boolean;
+        };
+        /** IntegrationProbeRequestDto */
+        IntegrationProbeRequestDto: {
+            /** Expected Revision Fingerprint */
+            expected_revision_fingerprint: string;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
         };
         /** IntegrationPublishRequestDto */
         IntegrationPublishRequestDto: {
@@ -4769,6 +4925,279 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IntegrationCommandResponseDto"];
+                };
+            };
+            /** @description Invalid Integration request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration state conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority corrupt */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    get_integration_operational_status_api_v2_integrations__integration_id__operational_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                integration_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationOperationalStatusDto"];
+                };
+            };
+            /** @description Invalid Integration request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration state conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority corrupt */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    probe_integration_api_v2_integrations__integration_id__probe_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                integration_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IntegrationProbeRequestDto"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationProbeAttemptDto"];
+                };
+            };
+            /** @description Invalid Integration request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration state conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority corrupt */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    list_integration_probe_attempts_api_v2_integrations__integration_id__probe_attempts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                integration_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationProbeAttemptListDto"];
+                };
+            };
+            /** @description Invalid Integration request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration state conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority corrupt */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    get_integration_probe_attempt_api_v2_integrations__integration_id__probe_attempts__probe_attempt_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                integration_id: string;
+                probe_attempt_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationProbeAttemptDto"];
                 };
             };
             /** @description Invalid Integration request */

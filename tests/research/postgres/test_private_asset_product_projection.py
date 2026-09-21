@@ -39,7 +39,7 @@ def _published_assets(postgres_dsn: str) -> OnlyPostgresPrivateAssetStore:
 
 
 def test_current_registry_enumeration_excludes_drafts_and_is_sorted(postgres_dsn: str) -> None:
-    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate()[-1] == ("0034_integration_product_command_authority")
+    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate()[-1] == ("0035_integration_probe_attempt")
     assets = _published_assets(postgres_dsn)
 
     factors = assets.list_current_factor_revisions()
