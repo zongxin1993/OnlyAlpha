@@ -161,6 +161,8 @@ def test_http_route_modules_own_no_raw_mutation_capability() -> None:
             and name
             not in {
                 "onlyalpha.application.catalog_context",
+                "onlyalpha.application.integration_application",
+                "onlyalpha.application.integration_configuration",
                 "onlyalpha.application.integration_type_catalog",
                 "onlyalpha.application.private_asset_product",
                 "onlyalpha.application.product_boundary",

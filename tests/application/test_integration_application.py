@@ -11,6 +11,7 @@ from onlyalpha.application.integration_application import (
     OnlyIntegrationCommandResult,
     OnlyIntegrationCommandService,
     OnlyIntegrationConfigurationResolver,
+    OnlyIntegrationQueryService,
     OnlySetIntegrationSecret,
     only_integration_secret_commitment,
 )
@@ -422,3 +423,37 @@ def _result(admission, outcome_kind, outcome_id):  # type: ignore[no-untyped-def
         ),
         replayed=False,
     )
+
+
+def test_integration_query_list_is_persisted_filtered_and_deterministic() -> None:
+    later = OnlyIntegration(
+        OnlyIntegrationId("00000000-0000-4000-8000-000000000002"),
+        "binance.spot.market_data",
+        "Later",
+        OnlyIntegrationLifecycleState.ACTIVE,
+        None,
+        datetime(2026, 9, 21, 1, tzinfo=UTC),
+        datetime(2026, 9, 21, 1, tzinfo=UTC),
+    )
+    earlier = OnlyIntegration(
+        OnlyIntegrationId("00000000-0000-4000-8000-000000000001"),
+        "binance.spot.market_data",
+        "Earlier",
+        OnlyIntegrationLifecycleState.ACTIVE,
+        None,
+        datetime(2026, 9, 21, tzinfo=UTC),
+        datetime(2026, 9, 21, tzinfo=UTC),
+    )
+
+    class Store:
+        def list_integrations(self, type_id, lifecycle_state):  # type: ignore[no-untyped-def]
+            assert type_id == "binance.spot.market_data"
+            assert lifecycle_state is OnlyIntegrationLifecycleState.ACTIVE
+            return later, earlier
+
+    listed = OnlyIntegrationQueryService(Store()).list_integrations(  # type: ignore[arg-type]
+        type_id="binance.spot.market_data",
+        lifecycle_state=OnlyIntegrationLifecycleState.ACTIVE,
+    )
+
+    assert listed == (earlier, later)

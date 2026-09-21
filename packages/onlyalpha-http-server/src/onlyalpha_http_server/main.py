@@ -26,6 +26,10 @@ from onlyalpha_runtime_generation_manager.catalog_context import (
 )
 
 from onlyalpha.application.catalog_context import OnlyExactCatalogContextQueryService
+from onlyalpha.application.integration_application import (
+    OnlyIntegrationCommandService,
+    OnlyIntegrationQueryService,
+)
 from onlyalpha.application.integration_type_catalog import OnlyIntegrationTypeCatalog
 from onlyalpha.application.private_asset_product import (
     OnlyPrivateAssetProductService,
@@ -72,7 +76,9 @@ from onlyalpha.kernel import OnlyAlphaKernelHost, OnlyKernelHostError, OnlyKerne
 from onlyalpha.market.product import OnlyMarketProductFactoryRegistry, OnlyMarketProductResolutionContext
 from onlyalpha.output.user_data import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
+    MASTER_KEY_FILE,
     OnlyPostgresConfig,
+    OnlyPostgresIntegrationProductStore,
     OnlyPostgresKernelAuthorityGuard,
     OnlyPostgresOperationalConnectionOptions,
     OnlyPostgresPrivateAssetProductProjectionStore,
@@ -81,6 +87,7 @@ from onlyalpha.persistence.postgres import (
     OnlyPostgresResearchRunStore,
     OnlyPostgresSchemaVerifier,
     only_assert_supported_postgres_server,
+    only_load_master_key,
 )
 from onlyalpha.persistence.postgres.backtest_store import OnlyPostgresBacktestStore
 from onlyalpha.persistence.postgres.private_asset_store import OnlyPostgresPrivateAssetStore
@@ -549,6 +556,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     operational_dsn = postgres.operational_dsn(operational_options)
     schema = OnlyPostgresSchemaVerifier(operational_dsn)
     layout = OnlyUserDataLayout(args.user_data_root)
+    integration_master_key = only_load_master_key(layout.root / MASTER_KEY_FILE)
     qualification_policies = OnlyQualificationPolicyStore(layout.research_root)
     qualification_decisions, qualification_decision_publisher = _only_compose_qualification_decision_authority(
         layout.research_root
@@ -897,6 +905,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             near_duplicate_queries=near_duplicate_queries,
             strategy_research=strategy_research,
         )
+        integration_types = OnlyIntegrationTypeCatalog(data_sources, brokers)
+        integration_store = OnlyPostgresIntegrationProductStore(
+            postgres.dsn,
+            integration_master_key,
+            options=operational_options,
+        )
+        integration_commands = OnlyIntegrationCommandService(
+            integration_types,
+            integration_store,
+            integration_master_key,
+        )
+        integration_queries = OnlyIntegrationQueryService(integration_store)
         app = create_product_app(
             artifact_reader,
             product_boundary,
@@ -939,7 +959,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             near_duplicate_advisory=near_duplicate_queries,
             private_asset_product=private_asset_product,
             private_asset_search=private_asset_search,
-            integration_types=OnlyIntegrationTypeCatalog(data_sources, brokers),
+            integration_types=integration_types,
+            integration_commands=integration_commands,
+            integration_queries=integration_queries,
         )
         if startup_status.state is OnlyKernelState.READY:
             app.state.experiment_memory_projection_builder = memory_builder

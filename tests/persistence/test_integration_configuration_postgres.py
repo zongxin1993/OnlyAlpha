@@ -12,6 +12,7 @@ import pytest
 from onlyalpha.application.integration_configuration import (
     OnlyIntegrationError,
     OnlyIntegrationId,
+    OnlyIntegrationLifecycleState,
     OnlyIntegrationRevision,
     OnlyIntegrationSecretBinding,
 )
@@ -108,6 +109,25 @@ def test_integration_identity_type_and_one_draft_are_durable(postgres_dsn: str) 
             "UPDATE integration SET type_id = 'tushare.market_data' WHERE integration_id = %s",
             (integration_id.value,),
         )
+
+
+def test_integration_list_filters_persisted_facts_in_deterministic_order(postgres_dsn: str) -> None:
+    store, integration_id = _seed(postgres_dsn)
+    other_id = OnlyIntegrationId("672e3601-506f-45ea-ad7e-452e36f548ea")
+    store.create_integration(other_id, _descriptor().type_id, "Secondary Binance")
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute(
+            "UPDATE integration SET lifecycle_state = 'DISABLED' WHERE integration_id = %s",
+            (other_id.value,),
+        )
+
+    assert store.list_integrations(None, None) == (
+        store.load_integration(other_id),
+        store.load_integration(integration_id),
+    )
+    assert store.list_integrations("binance.spot.market_data", OnlyIntegrationLifecycleState.DISABLED) == (
+        store.load_integration(other_id),
+    )
 
 
 def test_draft_cas_across_connections_has_one_winner(postgres_dsn: str) -> None:

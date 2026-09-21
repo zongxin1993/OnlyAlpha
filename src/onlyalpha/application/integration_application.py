@@ -235,6 +235,12 @@ class OnlyIntegrationProductStore(Protocol):
 
 
 class OnlyIntegrationQueryStore(Protocol):
+    def list_integrations(
+        self,
+        type_id: str | None,
+        lifecycle_state: OnlyIntegrationLifecycleState | None,
+    ) -> tuple[OnlyIntegration, ...]: ...
+
     def load_integration(self, integration_id: OnlyIntegrationId) -> OnlyIntegration: ...
 
     def load_draft(self, integration_id: OnlyIntegrationId) -> OnlyIntegrationDraft: ...
@@ -246,6 +252,8 @@ class OnlyIntegrationQueryStore(Protocol):
     def load_revision(self, revision_fingerprint: str) -> OnlyIntegrationRevision: ...
 
     def list_revision_history(self, integration_id: OnlyIntegrationId) -> tuple[OnlyIntegrationRevision, ...]: ...
+
+    def load_revision_secret_bindings(self, revision_fingerprint: str) -> tuple[OnlyIntegrationSecretBinding, ...]: ...
 
 
 class OnlyIntegrationCommandService:
@@ -450,6 +458,19 @@ class OnlyIntegrationQueryService:
     def get_integration(self, integration_id: OnlyIntegrationId) -> OnlyIntegration:
         return self._store.load_integration(integration_id)
 
+    def list_integrations(
+        self,
+        *,
+        type_id: str | None = None,
+        lifecycle_state: OnlyIntegrationLifecycleState | None = None,
+    ) -> tuple[OnlyIntegration, ...]:
+        return tuple(
+            sorted(
+                self._store.list_integrations(type_id, lifecycle_state),
+                key=lambda item: (item.created_at, item.integration_id.value),
+            )
+        )
+
     def get_draft(self, integration_id: OnlyIntegrationId) -> OnlyIntegrationDraft:
         return self._store.load_draft(integration_id)
 
@@ -465,6 +486,12 @@ class OnlyIntegrationQueryService:
 
     def get_revision(self, revision_fingerprint: str) -> OnlyIntegrationRevision:
         return self._store.load_revision(revision_fingerprint)
+
+    def get_revision_secret_status(self, revision_fingerprint: str) -> tuple[OnlyIntegrationSecretStatus, ...]:
+        return tuple(
+            OnlyIntegrationSecretStatus(item.field_id, True, item.credential_generation)
+            for item in self._store.load_revision_secret_bindings(revision_fingerprint)
+        )
 
     def list_revision_history(self, integration_id: OnlyIntegrationId) -> tuple[OnlyIntegrationRevision, ...]:
         return self._store.list_revision_history(integration_id)

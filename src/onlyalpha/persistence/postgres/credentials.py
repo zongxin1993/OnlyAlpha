@@ -61,6 +61,19 @@ def only_ensure_dev_master_key(path: Path) -> bytes:
     return value
 
 
+def only_load_master_key(path: Path) -> bytes:
+    """Load an existing runtime key without creating or replacing authority state."""
+
+    if not path.is_absolute() or path.is_symlink() or path != path.resolve(strict=False):
+        raise ValueError("CREDENTIAL_MASTER_KEY_PATH_INVALID")
+    if not path.is_file():
+        raise ValueError("CREDENTIAL_MASTER_KEY_MISSING")
+    value = path.read_bytes()
+    if len(value) != MASTER_KEY_BYTES:
+        raise ValueError("CREDENTIAL_MASTER_KEY_INVALID")
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class OnlyCredentialMetadata:
     credential_id: str

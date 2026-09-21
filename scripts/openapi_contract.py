@@ -19,6 +19,10 @@ from onlyalpha_http_server.health import OnlyKernelResearchReadinessProjection
 from onlyalpha_http_server.search import OnlySearchProductHttpBoundary
 
 from onlyalpha.application.catalog_context import OnlyExactCatalogContextQueryService
+from onlyalpha.application.integration_application import (
+    OnlyIntegrationCommandService,
+    OnlyIntegrationQueryService,
+)
 from onlyalpha.application.integration_type_catalog import OnlyIntegrationTypeCatalog
 from onlyalpha.application.private_asset_product import (
     OnlyPrivateAssetProductService,
@@ -67,6 +71,7 @@ SUPPORTED_COMPATIBILITY_KEYWORDS = frozenset(
         "enum",
         "exclusiveMaximum",
         "exclusiveMinimum",
+        "format",
         "items",
         "maxItems",
         "maxLength",
@@ -82,6 +87,7 @@ SUPPORTED_COMPATIBILITY_KEYWORDS = frozenset(
         "properties",
         "required",
         "type",
+        "writeOnly",
         "x-onlyalpha-reference-kind",
         "x-onlyalpha-reference-canonical-fingerprint",
         "x-onlyalpha-reference-locator-kind",
@@ -353,6 +359,8 @@ def render_document() -> JsonObject:
             private_asset_product=cast(OnlyPrivateAssetProductService, object()),
             private_asset_search=cast(OnlyProductAssetSearchProjectionService, object()),
             integration_types=OnlyIntegrationTypeCatalog(OnlyDataSourceFactoryRegistry(), OnlyBrokerFactoryRegistry()),
+            integration_commands=cast(OnlyIntegrationCommandService, object()),
+            integration_queries=cast(OnlyIntegrationQueryService, object()),
         )
         return app.openapi()
     finally:
@@ -781,6 +789,10 @@ def _schema_changes(
 
     if old.get("discriminator") != new.get("discriminator"):
         issues.append(f"{location}: {direction} discriminator changed")
+    if old.get("format") != new.get("format"):
+        issues.append(f"{location}: {direction} format changed")
+    if old.get("writeOnly") != new.get("writeOnly"):
+        issues.append(f"{location}: {direction} writeOnly contract changed")
 
     for keyword in ("minimum", "exclusiveMinimum", "minLength", "minItems", "minProperties"):
         try:

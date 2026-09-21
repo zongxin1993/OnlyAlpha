@@ -11,12 +11,18 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
 from onlyalpha.application.catalog_context import OnlyExactCatalogContextQueryService
+from onlyalpha.application.integration_application import (
+    OnlyIntegrationCommandService,
+    OnlyIntegrationQueryService,
+)
+from onlyalpha.application.integration_configuration import OnlyIntegrationError
 from onlyalpha.application.integration_type_catalog import OnlyIntegrationTypeCatalog
 from onlyalpha.application.private_asset_product import (
     OnlyPrivateAssetProductService,
     OnlyProductAssetSearchProjectionService,
 )
 from onlyalpha.application.product_boundary import OnlyResearchProductBoundary
+from onlyalpha.application.product_command_authority import OnlyProductCommandAuthorityError
 from onlyalpha.application.qualification_product import (
     OnlyQualificationProductService,
     OnlyQualificationQueryService,
@@ -85,6 +91,8 @@ from .integration_types import (
     create_integration_type_router,
     integration_type_error_response,
 )
+from .integrations import INTEGRATION_ROUTE_TAG, create_integration_router
+from .integrations.routes import integration_error_response, integration_request_validation_error_response
 from .private_assets import (
     PRIVATE_ASSET_ROUTE_TAG,
     PrivateAssetErrorDto,
@@ -201,6 +209,7 @@ def _request_route_tag(request: Request) -> str | None:
             RESEARCH_ADVISORY_ROUTE_TAG,
             PRIVATE_ASSET_ROUTE_TAG,
             INTEGRATION_TYPE_ROUTE_TAG,
+            INTEGRATION_ROUTE_TAG,
         }
     )
     return known[0] if len(known) == 1 else None
@@ -240,7 +249,14 @@ def create_research_app(
     private_asset_product: OnlyPrivateAssetProductService | None = None,
     private_asset_search: OnlyProductAssetSearchProjectionService | None = None,
     integration_types: OnlyIntegrationTypeCatalog | None = None,
+    integration_commands: OnlyIntegrationCommandService | None = None,
+    integration_queries: OnlyIntegrationQueryService | None = None,
 ) -> FastAPI:
+    integration_authorities = (integration_types, integration_commands, integration_queries)
+    if any(item is not None for item in integration_authorities) and any(
+        item is None for item in integration_authorities
+    ):
+        raise TypeError("Integration Product routes require Type, Command, and Query authorities")
     universe_authority = definition_resolver.universe_resolver
     if universe_authority is not None and not isinstance(universe_authority, OnlyResearchUniverseCatalog):
         raise TypeError("Research API registered Universe authority must support both resolution and discovery")
@@ -469,6 +485,8 @@ def create_research_app(
                 "INTEGRATION_TYPE_CONTRACT_INVALID",
                 "HTTP request validation failed",
             )
+        if family == INTEGRATION_ROUTE_TAG:
+            return await integration_request_validation_error_response(request, error)
         if family in {STRATEGY_ROUTE_TAG, BACKTEST_ROUTE_TAG}:
             product_body = ProductErrorEnvelopeDto(
                 error=ProductErrorDto(
@@ -481,6 +499,8 @@ def create_research_app(
         return JSONResponse(status_code=400, content={"detail": "HTTP request validation failed"})
 
     app.add_exception_handler(RequestValidationError, request_validation_error_handler)
+    for integration_error_type in (OnlyIntegrationError, OnlyProductCommandAuthorityError):
+        app.add_exception_handler(integration_error_type, integration_error_response)
     app.include_router(create_artifact_router(artifact_service), dependencies=readiness_dependencies)
     app.include_router(create_run_router(product_boundary), dependencies=readiness_dependencies)
     if near_duplicate_advisory is not None:
@@ -564,6 +584,8 @@ def create_research_app(
         )
     if integration_types is not None:
         app.include_router(create_integration_type_router(integration_types))
+        assert integration_commands is not None and integration_queries is not None
+        app.include_router(create_integration_router(integration_commands, integration_queries))
     _install_exact_product_openapi(app)
     return app
 
@@ -593,6 +615,7 @@ def _install_exact_product_openapi(app: FastAPI) -> None:
                                 BACKTEST_ROUTE_TAG,
                                 PRIVATE_ASSET_ROUTE_TAG,
                                 INTEGRATION_TYPE_ROUTE_TAG,
+                                INTEGRATION_ROUTE_TAG,
                             }
                             & set(tags)
                         )
@@ -632,9 +655,11 @@ def create_product_app(
     private_asset_product: OnlyPrivateAssetProductService | None = None,
     private_asset_search: OnlyProductAssetSearchProjectionService | None = None,
     integration_types: OnlyIntegrationTypeCatalog | None = None,
+    integration_commands: OnlyIntegrationCommandService | None = None,
+    integration_queries: OnlyIntegrationQueryService | None = None,
 ) -> FastAPI:
-    if integration_types is None:
-        raise TypeError("Product API requires an Integration Type catalog")
+    if integration_types is None or integration_commands is None or integration_queries is None:
+        raise TypeError("Product API requires complete Integration Product authorities")
     app = create_research_app(
         reader,
         product_boundary,
@@ -663,6 +688,8 @@ def create_product_app(
         private_asset_product,
         private_asset_search,
         integration_types,
+        integration_commands,
+        integration_queries,
     )
     app.title = "OnlyAlpha Product API"
     return app

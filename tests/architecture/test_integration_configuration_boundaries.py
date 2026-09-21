@@ -37,22 +37,45 @@ def test_integration_application_and_postgres_store_are_provider_neutral() -> No
         assert not (imported_modules_for_path(path, ROOT) & CONCRETE_PLUGINS), path
 
 
-def test_plugins_and_web_do_not_import_integration_postgres_authority() -> None:
-    forbidden = {
+def test_plugins_do_not_import_integration_authority_and_http_routes_stay_transport_only() -> None:
+    plugin_forbidden = {
         "onlyalpha.application.integration_application",
         "onlyalpha.persistence.postgres.integration_store",
         "onlyalpha.persistence.postgres.integration_product_store",
         "onlyalpha.persistence.postgres.credentials",
     }
-    roots = (ROOT / "plugs", ROOT / "packages/onlyalpha-http-server")
-
-    violations = {
-        str(path.relative_to(ROOT)): sorted(imported_modules_for_path(path, ROOT) & forbidden)
-        for root in roots
-        for path in _python_files(root)
-        if imported_modules_for_path(path, ROOT) & forbidden
+    plugin_violations = {
+        str(path.relative_to(ROOT)): sorted(imported_modules_for_path(path, ROOT) & plugin_forbidden)
+        for path in _python_files(ROOT / "plugs")
+        if imported_modules_for_path(path, ROOT) & plugin_forbidden
     }
-    assert violations == {}
+    route_root = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/integrations"
+    route_forbidden = {
+        "onlyalpha.persistence.postgres.integration_store",
+        "onlyalpha.persistence.postgres.integration_product_store",
+        "onlyalpha.persistence.postgres.credentials",
+    }
+    route_violations = {
+        str(path.relative_to(ROOT)): sorted(imported_modules_for_path(path, ROOT) & route_forbidden)
+        for path in _python_files(route_root)
+        if imported_modules_for_path(path, ROOT) & route_forbidden
+    }
+
+    assert plugin_violations == {}
+    assert route_violations == {}
+
+
+def test_integration_http_has_no_probe_delete_or_master_key_creation_authority() -> None:
+    http_root = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server"
+    integration_source = "\n".join(
+        path.read_text(encoding="utf-8") for path in _python_files(http_root / "integrations")
+    )
+    main_source = (http_root / "main.py").read_text(encoding="utf-8")
+
+    assert 'router.delete("/{integration_id}")' not in integration_source
+    assert "/probe" not in integration_source and "/test-connection" not in integration_source
+    assert "only_ensure_dev_master_key" not in main_source
+    assert "only_load_master_key" in main_source
 
 
 def test_runtime_research_and_backtest_do_not_bind_integration_revision() -> None:

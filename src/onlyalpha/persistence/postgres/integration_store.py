@@ -111,6 +111,30 @@ class OnlyPostgresIntegrationStore:
             raise OnlyIntegrationError("INTEGRATION_PERSISTENCE_CONFLICT", "Integration load failed") from exc
         if row is None:
             raise OnlyIntegrationError("INTEGRATION_NOT_FOUND")
+        return self._restore_integration(row)
+
+    def list_integrations(
+        self,
+        type_id: str | None,
+        lifecycle_state: OnlyIntegrationLifecycleState | None,
+    ) -> tuple[OnlyIntegration, ...]:
+        lifecycle = None if lifecycle_state is None else lifecycle_state.value
+        try:
+            with self._connection_scope() as connection:
+                rows = connection.execute(
+                    "SELECT integration_id::text, type_id, display_name, lifecycle_state, "
+                    "current_revision_fingerprint, created_at, updated_at FROM integration "
+                    "WHERE (%s::text IS NULL OR type_id = %s) "
+                    "AND (%s::text IS NULL OR lifecycle_state = %s) "
+                    "ORDER BY created_at, integration_id",
+                    (type_id, type_id, lifecycle, lifecycle),
+                ).fetchall()
+        except psycopg.Error as exc:
+            raise OnlyIntegrationError("INTEGRATION_PERSISTENCE_CONFLICT", "Integration list failed") from exc
+        return tuple(self._restore_integration(row) for row in rows)
+
+    @staticmethod
+    def _restore_integration(row: Mapping[str, object]) -> OnlyIntegration:
         try:
             return OnlyIntegration(
                 OnlyIntegrationId(str(row["integration_id"])),

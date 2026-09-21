@@ -839,6 +839,46 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "IntegrationCommandResponseDto": {
+        "additionalProperties": false,
+        "properties": {
+          "command_id": {
+            "title": "Command Id",
+            "type": "string"
+          },
+          "integration_id": {
+            "title": "Integration Id",
+            "type": "string"
+          },
+          "outcome_id": {
+            "title": "Outcome Id",
+            "type": "string"
+          },
+          "outcome_kind": {
+            "title": "Outcome Kind",
+            "type": "string"
+          },
+          "replayed": {
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "command_id",
+          "integration_id",
+          "replayed",
+          "outcome_kind",
+          "outcome_id"
+        ],
+        "title": "IntegrationCommandResponseDto",
+        "type": "object"
+      },
       "IntegrationConfigurationContractDto": {
         "additionalProperties": false,
         "properties": {
@@ -975,6 +1015,341 @@
         "title": "IntegrationConfigurationFieldDto",
         "type": "object"
       },
+      "IntegrationCreateRequestDto": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "integration_id": {
+            "title": "Integration Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "type_id": {
+            "title": "Type Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "integration_id",
+          "type_id",
+          "display_name"
+        ],
+        "title": "IntegrationCreateRequestDto",
+        "type": "object"
+      },
+      "IntegrationDraftContractResetRequestDto": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_draft_version": {
+            "minimum": 1.0,
+            "title": "Expected Draft Version",
+            "type": "integer"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "expected_draft_version"
+        ],
+        "title": "IntegrationDraftContractResetRequestDto",
+        "type": "object"
+      },
+      "IntegrationDraftDto": {
+        "additionalProperties": false,
+        "properties": {
+          "base_revision_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Revision Fingerprint"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "draft_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Draft Fingerprint",
+            "type": "string"
+          },
+          "draft_version": {
+            "title": "Draft Version",
+            "type": "integer"
+          },
+          "integration_id": {
+            "title": "Integration Id",
+            "type": "string"
+          },
+          "pinned_type_descriptor_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Pinned Type Descriptor Fingerprint",
+            "type": "string"
+          },
+          "probe_configuration": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Probe Configuration"
+          },
+          "public_configuration": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Public Configuration",
+            "type": "object"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "secret_statuses": {
+            "items": {
+              "$ref": "#/components/schemas/IntegrationSecretStatusDto"
+            },
+            "title": "Secret Statuses",
+            "type": "array"
+          },
+          "type_descriptor": {
+            "$ref": "#/components/schemas/IntegrationTypeDto"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "integration_id",
+          "pinned_type_descriptor_fingerprint",
+          "type_descriptor",
+          "public_configuration",
+          "probe_configuration",
+          "draft_version",
+          "draft_fingerprint",
+          "secret_statuses",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "IntegrationDraftDto",
+        "type": "object"
+      },
+      "IntegrationDraftUpdateRequestDto": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_draft_version": {
+            "minimum": 1.0,
+            "title": "Expected Draft Version",
+            "type": "integer"
+          },
+          "probe_configuration": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Probe Configuration"
+          },
+          "public_configuration": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Public Configuration",
+            "type": "object"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "expected_draft_version",
+          "public_configuration",
+          "probe_configuration"
+        ],
+        "title": "IntegrationDraftUpdateRequestDto",
+        "type": "object"
+      },
+      "IntegrationDto": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "current_revision_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Revision Fingerprint"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "integration_id": {
+            "title": "Integration Id",
+            "type": "string"
+          },
+          "lifecycle_state": {
+            "$ref": "#/components/schemas/OnlyIntegrationLifecycleState"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "type_id": {
+            "title": "Type Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "integration_id",
+          "type_id",
+          "display_name",
+          "lifecycle_state",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "IntegrationDto",
+        "type": "object"
+      },
+      "IntegrationErrorDto": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "detail"
+        ],
+        "title": "IntegrationErrorDto",
+        "type": "object"
+      },
+      "IntegrationErrorEnvelopeDto": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/IntegrationErrorDto"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "IntegrationErrorEnvelopeDto",
+        "type": "object"
+      },
+      "IntegrationLifecycleUpdateRequestDto": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_lifecycle_state": {
+            "enum": [
+              "ACTIVE",
+              "DISABLED",
+              "ARCHIVED"
+            ],
+            "title": "Expected Lifecycle State",
+            "type": "string"
+          },
+          "lifecycle_state": {
+            "enum": [
+              "ACTIVE",
+              "DISABLED",
+              "ARCHIVED"
+            ],
+            "title": "Lifecycle State",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "expected_lifecycle_state",
+          "lifecycle_state"
+        ],
+        "title": "IntegrationLifecycleUpdateRequestDto",
+        "type": "object"
+      },
+      "IntegrationListDto": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/IntegrationSummaryDto"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "IntegrationListDto",
+        "type": "object"
+      },
       "IntegrationProbeContractDto": {
         "additionalProperties": false,
         "properties": {
@@ -1023,6 +1398,352 @@
           "fingerprint"
         ],
         "title": "IntegrationProbeContractDto",
+        "type": "object"
+      },
+      "IntegrationPublishRequestDto": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_draft_version": {
+            "minimum": 1.0,
+            "title": "Expected Draft Version",
+            "type": "integer"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "expected_draft_version"
+        ],
+        "title": "IntegrationPublishRequestDto",
+        "type": "object"
+      },
+      "IntegrationRevisionDto": {
+        "additionalProperties": false,
+        "properties": {
+          "configuration": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Configuration",
+            "type": "object"
+          },
+          "configuration_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Configuration Fingerprint",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "integration_id": {
+            "title": "Integration Id",
+            "type": "string"
+          },
+          "probe_configuration": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Probe Configuration"
+          },
+          "probe_configuration_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Probe Configuration Fingerprint"
+          },
+          "revision_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Revision Fingerprint",
+            "type": "string"
+          },
+          "revision_sequence": {
+            "title": "Revision Sequence",
+            "type": "integer"
+          },
+          "runtime_configuration_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Runtime Configuration Fingerprint",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "secret_binding_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Secret Binding Fingerprint",
+            "type": "string"
+          },
+          "secret_bindings": {
+            "items": {
+              "$ref": "#/components/schemas/IntegrationSecretStatusDto"
+            },
+            "title": "Secret Bindings",
+            "type": "array"
+          },
+          "type_descriptor": {
+            "$ref": "#/components/schemas/IntegrationTypeDto"
+          },
+          "type_descriptor_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Type Descriptor Fingerprint",
+            "type": "string"
+          },
+          "type_id": {
+            "title": "Type Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision_fingerprint",
+          "revision_sequence",
+          "type_id",
+          "type_descriptor_fingerprint",
+          "configuration_fingerprint",
+          "runtime_configuration_fingerprint",
+          "secret_binding_fingerprint",
+          "created_at",
+          "integration_id",
+          "type_descriptor",
+          "configuration",
+          "probe_configuration",
+          "secret_bindings"
+        ],
+        "title": "IntegrationRevisionDto",
+        "type": "object"
+      },
+      "IntegrationRevisionListDto": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/IntegrationRevisionSummaryDto"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "IntegrationRevisionListDto",
+        "type": "object"
+      },
+      "IntegrationRevisionSummaryDto": {
+        "additionalProperties": false,
+        "properties": {
+          "configuration_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Configuration Fingerprint",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "probe_configuration_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Probe Configuration Fingerprint"
+          },
+          "revision_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Revision Fingerprint",
+            "type": "string"
+          },
+          "revision_sequence": {
+            "title": "Revision Sequence",
+            "type": "integer"
+          },
+          "runtime_configuration_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Runtime Configuration Fingerprint",
+            "type": "string"
+          },
+          "secret_binding_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Secret Binding Fingerprint",
+            "type": "string"
+          },
+          "type_descriptor_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Type Descriptor Fingerprint",
+            "type": "string"
+          },
+          "type_id": {
+            "title": "Type Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision_fingerprint",
+          "revision_sequence",
+          "type_id",
+          "type_descriptor_fingerprint",
+          "configuration_fingerprint",
+          "runtime_configuration_fingerprint",
+          "secret_binding_fingerprint",
+          "created_at"
+        ],
+        "title": "IntegrationRevisionSummaryDto",
+        "type": "object"
+      },
+      "IntegrationSecretSetRequestDto": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_draft_version": {
+            "minimum": 1.0,
+            "title": "Expected Draft Version",
+            "type": "integer"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "secret": {
+            "format": "password",
+            "title": "Secret",
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "schema_version",
+          "expected_draft_version",
+          "secret"
+        ],
+        "title": "IntegrationSecretSetRequestDto",
+        "type": "object"
+      },
+      "IntegrationSecretStatusDto": {
+        "additionalProperties": false,
+        "properties": {
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "field_id": {
+            "title": "Field Id",
+            "type": "string"
+          },
+          "generation": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generation"
+          }
+        },
+        "required": [
+          "field_id",
+          "configured",
+          "generation"
+        ],
+        "title": "IntegrationSecretStatusDto",
+        "type": "object"
+      },
+      "IntegrationSummaryDto": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/OnlyIntegrationCategory"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "current_revision_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Revision Fingerprint"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "draft_version": {
+            "title": "Draft Version",
+            "type": "integer"
+          },
+          "integration_id": {
+            "title": "Integration Id",
+            "type": "string"
+          },
+          "lifecycle_state": {
+            "$ref": "#/components/schemas/OnlyIntegrationLifecycleState"
+          },
+          "pinned_type_descriptor_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Pinned Type Descriptor Fingerprint",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "type_id": {
+            "title": "Type Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "integration_id",
+          "type_id",
+          "display_name",
+          "lifecycle_state",
+          "created_at",
+          "updated_at",
+          "category",
+          "draft_version",
+          "pinned_type_descriptor_fingerprint"
+        ],
+        "title": "IntegrationSummaryDto",
         "type": "object"
       },
       "IntegrationTypeDto": {
@@ -1202,6 +1923,15 @@
           "AGENT_PROVIDER"
         ],
         "title": "OnlyIntegrationCategory",
+        "type": "string"
+      },
+      "OnlyIntegrationLifecycleState": {
+        "enum": [
+          "ACTIVE",
+          "DISABLED",
+          "ARCHIVED"
+        ],
+        "title": "OnlyIntegrationLifecycleState",
         "type": "string"
       },
       "OnlyIntegrationProbeCheck": {
@@ -6808,6 +7538,1155 @@
         "summary": "Get Integration Type",
         "tags": [
           "integration-types"
+        ]
+      }
+    },
+    "/api/v2/integrations": {
+      "get": {
+        "operationId": "list_integrations_api_v2_integrations_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "type_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "lifecycle_state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/OnlyIntegrationLifecycleState"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Lifecycle State"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationListDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Invalid Integration request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration resource not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration state conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority corrupt"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority unavailable"
+          }
+        },
+        "summary": "List Integrations",
+        "tags": [
+          "integrations"
+        ]
+      },
+      "post": {
+        "operationId": "create_integration_api_v2_integrations_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IntegrationCreateRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationCommandResponseDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Invalid Integration request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration resource not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration state conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority corrupt"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority unavailable"
+          }
+        },
+        "summary": "Create Integration",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v2/integrations/{integration_id}": {
+      "get": {
+        "operationId": "get_integration_api_v2_integrations__integration_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "integration_id",
+            "required": true,
+            "schema": {
+              "title": "Integration Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Invalid Integration request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration resource not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration state conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority corrupt"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority unavailable"
+          }
+        },
+        "summary": "Get Integration",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v2/integrations/{integration_id}/draft": {
+      "get": {
+        "operationId": "get_integration_draft_api_v2_integrations__integration_id__draft_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "integration_id",
+            "required": true,
+            "schema": {
+              "title": "Integration Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationDraftDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Invalid Integration request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration resource not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration state conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority corrupt"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority unavailable"
+          }
+        },
+        "summary": "Get Integration Draft",
+        "tags": [
+          "integrations"
+        ]
+      },
+      "put": {
+        "operationId": "update_integration_draft_api_v2_integrations__integration_id__draft_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "integration_id",
+            "required": true,
+            "schema": {
+              "title": "Integration Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IntegrationDraftUpdateRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationCommandResponseDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Invalid Integration request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration resource not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration state conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority corrupt"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority unavailable"
+          }
+        },
+        "summary": "Update Integration Draft",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v2/integrations/{integration_id}/draft/contract-reset": {
+      "post": {
+        "operationId": "reset_integration_draft_contract_api_v2_integrations__integration_id__draft_contract_reset_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "integration_id",
+            "required": true,
+            "schema": {
+              "title": "Integration Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IntegrationDraftContractResetRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationCommandResponseDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Invalid Integration request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration resource not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration state conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority corrupt"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority unavailable"
+          }
+        },
+        "summary": "Reset Integration Draft Contract",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v2/integrations/{integration_id}/draft/secrets/{field_id}": {
+      "delete": {
+        "operationId": "clear_integration_secret_api_v2_integrations__integration_id__draft_secrets__field_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "integration_id",
+            "required": true,
+            "schema": {
+              "title": "Integration Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "field_id",
+            "required": true,
+            "schema": {
+              "title": "Field Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_draft_version",
+            "required": true,
+            "schema": {
+              "title": "Expected Draft Version",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationCommandResponseDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Invalid Integration request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration resource not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration state conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority corrupt"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority unavailable"
+          }
+        },
+        "summary": "Clear Integration Secret",
+        "tags": [
+          "integrations"
+        ]
+      },
+      "put": {
+        "operationId": "set_integration_secret_api_v2_integrations__integration_id__draft_secrets__field_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "integration_id",
+            "required": true,
+            "schema": {
+              "title": "Integration Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "field_id",
+            "required": true,
+            "schema": {
+              "title": "Field Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IntegrationSecretSetRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationCommandResponseDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Invalid Integration request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration resource not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration state conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority corrupt"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority unavailable"
+          }
+        },
+        "summary": "Set Integration Secret",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v2/integrations/{integration_id}/lifecycle": {
+      "put": {
+        "operationId": "set_integration_lifecycle_api_v2_integrations__integration_id__lifecycle_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "integration_id",
+            "required": true,
+            "schema": {
+              "title": "Integration Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IntegrationLifecycleUpdateRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationCommandResponseDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Invalid Integration request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration resource not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration state conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority corrupt"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority unavailable"
+          }
+        },
+        "summary": "Set Integration Lifecycle",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v2/integrations/{integration_id}/revisions": {
+      "get": {
+        "operationId": "list_integration_revisions_api_v2_integrations__integration_id__revisions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "integration_id",
+            "required": true,
+            "schema": {
+              "title": "Integration Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationRevisionListDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Invalid Integration request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration resource not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration state conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority corrupt"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority unavailable"
+          }
+        },
+        "summary": "List Integration Revisions",
+        "tags": [
+          "integrations"
+        ]
+      },
+      "post": {
+        "operationId": "publish_integration_revision_api_v2_integrations__integration_id__revisions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "integration_id",
+            "required": true,
+            "schema": {
+              "title": "Integration Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IntegrationPublishRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationCommandResponseDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Invalid Integration request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration resource not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration state conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority corrupt"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority unavailable"
+          }
+        },
+        "summary": "Publish Integration Revision",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v2/integrations/{integration_id}/revisions/{revision_fingerprint}": {
+      "get": {
+        "operationId": "get_integration_revision_api_v2_integrations__integration_id__revisions__revision_fingerprint__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "integration_id",
+            "required": true,
+            "schema": {
+              "title": "Integration Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "revision_fingerprint",
+            "required": true,
+            "schema": {
+              "title": "Revision Fingerprint",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationRevisionDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Invalid Integration request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration resource not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration state conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority corrupt"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Integration authority unavailable"
+          }
+        },
+        "summary": "Get Integration Revision",
+        "tags": [
+          "integrations"
         ]
       }
     },

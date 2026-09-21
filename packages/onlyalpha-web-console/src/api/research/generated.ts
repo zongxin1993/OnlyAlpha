@@ -157,6 +157,146 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/integrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Integrations */
+        get: operations["list_integrations_api_v2_integrations_get"];
+        put?: never;
+        /** Create Integration */
+        post: operations["create_integration_api_v2_integrations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/integrations/{integration_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Integration */
+        get: operations["get_integration_api_v2_integrations__integration_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/integrations/{integration_id}/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Integration Draft */
+        get: operations["get_integration_draft_api_v2_integrations__integration_id__draft_get"];
+        /** Update Integration Draft */
+        put: operations["update_integration_draft_api_v2_integrations__integration_id__draft_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/integrations/{integration_id}/draft/contract-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reset Integration Draft Contract */
+        post: operations["reset_integration_draft_contract_api_v2_integrations__integration_id__draft_contract_reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/integrations/{integration_id}/draft/secrets/{field_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Integration Secret */
+        put: operations["set_integration_secret_api_v2_integrations__integration_id__draft_secrets__field_id__put"];
+        post?: never;
+        /** Clear Integration Secret */
+        delete: operations["clear_integration_secret_api_v2_integrations__integration_id__draft_secrets__field_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/integrations/{integration_id}/lifecycle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Integration Lifecycle */
+        put: operations["set_integration_lifecycle_api_v2_integrations__integration_id__lifecycle_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/integrations/{integration_id}/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Integration Revisions */
+        get: operations["list_integration_revisions_api_v2_integrations__integration_id__revisions_get"];
+        put?: never;
+        /** Publish Integration Revision */
+        post: operations["publish_integration_revision_api_v2_integrations__integration_id__revisions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/integrations/{integration_id}/revisions/{revision_fingerprint}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Integration Revision */
+        get: operations["get_integration_revision_api_v2_integrations__integration_id__revisions__revision_fingerprint__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/private-assets": {
         parameters: {
             query?: never;
@@ -1380,6 +1520,25 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** IntegrationCommandResponseDto */
+        IntegrationCommandResponseDto: {
+            /** Command Id */
+            command_id: string;
+            /** Integration Id */
+            integration_id: string;
+            /** Outcome Id */
+            outcome_id: string;
+            /** Outcome Kind */
+            outcome_kind: string;
+            /** Replayed */
+            replayed: boolean;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
         /** IntegrationConfigurationContractDto */
         IntegrationConfigurationContractDto: {
             /** Fields */
@@ -1418,6 +1577,144 @@ export interface components {
             secret: boolean;
             value_kind: components["schemas"]["OnlyIntegrationValueKind"];
         };
+        /** IntegrationCreateRequestDto */
+        IntegrationCreateRequestDto: {
+            /** Display Name */
+            display_name: string;
+            /** Integration Id */
+            integration_id: string;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /** Type Id */
+            type_id: string;
+        };
+        /** IntegrationDraftContractResetRequestDto */
+        IntegrationDraftContractResetRequestDto: {
+            /** Expected Draft Version */
+            expected_draft_version: number;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** IntegrationDraftDto */
+        IntegrationDraftDto: {
+            /** Base Revision Fingerprint */
+            base_revision_fingerprint?: string | null;
+            /** Created At */
+            created_at: string;
+            /** Draft Fingerprint */
+            draft_fingerprint: string;
+            /** Draft Version */
+            draft_version: number;
+            /** Integration Id */
+            integration_id: string;
+            /** Pinned Type Descriptor Fingerprint */
+            pinned_type_descriptor_fingerprint: string;
+            /** Probe Configuration */
+            probe_configuration: {
+                [key: string]: components["schemas"]["JsonValue"];
+            } | null;
+            /** Public Configuration */
+            public_configuration: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Secret Statuses */
+            secret_statuses: components["schemas"]["IntegrationSecretStatusDto"][];
+            type_descriptor: components["schemas"]["IntegrationTypeDto"];
+            /** Updated At */
+            updated_at: string;
+        };
+        /** IntegrationDraftUpdateRequestDto */
+        IntegrationDraftUpdateRequestDto: {
+            /** Expected Draft Version */
+            expected_draft_version: number;
+            /** Probe Configuration */
+            probe_configuration: {
+                [key: string]: components["schemas"]["JsonValue"];
+            } | null;
+            /** Public Configuration */
+            public_configuration: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** IntegrationDto */
+        IntegrationDto: {
+            /** Created At */
+            created_at: string;
+            /** Current Revision Fingerprint */
+            current_revision_fingerprint?: string | null;
+            /** Display Name */
+            display_name: string;
+            /** Integration Id */
+            integration_id: string;
+            lifecycle_state: components["schemas"]["OnlyIntegrationLifecycleState"];
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Type Id */
+            type_id: string;
+            /** Updated At */
+            updated_at: string;
+        };
+        /** IntegrationErrorDto */
+        IntegrationErrorDto: {
+            /** Code */
+            code: string;
+            /** Detail */
+            detail: string;
+        };
+        /** IntegrationErrorEnvelopeDto */
+        IntegrationErrorEnvelopeDto: {
+            error: components["schemas"]["IntegrationErrorDto"];
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** IntegrationLifecycleUpdateRequestDto */
+        IntegrationLifecycleUpdateRequestDto: {
+            /**
+             * Expected Lifecycle State
+             * @enum {string}
+             */
+            expected_lifecycle_state: "ACTIVE" | "DISABLED" | "ARCHIVED";
+            /**
+             * Lifecycle State
+             * @enum {string}
+             */
+            lifecycle_state: "ACTIVE" | "DISABLED" | "ARCHIVED";
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** IntegrationListDto */
+        IntegrationListDto: {
+            /** Items */
+            items: components["schemas"]["IntegrationSummaryDto"][];
+        };
         /** IntegrationProbeContractDto */
         IntegrationProbeContractDto: {
             /** Default Probe Instrument */
@@ -1434,6 +1731,133 @@ export interface components {
             probe_version: 1;
             /** User Selectable Probe Instrument */
             user_selectable_probe_instrument: boolean;
+        };
+        /** IntegrationPublishRequestDto */
+        IntegrationPublishRequestDto: {
+            /** Expected Draft Version */
+            expected_draft_version: number;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** IntegrationRevisionDto */
+        IntegrationRevisionDto: {
+            /** Configuration */
+            configuration: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Configuration Fingerprint */
+            configuration_fingerprint: string;
+            /** Created At */
+            created_at: string;
+            /** Integration Id */
+            integration_id: string;
+            /** Probe Configuration */
+            probe_configuration: {
+                [key: string]: components["schemas"]["JsonValue"];
+            } | null;
+            /** Probe Configuration Fingerprint */
+            probe_configuration_fingerprint?: string | null;
+            /** Revision Fingerprint */
+            revision_fingerprint: string;
+            /** Revision Sequence */
+            revision_sequence: number;
+            /** Runtime Configuration Fingerprint */
+            runtime_configuration_fingerprint: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Secret Binding Fingerprint */
+            secret_binding_fingerprint: string;
+            /** Secret Bindings */
+            secret_bindings: components["schemas"]["IntegrationSecretStatusDto"][];
+            type_descriptor: components["schemas"]["IntegrationTypeDto"];
+            /** Type Descriptor Fingerprint */
+            type_descriptor_fingerprint: string;
+            /** Type Id */
+            type_id: string;
+        };
+        /** IntegrationRevisionListDto */
+        IntegrationRevisionListDto: {
+            /** Items */
+            items: components["schemas"]["IntegrationRevisionSummaryDto"][];
+        };
+        /** IntegrationRevisionSummaryDto */
+        IntegrationRevisionSummaryDto: {
+            /** Configuration Fingerprint */
+            configuration_fingerprint: string;
+            /** Created At */
+            created_at: string;
+            /** Probe Configuration Fingerprint */
+            probe_configuration_fingerprint?: string | null;
+            /** Revision Fingerprint */
+            revision_fingerprint: string;
+            /** Revision Sequence */
+            revision_sequence: number;
+            /** Runtime Configuration Fingerprint */
+            runtime_configuration_fingerprint: string;
+            /** Secret Binding Fingerprint */
+            secret_binding_fingerprint: string;
+            /** Type Descriptor Fingerprint */
+            type_descriptor_fingerprint: string;
+            /** Type Id */
+            type_id: string;
+        };
+        /** IntegrationSecretSetRequestDto */
+        IntegrationSecretSetRequestDto: {
+            /** Expected Draft Version */
+            expected_draft_version: number;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /**
+             * Secret
+             * Format: password
+             */
+            secret: string;
+        };
+        /** IntegrationSecretStatusDto */
+        IntegrationSecretStatusDto: {
+            /** Configured */
+            configured: boolean;
+            /** Field Id */
+            field_id: string;
+            /** Generation */
+            generation: number | null;
+        };
+        /** IntegrationSummaryDto */
+        IntegrationSummaryDto: {
+            category: components["schemas"]["OnlyIntegrationCategory"];
+            /** Created At */
+            created_at: string;
+            /** Current Revision Fingerprint */
+            current_revision_fingerprint?: string | null;
+            /** Display Name */
+            display_name: string;
+            /** Draft Version */
+            draft_version: number;
+            /** Integration Id */
+            integration_id: string;
+            lifecycle_state: components["schemas"]["OnlyIntegrationLifecycleState"];
+            /** Pinned Type Descriptor Fingerprint */
+            pinned_type_descriptor_fingerprint: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Type Id */
+            type_id: string;
+            /** Updated At */
+            updated_at: string;
         };
         /** IntegrationTypeDto */
         IntegrationTypeDto: {
@@ -1506,6 +1930,11 @@ export interface components {
          * @enum {string}
          */
         OnlyIntegrationCategory: "DATA_SOURCE" | "BROKER" | "AGENT_PROVIDER";
+        /**
+         * OnlyIntegrationLifecycleState
+         * @enum {string}
+         */
+        OnlyIntegrationLifecycleState: "ACTIVE" | "DISABLED" | "ARCHIVED";
         /**
          * OnlyIntegrationProbeCheck
          * @enum {string}
@@ -3747,6 +4176,852 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IntegrationTypeErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    list_integrations_api_v2_integrations_get: {
+        parameters: {
+            query?: {
+                type_id?: string | null;
+                lifecycle_state?: components["schemas"]["OnlyIntegrationLifecycleState"] | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationListDto"];
+                };
+            };
+            /** @description Invalid Integration request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration state conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority corrupt */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    create_integration_api_v2_integrations_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IntegrationCreateRequestDto"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationCommandResponseDto"];
+                };
+            };
+            /** @description Invalid Integration request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration state conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority corrupt */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    get_integration_api_v2_integrations__integration_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                integration_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationDto"];
+                };
+            };
+            /** @description Invalid Integration request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration state conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority corrupt */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    get_integration_draft_api_v2_integrations__integration_id__draft_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                integration_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationDraftDto"];
+                };
+            };
+            /** @description Invalid Integration request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration state conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority corrupt */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    update_integration_draft_api_v2_integrations__integration_id__draft_put: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                integration_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IntegrationDraftUpdateRequestDto"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationCommandResponseDto"];
+                };
+            };
+            /** @description Invalid Integration request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration state conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority corrupt */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    reset_integration_draft_contract_api_v2_integrations__integration_id__draft_contract_reset_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                integration_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IntegrationDraftContractResetRequestDto"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationCommandResponseDto"];
+                };
+            };
+            /** @description Invalid Integration request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration state conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority corrupt */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    set_integration_secret_api_v2_integrations__integration_id__draft_secrets__field_id__put: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                integration_id: string;
+                field_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IntegrationSecretSetRequestDto"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationCommandResponseDto"];
+                };
+            };
+            /** @description Invalid Integration request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration state conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority corrupt */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    clear_integration_secret_api_v2_integrations__integration_id__draft_secrets__field_id__delete: {
+        parameters: {
+            query: {
+                expected_draft_version: number;
+            };
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                integration_id: string;
+                field_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationCommandResponseDto"];
+                };
+            };
+            /** @description Invalid Integration request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration state conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority corrupt */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    set_integration_lifecycle_api_v2_integrations__integration_id__lifecycle_put: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                integration_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IntegrationLifecycleUpdateRequestDto"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationCommandResponseDto"];
+                };
+            };
+            /** @description Invalid Integration request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration state conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority corrupt */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    list_integration_revisions_api_v2_integrations__integration_id__revisions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                integration_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationRevisionListDto"];
+                };
+            };
+            /** @description Invalid Integration request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration state conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority corrupt */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    publish_integration_revision_api_v2_integrations__integration_id__revisions_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                integration_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IntegrationPublishRequestDto"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationCommandResponseDto"];
+                };
+            };
+            /** @description Invalid Integration request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration state conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority corrupt */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    get_integration_revision_api_v2_integrations__integration_id__revisions__revision_fingerprint__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                integration_id: string;
+                revision_fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationRevisionDto"];
+                };
+            };
+            /** @description Invalid Integration request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration state conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority corrupt */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+            /** @description Integration authority unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
                 };
             };
         };

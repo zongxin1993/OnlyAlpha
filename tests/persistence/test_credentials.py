@@ -12,6 +12,7 @@ from onlyalpha.persistence.postgres.credentials import (
     OnlyCredentialMetadata,
     OnlyPostgresCredentialAuthority,
     only_ensure_dev_master_key,
+    only_load_master_key,
 )
 
 
@@ -29,6 +30,22 @@ def test_dev_master_key_is_durable_and_not_replaced(tmp_path: Path) -> None:
     assert second == first
     assert path.read_bytes() == first
     assert os.stat(path).st_mode & 0o777 == 0o600
+
+
+def test_runtime_master_key_loader_never_creates_or_follows_symlink(tmp_path: Path) -> None:
+    missing = (tmp_path / "missing-master-key").resolve()
+    with pytest.raises(ValueError, match="CREDENTIAL_MASTER_KEY_MISSING"):
+        only_load_master_key(missing)
+    assert not missing.exists()
+
+    key = (tmp_path / "master-key").resolve()
+    key.write_bytes(b"k" * MASTER_KEY_BYTES)
+    assert only_load_master_key(key) == b"k" * MASTER_KEY_BYTES
+
+    link = tmp_path / "master-key-link"
+    link.symlink_to(key)
+    with pytest.raises(ValueError, match="CREDENTIAL_MASTER_KEY_PATH_INVALID"):
+        only_load_master_key(link)
 
 
 def test_credential_ciphertext_is_bound_to_exact_slot_generation_and_key_version() -> None:

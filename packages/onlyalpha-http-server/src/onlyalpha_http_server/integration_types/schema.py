@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from onlyalpha.application.integration_configuration import OnlyIntegrationError
 from onlyalpha.plugin.integration import (
     OnlyIntegrationCategory,
     OnlyIntegrationConfigurationContractV1,
@@ -125,6 +127,13 @@ class IntegrationTypeDto(_Dto):
             else IntegrationProbeContractDto.from_model(value.probe_contract),
             fingerprint=value.fingerprint,
         )
+
+    @classmethod
+    def from_snapshot(cls, document: Mapping[str, object], fingerprint: str) -> IntegrationTypeDto:
+        try:
+            return cls.model_validate({**document, "fingerprint": fingerprint}, strict=False)
+        except ValidationError as error:
+            raise OnlyIntegrationError("INTEGRATION_REVISION_CORRUPT") from error
 
 
 class IntegrationTypeListDto(_Dto):
