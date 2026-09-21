@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 CONFIGURATION = ROOT / "src/onlyalpha/application/integration_configuration.py"
 APPLICATION = ROOT / "src/onlyalpha/application/integration_application.py"
 PROBE_APPLICATION = ROOT / "src/onlyalpha/application/integration_probe.py"
+BINANCE_SPOT_PROBE = ROOT / "plugs/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance/spot/data_source/probe.py"
 POSTGRES = ROOT / "src/onlyalpha/persistence/postgres"
 INTEGRATION_STORE = POSTGRES / "integration_store.py"
 PRODUCT_STORE = POSTGRES / "integration_product_store.py"
@@ -117,18 +118,8 @@ def test_web_integration_workspace_is_provider_neutral_and_secret_storage_free()
     }
     provider_tokens = ("binance", "tushare", "miniqmt")
     persistence_tokens = ("localstorage", "sessionstorage", "indexeddb")
-    assert {
-        path: token
-        for path, source in sources.items()
-        for token in provider_tokens
-        if token in source
-    } == {}
-    assert {
-        path: token
-        for path, source in sources.items()
-        for token in persistence_tokens
-        if token in source
-    } == {}
+    assert {path: token for path, source in sources.items() for token in provider_tokens if token in source} == {}
+    assert {path: token for path, source in sources.items() for token in persistence_tokens if token in source} == {}
 
 
 def test_schema_has_no_integration_type_table_and_store_has_no_revision_update_surface() -> None:
@@ -242,3 +233,16 @@ def test_probe_application_has_no_runtime_engine_event_bus_or_provider_transport
     )
     source = PROBE_APPLICATION.read_text(encoding="utf-8")
     assert ".create(request)" not in source
+
+
+def test_binance_probe_has_no_market_data_authority_or_runtime_resource_dependency() -> None:
+    imports = imported_modules_for_path(BINANCE_SPOT_PROBE, ROOT)
+    forbidden = (
+        "onlyalpha.cache",
+        "onlyalpha.engine",
+        "onlyalpha.event_bus",
+        "onlyalpha.persistence",
+        "onlyalpha.research",
+        "onlyalpha.runtime",
+    )
+    assert not {module for module in imports if module.startswith(forbidden)}

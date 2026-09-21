@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { IntegrationWebError } from "../../../api/integrations/client";
-import { MutationSubmissionIntent } from "../../../api/integrations/submissionIntent";
+import { createUuidV4, MutationSubmissionIntent } from "../../../api/integrations/submissionIntent";
 import { useIntegrationApi } from "../../../app/providers";
 
 export function NewDataSourcePage() {
@@ -39,7 +39,7 @@ export function NewDataSourcePage() {
                         const integrationId =
                             pending.current?.key === key
                                 ? pending.current.integrationId
-                                : crypto.randomUUID();
+                                : createUuidV4();
                         pending.current = { key, integrationId };
                         const commandId = intent.current.commandFor(key);
                         setSubmitting(true);
