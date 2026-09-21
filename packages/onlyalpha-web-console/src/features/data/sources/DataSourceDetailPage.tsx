@@ -1,7 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { IntegrationWebError } from "../../../api/integrations/client";
+import {
+    IntegrationWebError,
+    isIndeterminateMutationError
+} from "../../../api/integrations/client";
 import { MutationSubmissionIntent } from "../../../api/integrations/submissionIntent";
 import { useIntegrationApi } from "../../../app/providers";
 import { IntegrationConfigurationForm } from "./IntegrationConfigurationForm";
@@ -66,9 +69,7 @@ export function DataSourceDetailPage() {
             }
             await refresh();
         } catch (value) {
-            const unknownOutcome =
-                value instanceof IntegrationWebError &&
-                (value.code === "TRANSPORT_ERROR" || value.code === "UNKNOWN_OUTCOME");
+            const unknownOutcome = isIndeterminateMutationError(value);
             if (!unknownOutcome) intent.current.definitive(key);
             setError(
                 value instanceof IntegrationWebError

@@ -22,6 +22,13 @@ export class IntegrationWebError extends Error {
     }
 }
 
+export function isIndeterminateMutationError(value: unknown): value is IntegrationWebError {
+    return (
+        value instanceof IntegrationWebError &&
+        (value.code === "TRANSPORT_ERROR" || value.code === "UNKNOWN_OUTCOME")
+    );
+}
+
 export interface IntegrationApiClient {
     listTypes(signal?: AbortSignal): Promise<readonly IntegrationType[]>;
     listDataSources(signal?: AbortSignal): Promise<readonly IntegrationSummary[]>;

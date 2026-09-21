@@ -200,6 +200,109 @@ it("loads server-published DataSource types on the Add page", async () => {
     expect(listTypes).toHaveBeenCalled();
 });
 
+it.each(["UNKNOWN_OUTCOME", "TRANSPORT_ERROR"])(
+    "retries an indeterminate Create %s with the same Integration and command identities",
+    async (code) => {
+        const createIntegration = vi
+            .fn<IntegrationApiClient["createIntegration"]>()
+            .mockRejectedValueOnce(new IntegrationWebError(code, "indeterminate"))
+            .mockImplementationOnce((request, commandId) =>
+                Promise.resolve({
+                    schema_version: 1,
+                    command_id: commandId,
+                    integration_id: request.integration_id,
+                    replayed: true,
+                    outcome_kind: "DRAFT",
+                    outcome_id: "1"
+                })
+            );
+        renderPage("/data/sources/new", integrationClient({ createIntegration }));
+        const user = userEvent.setup();
+        await user.selectOptions(
+            await screen.findByLabelText("Data Source type"),
+            descriptor.type_id
+        );
+        await user.type(screen.getByLabelText("Display name"), "Retry source");
+        await user.click(screen.getByRole("button", { name: "Create Data Source" }));
+        expect(await screen.findByRole("alert")).toHaveTextContent("indeterminate");
+        await user.click(screen.getByRole("button", { name: "Create Data Source" }));
+        await waitFor(() => {
+            expect(createIntegration).toHaveBeenCalledTimes(2);
+        });
+        expect(createIntegration.mock.calls[0]?.[0].integration_id).toBe(
+            createIntegration.mock.calls[1]?.[0].integration_id
+        );
+        expect(createIntegration.mock.calls[0]?.[1]).toBe(createIntegration.mock.calls[1]?.[1]);
+    }
+);
+
+it("releases Create identities after a definitive domain failure", async () => {
+    const createIntegration = vi
+        .fn<IntegrationApiClient["createIntegration"]>()
+        .mockRejectedValue(
+            new IntegrationWebError("INTEGRATION_TYPE_UNAVAILABLE", "definitive", 409)
+        );
+    renderPage("/data/sources/new", integrationClient({ createIntegration }));
+    const user = userEvent.setup();
+    await user.selectOptions(await screen.findByLabelText("Data Source type"), descriptor.type_id);
+    await user.type(screen.getByLabelText("Display name"), "Rejected source");
+    await user.click(screen.getByRole("button", { name: "Create Data Source" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("definitive");
+    await user.click(screen.getByRole("button", { name: "Create Data Source" }));
+    await waitFor(() => {
+        expect(createIntegration).toHaveBeenCalledTimes(2);
+    });
+    expect(createIntegration.mock.calls[0]?.[0].integration_id).not.toBe(
+        createIntegration.mock.calls[1]?.[0].integration_id
+    );
+    expect(createIntegration.mock.calls[0]?.[1]).not.toBe(createIntegration.mock.calls[1]?.[1]);
+});
+
+it("uses new Create identities when the logical intent changes after an unknown outcome", async () => {
+    const createIntegration = vi
+        .fn<IntegrationApiClient["createIntegration"]>()
+        .mockRejectedValue(new IntegrationWebError("UNKNOWN_OUTCOME", "indeterminate"));
+    renderPage("/data/sources/new", integrationClient({ createIntegration }));
+    const user = userEvent.setup();
+    await user.selectOptions(await screen.findByLabelText("Data Source type"), descriptor.type_id);
+    const displayName = screen.getByLabelText("Display name");
+    await user.type(displayName, "First source");
+    await user.click(screen.getByRole("button", { name: "Create Data Source" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("indeterminate");
+    await user.clear(displayName);
+    await user.type(displayName, "Second source");
+    await user.click(screen.getByRole("button", { name: "Create Data Source" }));
+    await waitFor(() => {
+        expect(createIntegration).toHaveBeenCalledTimes(2);
+    });
+    expect(createIntegration.mock.calls[0]?.[0].integration_id).not.toBe(
+        createIntegration.mock.calls[1]?.[0].integration_id
+    );
+    expect(createIntegration.mock.calls[0]?.[1]).not.toBe(createIntegration.mock.calls[1]?.[1]);
+});
+
+it("does not revive a stale Create command when a previous logical intent returns", async () => {
+    const createIntegration = vi
+        .fn<IntegrationApiClient["createIntegration"]>()
+        .mockRejectedValue(new IntegrationWebError("UNKNOWN_OUTCOME", "indeterminate"));
+    renderPage("/data/sources/new", integrationClient({ createIntegration }));
+    const user = userEvent.setup();
+    await user.selectOptions(await screen.findByLabelText("Data Source type"), descriptor.type_id);
+    const displayName = screen.getByLabelText("Display name");
+    for (const [index, name] of ["First source", "Second source", "First source"].entries()) {
+        await user.clear(displayName);
+        await user.type(displayName, name);
+        await user.click(screen.getByRole("button", { name: "Create Data Source" }));
+        await waitFor(() => {
+            expect(createIntegration).toHaveBeenCalledTimes(index + 1);
+        });
+    }
+    expect(createIntegration.mock.calls[0]?.[0].integration_id).not.toBe(
+        createIntegration.mock.calls[2]?.[0].integration_id
+    );
+    expect(createIntegration.mock.calls[0]?.[1]).not.toBe(createIntegration.mock.calls[2]?.[1]);
+});
+
 it("keeps Save, Publish, Contract Reset and exact-Revision Probe explicit", async () => {
     const updateDraft = vi.fn().mockResolvedValue({});
     const publish = vi.fn().mockResolvedValue({});

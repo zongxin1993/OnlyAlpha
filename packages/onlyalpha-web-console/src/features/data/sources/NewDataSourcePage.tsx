@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { IntegrationWebError } from "../../../api/integrations/client";
+import { isIndeterminateMutationError } from "../../../api/integrations/client";
 import { createUuidV4, MutationSubmissionIntent } from "../../../api/integrations/submissionIntent";
 import { useIntegrationApi } from "../../../app/providers";
 
@@ -36,6 +36,9 @@ export function NewDataSourcePage() {
                     onSubmit={(event) => {
                         event.preventDefault();
                         const key = JSON.stringify({ typeId, displayName });
+                        if (pending.current !== null && pending.current.key !== key) {
+                            intent.current.definitive(pending.current.key);
+                        }
                         const integrationId =
                             pending.current?.key === key
                                 ? pending.current.integrationId
@@ -59,10 +62,7 @@ export function NewDataSourcePage() {
                                 void navigate(`/data/sources/${integrationId}`);
                             })
                             .catch((value: unknown) => {
-                                if (
-                                    value instanceof IntegrationWebError &&
-                                    value.code !== "TRANSPORT_ERROR"
-                                ) {
+                                if (!isIndeterminateMutationError(value)) {
                                     intent.current.definitive(key);
                                     pending.current = null;
                                 }

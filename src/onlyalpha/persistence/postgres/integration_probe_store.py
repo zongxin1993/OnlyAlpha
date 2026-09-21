@@ -107,7 +107,7 @@ class OnlyPostgresIntegrationProbeStore:
                     (integration_id.value, revision_fingerprint),
                 ).fetchone()
         except psycopg.Error as exc:
-            raise OnlyIntegrationError("INTEGRATION_PROBE_PROVIDER_UNAVAILABLE") from exc
+            raise OnlyIntegrationError("INTEGRATION_PROBE_PERSISTENCE_UNAVAILABLE") from exc
         return None if row is None else self._restore(row)
 
     @staticmethod

@@ -42,10 +42,11 @@ from onlyalpha.plugin.integration_probe import (
 
 NOW = datetime(2026, 9, 21, tzinfo=UTC)
 INTEGRATION_ID = OnlyIntegrationId("b52eb762-34cf-47d4-8cca-56ef93f0d2ac")
+OTHER_INTEGRATION_ID = OnlyIntegrationId("c52eb762-34cf-47d4-8cca-56ef93f0d2ac")
 ATTEMPT_ID = "a52eb762-34cf-47d4-8cca-56ef93f0d2ac"
 
 
-def _revision() -> OnlyIntegrationRevision:
+def _revision(integration_id: OnlyIntegrationId = INTEGRATION_ID) -> OnlyIntegrationRevision:
     descriptor = OnlyIntegrationTypeDescriptorV1(
         type_id=OnlyIntegrationTypeId("test.market_data"),
         category=OnlyIntegrationCategory.DATA_SOURCE,
@@ -65,7 +66,7 @@ def _revision() -> OnlyIntegrationRevision:
         ),
     )
     return OnlyIntegrationRevision.from_resolved(
-        integration_id=INTEGRATION_ID,
+        integration_id=integration_id,
         revision_sequence=1,
         type_id=descriptor.type_id.value,
         type_descriptor_fingerprint=descriptor.fingerprint,
@@ -77,11 +78,11 @@ def _revision() -> OnlyIntegrationRevision:
     )
 
 
-def _attempt() -> OnlyIntegrationProbeAttempt:
-    revision = _revision()
+def _attempt(integration_id: OnlyIntegrationId = INTEGRATION_ID) -> OnlyIntegrationProbeAttempt:
+    revision = _revision(integration_id)
     request = OnlyIntegrationProbeRequest.create(
         probe_attempt_id=ATTEMPT_ID,
-        integration_id=INTEGRATION_ID.value,
+        integration_id=integration_id.value,
         revision=revision,
         resolved_secrets={},
         policy=OnlyIntegrationProbePolicy(),
@@ -119,9 +120,14 @@ class _ProbeCommands:
 
 
 class _ProbeQueries:
-    def __init__(self, error: str | None = None) -> None:
-        self.attempt = _attempt()
+    def __init__(
+        self,
+        error: str | None = None,
+        attempt_integration_id: OnlyIntegrationId = INTEGRATION_ID,
+    ) -> None:
+        self.attempt = _attempt(attempt_integration_id)
         self.error = error
+        self.requested_attempt_ids: list[str] = []
 
     def get_operational_status(self, integration_id: OnlyIntegrationId) -> OnlyIntegrationOperationalStatus:
         if self.error is not None:
@@ -140,6 +146,7 @@ class _ProbeQueries:
         return (self.attempt,)
 
     def get_probe_attempt(self, probe_attempt_id: str) -> OnlyIntegrationProbeAttempt:
+        self.requested_attempt_ids.append(probe_attempt_id)
         if probe_attempt_id != self.attempt.probe_attempt_id:
             raise OnlyIntegrationError("INTEGRATION_PROBE_ATTEMPT_NOT_FOUND")
         return self.attempt
@@ -204,6 +211,48 @@ def test_probe_request_validation_is_strict_400() -> None:
     )
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "INTEGRATION_REQUEST_INVALID"
+
+
+@pytest.mark.parametrize(
+    "attempt_id",
+    (
+        "abc",
+        "a52eb762-34cf-17d4-8cca-56ef93f0d2ac",
+        "A52EB762-34CF-47D4-8CCA-56EF93F0D2AC",
+    ),
+)
+def test_malformed_probe_attempt_id_is_rejected_before_query(attempt_id: str) -> None:
+    queries = _ProbeQueries()
+    _, client = _client(queries=queries)
+
+    response = client.get(f"/api/v2/integrations/{INTEGRATION_ID.value}/probe-attempts/{attempt_id}")
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "INTEGRATION_REQUEST_INVALID"
+    assert queries.requested_attempt_ids == []
+
+
+def test_missing_canonical_probe_attempt_id_is_not_found() -> None:
+    queries = _ProbeQueries()
+    missing = "f52eb762-34cf-47d4-8cca-56ef93f0d2ac"
+    _, client = _client(queries=queries)
+
+    response = client.get(f"/api/v2/integrations/{INTEGRATION_ID.value}/probe-attempts/{missing}")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "INTEGRATION_PROBE_ATTEMPT_NOT_FOUND"
+    assert queries.requested_attempt_ids == [missing]
+
+
+def test_foreign_probe_attempt_is_non_disclosing_not_found() -> None:
+    queries = _ProbeQueries(attempt_integration_id=OTHER_INTEGRATION_ID)
+    _, client = _client(queries=queries)
+
+    response = client.get(f"/api/v2/integrations/{INTEGRATION_ID.value}/probe-attempts/{ATTEMPT_ID}")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "INTEGRATION_PROBE_ATTEMPT_NOT_FOUND"
+    assert queries.requested_attempt_ids == [ATTEMPT_ID]
 
 
 @pytest.mark.parametrize(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Header, Request, Response, status
@@ -122,6 +123,16 @@ def _product_command_id(value: str) -> OnlyProductCommandId:
         return OnlyProductCommandId(value)
     except ValueError as error:
         raise OnlyIntegrationError("INTEGRATION_REQUEST_INVALID") from error
+
+
+def _probe_attempt_id(value: str) -> str:
+    try:
+        parsed = uuid.UUID(value)
+    except ValueError as error:
+        raise OnlyIntegrationError("INTEGRATION_REQUEST_INVALID") from error
+    if parsed.version != 4 or str(parsed) != value:
+        raise OnlyIntegrationError("INTEGRATION_REQUEST_INVALID")
+    return value
 
 
 async def integration_request_validation_error_response(
@@ -378,7 +389,7 @@ def create_integration_router(
             probe_attempt_id: str,
         ) -> IntegrationProbeAttemptDto:
             identity = _integration_id(integration_id)
-            attempt = operational_queries.get_probe_attempt(probe_attempt_id)
+            attempt = operational_queries.get_probe_attempt(_probe_attempt_id(probe_attempt_id))
             if attempt.integration_id != identity:
                 raise OnlyIntegrationError("INTEGRATION_PROBE_ATTEMPT_NOT_FOUND")
             return IntegrationProbeAttemptDto.from_model(attempt)

@@ -165,6 +165,7 @@ def main() -> int:
     control = ThreadingHTTPServer((args.host, args.control_port), _Handler)
     threading.Thread(target=control.serve_forever, daemon=True).start()
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(certificate, private_key)
     providers = [ThreadingHTTPServer((args.host, port), _Handler) for port in (443, 9443)]
     for provider in providers:
