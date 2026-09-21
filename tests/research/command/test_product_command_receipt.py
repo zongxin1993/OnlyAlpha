@@ -142,3 +142,27 @@ def test_search_product_vocabulary_is_representation_only_and_uses_sha256_outcom
     assert expected.outcome_id == "b" * 64
     with pytest.raises(ValueError, match="lower-case SHA256"):
         OnlyProductCommandOutcomeRef(OnlyProductCommandOutcomeKind.SEARCH_EXPERIMENT, COMMAND_ID.value)
+
+
+def test_integration_product_command_vocabulary_uses_uuid_and_revision_fingerprint_outcomes() -> None:
+    integration_id = "b52eb762-34cf-47d4-8cca-56ef93f0d2ac"
+
+    assert {
+        OnlyProductCommandKind.CREATE_INTEGRATION,
+        OnlyProductCommandKind.UPDATE_INTEGRATION_DRAFT,
+        OnlyProductCommandKind.SET_INTEGRATION_SECRET,
+        OnlyProductCommandKind.CLEAR_INTEGRATION_SECRET,
+        OnlyProductCommandKind.RESET_INTEGRATION_DRAFT_CONTRACT,
+        OnlyProductCommandKind.PUBLISH_INTEGRATION_REVISION,
+        OnlyProductCommandKind.SET_INTEGRATION_LIFECYCLE,
+    } <= set(OnlyProductCommandKind)
+    assert (
+        OnlyProductCommandOutcomeRef(OnlyProductCommandOutcomeKind.INTEGRATION, integration_id).outcome_id
+        == integration_id
+    )
+    assert (
+        OnlyProductCommandOutcomeRef(OnlyProductCommandOutcomeKind.INTEGRATION_REVISION, "a" * 64).outcome_id
+        == "a" * 64
+    )
+    with pytest.raises(ValueError, match="canonical UUID4"):
+        OnlyProductCommandOutcomeRef(OnlyProductCommandOutcomeKind.INTEGRATION, "a" * 64)

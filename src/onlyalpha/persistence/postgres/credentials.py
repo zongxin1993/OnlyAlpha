@@ -100,91 +100,133 @@ class OnlyPostgresCredentialAuthority:
     ) -> OnlyCredentialMetadata:
         _validate_slot(credential_kind, subject_id, secret_name)
         _validate_secret(secret)
-        credential_id = str(uuid.uuid4())
-        created_at = self._now()
-        _validate_timestamp(created_at)
-        ciphertext = self._encrypt(
-            credential_id,
-            credential_kind,
-            subject_id,
-            secret_name,
-            1,
-            MASTER_KEY_VERSION,
-            secret,
-        )
         try:
             with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
-                row = connection.execute(
-                    "INSERT INTO product_credential "
-                    "(credential_id, credential_kind, subject_id, secret_name, generation, ciphertext, "
-                    "key_version, created_at, updated_at) "
-                    "VALUES (%s, %s, %s, %s, 1, %s, %s, %s, %s) "
-                    "RETURNING credential_id::text, credential_kind, subject_id, secret_name, generation, "
-                    "key_version, created_at, updated_at",
-                    (
-                        credential_id,
-                        credential_kind,
-                        subject_id,
-                        secret_name,
-                        ciphertext,
-                        MASTER_KEY_VERSION,
-                        created_at,
-                        created_at,
-                    ),
-                ).fetchone()
+                return self._create_in_transaction(connection, credential_kind, subject_id, secret_name, secret)
         except psycopg.IntegrityError as exc:
             raise OnlyCredentialError("CREDENTIAL_GENERATION_CONFLICT", "credential slot already exists") from exc
         except psycopg.Error as exc:
             raise OnlyCredentialError("CREDENTIAL_PERSISTENCE_UNAVAILABLE") from exc
-        if row is None:
-            raise OnlyCredentialError("CREDENTIAL_PERSISTENCE_CONFLICT", "credential write was not observed")
-        return _metadata(row)
 
     def rotate(self, credential_id: str, expected_generation: int, secret: str) -> OnlyCredentialMetadata:
         _validate_credential_id(credential_id)
         if not isinstance(expected_generation, int) or isinstance(expected_generation, bool) or expected_generation < 1:
             raise OnlyCredentialError("CREDENTIAL_GENERATION_CONFLICT", "expected generation is invalid")
         _validate_secret(secret)
-        updated_at = self._now()
-        _validate_timestamp(updated_at)
         try:
             with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
-                current = connection.execute(
-                    "SELECT credential_id::text, credential_kind, subject_id, secret_name, generation, key_version "
-                    "FROM product_credential WHERE credential_id = %s",
-                    (credential_id,),
-                ).fetchone()
-                if current is None:
-                    raise OnlyCredentialError("CREDENTIAL_NOT_FOUND")
-                if int(cast(int, current["generation"])) != expected_generation:
-                    raise OnlyCredentialError("CREDENTIAL_GENERATION_CONFLICT")
-                key_version = int(cast(int, current["key_version"]))
-                if key_version != MASTER_KEY_VERSION:
-                    raise OnlyCredentialError("CREDENTIAL_KEY_VERSION_UNSUPPORTED")
-                generation = expected_generation + 1
-                ciphertext = self._encrypt(
-                    credential_id,
-                    str(current["credential_kind"]),
-                    str(current["subject_id"]),
-                    str(current["secret_name"]),
-                    generation,
-                    key_version,
-                    secret,
-                )
-                row = connection.execute(
-                    "UPDATE product_credential SET generation = %s, ciphertext = %s, updated_at = %s "
-                    "WHERE credential_id = %s AND generation = %s "
-                    "RETURNING credential_id::text, credential_kind, subject_id, secret_name, generation, "
-                    "key_version, created_at, updated_at",
-                    (generation, ciphertext, updated_at, credential_id, expected_generation),
-                ).fetchone()
-                if row is None:
-                    raise OnlyCredentialError("CREDENTIAL_GENERATION_CONFLICT")
+                return self._rotate_in_transaction(connection, credential_id, expected_generation, secret)
         except OnlyCredentialError:
             raise
         except psycopg.Error as exc:
             raise OnlyCredentialError("CREDENTIAL_PERSISTENCE_UNAVAILABLE") from exc
+
+    def _create_in_transaction(
+        self,
+        connection: psycopg.Connection[dict[str, object]],
+        credential_kind: str,
+        subject_id: str,
+        secret_name: str,
+        secret: str,
+    ) -> OnlyCredentialMetadata:
+        _validate_slot(credential_kind, subject_id, secret_name)
+        _validate_secret(secret)
+        credential_id = str(uuid.uuid4())
+        created_at = self._now()
+        _validate_timestamp(created_at)
+        ciphertext = self._encrypt(
+            credential_id, credential_kind, subject_id, secret_name, 1, MASTER_KEY_VERSION, secret
+        )
+        row = connection.execute(
+            "INSERT INTO product_credential "
+            "(credential_id, credential_kind, subject_id, secret_name, generation, ciphertext, "
+            "key_version, created_at, updated_at) "
+            "VALUES (%s, %s, %s, %s, 1, %s, %s, %s, %s) "
+            "RETURNING credential_id::text, credential_kind, subject_id, secret_name, generation, "
+            "key_version, created_at, updated_at",
+            (
+                credential_id,
+                credential_kind,
+                subject_id,
+                secret_name,
+                ciphertext,
+                MASTER_KEY_VERSION,
+                created_at,
+                created_at,
+            ),
+        ).fetchone()
+        if row is None:
+            raise OnlyCredentialError("CREDENTIAL_PERSISTENCE_CONFLICT", "credential write was not observed")
         return _metadata(row)
+
+    def _rotate_in_transaction(
+        self,
+        connection: psycopg.Connection[dict[str, object]],
+        credential_id: str,
+        expected_generation: int,
+        secret: str,
+    ) -> OnlyCredentialMetadata:
+        _validate_credential_id(credential_id)
+        if not isinstance(expected_generation, int) or isinstance(expected_generation, bool) or expected_generation < 1:
+            raise OnlyCredentialError("CREDENTIAL_GENERATION_CONFLICT", "expected generation is invalid")
+        _validate_secret(secret)
+        updated_at = self._now()
+        _validate_timestamp(updated_at)
+        current = connection.execute(
+            "SELECT credential_id::text, credential_kind, subject_id, secret_name, generation, key_version "
+            "FROM product_credential WHERE credential_id = %s FOR UPDATE",
+            (credential_id,),
+        ).fetchone()
+        if current is None:
+            raise OnlyCredentialError("CREDENTIAL_NOT_FOUND")
+        if int(cast(int, current["generation"])) != expected_generation:
+            raise OnlyCredentialError("CREDENTIAL_GENERATION_CONFLICT")
+        key_version = int(cast(int, current["key_version"]))
+        if key_version != MASTER_KEY_VERSION:
+            raise OnlyCredentialError("CREDENTIAL_KEY_VERSION_UNSUPPORTED")
+        generation = expected_generation + 1
+        ciphertext = self._encrypt(
+            credential_id,
+            str(current["credential_kind"]),
+            str(current["subject_id"]),
+            str(current["secret_name"]),
+            generation,
+            key_version,
+            secret,
+        )
+        row = connection.execute(
+            "UPDATE product_credential SET generation = %s, ciphertext = %s, updated_at = %s "
+            "WHERE credential_id = %s AND generation = %s "
+            "RETURNING credential_id::text, credential_kind, subject_id, secret_name, generation, "
+            "key_version, created_at, updated_at",
+            (generation, ciphertext, updated_at, credential_id, expected_generation),
+        ).fetchone()
+        if row is None:
+            raise OnlyCredentialError("CREDENTIAL_GENERATION_CONFLICT")
+        return _metadata(row)
+
+    def set_slot_in_transaction(
+        self,
+        connection: psycopg.Connection[dict[str, object]],
+        credential_kind: str,
+        subject_id: str,
+        secret_name: str,
+        secret: str,
+    ) -> OnlyCredentialMetadata:
+        _validate_slot(credential_kind, subject_id, secret_name)
+        row = connection.execute(
+            "SELECT credential_id::text, generation FROM product_credential "
+            "WHERE credential_kind = %s AND subject_id = %s AND secret_name = %s FOR UPDATE",
+            (credential_kind, subject_id, secret_name),
+        ).fetchone()
+        if row is None:
+            return self._create_in_transaction(connection, credential_kind, subject_id, secret_name, secret)
+        return self._rotate_in_transaction(
+            connection,
+            str(row["credential_id"]),
+            int(cast(int, row["generation"])),
+            secret,
+        )
 
     def list_metadata(self) -> tuple[OnlyCredentialMetadata, ...]:
         try:

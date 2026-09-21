@@ -24,6 +24,9 @@ from .credentials import (
 from .credentials import (
     only_ensure_dev_master_key as only_ensure_dev_master_key,
 )
+from .integration_product_store import (
+    OnlyPostgresIntegrationProductStore as OnlyPostgresIntegrationProductStore,
+)
 from .integration_store import OnlyPostgresIntegrationStore as OnlyPostgresIntegrationStore
 from .kernel_authority import OnlyPostgresKernelAuthorityGuard as OnlyPostgresKernelAuthorityGuard
 from .market_data_catalog import OnlyPostgresMarketDataCatalog as OnlyPostgresMarketDataCatalog
