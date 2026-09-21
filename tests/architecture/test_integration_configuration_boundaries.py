@@ -19,6 +19,7 @@ APPLICATION = ROOT / "src/onlyalpha/application/integration_application.py"
 PROBE_APPLICATION = ROOT / "src/onlyalpha/application/integration_probe.py"
 RUNTIME_APPLICATION = ROOT / "src/onlyalpha/application/integration_runtime.py"
 BINANCE_SPOT_PROBE = ROOT / "plugs/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance/spot/data_source/probe.py"
+BINANCE_BROKER_FACTORY = ROOT / "plugs/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance/spot/broker_factory.py"
 POSTGRES = ROOT / "src/onlyalpha/persistence/postgres"
 INTEGRATION_STORE = POSTGRES / "integration_store.py"
 PRODUCT_STORE = POSTGRES / "integration_product_store.py"
@@ -70,6 +71,31 @@ def test_runtime_consumers_and_plugins_cannot_import_integration_persistence() -
     }
 
     assert violations == {}
+
+
+def test_runtime_factories_use_the_exact_broker_integration_resolution_boundary() -> None:
+    for relative in ("src/onlyalpha/runtime/backtest/factory.py", "src/onlyalpha/runtime/sim/factory.py"):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        assert "only_resolve_broker_runtime_configuration(" in source
+
+
+def test_broker_probe_has_no_order_mutation_call_surface() -> None:
+    tree = ast.parse(BINANCE_BROKER_FACTORY.read_text(encoding="utf-8"), filename=str(BINANCE_BROKER_FACTORY))
+    probe = next(
+        child
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "OnlyBinanceSpotBrokerFactory"
+        for child in node.body
+        if isinstance(child, ast.FunctionDef) and child.name == "probe"
+    )
+    forbidden = {"submit_order", "cancel_order", "replace_order", "change_leverage", "transfer"}
+    calls = {
+        call.func.attr
+        for call in ast.walk(probe)
+        if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+    }
+
+    assert calls.isdisjoint(forbidden)
 
 
 def test_plugins_do_not_import_integration_authority_and_http_routes_stay_transport_only() -> None:

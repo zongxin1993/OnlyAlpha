@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import logging
+import time
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -21,6 +22,12 @@ from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.plugin.broker import OnlyBrokerCreateRequest
 from onlyalpha.plugin.capabilities import OnlyBrokerPluginCapabilities
+from onlyalpha.plugin.integration import OnlyIntegrationProbeCheck
+from onlyalpha.plugin.integration_probe import (
+    OnlyIntegrationProbePolicy,
+    OnlyIntegrationProbeRequest,
+    OnlyIntegrationProbeStatus,
+)
 from onlyalpha.plugin.lifecycle import OnlyPluginLifecycleState
 
 
@@ -150,3 +157,34 @@ def test_testnet_factory_rejects_non_testnet_credential_names() -> None:
                 "currencies": {"USDT": 8},
             }
         )
+
+
+def test_broker_probe_has_read_only_account_visibility_and_no_trading_authority() -> None:
+    calls: list[tuple[str, str, str]] = []
+
+    def transport(method, url, headers, _timeout, _maximum):
+        calls.append((method, url, headers["X-MBX-APIKEY"]))
+        assert method == "GET"
+        assert "/api/v3/account?" in url
+        assert "/api/v3/order" not in url
+        return OnlyBinanceHttpResponse(200, {}, b'{"balances":[],"canTrade":true}')
+
+    request = OnlyIntegrationProbeRequest(
+        "8ec96368-f447-45fe-9fc2-2596a7c7b9bd",
+        "b52eb762-34cf-47d4-8cca-56ef93f0d2ac",
+        "a" * 64,
+        "binance.spot.broker",
+        "b" * 64,
+        {"environment": "SPOT_TESTNET", "currencies": {"USDT": 8}},
+        None,
+        (OnlyIntegrationProbeCheck.CONNECTIVITY, OnlyIntegrationProbeCheck.AUTHENTICATION),
+        "BTCUSDT",
+        OnlyIntegrationProbePolicy(),
+        time.monotonic() + 5,
+        {"api_key": "exact-key", "api_secret": "exact-secret"},
+    )
+
+    result = OnlyBinanceSpotBrokerFactory(private_transport=transport).probe(request)
+
+    assert result.overall_status is OnlyIntegrationProbeStatus.READY
+    assert calls == [("GET", calls[0][1], "exact-key")]

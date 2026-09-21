@@ -6,7 +6,7 @@ from onlyalpha_plugin_binance.usdm.data_source import (
     OnlyBinanceUsdmDataSourceFactory,
 )
 
-from onlyalpha.plugin.integration import OnlyIntegrationCategory, OnlyIntegrationValueKind
+from onlyalpha.plugin.integration import OnlyIntegrationCategory, OnlyIntegrationProbeCheck, OnlyIntegrationValueKind
 
 
 def test_spot_data_source_declares_configuration_without_runtime_instruments() -> None:
@@ -46,8 +46,25 @@ def test_spot_broker_declares_semantic_secrets_while_runtime_parser_keeps_env_mi
     assert fields["currencies"].required is True
     assert fields["currencies"].value_kind is OnlyIntegrationValueKind.STRING_INTEGER_MAP
     assert "api_key_env" not in fields and "api_secret_env" not in fields
+    assert factory.integration_type.probe_contract is not None
+    assert set(factory.integration_type.probe_contract.probe_checks) == {
+        OnlyIntegrationProbeCheck.CONNECTIVITY,
+        OnlyIntegrationProbeCheck.AUTHENTICATION,
+    }
     with pytest.raises(ValueError, match="unknown Binance Spot Broker extensions"):
         factory.parse_config({"api_key": "must-not-be-read", "api_secret": "must-not-be-read"})
+
+
+def test_canonical_broker_config_uses_exact_secrets_without_environment_names() -> None:
+    config = OnlyBinanceSpotBrokerFactory().parse_runtime_integration_config(
+        {"environment": "SPOT_TESTNET", "currencies": {"USDT": 8}},
+        {"api_key": "exact-key", "api_secret": "exact-secret"},
+    )
+
+    assert config.api_key == "exact-key"
+    assert config.api_secret == "exact-secret"
+    assert "exact-key" not in repr(config)
+    assert not hasattr(config, "api_key_env")
 
 
 def test_usdm_data_source_contract_maps_existing_runtime_configuration() -> None:

@@ -123,3 +123,15 @@ BROKER_DESCRIPTOR = OnlyPluginDescriptor(
     "OnlyAlpha",
     BROKER_CAPABILITIES,
 )
+BROKER_INTEGRATION_TYPE = OnlyIntegrationTypeDescriptorV1(
+    type_id=OnlyIntegrationTypeId("miniqmt.broker"),
+    category=OnlyIntegrationCategory.BROKER,
+    display_name="MiniQMT Broker",
+    description="Local account observation and order execution through the MiniQMT terminal.",
+    provider_id="miniqmt",
+    implementation_id=BROKER_DESCRIPTOR.plugin_id,
+    implementation_version=BROKER_DESCRIPTOR.plugin_version,
+    public_api_version=str(BROKER_DESCRIPTOR.api_version),
+    capabilities=only_integration_capability_ids(BROKER_DESCRIPTOR.capabilities),
+    configuration_contract=DATA_INTEGRATION_TYPE.configuration_contract,
+)

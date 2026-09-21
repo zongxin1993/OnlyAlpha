@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from onlyalpha_plugin_miniqmt.broker.factory import OnlyMiniQmtBrokerFactory
 from onlyalpha_plugin_miniqmt.config import (
     DEFAULT_USERDATA_MINI_PATH,
     OnlyMiniQmtConfig,
@@ -20,6 +21,7 @@ from onlyalpha_plugin_miniqmt.mapping.status import map_order_status
 from onlyalpha.broker.enums import OnlyBrokerCapability
 from onlyalpha.domain.enums import OnlyOrderSide, OnlyOrderStatus, OnlyOrderType
 from onlyalpha.domain.identifiers import OnlyInstrumentId
+from onlyalpha.plugin.integration import OnlyIntegrationCategory
 
 
 def test_strict_config_and_default_path(tmp_path: Path) -> None:
@@ -85,3 +87,14 @@ def test_plain_instrument_detail_cannot_fabricate_historical_reference() -> None
                 "PriceTick": "0.01",
             }
         )
+
+
+def test_broker_integration_type_is_provider_neutral_and_discoverable() -> None:
+    descriptor = OnlyMiniQmtBrokerFactory().integration_type
+
+    assert descriptor.type_id.value == "miniqmt.broker"
+    assert descriptor.category is OnlyIntegrationCategory.BROKER
+    assert {field.field_id for field in descriptor.configuration_contract.fields} >= {
+        "userdata_mini_path",
+        "account_id",
+    }

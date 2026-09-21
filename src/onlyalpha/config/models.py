@@ -165,6 +165,17 @@ class OnlyBrokerRuntimeConfig:
     plugin_id: str
     enabled: bool
     extensions: OnlyJsonMapping = field(default_factory=lambda: MappingProxyType({}))
+    configuration_mode: OnlyRuntimeConfigurationMode = OnlyRuntimeConfigurationMode.LEGACY
+    integration_binding: OnlyJsonMapping | None = None
+
+    def __post_init__(self) -> None:
+        if self.integration_binding is not None:
+            object.__setattr__(self, "integration_binding", MappingProxyType(dict(self.integration_binding)))
+        legacy = self.configuration_mode is OnlyRuntimeConfigurationMode.LEGACY
+        if (legacy and (not self.plugin_id or self.integration_binding is not None)) or (
+            not legacy and (self.plugin_id or self.extensions or self.integration_binding is None)
+        ):
+            raise OnlyConfigError("RUNTIME_CONFIGURATION_MODE_CONFLICT")
 
 
 @dataclass(frozen=True, slots=True)

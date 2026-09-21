@@ -16,7 +16,11 @@ from onlyalpha.market.product import (
     OnlyMarketReferenceAuthority,
     OnlyResolvedMarketProductBinding,
 )
-from onlyalpha.plugin.capabilities import OnlyDataSourceCapabilities
+from onlyalpha.plugin.capabilities import OnlyBrokerPluginCapabilities, OnlyDataSourceCapabilities
+from onlyalpha.runtime.broker_integration import (
+    only_admit_broker_runtime_configuration,
+    only_resolve_broker_runtime_factory,
+)
 from onlyalpha.runtime.data_source_integration import only_admit_data_source_runtime_configuration
 from onlyalpha.runtime.environment import (
     OnlyResourceClaim,
@@ -111,12 +115,30 @@ class OnlyClusterComposition:
             else source
             for source in config.data_sources
         )
-        if admitted == config.data_sources:
+        live = config.runtime_type == "LIVE"
+        required_broker_capabilities = self._required_broker_capabilities(live)
+        admitted_brokers = tuple(
+            only_admit_broker_runtime_configuration(
+                broker,
+                self._components.integration_runtime_resolver,
+                required_broker_capabilities,
+                recovery=self._recovery,
+                require_current_revision=live,
+                require_ready_probe=live,
+            )
+            if broker.enabled
+            else broker
+            for broker in config.brokers
+        )
+        if admitted == config.data_sources and admitted_brokers == config.brokers:
             return config
         payload = json.loads(json.dumps(dict(config.normalized_payload)))
         for raw, source in zip(payload["data_sources"], admitted, strict=True):
             if source.integration_binding is not None:
                 raw["integration"] = dict(source.integration_binding)
+        for raw, broker in zip(payload["brokers"], admitted_brokers, strict=True):
+            if broker.integration_binding is not None:
+                raw["integration"] = dict(broker.integration_binding)
         return OnlyClusterRunConfig.from_mapping(payload, source_path=config.source_path)
 
     def commit(self, plan: OnlyClusterCompositionPlan) -> tuple[str, ...]:
@@ -155,7 +177,7 @@ class OnlyClusterComposition:
                     self._components.data_sources.resolve(source.plugin_id)
         brokers = {str(item.gateway_id): item for item in config.brokers}
         for broker in config.brokers:
-            if broker.enabled:
+            if broker.enabled and broker.plugin_id:
                 self._components.brokers.resolve(broker.plugin_id)
         for account in config.accounts:
             selection = (account.broker_fee_contract.contract_id, account.broker_fee_contract.contract_version)
@@ -163,12 +185,32 @@ class OnlyClusterComposition:
             if contract is None:
                 contract = self._components.broker_fee_contracts.require(*selection)
             broker = brokers[str(account.gateway_id)]
-            contract.validate_compatibility(broker_id=broker.plugin_id, account_id=account.account_id)
+            broker_identity = broker.plugin_id
+            if not broker_identity and broker.integration_binding is not None:
+                factory = only_resolve_broker_runtime_factory(
+                    broker,
+                    self._components.brokers,
+                    self._components.integration_runtime_resolver,
+                    self._required_broker_capabilities(config.runtime_type == "LIVE"),
+                )
+                broker_identity = factory.descriptor.plugin_id
+            contract.validate_compatibility(broker_id=broker_identity, account_id=account.account_id)
             self._components.fee_reconciliation_policies.require(
                 account.fee_reconciliation_policy.policy_id,
                 account.fee_reconciliation_policy.policy_version,
                 account.initial_cash.currency,
             )
+
+    @staticmethod
+    def _required_broker_capabilities(live: bool) -> OnlyBrokerPluginCapabilities:
+        return OnlyBrokerPluginCapabilities(
+            submit_order=live,
+            cancel_order=live,
+            query_orders=live,
+            query_trades=live,
+            query_positions=live,
+            live_execution=live,
+        )
 
 
 __all__ = ["OnlyClusterComposition", "OnlyClusterCompositionPlan"]

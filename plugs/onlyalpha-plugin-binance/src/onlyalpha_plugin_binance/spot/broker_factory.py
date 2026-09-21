@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import os
+import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 from onlyalpha.broker.reconciliation import (
@@ -17,6 +20,14 @@ from onlyalpha.domain.value import OnlyCurrency
 from onlyalpha.plugin.broker import OnlyBrokerComponent, OnlyBrokerCreateRequest
 from onlyalpha.plugin.capabilities import OnlyBrokerPluginCapabilities, OnlyPluginValidationIssue
 from onlyalpha.plugin.descriptor import OnlyPluginDescriptor
+from onlyalpha.plugin.integration import OnlyIntegrationProbeCheck
+from onlyalpha.plugin.integration_probe import (
+    OnlyIntegrationProbeCheckResult,
+    OnlyIntegrationProbeCheckStatus,
+    OnlyIntegrationProbeFailureKind,
+    OnlyIntegrationProbeRequest,
+    OnlyIntegrationProbeResult,
+)
 from onlyalpha.plugin.lifecycle import (
     OnlyPluginHealth,
     OnlyPluginHealthStatus,
@@ -70,6 +81,35 @@ class OnlyBinanceSpotBrokerPluginConfig:
             or not self.api_secret_env.startswith("ONLYALPHA_BINANCE_TESTNET_")
         ):
             raise ValueError("BINANCE_TESTNET_DEDICATED_CREDENTIAL_ENV_REQUIRED")
+        _validate_environment_hosts(self.environment, self.rest_base_url, self.websocket_api_base_url)
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyBinanceSpotBrokerIntegrationConfig:
+    environment: OnlyBinanceEnvironment
+    api_key: str = field(repr=False)
+    api_secret: str = field(repr=False)
+    rest_base_url: str = ""
+    websocket_api_base_url: str = ""
+    currencies: tuple[tuple[str, int], ...] = ()
+    recv_window_ms: int = 5_000
+    timeout_seconds: float = 10.0
+    max_response_bytes: int = 8 * 1024 * 1024
+
+    def __post_init__(self) -> None:
+        if (
+            not self.api_key
+            or not self.api_secret
+            or any(value.isspace() for value in (self.api_key, self.api_secret))
+            or not self.currencies
+            or len({code for code, _precision in self.currencies}) != len(self.currencies)
+            or any(not code.isalnum() or code != code.upper() or precision < 0 for code, precision in self.currencies)
+            or not 1 <= self.recv_window_ms <= 60_000
+            or self.timeout_seconds <= 0
+            or self.timeout_seconds > 30
+            or self.max_response_bytes <= 0
+        ):
+            raise ValueError("BINANCE_SPOT_BROKER_INTEGRATION_CONFIGURATION_INVALID")
         _validate_environment_hosts(self.environment, self.rest_base_url, self.websocket_api_base_url)
 
 
@@ -225,6 +265,38 @@ class OnlyBinanceSpotBrokerFactory:
             _integer_extension(extensions, "max_response_bytes", 8 * 1024 * 1024),
         )
 
+    def parse_runtime_integration_config(
+        self,
+        public_configuration: Mapping[str, object],
+        resolved_secrets: Mapping[str, str],
+    ) -> OnlyBinanceSpotBrokerIntegrationConfig:
+        allowed_public = {
+            "environment",
+            "rest_base_url",
+            "websocket_api_base_url",
+            "currencies",
+            "recv_window_ms",
+            "timeout_seconds",
+            "max_response_bytes",
+        }
+        if set(public_configuration) - allowed_public or set(resolved_secrets) != {"api_key", "api_secret"}:
+            raise ValueError("BINANCE_SPOT_BROKER_INTEGRATION_CONFIGURATION_INVALID")
+        environment = OnlyBinanceEnvironment(str(public_configuration.get("environment", "SPOT_TESTNET")).upper())
+        raw_currencies = public_configuration.get("currencies")
+        if not isinstance(raw_currencies, Mapping) or not raw_currencies:
+            raise ValueError("BINANCE_SPOT_BROKER_CURRENCIES_REQUIRED")
+        return OnlyBinanceSpotBrokerIntegrationConfig(
+            environment,
+            resolved_secrets["api_key"],
+            resolved_secrets["api_secret"],
+            str(public_configuration.get("rest_base_url", environment.rest_base_url)),
+            str(public_configuration.get("websocket_api_base_url", environment.websocket_api_base_url)),
+            tuple(sorted((str(code), int(precision)) for code, precision in raw_currencies.items())),
+            _integer_extension(public_configuration, "recv_window_ms", 5_000),
+            _float_extension(public_configuration, "timeout_seconds", 10.0),
+            _integer_extension(public_configuration, "max_response_bytes", 8 * 1024 * 1024),
+        )
+
     def validate_request(self, request: OnlyBrokerCreateRequest) -> Sequence[OnlyPluginValidationIssue]:
         issues: list[OnlyPluginValidationIssue] = []
         capabilities = self.descriptor.capabilities
@@ -239,7 +311,10 @@ class OnlyBinanceSpotBrokerFactory:
                 )
                 for name in capabilities.missing(request.requested_capabilities)
             )
-        if not isinstance(request.plugin_config, OnlyBinanceSpotBrokerPluginConfig):
+        if not isinstance(
+            request.plugin_config,
+            OnlyBinanceSpotBrokerPluginConfig | OnlyBinanceSpotBrokerIntegrationConfig,
+        ):
             issues.append(OnlyPluginValidationIssue("PLUGIN_CONFIG_INVALID", "invalid Binance Spot Broker config"))
         if request.command_evidence_store is None:
             issues.append(
@@ -256,11 +331,16 @@ class OnlyBinanceSpotBrokerFactory:
         if issues:
             raise ValueError("; ".join(f"{item.code}: {item.message}" for item in issues))
         config = request.plugin_config
-        assert isinstance(config, OnlyBinanceSpotBrokerPluginConfig)
+        assert isinstance(config, OnlyBinanceSpotBrokerPluginConfig | OnlyBinanceSpotBrokerIntegrationConfig)
         evidence = request.command_evidence_store
         assert evidence is not None
-        api_key = os.environ.get(config.api_key_env)
-        api_secret = os.environ.get(config.api_secret_env)
+        api_key: str | None
+        api_secret: str | None
+        if isinstance(config, OnlyBinanceSpotBrokerIntegrationConfig):
+            api_key, api_secret = config.api_key, config.api_secret
+        else:
+            api_key = os.environ.get(config.api_key_env)
+            api_secret = os.environ.get(config.api_secret_env)
         if not api_key or not api_secret:
             raise ValueError("BINANCE_SPOT_CREDENTIALS_REQUIRED")
         credentials = OnlyBinanceCredentials(api_key, api_secret)
@@ -337,6 +417,69 @@ class OnlyBinanceSpotBrokerFactory:
         )
         resource = OnlyBinanceSpotBrokerResource(gateway, stream, reconciliation)
         return OnlyBrokerComponent(gateway, resource)
+
+    def probe(self, request: OnlyIntegrationProbeRequest) -> OnlyIntegrationProbeResult:
+        started_at = datetime.now(UTC)
+        started = time.monotonic()
+        checks: list[OnlyIntegrationProbeCheckResult] = []
+        try:
+            config = self.parse_runtime_integration_config(request.public_configuration, request.resolved_secrets)
+            if started >= request.deadline_monotonic:
+                raise TimeoutError("INTEGRATION_PROBE_TIMEOUT")
+            timeout = min(config.timeout_seconds, max(0.001, request.deadline_monotonic - started))
+            if self._private_transport is None:
+                http = OnlyBinancePrivateHttpClient(
+                    config.rest_base_url,
+                    OnlyBinanceCredentials(config.api_key, config.api_secret),
+                    lambda: int(datetime.now(UTC).timestamp() * 1000),
+                    recv_window_ms=config.recv_window_ms,
+                    timeout_seconds=timeout,
+                    max_response_bytes=config.max_response_bytes,
+                )
+            else:
+                http = OnlyBinancePrivateHttpClient(
+                    config.rest_base_url,
+                    OnlyBinanceCredentials(config.api_key, config.api_secret),
+                    lambda: int(datetime.now(UTC).timestamp() * 1000),
+                    recv_window_ms=config.recv_window_ms,
+                    timeout_seconds=timeout,
+                    max_response_bytes=config.max_response_bytes,
+                    transport=self._private_transport,
+                )
+            payload = OnlyBinanceSpotPrivateRestClient(http).account()
+            account = json.loads(payload)
+            if not isinstance(account, dict) or not isinstance(account.get("balances"), list):
+                raise ValueError("BINANCE_BROKER_ACCOUNT_SCHEMA_INVALID")
+        except Exception:
+            for check in request.required_checks:
+                checks.append(
+                    OnlyIntegrationProbeCheckResult(
+                        check,
+                        OnlyIntegrationProbeCheckStatus.FAIL,
+                        max(0, int((time.monotonic() - started) * 1000)),
+                        OnlyIntegrationProbeFailureKind.OFFLINE
+                        if check is OnlyIntegrationProbeCheck.CONNECTIVITY
+                        else OnlyIntegrationProbeFailureKind.FAILED,
+                        "BINANCE_BROKER_PROBE_FAILED",
+                    )
+                )
+        else:
+            for check in request.required_checks:
+                checks.append(
+                    OnlyIntegrationProbeCheckResult(
+                        check,
+                        OnlyIntegrationProbeCheckStatus.PASS,
+                        max(0, int((time.monotonic() - started) * 1000)),
+                        observations=("read_only_account_visible=true",),
+                    )
+                )
+        return OnlyIntegrationProbeResult.create(
+            request,
+            probe_instrument=request.probe_instrument,
+            checks=tuple(checks),
+            started_at=started_at,
+            completed_at=datetime.now(UTC),
+        )
 
 
 __all__ = [name for name in globals() if name.startswith("Only")]

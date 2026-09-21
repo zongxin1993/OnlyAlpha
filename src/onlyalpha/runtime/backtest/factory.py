@@ -44,6 +44,7 @@ from onlyalpha.runtime.backtest.driver import OnlyBacktestDriver
 from onlyalpha.runtime.backtest.input_requirements import only_kernel_economic_input_requirements
 from onlyalpha.runtime.backtest.run_plan import OnlyBacktestRunPlan
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
+from onlyalpha.runtime.broker_integration import only_resolve_broker_runtime_configuration
 from onlyalpha.runtime.data_source_integration import only_resolve_data_source_runtime_configuration
 from onlyalpha.runtime.factory import OnlyRuntimeBuildRequest, OnlyRuntimeBuildResult
 from onlyalpha.runtime.persistence.factory import (
@@ -279,12 +280,20 @@ class OnlyBacktestRuntimeFactory:
             else OnlyAccountType.CASH
         )
         market_fee_pack = request.market_product.market_fee_pack
+        required_broker_capabilities = OnlyBrokerPluginCapabilities(simulated_execution=True)
+        broker_factory, broker_plugin_config = only_resolve_broker_runtime_configuration(
+            broker_common,
+            components.brokers,
+            components.integration_runtime_resolver,
+            required_broker_capabilities,
+        )
+        broker_identity = broker_factory.descriptor.plugin_id
         broker_fee_contract = components.broker_fee_contracts.require(
             account.broker_fee_contract.contract_id,
             account.broker_fee_contract.contract_version,
         )
         broker_fee_contract.validate_compatibility(
-            broker_id=broker_common.plugin_id,
+            broker_id=broker_identity,
             account_id=account.account_id,
         )
         reconciliation_policy = components.fee_reconciliation_policies.require(
@@ -308,7 +317,7 @@ class OnlyBacktestRuntimeFactory:
             market_rule_engine=market_rule_engine,
             market_fee_pack=market_fee_pack,
             broker_fee_contract=broker_fee_contract,
-            broker_fee_authority_id=broker_common.plugin_id,
+            broker_fee_authority_id=broker_identity,
             fee_basis_providers=components.fee_basis_providers,
             fee_reconciliation_policy=reconciliation_policy,
         )
@@ -380,7 +389,6 @@ class OnlyBacktestRuntimeFactory:
         self._raise_issues(
             data_factory.descriptor.plugin_id, str(source_common.source_id), data_factory.validate_request(data_request)
         )
-        broker_factory = components.brokers.resolve(broker_common.plugin_id)
         broker_checkpoint_version: int | None = None
         if config.runtime.persistence.checkpoint.enabled:
             broker_checkpoint = self._require_checkpoint_capability(broker_factory.descriptor.capabilities, "Broker")
@@ -393,12 +401,11 @@ class OnlyBacktestRuntimeFactory:
             )
             if not isinstance(broker_checkpoint_version, int) or broker_checkpoint_version < 1:
                 raise ValueError("Backtest Broker checkpoint schema version must be positive")
-        broker_plugin_config = broker_factory.parse_config(broker_common.extensions)
         broker_request = OnlyBrokerCreateRequest(
             broker_common.gateway_id,
             broker_plugin_config,
             config.runtime.runtime_type,
-            OnlyBrokerPluginCapabilities(simulated_execution=True),
+            required_broker_capabilities,
             clock,
             event_bus,
             queue,

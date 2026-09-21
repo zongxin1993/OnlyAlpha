@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from logging import Logger
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
 from onlyalpha.broker.inbound import OnlyBrokerInboundQueue
@@ -68,10 +68,20 @@ class OnlyBrokerGatewayFactory(Protocol):
     def create(self, request: OnlyBrokerCreateRequest) -> OnlyBrokerComponent: ...
 
 
+@runtime_checkable
+class OnlyBrokerIntegrationRuntimeAdapter(Protocol):
+    def parse_runtime_integration_config(
+        self,
+        public_configuration: Mapping[str, object],
+        resolved_secrets: Mapping[str, str],
+    ) -> object: ...
+
+
 __all__ = [
     "OnlyBrokerComponent",
     "OnlyBrokerCreateRequest",
     "OnlyBrokerGatewayFactory",
+    "OnlyBrokerIntegrationRuntimeAdapter",
     "OnlyBrokerInboundQueue",
     "OnlyDeterministicBrokerDriver",
 ]

@@ -208,7 +208,16 @@ class OnlyRuntimeEnvironmentBuilder:
     def _broker(value: object) -> OnlyBrokerEnvironmentIdentity:
         broker = cast(OnlyBrokerRuntimeConfig, value)
         return OnlyBrokerEnvironmentIdentity(
-            str(broker.gateway_id), broker.plugin_id, broker.enabled, only_canonical_fingerprint(broker.extensions)
+            str(broker.gateway_id),
+            broker.plugin_id,
+            broker.enabled,
+            only_canonical_fingerprint(
+                {
+                    "configuration_mode": broker.configuration_mode.value,
+                    "extensions": broker.extensions,
+                    "integration_binding": broker.integration_binding,
+                }
+            ),
         )
 
     @staticmethod
