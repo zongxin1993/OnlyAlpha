@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -19,6 +20,14 @@ from onlyalpha.research.agent.store import (
     OnlyJsonAgentSessionManifestStore,
 )
 
+from .config import OnlyOpenAICompatibleEndpointConfigV1
+from .provider_integration import (
+    OnlyAgentProviderRuntimeAuthority,
+    OnlyAgentSessionProviderBindingV1,
+    OnlyJsonAgentModelProfileStoreV1,
+    OnlyJsonAgentProviderBindingStoreV1,
+    OnlyResolvedAgentProviderRuntimeV1,
+)
 from .runtime import build_current_agent_workflow_implementation_manifest
 from .semantic_bundle import OnlyAgentProductionSemanticBundleV1, commit_production_semantic_bundle_v1
 
@@ -46,12 +55,34 @@ class OnlyAgentNodeControlServiceV1:
         sessions: OnlyJsonAgentSessionManifestStore,
         semantic_bundle: OnlyAgentProductionSemanticBundleV1,
         driver: OnlyAgentNodeDriver,
+        provider_runtime: OnlyResolvedAgentProviderRuntimeV1 | None = None,
+        provider_resolver: OnlyAgentProviderRuntimeAuthority | None = None,
+        provider_bindings: OnlyJsonAgentProviderBindingStoreV1 | None = None,
+        model_profiles: OnlyJsonAgentModelProfileStoreV1 | None = None,
+        product_contract_fingerprint: str | None = None,
+        provider_driver_factory: Callable[[OnlyOpenAICompatibleEndpointConfigV1], OnlyAgentNodeDriver] | None = None,
     ) -> None:
         self._resources = resources
         self._briefs = briefs
         self._sessions = sessions
         self._bundle = semantic_bundle
         self._driver = driver
+        self._provider_runtime = provider_runtime
+        self._provider_resolver = provider_resolver
+        self._provider_bindings = provider_bindings
+        self._model_profiles = model_profiles
+        self._product_contract_fingerprint = product_contract_fingerprint
+        self._provider_driver_factory = provider_driver_factory
+        configured = (
+            provider_runtime,
+            provider_resolver,
+            provider_bindings,
+            model_profiles,
+            product_contract_fingerprint,
+            provider_driver_factory,
+        )
+        if any(value is not None for value in configured) and not all(value is not None for value in configured):
+            raise ValueError("AGENT_PROVIDER_CONFIGURATION_INCOMPLETE")
 
     def bootstrap(self) -> str:
         commit_production_semantic_bundle_v1(self._resources, self._bundle)
@@ -84,6 +115,20 @@ class OnlyAgentNodeControlServiceV1:
             self._bundle.tool_policy_fingerprint,
             self._bundle.role_policy_fingerprints,
         )
+        if self._provider_runtime is not None:
+            assert self._provider_bindings is not None
+            assert self._model_profiles is not None
+            assert self._product_contract_fingerprint is not None
+            self._model_profiles.commit(self._provider_runtime.model_profile)
+            self._provider_bindings.commit(
+                OnlyAgentSessionProviderBindingV1(
+                    session.session_fingerprint,
+                    manifest.implementation_fingerprint,
+                    self._product_contract_fingerprint,
+                    self._provider_runtime.binding,
+                    self._provider_runtime.model_profile.model_profile_fingerprint,
+                )
+            )
         outcome = self._sessions.commit_session_manifest(session)
         return OnlyAgentSessionAdmissionOutcomeV1(
             session.session_fingerprint,
@@ -93,6 +138,21 @@ class OnlyAgentNodeControlServiceV1:
         )
 
     def advance_once(self, session_fingerprint: str) -> OnlyAgentDerivedSessionStateV1:
+        if self._provider_runtime is not None:
+            assert self._provider_bindings is not None
+            assert self._provider_resolver is not None
+            assert self._model_profiles is not None
+            binding = self._provider_bindings.load(session_fingerprint)
+            profile = self._model_profiles.load(binding.model_profile_fingerprint)
+            context = self._sessions.load_session_manifest_verified(session_fingerprint)
+            if (
+                binding.workflow_manifest_fingerprint != context.session.agent_workflow_implementation_fingerprint
+                or binding.product_contract_fingerprint != self._product_contract_fingerprint
+            ):
+                raise ValueError("AGENT_WORKFLOW_RUNTIME_MISMATCH")
+            resolved = self._provider_resolver.continue_exact(binding, profile)
+            assert self._provider_driver_factory is not None
+            return self._provider_driver_factory(resolved.endpoint).advance_once(session_fingerprint)
         return self._driver.advance_once(session_fingerprint)
 
 

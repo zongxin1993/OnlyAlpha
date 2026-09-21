@@ -152,7 +152,7 @@ services:
       target: runtime
     entrypoint: ["onlyalpha-agent"]
     command:
-      ["serve", "--durable-root", "/var/lib/onlyalpha-agent", "--coordination-root", "/var/run/onlyalpha-agent", "--host", "0.0.0.0", "--port", "8010"]
+      ["serve", "--model-configuration-mode", "LEGACY", "--durable-root", "/var/lib/onlyalpha-agent", "--coordination-root", "/var/run/onlyalpha-agent", "--host", "0.0.0.0", "--port", "8010"]
     depends_on:
       api:
         condition: service_healthy

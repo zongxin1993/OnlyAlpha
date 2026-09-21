@@ -8,6 +8,11 @@ from typing import cast
 from uuid import UUID
 
 import pytest
+from onlyalpha_agent_orchestrator.provider_integration import (
+    OnlyAgentModelProfileV1,
+    OnlyAgentProviderRuntimeResolverV1,
+    OnlyOpenAICompatibleAgentProviderProbe,
+)
 
 from onlyalpha.application.integration_configuration import (
     OnlyIntegration,
@@ -22,7 +27,8 @@ from onlyalpha.application.integration_probe import (
     OnlyIntegrationProbeAttempt,
     OnlyIntegrationProbeService,
 )
-from onlyalpha.application.integration_type_catalog import OnlyIntegrationProbeCatalog
+from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeResolver
+from onlyalpha.application.integration_type_catalog import OnlyIntegrationProbeCatalog, OnlyIntegrationTypeCatalog
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.plugin import (
@@ -31,6 +37,7 @@ from onlyalpha.plugin import (
     OnlyPluginDescriptor,
     OnlyPluginType,
 )
+from onlyalpha.plugin.agent_provider import OPENAI_COMPATIBLE_AGENT_PROVIDER_INTEGRATION_TYPE
 from onlyalpha.plugin.integration import (
     OnlyIntegrationCategory,
     OnlyIntegrationConfigurationContractV1,
@@ -319,6 +326,83 @@ def test_probe_resolves_exact_secret_generation_into_memory_only_request() -> No
     assert "memory-only-secret" not in repr(attempt)
     assert "memory-only-secret" not in str(attempt.to_dict())
     assert attempts.items == [attempt]
+
+
+def test_agent_provider_probe_persists_ready_evidence_for_exact_runtime_admission() -> None:
+    descriptor = OPENAI_COMPATIBLE_AGENT_PROVIDER_INTEGRATION_TYPE
+    binding = OnlyIntegrationSecretBinding("api_credential", "bf1702ca-104e-4eb6-983a-93b3af201f43", 7)
+    revision = OnlyIntegrationRevision.from_resolved(
+        integration_id=INTEGRATION_ID,
+        revision_sequence=1,
+        type_id=descriptor.type_id.value,
+        type_descriptor_fingerprint=descriptor.fingerprint,
+        type_descriptor_document=descriptor.to_dict(include_fingerprint=False),
+        configuration_document={
+            "base_url": "https://provider.example/v1",
+            "connect_timeout_seconds": 2.0,
+            "read_timeout_seconds": 5.0,
+            "verify_tls": True,
+        },
+        probe_configuration_document=None,
+        secret_bindings=(binding,),
+        created_at=NOW,
+    )
+    state = _StateStore(
+        OnlyIntegration(
+            INTEGRATION_ID,
+            descriptor.type_id.value,
+            "Agent provider",
+            OnlyIntegrationLifecycleState.ACTIVE,
+            revision.revision_fingerprint,
+            NOW,
+            NOW,
+        ),
+        revision,
+        (binding,),
+    )
+    attempts = _AttemptStore()
+    credentials = _Credentials()
+    calls: list[str] = []
+
+    def transport(url, _headers, _timeout, _verify_tls):  # type: ignore[no-untyped-def]
+        calls.append(url)
+        return 200, b'{"data":[{"id":"onlyalpha-research-v1"}]}'
+
+    provider = OnlyOpenAICompatibleAgentProviderProbe(transport)
+    probes = OnlyIntegrationProbeCatalog(
+        OnlyDataSourceFactoryRegistry(),
+        OnlyBrokerFactoryRegistry(),
+        ((descriptor, provider),),
+    )
+    OnlyIntegrationProbeService(
+        state,
+        attempts,
+        credentials,
+        probes,
+        attempt_id_factory=lambda: UUID(ATTEMPT_ID),
+    ).probe(INTEGRATION_ID, revision.revision_fingerprint)
+    types = OnlyIntegrationTypeCatalog(
+        OnlyDataSourceFactoryRegistry(),
+        OnlyBrokerFactoryRegistry(),
+        (descriptor,),
+    )
+    profile = OnlyAgentModelProfileV1(
+        INTEGRATION_ID.value,
+        revision.revision_fingerprint,
+        revision.runtime_configuration_fingerprint,
+        "onlyalpha-research-v1",
+        "2026-09-01",
+        ("CHAT", "STRUCTURED_OUTPUT"),
+    )
+
+    resolved = OnlyAgentProviderRuntimeResolverV1(
+        OnlyIntegrationRuntimeResolver(state, credentials, types, probes=attempts)
+    ).admit_new(profile)
+
+    assert calls == ["https://provider.example/v1/models"]
+    assert attempts.items[0].overall_status is OnlyIntegrationProbeStatus.READY
+    assert resolved.binding.revision_fingerprint == revision.revision_fingerprint
+    assert resolved.endpoint.api_credential == "memory-only-secret"
 
 
 def test_probe_policy_is_bounded_and_passed_without_runtime_dependencies() -> None:

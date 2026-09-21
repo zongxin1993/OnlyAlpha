@@ -23,11 +23,18 @@ from typing import Any, cast
 
 import uvicorn
 from fastapi import FastAPI
+from onlyalpha_agent_orchestrator.config import OnlyOpenAICompatibleEndpointConfigV1
+from onlyalpha_agent_orchestrator.provider_integration import (
+    OnlyAgentModelProfileV1,
+    OnlyAgentSessionProviderBindingV1,
+    OnlyResolvedAgentProviderRuntimeV1,
+)
 from onlyalpha_http_server.agent_gateway import (
     OnlyAgentNodeGatewayConfigV1,
     OnlyAgentNodeHttpGatewayV1,
     create_agent_gateway_router,
 )
+from onlyalpha_http_server.agent_provider_runtime import create_agent_provider_runtime_router
 from onlyalpha_http_server.research.catalog_context_routes import create_exact_catalog_context_router
 from onlyalpha_http_server.research.exact_reference_routes import create_exact_reference_router
 from onlyalpha_http_server.research.exact_statistics_routes import create_exact_statistics_router
@@ -44,7 +51,10 @@ from onlyalpha_http_server.search.schema import (
     SymbolicSearchSubmitRequestDto,
 )
 
+from onlyalpha.application.integration_configuration import OnlyIntegrationId
+from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeBindingV1
 from onlyalpha.canonical import only_canonical_json
+from onlyalpha.plugin.integration import OnlyIntegrationCategory
 from onlyalpha.research.agent.decision import (
     OnlyAgentDecisionKind,
     OnlyAgentEvaluationPathKind,
@@ -107,6 +117,7 @@ STATISTICS_RESULT_FP = "f" * 64
 CONTROL_TOKEN = "agent-control-sentinel"
 PRODUCT_TOKEN = "agent-product-sentinel"
 MODEL_TOKEN = "agent-model-sentinel"
+RUNTIME_TOKEN = "agent-runtime-sentinel"
 ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -487,6 +498,51 @@ def _model_app(outputs: Mapping[str, Mapping[str, object]], calls: list[str]) ->
     return app
 
 
+def _runtime_authority_app(model_url: str) -> tuple[FastAPI, OnlyAgentModelProfileV1]:
+    binding = OnlyIntegrationRuntimeBindingV1(
+        OnlyIntegrationId("b52eb762-34cf-47d4-8cca-56ef93f0d2ac"),
+        "8" * 64,
+        "openai.compatible.agent_provider",
+        OnlyIntegrationCategory.AGENT_PROVIDER,
+        "9" * 64,
+        "7" * 64,
+    )
+    profile = OnlyAgentModelProfileV1(
+        binding.integration_id.value,
+        binding.revision_fingerprint,
+        binding.runtime_configuration_fingerprint,
+        "onlyalpha-research-v1",
+        "2026-09-01",
+        ("CHAT", "STRUCTURED_OUTPUT"),
+    )
+    runtime = OnlyResolvedAgentProviderRuntimeV1(
+        binding,
+        profile,
+        OnlyOpenAICompatibleEndpointConfigV1(
+            model_url,
+            MODEL_TOKEN,
+            "openai-compatible",
+            profile.model_id,
+            profile.model_version,
+        ),
+    )
+
+    class Resolver:
+        def admit_new(self, selected):  # type: ignore[no-untyped-def]
+            assert selected == profile
+            return runtime
+
+        def continue_exact(self, evidence, selected):  # type: ignore[no-untyped-def]
+            assert isinstance(evidence, OnlyAgentSessionProviderBindingV1)
+            assert evidence.provider_binding == binding
+            assert selected == profile
+            return runtime
+
+    app = FastAPI()
+    app.include_router(create_agent_provider_runtime_router(Resolver(), RUNTIME_TOKEN))  # type: ignore[arg-type]
+    return app, profile
+
+
 def _product_app(agent_url: str, search: _SearchAuthority) -> FastAPI:
     app = FastAPI()
 
@@ -654,7 +710,7 @@ def _installed_agent(root: Path) -> tuple[Path, dict[str, str]]:
 def _start_agent(
     root: Path,
     product_url: str,
-    model_url: str,
+    runtime_authority_url: str,
     port: int,
     executable: Path,
     environment: Mapping[str, str],
@@ -673,10 +729,14 @@ def _start_agent(
             str(Path(__file__).resolve().parents[3] / "contracts/product-api/v2/openapi.json"),
             "--product-token-file",
             str(root / "product.secret"),
-            "--model-api-url",
-            model_url,
-            "--model-token-file",
-            str(root / "model.secret"),
+            "--model-configuration-mode",
+            "INTEGRATION_REVISION",
+            "--integration-runtime-authority-url",
+            runtime_authority_url + "/internal/v1/agent-provider-runtime",
+            "--integration-runtime-authority-token-file",
+            str(root / "runtime.secret"),
+            "--model-profile-file",
+            str(root / "model-profile.json"),
             "--control-token-file",
             str(root / "control.secret"),
             "--host",
@@ -735,7 +795,7 @@ def test_packaged_symbolic_search_process_restarts_and_completes_exactly_once(tm
     root = tmp_path.resolve()
     for name, value in (
         ("product.secret", PRODUCT_TOKEN),
-        ("model.secret", MODEL_TOKEN),
+        ("runtime.secret", RUNTIME_TOKEN),
         ("control.secret", CONTROL_TOKEN),
     ):
         (root / name).write_text(value + "\n", encoding="utf-8")
@@ -747,8 +807,10 @@ def test_packaged_symbolic_search_process_restarts_and_completes_exactly_once(tm
     agent_url = f"http://127.0.0.1:{agent_port}"
     agent_outputs: list[tuple[str, str]] = []
     with _serve(_model_app(_model_outputs(brief), model_calls)) as model_url:
-        with _serve(_product_app(agent_url, search)) as product_url:
-            process = _start_agent(root, product_url, model_url, agent_port, executable, environment)
+        runtime_app, profile = _runtime_authority_app(model_url)
+        (root / "model-profile.json").write_text(only_canonical_json(profile.to_dict()), encoding="utf-8")
+        with _serve(runtime_app) as runtime_url, _serve(_product_app(agent_url, search)) as product_url:
+            process = _start_agent(root, product_url, runtime_url, agent_port, executable, environment)
             try:
                 assert _get(agent_url + "/internal/v1/healthz") == {"status": "ALIVE"}
                 assert _get(agent_url + "/internal/v1/readyz") == {"status": "READY"}
@@ -763,7 +825,7 @@ def test_packaged_symbolic_search_process_restarts_and_completes_exactly_once(tm
                 if process.poll() is None:
                     agent_outputs.append(_stop_agent(process))
 
-            process = _start_agent(root, product_url, model_url, agent_port, executable, environment)
+            process = _start_agent(root, product_url, runtime_url, agent_port, executable, environment)
             try:
                 for _ in range(30):
                     try:
@@ -795,6 +857,13 @@ def test_packaged_symbolic_search_process_restarts_and_completes_exactly_once(tm
     assert len(set(search.command_ids)) == len(search.command_ids) == 3
     assert search.submit_count == 1
     assert search.advance_count == 2
+    provider_binding = json.loads(
+        (root / "facts/research/agent-orchestration/provider-bindings" / session / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert provider_binding["provider_binding"]["revision_fingerprint"] == "8" * 64
+    assert provider_binding["model_profile_fingerprint"] == profile.model_profile_fingerprint
     assert models.budget_consumed(session) == 4
     assert tools.budget_consumed(session) == 6
     assert decisions.contiguous_count(session) == 3
@@ -837,6 +906,6 @@ def test_packaged_symbolic_search_process_restarts_and_completes_exactly_once(tm
     assert search.experiment is not None
     assert search.experiment.search_budget == brief.requested_child_search_budget
     all_bytes = b"".join(path.read_bytes() for path in (root / "facts").rglob("*") if path.is_file())
-    for secret in (CONTROL_TOKEN, PRODUCT_TOKEN, MODEL_TOKEN):
+    for secret in (CONTROL_TOKEN, PRODUCT_TOKEN, MODEL_TOKEN, RUNTIME_TOKEN):
         assert secret.encode() not in all_bytes
         assert secret not in "".join(value for output in agent_outputs for value in output)

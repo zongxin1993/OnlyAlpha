@@ -1082,6 +1082,7 @@ source = { editable = "packages/onlyalpha-http-server" }
 dependencies = [
     { name = "fastapi" },
     { name = "onlyalpha" },
+    { name = "onlyalpha-agent-orchestrator" },
     { name = "onlyalpha-authoring-execution-worker" },
     { name = "onlyalpha-runtime-generation-manager" },
     { name = "pydantic" },
@@ -1099,6 +1100,7 @@ dev = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.116,<1" },
     { name = "onlyalpha", editable = "." },
+    { name = "onlyalpha-agent-orchestrator", editable = "packages/onlyalpha-agent-orchestrator" },
     { name = "onlyalpha-authoring-execution-worker", editable = "packages/onlyalpha-authoring-execution-worker" },
     { name = "onlyalpha-runtime-generation-manager", editable = "packages/onlyalpha-runtime-generation-manager" },
     { name = "pydantic", specifier = ">=2.11,<3" },

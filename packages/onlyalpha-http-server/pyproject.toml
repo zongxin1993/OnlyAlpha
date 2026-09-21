@@ -8,6 +8,7 @@ dependencies = [
     "onlyalpha==0.9.9",
     "onlyalpha-runtime-generation-manager==0.9.9",
     "onlyalpha-authoring-execution-worker==0.9.9",
+    "onlyalpha-agent-orchestrator==0.9.9",
     "fastapi>=0.116,<1",
     "pydantic>=2.11,<3",
     "uvicorn>=0.35,<1",
@@ -34,6 +35,7 @@ packages = ["src/onlyalpha_http_server"]
 onlyalpha = { workspace = true }
 onlyalpha-runtime-generation-manager = { workspace = true }
 onlyalpha-authoring-execution-worker = { workspace = true }
+onlyalpha-agent-orchestrator = { workspace = true }
 
 [tool.mypy]
 python_version = "3.12"

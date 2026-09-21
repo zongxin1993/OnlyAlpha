@@ -1,12 +1,14 @@
 from dataclasses import dataclass, replace
 
 import pytest
+from onlyalpha_agent_orchestrator.provider_integration import OnlyOpenAICompatibleAgentProviderProbe
 from onlyalpha_plugin_binance.spot.data_source.factory import OnlyBinanceSpotDataSourceFactory
 from onlyalpha_plugin_binance.usdm.data_source import OnlyBinanceUsdmDataSourceFactory
 from onlyalpha_plugin_miniqmt.data_source.factory import OnlyMiniQmtDataSourceFactory
 from onlyalpha_plugin_tushare.data_source.factory import OnlyTushareDataSourceFactory
 
 from onlyalpha.application.integration_type_catalog import (
+    OnlyIntegrationProbeCatalog,
     OnlyIntegrationTypeCatalog,
     OnlyIntegrationTypeCatalogError,
 )
@@ -19,6 +21,7 @@ from onlyalpha.plugin import (
     OnlyPluginDescriptor,
     OnlyPluginType,
 )
+from onlyalpha.plugin.agent_provider import OPENAI_COMPATIBLE_AGENT_PROVIDER_INTEGRATION_TYPE
 from onlyalpha.plugin.integration import (
     OnlyIntegrationCategory,
     OnlyIntegrationConfigurationContractV1,
@@ -175,3 +178,21 @@ def test_all_first_party_product_data_sources_declare_unique_types_without_provi
     }
     assert len({descriptor.type_id.value for descriptor in descriptors}) == len(descriptors)
     assert all(descriptor.category is OnlyIntegrationCategory.DATA_SOURCE for descriptor in descriptors)
+
+
+def test_component_agent_provider_type_is_available_without_becoming_a_plugin() -> None:
+    catalog = OnlyIntegrationTypeCatalog(
+        OnlyDataSourceFactoryRegistry(),
+        OnlyBrokerFactoryRegistry(),
+        (OPENAI_COMPATIBLE_AGENT_PROVIDER_INTEGRATION_TYPE,),
+    )
+
+    assert catalog.require("openai.compatible.agent_provider").category is OnlyIntegrationCategory.AGENT_PROVIDER
+
+    probe = OnlyOpenAICompatibleAgentProviderProbe(lambda *_args: (200, b'{"data":[]}'))
+    probe_catalog = OnlyIntegrationProbeCatalog(
+        OnlyDataSourceFactoryRegistry(),
+        OnlyBrokerFactoryRegistry(),
+        ((OPENAI_COMPATIBLE_AGENT_PROVIDER_INTEGRATION_TYPE, probe),),
+    )
+    assert probe_catalog.require("openai.compatible.agent_provider") is probe

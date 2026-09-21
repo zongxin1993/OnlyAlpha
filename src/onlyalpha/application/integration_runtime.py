@@ -22,7 +22,6 @@ from .integration_configuration import (
     only_integration_runtime_configuration_fingerprint,
     only_integration_secret_binding_fingerprint,
 )
-from .integration_probe import OnlyIntegrationProbeAttempt
 
 _FINGERPRINT = re.compile(r"^[0-9a-f]{64}$")
 _BINDING_DOMAIN = "ONLYALPHA_INTEGRATION_RUNTIME_BINDING_V1"
@@ -184,10 +183,24 @@ class OnlyIntegrationRuntimeTypeCatalog(Protocol):
     def require(self, type_id: str) -> OnlyIntegrationTypeDescriptorV1: ...
 
 
+class OnlyIntegrationRuntimeProbeAttempt(Protocol):
+    @property
+    def integration_id(self) -> OnlyIntegrationId: ...
+
+    @property
+    def revision_fingerprint(self) -> str: ...
+
+    @property
+    def runtime_configuration_fingerprint(self) -> str: ...
+
+    @property
+    def overall_status(self) -> OnlyIntegrationProbeStatus: ...
+
+
 class OnlyIntegrationRuntimeProbeReader(Protocol):
     def latest_probe_attempt(
         self, integration_id: OnlyIntegrationId, revision_fingerprint: str
-    ) -> OnlyIntegrationProbeAttempt | None: ...
+    ) -> OnlyIntegrationRuntimeProbeAttempt | None: ...
 
 
 class OnlyIntegrationRuntimeGenerationReader(Protocol):

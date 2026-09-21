@@ -9,6 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.params import Depends as DependsParam
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
+from onlyalpha_agent_orchestrator.provider_integration import OnlyAgentProviderRuntimeResolverV1
 
 from onlyalpha.application.catalog_context import OnlyExactCatalogContextQueryService
 from onlyalpha.application.integration_application import (
@@ -87,6 +88,7 @@ from onlyalpha.research.specification.errors import OnlyResearchSpecificationErr
 from onlyalpha.strategy.errors import OnlyStrategyError
 
 from .agent_gateway import AGENT_GATEWAY_ROUTE_TAG, OnlyAgentNodeGateway, create_agent_gateway_router
+from .agent_provider_runtime import create_agent_provider_runtime_router
 from .backtest.routes import BACKTEST_ROUTE_TAG, create_backtest_router
 from .backtest.schema import ProductErrorDto, ProductErrorEnvelopeDto
 from .health import OnlyKernelResearchReadinessProjection, OnlyProductExecutionCapacityProbe, create_health_router
@@ -257,6 +259,7 @@ def create_research_app(
     integration_queries: OnlyIntegrationQueryService | None = None,
     integration_probes: OnlyIntegrationProbeService | None = None,
     integration_operational_queries: OnlyIntegrationOperationalQueryService | None = None,
+    agent_provider_runtime: tuple[OnlyAgentProviderRuntimeResolverV1, str] | None = None,
 ) -> FastAPI:
     integration_authorities = (integration_types, integration_commands, integration_queries)
     if any(item is not None for item in integration_authorities) and any(
@@ -604,6 +607,8 @@ def create_research_app(
                 integration_operational_queries,
             )
         )
+    if agent_provider_runtime is not None:
+        app.include_router(create_agent_provider_runtime_router(*agent_provider_runtime))
     _install_exact_product_openapi(app)
     return app
 
@@ -677,6 +682,7 @@ def create_product_app(
     integration_queries: OnlyIntegrationQueryService | None = None,
     integration_probes: OnlyIntegrationProbeService | None = None,
     integration_operational_queries: OnlyIntegrationOperationalQueryService | None = None,
+    agent_provider_runtime: tuple[OnlyAgentProviderRuntimeResolverV1, str] | None = None,
 ) -> FastAPI:
     if (
         integration_types is None
@@ -718,6 +724,7 @@ def create_product_app(
         integration_queries,
         integration_probes,
         integration_operational_queries,
+        agent_provider_runtime,
     )
     app.title = "OnlyAlpha Product API"
     return app

@@ -57,7 +57,14 @@ from .config import OnlyOpenAICompatibleEndpointConfigV1, OnlyProductApiEndpoint
 from .coordination import OnlyAgentSessionExecutionCoordinatorV1
 from .driver import OnlyAgentSessionDriverV1
 from .materialization import OnlyAgentWorkflowActionMaterializerV1
-from .node_service import OnlyAgentNodeControlServiceV1
+from .node_service import OnlyAgentNodeControlServiceV1, OnlyAgentNodeDriver
+from .provider_integration import (
+    OnlyAgentModelProfileV1,
+    OnlyAgentProviderRuntimeAuthority,
+    OnlyJsonAgentModelProfileStoreV1,
+    OnlyJsonAgentProviderBindingStoreV1,
+    OnlyResolvedAgentProviderRuntimeV1,
+)
 from .runtime import build_current_agent_workflow_implementation_manifest
 from .semantic_bundle import load_production_semantic_bundle_v1
 
@@ -332,9 +339,13 @@ class OnlyAgentProductionRuntimeV1:
         coordination_root: Path,
         product: OnlyProductApiEndpointConfigV1,
         model: OnlyOpenAICompatibleEndpointConfigV1,
+        provider_runtime: OnlyResolvedAgentProviderRuntimeV1 | None = None,
+        provider_resolver: OnlyAgentProviderRuntimeAuthority | None = None,
     ) -> OnlyAgentProductionRuntimeV1:
         if not durable_root.is_absolute() or not coordination_root.is_absolute():
             raise ValueError("AGENT_PRODUCTION_ROOT_INVALID")
+        if provider_runtime is not None and provider_runtime.endpoint != model:
+            raise ValueError("AGENT_WORKFLOW_RUNTIME_MISMATCH")
         durable_root.mkdir(parents=True, exist_ok=True)
         client = OnlyAgentProductHttpControlPlaneClientV1(product)
         brief_references = OnlyApiBackedAgentBriefReferenceReaderV1(client)
@@ -467,19 +478,7 @@ class OnlyAgentProductionRuntimeV1:
             verify_tls=product.verify_tls,
             ca_bundle_path=product.ca_bundle_path,
         )
-        model_transport = OnlyRawHttpTransportV1(
-            connect_timeout_seconds=model.connect_timeout_seconds,
-            read_timeout_seconds=model.read_timeout_seconds,
-            verify_tls=model.verify_tls,
-            ca_bundle_path=model.ca_bundle_path,
-        )
         product_adapter = OnlyContractDrivenProductApiAdapterV1(product, product_transport)
-        model_adapter = OnlyOpenAICompatibleModelAdapterV1(
-            config=model,
-            resources=resources,
-            contexts=contexts,
-            transport=model_transport,
-        )
         materializer = OnlyAgentWorkflowActionMaterializerV1(
             sessions=session_contexts,
             models=models,
@@ -495,26 +494,44 @@ class OnlyAgentProductionRuntimeV1:
             evidence_causality=causality,
             product_api_contract_fingerprint=product_contract.fingerprint,
         )
-        driver = OnlyAgentSessionDriverV1(
-            reducer=reducer,
-            sessions=session_contexts,
-            materializer=materializer,
-            model_occurrences=models,
-            tool_occurrences=tools,
-            model_adapter=model_adapter,
-            product_adapter=product_adapter,
-            coordination=OnlyAgentSessionExecutionCoordinatorV1(coordination_root),
-        )
-        request_driver = _RequestScopedVerificationDriver(
-            driver,
-            (decision_cache, model_cache, tool_cache),
-        )
+
+        def driver_for(endpoint: OnlyOpenAICompatibleEndpointConfigV1) -> OnlyAgentNodeDriver:
+            model_transport = OnlyRawHttpTransportV1(
+                connect_timeout_seconds=endpoint.connect_timeout_seconds,
+                read_timeout_seconds=endpoint.read_timeout_seconds,
+                verify_tls=endpoint.verify_tls,
+                ca_bundle_path=endpoint.ca_bundle_path,
+            )
+            driver = OnlyAgentSessionDriverV1(
+                reducer=reducer,
+                sessions=session_contexts,
+                materializer=materializer,
+                model_occurrences=models,
+                tool_occurrences=tools,
+                model_adapter=OnlyOpenAICompatibleModelAdapterV1(
+                    config=endpoint,
+                    resources=resources,
+                    contexts=contexts,
+                    transport=model_transport,
+                ),
+                product_adapter=product_adapter,
+                coordination=OnlyAgentSessionExecutionCoordinatorV1(coordination_root),
+            )
+            return _RequestScopedVerificationDriver(driver, (decision_cache, model_cache, tool_cache))
+
+        request_driver = driver_for(model)
         control = OnlyAgentNodeControlServiceV1(
             resources=resources,
             briefs=briefs,
             sessions=sessions,
             semantic_bundle=bundle,
             driver=request_driver,
+            provider_runtime=provider_runtime,
+            provider_resolver=provider_resolver,
+            provider_bindings=(None if provider_runtime is None else OnlyJsonAgentProviderBindingStoreV1(durable_root)),
+            model_profiles=(None if provider_runtime is None else OnlyJsonAgentModelProfileStoreV1(durable_root)),
+            product_contract_fingerprint=(None if provider_runtime is None else product_contract.fingerprint),
+            provider_driver_factory=(None if provider_runtime is None else driver_for),
         )
         control.bootstrap()
         workflow = build_current_agent_workflow_implementation_manifest()
@@ -525,6 +542,26 @@ class OnlyAgentProductionRuntimeV1:
             coordination_root,
             product.contract_path,
             product_contract.fingerprint,
+        )
+
+    @classmethod
+    def compose_from_integration(
+        cls,
+        *,
+        durable_root: Path,
+        coordination_root: Path,
+        product: OnlyProductApiEndpointConfigV1,
+        provider_resolver: OnlyAgentProviderRuntimeAuthority,
+        model_profile: OnlyAgentModelProfileV1,
+    ) -> OnlyAgentProductionRuntimeV1:
+        provider_runtime = provider_resolver.admit_new(model_profile)
+        return cls.compose(
+            durable_root=durable_root,
+            coordination_root=coordination_root,
+            product=product,
+            model=provider_runtime.endpoint,
+            provider_runtime=provider_runtime,
+            provider_resolver=provider_resolver,
         )
 
 

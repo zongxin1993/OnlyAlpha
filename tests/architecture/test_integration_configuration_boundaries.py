@@ -20,6 +20,7 @@ PROBE_APPLICATION = ROOT / "src/onlyalpha/application/integration_probe.py"
 RUNTIME_APPLICATION = ROOT / "src/onlyalpha/application/integration_runtime.py"
 BINANCE_SPOT_PROBE = ROOT / "plugs/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance/spot/data_source/probe.py"
 BINANCE_BROKER_FACTORY = ROOT / "plugs/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance/spot/broker_factory.py"
+AGENT_PROVIDER = ROOT / "packages/onlyalpha-agent-orchestrator/src/onlyalpha_agent_orchestrator/provider_integration.py"
 POSTGRES = ROOT / "src/onlyalpha/persistence/postgres"
 INTEGRATION_STORE = POSTGRES / "integration_store.py"
 PRODUCT_STORE = POSTGRES / "integration_product_store.py"
@@ -96,6 +97,28 @@ def test_broker_probe_has_no_order_mutation_call_surface() -> None:
     }
 
     assert calls.isdisjoint(forbidden)
+
+
+def test_agent_provider_keeps_bootstrap_secrets_and_broker_authority_outside_its_boundary() -> None:
+    source = AGENT_PROVIDER.read_text(encoding="utf-8")
+    imports = imported_modules_for_path(AGENT_PROVIDER, ROOT)
+
+    assert (
+        not {
+            "onlyalpha.broker",
+            "onlyalpha.persistence.postgres.credentials",
+            "onlyalpha.persistence.postgres.integration_store",
+            "onlyalpha.persistence.postgres.integration_product_store",
+        }
+        & imports
+    )
+    assert "control_token" not in source
+    assert "product_token" not in source
+    assert not {"submit_order", "cancel_order", "replace_order", "execute_tool"} & {
+        node.func.attr
+        for node in ast.walk(ast.parse(source, filename=str(AGENT_PROVIDER)))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
 
 
 def test_plugins_do_not_import_integration_authority_and_http_routes_stay_transport_only() -> None:

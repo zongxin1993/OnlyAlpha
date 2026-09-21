@@ -2206,7 +2206,8 @@
           "AUTHENTICATION",
           "REFERENCE_DATA",
           "HISTORICAL_DATA",
-          "REALTIME_DATA"
+          "REALTIME_DATA",
+          "MODEL_DISCOVERY"
         ],
         "title": "OnlyIntegrationProbeCheck",
         "type": "string"

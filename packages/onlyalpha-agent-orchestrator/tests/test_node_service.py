@@ -7,16 +7,28 @@ import onlyalpha_agent_orchestrator.runtime as runtime_module
 import pytest
 from fastapi.testclient import TestClient
 from onlyalpha_agent_orchestrator.adapters.product_api import OnlyProductApiContractV2
+from onlyalpha_agent_orchestrator.config import OnlyOpenAICompatibleEndpointConfigV1
 from onlyalpha_agent_orchestrator.node_app import create_agent_node_app
 from onlyalpha_agent_orchestrator.node_main import main as node_main
 from onlyalpha_agent_orchestrator.node_service import OnlyAgentNodeControlServiceV1
 from onlyalpha_agent_orchestrator.production import OnlyAgentProductionRuntimeV1
 from onlyalpha_agent_orchestrator.provenance import OnlyAgentOrchestratorPackagedBuildProvenanceV1
+from onlyalpha_agent_orchestrator.provider_integration import (
+    OnlyAgentModelProfileV1,
+    OnlyAgentSessionProviderBindingV1,
+    OnlyJsonAgentModelProfileStoreV1,
+    OnlyJsonAgentProviderBindingStoreV1,
+    OnlyResolvedAgentProviderRuntimeV1,
+)
 from onlyalpha_agent_orchestrator.semantic_bundle import load_production_semantic_bundle_v1
 
 import onlyalpha.research.agent.workflow as workflow_module
+from onlyalpha.application.integration_configuration import OnlyIntegrationId
+from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeBindingV1
 from onlyalpha.build_provenance import OnlyPackagedBuildProvenanceV1
+from onlyalpha.canonical import only_canonical_json
 from onlyalpha.distribution import OnlyArtifactSourceProvenanceAuthority
+from onlyalpha.plugin.integration import OnlyIntegrationCategory
 from onlyalpha.research.agent.model import (
     OnlyAgentBudgetV1,
     OnlyAgentResearchBriefV1,
@@ -140,18 +152,34 @@ def _brief_v2() -> OnlyAgentResearchBriefV2:
     )
 
 
-def _service(root: Path) -> OnlyAgentNodeControlServiceV1:
+def _service(
+    root: Path,
+    *,
+    driver: object | None = None,
+    provider_runtime: object | None = None,
+    provider_resolver: object | None = None,
+    provider_driver_factory: object | None = None,
+) -> OnlyAgentNodeControlServiceV1:
     references = _References()
     readers = OnlyAgentResearchBriefReferenceReadersV1(references, references, references, references)
     resources = OnlyJsonAgentOrchestrationResourceStore(root)
     briefs = OnlyJsonAgentResearchBriefStore(root, readers)
     sessions = OnlyJsonAgentSessionManifestStore(root, briefs=briefs, resources=resources)
+    selected_driver = _Driver() if driver is None else driver
     return OnlyAgentNodeControlServiceV1(
         resources=resources,
         briefs=briefs,
         sessions=sessions,
         semantic_bundle=load_production_semantic_bundle_v1(),
-        driver=_Driver(),  # type: ignore[arg-type]
+        driver=selected_driver,  # type: ignore[arg-type]
+        provider_runtime=provider_runtime,  # type: ignore[arg-type]
+        provider_resolver=provider_resolver,  # type: ignore[arg-type]
+        provider_bindings=(None if provider_runtime is None else OnlyJsonAgentProviderBindingStoreV1(root)),
+        model_profiles=(None if provider_runtime is None else OnlyJsonAgentModelProfileStoreV1(root)),
+        product_contract_fingerprint=(None if provider_runtime is None else SHA_C),
+        provider_driver_factory=(
+            None if provider_runtime is None else (provider_driver_factory or (lambda _endpoint: selected_driver))
+        ),  # type: ignore[arg-type]
     )
 
 
@@ -162,6 +190,165 @@ def test_session_admission_is_put_once_and_converges_to_one_identity(tmp_path: P
     assert first.session_fingerprint == second.session_fingerprint
     assert first.session_disposition is OnlyAgentCommitDisposition.CREATED
     assert second.session_disposition is OnlyAgentCommitDisposition.REUSED
+
+
+def test_canonical_session_admission_persists_and_revalidates_exact_provider_binding(tmp_path: Path) -> None:
+    binding = OnlyIntegrationRuntimeBindingV1(
+        OnlyIntegrationId("b52eb762-34cf-47d4-8cca-56ef93f0d2ac"),
+        "d" * 64,
+        "openai.compatible.agent_provider",
+        OnlyIntegrationCategory.AGENT_PROVIDER,
+        "e" * 64,
+        "f" * 64,
+    )
+    profile = OnlyAgentModelProfileV1(
+        binding.integration_id.value,
+        binding.revision_fingerprint,
+        binding.runtime_configuration_fingerprint,
+        "model-a",
+        "2026-09-01",
+        ("CHAT", "STRUCTURED_OUTPUT"),
+    )
+    provider_runtime = OnlyResolvedAgentProviderRuntimeV1(
+        binding,
+        profile,
+        OnlyOpenAICompatibleEndpointConfigV1(
+            "https://provider.example/v1",
+            "NEVER_PERSIST_RUNTIME_SECRET",
+            "openai-compatible",
+            profile.model_id,
+            profile.model_version,
+        ),
+    )
+
+    class ProviderResolver:
+        calls = 0
+        runtime = provider_runtime
+
+        def continue_exact(
+            self, persisted: OnlyAgentSessionProviderBindingV1, selected: OnlyAgentModelProfileV1
+        ) -> OnlyResolvedAgentProviderRuntimeV1:
+            self.calls += 1
+            assert persisted.provider_binding == binding
+            assert selected == profile
+            return self.runtime
+
+    class Driver:
+        calls = 0
+
+        def advance_once(self, _fingerprint: str):  # type: ignore[no-untyped-def]
+            self.calls += 1
+            return _Identity()
+
+    resolver = ProviderResolver()
+    driver = Driver()
+    service = _service(
+        tmp_path,
+        driver=driver,
+        provider_runtime=provider_runtime,
+        provider_resolver=resolver,
+    )
+    admitted = service.admit_session(_brief())
+    persisted = OnlyJsonAgentProviderBindingStoreV1(tmp_path).load(admitted.session_fingerprint)
+
+    assert persisted.provider_binding == binding
+    assert persisted.model_profile_fingerprint == profile.model_profile_fingerprint
+    assert "NEVER_PERSIST_RUNTIME_SECRET" not in str(persisted.to_dict())
+    service.advance_once(admitted.session_fingerprint)
+    assert resolver.calls == 1 and driver.calls == 1
+
+    manifest_path = (
+        tmp_path / "research/agent-orchestration/provider-bindings" / admitted.session_fingerprint / "manifest.json"
+    )
+    for workflow_fingerprint, product_fingerprint in (
+        ("9" * 64, SHA_C),
+        (persisted.workflow_manifest_fingerprint, "9" * 64),
+    ):
+        mismatched = OnlyAgentSessionProviderBindingV1(
+            admitted.session_fingerprint,
+            workflow_fingerprint,
+            product_fingerprint,
+            binding,
+            profile.model_profile_fingerprint,
+        )
+        manifest_path.write_text(only_canonical_json(mismatched.to_dict()), encoding="utf-8")
+        with pytest.raises(ValueError, match="AGENT_WORKFLOW_RUNTIME_MISMATCH"):
+            service.advance_once(admitted.session_fingerprint)
+    assert resolver.calls == 1 and driver.calls == 1
+
+
+def test_restarted_node_runs_old_and_new_sessions_with_their_own_exact_provider(tmp_path: Path) -> None:
+    def runtime(marker: str, model_id: str) -> OnlyResolvedAgentProviderRuntimeV1:
+        binding = OnlyIntegrationRuntimeBindingV1(
+            OnlyIntegrationId("b52eb762-34cf-47d4-8cca-56ef93f0d2ac"),
+            marker * 64,
+            "openai.compatible.agent_provider",
+            OnlyIntegrationCategory.AGENT_PROVIDER,
+            "e" * 64,
+            ("1" if marker == "a" else "2") * 64,
+        )
+        profile = OnlyAgentModelProfileV1(
+            binding.integration_id.value,
+            binding.revision_fingerprint,
+            binding.runtime_configuration_fingerprint,
+            model_id,
+            "2026-09-01",
+            ("CHAT", "STRUCTURED_OUTPUT"),
+        )
+        return OnlyResolvedAgentProviderRuntimeV1(
+            binding,
+            profile,
+            OnlyOpenAICompatibleEndpointConfigV1(
+                f"https://{model_id}.example/v1",
+                f"secret-{model_id}",
+                "openai-compatible",
+                model_id,
+                "2026-09-01",
+            ),
+        )
+
+    r1 = runtime("a", "model-a")
+    r2 = runtime("b", "model-b")
+    runtimes = {item.binding.revision_fingerprint: item for item in (r1, r2)}
+
+    class Resolver:
+        def continue_exact(self, binding, profile):  # type: ignore[no-untyped-def]
+            resolved = runtimes[binding.provider_binding.revision_fingerprint]
+            assert resolved.model_profile == profile
+            return resolved
+
+    used_models: list[str] = []
+
+    class Driver:
+        def __init__(self, model_id: str) -> None:
+            self._model_id = model_id
+
+        def advance_once(self, _session_fingerprint: str):  # type: ignore[no-untyped-def]
+            used_models.append(self._model_id)
+            return _Identity()
+
+    def driver_for(endpoint):  # type: ignore[no-untyped-def]
+        return Driver(endpoint.expected_model_id)
+
+    first_node = _service(
+        tmp_path,
+        provider_runtime=r1,
+        provider_resolver=Resolver(),
+        provider_driver_factory=driver_for,
+    )
+    s1 = first_node.admit_session(_brief())
+    restarted_node = _service(
+        tmp_path,
+        provider_runtime=r2,
+        provider_resolver=Resolver(),
+        provider_driver_factory=driver_for,
+    )
+    s2 = restarted_node.admit_session(_brief_v2())
+
+    restarted_node.advance_once(s1.session_fingerprint)
+    restarted_node.advance_once(s2.session_fingerprint)
+
+    assert used_models == ["model-a", "model-b"]
 
 
 def test_private_control_requires_operational_bearer_without_leaking_it(tmp_path: Path) -> None:
@@ -230,12 +417,119 @@ def test_process_entrypoint_rejects_unsupported_replicas_before_loading_secrets(
                 str(tmp_path / "missing-product-secret"),
                 "--model-api-url",
                 "http://model.invalid",
+                "--model-configuration-mode",
+                "LEGACY",
                 "--model-token-file",
                 str(tmp_path / "missing-model-secret"),
                 "--control-token-file",
                 str(tmp_path / "missing-control-secret"),
                 "--replica-count",
                 "2",
+            ]
+        )
+
+
+def test_process_entrypoint_canonical_mode_uses_injected_integration_authority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    product_token = tmp_path / "product-token"
+    control_token = tmp_path / "control-token"
+    runtime_token = tmp_path / "runtime-token"
+    profile_path = tmp_path / "model-profile.json"
+    product_token.write_text("product-secret\n", encoding="utf-8")
+    control_token.write_text("control-secret\n", encoding="utf-8")
+    runtime_token.write_text("runtime-secret\n", encoding="utf-8")
+    binding = OnlyIntegrationRuntimeBindingV1(
+        OnlyIntegrationId("b52eb762-34cf-47d4-8cca-56ef93f0d2ac"),
+        "d" * 64,
+        "openai.compatible.agent_provider",
+        OnlyIntegrationCategory.AGENT_PROVIDER,
+        "e" * 64,
+        "f" * 64,
+    )
+    profile = OnlyAgentModelProfileV1(
+        binding.integration_id.value,
+        binding.revision_fingerprint,
+        binding.runtime_configuration_fingerprint,
+        "onlyalpha-research-v1",
+        "2026-09-01",
+        ("CHAT", "STRUCTURED_OUTPUT"),
+    )
+    profile_path.write_text(only_canonical_json(profile.to_dict()), encoding="utf-8")
+    called: dict[str, object] = {}
+
+    class Runtime:
+        control = _service(tmp_path / "control")
+
+        @staticmethod
+        def is_ready() -> bool:
+            return True
+
+    def compose(_cls, **kwargs):  # type: ignore[no-untyped-def]
+        called.update(kwargs)
+        return Runtime()
+
+    monkeypatch.setattr(OnlyAgentProductionRuntimeV1, "compose_from_integration", classmethod(compose))
+    monkeypatch.setattr("onlyalpha_agent_orchestrator.node_main.uvicorn.run", lambda *_args, **_kwargs: None)
+
+    assert (
+        node_main(
+            [
+                "serve",
+                "--durable-root",
+                str((tmp_path / "state").resolve()),
+                "--coordination-root",
+                str((tmp_path / "locks").resolve()),
+                "--product-api-url",
+                "http://product.invalid",
+                "--product-api-contract",
+                str((tmp_path / "product-openapi.json").resolve()),
+                "--product-token-file",
+                str(product_token.resolve()),
+                "--control-token-file",
+                str(control_token.resolve()),
+                "--model-configuration-mode",
+                "INTEGRATION_REVISION",
+                "--integration-runtime-authority-url",
+                "http://runtime-authority.invalid/internal/v1/agent-provider-runtime",
+                "--integration-runtime-authority-token-file",
+                str(runtime_token.resolve()),
+                "--model-profile-file",
+                str(profile_path.resolve()),
+            ],
+        )
+        == 0
+    )
+    assert called["provider_resolver"].__class__.__name__ == "OnlyHttpAgentProviderRuntimeAuthorityV1"
+    assert called["model_profile"] == profile
+
+
+def test_process_entrypoint_rejects_mixed_model_configuration_modes(tmp_path: Path) -> None:
+    for name in ("product", "model", "control"):
+        (tmp_path / name).write_text(f"{name}-secret\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="CONFIGURATION_MODE_CONFLICT"):
+        node_main(
+            [
+                "serve",
+                "--durable-root",
+                str((tmp_path / "state").resolve()),
+                "--coordination-root",
+                str((tmp_path / "locks").resolve()),
+                "--product-api-url",
+                "http://product.invalid",
+                "--product-api-contract",
+                str((tmp_path / "product-openapi.json").resolve()),
+                "--product-token-file",
+                str((tmp_path / "product").resolve()),
+                "--control-token-file",
+                str((tmp_path / "control").resolve()),
+                "--model-configuration-mode",
+                "INTEGRATION_REVISION",
+                "--model-api-url",
+                "http://model.invalid",
+                "--model-token-file",
+                str((tmp_path / "model").resolve()),
             ]
         )
 

@@ -26,6 +26,7 @@ class OnlyIntegrationTypeCatalog:
         self,
         data_sources: OnlyDataSourceFactoryRegistry,
         brokers: OnlyBrokerFactoryRegistry,
+        component_types: tuple[OnlyIntegrationTypeDescriptorV1, ...] = (),
     ) -> None:
         descriptors: dict[str, OnlyIntegrationTypeDescriptorV1] = {}
         for record in (*data_sources.records(), *brokers.records()):
@@ -38,6 +39,13 @@ class OnlyIntegrationTypeCatalog:
             type_id = declared.type_id.value
             if type_id in descriptors:
                 self._invalid(record.descriptor, f"duplicate Integration Type {type_id}")
+            descriptors[type_id] = declared
+        for declared in component_types:
+            type_id = declared.type_id.value
+            if declared.category is not OnlyIntegrationCategory.AGENT_PROVIDER or type_id in descriptors:
+                raise OnlyIntegrationTypeCatalogError(
+                    "INTEGRATION_TYPE_CONTRACT_INVALID", f"invalid component Integration Type {type_id}"
+                )
             descriptors[type_id] = declared
         self._descriptors = descriptors
 
@@ -87,6 +95,7 @@ class OnlyIntegrationProbeCatalog:
         self,
         data_sources: OnlyDataSourceFactoryRegistry,
         brokers: OnlyBrokerFactoryRegistry,
+        component_providers: tuple[tuple[OnlyIntegrationTypeDescriptorV1, OnlyIntegrationProbeProvider], ...] = (),
     ) -> None:
         providers: dict[str, OnlyIntegrationProbeProvider] = {}
         for record in (*data_sources.records(), *brokers.records()):
@@ -101,6 +110,17 @@ class OnlyIntegrationProbeCatalog:
                     "INTEGRATION_TYPE_CONTRACT_INVALID", f"duplicate Probe provider for {type_id}"
                 )
             providers[type_id] = factory
+        for descriptor, provider in component_providers:
+            type_id = descriptor.type_id.value
+            if (
+                descriptor.category is not OnlyIntegrationCategory.AGENT_PROVIDER
+                or not isinstance(provider, OnlyIntegrationProbeProvider)
+                or type_id in providers
+            ):
+                raise OnlyIntegrationTypeCatalogError(
+                    "INTEGRATION_TYPE_CONTRACT_INVALID", f"invalid component Probe provider for {type_id}"
+                )
+            providers[type_id] = provider
         self._providers = providers
 
     def supports(self, type_id: str) -> bool:
