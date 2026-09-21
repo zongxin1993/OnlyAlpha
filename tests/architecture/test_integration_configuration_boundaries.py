@@ -106,6 +106,31 @@ def test_runtime_research_and_backtest_do_not_bind_integration_revision() -> Non
     assert violations == {}
 
 
+def test_web_integration_workspace_is_provider_neutral_and_secret_storage_free() -> None:
+    web_root = ROOT / "packages/onlyalpha-web-console/src"
+    roots = (web_root / "api/integrations", web_root / "features/data/sources")
+    sources = {
+        str(path.relative_to(ROOT)): path.read_text(encoding="utf-8").lower()
+        for root in roots
+        for path in root.rglob("*")
+        if path.suffix in {".ts", ".tsx"} and ".test." not in path.name
+    }
+    provider_tokens = ("binance", "tushare", "miniqmt")
+    persistence_tokens = ("localstorage", "sessionstorage", "indexeddb")
+    assert {
+        path: token
+        for path, source in sources.items()
+        for token in provider_tokens
+        if token in source
+    } == {}
+    assert {
+        path: token
+        for path, source in sources.items()
+        for token in persistence_tokens
+        if token in source
+    } == {}
+
+
 def test_schema_has_no_integration_type_table_and_store_has_no_revision_update_surface() -> None:
     sql = "\n".join(
         path.read_text(encoding="utf-8") for path in sorted((ROOT / "database/postgres/migrations").glob("*.sql"))

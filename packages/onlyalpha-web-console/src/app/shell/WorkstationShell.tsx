@@ -16,6 +16,7 @@ export function WorkstationShell() {
     const { pathname } = useLocation();
     const products = [
         { to: "/data/inputs", label: "Research Inputs", product: "Data", icon: "data" },
+        { to: "/data/sources", label: "Data Sources", product: "Data", icon: "data" },
         { to: "/strategies", label: "Strategies", product: "Strategies", icon: "shield" },
         { to: "/backtest/runs", label: "Backtests", product: "Backtest", icon: "results" },
         { to: "/system/health", label: "System Health", product: "System", icon: "shield" }

@@ -14,6 +14,9 @@ import { StrategyPage } from "../features/strategies/StrategyPage";
 import { BacktestPage } from "../features/backtest/BacktestPage";
 import { SystemHealthPage } from "../features/system/SystemHealthPage";
 import { FactorExplorerPage } from "../features/research/factors/FactorExplorerPage";
+import { DataSourcesPage } from "../features/data/sources/DataSourcesPage";
+import { NewDataSourcePage } from "../features/data/sources/NewDataSourcePage";
+import { DataSourceDetailPage } from "../features/data/sources/DataSourceDetailPage";
 
 export const researchRoutes: RouteObject[] = [
     {
@@ -26,6 +29,9 @@ export const researchRoutes: RouteObject[] = [
             { path: "/research/library", element: <ResearchLibraryPage /> },
             { path: "/research/factors", element: <FactorExplorerPage /> },
             { path: "/data/inputs", element: <ResearchInputsPage /> },
+            { path: "/data/sources", element: <DataSourcesPage /> },
+            { path: "/data/sources/new", element: <NewDataSourcePage /> },
+            { path: "/data/sources/:integrationId", element: <DataSourceDetailPage /> },
             { path: "/strategies", element: <StrategyPage /> },
             { path: "/strategies/:strategyFingerprint", element: <StrategyPage /> },
             { path: "/backtest/runs", element: <BacktestPage /> },
