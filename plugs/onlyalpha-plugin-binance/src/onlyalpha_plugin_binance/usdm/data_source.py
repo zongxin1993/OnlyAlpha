@@ -489,6 +489,11 @@ class OnlyBinanceUsdmDataSourceFactory:
     def parse_config(self, extensions: Mapping[str, object]) -> OnlyBinanceUsdmDataSourceConfig:
         return OnlyBinanceUsdmDataSourceConfig.parse(extensions)
 
+    def parse_runtime_integration_config(
+        self, public_configuration: Mapping[str, object], resolved_secrets: Mapping[str, str]
+    ) -> OnlyBinanceUsdmDataSourceConfig:
+        return self.parse_config(public_configuration)
+
     def validate_request(self, request: OnlyDataSourceCreateRequest) -> Sequence[OnlyPluginValidationIssue]:
         issues = [
             OnlyPluginValidationIssue("PLUGIN_CAPABILITY_MISSING", item)

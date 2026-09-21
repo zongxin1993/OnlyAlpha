@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeResolver
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.cluster.factory import OnlyClusterFactory
@@ -46,6 +47,7 @@ def only_default_engine_services(
     market_product_resources: OnlyMarketProductResourceResolver | None = None,
     calculation_catalog_generation: OnlyQuantAssetCatalogGeneration | None = None,
     authoring_generation_fingerprint: str | None = None,
+    integration_runtime_resolver: OnlyIntegrationRuntimeResolver | None = None,
 ) -> OnlyEngineServices:
     data_sources = OnlyDataSourceFactoryRegistry()
     builtin = OnlyPluginOrigin(OnlyPluginOriginType.BUILTIN, "onlyalpha")
@@ -103,6 +105,7 @@ def only_default_engine_services(
             runtime_persistence_store_factory or OnlyDefaultRuntimePersistenceStoreFactory(),
             market_product_resources,
             authoring_generation_fingerprint,
+            integration_runtime_resolver,
         ),
     )
     return OnlyEngineServices(assembler, discovery)

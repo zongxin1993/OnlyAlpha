@@ -6,6 +6,7 @@ from typing import Any, cast
 
 import pytest
 
+from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeError
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.config.document import OnlyClusterConfigError
 from onlyalpha.domain.identifiers import OnlyEngineId
@@ -15,6 +16,7 @@ from onlyalpha.plugin.capabilities import OnlyBrokerPluginCapabilities, OnlyData
 from onlyalpha.plugin.data_source import OnlyDataSourceFactory
 from onlyalpha.plugin.descriptor import OnlyPluginDescriptor, OnlyPluginOrigin, OnlyPluginOriginType, OnlyPluginType
 from onlyalpha.plugin.version import ONLYALPHA_PLUGIN_API_VERSION
+from onlyalpha.runtime.backtest.factory import OnlyBacktestRuntimeFactory
 from onlyalpha.runtime.defaults import only_default_engine_services
 from onlyalpha.runtime.factory import OnlyRuntimeBuildRequest, OnlyRuntimeFactoryRegistry
 from onlyalpha.runtime.planning import OnlyRuntimePlanner
@@ -108,6 +110,19 @@ def test_backtest_factory_is_selected_through_runtime_assembler(tmp_path: Path) 
     assert build.runtime is not None
     assert build.runtime.runtime_type == "BACKTEST"
     build.runtime.close()
+
+
+@pytest.mark.parametrize(
+    "code",
+    (
+        "INTEGRATION_RUNTIME_CATEGORY_MISMATCH",
+        "INTEGRATION_RUNTIME_IMPLEMENTATION_MISMATCH",
+        "INTEGRATION_RUNTIME_SECRET_UNAVAILABLE",
+    ),
+)
+def test_backtest_factory_preserves_integration_runtime_error_codes(code: str) -> None:
+    result = OnlyBacktestRuntimeFactory._failure(OnlyIntegrationRuntimeError(code))
+    assert result.failure_code == code
 
 
 def test_default_composition_installs_only_the_verified_cny_policy() -> None:

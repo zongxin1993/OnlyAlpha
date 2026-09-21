@@ -206,6 +206,7 @@ def test_admission_and_recovery_pin_exact_revision_and_secret_generation_without
 
     assert credentials.reads == [(CREDENTIAL_ID, 3), (CREDENTIAL_ID, 3)]
     assert admitted.binding.revision_fingerprint == revision.revision_fingerprint
+    assert admitted.type_descriptor == _descriptor()
     assert admitted.public_configuration == {"timeout_seconds": 12}
     assert admitted.secrets.require("token") == SECRET
     assert recovered.binding == admitted.binding

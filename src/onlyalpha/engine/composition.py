@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -15,6 +16,8 @@ from onlyalpha.market.product import (
     OnlyMarketReferenceAuthority,
     OnlyResolvedMarketProductBinding,
 )
+from onlyalpha.plugin.capabilities import OnlyDataSourceCapabilities
+from onlyalpha.runtime.data_source_integration import only_admit_data_source_runtime_configuration
 from onlyalpha.runtime.environment import (
     OnlyResourceClaim,
     OnlyRuntimeEnvironmentBuilder,
@@ -54,12 +57,16 @@ class OnlyClusterComposition:
         infrastructure: OnlyInfrastructureRegistry,
         components: OnlyComponentFactoryRegistries,
         environment_builder: OnlyRuntimeEnvironmentBuilder | None = None,
+        *,
+        recovery: bool = False,
     ) -> None:
         self._infrastructure = infrastructure
         self._components = components
         self._environment_builder = environment_builder or OnlyRuntimeEnvironmentBuilder()
+        self._recovery = recovery
 
     def plan(self, config: OnlyClusterRunConfig) -> OnlyClusterCompositionPlan:
+        config = self._admit_integrations(config)
         market_product = self._components.market_products.resolve(
             config.market,
             OnlyMarketProductResolutionContext(
@@ -82,6 +89,35 @@ class OnlyClusterComposition:
             }
         )
         return OnlyClusterCompositionPlan(config, environment, claims, installations, market_product, fingerprint)
+
+    def _admit_integrations(self, config: OnlyClusterRunConfig) -> OnlyClusterRunConfig:
+        required = (
+            OnlyDataSourceCapabilities(historical_bars=True)
+            if config.runtime_type == "BACKTEST"
+            else OnlyDataSourceCapabilities(
+                historical_bars=True,
+                live_bars=True,
+                live_reconnect=True,
+            )
+        )
+        admitted = tuple(
+            only_admit_data_source_runtime_configuration(
+                source,
+                self._components.integration_runtime_resolver,
+                required,
+                recovery=self._recovery,
+            )
+            if source.enabled
+            else source
+            for source in config.data_sources
+        )
+        if admitted == config.data_sources:
+            return config
+        payload = json.loads(json.dumps(dict(config.normalized_payload)))
+        for raw, source in zip(payload["data_sources"], admitted, strict=True):
+            if source.integration_binding is not None:
+                raw["integration"] = dict(source.integration_binding)
+        return OnlyClusterRunConfig.from_mapping(payload, source_path=config.source_path)
 
     def commit(self, plan: OnlyClusterCompositionPlan) -> tuple[str, ...]:
         self._infrastructure.validate(plan.config.cluster_id, plan.resource_claims)
@@ -115,7 +151,8 @@ class OnlyClusterComposition:
         staged = {(item.contract_id, item.contract_version): item for item in installations}
         for source in config.data_sources:
             if source.enabled:
-                self._components.data_sources.resolve(source.plugin_id)
+                if source.plugin_id:
+                    self._components.data_sources.resolve(source.plugin_id)
         brokers = {str(item.gateway_id): item for item in config.brokers}
         for broker in config.brokers:
             if broker.enabled:

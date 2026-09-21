@@ -114,6 +114,14 @@ class OnlyEngine:
         return self._infrastructure
 
     def add_cluster(self, config: OnlyClusterRunConfig) -> OnlyClusterHandle:
+        return self._add_cluster(config, recovery=False)
+
+    def recover_cluster(self, config: OnlyClusterRunConfig) -> OnlyClusterHandle:
+        """Restore a previously admitted definition containing exact durable bindings."""
+
+        return self._add_cluster(config, recovery=True)
+
+    def _add_cluster(self, config: OnlyClusterRunConfig, *, recovery: bool) -> OnlyClusterHandle:
         if self.state is OnlyEngineState.RUNNING:
             raise OnlyClusterLoadError("DYNAMIC_CLUSTER_LOAD_NOT_SUPPORTED_IN_CURRENT_RUNTIME_PHASE")
         if self.state not in {OnlyEngineState.CREATED, OnlyEngineState.CONFIGURING, OnlyEngineState.READY}:
@@ -129,17 +137,19 @@ class OnlyEngine:
                 self._infrastructure,
                 services.assembler.components,
                 self._environment_builder,
+                recovery=recovery,
             )
             plan = composition.plan(config)
-            fingerprint = self._config_fingerprint(config)
+            admitted_config = plan.config
+            fingerprint = self._config_fingerprint(admitted_config)
             handle = OnlyClusterHandle(
-                config.cluster_id,
-                config.runtime_id,
+                admitted_config.cluster_id,
+                admitted_config.runtime_id,
                 OnlyEngineClusterStatus.LOADED,
                 fingerprint,
             )
             resources = composition.commit(plan)
-            self._cluster_definitions[config.cluster_id] = config
+            self._cluster_definitions[config.cluster_id] = admitted_config
             self._market_products[config.cluster_id] = plan.market_product
             self._handles[config.cluster_id] = handle
             if resources != self._infrastructure.references_for(config.cluster_id):

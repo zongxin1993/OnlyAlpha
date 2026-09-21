@@ -160,6 +160,7 @@ class OnlyResolvedIntegrationSecrets:
 @dataclass(frozen=True, slots=True)
 class OnlyResolvedIntegrationRuntimeConfiguration:
     binding: OnlyIntegrationRuntimeBindingV1
+    type_descriptor: OnlyIntegrationTypeDescriptorV1
     public_configuration: Mapping[str, object]
     secrets: OnlyResolvedIntegrationSecrets = field(repr=False)
 
@@ -244,6 +245,31 @@ class OnlyIntegrationRuntimeResolver:
             self._require_ready_probe(integration_id, revision)
         return resolved
 
+    def admit_new_reference(
+        self,
+        integration_id: str,
+        revision_fingerprint: str,
+        *,
+        expected_category: OnlyIntegrationCategory,
+        required_capabilities: tuple[str, ...] = (),
+        require_current_revision: bool = False,
+        require_ready_probe: bool = False,
+        runtime_generation_fingerprint: str | None = None,
+    ) -> OnlyResolvedIntegrationRuntimeConfiguration:
+        try:
+            parsed_id = OnlyIntegrationId(integration_id)
+        except Exception:
+            raise OnlyIntegrationRuntimeError("INTEGRATION_RUNTIME_BINDING_INVALID") from None
+        return self.admit_new(
+            parsed_id,
+            revision_fingerprint,
+            expected_category=expected_category,
+            required_capabilities=required_capabilities,
+            require_current_revision=require_current_revision,
+            require_ready_probe=require_ready_probe,
+            runtime_generation_fingerprint=runtime_generation_fingerprint,
+        )
+
     def resolve(
         self,
         binding: OnlyIntegrationRuntimeBindingV1,
@@ -312,6 +338,7 @@ class OnlyIntegrationRuntimeResolver:
                 raise OnlyIntegrationRuntimeError("INTEGRATION_RUNTIME_IMPLEMENTATION_UNAVAILABLE") from None
         return OnlyResolvedIntegrationRuntimeConfiguration(
             binding,
+            descriptor,
             revision.configuration_document,
             OnlyResolvedIntegrationSecrets(secrets),
         )

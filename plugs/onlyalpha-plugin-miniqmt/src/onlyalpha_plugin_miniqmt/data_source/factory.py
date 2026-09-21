@@ -18,6 +18,11 @@ class OnlyMiniQmtDataSourceFactory:
     def parse_config(self, extensions: Mapping[str, object]) -> OnlyMiniQmtConfig:
         return OnlyMiniQmtConfig.parse(dict(extensions))
 
+    def parse_runtime_integration_config(
+        self, public_configuration: Mapping[str, object], resolved_secrets: Mapping[str, str]
+    ) -> OnlyMiniQmtConfig:
+        return self.parse_config(public_configuration)
+
     def validate_request(self, request: OnlyDataSourceCreateRequest) -> Sequence[OnlyPluginValidationIssue]:
         return tuple(
             OnlyPluginValidationIssue("PLUGIN_CAPABILITY_MISSING", item)

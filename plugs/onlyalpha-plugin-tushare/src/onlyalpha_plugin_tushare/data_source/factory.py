@@ -19,6 +19,13 @@ class OnlyTushareDataSourceFactory:
     def parse_config(self, extensions: Mapping[str, object]) -> OnlyTushareConfig:
         return OnlyTushareConfig.parse(dict(extensions))
 
+    def parse_runtime_integration_config(
+        self,
+        public_configuration: Mapping[str, object],
+        resolved_secrets: Mapping[str, str],
+    ) -> OnlyTushareConfig:
+        return OnlyTushareConfig.parse({**public_configuration, "token_env": None, "token": resolved_secrets["token"]})
+
     def validate_request(self, request: OnlyDataSourceCreateRequest) -> Sequence[OnlyPluginValidationIssue]:
         issues = [
             OnlyPluginValidationIssue("PLUGIN_CAPABILITY_MISSING", item)
