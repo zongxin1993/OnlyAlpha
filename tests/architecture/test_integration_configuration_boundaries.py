@@ -13,9 +13,11 @@ from ._architecture_imports import imported_modules_for_path
 pytestmark = pytest.mark.architecture
 
 ROOT = Path(__file__).resolve().parents[2]
-APPLICATION = ROOT / "src/onlyalpha/application/integration_configuration.py"
+CONFIGURATION = ROOT / "src/onlyalpha/application/integration_configuration.py"
+APPLICATION = ROOT / "src/onlyalpha/application/integration_application.py"
 POSTGRES = ROOT / "src/onlyalpha/persistence/postgres"
 INTEGRATION_STORE = POSTGRES / "integration_store.py"
+PRODUCT_STORE = POSTGRES / "integration_product_store.py"
 CREDENTIALS = POSTGRES / "credentials.py"
 CONCRETE_PLUGINS = {
     "onlyalpha_plugin_binance",
@@ -31,13 +33,15 @@ def _python_files(root: Path) -> tuple[Path, ...]:
 
 
 def test_integration_application_and_postgres_store_are_provider_neutral() -> None:
-    for path in (APPLICATION, INTEGRATION_STORE, CREDENTIALS):
+    for path in (CONFIGURATION, APPLICATION, INTEGRATION_STORE, PRODUCT_STORE, CREDENTIALS):
         assert not (imported_modules_for_path(path, ROOT) & CONCRETE_PLUGINS), path
 
 
 def test_plugins_and_web_do_not_import_integration_postgres_authority() -> None:
     forbidden = {
+        "onlyalpha.application.integration_application",
         "onlyalpha.persistence.postgres.integration_store",
+        "onlyalpha.persistence.postgres.integration_product_store",
         "onlyalpha.persistence.postgres.credentials",
     }
     roots = (ROOT / "plugs", ROOT / "packages/onlyalpha-http-server")
@@ -51,10 +55,12 @@ def test_plugins_and_web_do_not_import_integration_postgres_authority() -> None:
     assert violations == {}
 
 
-def test_l2a_does_not_bind_runtime_research_or_backtest_to_integration_revision() -> None:
+def test_runtime_research_and_backtest_do_not_bind_integration_revision() -> None:
     forbidden = {
         "onlyalpha.application.integration_configuration",
+        "onlyalpha.application.integration_application",
         "onlyalpha.persistence.postgres.integration_store",
+        "onlyalpha.persistence.postgres.integration_product_store",
     }
     roots = (
         ROOT / "src/onlyalpha/runtime",
@@ -94,6 +100,44 @@ def test_core_has_one_credential_authority_and_new_business_paths_do_not_read_en
     assert authority_classes == [
         ("src/onlyalpha/persistence/postgres/credentials.py", "OnlyPostgresCredentialAuthority")
     ]
-    for path in (APPLICATION, INTEGRATION_STORE, CREDENTIALS):
+    for path in (CONFIGURATION, APPLICATION, INTEGRATION_STORE, PRODUCT_STORE, CREDENTIALS):
         source = path.read_text(encoding="utf-8")
         assert "os.getenv" not in source and "os.environ" not in source
+
+
+def test_one_integration_command_service_and_no_second_idempotency_authority() -> None:
+    command_services: list[tuple[str, str]] = []
+    for path in _python_files(ROOT / "src/onlyalpha"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        command_services.extend(
+            (str(path.relative_to(ROOT)), node.name)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ClassDef) and node.name == "OnlyIntegrationCommandService"
+        )
+    sql = "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted((ROOT / "database/postgres/migrations").glob("*.sql"))
+    )
+
+    assert command_services == [
+        ("src/onlyalpha/application/integration_application.py", "OnlyIntegrationCommandService")
+    ]
+    assert re.search(r"CREATE\s+TABLE\s+integration_(?:command|receipt|admission)\b", sql, re.IGNORECASE) is None
+
+
+def test_integration_application_has_no_probe_transport_or_caller_runtime_fingerprint_authority() -> None:
+    imports = imported_modules_for_path(APPLICATION, ROOT)
+    product_source = PRODUCT_STORE.read_text(encoding="utf-8")
+    tree = ast.parse(APPLICATION.read_text(encoding="utf-8"), filename=str(APPLICATION))
+    command_fields = {
+        child.target.id
+        for node in tree.body
+        if isinstance(node, ast.ClassDef)
+        and node.name.startswith("Only")
+        and node.name != "OnlyIntegrationResolvedPublication"
+        for child in node.body
+        if isinstance(child, ast.AnnAssign) and isinstance(child.target, ast.Name)
+    }
+
+    assert not (imports & {"httpx", "requests", "socket", "urllib"})
+    assert "runtime_configuration_fingerprint" not in command_fields
+    assert ".from_draft(" not in product_source

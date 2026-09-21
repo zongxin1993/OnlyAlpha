@@ -326,6 +326,88 @@ class OnlyPostgresIntegrationStore:
             raise OnlyIntegrationError("INTEGRATION_PERSISTENCE_CONFLICT", "Draft binding update failed") from exc
         return self.load_draft(integration_id)
 
+    def replace_draft_state(
+        self,
+        integration_id: OnlyIntegrationId,
+        expected_draft_version: int,
+        descriptor: OnlyIntegrationTypeDescriptorV1,
+        public_configuration: Mapping[str, object],
+        probe_configuration: Mapping[str, object] | None,
+        bindings: tuple[OnlyIntegrationSecretBinding, ...],
+        *,
+        base_revision_fingerprint: str | None,
+    ) -> OnlyIntegrationDraft:
+        current = self.load_draft(integration_id)
+        integration = self.load_integration(integration_id)
+        if descriptor.type_id.value != integration.type_id:
+            raise OnlyIntegrationError("INTEGRATION_PERSISTENCE_CONFLICT", "Integration Type cannot change")
+        candidate = OnlyIntegrationDraft.create(
+            integration_id=integration_id,
+            descriptor=descriptor,
+            public_configuration=public_configuration,
+            probe_configuration=probe_configuration,
+            created_at=current.created_at,
+            base_revision_fingerprint=base_revision_fingerprint,
+        )
+        fingerprint = only_integration_draft_fingerprint(
+            integration_id,
+            candidate.base_revision_fingerprint,
+            candidate.type_descriptor_fingerprint,
+            candidate.type_descriptor_document,
+            candidate.public_configuration_document,
+            candidate.probe_configuration_document,
+            bindings,
+        )
+        try:
+            with self._connection_scope() as connection:
+                self._validate_bindings(connection, integration_id, candidate.type_descriptor_document, bindings)
+                row = connection.execute(
+                    "UPDATE integration_draft SET base_revision_fingerprint = %s, "
+                    "type_descriptor_fingerprint = %s, type_descriptor_document = %s, "
+                    "public_configuration_document = %s, probe_configuration_document = %s, "
+                    "draft_version = draft_version + 1, draft_fingerprint = %s, updated_at = %s "
+                    "WHERE integration_id = %s AND draft_version = %s RETURNING integration_id",
+                    (
+                        candidate.base_revision_fingerprint,
+                        candidate.type_descriptor_fingerprint,
+                        Json(only_integration_json_document(candidate.type_descriptor_document)),
+                        Json(only_integration_json_document(candidate.public_configuration_document)),
+                        None
+                        if candidate.probe_configuration_document is None
+                        else Json(only_integration_json_document(candidate.probe_configuration_document)),
+                        fingerprint,
+                        self._now(),
+                        integration_id.value,
+                        expected_draft_version,
+                    ),
+                ).fetchone()
+                if row is None:
+                    raise OnlyIntegrationError("INTEGRATION_DRAFT_VERSION_CONFLICT")
+                connection.execute(
+                    "DELETE FROM integration_draft_secret_binding WHERE integration_id = %s",
+                    (integration_id.value,),
+                )
+                for binding in sorted(bindings, key=lambda item: item.field_id):
+                    connection.execute(
+                        "INSERT INTO integration_draft_secret_binding "
+                        "(integration_id, field_id, credential_id, credential_generation) VALUES (%s, %s, %s, %s)",
+                        (
+                            integration_id.value,
+                            binding.field_id,
+                            binding.credential_id,
+                            binding.credential_generation,
+                        ),
+                    )
+        except OnlyIntegrationError:
+            raise
+        except psycopg.IntegrityError as exc:
+            raise OnlyIntegrationError(
+                "INTEGRATION_PERSISTENCE_CONFLICT", "Draft replacement violates integrity"
+            ) from exc
+        except psycopg.Error as exc:
+            raise OnlyIntegrationError("INTEGRATION_PERSISTENCE_CONFLICT", "Draft replacement failed") from exc
+        return self.load_draft(integration_id)
+
     def load_draft_secret_bindings(self, integration_id: OnlyIntegrationId) -> tuple[OnlyIntegrationSecretBinding, ...]:
         try:
             with self._connection_scope() as connection:
@@ -370,7 +452,7 @@ class OnlyPostgresIntegrationStore:
                     "configuration_document, runtime_configuration_fingerprint, probe_configuration_fingerprint, "
                     "probe_configuration_document, secret_binding_fingerprint, created_at) "
                     "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
-                    "ON CONFLICT (revision_fingerprint) DO NOTHING RETURNING revision_fingerprint",
+                    "ON CONFLICT DO NOTHING RETURNING revision_fingerprint",
                     (
                         clean.revision_fingerprint,
                         clean.integration_id.value,

@@ -17,6 +17,7 @@ from onlyalpha.plugin.integration import OnlyIntegrationTypeDescriptorV1
 
 _FIELD_ID = re.compile(r"^[a-z][a-z0-9_]*$")
 _FINGERPRINT = re.compile(r"^[0-9a-f]{64}$")
+_RUNTIME_IDENTITY_DOMAIN = "ONLYALPHA_INTEGRATION_RUNTIME_CONFIGURATION_V1"
 
 
 class OnlyIntegrationError(RuntimeError):
@@ -288,6 +289,73 @@ class OnlyIntegrationRevision:
         )
 
     @classmethod
+    def from_resolved(
+        cls,
+        *,
+        integration_id: OnlyIntegrationId,
+        revision_sequence: int,
+        type_id: str,
+        type_descriptor_fingerprint: str,
+        type_descriptor_document: Mapping[str, object],
+        configuration_document: Mapping[str, object],
+        probe_configuration_document: Mapping[str, object] | None,
+        secret_bindings: tuple[OnlyIntegrationSecretBinding, ...],
+        created_at: datetime,
+    ) -> OnlyIntegrationRevision:
+        if revision_sequence < 1:
+            raise OnlyIntegrationError("INTEGRATION_REVISION_CORRUPT", "revision_sequence must be positive")
+        descriptor = _object(type_descriptor_document, "type_descriptor_document")
+        configuration = _object(configuration_document, "configuration_document")
+        probe = (
+            None
+            if probe_configuration_document is None
+            else _object(probe_configuration_document, "probe_configuration_document")
+        )
+        _utc(created_at)
+        if (
+            descriptor.get("type_id") != type_id
+            or only_canonical_fingerprint(descriptor) != type_descriptor_fingerprint
+        ):
+            raise OnlyIntegrationError("INTEGRATION_REVISION_CORRUPT", "resolved descriptor evidence is corrupt")
+        _reject_secret_fields(descriptor, configuration, probe)
+        configuration_fingerprint = only_canonical_fingerprint(configuration)
+        probe_fingerprint = None if probe is None else only_canonical_fingerprint(probe)
+        binding_fingerprint = only_integration_secret_binding_fingerprint(secret_bindings)
+        runtime_fingerprint = only_integration_runtime_configuration_fingerprint(
+            type_id,
+            type_descriptor_fingerprint,
+            configuration,
+            binding_fingerprint,
+        )
+        payload = {
+            "integration_id": integration_id.value,
+            "type_id": type_id,
+            "type_descriptor_fingerprint": type_descriptor_fingerprint,
+            "type_descriptor_document": descriptor,
+            "configuration_fingerprint": configuration_fingerprint,
+            "configuration_document": configuration,
+            "runtime_configuration_fingerprint": runtime_fingerprint,
+            "probe_configuration_fingerprint": probe_fingerprint,
+            "probe_configuration_document": probe,
+            "secret_binding_fingerprint": binding_fingerprint,
+        }
+        return cls(
+            only_canonical_fingerprint(payload),
+            integration_id,
+            revision_sequence,
+            type_id,
+            type_descriptor_fingerprint,
+            descriptor,
+            configuration_fingerprint,
+            configuration,
+            runtime_fingerprint,
+            probe_fingerprint,
+            probe,
+            binding_fingerprint,
+            created_at,
+        )
+
+    @classmethod
     def restore(
         cls,
         *,
@@ -384,6 +452,23 @@ def only_integration_draft_fingerprint(
             "public_configuration_document": public_configuration_document,
             "probe_configuration_document": probe_configuration_document,
             "secret_binding_fingerprint": only_integration_secret_binding_fingerprint(secret_bindings),
+        }
+    )
+
+
+def only_integration_runtime_configuration_fingerprint(
+    type_id: str,
+    type_descriptor_fingerprint: str,
+    configuration_document: Mapping[str, object],
+    secret_binding_fingerprint: str,
+) -> str:
+    return only_canonical_fingerprint(
+        {
+            "domain": _RUNTIME_IDENTITY_DOMAIN,
+            "type_id": type_id,
+            "type_descriptor_fingerprint": type_descriptor_fingerprint,
+            "public_configuration": configuration_document,
+            "secret_binding_fingerprint": secret_binding_fingerprint,
         }
     )
 
