@@ -17,6 +17,7 @@ import pytest
 
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.output import OnlyUserDataLayout
+from onlyalpha.persistence.postgres import MASTER_KEY_FILE
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from onlyalpha.persistence.postgres.research_run_store import OnlyPostgresResearchRunStore
 from onlyalpha.research.operations.deployment import (
@@ -30,6 +31,7 @@ from onlyalpha.research.run import (
 )
 from onlyalpha.research.specification import OnlyResearchSpecificationResolver
 from scripts.database import _initialize_deployment
+from tests.certification.research_product.support import provision_product_api_master_key
 from tests.research.specification.support import registry, specification
 from tests.support.research_run_seeder import OnlyPostgresResearchRunSeeder
 
@@ -124,6 +126,7 @@ def test_wrong_namespace_api_is_not_ready_and_cannot_serve_product_routes(
     wrong = tmp_path / "wrong"
     OnlyResearchSemanticStoreIdentity(OnlyUserDataLayout(wrong).research_root).initialize()
     _semantic_directories(wrong)
+    provision_product_api_master_key(wrong)
     port = _port()
     api = subprocess.Popen(
         [
@@ -153,6 +156,42 @@ def test_wrong_namespace_api_is_not_ready_and_cannot_serve_product_routes(
         assert json.loads(blocked.value.read())["reason"] == "SEMANTIC_STORE_IDENTITY_MISMATCH"
     finally:
         _stop(api)
+
+
+def test_product_api_refuses_missing_master_key_without_creating_one(
+    postgres_dsn: str,
+    tmp_path: Path,
+    backtest_product_config: Path,
+) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    _initialize_deployment(postgres_dsn, tmp_path)
+    master_key_path = OnlyUserDataLayout(tmp_path).root / MASTER_KEY_FILE
+    assert not master_key_path.exists()
+
+    api = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "onlyalpha_http_server.main",
+            "--user-data-root",
+            str(tmp_path),
+            "--port",
+            str(_port()),
+            "--backtest-product-config",
+            str(backtest_product_config),
+            "--runtime-generation-authority-root",
+            str(tmp_path / "runtime-generation-authority"),
+        ],
+        env=_environment(postgres_dsn),
+        text=True,
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
+
+    assert api.returncode != 0
+    assert "CREDENTIAL_MASTER_KEY_MISSING" in api.stdout + api.stderr
+    assert not master_key_path.exists()
 
 
 @pytest.mark.parametrize("local_state", ("MISMATCH", "MISSING", "CORRUPT"))

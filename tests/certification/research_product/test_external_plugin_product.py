@@ -21,6 +21,7 @@ from psycopg import sql
 
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
+    MASTER_KEY_FILE,
     OnlyPostgresResearchDeploymentStore,
     OnlyPostgresResearchRunStore,
 )
@@ -45,7 +46,11 @@ from onlyalpha.research.operations.deployment import (
 from onlyalpha.research.run import OnlyResearchRunId
 from onlyalpha.runtime.defaults import only_default_engine_services
 from scripts.database import _backup, _initialize_deployment, _restore_test
-from tests.certification.research_product.support import authorize_research_specification, external_definition
+from tests.certification.research_product.support import (
+    authorize_research_specification,
+    external_definition,
+    provision_product_api_master_key,
+)
 from tests.research.calculation.support import snapshot
 from tests.runtime_support.generation_process_support import only_prepare_test_process_generation
 
@@ -115,6 +120,7 @@ def test_external_calculation_runs_through_real_api_worker_engine_and_artifact_q
 ) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     _initialize_deployment(postgres_dsn, tmp_path)
+    master_key_path = provision_product_api_master_key(tmp_path)
     layout = OnlyUserDataLayout(tmp_path)
     datasets = OnlyParquetResearchDatasetSnapshotStore(layout.research_dataset_root)
     candidate, partitions = snapshot()
@@ -242,6 +248,10 @@ def test_external_calculation_runs_through_real_api_worker_engine_and_artifact_q
         assert metadata["backup_sha256"] == hashlib.sha256(backup.read_bytes()).hexdigest()
         restore_root = tmp_path.parent / f"{tmp_path.name}-restored"
         shutil.copytree(tmp_path, restore_root)
+        restored_master_key_path = OnlyUserDataLayout(restore_root).root / MASTER_KEY_FILE
+        assert master_key_path.is_file()
+        assert restored_master_key_path.is_file()
+        assert restored_master_key_path.read_bytes() == master_key_path.read_bytes()
         tfs = datetime.now(UTC)
         assert tfs >= tdb
 

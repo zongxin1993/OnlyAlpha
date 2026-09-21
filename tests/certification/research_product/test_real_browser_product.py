@@ -20,6 +20,7 @@ from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthor
 from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore
 from onlyalpha.research.run import OnlyResearchRunId
 from scripts.database import _initialize_deployment
+from tests.certification.research_product.support import provision_product_api_master_key
 from tests.research.calculation.support import snapshot
 from tests.runtime_support.generation_process_support import only_prepare_test_process_generation
 
@@ -67,6 +68,7 @@ def test_real_chromium_product_vertical_survives_refresh_close_and_reopen(
     _assert_port_available(web_port)
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     _initialize_deployment(postgres_dsn, tmp_path)
+    provision_product_api_master_key(tmp_path)
     layout = OnlyUserDataLayout(tmp_path)
     datasets = OnlyParquetResearchDatasetSnapshotStore(layout.research_dataset_root)
     candidate, partitions = snapshot()

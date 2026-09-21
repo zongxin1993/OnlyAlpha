@@ -10,6 +10,7 @@ from onlyalpha_test_plugin.research_calculation import EXTERNAL_IDENTITY
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId
 from onlyalpha.calculation import OnlyCalculationKind, OnlyCalculationTypeReference
 from onlyalpha.output import OnlyUserDataLayout
+from onlyalpha.persistence.postgres import MASTER_KEY_FILE, only_ensure_dev_master_key
 from onlyalpha.research import OnlyResearchCalculationInput, OnlyResearchCalculationInstance
 from onlyalpha.research.evaluation import OnlyExactEvaluationIntentResolverV1
 from onlyalpha.research.memory.projector import OnlyExperimentMemoryProjectionV1
@@ -26,6 +27,12 @@ from onlyalpha.research.specification import OnlyResearchSpecification, OnlyRese
 from onlyalpha.runtime.defaults import only_default_engine_services
 from tests.research.definition.support import definition
 from tests.research.novelty.test_policy import policy
+
+
+def provision_product_api_master_key(user_data_root: Path) -> Path:
+    path = OnlyUserDataLayout(user_data_root).root / MASTER_KEY_FILE
+    only_ensure_dev_master_key(path)
+    return path
 
 
 def external_definition(dataset_definition):  # type: ignore[no-untyped-def]
@@ -127,4 +134,4 @@ def authorize_research_specification(
     )
 
 
-__all__ = ["authorize_research_specification", "external_definition"]
+__all__ = ["authorize_research_specification", "external_definition", "provision_product_api_master_key"]
