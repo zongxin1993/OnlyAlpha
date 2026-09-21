@@ -1,6 +1,10 @@
 import pytest
 from onlyalpha_plugin_binance.spot.broker_factory import OnlyBinanceSpotBrokerFactory
 from onlyalpha_plugin_binance.spot.data_source.factory import OnlyBinanceSpotDataSourceFactory
+from onlyalpha_plugin_binance.usdm.data_source import (
+    OnlyBinanceUsdmDataSourceConfig,
+    OnlyBinanceUsdmDataSourceFactory,
+)
 
 from onlyalpha.plugin.integration import OnlyIntegrationCategory, OnlyIntegrationValueKind
 
@@ -44,3 +48,18 @@ def test_spot_broker_declares_semantic_secrets_while_runtime_parser_keeps_env_mi
     assert "api_key_env" not in fields and "api_secret_env" not in fields
     with pytest.raises(ValueError, match="unknown Binance Spot Broker extensions"):
         factory.parse_config({"api_key": "must-not-be-read", "api_secret": "must-not-be-read"})
+
+
+def test_usdm_data_source_contract_maps_existing_runtime_configuration() -> None:
+    factory = OnlyBinanceUsdmDataSourceFactory()
+    descriptor = factory.integration_type
+    fields = {field.field_id: field for field in descriptor.configuration_contract.fields}
+
+    assert descriptor.type_id.value == "binance.usdm.market_data"
+    assert descriptor.category is OnlyIntegrationCategory.DATA_SOURCE
+    assert set(fields) == {"rest_base_url", "timeout_seconds", "max_response_bytes", "rest_page_size"}
+    assert fields["rest_base_url"].default == "https://fapi.binance.com"
+    assert fields["timeout_seconds"].default == 10.0
+    assert fields["max_response_bytes"].default == 8 * 1024 * 1024
+    assert fields["rest_page_size"].default == 1000
+    assert factory.parse_config({}) == OnlyBinanceUsdmDataSourceConfig()

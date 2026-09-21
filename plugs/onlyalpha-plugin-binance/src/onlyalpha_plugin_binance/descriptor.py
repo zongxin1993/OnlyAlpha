@@ -189,6 +189,60 @@ SPOT_DATA_INTEGRATION_TYPE = OnlyIntegrationTypeDescriptorV1(
     ),
 )
 
+USDM_DATA_INTEGRATION_TYPE = OnlyIntegrationTypeDescriptorV1(
+    type_id=OnlyIntegrationTypeId("binance.usdm.market_data"),
+    category=OnlyIntegrationCategory.DATA_SOURCE,
+    display_name="Binance USD-M Market Data",
+    description="Public historical market and reference data for Binance USD-M Futures.",
+    provider_id="binance",
+    implementation_id=USDM_DATA_DESCRIPTOR.plugin_id,
+    implementation_version=USDM_DATA_DESCRIPTOR.plugin_version,
+    public_api_version=str(USDM_DATA_DESCRIPTOR.api_version),
+    capabilities=only_integration_capability_ids(USDM_DATA_DESCRIPTOR.capabilities),
+    configuration_contract=OnlyIntegrationConfigurationContractV1(
+        fields=(
+            OnlyIntegrationConfigurationFieldV1(
+                "rest_base_url",
+                OnlyIntegrationValueKind.STRING,
+                False,
+                default="https://fapi.binance.com",
+                advanced=True,
+                display_name="REST base URL",
+            ),
+            OnlyIntegrationConfigurationFieldV1(
+                "timeout_seconds",
+                OnlyIntegrationValueKind.DURATION,
+                False,
+                default=10.0,
+                advanced=True,
+                display_name="Request timeout",
+                minimum=0.0,
+                maximum=30.0,
+                exclusive_minimum=True,
+            ),
+            OnlyIntegrationConfigurationFieldV1(
+                "max_response_bytes",
+                OnlyIntegrationValueKind.INTEGER,
+                False,
+                default=8 * 1024 * 1024,
+                advanced=True,
+                display_name="Maximum response bytes",
+                minimum=1,
+            ),
+            OnlyIntegrationConfigurationFieldV1(
+                "rest_page_size",
+                OnlyIntegrationValueKind.INTEGER,
+                False,
+                default=1000,
+                advanced=True,
+                display_name="REST page size",
+                minimum=1,
+                maximum=1500,
+            ),
+        )
+    ),
+)
+
 SPOT_BROKER_INTEGRATION_TYPE = OnlyIntegrationTypeDescriptorV1(
     type_id=OnlyIntegrationTypeId("binance.spot.broker"),
     category=OnlyIntegrationCategory.BROKER,

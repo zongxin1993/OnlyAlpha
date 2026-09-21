@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,7 @@ POSTGRES = ROOT / "src/onlyalpha/persistence/postgres"
 INTEGRATION_STORE = POSTGRES / "integration_store.py"
 PRODUCT_STORE = POSTGRES / "integration_product_store.py"
 CREDENTIALS = POSTGRES / "credentials.py"
+INTEGRATION_TYPE_CATALOG = ROOT / "src/onlyalpha/application/integration_type_catalog.py"
 CONCRETE_PLUGINS = {
     "onlyalpha_plugin_binance",
     "onlyalpha_plugin_binance_spot",
@@ -145,6 +147,34 @@ def test_one_integration_command_service_and_no_second_idempotency_authority() -
         ("src/onlyalpha/application/integration_application.py", "OnlyIntegrationCommandService")
     ]
     assert re.search(r"CREATE\s+TABLE\s+integration_(?:command|receipt|admission)\b", sql, re.IGNORECASE) is None
+
+
+def test_integration_type_catalog_does_not_create_a_second_plugin_discovery_path() -> None:
+    imports = imported_modules_for_path(INTEGRATION_TYPE_CATALOG, ROOT)
+    source = INTEGRATION_TYPE_CATALOG.read_text(encoding="utf-8")
+
+    assert "importlib.metadata" not in imports
+    assert "onlyalpha.plugin.discovery" not in imports
+    assert "entry_points(" not in source
+    assert "only_discover_plugins" not in source
+
+
+def test_first_party_product_data_source_entry_points_have_permanent_coverage() -> None:
+    entry_points: dict[str, str] = {}
+    for relative in (
+        "plugs/onlyalpha-plugin-binance/pyproject.toml",
+        "plugs/onlyalpha-plugin-miniqmt/pyproject.toml",
+        "plugs/onlyalpha-plugin-tushare/pyproject.toml",
+    ):
+        project = tomllib.loads((ROOT / relative).read_text(encoding="utf-8"))["project"]
+        entry_points.update(project["entry-points"]["onlyalpha.data_sources"])
+
+    assert entry_points == {
+        "binance": "onlyalpha_plugin_binance.spot.data_source.factory:factory",
+        "binance-usdm": "onlyalpha_plugin_binance.usdm.data_source:factory",
+        "miniqmt": "onlyalpha_plugin_miniqmt.data_source.factory:factory",
+        "tushare": "onlyalpha_plugin_tushare.data_source.factory:factory",
+    }
 
 
 def test_integration_application_has_no_probe_transport_or_caller_runtime_fingerprint_authority() -> None:
