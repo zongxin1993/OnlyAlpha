@@ -119,7 +119,7 @@ def _kline(start_ms: int) -> list[object]:
 def _create_tls_identity(directory: Path) -> tuple[Path, Path]:
     directory.mkdir(parents=True, exist_ok=True)
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "binance-probe-fixture")])
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "api.binance.com")])
     now = datetime.now(UTC)
     certificate = (
         x509.CertificateBuilder()
@@ -129,7 +129,16 @@ def _create_tls_identity(directory: Path) -> tuple[Path, Path]:
         .serial_number(x509.random_serial_number())
         .not_valid_before(now - timedelta(minutes=1))
         .not_valid_after(now + timedelta(days=1))
-        .add_extension(x509.SubjectAlternativeName([x509.DNSName("binance-probe-fixture")]), critical=False)
+        .add_extension(
+            x509.SubjectAlternativeName(
+                [
+                    x509.DNSName("api.binance.com"),
+                    x509.DNSName("stream.binance.com"),
+                    x509.DNSName("binance-probe-fixture"),
+                ]
+            ),
+            critical=False,
+        )
         .sign(key, hashes.SHA256())
     )
     certificate_path = directory / "ca.crt"
@@ -150,17 +159,18 @@ def main() -> int:
     parser.add_argument("--certificate-directory", required=True, type=Path)
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--control-port", type=int, default=8080)
-    parser.add_argument("--provider-port", type=int, default=8443)
     args = parser.parse_args()
 
     certificate, private_key = _create_tls_identity(args.certificate_directory)
     control = ThreadingHTTPServer((args.host, args.control_port), _Handler)
     threading.Thread(target=control.serve_forever, daemon=True).start()
-    provider = ThreadingHTTPServer((args.host, args.provider_port), _Handler)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(certificate, private_key)
-    provider.socket = context.wrap_socket(provider.socket, server_side=True)
-    provider.serve_forever()
+    providers = [ThreadingHTTPServer((args.host, port), _Handler) for port in (443, 9443)]
+    for provider in providers:
+        provider.socket = context.wrap_socket(provider.socket, server_side=True)
+    threading.Thread(target=providers[0].serve_forever, daemon=True).start()
+    providers[1].serve_forever()
     return 0
 
 

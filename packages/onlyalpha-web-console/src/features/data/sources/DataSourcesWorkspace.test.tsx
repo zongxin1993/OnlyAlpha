@@ -157,6 +157,7 @@ function integrationClient(overrides: Partial<IntegrationApiClient> = {}): Integ
         getOperationalStatus: () => Promise.resolve(operational),
         probe: () => Promise.resolve(attempt),
         listProbeAttempts: () => Promise.resolve([]),
+        getProbeAttempt: () => Promise.resolve(attempt),
         listRevisions: () => Promise.resolve([]),
         ...overrides
     };
@@ -225,10 +226,10 @@ it("keeps Save, Publish, Contract Reset and exact-Revision Probe explicit", asyn
     });
 });
 
-it("retries an unknown Draft save with the same command UUID and exposes CAS conflict", async () => {
+it("retries an indeterminate Draft response with the same command UUID and exposes CAS conflict", async () => {
     const updateDraft = vi
         .fn()
-        .mockRejectedValueOnce(new IntegrationWebError("TRANSPORT_ERROR", "response lost"))
+        .mockRejectedValueOnce(new IntegrationWebError("UNKNOWN_OUTCOME", "response unreadable"))
         .mockRejectedValueOnce(
             new IntegrationWebError("INTEGRATION_DRAFT_VERSION_CONFLICT", "Refresh required", 409)
         );
@@ -236,7 +237,7 @@ it("retries an unknown Draft save with the same command UUID and exposes CAS con
     const user = userEvent.setup();
     const save = await screen.findByRole("button", { name: "Save Draft" });
     await user.click(save);
-    expect(await screen.findByRole("alert")).toHaveTextContent("TRANSPORT_ERROR");
+    expect(await screen.findByRole("alert")).toHaveTextContent("UNKNOWN_OUTCOME");
     await user.click(save);
     expect(await screen.findByRole("alert")).toHaveTextContent(
         "INTEGRATION_DRAFT_VERSION_CONFLICT"
@@ -244,21 +245,21 @@ it("retries an unknown Draft save with the same command UUID and exposes CAS con
     expect(updateDraft.mock.calls[0]?.[2]).toBe(updateDraft.mock.calls[1]?.[2]);
 });
 
-it("retains Secret and Publish command identity across an unknown transport outcome", async () => {
+it("retains Secret and Publish command identity across an indeterminate response", async () => {
     const setSecret = vi
         .fn()
-        .mockRejectedValueOnce(new IntegrationWebError("TRANSPORT_ERROR", "response lost"))
+        .mockRejectedValueOnce(new IntegrationWebError("UNKNOWN_OUTCOME", "response unreadable"))
         .mockResolvedValueOnce({});
     const publish = vi
         .fn()
-        .mockRejectedValueOnce(new IntegrationWebError("TRANSPORT_ERROR", "response lost"))
+        .mockRejectedValueOnce(new IntegrationWebError("UNKNOWN_OUTCOME", "response unreadable"))
         .mockResolvedValueOnce({});
     renderPage(`/data/sources/${ID}`, integrationClient({ setSecret, publish }));
     const user = userEvent.setup();
     const secret = await screen.findByLabelText("Replace API key");
     await user.type(secret, "transient-secret");
     await user.click(screen.getByRole("button", { name: "Replace API key" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("TRANSPORT_ERROR");
+    expect(await screen.findByRole("alert")).toHaveTextContent("UNKNOWN_OUTCOME");
     expect(secret).toHaveValue("transient-secret");
     await user.click(screen.getByRole("button", { name: "Replace API key" }));
     await waitFor(() => {
@@ -269,7 +270,7 @@ it("retains Secret and Publish command identity across an unknown transport outc
 
     const publishButton = screen.getByRole("button", { name: "Publish" });
     await user.click(publishButton);
-    expect(await screen.findByRole("alert")).toHaveTextContent("TRANSPORT_ERROR");
+    expect(await screen.findByRole("alert")).toHaveTextContent("UNKNOWN_OUTCOME");
     await user.click(publishButton);
     await waitFor(() => {
         expect(publish).toHaveBeenCalledTimes(2);
@@ -290,6 +291,28 @@ it("keeps an archived Integration historically readable and mutation controls di
     expect(screen.getByRole("button", { name: "Save Draft" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Publish" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Test connection" })).toBeDisabled();
+});
+
+it("loads an exact Probe Attempt from bounded history for inspection", async () => {
+    const getProbeAttempt = vi.fn().mockResolvedValue(attempt);
+    renderPage(
+        `/data/sources/${ID}`,
+        integrationClient({
+            listProbeAttempts: () => Promise.resolve([attempt]),
+            getProbeAttempt
+        })
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "Inspect" }));
+
+    expect(await screen.findByLabelText("Exact Probe Attempt")).toHaveTextContent(
+        attempt.probe_attempt_id
+    );
+    expect(getProbeAttempt).toHaveBeenCalledWith(
+        ID,
+        attempt.probe_attempt_id,
+        expect.any(AbortSignal)
+    );
 });
 
 it("projects a new Revision as UNKNOWN without hiding prior READY evidence", async () => {

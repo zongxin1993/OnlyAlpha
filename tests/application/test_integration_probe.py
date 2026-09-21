@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import traceback
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import cast
@@ -170,6 +172,7 @@ class _Factory:
         self.integration_type = descriptor
         self.requests: list[OnlyIntegrationProbeRequest] = []
         self.status = OnlyIntegrationProbeStatus.READY
+        self.result_factory: Callable[[OnlyIntegrationProbeRequest], OnlyIntegrationProbeResult] | None = None
 
     def parse_config(self, extensions: object) -> object:
         return extensions
@@ -183,6 +186,8 @@ class _Factory:
 
     def probe(self, request: OnlyIntegrationProbeRequest) -> OnlyIntegrationProbeResult:
         self.requests.append(request)
+        if self.result_factory is not None:
+            return self.result_factory(request)
         checks = {
             OnlyIntegrationProbeStatus.READY: (
                 _check(OnlyIntegrationProbeCheck.CONNECTIVITY),
@@ -345,6 +350,99 @@ def test_probe_rejects_provider_result_after_total_deadline() -> None:
     assert attempts.items == []
 
 
+def test_probe_revalidates_provider_result_against_exact_request_before_persistence() -> None:
+    service, state, attempts, _, factory = _service()
+    factory.result_factory = lambda request: OnlyIntegrationProbeResult(
+        request.probe_attempt_id,
+        request.integration_id,
+        request.revision_fingerprint,
+        OnlyIntegrationProbeStatus.READY,
+        NOW,
+        NOW,
+        request.probe_instrument,
+        (),
+    )
+
+    with pytest.raises(OnlyIntegrationError) as corrupt:
+        service.probe(INTEGRATION_ID, state.revision.revision_fingerprint)
+
+    assert corrupt.value.code == "INTEGRATION_PROBE_RESULT_CORRUPT"
+    assert attempts.items == []
+
+
+def test_probe_rejects_provider_status_inconsistent_with_checks() -> None:
+    service, state, attempts, _, factory = _service()
+
+    def inconsistent_result(request: OnlyIntegrationProbeRequest) -> OnlyIntegrationProbeResult:
+        admitted = OnlyIntegrationProbeResult.create(
+            request,
+            probe_instrument=request.probe_instrument,
+            checks=tuple(_check(check) for check in request.required_checks),
+            started_at=NOW,
+            completed_at=NOW,
+        )
+        return replace(admitted, overall_status=OnlyIntegrationProbeStatus.FAILED)
+
+    factory.result_factory = inconsistent_result
+
+    with pytest.raises(OnlyIntegrationError) as corrupt:
+        service.probe(INTEGRATION_ID, state.revision.revision_fingerprint)
+
+    assert corrupt.value.code == "INTEGRATION_PROBE_RESULT_CORRUPT"
+    assert attempts.items == []
+
+
+def test_probe_rejects_resolved_secret_echo_before_persistence() -> None:
+    binding = OnlyIntegrationSecretBinding("token", "bf1702ca-104e-4eb6-983a-93b3af201f43", 7)
+    service, state, attempts, _, factory = _service(descriptor=_descriptor(secret=True), bindings=(binding,))
+
+    def leaking_result(request: OnlyIntegrationProbeRequest) -> OnlyIntegrationProbeResult:
+        return OnlyIntegrationProbeResult.create(
+            request,
+            probe_instrument=request.probe_instrument,
+            checks=(
+                OnlyIntegrationProbeCheckResult(
+                    OnlyIntegrationProbeCheck.CONNECTIVITY,
+                    OnlyIntegrationProbeCheckStatus.PASS,
+                    1,
+                    observations=("token=memory-only-secret",),
+                ),
+                _check(OnlyIntegrationProbeCheck.HISTORICAL_DATA),
+            ),
+            started_at=NOW,
+            completed_at=NOW,
+        )
+
+    factory.result_factory = leaking_result
+
+    with pytest.raises(OnlyIntegrationError) as corrupt:
+        service.probe(INTEGRATION_ID, state.revision.revision_fingerprint)
+
+    assert corrupt.value.code == "INTEGRATION_PROBE_RESULT_CORRUPT"
+    assert attempts.items == []
+
+
+def test_probe_normalizes_provider_exception_without_secret_detail() -> None:
+    binding = OnlyIntegrationSecretBinding("token", "bf1702ca-104e-4eb6-983a-93b3af201f43", 7)
+    service, state, attempts, _, factory = _service(descriptor=_descriptor(secret=True), bindings=(binding,))
+
+    def provider_failure(_request: OnlyIntegrationProbeRequest) -> OnlyIntegrationProbeResult:
+        raise OnlyIntegrationError("PROVIDER_FAILURE", "memory-only-secret")
+
+    factory.result_factory = provider_failure
+
+    with pytest.raises(OnlyIntegrationError) as unavailable:
+        service.probe(INTEGRATION_ID, state.revision.revision_fingerprint)
+
+    assert unavailable.value.code == "INTEGRATION_PROBE_PROVIDER_UNAVAILABLE"
+    assert unavailable.value.detail == ""
+    assert "memory-only-secret" not in str(unavailable.value)
+    assert "memory-only-secret" not in "".join(
+        traceback.format_exception(type(unavailable.value), unavailable.value, unavailable.value.__traceback__)
+    )
+    assert attempts.items == []
+
+
 @pytest.mark.parametrize(
     ("status", "expected"),
     [
@@ -373,6 +471,33 @@ def test_current_operational_status_is_exact_revision_projection(
     assert current.status is OnlyIntegrationProbeStatus.UNKNOWN
     assert query.list_probe_attempts(INTEGRATION_ID) == (first,)
     assert query.get_probe_attempt(first.probe_attempt_id) == first
+
+
+def test_operational_status_retries_when_current_revision_changes_during_projection() -> None:
+    service, state, attempts, _, _ = _service()
+    first = service.probe(INTEGRATION_ID, state.revision.revision_fingerprint)
+    next_revision = _revision(_descriptor(), sequence=2, timeout_seconds=4)
+    original_load = state.load_integration
+    reads = 0
+
+    def publish_between_reads(integration_id: OnlyIntegrationId) -> OnlyIntegration:
+        nonlocal reads
+        reads += 1
+        if reads == 2:
+            state.revision = next_revision
+            state.integration = replace(
+                state.integration, current_revision_fingerprint=next_revision.revision_fingerprint
+            )
+        return original_load(integration_id)
+
+    state.load_integration = publish_between_reads  # type: ignore[method-assign]
+
+    current = OnlyIntegrationOperationalQueryService(state, attempts).get_operational_status(INTEGRATION_ID)
+
+    assert current.revision_fingerprint == next_revision.revision_fingerprint
+    assert current.status is OnlyIntegrationProbeStatus.UNKNOWN
+    assert current.probe_attempt_id is None
+    assert attempts.items == [first]
 
 
 def test_latest_attempt_tie_breaks_by_completed_time_then_attempt_id() -> None:
@@ -407,3 +532,13 @@ def test_latest_attempt_tie_breaks_by_completed_time_then_attempt_id() -> None:
 
     status = OnlyIntegrationOperationalQueryService(state, attempts).get_operational_status(INTEGRATION_ID)
     assert status.probe_attempt_id == later_id.probe_attempt_id
+
+
+def test_probe_history_projection_is_bounded() -> None:
+    service, state, attempts, _, _ = _service()
+    attempt = service.probe(INTEGRATION_ID, state.revision.revision_fingerprint)
+    attempts.items = [attempt] * 60
+
+    history = OnlyIntegrationOperationalQueryService(state, attempts).list_probe_attempts(INTEGRATION_ID)
+
+    assert len(history) == 50

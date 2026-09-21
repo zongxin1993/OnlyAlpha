@@ -83,7 +83,7 @@ class OnlyPostgresIntegrationProbeStore:
                     "probe_configuration_fingerprint, runtime_configuration_fingerprint, started_at, "
                     "completed_at, overall_status, result_fingerprint, result_document "
                     "FROM integration_probe_attempt WHERE integration_id = %s "
-                    "ORDER BY completed_at DESC, probe_attempt_id DESC",
+                    "ORDER BY completed_at DESC, probe_attempt_id DESC LIMIT 50",
                     (integration_id.value,),
                 ).fetchall()
         except psycopg.Error as exc:

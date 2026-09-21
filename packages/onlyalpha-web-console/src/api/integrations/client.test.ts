@@ -46,6 +46,55 @@ it("fails closed on a malformed success contract", async () => {
     } satisfies Partial<IntegrationWebError>);
 });
 
+it.each([
+    ["truncated JSON", new Response("{", { status: 200 })],
+    ["schema-invalid success", new Response(JSON.stringify({}), { status: 200 })]
+])("classifies a command %s as an unknown outcome", async (_name, response) => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+
+    await expect(
+        new FetchIntegrationApiClient().publish(ID, 4, commandResponse.command_id)
+    ).rejects.toMatchObject({
+        code: "UNKNOWN_OUTCOME"
+    } satisfies Partial<IntegrationWebError>);
+});
+
+it.each([
+    [
+        "Draft",
+        (client: FetchIntegrationApiClient) =>
+            client.updateDraft(
+                ID,
+                { expected_draft_version: 4, public_configuration: {}, probe_configuration: null },
+                commandResponse.command_id
+            )
+    ],
+    [
+        "Secret",
+        (client: FetchIntegrationApiClient) =>
+            client.setSecret(ID, "api_key", 4, "transient-secret", commandResponse.command_id)
+    ],
+    [
+        "Publish",
+        (client: FetchIntegrationApiClient) => client.publish(ID, 4, commandResponse.command_id)
+    ]
+])("classifies a mismatched %s command identity as an unknown outcome", async (_name, submit) => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(
+            JSON.stringify({
+                ...commandResponse,
+                command_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+                integration_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+            }),
+            { status: 200 }
+        )
+    );
+
+    await expect(submit(new FetchIntegrationApiClient())).rejects.toMatchObject({
+        code: "UNKNOWN_OUTCOME"
+    } satisfies Partial<IntegrationWebError>);
+});
+
 it("submits a Secret only in the request body and never browser persistence", async () => {
     const browserFetch = vi
         .spyOn(globalThis, "fetch")

@@ -254,3 +254,59 @@ def test_bin_10_result_contains_no_raw_provider_payload() -> None:
     result = probe.probe(_request())
 
     assert secret_marker not in json.dumps(result.to_dict())
+
+
+def test_each_check_binds_io_to_the_smaller_per_check_or_total_deadline() -> None:
+    reference = _Reference()
+    historical = _Historical()
+    websocket = _WebSocket()
+    deadlines: list[float] = []
+    probe = OnlyBinanceSpotProbe(
+        reference,
+        historical,
+        websocket,
+        websocket_base_url="wss://example.test",
+        utc_now=lambda: NOW,
+        monotonic=lambda: 8.5,
+        bind_deadline=deadlines.append,
+    )
+    request = _request()
+
+    probe.probe(request)
+
+    assert deadlines == [10.0, 10.0, 10.0, 10.0]
+
+
+def test_check_returning_after_its_deadline_cannot_pass() -> None:
+    readings = iter((1.0, 1.0, 7.0, 7.0))
+    probe = OnlyBinanceSpotProbe(
+        _Reference(),
+        _Historical(),
+        _WebSocket(),
+        websocket_base_url="wss://example.test",
+        utc_now=lambda: NOW,
+        monotonic=lambda: next(readings),
+    )
+    request = _request()
+    request = OnlyIntegrationProbeRequest(
+        request.probe_attempt_id,
+        request.integration_id,
+        request.revision_fingerprint,
+        request.type_id,
+        request.type_descriptor_fingerprint,
+        request.public_configuration,
+        request.probe_configuration,
+        (OnlyIntegrationProbeCheck.CONNECTIVITY,),
+        request.probe_instrument,
+        request.policy,
+        request.deadline_monotonic,
+        request.resolved_secrets,
+    )
+
+    result = probe.probe(request)
+
+    check = result.checks[0]
+    assert check.status.value == "FAIL"
+    assert check.failure_kind.value == "OFFLINE"
+    assert check.error_code == "INTEGRATION_PROBE_TIMEOUT"
+    assert result.overall_status is OnlyIntegrationProbeStatus.OFFLINE

@@ -1,4 +1,3 @@
-import os
 import time
 from collections.abc import Mapping, Sequence
 
@@ -65,19 +64,27 @@ class OnlyBinanceSpotDataSourceFactory:
         if timeout <= 0:
             timeout = 0.001
         http = OnlyBinancePublicHttpClient(
-            os.environ.get("ONLYALPHA_BINANCE_SPOT_PROBE_REST_BASE_URL") or config.environment.rest_base_url,
+            config.environment.rest_base_url,
             timeout_seconds=timeout,
             max_response_bytes=config.max_response_bytes,
+            deadline_monotonic=request.deadline_monotonic,
         )
+        websocket = OnlyBinanceWebSocketTransport(
+            timeout_seconds=timeout,
+            max_message_bytes=config.max_ws_message_bytes,
+            deadline_monotonic=request.deadline_monotonic,
+        )
+
+        def bind_deadline(deadline_monotonic: float) -> None:
+            http.bind_deadline(deadline_monotonic)
+            websocket.bind_deadline(deadline_monotonic)
+
         return OnlyBinanceSpotProbe(
             OnlyBinanceSpotReferenceClient(http),
             OnlyBinanceSpotHistoricalClient(http),
-            OnlyBinanceWebSocketTransport(
-                timeout_seconds=timeout,
-                max_message_bytes=config.max_ws_message_bytes,
-            ),
-            websocket_base_url=os.environ.get("ONLYALPHA_BINANCE_SPOT_PROBE_WEBSOCKET_BASE_URL")
-            or config.environment.websocket_base_url,
+            websocket,
+            websocket_base_url=config.environment.websocket_base_url,
+            bind_deadline=bind_deadline,
         ).probe(request)
 
 

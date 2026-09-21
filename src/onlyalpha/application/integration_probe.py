@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import time
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
@@ -249,18 +249,41 @@ class OnlyIntegrationProbeService:
             policy=bounded_policy,
             deadline_monotonic=self._monotonic() + bounded_policy.total_timeout_seconds,
         )
+        provider_error: OnlyIntegrationError | None = None
         try:
             result = provider.probe(request)
-        except TimeoutError as exc:
-            raise OnlyIntegrationError("INTEGRATION_PROBE_TIMEOUT") from exc
-        except OnlyIntegrationError:
-            raise
-        except ValueError as exc:
-            raise OnlyIntegrationError("INTEGRATION_PROBE_RESULT_CORRUPT") from exc
-        except Exception as exc:
-            raise OnlyIntegrationError("INTEGRATION_PROBE_PROVIDER_UNAVAILABLE") from exc
+        except TimeoutError:
+            provider_error = OnlyIntegrationError("INTEGRATION_PROBE_TIMEOUT")
+        except ValueError:
+            provider_error = OnlyIntegrationError("INTEGRATION_PROBE_RESULT_CORRUPT")
+        except Exception:
+            provider_error = OnlyIntegrationError("INTEGRATION_PROBE_PROVIDER_UNAVAILABLE")
+        if provider_error is not None:
+            raise provider_error
         if self._monotonic() > request.deadline_monotonic:
             raise OnlyIntegrationError("INTEGRATION_PROBE_TIMEOUT")
+        try:
+            if (
+                result.probe_attempt_id != request.probe_attempt_id
+                or result.integration_id != request.integration_id
+                or result.revision_fingerprint != request.revision_fingerprint
+                or result.probe_instrument != request.probe_instrument
+            ):
+                raise ValueError("INTEGRATION_PROBE_RESULT_INVALID")
+            provider_fingerprint = result.fingerprint
+            result = OnlyIntegrationProbeResult.create(
+                request,
+                probe_instrument=result.probe_instrument,
+                checks=result.checks,
+                started_at=result.started_at,
+                completed_at=result.completed_at,
+            )
+            if result.fingerprint != provider_fingerprint:
+                raise ValueError("INTEGRATION_PROBE_RESULT_INVALID")
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise OnlyIntegrationError("INTEGRATION_PROBE_RESULT_CORRUPT") from exc
+        if _contains_secret(result.to_dict(), secrets.values()):
+            raise OnlyIntegrationError("INTEGRATION_PROBE_RESULT_CORRUPT")
         attempt = OnlyIntegrationProbeAttempt.from_result(result, revision)
         self._attempts.insert_probe_attempt(attempt)
         return attempt
@@ -278,28 +301,47 @@ class OnlyIntegrationOperationalQueryService:
         self._catalog = catalog
 
     def get_operational_status(self, integration_id: OnlyIntegrationId) -> OnlyIntegrationOperationalStatus:
-        integration = self._state.load_integration(integration_id)
-        fingerprint = integration.current_revision_fingerprint
-        latest = None if fingerprint is None else self._attempts.latest_probe_attempt(integration_id, fingerprint)
-        supported = self._catalog is not None and self._catalog.supports(integration.type_id)
-        if latest is None:
-            return OnlyIntegrationOperationalStatus(
-                integration_id, fingerprint, OnlyIntegrationProbeStatus.UNKNOWN, None, None, supported
-            )
-        return OnlyIntegrationOperationalStatus(
-            integration_id,
-            fingerprint,
-            latest.overall_status,
-            latest.probe_attempt_id,
-            latest.completed_at,
-            supported,
-        )
+        for _ in range(3):
+            integration = self._state.load_integration(integration_id)
+            fingerprint = integration.current_revision_fingerprint
+            latest = None if fingerprint is None else self._attempts.latest_probe_attempt(integration_id, fingerprint)
+            confirmed = self._state.load_integration(integration_id)
+            if confirmed.current_revision_fingerprint == fingerprint and confirmed.type_id == integration.type_id:
+                supported = self._catalog is not None and self._catalog.supports(confirmed.type_id)
+                if latest is None:
+                    return OnlyIntegrationOperationalStatus(
+                        integration_id, fingerprint, OnlyIntegrationProbeStatus.UNKNOWN, None, None, supported
+                    )
+                return OnlyIntegrationOperationalStatus(
+                    integration_id,
+                    fingerprint,
+                    latest.overall_status,
+                    latest.probe_attempt_id,
+                    latest.completed_at,
+                    supported,
+                )
+        raise OnlyIntegrationError("INTEGRATION_PROBE_PERSISTENCE_UNAVAILABLE")
 
     def get_probe_attempt(self, probe_attempt_id: str) -> OnlyIntegrationProbeAttempt:
         return self._attempts.get_probe_attempt(probe_attempt_id)
 
     def list_probe_attempts(self, integration_id: OnlyIntegrationId) -> tuple[OnlyIntegrationProbeAttempt, ...]:
-        return self._attempts.list_probe_attempts(integration_id)
+        return self._attempts.list_probe_attempts(integration_id)[:50]
+
+
+def _contains_secret(value: object, secrets: Iterable[str]) -> bool:
+    secret_values = tuple(secret for secret in secrets if isinstance(secret, str) and secret)
+
+    def visit(item: object) -> bool:
+        if isinstance(item, str):
+            return any(secret in item for secret in secret_values)
+        if isinstance(item, Mapping):
+            return any(visit(key) or visit(nested) for key, nested in item.items())
+        if isinstance(item, list | tuple):
+            return any(visit(nested) for nested in item)
+        return False
+
+    return visit(value)
 
 
 __all__ = [name for name in globals() if name.startswith("Only")]

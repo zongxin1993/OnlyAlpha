@@ -32,6 +32,13 @@ export function DataSourceDetailPage() {
         queryKey: ["integrations", integrationId, "revisions"],
         queryFn: ({ signal }) => client.listRevisions(integrationId, signal)
     });
+    const [selectedAttemptId, setSelectedAttemptId] = useState<string | null>(null);
+    const selectedAttempt = useQuery({
+        queryKey: ["integrations", integrationId, "probe-attempts", selectedAttemptId],
+        queryFn: ({ signal }) =>
+            client.getProbeAttempt(integrationId, selectedAttemptId ?? "", signal),
+        enabled: selectedAttemptId !== null
+    });
     const [valueEdits, setValueEdits] = useState<Record<string, unknown> | null>(null);
     const [probeEdits, setProbeEdits] = useState<Record<string, unknown> | null | undefined>();
     const [error, setError] = useState("");
@@ -59,15 +66,16 @@ export function DataSourceDetailPage() {
             }
             await refresh();
         } catch (value) {
-            const transport =
-                value instanceof IntegrationWebError && value.code === "TRANSPORT_ERROR";
-            if (!transport) intent.current.definitive(key);
+            const unknownOutcome =
+                value instanceof IntegrationWebError &&
+                (value.code === "TRANSPORT_ERROR" || value.code === "UNKNOWN_OUTCOME");
+            if (!unknownOutcome) intent.current.definitive(key);
             setError(
                 value instanceof IntegrationWebError
                     ? `${value.code}: ${value.message}`
                     : "Integration request failed"
             );
-            if (transport && rethrowTransport) throw value;
+            if (unknownOutcome && rethrowTransport) throw value;
         } finally {
             setBusy("");
         }
@@ -402,6 +410,7 @@ export function DataSourceDetailPage() {
                                     <th>Status</th>
                                     <th>Instrument</th>
                                     <th>Duration</th>
+                                    <th>Details</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -418,6 +427,17 @@ export function DataSourceDetailPage() {
                                                 new Date(attempt.started_at).getTime()}{" "}
                                             ms
                                         </td>
+                                        <td>
+                                            <button
+                                                type="button"
+                                                className="button-subtle"
+                                                onClick={() => {
+                                                    setSelectedAttemptId(attempt.probe_attempt_id);
+                                                }}
+                                            >
+                                                Inspect
+                                            </button>
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -426,6 +446,22 @@ export function DataSourceDetailPage() {
                 ) : (
                     <p>No Probe Attempts.</p>
                 )}
+                {selectedAttempt.data ? (
+                    <div aria-label="Exact Probe Attempt">
+                        <h3>Exact Probe Attempt</h3>
+                        <p>
+                            Attempt <code>{selectedAttempt.data.probe_attempt_id}</code>
+                        </p>
+                        <ul className="plain-list">
+                            {selectedAttempt.data.checks.map((check) => (
+                                <li key={check.check}>
+                                    {check.check.replaceAll("_", " ")}
+                                    <span>{check.status}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                ) : null}
             </section>
             <section className="exact-section">
                 <h2>Revision history</h2>

@@ -75,10 +75,18 @@ export interface IntegrationApiClient {
         id: string,
         signal?: AbortSignal
     ): Promise<readonly IntegrationProbeAttempt[]>;
+    getProbeAttempt(
+        id: string,
+        attemptId: string,
+        signal?: AbortSignal
+    ): Promise<IntegrationProbeAttempt>;
     listRevisions(id: string, signal?: AbortSignal): Promise<readonly IntegrationRevisionSummary[]>;
 }
 
 async function request<T>(schema: z.ZodType<T>, url: string, init: RequestInit = {}): Promise<T> {
+    const contractErrorCode = new Headers(init.headers).has("Idempotency-Key")
+        ? "UNKNOWN_OUTCOME"
+        : "CONTRACT_ERROR";
     let response: Response;
     try {
         const headers = new Headers(init.headers);
@@ -96,7 +104,7 @@ async function request<T>(schema: z.ZodType<T>, url: string, init: RequestInit =
         body = await response.json();
     } catch {
         throw new IntegrationWebError(
-            "CONTRACT_ERROR",
+            contractErrorCode,
             "Integration API returned invalid JSON",
             response.status
         );
@@ -105,7 +113,7 @@ async function request<T>(schema: z.ZodType<T>, url: string, init: RequestInit =
         const admitted = schemas.error.safeParse(body);
         if (!admitted.success)
             throw new IntegrationWebError(
-                "CONTRACT_ERROR",
+                contractErrorCode,
                 "Integration error response violates contract",
                 response.status
             );
@@ -118,11 +126,26 @@ async function request<T>(schema: z.ZodType<T>, url: string, init: RequestInit =
     const admitted = schema.safeParse(body);
     if (!admitted.success)
         throw new IntegrationWebError(
-            "CONTRACT_ERROR",
+            contractErrorCode,
             "Integration success response violates contract",
             response.status
         );
     return admitted.data;
+}
+
+async function submitCommand(
+    integrationId: string,
+    commandId: string,
+    url: string,
+    init: RequestInit
+): Promise<IntegrationCommandResponse> {
+    const response = await request(schemas.command, url, init);
+    if (response.integration_id !== integrationId || response.command_id !== commandId)
+        throw new IntegrationWebError(
+            "UNKNOWN_OUTCOME",
+            "Integration command response identity mismatch"
+        );
+    return response;
 }
 
 const body = (value: object): string => JSON.stringify({ schema_version: 1, ...value });
@@ -147,7 +170,7 @@ export class FetchIntegrationApiClient implements IntegrationApiClient {
         value: { integration_id: string; type_id: string; display_name: string },
         commandId: string
     ) {
-        return request(schemas.command, "/api/v2/integrations", {
+        return submitCommand(value.integration_id, commandId, "/api/v2/integrations", {
             method: "POST",
             headers: command(commandId),
             body: body(value)
@@ -168,7 +191,7 @@ export class FetchIntegrationApiClient implements IntegrationApiClient {
         },
         commandId: string
     ) {
-        return request(schemas.command, `${base(id)}/draft`, {
+        return submitCommand(id, commandId, `${base(id)}/draft`, {
             method: "PUT",
             headers: command(commandId),
             body: body(value)
@@ -181,8 +204,9 @@ export class FetchIntegrationApiClient implements IntegrationApiClient {
         secret: string,
         commandId: string
     ) {
-        return request(
-            schemas.command,
+        return submitCommand(
+            id,
+            commandId,
             `${base(id)}/draft/secrets/${encodeURIComponent(fieldId)}`,
             {
                 method: "PUT",
@@ -192,28 +216,29 @@ export class FetchIntegrationApiClient implements IntegrationApiClient {
         );
     }
     clearSecret(id: string, fieldId: string, draftVersion: number, commandId: string) {
-        return request(
-            schemas.command,
+        return submitCommand(
+            id,
+            commandId,
             `${base(id)}/draft/secrets/${encodeURIComponent(fieldId)}?expected_draft_version=${String(draftVersion)}`,
             { method: "DELETE", headers: command(commandId) }
         );
     }
     resetDraftContract(id: string, draftVersion: number, commandId: string) {
-        return request(schemas.command, `${base(id)}/draft/contract-reset`, {
+        return submitCommand(id, commandId, `${base(id)}/draft/contract-reset`, {
             method: "POST",
             headers: command(commandId),
             body: body({ expected_draft_version: draftVersion })
         });
     }
     publish(id: string, draftVersion: number, commandId: string) {
-        return request(schemas.command, `${base(id)}/revisions`, {
+        return submitCommand(id, commandId, `${base(id)}/revisions`, {
             method: "POST",
             headers: command(commandId),
             body: body({ expected_draft_version: draftVersion })
         });
     }
     setLifecycle(id: string, current: string, next: string, commandId: string) {
-        return request(schemas.command, `${base(id)}/lifecycle`, {
+        return submitCommand(id, commandId, `${base(id)}/lifecycle`, {
             method: "PUT",
             headers: command(commandId),
             body: body({ expected_lifecycle_state: current, lifecycle_state: next })
@@ -231,6 +256,13 @@ export class FetchIntegrationApiClient implements IntegrationApiClient {
     async listProbeAttempts(id: string, signal?: AbortSignal) {
         const value = await request(schemas.attempts, `${base(id)}/probe-attempts`, read(signal));
         return value.items;
+    }
+    getProbeAttempt(id: string, attemptId: string, signal?: AbortSignal) {
+        return request(
+            schemas.attempt,
+            `${base(id)}/probe-attempts/${encodeURIComponent(attemptId)}`,
+            read(signal)
+        );
     }
     async listRevisions(id: string, signal?: AbortSignal) {
         const value = await request(schemas.revisions, `${base(id)}/revisions`, read(signal));

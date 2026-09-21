@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import sys
+from types import SimpleNamespace
+
 import pytest
 from onlyalpha_plugin_binance.common.http import OnlyBinancePublicHttpClient
 from onlyalpha_plugin_binance.errors import OnlyBinanceError
+from onlyalpha_plugin_binance.spot.data_source.websocket import OnlyBinanceWebSocketTransport
 
 
 class _Response:
@@ -71,3 +75,64 @@ def test_raw_response_is_observed_before_json_interpretation(monkeypatch) -> Non
         client.get_json("/api/v3/klines", {"symbol": "BTCUSDT"})
 
     assert observed == [("/api/v3/klines", {"symbol": "BTCUSDT"}, b"{invalid")]
+
+
+def test_each_http_request_uses_only_remaining_probe_deadline(monkeypatch) -> None:
+    response = _Response(b"{}", {"Content-Type": "application/json"})
+    observed_timeouts: list[float] = []
+    monkeypatch.setattr(
+        "onlyalpha_plugin_binance.common.http.urlopen",
+        lambda _request, *, timeout: observed_timeouts.append(timeout) or response,
+    )
+    readings = iter((1.0, 4.5))
+    client = OnlyBinancePublicHttpClient(
+        "https://api.binance.com",
+        timeout_seconds=5.0,
+        deadline_monotonic=6.0,
+        monotonic=lambda: next(readings),
+    )
+
+    client.get_json("/api/v3/ping")
+    client.get_json("/api/v3/time")
+
+    assert observed_timeouts == [5.0, 1.5]
+
+
+def test_websocket_connect_and_receive_use_only_remaining_probe_deadline(monkeypatch) -> None:
+    class Connection:
+        def __init__(self) -> None:
+            self.timeouts: list[float] = []
+
+        def settimeout(self, timeout: float) -> None:
+            self.timeouts.append(timeout)
+
+        def recv(self) -> bytes:
+            return b"{}"
+
+        def close(self) -> None:
+            return None
+
+    connection = Connection()
+    connect_timeouts: list[float] = []
+    monkeypatch.setitem(
+        sys.modules,
+        "websocket",
+        SimpleNamespace(
+            create_connection=lambda _url, *, timeout, enable_multithread: (
+                connect_timeouts.append(timeout) or connection
+            )
+        ),
+    )
+    readings = iter((1.0, 4.5))
+    transport = OnlyBinanceWebSocketTransport(
+        timeout_seconds=5.0,
+        max_message_bytes=32,
+        deadline_monotonic=6.0,
+        monotonic=lambda: next(readings),
+    )
+
+    transport.connect("wss://example.test/ws")
+    assert transport.receive() == b"{}"
+
+    assert connect_timeouts == [5.0]
+    assert connection.timeouts == [1.5]

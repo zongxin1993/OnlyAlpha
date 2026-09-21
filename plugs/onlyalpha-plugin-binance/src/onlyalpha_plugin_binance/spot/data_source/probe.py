@@ -34,6 +34,7 @@ class OnlyBinanceSpotProbe:
         websocket_base_url: str,
         utc_now: Callable[[], datetime] = lambda: datetime.now(UTC),
         monotonic: Callable[[], float] = time.monotonic,
+        bind_deadline: Callable[[float], None] | None = None,
     ) -> None:
         self._reference = reference
         self._historical = historical
@@ -41,6 +42,7 @@ class OnlyBinanceSpotProbe:
         self._websocket_base_url = websocket_base_url.rstrip("/")
         self._utc_now = utc_now
         self._monotonic = monotonic
+        self._bind_deadline = bind_deadline or (lambda _deadline: None)
 
     def probe(self, request: OnlyIntegrationProbeRequest) -> OnlyIntegrationProbeResult:
         started_at = self._utc_now()
@@ -61,9 +63,12 @@ class OnlyBinanceSpotProbe:
                 continue
 
             check_started = self._monotonic()
+            check_deadline = min(
+                request.deadline_monotonic, check_started + request.policy.per_check_timeout_seconds
+            )
+            self._bind_deadline(check_deadline)
             if check is OnlyIntegrationProbeCheck.CONNECTIVITY:
                 result, server_time_ms = self._connectivity(check_started)
-                connectivity_failed = result.status is OnlyIntegrationProbeCheckStatus.FAIL
             elif check is OnlyIntegrationProbeCheck.REFERENCE_DATA:
                 result = self._reference_data(symbol, check_started)
             elif check is OnlyIntegrationProbeCheck.HISTORICAL_DATA:
@@ -72,6 +77,21 @@ class OnlyBinanceSpotProbe:
                 result = self._realtime_data(symbol, check_started)
             else:
                 result = _skipped(check)
+            if self._monotonic() > check_deadline:
+                result = _failed(
+                    check,
+                    (
+                        OnlyIntegrationProbeFailureKind.OFFLINE
+                        if check is OnlyIntegrationProbeCheck.CONNECTIVITY
+                        else OnlyIntegrationProbeFailureKind.DEGRADED
+                    ),
+                    "INTEGRATION_PROBE_TIMEOUT",
+                    latency_ms=result.latency_ms,
+                )
+                if check is OnlyIntegrationProbeCheck.CONNECTIVITY:
+                    server_time_ms = None
+            if check is OnlyIntegrationProbeCheck.CONNECTIVITY:
+                connectivity_failed = result.status is OnlyIntegrationProbeCheckStatus.FAIL
             checks.append(result)
 
         return OnlyIntegrationProbeResult.create(
