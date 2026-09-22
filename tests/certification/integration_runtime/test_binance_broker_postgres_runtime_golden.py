@@ -90,7 +90,7 @@ from onlyalpha.runtime.broker_integration import (
     only_resolve_broker_runtime_configuration,
 )
 
-pytestmark = [pytest.mark.integration, pytest.mark.postgres]
+pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
 
 NOW = datetime(2026, 9, 22, tzinfo=UTC)
 BROKER_TYPE_ID = "binance.spot.broker"
@@ -132,7 +132,7 @@ def _command(number: int) -> OnlyProductCommandId:
 
 
 @dataclass
-class OnlyDeterministicBinanceVenue:
+class _DeterministicBinanceVenue:
     """In-process Binance-shaped venue double behind the factory's private-transport seam.
 
     Mirrors the deterministic scenario surface of the Compose probe fixture (``ALL_PASS`` /
@@ -143,9 +143,9 @@ class OnlyDeterministicBinanceVenue:
     """
 
     scenario: str = "ALL_PASS"
-    expected_api_key: str = ""
-    expected_api_secret: str = ""
-    received_requests: list[tuple[str, str, str]] = field(default_factory=list)
+    expected_api_key: str = field(default="", repr=False)
+    expected_api_secret: str = field(default="", repr=False)
+    received_requests: list[tuple[str, str, str]] = field(default_factory=list, repr=False)
 
     def __call__(
         self,
@@ -174,7 +174,7 @@ class OnlyDeterministicBinanceVenue:
         return OnlyBinanceHttpResponse(200, {}, ACCOUNT_PAYLOAD)
 
 
-class OnlySequentialProbeAttemptIdentity:
+class _SequentialProbeAttemptIdentity:
     """Deterministic uuid4-shaped probe attempt identities ordered by issuance."""
 
     def __init__(self) -> None:
@@ -190,12 +190,11 @@ class GoldenVertical:
     """Artifacts captured by provisioning and extended by the ordered narrative."""
 
     dsn: str
-    master_key: bytes
     master_key_path: Path
     data_sources: OnlyDataSourceFactoryRegistry
     brokers: OnlyBrokerFactoryRegistry
     factory: OnlyBinanceSpotBrokerFactory
-    venue: OnlyDeterministicBinanceVenue
+    venue: _DeterministicBinanceVenue
     catalog: OnlyIntegrationTypeCatalog
     store: OnlyPostgresIntegrationProductStore
     attempts: OnlyPostgresIntegrationProbeStore
@@ -211,7 +210,6 @@ class GoldenVertical:
     evidence_path: Path | None = None
     r2_revision_fingerprint: str | None = None
     r2_runtime_configuration_fingerprint: str | None = None
-    r2_secret_bindings: tuple[OnlyIntegrationSecretBinding, ...] | None = None
 
 
 @pytest.fixture(scope="module")
@@ -221,7 +219,7 @@ def golden_vertical(postgres_dsn: str, tmp_path_factory: pytest.TempPathFactory)
     user_data_root = tmp_path_factory.mktemp("binance-broker-golden-user-data")
     master_key_path = user_data_root / MASTER_KEY_FILE
     master_key = only_ensure_dev_master_key(master_key_path)
-    venue = OnlyDeterministicBinanceVenue()
+    venue = _DeterministicBinanceVenue()
     factory = OnlyBinanceSpotBrokerFactory(private_transport=venue)
     data_sources = OnlyDataSourceFactoryRegistry()
     brokers = OnlyBrokerFactoryRegistry()
@@ -234,7 +232,7 @@ def golden_vertical(postgres_dsn: str, tmp_path_factory: pytest.TempPathFactory)
         attempts,
         OnlyPostgresCredentialAuthority(postgres_dsn, master_key),
         OnlyIntegrationProbeCatalog(data_sources, brokers),
-        attempt_id_factory=OnlySequentialProbeAttemptIdentity(),
+        attempt_id_factory=_SequentialProbeAttemptIdentity(),
     )
     commands = OnlyIntegrationCommandService(catalog, store, master_key)
     results = (
@@ -259,7 +257,6 @@ def golden_vertical(postgres_dsn: str, tmp_path_factory: pytest.TempPathFactory)
         raise AssertionError("provisioning must publish exactly the generation-1 api_key/api_secret bindings")
     return GoldenVertical(
         dsn=postgres_dsn,
-        master_key=master_key,
         master_key_path=master_key_path,
         data_sources=data_sources,
         brokers=brokers,
@@ -309,7 +306,7 @@ def _r1_reference(golden: GoldenVertical) -> dict[str, object]:
     }
 
 
-def _admit_live(golden: GoldenVertical, resolver: OnlyIntegrationRuntimeResolver, binding: object):
+def _admit_live(resolver: OnlyIntegrationRuntimeResolver, binding: object) -> OnlyBrokerRuntimeConfig:
     return only_admit_broker_runtime_configuration(
         _integration_broker(binding),
         resolver,
@@ -359,7 +356,7 @@ def test_live_admission_requires_a_recorded_ready_probe(golden_vertical: GoldenV
 
     # A fresh integration without any probe attempt fails closed before any admission.
     with pytest.raises(OnlyIntegrationRuntimeError) as missing:
-        _admit_live(golden, resolver, reference)
+        _admit_live(resolver, reference)
     assert missing.value.code == "INTEGRATION_RUNTIME_PROBE_REQUIRED"
 
     # A real probe execution against an OFFLINE venue records a real non-READY attempt.
@@ -375,7 +372,7 @@ def test_live_admission_requires_a_recorded_ready_probe(golden_vertical: GoldenV
     assert persisted_offline.result_fingerprint == offline.result_fingerprint
 
     with pytest.raises(OnlyIntegrationRuntimeError) as not_ready:
-        _admit_live(golden, resolver, reference)
+        _admit_live(resolver, reference)
     assert not_ready.value.code == "INTEGRATION_RUNTIME_PROBE_NOT_READY"
 
     # The real probe service then executes the signed read-only account probe to READY.
@@ -398,7 +395,7 @@ def test_production_resolver_admits_exact_r1_in_live_mode(golden_vertical: Golde
     golden = golden_vertical
     resolver = _compose_resolver(golden)
 
-    admitted = _admit_live(golden, resolver, _r1_reference(golden))
+    admitted = _admit_live(resolver, _r1_reference(golden))
     binding = OnlyIntegrationRuntimeBindingV1.from_dict(dict(admitted.integration_binding or {}))
     assert binding.integration_id == INTEGRATION_ID
     assert binding.revision_fingerprint == golden.r1_revision_fingerprint
@@ -430,7 +427,7 @@ def test_ambient_environment_credentials_cannot_win(
     monkeypatch.setenv("ONLYALPHA_BINANCE_TESTNET_API_SECRET", AMBIENT_API_SECRET)
     resolver = _compose_resolver(golden)
 
-    admitted = _admit_live(golden, resolver, _r1_reference(golden))
+    admitted = _admit_live(resolver, _r1_reference(golden))
     _, config = only_resolve_broker_runtime_configuration(admitted, golden.brokers, resolver, REQUIRED_CAPABILITIES)
     assert isinstance(config, OnlyBinanceSpotBrokerIntegrationConfig)
     assert config.api_key == R1_API_KEY
@@ -502,7 +499,6 @@ def test_restart_and_rotate_then_recover_semantics(golden_vertical: GoldenVertic
     ]
     golden.r2_revision_fingerprint = r2_revision_fingerprint
     golden.r2_runtime_configuration_fingerprint = r2_revision.runtime_configuration_fingerprint
-    golden.r2_secret_bindings = r2_secret_bindings
 
     rotated_resolver = _compose_resolver(golden)
 
@@ -529,7 +525,6 @@ def test_restart_and_rotate_then_recover_semantics(golden_vertical: GoldenVertic
     assert golden.venue.received_requests[-1][2] == R2_API_KEY
 
     admitted_r2 = _admit_live(
-        golden,
         rotated_resolver,
         {"integration_id": INTEGRATION_ID.value, "revision_fingerprint": r2_revision_fingerprint},
     )
@@ -541,7 +536,7 @@ def test_restart_and_rotate_then_recover_semantics(golden_vertical: GoldenVertic
     assert r2_config.api_secret == R2_API_SECRET
 
     with pytest.raises(OnlyIntegrationRuntimeError) as substituted:
-        _admit_live(golden, rotated_resolver, _r1_reference(golden))
+        _admit_live(rotated_resolver, _r1_reference(golden))
     assert substituted.value.code == "INTEGRATION_RUNTIME_BINDING_INVALID"
 
 
