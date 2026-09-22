@@ -1,5 +1,12 @@
 # OnlyAlpha Web Product Architecture
 
+> Forward productization note (ADR 0135): this document remains the detailed record of the P8.4 Research Studio architecture and its
+> reusable Research/authority constraints. It is **not** the permanent future navigation contract. New Web product work follows
+> `docs/web-product-development-mode.md`: a chart-centric, TradingView-referenced, product-driven vertical-slice workflow. Where the
+> Research-first shell/navigation in this document conflicts with ADR 0135, ADR 0135 governs future product organization. ADR 0092's
+> browser-authority rules and ADR 0094's renderer boundaries remain in force.
+
+
 This document describes the target Web product shape that P8.4 should implement and that later Backtest/Sim/Live Web surfaces should reuse where compatible. It complements [ADR 0092](adr/0092-web-scientific-workstation-and-browser-authority-boundary.md), which owns the durable architectural constraints. Exact pixels, component names, colors, and implementation details remain adaptable unless explicitly frozen by an ADR.
 
 Current implementation fact: P8.4.3 now provides the persistent shell, `New Research / Runs / Results` routing, structured catalog-driven Research
