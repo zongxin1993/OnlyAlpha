@@ -1,4 +1,10 @@
-"""Verified process-generation composition outside the OnlyAlpha Core package."""
+"""Verified process-generation composition outside the OnlyAlpha Core package.
+
+This worker composes calculation-authoring engine services only. It intentionally
+never consumes Integration-backed runtime configuration: no integration runtime
+resolver is injected, so INTEGRATION_REVISION admission fails closed with
+INTEGRATION_RUNTIME_RESOLVER_UNAVAILABLE.
+"""
 
 from __future__ import annotations
 

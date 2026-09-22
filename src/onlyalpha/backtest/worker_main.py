@@ -6,6 +6,7 @@ import argparse
 import os
 from collections.abc import Sequence
 from datetime import timedelta
+from functools import partial
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from threading import Event
@@ -25,7 +26,13 @@ from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.fee.broker_contract import OnlyBrokerFeeContractRegistry
 from onlyalpha.market.product import OnlyMarketProductFactoryRegistry
 from onlyalpha.output import OnlyUserDataLayout
-from onlyalpha.persistence.postgres import OnlyPostgresConfig, OnlyPostgresOperationalConnectionOptions
+from onlyalpha.persistence.postgres import (
+    MASTER_KEY_FILE,
+    OnlyIntegrationRuntimeCompositionV1,
+    OnlyPostgresConfig,
+    OnlyPostgresOperationalConnectionOptions,
+    only_compose_integration_runtime_resolver,
+)
 from onlyalpha.persistence.postgres.backtest_store import OnlyPostgresBacktestStore
 from onlyalpha.persistence.postgres.strategy_product_store import OnlyPostgresStrategyProductStore
 from onlyalpha.plugin.discovery import only_discover_plugins
@@ -134,6 +141,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         profiles=profiles,
         kernel_semantics_version="ONLYALPHA_KERNEL_SEMANTICS@1",
     )
+    integration_runtime_factory = partial(
+        only_compose_integration_runtime_resolver,
+        OnlyIntegrationRuntimeCompositionV1(
+            postgres_dsn=postgres.dsn,
+            master_key_path=layout.root / MASTER_KEY_FILE,
+            connection_options=options,
+            runtime_generations=runtime_generations,
+        ),
+    )
     plan_builder = OnlyBacktestProductEnginePlanBuilder(
         user_data_root=layout.root,
         catalog=catalog,
@@ -142,6 +158,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         profiles=profiles,
         market_product_resources=resources,
         economic_facts=OnlyBacktestEconomicFactStore(layout.root),
+        integration_runtime_resolver_factory=integration_runtime_factory,
     )
     worker_id = OnlyBacktestWorkerInstanceId.new()
     store = OnlyPostgresBacktestStore(postgres.dsn, options)

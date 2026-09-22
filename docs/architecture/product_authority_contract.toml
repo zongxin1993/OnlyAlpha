@@ -801,6 +801,9 @@ actor = "A16"
 pattern = "src/onlyalpha/persistence/postgres/integration_probe_store.py"
 actor = "A25"
 [[actor_paths]]
+pattern = "src/onlyalpha/persistence/postgres/integration_runtime_composition.py"
+actor = "A25"
+[[actor_paths]]
 pattern = "scripts/regenerate_*.py"
 actor = "T01"
 [[actor_paths]]
@@ -1121,4 +1124,4 @@ approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main
 id = "K23"
 capability = "C31"
 symbol = "onlyalpha.persistence.postgres.integration_probe_store.OnlyPostgresIntegrationProbeStore"
-approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"]
+approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py", "src/onlyalpha/persistence/postgres/integration_runtime_composition.py"]

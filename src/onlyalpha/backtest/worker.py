@@ -10,9 +10,12 @@ from pathlib import Path
 from threading import Event, Thread
 from typing import Protocol
 
+from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeResolver
 from onlyalpha.application.runtime_generation import OnlyRuntimeGenerationWorkAuthority
+from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.config import OnlyClusterRunConfig
+from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.domain.value import OnlyCurrency
 from onlyalpha.engine import OnlyEngineConfig
@@ -88,6 +91,9 @@ class OnlyBacktestProductEnginePlanBuilder:
         profiles: OnlyBacktestProfileRegistry,
         market_product_resources: OnlyMarketProductResourceResolver,
         economic_facts: OnlyBacktestEconomicFactReader | None = None,
+        integration_runtime_resolver_factory: (
+            Callable[[OnlyDataSourceFactoryRegistry, OnlyBrokerFactoryRegistry], OnlyIntegrationRuntimeResolver] | None
+        ) = None,
     ) -> None:
         self._user_data_root = user_data_root
         self._catalog = catalog
@@ -97,6 +103,7 @@ class OnlyBacktestProductEnginePlanBuilder:
         services = only_default_engine_services(
             fail_fast=True,
             market_product_resources=market_product_resources,
+            integration_runtime_resolver_factory=integration_runtime_resolver_factory,
         )
         services.assembler.components.data_sources.register(OnlyBacktestDatasetSourceFactory(datasets, economic_facts))
         self._services = services

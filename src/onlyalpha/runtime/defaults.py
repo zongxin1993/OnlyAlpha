@@ -1,5 +1,6 @@
 """Trusted local composition root for built-in factories."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeResolver
@@ -48,6 +49,9 @@ def only_default_engine_services(
     calculation_catalog_generation: OnlyQuantAssetCatalogGeneration | None = None,
     authoring_generation_fingerprint: str | None = None,
     integration_runtime_resolver: OnlyIntegrationRuntimeResolver | None = None,
+    integration_runtime_resolver_factory: (
+        Callable[[OnlyDataSourceFactoryRegistry, OnlyBrokerFactoryRegistry], OnlyIntegrationRuntimeResolver] | None
+    ) = None,
 ) -> OnlyEngineServices:
     data_sources = OnlyDataSourceFactoryRegistry()
     builtin = OnlyPluginOrigin(OnlyPluginOriginType.BUILTIN, "onlyalpha")
@@ -80,6 +84,11 @@ def only_default_engine_services(
     )
     only_register_research_predicate_primitives(calculations)
     only_register_trading_predicate_primitives(calculations)
+    if integration_runtime_resolver is not None and integration_runtime_resolver_factory is not None:
+        raise ValueError("INTEGRATION_RUNTIME_COMPOSITION_CONFLICT")
+    resolver = integration_runtime_resolver
+    if resolver is None and integration_runtime_resolver_factory is not None:
+        resolver = integration_runtime_resolver_factory(data_sources, brokers)
     clusters = OnlyClusterFactory(
         calculations,
         indicators,
@@ -105,7 +114,7 @@ def only_default_engine_services(
             runtime_persistence_store_factory or OnlyDefaultRuntimePersistenceStoreFactory(),
             market_product_resources,
             authoring_generation_fingerprint,
-            integration_runtime_resolver,
+            resolver,
         ),
     )
     return OnlyEngineServices(assembler, discovery)

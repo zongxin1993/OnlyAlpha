@@ -33,6 +33,8 @@ from onlyalpha.backtest import (
     OnlyBacktestWorkerInstanceId,
 )
 from onlyalpha.backtest.errors import OnlyBacktestError, OnlyBacktestStateConflictError
+from onlyalpha.output import OnlyUserDataLayout
+from onlyalpha.persistence.postgres import MASTER_KEY_FILE, only_ensure_dev_master_key
 from onlyalpha.persistence.postgres.backtest_store import OnlyPostgresBacktestStore
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from scripts.database import _initialize_deployment
@@ -99,6 +101,7 @@ def test_backtest_worker_process_signal_marks_draining_and_uses_application_exit
 ) -> None:
     store = _store(postgres_dsn)
     _initialize_deployment(postgres_dsn, tmp_path)
+    only_ensure_dev_master_key(OnlyUserDataLayout(tmp_path).root / MASTER_KEY_FILE)
     process = subprocess.Popen(
         [
             sys.executable,
