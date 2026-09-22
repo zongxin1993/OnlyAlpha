@@ -18,3 +18,18 @@ def test_missing_token_has_sanitized_error(monkeypatch) -> None:
     with pytest.raises(OnlyTushareError) as caught:
         OnlyTushareConfig(token_env="MISSING_TUSHARE_TOKEN").resolve_token()
     assert caught.value.code == "TUSHARE_TOKEN_MISSING"
+
+
+def test_integration_runtime_config_uses_exact_secret_without_environment(monkeypatch) -> None:
+    from onlyalpha_plugin_tushare.data_source.factory import OnlyTushareDataSourceFactory
+
+    monkeypatch.setenv("ONLYALPHA_TUSHARE_TOKEN", "wrong-environment-token")
+    config = OnlyTushareDataSourceFactory().parse_runtime_integration_config(
+        {"frequency": "1d", "adjustment": "qfq"},
+        {"token": "exact-revision-token"},
+    )
+
+    assert config.token_env is None
+    assert config.resolve_token() == "exact-revision-token"
+    assert config.adjustment is OnlyAdjustmentType.FORWARD
+    assert "exact-revision-token" not in repr(config)

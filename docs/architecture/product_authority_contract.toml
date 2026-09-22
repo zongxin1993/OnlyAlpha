@@ -591,6 +591,9 @@ actor = "A04"
 pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/agent_gateway.py"
 actor = "A04"
 [[actor_paths]]
+pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/agent_provider_runtime.py"
+actor = "A04"
+[[actor_paths]]
 pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/private_assets.py"
 actor = "A04"
 [[actor_paths]]

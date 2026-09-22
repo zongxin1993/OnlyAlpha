@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeResolver
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.cluster.factory import OnlyClusterFactory
@@ -32,6 +33,7 @@ class OnlyComponentFactoryRegistries:
     runtime_persistence_stores: OnlyRuntimePersistenceStoreFactory
     market_product_resources: OnlyMarketProductResourceResolver | None = None
     authoring_generation_fingerprint: str | None = None
+    integration_runtime_resolver: OnlyIntegrationRuntimeResolver | None = None
 
 
 class OnlyEngineRunAssembler:

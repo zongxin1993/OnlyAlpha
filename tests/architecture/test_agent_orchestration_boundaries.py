@@ -25,6 +25,7 @@ _AGENT_WORKFLOW_STDLIB_IMPORTS = {
     "http.client",
     "importlib",
     "json",
+    "math",
     "os",
     "pathlib",
     "re",
@@ -32,6 +33,7 @@ _AGENT_WORKFLOW_STDLIB_IMPORTS = {
     "socket",
     "ssl",
     "shutil",
+    "time",
     "types",
     "typing",
     "urllib.parse",
@@ -577,6 +579,7 @@ def test_every_executed_workflow_package_initializer_is_explicitly_closed() -> N
     assert {
         "onlyalpha.__init__.py",
         "onlyalpha.application.__init__.py",
+        "onlyalpha.plugin.__init__.py",
         "onlyalpha.research.__init__.py",
         "onlyalpha.research.agent.__init__.py",
         "onlyalpha.research.experiment.__init__.py",
@@ -591,6 +594,7 @@ def test_workflow_package_initializers_have_explicit_execution_classifications()
         "src/onlyalpha/research/experiment/__init__.py": "LAZY / INERT",
         "src/onlyalpha/research/agent/__init__.py": "CLOSED EAGER",
         "src/onlyalpha/application/__init__.py": "LAZY / INERT",
+        "src/onlyalpha/plugin/__init__.py": "CLOSED EAGER",
         "packages/onlyalpha-agent-orchestrator/src/onlyalpha_agent_orchestrator/__init__.py": "CLOSED EAGER",
     }
     assert set(classifications.values()) <= {"LAZY / INERT", "CLOSED EAGER", "FORMAL AUTHORITY BOUNDARY"}

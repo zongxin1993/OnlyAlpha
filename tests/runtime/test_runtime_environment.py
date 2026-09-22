@@ -14,7 +14,7 @@ from onlyalpha.config import (
     OnlyRuntimePersistenceBackend,
     OnlyRuntimePersistenceConfig,
 )
-from onlyalpha.config.models import OnlyDataSourceCoverageConfig
+from onlyalpha.config.models import OnlyDataSourceCoverageConfig, OnlyRuntimeConfigurationMode
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.market.product import OnlyResolvedMarketProductBinding
@@ -121,6 +121,41 @@ def test_market_product_composition_change_changes_environment_fingerprint() -> 
     generic = _binding(config)
     cn_ashare = only_cn_ashare_market_product(config.reference_data.instruments[0], previous_close="10.00")
     assert builder.build(config, generic).fingerprint != builder.build(config, cn_ashare).fingerprint
+
+
+def test_exact_data_source_integration_binding_is_part_of_runtime_identity() -> None:
+    config = _config()
+    source = config.data_sources[0]
+    common = {
+        "schema_version": 1,
+        "integration_id": "b52eb762-34cf-47d4-8cca-56ef93f0d2ac",
+        "revision_fingerprint": "a" * 64,
+    }
+    first = replace(
+        config,
+        data_sources=(
+            replace(
+                source,
+                plugin_id="",
+                extensions=MappingProxyType({}),
+                configuration_mode=OnlyRuntimeConfigurationMode.INTEGRATION_REVISION,
+                integration_binding=MappingProxyType(common),
+            ),
+        ),
+    )
+    second = replace(
+        first,
+        data_sources=(
+            replace(
+                first.data_sources[0],
+                integration_binding=MappingProxyType({**common, "revision_fingerprint": "b" * 64}),
+            ),
+        ),
+    )
+    builder = OnlyRuntimeEnvironmentBuilder()
+    binding = _binding(config)
+
+    assert builder.build(first, binding).fingerprint != builder.build(second, binding).fingerprint
 
 
 def test_sim_environment_uses_live_clock_and_has_distinct_product_identity() -> None:

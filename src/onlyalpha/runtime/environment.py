@@ -192,7 +192,14 @@ class OnlyRuntimeEnvironmentBuilder:
                 "instrument_ids": tuple(sorted(str(item) for item in source.coverage.instrument_ids)),
             }
         )
-        config = only_canonical_fingerprint({"batch_size": source.batch_size, "extensions": source.extensions})
+        config = only_canonical_fingerprint(
+            {
+                "batch_size": source.batch_size,
+                "configuration_mode": source.configuration_mode.value,
+                "extensions": source.extensions,
+                "integration_binding": source.integration_binding,
+            }
+        )
         return OnlyDataSourceEnvironmentIdentity(
             str(source.source_id), source.plugin_id, source.enabled, str(source.data_version), coverage, config
         )
@@ -201,7 +208,16 @@ class OnlyRuntimeEnvironmentBuilder:
     def _broker(value: object) -> OnlyBrokerEnvironmentIdentity:
         broker = cast(OnlyBrokerRuntimeConfig, value)
         return OnlyBrokerEnvironmentIdentity(
-            str(broker.gateway_id), broker.plugin_id, broker.enabled, only_canonical_fingerprint(broker.extensions)
+            str(broker.gateway_id),
+            broker.plugin_id,
+            broker.enabled,
+            only_canonical_fingerprint(
+                {
+                    "configuration_mode": broker.configuration_mode.value,
+                    "extensions": broker.extensions,
+                    "integration_binding": broker.integration_binding,
+                }
+            ),
         )
 
     @staticmethod

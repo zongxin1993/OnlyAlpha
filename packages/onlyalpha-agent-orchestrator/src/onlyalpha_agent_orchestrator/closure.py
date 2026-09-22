@@ -112,6 +112,11 @@ ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1 = (
         "onlyalpha.agent.orchestrator.provenance.py", "onlyalpha_agent_orchestrator", "provenance.py"
     ),
     OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha.agent.orchestrator.provider_integration.py",
+        "onlyalpha_agent_orchestrator",
+        "provider_integration.py",
+    ),
+    OnlyAgentWorkflowResourceSpecV1(
         "onlyalpha.agent.orchestrator.resources.__init__.py",
         "onlyalpha_agent_orchestrator.resources",
         "__init__.py",
@@ -132,11 +137,32 @@ ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1 = (
     ),
     OnlyAgentWorkflowResourceSpecV1("onlyalpha.application.__init__.py", "onlyalpha.application", "__init__.py"),
     OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha.application.integration_configuration.py",
+        "onlyalpha.application",
+        "integration_configuration.py",
+    ),
+    OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha.application.integration_runtime.py",
+        "onlyalpha.application",
+        "integration_runtime.py",
+    ),
+    OnlyAgentWorkflowResourceSpecV1(
         "onlyalpha.application.product_command_receipt.py", "onlyalpha.application", "product_command_receipt.py"
     ),
     OnlyAgentWorkflowResourceSpecV1("onlyalpha.build_provenance.py", "onlyalpha", "build_provenance.py"),
     OnlyAgentWorkflowResourceSpecV1("onlyalpha.canonical.py", "onlyalpha", "canonical.py"),
     OnlyAgentWorkflowResourceSpecV1("onlyalpha.distribution.py", "onlyalpha", "distribution.py"),
+    OnlyAgentWorkflowResourceSpecV1("onlyalpha.plugin.__init__.py", "onlyalpha.plugin", "__init__.py"),
+    OnlyAgentWorkflowResourceSpecV1("onlyalpha.plugin.agent_provider.py", "onlyalpha.plugin", "agent_provider.py"),
+    OnlyAgentWorkflowResourceSpecV1("onlyalpha.plugin.capabilities.py", "onlyalpha.plugin", "capabilities.py"),
+    OnlyAgentWorkflowResourceSpecV1("onlyalpha.plugin.descriptor.py", "onlyalpha.plugin", "descriptor.py"),
+    OnlyAgentWorkflowResourceSpecV1("onlyalpha.plugin.errors.py", "onlyalpha.plugin", "errors.py"),
+    OnlyAgentWorkflowResourceSpecV1("onlyalpha.plugin.integration.py", "onlyalpha.plugin", "integration.py"),
+    OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha.plugin.integration_probe.py", "onlyalpha.plugin", "integration_probe.py"
+    ),
+    OnlyAgentWorkflowResourceSpecV1("onlyalpha.plugin.lifecycle.py", "onlyalpha.plugin", "lifecycle.py"),
+    OnlyAgentWorkflowResourceSpecV1("onlyalpha.plugin.version.py", "onlyalpha.plugin", "version.py"),
     OnlyAgentWorkflowResourceSpecV1("onlyalpha.research.__init__.py", "onlyalpha.research", "__init__.py"),
     OnlyAgentWorkflowResourceSpecV1("onlyalpha.research.agent.__init__.py", "onlyalpha.research.agent", "__init__.py"),
     OnlyAgentWorkflowResourceSpecV1(

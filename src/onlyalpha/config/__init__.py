@@ -23,6 +23,7 @@ from onlyalpha.config.models import (
     OnlyJsonMapping,
     OnlyJsonValue,
     OnlyReferenceDataConfig,
+    OnlyRuntimeConfigurationMode,
     OnlyStrategyReferenceConfig,
     OnlyUniverseConfig,
 )
@@ -53,6 +54,7 @@ __all__ = [
     "OnlyReferenceDataConfig",
     "OnlyClusterConfigError",
     "OnlyRuntimeConfig",
+    "OnlyRuntimeConfigurationMode",
     "OnlyRuntimeAssemblyPlan",
     "OnlyRuntimeCheckpointConfig",
     "OnlyRuntimePersistenceBackend",

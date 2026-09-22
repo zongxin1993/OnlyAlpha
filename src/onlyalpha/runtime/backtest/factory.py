@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from onlyalpha.account.enums import OnlyAccountType
+from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeError
 from onlyalpha.broker.inbound import OnlyBoundedBrokerInboundQueue
 from onlyalpha.broker.ports import OnlyBrokerGateway
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
@@ -43,6 +44,8 @@ from onlyalpha.runtime.backtest.driver import OnlyBacktestDriver
 from onlyalpha.runtime.backtest.input_requirements import only_kernel_economic_input_requirements
 from onlyalpha.runtime.backtest.run_plan import OnlyBacktestRunPlan
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
+from onlyalpha.runtime.broker_integration import only_resolve_broker_runtime_configuration
+from onlyalpha.runtime.data_source_integration import only_resolve_data_source_runtime_configuration
 from onlyalpha.runtime.factory import OnlyRuntimeBuildRequest, OnlyRuntimeBuildResult
 from onlyalpha.runtime.persistence.factory import (
     OnlyRuntimePersistenceStoreCreateRequest,
@@ -277,12 +280,20 @@ class OnlyBacktestRuntimeFactory:
             else OnlyAccountType.CASH
         )
         market_fee_pack = request.market_product.market_fee_pack
+        required_broker_capabilities = OnlyBrokerPluginCapabilities(simulated_execution=True)
+        broker_factory, broker_plugin_config = only_resolve_broker_runtime_configuration(
+            broker_common,
+            components.brokers,
+            components.integration_runtime_resolver,
+            required_broker_capabilities,
+        )
+        broker_identity = broker_factory.descriptor.plugin_id
         broker_fee_contract = components.broker_fee_contracts.require(
             account.broker_fee_contract.contract_id,
             account.broker_fee_contract.contract_version,
         )
         broker_fee_contract.validate_compatibility(
-            broker_id=broker_common.plugin_id,
+            broker_id=broker_identity,
             account_id=account.account_id,
         )
         reconciliation_policy = components.fee_reconciliation_policies.require(
@@ -306,7 +317,7 @@ class OnlyBacktestRuntimeFactory:
             market_rule_engine=market_rule_engine,
             market_fee_pack=market_fee_pack,
             broker_fee_contract=broker_fee_contract,
-            broker_fee_authority_id=broker_common.plugin_id,
+            broker_fee_authority_id=broker_identity,
             fee_basis_providers=components.fee_basis_providers,
             fee_reconciliation_policy=reconciliation_policy,
         )
@@ -318,12 +329,6 @@ class OnlyBacktestRuntimeFactory:
         )
         queue = OnlyBoundedBrokerInboundQueue(runtime_config.event_capacity)
         bar_types = self._configured_bar_types(request)
-        data_factory = components.data_sources.resolve(source_common.plugin_id)
-        if config.runtime.persistence.checkpoint.enabled:
-            data_checkpoint = self._require_checkpoint_capability(data_factory.descriptor.capabilities, "DataSource")
-            if data_checkpoint is not OnlyCheckpointCapability.STATELESS:
-                raise ValueError("Backtest Historical DataSource checkpoint capability must be STATELESS")
-        data_plugin_config = data_factory.parse_config(source_common.extensions)
         economic_requests = tuple(
             OnlyHistoricalFactRequest(
                 instrument_id,
@@ -337,16 +342,27 @@ class OnlyBacktestRuntimeFactory:
             for requirement in only_kernel_economic_input_requirements(policy)
         )
         required_families = frozenset(item.fact_family for item in economic_requests)
+        required_data_capabilities = OnlyDataSourceCapabilities(
+            historical_bars=True,
+            historical_reference_prices=OnlyMarketDataType.REFERENCE_PRICE in required_families,
+            historical_funding_rates=OnlyMarketDataType.FUNDING_RATE in required_families,
+            historical_settlements=OnlyMarketDataType.SETTLEMENT in required_families,
+        )
+        data_factory, data_plugin_config = only_resolve_data_source_runtime_configuration(
+            source_common,
+            components.data_sources,
+            components.integration_runtime_resolver,
+            required_data_capabilities,
+        )
+        if config.runtime.persistence.checkpoint.enabled:
+            data_checkpoint = self._require_checkpoint_capability(data_factory.descriptor.capabilities, "DataSource")
+            if data_checkpoint is not OnlyCheckpointCapability.STATELESS:
+                raise ValueError("Backtest Historical DataSource checkpoint capability must be STATELESS")
         data_request = OnlyDataSourceCreateRequest(
             source_common.source_id,
             data_plugin_config,
             config.runtime.runtime_type,
-            OnlyDataSourceCapabilities(
-                historical_bars=True,
-                historical_reference_prices=OnlyMarketDataType.REFERENCE_PRICE in required_families,
-                historical_funding_rates=OnlyMarketDataType.FUNDING_RATE in required_families,
-                historical_settlements=OnlyMarketDataType.SETTLEMENT in required_families,
-            ),
+            required_data_capabilities,
             clock,
             event_bus,
             config.reference_data.instrument_by_id,
@@ -373,7 +389,6 @@ class OnlyBacktestRuntimeFactory:
         self._raise_issues(
             data_factory.descriptor.plugin_id, str(source_common.source_id), data_factory.validate_request(data_request)
         )
-        broker_factory = components.brokers.resolve(broker_common.plugin_id)
         broker_checkpoint_version: int | None = None
         if config.runtime.persistence.checkpoint.enabled:
             broker_checkpoint = self._require_checkpoint_capability(broker_factory.descriptor.capabilities, "Broker")
@@ -386,12 +401,11 @@ class OnlyBacktestRuntimeFactory:
             )
             if not isinstance(broker_checkpoint_version, int) or broker_checkpoint_version < 1:
                 raise ValueError("Backtest Broker checkpoint schema version must be positive")
-        broker_plugin_config = broker_factory.parse_config(broker_common.extensions)
         broker_request = OnlyBrokerCreateRequest(
             broker_common.gateway_id,
             broker_plugin_config,
             config.runtime.runtime_type,
-            OnlyBrokerPluginCapabilities(simulated_execution=True),
+            required_broker_capabilities,
             clock,
             event_bus,
             queue,
@@ -469,5 +483,5 @@ class OnlyBacktestRuntimeFactory:
 
     @staticmethod
     def _failure(exc: Exception) -> OnlyRuntimeBuildResult:
-        code = exc.code if isinstance(exc, OnlyPluginError) else "RUNTIME_ASSEMBLY_FAILED"
+        code = exc.code if isinstance(exc, OnlyPluginError | OnlyIntegrationRuntimeError) else "RUNTIME_ASSEMBLY_FAILED"
         return OnlyRuntimeBuildResult(failure_code=code, failure_message=str(exc))

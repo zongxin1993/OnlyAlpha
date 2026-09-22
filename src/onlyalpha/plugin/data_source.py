@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from logging import Logger
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from onlyalpha.cache.historical.service import OnlyHistoricalCacheService
 from onlyalpha.config.models import OnlyDataSourceCoverageConfig, OnlyUniverseConfig
@@ -75,3 +75,12 @@ class OnlyDataSourceFactory(Protocol):
     def validate_request(self, request: OnlyDataSourceCreateRequest) -> Sequence[OnlyPluginValidationIssue]: ...
 
     def create(self, request: OnlyDataSourceCreateRequest) -> OnlyDataSource: ...
+
+
+@runtime_checkable
+class OnlyDataSourceIntegrationRuntimeAdapter(Protocol):
+    def parse_runtime_integration_config(
+        self,
+        public_configuration: Mapping[str, object],
+        resolved_secrets: Mapping[str, str],
+    ) -> object: ...

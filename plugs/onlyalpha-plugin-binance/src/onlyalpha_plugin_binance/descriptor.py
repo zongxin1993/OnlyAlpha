@@ -323,6 +323,15 @@ SPOT_BROKER_INTEGRATION_TYPE = OnlyIntegrationTypeDescriptorV1(
             ),
         )
     ),
+    probe_contract=OnlyIntegrationProbeContractV1(
+        probe_mode=OnlyIntegrationProbeMode.DEFAULT_INSTRUMENT,
+        default_probe_instrument="BTCUSDT",
+        user_selectable_probe_instrument=False,
+        probe_checks=(
+            OnlyIntegrationProbeCheck.CONNECTIVITY,
+            OnlyIntegrationProbeCheck.AUTHENTICATION,
+        ),
+    ),
 )
 
 

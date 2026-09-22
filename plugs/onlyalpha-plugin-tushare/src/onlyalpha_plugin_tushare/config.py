@@ -11,7 +11,7 @@ from .errors import OnlyTushareError
 
 @dataclass(frozen=True, slots=True)
 class OnlyTushareConfig:
-    token_env: str = "ONLYALPHA_TUSHARE_TOKEN"
+    token_env: str | None = "ONLYALPHA_TUSHARE_TOKEN"
     token: str | None = field(default=None, repr=False)
     frequency: str = "1d"
     adjustment: OnlyAdjustmentType = OnlyAdjustmentType.RAW
@@ -48,7 +48,11 @@ class OnlyTushareConfig:
             raise OnlyTushareError("TUSHARE_UNSUPPORTED_BAR_TYPE", "only daily Bars are supported")
         token = extensions.get("token")
         return cls(
-            token_env=str(extensions.get("token_env", "ONLYALPHA_TUSHARE_TOKEN")),
+            token_env=(
+                None
+                if extensions.get("token_env", "ONLYALPHA_TUSHARE_TOKEN") is None
+                else str(extensions.get("token_env", "ONLYALPHA_TUSHARE_TOKEN"))
+            ),
             token=None if token is None else str(token).strip(),
             frequency=frequency,
             adjustment=adjustment,
@@ -57,7 +61,7 @@ class OnlyTushareConfig:
         )
 
     def resolve_token(self) -> str:
-        value = os.environ.get(self.token_env)
+        value = os.environ.get(self.token_env) if self.token_env is not None else None
         token = value.strip() if value is not None else (self.token or "").strip()
         if not token:
             raise OnlyTushareError("TUSHARE_TOKEN_MISSING", "Tushare credential is not configured")

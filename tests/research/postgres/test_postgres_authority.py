@@ -40,6 +40,7 @@ from onlyalpha.kernel.command import OnlyProductCommandBinding, OnlyProductComma
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
     DEFAULT_MIGRATION_ROOT,
+    MASTER_KEY_FILE,
     OnlyPostgresConfig,
     OnlyPostgresKernelAuthorityGuard,
     OnlyPostgresOperationalConnectionOptions,
@@ -49,6 +50,7 @@ from onlyalpha.persistence.postgres import (
     OnlyPostgresResearchRunStore,
     OnlyPostgresSchemaVerdict,
     OnlyPostgresSchemaVerifier,
+    only_ensure_dev_master_key,
 )
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from onlyalpha.persistence.postgres.research_run_store import _COLUMNS
@@ -1288,6 +1290,7 @@ def test_worker_process_signal_marks_draining_and_uses_application_exit_contract
 def test_api_process_restart_reads_same_postgres_run_authority(postgres_dsn: str, tmp_path: Path) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     _initialize_deployment(postgres_dsn, tmp_path)
+    only_ensure_dev_master_key(OnlyUserDataLayout(tmp_path).root / MASTER_KEY_FILE)
     run = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued("00000000-0000-4000-8000-000000000017"))
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))

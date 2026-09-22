@@ -11,6 +11,10 @@ from pathlib import Path
 from typing import Any, cast
 
 import uvicorn
+from onlyalpha_agent_orchestrator.provider_integration import (
+    OnlyAgentProviderRuntimeResolverV1,
+    OnlyOpenAICompatibleAgentProviderProbe,
+)
 from onlyalpha_authoring_execution_worker.generation import (
     OnlyAuthoringExecutionGenerationStore,
     OnlyVerifiedAuthoringGenerationReader,
@@ -34,6 +38,7 @@ from onlyalpha.application.integration_probe import (
     OnlyIntegrationOperationalQueryService,
     OnlyIntegrationProbeService,
 )
+from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeResolver
 from onlyalpha.application.integration_type_catalog import OnlyIntegrationProbeCatalog, OnlyIntegrationTypeCatalog
 from onlyalpha.application.private_asset_product import (
     OnlyPrivateAssetProductService,
@@ -540,6 +545,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--authoring-generation-root", type=Path)
     parser.add_argument("--agent-node-url")
     parser.add_argument("--agent-control-token-file", type=Path)
+    parser.add_argument("--agent-runtime-token-file", type=Path)
     parser.add_argument(
         "--qualification-policy",
         action="append",
@@ -911,7 +917,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             near_duplicate_queries=near_duplicate_queries,
             strategy_research=strategy_research,
         )
-        integration_types = OnlyIntegrationTypeCatalog(data_sources, brokers)
+        from onlyalpha.plugin.agent_provider import OPENAI_COMPATIBLE_AGENT_PROVIDER_INTEGRATION_TYPE
+
+        integration_types = OnlyIntegrationTypeCatalog(
+            data_sources,
+            brokers,
+            (OPENAI_COMPATIBLE_AGENT_PROVIDER_INTEGRATION_TYPE,),
+        )
         integration_store = OnlyPostgresIntegrationProductStore(
             postgres.dsn,
             integration_master_key,
@@ -923,19 +935,24 @@ def main(argv: Sequence[str] | None = None) -> int:
             integration_master_key,
         )
         integration_queries = OnlyIntegrationQueryService(integration_store)
-        integration_probe_catalog = OnlyIntegrationProbeCatalog(data_sources, brokers)
+        integration_probe_catalog = OnlyIntegrationProbeCatalog(
+            data_sources,
+            brokers,
+            ((OPENAI_COMPATIBLE_AGENT_PROVIDER_INTEGRATION_TYPE, OnlyOpenAICompatibleAgentProviderProbe()),),
+        )
         integration_probe_store = OnlyPostgresIntegrationProbeStore(
             postgres.dsn,
+            options=operational_options,
+        )
+        integration_credentials = OnlyPostgresCredentialAuthority(
+            postgres.dsn,
+            integration_master_key,
             options=operational_options,
         )
         integration_probes = OnlyIntegrationProbeService(
             integration_store,
             integration_probe_store,
-            OnlyPostgresCredentialAuthority(
-                postgres.dsn,
-                integration_master_key,
-                options=operational_options,
-            ),
+            integration_credentials,
             integration_probe_catalog,
         )
         integration_operational_queries = OnlyIntegrationOperationalQueryService(
@@ -990,6 +1007,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             integration_queries=integration_queries,
             integration_probes=integration_probes,
             integration_operational_queries=integration_operational_queries,
+            agent_provider_runtime=(
+                None
+                if args.agent_runtime_token_file is None
+                else (
+                    OnlyAgentProviderRuntimeResolverV1(
+                        OnlyIntegrationRuntimeResolver(
+                            integration_store,
+                            integration_credentials,
+                            integration_types,
+                            probes=integration_probe_store,
+                        )
+                    ),
+                    args.agent_runtime_token_file.read_text(encoding="utf-8").strip(),
+                )
+            ),
         )
         if startup_status.state is OnlyKernelState.READY:
             app.state.experiment_memory_projection_builder = memory_builder

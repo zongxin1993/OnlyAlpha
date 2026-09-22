@@ -25,8 +25,10 @@ Probe metadata declares a future read-only validation capability; L1 never execu
 input. It is not a Universe, allowlist, subscription list, or runtime DataSource configuration. Consumers continue to select runtime
 instruments through the existing DataSource create/admission context.
 
-`AGENT_PROVIDER` is reserved in the Integration category vocabulary. It does not extend `OnlyPluginType`, add an entry-point group, or
-change Agent runtime behavior; provider registration remains future work at its own boundary.
+`AGENT_PROVIDER` does not extend `OnlyPluginType` or add a Plugin entry-point group. The Product catalog publishes the stable
+`openai.compatible.agent_provider` component contract, while executable parsing, Probe transport, Model Profile binding, and model I/O
+remain inside the independently deployable Agent component. Agent node control and Product API bootstrap tokens are infrastructure
+credentials and are never fields of this product Integration.
 
 The Integration Type catalog is an in-memory deterministic projection of declared contracts on already registered factories. It is not
 a PostgreSQL authority, does not create Integration instances, and disappears with the installed implementation that supplied it.

@@ -2095,7 +2095,7 @@ export interface components {
          * OnlyIntegrationProbeCheck
          * @enum {string}
          */
-        OnlyIntegrationProbeCheck: "CONNECTIVITY" | "AUTHENTICATION" | "REFERENCE_DATA" | "HISTORICAL_DATA" | "REALTIME_DATA";
+        OnlyIntegrationProbeCheck: "CONNECTIVITY" | "AUTHENTICATION" | "REFERENCE_DATA" | "HISTORICAL_DATA" | "REALTIME_DATA" | "MODEL_DISCOVERY";
         /**
          * OnlyIntegrationProbeMode
          * @enum {string}

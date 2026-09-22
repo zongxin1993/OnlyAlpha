@@ -135,6 +135,8 @@ def _isolated_runtime_proof() -> str:
                 str(secret_paths[0]),
                 "--model-api-url",
                 "http://127.0.0.1:9",
+                "--model-configuration-mode",
+                "LEGACY",
                 "--model-token-file",
                 str(secret_paths[1]),
                 "--control-token-file",

@@ -51,6 +51,7 @@ class OnlyIntegrationProbeCheck(StrEnum):
     REFERENCE_DATA = "REFERENCE_DATA"
     HISTORICAL_DATA = "HISTORICAL_DATA"
     REALTIME_DATA = "REALTIME_DATA"
+    MODEL_DISCOVERY = "MODEL_DISCOVERY"
 
 
 @dataclass(frozen=True, slots=True)

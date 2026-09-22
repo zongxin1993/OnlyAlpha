@@ -49,6 +49,10 @@ from onlyalpha.plugin.data_source import OnlyDataSource, OnlyDataSourceCreateReq
 from onlyalpha.plugin.errors import OnlyPluginError
 from onlyalpha.plugin.lifecycle import OnlyPluginResource
 from onlyalpha.runtime.assembler import OnlyComponentFactoryRegistries
+from onlyalpha.runtime.broker_integration import (
+    only_resolve_broker_runtime_configuration,
+    only_resolve_broker_runtime_factory,
+)
 from onlyalpha.runtime.factory import OnlyRuntimeBuildRequest, OnlyRuntimeBuildResult
 from onlyalpha.runtime.persistence.factory import OnlyRuntimePersistenceStoreCreateRequest
 from onlyalpha.runtime.persistence.lease import OnlyRuntimeStateLease
@@ -260,12 +264,26 @@ class OnlySimRuntimeFactory:
                 ) from exc
 
             market_rules = self._market_rules(config, request.market_product, clock)
+            required_broker_capabilities = OnlyBrokerPluginCapabilities(
+                submit_order=True,
+                cancel_order=True,
+                query_orders=True,
+                query_trades=True,
+                simulated_execution=True,
+            )
+            broker_factory, broker_plugin_config = only_resolve_broker_runtime_configuration(
+                broker_common,
+                components.brokers,
+                components.integration_runtime_resolver,
+                required_broker_capabilities,
+            )
+            broker_identity = broker_factory.descriptor.plugin_id
             broker_fee_contract = components.broker_fee_contracts.require(
                 account.broker_fee_contract.contract_id,
                 account.broker_fee_contract.contract_version,
             )
             broker_fee_contract.validate_compatibility(
-                broker_id=broker_common.plugin_id,
+                broker_id=broker_identity,
                 account_id=account.account_id,
             )
             runtime_config = OnlyRuntimeAssemblyConfig(
@@ -284,7 +302,7 @@ class OnlySimRuntimeFactory:
                 market_rule_engine=market_rules,
                 market_fee_pack=request.market_product.market_fee_pack,
                 broker_fee_contract=broker_fee_contract,
-                broker_fee_authority_id=broker_common.plugin_id,
+                broker_fee_authority_id=broker_identity,
                 fee_basis_providers=components.fee_basis_providers,
                 fee_reconciliation_policy=reconciliation_policy,
             )
@@ -303,18 +321,11 @@ class OnlySimRuntimeFactory:
                 )
             )
 
-            broker_factory = components.brokers.resolve(broker_common.plugin_id)
             broker_request = OnlyBrokerCreateRequest(
                 broker_common.gateway_id,
-                broker_factory.parse_config(broker_common.extensions),
+                broker_plugin_config,
                 config.runtime.runtime_type,
-                OnlyBrokerPluginCapabilities(
-                    submit_order=True,
-                    cancel_order=True,
-                    query_orders=True,
-                    query_trades=True,
-                    simulated_execution=True,
-                ),
+                required_broker_capabilities,
                 clock,
                 event_bus,
                 broker_inbound,
@@ -507,7 +518,19 @@ class OnlySimRuntimeFactory:
                 "SIM_BROKER_COUNT_INVALID",
                 "SIM requires exactly one enabled Broker",
             )
-        broker_factory = components.brokers.resolve(brokers[0].plugin_id)
+        required_broker_capabilities = OnlyBrokerPluginCapabilities(
+            submit_order=True,
+            cancel_order=True,
+            query_orders=True,
+            query_trades=True,
+            simulated_execution=True,
+        )
+        broker_factory = only_resolve_broker_runtime_factory(
+            brokers[0],
+            components.brokers,
+            components.integration_runtime_resolver,
+            required_broker_capabilities,
+        )
         broker_capabilities = broker_factory.descriptor.capabilities
         if (
             not isinstance(broker_capabilities, OnlyBrokerPluginCapabilities)
@@ -517,12 +540,6 @@ class OnlySimRuntimeFactory:
                 "SIM_SIMULATED_BROKER_REQUIRED",
                 "SIM Broker must explicitly support simulated_execution",
             )
-        required_broker_capabilities = OnlyBrokerPluginCapabilities(
-            submit_order=True,
-            cancel_order=True,
-            query_orders=True,
-            query_trades=True,
-        )
         missing_broker_capabilities = broker_capabilities.missing(required_broker_capabilities)
         if missing_broker_capabilities:
             raise _OnlySimCompositionError(

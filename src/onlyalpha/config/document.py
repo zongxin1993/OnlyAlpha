@@ -33,6 +33,7 @@ from onlyalpha.config.models import (
     OnlyJsonMapping,
     OnlyJsonValue,
     OnlyReferenceDataConfig,
+    OnlyRuntimeConfigurationMode,
     OnlyStrategyReferenceConfig,
     OnlyStrategySubscriptionConfig,
     OnlySubscriptionRole,
@@ -484,10 +485,39 @@ class _OnlyClusterDocumentParser:
             p = f"$.data_sources[{i}]"
             raw = self._map(value, p)
             coverage = self._map(raw.get("coverage"), f"{p}.coverage")
+            try:
+                configuration_mode = OnlyRuntimeConfigurationMode(
+                    self._str(raw.get("configuration_mode", "LEGACY"), f"{p}.configuration_mode")
+                )
+            except ValueError:
+                raise OnlyClusterConfigError("RUNTIME_CONFIGURATION_MODE_INVALID") from None
+            integration = raw.get("integration")
+            if configuration_mode is OnlyRuntimeConfigurationMode.INTEGRATION_REVISION:
+                if "plugin" in raw or self._map(raw.get("extensions", {}), f"{p}.extensions"):
+                    raise OnlyClusterConfigError("RUNTIME_CONFIGURATION_MODE_CONFLICT")
+                unknown = set(raw) - {
+                    "source_id",
+                    "enabled",
+                    "data_version",
+                    "coverage",
+                    "batch_size",
+                    "extensions",
+                    "configuration_mode",
+                    "integration",
+                }
+                if unknown:
+                    raise OnlyClusterConfigError(f"{p} UNKNOWN_FIELD: {sorted(unknown)[0]}")
+                integration_binding = self._integration_binding(integration, f"{p}.integration")
+                plugin_id = ""
+            else:
+                if integration is not None:
+                    raise OnlyClusterConfigError("RUNTIME_CONFIGURATION_MODE_CONFLICT")
+                integration_binding = None
+                plugin_id = self._plugin_id(raw, p)
             result.append(
                 OnlyDataSourceRuntimeConfig(
                     OnlyMarketDataSourceId(self._str(raw.get("source_id"), f"{p}.source_id")),
-                    self._plugin_id(raw, p),
+                    plugin_id,
                     self._bool(raw.get("enabled", True), f"{p}.enabled"),
                     OnlyDataVersion(self._str(raw.get("data_version"), f"{p}.data_version")),
                     OnlyDataSourceCoverageConfig(
@@ -509,6 +539,8 @@ class _OnlyClusterDocumentParser:
                     ),
                     self._int(raw.get("batch_size", 1024), f"{p}.batch_size", 1),
                     self._map(raw.get("extensions", {}), f"{p}.extensions"),
+                    configuration_mode,
+                    integration_binding,
                 )
             )
         return tuple(result)
@@ -565,12 +597,40 @@ class _OnlyClusterDocumentParser:
         for i, value in enumerate(values):
             p = f"$.brokers[{i}]"
             raw = self._map(value, p)
+            try:
+                configuration_mode = OnlyRuntimeConfigurationMode(
+                    self._str(raw.get("configuration_mode", "LEGACY"), f"{p}.configuration_mode")
+                )
+            except ValueError:
+                raise OnlyClusterConfigError("RUNTIME_CONFIGURATION_MODE_INVALID") from None
+            integration = raw.get("integration")
+            if configuration_mode is OnlyRuntimeConfigurationMode.INTEGRATION_REVISION:
+                if "plugin" in raw or self._map(raw.get("extensions", {}), f"{p}.extensions"):
+                    raise OnlyClusterConfigError("RUNTIME_CONFIGURATION_MODE_CONFLICT")
+                unknown = set(raw) - {
+                    "gateway_id",
+                    "enabled",
+                    "extensions",
+                    "configuration_mode",
+                    "integration",
+                }
+                if unknown:
+                    raise OnlyClusterConfigError(f"{p} UNKNOWN_FIELD: {sorted(unknown)[0]}")
+                integration_binding = self._integration_binding(integration, f"{p}.integration")
+                plugin_id = ""
+            else:
+                if integration is not None:
+                    raise OnlyClusterConfigError("RUNTIME_CONFIGURATION_MODE_CONFLICT")
+                integration_binding = None
+                plugin_id = self._plugin_id(raw, p)
             result.append(
                 OnlyBrokerRuntimeConfig(
                     OnlyBrokerGatewayId(self._str(raw.get("gateway_id"), f"{p}.gateway_id")),
-                    self._plugin_id(raw, p),
+                    plugin_id,
                     self._bool(raw.get("enabled", True), f"{p}.enabled"),
                     self._map(raw.get("extensions", {}), f"{p}.extensions"),
+                    configuration_mode,
+                    integration_binding,
                 )
             )
         return tuple(result)
@@ -762,6 +822,28 @@ class _OnlyClusterDocumentParser:
         if plugin is None:
             raise OnlyClusterConfigError(f"{path}.plugin is required")
         return self._str(plugin, f"{path}.plugin").lower()
+
+    def _integration_binding(self, value: object, path: str) -> OnlyJsonMapping:
+        binding = self._map(value, path)
+        reference_fields = {"integration_id", "revision_fingerprint", "runtime_generation_fingerprint"}
+        exact_fields = {
+            "schema_version",
+            "integration_id",
+            "revision_fingerprint",
+            "type_id",
+            "category",
+            "type_descriptor_fingerprint",
+            "runtime_configuration_fingerprint",
+            "runtime_generation_fingerprint",
+            "identity_domain",
+            "binding_fingerprint",
+        }
+        actual = set(binding)
+        if actual != exact_fields and not (
+            {"integration_id", "revision_fingerprint"}.issubset(actual) and actual <= reference_fields
+        ):
+            raise OnlyClusterConfigError("INTEGRATION_RUNTIME_BINDING_INVALID")
+        return binding
 
     @staticmethod
     def _map(value: object, path: str) -> OnlyJsonMapping:

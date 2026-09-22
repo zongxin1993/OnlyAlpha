@@ -100,4 +100,5 @@ def test_integration_type_openapi_preserves_bounded_vocabularies() -> None:
         "REFERENCE_DATA",
         "HISTORICAL_DATA",
         "REALTIME_DATA",
+        "MODEL_DISCOVERY",
     ]

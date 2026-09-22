@@ -17,7 +17,10 @@ ROOT = Path(__file__).resolve().parents[2]
 CONFIGURATION = ROOT / "src/onlyalpha/application/integration_configuration.py"
 APPLICATION = ROOT / "src/onlyalpha/application/integration_application.py"
 PROBE_APPLICATION = ROOT / "src/onlyalpha/application/integration_probe.py"
+RUNTIME_APPLICATION = ROOT / "src/onlyalpha/application/integration_runtime.py"
 BINANCE_SPOT_PROBE = ROOT / "plugs/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance/spot/data_source/probe.py"
+BINANCE_BROKER_FACTORY = ROOT / "plugs/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance/spot/broker_factory.py"
+AGENT_PROVIDER = ROOT / "packages/onlyalpha-agent-orchestrator/src/onlyalpha_agent_orchestrator/provider_integration.py"
 POSTGRES = ROOT / "src/onlyalpha/persistence/postgres"
 INTEGRATION_STORE = POSTGRES / "integration_store.py"
 PRODUCT_STORE = POSTGRES / "integration_product_store.py"
@@ -37,8 +40,85 @@ def _python_files(root: Path) -> tuple[Path, ...]:
 
 
 def test_integration_application_and_postgres_store_are_provider_neutral() -> None:
-    for path in (CONFIGURATION, APPLICATION, INTEGRATION_STORE, PRODUCT_STORE, CREDENTIALS):
+    for path in (
+        CONFIGURATION,
+        APPLICATION,
+        PROBE_APPLICATION,
+        RUNTIME_APPLICATION,
+        INTEGRATION_STORE,
+        PRODUCT_STORE,
+        CREDENTIALS,
+    ):
         assert not (imported_modules_for_path(path, ROOT) & CONCRETE_PLUGINS), path
+
+
+def test_runtime_consumers_and_plugins_cannot_import_integration_persistence() -> None:
+    forbidden = {
+        "onlyalpha.persistence.postgres.integration_store",
+        "onlyalpha.persistence.postgres.integration_product_store",
+        "onlyalpha.persistence.postgres.integration_probe_store",
+        "onlyalpha.persistence.postgres.credentials",
+    }
+    roots = (
+        ROOT / "src/onlyalpha/runtime",
+        ROOT / "plugs",
+        ROOT / "packages/onlyalpha-agent-orchestrator/src",
+    )
+    violations = {
+        str(path.relative_to(ROOT)): sorted(imported_modules_for_path(path, ROOT) & forbidden)
+        for root in roots
+        for path in _python_files(root)
+        if imported_modules_for_path(path, ROOT) & forbidden
+    }
+
+    assert violations == {}
+
+
+def test_runtime_factories_use_the_exact_broker_integration_resolution_boundary() -> None:
+    for relative in ("src/onlyalpha/runtime/backtest/factory.py", "src/onlyalpha/runtime/sim/factory.py"):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        assert "only_resolve_broker_runtime_configuration(" in source
+
+
+def test_broker_probe_has_no_order_mutation_call_surface() -> None:
+    tree = ast.parse(BINANCE_BROKER_FACTORY.read_text(encoding="utf-8"), filename=str(BINANCE_BROKER_FACTORY))
+    probe = next(
+        child
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "OnlyBinanceSpotBrokerFactory"
+        for child in node.body
+        if isinstance(child, ast.FunctionDef) and child.name == "probe"
+    )
+    forbidden = {"submit_order", "cancel_order", "replace_order", "change_leverage", "transfer"}
+    calls = {
+        call.func.attr
+        for call in ast.walk(probe)
+        if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+    }
+
+    assert calls.isdisjoint(forbidden)
+
+
+def test_agent_provider_keeps_bootstrap_secrets_and_broker_authority_outside_its_boundary() -> None:
+    source = AGENT_PROVIDER.read_text(encoding="utf-8")
+    imports = imported_modules_for_path(AGENT_PROVIDER, ROOT)
+
+    assert (
+        not {
+            "onlyalpha.broker",
+            "onlyalpha.persistence.postgres.credentials",
+            "onlyalpha.persistence.postgres.integration_store",
+            "onlyalpha.persistence.postgres.integration_product_store",
+        }
+        & imports
+    )
+    assert "control_token" not in source
+    assert "product_token" not in source
+    assert not {"submit_order", "cancel_order", "replace_order", "execute_tool"} & {
+        node.func.attr
+        for node in ast.walk(ast.parse(source, filename=str(AGENT_PROVIDER)))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
 
 
 def test_plugins_do_not_import_integration_authority_and_http_routes_stay_transport_only() -> None:
