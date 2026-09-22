@@ -223,7 +223,7 @@ def test_exact_live_broker_vertical_pins_revision_probe_and_secret_generation(mo
         "revision_fingerprint": r1.revision_fingerprint,
     }
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("broker-integration"), tmp_path), services=services)
-    engine.add_cluster(OnlyClusterRunConfig.from_mapping(payload, source_path=baseline.source_path))
+    handle = engine.add_cluster(OnlyClusterRunConfig.from_mapping(payload, source_path=baseline.source_path))
     admitted_by_engine = engine.cluster_definitions[0].brokers[0]
     assert admitted_by_engine.integration_binding is not None
     assert admitted_by_engine.integration_binding["revision_fingerprint"] == r1.revision_fingerprint
@@ -262,6 +262,15 @@ def test_exact_live_broker_vertical_pins_revision_probe_and_secret_generation(mo
         )
 
     _, still_r1 = only_resolve_broker_runtime_configuration(admitted_r1, registry, resolver, REQUIRED)
+    engine.close()
+    recovered = OnlyEngine(OnlyEngineConfig(OnlyEngineId("broker-integration"), tmp_path), services=services)
+    recovered.recover_cluster_from_evidence(handle.runtime_id, handle.cluster_id, handle.config_fingerprint)
+    recovered_binding = recovered.cluster_definitions[0].brokers[0].integration_binding
+    assert recovered_binding is not None
+    assert recovered_binding["revision_fingerprint"] == r1.revision_fingerprint
+    assert "key-generation-3" not in str(recovered.cluster_definitions[0].normalized_payload)
+    assert "secret-generation-3" not in str(recovered.cluster_definitions[0].normalized_payload)
+    recovered.close()
     admitted_r2 = only_admit_broker_runtime_configuration(
         _reference(r2),
         resolver,

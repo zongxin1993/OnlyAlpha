@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from threading import Event
+from types import SimpleNamespace
 
 import pytest
 
@@ -27,6 +30,7 @@ from onlyalpha.plugin.integration import (
     OnlyIntegrationTypeId,
     OnlyIntegrationValueKind,
 )
+from onlyalpha.plugin.integration_probe import OnlyIntegrationProbeStatus
 
 NOW = datetime(2026, 9, 21, tzinfo=UTC)
 INTEGRATION_ID = OnlyIntegrationId("b52eb762-34cf-47d4-8cca-56ef93f0d2ac")
@@ -373,6 +377,23 @@ def test_new_admission_requires_exact_ready_probe_when_requested() -> None:
 
     assert missing.value.code == "INTEGRATION_RUNTIME_PROBE_REQUIRED"
 
+    not_ready = SimpleNamespace(
+        overall_status=OnlyIntegrationProbeStatus.DEGRADED,
+        integration_id=INTEGRATION_ID,
+        revision_fingerprint=revision.revision_fingerprint,
+        runtime_configuration_fingerprint=revision.runtime_configuration_fingerprint,
+    )
+    resolver, revision, _ = _resolver(probes=_Probes(not_ready))  # type: ignore[arg-type]
+    with pytest.raises(OnlyIntegrationRuntimeError) as degraded:
+        resolver.admit_new(
+            INTEGRATION_ID,
+            revision.revision_fingerprint,
+            expected_category=OnlyIntegrationCategory.DATA_SOURCE,
+            require_ready_probe=True,
+        )
+
+    assert degraded.value.code == "INTEGRATION_RUNTIME_PROBE_NOT_READY"
+
 
 def test_runtime_binding_parser_rejects_unknown_or_malformed_evidence() -> None:
     resolver, revision, _ = _resolver()
@@ -476,3 +497,118 @@ def test_state_and_probe_outages_are_not_reported_as_absence_or_policy_denial() 
     assert probe_error.value.code == "INTEGRATION_RUNTIME_PERSISTENCE_UNAVAILABLE"
     assert state_error.value.__cause__ is None
     assert probe_error.value.__cause__ is None
+
+
+def test_publish_race_closes_admission_on_one_exact_revision() -> None:
+    descriptor = _descriptor()
+    r1, b1 = _revision(descriptor, generation=3)
+    r2, b2 = _revision(descriptor, generation=4)
+    initial = OnlyIntegration(
+        INTEGRATION_ID,
+        descriptor.type_id.value,
+        "Test",
+        OnlyIntegrationLifecycleState.ACTIVE,
+        r1.revision_fingerprint,
+        NOW,
+        NOW,
+    )
+    integration_read = Event()
+    publish_committed = Event()
+
+    class RacingState:
+        integration = initial
+
+        def load_integration(self, _integration_id: OnlyIntegrationId) -> OnlyIntegration:
+            snapshot = self.integration
+            integration_read.set()
+            assert publish_committed.wait(5)
+            return snapshot
+
+        @staticmethod
+        def load_revision(fingerprint: str) -> OnlyIntegrationRevision:
+            return {r1.revision_fingerprint: r1, r2.revision_fingerprint: r2}[fingerprint]
+
+        @staticmethod
+        def load_revision_secret_bindings(fingerprint: str) -> tuple[OnlyIntegrationSecretBinding, ...]:
+            return {r1.revision_fingerprint: b1, r2.revision_fingerprint: b2}[fingerprint]
+
+    state = RacingState()
+    credentials = _Credentials()
+    resolver = OnlyIntegrationRuntimeResolver(state, credentials, _Catalog(descriptor))
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        admitted = executor.submit(
+            resolver.admit_new,
+            INTEGRATION_ID,
+            r1.revision_fingerprint,
+            expected_category=OnlyIntegrationCategory.DATA_SOURCE,
+            require_current_revision=True,
+        )
+        assert integration_read.wait(5)
+        state.integration = replace(initial, current_revision_fingerprint=r2.revision_fingerprint)
+        publish_committed.set()
+        resolved = admitted.result()
+
+    assert resolved.binding.revision_fingerprint == r1.revision_fingerprint
+    assert credentials.reads == [(CREDENTIAL_ID, 3)]
+
+
+def test_disable_race_has_only_fully_admitted_or_denied_outcomes() -> None:
+    resolver, revision, _ = _resolver()
+    integration_read = Event()
+    disable_committed = Event()
+    state = resolver._state  # type: ignore[attr-defined]
+    original_load = state.load_integration
+
+    def load_before_disable(integration_id: OnlyIntegrationId) -> OnlyIntegration:
+        snapshot = original_load(integration_id)
+        integration_read.set()
+        assert disable_committed.wait(5)
+        return snapshot
+
+    state.load_integration = load_before_disable  # type: ignore[method-assign]
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        admitted = executor.submit(
+            resolver.admit_new,
+            INTEGRATION_ID,
+            revision.revision_fingerprint,
+            expected_category=OnlyIntegrationCategory.DATA_SOURCE,
+        )
+        assert integration_read.wait(5)
+        state.integration = replace(state.integration, lifecycle_state=OnlyIntegrationLifecycleState.DISABLED)
+        disable_committed.set()
+        assert admitted.result().binding.revision_fingerprint == revision.revision_fingerprint
+
+    with pytest.raises(OnlyIntegrationRuntimeError, match="INTEGRATION_RUNTIME_DISABLED"):
+        resolver.admit_new(
+            INTEGRATION_ID,
+            revision.revision_fingerprint,
+            expected_category=OnlyIntegrationCategory.DATA_SOURCE,
+        )
+
+
+def test_secret_rotation_race_never_substitutes_a_new_generation() -> None:
+    read_started = Event()
+    rotation_committed = Event()
+
+    class RacingCredentials(_Credentials):
+        def read_secret(self, credential_id: str, credential_generation: int) -> str:
+            self.reads.append((credential_id, credential_generation))
+            read_started.set()
+            assert rotation_committed.wait(5)
+            raise LookupError("old generation retired")
+
+    credentials = RacingCredentials()
+    resolver, revision, _ = _resolver(credentials=credentials)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        admitted = executor.submit(
+            resolver.admit_new,
+            INTEGRATION_ID,
+            revision.revision_fingerprint,
+            expected_category=OnlyIntegrationCategory.DATA_SOURCE,
+        )
+        assert read_started.wait(5)
+        rotation_committed.set()
+        with pytest.raises(OnlyIntegrationRuntimeError, match="INTEGRATION_RUNTIME_SECRET_UNAVAILABLE"):
+            admitted.result()
+
+    assert credentials.reads == [(CREDENTIAL_ID, 3)]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
@@ -16,6 +17,19 @@ from onlyalpha.runtime.environment import only_canonical_payload
 
 if TYPE_CHECKING:
     from onlyalpha.runtime.planning import OnlyEngineExecutionPlan
+
+_SAFE_PATH_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_WINDOWS_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL", *(f"COM{index}" for index in range(1, 10)), *(f"LPT{index}" for index in range(1, 10))}
+)
+
+
+def _safe_runtime_admission_path_segment(value: str) -> bool:
+    return (
+        _SAFE_PATH_SEGMENT.fullmatch(value) is not None
+        and not value.endswith(".")
+        and value.split(".", 1)[0].upper() not in _WINDOWS_RESERVED_NAMES
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +94,32 @@ class OnlyUserDataLayout:
 
     def runtime_persistence_path(self, engine_id: OnlyEngineId, runtime_id: OnlyRuntimeId) -> Path:
         return self.runtime_state_root(engine_id, runtime_id) / "runtime.sqlite3"
+
+    def runtime_admission_evidence_path(
+        self,
+        engine_id: OnlyEngineId,
+        runtime_id: OnlyRuntimeId,
+        cluster_id: OnlyClusterId,
+        config_fingerprint: str,
+    ) -> Path:
+        segments = (str(engine_id), str(runtime_id), str(cluster_id))
+        if any(not _safe_runtime_admission_path_segment(value) for value in segments) or (
+            len(config_fingerprint) != 64
+            or any(character not in "0123456789abcdef" for character in config_fingerprint)
+        ):
+            raise ValueError("RUNTIME_ADMISSION_EVIDENCE_PATH_INVALID")
+        return (
+            self.root
+            / "state"
+            / "engines"
+            / segments[0]
+            / "runtimes"
+            / segments[1]
+            / "admissions"
+            / segments[2]
+            / config_fingerprint
+            / "normalized_config.json"
+        )
 
 
 @dataclass(frozen=True, slots=True)

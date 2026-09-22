@@ -8,6 +8,7 @@ import pytest
 from onlyalpha_plugin_tushare.data_source.resource import OnlyTushareHistoricalDataSource
 from onlyalpha_plugin_tushare.descriptor import DATA_INTEGRATION_TYPE
 
+import onlyalpha.engine.engine as engine_module
 from onlyalpha.application.integration_configuration import (
     OnlyIntegration,
     OnlyIntegrationId,
@@ -23,9 +24,10 @@ from onlyalpha.application.integration_type_catalog import OnlyIntegrationTypeCa
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
-from onlyalpha.domain.identifiers import OnlyEngineId
+from onlyalpha.domain.identifiers import OnlyEngineId, OnlyRuntimeId
 from onlyalpha.engine.engine import OnlyEngine
-from onlyalpha.engine.models import OnlyEngineConfig
+from onlyalpha.engine.models import OnlyClusterLoadError, OnlyEngineConfig
+from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.runtime.defaults import only_default_engine_services
 from tests.runtime_support.runner import only_migrate_cluster_to_strategy
 
@@ -112,16 +114,109 @@ def test_exact_revision_creates_tushare_component_through_engine_without_environ
     }
     config = OnlyClusterRunConfig.from_mapping(payload, source_path=baseline.source_path)
     services = only_default_engine_services(integration_runtime_resolver=resolver)
+    escaped_payload = json.loads(json.dumps(payload))
+    escaped_payload["cluster"]["cluster_id"] = "/tmp/onlyalpha-l4-evidence-escape"
+    escaped = OnlyClusterRunConfig.from_mapping(escaped_payload, source_path=baseline.source_path)
+    escaped_engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("tushare-path-failure"), tmp_path), services=services)
+    with pytest.raises(OnlyClusterLoadError, match="RUNTIME_ADMISSION_EVIDENCE_INVALID"):
+        escaped_engine.add_cluster(escaped)
+
+    symlink_root = tmp_path / "symlink-root"
+    outside = tmp_path / "outside"
+    symlink_root.mkdir()
+    outside.mkdir()
+    (symlink_root / "state").symlink_to(outside, target_is_directory=True)
+    symlinked = OnlyEngine(
+        OnlyEngineConfig(OnlyEngineId("tushare-symlink-failure"), symlink_root),
+        services=services,
+    )
+    with pytest.raises(OnlyClusterLoadError, match="RUNTIME_ADMISSION_EVIDENCE_CORRUPT"):
+        symlinked.add_cluster(config)
+    assert tuple(outside.iterdir()) == ()
+
+    failed = OnlyEngine(OnlyEngineConfig(OnlyEngineId("tushare-evidence-failure"), tmp_path), services=services)
+
+    def fail_evidence(*_args: object) -> None:
+        raise OSError("evidence unavailable")
+
+    monkeypatch.setattr(failed, "_persist_runtime_admission_evidence", fail_evidence)
+    with pytest.raises(OSError, match="evidence unavailable"):
+        failed.add_cluster(config)
+    assert dict(failed.infrastructure_registry.reference_counts) == {}
+
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("tushare-integration"), tmp_path), services=services)
 
-    engine.add_cluster(config)
+    handle = engine.add_cluster(config)
     admitted = engine.cluster_definitions[0]
     admitted_binding = admitted.data_sources[0].integration_binding
     assert admitted_binding is not None
     assert admitted_binding["revision_fingerprint"] == revision.revision_fingerprint
     assert "exact-tushare-token" not in str(admitted.normalized_payload)
 
-    state.integration = replace(state.integration, lifecycle_state=OnlyIntegrationLifecycleState.DISABLED)
+    evidence_path = OnlyUserDataLayout(tmp_path).runtime_admission_evidence_path(
+        OnlyEngineId("tushare-integration"),
+        handle.runtime_id,
+        handle.cluster_id,
+        handle.config_fingerprint,
+    )
+    assert evidence_path.is_file()
+    assert "exact-tushare-token" not in evidence_path.read_text(encoding="utf-8")
+
+    original_windows = engine_module._WINDOWS
+    monkeypatch.setattr(engine_module, "_WINDOWS", True)
+    windows_root = tmp_path / "windows-root"
+    windows_engine = OnlyEngine(
+        OnlyEngineConfig(OnlyEngineId("tushare-windows-integration"), windows_root),
+        services=services,
+    )
+    windows_handle = windows_engine.add_cluster(config)
+    windows_engine.close()
+    windows_recovered = OnlyEngine(
+        OnlyEngineConfig(OnlyEngineId("tushare-windows-integration"), windows_root),
+        services=services,
+    )
+    windows_recovered.recover_cluster_from_evidence(
+        windows_handle.runtime_id,
+        windows_handle.cluster_id,
+        windows_handle.config_fingerprint,
+    )
+    windows_recovered.close()
+    windows_evidence = OnlyUserDataLayout(windows_root).runtime_admission_evidence_path(
+        OnlyEngineId("tushare-windows-integration"),
+        windows_handle.runtime_id,
+        windows_handle.cluster_id,
+        windows_handle.config_fingerprint,
+    )
+    windows_evidence.unlink()
+    windows_evidence.mkdir()
+    with pytest.raises(OnlyClusterLoadError, match="RUNTIME_ADMISSION_EVIDENCE_CORRUPT"):
+        OnlyEngine(
+            OnlyEngineConfig(OnlyEngineId("tushare-windows-integration"), windows_root),
+            services=services,
+        ).recover_cluster_from_evidence(
+            windows_handle.runtime_id,
+            windows_handle.cluster_id,
+            windows_handle.config_fingerprint,
+        )
+
+    windows_symlink_root = tmp_path / "windows-symlink-root"
+    windows_outside = tmp_path / "windows-outside"
+    windows_symlink_root.mkdir()
+    windows_outside.mkdir()
+    (windows_symlink_root / "state").symlink_to(windows_outside, target_is_directory=True)
+    with pytest.raises(OnlyClusterLoadError, match="RUNTIME_ADMISSION_EVIDENCE_CORRUPT"):
+        OnlyEngine(
+            OnlyEngineConfig(OnlyEngineId("tushare-windows-symlink"), windows_symlink_root),
+            services=services,
+        ).add_cluster(config)
+    assert tuple(windows_outside.iterdir()) == ()
+    monkeypatch.setattr(engine_module, "_WINDOWS", original_windows)
+
+    state.integration = replace(
+        state.integration,
+        lifecycle_state=OnlyIntegrationLifecycleState.DISABLED,
+        current_revision_fingerprint="f" * 64,
+    )
     engine.initialize()
     runtime = engine.runtimes[0]
     component = cast(OnlyTushareHistoricalDataSource, runtime._plugin_resources[0])  # type: ignore[attr-defined]
@@ -144,8 +239,15 @@ def test_exact_revision_creates_tushare_component_through_engine_without_environ
         disguised.add_cluster(admitted)
     assert disguised_error.value.code == "INTEGRATION_RUNTIME_RECOVERY_BINDING_FORBIDDEN"
 
-    recovered = OnlyEngine(OnlyEngineConfig(OnlyEngineId("tushare-recovered"), tmp_path), services=services)
-    recovered.recover_cluster(admitted)
+    engine.close()
+    del admitted
+    del engine
+    recovered = OnlyEngine(OnlyEngineConfig(OnlyEngineId("tushare-integration"), tmp_path), services=services)
+    recovered.recover_cluster_from_evidence(
+        handle.runtime_id,
+        handle.cluster_id,
+        handle.config_fingerprint,
+    )
     recovered.initialize()
     recovered_component = cast(
         OnlyTushareHistoricalDataSource,
@@ -153,4 +255,28 @@ def test_exact_revision_creates_tushare_component_through_engine_without_environ
     )
     assert recovered_component._config.resolve_token() == "exact-tushare-token"  # type: ignore[attr-defined]
     recovered.close()
-    engine.close()
+
+    evidence_path.write_text("{}", encoding="utf-8")
+    corrupted = OnlyEngine(OnlyEngineConfig(OnlyEngineId("tushare-integration"), tmp_path), services=services)
+    with pytest.raises(OnlyClusterLoadError, match="RUNTIME_ADMISSION_EVIDENCE_CORRUPT"):
+        corrupted.recover_cluster_from_evidence(
+            handle.runtime_id,
+            handle.cluster_id,
+            handle.config_fingerprint,
+        )
+    with pytest.raises(OnlyClusterLoadError, match="RUNTIME_ADMISSION_EVIDENCE_INVALID"):
+        corrupted.recover_cluster_from_evidence(
+            OnlyRuntimeId("../escape"),
+            handle.cluster_id,
+            handle.config_fingerprint,
+        )
+    symlinked_recovery = OnlyEngine(
+        OnlyEngineConfig(OnlyEngineId("tushare-integration"), symlink_root),
+        services=services,
+    )
+    with pytest.raises(OnlyClusterLoadError, match="RUNTIME_ADMISSION_EVIDENCE_CORRUPT"):
+        symlinked_recovery.recover_cluster_from_evidence(
+            handle.runtime_id,
+            handle.cluster_id,
+            handle.config_fingerprint,
+        )

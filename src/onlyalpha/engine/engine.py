@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import stat
 from dataclasses import replace
 from pathlib import Path
 from time import monotonic
@@ -12,7 +14,9 @@ from uuid import uuid4
 
 from onlyalpha.analytics import OnlyBacktestAnalyticsService
 from onlyalpha.artifact import OnlyBacktestArtifactWriter, OnlyRunArtifactTarget
+from onlyalpha.canonical import only_canonical_json
 from onlyalpha.config import OnlyClusterRunConfig
+from onlyalpha.config.models import OnlyRuntimeConfigurationMode
 from onlyalpha.core.errors import OnlyDuplicateIdError, OnlyLifecycleError
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyRuntimeId
 from onlyalpha.engine.composition import OnlyClusterComposition
@@ -58,6 +62,8 @@ from onlyalpha.runtime.research import (
 from onlyalpha.runtime.result import OnlyRuntimeResult
 from onlyalpha.runtime.runtime import OnlyRuntime
 from onlyalpha.storage.base import OnlyStorage
+
+_WINDOWS = os.name == "nt"
 
 
 class OnlyEngine:
@@ -116,10 +122,18 @@ class OnlyEngine:
     def add_cluster(self, config: OnlyClusterRunConfig) -> OnlyClusterHandle:
         return self._add_cluster(config, recovery=False)
 
-    def recover_cluster(self, config: OnlyClusterRunConfig) -> OnlyClusterHandle:
-        """Restore a previously admitted definition containing exact durable bindings."""
+    def recover_cluster_from_evidence(
+        self,
+        runtime_id: OnlyRuntimeId,
+        cluster_id: OnlyClusterId,
+        config_fingerprint: str,
+    ) -> OnlyClusterHandle:
+        """Restore one exact admitted definition from durable non-secret evidence."""
 
-        return self._add_cluster(config, recovery=True)
+        return self._add_cluster(
+            self._load_runtime_admission_evidence(runtime_id, cluster_id, config_fingerprint),
+            recovery=True,
+        )
 
     def _add_cluster(self, config: OnlyClusterRunConfig, *, recovery: bool) -> OnlyClusterHandle:
         if self.state is OnlyEngineState.RUNNING:
@@ -149,6 +163,17 @@ class OnlyEngine:
                 fingerprint,
             )
             resources = composition.commit(plan)
+            try:
+                self._persist_runtime_admission_evidence(admitted_config, fingerprint)
+            except BaseException as failure:
+                try:
+                    self._infrastructure.release(config.cluster_id)
+                except BaseException as cleanup_failure:
+                    failure.add_note(
+                        "Runtime admission evidence failure cleanup also failed: "
+                        f"{type(cleanup_failure).__name__}: {cleanup_failure}"
+                    )
+                raise
             self._cluster_definitions[config.cluster_id] = admitted_config
             self._market_products[config.cluster_id] = plan.market_product
             self._handles[config.cluster_id] = handle
@@ -159,6 +184,251 @@ class OnlyEngine:
         except Exception:
             self.state = previous
             raise
+
+    @staticmethod
+    def _requires_runtime_admission_evidence(config: OnlyClusterRunConfig) -> bool:
+        return any(
+            item.configuration_mode is OnlyRuntimeConfigurationMode.INTEGRATION_REVISION
+            for item in config.data_sources
+            if item.enabled
+        ) or any(
+            item.configuration_mode is OnlyRuntimeConfigurationMode.INTEGRATION_REVISION
+            for item in config.brokers
+            if item.enabled
+        )
+
+    def _persist_runtime_admission_evidence(
+        self,
+        config: OnlyClusterRunConfig,
+        config_fingerprint: str,
+    ) -> None:
+        if not self._requires_runtime_admission_evidence(config):
+            return
+        try:
+            path = OnlyUserDataLayout(self.config.user_data_root).runtime_admission_evidence_path(
+                self.config.engine_id,
+                config.runtime_id,
+                config.cluster_id,
+                config_fingerprint,
+            )
+        except ValueError:
+            raise OnlyClusterLoadError("RUNTIME_ADMISSION_EVIDENCE_INVALID") from None
+        data = only_canonical_json(config.normalized_payload).encode("utf-8")
+        if _WINDOWS:
+            try:
+                self._persist_runtime_admission_evidence_windows(path, data)
+            except OnlyClusterLoadError:
+                raise
+            except (NotImplementedError, OSError):
+                raise OnlyClusterLoadError("RUNTIME_ADMISSION_EVIDENCE_CORRUPT") from None
+            return
+        try:
+            directory = self._open_runtime_admission_directory(path, create=True)
+        except OSError:
+            raise OnlyClusterLoadError("RUNTIME_ADMISSION_EVIDENCE_CORRUPT") from None
+        temporary = f".{path.name}.{uuid4().hex}.tmp"
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        try:
+            try:
+                descriptor = os.open(temporary, flags, 0o600, dir_fd=directory)
+                try:
+                    with os.fdopen(descriptor, "wb", closefd=False) as stream:
+                        stream.write(data)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                finally:
+                    os.close(descriptor)
+                try:
+                    os.link(
+                        temporary,
+                        path.name,
+                        src_dir_fd=directory,
+                        dst_dir_fd=directory,
+                        follow_symlinks=False,
+                    )
+                except FileExistsError:
+                    if self._read_runtime_admission_file(directory, path.name) != data:
+                        raise OnlyClusterLoadError("RUNTIME_ADMISSION_EVIDENCE_CORRUPT") from None
+                os.fsync(directory)
+            except OnlyClusterLoadError:
+                raise
+            except OSError:
+                raise OnlyClusterLoadError("RUNTIME_ADMISSION_EVIDENCE_CORRUPT") from None
+        finally:
+            try:
+                os.unlink(temporary, dir_fd=directory)
+            except FileNotFoundError:
+                pass
+            finally:
+                os.close(directory)
+
+    def _persist_runtime_admission_evidence_windows(self, path: Path, data: bytes) -> None:
+        directory = self._windows_runtime_admission_directory(path, create=True)
+        temporary = directory / f".{path.name}.{uuid4().hex}.tmp"
+        try:
+            descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            try:
+                with os.fdopen(descriptor, "wb", closefd=False) as stream:
+                    stream.write(data)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            finally:
+                os.close(descriptor)
+            self._windows_runtime_admission_directory(path, create=False)
+            try:
+                os.link(temporary, path, follow_symlinks=False)
+            except FileExistsError:
+                if self._read_runtime_admission_file_windows(path) != data:
+                    raise OnlyClusterLoadError("RUNTIME_ADMISSION_EVIDENCE_CORRUPT") from None
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def _open_runtime_admission_directory(self, evidence_path: Path, *, create: bool) -> int:
+        root = self.config.user_data_root
+        relative = evidence_path.relative_to(root)
+        if create:
+            root.mkdir(parents=True, exist_ok=True)
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        current = os.open(root, flags)
+        try:
+            for segment in relative.parent.parts:
+                if create:
+                    try:
+                        os.mkdir(segment, 0o700, dir_fd=current)
+                    except FileExistsError:
+                        pass
+                child = os.open(segment, flags, dir_fd=current)
+                os.close(current)
+                current = child
+            return current
+        except BaseException:
+            os.close(current)
+            raise
+
+    @staticmethod
+    def _read_runtime_admission_file(directory: int, name: str) -> bytes:
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(name, flags, dir_fd=directory)
+        try:
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise OSError("runtime admission evidence is not a regular file")
+            with os.fdopen(descriptor, "rb", closefd=False) as stream:
+                return stream.read()
+        finally:
+            os.close(descriptor)
+
+    def _windows_runtime_admission_directory(self, evidence_path: Path, *, create: bool) -> Path:
+        root = self.config.user_data_root
+        if create:
+            root.mkdir(parents=True, exist_ok=True)
+        self._reject_windows_reparse_point(root, directory=True)
+        current = root
+        for segment in evidence_path.relative_to(root).parent.parts:
+            current /= segment
+            if create:
+                current.mkdir(exist_ok=True)
+            self._reject_windows_reparse_point(current, directory=True)
+        if not current.resolve(strict=True).is_relative_to(root.resolve(strict=True)):
+            raise OSError("runtime admission evidence escaped user_data_root")
+        return current
+
+    @staticmethod
+    def _reject_windows_reparse_point(path: Path, *, directory: bool) -> None:
+        metadata = path.lstat()
+        attributes = getattr(metadata, "st_file_attributes", 0)
+        if attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400):
+            raise OSError("runtime admission evidence traverses a reparse point")
+        if path.is_symlink() or (directory and not stat.S_ISDIR(metadata.st_mode)):
+            raise OSError("runtime admission evidence path is not a safe directory")
+
+    def _read_runtime_admission_file_windows(self, path: Path) -> bytes:
+        self._windows_runtime_admission_directory(path, create=False)
+        self._reject_windows_reparse_point(path, directory=False)
+        descriptor = os.open(path, os.O_RDONLY)
+        try:
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise OSError("runtime admission evidence is not a regular file")
+            with os.fdopen(descriptor, "rb", closefd=False) as stream:
+                return stream.read()
+        finally:
+            os.close(descriptor)
+
+    def _load_runtime_admission_evidence(
+        self,
+        runtime_id: OnlyRuntimeId,
+        cluster_id: OnlyClusterId,
+        config_fingerprint: str,
+    ) -> OnlyClusterRunConfig:
+        if len(config_fingerprint) != 64 or any(
+            character not in "0123456789abcdef" for character in config_fingerprint
+        ):
+            raise OnlyClusterLoadError("RUNTIME_ADMISSION_EVIDENCE_INVALID")
+        try:
+            path = OnlyUserDataLayout(self.config.user_data_root).runtime_admission_evidence_path(
+                self.config.engine_id,
+                runtime_id,
+                cluster_id,
+                config_fingerprint,
+            )
+        except ValueError:
+            raise OnlyClusterLoadError("RUNTIME_ADMISSION_EVIDENCE_INVALID") from None
+        if _WINDOWS:
+            try:
+                raw = self._read_runtime_admission_file_windows(path).decode("utf-8")
+            except FileNotFoundError:
+                raise OnlyClusterLoadError("RUNTIME_ADMISSION_EVIDENCE_NOT_FOUND") from None
+            except (NotImplementedError, OSError, UnicodeDecodeError):
+                raise OnlyClusterLoadError("RUNTIME_ADMISSION_EVIDENCE_CORRUPT") from None
+            return self._restore_runtime_admission_evidence(
+                raw,
+                runtime_id,
+                cluster_id,
+                config_fingerprint,
+            )
+        try:
+            directory = self._open_runtime_admission_directory(path, create=False)
+        except FileNotFoundError:
+            raise OnlyClusterLoadError("RUNTIME_ADMISSION_EVIDENCE_NOT_FOUND") from None
+        except OSError:
+            raise OnlyClusterLoadError("RUNTIME_ADMISSION_EVIDENCE_CORRUPT") from None
+        try:
+            try:
+                raw = self._read_runtime_admission_file(directory, path.name).decode("utf-8")
+            except FileNotFoundError:
+                raise OnlyClusterLoadError("RUNTIME_ADMISSION_EVIDENCE_NOT_FOUND") from None
+            except (OSError, UnicodeDecodeError):
+                raise OnlyClusterLoadError("RUNTIME_ADMISSION_EVIDENCE_CORRUPT") from None
+        finally:
+            os.close(directory)
+        return self._restore_runtime_admission_evidence(raw, runtime_id, cluster_id, config_fingerprint)
+
+    def _restore_runtime_admission_evidence(
+        self,
+        raw: str,
+        runtime_id: OnlyRuntimeId,
+        cluster_id: OnlyClusterId,
+        config_fingerprint: str,
+    ) -> OnlyClusterRunConfig:
+        try:
+            payload = json.loads(raw)
+            if not isinstance(payload, dict) or raw != only_canonical_json(payload):
+                raise ValueError
+            config = OnlyClusterRunConfig.from_mapping(
+                payload,
+                source_path=f"<runtime-admission:{config_fingerprint}>",
+            )
+            if (
+                config.runtime_id != runtime_id
+                or config.cluster_id != cluster_id
+                or self._config_fingerprint(config) != config_fingerprint
+                or not self._requires_runtime_admission_evidence(config)
+            ):
+                raise ValueError
+            return config
+        except Exception:
+            raise OnlyClusterLoadError("RUNTIME_ADMISSION_EVIDENCE_CORRUPT") from None
 
     def add_research_workload(self, workload: OnlyResearchWorkloadPlan) -> OnlyRuntimeId:
         if self.state not in {OnlyEngineState.CREATED, OnlyEngineState.CONFIGURING, OnlyEngineState.READY}:
