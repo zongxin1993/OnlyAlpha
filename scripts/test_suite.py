@@ -279,6 +279,7 @@ LANES = {
     OnlyTestLane.RESEARCH_PRODUCT_CERTIFICATION: Lane(
         (
             "tests/certification/research_product",
+            "tests/certification/integration_runtime",
             "tests/architecture/test_research_deployment_boundaries.py",
         ),
         "postgres or not external",
