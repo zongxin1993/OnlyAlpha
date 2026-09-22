@@ -89,6 +89,14 @@ Recovery Baseline 位于 `test-data/recovery/`。提交的是规范投影、Mani
 uv run python scripts/regenerate_recovery_baselines.py
 ```
 
+Golden Evidence 治理（永久规则）：Recovery Baseline、Golden Snapshot、已认证 Canonical Projection
+或期望历史 Fingerprint 的任何变更，都必须附带显式书面 justification，并落成 `docs/audits/` 下的
+独立 re-certification 记录（例如 `docs/audits/recovery_baseline_recertification.md`），说明旧/新
+身份、语义原因、迁移理由、受影响工件与可复现的证明方式。仅为让 CI 变绿而重生成 golden 证据是被
+禁止的（FORBIDDEN）；CI green 本身永远不能认证一次 baseline 变更。重生成脚本只允许作为只读复现
+证明使用，其输出不得在未附 re-certification 记录的情况下提交；任何 lane 或 CI 工作流都不得自动
+调用重生成脚本。
+
 MiniQMT 冻结数据位于 `test-data/miniqmt/cn_a_share_v1/`。第一版只承诺未复权历史日 Bar；历史 ST、停牌和 effective
 reference 明确缺失。离线 Reader 校验文件指纹后，经标准 MarketData Inbound/Pipeline 进入 `OnlyEngine`，不导入
 `xtquant`、不访问网络。仅在本地 QMT 可用时重新采集：

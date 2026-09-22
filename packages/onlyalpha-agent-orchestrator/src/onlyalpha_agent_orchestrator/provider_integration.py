@@ -302,6 +302,7 @@ class OnlyAgentProviderRuntimeAuthorityConfigV1:
     bearer_token: str = field(repr=False)
     timeout_seconds: float = 10.0
     verify_tls: bool = True
+    allow_insecure_transport: bool = False
 
     def __post_init__(self) -> None:
         parsed = urlsplit(self.base_url)
@@ -318,6 +319,10 @@ class OnlyAgentProviderRuntimeAuthorityConfigV1:
             or self.timeout_seconds <= 0
             or not isinstance(self.verify_tls, bool)
         ):
+            raise ValueError("AGENT_PROVIDER_AUTHORITY_CONFIG_INVALID")
+        if (parsed.scheme == "http" or not self.verify_tls) and not self.allow_insecure_transport:
+            raise ValueError("AGENT_PROVIDER_AUTHORITY_TRANSPORT_INSECURE")
+        if not isinstance(self.allow_insecure_transport, bool):
             raise ValueError("AGENT_PROVIDER_AUTHORITY_CONFIG_INVALID")
         object.__setattr__(self, "base_url", self.base_url.rstrip("/"))
         object.__setattr__(self, "timeout_seconds", float(self.timeout_seconds))

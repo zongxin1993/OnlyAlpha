@@ -496,11 +496,13 @@ def test_process_entrypoint_canonical_mode_uses_injected_integration_authority(
                 str(runtime_token.resolve()),
                 "--model-profile-file",
                 str(profile_path.resolve()),
+                "--allow-insecure-runtime-authority-transport",
             ],
         )
         == 0
     )
     assert called["provider_resolver"].__class__.__name__ == "OnlyHttpAgentProviderRuntimeAuthorityV1"
+    assert called["provider_resolver"]._config.allow_insecure_transport is True
     assert called["model_profile"] == profile
 
 
@@ -530,6 +532,81 @@ def test_process_entrypoint_rejects_mixed_model_configuration_modes(tmp_path: Pa
                 "http://model.invalid",
                 "--model-token-file",
                 str((tmp_path / "model").resolve()),
+            ]
+        )
+
+
+def test_process_entrypoint_rejects_insecure_transport_flag_outside_integration_mode(tmp_path: Path) -> None:
+    for name in ("product", "model", "control"):
+        (tmp_path / name).write_text(f"{name}-secret\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="CONFIGURATION_MODE_CONFLICT"):
+        node_main(
+            [
+                "serve",
+                "--durable-root",
+                str((tmp_path / "state").resolve()),
+                "--coordination-root",
+                str((tmp_path / "locks").resolve()),
+                "--product-api-url",
+                "http://product.invalid",
+                "--product-api-contract",
+                str((tmp_path / "product-openapi.json").resolve()),
+                "--product-token-file",
+                str((tmp_path / "product").resolve()),
+                "--control-token-file",
+                str((tmp_path / "control").resolve()),
+                "--model-configuration-mode",
+                "LEGACY",
+                "--model-api-url",
+                "http://model.invalid",
+                "--model-token-file",
+                str((tmp_path / "model").resolve()),
+                "--allow-insecure-runtime-authority-transport",
+            ]
+        )
+
+
+def test_process_entrypoint_rejects_plain_http_integration_authority_without_explicit_opt_in(
+    tmp_path: Path,
+) -> None:
+    for name in ("product", "runtime", "control"):
+        (tmp_path / name).write_text(f"{name}-secret\n", encoding="utf-8")
+    profile = OnlyAgentModelProfileV1(
+        "b52eb762-34cf-47d4-8cca-56ef93f0d2ac",
+        "d" * 64,
+        "e" * 64,
+        "onlyalpha-research-v1",
+        "2026-09-01",
+        ("CHAT", "STRUCTURED_OUTPUT"),
+    )
+    profile_path = tmp_path / "model-profile.json"
+    profile_path.write_text(only_canonical_json(profile.to_dict()), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="AGENT_PROVIDER_AUTHORITY_TRANSPORT_INSECURE"):
+        node_main(
+            [
+                "serve",
+                "--durable-root",
+                str((tmp_path / "state").resolve()),
+                "--coordination-root",
+                str((tmp_path / "locks").resolve()),
+                "--product-api-url",
+                "http://product.invalid",
+                "--product-api-contract",
+                str((tmp_path / "product-openapi.json").resolve()),
+                "--product-token-file",
+                str((tmp_path / "product").resolve()),
+                "--control-token-file",
+                str((tmp_path / "control").resolve()),
+                "--model-configuration-mode",
+                "INTEGRATION_REVISION",
+                "--integration-runtime-authority-url",
+                "http://runtime-authority.invalid/internal/v1/agent-provider-runtime",
+                "--integration-runtime-authority-token-file",
+                str((tmp_path / "runtime").resolve()),
+                "--model-profile-file",
+                str(profile_path.resolve()),
             ]
         )
 

@@ -44,7 +44,12 @@ def test_worker_enters_semantic_execution_only_through_engine_runtime_contract()
 
 def test_worker_startup_composition_is_shared_by_resolution_and_runtime_execution() -> None:
     startup = Path("src/onlyalpha/research/worker_main.py").read_text()
-    assert "services = only_default_engine_services(fail_fast=True)" in startup
+    assert (
+        "services = only_default_engine_services(\n"
+        "        fail_fast=True,\n"
+        "        integration_runtime_resolver_factory=integration_runtime_factory,\n"
+        "    )" in startup
+    )
     assert "calculations = services.assembler.components.calculations" in startup
     assert "OnlyResearchSpecificationResolver(calculations)" in startup
     assert "OnlyEngineResearchRuntimeExecutor(layout.root, services)" in startup

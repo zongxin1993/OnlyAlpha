@@ -38,7 +38,6 @@ from onlyalpha.application.integration_probe import (
     OnlyIntegrationOperationalQueryService,
     OnlyIntegrationProbeService,
 )
-from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeResolver
 from onlyalpha.application.integration_type_catalog import OnlyIntegrationProbeCatalog, OnlyIntegrationTypeCatalog
 from onlyalpha.application.private_asset_product import (
     OnlyPrivateAssetProductService,
@@ -86,6 +85,7 @@ from onlyalpha.market.product import OnlyMarketProductFactoryRegistry, OnlyMarke
 from onlyalpha.output.user_data import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
     MASTER_KEY_FILE,
+    OnlyIntegrationRuntimeCompositionV1,
     OnlyPostgresConfig,
     OnlyPostgresCredentialAuthority,
     OnlyPostgresIntegrationProductStore,
@@ -97,6 +97,7 @@ from onlyalpha.persistence.postgres import (
     OnlyPostgresResearchRunStore,
     OnlyPostgresSchemaVerifier,
     only_assert_supported_postgres_server,
+    only_compose_integration_runtime_resolver,
     only_load_master_key,
 )
 from onlyalpha.persistence.postgres.backtest_store import OnlyPostgresBacktestStore
@@ -1012,11 +1013,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if args.agent_runtime_token_file is None
                 else (
                     OnlyAgentProviderRuntimeResolverV1(
-                        OnlyIntegrationRuntimeResolver(
-                            integration_store,
-                            integration_credentials,
-                            integration_types,
-                            probes=integration_probe_store,
+                        only_compose_integration_runtime_resolver(
+                            OnlyIntegrationRuntimeCompositionV1(
+                                postgres_dsn=postgres.dsn,
+                                master_key_path=layout.root / MASTER_KEY_FILE,
+                                connection_options=operational_options,
+                                component_types=(OPENAI_COMPATIBLE_AGENT_PROVIDER_INTEGRATION_TYPE,),
+                            ),
+                            data_sources,
+                            brokers,
                         )
                     ),
                     args.agent_runtime_token_file.read_text(encoding="utf-8").strip(),

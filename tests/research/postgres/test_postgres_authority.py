@@ -1250,6 +1250,7 @@ def test_worker_process_signal_marks_draining_and_uses_application_exit_contract
 ) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     _initialize_deployment(postgres_dsn, tmp_path)
+    only_ensure_dev_master_key(OnlyUserDataLayout(tmp_path).root / MASTER_KEY_FILE)
     environment = os.environ.copy()
     environment["ONLYALPHA_POSTGRES_DSN"] = postgres_dsn
     process = subprocess.Popen(

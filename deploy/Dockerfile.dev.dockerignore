@@ -1,4 +1,5 @@
 .git
+.worktrees
 .venv
 .hypothesis
 .import_linter_cache

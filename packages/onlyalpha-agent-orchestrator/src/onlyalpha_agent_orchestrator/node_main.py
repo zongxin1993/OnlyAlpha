@@ -54,6 +54,7 @@ def _parser() -> argparse.ArgumentParser:
     serve.add_argument("--model-token-file", type=Path)
     serve.add_argument("--integration-runtime-authority-url")
     serve.add_argument("--integration-runtime-authority-token-file", type=Path)
+    serve.add_argument("--allow-insecure-runtime-authority-transport", action="store_true")
     serve.add_argument("--model-profile-file", type=Path)
     serve.add_argument(
         "--model-configuration-mode",
@@ -129,12 +130,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 OnlyAgentProviderRuntimeAuthorityConfigV1(
                     args.integration_runtime_authority_url,
                     _secret(args.integration_runtime_authority_token_file),
+                    allow_insecure_transport=args.allow_insecure_runtime_authority_transport,
                 )
             ),
             model_profile=_model_profile(args.model_profile_file),
         )
     else:
-        if any(value is not None for value in integration_model_configuration):
+        if args.allow_insecure_runtime_authority_transport or any(
+            value is not None for value in integration_model_configuration
+        ):
             raise ValueError("CONFIGURATION_MODE_CONFLICT")
         if not all(value is not None for value in legacy_model_configuration):
             raise ValueError("AGENT_CONFIGURATION_INCOMPLETE")

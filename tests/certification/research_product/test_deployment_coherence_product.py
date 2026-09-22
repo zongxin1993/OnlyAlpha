@@ -211,6 +211,7 @@ def test_incoherent_worker_refuses_startup_and_cannot_claim(
         research_root.mkdir(parents=True)
         (research_root / SEMANTIC_STORE_IDENTITY_FILE).write_text("{}")
     _semantic_directories(wrong)
+    provision_product_api_master_key(wrong)
     worker = subprocess.run(
         [
             sys.executable,
@@ -238,6 +239,7 @@ def test_incoherent_worker_refuses_startup_and_cannot_claim(
 def test_two_workers_with_same_namespace_are_both_compatible(postgres_dsn: str, tmp_path: Path) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     _initialize_deployment(postgres_dsn, tmp_path)
+    provision_product_api_master_key(tmp_path)
     command = [
         sys.executable,
         "-m",

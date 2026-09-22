@@ -37,6 +37,7 @@ from onlyalpha.runtime.defaults import only_default_engine_services
 from onlyalpha.runtime.research import OnlyResearchRuntimeBoundary
 from onlyalpha.runtime.result import OnlyRuntimeResultStatus
 from scripts.database import _initialize_deployment
+from tests.certification.research_product.support import provision_product_api_master_key
 from tests.research.specification.support import registry, specification
 from tests.runtime.research.support import workload_case
 from tests.runtime_support.generation_process_support import only_prepare_test_process_generation
@@ -111,6 +112,7 @@ def test_process_kill_boundaries_reenter_and_converge_exact_semantic_truth(
 ) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     _initialize_deployment(postgres_dsn, tmp_path)
+    provision_product_api_master_key(tmp_path)
     _, workload = workload_case(tmp_path)
     resolver = OnlyResearchSpecificationResolver(registry())
     spec = specification(workload.dataset_snapshot_fingerprint)

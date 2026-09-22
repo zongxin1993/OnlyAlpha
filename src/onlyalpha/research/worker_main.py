@@ -6,6 +6,7 @@ import argparse
 import logging
 from collections.abc import Sequence
 from datetime import timedelta
+from functools import partial
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
@@ -20,6 +21,8 @@ from onlyalpha.application.stop_controller import (
 from onlyalpha.core.clock import only_system_utc_now
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
+    MASTER_KEY_FILE,
+    OnlyIntegrationRuntimeCompositionV1,
     OnlyPostgresConfig,
     OnlyPostgresOperationalConnectionOptions,
     OnlyPostgresResearchDeploymentStore,
@@ -28,6 +31,7 @@ from onlyalpha.persistence.postgres import (
     OnlyPostgresResearchRunStore,
     OnlyPostgresSchemaVerifier,
     only_assert_supported_postgres_server,
+    only_compose_integration_runtime_resolver,
 )
 from onlyalpha.research.artifact.reader import OnlyResearchArtifactProfileReader
 from onlyalpha.research.calculation.execution_evidence import (
@@ -110,7 +114,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         layout.research_result_root,
         layout.research_artifact_root,
     )
-    services = only_default_engine_services(fail_fast=True)
+    integration_runtime_factory = partial(
+        only_compose_integration_runtime_resolver,
+        OnlyIntegrationRuntimeCompositionV1(
+            postgres_dsn=postgres.dsn,
+            master_key_path=layout.root / MASTER_KEY_FILE,
+            connection_options=operational_options,
+            runtime_generations=runtime_generations,
+        ),
+    )
+    services = only_default_engine_services(
+        fail_fast=True,
+        integration_runtime_resolver_factory=integration_runtime_factory,
+    )
     calculations = services.assembler.components.calculations
     readiness = OnlyResearchServiceReadinessProbe(
         schema_status=schema.status,

@@ -21,6 +21,7 @@ RUNTIME_APPLICATION = ROOT / "src/onlyalpha/application/integration_runtime.py"
 BINANCE_SPOT_PROBE = ROOT / "plugs/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance/spot/data_source/probe.py"
 BINANCE_BROKER_FACTORY = ROOT / "plugs/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance/spot/broker_factory.py"
 AGENT_PROVIDER = ROOT / "packages/onlyalpha-agent-orchestrator/src/onlyalpha_agent_orchestrator/provider_integration.py"
+AGENT_NODE_MAIN = ROOT / "packages/onlyalpha-agent-orchestrator/src/onlyalpha_agent_orchestrator/node_main.py"
 POSTGRES = ROOT / "src/onlyalpha/persistence/postgres"
 INTEGRATION_STORE = POSTGRES / "integration_store.py"
 PRODUCT_STORE = POSTGRES / "integration_product_store.py"
@@ -58,6 +59,7 @@ def test_runtime_consumers_and_plugins_cannot_import_integration_persistence() -
         "onlyalpha.persistence.postgres.integration_product_store",
         "onlyalpha.persistence.postgres.integration_probe_store",
         "onlyalpha.persistence.postgres.credentials",
+        "onlyalpha.persistence.postgres.integration_runtime_composition",
     }
     roots = (
         ROOT / "src/onlyalpha/runtime",
@@ -121,6 +123,26 @@ def test_agent_provider_keeps_bootstrap_secrets_and_broker_authority_outside_its
     }
 
 
+def test_agent_provider_runtime_authority_transport_fails_closed_on_insecure_configuration() -> None:
+    source = AGENT_PROVIDER.read_text(encoding="utf-8")
+    node_source = AGENT_NODE_MAIN.read_text(encoding="utf-8")
+
+    assert 'raise ValueError("AGENT_PROVIDER_AUTHORITY_TRANSPORT_INSECURE")' in source
+    assert re.search(
+        r'if \(parsed\.scheme == "http" or not self\.verify_tls\) and not self\.allow_insecure_transport:',
+        source,
+    )
+    assert "allow_insecure_transport: bool = False" in source
+    assert '"--allow-insecure-runtime-authority-transport", action="store_true"' in node_source
+    assert "allow_insecure_transport=args.allow_insecure_runtime_authority_transport" in node_source
+    assert re.search(
+        r"if args\.allow_insecure_runtime_authority_transport or any\(\s*"
+        r"value is not None for value in integration_model_configuration\s*\):\s*\n"
+        r'\s*raise ValueError\("CONFIGURATION_MODE_CONFLICT"\)',
+        node_source,
+    )
+
+
 def test_plugins_do_not_import_integration_authority_and_http_routes_stay_transport_only() -> None:
     plugin_forbidden = {
         "onlyalpha.application.integration_application",
@@ -163,6 +185,9 @@ def test_integration_http_has_only_declared_probe_and_no_delete_or_master_key_cr
     assert "/test-connection" not in integration_source
     assert "only_ensure_dev_master_key" not in main_source
     assert "only_load_master_key" in main_source
+    composition_source = (POSTGRES / "integration_runtime_composition.py").read_text(encoding="utf-8")
+    assert "only_ensure_dev_master_key" not in composition_source
+    assert "only_load_master_key" in composition_source
 
 
 def test_runtime_research_and_backtest_do_not_bind_integration_revision() -> None:
@@ -185,6 +210,28 @@ def test_runtime_research_and_backtest_do_not_bind_integration_revision() -> Non
         if imported_modules_for_path(path, ROOT) & forbidden
     }
     assert violations == {}
+
+
+def test_production_workers_compose_the_canonical_integration_runtime_resolver() -> None:
+    for relative in ("src/onlyalpha/backtest/worker_main.py", "src/onlyalpha/research/worker_main.py"):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        assert "only_compose_integration_runtime_resolver" in source
+        assert "integration_runtime_resolver_factory" in source
+        assert "only_ensure_dev_master_key" not in source
+
+
+def test_only_the_composition_root_assembles_persistence_backed_resolvers() -> None:
+    construction_sites = {
+        str(path.relative_to(ROOT))
+        for root in (ROOT / "src", ROOT / "packages", ROOT / "plugs")
+        for path in _python_files(root)
+        if "tests" not in path.relative_to(ROOT).parts
+        if "OnlyIntegrationRuntimeResolver(" in path.read_text(encoding="utf-8")
+    }
+
+    assert construction_sites == {
+        "src/onlyalpha/persistence/postgres/integration_runtime_composition.py",
+    }
 
 
 def test_web_integration_workspace_is_provider_neutral_and_secret_storage_free() -> None:
