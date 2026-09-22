@@ -735,6 +735,7 @@ def _start_agent(
             runtime_authority_url + "/internal/v1/agent-provider-runtime",
             "--integration-runtime-authority-token-file",
             str(root / "runtime.secret"),
+            "--allow-insecure-runtime-authority-transport",
             "--model-profile-file",
             str(root / "model-profile.json"),
             "--control-token-file",

@@ -82,6 +82,7 @@ def test_published_runtime_authority_contract_serves_admission_and_exact_continu
         OnlyAgentProviderRuntimeAuthorityConfigV1(
             "http://testserver/internal/v1/agent-provider-runtime",
             "bootstrap-secret",
+            allow_insecure_transport=True,
         ),
         transport,
     )
@@ -148,6 +149,7 @@ def test_default_http_transport_preserves_stable_runtime_error(status: int, code
             OnlyAgentProviderRuntimeAuthorityConfigV1(
                 f"http://127.0.0.1:{server.server_port}",
                 "bootstrap-secret",
+                allow_insecure_transport=True,
             )
         )
         with pytest.raises(OnlyIntegrationRuntimeError, match=code) as raised:

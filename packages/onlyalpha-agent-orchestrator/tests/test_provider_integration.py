@@ -1,13 +1,27 @@
 from __future__ import annotations
 
+import ipaddress
+import json
+import ssl
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
 from onlyalpha_agent_orchestrator.provider_integration import (
     OnlyAgentModelProfileV1,
+    OnlyAgentProviderRuntimeAuthorityConfigV1,
     OnlyAgentProviderRuntimeResolverV1,
     OnlyAgentSessionProviderBindingV1,
+    OnlyHttpAgentProviderRuntimeAuthorityV1,
     OnlyJsonAgentModelProfileStoreV1,
     OnlyJsonAgentProviderBindingStoreV1,
     OnlyOpenAICompatibleAgentProviderProbe,
@@ -21,8 +35,9 @@ from onlyalpha.application.integration_configuration import (
     OnlyIntegrationSecretBinding,
 )
 from onlyalpha.application.integration_probe import OnlyIntegrationProbeAttempt
-from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeResolver
+from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeBindingV1, OnlyIntegrationRuntimeResolver
 from onlyalpha.plugin.agent_provider import OPENAI_COMPATIBLE_AGENT_PROVIDER_INTEGRATION_TYPE
+from onlyalpha.plugin.integration import OnlyIntegrationCategory
 from onlyalpha.plugin.integration_probe import OnlyIntegrationProbePolicy, OnlyIntegrationProbeRequest
 
 NOW = datetime(2026, 9, 21, tzinfo=UTC)
@@ -226,3 +241,156 @@ def test_provider_probe_is_get_only_and_never_executes_tools_or_broker_actions()
 
     assert result.overall_status.value == "READY"
     assert calls == ["https://provider.example/v1/models"]
+
+
+CREDENTIAL_SENTINEL = "provider-secret-sentinel"
+BEARER_SENTINEL = "bootstrap-bearer-sentinel"
+
+
+def test_production_configuration_rejects_plain_http_authority() -> None:
+    with pytest.raises(ValueError, match="AGENT_PROVIDER_AUTHORITY_TRANSPORT_INSECURE"):
+        OnlyAgentProviderRuntimeAuthorityConfigV1(
+            "http://runtime-authority.internal/internal/v1/agent-provider-runtime", "token"
+        )
+
+
+def test_production_configuration_rejects_unverified_tls() -> None:
+    with pytest.raises(ValueError, match="AGENT_PROVIDER_AUTHORITY_TRANSPORT_INSECURE"):
+        OnlyAgentProviderRuntimeAuthorityConfigV1("https://runtime-authority.internal/x", "token", verify_tls=False)
+
+
+def test_explicit_development_configuration_may_allow_plain_http() -> None:
+    config = OnlyAgentProviderRuntimeAuthorityConfigV1("http://127.0.0.1:1/x", "token", allow_insecure_transport=True)
+
+    assert config.base_url == "http://127.0.0.1:1/x"
+
+
+def test_https_configuration_accepted_and_bearer_still_required() -> None:
+    config = OnlyAgentProviderRuntimeAuthorityConfigV1("https://runtime-authority.internal/x", "token")
+
+    assert config.verify_tls is True
+    with pytest.raises(ValueError, match="AGENT_PROVIDER_AUTHORITY_CONFIG_INVALID"):
+        OnlyAgentProviderRuntimeAuthorityConfigV1("https://runtime-authority.internal/x", "")
+
+
+def _create_tls_identity(directory: Path) -> tuple[Path, Path]:
+    directory.mkdir(parents=True, exist_ok=True)
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "127.0.0.1")])
+    now = datetime.now(UTC)
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(minutes=1))
+        .not_valid_after(now + timedelta(days=1))
+        .add_extension(
+            x509.SubjectAlternativeName([x509.IPAddress(ipaddress.IPv4Address("127.0.0.1"))]),
+            critical=False,
+        )
+        .sign(key, hashes.SHA256())
+    )
+    certificate_path = directory / "authority.crt"
+    private_key_path = directory / "authority.key"
+    certificate_path.write_bytes(certificate.public_bytes(serialization.Encoding.PEM))
+    private_key_path.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+    )
+    return certificate_path, private_key_path
+
+
+@contextmanager
+def _tls_authority_server(tmp_path: Path, body: bytes) -> Iterator[tuple[str, Path]]:
+    class _Server(ThreadingHTTPServer):
+        def handle_error(self, *_args: object) -> None:  # TLS handshake failures are expected
+            return
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802 -- BaseHTTPRequestHandler hook
+            self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, _format: str, *_args: object) -> None:
+            return
+
+    certificate_path, private_key_path = _create_tls_identity(tmp_path / "tls")
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.load_cert_chain(certificate_path, private_key_path)
+    server = _Server(("127.0.0.1", 0), _Handler)
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"https://127.0.0.1:{server.server_port}", certificate_path
+    finally:
+        server.shutdown()
+        thread.join()
+        server.server_close()
+
+
+def _admit_new_response(profile: OnlyAgentModelProfileV1) -> bytes:
+    revision, _bindings = _revision(1, 3)
+    assert profile == _profile(revision, profile.model_id)
+    binding = OnlyIntegrationRuntimeBindingV1.from_revision(revision, OnlyIntegrationCategory.AGENT_PROVIDER)
+    return json.dumps(
+        {
+            "schema_version": 1,
+            "provider_binding": binding.to_dict(),
+            "model_profile": profile.to_dict(),
+            "endpoint": {
+                "base_url": "https://provider.example/v1",
+                "api_credential": CREDENTIAL_SENTINEL,
+                "expected_provider_id": OPENAI_COMPATIBLE_AGENT_PROVIDER_INTEGRATION_TYPE.provider_id,
+                "expected_model_id": profile.model_id,
+                "expected_model_version": profile.model_version,
+                "connect_timeout_seconds": 2.0,
+                "read_timeout_seconds": 5.0,
+                "verify_tls": True,
+            },
+        }
+    ).encode("utf-8")
+
+
+def test_untrusted_certificate_fails_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+    monkeypatch.delenv("SSL_CERT_DIR", raising=False)
+    profile = _profile(_revision(1, 3)[0], "model-a")
+
+    with _tls_authority_server(tmp_path, _admit_new_response(profile)) as (base_url, _certificate):
+        config = OnlyAgentProviderRuntimeAuthorityConfigV1(base_url, BEARER_SENTINEL)
+        client = OnlyHttpAgentProviderRuntimeAuthorityV1(config)
+        with pytest.raises(ValueError, match="AGENT_PROVIDER_AUTHORITY_UNAVAILABLE") as raised:
+            client.admit_new(profile)
+
+    assert CREDENTIAL_SENTINEL not in str(raised.value)
+    assert BEARER_SENTINEL not in str(raised.value)
+    assert BEARER_SENTINEL not in repr(config)
+
+
+def test_trusted_ca_https_transport_succeeds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SSL_CERT_DIR", raising=False)
+    profile = _profile(_revision(1, 3)[0], "model-a")
+
+    with _tls_authority_server(tmp_path, _admit_new_response(profile)) as (base_url, certificate):
+        monkeypatch.setenv("SSL_CERT_FILE", str(certificate))
+        config = OnlyAgentProviderRuntimeAuthorityConfigV1(base_url, BEARER_SENTINEL)
+        resolved = OnlyHttpAgentProviderRuntimeAuthorityV1(config).admit_new(profile)
+
+    assert resolved.endpoint.base_url == "https://provider.example/v1"
+    assert resolved.endpoint.api_credential == CREDENTIAL_SENTINEL
+    assert resolved.model_profile == profile
+    assert CREDENTIAL_SENTINEL not in repr(config)
+    assert CREDENTIAL_SENTINEL not in repr(resolved)
+    assert BEARER_SENTINEL not in repr(config)
+    assert BEARER_SENTINEL not in repr(resolved)

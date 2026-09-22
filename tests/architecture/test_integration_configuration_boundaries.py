@@ -21,6 +21,7 @@ RUNTIME_APPLICATION = ROOT / "src/onlyalpha/application/integration_runtime.py"
 BINANCE_SPOT_PROBE = ROOT / "plugs/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance/spot/data_source/probe.py"
 BINANCE_BROKER_FACTORY = ROOT / "plugs/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance/spot/broker_factory.py"
 AGENT_PROVIDER = ROOT / "packages/onlyalpha-agent-orchestrator/src/onlyalpha_agent_orchestrator/provider_integration.py"
+AGENT_NODE_MAIN = ROOT / "packages/onlyalpha-agent-orchestrator/src/onlyalpha_agent_orchestrator/node_main.py"
 POSTGRES = ROOT / "src/onlyalpha/persistence/postgres"
 INTEGRATION_STORE = POSTGRES / "integration_store.py"
 PRODUCT_STORE = POSTGRES / "integration_product_store.py"
@@ -120,6 +121,26 @@ def test_agent_provider_keeps_bootstrap_secrets_and_broker_authority_outside_its
         for node in ast.walk(ast.parse(source, filename=str(AGENT_PROVIDER)))
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
     }
+
+
+def test_agent_provider_runtime_authority_transport_fails_closed_on_insecure_configuration() -> None:
+    source = AGENT_PROVIDER.read_text(encoding="utf-8")
+    node_source = AGENT_NODE_MAIN.read_text(encoding="utf-8")
+
+    assert 'raise ValueError("AGENT_PROVIDER_AUTHORITY_TRANSPORT_INSECURE")' in source
+    assert re.search(
+        r'if \(parsed\.scheme == "http" or not self\.verify_tls\) and not self\.allow_insecure_transport:',
+        source,
+    )
+    assert "allow_insecure_transport: bool = False" in source
+    assert '"--allow-insecure-runtime-authority-transport", action="store_true"' in node_source
+    assert "allow_insecure_transport=args.allow_insecure_runtime_authority_transport" in node_source
+    assert re.search(
+        r"if args\.allow_insecure_runtime_authority_transport or any\(\s*"
+        r"value is not None for value in integration_model_configuration\s*\):\s*\n"
+        r'\s*raise ValueError\("CONFIGURATION_MODE_CONFLICT"\)',
+        node_source,
+    )
 
 
 def test_plugins_do_not_import_integration_authority_and_http_routes_stay_transport_only() -> None:
