@@ -240,7 +240,55 @@ Acceptance Tests 可以因为真实发现而增强或纠正，例如：
 
 不得因为实现无法满足要求而删除测试、弱化断言、放宽语义、增加无意义 retry/sleep、skip/xfail 当前真实失败或吞掉异常。
 
-### 3.3 Simplicity / Accidental Complexity Control
+### 3.3 Web / Product Vertical Slice Tasks
+
+Web 产品化任务除通用 Task Contract 外，必须遵守 ADR 0135 与 `docs/web-product-development-mode.md`。
+
+在开始实现之前，当前上下文必须额外明确：
+
+~~~text
+Product Slice
+Reference Interaction
+User Goal
+Primary User Flow
+Visible States
+Existing Product API
+Missing Product API / Authority Capability
+E2E Acceptance
+~~~
+
+默认开发链必须是：
+
+~~~text
+用户可见工作流
+→ UI / Product Slice
+→ 当前 Product API / Authority Gap Analysis
+→ 优先复用已有能力
+→ 只补当前 Slice 所需的最小完整 canonical capability
+→ formal Product API
+→ Web integration
+→ Browser E2E
+→ dogfooding / review
+→ closure
+~~~
+
+禁止把 Web 产品化重新退化成“先横向完成大量后端模块，最后再给它们加页面”。若当前 Product Slice 不需要某个后端能力，
+默认不为假设未来需求提前增加 API、Authority、abstraction、configuration 或 persistence surface。
+
+上述约束不阻止独立必要的 correctness、安全、数据完整性、recovery/reconciliation、quality infrastructure 或 owner 明确批准的
+非 Web roadmap 工作。
+
+TradingView 只作为 chart-centric interaction reference。它不拥有 OnlyAlpha 产品语义、Domain、API 或 Authority，也不自动授权
+替换现有 renderer。ADR 0094 的 renderer boundary 在被新的 Accepted ADR 显式 supersede 之前保持有效。
+
+Web 仍然只能是 Control + Presentation。若页面需求不能通过当前正式 API 表达，必须先判断是 PRESENTATION_GAP、QUERY_GAP、
+COMMAND_GAP、DOMAIN_GAP、AUTHORITY_GAP 还是 INFRASTRUCTURE_GAP，再修改 canonical boundary；禁止通过 React 直连数据库、
+Store、internal Core 或浏览器重算 Research/Trading truth 规避缺口。
+
+Web Slice 的默认 closure 不是“endpoint 已存在”或“component 能 render”，而是主用户路径通过 formal Product API 端到端可用，
+并有与风险相匹配的 Browser E2E / targeted evidence。
+
+### 3.4 Simplicity / Accidental Complexity Control
 
 OnlyAlpha 使用 bounded Simplicity Review 消除 accidental complexity；它不删除 Constitution、Architecture / Contract、Accepted ADR、冻结 Required Behavior、correctness、security、reproducibility、data integrity、recovery、traceability、observability 或 required tests 所要求的 essential complexity。
 
