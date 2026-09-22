@@ -5,6 +5,7 @@ import inspect
 from pathlib import Path
 
 import pytest
+import yaml
 
 pytestmark = pytest.mark.architecture
 
@@ -248,13 +249,66 @@ def test_d_compose_agent_is_single_replica_and_has_only_agent_roots_and_network_
     service = source[start:end]
     assert "agent-state:/var/lib/onlyalpha-agent" in service
     assert "agent-locks:/var/run/onlyalpha-agent" in service
-    assert "user-data:" not in service
+    # The agent reads the bootstrap-provisioned secrets and model profile from the
+    # product user-data authority but must never gain write access to it.
+    assert "user-data:/var/lib/onlyalpha:ro" in service
+    assert "- user-data:/var/lib/onlyalpha\n" not in service
     assert "database" not in service
     assert "broker" not in service.casefold()
     assert "live" not in service.casefold()
     assert "--model-token-file" not in service
     web_root = ROOT / "packages/onlyalpha-web-console/src"
     assert "/internal/v1/" not in "\n".join(path.read_text(encoding="utf-8") for path in web_root.rglob("*.ts"))
+
+
+def test_canonical_agent_deployment_selects_integration_revision() -> None:
+    """The canonical dev compose agent runs the INTEGRATION_REVISION authority path.
+
+    This pins the node_main configuration fencing at the deployment topology: the
+    agent command must carry the complete bootstrap configuration plus the complete
+    integration-model configuration (including the explicit dev-only insecure
+    transport exception for the plain-HTTP internal compose network) and must carry
+    no LEGACY model flag. A healthy agent container in this mode is therefore real
+    evidence of ``compose_from_integration`` -> ``admit_new`` startup against the
+    runtime authority rather than a static legacy endpoint.
+    """
+
+    compose = yaml.safe_load((ROOT / "deploy/docker-compose.dev.yml").read_text(encoding="utf-8"))
+    command = compose["services"]["agent"]["command"]
+    assert command[command.index("--model-configuration-mode") + 1] == "INTEGRATION_REVISION"
+    assert "LEGACY" not in command
+    for legacy_flag in ("--model-api-url", "--model-token-file"):
+        assert legacy_flag not in command
+    for required_flag in (
+        "--product-api-url",
+        "--product-api-contract",
+        "--product-token-file",
+        "--control-token-file",
+        "--integration-runtime-authority-url",
+        "--integration-runtime-authority-token-file",
+        "--model-profile-file",
+        "--allow-insecure-runtime-authority-transport",
+    ):
+        assert required_flag in command
+    authority_url = command[command.index("--integration-runtime-authority-url") + 1]
+    assert authority_url == "http://api:8000/internal/v1/agent-provider-runtime"
+    contract_path = command[command.index("--product-api-contract") + 1]
+    assert contract_path == "/workspace/contracts/product-api/v2/openapi.json"
+
+
+def test_legacy_agent_deployment_is_documented_explicit_compatibility_only() -> None:
+    """The LEGACY agent invocation stays documented as an explicit non-canonical path.
+
+    LEGACY is not deleted by the deployment cutover; it becomes a compatibility-only
+    invocation. The deployment doc must show the exact LEGACY command line and label
+    it non-canonical / compatibility-only so the INTEGRATION_REVISION deployment
+    remains the single sanctioned canonical default.
+    """
+
+    doc = (ROOT / "docs/deployment.md").read_text(encoding="utf-8")
+    assert "--model-configuration-mode LEGACY" in doc
+    assert "compatibility" in doc.lower()
+    assert "non-canonical" in doc.lower()
 
 
 def test_decision_and_launch_store_commits_are_application_service_only() -> None:

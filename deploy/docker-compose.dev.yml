@@ -52,10 +52,18 @@ services:
       ONLYALPHA_CLICKHOUSE_DATABASE: ${ONLYALPHA_CLICKHOUSE_DATABASE:-onlyalpha}
       ONLYALPHA_CLICKHOUSE_STORAGE_POLICY: default
       ONLYALPHA_USER_DATA_ROOT: /var/lib/onlyalpha
+      # Canonical dev Agent Provider model identity. These MUST equal the production
+      # semantic bundle invocation binding so the agent INTEGRATION_REVISION compose
+      # binding check admits the revision provisioned below. The provider base URL and
+      # credential defaults in scripts/bootstrap.py already target agent-provider-fixture.
+      ONLYALPHA_AGENT_PROVIDER_MODEL_ID: onlyalpha-research-v1
+      ONLYALPHA_AGENT_PROVIDER_MODEL_VERSION: "2026-09-01"
     depends_on:
       postgres:
         condition: service_healthy
       clickhouse:
+        condition: service_healthy
+      agent-provider-fixture:
         condition: service_healthy
     volumes:
       - user-data:/var/lib/onlyalpha
@@ -67,7 +75,21 @@ services:
       dockerfile: deploy/Dockerfile.dev
       target: runtime
     command:
-      ["onlyalpha-http-server", "--user-data-root", "/var/lib/onlyalpha", "--host", "0.0.0.0", "--port", "8000"]
+      [
+        "onlyalpha-http-server",
+        "--user-data-root",
+        "/var/lib/onlyalpha",
+        "--agent-node-url",
+        "http://agent:8010",
+        "--agent-control-token-file",
+        "/var/lib/onlyalpha/secrets/agent-control-token",
+        "--agent-runtime-token-file",
+        "/var/lib/onlyalpha/secrets/agent-runtime-token",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+      ]
     environment:
       ONLYALPHA_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha@postgres:5432/${ONLYALPHA_POSTGRES_DB:-onlyalpha}
       ONLYALPHA_CLICKHOUSE_URL: http://clickhouse:8123
@@ -152,13 +174,43 @@ services:
       target: runtime
     entrypoint: ["onlyalpha-agent"]
     command:
-      ["serve", "--model-configuration-mode", "LEGACY", "--durable-root", "/var/lib/onlyalpha-agent", "--coordination-root", "/var/run/onlyalpha-agent", "--host", "0.0.0.0", "--port", "8010"]
+      [
+        "serve",
+        "--model-configuration-mode",
+        "INTEGRATION_REVISION",
+        "--durable-root",
+        "/var/lib/onlyalpha-agent",
+        "--coordination-root",
+        "/var/run/onlyalpha-agent",
+        "--product-api-url",
+        "http://api:8000",
+        "--product-api-contract",
+        "/workspace/contracts/product-api/v2/openapi.json",
+        "--product-token-file",
+        "/var/lib/onlyalpha/secrets/agent-product-token",
+        "--integration-runtime-authority-url",
+        "http://api:8000/internal/v1/agent-provider-runtime",
+        "--integration-runtime-authority-token-file",
+        "/var/lib/onlyalpha/secrets/agent-runtime-token",
+        "--model-profile-file",
+        "/var/lib/onlyalpha/agent/model-profile.json",
+        # Explicit dev-only exception: the runtime authority is reached over plain HTTP
+        # on the internal compose network. Production omits this flag and serves HTTPS.
+        "--allow-insecure-runtime-authority-transport",
+        "--control-token-file",
+        "/var/lib/onlyalpha/secrets/agent-control-token",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8010",
+      ]
     depends_on:
       api:
         condition: service_healthy
     volumes:
       - agent-state:/var/lib/onlyalpha-agent
       - agent-locks:/var/run/onlyalpha-agent
+      - user-data:/var/lib/onlyalpha:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/internal/v1/healthz')"]
       interval: 5s
@@ -239,6 +291,21 @@ services:
     networks:
       application:
         aliases: [api.binance.com, stream.binance.com]
+
+  agent-provider-fixture:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.dev
+      target: runtime
+    command:
+      ["python", "-m", "tests.runtime_support.openai_compatible_provider_fixture", "--host", "0.0.0.0", "--port", "8080"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    networks: [database, application]
 
   playwright:
     profiles: [web-e2e]

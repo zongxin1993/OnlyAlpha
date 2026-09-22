@@ -40,9 +40,17 @@ def test_dev_compose_has_pinned_private_databases_and_zero_config_defaults() -> 
     compose = _compose()
     services = compose["services"]
     assert isinstance(services, dict)
-    assert {"postgres", "clickhouse", "bootstrap", "api", "web", "research-worker", "backtest-worker", "agent"} <= set(
-        services
-    )
+    assert {
+        "postgres",
+        "clickhouse",
+        "bootstrap",
+        "api",
+        "web",
+        "research-worker",
+        "backtest-worker",
+        "agent",
+        "agent-provider-fixture",
+    } <= set(services)
     postgres = services["postgres"]
     clickhouse = services["clickhouse"]
     assert postgres["image"].startswith("postgres:18.6@sha256:")
@@ -111,7 +119,7 @@ def test_bootstrap_is_the_only_schema_mutation_startup_and_api_waits_for_it() ->
     bootstrap = services["bootstrap"]
     api = services["api"]
     assert bootstrap["command"] == ["python", "scripts/bootstrap.py"]
-    assert set(bootstrap["depends_on"]) == {"postgres", "clickhouse"}
+    assert set(bootstrap["depends_on"]) == {"postgres", "clickhouse", "agent-provider-fixture"}
     assert all(item["condition"] == "service_healthy" for item in bootstrap["depends_on"].values())
     assert api["depends_on"]["bootstrap"]["condition"] == "service_completed_successfully"
     assert api["command"][-4:] == ["--host", "0.0.0.0", "--port", "8000"]
