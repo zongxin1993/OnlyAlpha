@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-18
 - Related: ADR 0085, 0088, 0089, 0090, 0091; P8.4 Research Studio Web
+- Partially superseded by: ADR 0135 for forward primary product navigation and Web development sequencing; browser/Research authority boundaries remain authoritative.
 
 ## Context
 

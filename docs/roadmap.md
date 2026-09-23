@@ -75,6 +75,30 @@ canonical application authority
 Runtime specification 与 Runtime instance 必须分离。Product Runtime 不从 YAML/JSON/ENV 或 direct Python Engine construction admission。
 Long-running work 在 durable admission 后脱离 HTTP request lifetime，由 Kernel/Worker/Runtime lifecycle authority 执行和恢复。
 
+## Web productization sequence
+
+在 foundational Kernel / Research / Backtest / Product API 能力存在之后，Web 产品化默认遵守 ADR 0135 的
+**Product-Driven Vertical Slice Development**，而不是继续 backend-first 横向铺功能。
+
+~~~text
+TradingView-like reference interaction
+→ concrete operator goal
+→ UI / product slice
+→ existing Product API inspection
+→ minimum missing canonical capability
+→ formal Product API
+→ browser integration
+→ E2E
+→ real operator use / dogfooding
+→ next slice
+~~~
+
+长期主工作区采用 chart-centric workstation 方向；Research、Backtest、SIM、LIVE 在保持各自 Authority 的前提下进入同一产品工作流。
+产品页面不得按内部 package/entity 一对一组织，也不得为了 UI 便利绕过正式 API。
+
+推荐 W0–W12 的具体工作顺序记录在 `docs/web-product-development-mode.md`。该顺序只表达建设方向，不表达任何阶段已经完成，
+也不拥有改变 Constitution、Architecture 或当前 Implementation Truth 的 Authority。
+
 ## Production execution sequence
 
 每条真实市场纵切面依次证明：
