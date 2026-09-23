@@ -31,7 +31,6 @@ export function SystemHealthPage() {
         <main className="page product-inspector-page">
             <header className="catalog-header">
                 <div>
-                    <p className="eyebrow">System · independent health observations</p>
                     <h1>System Health</h1>
                     <p className="lede">
                         Inspect the three formal health surfaces independently. A reachable process

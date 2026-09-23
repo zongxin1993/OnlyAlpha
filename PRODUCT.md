@@ -51,7 +51,15 @@ Backtest, SIM and LIVE within the same canonical lifecycle vocabulary.
 
 ## Brand Commitments
 
-The product name is OnlyAlpha. No additional visual, voice, legal, proof-asset or brand constraints are confirmed.
+The product name is OnlyAlpha.
+
+The Web console commits to the professional chart-terminal canon — the arrangements this category already ships — executed at full
+craft in **light** materials: near-white working paper, hairline rules, minimal depth, colour reserved for state and data, the chart
+as the only visual centre. The craft bar is the TradingView chart workspace (cn.tradingview.com/chart); OnlyAlpha reuses its proven
+interaction patterns and never its branding, icons, protected assets or pixel-level composition (ADR 0135).
+
+Operator-facing copy is written in Chinese while canonical identity and technical vocabulary (fingerprints, run ids, Product API and
+command names, REVISION/UNKNOWN states) stay in English. No other visual, voice, legal or proof-asset constraints are confirmed.
 
 ## Evidence on Hand
 
@@ -67,4 +75,3 @@ The product name is OnlyAlpha. No additional visual, voice, legal, proof-asset o
 - Determinism, reproducibility and traceability are product behavior, not optional diagnostics.
 - Durable facts and recovery must preserve one authoritative state across restarts.
 - A changing external market world must not destabilize the canonical internal trading world.
-

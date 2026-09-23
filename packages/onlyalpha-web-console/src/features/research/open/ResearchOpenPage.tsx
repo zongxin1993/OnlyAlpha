@@ -20,7 +20,6 @@ export function ResearchOpenPage() {
 
     return (
         <main className="page narrow">
-            <p className="eyebrow">Portable Artifact Consumer</p>
             <h1>Open an exact Research result</h1>
             <p className="lede">
                 Enter the full lower-case SHA256. There is intentionally no latest, search, or

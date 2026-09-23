@@ -22,7 +22,6 @@ export function ResearchRunsPage() {
     const runs = query.data.pages.flatMap((page) => page.runs);
     return (
         <main className="page runs-page">
-            <p className="eyebrow">PostgreSQL operational authority</p>
             <h1>Research Runs</h1>
             <p className="lede">
                 Only authoritative states and timestamps are shown. No inferred progress.

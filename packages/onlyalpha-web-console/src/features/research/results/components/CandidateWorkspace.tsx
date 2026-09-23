@@ -23,7 +23,6 @@ export function CandidateWorkspace() {
         <section aria-labelledby="candidate-heading">
             <div className="section-heading">
                 <div>
-                    <p className="eyebrow">Exact Result membership</p>
                     <h2 id="candidate-heading">Candidates</h2>
                 </div>
                 <span>{dimensions.length} parameter dimensions</span>

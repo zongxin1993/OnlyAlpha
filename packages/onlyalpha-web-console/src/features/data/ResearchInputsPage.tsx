@@ -40,7 +40,6 @@ export function ResearchInputsPage() {
         <main className="page catalog-page">
             <header className="catalog-header">
                 <div>
-                    <p className="eyebrow">Data · server-published capabilities</p>
                     <h1>Research Inputs</h1>
                     <p className="lede">
                         Explore Universe definitions and dataset-field capabilities before authoring

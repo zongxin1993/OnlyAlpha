@@ -19,7 +19,6 @@ export function ResearchInspector({ state }: { readonly state: ResolutionState }
     return (
         <aside className="context-inspector" aria-label="Resolution inspector">
             <div className="inspector-heading">
-                <p className="eyebrow">Authority inspector</p>
                 <span className={`resolution-state ${state.status.toLowerCase()}`}>
                     {state.status}
                 </span>

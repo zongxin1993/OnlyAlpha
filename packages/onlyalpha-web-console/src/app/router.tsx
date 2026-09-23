@@ -17,12 +17,13 @@ import { FactorExplorerPage } from "../features/research/factors/FactorExplorerP
 import { DataSourcesPage } from "../features/data/sources/DataSourcesPage";
 import { NewDataSourcePage } from "../features/data/sources/NewDataSourcePage";
 import { DataSourceDetailPage } from "../features/data/sources/DataSourceDetailPage";
+import { WorkspacePage } from "../features/workspace/WorkspacePage";
 
 export const researchRoutes: RouteObject[] = [
     {
         element: <WorkstationShell />,
         children: [
-            { path: "/", element: <Navigate to="/research/new" replace /> },
+            { path: "/", element: <WorkspacePage /> },
             { path: "/research", element: <Navigate to="/research/new" replace /> },
             { path: "/research/new", element: <ResearchStudioPage /> },
             { path: "/research/analysis", element: <ResearchAnalysisPage /> },

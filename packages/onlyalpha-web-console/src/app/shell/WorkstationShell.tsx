@@ -1,139 +1,54 @@
-import { useRef, useState } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { WorkspaceIcon, type WorkspaceIconName } from "../../shared/components/WorkspaceIcon";
+import { NavLink, Outlet } from "react-router-dom";
 
-const navClass = ({ isActive }: { readonly isActive: boolean }) =>
-    isActive ? "research-nav-link active" : "research-nav-link";
+const products = [
+    { to: "/", label: "工作台" },
+    { to: "/research/new", label: "研究" },
+    { to: "/data/inputs", label: "数据" },
+    { to: "/strategies", label: "策略" },
+    { to: "/backtest/runs", label: "回测" },
+    { to: "/system/health", label: "系统" }
+] as const;
 
 export function WorkstationShell() {
-    const [navigationOpen, setNavigationOpen] = useState(false);
-    const navigationToggle = useRef<HTMLButtonElement>(null);
-    const workspace = useRef<HTMLDivElement>(null);
-    function closeNavigation() {
-        setNavigationOpen(false);
-        workspace.current?.focus();
-    }
-    const { pathname } = useLocation();
-    const products = [
-        { to: "/data/inputs", label: "Research Inputs", product: "Data", icon: "data" },
-        { to: "/data/sources", label: "Data Sources", product: "Data", icon: "data" },
-        { to: "/strategies", label: "Strategies", product: "Strategies", icon: "shield" },
-        { to: "/backtest/runs", label: "Backtests", product: "Backtest", icon: "results" },
-        { to: "/system/health", label: "System Health", product: "System", icon: "shield" }
-    ] as const;
-    const currentProduct = products.find((item) => pathname.startsWith(item.to));
-    const product = currentProduct?.product ?? "Research";
-    const destinations: readonly {
-        readonly to: string;
-        readonly label: string;
-        readonly icon: WorkspaceIconName;
-        readonly secondary?: boolean;
-    }[] = [
-        { to: "/research/new", label: "New Research", icon: "research" },
-        { to: "/research/library", label: "Research Library", icon: "library", secondary: true },
-        { to: "/research/factors", label: "Factor Explorer", icon: "results", secondary: true },
-        { to: "/research/runs", label: "Runs", icon: "runs" },
-        { to: "/research/results", label: "Results", icon: "results" },
-        { to: "/research/analysis", label: "AI Analysis", icon: "analysis", secondary: true }
-    ];
-    const currentPage =
-        destinations.find((item) => pathname.startsWith(item.to))?.label ??
-        currentProduct?.label ??
-        "Research";
     return (
         <div className="workstation-shell">
             <a className="skip-link" href="#workspace-content">
-                Skip to workspace
+                跳到工作区
             </a>
-            <header className="product-rail">
-                <NavLink to="/research/new" className="brand" aria-label="OnlyAlpha Research">
+            <header className="workspace-topbar">
+                <NavLink to="/" className="brand" aria-label="OnlyAlpha 工作台" end>
                     <span className="brand-mark">OA</span>
                     <span>OnlyAlpha</span>
                 </NavLink>
-            </header>
-            <div className="workspace-topbar">
-                <button
-                    type="button"
-                    className="navigation-toggle"
-                    ref={navigationToggle}
-                    aria-label="Toggle navigation"
-                    aria-controls="workstation-navigation"
-                    aria-expanded={navigationOpen}
-                    onClick={() => {
-                        setNavigationOpen(!navigationOpen);
-                    }}
-                >
-                    <WorkspaceIcon name="menu" />
-                </button>
-                <div className="workspace-breadcrumb">
-                    <span>{product}</span>
-                    <span aria-hidden="true">/</span>
-                    <strong>{currentPage}</strong>
-                </div>
-                <span className="workspace-mode">
-                    <WorkspaceIcon name="shield" /> Evidence workspace
-                </span>
-            </div>
-            <aside
-                id="workstation-navigation"
-                className={`research-navigation${navigationOpen ? " navigation-open" : ""}`}
-                aria-label="Workspace navigation"
-                onKeyDown={(event) => {
-                    if (event.key === "Escape" && navigationOpen) {
-                        setNavigationOpen(false);
-                        navigationToggle.current?.focus();
-                    }
-                }}
-            >
-                <nav aria-label="Workspace">
-                    <p className="nav-eyebrow">Research workspace</p>
-                    {destinations.map((item) => (
+                <span className="topbar-divider" aria-hidden="true" />
+                <nav className="primary-nav" aria-label="产品导航">
+                    {products.map((product) => (
                         <NavLink
-                            key={item.to}
-                            to={item.to}
-                            className={(state) =>
-                                `${navClass(state)}${item.secondary ? " research-nav-secondary" : ""}`
+                            key={product.to}
+                            to={product.to}
+                            end={product.to === "/"}
+                            className={({ isActive }) =>
+                                isActive ? "primary-nav-link active" : "primary-nav-link"
                             }
-                            onClick={closeNavigation}
                         >
-                            <WorkspaceIcon name={item.icon} />
-                            <span>{item.label}</span>
-                        </NavLink>
-                    ))}
-                    <p className="nav-eyebrow nav-section">Product workspaces</p>
-                    {products.map((item) => (
-                        <NavLink
-                            key={item.to}
-                            to={item.to}
-                            className={navClass}
-                            onClick={closeNavigation}
-                        >
-                            <WorkspaceIcon name={item.icon} />
-                            <span>{item.label}</span>
+                            {product.label}
                         </NavLink>
                     ))}
                 </nav>
-                <div className="navigation-note">
-                    <WorkspaceIcon name="shield" />
-                    <span>
-                        One identity.
-                        <br />
-                        Traceable evidence.
-                    </span>
+                <div className="topbar-actions">
+                    <NavLink to="/research/new" className="topbar-action">
+                        新建研究
+                    </NavLink>
+                    <span className="topbar-mode">Control + Presentation</span>
                 </div>
-            </aside>
-            <div
-                className="workstation-workspace"
-                id="workspace-content"
-                tabIndex={-1}
-                ref={workspace}
-            >
+            </header>
+            <div className="workstation-workspace" id="workspace-content" tabIndex={-1}>
                 <Outlet />
             </div>
             <footer className="status-surface">
                 <span className="status-dot" aria-hidden="true" />
-                <span>OnlyAlpha · Browser is control and presentation only</span>
-                <span className="status-authority">Server authority required</span>
+                <span>OnlyAlpha · 浏览器只做控制与呈现</span>
+                <span className="status-authority">服务端 Authority 必需</span>
             </footer>
         </div>
     );

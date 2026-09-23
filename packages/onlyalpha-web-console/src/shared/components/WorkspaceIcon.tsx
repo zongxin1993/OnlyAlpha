@@ -9,7 +9,16 @@ const paths = {
     arrow: "M5 12h14m-5-5 5 5-5 5",
     calendar: "M5 5h14v15H5zM8 3v4M16 3v4M5 10h14M8 14h2M14 14h2",
     clock: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18ZM12 7v5l3 2",
-    shield: "m12 3 8 3v5c0 5-8 10-8 10S4 16 4 11V6l8-3Zm-4 8 3 3 5-6"
+    shield: "m12 3 8 3v5c0 5-8 10-8 10S4 16 4 11V6l8-3Zm-4 8 3 3 5-6",
+    pointer: "m7 3 11 8-5 1.2L11 17 7 3Z",
+    segment: "M4 17h3v3H4zM17 4h3v3h-3zM6.5 17.5 17.5 6.5",
+    level: "M4 12h16M9 9.5 7 14.5M15 9.5l2 5",
+    zone: "M4 8h16v8H4z",
+    measure: "M3 8h18v8H3zM8 8v3M12 8v4M16 8v3",
+    collapse: "M14.5 6 9 12l5.5 6",
+    expand: "M9.5 6 15 12l-5.5 6",
+    up: "M6 14.5 12 9l6 5.5",
+    down: "M6 9.5 12 15l6-5.5"
 } as const;
 
 export type WorkspaceIconName = keyof typeof paths;

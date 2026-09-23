@@ -109,10 +109,10 @@ export function DataSourceDetailPage() {
         <main className="page data-source-detail">
             <header className="workspace-header">
                 <div>
-                    <p className="eyebrow">Data Source · {model.type_id}</p>
                     <h1>{model.display_name}</h1>
                     <p className="lede">
-                        Published Revision and Working Draft remain separate authorities.
+                        Type <span className="value">{model.type_id}</span> · Published Revision and
+                        Working Draft remain separate authorities.
                     </p>
                 </div>
                 <Link to="/data/sources">← Data Sources</Link>

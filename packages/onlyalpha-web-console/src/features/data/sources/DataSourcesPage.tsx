@@ -39,7 +39,6 @@ export function DataSourcesPage() {
         <main className="page data-sources-page">
             <header className="workspace-header">
                 <div>
-                    <p className="eyebrow">Data · configured integrations</p>
                     <h1>Data Sources</h1>
                     <p className="lede">
                         Published provider configuration and exact-revision operational

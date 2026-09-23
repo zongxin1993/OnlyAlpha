@@ -229,7 +229,6 @@ export function ResearchStudioPage() {
         <main className="studio-page">
             <header className="workspace-header">
                 <div>
-                    <p className="eyebrow">Structured Research Builder</p>
                     <h1>New Research</h1>
                     <p className="lede">
                         Author a Definition. The server alone resolves exact execution semantics.
@@ -297,7 +296,7 @@ export function ResearchStudioPage() {
             <div className="studio-layout">
                 <div className="builder-sections">
                     <section className="builder-section" id="universe-data">
-                        <SectionTitle number="01" title="Universe & Data" />
+                        <SectionTitle title="Universe & Data" />
                         <div className="form-grid">
                             <label>
                                 Universe kind
@@ -513,7 +512,6 @@ export function ResearchStudioPage() {
                     </section>
                     <CalculationSection
                         title="Calculations"
-                        number="02"
                         items={studio.draft.calculations}
                         choices={calculationChoices}
                         catalogMap={catalogMap}
@@ -525,7 +523,6 @@ export function ResearchStudioPage() {
                     />
                     <ExpressionSection
                         title="Eligibility"
-                        number="03"
                         value={studio.draft.eligibility}
                         sources={expressionSources}
                         update={(value) => {
@@ -533,7 +530,7 @@ export function ResearchStudioPage() {
                         }}
                     />
                     <section className="builder-section">
-                        <SectionTitle number="04" title="Signals" />
+                        <SectionTitle title="Signals" />
                         <ExpressionBlock
                             title="Entry"
                             value={studio.draft.entry}
@@ -553,7 +550,6 @@ export function ResearchStudioPage() {
                     </section>
                     <CalculationSection
                         title="Targets"
-                        number="05"
                         items={studio.draft.targets}
                         choices={targetChoices}
                         catalogMap={catalogMap}
@@ -564,7 +560,7 @@ export function ResearchStudioPage() {
                         remove={removeCalculation}
                     />
                     <section className="builder-section">
-                        <SectionTitle number="06" title="Statistics" />
+                        <SectionTitle title="Statistics" />
                         {studio.draft.statistics.map((item) => (
                             <div className="statistics-row" key={item.draftId}>
                                 <label>
@@ -690,10 +686,9 @@ export function ResearchStudioPage() {
     );
 }
 
-function SectionTitle({ number, title }: { readonly number: string; readonly title: string }) {
+function SectionTitle({ title }: { readonly title: string }) {
     return (
         <div className="builder-title">
-            <span>{number}</span>
             <h2>{title}</h2>
         </div>
     );
@@ -701,7 +696,6 @@ function SectionTitle({ number, title }: { readonly number: string; readonly tit
 
 function CalculationSection({
     title,
-    number,
     items,
     choices,
     catalogMap,
@@ -712,7 +706,6 @@ function CalculationSection({
     remove
 }: {
     readonly title: string;
-    readonly number: string;
     readonly items: readonly CalculationDraft[];
     readonly choices: readonly ResearchCalculationCatalogItemTransport[];
     readonly catalogMap: ReadonlyMap<string, ResearchCalculationCatalogItemTransport>;
@@ -727,7 +720,7 @@ function CalculationSection({
     );
     return (
         <section className="builder-section">
-            <SectionTitle number={number} title={title} />
+            <SectionTitle title={title} />
             {items.map((item) => {
                 const catalog = catalogMap.get(item.catalogKey);
                 return catalog === undefined ? (
@@ -827,20 +820,18 @@ function ExpressionBlock({
 }
 function ExpressionSection({
     title,
-    number,
     value,
     sources,
     update
 }: {
     readonly title: string;
-    readonly number: string;
     readonly value: ExpressionDraft | null;
     readonly sources: readonly string[];
     readonly update: (value: ExpressionDraft | null) => void;
 }) {
     return (
         <section className="builder-section">
-            <SectionTitle number={number} title={title} />
+            <SectionTitle title={title} />
             <ExpressionBlock title="Condition" value={value} sources={sources} update={update} />
         </section>
     );

@@ -44,7 +44,6 @@ export function FactorExplorerPage() {
         <main className="factor-explorer">
             <header className="factor-page-header">
                 <div>
-                    <p className="eyebrow">Research · Factor evidence</p>
                     <h1>Factor Explorer</h1>
                     <p>
                         Find a registered Factor. Compare exact stock evidence and inspect published

@@ -29,7 +29,6 @@ export function StatisticsWorkspace() {
         <section aria-labelledby="statistics-workspace-heading">
             <div className="section-heading">
                 <div>
-                    <p className="eyebrow">Existing Statistics authority</p>
                     <h2 id="statistics-workspace-heading">Statistics</h2>
                 </div>
             </div>

@@ -78,7 +78,6 @@ function SelectedGraphInspector({
         <section aria-labelledby="graph-inspector-heading">
             <div className="section-heading">
                 <div>
-                    <p className="eyebrow">Read-only exact authority projection</p>
                     <h2 id="graph-inspector-heading">Graph Inspector</h2>
                 </div>
                 <div className="segmented-control" aria-label="Graph mode">
@@ -107,7 +106,6 @@ function SelectedGraphInspector({
                         <p>Graph has no nodes.</p>
                     ) : (
                         <>
-                            <p className="eyebrow">Selected node</p>
                             <h3>{selected.label.split("\n")[0]}</h3>
                             <dl className="facts">
                                 <dt>

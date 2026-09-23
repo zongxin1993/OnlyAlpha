@@ -42,7 +42,6 @@ export function ExactDataWorkspace() {
     const instrumentId = selection.instrumentId;
     return (
         <section aria-labelledby="exact-data-heading">
-            <p className="eyebrow">Query API evidence only</p>
             <h2 id="exact-data-heading">Exact Data Inspector</h2>
             <p className="muted">
                 Values below retain exact nanoseconds, Decimal strings, nullable Boolean, status,

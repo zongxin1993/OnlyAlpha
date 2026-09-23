@@ -56,7 +56,6 @@ function ValidArtifactOverviewPage({
             <nav>
                 <Link to="/research/results">← Open another exact result</Link>
             </nav>
-            <p className="eyebrow">Verified immutable Research Artifact</p>
             <h1>Artifact overview</h1>
             <dl className="facts">
                 <dt>Research Result</dt>

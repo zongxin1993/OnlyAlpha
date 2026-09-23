@@ -20,7 +20,6 @@ export function NewDataSourcePage() {
     const pending = useRef<{ readonly key: string; readonly integrationId: string } | null>(null);
     return (
         <main className="page narrow">
-            <p className="eyebrow">Data Sources</p>
             <h1>Add Data Source</h1>
             <p className="lede">
                 Choose a server-published DataSource type. Configuration follows its declared

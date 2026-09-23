@@ -347,7 +347,6 @@ function FactorCorrelationPanel({
         <section className="factor-correlation" aria-labelledby="factor-correlation-heading">
             <header>
                 <div>
-                    <p className="eyebrow">Published Research Statistics</p>
                     <h2 id="factor-correlation-heading">Factor / Target correlation</h2>
                 </div>
                 <span className="analysis-badge">NO BROWSER CALCULATION</span>

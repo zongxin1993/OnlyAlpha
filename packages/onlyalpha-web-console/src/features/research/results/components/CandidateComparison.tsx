@@ -101,7 +101,6 @@ export function CandidateComparison({
         <section aria-labelledby="candidate-comparison-heading">
             <div className="section-heading">
                 <div>
-                    <p className="eyebrow">Exact Statistics time slice</p>
                     <h3 id="candidate-comparison-heading">Candidate comparison</h3>
                 </div>
                 <div>

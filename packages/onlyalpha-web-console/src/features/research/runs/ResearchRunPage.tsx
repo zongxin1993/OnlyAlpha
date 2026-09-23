@@ -59,7 +59,6 @@ function ValidResearchRunPage({
             </nav>
             <div className="section-heading">
                 <div>
-                    <p className="eyebrow">Durable Research Run</p>
                     <h1>Run detail</h1>
                 </div>
                 <RunStateBadge state={run.state} />

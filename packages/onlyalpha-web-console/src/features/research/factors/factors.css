@@ -13,7 +13,7 @@
 }
 .factor-page-header h1 {
     margin: 0.4rem 0 0.7rem;
-    font-size: 1.8rem;
+    font-size: 1.05rem;
 }
 .factor-page-header p:not(.eyebrow) {
     color: var(--muted);
@@ -470,7 +470,7 @@
         align-items: stretch;
     }
     .factor-page-header h1 {
-        font-size: 1.5rem;
+        font-size: 1.05rem;
     }
     .factor-evidence-workspace {
         padding: 0.65rem;

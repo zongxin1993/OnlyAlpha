@@ -16,7 +16,6 @@ export function BacktestPage() {
         <main className="page product-inspector-page">
             <header className="catalog-header">
                 <div>
-                    <p className="eyebrow">Backtest · historical execution evidence</p>
                     <h1>Backtest Workspace</h1>
                     <p className="lede">
                         Inspect a durable Backtest Run and its verified Evidence manifest.

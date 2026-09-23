@@ -44,7 +44,6 @@ export function MarketWorkspace() {
         <section aria-labelledby="market-heading">
             <div className="section-heading">
                 <div>
-                    <p className="eyebrow">Artifact Market + Published Evidence</p>
                     <h2 id="market-heading">Financial viewer</h2>
                 </div>
             </div>

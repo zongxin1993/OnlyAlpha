@@ -48,7 +48,6 @@ export function ResearchLibraryPage() {
         <main className="page catalog-page">
             <header className="catalog-header">
                 <div>
-                    <p className="eyebrow">Research · authoring reference</p>
                     <h1>Research Library</h1>
                     <p className="lede">
                         Inspect server-published calculation and Statistics capabilities. This

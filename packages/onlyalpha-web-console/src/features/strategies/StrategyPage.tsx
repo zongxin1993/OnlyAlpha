@@ -15,7 +15,6 @@ export function StrategyPage() {
         <main className="page product-inspector-page">
             <header className="catalog-header">
                 <div>
-                    <p className="eyebrow">Strategies · immutable identity</p>
                     <h1>Strategy Workspace</h1>
                     <p className="lede">
                         Inspect an existing frozen Strategy by its exact fingerprint. A Strategy
