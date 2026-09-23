@@ -59,3 +59,14 @@ FORM: 标准形（canon，standing exit），seed key `2db962f8`；craft bar = T
 不是对惯例的削弱。
 
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance.
+
+## Shell extension — top-bar controls and chart overlays
+
+顶栏现在承载四件事，顺序与 TradingView chart 的参考一致：标的搜索框（带过滤建议）、K 线周期下拉、指标选择器
+（点开是搜索框 + 列表）、因子选择器（同样是搜索框 + 列表）。选定后直接画在图上：指标叠加在主图（MA 线，带末值与
+标签），因子画在独立窗格，共享同一条时间轴。工作区右侧新增一条窄工具栏（自选 / 检查器 / 回测），与左侧图表工具条对
+称。选择器支持多选；Esc 或点击外部关闭弹层。
+
+Authority 边界：叠加值当前是 **synthetic 占位序列**（`buildPlaceholderOverlay`），不是 canonical 计算结果。
+真实指标与因子值必须来自 `onlyalpha.calculations` 并经 Product API 投影到 Web；这项缺口按 W3（Indicator / Factor）
+处理，Web 不得自行重算。渲染器边界不变：仍是 lightweight-charts，指标在主 pane、因子在 pane 1。

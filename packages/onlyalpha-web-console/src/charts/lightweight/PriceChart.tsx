@@ -1,8 +1,20 @@
-import { CandlestickSeries, ColorType, createChart } from "lightweight-charts";
+import { CandlestickSeries, ColorType, LineSeries, createChart } from "lightweight-charts";
 import { useEffect, useMemo, useRef } from "react";
-import { buildPlaceholderBars, type Timeframe } from "./placeholderBars";
+import {
+    buildPlaceholderBars,
+    buildPlaceholderOverlay,
+    OVERLAY_COLORS,
+    type OverlaySpec,
+    type Timeframe
+} from "./placeholderBars";
 
-export function PriceChart({ timeframe }: { readonly timeframe: Timeframe }) {
+export function PriceChart({
+    timeframe,
+    overlays = []
+}: {
+    readonly timeframe: Timeframe;
+    readonly overlays?: readonly OverlaySpec[];
+}) {
     const container = useRef<HTMLDivElement>(null);
     const bars = useMemo(() => buildPlaceholderBars(timeframe), [timeframe]);
 
@@ -35,6 +47,20 @@ export function PriceChart({ timeframe }: { readonly timeframe: Timeframe }) {
             wickDownColor: token("--down", "#2f7d47")
         });
         series.setData(bars);
+        overlays.forEach((overlay, index) => {
+            const line = chart.addSeries(
+                LineSeries,
+                {
+                    color: OVERLAY_COLORS[index % OVERLAY_COLORS.length] ?? "#1f5f8b",
+                    lineWidth: 2,
+                    priceLineVisible: false,
+                    lastValueVisible: overlay.kind === "indicator",
+                    title: overlay.label
+                },
+                overlay.kind === "factor" ? 1 : 0
+            );
+            line.setData(buildPlaceholderOverlay(bars, overlay));
+        });
         const observer = new ResizeObserver(() => {
             chart.timeScale().fitContent();
         });
@@ -44,7 +70,7 @@ export function PriceChart({ timeframe }: { readonly timeframe: Timeframe }) {
             observer.disconnect();
             chart.remove();
         };
-    }, [bars]);
+    }, [bars, overlays]);
 
     return <div className="chart-region__canvas" ref={container} data-testid="price-chart" />;
 }

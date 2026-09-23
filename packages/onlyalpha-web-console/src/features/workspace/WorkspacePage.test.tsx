@@ -56,6 +56,24 @@ it("keeps UNKNOWN visible instead of dressing it as success", () => {
     expect(screen.getAllByText("synthetic").length).toBeGreaterThanOrEqual(2);
 });
 
+it("switches symbol and adds indicator and factor overlays from the top controls", async () => {
+    const user = userEvent.setup();
+    render(<WorkspacePage />);
+    await user.type(screen.getByRole("searchbox", { name: "搜索标的" }), "平安");
+    await user.click(screen.getByRole("button", { name: /000001\.SZ/ }));
+    expect(screen.getByText("000001.SZ · 平安银行")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /指标/ }));
+    await user.type(screen.getByRole("searchbox", { name: "搜索指标" }), "MA 20");
+    await user.click(screen.getByRole("button", { name: "MA 20" }));
+    expect(screen.getByRole("button", { name: /指标/ })).toHaveTextContent("1");
+
+    await user.click(screen.getByRole("button", { name: /因子/ }));
+    await user.type(screen.getByRole("searchbox", { name: "搜索因子" }), "动量");
+    await user.click(screen.getByRole("button", { name: "20 日动量" }));
+    expect(screen.getByRole("button", { name: /因子/ })).toHaveTextContent("1");
+});
+
 it("builds the same placeholder series for the same timeframe", () => {
     const daily = buildPlaceholderBars("1D");
     expect(daily).toEqual(buildPlaceholderBars("1D"));

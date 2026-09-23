@@ -1,9 +1,122 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PriceChart } from "../../charts/lightweight/PriceChart";
-import { type Timeframe } from "../../charts/lightweight/placeholderBars";
+import { type OverlaySpec, type Timeframe } from "../../charts/lightweight/placeholderBars";
 import { WorkspaceIcon, type WorkspaceIconName } from "../../shared/components/WorkspaceIcon";
 
 const timeframes: readonly Timeframe[] = ["1m", "5m", "15m", "1H", "1D", "1W"];
+
+const instruments = [
+    { code: "600519.SH", name: "贵州茅台" },
+    { code: "000001.SZ", name: "平安银行" },
+    { code: "510300.SH", name: "沪深300ETF" },
+    { code: "IF2603", name: "沪深300期指" },
+    { code: "600036.SH", name: "招商银行" },
+    { code: "513050.SH", name: "中概互联ETF" },
+    { code: "000300.SH", name: "沪深300" }
+] as const;
+
+const indicatorCatalog: readonly OverlaySpec[] = [
+    { id: "ma-5", label: "MA 5", kind: "indicator" },
+    { id: "ma-10", label: "MA 10", kind: "indicator" },
+    { id: "ma-20", label: "MA 20", kind: "indicator" },
+    { id: "ma-60", label: "MA 60", kind: "indicator" }
+];
+
+const factorCatalog: readonly OverlaySpec[] = [
+    { id: "momentum-20", label: "20 日动量", kind: "factor" },
+    { id: "reversal-5", label: "5 日反转", kind: "factor" },
+    { id: "volatility-20", label: "20 日波动率", kind: "factor" },
+    { id: "turnover-20", label: "20 日换手率", kind: "factor" }
+];
+
+function CatalogPicker({
+    label,
+    placeholder,
+    items,
+    selected,
+    onToggle
+}: {
+    readonly label: string;
+    readonly placeholder: string;
+    readonly items: readonly OverlaySpec[];
+    readonly selected: readonly OverlaySpec[];
+    readonly onToggle: (overlay: OverlaySpec) => void;
+}) {
+    const [open, setOpen] = useState(false);
+    const [query, setQuery] = useState("");
+    const root = useRef<HTMLDivElement>(null);
+    const needle = query.trim().toLowerCase();
+    const matches =
+        needle === "" ? items : items.filter((item) => item.label.toLowerCase().includes(needle));
+    useEffect(() => {
+        if (!open) return;
+        function close(event: KeyboardEvent | MouseEvent) {
+            if (event instanceof KeyboardEvent) {
+                if (event.key === "Escape") setOpen(false);
+                return;
+            }
+            if (root.current !== null && !root.current.contains(event.target as Node)) {
+                setOpen(false);
+            }
+        }
+        document.addEventListener("keydown", close);
+        document.addEventListener("mousedown", close);
+        return () => {
+            document.removeEventListener("keydown", close);
+            document.removeEventListener("mousedown", close);
+        };
+    }, [open]);
+    return (
+        <div className="picker" ref={root}>
+            <button
+                type="button"
+                className="picker__trigger"
+                aria-expanded={open}
+                onClick={() => {
+                    setOpen(!open);
+                }}
+            >
+                <WorkspaceIcon name="results" />
+                <span>{label}</span>
+                {selected.length === 0 ? null : (
+                    <span className="picker__count">{selected.length}</span>
+                )}
+            </button>
+            {open ? (
+                <div className="picker__popover" role="group" aria-label={`${label}选择`}>
+                    <input
+                        className="picker__search"
+                        type="search"
+                        placeholder={placeholder}
+                        aria-label={placeholder}
+                        value={query}
+                        onChange={(event) => {
+                            setQuery(event.target.value);
+                        }}
+                    />
+                    <ul className="picker__list">
+                        {matches.map((item) => (
+                            <li key={item.id}>
+                                <button
+                                    type="button"
+                                    aria-pressed={selected.some((picked) => picked.id === item.id)}
+                                    onClick={() => {
+                                        onToggle(item);
+                                    }}
+                                >
+                                    {item.label}
+                                </button>
+                            </li>
+                        ))}
+                        {matches.length === 0 ? (
+                            <li className="picker__empty">没有匹配项</li>
+                        ) : null}
+                    </ul>
+                </div>
+            ) : null}
+        </div>
+    );
+}
 
 const tools: readonly {
     readonly id: string;
@@ -93,6 +206,25 @@ export function WorkspacePage() {
     const [bottomTab, setBottomTab] = useState<"runs" | "results" | "backtest">("runs");
     const [bottomCollapsed, setBottomCollapsed] = useState(false);
     const [timeframe, setTimeframe] = useState<Timeframe>("1D");
+    const [symbol, setSymbol] = useState<{ readonly code: string; readonly name: string }>(
+        instruments[0]
+    );
+    const [symbolQuery, setSymbolQuery] = useState("");
+    const [overlays, setOverlays] = useState<readonly OverlaySpec[]>([]);
+    const symbolNeedle = symbolQuery.trim().toLowerCase();
+    const symbolMatches =
+        symbolNeedle === ""
+            ? []
+            : instruments.filter((item) =>
+                  `${item.code}${item.name}`.toLowerCase().includes(symbolNeedle)
+              );
+    function toggleOverlay(overlay: OverlaySpec) {
+        setOverlays((current) =>
+            current.some((picked) => picked.id === overlay.id)
+                ? current.filter((picked) => picked.id !== overlay.id)
+                : [...current, overlay]
+        );
+    }
 
     return (
         <section
@@ -138,21 +270,68 @@ export function WorkspacePage() {
 
             <section className="chart-region" aria-label="主图">
                 <header className="chart-region__header">
-                    <span className="chart-region__title">600519.SH · 贵州茅台</span>
-                    <div className="segmented-control" role="group" aria-label="时间周期">
-                        {timeframes.map((item) => (
-                            <button
-                                key={item}
-                                type="button"
-                                aria-pressed={timeframe === item}
-                                onClick={() => {
-                                    setTimeframe(item);
+                    <span className="chart-region__title">
+                        {symbol.code} · {symbol.name}
+                    </span>
+                    <div className="chart-region__controls">
+                        <div className="chart-region__search">
+                            <input
+                                type="search"
+                                placeholder="搜索标的 / 代码"
+                                aria-label="搜索标的"
+                                value={symbolQuery}
+                                onChange={(event) => {
+                                    setSymbolQuery(event.target.value);
+                                }}
+                            />
+                            <select
+                                className="chart-region__timeframe"
+                                aria-label="时间周期"
+                                value={timeframe}
+                                onChange={(event) => {
+                                    setTimeframe(event.target.value as Timeframe);
                                 }}
                             >
-                                {item}
-                            </button>
-                        ))}
+                                {timeframes.map((item) => (
+                                    <option key={item} value={item}>
+                                        {item}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        {symbolMatches.length === 0 ? null : (
+                            <ul className="chart-region__suggestions">
+                                {symbolMatches.map((item) => (
+                                    <li key={item.code}>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setSymbol(item);
+                                                setSymbolQuery("");
+                                            }}
+                                        >
+                                            <span className="value">{item.code}</span>
+                                            <span>{item.name}</span>
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
                     </div>
+                    <CatalogPicker
+                        label="指标"
+                        placeholder="搜索指标"
+                        items={indicatorCatalog}
+                        selected={overlays.filter((item) => item.kind === "indicator")}
+                        onToggle={toggleOverlay}
+                    />
+                    <CatalogPicker
+                        label="因子"
+                        placeholder="搜索因子"
+                        items={factorCatalog}
+                        selected={overlays.filter((item) => item.kind === "factor")}
+                        onToggle={toggleOverlay}
+                    />
                     <span className="chart-region__spacer">
                         <span className="synthetic-tag">synthetic</span>
                         <button
@@ -169,7 +348,7 @@ export function WorkspacePage() {
                     </span>
                 </header>
                 <div className="chart-region__body">
-                    <PriceChart timeframe={timeframe} />
+                    <PriceChart timeframe={timeframe} overlays={overlays} />
                 </div>
             </section>
 
@@ -247,6 +426,53 @@ export function WorkspacePage() {
                     面板内容为 synthetic 占位；权威事实由服务端 Product API 提供。
                 </p>
             </aside>
+
+            <div
+                className="workspace-tray"
+                role="toolbar"
+                aria-label="工作区面板"
+                aria-orientation="vertical"
+            >
+                <button
+                    type="button"
+                    className="rail-button"
+                    aria-pressed={panelTab === "watchlist"}
+                    aria-label="自选"
+                    title="自选"
+                    onClick={() => {
+                        setPanelTab("watchlist");
+                        setPanelOpen(true);
+                    }}
+                >
+                    <WorkspaceIcon name="results" />
+                </button>
+                <button
+                    type="button"
+                    className="rail-button"
+                    aria-pressed={panelTab === "inspector"}
+                    aria-label="检查器"
+                    title="检查器"
+                    onClick={() => {
+                        setPanelTab("inspector");
+                        setPanelOpen(true);
+                    }}
+                >
+                    <WorkspaceIcon name="shield" />
+                </button>
+                <button
+                    type="button"
+                    className="rail-button"
+                    aria-pressed={bottomTab === "backtest"}
+                    aria-label="回测"
+                    title="回测"
+                    onClick={() => {
+                        setBottomTab("backtest");
+                        setBottomCollapsed(false);
+                    }}
+                >
+                    <WorkspaceIcon name="runs" />
+                </button>
+            </div>
 
             <section className="bottom-panel" aria-label="研究面板">
                 <header className="bottom-panel__header">
