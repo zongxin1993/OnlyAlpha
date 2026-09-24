@@ -4,6 +4,8 @@ const paths = {
     runs: "M5 5h14v14H5zM9 9l6 3-6 3V9Z",
     results: "M4 20V4M4 20h16M8 16v-5M12 16V7M16 16v-8",
     data: "M4 5h16v14H4zM4 10h16M4 14h16M10 5v14",
+    database:
+        "M12 3c4.42 0 8 1.34 8 3s-3.58 3-8 3-8-1.34-8-3 3.58-3 8-3ZM4 6v6c0 1.66 3.58 3 8 3s8-1.34 8-3V6M4 12v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6",
     library: "M4 4h4v16H4zM10 4h4v16h-4zM17 4l4 15-3 1-4-15 3-1Z",
     menu: "M4 6h16M4 12h16M4 18h16",
     arrow: "M5 12h14m-5-5 5 5-5 5",

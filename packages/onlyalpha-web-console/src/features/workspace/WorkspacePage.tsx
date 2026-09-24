@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { PriceChart } from "../../charts/lightweight/PriceChart";
 import { type OverlaySpec, type Timeframe } from "../../charts/lightweight/placeholderBars";
+import { DataSourceEntry } from "../data/sources/DataSourceEntry";
+import { DataSourceManager } from "../data/sources/DataSourceManager";
+import { useDataSourceOverview } from "../data/sources/overview";
 import { WorkspaceIcon, type WorkspaceIconName } from "../../shared/components/WorkspaceIcon";
 
 const timeframes: readonly Timeframe[] = ["1m", "5m", "15m", "1H", "1D", "1W"];
@@ -211,6 +214,8 @@ export function WorkspacePage() {
     );
     const [symbolQuery, setSymbolQuery] = useState("");
     const [overlays, setOverlays] = useState<readonly OverlaySpec[]>([]);
+    const [managerOpen, setManagerOpen] = useState(false);
+    const dataSources = useDataSourceOverview();
     const symbolNeedle = symbolQuery.trim().toLowerCase();
     const symbolMatches =
         symbolNeedle === ""
@@ -333,6 +338,12 @@ export function WorkspacePage() {
                         onToggle={toggleOverlay}
                     />
                     <span className="chart-region__spacer">
+                        <DataSourceEntry
+                            overview={dataSources}
+                            onManage={() => {
+                                setManagerOpen(true);
+                            }}
+                        />
                         <span className="synthetic-tag">synthetic</span>
                         <button
                             type="button"
@@ -605,6 +616,14 @@ export function WorkspacePage() {
                     ) : null}
                 </div>
             </section>
+            {managerOpen ? (
+                <DataSourceManager
+                    variant="modal"
+                    onClose={() => {
+                        setManagerOpen(false);
+                    }}
+                />
+            ) : null}
         </section>
     );
 }

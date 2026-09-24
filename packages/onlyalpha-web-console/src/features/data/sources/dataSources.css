@@ -1,0 +1,944 @@
+/* Data Source Configuration & Management (Chart-Centric Workbench extension). */
+
+.data-source-entry {
+    position: relative;
+}
+.data-source-entry button,
+.manager-surface button {
+    padding: 0.3rem 0.55rem;
+    font-size: var(--ds-type-label);
+    line-height: 1.3;
+}
+.data-source-entry button.ds-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--text);
+    padding: 0.18rem 0.45rem;
+}
+.ds-trigger:hover {
+    border-color: var(--accent-line);
+}
+.ds-trigger--open {
+    border-color: var(--accent-line);
+    background: var(--accent-soft);
+}
+.ds-trigger__caret {
+    width: 0.6rem;
+    height: 0.6rem;
+    color: var(--muted);
+    transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.ds-trigger--open .ds-trigger__caret {
+    transform: rotate(180deg);
+}
+.ds-trigger .workspace-icon {
+    width: 0.9rem;
+    height: 0.9rem;
+    color: var(--muted);
+}
+.ds-trigger__label {
+    white-space: nowrap;
+}
+.ds-trigger__count {
+    color: var(--muted);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+/* An unverifiable set must not present itself as a permanent warning. */
+.ds-trigger .state-mark--unverified {
+    border-color: var(--muted);
+}
+
+/* ---------- status marks: shape carries meaning, colour is redundant ---------- */
+.state-mark {
+    position: relative;
+    width: 0.5rem;
+    height: 0.5rem;
+    flex: 0 0 auto;
+    border-radius: 50%;
+}
+.state-mark--ready {
+    background: var(--success);
+}
+.state-mark--degraded {
+    border: 1px solid var(--warning);
+    background: linear-gradient(90deg, var(--warning) 0 50%, transparent 50% 100%);
+}
+.state-mark--failed {
+    border: 1px solid var(--danger);
+    background: var(--danger);
+}
+.state-mark--failed::after {
+    content: "";
+    position: absolute;
+    left: -1px;
+    right: -1px;
+    top: calc(50% - 0.75px);
+    height: 1.5px;
+    background: var(--surface);
+}
+.state-mark--unverified {
+    border: 1px dashed var(--stale);
+}
+.state-mark--disabled,
+.state-mark--empty {
+    border: 1px solid var(--muted);
+}
+.state-mark--probing {
+    border: 1px dashed var(--accent);
+    animation: ds-spin 1.4s linear infinite;
+}
+@keyframes ds-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+.state-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    white-space: nowrap;
+}
+.state-badge--ready {
+    color: var(--success);
+}
+.state-badge--degraded {
+    color: var(--warning);
+}
+.state-badge--failed {
+    color: var(--danger);
+}
+.state-badge--unverified {
+    color: var(--stale);
+}
+.state-badge--disabled {
+    color: var(--muted);
+}
+
+/* ---------- provider fallback icon (glyph scale, not a text role) ---------- */
+.provider-icon {
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--surface-2);
+    color: var(--text);
+    font-weight: 700;
+}
+.provider-icon--sm {
+    width: 1.25rem;
+    height: 1.25rem;
+    font-size: 0.6rem;
+}
+.provider-icon--md {
+    width: 1.6rem;
+    height: 1.6rem;
+    font-size: 0.78rem;
+}
+.provider-icon--lg {
+    width: 2.25rem;
+    height: 2.25rem;
+    font-size: 0.95rem;
+}
+
+.capability-tags {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+.capability-tag {
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 0 0.3rem;
+    color: var(--muted);
+    white-space: nowrap;
+}
+.capability-tag--unmapped {
+    border-style: dashed;
+    color: var(--stale);
+}
+.tag {
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 0 0.28rem;
+    white-space: nowrap;
+}
+.tag--gap {
+    color: var(--danger);
+    border-color: var(--danger-line);
+}
+.banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.45rem;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0.45rem 0.6rem;
+    color: var(--muted);
+    background: var(--surface-2);
+}
+.banner--gap {
+    border-style: dashed;
+}
+.empty-state {
+    padding: 1rem 0.6rem;
+    text-align: center;
+}
+.empty-state h3,
+.empty-state p {
+    margin: 0.35rem 0 0.7rem;
+}
+
+/* ---------- quick Popover ---------- */
+.ds-popover {
+    position: absolute;
+    top: calc(100% + 0.35rem);
+    right: 0;
+    z-index: 40;
+    width: 21rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    box-shadow: 0 6px 18px rgba(32, 36, 43, 0.12);
+    font-size: var(--ds-type-meta);
+}
+.ds-popover__head {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.45rem 0.6rem;
+    border-bottom: 1px solid var(--line-soft);
+}
+.ds-popover__title {
+    font-size: var(--ds-type-label);
+    font-weight: 600;
+}
+.ds-popover__head .muted {
+    margin-inline-start: auto;
+}
+.ds-popover__list {
+    max-height: 15rem;
+    overflow: auto;
+}
+.ds-popover__list li {
+    display: grid;
+    grid-template-columns: 1.6rem minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 0.35rem 0.5rem;
+    padding: 0.45rem 0.6rem;
+    border-bottom: 1px solid var(--line-soft);
+}
+.ds-popover__name {
+    display: block;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ds-popover__meta {
+    display: block;
+    font-variant-numeric: tabular-nums;
+}
+.ds-popover__workspace {
+    padding: 0.5rem 0.6rem;
+    border-bottom: 1px solid var(--line-soft);
+}
+.ds-popover__subtitle {
+    font-size: var(--ds-type-meta);
+    color: var(--muted);
+    margin-bottom: 0.25rem;
+}
+.ds-popover__workspace p {
+    line-height: 1.5;
+}
+.ds-popover__foot {
+    padding: 0.45rem 0.6rem;
+}
+.ds-popover__foot button {
+    width: 100%;
+    justify-content: center;
+}
+
+/* ---------- manager surface ---------- */
+.manager-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+    background: rgba(32, 36, 43, 0.28);
+}
+.manager-surface {
+    display: grid;
+    grid-template-rows: 2.6rem 2.4rem minmax(0, 1fr);
+    min-height: 0;
+}
+.manager-overlay .manager-surface {
+    width: 62.5rem;
+    max-width: 100%;
+    height: 50rem;
+    max-height: calc(100vh - 2rem);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    box-shadow: 0 12px 32px rgba(32, 36, 43, 0.18);
+    overflow: hidden;
+}
+.manager-surface[data-variant="page"] {
+    grid-template-rows: auto 2.4rem minmax(0, 1fr);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface);
+    min-height: 34rem;
+}
+.manager-surface__head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0 0.9rem;
+    border-bottom: 1px solid var(--line);
+}
+.manager-surface__head h2 {
+    font-weight: 600;
+    margin: 0;
+}
+.manager-surface__head button {
+    margin-inline-start: auto;
+}
+.manager-surface__tabs {
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
+    padding: 0 0.6rem;
+    border-bottom: 1px solid var(--line);
+    overflow-x: auto;
+}
+.manager-tab {
+    padding: 0.35rem 0.65rem;
+    color: var(--muted);
+    border-radius: 4px;
+    white-space: nowrap;
+}
+button.manager-tab {
+    border: 1px solid transparent;
+    background: transparent;
+}
+.manager-tab--active {
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 600;
+}
+.manager-tab__count {
+    margin-inline-start: 0.3rem;
+    font-size: var(--ds-type-meta);
+    opacity: 0.8;
+}
+.manager-surface__body {
+    min-height: 0;
+    overflow: auto;
+    padding: 0.9rem;
+}
+/* Compact product fields: the shared page form controls are too tall for the manager. */
+.manager-surface input:not([type="checkbox"]),
+.manager-surface select {
+    width: 100%;
+    min-height: 1.9rem;
+    margin: 0;
+    padding: 0.3rem 0.5rem;
+}
+.manager-surface label > input,
+.manager-surface label > select {
+    margin-top: 0.2rem;
+}
+
+/* ---------- Configured tab ---------- */
+.configured-list {
+    display: grid;
+    gap: 0.6rem;
+}
+.configured-source {
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0.6rem 0.7rem;
+    display: grid;
+    gap: 0.45rem;
+}
+.configured-source[data-lifecycle="DISABLED"],
+.configured-source[data-lifecycle="ARCHIVED"] {
+    background: var(--surface-2);
+}
+.configured-source__head {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.55rem;
+}
+.configured-source__identity {
+    min-width: 0;
+}
+.configured-source__identity h3 {
+    font-weight: 600;
+}
+.configured-source__identity p {
+    margin: 0;
+}
+.configured-source__head .state-badge {
+    margin-inline-start: auto;
+}
+.configured-source__meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    color: var(--muted);
+}
+.configured-source__notice {
+    color: var(--stale);
+}
+.configured-source__probing {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--accent);
+}
+.configured-source__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding-top: 0.4rem;
+    border-top: 1px solid var(--line-soft);
+}
+.button-icon {
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--muted);
+    padding: 0.22rem 0.35rem;
+}
+.button-icon svg {
+    width: 0.85rem;
+    height: 0.85rem;
+    display: block;
+}
+.overflow-menu {
+    position: relative;
+    margin-inline-start: auto;
+}
+.overflow-menu__panel {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.25rem);
+    z-index: 5;
+    width: 16rem;
+    display: grid;
+    gap: 0.3rem;
+    padding: 0.45rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    box-shadow: 0 6px 18px rgba(32, 36, 43, 0.12);
+    text-align: start;
+}
+.overflow-menu__panel p {
+    font-size: var(--ds-type-body);
+    line-height: var(--ds-leading-body);
+}
+
+/* ---------- Provider catalog ---------- */
+.catalog-toolbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.7rem;
+}
+.catalog-toolbar .muted {
+    font-size: var(--ds-type-meta);
+}
+.search-field {
+    display: flex;
+    align-items: center;
+    flex: 0 1 22rem;
+}
+.search-field input {
+    margin: 0;
+    padding: 0.3rem 0.5rem;
+}
+.provider-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(11rem, 13rem));
+    justify-content: start;
+    gap: 0.6rem;
+}
+button.provider-card {
+    display: grid;
+    justify-items: center;
+    gap: 0.4rem;
+    padding: 0.8rem 0.7rem;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--text);
+    text-align: center;
+}
+.provider-card:hover {
+    border-color: var(--accent-line);
+}
+.provider-card__description {
+    color: var(--muted);
+}
+.create-source {
+    display: grid;
+    gap: 0.6rem;
+    max-width: 34rem;
+}
+.create-source__head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.create-source__actions {
+    display: flex;
+}
+
+/* ---------- Binding tab ---------- */
+.binding-tab {
+    display: grid;
+    gap: 0.7rem;
+}
+.binding-group {
+    border: 1px solid var(--line);
+    border-radius: 4px;
+}
+.binding-group h3 {
+    padding: 0.45rem 0.7rem;
+    border-bottom: 1px solid var(--line-soft);
+    background: var(--surface-2);
+}
+.binding-row {
+    display: grid;
+    grid-template-columns: 7.5rem minmax(0, 18rem) minmax(0, 1fr);
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.4rem 0.7rem;
+    border-bottom: 1px solid var(--line-soft);
+}
+.binding-row:last-child {
+    border-bottom: 0;
+}
+.binding-row__label {
+    color: var(--muted);
+}
+.binding-row__value {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0.28rem 0.45rem;
+    font-size: var(--ds-type-label);
+    background: var(--surface);
+}
+.binding-row__value--unset {
+    border-style: dashed;
+    color: var(--muted);
+}
+
+/* ---------- configuration view ---------- */
+.configuration-view {
+    display: grid;
+    gap: 0.8rem;
+}
+.configuration-view__head {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding-bottom: 0.6rem;
+    border-bottom: 1px solid var(--line);
+}
+.configuration-view__head .state-badge {
+    margin-inline-start: auto;
+}
+.configuration-view__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 24rem;
+    gap: 1rem;
+    align-items: start;
+}
+.configuration-view__form {
+    display: grid;
+    gap: 0.5rem;
+    min-width: 0;
+    max-width: 30rem;
+}
+.configuration-view__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    padding: 0.6rem 0;
+    border-top: 1px solid var(--line);
+    position: sticky;
+    bottom: -0.9rem;
+    background: var(--surface);
+}
+.configuration-view__probe {
+    display: grid;
+    gap: 0.7rem;
+    min-width: 0;
+}
+.probe-panel {
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0.6rem;
+    display: grid;
+    gap: 0.5rem;
+}
+.probe-panel__head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+}
+.probe-panel__head .muted {
+    margin-inline-start: auto;
+}
+.probe-notice {
+    color: var(--muted);
+    border: 1px dashed var(--line);
+    border-radius: 4px;
+    padding: 0.4rem 0.5rem;
+    background: var(--surface-2);
+}
+.probe-notice--degraded {
+    color: var(--stale);
+    border-color: var(--warning-line);
+    background: color-mix(in srgb, var(--warning) 8%, var(--surface));
+}
+.probe-checks {
+    display: grid;
+}
+.probe-check {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "name latency" "result result";
+    align-items: baseline;
+    gap: 0.15rem 0.4rem;
+    padding: 0.35rem 0;
+    border-bottom: 1px solid var(--line-soft);
+}
+.probe-check__name {
+    grid-area: name;
+    color: var(--text);
+}
+.probe-check__result {
+    grid-area: result;
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+.probe-check__glyph {
+    display: grid;
+    place-items: center;
+    width: 0.95rem;
+    height: 0.95rem;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    color: var(--muted);
+}
+.probe-check__glyph svg {
+    width: 0.6rem;
+    height: 0.6rem;
+}
+.probe-check__glyph--pass {
+    border-color: var(--success-line);
+    color: var(--success);
+}
+.probe-check__glyph--fail {
+    border-color: var(--danger-line);
+    color: var(--danger);
+}
+.probe-check__state {
+    color: var(--muted);
+}
+.probe-check--pass .probe-check__state {
+    color: var(--success);
+}
+.probe-check--fail .probe-check__state {
+    color: var(--danger);
+}
+.probe-check--skipped .probe-check__state,
+.probe-check--undeclared .probe-check__state,
+.probe-check--missing .probe-check__state {
+    color: var(--muted);
+}
+.probe-check--fail .probe-check__detail {
+    color: var(--danger);
+}
+.probe-check__detail {
+    color: var(--muted);
+    overflow-wrap: anywhere;
+}
+.probe-check__latency {
+    grid-area: latency;
+    text-align: end;
+    color: var(--muted);
+}
+.inspector-facts {
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0.6rem;
+}
+.history-section {
+    display: grid;
+    gap: 0.4rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid var(--line);
+}
+
+/* Configuration view: dense two-column field rows instead of the legacy page form. */
+.configuration-view__form .integration-fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.7rem;
+}
+.configuration-view__form .integration-fields fieldset {
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 0;
+    padding: 0.55rem 0 0;
+    background: transparent;
+}
+.configuration-view__form .integration-fields legend {
+    padding: 0;
+}
+.configuration-view__form .integration-field {
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+}
+@media (min-width: 1024px) {
+    .configuration-view__form .integration-fields > label:not(.integration-checkbox),
+    .configuration-view__form .integration-fields fieldset label:not(.integration-checkbox),
+    .configuration-view__form > label:not(.integration-checkbox) {
+        display: grid;
+        grid-template-columns: 10.5rem minmax(0, 1fr);
+        align-items: center;
+        column-gap: 0.6rem;
+    }
+    .configuration-view__form .integration-fields > label > small,
+    .configuration-view__form .integration-fields fieldset label > small,
+    .configuration-view__form > label > small {
+        grid-column: 2;
+        margin: 0.15rem 0 0;
+    }
+}
+.configuration-view__form .integration-fields small {
+    margin: 0.15rem 0 0;
+}
+.configuration-view__form .integration-checkbox {
+    min-height: 1.9rem;
+    gap: 0.45rem;
+}
+
+/* ---------- responsive ---------- */
+@media (max-width: 1279px) {
+    .configuration-view__grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+@media (max-width: 899px) {
+    .ds-trigger__count {
+        display: none;
+    }
+    .manager-overlay {
+        padding: 0;
+    }
+    .manager-overlay .manager-surface {
+        width: 100%;
+        height: 100%;
+        max-height: none;
+        border-radius: 0;
+        border: 0;
+    }
+    .ds-popover {
+        width: min(21rem, calc(100vw - 1.5rem));
+    }
+    .binding-row {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.3rem;
+    }
+    .provider-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .manager-surface button,
+    .data-source-entry button {
+        min-height: 2.5rem;
+    }
+    .manager-surface .button-icon {
+        min-width: 2.5rem;
+    }
+    .manager-surface .manager-tab {
+        min-height: 2.25rem;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .ds-trigger__caret {
+        transition: none;
+    }
+    .state-mark--probing {
+        animation: none;
+    }
+}
+
+/* ---------- resilience: hostile content must not widen or clip the surface ---------- */
+.manager-surface,
+.data-source-entry {
+    overflow-wrap: anywhere;
+}
+.configured-source__identity h3,
+.configuration-view__identity p,
+.provider-card__name,
+.configured-source__notice,
+.banner,
+.probe-notice,
+.probe-panel__head .muted,
+.binding-row__value,
+.probe-check__detail {
+    overflow-wrap: anywhere;
+}
+.configured-source__identity {
+    flex: 1 1 auto;
+}
+.configured-source__meta > *,
+.ds-popover__list li > div,
+.binding-row__value {
+    min-width: 0;
+}
+.ds-popover__list li > div {
+    overflow: hidden;
+}
+
+/* ---------- typographic roles ----------
+   One family, five purpose-named roles inside DESIGN.md's envelope (title 1.05rem ceiling,
+   label 0.78rem floor). Every role is separated by size AND weight/tone so hierarchy never
+   rests on size alone; adjacent steps stay at the dense product ratio (1.05-1.12) rather
+   than the generic 1.25 display ratio. */
+.manager-surface,
+.data-source-entry {
+    --ds-type-title: 1.05rem;
+    --ds-type-section: 0.9375rem;
+    --ds-type-item: 0.875rem;
+    --ds-type-body: 0.875rem;
+    --ds-type-label: 0.78rem;
+    --ds-type-meta: 0.78rem;
+    --ds-leading-title: 1.3;
+    --ds-leading-section: 1.35;
+    --ds-leading-item: 1.4;
+    --ds-leading-body: 1.6;
+    --ds-leading-label: 1.4;
+    --ds-leading-meta: 1.5;
+    --ds-leading-note: 1.65;
+}
+.manager-surface .manager-surface__head h2 {
+    font-size: var(--ds-type-title);
+    line-height: var(--ds-leading-title);
+    letter-spacing: -0.01em;
+}
+.manager-surface .section-title,
+.manager-surface .probe-panel__head h4,
+.manager-surface .history-section h4,
+.manager-surface .binding-group h3,
+.manager-surface .empty-state h3,
+.manager-surface .empty-state__title,
+.manager-surface .create-source__head h3,
+.manager-surface .integration-fields legend {
+    font-size: var(--ds-type-section);
+    font-weight: 600;
+    line-height: var(--ds-leading-section);
+}
+.manager-surface .configured-source__identity h3,
+.manager-surface .configuration-view__identity h3,
+.manager-surface .provider-card__name {
+    font-size: var(--ds-type-item);
+    font-weight: 600;
+    line-height: var(--ds-leading-item);
+}
+.manager-surface .configured-source__identity p,
+.manager-surface .provider-card__description {
+    font-size: var(--ds-type-body);
+    line-height: var(--ds-leading-body);
+}
+/* Explanatory copy the operator must read before acting gets the body role and CJK-friendly leading. */
+.manager-surface .banner,
+.manager-surface .error,
+.manager-surface .probe-notice,
+.manager-surface .configured-source__notice,
+.manager-surface .hint,
+.manager-surface .empty-state p,
+.ds-popover .error,
+.ds-popover__workspace p {
+    font-size: var(--ds-type-body);
+    line-height: var(--ds-leading-body);
+}
+.manager-surface .binding-row__note {
+    line-height: var(--ds-leading-note);
+}
+.manager-surface label {
+    font-size: var(--ds-type-label);
+    font-weight: 600;
+    line-height: var(--ds-leading-label);
+}
+.manager-surface input:not([type="checkbox"]),
+.manager-surface select {
+    font-size: var(--ds-type-body);
+    font-weight: 400;
+    line-height: var(--ds-leading-label);
+}
+.manager-surface .capability-tag,
+.manager-surface .tag,
+.data-source-entry .capability-tag,
+.data-source-entry .tag,
+.manager-surface .configured-source__meta,
+.manager-surface .probe-check,
+.manager-surface .probe-check__detail,
+.manager-surface .probe-check__latency,
+.manager-surface .configuration-view__identity p,
+.manager-surface .binding-row__note,
+.manager-surface .binding-row__label,
+.manager-surface .state-badge,
+.manager-surface button.manager-tab,
+.manager-surface span.manager-tab,
+.ds-popover__meta {
+    font-size: var(--ds-type-meta);
+    line-height: var(--ds-leading-meta);
+}
+.manager-surface .manager-tab,
+.ds-popover__foot button {
+    line-height: var(--ds-leading-label);
+}
+/* Field annotations are meta, never larger than the label they explain. */
+.manager-surface .integration-fields small {
+    font-size: var(--ds-type-meta);
+    line-height: var(--ds-leading-note);
+}
+/* List cards stay scannable with long provider descriptions; the detail view shows them in full. */
+.configured-source__identity p {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.configuration-view__head {
+    flex-wrap: wrap;
+}
+.configuration-view__identity {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.configuration-view__head > .button-subtle {
+    flex: 0 0 auto;
+}

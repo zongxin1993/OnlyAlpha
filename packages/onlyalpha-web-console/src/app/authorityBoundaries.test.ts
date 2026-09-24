@@ -2,6 +2,8 @@ const productionModules = import.meta.glob<string>(
     [
         "../features/research/**/*.ts",
         "../features/research/**/*.tsx",
+        "../features/data/**/*.ts",
+        "../features/data/**/*.tsx",
         "../visualization/**/*.ts",
         "../visualization/**/*.tsx",
         "../charts/**/*.ts",
@@ -54,4 +56,26 @@ it("contains third-party renderer imports inside their OnlyAlpha adapters", () =
 
 it("has exactly one Draft to Definition transport owner", () => {
     expect(source.match(/function buildResearchDefinitionTransport\(/g)).toHaveLength(1);
+});
+
+it("gives the data source surface no second persistence or provider authority", () => {
+    const dataSourceModules = Object.entries(productionModules)
+        .filter(([path]) => path.includes("/features/data/"))
+        .map(([, moduleSource]) => moduleSource)
+        .join("\n");
+    expect(dataSourceModules.length).toBeGreaterThan(0);
+    const forbidden = [
+        "localStorage",
+        "sessionStorage",
+        "indexedDB",
+        "api.binance.com",
+        "fstream.binance.com",
+        "wss://",
+        "clickhouse",
+        "psycopg",
+        "postgresql://",
+        "createHash(",
+        "crypto.subtle"
+    ];
+    expect(forbidden.filter((item) => dataSourceModules.includes(item))).toEqual([]);
 });

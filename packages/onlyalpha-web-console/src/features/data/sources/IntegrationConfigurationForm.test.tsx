@@ -72,14 +72,12 @@ it("renders every current contract kind generically and groups advanced fields",
     expect(screen.getByRole("checkbox", { name: "enabled" })).toBeInTheDocument();
     expect(screen.getByLabelText("count")).toHaveAttribute("step", "1");
     expect(screen.getByLabelText("ratio")).toHaveAttribute("step", "any");
-    expect(screen.getByLabelText("timeout")).toHaveAccessibleDescription("Seconds");
+    expect(screen.getByLabelText("timeout")).toHaveAccessibleDescription("秒");
     expect(screen.getByRole("table", { name: "mapping" })).toBeInTheDocument();
     expect(
-        within(screen.getByRole("group", { name: "Advanced settings" })).getByLabelText(
-            "advanced value"
-        )
+        within(screen.getByRole("group", { name: "高级设置" })).getByLabelText("advanced value")
     ).toBeInTheDocument();
-    expect(screen.getByText("Configured · generation 3")).toBeInTheDocument();
+    expect(screen.getByText("已配置 · generation 3")).toBeInTheDocument();
     expect(screen.queryByDisplayValue(/secret/i)).not.toBeInTheDocument();
 });
 
@@ -97,9 +95,9 @@ it("keeps a replacement secret transient and clears the input after submission",
         />
     );
     const user = userEvent.setup();
-    const secret = screen.getByLabelText("Replace token");
+    const secret = screen.getByLabelText("更换 token");
     await user.type(secret, "memory-only-value");
-    await user.click(screen.getByRole("button", { name: "Replace token" }));
+    await user.click(screen.getByRole("button", { name: "更换凭据" }));
     expect(replace).toHaveBeenCalledWith("token", "memory-only-value");
     expect(secret).toHaveValue("");
     expect(JSON.stringify(type)).not.toContain("memory-only-value");

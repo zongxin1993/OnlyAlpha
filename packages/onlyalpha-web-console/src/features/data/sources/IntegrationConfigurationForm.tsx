@@ -35,12 +35,10 @@ function SecretField({
         <div className="integration-field">
             <strong>{field.display_name}</strong>
             <p className="muted">
-                {status?.configured
-                    ? `Configured · generation ${String(status.generation)}`
-                    : "Not configured"}
+                {status?.configured ? `已配置 · generation ${String(status.generation)}` : "未配置"}
             </p>
             <label>
-                Replace {field.display_name}
+                更换 {field.display_name}
                 <input
                     type="password"
                     autoComplete="new-password"
@@ -66,7 +64,7 @@ function SecretField({
                         })();
                     }}
                 >
-                    Replace {field.display_name}
+                    更换凭据
                 </button>
                 <button
                     type="button"
@@ -76,7 +74,7 @@ function SecretField({
                         void onClear();
                     }}
                 >
-                    Clear {field.display_name}
+                    清除凭据
                 </button>
             </div>
         </div>
@@ -105,9 +103,9 @@ function MapField({
             <table aria-label={field.display_name}>
                 <thead>
                     <tr>
-                        <th>Key</th>
-                        <th>Integer</th>
-                        <th>Action</th>
+                        <th>键</th>
+                        <th>整数</th>
+                        <th>操作</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -127,7 +125,7 @@ function MapField({
                                         );
                                     }}
                                 >
-                                    Remove
+                                    移除
                                 </button>
                             </td>
                         </tr>
@@ -135,7 +133,7 @@ function MapField({
                     <tr>
                         <td>
                             <input
-                                aria-label={`${field.display_name} key`}
+                                aria-label={`${field.display_name} 键`}
                                 value={key}
                                 disabled={readOnly}
                                 onChange={(event) => {
@@ -145,7 +143,7 @@ function MapField({
                         </td>
                         <td>
                             <input
-                                aria-label={`${field.display_name} integer`}
+                                aria-label={`${field.display_name} 整数`}
                                 type="number"
                                 step="1"
                                 value={number}
@@ -164,7 +162,7 @@ function MapField({
                                     setKey("");
                                 }}
                             >
-                                Add
+                                添加
                             </button>
                         </td>
                     </tr>
@@ -261,7 +259,7 @@ function ConfigurationField({
                     );
                 }}
             />
-            {field.value_kind === "DURATION" ? <small id={hintId}>Seconds</small> : null}
+            {field.value_kind === "DURATION" ? <small id={hintId}>秒</small> : null}
             {field.description ? <small className="muted">{field.description}</small> : null}
         </div>
     );
@@ -297,7 +295,7 @@ export function IntegrationConfigurationForm(props: Props) {
             {regular.map(render)}
             {advanced.length > 0 ? (
                 <fieldset>
-                    <legend>Advanced settings</legend>
+                    <legend>高级设置</legend>
                     {advanced.map(render)}
                 </fieldset>
             ) : null}
