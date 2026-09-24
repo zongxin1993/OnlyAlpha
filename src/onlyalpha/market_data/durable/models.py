@@ -12,6 +12,15 @@ from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.data.models import OnlyMarketDataInboundUpdate
 from onlyalpha.domain.time import only_require_utc
 
+_BINDING_FINGERPRINT = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _require_optional_binding(value: str | None) -> None:
+    """Integration runtime binding provenance is recorded, never part of fact identity."""
+
+    if value is not None and _BINDING_FINGERPRINT.fullmatch(value) is None:
+        raise ValueError("INTEGRATION_RUNTIME_BINDING_FINGERPRINT_INVALID")
+
 
 class OnlyMarketDataProvenance(StrEnum):
     REALTIME_STREAM = "REALTIME_STREAM"
@@ -44,6 +53,11 @@ class OnlyCoverageStatus(StrEnum):
     COMPLETE = "COMPLETE"
     INCOMPLETE = "INCOMPLETE"
     UNPROVABLE = "UNPROVABLE"
+
+
+class OnlyAcquisitionOutcome(StrEnum):
+    COMPLETE = "COMPLETE"
+    FAILED = "FAILED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +102,7 @@ class OnlyRawProviderEvidence:
     payload: bytes
     raw_sha256: str
     provenance: OnlyMarketDataProvenance
+    integration_binding_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         if hashlib.sha256(self.payload).hexdigest() != self.raw_sha256:
@@ -108,6 +123,7 @@ class OnlyRawProviderEvidence:
             )
         ):
             raise ValueError("RAW_EVIDENCE_IDENTITY_INVALID")
+        _require_optional_binding(self.integration_binding_fingerprint)
 
     @classmethod
     def capture(
@@ -128,6 +144,7 @@ class OnlyRawProviderEvidence:
         ts_event_ns: int | None = None,
         payload_codec: str = "application/json",
         provider_schema: str = "v1",
+        integration_binding_fingerprint: str | None = None,
     ) -> OnlyRawProviderEvidence:
         raw_hash = hashlib.sha256(payload).hexdigest()
         identity = only_canonical_fingerprint(
@@ -161,6 +178,7 @@ class OnlyRawProviderEvidence:
             payload,
             raw_hash,
             provenance,
+            integration_binding_fingerprint,
         )
 
 
@@ -271,10 +289,12 @@ class OnlyIngestSegment:
     bar_type: str | None = None
     first_sequence: int | None = None
     last_sequence: int | None = None
+    integration_binding_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         only_require_utc(self.created_at, "segment created_at")
         only_require_utc(self.sealed_at, "segment sealed_at")
+        _require_optional_binding(self.integration_binding_fingerprint)
         if (
             self.sealed_at < self.created_at
             or self.schema_version != 1
@@ -371,9 +391,13 @@ class OnlyMarketDataAcquisitionIntent:
     requested_scope: OnlyMarketDataScope
     provenance: OnlyMarketDataProvenance
     created_at: datetime
+    integration_binding_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         only_require_utc(self.created_at, "acquisition created_at")
+        _require_optional_binding(self.integration_binding_fingerprint)
+        # Requested scope identity stays provider/source bound; the exact Integration
+        # runtime binding is provenance and must not silently fork the acquisition truth.
         expected = only_canonical_fingerprint(
             {
                 "source_id": self.source_id,
@@ -392,6 +416,7 @@ class OnlyMarketDataAcquisitionIntent:
         *,
         provenance: OnlyMarketDataProvenance,
         created_at: datetime,
+        integration_binding_fingerprint: str | None = None,
     ) -> OnlyMarketDataAcquisitionIntent:
         fingerprint = only_canonical_fingerprint(
             {
@@ -400,7 +425,71 @@ class OnlyMarketDataAcquisitionIntent:
                 "provenance": provenance.value,
             }
         )
-        return cls(f"acquisition:{fingerprint}", fingerprint, source_id, requested_scope, provenance, created_at)
+        return cls(
+            f"acquisition:{fingerprint}",
+            fingerprint,
+            source_id,
+            requested_scope,
+            provenance,
+            created_at,
+            integration_binding_fingerprint,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyMarketDataAcquisitionAttempt:
+    """Durable observation of one execution attempt for an admitted acquisition."""
+
+    attempt_id: str
+    acquisition_id: str
+    outcome: OnlyAcquisitionOutcome
+    revision_id: str | None
+    detail: str
+    recorded_at: datetime
+
+    def __post_init__(self) -> None:
+        only_require_utc(self.recorded_at, "acquisition attempt recorded_at")
+        if self.outcome is OnlyAcquisitionOutcome.COMPLETE and self.revision_id is None:
+            raise ValueError("ACQUISITION_ATTEMPT_COMPLETE_REQUIRES_REVISION")
+        if self.outcome is OnlyAcquisitionOutcome.FAILED and self.revision_id is not None:
+            raise ValueError("ACQUISITION_ATTEMPT_FAILED_REQUIRES_NO_REVISION")
+        expected = only_canonical_fingerprint(
+            {
+                "acquisition_id": self.acquisition_id,
+                "outcome": self.outcome.value,
+                "revision_id": self.revision_id,
+                "detail": self.detail,
+            }
+        )
+        if self.attempt_id != f"acquisition-attempt:{expected}":
+            raise ValueError("ACQUISITION_ATTEMPT_IDENTITY_INVALID")
+
+    @classmethod
+    def build(
+        cls,
+        acquisition_id: str,
+        outcome: OnlyAcquisitionOutcome,
+        *,
+        detail: str,
+        recorded_at: datetime,
+        revision_id: str | None = None,
+    ) -> OnlyMarketDataAcquisitionAttempt:
+        fingerprint = only_canonical_fingerprint(
+            {
+                "acquisition_id": acquisition_id,
+                "outcome": outcome.value,
+                "revision_id": revision_id,
+                "detail": detail,
+            }
+        )
+        return cls(
+            f"acquisition-attempt:{fingerprint}",
+            acquisition_id,
+            outcome,
+            revision_id,
+            detail,
+            recorded_at,
+        )
 
 
 @dataclass(frozen=True, slots=True)

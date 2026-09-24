@@ -162,6 +162,7 @@ class OnlyMarketDataWal:
             evidence.provenance,
             evidence.provider_schema,
             evidence.payload_codec,
+            evidence.integration_binding_fingerprint,
         )
         if any(
             (
@@ -174,6 +175,7 @@ class OnlyMarketDataWal:
                 item.evidence.provenance,
                 item.evidence.provider_schema,
                 item.evidence.payload_codec,
+                item.evidence.integration_binding_fingerprint,
             )
             != scope_identity
             for item in bundles
@@ -249,6 +251,7 @@ class OnlyMarketDataWal:
             bar_type=_optional_str(raw.get("bar_type", fallback.get("bar_type"))),
             first_sequence=_optional_int(raw.get("first_sequence", fallback.get("first_sequence"))),
             last_sequence=_optional_int(raw.get("last_sequence", fallback.get("last_sequence"))),
+            integration_binding_fingerprint=_optional_str(raw.get("integration_binding_fingerprint")),
         )
 
     def _recover_sealed_metadata(self, segment_id: str) -> None:
@@ -589,6 +592,7 @@ class OnlyMarketDataWal:
             content_hash=hashlib.sha256(wal_path.read_bytes()).hexdigest(),
             created_at=created_at,
             sealed_at=sealed_at,
+            integration_binding_fingerprint=evidence.integration_binding_fingerprint,
             **recovery,
         )
 
@@ -651,7 +655,7 @@ class OnlyMarketDataWal:
 
     @staticmethod
     def _segment_metadata(segment: OnlyIngestSegment) -> dict[str, object]:
-        return {
+        value: dict[str, object] = {
             "schema_version": 1,
             "segment_id": segment.segment_id,
             "capture_session_id": segment.capture_session_id,
@@ -678,6 +682,9 @@ class OnlyMarketDataWal:
             "first_sequence": segment.first_sequence,
             "last_sequence": segment.last_sequence,
         }
+        if segment.integration_binding_fingerprint is not None:
+            value["integration_binding_fingerprint"] = segment.integration_binding_fingerprint
+        return value
 
     def _path(self, segment_id: str, state: str) -> Path:
         if not _SEGMENT_ID.fullmatch(segment_id):

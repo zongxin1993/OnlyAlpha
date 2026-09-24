@@ -165,6 +165,7 @@ def test_http_route_modules_own_no_raw_mutation_capability() -> None:
                 "onlyalpha.application.integration_configuration",
                 "onlyalpha.application.integration_probe",
                 "onlyalpha.application.integration_type_catalog",
+                "onlyalpha.application.market_data_product",
                 "onlyalpha.application.private_asset_product",
                 "onlyalpha.application.product_boundary",
                 "onlyalpha.application.product_command_receipt",

@@ -212,7 +212,7 @@ class OnlyBinanceSpotDataSource:
                 provider,
                 cache_policy,
             )
-            updates.extend(self._bar_update(item, request.data_version) for item in result.records)
+            updates.extend(self._bar_update(item, request.data_version, rest=True) for item in result.records)
         return OnlyHistoricalDataStream(tuple(sorted(updates, key=self._order_key)), request.batch_size)
 
     def load_trades(self, request: OnlyHistoricalTradeRequest) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:
@@ -231,7 +231,7 @@ class OnlyBinanceSpotDataSource:
                 provider,
                 cache_policy,
             )
-            updates.extend(self._trade_update(item, request.data_version) for item in result.records)
+            updates.extend(self._trade_update(item, request.data_version, rest=True) for item in result.records)
         return OnlyHistoricalDataStream(tuple(sorted(updates, key=self._order_key)), request.batch_size)
 
     def load_quotes(self, request: OnlyHistoricalQuoteRequest) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:
@@ -397,6 +397,7 @@ class OnlyBinanceSpotDataSource:
                     self._bar_update(
                         only_normalize_rest_kline(row, instrument, self._request.bar_types[instrument.instrument_id]),
                         self._request.data_version,
+                        rest=True,
                     )
                     for row in decoded
                 )
@@ -404,7 +405,9 @@ class OnlyBinanceSpotDataSource:
                 from .normalize import only_normalize_rest_trade
 
                 updates = tuple(
-                    self._trade_update(only_normalize_rest_trade(row, instrument), self._request.data_version)
+                    self._trade_update(
+                        only_normalize_rest_trade(row, instrument), self._request.data_version, rest=True
+                    )
                     for row in decoded
                 )
             elif endpoint == "/api/v3/referencePrice" and isinstance(decoded, dict) and decoded.get("code") != -2043:
@@ -481,7 +484,7 @@ class OnlyBinanceSpotDataSource:
                 ).records
                 if len(normalized) != 1:
                     raise OnlyBinanceError("BINANCE_BAR_BASELINE_UNPROVEN")
-                updates.append(self._bar_update(normalized[0], self._request.data_version))
+                updates.append(self._bar_update(normalized[0], self._request.data_version, rest=True))
             if OnlyMarketDataType.TRADE in request.data_types:
                 trade_rows = self._historical.recent_trades(symbol, 1)
                 if len(trade_rows) != 1:
@@ -489,7 +492,9 @@ class OnlyBinanceSpotDataSource:
                 from .normalize import only_normalize_rest_trade
 
                 updates.append(
-                    self._trade_update(only_normalize_rest_trade(trade_rows[0], instrument), self._request.data_version)
+                    self._trade_update(
+                        only_normalize_rest_trade(trade_rows[0], instrument), self._request.data_version, rest=True
+                    )
                 )
             if OnlyMarketDataType.MARKET_REFERENCE in request.data_types:
                 reference_payload = self._historical.reference_price(symbol)
@@ -550,6 +555,7 @@ class OnlyBinanceSpotDataSource:
                 self._bar_update(
                     only_normalize_rest_kline(item, instrument, self._request.bar_types[update.instrument_id]),
                     update.data_version,
+                    rest=True,
                 )
                 for item in bar_rows
             )
@@ -559,7 +565,9 @@ class OnlyBinanceSpotDataSource:
             return ()
         return recovered
 
-    def _bar_update(self, bar: OnlyBar, data_version: OnlyDataVersion) -> OnlyMarketDataInboundUpdate:
+    def _bar_update(
+        self, bar: OnlyBar, data_version: OnlyDataVersion, *, rest: bool = False
+    ) -> OnlyMarketDataInboundUpdate:
         sequence = int(bar.bar_start.timestamp()) // 60
         return self._envelope(
             only_bar_update_id(self.source_id, bar.instrument_id, bar.bar_type, bar.bar_start, data_version),
@@ -570,9 +578,12 @@ class OnlyBinanceSpotDataSource:
             OnlyBarUpdate(bar),
             bar.ts_event,
             OnlyDataSequenceSemantics.CONTIGUOUS,
+            rest=rest,
         )
 
-    def _trade_update(self, trade: OnlyTradeTick, data_version: OnlyDataVersion) -> OnlyMarketDataInboundUpdate:
+    def _trade_update(
+        self, trade: OnlyTradeTick, data_version: OnlyDataVersion, *, rest: bool = False
+    ) -> OnlyMarketDataInboundUpdate:
         return self._envelope(
             only_trade_update_id(self.source_id, trade.instrument_id, trade.trade_id, data_version),
             trade.sequence,
@@ -582,6 +593,7 @@ class OnlyBinanceSpotDataSource:
             OnlyTradeTickUpdate(trade),
             trade.ts_event,
             OnlyDataSequenceSemantics.CONTIGUOUS,
+            rest=rest,
         )
 
     def _reference_update(
@@ -610,8 +622,12 @@ class OnlyBinanceSpotDataSource:
         payload: OnlyMarketDataPayload,
         ts_event: datetime,
         semantics: OnlyDataSequenceSemantics,
+        rest: bool = False,
     ) -> OnlyMarketDataInboundUpdate:
-        observation = max(ts_event, self._now())
+        # A REST-derived fact is a pure function of the provider payload; using the
+        # fact's own event time keeps identical provider facts converging on one
+        # canonical payload instead of forking on wall-clock receive time.
+        observation = ts_event if rest else max(ts_event, self._now())
         return OnlyMarketDataInboundUpdate(
             update_id,
             self._request.runtime_id,

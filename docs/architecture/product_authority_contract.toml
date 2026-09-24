@@ -615,6 +615,9 @@ actor = "A04"
 pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/integrations/*.py"
 actor = "A04"
 [[actor_paths]]
+pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/market_data/*.py"
+actor = "A04"
+[[actor_paths]]
 pattern = "src/onlyalpha/research/worker_main.py"
 actor = "A05"
 [[actor_paths]]
@@ -640,6 +643,9 @@ pattern = "src/onlyalpha/persistence/postgres/migration.py"
 actor = "A10"
 [[actor_paths]]
 pattern = "src/onlyalpha/persistence/postgres/market_data_catalog.py"
+actor = "A18"
+[[actor_paths]]
+pattern = "src/onlyalpha/application/market_data_product.py"
 actor = "A18"
 [[actor_paths]]
 pattern = "src/onlyalpha/scenario/runner.py"

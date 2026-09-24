@@ -192,6 +192,10 @@ class OnlyClickHouseMarketFactStore:
             "raw_payload_base64": base64.b64encode(item.payload).decode("ascii"),
             "raw_sha256": item.raw_sha256,
         }
+        if item.integration_binding_fingerprint is not None:
+            # Only stamped rows carry the column so previously written rows keep an
+            # identical record_hash and stay verifiable without a rewrite.
+            row["integration_binding_fingerprint"] = item.integration_binding_fingerprint
         row["record_hash"] = only_canonical_fingerprint(row)
         return row
 

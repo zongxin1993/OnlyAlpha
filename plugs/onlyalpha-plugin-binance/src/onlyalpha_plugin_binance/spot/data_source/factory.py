@@ -2,7 +2,12 @@ import time
 from collections.abc import Mapping, Sequence
 
 from onlyalpha.plugin.capabilities import OnlyPluginValidationIssue
-from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
+from onlyalpha.plugin.data_source import (
+    OnlyDataSourceCreateRequest,
+    OnlyDataSourceInstrumentCatalogRequestV1,
+    OnlyDataSourceInstrumentV1,
+    OnlyDataSourceMarketIdentityV1,
+)
 from onlyalpha.plugin.integration_probe import OnlyIntegrationProbeRequest, OnlyIntegrationProbeResult
 
 from ...common.http import OnlyBinancePublicHttpClient
@@ -10,6 +15,7 @@ from ...descriptor import DATA_CAPABILITIES, DATA_DESCRIPTOR, SPOT_DATA_INTEGRAT
 from ..reference.client import OnlyBinanceSpotReferenceClient
 from .config import OnlyBinanceSpotDataSourceConfig
 from .historical import OnlyBinanceSpotHistoricalClient
+from .instrument_catalog import MARKET, VENUE, OnlyBinanceSpotInstrumentCatalog
 from .probe import OnlyBinanceSpotProbe
 from .resource import OnlyBinanceSpotDataSource
 from .websocket import OnlyBinanceWebSocketTransport
@@ -26,6 +32,16 @@ class OnlyBinanceSpotDataSourceFactory:
         self, public_configuration: Mapping[str, object], resolved_secrets: Mapping[str, str]
     ) -> OnlyBinanceSpotDataSourceConfig:
         return self.parse_config(public_configuration)
+
+    def list_instruments(
+        self, request: OnlyDataSourceInstrumentCatalogRequestV1
+    ) -> tuple[OnlyDataSourceInstrumentV1, ...]:
+        return OnlyBinanceSpotInstrumentCatalog().list_instruments(request)
+
+    def market_identity(self, plugin_config: object) -> OnlyDataSourceMarketIdentityV1:
+        if not isinstance(plugin_config, OnlyBinanceSpotDataSourceConfig):
+            raise ValueError("BINANCE_PLUGIN_CONFIG_INVALID")
+        return OnlyDataSourceMarketIdentityV1(VENUE, MARKET)
 
     def validate_request(self, request: OnlyDataSourceCreateRequest) -> Sequence[OnlyPluginValidationIssue]:
         issues = [

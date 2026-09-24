@@ -22,6 +22,39 @@ from .recovery import OnlyMarketDataRecoveryCoordinator
 from .revision import OnlyRevisionCommitService, only_build_coverage
 
 
+def only_plan_contiguous_bar_gaps(
+    gaps: tuple[OnlyBarCoverageGap, ...],
+) -> tuple[OnlyBarCoverageGap, ...]:
+    """Coalesce adjacent canonical 1m gaps into bounded provider fetch ranges."""
+
+    ordered = tuple(sorted(gaps, key=lambda item: (item.start_ns, item.end_ns)))
+    planned: list[OnlyBarCoverageGap] = []
+    for gap in ordered:
+        if planned and planned[-1].end_ns >= gap.start_ns:
+            prior = planned[-1]
+            planned[-1] = OnlyBarCoverageGap(prior.start_ns, max(prior.end_ns, gap.end_ns))
+            continue
+        planned.append(gap)
+    return tuple(planned)
+
+
+def only_bar_gap_is_backfillable(planned: OnlyBarCoverageGap, gaps: tuple[OnlyBarCoverageGap, ...]) -> bool:
+    """A planned range is fetchable only when exact canonical gaps tile it completely."""
+
+    if planned.start_ns >= planned.end_ns:
+        return False
+    cursor = planned.start_ns
+    for gap in sorted(gaps, key=lambda item: (item.start_ns, item.end_ns)):
+        if gap.end_ns <= cursor:
+            continue
+        if gap.start_ns != cursor or gap.end_ns > planned.end_ns:
+            return False
+        cursor = gap.end_ns
+        if cursor == planned.end_ns:
+            return True
+    return False
+
+
 @dataclass(frozen=True, slots=True)
 class OnlyMarketDataBackfillResult:
     acquisition: OnlyMarketDataAcquisitionIntent
@@ -64,7 +97,9 @@ class OnlyMarketDataBackfillCoordinator:
         parent_revision_id: str | None = None,
     ) -> OnlyMarketDataBackfillResult:
         before = self.inspect(acquisition)
-        if gap not in before.gaps:
+        if not only_bar_gap_is_backfillable(
+            gap, tuple(item for item in before.gaps if isinstance(item, OnlyBarCoverageGap))
+        ):
             raise ValueError("BACKFILL_BAR_GAP_NOT_REQUESTED")
         if (
             acquisition.requested_scope.data_kind != "BAR"

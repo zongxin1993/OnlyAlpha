@@ -27,12 +27,14 @@ class OnlyMarketDataIngress:
         normalizer_version: str,
         ingest_clock_ns: Callable[[], int],
         barrier: Callable[[str], None] | None = None,
+        integration_binding_fingerprint: str | None = None,
     ) -> None:
         self._wal = wal
         self._normalizer_id = normalizer_id
         self._normalizer_version = normalizer_version
         self._ingest_clock_ns = ingest_clock_ns
         self._barrier = barrier or (lambda _stage: None)
+        self._integration_binding_fingerprint = integration_binding_fingerprint
         self._segment_id: str | None = None
 
     def begin_segment(self, segment_id: str | None = None) -> str:
@@ -62,6 +64,7 @@ class OnlyMarketDataIngress:
             provider_schema=observation.provider_schema,
             payload=observation.payload,
             provenance=OnlyMarketDataProvenance(observation.provenance),
+            integration_binding_fingerprint=self._integration_binding_fingerprint,
         )
         updates = (
             ()

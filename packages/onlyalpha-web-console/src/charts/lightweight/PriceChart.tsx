@@ -1,4 +1,5 @@
 import { CandlestickSeries, ColorType, LineSeries, createChart } from "lightweight-charts";
+import type { CandlestickData, UTCTimestamp } from "lightweight-charts";
 import { useEffect, useMemo, useRef } from "react";
 import {
     buildPlaceholderBars,
@@ -10,13 +11,16 @@ import {
 
 export function PriceChart({
     timeframe,
-    overlays = []
+    overlays = [],
+    bars: realBars
 }: {
     readonly timeframe: Timeframe;
     readonly overlays?: readonly OverlaySpec[];
+    /** Canonical Product bars. When present the renderer never invents prices. */
+    readonly bars?: readonly CandlestickData<UTCTimestamp>[] | undefined;
 }) {
     const container = useRef<HTMLDivElement>(null);
-    const bars = useMemo(() => buildPlaceholderBars(timeframe), [timeframe]);
+    const bars = useMemo(() => realBars ?? buildPlaceholderBars(timeframe), [realBars, timeframe]);
 
     useEffect(() => {
         const element = container.current;
@@ -46,7 +50,7 @@ export function PriceChart({
             wickUpColor: token("--up", "#c8332a"),
             wickDownColor: token("--down", "#2f7d47")
         });
-        series.setData(bars);
+        series.setData([...bars]);
         overlays.forEach((overlay, index) => {
             const line = chart.addSeries(
                 LineSeries,
@@ -59,7 +63,7 @@ export function PriceChart({
                 },
                 overlay.kind === "factor" ? 1 : 0
             );
-            line.setData(buildPlaceholderOverlay(bars, overlay));
+            line.setData(buildPlaceholderOverlay([...bars], overlay));
         });
         const observer = new ResizeObserver(() => {
             chart.timeScale().fitContent();

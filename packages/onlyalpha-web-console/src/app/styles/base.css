@@ -584,6 +584,32 @@ label {
     padding: 0 0.28rem;
     white-space: nowrap;
 }
+.real-tag {
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    color: var(--up);
+    font-size: 0.68rem;
+    padding: 0 0.28rem;
+    white-space: nowrap;
+}
+.chart-region__source select {
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: var(--surface);
+    color: inherit;
+    font: inherit;
+    padding: 0.14rem 0.3rem;
+}
+.chart-region__status {
+    border-bottom: 1px solid var(--line-soft);
+    color: var(--muted);
+    font-size: 0.72rem;
+    margin: 0;
+    padding: 0.25rem 0.75rem;
+}
+.chart-region__status[data-status="failed"] {
+    color: var(--down);
+}
 .studio-page {
     max-width: 1560px;
     margin: 0 auto;

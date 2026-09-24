@@ -5,10 +5,15 @@ import { DataSourceEntry } from "../data/sources/DataSourceEntry";
 import { DataSourceManager } from "../data/sources/DataSourceManager";
 import { useDataSourceOverview } from "../data/sources/overview";
 import { WorkspaceIcon, type WorkspaceIconName } from "../../shared/components/WorkspaceIcon";
+import { useMarketDataChart } from "./useMarketDataChart";
 
 const timeframes: readonly Timeframe[] = ["1m", "5m", "15m", "1H", "1D", "1W"];
 
-const instruments = [
+/**
+ * Shell-only fallback used when the workspace has no published market-data source.
+ * Binance W1 symbols and real bars always come from the Market Data Product API.
+ */
+const syntheticInstruments = [
     { code: "600519.SH", name: "贵州茅台" },
     { code: "000001.SZ", name: "平安银行" },
     { code: "510300.SH", name: "沪深300ETF" },
@@ -210,19 +215,27 @@ export function WorkspacePage() {
     const [bottomCollapsed, setBottomCollapsed] = useState(false);
     const [timeframe, setTimeframe] = useState<Timeframe>("1D");
     const [symbol, setSymbol] = useState<{ readonly code: string; readonly name: string }>(
-        instruments[0]
+        syntheticInstruments[0]
     );
     const [symbolQuery, setSymbolQuery] = useState("");
     const [overlays, setOverlays] = useState<readonly OverlaySpec[]>([]);
     const [managerOpen, setManagerOpen] = useState(false);
     const dataSources = useDataSourceOverview();
+    const marketData = useMarketDataChart(dataSources.sources);
+    const realPath = marketData.selection !== null;
+    const realInstrument = marketData.instrument;
+    const chartTimeframe: Timeframe = realInstrument === null ? timeframe : "1m";
     const symbolNeedle = symbolQuery.trim().toLowerCase();
-    const symbolMatches =
-        symbolNeedle === ""
-            ? []
-            : instruments.filter((item) =>
-                  `${item.code}${item.name}`.toLowerCase().includes(symbolNeedle)
-              );
+    const symbolMatches: readonly { readonly code: string; readonly name: string }[] = realPath
+        ? marketData.instruments.map((item) => ({
+              code: item.instrument_id,
+              name: `${item.display_symbol} · ${item.market}`
+          }))
+        : symbolNeedle === ""
+          ? []
+          : syntheticInstruments.filter((item) =>
+                `${item.code}${item.name}`.toLowerCase().includes(symbolNeedle)
+            );
     function toggleOverlay(overlay: OverlaySpec) {
         setOverlays((current) =>
             current.some((picked) => picked.id === overlay.id)
@@ -276,29 +289,60 @@ export function WorkspacePage() {
             <section className="chart-region" aria-label="主图">
                 <header className="chart-region__header">
                     <span className="chart-region__title">
-                        {symbol.code} · {symbol.name}
+                        {realInstrument === null
+                            ? `${symbol.code} · ${symbol.name}`
+                            : `${realInstrument.instrument_id} · ${realInstrument.market}`}
                     </span>
                     <div className="chart-region__controls">
+                        <label className="chart-region__source">
+                            <span className="visually-hidden">数据源</span>
+                            <select
+                                aria-label="数据源"
+                                value={marketData.sourceId}
+                                onChange={(event) => {
+                                    marketData.selectSource(event.target.value);
+                                }}
+                            >
+                                <option value="">未选择数据源</option>
+                                {marketData.selectableSources.map((item) => (
+                                    <option key={item.integration_id} value={item.integration_id}>
+                                        {item.display_name} · {item.type_id}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
                         <div className="chart-region__search">
                             <input
                                 type="search"
-                                placeholder="搜索标的 / 代码"
+                                placeholder={
+                                    realPath ? "搜索标的（Binance 参考）" : "搜索标的 / 代码"
+                                }
                                 aria-label="搜索标的"
                                 value={symbolQuery}
                                 onChange={(event) => {
                                     setSymbolQuery(event.target.value);
                                 }}
+                                onKeyDown={(event) => {
+                                    if (event.key === "Enter" && realPath) {
+                                        void marketData.searchInstruments(symbolQuery);
+                                    }
+                                }}
                             />
                             <select
                                 className="chart-region__timeframe"
                                 aria-label="时间周期"
-                                value={timeframe}
+                                value={chartTimeframe}
+                                disabled={realInstrument !== null}
                                 onChange={(event) => {
                                     setTimeframe(event.target.value as Timeframe);
                                 }}
                             >
                                 {timeframes.map((item) => (
-                                    <option key={item} value={item}>
+                                    <option
+                                        key={item}
+                                        value={item}
+                                        disabled={realInstrument !== null && item !== "1m"}
+                                    >
                                         {item}
                                     </option>
                                 ))}
@@ -311,7 +355,16 @@ export function WorkspacePage() {
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                setSymbol(item);
+                                                if (realPath) {
+                                                    const target = marketData.instruments.find(
+                                                        (candidate) =>
+                                                            candidate.instrument_id === item.code
+                                                    );
+                                                    if (target !== undefined)
+                                                        void marketData.selectInstrument(target);
+                                                } else {
+                                                    setSymbol(item);
+                                                }
                                                 setSymbolQuery("");
                                             }}
                                         >
@@ -344,7 +397,13 @@ export function WorkspacePage() {
                                 setManagerOpen(true);
                             }}
                         />
-                        <span className="synthetic-tag">synthetic</span>
+                        {marketData.status === "ready" ? (
+                            <span className="real-tag" data-testid="market-data-source-tag">
+                                real · DB
+                            </span>
+                        ) : (
+                            <span className="synthetic-tag">synthetic</span>
+                        )}
                         <button
                             type="button"
                             className="panel-toggle"
@@ -358,8 +417,24 @@ export function WorkspacePage() {
                         </button>
                     </span>
                 </header>
+                <p
+                    className="chart-region__status"
+                    data-status={marketData.status}
+                    data-testid="market-data-status"
+                >
+                    {marketData.message ??
+                        (marketData.status === "ready"
+                            ? `历史 1m K 线来自 canonical Revision ${
+                                  marketData.revisionFingerprint?.slice(0, 12) ?? "—"
+                              }（realtime 未启用）`
+                            : "未连接真实行情；当前图表为 synthetic 占位")}
+                </p>
                 <div className="chart-region__body">
-                    <PriceChart timeframe={timeframe} overlays={overlays} />
+                    <PriceChart
+                        timeframe={chartTimeframe}
+                        overlays={overlays}
+                        bars={marketData.status === "ready" ? marketData.bars : undefined}
+                    />
                 </div>
             </section>
 

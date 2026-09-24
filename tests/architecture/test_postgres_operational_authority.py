@@ -106,6 +106,7 @@ def test_postgres_schema_is_control_catalog_authority_not_high_volume_semantic_s
         "integration_draft_secret_binding",
         "integration_revision_secret_binding",
         "integration_probe_attempt",
+        "market_data_acquisition_attempt",
     ]
     vocabulary_migration = "\n".join(
         Path(path).read_text()

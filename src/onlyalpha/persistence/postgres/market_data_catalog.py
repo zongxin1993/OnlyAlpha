@@ -12,9 +12,11 @@ from psycopg.rows import dict_row
 from onlyalpha.canonical import only_canonical_payload
 from onlyalpha.core.clock import only_system_utc_now
 from onlyalpha.market_data.durable.models import (
+    OnlyAcquisitionOutcome,
     OnlyCoverageManifest,
     OnlyCoverageStatus,
     OnlyIngestSegment,
+    OnlyMarketDataAcquisitionAttempt,
     OnlyMarketDataAcquisitionIntent,
     OnlyMarketDataProvenance,
     OnlyMarketDataRevision,
@@ -61,8 +63,9 @@ class OnlyPostgresMarketDataCatalog:
             with connection.transaction():
                 connection.execute(
                     "INSERT INTO market_acquisition_intent "
-                    "(acquisition_id,request_fingerprint,source_id,requested_scope,provenance,created_at) "
-                    "VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
+                    "(acquisition_id,request_fingerprint,source_id,requested_scope,provenance,created_at,"
+                    "integration_binding_fingerprint) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
                     (
                         intent.acquisition_id,
                         intent.request_fingerprint,
@@ -70,10 +73,12 @@ class OnlyPostgresMarketDataCatalog:
                         scope,
                         intent.provenance.value,
                         intent.created_at,
+                        intent.integration_binding_fingerprint,
                     ),
                 )
                 row = connection.execute(
-                    "SELECT request_fingerprint,source_id,requested_scope,provenance,created_at "
+                    "SELECT request_fingerprint,source_id,requested_scope,provenance,created_at,"
+                    "integration_binding_fingerprint "
                     "FROM market_acquisition_intent WHERE acquisition_id=%s",
                     (intent.acquisition_id,),
                 ).fetchone()
@@ -91,6 +96,82 @@ class OnlyPostgresMarketDataCatalog:
                     intent.created_at,
                 ):
                     raise RuntimeError("POSTGRES_ACQUISITION_INTENT_CONFLICT")
+                if row["integration_binding_fingerprint"] != intent.integration_binding_fingerprint:
+                    raise RuntimeError("POSTGRES_ACQUISITION_INTENT_PROVENANCE_CONFLICT")
+
+    def load_acquisition_intent(self, acquisition_id: str) -> OnlyMarketDataAcquisitionIntent | None:
+        with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+            row = connection.execute(
+                "SELECT request_fingerprint,source_id,requested_scope,provenance,created_at,"
+                "integration_binding_fingerprint FROM market_acquisition_intent WHERE acquisition_id=%s",
+                (acquisition_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return OnlyMarketDataAcquisitionIntent(
+            acquisition_id,
+            str(row["request_fingerprint"]),
+            str(row["source_id"]),
+            _scope(row["requested_scope"]),
+            OnlyMarketDataProvenance(str(row["provenance"])),
+            row["created_at"],  # type: ignore[arg-type]
+            None if row["integration_binding_fingerprint"] is None else str(row["integration_binding_fingerprint"]),
+        )
+
+    def record_acquisition_attempt(self, attempt: OnlyMarketDataAcquisitionAttempt) -> None:
+        with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO market_data_acquisition_attempt "
+                    "(attempt_id,acquisition_id,outcome,revision_id,detail,recorded_at) "
+                    "VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
+                    (
+                        attempt.attempt_id,
+                        attempt.acquisition_id,
+                        attempt.outcome.value,
+                        attempt.revision_id,
+                        attempt.detail,
+                        attempt.recorded_at,
+                    ),
+                )
+                row = connection.execute(
+                    "SELECT acquisition_id,outcome,revision_id,detail,recorded_at "
+                    "FROM market_data_acquisition_attempt WHERE attempt_id=%s",
+                    (attempt.attempt_id,),
+                ).fetchone()
+                if row is None or (
+                    str(row["acquisition_id"]),
+                    str(row["outcome"]),
+                    None if row["revision_id"] is None else str(row["revision_id"]),
+                    str(row["detail"]),
+                    row["recorded_at"],
+                ) != (
+                    attempt.acquisition_id,
+                    attempt.outcome.value,
+                    attempt.revision_id,
+                    attempt.detail,
+                    attempt.recorded_at,
+                ):
+                    raise RuntimeError("POSTGRES_ACQUISITION_ATTEMPT_CONFLICT")
+
+    def latest_acquisition_attempt(self, acquisition_id: str) -> OnlyMarketDataAcquisitionAttempt | None:
+        with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+            row = connection.execute(
+                "SELECT attempt_id,outcome,revision_id,detail,recorded_at "
+                "FROM market_data_acquisition_attempt WHERE acquisition_id=%s "
+                "ORDER BY recorded_at DESC, attempt_id DESC LIMIT 1",
+                (acquisition_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return OnlyMarketDataAcquisitionAttempt(
+            str(row["attempt_id"]),
+            acquisition_id,
+            OnlyAcquisitionOutcome(str(row["outcome"])),
+            None if row["revision_id"] is None else str(row["revision_id"]),
+            str(row["detail"]),
+            row["recorded_at"],  # type: ignore[arg-type]
+        )
 
     def commit_coverage_manifest(self, manifest: OnlyCoverageManifest) -> None:
         with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
@@ -316,7 +397,7 @@ class OnlyPostgresMarketDataCatalog:
             "SELECT segment_id,capture_session_id,source_id,market,stream,provider,venue,capture_mode,"
             "provider_schema,codec,schema_version,record_count,raw_count,canonical_count,content_hash,"
             "created_at,sealed_at,instrument_id,data_kind,start_ns,end_ns,data_version,bar_type,"
-            "first_sequence,last_sequence FROM market_ingest_segment"
+            "first_sequence,last_sequence,integration_binding_fingerprint FROM market_ingest_segment"
         )
 
     @staticmethod
@@ -347,6 +428,7 @@ class OnlyPostgresMarketDataCatalog:
             None if row["bar_type"] is None else str(row["bar_type"]),
             None if row["first_sequence"] is None else int(str(row["first_sequence"])),
             None if row["last_sequence"] is None else int(str(row["last_sequence"])),
+            None if row["integration_binding_fingerprint"] is None else str(row["integration_binding_fingerprint"]),
         )
 
     @staticmethod
@@ -407,8 +489,9 @@ class OnlyPostgresMarketDataCatalog:
             "INSERT INTO market_ingest_segment "
             "(segment_id,capture_session_id,source_id,market,stream,provider,venue,capture_mode,provider_schema,codec,"
             "schema_version,record_count,raw_count,canonical_count,content_hash,created_at,sealed_at,instrument_id,"
-            "data_kind,start_ns,end_ns,data_version,bar_type,first_sequence,last_sequence) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+            "data_kind,start_ns,end_ns,data_version,bar_type,first_sequence,last_sequence,"
+            "integration_binding_fingerprint) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
             "ON CONFLICT DO NOTHING",
             (
                 segment.segment_id,
@@ -436,6 +519,7 @@ class OnlyPostgresMarketDataCatalog:
                 segment.bar_type,
                 segment.first_sequence,
                 segment.last_sequence,
+                segment.integration_binding_fingerprint,
             ),
         )
 

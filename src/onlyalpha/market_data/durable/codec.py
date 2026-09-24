@@ -22,27 +22,32 @@ def only_encode_record_bundle(bundle: OnlyMarketDataRecordBundle) -> bytes:
         if only_canonical_fingerprint(fact.canonical_payload) != fact.canonical_payload_hash:
             raise ValueError("CANONICAL_PAYLOAD_HASH_MISMATCH")
     evidence = bundle.evidence
+    evidence_value: dict[str, object] = {
+        "raw_event_id": evidence.raw_event_id,
+        "source_id": evidence.source_id,
+        "capture_session_id": evidence.capture_session_id,
+        "provider": evidence.provider,
+        "venue": evidence.venue,
+        "market": evidence.market,
+        "stream": evidence.stream,
+        "provider_event_type": evidence.provider_event_type,
+        "provider_event_id": evidence.provider_event_id,
+        "provider_sequence": evidence.provider_sequence,
+        "ts_event_ns": evidence.ts_event_ns,
+        "ts_receive_ns": evidence.ts_receive_ns,
+        "payload_codec": evidence.payload_codec,
+        "provider_schema": evidence.provider_schema,
+        "payload_base64": base64.b64encode(evidence.payload).decode("ascii"),
+        "raw_sha256": evidence.raw_sha256,
+        "provenance": evidence.provenance.value,
+    }
+    if evidence.integration_binding_fingerprint is not None:
+        # Absent means "written before Integration runtime provenance existed"; records
+        # produced by an exact Integration runtime binding always carry it.
+        evidence_value["integration_binding_fingerprint"] = evidence.integration_binding_fingerprint
     value = {
         "schema_version": 1,
-        "evidence": {
-            "raw_event_id": evidence.raw_event_id,
-            "source_id": evidence.source_id,
-            "capture_session_id": evidence.capture_session_id,
-            "provider": evidence.provider,
-            "venue": evidence.venue,
-            "market": evidence.market,
-            "stream": evidence.stream,
-            "provider_event_type": evidence.provider_event_type,
-            "provider_event_id": evidence.provider_event_id,
-            "provider_sequence": evidence.provider_sequence,
-            "ts_event_ns": evidence.ts_event_ns,
-            "ts_receive_ns": evidence.ts_receive_ns,
-            "payload_codec": evidence.payload_codec,
-            "provider_schema": evidence.provider_schema,
-            "payload_base64": base64.b64encode(evidence.payload).decode("ascii"),
-            "raw_sha256": evidence.raw_sha256,
-            "provenance": evidence.provenance.value,
-        },
+        "evidence": evidence_value,
         "canonical_facts": [
             {
                 "canonical_fact_id": fact.canonical_fact_id,
@@ -94,6 +99,7 @@ def only_decode_record_bundle(payload: bytes) -> OnlyMarketDataRecordBundle:
         payload=base64.b64decode(str(evidence_raw["payload_base64"]), validate=True),
         raw_sha256=str(evidence_raw["raw_sha256"]),
         provenance=OnlyMarketDataProvenance(str(evidence_raw["provenance"])),
+        integration_binding_fingerprint=_optional_str(evidence_raw.get("integration_binding_fingerprint")),
     )
     facts: list[OnlyCanonicalMarketFactRecord] = []
     for value in facts_raw:

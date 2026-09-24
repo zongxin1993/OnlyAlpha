@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from collections.abc import Mapping, Sequence
 from decimal import Decimal
@@ -39,6 +40,7 @@ from onlyalpha.application.integration_probe import (
     OnlyIntegrationProbeService,
 )
 from onlyalpha.application.integration_type_catalog import OnlyIntegrationProbeCatalog, OnlyIntegrationTypeCatalog
+from onlyalpha.application.market_data_product import OnlyMarketDataProductService
 from onlyalpha.application.private_asset_product import (
     OnlyPrivateAssetProductService,
     OnlyProductAssetSearchProjectionService,
@@ -77,12 +79,17 @@ from onlyalpha.backtest import (
 )
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
-from onlyalpha.core.clock import only_system_utc_now
+from onlyalpha.core.clock import OnlyLiveClock, only_system_utc_now
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.fee.broker_contract import OnlyBrokerFeeContractRegistry
 from onlyalpha.kernel import OnlyAlphaKernelHost, OnlyKernelHostError, OnlyKernelLifecycleStep, OnlyKernelState
 from onlyalpha.market.product import OnlyMarketProductFactoryRegistry, OnlyMarketProductResolutionContext
 from onlyalpha.output.user_data import OnlyUserDataLayout
+from onlyalpha.persistence.clickhouse import (
+    OnlyClickHouseClient,
+    OnlyClickHouseConfig,
+    OnlyClickHouseMarketFactStore,
+)
 from onlyalpha.persistence.postgres import (
     MASTER_KEY_FILE,
     OnlyIntegrationRuntimeCompositionV1,
@@ -102,6 +109,7 @@ from onlyalpha.persistence.postgres import (
 )
 from onlyalpha.persistence.postgres.backtest_store import OnlyPostgresBacktestStore
 from onlyalpha.persistence.postgres.integration_probe_store import OnlyPostgresIntegrationProbeStore
+from onlyalpha.persistence.postgres.market_data_catalog import OnlyPostgresMarketDataCatalog
 from onlyalpha.persistence.postgres.private_asset_store import OnlyPostgresPrivateAssetStore
 from onlyalpha.persistence.postgres.private_strategy_research_composition_store import (
     OnlyPostgresPrivateStrategyResearchCompositionStore,
@@ -486,6 +494,51 @@ def _load_qualification_policies(paths: tuple[Path, ...], store: OnlyQualificati
         if not isinstance(payload, Mapping):
             raise ValueError(f"Qualification Policy must be an object: {path}")
         store.put(OnlyQualificationPolicyRevision.from_dict(payload))
+
+
+def _compose_market_data_product(
+    postgres_dsn: str,
+    operational_options: OnlyPostgresOperationalConnectionOptions,
+    master_key_path: Path,
+    layout_root: Path,
+    data_sources: OnlyDataSourceFactoryRegistry,
+    brokers: OnlyBrokerFactoryRegistry,
+) -> OnlyMarketDataProductService:
+    resolver = only_compose_integration_runtime_resolver(
+        OnlyIntegrationRuntimeCompositionV1(
+            postgres_dsn=postgres_dsn,
+            master_key_path=master_key_path,
+            connection_options=operational_options,
+        ),
+        data_sources,
+        brokers,
+    )
+    return OnlyMarketDataProductService(
+        resolver=resolver,
+        data_sources=data_sources,
+        catalog=OnlyPostgresMarketDataCatalog(postgres_dsn, now=only_system_utc_now),
+        fact_store=cast(Any, _LazyClickHouseMarketFactStore()),
+        wal_root=layout_root / "market-data",
+        clock=OnlyLiveClock(),
+        logger=logging.getLogger("onlyalpha.http.market-data"),
+        now=only_system_utc_now,
+    )
+
+
+class _LazyClickHouseMarketFactStore:
+    """Canonical market facts are required only when a Market Data route is used.
+
+    Resolving the ClickHouse configuration eagerly would take down Research and
+    Trading surfaces in deployments that never read market data.
+    """
+
+    def __init__(self) -> None:
+        self._store: OnlyClickHouseMarketFactStore | None = None
+
+    def __getattr__(self, name: str) -> object:
+        if self._store is None:
+            self._store = OnlyClickHouseMarketFactStore(OnlyClickHouseClient(OnlyClickHouseConfig.from_environment()))
+        return getattr(self._store, name)
 
 
 def _compose_backtest_product(
@@ -961,6 +1014,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             integration_probe_store,
             integration_probe_catalog,
         )
+        market_data = _compose_market_data_product(
+            postgres_dsn=postgres.dsn,
+            operational_options=operational_options,
+            master_key_path=layout.root / MASTER_KEY_FILE,
+            layout_root=layout.root,
+            data_sources=data_sources,
+            brokers=brokers,
+        )
         app = create_product_app(
             artifact_reader,
             product_boundary,
@@ -1027,6 +1088,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     args.agent_runtime_token_file.read_text(encoding="utf-8").strip(),
                 )
             ),
+            market_data=market_data,
         )
         if startup_status.state is OnlyKernelState.READY:
             app.state.experiment_memory_projection_builder = memory_builder

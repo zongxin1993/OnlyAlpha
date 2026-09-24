@@ -16,6 +16,7 @@ from .models import (
     OnlyCoverageManifest,
     OnlyCoverageStatus,
     OnlyIngestSegment,
+    OnlyMarketDataAcquisitionAttempt,
     OnlyMarketDataAcquisitionIntent,
     OnlyMarketDataRecordBundle,
     OnlyMarketDataRevision,
@@ -195,6 +196,7 @@ class OnlyInMemoryMarketDataCatalog(OnlyMarketDataCatalog):
     def __init__(self) -> None:
         self._segments: dict[str, OnlyIngestSegment] = {}
         self._acquisitions: dict[str, OnlyMarketDataAcquisitionIntent] = {}
+        self._acquisition_attempts: dict[str, list[OnlyMarketDataAcquisitionAttempt]] = {}
         self._manifests: dict[str, OnlyCoverageManifest] = {}
         self._revisions: dict[str, OnlyMarketDataRevision] = {}
         self._seals: dict[str, OnlyMarketDataSeal] = {}
@@ -212,6 +214,20 @@ class OnlyInMemoryMarketDataCatalog(OnlyMarketDataCatalog):
         if prior is not None and prior != intent:
             raise OnlyMarketDataConflictError("ACQUISITION_INTENT_CONFLICT")
         self._acquisitions.setdefault(intent.acquisition_id, intent)
+
+    def load_acquisition_intent(self, acquisition_id: str) -> OnlyMarketDataAcquisitionIntent | None:
+        return self._acquisitions.get(acquisition_id)
+
+    def record_acquisition_attempt(self, attempt: OnlyMarketDataAcquisitionAttempt) -> None:
+        recorded = self._acquisition_attempts.setdefault(attempt.acquisition_id, [])
+        if all(item.attempt_id != attempt.attempt_id for item in recorded):
+            recorded.append(attempt)
+
+    def latest_acquisition_attempt(self, acquisition_id: str) -> OnlyMarketDataAcquisitionAttempt | None:
+        recorded = self._acquisition_attempts.get(acquisition_id)
+        if not recorded:
+            return None
+        return max(recorded, key=lambda item: (item.recorded_at, item.attempt_id))
 
     def commit_coverage_manifest(self, manifest: OnlyCoverageManifest) -> None:
         prior = self._manifests.get(manifest.manifest_id)

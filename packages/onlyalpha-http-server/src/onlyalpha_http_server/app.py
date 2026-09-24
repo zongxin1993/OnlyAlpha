@@ -22,6 +22,10 @@ from onlyalpha.application.integration_probe import (
     OnlyIntegrationProbeService,
 )
 from onlyalpha.application.integration_type_catalog import OnlyIntegrationTypeCatalog
+from onlyalpha.application.market_data_product import (
+    OnlyMarketDataProductError,
+    OnlyMarketDataProductService,
+)
 from onlyalpha.application.private_asset_product import (
     OnlyPrivateAssetProductService,
     OnlyProductAssetSearchProjectionService,
@@ -99,6 +103,12 @@ from .integration_types import (
 )
 from .integrations import INTEGRATION_ROUTE_TAG, create_integration_router
 from .integrations.routes import integration_error_response, integration_request_validation_error_response
+from .market_data import (
+    MARKET_DATA_ROUTE_TAG,
+    create_market_data_router,
+    market_data_error_response,
+    market_data_request_validation_error_response,
+)
 from .private_assets import (
     PRIVATE_ASSET_ROUTE_TAG,
     PrivateAssetErrorDto,
@@ -216,6 +226,7 @@ def _request_route_tag(request: Request) -> str | None:
             PRIVATE_ASSET_ROUTE_TAG,
             INTEGRATION_TYPE_ROUTE_TAG,
             INTEGRATION_ROUTE_TAG,
+            MARKET_DATA_ROUTE_TAG,
         }
     )
     return known[0] if len(known) == 1 else None
@@ -260,6 +271,7 @@ def create_research_app(
     integration_probes: OnlyIntegrationProbeService | None = None,
     integration_operational_queries: OnlyIntegrationOperationalQueryService | None = None,
     agent_provider_runtime: tuple[OnlyAgentProviderRuntimeResolverV1, str] | None = None,
+    market_data: OnlyMarketDataProductService | None = None,
 ) -> FastAPI:
     integration_authorities = (integration_types, integration_commands, integration_queries)
     if any(item is not None for item in integration_authorities) and any(
@@ -418,6 +430,12 @@ def create_research_app(
 
     app.add_exception_handler(OnlySearchProductError, search_product_error_handler)
 
+    async def market_data_error_handler(_request: Request, error: Exception) -> JSONResponse:
+        assert isinstance(error, OnlyMarketDataProductError)
+        return market_data_error_response(error)
+
+    app.add_exception_handler(OnlyMarketDataProductError, market_data_error_handler)
+
     async def advisory_product_error_handler(_request: Request, error: Exception) -> JSONResponse:
         assert isinstance(error, OnlyResearchAdvisoryProductError)
         if isinstance(error, OnlyResearchAdvisoryRequestInvalid | OnlyResearchAdvisoryUnsupported):
@@ -501,6 +519,8 @@ def create_research_app(
             )
         if family == INTEGRATION_ROUTE_TAG:
             return await integration_request_validation_error_response(request, error)
+        if family == MARKET_DATA_ROUTE_TAG:
+            return market_data_request_validation_error_response()
         if family in {STRATEGY_ROUTE_TAG, BACKTEST_ROUTE_TAG}:
             product_body = ProductErrorEnvelopeDto(
                 error=ProductErrorDto(
@@ -609,6 +629,8 @@ def create_research_app(
         )
     if agent_provider_runtime is not None:
         app.include_router(create_agent_provider_runtime_router(*agent_provider_runtime))
+    if market_data is not None:
+        app.include_router(create_market_data_router(market_data))
     _install_exact_product_openapi(app)
     return app
 
@@ -683,6 +705,7 @@ def create_product_app(
     integration_probes: OnlyIntegrationProbeService | None = None,
     integration_operational_queries: OnlyIntegrationOperationalQueryService | None = None,
     agent_provider_runtime: tuple[OnlyAgentProviderRuntimeResolverV1, str] | None = None,
+    market_data: OnlyMarketDataProductService | None = None,
 ) -> FastAPI:
     if (
         integration_types is None
@@ -725,6 +748,7 @@ def create_product_app(
         integration_probes,
         integration_operational_queries,
         agent_provider_runtime,
+        market_data,
     )
     app.title = "OnlyAlpha Product API"
     return app

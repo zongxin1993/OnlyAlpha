@@ -2,16 +2,24 @@
 
 # ruff: noqa: F401
 
-from .backfill import OnlyMarketDataBackfillCoordinator, OnlyMarketDataBackfillResult, OnlyMarketDataCorrectionComposer
+from .backfill import (
+    OnlyMarketDataBackfillCoordinator,
+    OnlyMarketDataBackfillResult,
+    OnlyMarketDataCorrectionComposer,
+    only_bar_gap_is_backfillable,
+    only_plan_contiguous_bar_gaps,
+)
 from .drain import OnlyMarketDataDrainService
 from .ingress import OnlyMarketDataIngress
 from .memory import OnlyInMemoryMarketFactStore
 from .models import (
+    OnlyAcquisitionOutcome,
     OnlyBarCoverageGap,
     OnlyCanonicalMarketFactRecord,
     OnlyCoverageManifest,
     OnlyCoverageStatus,
     OnlyIngestSegment,
+    OnlyMarketDataAcquisitionAttempt,
     OnlyMarketDataAcquisitionIntent,
     OnlyMarketDataHealth,
     OnlyMarketDataProvenance,
