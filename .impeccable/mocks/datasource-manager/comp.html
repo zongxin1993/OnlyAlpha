@@ -1,0 +1,2969 @@
+<!doctype html>
+<html lang="zh-CN">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>OnlyAlpha · 数据源配置与管理 · Phase 2 Comp</title>
+        <style>
+            :root {
+                color-scheme: light;
+                --bg: #f8f8f5;
+                --surface: #ffffff;
+                --surface-2: #f1f1ec;
+                --surface-3: #e9e9e2;
+                --text: #20242b;
+                --muted: #5f6874;
+                --accent: #1f5f8b;
+                --accent-soft: #e7eef4;
+                --accent-line: #9dbdd3;
+                --danger: #a8322a;
+                --danger-line: #d9a29c;
+                --warning: #7a5c12;
+                --warning-line: #d8c48a;
+                --success: #24683f;
+                --success-line: #9dc4ab;
+                --stale: #7a5c12;
+                --line: #e2e2dd;
+                --line-soft: #eceae4;
+                --radius: 6px;
+                --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+                font-family:
+                    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+                    "Segoe UI", sans-serif;
+                font-size: 16px;
+                color: var(--text);
+                -webkit-font-smoothing: antialiased;
+            }
+            * {
+                box-sizing: border-box;
+            }
+            body {
+                margin: 0;
+                background: var(--surface-3);
+                padding-bottom: 3rem;
+            }
+            h1,
+            h2,
+            h3,
+            p,
+            ul,
+            ol {
+                margin: 0;
+            }
+            ul {
+                padding: 0;
+                list-style: none;
+            }
+            button {
+                font: inherit;
+                cursor: default;
+            }
+            .mono {
+                font-family: var(--font-mono);
+                font-variant-numeric: tabular-nums;
+            }
+            .muted {
+                color: var(--muted);
+            }
+
+            /* ---------- comp sheet ---------- */
+            .sheet-head {
+                position: sticky;
+                top: 0;
+                z-index: 30;
+                display: flex;
+                align-items: center;
+                gap: 1.2rem;
+                padding: 0.7rem 1.1rem;
+                background: var(--surface);
+                border-bottom: 1px solid var(--line);
+            }
+            .sheet-head h1 {
+                font-size: 1.05rem;
+                font-weight: 600;
+                letter-spacing: -0.01em;
+            }
+            .sheet-head p {
+                color: var(--muted);
+                font-size: 0.82rem;
+            }
+            .legend {
+                margin-left: auto;
+                display: flex;
+                align-items: center;
+                gap: 0.85rem;
+                font-size: 0.74rem;
+                color: var(--muted);
+                white-space: nowrap;
+            }
+            .legend span {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.3rem;
+            }
+            main {
+                padding: 1.1rem;
+                display: flex;
+                flex-direction: column;
+                gap: 1.5rem;
+            }
+            .screen > header {
+                display: flex;
+                align-items: baseline;
+                gap: 0.6rem;
+                flex-wrap: wrap;
+                max-width: 1560px;
+                margin-bottom: 0.5rem;
+            }
+            .screen__index {
+                font-family: var(--font-mono);
+                font-size: 0.74rem;
+                color: var(--muted);
+            }
+            .screen__name {
+                font-size: 0.9rem;
+                font-weight: 600;
+            }
+            .screen__note {
+                font-size: 0.78rem;
+                color: var(--muted);
+            }
+            .frame-row {
+                display: flex;
+                gap: 0.9rem;
+                align-items: flex-start;
+                flex-wrap: wrap;
+            }
+            .frame {
+                position: relative;
+                border: 1px solid var(--line);
+                background: var(--bg);
+                overflow: visible;
+                flex: 0 0 auto;
+                margin-bottom: 1.5rem;
+            }
+            .frame--tall {
+                background: var(--surface-3);
+                display: grid;
+                place-items: start center;
+                padding: 0.7rem;
+            }
+            .frame figcaption {
+                position: absolute;
+                top: 100%;
+                left: 0;
+                right: 0;
+                padding: 0.3rem 0.1rem 0;
+                font-size: 0.7rem;
+                color: var(--muted);
+            }
+
+            /* ---------- status marks (shape vocabulary, colour is redundant) ---------- */
+            .mark {
+                width: 0.5rem;
+                height: 0.5rem;
+                border-radius: 50%;
+                flex: 0 0 auto;
+                position: relative;
+            }
+            .mark--ready {
+                background: var(--success);
+            }
+            .mark--degraded {
+                border: 1px solid var(--warning);
+                background: linear-gradient(90deg, var(--warning) 0 50%, transparent 50% 100%);
+            }
+            .mark--failed {
+                border: 1px solid var(--danger);
+                background: var(--danger);
+            }
+            .mark--failed::after {
+                content: "";
+                position: absolute;
+                left: -0.09rem;
+                right: -0.09rem;
+                top: calc(50% - 0.6px);
+                height: 1.5px;
+                background: var(--surface);
+            }
+            .mark--unknown {
+                border: 1px dashed var(--stale);
+            }
+            .mark--disabled {
+                border: 1px solid var(--muted);
+            }
+            .mark--probing {
+                border: 1px dashed var(--accent);
+                animation: spin 1.4s linear infinite;
+            }
+            @keyframes spin {
+                to {
+                    transform: rotate(360deg);
+                }
+            }
+            .state {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.35rem;
+                font-size: 0.76rem;
+                white-space: nowrap;
+            }
+            .state--ready {
+                color: var(--success);
+            }
+            .state--degraded,
+            .state--unknown {
+                color: var(--stale);
+            }
+            .state--failed {
+                color: var(--danger);
+            }
+            .state--disabled {
+                color: var(--muted);
+            }
+            .state--probing {
+                color: var(--accent);
+            }
+
+            /* ---------- provider icon box ---------- */
+            .picon {
+                display: grid;
+                place-items: center;
+                width: 1.6rem;
+                height: 1.6rem;
+                border: 1px solid var(--line);
+                border-radius: 4px;
+                background: var(--surface-2);
+                color: var(--text);
+                font-size: 0.72rem;
+                font-weight: 700;
+                flex: 0 0 auto;
+            }
+            .picon--lg {
+                width: 2.25rem;
+                height: 2.25rem;
+                font-size: 0.95rem;
+            }
+            .picon--xl {
+                width: 2.6rem;
+                height: 2.6rem;
+                font-size: 1.05rem;
+            }
+
+            /* ---------- capability tags ---------- */
+            .caps {
+                display: flex;
+                gap: 0.28rem;
+                flex-wrap: wrap;
+            }
+            .cap {
+                border: 1px solid var(--line);
+                border-radius: 3px;
+                padding: 0.05rem 0.32rem;
+                font-size: 0.7rem;
+                color: var(--muted);
+                white-space: nowrap;
+            }
+            .cap--unknown {
+                border-style: dashed;
+                color: var(--stale);
+            }
+            .tag {
+                border: 1px solid var(--line);
+                border-radius: 3px;
+                padding: 0 0.28rem;
+                font-size: 0.68rem;
+                color: var(--stale);
+                white-space: nowrap;
+            }
+            .tag--synthetic {
+                color: var(--stale);
+            }
+            .tag--draft {
+                color: var(--stale);
+                border-color: var(--warning-line);
+            }
+            .tag--gap {
+                color: var(--danger);
+                border-color: var(--danger-line);
+            }
+
+            /* ---------- buttons ---------- */
+            .btn {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.35rem;
+                border: 1px solid transparent;
+                border-radius: 6px;
+                padding: 0.32rem 0.6rem;
+                font-size: 0.78rem;
+                background: transparent;
+                color: var(--accent);
+                white-space: nowrap;
+            }
+            .btn--primary {
+                background: var(--accent);
+                color: #fff;
+                border-color: var(--accent);
+            }
+            .btn--outline {
+                border-color: var(--line);
+                color: var(--text);
+            }
+            .btn--quiet {
+                color: var(--muted);
+            }
+            .btn--icon {
+                padding: 0.22rem 0.4rem;
+                color: var(--muted);
+                border-color: var(--line);
+            }
+            .btn[disabled] {
+                opacity: 0.5;
+            }
+
+            /* ---------- application shell ---------- */
+            .shell {
+                display: grid;
+                grid-template-rows: 2.5rem minmax(0, 1fr) 1.75rem;
+                width: 100%;
+                height: 100%;
+                background: var(--bg);
+            }
+            .topbar {
+                display: flex;
+                align-items: center;
+                gap: 0.7rem;
+                padding: 0 0.75rem;
+                background: var(--surface);
+                border-bottom: 1px solid var(--line);
+            }
+            .brand {
+                display: flex;
+                align-items: center;
+                gap: 0.45rem;
+                font-weight: 700;
+                letter-spacing: -0.01em;
+                font-size: 0.85rem;
+            }
+            .brand-mark {
+                display: grid;
+                place-items: center;
+                width: 1.6rem;
+                height: 1.6rem;
+                border: 1px solid var(--line);
+                border-radius: 4px;
+                color: var(--accent);
+                font-size: 0.68rem;
+                font-weight: 700;
+            }
+            .topbar-divider {
+                width: 1px;
+                height: 1.2rem;
+                background: var(--line);
+            }
+            .primary-nav {
+                display: flex;
+                gap: 0.1rem;
+            }
+            .nav-link {
+                color: var(--muted);
+                border-radius: 4px;
+                padding: 0.25rem 0.5rem;
+                font-size: 0.8rem;
+            }
+            .nav-link--active {
+                background: var(--accent-soft);
+                color: var(--accent);
+            }
+            .topbar-actions {
+                margin-left: auto;
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
+            }
+            .topbar-action {
+                border: 1px solid var(--line);
+                border-radius: 4px;
+                padding: 0.22rem 0.5rem;
+                font-size: 0.78rem;
+                color: var(--text);
+            }
+            .topbar-mode {
+                color: var(--muted);
+                font-size: 0.72rem;
+            }
+            .status-surface {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                border-top: 1px solid var(--line);
+                background: var(--surface);
+                color: var(--muted);
+                padding: 0 0.75rem;
+                font-size: 0.72rem;
+            }
+            .status-dot {
+                width: 0.4rem;
+                height: 0.4rem;
+                border-radius: 50%;
+                background: var(--success);
+            }
+            .status-authority {
+                margin-left: auto;
+            }
+            .workbench {
+                display: grid;
+                grid-template-columns: 3rem minmax(0, 1fr) 20rem 3rem;
+                grid-template-rows: minmax(0, 1fr) 14rem;
+                grid-template-areas: "rail chart panel tray" "rail bottom bottom tray";
+                min-height: 0;
+                background: var(--surface);
+            }
+            .rail {
+                grid-area: rail;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 0.15rem;
+                padding: 0.3rem 0;
+                border-right: 1px solid var(--line);
+                background: var(--surface-2);
+            }
+            .rail-btn {
+                display: grid;
+                place-items: center;
+                width: 2rem;
+                height: 2rem;
+                border: 1px solid transparent;
+                border-radius: 4px;
+                color: var(--muted);
+            }
+            .rail-btn--on {
+                background: var(--accent-soft);
+                color: var(--accent);
+            }
+            .rail-btn--foot {
+                margin-top: auto;
+            }
+            .tray {
+                grid-area: tray;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 0.15rem;
+                padding: 0.3rem 0;
+                border-left: 1px solid var(--line);
+                background: var(--surface-2);
+            }
+            .chart-region {
+                grid-area: chart;
+                display: grid;
+                grid-template-rows: 2.1rem minmax(0, 1fr);
+                min-height: 0;
+                border-bottom: 1px solid var(--line);
+                background: var(--surface);
+            }
+            .chart-head {
+                display: flex;
+                align-items: center;
+                gap: 0.6rem;
+                padding: 0 0.6rem;
+                border-bottom: 1px solid var(--line-soft);
+                min-width: 0;
+            }
+            .chart-title {
+                font-size: 0.8rem;
+                font-weight: 600;
+                white-space: nowrap;
+            }
+            .chart-search {
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
+                flex: 0 1 18rem;
+                min-width: 0;
+                border: 1px solid var(--line);
+                border-radius: 4px;
+                background: var(--surface);
+                padding: 0.1rem 0.2rem;
+            }
+            .chart-search input {
+                flex: 1 1 auto;
+                min-width: 0;
+                border: 0;
+                background: transparent;
+                font: inherit;
+                font-size: 0.78rem;
+                padding: 0.12rem 0.35rem;
+                color: var(--text);
+            }
+            .chart-search input::placeholder {
+                color: #747d88;
+            }
+            .chart-tf {
+                border: 0;
+                border-left: 1px solid var(--line);
+                background: transparent;
+                font-family: var(--font-mono);
+                font-size: 0.76rem;
+                color: var(--text);
+                padding: 0.18rem 0.35rem;
+            }
+            .chart-spacer {
+                margin-left: auto;
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+            }
+            .picker {
+                border: 1px solid var(--line);
+                border-radius: 4px;
+                padding: 0.2rem 0.5rem;
+                font-size: 0.76rem;
+                color: var(--muted);
+            }
+            .picker--on {
+                background: var(--accent-soft);
+                border-color: var(--accent-line);
+                color: var(--accent);
+            }
+
+            /* ---------- data source entry (the new control) ---------- */
+            .ds-entry {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.35rem;
+                border: 1px solid var(--line);
+                border-radius: 4px;
+                background: var(--surface);
+                padding: 0.18rem 0.45rem;
+                font-size: 0.76rem;
+                color: var(--text);
+                white-space: nowrap;
+            }
+            .ds-entry--open {
+                border-color: var(--accent-line);
+                box-shadow: 0 0 0 3px var(--accent-soft);
+            }
+            .ds-entry__count {
+                color: var(--stale);
+            }
+            .ds-entry__icon {
+                color: var(--muted);
+            }
+            .chart-body {
+                position: relative;
+                min-height: 0;
+                overflow: hidden;
+            }
+            .panel {
+                grid-area: panel;
+                border-left: 1px solid var(--line);
+                display: grid;
+                grid-template-rows: 2.1rem minmax(0, 1fr);
+                min-height: 0;
+                background: var(--surface);
+            }
+            .panel-head {
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
+                padding: 0 0.6rem;
+                border-bottom: 1px solid var(--line-soft);
+                font-size: 0.78rem;
+                font-weight: 600;
+            }
+            .panel-body {
+                padding: 0.4rem 0;
+                overflow: hidden;
+            }
+            .watch-row {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                padding: 0.24rem 0.6rem;
+                font-size: 0.78rem;
+            }
+            .watch-row:nth-child(2) {
+                background: var(--surface-2);
+            }
+            .watch-row .sym {
+                font-family: var(--font-mono);
+                font-size: 0.76rem;
+            }
+            .watch-row .last {
+                margin-left: auto;
+                font-family: var(--font-mono);
+                font-variant-numeric: tabular-nums;
+            }
+            .up {
+                color: var(--up);
+            }
+            .down {
+                color: var(--down);
+            }
+            .bottom {
+                grid-area: bottom;
+                border-top: 1px solid var(--line);
+                border-right: 1px solid var(--line);
+                display: grid;
+                grid-template-rows: 1.9rem minmax(0, 1fr);
+                align-content: start;
+                min-height: 0;
+                background: var(--surface);
+            }
+            .bottom-head {
+                display: flex;
+                align-items: center;
+                gap: 0.1rem;
+                padding: 0 0.5rem;
+                border-bottom: 1px solid var(--line-soft);
+            }
+            .tab-btn {
+                padding: 0.2rem 0.5rem;
+                font-size: 0.76rem;
+                color: var(--muted);
+                border-radius: 4px;
+            }
+            .tab-btn--on {
+                background: var(--accent-soft);
+                color: var(--accent);
+            }
+            .data-table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 0.76rem;
+                align-self: start;
+            }
+            .data-table th {
+                text-align: left;
+                font-weight: 600;
+                font-size: 0.72rem;
+                color: var(--muted);
+                padding: 0.22rem 0.6rem;
+                border-bottom: 1px solid var(--line-soft);
+            }
+            .data-table td {
+                padding: 0.22rem 0.6rem;
+                border-bottom: 1px solid var(--line-soft);
+            }
+            .data-table td.num {
+                font-family: var(--font-mono);
+                font-variant-numeric: tabular-nums;
+            }
+
+            /* ---------- popover ---------- */
+            .popover {
+                position: absolute;
+                top: 2.9rem;
+                right: 3.2rem;
+                width: 21rem;
+                background: var(--surface);
+                border: 1px solid var(--line);
+                border-radius: 6px;
+                box-shadow: 0 6px 18px rgba(32, 36, 43, 0.12);
+                z-index: 5;
+            }
+            .popover__head {
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
+                padding: 0.45rem 0.6rem;
+                border-bottom: 1px solid var(--line-soft);
+                font-size: 0.78rem;
+                font-weight: 600;
+            }
+            .popover__head .muted {
+                margin-left: auto;
+                font-weight: 400;
+                font-size: 0.74rem;
+            }
+            .popover__list {
+                max-height: 15rem;
+                overflow: hidden;
+            }
+            .ds-row {
+                display: grid;
+                grid-template-columns: 1.6rem minmax(0, 1fr) auto;
+                gap: 0.35rem 0.55rem;
+                padding: 0.45rem 0.6rem;
+                border-bottom: 1px solid var(--line-soft);
+                align-items: start;
+            }
+            .ds-row__name {
+                font-size: 0.78rem;
+                font-weight: 600;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .ds-row__meta {
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
+                flex-wrap: wrap;
+                margin-top: 0.15rem;
+                font-size: 0.72rem;
+                color: var(--muted);
+            }
+            .ds-row__icon {
+                grid-row: span 2;
+                margin-top: 0.05rem;
+            }
+            .ds-row__state {
+                justify-self: end;
+            }
+            .popover__section {
+                padding: 0.5rem 0.6rem;
+                border-bottom: 1px solid var(--line-soft);
+                font-size: 0.74rem;
+            }
+            .popover__section h3 {
+                font-size: 0.72rem;
+                font-weight: 600;
+                color: var(--muted);
+                margin-bottom: 0.3rem;
+            }
+            .kv {
+                display: grid;
+                grid-template-columns: 4.6rem minmax(0, 1fr);
+                gap: 0.15rem 0.5rem;
+                font-size: 0.74rem;
+            }
+            .kv dt {
+                color: var(--muted);
+            }
+            .popover__foot {
+                padding: 0.45rem 0.6rem;
+            }
+            .popover__foot .btn {
+                width: 100%;
+                justify-content: center;
+                border-color: var(--line);
+                color: var(--accent);
+            }
+            .gap-note {
+                display: flex;
+                gap: 0.4rem;
+                align-items: flex-start;
+                border: 1px dashed var(--line);
+                border-radius: 4px;
+                padding: 0.4rem 0.5rem;
+                font-size: 0.72rem;
+                color: var(--muted);
+                background: var(--surface-2);
+            }
+            .empty-state {
+                padding: 1.1rem 0.9rem;
+                text-align: center;
+            }
+            .empty-state p {
+                font-size: 0.78rem;
+                color: var(--muted);
+                margin: 0.35rem 0 0.7rem;
+                line-height: 1.55;
+            }
+
+            /* ---------- modal ---------- */
+            .overlay {
+                position: absolute;
+                inset: 0;
+                background: rgba(32, 36, 43, 0.28);
+                display: grid;
+                place-items: center;
+                overflow: hidden;
+            }
+            .modal {
+                width: 62.5rem;
+                max-width: calc(100% - 2rem);
+                height: 44rem;
+                max-height: calc(100% - 2rem);
+                background: var(--surface);
+                border: 1px solid var(--line);
+                border-radius: 6px;
+                box-shadow: 0 12px 32px rgba(32, 36, 43, 0.18);
+                display: grid;
+                grid-template-rows: 2.6rem 2.4rem minmax(0, 1fr);
+                overflow: hidden;
+            }
+            .modal--form {
+                grid-template-rows: 2.6rem 2.4rem minmax(0, 1fr) 3.1rem;
+            }
+            .screen:nth-of-type(2) .modal {
+                height: 50rem;
+            }
+            .modal--full {
+                width: 100%;
+                height: 100%;
+                max-width: none;
+                max-height: none;
+                border-radius: 0;
+                border: 0;
+            }
+            .modal__head {
+                display: flex;
+                align-items: center;
+                gap: 0.6rem;
+                padding: 0 0.9rem;
+                border-bottom: 1px solid var(--line);
+            }
+            .modal__title {
+                font-size: 0.95rem;
+                font-weight: 600;
+                letter-spacing: -0.01em;
+            }
+            .modal__head .btn {
+                margin-left: auto;
+            }
+            .modal__tabs {
+                display: flex;
+                align-items: center;
+                gap: 0.15rem;
+                padding: 0 0.6rem;
+                border-bottom: 1px solid var(--line);
+            }
+            .modal__tab {
+                padding: 0.35rem 0.65rem;
+                font-size: 0.82rem;
+                color: var(--muted);
+                border-radius: 4px;
+            }
+            .modal__tab--on {
+                background: var(--accent-soft);
+                color: var(--accent);
+                font-weight: 600;
+            }
+            .modal__tab-count {
+                font-family: var(--font-mono);
+                font-size: 0.72rem;
+                margin-left: 0.3rem;
+                color: inherit;
+                opacity: 0.75;
+            }
+            .modal__body {
+                min-height: 0;
+                overflow: hidden;
+                display: grid;
+                grid-template-columns: minmax(0, 1fr);
+            }
+            .modal__scroll {
+                overflow: hidden;
+                padding: 0.9rem;
+                display: flex;
+                flex-direction: column;
+                gap: 0.6rem;
+            }
+            .modal__foot {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                padding: 0 0.9rem;
+                border-top: 1px solid var(--line);
+                background: var(--surface);
+            }
+            .modal__foot .btn--primary {
+                margin-left: auto;
+            }
+            .banner {
+                display: flex;
+                align-items: flex-start;
+                gap: 0.45rem;
+                border: 1px solid var(--line);
+                border-radius: 4px;
+                padding: 0.45rem 0.6rem;
+                font-size: 0.76rem;
+                color: var(--muted);
+                background: var(--surface-2);
+            }
+            .banner--gap {
+                border-style: dashed;
+            }
+            .banner--warn {
+                border-color: var(--warning-line);
+                background: #fbf7ea;
+                color: #5c4710;
+            }
+            .banner--danger {
+                border-color: var(--danger-line);
+                background: #fbf0ef;
+                color: #7d2820;
+            }
+            .banner strong {
+                color: var(--text);
+            }
+            .banner--warn strong {
+                color: #4a390b;
+            }
+            .banner--danger strong {
+                color: #6d241d;
+            }
+
+            /* ---------- integration cards ---------- */
+            .int-card {
+                border: 1px solid var(--line);
+                border-radius: 4px;
+                padding: 0.6rem 0.7rem;
+                display: grid;
+                gap: 0.45rem;
+            }
+            .int-card--disabled {
+                background: var(--surface-2);
+            }
+            .int-card__top {
+                display: flex;
+                align-items: flex-start;
+                gap: 0.55rem;
+            }
+            .int-card__name {
+                font-size: 0.84rem;
+                font-weight: 600;
+            }
+            .int-card__desc {
+                font-size: 0.75rem;
+                color: var(--muted);
+                margin-top: 0.1rem;
+            }
+            .int-card__state {
+                margin-left: auto;
+            }
+            .int-card__mid {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                flex-wrap: wrap;
+                font-size: 0.73rem;
+                color: var(--muted);
+            }
+            .int-card__foot {
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
+                padding-top: 0.45rem;
+                border-top: 1px solid var(--line-soft);
+            }
+            .int-card__actions {
+                margin-left: auto;
+                display: flex;
+                align-items: center;
+                gap: 0.3rem;
+            }
+            .meta-line {
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
+                font-size: 0.73rem;
+                color: var(--muted);
+                font-variant-numeric: tabular-nums;
+            }
+            .meta-line--alert {
+                color: var(--danger);
+            }
+            .meta-line--warn {
+                color: var(--stale);
+            }
+
+            /* ---------- provider catalog ---------- */
+            .catalog-toolbar {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+            }
+            .search-field {
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
+                border: 1px solid var(--line);
+                border-radius: 6px;
+                padding: 0.3rem 0.5rem;
+                background: var(--surface);
+                flex: 0 1 22rem;
+            }
+            .search-field input {
+                border: 0;
+                background: transparent;
+                font: inherit;
+                font-size: 0.8rem;
+                flex: 1 1 auto;
+                color: var(--text);
+            }
+            .search-field input::placeholder {
+                color: #747d88;
+            }
+            .catalog-grid {
+                display: grid;
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+                gap: 0.6rem;
+            }
+            .catalog-card {
+                border: 1px solid var(--line);
+                border-radius: 4px;
+                padding: 0.8rem 0.7rem;
+                display: grid;
+                justify-items: center;
+                gap: 0.45rem;
+                text-align: center;
+            }
+            .catalog-card:hover {
+                border-color: var(--accent-line);
+            }
+            .catalog-card__name {
+                font-size: 0.82rem;
+                font-weight: 600;
+            }
+            .catalog-card__desc {
+                font-size: 0.72rem;
+                color: var(--muted);
+                line-height: 1.45;
+                display: -webkit-box;
+                -webkit-line-clamp: 2;
+                -webkit-box-orient: vertical;
+                overflow: hidden;
+            }
+            .catalog-card .caps {
+                justify-content: center;
+            }
+
+            /* ---------- form ---------- */
+            .form-head {
+                display: flex;
+                align-items: center;
+                gap: 0.55rem;
+                padding-bottom: 0.7rem;
+                border-bottom: 1px solid var(--line);
+            }
+            .form-head .picon {
+                width: 2.25rem;
+                height: 2.25rem;
+                font-size: 0.95rem;
+            }
+            .field {
+                display: grid;
+                gap: 0.25rem;
+                max-width: 26rem;
+            }
+            .field > label,
+            .field > .field__label {
+                font-size: 0.78rem;
+                font-weight: 600;
+            }
+            .field input[type="text"],
+            .field input[type="password"],
+            .field input[type="number"],
+            .field select {
+                border: 1px solid var(--line);
+                border-radius: 6px;
+                background: var(--surface);
+                color: var(--text);
+                font: inherit;
+                font-size: 0.8rem;
+                padding: 0.34rem 0.5rem;
+                min-height: 1.9rem;
+            }
+            .field input.mono {
+                font-family: var(--font-mono);
+            }
+            .field small {
+                font-size: 0.72rem;
+                color: var(--muted);
+            }
+            .field__row {
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
+            }
+            .secret-state {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                font-size: 0.74rem;
+                color: var(--muted);
+                min-height: 1.9rem;
+                border: 1px solid var(--line);
+                border-radius: 6px;
+                background: var(--surface-2);
+                padding: 0.34rem 0.5rem;
+            }
+            .secret-state code {
+                font-family: var(--font-mono);
+            }
+            .secret-state .btn {
+                margin-left: auto;
+            }
+            .group {
+                border-top: 1px solid var(--line);
+                padding-top: 0.7rem;
+                display: grid;
+                gap: 0.6rem;
+            }
+            .group__title {
+                font-size: 0.78rem;
+                font-weight: 600;
+                color: var(--muted);
+            }
+            details.advanced {
+                border: 1px solid var(--line);
+                border-radius: 4px;
+                padding: 0.45rem 0.6rem;
+                background: var(--surface-2);
+            }
+            details.advanced summary {
+                font-size: 0.78rem;
+                font-weight: 600;
+                cursor: default;
+            }
+            details.advanced[open] summary {
+                margin-bottom: 0.6rem;
+            }
+            details.advanced .field {
+                max-width: none;
+            }
+            .form-split {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) 24rem;
+                gap: 0.9rem;
+                min-height: 0;
+            }
+
+            /* ---------- probe ---------- */
+            .probe {
+                border: 1px solid var(--line);
+                border-radius: 4px;
+                display: grid;
+                grid-template-rows: 2.2rem minmax(0, 1fr) auto;
+                background: var(--surface);
+            }
+            .probe__head {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                padding: 0 0.6rem;
+                border-bottom: 1px solid var(--line-soft);
+                font-size: 0.78rem;
+                font-weight: 600;
+            }
+            .probe__head .muted {
+                margin-left: auto;
+                font-weight: 400;
+                font-size: 0.73rem;
+                font-variant-numeric: tabular-nums;
+            }
+            .check {
+                display: grid;
+                grid-template-columns: 6.4rem 1.1rem minmax(0, 1fr) auto;
+                align-items: center;
+                gap: 0.45rem;
+                padding: 0.4rem 0.6rem;
+                border-bottom: 1px solid var(--line-soft);
+                font-size: 0.76rem;
+            }
+            .check__glyph {
+                display: grid;
+                place-items: center;
+                width: 0.95rem;
+                height: 0.95rem;
+                border-radius: 50%;
+                border: 1px solid var(--line);
+                color: var(--muted);
+            }
+            .check__glyph--pass {
+                border-color: var(--success-line);
+                color: var(--success);
+            }
+            .check__glyph--fail {
+                border-color: var(--danger-line);
+                color: var(--danger);
+            }
+            .check__glyph--skip {
+                border-style: dashed;
+                color: var(--muted);
+            }
+            .check__glyph--na {
+                border-style: dotted;
+                color: var(--muted);
+            }
+            .check__detail {
+                font-size: 0.73rem;
+                color: var(--danger);
+            }
+            .check__latency {
+                font-family: var(--font-mono);
+                font-variant-numeric: tabular-nums;
+                font-size: 0.73rem;
+                color: var(--muted);
+            }
+            .check--fail {
+                background: #fbf0ef;
+            }
+            .check--na .check__name,
+            .check--skip .check__name {
+                color: var(--muted);
+            }
+            .probe__foot {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                padding: 0.4rem 0.6rem;
+                border-top: 1px solid var(--line-soft);
+                font-size: 0.72rem;
+                color: var(--muted);
+            }
+            .probe__foot .mono {
+                font-size: 0.72rem;
+            }
+            .skeleton-row {
+                display: grid;
+                grid-template-columns: 6.4rem minmax(0, 1fr);
+                gap: 0.5rem;
+                padding: 0.45rem 0.6rem;
+                border-bottom: 1px solid var(--line-soft);
+            }
+            .skeleton {
+                height: 0.6rem;
+                border-radius: 3px;
+                background: linear-gradient(90deg, var(--surface-2), var(--surface-3), var(--surface-2));
+            }
+
+            /* ---------- binding ---------- */
+            .bind-group {
+                border: 1px solid var(--line);
+                border-radius: 4px;
+            }
+            .bind-group > h3 {
+                font-size: 0.78rem;
+                font-weight: 600;
+                padding: 0.45rem 0.7rem;
+                border-bottom: 1px solid var(--line-soft);
+                background: var(--surface-2);
+            }
+            .bind-group__body {
+                padding: 0.2rem 0.7rem 0.6rem;
+                display: grid;
+                gap: 0.45rem;
+            }
+            .bind-row {
+                display: grid;
+                grid-template-columns: 8.5rem minmax(0, 22rem) minmax(0, 1fr);
+                align-items: center;
+                gap: 0.6rem;
+                padding: 0.35rem 0;
+                border-bottom: 1px solid var(--line-soft);
+            }
+            .bind-row:last-child {
+                border-bottom: 0;
+            }
+            .bind-row > label {
+                font-size: 0.78rem;
+                color: var(--muted);
+            }
+            .select-like {
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
+                border: 1px solid var(--line);
+                border-radius: 6px;
+                padding: 0.3rem 0.5rem;
+                font-size: 0.8rem;
+                background: var(--surface);
+            }
+            .select-like--unset {
+                border-style: dashed;
+                color: var(--muted);
+            }
+            .select-like .caret {
+                margin-left: auto;
+                display: inline-flex;
+                color: var(--muted);
+            }
+            .bind-note {
+                font-size: 0.73rem;
+                color: var(--muted);
+            }
+            .bind-note--warn {
+                color: var(--stale);
+            }
+
+            /* ---------- dialog (archive protection) ---------- */
+            .dialog {
+                width: 34rem;
+                background: var(--surface);
+                border: 1px solid var(--line);
+                border-radius: 6px;
+                box-shadow: 0 12px 32px rgba(32, 36, 43, 0.18);
+                overflow: hidden;
+            }
+            .dialog__head {
+                padding: 0.7rem 0.9rem;
+                border-bottom: 1px solid var(--line);
+                font-size: 0.9rem;
+                font-weight: 600;
+            }
+            .dialog__body {
+                padding: 0.8rem 0.9rem;
+                font-size: 0.8rem;
+                display: grid;
+                gap: 0.5rem;
+            }
+            .dialog__body ul {
+                display: grid;
+                gap: 0.2rem;
+                padding-left: 0.1rem;
+            }
+            .dialog__body li {
+                font-size: 0.78rem;
+                color: var(--muted);
+            }
+            .dialog__foot {
+                display: flex;
+                gap: 0.5rem;
+                padding: 0.6rem 0.9rem;
+                border-top: 1px solid var(--line);
+                background: var(--surface-2);
+            }
+            .dialog__foot .btn--primary {
+                margin-left: auto;
+            }
+
+            /* ---------- narrow ---------- */
+            .narrow-card {
+                border: 1px solid var(--line);
+                border-radius: 4px;
+                padding: 0.55rem 0.6rem;
+                display: grid;
+                gap: 0.4rem;
+                background: var(--surface);
+            }
+            .narrow-card__top {
+                display: flex;
+                align-items: center;
+                gap: 0.45rem;
+            }
+            .narrow-actions {
+                display: flex;
+                gap: 0.35rem;
+                flex-wrap: wrap;
+            }
+            .sticky-foot {
+                border-top: 1px solid var(--line);
+                padding: 0.5rem 0.6rem;
+                display: flex;
+                gap: 0.4rem;
+                align-items: center;
+                background: var(--surface);
+            }
+            .sticky-foot .btn--primary {
+                margin-left: auto;
+            }
+            .hint {
+                font-size: 0.72rem;
+                color: var(--muted);
+                line-height: 1.5;
+            }
+        </style>
+    </head>
+    <body>
+        <header class="sheet-head">
+            <div>
+                <h1>数据源配置与管理 · Phase 2 Comp</h1>
+                <p>
+                    Chart-Centric Workbench 扩展 · Operate 模式 · 全部示例数据为 synthetic 占位
+                </p>
+            </div>
+            <div class="legend">
+                <span><i class="mark mark--ready"></i>正常</span>
+                <span><i class="mark mark--degraded"></i>降级</span>
+                <span><i class="mark mark--failed"></i>失败/中断</span>
+                <span><i class="mark mark--unknown"></i>未验证</span>
+                <span><i class="mark mark--disabled"></i>已禁用</span>
+                <span>标记形状本身表意，颜色只是冗余</span>
+            </div>
+        </header>
+
+        <main>
+            <!-- ============ 01 workspace entry + popover ============ -->
+            <section class="screen">
+                <header>
+                    <span class="screen__index">01</span>
+                    <span class="screen__name">工作台入口 + 快速状态 Popover</span>
+                    <span class="screen__note"
+                        >入口长在图表区标题栏（2.1rem 行高）；状态点有形状语义，右侧永远带文本计数</span
+                    >
+                </header>
+                <div class="frame-row">
+                    <figure class="frame" style="width: 1440px; height: 900px">
+                        <div class="shell">
+                            <div class="topbar">
+                                <span class="brand"><span class="brand-mark">OA</span>OnlyAlpha</span>
+                                <span class="topbar-divider"></span>
+                                <nav class="primary-nav">
+                                    <span class="nav-link nav-link--active">工作台</span>
+                                    <span class="nav-link">研究</span>
+                                    <span class="nav-link">数据</span>
+                                    <span class="nav-link">策略</span>
+                                    <span class="nav-link">回测</span>
+                                    <span class="nav-link">系统</span>
+                                </nav>
+                                <div class="topbar-actions">
+                                    <span class="topbar-action">新建研究</span>
+                                    <span class="topbar-mode">Control + Presentation</span>
+                                </div>
+                            </div>
+
+                            <div class="workbench">
+                                <div class="rail">
+                                    <span class="rail-btn rail-btn--on">
+                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+                                            ><path d="M2 13.5h2.2V8H2v5.5Zm4.1 0h2.2V3.5H6.1v10Zm4.2 0H13V6H10.3v7.5Z"
+                                                fill="currentColor" /></svg
+                                    ></span>
+                                    <span class="rail-btn">
+                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+                                            ><path d="M2 3.5h12M2 8h12M2 12.5h12" stroke="currentColor"
+                                                stroke-width="1.2" /></svg
+                                    ></span>
+                                    <span class="rail-btn">
+                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+                                            ><path d="M3 12.5 7 5l3 4 3-6" stroke="currentColor"
+                                                stroke-width="1.2" /></svg
+                                    ></span>
+                                    <span class="rail-btn rail-btn--foot">
+                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+                                            ><path d="M6 4.5 10.5 8 6 11.5" stroke="currentColor"
+                                                stroke-width="1.2" /></svg
+                                    ></span>
+                                </div>
+
+                                <section class="chart-region">
+                                    <header class="chart-head">
+                                        <span class="chart-title">600519.SH · 贵州茅台</span>
+                                        <div class="chart-search">
+                                            <input placeholder="搜索标的 / 代码" />
+                                            <select class="chart-tf">
+                                                <option>1D</option>
+                                            </select>
+                                        </div>
+                                        <span class="picker">指标</span>
+                                        <span class="picker picker--on">因子 2</span>
+                                        <span class="chart-spacer">
+                                            <span class="ds-entry ds-entry--open">
+                                                <svg
+                                                    class="ds-entry__icon"
+                                                    width="14"
+                                                    height="14"
+                                                    viewBox="0 0 16 16"
+                                                    fill="none"
+                                                >
+                                                    <ellipse
+                                                        cx="8"
+                                                        cy="4"
+                                                        rx="5.2"
+                                                        ry="2.1"
+                                                        stroke="currentColor"
+                                                        stroke-width="1.2"
+                                                    />
+                                                    <path
+                                                        d="M2.8 4v4c0 1.16 2.33 2.1 5.2 2.1s5.2-.94 5.2-2.1V4M2.8 8v4c0 1.16 2.33 2.1 5.2 2.1s5.2-.94 5.2-2.1V8"
+                                                        stroke="currentColor"
+                                                        stroke-width="1.2"
+                                                    />
+                                                </svg>
+                                                数据源
+                                                <i class="mark mark--degraded"></i>
+                                                <span class="ds-entry__count">1 异常 · 1 未验证</span>
+                                            </span>
+                                            <span class="tag tag--synthetic">synthetic</span>
+                                            <span class="btn btn--icon">
+                                                <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
+                                                    ><rect x="2" y="2.5" width="12" height="11" rx="1"
+                                                        stroke="currentColor" stroke-width="1.2" /></svg
+                                                >
+                                            </span>
+                                        </span>
+                                    </header>
+                                    <div class="chart-body">
+                                        <svg
+                                            width="100%"
+                                            height="100%"
+                                            viewBox="0 0 960 560"
+                                            preserveAspectRatio="none"
+                                        >
+                                            <g stroke="#eceae4" stroke-width="1">
+                                                <path d="M0 120H960M0 240H960M0 360H960M0 480H960" />
+                                                <path d="M160 0V560M320 0V560M480 0V560M640 0V560M800 0V560" />
+                                            </g>
+                                            <path
+                                                d="M0 430 40 415 80 424 120 392 160 401 200 366 240 379 280 344 320 352 360 318 400 330 440 296 480 309 520 274 560 288 600 252 640 266 680 231 720 245 760 210 800 224 840 191 880 205 920 172 960 186"
+                                                fill="none"
+                                                stroke="#c8332a"
+                                                stroke-width="1.6"
+                                            />
+                                            <path
+                                                d="M0 430 40 415 80 424 120 392 160 401 200 366 240 379 280 344 320 352 360 318 400 330 440 296 480 309 520 274 560 288 600 252 640 266 680 231 720 245 760 210 800 224 840 191 880 205 920 172 960 186V560H0Z"
+                                                fill="#c8332a"
+                                                opacity="0.06"
+                                            />
+                                            <g font-size="20" fill="#5f6874" font-family="monospace">
+                                                <text x="8" y="30">1682.40</text>
+                                                <text x="8" y="524">1540.10</text>
+                                            </g>
+                                            <text
+                                                x="470"
+                                                y="70"
+                                                font-size="26"
+                                                fill="#c8332a"
+                                                font-family="monospace"
+                                                opacity="0.75"
+                                            >
+                                                MA20 1631.22
+                                            </text>
+                                        </svg>
+
+                                        <!-- popover -->
+                                        <div class="popover">
+                                            <div class="popover__head">
+                                                数据源
+                                                <span class="muted">4 已配置 · 1 禁用</span>
+                                            </div>
+                                            <div class="popover__list">
+                                                <div class="ds-row">
+                                                    <span class="picon ds-row__icon">B</span>
+                                                    <div>
+                                                        <div class="ds-row__name">
+                                                            Binance Spot Market Data
+                                                        </div>
+                                                        <div class="ds-row__meta">
+                                                            <span>历史 · 实时 · 参考</span>
+                                                            <span class="mono">82 ms · 09:42:16</span>
+                                                        </div>
+                                                    </div>
+                                                    <span class="state state--ready ds-row__state"
+                                                        ><i class="mark mark--ready"></i>正常</span
+                                                    >
+                                                </div>
+                                                <div class="ds-row">
+                                                    <span class="picon ds-row__icon">M</span>
+                                                    <div>
+                                                        <div class="ds-row__name">
+                                                            MiniQMT Market Data
+                                                        </div>
+                                                        <div class="ds-row__meta">
+                                                            <span>历史 · 实时</span>
+                                                        </div>
+                                                        <div
+                                                            class="ds-row__meta"
+                                                            style="color: var(--stale)"
+                                                        >
+                                                            <span
+                                                                >实时数据 连接中断 · 最后正常
+                                                                09:31:42</span
+                                                            >
+                                                        </div>
+                                                    </div>
+                                                    <span class="state state--degraded ds-row__state"
+                                                        ><i class="mark mark--degraded"></i>降级</span
+                                                    >
+                                                </div>
+                                                <div class="ds-row">
+                                                    <span class="picon ds-row__icon">U</span>
+                                                    <div>
+                                                        <div class="ds-row__name">
+                                                            Binance USD-M Market Data
+                                                        </div>
+                                                        <div class="ds-row__meta">
+                                                            <span>历史 · 参考</span>
+                                                            <span>该类型未提供连接测试</span>
+                                                        </div>
+                                                    </div>
+                                                    <span class="state state--unknown ds-row__state"
+                                                        ><i class="mark mark--unknown"></i>未验证</span
+                                                    >
+                                                </div>
+                                                <div class="ds-row">
+                                                    <span class="picon ds-row__icon">T</span>
+                                                    <div>
+                                                        <div class="ds-row__name">
+                                                            Tushare Daily Market Data
+                                                        </div>
+                                                        <div class="ds-row__meta"><span>历史</span></div>
+                                                    </div>
+                                                    <span class="state state--disabled ds-row__state"
+                                                        ><i class="mark mark--disabled"></i>已禁用</span
+                                                    >
+                                                </div>
+                                            </div>
+                                            <div class="popover__section">
+                                                <h3>当前工作区 · 600519.SH</h3>
+                                                <div class="gap-note">
+                                                    尚未有 canonical 来源绑定：工作区数据当前为
+                                                    synthetic 占位，这里不显示任何 Provider 名。
+                                                </div>
+                                            </div>
+                                            <div class="popover__foot">
+                                                <span class="btn">管理数据源…</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </section>
+
+                                <aside class="panel">
+                                    <div class="panel-head">自选</div>
+                                    <div class="panel-body">
+                                        <div class="watch-row">
+                                            <span class="sym">600519.SH</span>
+                                            <span class="muted">贵州茅台</span>
+                                            <span class="last up">1682.40</span>
+                                        </div>
+                                        <div class="watch-row">
+                                            <span class="sym">000001.SZ</span>
+                                            <span class="muted">平安银行</span>
+                                            <span class="last down">11.72</span>
+                                        </div>
+                                        <div class="watch-row">
+                                            <span class="sym">510300.SH</span>
+                                            <span class="muted">沪深300ETF</span>
+                                            <span class="last up">4.128</span>
+                                        </div>
+                                        <div class="watch-row">
+                                            <span class="sym">IF2603</span>
+                                            <span class="muted">沪深300期指</span>
+                                            <span class="last down">3912.6</span>
+                                        </div>
+                                    </div>
+                                </aside>
+
+                                <div class="tray">
+                                    <span class="rail-btn rail-btn--on">
+                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+                                            ><path d="M3 4.5h10M3 8h10M3 11.5h6" stroke="currentColor"
+                                                stroke-width="1.2" /></svg
+                                    ></span>
+                                    <span class="rail-btn">
+                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+                                            ><circle cx="8" cy="8" r="5.4" stroke="currentColor"
+                                                stroke-width="1.2" /><path d="M8 6.4v4"
+                                                stroke="currentColor" stroke-width="1.2" /></svg
+                                    ></span>
+                                    <span class="rail-btn">
+                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+                                            ><path d="M3 12.5h10M5 10.5V6M8 10.5V3.5M11 10.5V8"
+                                                stroke="currentColor" stroke-width="1.2" /></svg
+                                    ></span>
+                                </div>
+
+                                <div class="bottom">
+                                    <div class="bottom-head">
+                                        <span class="tab-btn tab-btn--on">研究运行</span>
+                                        <span class="tab-btn">结果</span>
+                                        <span class="tab-btn">回测</span>
+                                    </div>
+                                    <table class="data-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Run</th>
+                                                <th>状态</th>
+                                                <th>开始</th>
+                                                <th>候选</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td class="num">run_7c41…</td>
+                                                <td>已完成</td>
+                                                <td class="num">2026-09-24 09:12</td>
+                                                <td class="num">12</td>
+                                            </tr>
+                                            <tr>
+                                                <td class="num">run_2ab9…</td>
+                                                <td>运行中</td>
+                                                <td class="num">2026-09-24 09:38</td>
+                                                <td class="num">—</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <div class="status-surface">
+                                <span class="status-dot"></span>
+                                <span>OnlyAlpha · 浏览器只做控制与呈现</span>
+                                <span class="status-authority">服务端 Authority 必需</span>
+                            </div>
+                        </div>
+                        <figcaption>
+                            1440 × 900 · 入口与 symbol / 周期 / 指标 / 因子 同排，位于 spacer 起点
+                        </figcaption>
+                    </figure>
+                </div>
+            </section>
+
+            <!-- ============ 02 tab configured ============ -->
+            <section class="screen">
+                <header>
+                    <span class="screen__index">02</span>
+                    <span class="screen__name">管理 Modal · Tab 已配置</span>
+                    <span class="screen__note"
+                        >紧凑卡片列表；四种状态 + 草稿/契约提示；归档只在 ⋯ 内</span
+                    >
+                </header>
+                <div class="frame-row">
+                    <figure class="frame" style="width: 1440px; height: 900px">
+                        <div class="shell">
+                            <div class="topbar">
+                                <span class="brand"><span class="brand-mark">OA</span>OnlyAlpha</span>
+                                <span class="topbar-divider"></span>
+                                <nav class="primary-nav">
+                                    <span class="nav-link nav-link--active">工作台</span>
+                                    <span class="nav-link">研究</span>
+                                    <span class="nav-link">数据</span>
+                                    <span class="nav-link">策略</span>
+                                    <span class="nav-link">回测</span>
+                                    <span class="nav-link">系统</span>
+                                </nav>
+                                <div class="topbar-actions">
+                                    <span class="topbar-action">新建研究</span>
+                                    <span class="topbar-mode">Control + Presentation</span>
+                                </div>
+                            </div>
+                            <div class="workbench">
+                                <div class="rail"></div>
+                                <section class="chart-region">
+                                    <header class="chart-head">
+                                        <span class="chart-title">600519.SH · 贵州茅台</span>
+                                    </header>
+                                    <div class="chart-body"></div>
+                                </section>
+                                <aside class="panel"></aside>
+                                <div class="tray"></div>
+                                <div class="bottom"></div>
+                            </div>
+                            <div class="status-surface">
+                                <span class="status-dot"></span>
+                                <span>OnlyAlpha · 浏览器只做控制与呈现</span>
+                                <span class="status-authority">服务端 Authority 必需</span>
+                            </div>
+                        </div>
+
+                        <div class="overlay">
+                            <div class="modal modal--form">
+                                <div class="modal__head">
+                                    <span class="modal__title">管理数据源</span>
+                                    <span class="btn btn--quiet">关闭</span>
+                                </div>
+                                <div class="modal__tabs">
+                                    <span class="modal__tab modal__tab--on"
+                                        >已配置<span class="modal__tab-count">4</span></span
+                                    >
+                                    <span class="modal__tab">添加数据源</span>
+                                    <span class="modal__tab">数据源绑定</span>
+                                </div>
+                                <div class="modal__body">
+                                    <div class="modal__scroll">
+                                        <!-- 1 -->
+                                        <article class="int-card">
+                                            <div class="int-card__top">
+                                                <span class="picon picon--lg">B</span>
+                                                <div>
+                                                    <div class="int-card__name">
+                                                        Binance Spot Market Data
+                                                    </div>
+                                                    <div class="int-card__desc">
+                                                        Public historical &amp; realtime market data
+                                                    </div>
+                                                </div>
+                                                <span class="state state--ready int-card__state"
+                                                    ><i class="mark mark--ready"></i>正常</span
+                                                >
+                                            </div>
+                                            <div class="int-card__mid">
+                                                <span class="caps">
+                                                    <span class="cap">历史</span>
+                                                    <span class="cap">实时</span>
+                                                    <span class="cap">参考</span>
+                                                </span>
+                                                <span class="tag tag--draft">有未发布草稿</span>
+                                            </div>
+                                            <div class="meta-line">
+                                                最近探测
+                                                <span class="mono">09:42:16</span> · 用时
+                                                <span class="mono">1.4 s</span> · 最慢检查
+                                                <span class="mono">240 ms</span> · revision
+                                                <span class="mono">3f7a91c4</span>
+                                            </div>
+                                            <div class="int-card__foot">
+                                                <span class="mono" style="font-size: 0.72rem"
+                                                    >binance.spot.market_data</span
+                                                >
+                                                <span class="int-card__actions">
+                                                    <span class="btn btn--outline">测试连接</span>
+                                                    <span class="btn">编辑</span>
+                                                    <span class="btn btn--quiet">禁用</span>
+                                                    <span class="btn btn--icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><circle cx="3.4" cy="8" r="1.15"/><circle cx="8" cy="8" r="1.15"/><circle cx="12.6" cy="8" r="1.15"/></svg></span>
+                                                </span>
+                                            </div>
+                                        </article>
+
+                                        <!-- 2 -->
+                                        <article class="int-card">
+                                            <div class="int-card__top">
+                                                <span class="picon picon--lg">M</span>
+                                                <div>
+                                                    <div class="int-card__name">
+                                                        MiniQMT Market Data
+                                                    </div>
+                                                    <div class="int-card__desc">
+                                                        Local historical and realtime market data
+                                                    </div>
+                                                </div>
+                                                <span class="state state--degraded int-card__state"
+                                                    ><i class="mark mark--degraded"></i>降级</span
+                                                >
+                                            </div>
+                                            <div class="int-card__mid">
+                                                <span class="caps">
+                                                    <span class="cap">历史</span>
+                                                    <span class="cap">实时</span>
+                                                </span>
+                                            </div>
+                                            <div class="meta-line meta-line--warn">
+                                                实时数据 连接中断 · 最后正常
+                                                <span class="mono">09:31:42</span>
+                                            </div>
+                                            <div
+                                                class="banner banner--warn"
+                                                style="margin-top: 0.1rem"
+                                            >
+                                                <span
+                                                    ><strong>类型契约已更新</strong>：该配置仍固定在发布时的
+                                                    descriptor
+                                                    <span class="mono">a91c…</span>，与当前服务端契约不一致。</span
+                                                >
+                                                <span class="btn btn--outline">重置到最新契约</span>
+                                            </div>
+                                            <div class="int-card__foot">
+                                                <span class="mono" style="font-size: 0.72rem"
+                                                    >miniqmt.market_data</span
+                                                >
+                                                <span class="int-card__actions">
+                                                    <span class="btn btn--outline">测试连接</span>
+                                                    <span class="btn">编辑</span>
+                                                    <span class="btn btn--quiet">禁用</span>
+                                                    <span class="btn btn--icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><circle cx="3.4" cy="8" r="1.15"/><circle cx="8" cy="8" r="1.15"/><circle cx="12.6" cy="8" r="1.15"/></svg></span>
+                                                </span>
+                                            </div>
+                                        </article>
+
+                                        <!-- 3 -->
+                                        <article class="int-card">
+                                            <div class="int-card__top">
+                                                <span class="picon picon--lg">U</span>
+                                                <div>
+                                                    <div class="int-card__name">
+                                                        Binance USD-M Market Data
+                                                    </div>
+                                                    <div class="int-card__desc">
+                                                        Public historical market and reference data
+                                                    </div>
+                                                </div>
+                                                <span class="state state--unknown int-card__state"
+                                                    ><i class="mark mark--unknown"></i>未验证</span
+                                                >
+                                            </div>
+                                            <div class="int-card__mid">
+                                                <span class="caps">
+                                                    <span class="cap">历史</span>
+                                                    <span class="cap">参考</span>
+                                                </span>
+                                                <span>最近探测：无</span>
+                                            </div>
+                                            <div class="meta-line">
+                                                该类型未声明连接测试（probe_contract 缺失），OnlyAlpha
+                                                无法验证其可用性。
+                                            </div>
+                                            <div class="int-card__foot">
+                                                <span class="mono" style="font-size: 0.72rem"
+                                                    >binance.usdm.market_data</span
+                                                >
+                                                <span class="int-card__actions">
+                                                    <span class="btn btn--outline" style="opacity: 0.5"
+                                                        >测试连接</span
+                                                    >
+                                                    <span class="btn">编辑</span>
+                                                    <span class="btn btn--quiet">禁用</span>
+                                                    <span class="btn btn--icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><circle cx="3.4" cy="8" r="1.15"/><circle cx="8" cy="8" r="1.15"/><circle cx="12.6" cy="8" r="1.15"/></svg></span>
+                                                </span>
+                                            </div>
+                                        </article>
+
+                                        <!-- 4 -->
+                                        <article class="int-card int-card--disabled">
+                                            <div class="int-card__top">
+                                                <span class="picon picon--lg">T</span>
+                                                <div>
+                                                    <div class="int-card__name">
+                                                        Tushare Daily Market Data
+                                                    </div>
+                                                    <div class="int-card__desc">
+                                                        Authenticated daily historical market data
+                                                    </div>
+                                                </div>
+                                                <span class="state state--disabled int-card__state"
+                                                    ><i class="mark mark--disabled"></i>已禁用</span
+                                                >
+                                            </div>
+                                            <div class="int-card__mid">
+                                                <span class="caps"><span class="cap">历史</span></span>
+                                                <span>凭据已保留 · revision 与历史证据保留</span>
+                                            </div>
+                                            <div class="int-card__foot">
+                                                <span class="mono" style="font-size: 0.72rem"
+                                                    >tushare.daily.market_data</span
+                                                >
+                                                <span class="int-card__actions">
+                                                    <span class="btn btn--outline">测试连接</span>
+                                                    <span class="btn">编辑</span>
+                                                    <span class="btn btn--quiet">启用</span>
+                                                    <span class="btn btn--icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><circle cx="3.4" cy="8" r="1.15"/><circle cx="8" cy="8" r="1.15"/><circle cx="12.6" cy="8" r="1.15"/></svg></span>
+                                                </span>
+                                            </div>
+                                        </article>
+
+                                    </div>
+                                </div>
+                                <div class="modal__foot">
+                                    <span class="btn btn--quiet">显示已归档（2）</span>
+                                    <span class="hint"
+                                        >归档项只读，保留 revision、
+                                        凭据绑定与历史证据 · 列表顺序：异常 → 降级 → 未验证 →
+                                        正常 → 已禁用</span
+                                    >
+                                </div>
+                            </div>
+                        </div>
+                        <figcaption>
+                            1000 × 800 modal · 卡片不是 Dashboard 卡片墙，禁用项降为灰底
+                        </figcaption>
+                    </figure>
+                </div>
+            </section>
+
+            <!-- ============ 03 add provider ============ -->
+            <section class="screen">
+                <header>
+                    <span class="screen__index">03</span>
+                    <span class="screen__name">管理 Modal · Tab 添加数据源</span>
+                    <span class="screen__note"
+                        >4 个真实 Integration Type 平铺 + 搜索；无评分、无推荐、无 Marketplace</span
+                    >
+                </header>
+                <div class="frame-row">
+                    <figure class="frame" style="width: 1440px; height: 900px">
+                        <div class="shell">
+                            <div class="topbar"></div>
+                            <div class="workbench">
+                                <div class="rail"></div>
+                                <section class="chart-region"><div class="chart-body"></div></section>
+                                <aside class="panel"></aside>
+                                <div class="tray"></div>
+                                <div class="bottom"></div>
+                            </div>
+                            <div class="status-surface"></div>
+                        </div>
+                        <div class="overlay">
+                            <div class="modal">
+                                <div class="modal__head">
+                                    <span class="modal__title">管理数据源</span>
+                                    <span class="btn btn--quiet">关闭</span>
+                                </div>
+                                <div class="modal__tabs">
+                                    <span class="modal__tab"
+                                        >已配置<span class="modal__tab-count">4</span></span
+                                    >
+                                    <span class="modal__tab modal__tab--on">添加数据源</span>
+                                    <span class="modal__tab">数据源绑定</span>
+                                </div>
+                                <div class="modal__body">
+                                    <div class="modal__scroll">
+                                        <div class="catalog-toolbar">
+                                            <div class="search-field">
+                                                <svg
+                                                    width="14"
+                                                    height="14"
+                                                    viewBox="0 0 16 16"
+                                                    fill="none"
+                                                >
+                                                    <circle
+                                                        cx="7"
+                                                        cy="7"
+                                                        r="4.4"
+                                                        stroke="#5f6874"
+                                                        stroke-width="1.3"
+                                                    />
+                                                    <path
+                                                        d="m10.4 10.4 3 3"
+                                                        stroke="#5f6874"
+                                                        stroke-width="1.3"
+                                                    />
+                                                </svg>
+                                                <input placeholder="搜索数据源类型 / 供应商" />
+                                            </div>
+                                            <span class="hint"
+                                                >来源：正式 Product
+                                                API /integration-types?category=DATA_SOURCE</span
+                                            >
+                                        </div>
+                                        <div class="catalog-grid">
+                                            <div class="catalog-card">
+                                                <span class="picon picon--xl">B</span>
+                                                <span class="catalog-card__name"
+                                                    >Binance Spot Market Data</span
+                                                >
+                                                <span class="caps">
+                                                    <span class="cap">历史</span>
+                                                    <span class="cap">实时</span>
+                                                    <span class="cap">参考</span>
+                                                </span>
+                                                <span class="catalog-card__desc"
+                                                    >Public historical, realtime, reference, and
+                                                    calendar data for Binance Spot.</span
+                                                >
+                                            </div>
+                                            <div class="catalog-card">
+                                                <span class="picon picon--xl">U</span>
+                                                <span class="catalog-card__name"
+                                                    >Binance USD-M Market Data</span
+                                                >
+                                                <span class="caps">
+                                                    <span class="cap">历史</span>
+                                                    <span class="cap">参考</span>
+                                                </span>
+                                                <span class="catalog-card__desc"
+                                                    >Public historical market and reference data for
+                                                    Binance USD-M Futures.</span
+                                                >
+                                            </div>
+                                            <div class="catalog-card">
+                                                <span class="picon picon--xl">M</span>
+                                                <span class="catalog-card__name"
+                                                    >MiniQMT Market Data</span
+                                                >
+                                                <span class="caps">
+                                                    <span class="cap">历史</span>
+                                                    <span class="cap">实时</span>
+                                                </span>
+                                                <span class="catalog-card__desc"
+                                                    >Local historical and realtime market data provided
+                                                    by the MiniQMT terminal.</span
+                                                >
+                                            </div>
+                                            <div class="catalog-card">
+                                                <span class="picon picon--xl">T</span>
+                                                <span class="catalog-card__name"
+                                                    >Tushare Daily Market Data</span
+                                                >
+                                                <span class="caps"><span class="cap">历史</span></span>
+                                                <span class="catalog-card__desc"
+                                                    >Authenticated daily historical market data from
+                                                    Tushare.</span
+                                                >
+                                            </div>
+                                        </div>
+                                        <div class="banner">
+                                            <span
+                                                >Provider 图标使用 fallback
+                                                字母盒：仓库内暂无品牌资产，官方 Logo
+                                                由后续实现提供，不在此阶段下载未授权素材。</span
+                                            >
+                                        </div>
+                                        <div class="hint">
+                                            点击任意卡片 → 进入配置表单 → 测试连接 → 保存配置 /
+                                            保存并启用。
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <figcaption>Provider Grid 4 列 · 卡片高度约 160px</figcaption>
+                    </figure>
+                </div>
+            </section>
+
+            <!-- ============ 04 form + probe ============ -->
+            <section class="screen">
+                <header>
+                    <span class="screen__index">04</span>
+                    <span class="screen__name">配置表单（契约驱动）+ Probe 能力级结果</span>
+                    <span class="screen__note"
+                        >基础字段 1 个 + 高级折叠 8 个；Probe 固定 5 项检查，未声明显示「不适用」</span
+                    >
+                </header>
+                <div class="frame-row">
+                    <figure class="frame" style="width: 1440px; height: 900px">
+                        <div class="shell">
+                            <div class="topbar"></div>
+                            <div class="workbench">
+                                <div class="rail"></div>
+                                <section class="chart-region"><div class="chart-body"></div></section>
+                                <aside class="panel"></aside>
+                                <div class="tray"></div>
+                                <div class="bottom"></div>
+                            </div>
+                            <div class="status-surface"></div>
+                        </div>
+                        <div class="overlay">
+                            <div class="modal modal--form">
+                                <div class="modal__head">
+                                    <span class="btn btn--quiet">
+                                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                            <path
+                                                d="M10 3.5 5.5 8 10 12.5"
+                                                stroke="currentColor"
+                                                stroke-width="1.3"
+                                            />
+                                        </svg>
+                                        返回
+                                    </span>
+                                    <span class="modal__title">管理数据源</span>
+                                    <span class="btn btn--quiet">关闭</span>
+                                </div>
+                                <div class="modal__tabs">
+                                    <span class="modal__tab modal__tab--on">已配置</span>
+                                    <span class="modal__tab">添加数据源</span>
+                                    <span class="modal__tab">数据源绑定</span>
+                                </div>
+                                <div class="modal__body">
+                                    <div class="modal__scroll" style="padding: 0.9rem">
+                                        <div class="form-head">
+                                            <span class="picon">B</span>
+                                            <div>
+                                                <div style="font-size: 0.9rem; font-weight: 600">
+                                                    Binance Spot Market Data
+                                                </div>
+                                                <div class="meta-line">
+                                                    <span class="mono"
+                                                        >binance.spot.market_data</span
+                                                    >
+                                                    · 已发布 revision
+                                                    <span class="mono">3f7a91c4</span> · 草稿 v7
+                                                    <span class="tag tag--draft">未发布</span>
+                                                </div>
+                                            </div>
+                                            <span
+                                                class="state state--ready"
+                                                style="margin-left: auto"
+                                                ><i class="mark mark--ready"></i>正常</span
+                                            >
+                                        </div>
+
+                                        <div class="form-split">
+                                            <div style="display: grid; gap: 0.6rem">
+                                                <div class="group">
+                                                    <div class="group__title">基本设置</div>
+                                                    <div class="field">
+                                                        <label>环境</label>
+                                                        <select>
+                                                            <option>LIVE</option>
+                                                        </select>
+                                                        <small
+                                                            >该字段来自 integration type
+                                                            的 configuration contract。</small
+                                                        >
+                                                    </div>
+                                                </div>
+                                                <div class="group">
+                                                    <div class="group__title">凭据</div>
+                                                    <div class="hint">
+                                                        该数据源类型不需要凭据：公开行情数据，contract
+                                                        未声明任何 secret 字段。
+                                                    </div>
+                                                </div>
+                                                <details class="advanced" open>
+                                                    <summary>高级设置（8）</summary>
+                                                    <div
+                                                        style="
+                                                            display: grid;
+                                                            grid-template-columns: repeat(2, minmax(0, 1fr));
+                                                            gap: 0.6rem;
+                                                        "
+                                                    >
+                                                        <div class="field">
+                                                            <label>Request timeout</label>
+                                                            <input
+                                                                class="mono"
+                                                                type="text"
+                                                                value="10.0"
+                                                            />
+                                                            <small>秒 · 大于 0 且不超过 30</small>
+                                                        </div>
+                                                        <div class="field">
+                                                            <label>Maximum response bytes</label>
+                                                            <input
+                                                                class="mono"
+                                                                type="text"
+                                                                value="8388608"
+                                                            />
+                                                            <small>最小 1</small>
+                                                        </div>
+                                                        <div class="field">
+                                                            <label>REST page size</label>
+                                                            <input
+                                                                class="mono"
+                                                                type="text"
+                                                                value="1000"
+                                                            />
+                                                            <small>1 – 1500</small>
+                                                        </div>
+                                                        <div class="field">
+                                                            <label>Cache policy</label>
+                                                            <select>
+                                                                <option>prefer_cache</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                    <div class="hint" style="margin-top: 0.4rem">
+                                                        其余 4 项（WebSocket 上限、重连区间、恢复缓冲）同组展示
+                                                    </div>
+                                                </details>
+                                            </div>
+
+                                            <div class="probe">
+                                                <div class="probe__head">
+                                                    连接测试
+                                                    <span class="muted"
+                                                        >09:42:16 · 用时 1.4 s</span
+                                                    >
+                                                </div>
+                                                <div>
+                                                    <div class="check">
+                                                        <span class="check__name">连接</span>
+                                                        <span class="check__glyph check__glyph--pass">
+                                                            <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
+                                                                <path
+                                                                    d="M1.6 5.3 4 7.7 8.4 2.5"
+                                                                    stroke="currentColor"
+                                                                    stroke-width="1.5"
+                                                                    stroke-linecap="round"
+                                                                />
+                                                            </svg>
+                                                        </span>
+                                                        <span class="muted"
+                                                            >通过（系统探测点 BTCUSDT）</span
+                                                        >
+                                                        <span class="check__latency">120 ms</span>
+                                                    </div>
+                                                    <div class="check check--na">
+                                                        <span class="check__name">认证</span>
+                                                        <span class="check__glyph check__glyph--na">
+                                                            <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
+                                                                <path
+                                                                    d="M2 5h6"
+                                                                    stroke="currentColor"
+                                                                    stroke-width="1.5"
+                                                                    stroke-linecap="round"
+                                                                />
+                                                            </svg>
+                                                        </span>
+                                                        <span class="muted"
+                                                            >不适用：该类型未声明此检查</span
+                                                        >
+                                                        <span class="check__latency">—</span>
+                                                    </div>
+                                                    <div class="check">
+                                                        <span class="check__name">参考数据</span>
+                                                        <span class="check__glyph check__glyph--pass">
+                                                            <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
+                                                                <path
+                                                                    d="M1.6 5.3 4 7.7 8.4 2.5"
+                                                                    stroke="currentColor"
+                                                                    stroke-width="1.5"
+                                                                    stroke-linecap="round"
+                                                                />
+                                                            </svg>
+                                                        </span>
+                                                        <span class="muted">通过（instruments）</span>
+                                                        <span class="check__latency">110 ms</span>
+                                                    </div>
+                                                    <div class="check">
+                                                        <span class="check__name">历史数据</span>
+                                                        <span class="check__glyph check__glyph--pass">
+                                                            <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
+                                                                <path
+                                                                    d="M1.6 5.3 4 7.7 8.4 2.5"
+                                                                    stroke="currentColor"
+                                                                    stroke-width="1.5"
+                                                                    stroke-linecap="round"
+                                                                />
+                                                            </svg>
+                                                        </span>
+                                                        <span class="muted">通过（1D bars）</span>
+                                                        <span class="check__latency">240 ms</span>
+                                                    </div>
+                                                    <div class="check check--fail">
+                                                        <span class="check__name">实时数据</span>
+                                                        <span class="check__glyph check__glyph--fail">
+                                                            <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
+                                                                <path
+                                                                    d="M2.2 2.2 7.8 7.8M7.8 2.2 2.2 7.8"
+                                                                    stroke="currentColor"
+                                                                    stroke-width="1.5"
+                                                                    stroke-linecap="round"
+                                                                />
+                                                            </svg>
+                                                        </span>
+                                                        <span class="check__detail"
+                                                            >WebSocket connection timeout ·
+                                                            REALTIME_STREAM_UNAVAILABLE</span
+                                                        >
+                                                        <span class="check__latency">5000 ms</span>
+                                                    </div>
+                                                </div>
+                                                <div class="probe__foot">
+                                                    尝试
+                                                    <span class="mono">8f31c0a7…d2</span>
+                                                    <span style="margin-left: auto"
+                                                        >查看 probe 历史 / 复制尝试编号</span
+                                                    >
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="banner banner--warn">
+                                            <span
+                                                >本次测试针对<strong>已发布 revision</strong>；草稿
+                                                v7 的修改尚未发布，不会被测试。</span
+                                            >
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="modal__foot">
+                                    <span class="hint"
+                                        >保存只发布新 revision；启用与禁用是独立的 lifecycle
+                                        操作，不会改写历史证据</span
+                                    >
+                                    <span class="btn btn--outline">测试连接</span>
+                                    <span class="btn btn--primary">保存修改</span>
+                                </div>
+                            </div>
+                        </div>
+                        <figcaption>
+                            表单左栏 / Probe 右栏 · 失败行计数与延迟都可追溯，SKIPPED 记为「未验证」
+                        </figcaption>
+                    </figure>
+                </div>
+            </section>
+
+            <!-- ============ 05 secret form ============ -->
+            <section class="screen">
+                <header>
+                    <span class="screen__index">05</span>
+                    <span class="screen__name">凭据（Secret）规则</span>
+                    <span class="screen__note"
+                        >永不回显明文；只有「更换 / 清除」两种动作；状态文案只用已配置 / 未配置 /
+                        需要更新</span
+                    >
+                </header>
+                <div class="frame-row">
+                    <figure class="frame" style="width: 1440px; height: 900px">
+                        <div class="shell">
+                            <div class="topbar"></div>
+                            <div class="workbench">
+                                <div class="rail"></div>
+                                <section class="chart-region"><div class="chart-body"></div></section>
+                                <aside class="panel"></aside>
+                                <div class="tray"></div>
+                                <div class="bottom"></div>
+                            </div>
+                            <div class="status-surface"></div>
+                        </div>
+                        <div class="overlay">
+                            <div class="modal modal--form">
+                                <div class="modal__head">
+                                    <span class="btn btn--quiet"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M10 3.5 5.5 8 10 12.5" stroke="currentColor" stroke-width="1.3"/></svg>返回</span>
+                                    <span class="modal__title">管理数据源</span>
+                                    <span class="btn btn--quiet">关闭</span>
+                                </div>
+                                <div class="modal__tabs">
+                                    <span class="modal__tab modal__tab--on">已配置</span>
+                                    <span class="modal__tab">添加数据源</span>
+                                    <span class="modal__tab">数据源绑定</span>
+                                </div>
+                                <div class="modal__body">
+                                    <div class="modal__scroll">
+                                        <div class="form-head">
+                                            <span class="picon">T</span>
+                                            <div>
+                                                <div style="font-size: 0.9rem; font-weight: 600">
+                                                    Tushare Daily Market Data
+                                                </div>
+                                                <div class="meta-line">
+                                                    <span class="mono"
+                                                        >tushare.daily.market_data</span
+                                                    >
+                                                    · revision
+                                                    <span class="mono">b8e2f105</span>
+                                                </div>
+                                            </div>
+                                            <span
+                                                class="state state--disabled"
+                                                style="margin-left: auto"
+                                                ><i class="mark mark--disabled"></i>已禁用</span
+                                            >
+                                        </div>
+
+                                        <div class="group">
+                                            <div class="group__title">基本设置</div>
+                                            <div class="field">
+                                                <span class="field__label">Token</span>
+                                                <div class="secret-state">
+                                                    <span>已配置</span>
+                                                    <span class="mono" style="color: var(--muted)"
+                                                        >generation 3</span
+                                                    >
+                                                    <span class="btn btn--outline">更换凭据</span>
+                                                    <span class="btn btn--quiet">清除</span>
+                                                </div>
+                                                <small
+                                                    >OnlyAlpha 不会返回明文；更换即写入新一代凭据。</small
+                                                >
+                                            </div>
+                                            <div class="field">
+                                                <span class="field__label">API Secret（示例：需要更新）</span>
+                                                <div class="secret-state">
+                                                    <span style="color: var(--stale)"
+                                                        >需要更新：最近一次探测认证失败</span
+                                                    >
+                                                    <span class="btn btn--outline">更换凭据</span>
+                                                </div>
+                                            </div>
+                                            <div class="field">
+                                                <span class="field__label"
+                                                    >API Key（示例：未配置）</span
+                                                >
+                                                <div class="secret-state">
+                                                    <span>未配置</span>
+                                                    <span class="btn btn--outline">写入凭据</span>
+                                                </div>
+                                            </div>
+                                            <div class="field">
+                                                <label>价格调整</label>
+                                                <select>
+                                                    <option>none</option>
+                                                </select>
+                                                <small>enum 字段来自 contract</small>
+                                            </div>
+                                        </div>
+
+                                        <details class="advanced">
+                                            <summary>高级设置（2）</summary>
+                                        </details>
+                                        <div class="banner">
+                                            <span
+                                                >放弃草稿修改会回到当前已发布 revision；draft
+                                                版本冲突时提示重新载入，不自动重试。</span
+                                            >
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="modal__foot">
+                                    <span class="btn btn--quiet">放弃草稿</span>
+                                    <span class="btn btn--outline">保存配置</span>
+                                    <span class="btn btn--primary">保存并启用</span>
+                                </div>
+                            </div>
+                        </div>
+                        <figcaption>「保存配置」与「保存并启用」是两个不同动作</figcaption>
+                    </figure>
+                </div>
+            </section>
+
+            <!-- ============ 06 binding ============ -->
+            <section class="screen">
+                <header>
+                    <span class="screen__index">06</span>
+                    <span class="screen__name">管理 Modal · Tab 数据源绑定</span>
+                    <span class="screen__note"
+                        >缺口横幅必须显性；选项按 capability 过滤；被禁用仍被引用时阻止静默
+                        fallback</span
+                    >
+                </header>
+                <div class="frame-row">
+                    <figure class="frame" style="width: 1440px; height: 900px">
+                        <div class="shell">
+                            <div class="topbar"></div>
+                            <div class="workbench">
+                                <div class="rail"></div>
+                                <section class="chart-region"><div class="chart-body"></div></section>
+                                <aside class="panel"></aside>
+                                <div class="tray"></div>
+                                <div class="bottom"></div>
+                            </div>
+                            <div class="status-surface"></div>
+                        </div>
+                        <div class="overlay">
+                            <div class="modal">
+                                <div class="modal__head">
+                                    <span class="modal__title">管理数据源</span>
+                                    <span class="btn btn--quiet">关闭</span>
+                                </div>
+                                <div class="modal__tabs">
+                                    <span class="modal__tab"
+                                        >已配置<span class="modal__tab-count">4</span></span
+                                    >
+                                    <span class="modal__tab">添加数据源</span>
+                                    <span class="modal__tab modal__tab--on">数据源绑定</span>
+                                </div>
+                                <div class="modal__body">
+                                    <div class="modal__scroll">
+                                        <div class="banner banner--gap">
+                                            <span class="tag tag--gap">后端缺口</span>
+                                            <span
+                                                >此 Tab 目前<strong>没有 canonical 事实</strong
+                                                >：Product API
+                                                尚无来源绑定资源。实现前必须先有正式绑定 API；Web
+                                                不得在本地存储或自行推导默认来源。</span
+                                            >
+                                        </div>
+
+                                        <div class="bind-group">
+                                            <h3>加密货币 · Spot</h3>
+                                            <div class="bind-group__body">
+                                                <div class="bind-row">
+                                                    <label>历史数据</label>
+                                                    <span class="select-like"
+                                                        ><span class="picon">B</span>Binance Spot
+                                                        Market Data<span class="caret"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 3.8 5 6.9 8 3.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span></span
+                                                    >
+                                                    <span class="bind-note"
+                                                        >仅列出具备 HISTORICAL_BARS 的已启用数据源</span
+                                                    >
+                                                </div>
+                                                <div class="bind-row">
+                                                    <label>实时数据</label>
+                                                    <span class="select-like"
+                                                        ><span class="picon">B</span>Binance Spot
+                                                        Market Data<span class="caret"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 3.8 5 6.9 8 3.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span></span
+                                                    >
+                                                    <span class="bind-note"
+                                                        >候选：Binance Spot（具备 LIVE_BARS /
+                                                        LIVE_TICKS）</span
+                                                    >
+                                                </div>
+                                                <div class="bind-row">
+                                                    <label>参考数据</label>
+                                                    <span class="select-like"
+                                                        ><span class="picon">B</span>Binance Spot
+                                                        Market Data<span class="caret"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 3.8 5 6.9 8 3.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span></span
+                                                    >
+                                                    <span class="bind-note"
+                                                        >候选：Binance Spot、Binance USD-M（具备
+                                                        INSTRUMENTS）</span
+                                                    >
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="bind-group">
+                                            <h3>中国 A 股 · 日线与分钟</h3>
+                                            <div class="bind-group__body">
+                                                <div class="bind-row">
+                                                    <label>日线历史</label>
+                                                    <span class="select-like"
+                                                        ><span class="picon">T</span>Tushare Daily
+                                                        Market Data<span class="caret"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 3.8 5 6.9 8 3.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span></span
+                                                    >
+                                                    <span class="bind-note bind-note--warn"
+                                                        >Tushare 当前已禁用，绑定不会自动切换</span
+                                                    >
+                                                </div>
+                                                <div class="bind-row">
+                                                    <label>分钟历史</label>
+                                                    <span class="select-like"
+                                                        ><span class="picon">M</span>MiniQMT Market
+                                                        Data<span class="caret"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 3.8 5 6.9 8 3.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span></span
+                                                    >
+                                                    <span class="bind-note"
+                                                        >候选：MiniQMT（LIVE_TICKS + 分钟
+                                                        bars）</span
+                                                    >
+                                                </div>
+                                                <div class="bind-row">
+                                                    <label>实时数据</label>
+                                                    <span class="select-like select-like--unset"
+                                                        >未设置<span class="caret"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 3.8 5 6.9 8 3.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span></span
+                                                    >
+                                                    <span class="bind-note bind-note--warn"
+                                                        >MiniQMT 当前降级；OnlyAlpha 不会自动改用其他
+                                                        Provider</span
+                                                    >
+                                                </div>
+                                                <div class="bind-row">
+                                                    <label>参考数据</label>
+                                                    <span class="select-like"
+                                                        ><span class="picon">M</span>MiniQMT Market
+                                                        Data<span class="caret"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 3.8 5 6.9 8 3.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span></span
+                                                    >
+                                                    <span class="bind-note"
+                                                        >候选：MiniQMT、Tushare（具备
+                                                        INSTRUMENTS / CALENDARS）</span
+                                                    >
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="banner banner--danger">
+                                            <span
+                                                ><strong>MiniQMT 已被禁用</strong>，但仍被
+                                                「A 股 · 分钟历史」与「A 股 · 参考数据」引用。禁止静默
+                                                fallback：请显式修改绑定或重新启用。</span
+                                            >
+                                            <span class="btn btn--outline">修改绑定</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="modal__foot">
+                                    <span class="hint"
+                                        >绑定保存后立即生效；不会回溯改写历史 Evidence</span
+                                    >
+                                    <span class="btn btn--primary">保存绑定</span>
+                                </div>
+                            </div>
+                        </div>
+                        <figcaption>Binding 是明确产品概念，不是配置文件的别名</figcaption>
+                    </figure>
+                </div>
+            </section>
+
+            <!-- ============ 07 states ============ -->
+            <section class="screen">
+                <header>
+                    <span class="screen__index">07</span>
+                    <span class="screen__name">状态矩阵</span>
+                    <span class="screen__note"
+                        >Empty / Probing / Backend unavailable / 归档保护 / 降级详情</span
+                    >
+                </header>
+                <div class="frame-row">
+                    <figure class="frame" style="width: 356px; height: 250px">
+                        <div class="popover" style="position: static; width: 100%; margin: 0.6rem">
+                            <div class="popover__head">
+                                数据源
+                                <span class="muted">未配置</span>
+                            </div>
+                            <div class="empty-state">
+                                <div style="font-size: 0.86rem; font-weight: 600">
+                                    尚未配置数据源
+                                </div>
+                                <p>
+                                    添加数据源后可以查看行情、同步历史数据并进行 Research。
+                                </p>
+                                <span class="btn btn--primary">添加第一个数据源</span>
+                            </div>
+                        </div>
+                        <figcaption>空状态直接通往「添加数据源」Tab</figcaption>
+                    </figure>
+
+                    <figure class="frame" style="width: 420px; height: 330px">
+                        <div class="probe" style="margin: 0.6rem">
+                            <div class="probe__head">
+                                连接测试
+                                <span class="muted">
+                                    <i class="mark mark--probing"></i> 进行中…
+                                </span>
+                            </div>
+                            <div>
+                                <div class="skeleton-row">
+                                    <span class="check__name">连接</span
+                                    ><span class="skeleton" style="width: 70%"></span>
+                                </div>
+                                <div class="skeleton-row">
+                                    <span class="check__name">认证</span
+                                    ><span class="skeleton" style="width: 52%"></span>
+                                </div>
+                                <div class="skeleton-row">
+                                    <span class="check__name">参考数据</span
+                                    ><span class="skeleton" style="width: 62%"></span>
+                                </div>
+                                <div class="skeleton-row">
+                                    <span class="check__name">历史数据</span
+                                    ><span class="skeleton" style="width: 46%"></span>
+                                </div>
+                                <div class="skeleton-row">
+                                    <span class="check__name">实时数据</span
+                                    ><span class="skeleton" style="width: 58%"></span>
+                                </div>
+                            </div>
+                            <div class="probe__foot">
+                                正在探测…（服务端为同步调用，无「进行中」状态；此态只表示请求在途）
+                            </div>
+                        </div>
+                        <figcaption>Probing 是客户端在途态，不写入任何服务端状态</figcaption>
+                    </figure>
+
+                    <figure class="frame" style="width: 520px; height: 268px">
+                        <div style="padding: 0.6rem; display: grid; gap: 0.5rem">
+                            <div class="ds-entry" style="align-self: flex-start">
+                                数据源 <i class="mark mark--unknown"></i>
+                                <span class="muted">状态未知</span>
+                            </div>
+                            <div class="banner banner--danger">
+                                <span
+                                    ><strong>数据源状态不可用</strong>：正式 Product API
+                                    无法访问（INTEGRATION_API_UNAVAILABLE）。显示的是最后一次成功读取的事实，不
+                                    fallback 到任何推断值。</span
+                                >
+                            </div>
+                            <div class="ds-row" style="border: 1px solid var(--line); border-radius: 4px">
+                                <span class="picon ds-row__icon">B</span>
+                                <div>
+                                    <div class="ds-row__name">Binance Spot Market Data</div>
+                                    <div class="ds-row__meta">
+                                        最后一次已知：正常 · 09:42:16
+                                    </div>
+                                </div>
+                                <span class="state state--unknown ds-row__state"
+                                    ><i class="mark mark--unknown"></i>状态未知</span
+                                >
+                            </div>
+                            <span class="hint"
+                                >入口计数在读取失败时退化为「状态未知」，不会显示为正常或异常。</span
+                            >
+                        </div>
+                        <figcaption>Backend unavailable 不等于失败，也不等于正常</figcaption>
+                    </figure>
+
+                    <figure class="frame" style="width: 560px; height: 340px">
+                        <div class="overlay">
+                            <div class="dialog">
+                                <div class="dialog__head">无法直接归档当前数据源</div>
+                                <div class="dialog__body">
+                                    <p>
+                                        MiniQMT Market Data 仍被以下来源绑定引用：
+                                    </p>
+                                    <ul>
+                                        <li>· A 股 · 分钟历史</li>
+                                        <li>· A 股 · 参考数据</li>
+                                    </ul>
+                                    <p class="hint">
+                                        归档会保留 revision、凭据绑定与历史证据；不会删除 Market Data
+                                        或 Research Evidence。OnlyAlpha 不会自动改用其他 Provider。
+                                    </p>
+                                </div>
+                                <div class="dialog__foot">
+                                    <span class="btn btn--outline">取消</span>
+                                    <span class="btn btn--primary">修改绑定</span>
+                                </div>
+                            </div>
+                        </div>
+                        <figcaption>被引用时的归档保护：阻断 + 明确出口</figcaption>
+                    </figure>
+
+                    <figure class="frame" style="width: 560px; height: 340px">
+                        <div style="padding: 0.6rem; display: grid; gap: 0.5rem">
+                            <div class="int-card">
+                                <div class="int-card__top">
+                                    <span class="picon picon--lg">M</span>
+                                    <div>
+                                        <div class="int-card__name">MiniQMT Market Data</div>
+                                        <div class="int-card__desc">能力级状态分解</div>
+                                    </div>
+                                    <span class="state state--degraded int-card__state"
+                                        ><i class="mark mark--degraded"></i>降级</span
+                                    >
+                                </div>
+                                <div class="meta-line">
+                                    历史 <span style="color: var(--success)">正常</span> · 参考
+                                    <span style="color: var(--success)">正常</span> · 实时
+                                    <span style="color: var(--danger)">连接中断</span>
+                                </div>
+                                <div class="meta-line">
+                                    最后正常 <span class="mono">09:31:42</span> · 检查
+                                    REALTIME_DATA <span class="mono">OFFLINE</span>
+                                </div>
+                                <div class="int-card__foot">
+                                    <span class="mono" style="font-size: 0.72rem"
+                                        >miniqmt.market_data</span
+                                    >
+                                    <span class="int-card__actions">
+                                        <span class="btn btn--outline">查看详情</span>
+                                    </span>
+                                </div>
+                            </div>
+                            <span class="hint"
+                                >禁止把它压成一句「MiniQMT 错误」：能力级状态必须可解释。</span
+                            >
+                        </div>
+                        <figcaption>降级详情：哪一层坏了要说清楚</figcaption>
+                    </figure>
+                </div>
+            </section>
+
+            <!-- ============ 08 responsive ============ -->
+            <section class="screen">
+                <header>
+                    <span class="screen__index">08</span>
+                    <span class="screen__name">Responsive</span>
+                    <span class="screen__note"
+                        >窄屏 = 全屏 dialog + 单列 + sticky 操作；Tablet = 网格 2 列；结构变化，不是缩字号</span
+                    >
+                </header>
+                <div class="frame-row">
+                    <figure class="frame" style="width: 390px; height: 844px">
+                        <div class="modal modal--full" style="grid-template-rows: 2.6rem 2.4rem minmax(0,1fr) 3.1rem">
+                            <div class="modal__head">
+                                <span class="modal__title">管理数据源</span>
+                                <span class="btn btn--quiet">关闭</span>
+                            </div>
+                            <div class="modal__tabs" style="overflow: hidden">
+                                <span class="modal__tab modal__tab--on">已配置</span>
+                                <span class="modal__tab">添加数据源</span>
+                                <span class="modal__tab">数据源绑定</span>
+                            </div>
+                            <div class="modal__body">
+                                <div class="modal__scroll" style="padding: 0.6rem; gap: 0.5rem">
+                                    <div class="narrow-card">
+                                        <div class="narrow-card__top">
+                                            <span class="picon">B</span>
+                                            <div style="min-width: 0">
+                                                <div class="int-card__name">
+                                                    Binance Spot Market Data
+                                                </div>
+                                                <div class="caps" style="margin-top: 0.2rem">
+                                                    <span class="cap">历史</span>
+                                                    <span class="cap">实时</span>
+                                                    <span class="cap">参考</span>
+                                                </div>
+                                            </div>
+                                            <span
+                                                class="state state--ready"
+                                                style="margin-left: auto"
+                                                ><i class="mark mark--ready"></i>正常</span
+                                            >
+                                        </div>
+                                        <div class="meta-line">
+                                            09:42:16 · 最慢检查 <span class="mono">240 ms</span>
+                                        </div>
+                                        <div class="narrow-actions">
+                                            <span class="btn btn--outline">测试连接</span>
+                                            <span class="btn">编辑</span>
+                                            <span class="btn btn--quiet">禁用</span>
+                                        </div>
+                                    </div>
+                                    <div class="narrow-card">
+                                        <div class="narrow-card__top">
+                                            <span class="picon">M</span>
+                                            <div style="min-width: 0">
+                                                <div class="int-card__name">
+                                                    MiniQMT Market Data
+                                                </div>
+                                                <div class="caps" style="margin-top: 0.2rem">
+                                                    <span class="cap">历史</span>
+                                                    <span class="cap">实时</span>
+                                                </div>
+                                            </div>
+                                            <span
+                                                class="state state--degraded"
+                                                style="margin-left: auto"
+                                                ><i class="mark mark--degraded"></i>降级</span
+                                            >
+                                        </div>
+                                        <div class="meta-line meta-line--warn">
+                                            实时数据 连接中断
+                                        </div>
+                                        <div class="narrow-actions">
+                                            <span class="btn btn--outline">测试连接</span>
+                                            <span class="btn">编辑</span>
+                                            <span class="btn btn--quiet">禁用</span>
+                                        </div>
+                                    </div>
+                                    <div class="narrow-card">
+                                        <div class="narrow-card__top">
+                                            <span class="picon">T</span>
+                                            <div style="min-width: 0">
+                                                <div class="int-card__name">
+                                                    Tushare Daily Market Data
+                                                </div>
+                                                <div class="caps" style="margin-top: 0.2rem">
+                                                    <span class="cap">历史</span>
+                                                </div>
+                                            </div>
+                                            <span
+                                                class="state state--disabled"
+                                                style="margin-left: auto"
+                                                ><i class="mark mark--disabled"></i>已禁用</span
+                                            >
+                                        </div>
+                                        <div class="narrow-actions">
+                                            <span class="btn btn--outline">测试连接</span>
+                                            <span class="btn">编辑</span>
+                                            <span class="btn btn--quiet">启用</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="sticky-foot">
+                                <span class="hint">3 个数据源 · 1 降级 · 1 已禁用</span>
+                                <span class="btn btn--primary">添加数据源</span>
+                            </div>
+                        </div>
+                        <figcaption>390 × 844 全屏 dialog · 操作按钮不被遮挡</figcaption>
+                    </figure>
+
+                    <figure class="frame" style="width: 1024px; height: 768px">
+                        <div class="overlay">
+                            <div class="modal" style="width: 90%; height: 88%">
+                                <div class="modal__head">
+                                    <span class="modal__title">管理数据源</span>
+                                    <span class="btn btn--quiet">关闭</span>
+                                </div>
+                                <div class="modal__tabs">
+                                    <span class="modal__tab">已配置</span>
+                                    <span class="modal__tab modal__tab--on">添加数据源</span>
+                                    <span class="modal__tab">数据源绑定</span>
+                                </div>
+                                <div class="modal__body">
+                                    <div class="modal__scroll">
+                                        <div class="catalog-grid" style="grid-template-columns: repeat(2, minmax(0,1fr))">
+                                            <div class="catalog-card">
+                                                <span class="picon picon--xl">B</span>
+                                                <span class="catalog-card__name">Binance Spot</span>
+                                                <span class="caps">
+                                                    <span class="cap">历史</span>
+                                                    <span class="cap">实时</span>
+                                                    <span class="cap">参考</span>
+                                                </span>
+                                            </div>
+                                            <div class="catalog-card">
+                                                <span class="picon picon--xl">M</span>
+                                                <span class="catalog-card__name">MiniQMT</span>
+                                                <span class="caps">
+                                                    <span class="cap">历史</span>
+                                                    <span class="cap">实时</span>
+                                                </span>
+                                            </div>
+                                            <div class="catalog-card">
+                                                <span class="picon picon--xl">T</span>
+                                                <span class="catalog-card__name">Tushare</span>
+                                                <span class="caps"><span class="cap">历史</span></span>
+                                            </div>
+                                            <div class="catalog-card">
+                                                <span class="picon picon--xl">U</span>
+                                                <span class="catalog-card__name">Binance USD-M</span>
+                                                <span class="caps">
+                                                    <span class="cap">历史</span>
+                                                    <span class="cap">参考</span>
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div class="hint">
+                                            Tablet：Modal 90vw / 88vh，网格 2 列，Tab 保持文字不缩成图标。
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <figcaption>1024 × 768 · Modal 90vw</figcaption>
+                    </figure>
+                </div>
+            </section>
+        </main>
+    </body>
+</html>
