@@ -31,7 +31,8 @@ class OnlyBinanceSpotProbe:
         historical: OnlyBinanceSpotHistoricalClient,
         websocket: OnlyBinanceWebSocketTransport,
         *,
-        websocket_base_url: str,
+        raw_stream_url: Callable[[str], str],
+        context_observations: tuple[str, ...] = (),
         utc_now: Callable[[], datetime] = lambda: datetime.now(UTC),
         monotonic: Callable[[], float] = time.monotonic,
         bind_deadline: Callable[[float], None] | None = None,
@@ -39,7 +40,8 @@ class OnlyBinanceSpotProbe:
         self._reference = reference
         self._historical = historical
         self._websocket = websocket
-        self._websocket_base_url = websocket_base_url.rstrip("/")
+        self._raw_stream_url = raw_stream_url
+        self._context_observations = context_observations
         self._utc_now = utc_now
         self._monotonic = monotonic
         self._bind_deadline = bind_deadline or (lambda _deadline: None)
@@ -56,16 +58,28 @@ class OnlyBinanceSpotProbe:
                 checks.append(_skipped(check))
                 continue
             if symbol is None or not symbol.isalnum() or symbol != symbol.upper():
-                checks.append(_failed(check, OnlyIntegrationProbeFailureKind.FAILED, "BINANCE_PROBE_SYMBOL_INVALID"))
+                checks.append(
+                    _failed(
+                        check,
+                        OnlyIntegrationProbeFailureKind.FAILED,
+                        "BINANCE_PROBE_SYMBOL_INVALID",
+                        observations=self._context_observations,
+                    )
+                )
                 continue
             if self._monotonic() >= request.deadline_monotonic:
-                checks.append(_failed(check, OnlyIntegrationProbeFailureKind.DEGRADED, "INTEGRATION_PROBE_TIMEOUT"))
+                checks.append(
+                    _failed(
+                        check,
+                        OnlyIntegrationProbeFailureKind.DEGRADED,
+                        "INTEGRATION_PROBE_TIMEOUT",
+                        observations=self._context_observations,
+                    )
+                )
                 continue
 
             check_started = self._monotonic()
-            check_deadline = min(
-                request.deadline_monotonic, check_started + request.policy.per_check_timeout_seconds
-            )
+            check_deadline = min(request.deadline_monotonic, check_started + request.policy.per_check_timeout_seconds)
             self._bind_deadline(check_deadline)
             if check is OnlyIntegrationProbeCheck.CONNECTIVITY:
                 result, server_time_ms = self._connectivity(check_started)
@@ -87,6 +101,7 @@ class OnlyBinanceSpotProbe:
                     ),
                     "INTEGRATION_PROBE_TIMEOUT",
                     latency_ms=result.latency_ms,
+                    observations=self._context_observations,
                 )
                 if check is OnlyIntegrationProbeCheck.CONNECTIVITY:
                     server_time_ms = None
@@ -174,7 +189,7 @@ class OnlyBinanceSpotProbe:
 
     def _realtime_data(self, symbol: str, started: float) -> OnlyIntegrationProbeCheckResult:
         try:
-            self._websocket.connect(f"{self._websocket_base_url}/ws/{symbol.lower()}@trade")
+            self._websocket.connect(self._raw_stream_url(f"{symbol.lower()}@trade"))
             payload = json.loads(self._websocket.receive())
             _validate_trade(payload, symbol)
         except (json.JSONDecodeError, UnicodeDecodeError, InvalidOperation, KeyError, TypeError, ValueError):
@@ -196,7 +211,10 @@ class OnlyBinanceSpotProbe:
         self, check: OnlyIntegrationProbeCheck, started: float, observations: tuple[str, ...] = ()
     ) -> OnlyIntegrationProbeCheckResult:
         return OnlyIntegrationProbeCheckResult(
-            check, OnlyIntegrationProbeCheckStatus.PASS, self._latency(started), observations=observations
+            check,
+            OnlyIntegrationProbeCheckStatus.PASS,
+            self._latency(started),
+            observations=self._context_observations + observations,
         )
 
     def _schema_failure(
@@ -207,6 +225,7 @@ class OnlyBinanceSpotProbe:
             OnlyIntegrationProbeFailureKind.FAILED,
             error_code,
             latency_ms=self._latency(started),
+            observations=self._context_observations,
         )
 
     def _unavailable(
@@ -216,7 +235,13 @@ class OnlyBinanceSpotProbe:
         kind: OnlyIntegrationProbeFailureKind,
         error_code: str,
     ) -> OnlyIntegrationProbeCheckResult:
-        return _failed(check, kind, error_code, latency_ms=self._latency(started))
+        return _failed(
+            check,
+            kind,
+            error_code,
+            latency_ms=self._latency(started),
+            observations=self._context_observations,
+        )
 
     def _latency(self, started: float) -> int:
         return max(0, int((self._monotonic() - started) * 1000))
@@ -280,6 +305,7 @@ def _failed(
     error_code: str,
     *,
     latency_ms: int = 0,
+    observations: tuple[str, ...] = (),
 ) -> OnlyIntegrationProbeCheckResult:
     return OnlyIntegrationProbeCheckResult(
         check,
@@ -288,6 +314,7 @@ def _failed(
         failure_kind=kind,
         error_code=error_code,
         detail="Provider probe failed",
+        observations=observations,
     )
 
 

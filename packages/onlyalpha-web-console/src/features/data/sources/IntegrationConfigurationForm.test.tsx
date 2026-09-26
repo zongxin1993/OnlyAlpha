@@ -119,3 +119,56 @@ it("disables all mutation controls for an archived Integration", () => {
         expect(control).toBeDisabled();
     }
 });
+
+it("renders Binance market environment and endpoint profile through the generic enum form", async () => {
+    const onChange = vi.fn();
+    const binance = {
+        ...type,
+        type_id: "binance.spot.market_data",
+        configuration_contract: {
+            ...type.configuration_contract,
+            fields: [
+                {
+                    ...field("environment", "ENUM"),
+                    display_name: "Market Environment",
+                    default: "GLOBAL",
+                    enum_values: ["GLOBAL", "US", "SPOT_TESTNET"]
+                },
+                {
+                    ...field("endpoint_profile", "ENUM"),
+                    display_name: "Endpoint Profile",
+                    default: "PUBLIC_MARKET_DATA",
+                    enum_values: [
+                        "DEFAULT",
+                        "PUBLIC_MARKET_DATA",
+                        "STANDARD",
+                        "GCP",
+                        "API1",
+                        "API2",
+                        "API3",
+                        "API4"
+                    ]
+                }
+            ]
+        }
+    } satisfies IntegrationType;
+    render(
+        <IntegrationConfigurationForm
+            descriptor={binance}
+            values={{ environment: "US", endpoint_profile: "DEFAULT" }}
+            secretStatuses={[]}
+            readOnly={false}
+            onChange={onChange}
+            onReplaceSecret={() => undefined}
+            onClearSecret={() => undefined}
+        />
+    );
+
+    expect(screen.getByRole("combobox", { name: "Market Environment" })).toHaveValue("US");
+    expect(screen.getByRole("combobox", { name: "Endpoint Profile" })).toHaveValue("DEFAULT");
+    await userEvent.selectOptions(
+        screen.getByRole("combobox", { name: "Endpoint Profile" }),
+        "PUBLIC_MARKET_DATA"
+    );
+    expect(onChange).toHaveBeenCalledWith("endpoint_profile", "PUBLIC_MARKET_DATA");
+});

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field, fields, is_dataclass
 from enum import Enum, StrEnum
 from typing import Protocol, runtime_checkable
@@ -263,6 +264,17 @@ class OnlyIntegrationTypeDescriptorV1:
 class OnlyIntegrationTypeProvider(Protocol):
     @property
     def integration_type(self) -> OnlyIntegrationTypeDescriptorV1: ...
+
+
+@runtime_checkable
+class OnlyIntegrationPublicConfigurationValidator(Protocol):
+    def validate_public_integration_configuration(self, public_configuration: Mapping[str, object]) -> None: ...
+
+
+@runtime_checkable
+class OnlyIntegrationTypeCompatibilityProvider(Protocol):
+    @property
+    def compatible_type_descriptor_fingerprints(self) -> tuple[str, ...]: ...
 
 
 def _matches_kind(

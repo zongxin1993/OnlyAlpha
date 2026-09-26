@@ -97,7 +97,7 @@ class OnlyBinanceSpotInstrumentCatalog:
         if not isinstance(config, OnlyBinanceSpotDataSourceConfig):
             raise OnlyBinanceError("BINANCE_PLUGIN_CONFIG_INVALID")
         http = OnlyBinancePublicHttpClient(
-            config.environment.rest_base_url,
+            config.endpoints.rest_base_url,
             timeout_seconds=config.timeout_seconds,
             max_response_bytes=config.max_response_bytes,
         )

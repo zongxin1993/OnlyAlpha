@@ -12,6 +12,7 @@ from onlyalpha.application.integration_application import (
     OnlyIntegrationCommandService,
     OnlyIntegrationConfigurationResolver,
     OnlyIntegrationQueryService,
+    OnlyPublishIntegrationRevision,
     OnlySetIntegrationSecret,
     only_integration_secret_commitment,
 )
@@ -371,6 +372,25 @@ class _Catalog:
         if type_id != self.descriptor.type_id.value:
             raise LookupError(type_id)
         return self.descriptor
+
+
+@dataclass
+class _RejectingCatalog(_Catalog):
+    def validate_public_configuration(self, type_id: str, public_configuration: dict[str, object]) -> None:
+        del type_id, public_configuration
+        raise ValueError("BINANCE_ENDPOINT_PROFILE_UNSUPPORTED")
+
+
+def test_provider_semantic_validation_blocks_publication() -> None:
+    descriptor = _descriptor(secret_required=False)
+    store = _CommandStore(descriptor)
+    service = OnlyIntegrationCommandService(_RejectingCatalog(descriptor), store, b"k" * 32)
+
+    with pytest.raises(OnlyIntegrationError) as raised:
+        service.publish_integration_revision(OnlyPublishIntegrationRevision(COMMAND_ID, INTEGRATION_ID, 1))
+
+    assert raised.value.code == "INTEGRATION_CONFIGURATION_INVALID"
+    assert "BINANCE_ENDPOINT_PROFILE_UNSUPPORTED" in str(raised.value)
 
 
 class _CommandStore:

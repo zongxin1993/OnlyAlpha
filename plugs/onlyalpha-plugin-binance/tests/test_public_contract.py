@@ -1,11 +1,11 @@
+import json
 import time
-from datetime import UTC, datetime
 
 import pytest
-from onlyalpha_plugin_binance.common.environment import OnlyBinanceEnvironment
 from onlyalpha_plugin_binance.common.http import OnlyBinancePublicHttpClient
+from onlyalpha_plugin_binance.spot.data_source.config import OnlyBinanceSpotDataSourceConfig
 from onlyalpha_plugin_binance.spot.data_source.factory import factory
-from onlyalpha_plugin_binance.spot.reference.capture import OnlyBinanceSpotReferenceCapture
+from onlyalpha_plugin_binance.spot.data_source.historical import OnlyBinanceSpotHistoricalClient
 from onlyalpha_plugin_binance.spot.reference.client import OnlyBinanceSpotReferenceClient
 
 from onlyalpha.plugin.integration import OnlyIntegrationProbeCheck
@@ -19,14 +19,23 @@ from onlyalpha.plugin.integration_probe import (
 @pytest.mark.external
 @pytest.mark.requires_network
 @pytest.mark.requires_binance_public
-def test_current_binance_public_reference_contract() -> None:
-    client = OnlyBinanceSpotReferenceClient(OnlyBinancePublicHttpClient(OnlyBinanceEnvironment.LIVE.rest_base_url))
+@pytest.mark.parametrize(
+    "configuration",
+    [
+        {"environment": "GLOBAL", "endpoint_profile": "PUBLIC_MARKET_DATA"},
+        {"environment": "US", "endpoint_profile": "DEFAULT"},
+        {"environment": "SPOT_TESTNET", "endpoint_profile": "DEFAULT"},
+    ],
+)
+def test_current_binance_public_reference_contract(configuration: dict[str, object]) -> None:
+    config = OnlyBinanceSpotDataSourceConfig.parse(configuration)
+    http = OnlyBinancePublicHttpClient(config.endpoints.rest_base_url)
+    client = OnlyBinanceSpotReferenceClient(http)
     assert client.ping().strip() == b"{}"
-    assert b"serverTime" in client.server_time()
-    capture = OnlyBinanceSpotReferenceCapture.create(
-        client.exchange_info(("BTCUSDT", "ETHUSDT")), client.execution_rules(("BTCUSDT", "ETHUSDT")), datetime.now(UTC)
-    )
-    assert {item.raw_symbol for item in capture.authority.references} == {"BTCUSDT", "ETHUSDT"}
+    server_time = json.loads(client.server_time())["serverTime"]
+    assert json.loads(client.exchange_info(("BTCUSDT",)))["symbols"][0]["symbol"] == "BTCUSDT"
+    end_ms = int(server_time) - int(server_time) % 60_000
+    assert OnlyBinanceSpotHistoricalClient(http).klines("BTCUSDT", end_ms - 120_000, end_ms, 2)
 
 
 @pytest.mark.external

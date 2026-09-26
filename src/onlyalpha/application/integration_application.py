@@ -312,6 +312,7 @@ class OnlyIntegrationCommandService:
         public, probe = self._resolver.validate_draft(
             descriptor, command.public_configuration, command.probe_configuration
         )
+        self._validate_provider_configuration(descriptor, public)
         return self._store.update_draft_with_receipt(
             admission,
             command.integration_id,
@@ -408,6 +409,12 @@ class OnlyIntegrationCommandService:
         if replay is not None:
             return replay
         descriptor = self._current_descriptor(command.integration_id)
+        draft = self._store.load_draft(command.integration_id)
+        public = dict(draft.public_configuration_document)
+        for contract in descriptor.configuration_contract.fields:
+            if not contract.secret and contract.field_id not in public and contract.default is not None:
+                public[contract.field_id] = contract.default
+        self._validate_provider_configuration(descriptor, public)
         return self._store.publish_with_receipt(
             admission, command.integration_id, command.expected_draft_version, descriptor
         )
@@ -447,6 +454,17 @@ class OnlyIntegrationCommandService:
             return self._catalog.require(type_id)
         except LookupError as exc:
             raise OnlyIntegrationError("INTEGRATION_TYPE_UNAVAILABLE") from exc
+
+    def _validate_provider_configuration(
+        self, descriptor: OnlyIntegrationTypeDescriptorV1, public_configuration: Mapping[str, object]
+    ) -> None:
+        validate = getattr(self._catalog, "validate_public_configuration", None)
+        if not callable(validate):
+            return
+        try:
+            validate(descriptor.type_id.value, dict(public_configuration))
+        except ValueError as exc:
+            raise OnlyIntegrationError("INTEGRATION_CONFIGURATION_INVALID", str(exc)) from exc
 
 
 class OnlyIntegrationQueryService:

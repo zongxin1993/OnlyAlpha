@@ -98,8 +98,12 @@ services:
       ONLYALPHA_CLICKHOUSE_DATABASE: ${ONLYALPHA_CLICKHOUSE_DATABASE:-onlyalpha}
       ONLYALPHA_CLICKHOUSE_STORAGE_POLICY: default
       SSL_CERT_FILE: ${ONLYALPHA_SSL_CERT_FILE:-/etc/ssl/certs/ca-certificates.crt}
-      NO_PROXY: ${ONLYALPHA_NO_PROXY:-}
-      no_proxy: ${ONLYALPHA_NO_PROXY:-}
+      HTTP_PROXY: ${ONLYALPHA_HTTP_PROXY:-}
+      HTTPS_PROXY: ${ONLYALPHA_HTTPS_PROXY:-}
+      http_proxy: ${ONLYALPHA_HTTP_PROXY:-}
+      https_proxy: ${ONLYALPHA_HTTPS_PROXY:-}
+      NO_PROXY: ${ONLYALPHA_NO_PROXY:-localhost,127.0.0.1,postgres,clickhouse,api,web,agent,agent-provider-fixture,binance-probe-fixture}
+      no_proxy: ${ONLYALPHA_NO_PROXY:-localhost,127.0.0.1,postgres,clickhouse,api,web,agent,agent-provider-fixture,binance-probe-fixture}
     depends_on:
       bootstrap:
         condition: service_completed_successfully

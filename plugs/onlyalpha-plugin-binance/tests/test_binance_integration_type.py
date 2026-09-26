@@ -17,6 +17,7 @@ def test_spot_data_source_declares_configuration_without_runtime_instruments() -
     assert descriptor.category is OnlyIntegrationCategory.DATA_SOURCE
     assert set(fields) == {
         "cache_policy",
+        "endpoint_profile",
         "environment",
         "max_response_bytes",
         "max_ws_message_bytes",
@@ -27,6 +28,11 @@ def test_spot_data_source_declares_configuration_without_runtime_instruments() -
         "timeout_seconds",
     }
     assert not ({"symbols", "universe", "subscription_list", "instrument_allowlist"} & set(fields))
+    assert fields["environment"].default == "GLOBAL"
+    assert fields["environment"].enum_values == ("GLOBAL", "SPOT_TESTNET", "US")
+    assert fields["endpoint_profile"].default == "PUBLIC_MARKET_DATA"
+    assert not fields["environment"].advanced and not fields["endpoint_profile"].advanced
+    assert all(fields[name].advanced for name in set(fields) - {"environment", "endpoint_profile"})
     assert descriptor.probe_contract is not None
     assert descriptor.probe_contract.default_probe_instrument == "BTCUSDT"
     assert "BTCUSDT" not in {str(field.default) for field in fields.values()}

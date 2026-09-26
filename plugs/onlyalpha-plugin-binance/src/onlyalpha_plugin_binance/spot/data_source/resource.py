@@ -87,7 +87,7 @@ class OnlyBinanceSpotDataSource:
         self._request = request
         self._config = config
         http = OnlyBinancePublicHttpClient(
-            config.environment.rest_base_url,
+            config.endpoints.rest_base_url,
             timeout_seconds=config.timeout_seconds,
             max_response_bytes=config.max_response_bytes,
             response_observer=self._observe_rest_response,
@@ -254,7 +254,7 @@ class OnlyBinanceSpotDataSource:
         subscription_id = f"BINANCE-{request.request_id}"
         self._subscriptions[subscription_id] = request
         streams = self._streams(request)
-        self._websocket_url = f"{self._config.environment.websocket_base_url}/stream?streams={'/'.join(streams)}"
+        self._websocket_url = self._config.endpoints.combined_stream_url(streams)
         self._websocket.connect(self._websocket_url)
         self._continuity.subscription_established()
         self._continuity.begin_recovery()

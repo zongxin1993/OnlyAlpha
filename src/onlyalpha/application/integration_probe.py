@@ -226,12 +226,21 @@ class OnlyIntegrationProbeService:
         if revision.integration_id != integration_id or revision.type_id != integration.type_id:
             raise OnlyIntegrationError("INTEGRATION_PROBE_CONFIGURATION_INVALID")
         try:
-            provider = self._catalog.require(revision.type_id)
+            require_compatible = getattr(self._catalog, "require_compatible", None)
+            provider = (
+                require_compatible(revision.type_id, revision.type_descriptor_fingerprint)
+                if callable(require_compatible)
+                else self._catalog.require(revision.type_id)
+            )
+            if not callable(require_compatible):
+                provider_descriptor = getattr(provider, "integration_type", None)
+                if (
+                    provider_descriptor is None
+                    or provider_descriptor.fingerprint != revision.type_descriptor_fingerprint
+                ):
+                    raise OnlyIntegrationError("INTEGRATION_PROBE_CONFIGURATION_INVALID")
         except OnlyIntegrationTypeCatalogError as exc:
             raise OnlyIntegrationError(exc.code) from exc
-        provider_descriptor = getattr(provider, "integration_type", None)
-        if provider_descriptor is None or provider_descriptor.fingerprint != revision.type_descriptor_fingerprint:
-            raise OnlyIntegrationError("INTEGRATION_PROBE_CONFIGURATION_INVALID")
         secrets: dict[str, str] = {}
         try:
             for binding in self._state.load_revision_secret_bindings(revision.revision_fingerprint):

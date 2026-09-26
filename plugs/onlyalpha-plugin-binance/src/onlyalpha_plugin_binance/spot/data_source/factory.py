@@ -10,11 +10,15 @@ from onlyalpha.plugin.data_source import (
 )
 from onlyalpha.plugin.integration_probe import OnlyIntegrationProbeRequest, OnlyIntegrationProbeResult
 
-from ...common.environment import OnlyBinanceEnvironment
 from ...common.http import OnlyBinancePublicHttpClient
-from ...descriptor import DATA_CAPABILITIES, DATA_DESCRIPTOR, SPOT_DATA_INTEGRATION_TYPE
+from ...descriptor import (
+    DATA_CAPABILITIES,
+    DATA_DESCRIPTOR,
+    LEGACY_SPOT_DATA_INTEGRATION_TYPE,
+    SPOT_DATA_INTEGRATION_TYPE,
+)
 from ..reference.client import OnlyBinanceSpotReferenceClient
-from .config import OnlyBinanceSpotDataSourceConfig
+from .config import OnlyBinanceMarketEnvironment, OnlyBinanceSpotDataSourceConfig
 from .historical import OnlyBinanceSpotHistoricalClient
 from .instrument_catalog import MARKET, VENUE, OnlyBinanceSpotInstrumentCatalog
 from .probe import OnlyBinanceSpotProbe
@@ -23,15 +27,17 @@ from .websocket import OnlyBinanceWebSocketTransport
 
 # Canonical Market Source identity per provider environment. LIVE and SPOT_TESTNET are
 # different external market-data universes and must never share a Market Data scope.
-MARKET_SOURCE_IDS: dict[OnlyBinanceEnvironment, str] = {
-    OnlyBinanceEnvironment.LIVE: "binance.spot.market_data.live",
-    OnlyBinanceEnvironment.SPOT_TESTNET: "binance.spot.market_data.spot_testnet",
+MARKET_SOURCE_IDS: dict[OnlyBinanceMarketEnvironment, str] = {
+    OnlyBinanceMarketEnvironment.GLOBAL: "binance.spot.market_data.live",
+    OnlyBinanceMarketEnvironment.US: "binance.spot.market_data.us",
+    OnlyBinanceMarketEnvironment.SPOT_TESTNET: "binance.spot.market_data.spot_testnet",
 }
 
 
 class OnlyBinanceSpotDataSourceFactory:
     descriptor = DATA_DESCRIPTOR
     integration_type = SPOT_DATA_INTEGRATION_TYPE
+    compatible_type_descriptor_fingerprints = (LEGACY_SPOT_DATA_INTEGRATION_TYPE.fingerprint,)
 
     def parse_config(self, extensions: Mapping[str, object]) -> OnlyBinanceSpotDataSourceConfig:
         return OnlyBinanceSpotDataSourceConfig.parse(extensions)
@@ -40,6 +46,9 @@ class OnlyBinanceSpotDataSourceFactory:
         self, public_configuration: Mapping[str, object], resolved_secrets: Mapping[str, str]
     ) -> OnlyBinanceSpotDataSourceConfig:
         return self.parse_config(public_configuration)
+
+    def validate_public_integration_configuration(self, public_configuration: Mapping[str, object]) -> None:
+        self.parse_config(public_configuration)
 
     def list_instruments(
         self, request: OnlyDataSourceInstrumentCatalogRequestV1
@@ -90,12 +99,13 @@ class OnlyBinanceSpotDataSourceFactory:
 
     def probe(self, request: OnlyIntegrationProbeRequest) -> OnlyIntegrationProbeResult:
         config = self.parse_config(request.public_configuration)
+        endpoints = config.endpoints
         remaining = request.deadline_monotonic - time.monotonic()
         timeout = min(config.timeout_seconds, request.policy.per_check_timeout_seconds, remaining)
         if timeout <= 0:
             timeout = 0.001
         http = OnlyBinancePublicHttpClient(
-            config.environment.rest_base_url,
+            endpoints.rest_base_url,
             timeout_seconds=timeout,
             max_response_bytes=config.max_response_bytes,
             deadline_monotonic=request.deadline_monotonic,
@@ -114,7 +124,12 @@ class OnlyBinanceSpotDataSourceFactory:
             OnlyBinanceSpotReferenceClient(http),
             OnlyBinanceSpotHistoricalClient(http),
             websocket,
-            websocket_base_url=config.environment.websocket_base_url,
+            raw_stream_url=endpoints.raw_stream_url,
+            context_observations=(
+                f"environment={config.environment.value}",
+                f"endpoint_profile={config.endpoint_profile.value}",
+                f"rest_host={endpoints.rest_base_url.removeprefix('https://')}",
+            ),
             bind_deadline=bind_deadline,
         ).probe(request)
 

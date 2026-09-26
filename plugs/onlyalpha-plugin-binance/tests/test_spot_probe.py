@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from importlib import import_module
 
 import pytest
 from onlyalpha_plugin_binance.errors import OnlyBinanceError
+from onlyalpha_plugin_binance.spot.data_source.factory import OnlyBinanceSpotDataSourceFactory
 from onlyalpha_plugin_binance.spot.data_source.probe import OnlyBinanceSpotProbe
 
 from onlyalpha.plugin.integration import OnlyIntegrationProbeCheck
@@ -16,6 +18,7 @@ from onlyalpha.plugin.integration_probe import (
 
 NOW = datetime(2026, 1, 1, 0, 3, tzinfo=UTC)
 NOW_MS = int(NOW.timestamp() * 1000)
+factory_module = import_module("onlyalpha_plugin_binance.spot.data_source.factory")
 
 
 class _Reference:
@@ -120,7 +123,7 @@ def _probe(
             reference,
             historical,
             websocket,
-            websocket_base_url="wss://example.test",
+            raw_stream_url=lambda stream: f"wss://example.test/ws/{stream}",
             utc_now=lambda: NOW,
             monotonic=lambda: 1.0,
         ),
@@ -265,7 +268,7 @@ def test_each_check_binds_io_to_the_smaller_per_check_or_total_deadline() -> Non
         reference,
         historical,
         websocket,
-        websocket_base_url="wss://example.test",
+        raw_stream_url=lambda stream: f"wss://example.test/ws/{stream}",
         utc_now=lambda: NOW,
         monotonic=lambda: 8.5,
         bind_deadline=deadlines.append,
@@ -283,7 +286,7 @@ def test_check_returning_after_its_deadline_cannot_pass() -> None:
         _Reference(),
         _Historical(),
         _WebSocket(),
-        websocket_base_url="wss://example.test",
+        raw_stream_url=lambda stream: f"wss://example.test/ws/{stream}",
         utc_now=lambda: NOW,
         monotonic=lambda: next(readings),
     )
@@ -310,3 +313,77 @@ def test_check_returning_after_its_deadline_cannot_pass() -> None:
     assert check.failure_kind.value == "OFFLINE"
     assert check.error_code == "INTEGRATION_PROBE_TIMEOUT"
     assert result.overall_status is OnlyIntegrationProbeStatus.OFFLINE
+
+
+@pytest.mark.parametrize(
+    ("configuration", "rest_url", "stream_url"),
+    [
+        (
+            {"environment": "GLOBAL", "endpoint_profile": "PUBLIC_MARKET_DATA"},
+            "https://data-api.binance.vision",
+            "wss://stream.binance.com:9443/ws/btcusdt@trade",
+        ),
+        (
+            {"environment": "US", "endpoint_profile": "DEFAULT"},
+            "https://api.binance.us",
+            "wss://stream.binance.us:9443/ws/btcusdt@trade",
+        ),
+        (
+            {"environment": "SPOT_TESTNET", "endpoint_profile": "DEFAULT"},
+            "https://testnet.binance.vision",
+            "wss://stream.testnet.binance.vision/ws/btcusdt@trade",
+        ),
+    ],
+)
+def test_factory_probe_uses_the_canonical_endpoint_context(
+    monkeypatch: pytest.MonkeyPatch,
+    configuration: dict[str, object],
+    rest_url: str,
+    stream_url: str,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class Http:
+        def __init__(self, base_url: str, **_kwargs: object) -> None:
+            captured["rest_url"] = base_url
+
+        def bind_deadline(self, _deadline: float) -> None:
+            pass
+
+    class WebSocket:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        def bind_deadline(self, _deadline: float) -> None:
+            pass
+
+    class Probe:
+        def __init__(self, _reference: object, _historical: object, _websocket: object, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+        def probe(self, request: OnlyIntegrationProbeRequest) -> OnlyIntegrationProbeRequest:
+            return request
+
+    monkeypatch.setattr(factory_module, "OnlyBinancePublicHttpClient", Http)
+    monkeypatch.setattr(factory_module, "OnlyBinanceWebSocketTransport", WebSocket)
+    monkeypatch.setattr(factory_module, "OnlyBinanceSpotProbe", Probe)
+    request = _request()
+    request = OnlyIntegrationProbeRequest(
+        request.probe_attempt_id,
+        request.integration_id,
+        request.revision_fingerprint,
+        request.type_id,
+        request.type_descriptor_fingerprint,
+        configuration,
+        request.probe_configuration,
+        request.required_checks,
+        request.probe_instrument,
+        request.policy,
+        request.deadline_monotonic,
+        request.resolved_secrets,
+    )
+
+    assert OnlyBinanceSpotDataSourceFactory().probe(request) is request
+    assert captured["rest_url"] == rest_url
+    assert captured["raw_stream_url"]("btcusdt@trade") == stream_url  # type: ignore[operator]
+    assert f"environment={configuration['environment']}" in captured["context_observations"]  # type: ignore[operator]

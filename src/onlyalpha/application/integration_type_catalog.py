@@ -7,6 +7,8 @@ from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.plugin.descriptor import OnlyPluginDescriptor, OnlyPluginType
 from onlyalpha.plugin.integration import (
     OnlyIntegrationCategory,
+    OnlyIntegrationPublicConfigurationValidator,
+    OnlyIntegrationTypeCompatibilityProvider,
     OnlyIntegrationTypeDescriptorV1,
     OnlyIntegrationTypeProvider,
     only_integration_capability_ids,
@@ -29,6 +31,8 @@ class OnlyIntegrationTypeCatalog:
         component_types: tuple[OnlyIntegrationTypeDescriptorV1, ...] = (),
     ) -> None:
         descriptors: dict[str, OnlyIntegrationTypeDescriptorV1] = {}
+        validators: dict[str, OnlyIntegrationPublicConfigurationValidator] = {}
+        compatible_fingerprints: dict[tuple[str, str], OnlyIntegrationTypeDescriptorV1] = {}
         for record in (*data_sources.records(), *brokers.records()):
             if not isinstance(record.factory, OnlyIntegrationTypeProvider):
                 continue
@@ -40,6 +44,14 @@ class OnlyIntegrationTypeCatalog:
             if type_id in descriptors:
                 self._invalid(record.descriptor, f"duplicate Integration Type {type_id}")
             descriptors[type_id] = declared
+            if isinstance(record.factory, OnlyIntegrationPublicConfigurationValidator):
+                validators[type_id] = record.factory
+            if isinstance(record.factory, OnlyIntegrationTypeCompatibilityProvider):
+                for fingerprint in record.factory.compatible_type_descriptor_fingerprints:
+                    key = (type_id, fingerprint)
+                    if key in compatible_fingerprints or fingerprint == declared.fingerprint:
+                        self._invalid(record.descriptor, f"invalid compatible Integration Type {type_id}")
+                    compatible_fingerprints[key] = declared
         for declared in component_types:
             type_id = declared.type_id.value
             if declared.category is not OnlyIntegrationCategory.AGENT_PROVIDER or type_id in descriptors:
@@ -48,6 +60,8 @@ class OnlyIntegrationTypeCatalog:
                 )
             descriptors[type_id] = declared
         self._descriptors = descriptors
+        self._validators = validators
+        self._compatible_fingerprints = compatible_fingerprints
 
     def list(self, category: OnlyIntegrationCategory | None = None) -> tuple[OnlyIntegrationTypeDescriptorV1, ...]:
         return tuple(
@@ -63,6 +77,23 @@ class OnlyIntegrationTypeCatalog:
             raise OnlyIntegrationTypeCatalogError(
                 "INTEGRATION_TYPE_NOT_FOUND", "Integration Type is not available"
             ) from exc
+
+    def require_compatible(self, type_id: str, type_descriptor_fingerprint: str) -> OnlyIntegrationTypeDescriptorV1:
+        descriptor = self.require(type_id)
+        if descriptor.fingerprint == type_descriptor_fingerprint:
+            return descriptor
+        try:
+            return self._compatible_fingerprints[(type_id, type_descriptor_fingerprint)]
+        except KeyError as exc:
+            raise OnlyIntegrationTypeCatalogError(
+                "INTEGRATION_TYPE_NOT_FOUND", "Compatible Integration Type is not available"
+            ) from exc
+
+    def validate_public_configuration(self, type_id: str, public_configuration: dict[str, object]) -> None:
+        self.require(type_id)
+        validator = self._validators.get(type_id)
+        if validator is not None:
+            validator.validate_public_integration_configuration(public_configuration)
 
     @staticmethod
     def _validate_projection(
@@ -98,6 +129,7 @@ class OnlyIntegrationProbeCatalog:
         component_providers: tuple[tuple[OnlyIntegrationTypeDescriptorV1, OnlyIntegrationProbeProvider], ...] = (),
     ) -> None:
         providers: dict[str, OnlyIntegrationProbeProvider] = {}
+        compatible_providers: dict[tuple[str, str], OnlyIntegrationProbeProvider] = {}
         for record in (*data_sources.records(), *brokers.records()):
             factory = record.factory
             if not isinstance(factory, OnlyIntegrationTypeProvider) or not isinstance(
@@ -110,6 +142,9 @@ class OnlyIntegrationProbeCatalog:
                     "INTEGRATION_TYPE_CONTRACT_INVALID", f"duplicate Probe provider for {type_id}"
                 )
             providers[type_id] = factory
+            if isinstance(factory, OnlyIntegrationTypeCompatibilityProvider):
+                for fingerprint in factory.compatible_type_descriptor_fingerprints:
+                    compatible_providers[(type_id, fingerprint)] = factory
         for descriptor, provider in component_providers:
             type_id = descriptor.type_id.value
             if (
@@ -122,6 +157,7 @@ class OnlyIntegrationProbeCatalog:
                 )
             providers[type_id] = provider
         self._providers = providers
+        self._compatible_providers = compatible_providers
 
     def supports(self, type_id: str) -> bool:
         return type_id in self._providers
@@ -132,6 +168,18 @@ class OnlyIntegrationProbeCatalog:
         except KeyError as exc:
             raise OnlyIntegrationTypeCatalogError(
                 "INTEGRATION_PROBE_UNSUPPORTED", "Integration Probe is unavailable for this type"
+            ) from exc
+
+    def require_compatible(self, type_id: str, type_descriptor_fingerprint: str) -> OnlyIntegrationProbeProvider:
+        provider = self.require(type_id)
+        descriptor = getattr(provider, "integration_type", None)
+        if descriptor is not None and descriptor.fingerprint == type_descriptor_fingerprint:
+            return provider
+        try:
+            return self._compatible_providers[(type_id, type_descriptor_fingerprint)]
+        except KeyError as exc:
+            raise OnlyIntegrationTypeCatalogError(
+                "INTEGRATION_PROBE_UNSUPPORTED", "Compatible Integration Probe is unavailable"
             ) from exc
 
 

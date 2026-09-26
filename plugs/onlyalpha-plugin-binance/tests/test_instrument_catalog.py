@@ -3,14 +3,23 @@ from __future__ import annotations
 import json
 
 import pytest
-from onlyalpha_plugin_binance.common.environment import OnlyBinanceEnvironment
 from onlyalpha_plugin_binance.spot.data_source import instrument_catalog
-from onlyalpha_plugin_binance.spot.data_source.config import OnlyBinanceSpotDataSourceConfig
+from onlyalpha_plugin_binance.spot.data_source.config import (
+    OnlyBinanceMarketEnvironment,
+    OnlyBinanceSpotDataSourceConfig,
+    OnlyBinanceSpotEndpointProfile,
+    only_resolve_binance_spot_endpoints,
+)
+from onlyalpha_plugin_binance.spot.data_source.factory import OnlyBinanceSpotDataSourceFactory
 from onlyalpha_plugin_binance.spot.data_source.instrument_catalog import (
     OnlyBinanceSpotInstrumentCatalog,
     only_binance_raw_symbol,
 )
 
+from onlyalpha.application.integration_configuration import (
+    only_integration_runtime_configuration_fingerprint,
+    only_integration_secret_binding_fingerprint,
+)
 from onlyalpha.plugin.data_source import OnlyDataSourceInstrumentCatalogRequestV1
 
 
@@ -131,15 +140,119 @@ def test_market_identity_is_declared_without_a_provider_call() -> None:
 
     factory = OnlyBinanceSpotDataSourceFactory()
     live = factory.market_identity(OnlyBinanceSpotDataSourceConfig())
-    testnet = factory.market_identity(OnlyBinanceSpotDataSourceConfig(environment=OnlyBinanceEnvironment.SPOT_TESTNET))
-    assert (live.venue, live.market, live.environment) == ("BINANCE", "SPOT", "LIVE")
+    testnet = factory.market_identity(
+        OnlyBinanceSpotDataSourceConfig(
+            environment=OnlyBinanceMarketEnvironment.SPOT_TESTNET,
+            endpoint_profile=OnlyBinanceSpotEndpointProfile.DEFAULT,
+        )
+    )
+    assert (live.venue, live.market, live.environment) == ("BINANCE", "SPOT", "GLOBAL")
     assert (testnet.venue, testnet.market, testnet.environment) == ("BINANCE", "SPOT", "SPOT_TESTNET")
-    assert live.source_id == MARKET_SOURCE_IDS[OnlyBinanceEnvironment.LIVE]
+    assert live.source_id == MARKET_SOURCE_IDS[OnlyBinanceMarketEnvironment.GLOBAL]
     assert live.source_id != testnet.source_id
     # A non-semantic runtime setting must not fork the canonical Market Source identity.
     assert factory.market_identity(OnlyBinanceSpotDataSourceConfig(timeout_seconds=3)).source_id == live.source_id
     with pytest.raises(ValueError, match="BINANCE_PLUGIN_CONFIG_INVALID"):
         factory.market_identity(object())
+
+
+@pytest.mark.parametrize(
+    ("environment", "profile", "rest_host"),
+    [
+        (
+            OnlyBinanceMarketEnvironment.GLOBAL,
+            OnlyBinanceSpotEndpointProfile.PUBLIC_MARKET_DATA,
+            "data-api.binance.vision",
+        ),
+        (OnlyBinanceMarketEnvironment.GLOBAL, OnlyBinanceSpotEndpointProfile.STANDARD, "api.binance.com"),
+        (OnlyBinanceMarketEnvironment.GLOBAL, OnlyBinanceSpotEndpointProfile.GCP, "api-gcp.binance.com"),
+        (OnlyBinanceMarketEnvironment.GLOBAL, OnlyBinanceSpotEndpointProfile.API1, "api1.binance.com"),
+        (OnlyBinanceMarketEnvironment.GLOBAL, OnlyBinanceSpotEndpointProfile.API2, "api2.binance.com"),
+        (OnlyBinanceMarketEnvironment.GLOBAL, OnlyBinanceSpotEndpointProfile.API3, "api3.binance.com"),
+        (OnlyBinanceMarketEnvironment.GLOBAL, OnlyBinanceSpotEndpointProfile.API4, "api4.binance.com"),
+        (OnlyBinanceMarketEnvironment.US, OnlyBinanceSpotEndpointProfile.DEFAULT, "api.binance.us"),
+        (OnlyBinanceMarketEnvironment.SPOT_TESTNET, OnlyBinanceSpotEndpointProfile.DEFAULT, "testnet.binance.vision"),
+        (OnlyBinanceMarketEnvironment.SPOT_TESTNET, OnlyBinanceSpotEndpointProfile.GCP, "api1.testnet.binance.vision"),
+    ],
+)
+def test_official_endpoint_catalog(
+    environment: OnlyBinanceMarketEnvironment,
+    profile: OnlyBinanceSpotEndpointProfile,
+    rest_host: str,
+) -> None:
+    endpoints = only_resolve_binance_spot_endpoints(environment, profile)
+    assert endpoints.rest_base_url == f"https://{rest_host}"
+    assert endpoints.raw_stream_url("btcusdt@trade").endswith("/ws/btcusdt@trade")
+    assert endpoints.combined_stream_url(("btcusdt@trade",)).endswith("/stream?streams=btcusdt@trade")
+
+
+@pytest.mark.parametrize(
+    ("environment", "profile"),
+    [
+        (OnlyBinanceMarketEnvironment.US, OnlyBinanceSpotEndpointProfile.API1),
+        (OnlyBinanceMarketEnvironment.SPOT_TESTNET, OnlyBinanceSpotEndpointProfile.API4),
+    ],
+)
+def test_invalid_endpoint_profile_pair_fails_closed(
+    environment: OnlyBinanceMarketEnvironment, profile: OnlyBinanceSpotEndpointProfile
+) -> None:
+    with pytest.raises(ValueError, match="BINANCE_ENDPOINT_PROFILE_UNSUPPORTED"):
+        OnlyBinanceSpotDataSourceConfig(environment=environment, endpoint_profile=profile)
+
+
+def test_legacy_live_resolves_as_global_without_forking_existing_source_identity() -> None:
+    factory = OnlyBinanceSpotDataSourceFactory()
+    legacy = factory.parse_config({"environment": "LIVE"})
+    modern = factory.parse_config({"environment": "GLOBAL", "endpoint_profile": "STANDARD"})
+
+    assert legacy == modern
+    assert legacy.endpoints.rest_base_url == "https://api.binance.com"
+    assert factory.market_identity(legacy).source_id == "binance.spot.market_data.live"
+
+
+def test_endpoint_profile_changes_binding_configuration_but_not_market_source_identity() -> None:
+    factory = OnlyBinanceSpotDataSourceFactory()
+    source_ids = {
+        factory.market_identity(
+            OnlyBinanceSpotDataSourceConfig(
+                environment=OnlyBinanceMarketEnvironment.GLOBAL,
+                endpoint_profile=profile,
+            )
+        ).source_id
+        for profile in (
+            OnlyBinanceSpotEndpointProfile.PUBLIC_MARKET_DATA,
+            OnlyBinanceSpotEndpointProfile.STANDARD,
+            OnlyBinanceSpotEndpointProfile.GCP,
+            OnlyBinanceSpotEndpointProfile.API1,
+            OnlyBinanceSpotEndpointProfile.API2,
+            OnlyBinanceSpotEndpointProfile.API3,
+            OnlyBinanceSpotEndpointProfile.API4,
+        )
+    }
+    identities = {
+        factory.market_identity(factory.parse_config(configuration)).source_id
+        for configuration in (
+            {"environment": "GLOBAL", "endpoint_profile": "PUBLIC_MARKET_DATA"},
+            {"environment": "US", "endpoint_profile": "DEFAULT"},
+            {"environment": "SPOT_TESTNET", "endpoint_profile": "DEFAULT"},
+        )
+    }
+
+    assert source_ids == {"binance.spot.market_data.live"}
+    assert len(identities) == 3
+    descriptor_fingerprint = factory.integration_type.fingerprint
+    empty_secrets = only_integration_secret_binding_fingerprint(())
+    assert only_integration_runtime_configuration_fingerprint(
+        factory.integration_type.type_id.value,
+        descriptor_fingerprint,
+        {"environment": "GLOBAL", "endpoint_profile": "STANDARD"},
+        empty_secrets,
+    ) != only_integration_runtime_configuration_fingerprint(
+        factory.integration_type.type_id.value,
+        descriptor_fingerprint,
+        {"environment": "GLOBAL", "endpoint_profile": "PUBLIC_MARKET_DATA"},
+        empty_secrets,
+    )
 
 
 def test_only_binance_raw_symbol_rejects_foreign_venues() -> None:

@@ -1,12 +1,24 @@
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 
 import pytest
 from onlyalpha_agent_orchestrator.provider_integration import OnlyOpenAICompatibleAgentProviderProbe
+from onlyalpha_plugin_binance.descriptor import LEGACY_SPOT_DATA_INTEGRATION_TYPE
 from onlyalpha_plugin_binance.spot.data_source.factory import OnlyBinanceSpotDataSourceFactory
 from onlyalpha_plugin_binance.usdm.data_source import OnlyBinanceUsdmDataSourceFactory
 from onlyalpha_plugin_miniqmt.data_source.factory import OnlyMiniQmtDataSourceFactory
 from onlyalpha_plugin_tushare.data_source.factory import OnlyTushareDataSourceFactory
 
+from onlyalpha.application.integration_configuration import (
+    OnlyIntegration,
+    OnlyIntegrationId,
+    OnlyIntegrationLifecycleState,
+    OnlyIntegrationRevision,
+)
+from onlyalpha.application.integration_runtime import (
+    OnlyIntegrationRuntimeBindingV1,
+    OnlyIntegrationRuntimeResolver,
+)
 from onlyalpha.application.integration_type_catalog import (
     OnlyIntegrationProbeCatalog,
     OnlyIntegrationTypeCatalog,
@@ -178,6 +190,89 @@ def test_all_first_party_product_data_sources_declare_unique_types_without_provi
     }
     assert len({descriptor.type_id.value for descriptor in descriptors}) == len(descriptors)
     assert all(descriptor.category is OnlyIntegrationCategory.DATA_SOURCE for descriptor in descriptors)
+
+
+def test_binance_catalog_validates_profile_pairs_and_admits_the_legacy_descriptor() -> None:
+    factory = OnlyBinanceSpotDataSourceFactory()
+    data_sources = OnlyDataSourceFactoryRegistry()
+    data_sources.register(factory)
+    catalog = OnlyIntegrationTypeCatalog(data_sources, OnlyBrokerFactoryRegistry())
+
+    current = catalog.require("binance.spot.market_data")
+    assert (
+        catalog.require_compatible("binance.spot.market_data", LEGACY_SPOT_DATA_INTEGRATION_TYPE.fingerprint) is current
+    )
+    assert (
+        OnlyIntegrationProbeCatalog(data_sources, OnlyBrokerFactoryRegistry()).require_compatible(
+            "binance.spot.market_data", LEGACY_SPOT_DATA_INTEGRATION_TYPE.fingerprint
+        )
+        is factory
+    )
+    catalog.validate_public_configuration(
+        "binance.spot.market_data",
+        {"environment": "GLOBAL", "endpoint_profile": "PUBLIC_MARKET_DATA"},
+    )
+    with pytest.raises(ValueError, match="BINANCE_ENDPOINT_PROFILE_UNSUPPORTED"):
+        catalog.validate_public_configuration(
+            "binance.spot.market_data", {"environment": "US", "endpoint_profile": "API1"}
+        )
+
+
+def test_legacy_live_revision_resolves_through_the_current_binance_implementation() -> None:
+    integration_id = OnlyIntegrationId("00000000-0000-4000-8000-000000000501")
+    revision = OnlyIntegrationRevision.from_resolved(
+        integration_id=integration_id,
+        revision_sequence=1,
+        type_id=LEGACY_SPOT_DATA_INTEGRATION_TYPE.type_id.value,
+        type_descriptor_fingerprint=LEGACY_SPOT_DATA_INTEGRATION_TYPE.fingerprint,
+        type_descriptor_document=LEGACY_SPOT_DATA_INTEGRATION_TYPE.to_dict(include_fingerprint=False),
+        configuration_document={"environment": "LIVE"},
+        probe_configuration_document={"instrument": "BTCUSDT"},
+        secret_bindings=(),
+        created_at=datetime(2026, 9, 21, tzinfo=UTC),
+    )
+
+    class State:
+        def load_integration(self, requested: OnlyIntegrationId) -> OnlyIntegration:
+            assert requested == integration_id
+            return OnlyIntegration(
+                integration_id,
+                revision.type_id,
+                "Legacy Binance",
+                OnlyIntegrationLifecycleState.ACTIVE,
+                revision.revision_fingerprint,
+                revision.created_at,
+                revision.created_at,
+            )
+
+        def load_revision(self, fingerprint: str) -> OnlyIntegrationRevision:
+            assert fingerprint == revision.revision_fingerprint
+            return revision
+
+        def load_revision_secret_bindings(self, fingerprint: str) -> tuple[()]:
+            assert fingerprint == revision.revision_fingerprint
+            return ()
+
+    class Credentials:
+        def read_secret(self, credential_id: str, credential_generation: int) -> str:
+            raise AssertionError((credential_id, credential_generation))
+
+    factory = OnlyBinanceSpotDataSourceFactory()
+    sources = OnlyDataSourceFactoryRegistry()
+    sources.register(factory)
+    catalog = OnlyIntegrationTypeCatalog(sources, OnlyBrokerFactoryRegistry())
+    resolved = OnlyIntegrationRuntimeResolver(State(), Credentials(), catalog).resolve(
+        OnlyIntegrationRuntimeBindingV1.from_revision(revision, OnlyIntegrationCategory.DATA_SOURCE),
+        expected_category=OnlyIntegrationCategory.DATA_SOURCE,
+    )
+
+    assert resolved.public_configuration == {"environment": "LIVE"}
+    assert (
+        factory.parse_runtime_integration_config(
+            resolved.public_configuration, resolved.secrets.as_mapping()
+        ).environment.value
+        == "GLOBAL"
+    )
 
 
 def test_component_agent_provider_type_is_available_without_becoming_a_plugin() -> None:

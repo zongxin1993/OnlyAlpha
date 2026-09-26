@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from onlyalpha.plugin.capabilities import (
     OnlyBrokerPluginCapabilities,
@@ -186,6 +186,38 @@ SPOT_DATA_INTEGRATION_TYPE = OnlyIntegrationTypeDescriptorV1(
             OnlyIntegrationProbeCheck.HISTORICAL_DATA,
             OnlyIntegrationProbeCheck.REALTIME_DATA,
         ),
+    ),
+)
+
+# Existing immutable Revisions pin this exact descriptor fingerprint. The current
+# implementation explicitly admits it so legacy environment=LIVE remains readable.
+LEGACY_SPOT_DATA_INTEGRATION_TYPE = SPOT_DATA_INTEGRATION_TYPE
+SPOT_DATA_INTEGRATION_TYPE = replace(
+    SPOT_DATA_INTEGRATION_TYPE,
+    configuration_contract=OnlyIntegrationConfigurationContractV1(
+        fields=(
+            OnlyIntegrationConfigurationFieldV1(
+                "environment",
+                OnlyIntegrationValueKind.ENUM,
+                False,
+                default="GLOBAL",
+                display_name="Market Environment",
+                enum_values=("GLOBAL", "US", "SPOT_TESTNET"),
+            ),
+            OnlyIntegrationConfigurationFieldV1(
+                "endpoint_profile",
+                OnlyIntegrationValueKind.ENUM,
+                False,
+                default="PUBLIC_MARKET_DATA",
+                display_name="Endpoint Profile",
+                enum_values=("DEFAULT", "PUBLIC_MARKET_DATA", "STANDARD", "GCP", "API1", "API2", "API3", "API4"),
+            ),
+            *(
+                field
+                for field in LEGACY_SPOT_DATA_INTEGRATION_TYPE.configuration_contract.fields
+                if field.field_id != "environment"
+            ),
+        )
     ),
 )
 

@@ -301,14 +301,18 @@ class OnlyIntegrationRuntimeResolver:
         if binding.category is not expected_category or _stored_category(revision) is not expected_category:
             raise OnlyIntegrationRuntimeError("INTEGRATION_RUNTIME_CATEGORY_MISMATCH")
         try:
-            descriptor = self._catalog.require(revision.type_id)
+            require_compatible = getattr(self._catalog, "require_compatible", None)
+            supports_compatibility = callable(require_compatible)
+            if callable(require_compatible):
+                descriptor = require_compatible(revision.type_id, revision.type_descriptor_fingerprint)
+            else:
+                descriptor = self._catalog.require(revision.type_id)
         except Exception:
             raise OnlyIntegrationRuntimeError("INTEGRATION_RUNTIME_IMPLEMENTATION_UNAVAILABLE") from None
         if not set(required_capabilities).issubset(descriptor.capabilities):
             raise OnlyIntegrationRuntimeError("INTEGRATION_RUNTIME_CAPABILITY_MISMATCH")
-        if (
-            binding.type_descriptor_fingerprint != revision.type_descriptor_fingerprint
-            or descriptor.fingerprint != revision.type_descriptor_fingerprint
+        if binding.type_descriptor_fingerprint != revision.type_descriptor_fingerprint or (
+            not supports_compatibility and descriptor.fingerprint != revision.type_descriptor_fingerprint
         ):
             raise OnlyIntegrationRuntimeError("INTEGRATION_RUNTIME_IMPLEMENTATION_MISMATCH")
         bindings = self._load_secret_bindings(revision.revision_fingerprint)
