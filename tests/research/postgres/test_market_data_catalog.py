@@ -11,6 +11,7 @@ import pytest
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_payload
 from onlyalpha.market_data.durable import (
+    OnlyAcquisitionOutcome,
     OnlyInMemoryMarketFactStore,
     OnlyMarketDataAcquisitionIntent,
     OnlyMarketDataProvenance,
@@ -149,6 +150,16 @@ def test_pre_0038_acquisition_identity_remains_exactly_readable(postgres_dsn: st
         }
     )
     acquisition_id = f"acquisition:{fingerprint}"
+    attempt_detail = "LEGACY_PROVIDER_FAILURE"
+    attempt_fingerprint = only_canonical_fingerprint(
+        {
+            "acquisition_id": acquisition_id,
+            "outcome": OnlyAcquisitionOutcome.FAILED.value,
+            "revision_id": None,
+            "detail": attempt_detail,
+        }
+    )
+    attempt_id = f"acquisition-attempt:{attempt_fingerprint}"
     admitted_at = BASE.replace(hour=2)
     with psycopg.connect(postgres_dsn) as connection:
         connection.execute(
@@ -164,9 +175,20 @@ def test_pre_0038_acquisition_identity_remains_exactly_readable(postgres_dsn: st
                 admitted_at,
             ),
         )
+        connection.execute(
+            "INSERT INTO market_data_acquisition_attempt "
+            "(attempt_id,acquisition_id,outcome,revision_id,detail,recorded_at) "
+            "VALUES (%s,%s,'FAILED',NULL,%s,%s)",
+            (attempt_id, acquisition_id, attempt_detail, admitted_at),
+        )
 
-    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == ("0038_market_data_acquisition_identity",)
-    loaded = OnlyPostgresMarketDataCatalog(postgres_dsn).load_acquisition_intent(acquisition_id)
+    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == (
+        "0038_market_data_acquisition_identity",
+        "0039_market_data_acquisition_versioned_attempt_outcome",
+    )
+    catalog = OnlyPostgresMarketDataCatalog(postgres_dsn)
+    loaded = catalog.load_acquisition_intent(acquisition_id)
+    attempt = catalog.latest_acquisition_attempt(acquisition_id)
 
     assert loaded is not None
     assert loaded.acquisition_id == acquisition_id
@@ -174,6 +196,14 @@ def test_pre_0038_acquisition_identity_remains_exactly_readable(postgres_dsn: st
     assert loaded.admitted_at == admitted_at
     assert loaded.identity_version == 1
     assert loaded.integration_binding_fingerprint is None
+    assert attempt is not None
+    assert attempt.attempt_id == attempt_id
+    assert attempt.attempt_number == 1
+    assert attempt.identity_version == 1
+    assert attempt.outcome is OnlyAcquisitionOutcome.FAILED
+    assert attempt.started_at == admitted_at
+    assert attempt.completed_at == admitted_at
+    assert attempt.detail == attempt_detail
 
 
 def test_attempt_start_is_atomic_per_intent_and_keeps_interrupted_occurrences(
