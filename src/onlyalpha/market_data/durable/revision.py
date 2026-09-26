@@ -89,7 +89,8 @@ def only_build_coverage(
         if item.source_id == scope.source_id
         and item.instrument_id == scope.instrument_id
         and item.data_kind == scope.data_kind
-        and scope.start_ns <= item.ts_event_ns <= scope.end_ns
+        and (scope.start_ns < item.ts_event_ns if scope.data_kind == "BAR" else scope.start_ns <= item.ts_event_ns)
+        and item.ts_event_ns <= scope.end_ns
     )
     issues: list[str] = []
     proof: list[str] = [f"canonical_fact_count={len(in_scope)}"]

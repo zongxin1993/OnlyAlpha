@@ -95,7 +95,12 @@ class OnlyInMemoryMarketFactStore:
                     if segment_id in selected
                     and fact.instrument_id == scope.instrument_id
                     and fact.data_kind == scope.data_kind
-                    and scope.start_ns <= fact.ts_event_ns <= scope.end_ns
+                    and (
+                        scope.start_ns < fact.ts_event_ns
+                        if scope.data_kind == "BAR"
+                        else scope.start_ns <= fact.ts_event_ns
+                    )
+                    and fact.ts_event_ns <= scope.end_ns
                 ),
                 key=lambda item: (item.ts_event_ns, item.canonical_fact_id, item.raw_event_id),
             )

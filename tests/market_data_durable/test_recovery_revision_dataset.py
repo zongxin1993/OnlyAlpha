@@ -102,6 +102,37 @@ def _scope(kind: str) -> OnlyMarketDataScope:
     )
 
 
+def test_shifted_bar_window_excludes_prior_bar_ending_at_start(tmp_path: Path, fixed_now) -> None:
+    wal = OnlyMarketDataWal(tmp_path, capacity_bytes=2_000_000, now=fixed_now)
+    ingress = OnlyMarketDataIngress(
+        wal, normalizer_id="binance-spot", normalizer_version="1", ingest_clock_ns=lambda: 5
+    )
+    ingress.begin_segment("overlapping-bars")
+    ingress.record(_observation(10), bar_update(0))
+    ingress.record(_observation(11), bar_update(1))
+    segment = ingress.seal()
+    records = wal.read_sealed(segment.segment_id)
+    store = OnlyInMemoryMarketFactStore()
+    store.write_segment(segment, records)
+    scope = replace(
+        _scope("BAR"),
+        start_ns=_scope("BAR").end_ns,
+        end_ns=_scope("BAR").end_ns + 60_000_000_000,
+    )
+
+    facts = store.read_segment_facts((segment,), scope)
+
+    assert len(facts) == 1
+    assert facts[0].ts_event_ns == scope.end_ns
+    assert only_build_coverage(scope, (segment,), facts).coverage_status is OnlyCoverageStatus.COMPLETE
+    assert (
+        only_build_coverage(
+            scope, (segment,), tuple(fact for bundle in records for fact in bundle.canonical_facts)
+        ).coverage_status
+        is OnlyCoverageStatus.COMPLETE
+    )
+
+
 @pytest.mark.parametrize("crash_stage", ["C3", "C5", "C6", "C7"])
 def test_crash_boundaries_recover_without_duplicate_semantic_truth(tmp_path: Path, fixed_now, crash_stage: str) -> None:
     wal, segment, _ = _sealed(tmp_path, fixed_now)

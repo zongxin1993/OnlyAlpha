@@ -60,10 +60,7 @@ class _Historical:
 class _WebSocket:
     def __init__(self, payload: bytes | Exception | None = None, *, connect_error: Exception | None = None) -> None:
         self.payload = (
-            payload
-            or json.dumps(
-                {"e": "trade", "s": "BTCUSDT", "T": NOW_MS, "t": 1, "p": "100", "q": "2", "m": False}
-            ).encode()
+            payload or json.dumps({"lastUpdateId": 1, "bids": [["99", "2"]], "asks": [["101", "3"]]}).encode()
         )
         self.connect_error = connect_error
         self.urls: list[str] = []
@@ -206,13 +203,23 @@ def test_bin_06_malformed_bars_fail(rows: list[list[object]]) -> None:
     assert _checks(result)[OnlyIntegrationProbeCheck.HISTORICAL_DATA].error_code == "BINANCE_HISTORICAL_SCHEMA_INVALID"  # type: ignore[union-attr]
 
 
-def test_bin_07_websocket_one_trade_message_passes() -> None:
+def test_bin_07_websocket_partial_depth_message_passes() -> None:
     probe, _, _, websocket = _probe()
 
     result = probe.probe(_request())
 
     assert _checks(result)[OnlyIntegrationProbeCheck.REALTIME_DATA].status.value == "PASS"  # type: ignore[union-attr]
-    assert websocket.urls == ["wss://example.test/ws/btcusdt@trade"]
+    assert websocket.urls == ["wss://example.test/ws/btcusdt@depth5"]
+
+
+def test_bin_07_websocket_malformed_partial_depth_fails() -> None:
+    probe, _, _, _ = _probe(
+        websocket=_WebSocket(json.dumps({"lastUpdateId": 1, "bids": [], "asks": [["101", "3"]]}).encode())
+    )
+
+    result = probe.probe(_request())
+
+    assert _checks(result)[OnlyIntegrationProbeCheck.REALTIME_DATA].error_code == "BINANCE_REALTIME_SCHEMA_INVALID"  # type: ignore[union-attr]
 
 
 @pytest.mark.parametrize("failure", [TimeoutError(), OnlyBinanceError("transport")])
@@ -241,13 +248,9 @@ def test_bin_10_result_contains_no_raw_provider_payload() -> None:
         websocket=_WebSocket(
             json.dumps(
                 {
-                    "e": "trade",
-                    "s": "BTCUSDT",
-                    "T": NOW_MS,
-                    "t": 1,
-                    "p": "100",
-                    "q": "2",
-                    "m": False,
+                    "lastUpdateId": 1,
+                    "bids": [["99", "2"]],
+                    "asks": [["101", "3"]],
                     "raw": secret_marker,
                 }
             ).encode()
@@ -315,23 +318,51 @@ def test_check_returning_after_its_deadline_cannot_pass() -> None:
     assert result.overall_status is OnlyIntegrationProbeStatus.OFFLINE
 
 
+def test_endpoint_context_is_recorded_once_within_the_probe_observation_budget() -> None:
+    context = (
+        "environment=GLOBAL",
+        "endpoint_profile=PUBLIC_MARKET_DATA",
+        "rest_host=data-api.binance.vision",
+    )
+    probe = OnlyBinanceSpotProbe(
+        _Reference(),
+        _Historical(),
+        _WebSocket(),
+        raw_stream_url=lambda stream: f"wss://example.test/ws/{stream}",
+        context_observations=context,
+        utc_now=lambda: NOW,
+        monotonic=lambda: 1.0,
+    )
+
+    result = probe.probe(_request())
+
+    assert sum(len(check.observations) for check in result.checks) == 8
+    connectivity = next(check for check in result.checks if check.check is OnlyIntegrationProbeCheck.CONNECTIVITY)
+    assert connectivity.observations[:3] == context
+    assert all(
+        not set(context).intersection(check.observations)
+        for check in result.checks
+        if check.check is not OnlyIntegrationProbeCheck.CONNECTIVITY
+    )
+
+
 @pytest.mark.parametrize(
     ("configuration", "rest_url", "stream_url"),
     [
         (
             {"environment": "GLOBAL", "endpoint_profile": "PUBLIC_MARKET_DATA"},
             "https://data-api.binance.vision",
-            "wss://stream.binance.com:9443/ws/btcusdt@trade",
+            "wss://stream.binance.com:9443/ws/btcusdt@depth5",
         ),
         (
             {"environment": "US", "endpoint_profile": "DEFAULT"},
             "https://api.binance.us",
-            "wss://stream.binance.us:9443/ws/btcusdt@trade",
+            "wss://stream.binance.us:9443/ws/btcusdt@depth5",
         ),
         (
             {"environment": "SPOT_TESTNET", "endpoint_profile": "DEFAULT"},
             "https://testnet.binance.vision",
-            "wss://stream.testnet.binance.vision/ws/btcusdt@trade",
+            "wss://stream.testnet.binance.vision/ws/btcusdt@depth5",
         ),
     ],
 )
@@ -385,5 +416,5 @@ def test_factory_probe_uses_the_canonical_endpoint_context(
 
     assert OnlyBinanceSpotDataSourceFactory().probe(request) is request
     assert captured["rest_url"] == rest_url
-    assert captured["raw_stream_url"]("btcusdt@trade") == stream_url  # type: ignore[operator]
+    assert captured["raw_stream_url"]("btcusdt@depth5") == stream_url  # type: ignore[operator]
     assert f"environment={configuration['environment']}" in captured["context_observations"]  # type: ignore[operator]

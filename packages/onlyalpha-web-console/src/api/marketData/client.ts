@@ -162,7 +162,6 @@ export class FetchMarketDataApiClient implements MarketDataApiClient {
         return request(marketDataAcquisitionSchema, "/api/v2/market-data/acquisitions", {
             method: "POST",
             body: JSON.stringify({
-                schema_version: 1,
                 source_reference: reference,
                 instrument_id: query.instrument_id,
                 start_ns: query.start_ns,

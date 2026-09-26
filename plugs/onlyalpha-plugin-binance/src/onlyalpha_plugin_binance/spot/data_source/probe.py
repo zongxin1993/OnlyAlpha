@@ -63,7 +63,7 @@ class OnlyBinanceSpotProbe:
                         check,
                         OnlyIntegrationProbeFailureKind.FAILED,
                         "BINANCE_PROBE_SYMBOL_INVALID",
-                        observations=self._context_observations,
+                        observations=self._context_for(check),
                     )
                 )
                 continue
@@ -73,7 +73,7 @@ class OnlyBinanceSpotProbe:
                         check,
                         OnlyIntegrationProbeFailureKind.DEGRADED,
                         "INTEGRATION_PROBE_TIMEOUT",
-                        observations=self._context_observations,
+                        observations=self._context_for(check),
                     )
                 )
                 continue
@@ -101,7 +101,7 @@ class OnlyBinanceSpotProbe:
                     ),
                     "INTEGRATION_PROBE_TIMEOUT",
                     latency_ms=result.latency_ms,
-                    observations=self._context_observations,
+                    observations=self._context_for(check),
                 )
                 if check is OnlyIntegrationProbeCheck.CONNECTIVITY:
                     server_time_ms = None
@@ -189,9 +189,9 @@ class OnlyBinanceSpotProbe:
 
     def _realtime_data(self, symbol: str, started: float) -> OnlyIntegrationProbeCheckResult:
         try:
-            self._websocket.connect(self._raw_stream_url(f"{symbol.lower()}@trade"))
+            self._websocket.connect(self._raw_stream_url(f"{symbol.lower()}@depth5"))
             payload = json.loads(self._websocket.receive())
-            _validate_trade(payload, symbol)
+            _validate_partial_depth(payload)
         except (json.JSONDecodeError, UnicodeDecodeError, InvalidOperation, KeyError, TypeError, ValueError):
             return self._schema_failure(
                 OnlyIntegrationProbeCheck.REALTIME_DATA, started, "BINANCE_REALTIME_SCHEMA_INVALID"
@@ -205,7 +205,11 @@ class OnlyBinanceSpotProbe:
             )
         finally:
             self._websocket.close()
-        return self._passed(OnlyIntegrationProbeCheck.REALTIME_DATA, started, ("event=trade", f"symbol={symbol}"))
+        return self._passed(
+            OnlyIntegrationProbeCheck.REALTIME_DATA,
+            started,
+            ("event=partial_depth", f"symbol={symbol}"),
+        )
 
     def _passed(
         self, check: OnlyIntegrationProbeCheck, started: float, observations: tuple[str, ...] = ()
@@ -214,7 +218,7 @@ class OnlyBinanceSpotProbe:
             check,
             OnlyIntegrationProbeCheckStatus.PASS,
             self._latency(started),
-            observations=self._context_observations + observations,
+            observations=self._context_for(check) + observations,
         )
 
     def _schema_failure(
@@ -225,7 +229,7 @@ class OnlyBinanceSpotProbe:
             OnlyIntegrationProbeFailureKind.FAILED,
             error_code,
             latency_ms=self._latency(started),
-            observations=self._context_observations,
+            observations=self._context_for(check),
         )
 
     def _unavailable(
@@ -240,8 +244,11 @@ class OnlyBinanceSpotProbe:
             kind,
             error_code,
             latency_ms=self._latency(started),
-            observations=self._context_observations,
+            observations=self._context_for(check),
         )
+
+    def _context_for(self, check: OnlyIntegrationProbeCheck) -> tuple[str, ...]:
+        return self._context_observations if check is OnlyIntegrationProbeCheck.CONNECTIVITY else ()
 
     def _latency(self, started: float) -> int:
         return max(0, int((self._monotonic() - started) * 1000))
@@ -274,23 +281,20 @@ def _validate_klines(rows: Sequence[Sequence[object]], *, start_ms: int, end_ms:
         raise ValueError
 
 
-def _validate_trade(payload: object, symbol: str) -> None:
+def _validate_partial_depth(payload: object) -> None:
     if not isinstance(payload, dict):
         raise ValueError
-    if (
-        payload.get("e") != "trade"
-        or payload.get("s") != symbol
-        or not isinstance(payload.get("T"), int)
-        or isinstance(payload.get("T"), bool)
-        or _integer(payload["T"]) < 0
-        or _integer(payload["t"]) < 0
-        or not isinstance(payload.get("m"), bool)
-    ):
+    if _integer(payload["lastUpdateId"]) < 0:
         raise ValueError
-    price = Decimal(str(payload["p"]))
-    quantity = Decimal(str(payload["q"]))
-    if not price.is_finite() or not quantity.is_finite() or price <= 0 or quantity <= 0:
-        raise ValueError
+    for side in (payload.get("bids"), payload.get("asks")):
+        if not isinstance(side, list) or not side or len(side) > 5:
+            raise ValueError
+        for level in side:
+            if not isinstance(level, list | tuple) or len(level) < 2:
+                raise ValueError
+            price, quantity = (Decimal(str(value)) for value in level[:2])
+            if not price.is_finite() or not quantity.is_finite() or price <= 0 or quantity < 0:
+                raise ValueError
 
 
 def _integer(value: object) -> int:

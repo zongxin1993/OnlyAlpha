@@ -121,7 +121,8 @@ class OnlyClickHouseMarketFactStore:
             + " WHERE segment_id IN ("
             + quoted
             + ") "
-            f"AND instrument_id={_quote(scope.instrument_id)} AND ts_event_ns>={scope.start_ns} "
+            f"AND instrument_id={_quote(scope.instrument_id)} "
+            f"AND ts_event_ns{'>' if scope.data_kind == 'BAR' else '>='}{scope.start_ns} "
             f"AND ts_event_ns<={scope.end_ns} ORDER BY ts_event_ns, canonical_fact_id, raw_event_id"
         )
         return tuple(self._decode_fact(scope.data_kind, row) for row in rows)

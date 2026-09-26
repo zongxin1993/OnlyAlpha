@@ -171,17 +171,29 @@ def test_production_durable_mode_requires_and_obtains_wal_ownership(tmp_path: Pa
 def test_rest_and_websocket_closed_kline_converge_and_open_kline_is_not_canonical() -> None:
     instrument, requested_bar_type = _bar_type()
     open_ms = 1_767_225_600_000
-    rest = [open_ms, "10.00", "11.00", "9.00", "10.50", "100", open_ms + 59_999, "1050", 42, "0", "0"]
+    rest = [
+        open_ms,
+        "10.00000000",
+        "11.00000000",
+        "9.00000000",
+        "10.50000000",
+        "100.00000000",
+        open_ms + 59_999,
+        "1050.00000000",
+        42,
+        "0",
+        "0",
+    ]
     ws = {
         "t": open_ms,
         "T": open_ms + 59_999,
         "s": str(instrument.raw_symbol),
-        "o": "10.00",
-        "h": "11.00",
-        "l": "9.00",
-        "c": "10.50",
-        "v": "100",
-        "q": "1050",
+        "o": "10.00000000",
+        "h": "11.00000000",
+        "l": "9.00000000",
+        "c": "10.50000000",
+        "v": "100.00000000",
+        "q": "1050.00000000",
         "n": 42,
         "x": True,
     }

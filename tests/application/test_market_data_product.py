@@ -689,6 +689,29 @@ def test_acquisition_seals_exact_revision_and_later_query_uses_database(tmp_path
     assert harness.provider.bar_fetches == fetches_after_acquisition
 
 
+def test_acquisition_seals_complete_overlapping_bars_without_refetch(tmp_path: Path) -> None:
+    harness = _service(tmp_path)
+    reference = _reference(harness.revision_fingerprint)
+    start_ns, end_ns = _range()
+    first = harness.service.acquire_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
+    assert first.status == "COMPLETE"
+
+    shifted_start_ns = start_ns + MINUTE_NS
+    shifted = harness.service.acquire_bars(
+        reference, instrument_id=str(INSTRUMENT), start_ns=shifted_start_ns, end_ns=end_ns
+    )
+    assert shifted.status == "COMPLETE"
+    assert shifted.revision_id is not None and shifted.revision_id != first.revision_id
+    assert shifted.seal_id is not None
+    assert harness.provider.bar_fetches == 1
+    bars = harness.service.query_bars(
+        reference, instrument_id=str(INSTRUMENT), start_ns=shifted_start_ns, end_ns=end_ns
+    )
+    assert bars.coverage.status == "COMPLETE"
+    assert len(bars.bars) == 1
+    assert bars.revision_id == shifted.revision_id
+
+
 def test_acquisition_status_projects_pending_and_unknown_acquisitions(tmp_path: Path) -> None:
     harness = _service(tmp_path)
     with pytest.raises(OnlyMarketDataProductError) as error:

@@ -126,6 +126,28 @@ def test_market_data_catalog_concurrent_commit_is_immutable_and_survives_restore
             connection.execute("DROP DATABASE IF EXISTS onlyalpha_restore_test")
 
 
+def test_capture_session_accepts_multiple_segments_created_at_different_times(
+    postgres_dsn: str, tmp_path: Path
+) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    _, first, _ = _sealed(tmp_path / "wal", lambda: BASE)
+    second = replace(
+        first,
+        segment_id="segment-second",
+        content_hash="a" * 64,
+        created_at=BASE + timedelta(seconds=1),
+        sealed_at=BASE + timedelta(seconds=2),
+    )
+    catalog = OnlyPostgresMarketDataCatalog(postgres_dsn)
+
+    catalog.commit_durable_segments((first, second))
+
+    assert catalog.load_durable_segments((first.segment_id, second.segment_id)) == (first, second)
+    conflicting = replace(second, segment_id="segment-conflicting", content_hash="b" * 64, provider_schema="v2")
+    with pytest.raises(RuntimeError, match="POSTGRES_CAPTURE_SESSION_CONFLICT"):
+        catalog.commit_durable_segments((conflicting,))
+
+
 def _acquisition(source_id: str, binding: str) -> OnlyMarketDataAcquisitionIntent:
     return OnlyMarketDataAcquisitionIntent.build(
         source_id,

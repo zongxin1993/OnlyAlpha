@@ -85,9 +85,14 @@ it("posts an acquisition command carrying a source reference rather than a sourc
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
     const body = JSON.parse(init?.body as string) as Record<string, unknown>;
     expect(init?.method).toBe("POST");
-    expect(body.source_reference).toEqual(FIXTURE_REFERENCE);
-    expect(Object.keys(body)).not.toContain("source_selection");
-    expect(Object.keys(body)).not.toContain("source_id");
+    expect(body).toEqual({
+        source_reference: FIXTURE_REFERENCE,
+        instrument_id: query.instrument_id,
+        start_ns: query.start_ns,
+        end_ns: query.end_ns,
+        bar_specification: "1m",
+        provenance: "REST_BACKFILL"
+    });
 });
 
 it("reads exact acquisition status by reference", async () => {

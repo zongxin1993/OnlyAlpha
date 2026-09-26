@@ -715,6 +715,12 @@ class OnlyMarketDataProductService:
         try:
             session = self._open_session(resolved, intent.requested_scope)
             manifest = session.coordinator.inspect(intent)
+            if manifest.coverage_status is OnlyCoverageStatus.COMPLETE:
+                segments = self._catalog.list_durable_segments(intent.requested_scope)
+                facts = self._facts.read_segment_facts(segments, intent.requested_scope)
+                OnlyRevisionCommitService(self._facts, self._catalog, now=self._now).commit_durable_facts(
+                    segments, intent.requested_scope, facts, reason="BACKFILL"
+                )
             for planned in only_plan_contiguous_bar_gaps(
                 tuple(item for item in manifest.gaps if isinstance(item, OnlyBarCoverageGap))
             ):

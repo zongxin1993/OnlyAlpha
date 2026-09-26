@@ -22,6 +22,10 @@ from onlyalpha_plugin_binance.errors import OnlyBinanceError
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
+def _decimal(value: object) -> Decimal:
+    return Decimal(str(value)).normalize()
+
+
 def only_binance_milliseconds(value: object) -> datetime:
     milliseconds = int(str(value))
     if milliseconds < 0:
@@ -82,14 +86,12 @@ def _bar(
     bar_end = bar_start + timedelta(minutes=1)
     return OnlyBar(
         bar_type=bar_type,
-        open=OnlyPrice(Decimal(str(open_value)), instrument.price_precision),
-        high=OnlyPrice(Decimal(str(high)), instrument.price_precision),
-        low=OnlyPrice(Decimal(str(low)), instrument.price_precision),
-        close=OnlyPrice(Decimal(str(close)), instrument.price_precision),
-        volume=OnlyQuantity(Decimal(str(volume)), instrument.quantity_precision),
-        quote_volume=OnlyQuantity(
-            Decimal(str(quote_volume)), instrument.price_precision + instrument.quantity_precision
-        ),
+        open=OnlyPrice(_decimal(open_value), instrument.price_precision),
+        high=OnlyPrice(_decimal(high), instrument.price_precision),
+        low=OnlyPrice(_decimal(low), instrument.price_precision),
+        close=OnlyPrice(_decimal(close), instrument.price_precision),
+        volume=OnlyQuantity(_decimal(volume), instrument.quantity_precision),
+        quote_volume=OnlyQuantity(_decimal(quote_volume), instrument.price_precision + instrument.quantity_precision),
         turnover=None,
         trade_count=int(str(trade_count)),
         open_interest=None,
@@ -146,8 +148,8 @@ def _trade(
         ts_init=ts_event,
         sequence=venue_trade_id,
         source="BINANCE_SPOT",
-        price=OnlyPrice(Decimal(str(price)), instrument.price_precision),
-        quantity=OnlyQuantity(Decimal(str(quantity)), instrument.quantity_precision),
+        price=OnlyPrice(_decimal(price), instrument.price_precision),
+        quantity=OnlyQuantity(_decimal(quantity), instrument.quantity_precision),
         aggressor_side=OnlyOrderSide.SELL if buyer_maker else OnlyOrderSide.BUY,
         trade_id=OnlyTradeId(str(venue_trade_id)),
     )
@@ -177,5 +179,5 @@ def only_normalize_reference_price(raw: Mapping[str, object], instrument: OnlyIn
         sequence=int(str(event_raw)),
         source="BINANCE_SPOT",
         reference_kind=OnlyMarketReferenceKind.VENUE_REFERENCE_PRICE,
-        price=None if price_raw is None else OnlyPrice(Decimal(str(price_raw)), instrument.price_precision),
+        price=None if price_raw is None else OnlyPrice(_decimal(price_raw), instrument.price_precision),
     )

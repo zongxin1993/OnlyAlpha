@@ -532,7 +532,7 @@ class OnlyPostgresMarketDataCatalog:
             (segment.source_id,),
         ).fetchone()
         session = connection.execute(
-            "SELECT source_id,capture_mode,provider_schema,codec,started_at "
+            "SELECT source_id,capture_mode,provider_schema,codec "
             "FROM market_capture_session WHERE capture_session_id=%s",
             (segment.capture_session_id,),
         ).fetchone()
@@ -547,13 +547,11 @@ class OnlyPostgresMarketDataCatalog:
             str(session["capture_mode"]),
             str(session["provider_schema"]),
             str(session["codec"]),
-            session["started_at"],
         ) != (
             segment.source_id,
             segment.capture_mode.value,
             segment.provider_schema,
             segment.codec,
-            segment.created_at,
         ):
             raise RuntimeError("POSTGRES_CAPTURE_SESSION_CONFLICT")
 
