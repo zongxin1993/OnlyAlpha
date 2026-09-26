@@ -58,3 +58,36 @@ immutable Snapshot。Research Runtime 只拥有其 Dataset/Calculation state，�
 一个订阅选择一个主 Source，不自动融合或切换。Runtime subscription requirement 由 Strategy BAR requirement 与显式
 Execution/Risk TRADE reference requirement 组合成 union，但二者 Authority 和 identity 保持独立。尚未实现 Level 2、分布式服务、
 自动主备或复杂公司行动。
+
+## 规范 Market Source identity
+
+DataSource 实现通过 `OnlyDataSourceMarketIdentityV1` 声明 canonical Market Source identity（`provider/venue`、
+`market`、provider-owned `environment` 与稳定 `source_id`）。变化率判断属于插件：同一 provider 的 LIVE 与 provider testnet
+是不同的外部行情 universe，必须拥有不同 `source_id`；timeout、reconnect、batch size 等非语义 runtime 设置变化不得改变
+`source_id`。Core/Application 不包含任何 provider 名称分支，只消费插件声明的身份。
+
+Durable Market Data scope 由该 canonical `source_id`、market、instrument、data kind、data version 与 bar type 共同决定，
+因此不同 environment 的同名 instrument 永不共享 scope、coverage、revision 或 seal。
+
+`Integration Runtime Provenance` 与 Market Source identity 是两件事：前者回答"由哪个 exact Integration Revision/runtime
+binding 取得数据"，属于 provenance，不参与 canonical market fact identity。调整 timeout 而产生新的 binding 仍收敛到同一
+canonical market fact identity，但会产生合法的、彼此独立的 Acquisition Intent。
+
+## Durable Acquisition identity
+
+Acquisition Intent identity 绑定 canonical `source_id`、`requested_scope`、provenance 与 exact
+`integration_binding_fingerprint`；同一 intent 重复进入是 exact re-entry，保留最初 admission 时间而不因新的 retry 时间冲突。
+Acquisition Intent 必须在任何 provider session、WAL、reference lookup 或 provider fetch 之前 durable，否则 Product 不得声称
+自己进入过该状态。
+
+持久 Acquisition identity 显式版本化：历史 V1 仅包含 `source_id + requested_scope + provenance`，保持原 ID 与 admission
+时间且允许 binding provenance 缺失；新写入 V2 额外包含 exact `integration_binding_fingerprint`。V1 不会被重算或回填为 V2。
+
+每次真实执行是独立 append-only occurrence，由每个 intent 内单调的 `attempt_number` 标识；PostgreSQL 在锁定对应 Intent 行的
+同一事务内分配编号并写入 started occurrence，terminal outcome 是另一条 append-only fact。两次相同失败不得折叠为一行；
+started occurrence 缺少 outcome 明确表示被中断或结果未知。
+canonical 成功权威始终是 Coverage COMPLETE + Market Data Revision + Seal；terminal FAILED 只有在 durable failure evidence
+存在时才可返回，failure evidence 无法持久化时必须返回显式 uncertainty 而不是 FAILED。
+
+历史查询 fail closed：只有显式 `SEALED_REVISION_NOT_FOUND` 可以投影为"尚无数据"，catalog 不可用、损坏或 schema 不兼容必须
+传播为 Product error，且任何数据库失败都不得触发 provider acquisition。GET 路径只读 canonical database facts，不做任何 mutation。

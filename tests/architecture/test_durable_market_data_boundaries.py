@@ -80,3 +80,14 @@ def test_scope_did_not_expand_to_futures_or_depth() -> None:
     )
     for forbidden in ("market_depth", "market_book", "USD_M", "FUTURES", "QMT", "CTP"):
         assert forbidden not in changed_surface
+
+
+def test_market_source_identity_is_plugin_owned_and_not_core_branching() -> None:
+    """Canonical Market Source identity comes from the plugin, never from Core branching."""
+
+    application = Path("src/onlyalpha/application/market_data_product.py").read_text()
+    spi = Path("src/onlyalpha/plugin/data_source.py").read_text()
+    for forbidden in ("binance", "BINANCE", "testnet", "TESTNET", "SPOT_TESTNET", "sapi", "api/v3"):
+        assert forbidden not in application, forbidden
+        assert forbidden not in spi, forbidden
+    assert "identity.source_id" in application

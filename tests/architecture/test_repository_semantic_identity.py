@@ -61,6 +61,7 @@ IDENTIFIER_TOKEN = re.compile(
 MIGRATION = re.compile(r"^\d{4}_(?P<suffix>.+)\.sql$")
 UUID4 = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", re.I)
 CONTENT_SCAN_EXCLUSIONS = {"tests/architecture/test_repository_semantic_identity.py"}
+IGNORED_RUNTIME_ARTIFACTS = {"packages/onlyalpha-web-console/.impeccable/live/server.json"}
 GENERATED_DIRECTORY_NAMES = {
     ".git",
     ".hypothesis",
@@ -194,6 +195,8 @@ def semantic_identity_violations(root: Path = ROOT) -> tuple[str, ...]:
     violations: list[str] = []
     for path in _files(root):
         relative = path.relative_to(root).as_posix()
+        if relative in IGNORED_RUNTIME_ARTIFACTS:
+            continue
         migration = MIGRATION.fullmatch(path.name) if "database/postgres/migrations" in relative else None
         if migration:
             for match in _matches(migration.group("suffix"), IDENTIFIER_TOKEN):
@@ -227,6 +230,15 @@ def test_semantic_identity_allowlists_are_explicit_and_narrow() -> None:
     assert all("*" not in entry and "?" not in entry for entry in PATH_ALLOWLIST)
     assert all(reason.strip() for reason in IDENTITY_ALLOWLIST.values())
     assert all(reason.strip() for reason in PATH_ALLOWLIST.values())
+    assert all("*" not in entry and "?" not in entry for entry in IGNORED_RUNTIME_ARTIFACTS)
+
+
+def test_ignored_runtime_artifact_is_not_a_semantic_project_input(tmp_path: Path) -> None:
+    artifact = tmp_path / "packages/onlyalpha-web-console/.impeccable/live/server.json"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text('{"token":"phase-1"}', encoding="utf-8")
+
+    assert semantic_identity_violations(tmp_path) == ()
 
 
 def test_repository_semantic_identity_gate_reports_each_asset_category(tmp_path: Path) -> None:

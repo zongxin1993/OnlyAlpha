@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 import pytest
+from onlyalpha_plugin_binance.common.environment import OnlyBinanceEnvironment
 from onlyalpha_plugin_binance.spot.data_source import instrument_catalog
 from onlyalpha_plugin_binance.spot.data_source.config import OnlyBinanceSpotDataSourceConfig
 from onlyalpha_plugin_binance.spot.data_source.instrument_catalog import (
@@ -79,7 +80,9 @@ def test_exact_instrument_lookup_projects_canonical_precision(catalog: OnlyBinan
     assert json.loads(_FakeHttp.calls[0][1]["symbols"]) == ["BTCUSDT", "ETHUSDT"]
 
 
-def test_symbol_search_is_bounded_and_never_dumps_the_catalogue(catalog: OnlyBinanceSpotInstrumentCatalog) -> None:
+def test_symbol_search_is_bounded_to_the_w1_reference_universe_and_never_dumps_the_catalogue(
+    catalog: OnlyBinanceSpotInstrumentCatalog,
+) -> None:
     config = OnlyBinanceSpotDataSourceConfig()
     assert catalog.list_instruments(OnlyDataSourceInstrumentCatalogRequestV1(config, query="")) == ()
     assert _FakeHttp.calls == []
@@ -88,16 +91,53 @@ def test_symbol_search_is_bounded_and_never_dumps_the_catalogue(catalog: OnlyBin
     assert [str(item.instrument.instrument_id) for item in found] == ["ETHUSDT.BINANCE"]
     assert found[0].instrument.status.value == "ACTIVE"
 
-    halted = catalog.list_instruments(OnlyDataSourceInstrumentCatalogRequestV1(config, query="halted"))
-    assert halted[0].instrument.status.value == "HALTED"
+    # A symbol outside the approved W1 universe neither appears in search nor silently
+    # expands the admitted instrument scope when it is requested by exact identity.
+    assert catalog.list_instruments(OnlyDataSourceInstrumentCatalogRequestV1(config, query="halted")) == ()
+    assert (
+        catalog.list_instruments(
+            OnlyDataSourceInstrumentCatalogRequestV1(config, instrument_ids=("HALTEDUSDT.BINANCE",))
+        )
+        == ()
+    )
+    for _endpoint, params in _FakeHttp.calls:
+        assert set(json.loads(params["symbols"])) <= {"BTCUSDT", "ETHUSDT"}
+
+
+def test_approved_symbol_status_is_projected(
+    catalog: OnlyBinanceSpotInstrumentCatalog, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        _FakeHttp,
+        "payload",
+        {
+            "timezone": "UTC",
+            "exchangeFilters": [],
+            "symbols": [_symbol("BTCUSDT", tick="0.01000000", step="0.00001000", status="HALT")],
+        },
+    )
+    found = catalog.list_instruments(
+        OnlyDataSourceInstrumentCatalogRequestV1(OnlyBinanceSpotDataSourceConfig(), query="btc")
+    )
+    assert [str(item.instrument.instrument_id) for item in found] == ["BTCUSDT.BINANCE"]
+    assert found[0].instrument.status.value == "HALTED"
 
 
 def test_market_identity_is_declared_without_a_provider_call() -> None:
-    from onlyalpha_plugin_binance.spot.data_source.factory import OnlyBinanceSpotDataSourceFactory
+    from onlyalpha_plugin_binance.spot.data_source.factory import (
+        MARKET_SOURCE_IDS,
+        OnlyBinanceSpotDataSourceFactory,
+    )
 
     factory = OnlyBinanceSpotDataSourceFactory()
-    identity = factory.market_identity(OnlyBinanceSpotDataSourceConfig())
-    assert (identity.venue, identity.market) == ("BINANCE", "SPOT")
+    live = factory.market_identity(OnlyBinanceSpotDataSourceConfig())
+    testnet = factory.market_identity(OnlyBinanceSpotDataSourceConfig(environment=OnlyBinanceEnvironment.SPOT_TESTNET))
+    assert (live.venue, live.market, live.environment) == ("BINANCE", "SPOT", "LIVE")
+    assert (testnet.venue, testnet.market, testnet.environment) == ("BINANCE", "SPOT", "SPOT_TESTNET")
+    assert live.source_id == MARKET_SOURCE_IDS[OnlyBinanceEnvironment.LIVE]
+    assert live.source_id != testnet.source_id
+    # A non-semantic runtime setting must not fork the canonical Market Source identity.
+    assert factory.market_identity(OnlyBinanceSpotDataSourceConfig(timeout_seconds=3)).source_id == live.source_id
     with pytest.raises(ValueError, match="BINANCE_PLUGIN_CONFIG_INVALID"):
         factory.market_identity(object())
 

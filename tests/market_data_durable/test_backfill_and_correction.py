@@ -24,6 +24,8 @@ from onlyalpha.market_data.durable import (
 from .conftest import BAR_TYPE, BAR_TYPE_ID, BASE, INSTRUMENT, SOURCE, VERSION, bar_update
 from .test_recovery_revision_dataset import _observation
 
+BINDING = "3" * 64
+
 
 class _HistoricalSource:
     def __init__(self, ingress: OnlyMarketDataIngress) -> None:
@@ -108,7 +110,8 @@ def test_backfill_uses_exact_typed_gap_same_wal_and_creates_complete_child_revis
         str(SOURCE),
         scope,
         provenance=OnlyMarketDataProvenance.REST_BACKFILL,
-        created_at=fixed_now(),
+        admitted_at=fixed_now(),
+        integration_binding_fingerprint=BINDING,
     )
     initial = coordinator.inspect(acquisition)
     [gap] = initial.gaps
@@ -146,7 +149,11 @@ def test_backfill_rejects_source_stream_that_bypasses_durable_recorder(tmp_path,
     source = _NonDurableHistoricalSource(ingress)
     coordinator = OnlyMarketDataBackfillCoordinator(source, catalog, store, recovery, committer)
     acquisition = OnlyMarketDataAcquisitionIntent.build(
-        str(SOURCE), scope, provenance=OnlyMarketDataProvenance.REST_BACKFILL, created_at=fixed_now()
+        str(SOURCE),
+        scope,
+        provenance=OnlyMarketDataProvenance.REST_BACKFILL,
+        admitted_at=fixed_now(),
+        integration_binding_fingerprint=BINDING,
     )
     [gap] = coordinator.inspect(acquisition).gaps
     request = OnlyHistoricalBarRequest(

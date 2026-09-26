@@ -15,9 +15,13 @@ from datetime import datetime
 from logging import Logger
 from pathlib import Path
 from types import MappingProxyType
-from typing import cast
+from typing import Protocol, cast
 
-from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeResolver
+from onlyalpha.application.integration_configuration import OnlyIntegration, OnlyIntegrationLifecycleState
+from onlyalpha.application.integration_runtime import (
+    OnlyIntegrationRuntimeError,
+    OnlyIntegrationRuntimeResolver,
+)
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.config.models import (
@@ -86,6 +90,16 @@ MINUTE_NS = 60_000_000_000
 SUPPORTED_BAR_SPECIFICATION = "1m"
 _WAL_CAPACITY_BYTES = 256 * 1024 * 1024
 
+# A configured Integration that cannot be resolved for this Product is simply not
+# eligible; anything else is a real availability or corruption failure.
+_INELIGIBLE_SOURCE_CODES = frozenset(
+    {
+        "MARKET_DATA_INSTRUMENT_CATALOG_UNAVAILABLE",
+        "MARKET_DATA_SOURCE_SELECTION_MISMATCH",
+        "MARKET_DATA_SOURCE_SELECTION_UNRESOLVED",
+    }
+)
+
 
 class OnlyMarketDataProductError(RuntimeError):
     def __init__(self, code: str, detail: str | None = None) -> None:
@@ -94,29 +108,35 @@ class OnlyMarketDataProductError(RuntimeError):
         super().__init__(f"{code}: {self.detail}")
 
 
+class OnlyIntegrationListing(Protocol):
+    """Formal Product read of configured Integrations, filtered by exact criteria."""
+
+    def list_integrations(
+        self, *, type_id: str | None = None, lifecycle_state: OnlyIntegrationLifecycleState | None = None
+    ) -> tuple[OnlyIntegration, ...]: ...
+
+
 @dataclass(frozen=True, slots=True)
-class OnlyMarketDataSourceSelectionV1:
-    """Per-request binding to one exact published Integration Revision."""
+class OnlyMarketDataSourceReferenceV1:
+    """Client reference to one exact published Integration Revision.
+
+    The browser selects a configured source; the canonical Market Source identity is
+    resolved server-side from the exact Revision plus the plugin market identity. The
+    client owns no canonical source authority.
+    """
 
     integration_id: str
     integration_revision_fingerprint: str
-    type_id: str
-    source_id: str
+    expected_type_id: str | None = None
 
     def __post_init__(self) -> None:
-        if not all(
-            item.strip()
-            for item in (
-                self.integration_id,
-                self.integration_revision_fingerprint,
-                self.type_id,
-                self.source_id,
-            )
-        ):
-            raise OnlyMarketDataProductError("MARKET_DATA_SOURCE_SELECTION_INVALID")
+        if not self.integration_id.strip() or not self.integration_revision_fingerprint.strip():
+            raise OnlyMarketDataProductError("MARKET_DATA_SOURCE_REFERENCE_INVALID")
+        if self.expected_type_id is not None and not self.expected_type_id.strip():
+            raise OnlyMarketDataProductError("MARKET_DATA_SOURCE_REFERENCE_INVALID")
         fingerprint = self.integration_revision_fingerprint
         if len(fingerprint) != 64 or any(char not in "0123456789abcdef" for char in fingerprint):
-            raise OnlyMarketDataProductError("MARKET_DATA_SOURCE_SELECTION_INVALID")
+            raise OnlyMarketDataProductError("MARKET_DATA_SOURCE_REFERENCE_INVALID")
 
     def binding_reference(self) -> Mapping[str, object]:
         return MappingProxyType(
@@ -125,6 +145,29 @@ class OnlyMarketDataSourceSelectionV1:
                 "revision_fingerprint": self.integration_revision_fingerprint,
             }
         )
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyMarketDataSourceSelectionV1:
+    """Server-derived canonical Market Source identity for one exact Revision."""
+
+    integration_id: str
+    integration_revision_fingerprint: str
+    type_id: str
+    source_id: str
+    environment: str
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyMarketDataSourceProjectionV1:
+    """A configured Integration that is eligible for this Market Data Product."""
+
+    integration_id: str
+    integration_revision_fingerprint: str
+    display_name: str
+    type_id: str
+    source_id: str
+    environment: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,10 +180,12 @@ class OnlyMarketDataInstrumentProjectionV1:
     instrument_type: str
     status: str
     market_data_capabilities: tuple[str, ...]
-    source_id: str
-    type_id: str
-    integration_id: str
-    integration_revision_fingerprint: str
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyMarketDataInstrumentListProjectionV1:
+    source_selection: OnlyMarketDataSourceSelectionV1
+    instruments: tuple[OnlyMarketDataInstrumentProjectionV1, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -223,6 +268,7 @@ class _OnlyResolvedSelection:
     binding_fingerprint: str
     venue: str
     market: str
+    environment: str
     source_id: OnlyMarketDataSourceId
     data_version: OnlyDataVersion
     factory: object
@@ -269,6 +315,7 @@ class OnlyMarketDataProductService:
         self,
         *,
         resolver: OnlyIntegrationRuntimeResolver,
+        integrations: OnlyIntegrationListing,
         data_sources: OnlyDataSourceFactoryRegistry,
         catalog: OnlyMarketDataCatalog,
         fact_store: OnlyMarketFactStore,
@@ -279,6 +326,7 @@ class OnlyMarketDataProductService:
         now: Callable[[], datetime] = only_system_utc_now,
     ) -> None:
         self._resolver = resolver
+        self._integrations = integrations
         self._data_sources = data_sources
         self._catalog = catalog
         self._facts = fact_store
@@ -288,21 +336,61 @@ class OnlyMarketDataProductService:
         self._batch_size = batch_size
         self._now = now
         self._queries = OnlyHistoricalMarketDataQueryService(catalog, fact_store)
-        # ponytail: one acquisition lock per service; per-(source,instrument) locks if throughput matters
         self._lock = threading.Lock()
-        self._running: set[str] = set()
+        self._running: dict[str, int] = {}
 
     # --- Product Query -----------------------------------------------------------------
 
+    def list_sources(self) -> tuple[OnlyMarketDataSourceProjectionV1, ...]:
+        """Configured Integrations that this Market Data Product can actually serve.
+
+        Eligibility is a Product judgement, not a Web filter: the candidate must be an
+        ACTIVE Integration with a published Revision that resolves through the exact
+        DataSource runtime binding with the capabilities this Product requires, and it
+        must provide the Market Source identity and Instrument Catalog the Product reads.
+        """
+
+        try:
+            candidates = self._integrations.list_integrations(
+                type_id=None, lifecycle_state=OnlyIntegrationLifecycleState.ACTIVE
+            )
+        except Exception as exc:
+            raise OnlyMarketDataProductError(
+                "MARKET_DATA_SOURCE_CATALOG_UNAVAILABLE", "Integration catalog is unavailable"
+            ) from exc
+        eligible: list[OnlyMarketDataSourceProjectionV1] = []
+        for candidate in candidates:
+            fingerprint = candidate.current_revision_fingerprint
+            if fingerprint is None:
+                continue
+            reference = OnlyMarketDataSourceReferenceV1(candidate.integration_id.value, fingerprint, candidate.type_id)
+            try:
+                resolved = self._resolve(reference)
+            except OnlyMarketDataProductError as exc:
+                if exc.code in _INELIGIBLE_SOURCE_CODES:
+                    continue
+                raise
+            eligible.append(
+                OnlyMarketDataSourceProjectionV1(
+                    reference.integration_id,
+                    reference.integration_revision_fingerprint,
+                    candidate.display_name,
+                    resolved.selection.type_id,
+                    resolved.selection.source_id,
+                    resolved.environment,
+                )
+            )
+        return tuple(eligible)
+
     def list_instruments(
         self,
-        selection: OnlyMarketDataSourceSelectionV1,
+        reference: OnlyMarketDataSourceReferenceV1,
         *,
         instrument_ids: tuple[str, ...] = (),
         query: str = "",
         limit: int = 25,
-    ) -> tuple[OnlyMarketDataInstrumentProjectionV1, ...]:
-        resolved = self._resolve(selection)
+    ) -> OnlyMarketDataInstrumentListProjectionV1:
+        resolved = self._resolve(reference)
         request = OnlyDataSourceInstrumentCatalogRequestV1(
             resolved.plugin_config,
             instrument_ids=tuple(sorted(set(instrument_ids))),
@@ -320,27 +408,26 @@ class OnlyMarketDataProductService:
             raise OnlyMarketDataProductError(
                 "MARKET_DATA_INSTRUMENT_NOT_FOUND", "requested instrument is not published by this source"
             )
-        return tuple(
-            OnlyMarketDataInstrumentProjectionV1(
-                str(item.instrument.instrument_id),
-                item.display_symbol,
-                item.venue,
-                item.market,
-                item.instrument.asset_class.value,
-                item.instrument.instrument_type.value,
-                item.instrument.status.value,
-                item.market_data_capabilities,
-                selection.source_id,
-                selection.type_id,
-                selection.integration_id,
-                selection.integration_revision_fingerprint,
-            )
-            for item in projected
+        return OnlyMarketDataInstrumentListProjectionV1(
+            resolved.selection,
+            tuple(
+                OnlyMarketDataInstrumentProjectionV1(
+                    str(item.instrument.instrument_id),
+                    item.display_symbol,
+                    item.venue,
+                    item.market,
+                    item.instrument.asset_class.value,
+                    item.instrument.instrument_type.value,
+                    item.instrument.status.value,
+                    item.market_data_capabilities,
+                )
+                for item in projected
+            ),
         )
 
     def query_bars(
         self,
-        selection: OnlyMarketDataSourceSelectionV1,
+        reference: OnlyMarketDataSourceReferenceV1,
         *,
         instrument_id: str,
         start_ns: int,
@@ -349,7 +436,7 @@ class OnlyMarketDataProductService:
     ) -> OnlyMarketDataBarsProjectionV1:
         """DB-first exact read; a Query never acquires, retries or mutates state."""
 
-        resolved = self._resolve(selection)
+        resolved = self._resolve(reference)
         scope = self._scope(resolved, instrument_id, start_ns, end_ns, bar_specification)
         try:
             sealed = self._sealed_for_scope(scope)
@@ -372,7 +459,7 @@ class OnlyMarketDataProductService:
             ) from exc
         return OnlyMarketDataBarsProjectionV1(
             SCHEMA_VERSION,
-            selection,
+            resolved.selection,
             instrument_id,
             _display_symbol(instrument_id, resolved.venue),
             resolved.venue,
@@ -394,61 +481,89 @@ class OnlyMarketDataProductService:
 
     def acquire_bars(
         self,
-        selection: OnlyMarketDataSourceSelectionV1,
+        reference: OnlyMarketDataSourceReferenceV1,
         *,
         instrument_id: str,
         start_ns: int,
         end_ns: int,
         bar_specification: str = SUPPORTED_BAR_SPECIFICATION,
     ) -> OnlyMarketDataAcquisitionProjectionV1:
-        resolved = self._resolve(selection)
+        """Validate, admit the execution intent durably, then execute.
+
+        No provider session, WAL or reference call happens before the exact intent is
+        durable: a FAILED Product response must never describe a state the database
+        cannot reproduce after restart.
+        """
+
+        resolved = self._resolve(reference)
         scope = self._scope(resolved, instrument_id, start_ns, end_ns, bar_specification)
         self._assert_acquisition_window(start_ns, end_ns)
         intent = OnlyMarketDataAcquisitionIntent.build(
             str(resolved.source_id),
             scope,
             provenance=OnlyMarketDataProvenance.REST_BACKFILL,
-            created_at=self._now(),
+            admitted_at=self._now(),
             integration_binding_fingerprint=resolved.binding_fingerprint,
         )
         with self._lock:
+            admitted = self._admit(intent)
             sealed = self._sealed_for_scope(scope)
             if sealed is not None:
                 return self._projection(
-                    resolved, intent, status="COMPLETE", revision=sealed[0], seal=sealed[1], failure_detail=None
+                    resolved,
+                    admitted,
+                    status="COMPLETE",
+                    revision=sealed[0],
+                    seal=sealed[1],
+                    failure_detail=None,
                 )
-            self._running.add(intent.acquisition_id)
-            try:
-                revision, seal, failure = self._execute_acquisition(resolved, intent)
-            finally:
-                self._running.discard(intent.acquisition_id)
+            started_at = self._now()
+            attempt = self._start_attempt(admitted.acquisition_id, started_at=started_at)
+            self._running[admitted.acquisition_id] = self._running.get(admitted.acquisition_id, 0) + 1
+        try:
+            revision, seal, failure = self._execute_acquisition(resolved, admitted)
+        finally:
+            with self._lock:
+                remaining = self._running[admitted.acquisition_id] - 1
+                if remaining:
+                    self._running[admitted.acquisition_id] = remaining
+                else:
+                    del self._running[admitted.acquisition_id]
         if failure is None and revision is not None and seal is not None:
-            self._record_attempt(
-                intent.acquisition_id,
-                OnlyAcquisitionOutcome.COMPLETE,
-                detail="MARKET_DATA_ACQUISITION_COMPLETE",
-                revision_id=revision.revision_id,
-            )
+            # Canonical success authority is Coverage + Revision + Seal; the COMPLETE
+            # attempt is operational evidence and cannot demote an already sealed revision.
+            try:
+                self._record_attempt(
+                    attempt,
+                    OnlyAcquisitionOutcome.COMPLETE,
+                    detail="MARKET_DATA_ACQUISITION_COMPLETE",
+                    revision_id=revision.revision_id,
+                )
+            except Exception as exc:
+                self._logger.warning("market-data acquisition attempt evidence failed: %s", exc)
             return self._projection(
-                resolved, intent, status="COMPLETE", revision=revision, seal=seal, failure_detail=None
+                resolved, admitted, status="COMPLETE", revision=revision, seal=seal, failure_detail=None
             )
         detail = failure or "MARKET_DATA_ACQUISITION_INCOMPLETE"
-        self._record_attempt(intent.acquisition_id, OnlyAcquisitionOutcome.FAILED, detail=detail)
-        return self._projection(resolved, intent, status="FAILED", revision=None, seal=None, failure_detail=detail)
+        self._record_terminal_failure(attempt, detail=detail)
+        return self._projection(resolved, admitted, status="FAILED", revision=None, seal=None, failure_detail=detail)
 
     def acquisition_status(
-        self, selection: OnlyMarketDataSourceSelectionV1, acquisition_id: str
+        self, reference: OnlyMarketDataSourceReferenceV1, acquisition_id: str
     ) -> OnlyMarketDataAcquisitionProjectionV1:
-        resolved = self._resolve(selection)
-        intent = self._catalog.load_acquisition_intent(acquisition_id)
+        resolved = self._resolve(reference)
+        try:
+            intent = self._catalog.load_acquisition_intent(acquisition_id)
+            attempt = None if intent is None else self._catalog.latest_acquisition_attempt(acquisition_id)
+        except Exception as exc:
+            raise OnlyMarketDataProductError(
+                "MARKET_DATA_CATALOG_UNAVAILABLE", "acquisition catalog is unavailable"
+            ) from exc
         if intent is None:
             raise OnlyMarketDataProductError(
                 "MARKET_DATA_ACQUISITION_NOT_FOUND", "acquisition is not admitted by this deployment"
             )
-        if (
-            intent.integration_binding_fingerprint is not None
-            and intent.integration_binding_fingerprint != resolved.binding_fingerprint
-        ):
+        if intent.integration_binding_fingerprint != resolved.binding_fingerprint:
             raise OnlyMarketDataProductError(
                 "MARKET_DATA_ACQUISITION_PROVENANCE_CONFLICT",
                 "acquisition was admitted under a different Integration runtime binding",
@@ -460,7 +575,6 @@ class OnlyMarketDataProductService:
             )
         if acquisition_id in self._running:
             return self._projection(resolved, intent, status="RUNNING", revision=None, seal=None, failure_detail=None)
-        attempt = self._catalog.latest_acquisition_attempt(acquisition_id)
         if attempt is not None and attempt.outcome is OnlyAcquisitionOutcome.FAILED:
             return self._projection(
                 resolved, intent, status="FAILED", revision=None, seal=None, failure_detail=attempt.detail
@@ -469,18 +583,18 @@ class OnlyMarketDataProductService:
 
     # --- Internals ---------------------------------------------------------------------
 
-    def _resolve(self, selection: OnlyMarketDataSourceSelectionV1) -> _OnlyResolvedSelection:
-        if not isinstance(selection, OnlyMarketDataSourceSelectionV1):
-            raise OnlyMarketDataProductError("MARKET_DATA_SOURCE_SELECTION_INVALID")
+    def _resolve(self, reference: OnlyMarketDataSourceReferenceV1) -> _OnlyResolvedSelection:
+        if not isinstance(reference, OnlyMarketDataSourceReferenceV1):
+            raise OnlyMarketDataProductError("MARKET_DATA_SOURCE_REFERENCE_INVALID")
         runtime_config = OnlyDataSourceRuntimeConfig(
-            source_id=OnlyMarketDataSourceId(selection.source_id),
+            source_id=OnlyMarketDataSourceId("unresolved"),
             plugin_id="",
             enabled=True,
-            data_version=OnlyDataVersion(selection.source_id),
-            coverage=OnlyDataSourceCoverageConfig(universe_ids=(selection.source_id,)),
+            data_version=OnlyDataVersion("unresolved"),
+            coverage=OnlyDataSourceCoverageConfig(universe_ids=("unresolved",)),
             batch_size=self._batch_size,
             configuration_mode=OnlyRuntimeConfigurationMode.INTEGRATION_REVISION,
-            integration_binding=cast(OnlyJsonMapping, selection.binding_reference()),
+            integration_binding=cast(OnlyJsonMapping, reference.binding_reference()),
         )
         capabilities = OnlyDataSourceCapabilities(historical_bars=True)
         try:
@@ -488,6 +602,16 @@ class OnlyMarketDataProductService:
             factory, plugin_config = only_resolve_data_source_runtime_configuration(
                 admitted, self._data_sources, self._resolver, capabilities
             )
+        except OnlyIntegrationRuntimeError as exc:
+            # An unavailable Integration authority is not "this source is ineligible":
+            # it must never be projected as an empty source list or a missing scope.
+            if exc.code == "INTEGRATION_RUNTIME_PERSISTENCE_UNAVAILABLE":
+                raise OnlyMarketDataProductError(
+                    "MARKET_DATA_SOURCE_CATALOG_UNAVAILABLE", "Integration authority is unavailable"
+                ) from exc
+            raise OnlyMarketDataProductError(
+                "MARKET_DATA_SOURCE_SELECTION_UNRESOLVED", "exact Integration runtime binding cannot be resolved"
+            ) from exc
         except Exception as exc:
             raise OnlyMarketDataProductError(
                 "MARKET_DATA_SOURCE_SELECTION_UNRESOLVED", "exact Integration runtime binding cannot be resolved"
@@ -495,7 +619,7 @@ class OnlyMarketDataProductService:
         binding = admitted.integration_binding
         if binding is None:  # pragma: no cover - admission always binds an exact revision
             raise OnlyMarketDataProductError("MARKET_DATA_SOURCE_SELECTION_UNRESOLVED")
-        if str(binding["type_id"]) != selection.type_id:
+        if reference.expected_type_id is not None and str(binding["type_id"]) != reference.expected_type_id:
             raise OnlyMarketDataProductError(
                 "MARKET_DATA_SOURCE_SELECTION_MISMATCH",
                 "declared type does not match the exact Integration Revision",
@@ -513,11 +637,18 @@ class OnlyMarketDataProductService:
             )
         identity = factory.market_identity(plugin_config)
         return _OnlyResolvedSelection(
-            selection,
+            OnlyMarketDataSourceSelectionV1(
+                reference.integration_id,
+                reference.integration_revision_fingerprint,
+                str(descriptor.type_id),
+                identity.source_id,
+                identity.environment,
+            ),
             str(binding["binding_fingerprint"]),
             identity.venue,
             identity.market,
-            OnlyMarketDataSourceId(str(descriptor.type_id)),
+            identity.environment,
+            OnlyMarketDataSourceId(identity.source_id),
             OnlyDataVersion(f"{descriptor.type_id}@{descriptor.public_api_version}"),
             factory,
             plugin_config,
@@ -678,14 +809,53 @@ class OnlyMarketDataProductService:
         return session
 
     def _sealed_for_scope(self, scope: OnlyMarketDataScope) -> tuple[OnlyMarketDataRevision, OnlyMarketDataSeal] | None:
+        """Explicit not-found is the only condition that may mean "no data yet".
+
+        An unavailable, corrupt or schema-incompatible catalog must never be projected
+        as an empty result: that would turn a database outage into a silent claim that
+        no canonical history exists, and would let a Query or Command proceed on it.
+        """
+
         try:
             revision = self._catalog.latest_sealed_revision(scope)
-            return revision, self._catalog.load_sealed_revision(revision.revision_id)[1]
-        except Exception:
-            return None
+        except KeyError as exc:
+            if exc.args and exc.args[0] == "SEALED_REVISION_NOT_FOUND":
+                return None
+            raise OnlyMarketDataProductError(
+                "MARKET_DATA_CATALOG_CORRUPT", "sealed revision lookup returned an invalid result"
+            ) from exc
+        except Exception as exc:
+            raise OnlyMarketDataProductError(
+                "MARKET_DATA_CATALOG_UNAVAILABLE", "canonical market-data catalog is unavailable"
+            ) from exc
+        try:
+            stored, seal = self._catalog.load_sealed_revision(revision.revision_id)
+        except KeyError as exc:
+            raise OnlyMarketDataProductError(
+                "MARKET_DATA_CATALOG_CORRUPT", "latest sealed revision is not readable"
+            ) from exc
+        except Exception as exc:
+            raise OnlyMarketDataProductError(
+                "MARKET_DATA_CATALOG_UNAVAILABLE", "canonical market-data catalog is unavailable"
+            ) from exc
+        if (
+            stored.revision_id != revision.revision_id
+            or stored.scope != scope
+            or stored.fingerprint != revision.fingerprint
+            or seal.revision_fingerprint != stored.fingerprint
+        ):
+            raise OnlyMarketDataProductError(
+                "MARKET_DATA_CATALOG_CORRUPT", "sealed revision does not match its own scope identity"
+            )
+        return stored, seal
 
     def _coverage(self, scope: OnlyMarketDataScope, complete: bool) -> OnlyMarketDataCoverageProjectionV1:
-        segments = self._catalog.list_durable_segments(scope)
+        try:
+            segments = self._catalog.list_durable_segments(scope)
+        except Exception as exc:
+            raise OnlyMarketDataProductError(
+                "MARKET_DATA_CATALOG_UNAVAILABLE", "canonical market-data catalog is unavailable"
+            ) from exc
         facts = self._facts.read_segment_facts(tuple(segments), scope) if segments else ()
         manifest = only_build_coverage(scope, tuple(segments), facts)
         bar_gaps = tuple(item for item in manifest.gaps if isinstance(item, OnlyBarCoverageGap))
@@ -730,24 +900,56 @@ class OnlyMarketDataProductService:
 
     def _record_attempt(
         self,
-        acquisition_id: str,
+        attempt: OnlyMarketDataAcquisitionAttempt,
         outcome: OnlyAcquisitionOutcome,
         *,
         detail: str,
         revision_id: str | None = None,
     ) -> None:
+        self._catalog.record_acquisition_attempt(
+            attempt.finish(
+                outcome,
+                detail=detail,
+                completed_at=self._now(),
+                revision_id=revision_id,
+            )
+        )
+
+    def _admit(self, intent: OnlyMarketDataAcquisitionIntent) -> OnlyMarketDataAcquisitionIntent:
         try:
-            self._catalog.record_acquisition_attempt(
-                OnlyMarketDataAcquisitionAttempt.build(
-                    acquisition_id,
-                    outcome,
-                    detail=detail,
-                    recorded_at=self._now(),
-                    revision_id=revision_id,
-                )
+            return self._catalog.admit_acquisition_intent(intent)
+        except Exception as exc:
+            raise OnlyMarketDataProductError(
+                "MARKET_DATA_CATALOG_UNAVAILABLE", "acquisition intent could not be admitted durably"
+            ) from exc
+
+    def _start_attempt(self, acquisition_id: str, *, started_at: datetime) -> OnlyMarketDataAcquisitionAttempt:
+        try:
+            return self._catalog.start_acquisition_attempt(acquisition_id, started_at=started_at)
+        except Exception as exc:
+            raise OnlyMarketDataProductError(
+                "MARKET_DATA_CATALOG_UNAVAILABLE", "acquisition attempt occurrence could not be admitted"
+            ) from exc
+
+    def _record_terminal_failure(self, attempt: OnlyMarketDataAcquisitionAttempt, *, detail: str) -> None:
+        """Without canonical Coverage/Revision/Seal, FAILED must itself be durable.
+
+        If the failure observation cannot be persisted the Product may not report a
+        durable FAILED; it reports explicit uncertainty instead of swallowing the error.
+        """
+
+        try:
+            self._record_attempt(
+                attempt,
+                OnlyAcquisitionOutcome.FAILED,
+                detail=detail,
             )
         except Exception as exc:
-            self._logger.warning("market-data acquisition attempt evidence failed: %s", exc)
+            self._logger.warning("market-data acquisition failure evidence failed: %s", exc)
+            raise OnlyMarketDataProductError(
+                "MARKET_DATA_ACQUISITION_EVIDENCE_UNAVAILABLE",
+                "terminal acquisition failure could not be persisted",
+            ) from exc
 
     def _projection(
         self,
@@ -825,7 +1027,11 @@ __all__ = [
     "OnlyMarketDataCoverageGapV1",
     "OnlyMarketDataCoverageProjectionV1",
     "OnlyMarketDataInstrumentProjectionV1",
+    "OnlyMarketDataInstrumentListProjectionV1",
     "OnlyMarketDataProductError",
     "OnlyMarketDataProductService",
+    "OnlyMarketDataSourceProjectionV1",
+    "OnlyMarketDataSourceReferenceV1",
     "OnlyMarketDataSourceSelectionV1",
+    "OnlyIntegrationListing",
 ]

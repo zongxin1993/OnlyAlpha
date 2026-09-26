@@ -21,13 +21,13 @@ def _compose() -> dict[str, object]:
 def test_deploy_contains_only_the_single_development_topology() -> None:
     compose_files = tuple(
         path.relative_to(ROOT).as_posix()
-        for path in ROOT.rglob("*.y*ml")
+        for path in DEPLOY.rglob("*.y*ml")
         if "compose" in path.name.casefold() or path.name.startswith("docker-compose")
     )
     assert compose_files == ("deploy/docker-compose.dev.yml",)
     dockerfiles = tuple(
         path.relative_to(ROOT).as_posix()
-        for path in ROOT.rglob("Dockerfile*")
+        for path in DEPLOY.rglob("Dockerfile*")
         if path.name != "Dockerfile.dev.dockerignore"
     )
     assert dockerfiles == ("deploy/Dockerfile.dev",)

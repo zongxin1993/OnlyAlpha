@@ -81,7 +81,7 @@ class OnlyMarketDataBackfillCoordinator:
 
     def inspect(self, acquisition: OnlyMarketDataAcquisitionIntent) -> OnlyCoverageManifest:
         self._validate_acquisition(acquisition)
-        self._catalog.commit_acquisition_intent(acquisition)
+        self._catalog.admit_acquisition_intent(acquisition)
         segments = self._catalog.list_durable_segments(acquisition.requested_scope)
         facts = self._facts.read_segment_facts(segments, acquisition.requested_scope)
         manifest = only_build_coverage(acquisition.requested_scope, segments, facts)

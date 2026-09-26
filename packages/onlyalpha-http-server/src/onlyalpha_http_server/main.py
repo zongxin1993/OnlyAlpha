@@ -503,6 +503,7 @@ def _compose_market_data_product(
     layout_root: Path,
     data_sources: OnlyDataSourceFactoryRegistry,
     brokers: OnlyBrokerFactoryRegistry,
+    integrations: OnlyIntegrationQueryService,
 ) -> OnlyMarketDataProductService:
     resolver = only_compose_integration_runtime_resolver(
         OnlyIntegrationRuntimeCompositionV1(
@@ -515,6 +516,7 @@ def _compose_market_data_product(
     )
     return OnlyMarketDataProductService(
         resolver=resolver,
+        integrations=integrations,
         data_sources=data_sources,
         catalog=OnlyPostgresMarketDataCatalog(postgres_dsn, now=only_system_utc_now),
         fact_store=cast(Any, _LazyClickHouseMarketFactStore()),
@@ -1021,6 +1023,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             layout_root=layout.root,
             data_sources=data_sources,
             brokers=brokers,
+            integrations=integration_queries,
         )
         app = create_product_app(
             artifact_reader,

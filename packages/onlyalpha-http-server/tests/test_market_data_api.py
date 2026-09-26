@@ -15,18 +15,24 @@ from onlyalpha.application.market_data_product import (
     OnlyMarketDataBarV1,
     OnlyMarketDataCoverageGapV1,
     OnlyMarketDataCoverageProjectionV1,
+    OnlyMarketDataInstrumentListProjectionV1,
     OnlyMarketDataInstrumentProjectionV1,
     OnlyMarketDataProductError,
+    OnlyMarketDataSourceProjectionV1,
+    OnlyMarketDataSourceReferenceV1,
     OnlyMarketDataSourceSelectionV1,
 )
 
 INTEGRATION_ID = "00000000-0000-4000-8000-000000000301"
 REVISION_FINGERPRINT = "a" * 64
 TYPE_ID = "binance.spot.market_data"
-SOURCE_ID = TYPE_ID
+SOURCE_ID = "binance.spot.market_data.live"
+ENVIRONMENT = "LIVE"
 INSTRUMENT_ID = "BTCUSDT.BINANCE"
 START_NS = 1_767_225_600_000_000_000
 MINUTE_NS = 60_000_000_000
+START_NS_TEXT = str(START_NS)
+END_NS_TEXT = str(START_NS + 2 * MINUTE_NS)
 ACQUISITION_ID = "acquisition:" + "b" * 64
 
 
@@ -45,7 +51,7 @@ def _coverage(status: str = "COMPLETE") -> OnlyMarketDataCoverageProjectionV1:
 
 
 def _selection() -> OnlyMarketDataSourceSelectionV1:
-    return OnlyMarketDataSourceSelectionV1(INTEGRATION_ID, REVISION_FINGERPRINT, TYPE_ID, SOURCE_ID)
+    return OnlyMarketDataSourceSelectionV1(INTEGRATION_ID, REVISION_FINGERPRINT, TYPE_ID, SOURCE_ID, ENVIRONMENT)
 
 
 class _Service:
@@ -62,29 +68,43 @@ class _Service:
             raise self.failure
 
     def list_instruments(
-        self, selection: OnlyMarketDataSourceSelectionV1, *, instrument_ids=(), query: str = "", limit: int = 25
-    ) -> tuple[OnlyMarketDataInstrumentProjectionV1, ...]:
+        self,
+        reference: OnlyMarketDataSourceReferenceV1,
+        *,
+        instrument_ids: tuple[str, ...] = (),
+        query: str = "",
+        limit: int = 25,
+    ) -> OnlyMarketDataInstrumentListProjectionV1:
+        self._raise()
+        del instrument_ids, query, limit
+        assert reference.integration_id == INTEGRATION_ID
+        return OnlyMarketDataInstrumentListProjectionV1(
+            _selection(),
+            (
+                OnlyMarketDataInstrumentProjectionV1(
+                    INSTRUMENT_ID,
+                    "BTCUSDT",
+                    "BINANCE",
+                    "SPOT",
+                    "CRYPTOCURRENCY",
+                    "CRYPTO_SPOT",
+                    "ACTIVE",
+                    ("BAR_1M_EXTERNAL_RAW",),
+                ),
+            ),
+        )
+
+    def list_sources(self) -> tuple[OnlyMarketDataSourceProjectionV1, ...]:
         self._raise()
         return (
-            OnlyMarketDataInstrumentProjectionV1(
-                INSTRUMENT_ID,
-                "BTCUSDT",
-                "BINANCE",
-                "SPOT",
-                "CRYPTOCURRENCY",
-                "CRYPTO_SPOT",
-                "ACTIVE",
-                ("BAR_1M_EXTERNAL_RAW",),
-                selection.source_id,
-                selection.type_id,
-                selection.integration_id,
-                selection.integration_revision_fingerprint,
+            OnlyMarketDataSourceProjectionV1(
+                INTEGRATION_ID, REVISION_FINGERPRINT, "Golden Binance Spot", TYPE_ID, SOURCE_ID, ENVIRONMENT
             ),
         )
 
     def query_bars(
         self,
-        selection: OnlyMarketDataSourceSelectionV1,
+        reference: OnlyMarketDataSourceReferenceV1,
         *,
         instrument_id: str,
         start_ns: int,
@@ -92,6 +112,7 @@ class _Service:
         bar_specification: str = "1m",
     ) -> OnlyMarketDataBarsProjectionV1:
         self._raise()
+        del reference
         self.bar_queries.append((instrument_id, start_ns, end_ns, bar_specification))
         coverage = _coverage(self.bar_status)
         bars = (
@@ -112,7 +133,7 @@ class _Service:
         )
         return OnlyMarketDataBarsProjectionV1(
             1,
-            selection,
+            _selection(),
             instrument_id,
             "BTCUSDT",
             "BINANCE",
@@ -132,7 +153,7 @@ class _Service:
 
     def acquire_bars(
         self,
-        selection: OnlyMarketDataSourceSelectionV1,
+        reference: OnlyMarketDataSourceReferenceV1,
         *,
         instrument_id: str,
         start_ns: int,
@@ -140,13 +161,15 @@ class _Service:
         bar_specification: str = "1m",
     ) -> OnlyMarketDataAcquisitionProjectionV1:
         self._raise()
+        del reference
         self.acquisitions.append((instrument_id, start_ns, end_ns, bar_specification))
         return _acquisition(self.acquisition_state)
 
     def acquisition_status(
-        self, selection: OnlyMarketDataSourceSelectionV1, acquisition_id: str
+        self, reference: OnlyMarketDataSourceReferenceV1, acquisition_id: str
     ) -> OnlyMarketDataAcquisitionProjectionV1:
         self._raise()
+        del reference
         self.status_queries.append(acquisition_id)
         return _acquisition(self.acquisition_state)
 
@@ -184,8 +207,7 @@ def _selection_params(**overrides: object) -> dict[str, object]:
     values: dict[str, object] = {
         "integration_id": INTEGRATION_ID,
         "integration_revision_fingerprint": REVISION_FINGERPRINT,
-        "type_id": TYPE_ID,
-        "source_id": SOURCE_ID,
+        "expected_type_id": TYPE_ID,
     }
     values.update(overrides)
     return values
@@ -202,6 +224,7 @@ def test_instrument_query_projects_canonical_instruments_and_source_selection() 
         "integration_revision_fingerprint": REVISION_FINGERPRINT,
         "type_id": TYPE_ID,
         "source_id": SOURCE_ID,
+        "environment": ENVIRONMENT,
     }
     assert body["instruments"] == [
         {
@@ -223,28 +246,87 @@ def test_bars_query_is_db_first_and_reports_gap_projection_without_bars() -> Non
     client = _client(service)
     response = client.get(
         "/api/v2/market-data/bars",
-        params=_selection_params(instrument_id=INSTRUMENT_ID, start_ns=START_NS, end_ns=START_NS + 2 * MINUTE_NS),
+        params=_selection_params(instrument_id=INSTRUMENT_ID, start_ns=START_NS_TEXT, end_ns=END_NS_TEXT),
     )
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["coverage"]["status"] == "INCOMPLETE"
     assert body["bars"] == []
     assert body["revision_id"] is None
-    assert body["coverage"]["planned_acquisition_ranges"] == [
-        {"start_ns": START_NS, "end_ns": START_NS + 2 * MINUTE_NS}
-    ]
+    assert body["coverage"]["planned_acquisition_ranges"] == [{"start_ns": START_NS_TEXT, "end_ns": END_NS_TEXT}]
     assert body["aggregation_source"] == "EXTERNAL" and body["adjustment"] == "RAW"
     assert service.bar_queries == [(INSTRUMENT_ID, START_NS, START_NS + 2 * MINUTE_NS, "1m")]
 
     service.bar_status = "COMPLETE"
     complete = client.get(
         "/api/v2/market-data/bars",
-        params=_selection_params(instrument_id=INSTRUMENT_ID, start_ns=START_NS, end_ns=START_NS + 2 * MINUTE_NS),
+        params=_selection_params(instrument_id=INSTRUMENT_ID, start_ns=START_NS_TEXT, end_ns=END_NS_TEXT),
     )
     assert complete.status_code == 200
     assert complete.json()["coverage"]["status"] == "COMPLETE"
     assert complete.json()["bars"][0]["close"] == "101.00"
+    assert complete.json()["bars"][0]["bar_start_ns"] == START_NS_TEXT
+    assert complete.json()["start_ns"] == START_NS_TEXT
     assert complete.json()["revision_fingerprint"] == "d" * 64
+
+
+def test_market_data_sources_projection_is_a_thin_product_read() -> None:
+    client = _client(_Service())
+    response = client.get("/api/v2/market-data/sources")
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "schema_version": 1,
+        "sources": [
+            {
+                "integration_id": INTEGRATION_ID,
+                "integration_revision_fingerprint": REVISION_FINGERPRINT,
+                "display_name": "Golden Binance Spot",
+                "type_id": TYPE_ID,
+                "source_id": SOURCE_ID,
+                "environment": ENVIRONMENT,
+            }
+        ],
+    }
+
+
+def test_client_cannot_assert_canonical_source_identity() -> None:
+    client = _client(_Service())
+    spoofed = {
+        "integration_id": INTEGRATION_ID,
+        "integration_revision_fingerprint": REVISION_FINGERPRINT,
+        "expected_type_id": TYPE_ID,
+        "source_id": "binance.spot.market_data.spot_testnet",
+        "environment": "SPOT_TESTNET",
+    }
+
+    # The wire contract has no client-side source identity; unknown request fields are rejected.
+    rejected = client.post(
+        "/api/v2/market-data/acquisitions",
+        json={
+            "source_selection": spoofed,
+            "instrument_id": INSTRUMENT_ID,
+            "start_ns": START_NS_TEXT,
+            "end_ns": END_NS_TEXT,
+            "bar_specification": "1m",
+            "provenance": "REST_BACKFILL",
+        },
+    )
+    assert rejected.status_code == 400
+    assert rejected.json()["error"]["code"] == "MARKET_DATA_REQUEST_INVALID"
+
+    # Even a stale/forged query parameter cannot move the resolved canonical identity.
+    accepted = client.get(
+        "/api/v2/market-data/bars",
+        params=_selection_params(
+            instrument_id=INSTRUMENT_ID,
+            start_ns=START_NS,
+            end_ns=START_NS + 2 * MINUTE_NS,
+            source_id="binance.spot.market_data.spot_testnet",
+        ),
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["source_selection"]["source_id"] == SOURCE_ID
+    assert accepted.json()["source_selection"]["environment"] == ENVIRONMENT
 
 
 def test_acquisition_command_and_status_query_are_thin_projections() -> None:
@@ -253,15 +335,14 @@ def test_acquisition_command_and_status_query_are_thin_projections() -> None:
     created = client.post(
         "/api/v2/market-data/acquisitions",
         json={
-            "source_selection": {
+            "source_reference": {
                 "integration_id": INTEGRATION_ID,
                 "integration_revision_fingerprint": REVISION_FINGERPRINT,
-                "type_id": TYPE_ID,
-                "source_id": SOURCE_ID,
+                "expected_type_id": TYPE_ID,
             },
             "instrument_id": INSTRUMENT_ID,
-            "start_ns": START_NS,
-            "end_ns": START_NS + 2 * MINUTE_NS,
+            "start_ns": START_NS_TEXT,
+            "end_ns": END_NS_TEXT,
             "bar_specification": "1m",
             "provenance": "REST_BACKFILL",
         },
@@ -286,7 +367,7 @@ def test_acquisition_command_and_status_query_are_thin_projections() -> None:
 def test_market_data_errors_map_to_explicit_http_status() -> None:
     service = _Service()
     client = _client(service)
-    params = _selection_params(instrument_id=INSTRUMENT_ID, start_ns=START_NS, end_ns=START_NS + 2 * MINUTE_NS)
+    params = _selection_params(instrument_id=INSTRUMENT_ID, start_ns=START_NS_TEXT, end_ns=END_NS_TEXT)
 
     service.failure = OnlyMarketDataProductError("MARKET_DATA_ACQUISITION_NOT_FOUND", "no such acquisition")
     assert client.get("/api/v2/market-data/bars", params=params).status_code == 404

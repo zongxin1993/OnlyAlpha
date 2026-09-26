@@ -37,17 +37,27 @@ const factorCatalog: readonly OverlaySpec[] = [
     { id: "turnover-20", label: "20 日换手率", kind: "factor" }
 ];
 
+/**
+ * Real market bars are canonical Product facts; the shell has no real Indicator/Factor
+ * Product API yet, so synthetic overlays must not be mixed into a real chart.
+ */
+const REAL_OVERLAY_NOTE = "真实指标/因子将在 W3 接入 Product API";
+
 function CatalogPicker({
     label,
     placeholder,
     items,
     selected,
+    disabled = false,
+    disabledReason,
     onToggle
 }: {
     readonly label: string;
     readonly placeholder: string;
     readonly items: readonly OverlaySpec[];
     readonly selected: readonly OverlaySpec[];
+    readonly disabled?: boolean;
+    readonly disabledReason?: string;
     readonly onToggle: (overlay: OverlaySpec) => void;
 }) {
     const [open, setOpen] = useState(false);
@@ -80,7 +90,10 @@ function CatalogPicker({
                 type="button"
                 className="picker__trigger"
                 aria-expanded={open}
+                disabled={disabled}
+                title={disabled ? disabledReason : undefined}
                 onClick={() => {
+                    if (disabled) return;
                     setOpen(!open);
                 }}
             >
@@ -221,8 +234,8 @@ export function WorkspacePage() {
     const [overlays, setOverlays] = useState<readonly OverlaySpec[]>([]);
     const [managerOpen, setManagerOpen] = useState(false);
     const dataSources = useDataSourceOverview();
-    const marketData = useMarketDataChart(dataSources.sources);
-    const realPath = marketData.selection !== null;
+    const marketData = useMarketDataChart();
+    const realPath = marketData.reference !== null;
     const realInstrument = marketData.instrument;
     const chartTimeframe: Timeframe = realInstrument === null ? timeframe : "1m";
     const symbolNeedle = symbolQuery.trim().toLowerCase();
@@ -381,6 +394,8 @@ export function WorkspacePage() {
                         placeholder="搜索指标"
                         items={indicatorCatalog}
                         selected={overlays.filter((item) => item.kind === "indicator")}
+                        disabled={realPath}
+                        disabledReason={REAL_OVERLAY_NOTE}
                         onToggle={toggleOverlay}
                     />
                     <CatalogPicker
@@ -388,6 +403,8 @@ export function WorkspacePage() {
                         placeholder="搜索因子"
                         items={factorCatalog}
                         selected={overlays.filter((item) => item.kind === "factor")}
+                        disabled={realPath}
+                        disabledReason={REAL_OVERLAY_NOTE}
                         onToggle={toggleOverlay}
                     />
                     <span className="chart-region__spacer">
@@ -417,6 +434,11 @@ export function WorkspacePage() {
                         </button>
                     </span>
                 </header>
+                {realPath ? (
+                    <p className="chart-region__overlay-note" data-testid="real-overlay-note">
+                        {REAL_OVERLAY_NOTE}
+                    </p>
+                ) : null}
                 <p
                     className="chart-region__status"
                     data-status={marketData.status}
@@ -424,16 +446,19 @@ export function WorkspacePage() {
                 >
                     {marketData.message ??
                         (marketData.status === "ready"
-                            ? `历史 1m K 线来自 canonical Revision ${
+                            ? `${marketData.resolvedSourceId ?? "真实数据源"} · canonical Revision ${
                                   marketData.revisionFingerprint?.slice(0, 12) ?? "—"
                               }（realtime 未启用）`
-                            : "未连接真实行情；当前图表为 synthetic 占位")}
+                            : realPath
+                              ? "已选择真实行情数据源；尚无 canonical K 线"
+                              : "未连接真实行情；当前图表为 synthetic 占位")}
                 </p>
                 <div className="chart-region__body">
                     <PriceChart
                         timeframe={chartTimeframe}
                         overlays={overlays}
-                        bars={marketData.status === "ready" ? marketData.bars : undefined}
+                        mode={realPath ? "real" : "synthetic"}
+                        bars={marketData.bars}
                     />
                 </div>
             </section>

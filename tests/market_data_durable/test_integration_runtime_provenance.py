@@ -172,7 +172,8 @@ def test_backfill_accepts_one_coalesced_planned_range_for_adjacent_gaps(tmp_path
         str(SOURCE),
         scope,
         provenance=OnlyMarketDataProvenance.REST_BACKFILL,
-        created_at=BASE,
+        admitted_at=BASE,
+        integration_binding_fingerprint=BINDING,
     )
     manifest = coordinator.inspect(acquisition)
     assert [item.start_ns for item in manifest.gaps] == [

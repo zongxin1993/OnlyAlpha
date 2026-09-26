@@ -57,53 +57,75 @@ class OnlyPostgresMarketDataCatalog:
                     )
                 self._assert_segments_exact(connection, ordered)
 
-    def commit_acquisition_intent(self, intent: OnlyMarketDataAcquisitionIntent) -> None:
+    def admit_acquisition_intent(self, intent: OnlyMarketDataAcquisitionIntent) -> OnlyMarketDataAcquisitionIntent:
+        """Insert-or-exact-load the execution intent and return the durable admission.
+
+        `admitted_at` is an observation of the first admission: an exact re-entry keeps
+        the stored value instead of conflicting on a newly generated retry timestamp.
+        """
+
         scope = json.dumps(only_canonical_payload(intent.requested_scope), sort_keys=True, separators=(",", ":"))
         with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
             with connection.transaction():
                 connection.execute(
                     "INSERT INTO market_acquisition_intent "
-                    "(acquisition_id,request_fingerprint,source_id,requested_scope,provenance,created_at,"
-                    "integration_binding_fingerprint) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
+                    "(acquisition_id,request_fingerprint,source_id,requested_scope,provenance,admitted_at,"
+                    "integration_binding_fingerprint,identity_version) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
                     (
                         intent.acquisition_id,
                         intent.request_fingerprint,
                         intent.source_id,
                         scope,
                         intent.provenance.value,
-                        intent.created_at,
+                        intent.admitted_at,
                         intent.integration_binding_fingerprint,
+                        intent.identity_version,
                     ),
                 )
                 row = connection.execute(
-                    "SELECT request_fingerprint,source_id,requested_scope,provenance,created_at,"
-                    "integration_binding_fingerprint "
+                    "SELECT request_fingerprint,source_id,requested_scope,provenance,admitted_at,"
+                    "integration_binding_fingerprint,identity_version "
                     "FROM market_acquisition_intent WHERE acquisition_id=%s",
                     (intent.acquisition_id,),
                 ).fetchone()
-                if row is None or (
+                if row is not None and (
                     str(row["request_fingerprint"]),
                     str(row["source_id"]),
                     row["requested_scope"],
                     str(row["provenance"]),
-                    row["created_at"],
+                    None
+                    if row["integration_binding_fingerprint"] is None
+                    else str(row["integration_binding_fingerprint"]),
+                    int(row["identity_version"]),
                 ) != (
                     intent.request_fingerprint,
                     intent.source_id,
                     only_canonical_payload(intent.requested_scope),
                     intent.provenance.value,
-                    intent.created_at,
+                    intent.integration_binding_fingerprint,
+                    intent.identity_version,
                 ):
                     raise RuntimeError("POSTGRES_ACQUISITION_INTENT_CONFLICT")
-                if row["integration_binding_fingerprint"] != intent.integration_binding_fingerprint:
-                    raise RuntimeError("POSTGRES_ACQUISITION_INTENT_PROVENANCE_CONFLICT")
+        if row is None:  # pragma: no cover - the insert above guarantees a row
+            raise RuntimeError("POSTGRES_ACQUISITION_INTENT_CONFLICT")
+        return OnlyMarketDataAcquisitionIntent(
+            intent.acquisition_id,
+            str(row["request_fingerprint"]),
+            str(row["source_id"]),
+            _scope(row["requested_scope"]),
+            OnlyMarketDataProvenance(str(row["provenance"])),
+            row["admitted_at"],
+            None if row["integration_binding_fingerprint"] is None else str(row["integration_binding_fingerprint"]),
+            int(row["identity_version"]),
+        )
 
     def load_acquisition_intent(self, acquisition_id: str) -> OnlyMarketDataAcquisitionIntent | None:
         with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
             row = connection.execute(
-                "SELECT request_fingerprint,source_id,requested_scope,provenance,created_at,"
-                "integration_binding_fingerprint FROM market_acquisition_intent WHERE acquisition_id=%s",
+                "SELECT request_fingerprint,source_id,requested_scope,provenance,admitted_at,"
+                "integration_binding_fingerprint,identity_version "
+                "FROM market_acquisition_intent WHERE acquisition_id=%s",
                 (acquisition_id,),
             ).fetchone()
         if row is None:
@@ -114,52 +136,101 @@ class OnlyPostgresMarketDataCatalog:
             str(row["source_id"]),
             _scope(row["requested_scope"]),
             OnlyMarketDataProvenance(str(row["provenance"])),
-            row["created_at"],  # type: ignore[arg-type]
+            row["admitted_at"],
             None if row["integration_binding_fingerprint"] is None else str(row["integration_binding_fingerprint"]),
+            int(row["identity_version"]),
         )
+
+    def start_acquisition_attempt(
+        self, acquisition_id: str, *, started_at: datetime
+    ) -> OnlyMarketDataAcquisitionAttempt:
+        """Atomically allocate and persist one occurrence under a per-intent row lock."""
+        with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+            with connection.transaction():
+                admitted = connection.execute(
+                    "SELECT acquisition_id FROM market_acquisition_intent WHERE acquisition_id=%s FOR UPDATE",
+                    (acquisition_id,),
+                ).fetchone()
+                if admitted is None:
+                    raise RuntimeError("POSTGRES_ACQUISITION_INTENT_NOT_FOUND")
+                row = connection.execute(
+                    "SELECT COALESCE(MAX(attempt_number), 0) + 1 AS next_number "
+                    "FROM market_data_acquisition_attempt WHERE acquisition_id=%s",
+                    (acquisition_id,),
+                ).fetchone()
+                if row is None:  # pragma: no cover - aggregate always returns one row
+                    raise RuntimeError("POSTGRES_ACQUISITION_ATTEMPT_ALLOCATION_FAILED")
+                attempt = OnlyMarketDataAcquisitionAttempt.start(
+                    acquisition_id, int(row["next_number"]), started_at=started_at
+                )
+                connection.execute(
+                    "INSERT INTO market_data_acquisition_attempt "
+                    "(attempt_id,acquisition_id,attempt_number,started_at,identity_version) "
+                    "VALUES (%s,%s,%s,%s,%s)",
+                    (
+                        attempt.attempt_id,
+                        attempt.acquisition_id,
+                        attempt.attempt_number,
+                        attempt.started_at,
+                        attempt.identity_version,
+                    ),
+                )
+                return attempt
 
     def record_acquisition_attempt(self, attempt: OnlyMarketDataAcquisitionAttempt) -> None:
         with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
             with connection.transaction():
+                if attempt.outcome is None or attempt.completed_at is None or attempt.detail is None:
+                    raise RuntimeError("POSTGRES_ACQUISITION_ATTEMPT_OUTCOME_REQUIRED")
                 connection.execute(
-                    "INSERT INTO market_data_acquisition_attempt "
-                    "(attempt_id,acquisition_id,outcome,revision_id,detail,recorded_at) "
-                    "VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
+                    "INSERT INTO market_data_acquisition_attempt_outcome "
+                    "(attempt_id,completed_at,outcome,revision_id,detail) "
+                    "VALUES (%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
                     (
                         attempt.attempt_id,
-                        attempt.acquisition_id,
+                        attempt.completed_at,
                         attempt.outcome.value,
                         attempt.revision_id,
                         attempt.detail,
-                        attempt.recorded_at,
                     ),
                 )
                 row = connection.execute(
-                    "SELECT acquisition_id,outcome,revision_id,detail,recorded_at "
-                    "FROM market_data_acquisition_attempt WHERE attempt_id=%s",
+                    "SELECT occurrence.acquisition_id,occurrence.attempt_number,occurrence.started_at,"
+                    "occurrence.identity_version,outcome.completed_at,outcome.outcome,outcome.revision_id,"
+                    "outcome.detail FROM market_data_acquisition_attempt AS occurrence "
+                    "JOIN market_data_acquisition_attempt_outcome AS outcome USING (attempt_id) "
+                    "WHERE occurrence.attempt_id=%s",
                     (attempt.attempt_id,),
                 ).fetchone()
                 if row is None or (
                     str(row["acquisition_id"]),
+                    int(row["attempt_number"]),
+                    row["started_at"],
+                    int(row["identity_version"]),
+                    row["completed_at"],
                     str(row["outcome"]),
                     None if row["revision_id"] is None else str(row["revision_id"]),
                     str(row["detail"]),
-                    row["recorded_at"],
                 ) != (
                     attempt.acquisition_id,
+                    attempt.attempt_number,
+                    attempt.started_at,
+                    attempt.identity_version,
+                    attempt.completed_at,
                     attempt.outcome.value,
                     attempt.revision_id,
                     attempt.detail,
-                    attempt.recorded_at,
                 ):
                     raise RuntimeError("POSTGRES_ACQUISITION_ATTEMPT_CONFLICT")
 
     def latest_acquisition_attempt(self, acquisition_id: str) -> OnlyMarketDataAcquisitionAttempt | None:
         with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
             row = connection.execute(
-                "SELECT attempt_id,outcome,revision_id,detail,recorded_at "
-                "FROM market_data_acquisition_attempt WHERE acquisition_id=%s "
-                "ORDER BY recorded_at DESC, attempt_id DESC LIMIT 1",
+                "SELECT occurrence.attempt_id,occurrence.attempt_number,occurrence.started_at,"
+                "occurrence.identity_version,outcome.completed_at,outcome.outcome,outcome.revision_id,"
+                "outcome.detail FROM market_data_acquisition_attempt AS occurrence "
+                "LEFT JOIN market_data_acquisition_attempt_outcome AS outcome USING (attempt_id) "
+                "WHERE occurrence.acquisition_id=%s ORDER BY occurrence.attempt_number DESC LIMIT 1",
                 (acquisition_id,),
             ).fetchone()
         if row is None:
@@ -167,10 +238,13 @@ class OnlyPostgresMarketDataCatalog:
         return OnlyMarketDataAcquisitionAttempt(
             str(row["attempt_id"]),
             acquisition_id,
-            OnlyAcquisitionOutcome(str(row["outcome"])),
+            int(row["attempt_number"]),
+            None if row["outcome"] is None else OnlyAcquisitionOutcome(str(row["outcome"])),
             None if row["revision_id"] is None else str(row["revision_id"]),
-            str(row["detail"]),
-            row["recorded_at"],  # type: ignore[arg-type]
+            None if row["detail"] is None else str(row["detail"]),
+            row["started_at"],
+            row["completed_at"],
+            int(row["identity_version"]),
         )
 
     def commit_coverage_manifest(self, manifest: OnlyCoverageManifest) -> None:

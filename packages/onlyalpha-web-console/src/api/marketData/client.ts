@@ -4,10 +4,12 @@ import {
     marketDataBarsSchema,
     marketDataErrorSchema,
     marketDataInstrumentListSchema,
+    marketDataSourceListSchema,
     type MarketDataAcquisition,
     type MarketDataBars,
     type MarketDataInstrument,
-    type MarketDataSourceSelection
+    type MarketDataSource,
+    type MarketDataSourceReference
 } from "./model";
 
 export class MarketDataWebError extends Error {
@@ -23,28 +25,32 @@ export class MarketDataWebError extends Error {
 
 export interface MarketDataBarsQuery {
     readonly instrument_id: string;
-    readonly start_ns: number;
-    readonly end_ns: number;
+    /** Canonical decimal nanoseconds; never a JSON number. */
+    readonly start_ns: string;
+    readonly end_ns: string;
     readonly bar_specification?: string;
 }
 
+export type { MarketDataSource, MarketDataSourceReference };
+
 export interface MarketDataApiClient {
+    listSources(signal?: AbortSignal): Promise<readonly MarketDataSource[]>;
     listInstruments(
-        selection: MarketDataSourceSelection,
+        reference: MarketDataSourceReference,
         query: string,
         signal?: AbortSignal
     ): Promise<readonly MarketDataInstrument[]>;
     queryBars(
-        selection: MarketDataSourceSelection,
+        reference: MarketDataSourceReference,
         query: MarketDataBarsQuery,
         signal?: AbortSignal
     ): Promise<MarketDataBars>;
     createAcquisition(
-        selection: MarketDataSourceSelection,
+        reference: MarketDataSourceReference,
         query: MarketDataBarsQuery
     ): Promise<MarketDataAcquisition>;
     getAcquisition(
-        selection: MarketDataSourceSelection,
+        reference: MarketDataSourceReference,
         acquisitionId: string,
         signal?: AbortSignal
     ): Promise<MarketDataAcquisition>;
@@ -94,23 +100,24 @@ async function request<T>(schema: z.ZodType<T>, url: string, init: RequestInit =
     return admitted.data;
 }
 
-function selectionParams(selection: MarketDataSourceSelection): URLSearchParams {
-    return new URLSearchParams({
-        integration_id: selection.integration_id,
-        integration_revision_fingerprint: selection.integration_revision_fingerprint,
-        type_id: selection.type_id,
-        source_id: selection.source_id
+function referenceParams(reference: MarketDataSourceReference): URLSearchParams {
+    const params = new URLSearchParams({
+        integration_id: reference.integration_id,
+        integration_revision_fingerprint: reference.integration_revision_fingerprint
     });
+    if (reference.expected_type_id !== undefined)
+        params.set("expected_type_id", reference.expected_type_id);
+    return params;
 }
 
 function barsParams(
-    selection: MarketDataSourceSelection,
+    reference: MarketDataSourceReference,
     query: MarketDataBarsQuery
 ): URLSearchParams {
-    const params = selectionParams(selection);
+    const params = referenceParams(reference);
     params.set("instrument_id", query.instrument_id);
-    params.set("start_ns", String(query.start_ns));
-    params.set("end_ns", String(query.end_ns));
+    params.set("start_ns", query.start_ns);
+    params.set("end_ns", query.end_ns);
     params.set("bar_specification", query.bar_specification ?? "1m");
     return params;
 }
@@ -118,12 +125,20 @@ function barsParams(
 const read = (signal?: AbortSignal): RequestInit => (signal === undefined ? {} : { signal });
 
 export class FetchMarketDataApiClient implements MarketDataApiClient {
+    async listSources(signal?: AbortSignal) {
+        const value = await request(
+            marketDataSourceListSchema,
+            "/api/v2/market-data/sources",
+            read(signal)
+        );
+        return value.sources;
+    }
     async listInstruments(
-        selection: MarketDataSourceSelection,
+        reference: MarketDataSourceReference,
         query: string,
         signal?: AbortSignal
     ) {
-        const params = selectionParams(selection);
+        const params = referenceParams(reference);
         params.set("query", query);
         const value = await request(
             marketDataInstrumentListSchema,
@@ -133,22 +148,22 @@ export class FetchMarketDataApiClient implements MarketDataApiClient {
         return value.instruments;
     }
     async queryBars(
-        selection: MarketDataSourceSelection,
+        reference: MarketDataSourceReference,
         query: MarketDataBarsQuery,
         signal?: AbortSignal
     ) {
         return request(
             marketDataBarsSchema,
-            `/api/v2/market-data/bars?${barsParams(selection, query).toString()}`,
+            `/api/v2/market-data/bars?${barsParams(reference, query).toString()}`,
             read(signal)
         );
     }
-    async createAcquisition(selection: MarketDataSourceSelection, query: MarketDataBarsQuery) {
+    async createAcquisition(reference: MarketDataSourceReference, query: MarketDataBarsQuery) {
         return request(marketDataAcquisitionSchema, "/api/v2/market-data/acquisitions", {
             method: "POST",
             body: JSON.stringify({
                 schema_version: 1,
-                source_selection: selection,
+                source_reference: reference,
                 instrument_id: query.instrument_id,
                 start_ns: query.start_ns,
                 end_ns: query.end_ns,
@@ -158,13 +173,13 @@ export class FetchMarketDataApiClient implements MarketDataApiClient {
         });
     }
     async getAcquisition(
-        selection: MarketDataSourceSelection,
+        reference: MarketDataSourceReference,
         acquisitionId: string,
         signal?: AbortSignal
     ) {
         return request(
             marketDataAcquisitionSchema,
-            `/api/v2/market-data/acquisitions/${encodeURIComponent(acquisitionId)}?${selectionParams(selection).toString()}`,
+            `/api/v2/market-data/acquisitions/${encodeURIComponent(acquisitionId)}?${referenceParams(reference).toString()}`,
             read(signal)
         );
     }

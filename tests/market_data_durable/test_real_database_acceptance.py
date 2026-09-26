@@ -89,7 +89,11 @@ def test_combined_real_database_authority_recovery_and_maintenance(tmp_path: Pat
     source = _HistoricalSource(ingress)
     backfill = OnlyMarketDataBackfillCoordinator(source, catalog, store, recovery, committer)
     acquisition = OnlyMarketDataAcquisitionIntent.build(
-        str(SOURCE), scope, provenance=OnlyMarketDataProvenance.REST_BACKFILL, created_at=fixed_now()
+        str(SOURCE),
+        scope,
+        provenance=OnlyMarketDataProvenance.REST_BACKFILL,
+        admitted_at=fixed_now(),
+        integration_binding_fingerprint="4" * 64,
     )
     [gap] = backfill.inspect(acquisition).gaps
     request = OnlyHistoricalBarRequest(

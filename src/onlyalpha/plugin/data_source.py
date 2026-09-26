@@ -74,13 +74,22 @@ class OnlyDataSourceInstrumentCatalogRequestV1:
 
 @dataclass(frozen=True, slots=True)
 class OnlyDataSourceMarketIdentityV1:
-    """Canonical venue/market identity a DataSource implementation records."""
+    """Canonical Market Source identity a DataSource implementation declares.
+
+    `source_id` is the provider-owned canonical identity of the external market-data
+    universe the facts belong to. It changes when the semantic universe changes (for
+    example a production venue versus that provider's own sandbox venue) and does not
+    change for non-semantic runtime settings such as timeouts or reconnect bounds.
+    `environment` is the provider-owned environment token behind that identity.
+    """
 
     venue: str
     market: str
+    environment: str
+    source_id: str
 
     def __post_init__(self) -> None:
-        if not self.venue.strip() or not self.market.strip():
+        if not all(item.strip() for item in (self.venue, self.market, self.environment, self.source_id)):
             raise ValueError("DATA_SOURCE_MARKET_IDENTITY_INVALID")
 
 

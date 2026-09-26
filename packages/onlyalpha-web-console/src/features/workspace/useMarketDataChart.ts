@@ -1,16 +1,16 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CandlestickData, UTCTimestamp } from "lightweight-charts";
 import { MarketDataWebError, type MarketDataApiClient } from "../../api/marketData/client";
 import type {
     MarketDataCoverage,
     MarketDataInstrument,
-    MarketDataSourceSelection
+    MarketDataSource,
+    MarketDataSourceReference
 } from "../../api/marketData/model";
 import { useMarketDataApi } from "../../app/providers";
-import type { IntegrationSummary } from "../../api/integrations/model";
 
 export const DEFAULT_WINDOW_SECONDS = 86_400;
-const MINUTE_SECONDS = 60;
+const SECOND_NS = 1_000_000_000n;
 
 export type MarketDataChartStatus =
     | "no-source"
@@ -23,8 +23,11 @@ export type MarketDataChartStatus =
     | "failed";
 
 export interface MarketDataChartState {
-    readonly selectableSources: readonly IntegrationSummary[];
-    readonly selection: MarketDataSourceSelection | null;
+    readonly selectableSources: readonly MarketDataSource[];
+    /** Non-null exactly when a real Market Data source context is selected. */
+    readonly reference: MarketDataSourceReference | null;
+    /** Canonical Market Source identity reported by the Product API, never client-declared. */
+    readonly resolvedSourceId: string | null;
     readonly sourceId: string;
     readonly instruments: readonly MarketDataInstrument[];
     readonly instrument: MarketDataInstrument | null;
@@ -39,30 +42,29 @@ export interface MarketDataChartState {
 }
 
 /** The chart context is presentation state; every fact below comes from the Product API. */
-export function onlyMarketDataSourceSelection(
-    source: IntegrationSummary
-): MarketDataSourceSelection | null {
-    const revision = source.current_revision_fingerprint;
-    if (revision === null || revision === undefined) return null;
+export function onlyMarketDataSourceReference(source: MarketDataSource): MarketDataSourceReference {
     return {
         integration_id: source.integration_id,
-        integration_revision_fingerprint: revision,
-        type_id: source.type_id,
-        source_id: source.type_id
+        integration_revision_fingerprint: source.integration_revision_fingerprint,
+        expected_type_id: source.type_id
     };
 }
 
 export function onlyRecentClosedMinuteRange(
     now = Date.now(),
     windowSeconds = DEFAULT_WINDOW_SECONDS
-): { startNs: number; endNs: number } {
-    const endNs = Math.floor((now / 1000 / MINUTE_SECONDS) * MINUTE_SECONDS) * 1_000_000_000;
-    return { startNs: endNs - windowSeconds * 1_000_000_000, endNs };
+): { startNs: string; endNs: string } {
+    // Exact nanoseconds stay decimal strings end to end; only the chart uses seconds.
+    const endNs = BigInt(Math.floor(now / 60_000)) * 60n * SECOND_NS;
+    return {
+        startNs: (endNs - BigInt(windowSeconds) * SECOND_NS).toString(10),
+        endNs: endNs.toString(10)
+    };
 }
 
 export function onlyBarsToCandles(
     bars: readonly {
-        readonly bar_start_ns: number;
+        readonly bar_start_ns: string;
         readonly open: string;
         readonly high: string;
         readonly low: string;
@@ -70,7 +72,7 @@ export function onlyBarsToCandles(
     }[]
 ): CandlestickData<UTCTimestamp>[] {
     return bars.map((bar) => ({
-        time: Math.floor(bar.bar_start_ns / 1_000_000_000) as UTCTimestamp,
+        time: Number(BigInt(bar.bar_start_ns) / SECOND_NS) as UTCTimestamp,
         open: Number(bar.open),
         high: Number(bar.high),
         low: Number(bar.low),
@@ -78,8 +80,9 @@ export function onlyBarsToCandles(
     }));
 }
 
-export function useMarketDataChart(sources: readonly IntegrationSummary[]): MarketDataChartState {
+export function useMarketDataChart(): MarketDataChartState {
     const client = useMarketDataApi();
+    const [sources, setSources] = useState<readonly MarketDataSource[]>([]);
     const [sourceId, setSourceId] = useState("");
     const [instruments, setInstruments] = useState<readonly MarketDataInstrument[]>([]);
     const [instrument, setInstrument] = useState<MarketDataInstrument | null>(null);
@@ -88,19 +91,32 @@ export function useMarketDataChart(sources: readonly IntegrationSummary[]): Mark
     const [coverage, setCoverage] = useState<MarketDataCoverage | null>(null);
     const [bars, setBars] = useState<readonly CandlestickData<UTCTimestamp>[]>([]);
     const [revisionFingerprint, setRevisionFingerprint] = useState<string | null>(null);
+    const [resolvedSourceId, setResolvedSourceId] = useState<string | null>(null);
 
-    const selectableSources = useMemo(
-        () =>
-            sources.filter(
-                (item) =>
-                    item.lifecycle_state === "ACTIVE" && item.current_revision_fingerprint !== null
-            ),
-        [sources]
+    useEffect(() => {
+        const controller = new AbortController();
+        client
+            .listSources(controller.signal)
+            .then((found) => {
+                setSources(found);
+            })
+            .catch(() => {
+                setSources([]);
+            });
+        return () => {
+            controller.abort();
+        };
+    }, [client]);
+
+    const selectableSources = sources;
+    const selectedSource = useMemo(
+        () => selectableSources.find((item) => item.integration_id === sourceId) ?? null,
+        [selectableSources, sourceId]
     );
-    const selection = useMemo(() => {
-        const source = selectableSources.find((item) => item.integration_id === sourceId);
-        return source === undefined ? null : onlyMarketDataSourceSelection(source);
-    }, [selectableSources, sourceId]);
+    const reference = useMemo(
+        () => (selectedSource === null ? null : onlyMarketDataSourceReference(selectedSource)),
+        [selectedSource]
+    );
 
     const apply = useCallback((error: unknown) => {
         const webError = error instanceof MarketDataWebError ? error : null;
@@ -116,11 +132,11 @@ export function useMarketDataChart(sources: readonly IntegrationSummary[]): Mark
 
     const acquire = useCallback(
         async (
-            active: MarketDataSourceSelection,
+            active: MarketDataSourceReference,
             query: {
                 instrument_id: string;
-                start_ns: number;
-                end_ns: number;
+                start_ns: string;
+                end_ns: string;
                 bar_specification: string;
             },
             pending: MarketDataCoverage
@@ -145,6 +161,7 @@ export function useMarketDataChart(sources: readonly IntegrationSummary[]): Mark
                 }
                 const reloaded = await client.queryBars(active, query);
                 setCoverage(reloaded.coverage);
+                setResolvedSourceId(reloaded.source_selection.source_id);
                 setBars(
                     reloaded.coverage.status === "COMPLETE" ? onlyBarsToCandles(reloaded.bars) : []
                 );
@@ -163,7 +180,7 @@ export function useMarketDataChart(sources: readonly IntegrationSummary[]): Mark
     );
 
     const load = useCallback(
-        async (active: MarketDataSourceSelection, target: MarketDataInstrument) => {
+        async (active: MarketDataSourceReference, target: MarketDataInstrument) => {
             const range = onlyRecentClosedMinuteRange();
             const query = {
                 instrument_id: target.instrument_id,
@@ -176,6 +193,7 @@ export function useMarketDataChart(sources: readonly IntegrationSummary[]): Mark
             try {
                 const loaded = await client.queryBars(active, query);
                 setCoverage(loaded.coverage);
+                setResolvedSourceId(loaded.source_selection.source_id);
                 if (loaded.coverage.status === "COMPLETE") {
                     setBars(onlyBarsToCandles(loaded.bars));
                     setRevisionFingerprint(loaded.revision_fingerprint);
@@ -199,19 +217,20 @@ export function useMarketDataChart(sources: readonly IntegrationSummary[]): Mark
         setCoverage(null);
         setBars([]);
         setRevisionFingerprint(null);
+        setResolvedSourceId(null);
         setStatus("idle");
         setMessage(null);
     }, []);
 
     const searchInstruments = useCallback(
         async (query: string) => {
-            if (selection === null) {
+            if (reference === null) {
                 setInstruments([]);
                 return;
             }
             setStatus("searching");
             try {
-                const found = await client.listInstruments(selection, query);
+                const found = await client.listInstruments(reference, query);
                 setInstruments(found);
                 setStatus("idle");
                 setMessage(found.length === 0 ? "未找到匹配标的" : null);
@@ -219,24 +238,25 @@ export function useMarketDataChart(sources: readonly IntegrationSummary[]): Mark
                 apply(error);
             }
         },
-        [apply, client, selection]
+        [apply, client, reference]
     );
 
     const selectInstrument = useCallback(
         async (target: MarketDataInstrument) => {
             setInstrument(target);
-            if (selection === null) {
+            if (reference === null) {
                 setMessage("请先选择数据源");
                 return;
             }
-            await load(selection, target);
+            await load(reference, target);
         },
-        [load, selection]
+        [load, reference]
     );
 
     return {
         selectableSources,
-        selection,
+        reference,
+        resolvedSourceId,
         sourceId,
         instruments,
         instrument,

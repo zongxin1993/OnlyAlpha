@@ -15,11 +15,18 @@ from onlyalpha.domain.time import only_require_utc
 _BINDING_FINGERPRINT = re.compile(r"^[0-9a-f]{64}$")
 
 
-def _require_optional_binding(value: str | None) -> None:
+def _require_binding(value: str) -> None:
     """Integration runtime binding provenance is recorded, never part of fact identity."""
 
-    if value is not None and _BINDING_FINGERPRINT.fullmatch(value) is None:
+    if _BINDING_FINGERPRINT.fullmatch(value) is None:
         raise ValueError("INTEGRATION_RUNTIME_BINDING_FINGERPRINT_INVALID")
+
+
+def _require_optional_binding(value: str | None) -> None:
+    """Segments and raw evidence written before exact binding provenance stay readable."""
+
+    if value is not None:
+        _require_binding(value)
 
 
 class OnlyMarketDataProvenance(StrEnum):
@@ -385,26 +392,41 @@ class OnlyMarketDataScope:
 
 @dataclass(frozen=True, slots=True)
 class OnlyMarketDataAcquisitionIntent:
+    """Durable execution intent for one exact provider/source/scope/binding.
+
+    `admitted_at` is an observation timestamp of the first admission. It is not part
+    of the intent identity, so re-entering the same exact intent loads the existing
+    admission instead of conflicting on a newly generated retry timestamp.
+    """
+
     acquisition_id: str
     request_fingerprint: str
     source_id: str
     requested_scope: OnlyMarketDataScope
     provenance: OnlyMarketDataProvenance
-    created_at: datetime
-    integration_binding_fingerprint: str | None = None
+    admitted_at: datetime
+    integration_binding_fingerprint: str | None
+    identity_version: int = 2
 
     def __post_init__(self) -> None:
-        only_require_utc(self.created_at, "acquisition created_at")
+        only_require_utc(self.admitted_at, "acquisition admitted_at")
+        if self.identity_version not in {1, 2}:
+            raise ValueError("ACQUISITION_INTENT_IDENTITY_VERSION_INVALID")
         _require_optional_binding(self.integration_binding_fingerprint)
-        # Requested scope identity stays provider/source bound; the exact Integration
-        # runtime binding is provenance and must not silently fork the acquisition truth.
-        expected = only_canonical_fingerprint(
-            {
-                "source_id": self.source_id,
-                "requested_scope": self.requested_scope,
-                "provenance": self.provenance.value,
-            }
-        )
+        # Execution-intent identity binds the canonical market source, the requested
+        # scope, the provenance lane and the exact Integration runtime binding. A new
+        # exact runtime binding is a distinct legal execution intent; canonical market
+        # facts still converge because fact identity never depends on the binding.
+        identity = {
+            "source_id": self.source_id,
+            "requested_scope": self.requested_scope,
+            "provenance": self.provenance.value,
+        }
+        if self.identity_version == 2:
+            if self.integration_binding_fingerprint is None:
+                raise ValueError("ACQUISITION_INTENT_V2_REQUIRES_BINDING")
+            identity["integration_binding_fingerprint"] = self.integration_binding_fingerprint
+        expected = only_canonical_fingerprint(identity)
         if self.request_fingerprint != expected or self.acquisition_id != f"acquisition:{expected}":
             raise ValueError("ACQUISITION_INTENT_IDENTITY_INVALID")
 
@@ -415,14 +437,15 @@ class OnlyMarketDataAcquisitionIntent:
         requested_scope: OnlyMarketDataScope,
         *,
         provenance: OnlyMarketDataProvenance,
-        created_at: datetime,
-        integration_binding_fingerprint: str | None = None,
+        admitted_at: datetime,
+        integration_binding_fingerprint: str,
     ) -> OnlyMarketDataAcquisitionIntent:
         fingerprint = only_canonical_fingerprint(
             {
                 "source_id": source_id,
                 "requested_scope": requested_scope,
                 "provenance": provenance.value,
+                "integration_binding_fingerprint": integration_binding_fingerprint,
             }
         )
         return cls(
@@ -431,64 +454,103 @@ class OnlyMarketDataAcquisitionIntent:
             source_id,
             requested_scope,
             provenance,
-            created_at,
+            admitted_at,
             integration_binding_fingerprint,
+            2,
         )
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyMarketDataAcquisitionAttempt:
-    """Durable observation of one execution attempt for an admitted acquisition."""
+    """Projection of an append-only execution occurrence and its optional outcome.
+
+    Identity is the monotonic `attempt_number` within the acquisition, so two
+    separate executions that fail with identical detail stay independently visible.
+    """
 
     attempt_id: str
     acquisition_id: str
-    outcome: OnlyAcquisitionOutcome
+    attempt_number: int
+    outcome: OnlyAcquisitionOutcome | None
     revision_id: str | None
-    detail: str
-    recorded_at: datetime
+    detail: str | None
+    started_at: datetime
+    completed_at: datetime | None
+    identity_version: int = 2
 
     def __post_init__(self) -> None:
-        only_require_utc(self.recorded_at, "acquisition attempt recorded_at")
+        only_require_utc(self.started_at, "acquisition attempt started_at")
+        if self.completed_at is not None:
+            only_require_utc(self.completed_at, "acquisition attempt completed_at")
+        if self.attempt_number < 1 or (self.completed_at is not None and self.started_at > self.completed_at):
+            raise ValueError("ACQUISITION_ATTEMPT_OCCURRENCE_INVALID")
+        terminal = self.outcome is not None
+        if terminal != (self.completed_at is not None and self.detail is not None):
+            raise ValueError("ACQUISITION_ATTEMPT_OUTCOME_INCOMPLETE")
         if self.outcome is OnlyAcquisitionOutcome.COMPLETE and self.revision_id is None:
             raise ValueError("ACQUISITION_ATTEMPT_COMPLETE_REQUIRES_REVISION")
         if self.outcome is OnlyAcquisitionOutcome.FAILED and self.revision_id is not None:
             raise ValueError("ACQUISITION_ATTEMPT_FAILED_REQUIRES_NO_REVISION")
-        expected = only_canonical_fingerprint(
-            {
-                "acquisition_id": self.acquisition_id,
-                "outcome": self.outcome.value,
-                "revision_id": self.revision_id,
-                "detail": self.detail,
-            }
-        )
+        if self.identity_version == 1:
+            if not terminal:
+                raise ValueError("ACQUISITION_ATTEMPT_V1_REQUIRES_OUTCOME")
+            assert self.outcome is not None
+            expected = only_canonical_fingerprint(
+                {
+                    "acquisition_id": self.acquisition_id,
+                    "outcome": self.outcome.value,
+                    "revision_id": self.revision_id,
+                    "detail": self.detail,
+                }
+            )
+        elif self.identity_version == 2:
+            expected = only_canonical_fingerprint(
+                {"acquisition_id": self.acquisition_id, "attempt_number": self.attempt_number}
+            )
+        else:
+            raise ValueError("ACQUISITION_ATTEMPT_IDENTITY_VERSION_INVALID")
         if self.attempt_id != f"acquisition-attempt:{expected}":
             raise ValueError("ACQUISITION_ATTEMPT_IDENTITY_INVALID")
 
     @classmethod
-    def build(
+    def start(
         cls,
         acquisition_id: str,
-        outcome: OnlyAcquisitionOutcome,
+        attempt_number: int,
         *,
-        detail: str,
-        recorded_at: datetime,
-        revision_id: str | None = None,
+        started_at: datetime,
     ) -> OnlyMarketDataAcquisitionAttempt:
-        fingerprint = only_canonical_fingerprint(
-            {
-                "acquisition_id": acquisition_id,
-                "outcome": outcome.value,
-                "revision_id": revision_id,
-                "detail": detail,
-            }
-        )
+        fingerprint = only_canonical_fingerprint({"acquisition_id": acquisition_id, "attempt_number": attempt_number})
         return cls(
             f"acquisition-attempt:{fingerprint}",
             acquisition_id,
+            attempt_number,
+            None,
+            None,
+            None,
+            started_at,
+            None,
+            2,
+        )
+
+    def finish(
+        self,
+        outcome: OnlyAcquisitionOutcome,
+        *,
+        detail: str,
+        completed_at: datetime,
+        revision_id: str | None = None,
+    ) -> OnlyMarketDataAcquisitionAttempt:
+        return type(self)(
+            self.attempt_id,
+            self.acquisition_id,
+            self.attempt_number,
             outcome,
             revision_id,
             detail,
-            recorded_at,
+            self.started_at,
+            completed_at,
+            self.identity_version,
         )
 
 

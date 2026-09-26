@@ -30,6 +30,10 @@ from .config import OnlyBinanceSpotDataSourceConfig
 MARKET = "SPOT"
 VENUE = "BINANCE"
 MARKET_DATA_CAPABILITIES = ("BAR_1M_EXTERNAL_RAW",)
+# W1 historical closure intentionally bounds the first reference universe instead of
+# downloading the full Spot catalogue for every text query. Expanding it is a later
+# product slice, not an implicit side effect of a search.
+REFERENCE_SYMBOLS = ("BTCUSDT", "ETHUSDT")
 
 _STATUS = {
     "TRADING": OnlySecurityStatus.ACTIVE,
@@ -80,7 +84,11 @@ def only_binance_spot_instrument(raw: Mapping[str, object]) -> OnlyInstrument:
 
 @dataclass(frozen=True, slots=True)
 class OnlyBinanceSpotInstrumentCatalog:
-    """Bounded provider reference lookup; the venue remains the symbol authority."""
+    """Bounded provider reference lookup; the venue remains the symbol authority.
+
+    Lookups are confined to `REFERENCE_SYMBOLS`, so an unapproved symbol can never
+    silently expand the admitted W1 instrument universe.
+    """
 
     def list_instruments(
         self, request: OnlyDataSourceInstrumentCatalogRequestV1
@@ -94,7 +102,10 @@ class OnlyBinanceSpotInstrumentCatalog:
             max_response_bytes=config.max_response_bytes,
         )
         if request.instrument_ids:
-            symbols = tuple(sorted({only_binance_raw_symbol(item) for item in request.instrument_ids}))
+            requested = {only_binance_raw_symbol(item) for item in request.instrument_ids}
+            symbols = tuple(sorted(requested & set(REFERENCE_SYMBOLS)))
+            if not symbols:
+                return ()
             payload = http.get_json("/api/v3/exchangeInfo", {"symbols": _symbols_parameter(symbols)})
             projected = tuple(only_binance_spot_projection(item) for item in _symbols(payload))
             return tuple(sorted(projected, key=lambda item: str(item.instrument.instrument_id))[: request.limit])
@@ -102,10 +113,13 @@ class OnlyBinanceSpotInstrumentCatalog:
         if not query:
             # No search criteria: the provider catalogue is never dumped implicitly.
             return ()
-        payload = http.get_json("/api/v3/exchangeInfo", {})
+        symbols = tuple(item for item in REFERENCE_SYMBOLS if query in item)
+        if not symbols:
+            return ()
+        payload = http.get_json("/api/v3/exchangeInfo", {"symbols": _symbols_parameter(symbols)})
         return tuple(
             sorted(
-                (only_binance_spot_projection(item) for item in _symbols(payload) if query in _symbol(item)),
+                (only_binance_spot_projection(item) for item in _symbols(payload)),
                 key=lambda item: str(item.instrument.instrument_id),
             )[: request.limit]
         )
@@ -134,10 +148,6 @@ def _symbols(payload: bytes) -> tuple[Mapping[str, object], ...]:
     if not isinstance(raw, list) or any(not isinstance(item, dict) for item in raw):
         raise OnlyBinanceError("BINANCE_EXCHANGE_INFO_SYMBOLS_INVALID")
     return tuple(raw)
-
-
-def _symbol(raw: Mapping[str, object]) -> str:
-    return _text(raw.get("symbol"), "SYMBOL")
 
 
 def _symbols_parameter(symbols: tuple[str, ...]) -> str:
@@ -181,6 +191,7 @@ def _quantize(value: Decimal, precision: int) -> Decimal:
 __all__ = [
     "MARKET",
     "MARKET_DATA_CAPABILITIES",
+    "REFERENCE_SYMBOLS",
     "VENUE",
     "OnlyBinanceSpotInstrumentCatalog",
     "only_binance_raw_symbol",

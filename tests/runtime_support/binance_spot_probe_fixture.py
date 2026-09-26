@@ -26,6 +26,7 @@ _SERVER_TIME_MS = 1_767_225_780_000
 class _State:
     scenario = "ALL_PASS"
     lock = threading.Lock()
+    kline_requests: list[dict[str, int | str | None]] = []
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -41,6 +42,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         with _State.lock:
             _State.scenario = scenario
+            _State.kline_requests.clear()
         self._json({"scenario": scenario})
 
     def do_GET(self) -> None:  # noqa: N802 -- BaseHTTPRequestHandler hook
@@ -49,6 +51,10 @@ class _Handler(BaseHTTPRequestHandler):
             scenario = _State.scenario
         if path.path == "/health":
             self._json({"status": "ready", "scenario": scenario})
+        elif path.path == "/__onlyalpha_e2e__/market-data-stats":
+            with _State.lock:
+                requests = list(_State.kline_requests)
+            self._json({"evidence_kind": "CONTROLLED_TEST_EVIDENCE", "kline_requests": requests})
         elif scenario == "OFFLINE":
             self._json({"error": "offline"}, HTTPStatus.SERVICE_UNAVAILABLE)
         elif path.path == "/api/v3/ping":
@@ -65,7 +71,16 @@ class _Handler(BaseHTTPRequestHandler):
                 }
             )
         elif path.path == "/api/v3/klines":
-            start = int(parse_qs(path.query)["startTime"][0])
+            query = parse_qs(path.query)
+            start = int(query["startTime"][0])
+            with _State.lock:
+                _State.kline_requests.append(
+                    {
+                        "symbol": query.get("symbol", [""])[0],
+                        "startTime": start,
+                        "endTime": int(query["endTime"][0]) if "endTime" in query else None,
+                    }
+                )
             self._json([_kline(start), _kline(start + 60_000)])
         elif self.headers.get("Upgrade", "").lower() == "websocket":
             if scenario == "REALTIME_FAIL":

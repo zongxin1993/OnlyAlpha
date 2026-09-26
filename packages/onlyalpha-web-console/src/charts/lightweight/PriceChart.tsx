@@ -12,15 +12,27 @@ import {
 export function PriceChart({
     timeframe,
     overlays = [],
-    bars: realBars
+    mode,
+    bars: productBars
 }: {
     readonly timeframe: Timeframe;
     readonly overlays?: readonly OverlaySpec[];
-    /** Canonical Product bars. When present the renderer never invents prices. */
-    readonly bars?: readonly CandlestickData<UTCTimestamp>[] | undefined;
+    /**
+     * `synthetic` renders the deterministic W0 placeholder series. `real` renders only
+     * canonical Product bars and never invents a price, an overlay or an indicator.
+     */
+    readonly mode: "synthetic" | "real";
+    readonly bars: readonly CandlestickData<UTCTimestamp>[];
 }) {
     const container = useRef<HTMLDivElement>(null);
-    const bars = useMemo(() => realBars ?? buildPlaceholderBars(timeframe), [realBars, timeframe]);
+    const bars = useMemo(
+        () => (mode === "synthetic" ? buildPlaceholderBars(timeframe) : productBars),
+        [mode, productBars, timeframe]
+    );
+    const renderedOverlays = useMemo(
+        () => (mode === "synthetic" ? overlays : []),
+        [mode, overlays]
+    );
 
     useEffect(() => {
         const element = container.current;
@@ -51,7 +63,7 @@ export function PriceChart({
             wickDownColor: token("--down", "#2f7d47")
         });
         series.setData([...bars]);
-        overlays.forEach((overlay, index) => {
+        renderedOverlays.forEach((overlay, index) => {
             const line = chart.addSeries(
                 LineSeries,
                 {
@@ -74,7 +86,7 @@ export function PriceChart({
             observer.disconnect();
             chart.remove();
         };
-    }, [bars, overlays]);
+    }, [bars, renderedOverlays]);
 
     return <div className="chart-region__canvas" ref={container} data-testid="price-chart" />;
 }

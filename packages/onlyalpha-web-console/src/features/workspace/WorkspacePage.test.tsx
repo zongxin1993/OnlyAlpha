@@ -9,6 +9,7 @@ import {
     integrationClient,
     operationalStatus
 } from "../../test/integrationClient";
+import { marketDataClient } from "../../test/marketDataClient";
 import { researchClient } from "../../test/researchClient";
 import { WorkspacePage } from "./WorkspacePage";
 
@@ -18,7 +19,11 @@ vi.mock("../../charts/lightweight/PriceChart", () => ({
 
 function renderWorkspace(client: IntegrationApiClient = integrationClient()) {
     return render(
-        <AppProviders client={researchClient()} integrationClient={client}>
+        <AppProviders
+            client={researchClient()}
+            integrationClient={client}
+            marketDataClient={marketDataClient({ listSources: () => Promise.resolve([]) })}
+        >
             <WorkspacePage />
         </AppProviders>
     );

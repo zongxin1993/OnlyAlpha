@@ -4,6 +4,8 @@ import type {
     MarketDataAcquisition,
     MarketDataBars,
     MarketDataInstrument,
+    MarketDataSource,
+    MarketDataSourceReference,
     MarketDataSourceSelection
 } from "../api/marketData/model";
 
@@ -13,8 +15,32 @@ export const FIXTURE_SELECTION: MarketDataSourceSelection = {
     integration_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     integration_revision_fingerprint: "a".repeat(64),
     type_id: "test.market_data",
-    source_id: "test.market_data"
+    source_id: "test.market_data.live",
+    environment: "LIVE"
 };
+
+export const FIXTURE_REFERENCE: MarketDataSourceReference = {
+    integration_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    integration_revision_fingerprint: "a".repeat(64),
+    expected_type_id: "test.market_data"
+};
+
+export function marketDataSource(overrides: Partial<MarketDataSource> = {}): MarketDataSource {
+    return {
+        integration_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        integration_revision_fingerprint: "a".repeat(64),
+        display_name: "Fixture Source",
+        type_id: "test.market_data",
+        source_id: "test.market_data.live",
+        environment: "LIVE",
+        ...overrides
+    };
+}
+
+/** Composed exactly like a service that publishes the fixture source. */
+export const eligibleMarketDataSources = (
+    sources: readonly MarketDataSource[] = [marketDataSource()]
+): readonly MarketDataSource[] => sources;
 
 export function marketDataInstrument(
     overrides: Partial<MarketDataInstrument> = {}
@@ -44,8 +70,8 @@ export function marketDataBars(overrides: Partial<MarketDataBars> = {}): MarketD
         aggregation_source: "EXTERNAL",
         adjustment: "RAW",
         closed_only: true,
-        start_ns: 1_767_225_600_000_000_000,
-        end_ns: 1_767_225_720_000_000_000,
+        start_ns: "1767225600000000000",
+        end_ns: "1767225720000000000",
         coverage: {
             status: "COMPLETE",
             manifest_id: "manifest:" + "c".repeat(64),
@@ -61,8 +87,8 @@ export function marketDataBars(overrides: Partial<MarketDataBars> = {}): MarketD
         seal_id: "seal:" + "e".repeat(64),
         bars: [
             {
-                bar_start_ns: 1_767_225_600_000_000_000,
-                bar_end_ns: 1_767_225_660_000_000_000,
+                bar_start_ns: "1767225600000000000",
+                bar_end_ns: "1767225660000000000",
                 open: "100.00",
                 high: "102.00",
                 low: "99.00",
@@ -71,8 +97,8 @@ export function marketDataBars(overrides: Partial<MarketDataBars> = {}): MarketD
                 closed: true
             },
             {
-                bar_start_ns: 1_767_225_660_000_000_000,
-                bar_end_ns: 1_767_225_720_000_000_000,
+                bar_start_ns: "1767225660000000000",
+                bar_end_ns: "1767225720000000000",
                 open: "101.00",
                 high: "103.00",
                 low: "100.00",
@@ -92,12 +118,12 @@ export function marketDataAcquisition(
         schema_version: 1,
         acquisition_id: "acquisition:" + "b".repeat(64),
         status: "COMPLETE",
-        source_id: "test.market_data",
+        source_id: "test.market_data.live",
         integration_binding_fingerprint: "f".repeat(64),
         instrument_id: "BTCUSDT.TEST",
         bar_specification: "1m",
-        start_ns: 1_767_225_600_000_000_000,
-        end_ns: 1_767_225_720_000_000_000,
+        start_ns: "1767225600000000000",
+        end_ns: "1767225720000000000",
         provenance: "REST_BACKFILL",
         coverage: marketDataBars().coverage,
         revision_id: "market-data-revision:" + "d".repeat(64),
@@ -112,6 +138,7 @@ export function marketDataClient(
     overrides: Partial<MarketDataApiClient> = {}
 ): MarketDataApiClient {
     return {
+        listSources: () => Promise.resolve([marketDataSource()]),
         listInstruments: () => Promise.resolve([]),
         queryBars: () => Promise.resolve(marketDataBars()),
         createAcquisition: () => Promise.resolve(marketDataAcquisition()),
@@ -129,9 +156,9 @@ export function incompleteBars(): MarketDataBars {
             expected_bar_count: 1440,
             actual_bar_count: 0,
             issues: ["BAR_GRID_INCOMPLETE"],
-            gaps: [{ start_ns: 1_767_225_600_000_000_000, end_ns: 1_767_225_720_000_000_000 }],
+            gaps: [{ start_ns: "1767225600000000000", end_ns: "1767225720000000000" }],
             planned_acquisition_ranges: [
-                { start_ns: 1_767_225_600_000_000_000, end_ns: 1_767_225_720_000_000_000 }
+                { start_ns: "1767225600000000000", end_ns: "1767225720000000000" }
             ]
         },
         revision_id: null,

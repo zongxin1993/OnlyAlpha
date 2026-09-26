@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
+from threading import RLock
 
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.core.clock import only_system_utc_now
@@ -194,6 +195,7 @@ class OnlyInMemoryMarketDataCatalog(OnlyMarketDataCatalog):
     """Deterministic test/reference implementation with put-once semantics."""
 
     def __init__(self) -> None:
+        self._acquisition_lock = RLock()
         self._segments: dict[str, OnlyIngestSegment] = {}
         self._acquisitions: dict[str, OnlyMarketDataAcquisitionIntent] = {}
         self._acquisition_attempts: dict[str, list[OnlyMarketDataAcquisitionAttempt]] = {}
@@ -209,25 +211,49 @@ class OnlyInMemoryMarketDataCatalog(OnlyMarketDataCatalog):
         for segment in segments:
             self._segments.setdefault(segment.segment_id, segment)
 
-    def commit_acquisition_intent(self, intent: OnlyMarketDataAcquisitionIntent) -> None:
-        prior = self._acquisitions.get(intent.acquisition_id)
-        if prior is not None and prior != intent:
-            raise OnlyMarketDataConflictError("ACQUISITION_INTENT_CONFLICT")
-        self._acquisitions.setdefault(intent.acquisition_id, intent)
+    def admit_acquisition_intent(self, intent: OnlyMarketDataAcquisitionIntent) -> OnlyMarketDataAcquisitionIntent:
+        # `acquisition_id` is the canonical fingerprint of the whole execution intent, so an
+        # existing admission is by construction the same intent and keeps its admitted_at.
+        with self._acquisition_lock:
+            return self._acquisitions.setdefault(intent.acquisition_id, intent)
 
     def load_acquisition_intent(self, acquisition_id: str) -> OnlyMarketDataAcquisitionIntent | None:
         return self._acquisitions.get(acquisition_id)
 
-    def record_acquisition_attempt(self, attempt: OnlyMarketDataAcquisitionAttempt) -> None:
-        recorded = self._acquisition_attempts.setdefault(attempt.acquisition_id, [])
-        if all(item.attempt_id != attempt.attempt_id for item in recorded):
+    def start_acquisition_attempt(
+        self, acquisition_id: str, *, started_at: datetime
+    ) -> OnlyMarketDataAcquisitionAttempt:
+        with self._acquisition_lock:
+            if acquisition_id not in self._acquisitions:
+                raise OnlyMarketDataConflictError("ACQUISITION_INTENT_NOT_ADMITTED")
+            recorded = self._acquisition_attempts.setdefault(acquisition_id, [])
+            attempt = OnlyMarketDataAcquisitionAttempt.start(
+                acquisition_id,
+                max((item.attempt_number for item in recorded), default=0) + 1,
+                started_at=started_at,
+            )
             recorded.append(attempt)
+            return attempt
+
+    def record_acquisition_attempt(self, attempt: OnlyMarketDataAcquisitionAttempt) -> None:
+        if attempt.outcome is None:
+            raise OnlyMarketDataConflictError("ACQUISITION_ATTEMPT_OUTCOME_REQUIRED")
+        with self._acquisition_lock:
+            recorded = self._acquisition_attempts.get(attempt.acquisition_id, [])
+            for index, existing in enumerate(recorded):
+                if existing.attempt_id != attempt.attempt_id:
+                    continue
+                if existing.outcome is not None and existing != attempt:
+                    raise OnlyMarketDataConflictError("ACQUISITION_ATTEMPT_OUTCOME_CONFLICT")
+                recorded[index] = attempt
+                return
+            raise OnlyMarketDataConflictError("ACQUISITION_ATTEMPT_NOT_STARTED")
 
     def latest_acquisition_attempt(self, acquisition_id: str) -> OnlyMarketDataAcquisitionAttempt | None:
         recorded = self._acquisition_attempts.get(acquisition_id)
         if not recorded:
             return None
-        return max(recorded, key=lambda item: (item.recorded_at, item.attempt_id))
+        return max(recorded, key=lambda item: (item.attempt_number, item.attempt_id))
 
     def commit_coverage_manifest(self, manifest: OnlyCoverageManifest) -> None:
         prior = self._manifests.get(manifest.manifest_id)

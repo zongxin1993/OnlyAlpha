@@ -11,11 +11,17 @@ from onlyalpha.application.market_data_product import (
     OnlyMarketDataBarsProjectionV1,
     OnlyMarketDataCoverageGapV1,
     OnlyMarketDataCoverageProjectionV1,
+    OnlyMarketDataInstrumentListProjectionV1,
     OnlyMarketDataInstrumentProjectionV1,
+    OnlyMarketDataSourceProjectionV1,
+    OnlyMarketDataSourceReferenceV1,
     OnlyMarketDataSourceSelectionV1,
 )
 
 _FINGERPRINT = r"^[0-9a-f]{64}$"
+# Exact nanoseconds travel as canonical decimal strings: a JSON number cannot carry
+# int64 nanoseconds into a browser without silent precision loss.
+_NANOSECONDS = r"^(?:0|[1-9][0-9]*)$"
 
 
 class _Dto(BaseModel):
@@ -23,10 +29,13 @@ class _Dto(BaseModel):
 
 
 class MarketDataSourceSelectionDto(_Dto):
+    """Server-derived canonical Market Source identity reported back to the client."""
+
     integration_id: str = Field(min_length=1)
     integration_revision_fingerprint: str = Field(pattern=_FINGERPRINT)
     type_id: str = Field(min_length=1)
     source_id: str = Field(min_length=1)
+    environment: str = Field(min_length=1)
 
     @classmethod
     def from_model(cls, value: OnlyMarketDataSourceSelectionV1) -> MarketDataSourceSelectionDto:
@@ -35,15 +44,48 @@ class MarketDataSourceSelectionDto(_Dto):
             integration_revision_fingerprint=value.integration_revision_fingerprint,
             type_id=value.type_id,
             source_id=value.source_id,
+            environment=value.environment,
         )
 
-    def to_model(self) -> OnlyMarketDataSourceSelectionV1:
-        return OnlyMarketDataSourceSelectionV1(
+
+class MarketDataSourceReferenceDto(_Dto):
+    """Client request reference; the client asserts no canonical source identity."""
+
+    integration_id: str = Field(min_length=1)
+    integration_revision_fingerprint: str = Field(pattern=_FINGERPRINT)
+    expected_type_id: str | None = Field(default=None, min_length=1)
+
+    def to_model(self) -> OnlyMarketDataSourceReferenceV1:
+        return OnlyMarketDataSourceReferenceV1(
             self.integration_id,
             self.integration_revision_fingerprint,
-            self.type_id,
-            self.source_id,
+            self.expected_type_id,
         )
+
+
+class MarketDataSourceProjectionDto(_Dto):
+    integration_id: str
+    integration_revision_fingerprint: str
+    display_name: str
+    type_id: str
+    source_id: str
+    environment: str
+
+    @classmethod
+    def from_model(cls, value: OnlyMarketDataSourceProjectionV1) -> MarketDataSourceProjectionDto:
+        return cls(
+            integration_id=value.integration_id,
+            integration_revision_fingerprint=value.integration_revision_fingerprint,
+            display_name=value.display_name,
+            type_id=value.type_id,
+            source_id=value.source_id,
+            environment=value.environment,
+        )
+
+
+class MarketDataSourceListDto(_Dto):
+    schema_version: Literal[1]
+    sources: tuple[MarketDataSourceProjectionDto, ...]
 
 
 class MarketDataInstrumentDto(_Dto):
@@ -73,18 +115,24 @@ class MarketDataInstrumentDto(_Dto):
 class MarketDataInstrumentListDto(_Dto):
     schema_version: Literal[1]
     source_selection: MarketDataSourceSelectionDto
-    source_id: str
-    type_id: str
     instruments: tuple[MarketDataInstrumentDto, ...]
+
+    @classmethod
+    def from_model(cls, value: OnlyMarketDataInstrumentListProjectionV1) -> MarketDataInstrumentListDto:
+        return cls(
+            schema_version=1,
+            source_selection=MarketDataSourceSelectionDto.from_model(value.source_selection),
+            instruments=tuple(MarketDataInstrumentDto.from_model(item) for item in value.instruments),
+        )
 
 
 class MarketDataCoverageGapDto(_Dto):
-    start_ns: int
-    end_ns: int
+    start_ns: str = Field(pattern=_NANOSECONDS)
+    end_ns: str = Field(pattern=_NANOSECONDS)
 
     @classmethod
     def from_model(cls, value: OnlyMarketDataCoverageGapV1) -> MarketDataCoverageGapDto:
-        return cls(start_ns=value.start_ns, end_ns=value.end_ns)
+        return cls(start_ns=str(value.start_ns), end_ns=str(value.end_ns))
 
 
 class MarketDataCoverageDto(_Dto):
@@ -114,8 +162,8 @@ class MarketDataCoverageDto(_Dto):
 
 
 class MarketDataBarDto(_Dto):
-    bar_start_ns: int
-    bar_end_ns: int
+    bar_start_ns: str = Field(pattern=_NANOSECONDS)
+    bar_end_ns: str = Field(pattern=_NANOSECONDS)
     open: str
     high: str
     low: str
@@ -135,8 +183,8 @@ class MarketDataBarsDto(_Dto):
     aggregation_source: str
     adjustment: str
     closed_only: bool
-    start_ns: int
-    end_ns: int
+    start_ns: str = Field(pattern=_NANOSECONDS)
+    end_ns: str = Field(pattern=_NANOSECONDS)
     coverage: MarketDataCoverageDto
     revision_id: str | None
     revision_fingerprint: str | None
@@ -156,16 +204,16 @@ class MarketDataBarsDto(_Dto):
             aggregation_source=value.aggregation_source,
             adjustment=value.adjustment,
             closed_only=value.closed_only,
-            start_ns=value.start_ns,
-            end_ns=value.end_ns,
+            start_ns=str(value.start_ns),
+            end_ns=str(value.end_ns),
             coverage=MarketDataCoverageDto.from_model(value.coverage),
             revision_id=value.revision_id,
             revision_fingerprint=value.revision_fingerprint,
             seal_id=value.seal_id,
             bars=tuple(
                 MarketDataBarDto(
-                    bar_start_ns=item.bar_start_ns,
-                    bar_end_ns=item.bar_end_ns,
+                    bar_start_ns=str(item.bar_start_ns),
+                    bar_end_ns=str(item.bar_end_ns),
                     open=item.open,
                     high=item.high,
                     low=item.low,
@@ -179,10 +227,10 @@ class MarketDataBarsDto(_Dto):
 
 
 class MarketDataAcquisitionRequestDto(_Dto):
-    source_selection: MarketDataSourceSelectionDto
+    source_reference: MarketDataSourceReferenceDto
     instrument_id: str = Field(min_length=1)
-    start_ns: int = Field(ge=0)
-    end_ns: int = Field(gt=0)
+    start_ns: str = Field(pattern=_NANOSECONDS)
+    end_ns: str = Field(pattern=_NANOSECONDS)
     bar_specification: str = "1m"
     provenance: Literal["REST_BACKFILL"] = "REST_BACKFILL"
 
@@ -195,8 +243,8 @@ class MarketDataAcquisitionDto(_Dto):
     integration_binding_fingerprint: str | None
     instrument_id: str
     bar_specification: str
-    start_ns: int
-    end_ns: int
+    start_ns: str = Field(pattern=_NANOSECONDS)
+    end_ns: str = Field(pattern=_NANOSECONDS)
     provenance: str
     coverage: MarketDataCoverageDto
     revision_id: str | None
@@ -214,8 +262,8 @@ class MarketDataAcquisitionDto(_Dto):
             integration_binding_fingerprint=value.integration_binding_fingerprint,
             instrument_id=value.instrument_id,
             bar_specification=value.bar_specification,
-            start_ns=value.start_ns,
-            end_ns=value.end_ns,
+            start_ns=str(value.start_ns),
+            end_ns=str(value.end_ns),
             provenance=value.provenance,
             coverage=MarketDataCoverageDto.from_model(value.coverage),
             revision_id=value.revision_id,
@@ -246,5 +294,8 @@ __all__ = [
     "MarketDataErrorEnvelopeDto",
     "MarketDataInstrumentDto",
     "MarketDataInstrumentListDto",
+    "MarketDataSourceListDto",
+    "MarketDataSourceProjectionDto",
+    "MarketDataSourceReferenceDto",
     "MarketDataSourceSelectionDto",
 ]

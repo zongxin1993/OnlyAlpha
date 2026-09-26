@@ -10,6 +10,7 @@ from onlyalpha.plugin.data_source import (
 )
 from onlyalpha.plugin.integration_probe import OnlyIntegrationProbeRequest, OnlyIntegrationProbeResult
 
+from ...common.environment import OnlyBinanceEnvironment
 from ...common.http import OnlyBinancePublicHttpClient
 from ...descriptor import DATA_CAPABILITIES, DATA_DESCRIPTOR, SPOT_DATA_INTEGRATION_TYPE
 from ..reference.client import OnlyBinanceSpotReferenceClient
@@ -19,6 +20,13 @@ from .instrument_catalog import MARKET, VENUE, OnlyBinanceSpotInstrumentCatalog
 from .probe import OnlyBinanceSpotProbe
 from .resource import OnlyBinanceSpotDataSource
 from .websocket import OnlyBinanceWebSocketTransport
+
+# Canonical Market Source identity per provider environment. LIVE and SPOT_TESTNET are
+# different external market-data universes and must never share a Market Data scope.
+MARKET_SOURCE_IDS: dict[OnlyBinanceEnvironment, str] = {
+    OnlyBinanceEnvironment.LIVE: "binance.spot.market_data.live",
+    OnlyBinanceEnvironment.SPOT_TESTNET: "binance.spot.market_data.spot_testnet",
+}
 
 
 class OnlyBinanceSpotDataSourceFactory:
@@ -41,7 +49,9 @@ class OnlyBinanceSpotDataSourceFactory:
     def market_identity(self, plugin_config: object) -> OnlyDataSourceMarketIdentityV1:
         if not isinstance(plugin_config, OnlyBinanceSpotDataSourceConfig):
             raise ValueError("BINANCE_PLUGIN_CONFIG_INVALID")
-        return OnlyDataSourceMarketIdentityV1(VENUE, MARKET)
+        return OnlyDataSourceMarketIdentityV1(
+            VENUE, MARKET, plugin_config.environment.value, MARKET_SOURCE_IDS[plugin_config.environment]
+        )
 
     def validate_request(self, request: OnlyDataSourceCreateRequest) -> Sequence[OnlyPluginValidationIssue]:
         issues = [
