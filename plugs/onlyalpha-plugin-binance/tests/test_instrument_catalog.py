@@ -186,6 +186,55 @@ def test_official_endpoint_catalog(
     assert endpoints.combined_stream_url(("btcusdt@trade",)).endswith("/stream?streams=btcusdt@trade")
 
 
+def test_global_public_market_data_stream_is_distinct_from_standard_transport() -> None:
+    factory = OnlyBinanceSpotDataSourceFactory()
+    public = OnlyBinanceSpotDataSourceConfig(
+        environment=OnlyBinanceMarketEnvironment.GLOBAL,
+        endpoint_profile=OnlyBinanceSpotEndpointProfile.PUBLIC_MARKET_DATA,
+    )
+    standard = OnlyBinanceSpotDataSourceConfig(
+        environment=OnlyBinanceMarketEnvironment.GLOBAL,
+        endpoint_profile=OnlyBinanceSpotEndpointProfile.STANDARD,
+    )
+
+    assert public.endpoints.rest_base_url == "https://data-api.binance.vision"
+    assert public.endpoints.market_stream_base_url == "wss://data-stream.binance.vision"
+    assert public.endpoints.raw_stream_url("btcusdt@depth5") == ("wss://data-stream.binance.vision/ws/btcusdt@depth5")
+    assert public.endpoints.combined_stream_url(("btcusdt@kline_1m",)) == (
+        "wss://data-stream.binance.vision/stream?streams=btcusdt@kline_1m"
+    )
+    assert standard.endpoints.rest_base_url == "https://api.binance.com"
+    assert standard.endpoints.market_stream_base_url == "wss://stream.binance.com:9443"
+    assert (
+        public.endpoints.websocket_api_base_url
+        == standard.endpoints.websocket_api_base_url
+        == ("wss://ws-api.binance.com:443/ws-api/v3")
+    )
+    assert (
+        factory.market_identity(public).source_id
+        == factory.market_identity(standard).source_id
+        == ("binance.spot.market_data.live")
+    )
+
+
+@pytest.mark.parametrize(
+    ("profile", "rest_host"),
+    [
+        (OnlyBinanceSpotEndpointProfile.GCP, "api-gcp.binance.com"),
+        (OnlyBinanceSpotEndpointProfile.API1, "api1.binance.com"),
+        (OnlyBinanceSpotEndpointProfile.API2, "api2.binance.com"),
+        (OnlyBinanceSpotEndpointProfile.API3, "api3.binance.com"),
+        (OnlyBinanceSpotEndpointProfile.API4, "api4.binance.com"),
+    ],
+)
+def test_alternate_global_rest_profiles_keep_standard_market_stream(
+    profile: OnlyBinanceSpotEndpointProfile, rest_host: str
+) -> None:
+    endpoints = only_resolve_binance_spot_endpoints(OnlyBinanceMarketEnvironment.GLOBAL, profile)
+    assert endpoints.rest_base_url == f"https://{rest_host}"
+    assert endpoints.market_stream_base_url == "wss://stream.binance.com:9443"
+
+
 @pytest.mark.parametrize(
     ("environment", "profile"),
     [

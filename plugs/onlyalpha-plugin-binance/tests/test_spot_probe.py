@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime
 from importlib import import_module
 
 import pytest
 from onlyalpha_plugin_binance.errors import OnlyBinanceError
+from onlyalpha_plugin_binance.spot.data_source.config import OnlyBinanceSpotDataSourceConfig
 from onlyalpha_plugin_binance.spot.data_source.factory import OnlyBinanceSpotDataSourceFactory
 from onlyalpha_plugin_binance.spot.data_source.probe import OnlyBinanceSpotProbe
 
@@ -111,6 +113,7 @@ def _probe(
     reference: _Reference | None = None,
     historical: _Historical | None = None,
     websocket: _WebSocket | None = None,
+    raw_stream_url: Callable[[str], str] | None = None,
 ) -> tuple[OnlyBinanceSpotProbe, _Reference, _Historical, _WebSocket]:
     reference = reference or _Reference()
     historical = historical or _Historical()
@@ -120,7 +123,7 @@ def _probe(
             reference,
             historical,
             websocket,
-            raw_stream_url=lambda stream: f"wss://example.test/ws/{stream}",
+            raw_stream_url=raw_stream_url or (lambda stream: f"wss://example.test/ws/{stream}"),
             utc_now=lambda: NOW,
             monotonic=lambda: 1.0,
         ),
@@ -128,6 +131,17 @@ def _probe(
         historical,
         websocket,
     )
+
+
+def test_public_market_data_probe_connects_to_resolved_raw_stream() -> None:
+    websocket = _WebSocket()
+    probe, _, _, _ = _probe(
+        websocket=websocket,
+        raw_stream_url=OnlyBinanceSpotDataSourceConfig().endpoints.raw_stream_url,
+    )
+
+    assert probe.probe(_request()).overall_status is OnlyIntegrationProbeStatus.READY
+    assert websocket.urls == ["wss://data-stream.binance.vision/ws/btcusdt@depth5"]
 
 
 def _checks(result) -> dict[OnlyIntegrationProbeCheck, object]:  # type: ignore[no-untyped-def]
@@ -352,7 +366,7 @@ def test_endpoint_context_is_recorded_once_within_the_probe_observation_budget()
         (
             {"environment": "GLOBAL", "endpoint_profile": "PUBLIC_MARKET_DATA"},
             "https://data-api.binance.vision",
-            "wss://stream.binance.com:9443/ws/btcusdt@depth5",
+            "wss://data-stream.binance.vision/ws/btcusdt@depth5",
         ),
         (
             {"environment": "US", "endpoint_profile": "DEFAULT"},

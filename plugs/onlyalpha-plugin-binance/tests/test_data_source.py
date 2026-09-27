@@ -5,6 +5,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
+from typing import cast
 
 import pytest
 from onlyalpha_plugin_binance.errors import OnlyBinanceError
@@ -17,6 +18,8 @@ from onlyalpha_plugin_binance.spot.data_source.normalize import (
     only_normalize_ws_kline,
     only_normalize_ws_trade,
 )
+from onlyalpha_plugin_binance.spot.data_source.resource import OnlyBinanceSpotDataSource
+from onlyalpha_plugin_binance.spot.data_source.websocket import OnlyBinanceWebSocketTransport
 
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
 from onlyalpha.config.models import OnlyDataSourceCoverageConfig
@@ -101,6 +104,47 @@ def _request(tmp_path: Path, *, plugin_config: object | None = None) -> OnlyData
         market_data_sink=lambda update: None,
         historical_cache_service=OnlyHistoricalCacheService(OnlyParquetHistoricalCacheStore(tmp_path / "cache")),
     )
+
+
+def test_public_market_data_bar_subscription_connects_to_resolved_combined_stream(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class WebSocket:
+        def __init__(self) -> None:
+            self.urls: list[str] = []
+
+        def connect(self, url: str) -> None:
+            self.urls.append(url)
+
+        def close(self) -> None:
+            pass
+
+    config = OnlyBinanceSpotDataSourceConfig()
+    websocket = WebSocket()
+    resource = OnlyBinanceSpotDataSource(
+        _request(tmp_path, plugin_config=config),
+        config,
+        websocket_transport=cast(OnlyBinanceWebSocketTransport, websocket),
+    )
+    monkeypatch.setattr(resource, "_run_worker", lambda: None)
+    monkeypatch.setattr(resource, "_initial_baselines", lambda _request: ())
+    instrument, _ = _bar_type()
+    resource.initialize()
+    resource.connect()
+    resource.start()
+    try:
+        result = resource.subscribe(
+            OnlyMarketDataSubscriptionRequest(
+                "public-bars",
+                resource.source_id,
+                frozenset({instrument.instrument_id}),
+                frozenset({OnlyMarketDataType.BAR}),
+            )
+        )
+        assert result.status is OnlyMarketDataRequestStatus.ACCEPTED
+        assert websocket.urls == ["wss://data-stream.binance.vision/stream?streams=btcusdt@kline_1m"]
+    finally:
+        resource.stop()
 
 
 def test_config_factory_and_public_resource_lifecycle_are_fail_closed(tmp_path: Path) -> None:

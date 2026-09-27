@@ -57,7 +57,11 @@ def only_resolve_binance_spot_endpoints(
     if environment is OnlyBinanceMarketEnvironment.GLOBAL and endpoint_profile in _GLOBAL_REST_ENDPOINTS:
         return OnlyBinanceEndpointSet(
             _GLOBAL_REST_ENDPOINTS[endpoint_profile],
-            "wss://stream.binance.com:9443",
+            (
+                "wss://data-stream.binance.vision"
+                if endpoint_profile is OnlyBinanceSpotEndpointProfile.PUBLIC_MARKET_DATA
+                else "wss://stream.binance.com:9443"
+            ),
             "wss://ws-api.binance.com:443/ws-api/v3",
         )
     if environment is OnlyBinanceMarketEnvironment.US and endpoint_profile is OnlyBinanceSpotEndpointProfile.DEFAULT:
