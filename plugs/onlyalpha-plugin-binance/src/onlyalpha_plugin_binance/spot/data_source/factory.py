@@ -15,6 +15,7 @@ from ...descriptor import (
     DATA_CAPABILITIES,
     DATA_DESCRIPTOR,
     LEGACY_SPOT_DATA_INTEGRATION_TYPE,
+    PRE_REALTIME_SPOT_DATA_INTEGRATION_TYPE,
     SPOT_DATA_INTEGRATION_TYPE,
 )
 from ..reference.client import OnlyBinanceSpotReferenceClient
@@ -37,7 +38,10 @@ MARKET_SOURCE_IDS: dict[OnlyBinanceMarketEnvironment, str] = {
 class OnlyBinanceSpotDataSourceFactory:
     descriptor = DATA_DESCRIPTOR
     integration_type = SPOT_DATA_INTEGRATION_TYPE
-    compatible_type_descriptor_fingerprints = (LEGACY_SPOT_DATA_INTEGRATION_TYPE.fingerprint,)
+    compatible_type_descriptor_fingerprints = (
+        LEGACY_SPOT_DATA_INTEGRATION_TYPE.fingerprint,
+        PRE_REALTIME_SPOT_DATA_INTEGRATION_TYPE.fingerprint,
+    )
 
     def parse_config(self, extensions: Mapping[str, object]) -> OnlyBinanceSpotDataSourceConfig:
         return OnlyBinanceSpotDataSourceConfig.parse(extensions)

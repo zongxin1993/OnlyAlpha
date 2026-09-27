@@ -5,6 +5,7 @@ import { MarketDataWebError } from "../../api/marketData/client";
 import type { MarketDataApiClient } from "../../api/marketData/client";
 import type { MarketDataAcquisition, MarketDataBars } from "../../api/marketData/model";
 import { buildPlaceholderBars } from "../../charts/lightweight/placeholderBars";
+import { PriceChart } from "../../charts/lightweight/PriceChart";
 import {
     dataSourceSummary,
     dataSourceType,
@@ -41,8 +42,14 @@ class NoopResizeObserver {
  * hide behind the mock.
  */
 const chartMocks = vi.hoisted(() => {
-    const candles = { setData: vi.fn<(bars: readonly unknown[]) => void>() };
-    const overlays = { setData: vi.fn<(points: readonly unknown[]) => void>() };
+    const candles = {
+        setData: vi.fn<(bars: readonly unknown[]) => void>(),
+        update: vi.fn<(bar: unknown) => void>()
+    };
+    const overlays = {
+        setData: vi.fn<(points: readonly unknown[]) => void>(),
+        update: vi.fn<(bar: unknown) => void>()
+    };
     const addSeries = vi.fn<(definition: string) => typeof candles>((definition) =>
         definition === "Candlestick" ? candles : overlays
     );
@@ -106,6 +113,7 @@ async function selectBtcInstrument(user: ReturnType<typeof userEvent.setup>) {
 
 beforeEach(() => {
     chartMocks.candles.setData.mockClear();
+    chartMocks.candles.update.mockClear();
     chartMocks.overlays.setData.mockClear();
 });
 
@@ -118,6 +126,30 @@ it("requests and renders exact minute-aligned nanoseconds on the canonical 1m gr
         { time: 1_767_225_600, open: 100, high: 102, low: 99, close: 101 },
         { time: 1_767_225_660, open: 101, high: 103, low: 100, close: 102.5 }
     ]);
+});
+
+it("updates realtime candles without recreating the chart", () => {
+    const historical = onlyBarsToCandles(marketDataBars().bars);
+    const view = render(
+        <PriceChart timeframe="1m" mode="real" bars={historical} historyKey="revision-a" />
+    );
+    const created = chartMocks.createChart.mock.calls.length;
+    const second = historical.at(1);
+    if (second === undefined) throw new Error("fixture requires two bars");
+    const preview = { ...second, close: 103 };
+
+    view.rerender(
+        <PriceChart
+            timeframe="1m"
+            mode="real"
+            bars={historical}
+            historyKey="revision-a"
+            liveBar={preview}
+        />
+    );
+
+    expect(chartMocks.createChart).toHaveBeenCalledTimes(created);
+    expect(chartMocks.candles.update).toHaveBeenLastCalledWith(preview);
 });
 
 it("keeps the deterministic placeholder series only in the synthetic W0 context", async () => {
@@ -202,7 +234,7 @@ it("renders only canonical Product bars in real READY and disables synthetic ove
     expect(screen.getByRole("button", { name: /指标/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: /因子/ })).toBeDisabled();
     expect(screen.getByTestId("market-data-status")).toHaveTextContent(
-        /test\.market_data\.live · canonical Revision dddddddddddd/
+        /test\.market_data\.live · 历史 Revision dddddddddddd · ● 连接中/
     );
 });
 

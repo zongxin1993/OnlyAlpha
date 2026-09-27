@@ -314,6 +314,139 @@ def test_websocket_raw_evidence_is_preserved_before_canonical_delivery(tmp_path:
     )
 
 
+def test_forming_kline_is_wal_durable_preview_only(tmp_path: Path) -> None:
+    previews = []
+    wal = OnlyMarketDataWal(tmp_path / "wal", capacity_bytes=1_000_000)
+    recorder = OnlyDurableMarketDataRecorder(
+        OnlyMarketDataIngress(
+            wal,
+            normalizer_id="binance",
+            normalizer_version="1",
+            ingest_clock_ns=lambda: 1_767_225_600_999_000_000,
+        ),
+        max_records_per_segment=1,
+    )
+    request = replace(
+        _request(tmp_path),
+        provider_evidence_sink=recorder,
+        durable_recording_required=True,
+        market_data_preview_sink=previews.append,
+    )
+    resource = OnlyBinanceSpotDataSourceFactory().create(request)
+    resource.initialize()
+    resource.connect()
+    resource.start()
+    resource._continuity.subscription_established()  # noqa: SLF001
+    resource._continuity.begin_recovery()  # noqa: SLF001
+    resource._continuity.establish_empty_baseline()  # noqa: SLF001
+    resource._continuity.complete_recovery()  # noqa: SLF001
+
+    assert (
+        resource.ingest_websocket_message(
+            b'{"e":"kline","E":1767225600124,"s":"BTCUSDT","k":{"t":1767225600000,"s":"BTCUSDT","o":"10.00","h":"11.00","l":"9.00","c":"10.50","v":"100","x":false}}'
+        )
+        == ()
+    )
+
+    [preview] = previews
+    assert preview.closed is False and preview.close == "10.5"
+    [segment_id] = wal.scan_uncommitted()
+    [bundle] = wal.read_sealed(segment_id)
+    assert bundle.canonical_facts == ()
+
+
+def test_wal_failure_prevents_forming_kline_visibility(tmp_path: Path) -> None:
+    previews = []
+
+    def fail(*_args: object) -> None:
+        raise RuntimeError("WAL_FAILED")
+
+    resource = OnlyBinanceSpotDataSourceFactory().create(
+        replace(_request(tmp_path), provider_evidence_sink=fail, market_data_preview_sink=previews.append)
+    )
+
+    with pytest.raises(RuntimeError, match="WAL_FAILED"):
+        resource.ingest_websocket_message(
+            b'{"e":"kline","E":1767225600124,"s":"BTCUSDT","k":{"t":1767225600000,"s":"BTCUSDT","o":"10.00","h":"11.00","l":"9.00","c":"10.50","v":"100","x":false}}'
+        )
+
+    assert previews == []
+
+
+def test_closed_kline_is_wal_durable_before_canonical_delivery(tmp_path: Path) -> None:
+    delivered = []
+    wal = OnlyMarketDataWal(tmp_path / "wal", capacity_bytes=1_000_000)
+    recorder = OnlyDurableMarketDataRecorder(
+        OnlyMarketDataIngress(
+            wal,
+            normalizer_id="binance",
+            normalizer_version="1",
+            ingest_clock_ns=lambda: 1_767_225_660_000_000_000,
+        ),
+        max_records_per_segment=1,
+    )
+    resource = OnlyBinanceSpotDataSourceFactory().create(
+        replace(
+            _request(tmp_path),
+            provider_evidence_sink=recorder,
+            durable_recording_required=True,
+            market_data_sink=delivered.append,
+        )
+    )
+    resource.initialize()
+    resource.connect()
+    resource.start()
+    resource._continuity.subscription_established()  # noqa: SLF001
+    resource._continuity.begin_recovery()  # noqa: SLF001
+    resource._continuity.establish_empty_baseline()  # noqa: SLF001
+    resource._continuity.complete_recovery()  # noqa: SLF001
+
+    accepted = resource.ingest_websocket_message(
+        b'{"e":"kline","E":1767225660000,"s":"BTCUSDT","k":{"t":1767225600000,"s":"BTCUSDT","o":"10.00","h":"11.00","l":"9.00","c":"10.50","v":"100","q":"1050","n":42,"x":true}}'
+    )
+
+    assert delivered == list(accepted) and len(accepted) == 1
+    [segment_id] = wal.scan_uncommitted()
+    [bundle] = wal.read_sealed(segment_id)
+    assert len(bundle.canonical_facts) == 1
+
+
+def test_stale_realtime_resume_requires_historical_refresh(tmp_path: Path) -> None:
+    resource = OnlyBinanceSpotDataSourceFactory().create(_request(tmp_path))
+    instrument, bar_type = _bar_type()
+    current_minute = int(datetime(2026, 1, 1, tzinfo=UTC).timestamp()) // 60
+
+    with pytest.raises(OnlyBinanceError, match="HISTORY_REFRESH_REQUIRED"):
+        resource._initial_baselines(  # noqa: SLF001
+            OnlyMarketDataSubscriptionRequest(
+                "resume",
+                resource.source_id,
+                frozenset({instrument.instrument_id}),
+                frozenset({OnlyMarketDataType.BAR}),
+                frozenset({bar_type}),
+                current_minute - 122,
+            )
+        )
+
+
+def test_future_realtime_resume_cursor_is_rejected(tmp_path: Path) -> None:
+    resource = OnlyBinanceSpotDataSourceFactory().create(_request(tmp_path))
+    instrument, bar_type = _bar_type()
+    current_minute = int(datetime(2026, 1, 1, tzinfo=UTC).timestamp()) // 60
+
+    with pytest.raises(OnlyBinanceError, match="MARKET_DATA_RESUME_CURSOR_INVALID"):
+        resource._initial_baselines(  # noqa: SLF001
+            OnlyMarketDataSubscriptionRequest(
+                "resume",
+                resource.source_id,
+                frozenset({instrument.instrument_id}),
+                frozenset({OnlyMarketDataType.BAR}),
+                frozenset({bar_type}),
+                current_minute,
+            )
+        )
+
+
 @pytest.mark.parametrize(
     ("payload", "error", "stream"),
     (

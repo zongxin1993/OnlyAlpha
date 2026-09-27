@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from logging import Logger
 from pathlib import Path
@@ -14,6 +14,7 @@ from onlyalpha.core.clock import OnlyClock
 from onlyalpha.data.evidence import OnlyProviderEvidenceSink
 from onlyalpha.data.historical.models import OnlyHistoricalFactRequest
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
+from onlyalpha.data.models import OnlyMarketDataConnectionSnapshot, OnlyRealtimeBarPreviewV1
 from onlyalpha.data.ports import (
     OnlyHistoricalDataSource,
     OnlyMarketDataGateway,
@@ -49,6 +50,8 @@ class OnlyDataSourceCreateRequest:
     config_directory: Path
     logger: Logger
     market_data_sink: OnlyMarketDataUpdateSink | None = None
+    market_data_preview_sink: Callable[[OnlyRealtimeBarPreviewV1], None] | None = None
+    market_data_connection_sink: Callable[[OnlyMarketDataConnectionSnapshot], None] | None = None
     historical_cache_service: OnlyHistoricalCacheService | None = None
     runtime_state_root: Path | None = None
     provider_evidence_sink: OnlyProviderEvidenceSink | None = None

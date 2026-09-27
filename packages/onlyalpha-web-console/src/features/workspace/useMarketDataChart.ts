@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CandlestickData, UTCTimestamp } from "lightweight-charts";
 import { MarketDataWebError, type MarketDataApiClient } from "../../api/marketData/client";
+import { openMarketDataStream } from "../../api/marketData/stream";
 import type {
     MarketDataCoverage,
     MarketDataInstrument,
@@ -22,6 +23,9 @@ export type MarketDataChartStatus =
     | "incomplete"
     | "failed";
 
+export type MarketDataRealtimeStatus =
+    "disabled" | "connecting" | "recovering" | "ready" | "degraded" | "failed";
+
 export interface MarketDataChartState {
     readonly selectableSources: readonly MarketDataSource[];
     /** Non-null exactly when a real Market Data source context is selected. */
@@ -36,6 +40,12 @@ export interface MarketDataChartState {
     readonly coverage: MarketDataCoverage | null;
     readonly bars: readonly CandlestickData<UTCTimestamp>[];
     readonly revisionFingerprint: string | null;
+    readonly realtimeStatus: MarketDataRealtimeStatus;
+    readonly liveBar: CandlestickData<UTCTimestamp> | null;
+    readonly lastClosedStreamBar: CandlestickData<UTCTimestamp> | null;
+    readonly streamId: string | null;
+    readonly streamError: string | null;
+    readonly lastClosedCursor: string | null;
     readonly selectSource: (integrationId: string) => void;
     readonly searchInstruments: (query: string) => Promise<void>;
     readonly selectInstrument: (instrument: MarketDataInstrument) => Promise<void>;
@@ -71,14 +81,22 @@ export function onlyBarsToCandles(
         readonly close: string;
     }[]
 ): CandlestickData<UTCTimestamp>[] {
-    return bars.map((bar) => ({
-        time: Number(BigInt(bar.bar_start_ns) / SECOND_NS) as UTCTimestamp,
-        open: Number(bar.open),
-        high: Number(bar.high),
-        low: Number(bar.low),
-        close: Number(bar.close)
-    }));
+    return bars.map(onlyBarToCandle);
 }
+
+const onlyBarToCandle = (bar: {
+    readonly bar_start_ns: string;
+    readonly open: string;
+    readonly high: string;
+    readonly low: string;
+    readonly close: string;
+}): CandlestickData<UTCTimestamp> => ({
+    time: Number(BigInt(bar.bar_start_ns) / SECOND_NS) as UTCTimestamp,
+    open: Number(bar.open),
+    high: Number(bar.high),
+    low: Number(bar.low),
+    close: Number(bar.close)
+});
 
 export function useMarketDataChart(): MarketDataChartState {
     const client = useMarketDataApi();
@@ -92,6 +110,15 @@ export function useMarketDataChart(): MarketDataChartState {
     const [bars, setBars] = useState<readonly CandlestickData<UTCTimestamp>[]>([]);
     const [revisionFingerprint, setRevisionFingerprint] = useState<string | null>(null);
     const [resolvedSourceId, setResolvedSourceId] = useState<string | null>(null);
+    const [realtimeStatus, setRealtimeStatus] = useState<MarketDataRealtimeStatus>("disabled");
+    const [liveBar, setLiveBar] = useState<CandlestickData<UTCTimestamp> | null>(null);
+    const [lastClosedStreamBar, setLastClosedStreamBar] =
+        useState<CandlestickData<UTCTimestamp> | null>(null);
+    const [streamId, setStreamId] = useState<string | null>(null);
+    const [streamError, setStreamError] = useState<string | null>(null);
+    const [lastClosedCursor, setLastClosedCursor] = useState<string | null>(null);
+    const lastClosedCursorRef = useRef<string | null>(null);
+    const streamGeneration = useRef(0);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -189,6 +216,7 @@ export function useMarketDataChart(): MarketDataChartState {
                 bar_specification: "1m"
             };
             setStatus("loading");
+            setRealtimeStatus("disabled");
             setMessage(null);
             try {
                 const loaded = await client.queryBars(active, query);
@@ -210,7 +238,89 @@ export function useMarketDataChart(): MarketDataChartState {
         [acquire, apply, client]
     );
 
+    useEffect(() => {
+        if (status !== "ready" || reference === null || instrument === null || bars.length === 0) {
+            return;
+        }
+        const generation = ++streamGeneration.current;
+        let close: () => void = () => undefined;
+        let reconnect: number | undefined;
+        let stopped = false;
+        let terminal = false;
+        const historicalCursor = String(Math.floor(Number(bars[bars.length - 1]?.time ?? 0) / 60));
+        const connect = () => {
+            if (stopped) return;
+            setRealtimeStatus("connecting");
+            close = openMarketDataStream(
+                {
+                    schema_version: 1,
+                    operation: "SUBSCRIBE_BAR",
+                    source_reference: {
+                        ...reference,
+                        expected_type_id: reference.expected_type_id ?? ""
+                    },
+                    instrument_id: instrument.instrument_id,
+                    bar_specification: "1m",
+                    resume_after_sequence: lastClosedCursorRef.current ?? historicalCursor
+                },
+                (event) => {
+                    if (generation !== streamGeneration.current) return;
+                    if (event.event === "SUBSCRIBED") setStreamId(event.stream_id);
+                    else if (event.event === "STATE") {
+                        setRealtimeStatus(
+                            event.state === "CONNECTING"
+                                ? "connecting"
+                                : event.state === "RECOVERING"
+                                  ? "recovering"
+                                  : event.state === "READY"
+                                    ? "ready"
+                                    : event.state === "DEGRADED" || event.state === "CLOSED"
+                                      ? "degraded"
+                                      : "failed"
+                        );
+                    } else if (event.event === "BAR_PREVIEW") {
+                        setLiveBar(onlyBarToCandle(event.bar));
+                    } else if (event.event === "BAR_CLOSED") {
+                        const candle = onlyBarToCandle(event.bar);
+                        setLiveBar(candle);
+                        setLastClosedStreamBar(candle);
+                        setLastClosedCursor(event.sequence);
+                        lastClosedCursorRef.current = event.sequence;
+                    } else {
+                        terminal = true;
+                        setStreamError(
+                            `${event.code}${event.detail === undefined ? "" : `: ${event.detail}`}`
+                        );
+                        if (event.code === "HISTORY_REFRESH_REQUIRED")
+                            void load(reference, instrument);
+                        else setRealtimeStatus("failed");
+                    }
+                },
+                () => {
+                    if (generation !== streamGeneration.current || stopped || terminal) return;
+                    setRealtimeStatus("degraded");
+                    reconnect = window.setTimeout(connect, 250);
+                }
+            );
+        };
+        queueMicrotask(() => {
+            if (stopped) return;
+            setLiveBar(null);
+            setLastClosedStreamBar(null);
+            setStreamId(null);
+            setStreamError(null);
+            connect();
+        });
+        return () => {
+            stopped = true;
+            streamGeneration.current += 1;
+            if (reconnect !== undefined) window.clearTimeout(reconnect);
+            close();
+        };
+    }, [bars, instrument, load, reference, status]);
+
     const selectSource = useCallback((integrationId: string) => {
+        streamGeneration.current += 1;
         setSourceId(integrationId);
         setInstruments([]);
         setInstrument(null);
@@ -218,6 +328,13 @@ export function useMarketDataChart(): MarketDataChartState {
         setBars([]);
         setRevisionFingerprint(null);
         setResolvedSourceId(null);
+        setLiveBar(null);
+        setLastClosedStreamBar(null);
+        setLastClosedCursor(null);
+        lastClosedCursorRef.current = null;
+        setStreamId(null);
+        setStreamError(null);
+        setRealtimeStatus("disabled");
         setStatus("idle");
         setMessage(null);
     }, []);
@@ -243,6 +360,14 @@ export function useMarketDataChart(): MarketDataChartState {
 
     const selectInstrument = useCallback(
         async (target: MarketDataInstrument) => {
+            streamGeneration.current += 1;
+            setLiveBar(null);
+            setLastClosedStreamBar(null);
+            setLastClosedCursor(null);
+            lastClosedCursorRef.current = null;
+            setStreamId(null);
+            setStreamError(null);
+            setRealtimeStatus("disabled");
             setInstrument(target);
             if (reference === null) {
                 setMessage("请先选择数据源");
@@ -265,6 +390,12 @@ export function useMarketDataChart(): MarketDataChartState {
         coverage,
         bars,
         revisionFingerprint,
+        realtimeStatus,
+        liveBar,
+        lastClosedStreamBar,
+        streamId,
+        streamError,
+        lastClosedCursor,
         selectSource,
         searchInstruments,
         selectInstrument

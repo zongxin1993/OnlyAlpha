@@ -50,8 +50,11 @@ def only_verify_canonical_uniqueness(facts: tuple[OnlyCanonicalMarketFactRecord,
     for fact in facts:
         if only_canonical_fingerprint(fact.canonical_payload) != fact.canonical_payload_hash:
             raise OnlyMarketDataConflictError(f"CANONICAL_FACT_HASH_MISMATCH:{fact.canonical_fact_id}")
-        prior = hashes.setdefault(fact.canonical_fact_id, fact.canonical_payload_hash)
-        if prior != fact.canonical_payload_hash:
+        # A capture runtime is provenance, not part of the market fact's identity.
+        market_payload = {key: value for key, value in fact.canonical_payload.items() if key != "runtime_id"}
+        market_hash = only_canonical_fingerprint(market_payload)
+        prior = hashes.setdefault(fact.canonical_fact_id, market_hash)
+        if prior != market_hash:
             raise OnlyMarketDataConflictError(f"CANONICAL_FACT_CONFLICT:{fact.canonical_fact_id}")
 
 

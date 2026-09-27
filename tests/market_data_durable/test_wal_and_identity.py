@@ -327,6 +327,15 @@ def test_matching_realtime_backfill_facts_deduplicate_but_conflict_blocks() -> N
         raw_event_id="raw-2", provenance=OnlyMarketDataProvenance.REST_BACKFILL, **common
     )
     assert len(only_deduplicate_facts((realtime, backfill))) == 1
+    different_runtime = {**update.to_dict(), "runtime_id": "another-capture-runtime"}
+    restarted = OnlyCanonicalMarketFactRecord(
+        raw_event_id="raw-restarted",
+        provenance=OnlyMarketDataProvenance.REALTIME_STREAM,
+        canonical_payload=different_runtime,
+        canonical_payload_hash=only_canonical_fingerprint(different_runtime),
+        **{key: value for key, value in common.items() if key not in {"canonical_payload", "canonical_payload_hash"}},
+    )
+    assert len(only_deduplicate_facts((realtime, restarted))) == 1
     changed_payload = trade_update(price="101.12000000").to_dict()
     conflict = OnlyCanonicalMarketFactRecord(
         raw_event_id="raw-3",

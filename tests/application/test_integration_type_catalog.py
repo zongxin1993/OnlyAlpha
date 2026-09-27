@@ -3,7 +3,10 @@ from datetime import UTC, datetime
 
 import pytest
 from onlyalpha_agent_orchestrator.provider_integration import OnlyOpenAICompatibleAgentProviderProbe
-from onlyalpha_plugin_binance.descriptor import LEGACY_SPOT_DATA_INTEGRATION_TYPE
+from onlyalpha_plugin_binance.descriptor import (
+    LEGACY_SPOT_DATA_INTEGRATION_TYPE,
+    PRE_REALTIME_SPOT_DATA_INTEGRATION_TYPE,
+)
 from onlyalpha_plugin_binance.spot.data_source.factory import OnlyBinanceSpotDataSourceFactory
 from onlyalpha_plugin_binance.usdm.data_source import OnlyBinanceUsdmDataSourceFactory
 from onlyalpha_plugin_miniqmt.data_source.factory import OnlyMiniQmtDataSourceFactory
@@ -205,6 +208,19 @@ def test_binance_catalog_validates_profile_pairs_and_admits_the_legacy_descripto
     assert (
         OnlyIntegrationProbeCatalog(data_sources, OnlyBrokerFactoryRegistry()).require_compatible(
             "binance.spot.market_data", LEGACY_SPOT_DATA_INTEGRATION_TYPE.fingerprint
+        )
+        is factory
+    )
+    assert PRE_REALTIME_SPOT_DATA_INTEGRATION_TYPE.fingerprint == (
+        "46ceeb939c1b7afadac2eb038281b49629e0a30719491cc2153c35db4cee0229"
+    )
+    assert (
+        catalog.require_compatible("binance.spot.market_data", PRE_REALTIME_SPOT_DATA_INTEGRATION_TYPE.fingerprint)
+        is current
+    )
+    assert (
+        OnlyIntegrationProbeCatalog(data_sources, OnlyBrokerFactoryRegistry()).require_compatible(
+            "binance.spot.market_data", PRE_REALTIME_SPOT_DATA_INTEGRATION_TYPE.fingerprint
         )
         is factory
     )

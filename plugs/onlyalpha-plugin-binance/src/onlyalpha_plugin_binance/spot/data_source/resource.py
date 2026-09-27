@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import threading
 from collections.abc import Mapping
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from onlyalpha.cache.historical.models import OnlyCachePolicy
 from onlyalpha.cache.historical.service import OnlyHistoricalCacheService
@@ -41,6 +41,7 @@ from onlyalpha.data.models import (
     OnlyMarketDataSubscriptionResult,
     OnlyMarketDataUnsubscriptionRequest,
     OnlyMarketReferenceUpdate,
+    OnlyRealtimeBarPreviewV1,
     OnlyTradeTickUpdate,
 )
 from onlyalpha.domain.calendar import OnlyTradingCalendar
@@ -61,6 +62,7 @@ from .normalize import (
     only_normalize_reference_price,
     only_normalize_rest_kline,
     only_normalize_ws_kline,
+    only_normalize_ws_kline_preview,
     only_normalize_ws_trade,
 )
 from .websocket import OnlyBinanceWebSocketTransport
@@ -97,13 +99,17 @@ class OnlyBinanceSpotDataSource:
             timeout_seconds=config.timeout_seconds,
             max_message_bytes=config.max_ws_message_bytes,
         )
-        self._continuity = OnlyBinanceSpotContinuityCoordinator(config.recovery_buffer_max_events)
+        self._last_emitted_connection_state: OnlyMarketDataConnectionState | None = None
+        self._continuity = OnlyBinanceSpotContinuityCoordinator(
+            config.recovery_buffer_max_events, self._emit_connection
+        )
         self._state = OnlyPluginLifecycleState.CREATED
         self._subscriptions: dict[str, OnlyMarketDataSubscriptionRequest] = {}
         self._stop = threading.Event()
         self._worker: threading.Thread | None = None
         self._websocket_url: str | None = None
         self._symbol_map = {str(item.raw_symbol).upper(): item for item in request.instruments.values()}
+        self._pending_previews: dict[tuple[str, int], OnlyRealtimeBarPreviewV1] = {}
 
     @property
     def plugin_resource_id(self) -> str:
@@ -269,6 +275,8 @@ class OnlyBinanceSpotDataSource:
             self._continuity.establish_empty_baseline()
             for update in self._continuity.complete_recovery(self._recover):
                 self._publish(update)
+            self._flush_previews()
+            self._emit_connection()
         except Exception:
             self._continuity.fail()
             raise
@@ -334,10 +342,25 @@ class OnlyBinanceSpotDataSource:
             raise OnlyBinanceError("BINANCE_WEBSOCKET_NORMALIZATION_FAILED") from exc
         self._record_evidence(observation, update)
         if update is None:
+            if event_type == "kline" and isinstance(event.get("k"), dict):
+                kline = event["k"]
+                symbol = str(kline.get("s", event.get("s", ""))).upper()
+                instrument = self._symbol_map[symbol]
+                preview = only_normalize_ws_kline_preview(
+                    kline,
+                    instrument,
+                    self._request.bar_types[instrument.instrument_id],
+                    self.source_id,
+                    ts_event_ns=observation.ts_event_ns or receive_ns,
+                    ts_receive_ns=receive_ns,
+                )
+                if preview is not None:
+                    self._publish_preview(preview)
             return ()
         accepted = self._continuity.accept(update, self._recover)
         for item in accepted:
             self._publish(item)
+        self._emit_connection()
         return accepted
 
     def _record_evidence(
@@ -461,6 +484,8 @@ class OnlyBinanceSpotDataSource:
                     self._continuity.establish_empty_baseline()
                     for update in self._continuity.complete_recovery(self._recover):
                         self._publish(update)
+                    self._flush_previews()
+                    self._emit_connection()
                 except Exception as recovery_exc:
                     self._continuity.fail()
                     self._request.logger.error("Binance WebSocket recovery failed: %s", type(recovery_exc).__name__)
@@ -473,18 +498,22 @@ class OnlyBinanceSpotDataSource:
             instrument = self._request.instruments[instrument_id]
             symbol = str(instrument.raw_symbol)
             if OnlyMarketDataType.BAR in request.data_types:
-                bar = self._provider(instrument_id, self._request.bar_types[instrument_id], self._request.data_version)
-                normalized = bar.fetch(
-                    OnlyHistoricalDataRequest(
-                        instrument_id,
-                        self._request.bar_types[instrument_id],
-                        OnlyTimeRange(minute - timedelta(minutes=1), minute),
-                    ),
-                    OnlyTimeRange(minute - timedelta(minutes=1), minute),
-                ).records
-                if len(normalized) != 1:
+                last = int(minute.timestamp()) // 60 - 1
+                if request.resume_after_sequence is not None and request.resume_after_sequence > last:
+                    raise OnlyBinanceError("MARKET_DATA_RESUME_CURSOR_INVALID")
+                first = request.resume_after_sequence + 1 if request.resume_after_sequence is not None else last
+                count = last - first + 1
+                if count <= 0:
+                    continue
+                if count > self._config.realtime_resume_max_bars:
+                    raise OnlyBinanceError("HISTORY_REFRESH_REQUIRED")
+                rows = self._historical.klines(symbol, first * 60_000, (last + 1) * 60_000, count)
+                normalized = tuple(
+                    only_normalize_rest_kline(item, instrument, self._request.bar_types[instrument_id]) for item in rows
+                )
+                if len(normalized) != count:
                     raise OnlyBinanceError("BINANCE_BAR_BASELINE_UNPROVEN")
-                updates.append(self._bar_update(normalized[0], self._request.data_version, rest=True))
+                updates.extend(self._bar_update(item, self._request.data_version, rest=True) for item in normalized)
             if OnlyMarketDataType.TRADE in request.data_types:
                 trade_rows = self._historical.recent_trades(symbol, 1)
                 if len(trade_rows) != 1:
@@ -646,6 +675,30 @@ class OnlyBinanceSpotDataSource:
         sink = self._request.market_data_sink
         if sink is not None:
             sink(update)
+
+    def _publish_preview(self, preview: OnlyRealtimeBarPreviewV1) -> None:
+        if self._continuity.state is not OnlyMarketDataConnectionState.READY:
+            key = (str(preview.instrument_id), preview.bar_start_ns)
+            self._pending_previews[key] = preview
+            return
+        sink = self._request.market_data_preview_sink
+        if sink is not None:
+            sink(preview)
+
+    def _flush_previews(self) -> None:
+        pending = tuple(self._pending_previews[key] for key in sorted(self._pending_previews))
+        self._pending_previews.clear()
+        for preview in pending:
+            self._publish_preview(preview)
+
+    def _emit_connection(self) -> None:
+        state = self._continuity.state
+        if state is self._last_emitted_connection_state:
+            return
+        self._last_emitted_connection_state = state
+        sink = self._request.market_data_connection_sink
+        if sink is not None:
+            sink(self.connection_snapshot())
 
     def _provider(
         self,

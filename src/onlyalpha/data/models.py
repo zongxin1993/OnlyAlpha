@@ -359,6 +359,25 @@ class OnlyMarketDataConnectionSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyRealtimeBarPreviewV1:
+    """Operational forming bar; deliberately not a canonical Market Fact."""
+
+    source_id: OnlyMarketDataSourceId
+    instrument_id: OnlyInstrumentId
+    bar_type: OnlyBarType
+    bar_start_ns: int
+    bar_end_ns: int
+    open: str
+    high: str
+    low: str
+    close: str
+    volume: str
+    ts_event_ns: int
+    ts_receive_ns: int
+    closed: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyMarketDataConnectionResult:
     status: OnlyMarketDataRequestStatus
     snapshot: OnlyMarketDataConnectionSnapshot
@@ -372,6 +391,7 @@ class OnlyMarketDataSubscriptionRequest:
     instrument_ids: frozenset[OnlyInstrumentId]
     data_types: frozenset[OnlyMarketDataType]
     bar_types: frozenset[OnlyBarType] = frozenset()
+    resume_after_sequence: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "onlyalpha.product-api.v2.market-data-stream",
+  "oneOf": [
+    { "$ref": "#/$defs/subscribe" },
+    { "$ref": "#/$defs/event" }
+  ],
+  "$defs": {
+    "sourceReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["integration_id", "integration_revision_fingerprint", "expected_type_id"],
+      "properties": {
+        "integration_id": { "type": "string", "minLength": 1 },
+        "integration_revision_fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "expected_type_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "subscribe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "operation", "source_reference", "instrument_id", "bar_specification", "resume_after_sequence"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "operation": { "const": "SUBSCRIBE_BAR" },
+        "source_reference": { "$ref": "#/$defs/sourceReference" },
+        "instrument_id": { "type": "string", "minLength": 1 },
+        "bar_specification": { "const": "1m" },
+        "resume_after_sequence": { "type": "string", "pattern": "^(?:0|[1-9][0-9]*)$" }
+      }
+    },
+    "event": {
+      "type": "object",
+      "required": ["schema_version", "event"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "event": { "enum": ["SUBSCRIBED", "STATE", "BAR_PREVIEW", "BAR_CLOSED", "ERROR"] }
+      }
+    }
+  }
+}

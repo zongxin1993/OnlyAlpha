@@ -14,6 +14,7 @@ from .schema import (
     MarketDataErrorEnvelopeDto,
     MarketDataInstrumentListDto,
 )
+from .stream_routes import create_market_data_stream_router
 
 __all__ = [
     "MARKET_DATA_ROUTE_TAG",
@@ -24,6 +25,7 @@ __all__ = [
     "MarketDataErrorEnvelopeDto",
     "MarketDataInstrumentListDto",
     "create_market_data_router",
+    "create_market_data_stream_router",
     "market_data_error_response",
     "market_data_request_validation_error_response",
 ]

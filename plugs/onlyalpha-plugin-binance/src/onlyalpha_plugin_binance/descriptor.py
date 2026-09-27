@@ -220,6 +220,25 @@ SPOT_DATA_INTEGRATION_TYPE = replace(
         )
     ),
 )
+PRE_REALTIME_SPOT_DATA_INTEGRATION_TYPE = SPOT_DATA_INTEGRATION_TYPE
+SPOT_DATA_INTEGRATION_TYPE = replace(
+    SPOT_DATA_INTEGRATION_TYPE,
+    configuration_contract=OnlyIntegrationConfigurationContractV1(
+        fields=(
+            *SPOT_DATA_INTEGRATION_TYPE.configuration_contract.fields,
+            OnlyIntegrationConfigurationFieldV1(
+                "realtime_resume_max_bars",
+                OnlyIntegrationValueKind.INTEGER,
+                False,
+                default=120,
+                advanced=True,
+                display_name="Maximum realtime resume bars",
+                minimum=1,
+                maximum=1000,
+            ),
+        )
+    ),
+)
 
 USDM_DATA_INTEGRATION_TYPE = OnlyIntegrationTypeDescriptorV1(
     type_id=OnlyIntegrationTypeId("binance.usdm.market_data"),

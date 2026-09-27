@@ -178,8 +178,12 @@ test.describe("W1 historical golden path — CONTROLLED_TEST_EVIDENCE", () => {
         await selectBtc(page);
 
         await expect(page.getByTestId("market-data-source-tag")).toHaveText("real · DB");
+        expect((await page.getByTestId("price-chart").boundingBox())?.height).toBeGreaterThan(100);
+        expect(
+            (await page.getByTestId("price-chart").locator("canvas").first().boundingBox())?.height
+        ).toBeGreaterThan(100);
         await expect(page.getByTestId("market-data-status")).toContainText(
-            `canonical Revision ${revisionFingerprint.slice(0, 12)}`
+            `历史 Revision ${revisionFingerprint.slice(0, 12)}`
         );
         await expect(page.getByRole("combobox", { name: "时间周期" })).toHaveValue("1m");
         await expect(page.getByRole("combobox", { name: "时间周期" })).toBeDisabled();

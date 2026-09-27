@@ -6,6 +6,8 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+from onlyalpha.data.identifiers import OnlyMarketDataSourceId
+from onlyalpha.data.models import OnlyRealtimeBarPreviewV1
 from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyOrderSide, OnlySessionType
 from onlyalpha.domain.identifiers import OnlyTradeId
 from onlyalpha.domain.instrument import OnlyInstrument
@@ -66,6 +68,34 @@ def only_normalize_ws_kline(
         volume=raw["v"],
         quote_volume=raw["q"],
         trade_count=raw["n"],
+    )
+
+
+def only_normalize_ws_kline_preview(
+    raw: Mapping[str, object],
+    instrument: OnlyInstrument,
+    bar_type: OnlyBarType,
+    source_id: OnlyMarketDataSourceId,
+    *,
+    ts_event_ns: int,
+    ts_receive_ns: int,
+) -> OnlyRealtimeBarPreviewV1 | None:
+    if raw.get("x") is not False:
+        return None
+    start_ns = int(str(raw["t"])) * 1_000_000
+    return OnlyRealtimeBarPreviewV1(
+        source_id,
+        instrument.instrument_id,
+        bar_type,
+        start_ns,
+        start_ns + 60_000_000_000,
+        str(_decimal(raw["o"])),
+        str(_decimal(raw["h"])),
+        str(_decimal(raw["l"])),
+        str(_decimal(raw["c"])),
+        str(_decimal(raw["v"])),
+        ts_event_ns,
+        ts_receive_ns,
     )
 
 

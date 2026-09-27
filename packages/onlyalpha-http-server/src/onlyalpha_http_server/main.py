@@ -41,6 +41,7 @@ from onlyalpha.application.integration_probe import (
 )
 from onlyalpha.application.integration_type_catalog import OnlyIntegrationProbeCatalog, OnlyIntegrationTypeCatalog
 from onlyalpha.application.market_data_product import OnlyMarketDataProductService
+from onlyalpha.application.market_data_stream import OnlyMarketDataStreamProductService
 from onlyalpha.application.private_asset_product import (
     OnlyPrivateAssetProductService,
     OnlyProductAssetSearchProjectionService,
@@ -504,7 +505,7 @@ def _compose_market_data_product(
     data_sources: OnlyDataSourceFactoryRegistry,
     brokers: OnlyBrokerFactoryRegistry,
     integrations: OnlyIntegrationQueryService,
-) -> OnlyMarketDataProductService:
+) -> tuple[OnlyMarketDataProductService, OnlyMarketDataStreamProductService]:
     resolver = only_compose_integration_runtime_resolver(
         OnlyIntegrationRuntimeCompositionV1(
             postgres_dsn=postgres_dsn,
@@ -514,16 +515,29 @@ def _compose_market_data_product(
         data_sources,
         brokers,
     )
-    return OnlyMarketDataProductService(
+    catalog = OnlyPostgresMarketDataCatalog(postgres_dsn, now=only_system_utc_now)
+    fact_store = cast(Any, _LazyClickHouseMarketFactStore())
+    clock = OnlyLiveClock()
+    logger = logging.getLogger("onlyalpha.http.market-data")
+    wal_root = layout_root / "market-data"
+    historical = OnlyMarketDataProductService(
         resolver=resolver,
         integrations=integrations,
         data_sources=data_sources,
-        catalog=OnlyPostgresMarketDataCatalog(postgres_dsn, now=only_system_utc_now),
-        fact_store=cast(Any, _LazyClickHouseMarketFactStore()),
-        wal_root=layout_root / "market-data",
-        clock=OnlyLiveClock(),
-        logger=logging.getLogger("onlyalpha.http.market-data"),
+        catalog=catalog,
+        fact_store=fact_store,
+        wal_root=wal_root,
+        clock=clock,
+        logger=logger,
         now=only_system_utc_now,
+    )
+    return historical, OnlyMarketDataStreamProductService(
+        historical=historical,
+        catalog=catalog,
+        fact_store=fact_store,
+        wal_root=wal_root,
+        clock=clock,
+        logger=logger,
     )
 
 
@@ -1016,7 +1030,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             integration_probe_store,
             integration_probe_catalog,
         )
-        market_data = _compose_market_data_product(
+        market_data, market_data_stream = _compose_market_data_product(
             postgres_dsn=postgres.dsn,
             operational_options=operational_options,
             master_key_path=layout.root / MASTER_KEY_FILE,
@@ -1092,6 +1106,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             ),
             market_data=market_data,
+            market_data_stream=market_data_stream,
         )
         if startup_status.state is OnlyKernelState.READY:
             app.state.experiment_memory_projection_builder = memory_builder

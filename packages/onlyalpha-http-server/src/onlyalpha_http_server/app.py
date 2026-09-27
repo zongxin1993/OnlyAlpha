@@ -26,6 +26,7 @@ from onlyalpha.application.market_data_product import (
     OnlyMarketDataProductError,
     OnlyMarketDataProductService,
 )
+from onlyalpha.application.market_data_stream import OnlyMarketDataStreamProductService
 from onlyalpha.application.private_asset_product import (
     OnlyPrivateAssetProductService,
     OnlyProductAssetSearchProjectionService,
@@ -106,6 +107,7 @@ from .integrations.routes import integration_error_response, integration_request
 from .market_data import (
     MARKET_DATA_ROUTE_TAG,
     create_market_data_router,
+    create_market_data_stream_router,
     market_data_error_response,
     market_data_request_validation_error_response,
 )
@@ -272,6 +274,7 @@ def create_research_app(
     integration_operational_queries: OnlyIntegrationOperationalQueryService | None = None,
     agent_provider_runtime: tuple[OnlyAgentProviderRuntimeResolverV1, str] | None = None,
     market_data: OnlyMarketDataProductService | None = None,
+    market_data_stream: OnlyMarketDataStreamProductService | None = None,
 ) -> FastAPI:
     integration_authorities = (integration_types, integration_commands, integration_queries)
     if any(item is not None for item in integration_authorities) and any(
@@ -631,6 +634,13 @@ def create_research_app(
         app.include_router(create_agent_provider_runtime_router(*agent_provider_runtime))
     if market_data is not None:
         app.include_router(create_market_data_router(market_data))
+    if market_data_stream is not None:
+        app.include_router(create_market_data_stream_router(market_data_stream))
+
+        @app.on_event("shutdown")
+        def close_market_data_streams() -> None:
+            market_data_stream.close()
+
     _install_exact_product_openapi(app)
     return app
 
@@ -706,6 +716,7 @@ def create_product_app(
     integration_operational_queries: OnlyIntegrationOperationalQueryService | None = None,
     agent_provider_runtime: tuple[OnlyAgentProviderRuntimeResolverV1, str] | None = None,
     market_data: OnlyMarketDataProductService | None = None,
+    market_data_stream: OnlyMarketDataStreamProductService | None = None,
 ) -> FastAPI:
     if (
         integration_types is None
@@ -749,6 +760,7 @@ def create_product_app(
         integration_operational_queries,
         agent_provider_runtime,
         market_data,
+        market_data_stream,
     )
     app.title = "OnlyAlpha Product API"
     return app

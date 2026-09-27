@@ -1,5 +1,5 @@
 import { CandlestickSeries, ColorType, LineSeries, createChart } from "lightweight-charts";
-import type { CandlestickData, UTCTimestamp } from "lightweight-charts";
+import type { CandlestickData, ISeriesApi, UTCTimestamp } from "lightweight-charts";
 import { useEffect, useMemo, useRef } from "react";
 import {
     buildPlaceholderBars,
@@ -9,11 +9,15 @@ import {
     type Timeframe
 } from "./placeholderBars";
 
+const EMPTY_OVERLAYS: readonly OverlaySpec[] = [];
+
 export function PriceChart({
     timeframe,
-    overlays = [],
+    overlays = EMPTY_OVERLAYS,
     mode,
-    bars: productBars
+    bars: productBars,
+    liveBar = null,
+    historyKey = null
 }: {
     readonly timeframe: Timeframe;
     readonly overlays?: readonly OverlaySpec[];
@@ -23,14 +27,18 @@ export function PriceChart({
      */
     readonly mode: "synthetic" | "real";
     readonly bars: readonly CandlestickData<UTCTimestamp>[];
+    readonly liveBar?: CandlestickData<UTCTimestamp> | null;
+    readonly historyKey?: string | null;
 }) {
     const container = useRef<HTMLDivElement>(null);
+    const candleSeries = useRef<ISeriesApi<"Candlestick"> | null>(null);
+    const overlaySeries = useRef<readonly ISeriesApi<"Line">[]>([]);
     const bars = useMemo(
         () => (mode === "synthetic" ? buildPlaceholderBars(timeframe) : productBars),
         [mode, productBars, timeframe]
     );
     const renderedOverlays = useMemo(
-        () => (mode === "synthetic" ? overlays : []),
+        () => (mode === "synthetic" ? overlays : EMPTY_OVERLAYS),
         [mode, overlays]
     );
 
@@ -62,8 +70,8 @@ export function PriceChart({
             wickUpColor: token("--up", "#c8332a"),
             wickDownColor: token("--down", "#2f7d47")
         });
-        series.setData([...bars]);
-        renderedOverlays.forEach((overlay, index) => {
+        candleSeries.current = series;
+        overlaySeries.current = renderedOverlays.map((overlay, index) => {
             const line = chart.addSeries(
                 LineSeries,
                 {
@@ -75,7 +83,7 @@ export function PriceChart({
                 },
                 overlay.kind === "factor" ? 1 : 0
             );
-            line.setData(buildPlaceholderOverlay([...bars], overlay));
+            return line;
         });
         const observer = new ResizeObserver(() => {
             chart.timeScale().fitContent();
@@ -84,9 +92,23 @@ export function PriceChart({
         chart.timeScale().fitContent();
         return () => {
             observer.disconnect();
+            candleSeries.current = null;
+            overlaySeries.current = [];
             chart.remove();
         };
-    }, [bars, renderedOverlays]);
+    }, [renderedOverlays]);
+
+    useEffect(() => {
+        candleSeries.current?.setData([...bars]);
+        overlaySeries.current.forEach((series, index) => {
+            const overlay = renderedOverlays[index];
+            if (overlay !== undefined) series.setData(buildPlaceholderOverlay([...bars], overlay));
+        });
+    }, [bars, historyKey, renderedOverlays]);
+
+    useEffect(() => {
+        if (liveBar !== null) candleSeries.current?.update(liveBar);
+    }, [liveBar]);
 
     return <div className="chart-region__canvas" ref={container} data-testid="price-chart" />;
 }

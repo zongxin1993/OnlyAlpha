@@ -24,6 +24,7 @@ def test_spot_data_source_declares_configuration_without_runtime_instruments() -
         "reconnect_initial_seconds",
         "reconnect_max_seconds",
         "recovery_buffer_max_events",
+        "realtime_resume_max_bars",
         "rest_page_size",
         "timeout_seconds",
     }

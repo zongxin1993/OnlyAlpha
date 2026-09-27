@@ -446,9 +446,19 @@ export function WorkspacePage() {
                 >
                     {marketData.message ??
                         (marketData.status === "ready"
-                            ? `${marketData.resolvedSourceId ?? "真实数据源"} · canonical Revision ${
+                            ? `${marketData.resolvedSourceId ?? "真实数据源"} · 历史 Revision ${
                                   marketData.revisionFingerprint?.slice(0, 12) ?? "—"
-                              }（realtime 未启用）`
+                              } · ${
+                                  marketData.realtimeStatus === "ready"
+                                      ? "● 实时"
+                                      : marketData.realtimeStatus === "recovering"
+                                        ? "● 恢复中"
+                                        : marketData.realtimeStatus === "degraded"
+                                          ? "● 行情中断"
+                                          : marketData.realtimeStatus === "failed"
+                                            ? `● 实时失败${marketData.streamError === null ? "" : `：${marketData.streamError}`}`
+                                            : "● 连接中"
+                              }`
                             : realPath
                               ? "已选择真实行情数据源；尚无 canonical K 线"
                               : "未连接真实行情；当前图表为 synthetic 占位")}
@@ -459,6 +469,8 @@ export function WorkspacePage() {
                         overlays={overlays}
                         mode={realPath ? "real" : "synthetic"}
                         bars={marketData.bars}
+                        liveBar={marketData.liveBar}
+                        historyKey={marketData.revisionFingerprint}
                     />
                 </div>
             </section>

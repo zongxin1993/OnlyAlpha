@@ -4,7 +4,7 @@ import { defineConfig } from "vitest/config";
 const apiTarget = process.env.ONLYALPHA_WEB_API_TARGET ?? "http://127.0.0.1:8000";
 
 const proxy = {
-    "/api": { target: apiTarget, changeOrigin: false },
+    "/api": { target: apiTarget, changeOrigin: false, ws: true },
     "/health": {
         target: apiTarget,
         changeOrigin: false,

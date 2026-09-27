@@ -93,6 +93,7 @@ class OnlyBinanceSpotDataSourceConfig:
     reconnect_initial_seconds: float = 0.5
     reconnect_max_seconds: float = 30.0
     recovery_buffer_max_events: int = 100_000
+    realtime_resume_max_bars: int = 120
     rest_page_size: int = 1000
     cache_policy: OnlyCachePolicy = OnlyCachePolicy.PREFER_CACHE
 
@@ -104,7 +105,11 @@ class OnlyBinanceSpotDataSourceConfig:
             raise ValueError("BINANCE_DATA_SIZE_BOUND_INVALID")
         if not 0 < self.reconnect_initial_seconds <= self.reconnect_max_seconds <= 300:
             raise ValueError("BINANCE_RECONNECT_BOUND_INVALID")
-        if self.recovery_buffer_max_events <= 0 or not 1 <= self.rest_page_size <= 1000:
+        if (
+            self.recovery_buffer_max_events <= 0
+            or self.realtime_resume_max_bars <= 0
+            or not 1 <= self.rest_page_size <= 1000
+        ):
             raise ValueError("BINANCE_DATA_OPERATION_BOUND_INVALID")
 
     @classmethod
@@ -118,6 +123,7 @@ class OnlyBinanceSpotDataSourceConfig:
             "reconnect_initial_seconds",
             "reconnect_max_seconds",
             "recovery_buffer_max_events",
+            "realtime_resume_max_bars",
             "rest_page_size",
             "cache_policy",
         }
@@ -150,6 +156,7 @@ class OnlyBinanceSpotDataSourceConfig:
             reconnect_initial_seconds=float(str(raw.get("reconnect_initial_seconds", 0.5))),
             reconnect_max_seconds=float(str(raw.get("reconnect_max_seconds", 30.0))),
             recovery_buffer_max_events=int(str(raw.get("recovery_buffer_max_events", 100_000))),
+            realtime_resume_max_bars=int(str(raw.get("realtime_resume_max_bars", 120))),
             rest_page_size=int(str(raw.get("rest_page_size", 1000))),
             cache_policy=OnlyCachePolicy(str(raw.get("cache_policy", "prefer_cache"))),
         )

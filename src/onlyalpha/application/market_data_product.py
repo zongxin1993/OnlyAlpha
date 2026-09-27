@@ -263,7 +263,7 @@ class OnlyMarketDataAcquisitionProjectionV1:
 
 
 @dataclass(frozen=True, slots=True)
-class _OnlyResolvedSelection:
+class OnlyResolvedMarketDataRuntime:
     selection: OnlyMarketDataSourceSelectionV1
     binding_fingerprint: str
     venue: str
@@ -365,7 +365,7 @@ class OnlyMarketDataProductService:
                 continue
             reference = OnlyMarketDataSourceReferenceV1(candidate.integration_id.value, fingerprint, candidate.type_id)
             try:
-                resolved = self._resolve(reference)
+                resolved = self.resolve_runtime(reference)
             except OnlyMarketDataProductError as exc:
                 if exc.code in _INELIGIBLE_SOURCE_CODES:
                     continue
@@ -390,7 +390,7 @@ class OnlyMarketDataProductService:
         query: str = "",
         limit: int = 25,
     ) -> OnlyMarketDataInstrumentListProjectionV1:
-        resolved = self._resolve(reference)
+        resolved = self.resolve_runtime(reference)
         request = OnlyDataSourceInstrumentCatalogRequestV1(
             resolved.plugin_config,
             instrument_ids=tuple(sorted(set(instrument_ids))),
@@ -436,7 +436,7 @@ class OnlyMarketDataProductService:
     ) -> OnlyMarketDataBarsProjectionV1:
         """DB-first exact read; a Query never acquires, retries or mutates state."""
 
-        resolved = self._resolve(reference)
+        resolved = self.resolve_runtime(reference)
         scope = self._scope(resolved, instrument_id, start_ns, end_ns, bar_specification)
         try:
             sealed = self._sealed_for_scope(scope)
@@ -495,7 +495,7 @@ class OnlyMarketDataProductService:
         cannot reproduce after restart.
         """
 
-        resolved = self._resolve(reference)
+        resolved = self.resolve_runtime(reference)
         scope = self._scope(resolved, instrument_id, start_ns, end_ns, bar_specification)
         self._assert_acquisition_window(start_ns, end_ns)
         intent = OnlyMarketDataAcquisitionIntent.build(
@@ -551,7 +551,7 @@ class OnlyMarketDataProductService:
     def acquisition_status(
         self, reference: OnlyMarketDataSourceReferenceV1, acquisition_id: str
     ) -> OnlyMarketDataAcquisitionProjectionV1:
-        resolved = self._resolve(reference)
+        resolved = self.resolve_runtime(reference)
         try:
             intent = self._catalog.load_acquisition_intent(acquisition_id)
             attempt = None if intent is None else self._catalog.latest_acquisition_attempt(acquisition_id)
@@ -583,7 +583,7 @@ class OnlyMarketDataProductService:
 
     # --- Internals ---------------------------------------------------------------------
 
-    def _resolve(self, reference: OnlyMarketDataSourceReferenceV1) -> _OnlyResolvedSelection:
+    def resolve_runtime(self, reference: OnlyMarketDataSourceReferenceV1) -> OnlyResolvedMarketDataRuntime:
         if not isinstance(reference, OnlyMarketDataSourceReferenceV1):
             raise OnlyMarketDataProductError("MARKET_DATA_SOURCE_REFERENCE_INVALID")
         runtime_config = OnlyDataSourceRuntimeConfig(
@@ -636,7 +636,7 @@ class OnlyMarketDataProductService:
                 "data source implementation does not declare an Integration type",
             )
         identity = factory.market_identity(plugin_config)
-        return _OnlyResolvedSelection(
+        return OnlyResolvedMarketDataRuntime(
             OnlyMarketDataSourceSelectionV1(
                 reference.integration_id,
                 reference.integration_revision_fingerprint,
@@ -657,7 +657,7 @@ class OnlyMarketDataProductService:
 
     def _scope(
         self,
-        resolved: _OnlyResolvedSelection,
+        resolved: OnlyResolvedMarketDataRuntime,
         instrument_id: str,
         start_ns: int,
         end_ns: int,
@@ -709,7 +709,7 @@ class OnlyMarketDataProductService:
         return (self._clock.timestamp_ns() // MINUTE_NS) * MINUTE_NS
 
     def _execute_acquisition(
-        self, resolved: _OnlyResolvedSelection, intent: OnlyMarketDataAcquisitionIntent
+        self, resolved: OnlyResolvedMarketDataRuntime, intent: OnlyMarketDataAcquisitionIntent
     ) -> tuple[OnlyMarketDataRevision | None, OnlyMarketDataSeal | None, str | None]:
         session: _OnlyAcquisitionSession | None = None
         try:
@@ -741,7 +741,9 @@ class OnlyMarketDataProductService:
             if session is not None:
                 session.close()
 
-    def _open_session(self, resolved: _OnlyResolvedSelection, scope: OnlyMarketDataScope) -> _OnlyAcquisitionSession:
+    def _open_session(
+        self, resolved: OnlyResolvedMarketDataRuntime, scope: OnlyMarketDataScope
+    ) -> _OnlyAcquisitionSession:
         source_root = self._wal_root / str(resolved.source_id)
         source_root.mkdir(parents=True, exist_ok=True)
         wal = OnlyMarketDataWal(source_root / "wal", capacity_bytes=_WAL_CAPACITY_BYTES, now=self._now)
@@ -959,7 +961,7 @@ class OnlyMarketDataProductService:
 
     def _projection(
         self,
-        resolved: _OnlyResolvedSelection,
+        resolved: OnlyResolvedMarketDataRuntime,
         intent: OnlyMarketDataAcquisitionIntent,
         *,
         status: str,

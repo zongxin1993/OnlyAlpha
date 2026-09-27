@@ -16,7 +16,7 @@ type OnlyRecoveryLoader = Callable[[OnlyMarketDataInboundUpdate, int, int], tupl
 class OnlyBinanceSpotContinuityCoordinator:
     """Owns every continuity mutation behind one atomic semantic-transition lock."""
 
-    def __init__(self, max_buffer_events: int) -> None:
+    def __init__(self, max_buffer_events: int, on_state: Callable[[], None] | None = None) -> None:
         if max_buffer_events <= 0:
             raise ValueError("BINANCE_RECOVERY_BUFFER_BOUND_INVALID")
         self._max_buffer_events = max_buffer_events
@@ -30,6 +30,7 @@ class OnlyBinanceSpotContinuityCoordinator:
         self._baseline_established = False
         self._recovery_pending = False
         self._continuity_proven = False
+        self._on_state = on_state or (lambda: None)
 
     @property
     def state(self) -> OnlyMarketDataConnectionState:
@@ -48,7 +49,7 @@ class OnlyBinanceSpotContinuityCoordinator:
             self._baseline_established = False
             self._recovery_pending = False
             self._continuity_proven = False
-            self._state = OnlyMarketDataConnectionState.CONNECTED
+            self._set_state_locked(OnlyMarketDataConnectionState.CONNECTED)
 
     def subscription_established(self) -> None:
         with self._lock:
@@ -83,7 +84,7 @@ class OnlyBinanceSpotContinuityCoordinator:
             self._recovery_pending = False
             self._continuity_proven = True
             self._prove_ready_locked()
-            self._state = OnlyMarketDataConnectionState.READY
+            self._set_state_locked(OnlyMarketDataConnectionState.READY)
             return tuple(accepted)
 
     def disconnected(self) -> None:
@@ -94,12 +95,12 @@ class OnlyBinanceSpotContinuityCoordinator:
             self._recovery_pending = False
             self._continuity_proven = False
             if self._state is not OnlyMarketDataConnectionState.FAILED:
-                self._state = OnlyMarketDataConnectionState.DISCONNECTED
+                self._set_state_locked(OnlyMarketDataConnectionState.DISCONNECTED)
 
     def fail(self) -> None:
         with self._lock:
             self._continuity_proven = False
-            self._state = OnlyMarketDataConnectionState.FAILED
+            self._set_state_locked(OnlyMarketDataConnectionState.FAILED)
 
     def buffer(self, update: OnlyMarketDataInboundUpdate) -> None:
         with self._lock:
@@ -175,7 +176,7 @@ class OnlyBinanceSpotContinuityCoordinator:
             self._recovery_pending = False
             self._continuity_proven = True
             self._prove_ready_locked()
-            self._state = OnlyMarketDataConnectionState.READY
+            self._set_state_locked(OnlyMarketDataConnectionState.READY)
         return (*recovered, update)
 
     def accept_baseline(
@@ -205,7 +206,7 @@ class OnlyBinanceSpotContinuityCoordinator:
             return accepted
 
     def _enter_recovery_locked(self) -> None:
-        self._state = OnlyMarketDataConnectionState.RECOVERING
+        self._set_state_locked(OnlyMarketDataConnectionState.RECOVERING)
         self._recovery_pending = True
         self._continuity_proven = False
 
@@ -227,6 +228,13 @@ class OnlyBinanceSpotContinuityCoordinator:
     def _commit(self, update: OnlyMarketDataInboundUpdate) -> None:
         self._dedup.remember(update)
         self._sequence.commit(update)
+
+    def _set_state_locked(self, state: OnlyMarketDataConnectionState) -> None:
+        if self._state is state:
+            return
+        self._state = state
+        if state is not OnlyMarketDataConnectionState.READY:
+            self._on_state()
 
     @staticmethod
     def _order_key(update: OnlyMarketDataInboundUpdate) -> tuple[str, int, str]:
