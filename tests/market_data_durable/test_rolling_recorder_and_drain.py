@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -104,6 +105,63 @@ def test_normal_drain_uses_recovery_authority_and_converges_idempotently(tmp_pat
     assert recovery.recover_all() == ()
 
 
+@pytest.mark.parametrize("write_stage", ["W2_WAL_CREATED", "W7_WAL_RENAMED_BEFORE_METADATA"])
+def test_live_drain_does_not_recover_a_writer_owned_wal(tmp_path, fixed_now, write_stage) -> None:
+    drain: OnlyMarketDataDrainService | None = None
+    opened = 0
+
+    def barrier(stage: str) -> None:
+        nonlocal opened
+        if stage == write_stage:
+            opened += 1
+            if opened == 2:
+                assert drain is not None
+                assert drain.drain_pending() in {("COMMITTED",), ("DURABLE_ONLY:INCOMPLETE",)}
+
+    wal = OnlyMarketDataWal(tmp_path, capacity_bytes=1_000_000, now=fixed_now, barrier=barrier)
+    store = OnlyInMemoryMarketFactStore()
+    catalog = OnlyInMemoryMarketDataCatalog()
+    recovery = OnlyMarketDataRecoveryCoordinator(
+        wal, store, catalog, OnlyRevisionCommitService(store, catalog, now=fixed_now)
+    )
+    drain = OnlyMarketDataDrainService(recovery)
+    recorder = OnlyDurableMarketDataRecorder(
+        OnlyMarketDataIngress(
+            wal,
+            normalizer_id="normalizer",
+            normalizer_version="1",
+            ingest_clock_ns=lambda: 1,
+        ),
+        max_records_per_segment=1,
+        on_sealed=drain.submit,
+    )
+
+    recorder(observation(), trade_update(10))
+    recorder(observation(b'{"e":"trade","t":11}'), trade_update(11))
+
+    assert opened == 2
+    assert wal.scan_open() == ()
+    assert drain.drain_pending() in {("COMMITTED",), ("DURABLE_ONLY:INCOMPLETE",)}
+    assert recovery.recover_all() == ()
+
+
+def test_capacity_check_tolerates_sealed_wal_collected_after_discovery(
+    tmp_path, fixed_now, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    wal, recorder, sealed = _components(tmp_path, fixed_now, max_records=1)
+    recorder(observation(), trade_update())
+    sealed_path = tmp_path / f"{sealed[0].segment_id}.sealed.wal"
+    original_stat = Path.stat
+
+    def stat(path: Path, *args: object, **kwargs: object) -> object:
+        if path == sealed_path:
+            sealed_path.unlink()
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", stat)
+    assert wal.bytes_used == 0
+
+
 def test_database_failure_keeps_sealed_wal_for_same_recovery_path(tmp_path, fixed_now) -> None:
     wal = OnlyMarketDataWal(tmp_path, capacity_bytes=1_000_000, now=fixed_now)
 
@@ -195,7 +253,7 @@ def test_blocked_recovery_times_out_without_false_stop_or_concurrent_fallback(tm
             self.maximum_active = 0
             self.calls = 0
 
-        def recover_all(self, *, should_continue=None):
+        def recover_sealed(self, *, should_continue=None):
             with self._lock:
                 self.calls += 1
                 self.active += 1

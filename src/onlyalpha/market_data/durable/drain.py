@@ -89,7 +89,7 @@ class OnlyMarketDataDrainService:
                     self._queue.task_done()
                     continue
                 try:
-                    results.extend(self._recovery.recover_all())
+                    results.extend(self._recovery.recover_sealed())
                     with self._lock:
                         self._last_error = None
                 except Exception as exc:
@@ -165,7 +165,7 @@ class OnlyMarketDataDrainService:
                 try:
                     if segment is _WAKE or self._stop.is_set():
                         continue
-                    self._recovery.recover_all(should_continue=lambda: not self._stop.is_set())
+                    self._recovery.recover_sealed(should_continue=lambda: not self._stop.is_set())
                     with self._lock:
                         if self._lifecycle is _OnlyDrainLifecycle.RUNNING:
                             self._last_error = None

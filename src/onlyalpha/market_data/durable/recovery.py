@@ -131,27 +131,33 @@ class OnlyMarketDataRecoveryCoordinator:
 
     def recover_all(self, *, should_continue: Callable[[], bool] | None = None) -> tuple[str, ...]:
         continue_recovery = should_continue or (lambda: True)
-        results: list[str] = []
         if not continue_recovery():
             return ()
         self._wal.resolve_creation_orphans()
         for segment_id in self._wal.scan_gc_eligible():
             if not continue_recovery():
-                return tuple(results)
+                return ()
             if segment_id in self._wal.scan_uncommitted():
                 self._wal.mark_gc_eligible(segment_id)
             self._wal.collect_garbage(segment_id)
         self._wal.assert_no_metadata_orphans()
         for segment_id in self._wal.scan_open():
             if not continue_recovery():
-                return tuple(results)
+                return ()
             recovered = self._wal.recover_open(segment_id)
             if recovered.valid_records == 0 and recovered.quarantined_tail is None:
                 self._wal.abandon_empty_open(segment_id)
             else:
                 self._wal.seal_recovered_open(segment_id)
+        self._wal.resolve_sealed_metadata_orphans()
+        return self.recover_sealed(should_continue=continue_recovery)
+
+    def recover_sealed(self, *, should_continue: Callable[[], bool] | None = None) -> tuple[str, ...]:
+        """Drain sealed WAL while a live writer may own an open segment."""
+        continue_recovery = should_continue or (lambda: True)
+        results: list[str] = []
         groups: dict[tuple[object, ...], tuple[list[str], list[OnlyMarketDataScope]]] = {}
-        for segment_id in self._wal.scan_uncommitted():
+        for segment_id in self._wal.scan_published_uncommitted():
             if not continue_recovery():
                 return tuple(results)
             segment = self._wal.load_segment(segment_id)

@@ -90,9 +90,14 @@ class OnlyMarketDataWal:
 
     @property
     def bytes_used(self) -> int:
-        return sum(
-            path.stat().st_size for pattern in ("*.open.wal", "*.sealed.wal") for path in self.root.glob(pattern)
-        )
+        total = 0
+        for pattern in ("*.open.wal", "*.sealed.wal"):
+            for path in self.root.glob(pattern):
+                try:
+                    total += path.stat().st_size
+                except FileNotFoundError:
+                    pass  # The drain may GC a sealed file after glob discovers it.
+        return total
 
     @property
     def recording_state(self) -> OnlyRecordingState:
@@ -401,6 +406,17 @@ class OnlyMarketDataWal:
 
     def scan_uncommitted(self) -> tuple[str, ...]:
         return tuple(sorted(path.name.removesuffix(".sealed.wal") for path in self.root.glob("*.sealed.wal")))
+
+    def scan_published_uncommitted(self) -> tuple[str, ...]:
+        """Only fully published seals are safe for concurrent live drain."""
+        return tuple(
+            segment_id for segment_id in self.scan_uncommitted() if (self.root / f"{segment_id}.segment.json").exists()
+        )
+
+    def resolve_sealed_metadata_orphans(self) -> None:
+        for segment_id in self.scan_uncommitted():
+            if not (self.root / f"{segment_id}.segment.json").exists():
+                self.load_segment(segment_id)
 
     def scan_gc_eligible(self) -> tuple[str, ...]:
         identities = {path.name.removesuffix(".gc.wal") for path in self.root.glob("*.gc.wal")} | {
