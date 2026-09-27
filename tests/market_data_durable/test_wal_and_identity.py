@@ -238,6 +238,28 @@ def test_seal_interruption_publishes_durable_prepared_metadata(tmp_path: Path, f
     assert segment.sealed_at == fixed_now()
 
 
+def test_writer_seal_converges_when_recovery_publishes_its_prepared_metadata(tmp_path: Path, fixed_now) -> None:
+    def barrier(stage: str) -> None:
+        if stage == "W7_WAL_RENAMED_BEFORE_METADATA":
+            recovered = OnlyMarketDataWal(tmp_path, capacity_bytes=1_000_000, now=fixed_now).load_segment("seal-race")
+            assert recovered.record_count == 1
+
+    wal = OnlyMarketDataWal(tmp_path, capacity_bytes=1_000_000, now=fixed_now, barrier=barrier)
+    ingress = OnlyMarketDataIngress(wal, normalizer_id="n", normalizer_version="1", ingest_clock_ns=lambda: 1)
+    ingress.begin_segment("seal-race")
+    ingress.record(observation(), None)
+
+    segment = ingress.seal()
+
+    assert segment.canonical_count == 0
+    assert wal.load_segment(segment.segment_id) == segment
+    assert wal.scan_open() == ()
+    assert not ingress.segment_open
+    ingress.begin_segment("seal-next")
+    ingress.record(observation(b'{"e":"trade","t":11}'), trade_update(11))
+    assert ingress.seal().segment_id == "seal-next"
+
+
 @pytest.mark.parametrize("stage", ["W9_GC_MARKED_BEFORE_WAL_MOVE", "W10_GC_WAL_DELETED_BEFORE_METADATA"])
 def test_gc_interruption_is_idempotently_completed(tmp_path: Path, fixed_now, stage: str) -> None:
     wal, segment = recorded_segment(tmp_path, fixed_now)

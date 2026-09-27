@@ -199,8 +199,12 @@ class OnlyMarketDataWal:
         os.replace(source, target)
         self._fsync_directory()
         self._barrier("W7_WAL_RENAMED_BEFORE_METADATA")
-        os.replace(prepared, self.root / f"{segment_id}.segment.json")
-        (self.root / f"{segment_id}.open.json").unlink()
+        try:
+            os.replace(prepared, self.root / f"{segment_id}.segment.json")
+        except FileNotFoundError:
+            if not target.exists() or self.load_segment(segment_id) != result:
+                raise OnlyWalCorruptionError("WAL_SEAL_PUBLICATION_CONFLICT") from None
+        (self.root / f"{segment_id}.open.json").unlink(missing_ok=True)
         self._fsync_directory()
         self._open_id = None
         self._created_at = None
@@ -507,15 +511,31 @@ class OnlyMarketDataWal:
         recovery_count: int = 0,
         last_recovery_error: str | None = None,
     ) -> OnlyMarketDataHealth:
-        sealed = self.scan_uncommitted()
-        created_at: list[datetime] = []
-        for segment_id in sealed:
+        created_at: dict[str, datetime] = {}
+        for segment_id in self.scan_uncommitted():
             try:
-                created_at.append(self.load_segment(segment_id).created_at)
+                created_at[segment_id] = self.load_segment(segment_id).created_at
             except (OSError, ValueError, OnlyWalError) as exc:
+                if not self._path(segment_id, "sealed").exists() and (
+                    self._path(segment_id, "gc").exists()
+                    or (self.root / f"{segment_id}.gc.json").exists()
+                    or not (self.root / f"{segment_id}.segment.json").exists()
+                ):
+                    continue
                 self._recording_state = OnlyRecordingState.FAILED
                 self._last_error = type(exc).__name__
-        oldest = None if not created_at else self._now() - min(created_at)
+        sealed = self.scan_uncommitted()
+        pending_times = tuple(created_at[item] for item in sealed if item in created_at)
+        oldest = None if not pending_times else self._now() - min(pending_times)
+        for metadata in self.root.glob("*.segment.json"):
+            segment_id = metadata.name.removesuffix(".segment.json")
+            if (
+                not self._path(segment_id, "sealed").exists()
+                and not self._path(segment_id, "gc").exists()
+                and not (self.root / f"{segment_id}.gc.json").exists()
+            ):
+                self._recording_state = OnlyRecordingState.FAILED
+                self._last_error = "WAL_STATE_CORRUPT:SEGMENT_METADATA_ONLY"
         return OnlyMarketDataHealth(
             self.recording_state,
             self.bytes_used,

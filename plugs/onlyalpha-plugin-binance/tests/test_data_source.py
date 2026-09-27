@@ -24,7 +24,7 @@ from onlyalpha_plugin_binance.spot.data_source.websocket import OnlyBinanceWebSo
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
 from onlyalpha.config.models import OnlyDataSourceCoverageConfig
 from onlyalpha.core.clock import OnlyBacktestClock
-from onlyalpha.data.enums import OnlyMarketDataRequestStatus, OnlyMarketDataType
+from onlyalpha.data.enums import OnlyMarketDataConnectionState, OnlyMarketDataRequestStatus, OnlyMarketDataType
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.data.identity import only_bar_update_id, only_trade_update_id
 from onlyalpha.data.models import OnlyMarketDataSubscriptionRequest, OnlyMarketReferenceUpdate, OnlyTradeTickUpdate
@@ -210,6 +210,83 @@ def test_production_durable_mode_requires_and_obtains_wal_ownership(tmp_path: Pa
     [bundle] = wal.read_sealed(segment_id)
     assert bundle.evidence.payload == payload
     assert wal.load_segment(segment_id).canonical_count == 1
+
+
+def test_worker_fails_closed_on_local_wal_file_loss_without_reconnect(tmp_path: Path) -> None:
+    class WebSocket:
+        receives = 0
+        closes = 0
+
+        def receive(self) -> bytes:
+            self.receives += 1
+            return b"invalid"
+
+        def close(self) -> None:
+            self.closes += 1
+
+    def missing_file(*_args: object) -> None:
+        raise FileNotFoundError("missing WAL frame")
+
+    config = OnlyBinanceSpotDataSourceConfig()
+    websocket = WebSocket()
+    request = replace(_request(tmp_path), provider_evidence_sink=missing_file)
+    resource = OnlyBinanceSpotDataSource(
+        request, config, websocket_transport=cast(OnlyBinanceWebSocketTransport, websocket)
+    )
+    resource.initialize()
+    resource.connect()
+    resource.start()
+
+    resource._run_worker()
+
+    assert websocket.receives == websocket.closes == 1
+    assert resource.connection_snapshot().state is OnlyMarketDataConnectionState.FAILED
+
+
+def test_unprovable_websocket_recovery_stops_worker_without_retry_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class WebSocket:
+        receives = 0
+        connects = 0
+
+        def receive(self) -> bytes:
+            self.receives += 1
+            raise OnlyBinanceError("BINANCE_WEBSOCKET_RECEIVE_FAILED")
+
+        def connect(self, _url: str) -> None:
+            self.connects += 1
+
+        def close(self) -> None:
+            pass
+
+    def unavailable_baseline(_request: OnlyMarketDataSubscriptionRequest) -> tuple[()]:
+        raise OnlyBinanceError("HISTORY_REFRESH_REQUIRED")
+
+    config = OnlyBinanceSpotDataSourceConfig()
+    websocket = WebSocket()
+    resource = OnlyBinanceSpotDataSource(
+        _request(tmp_path), config, websocket_transport=cast(OnlyBinanceWebSocketTransport, websocket)
+    )
+    instrument, bar_type = _bar_type()
+    resource.initialize()
+    resource.connect()
+    resource.start()
+    resource._websocket_url = "wss://example.invalid"
+    resource._subscriptions["test"] = OnlyMarketDataSubscriptionRequest(
+        "test",
+        resource.source_id,
+        frozenset({instrument.instrument_id}),
+        frozenset({OnlyMarketDataType.BAR}),
+        frozenset({bar_type}),
+    )
+    monkeypatch.setattr(resource._stop, "wait", lambda _timeout: False)
+    monkeypatch.setattr(resource, "_initial_baselines", unavailable_baseline)
+
+    resource._run_worker()
+
+    assert websocket.receives == websocket.connects == 1
+    assert resource.connection_snapshot().state is OnlyMarketDataConnectionState.FAILED
 
 
 def test_rest_and_websocket_closed_kline_converge_and_open_kline_is_not_canonical() -> None:

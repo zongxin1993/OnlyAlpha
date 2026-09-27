@@ -13,6 +13,7 @@ from onlyalpha.market_data.durable import (
     OnlyMarketDataIngress,
     OnlyMarketDataRecoveryCoordinator,
     OnlyMarketDataWal,
+    OnlyRecordingState,
     OnlyRevisionCommitService,
 )
 
@@ -160,6 +161,34 @@ def test_capacity_check_tolerates_sealed_wal_collected_after_discovery(
 
     monkeypatch.setattr(Path, "stat", stat)
     assert wal.bytes_used == 0
+
+
+def test_health_does_not_mark_successfully_collected_seal_as_corrupt(
+    tmp_path, fixed_now, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    wal, recorder, sealed = _components(tmp_path, fixed_now, max_records=1)
+    recorder(observation(), trade_update())
+    segment_id = sealed[0].segment_id
+    load_segment = wal.load_segment
+
+    def collected(_segment_id: str):
+        monkeypatch.setattr(wal, "load_segment", load_segment)
+        wal.mark_gc_eligible(segment_id)
+        wal.collect_garbage(segment_id)
+        raise FileNotFoundError(segment_id)
+
+    monkeypatch.setattr(wal, "load_segment", collected)
+    health = wal.health()
+    assert health.recording_state is OnlyRecordingState.HEALTHY
+    assert health.sealed_uncommitted_segments == 0
+
+
+def test_health_fails_closed_when_sealed_content_is_missing_but_metadata_remains(tmp_path, fixed_now) -> None:
+    wal, recorder, sealed = _components(tmp_path, fixed_now, max_records=1)
+    recorder(observation(), trade_update())
+    (tmp_path / f"{sealed[0].segment_id}.sealed.wal").unlink()
+
+    assert wal.health().recording_state is OnlyRecordingState.FAILED
 
 
 def test_database_failure_keeps_sealed_wal_for_same_recovery_path(tmp_path, fixed_now) -> None:

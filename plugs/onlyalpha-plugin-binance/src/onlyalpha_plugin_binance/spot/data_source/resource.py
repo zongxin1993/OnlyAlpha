@@ -463,7 +463,12 @@ class OnlyBinanceSpotDataSource:
             except Exception as exc:
                 if self._stop.is_set():
                     return
-                self._request.logger.error("Binance WebSocket worker failed: %s", type(exc).__name__)
+                if isinstance(exc, OSError):
+                    self._request.logger.exception("Binance WebSocket worker failed: %s", type(exc).__name__)
+                    self._continuity.fail()
+                    self._websocket.close()
+                    return
+                self._request.logger.warning("Binance WebSocket worker interrupted: %s", exc)
                 self._continuity.disconnected()
                 self._websocket.close()
                 if self._stop.wait(backoff):
@@ -488,7 +493,9 @@ class OnlyBinanceSpotDataSource:
                     self._emit_connection()
                 except Exception as recovery_exc:
                     self._continuity.fail()
-                    self._request.logger.error("Binance WebSocket recovery failed: %s", type(recovery_exc).__name__)
+                    self._request.logger.exception("Binance WebSocket recovery failed: %s", type(recovery_exc).__name__)
+                    self._websocket.close()
+                    return
 
     def _initial_baselines(self, request: OnlyMarketDataSubscriptionRequest) -> tuple[OnlyMarketDataInboundUpdate, ...]:
         now = self._now()
