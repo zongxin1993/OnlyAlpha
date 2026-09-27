@@ -126,6 +126,35 @@ def test_market_data_catalog_concurrent_commit_is_immutable_and_survives_restore
             connection.execute("DROP DATABASE IF EXISTS onlyalpha_restore_test")
 
 
+def test_competing_revision_reasons_reuse_one_sealed_manifest(postgres_dsn: str, tmp_path: Path) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    wal, segment, _ = _sealed(tmp_path / "race", lambda: BASE, close="171.00000000")
+    records = wal.read_sealed(segment.segment_id)
+    facts = tuple(fact for bundle in records for fact in bundle.canonical_facts)
+    catalog = OnlyPostgresMarketDataCatalog(postgres_dsn)
+    catalog.commit_durable_segments((segment,))
+    store = OnlyInMemoryMarketFactStore()
+    store.write_segment(segment, records)
+    barrier = Barrier(2)
+
+    def commit(reason: str):  # type: ignore[no-untyped-def]
+        barrier.wait()
+        return OnlyRevisionCommitService(store, catalog, now=lambda: BASE).commit_durable_facts(
+            (segment,), _scope("TRADE"), facts, reason=reason
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = tuple(executor.map(commit, ("INGEST", "REST_BACKFILL")))
+    assert results[0][1:] == results[1][1:]
+    manifest, revision, seal = results[0]
+    assert revision is not None and seal is not None
+    assert catalog.sealed_revision_for_manifest(manifest.manifest_id) == (revision, seal)
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute(
+            "SELECT count(*) FROM market_data_revision WHERE manifest_id=%s", (manifest.manifest_id,)
+        ).fetchone() == (1,)
+
+
 def test_capture_session_accepts_multiple_segments_created_at_different_times(
     postgres_dsn: str, tmp_path: Path
 ) -> None:

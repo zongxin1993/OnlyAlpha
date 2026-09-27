@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AppProviders } from "../../app/providers";
 import type { MarketDataStreamEvent } from "../../api/marketData/stream";
@@ -66,6 +66,7 @@ function Harness() {
                 37m
             </button>
             <output>{state.liveBar?.close ?? "none"}</output>
+            <output data-testid="cursor">{state.lastClosedCursor ?? "none"}</output>
         </>
     );
 }
@@ -118,6 +119,53 @@ it("ignores queued events from a stale source or instrument stream", async () =>
     await waitFor(() => {
         expect(screen.getByText("2")).toBeInTheDocument();
     });
+    const historicalCursor = (stream.requests[0] as { resume_after_sequence: string })
+        .resume_after_sequence;
+    const nextCursor = (BigInt(historicalCursor) + 1n).toString();
+    act(() => {
+        first({ schema_version: 2, event: "BASE_CURSOR", sequence: historicalCursor });
+        first({ schema_version: 2, event: "BASE_CURSOR", sequence: nextCursor });
+        first({ schema_version: 2, event: "BASE_CURSOR", sequence: historicalCursor });
+    });
+    expect(screen.getByTestId("cursor")).toHaveTextContent(nextCursor);
+    first({
+        schema_version: 2,
+        event: "BAR_PREVIEW",
+        source_id: "source",
+        instrument_id: "BTCUSDT.TEST",
+        bar_specification: { aggregation: "TIME", step: 1, price_type: "LAST" },
+        bar: {
+            bar_start_ns: "120000000000",
+            bar_end_ns: "180000000000",
+            open: "3",
+            high: "3",
+            low: "3",
+            close: "3",
+            volume: "1",
+            closed: false
+        }
+    });
+    await waitFor(() => {
+        expect(screen.getByText("3")).toBeInTheDocument();
+    });
+    first({
+        schema_version: 2,
+        event: "BAR_PREVIEW",
+        source_id: "source",
+        instrument_id: "BTCUSDT.TEST",
+        bar_specification: { aggregation: "TIME", step: 1, price_type: "LAST" },
+        bar: {
+            bar_start_ns: "60000000000",
+            bar_end_ns: "120000000000",
+            open: "9",
+            high: "9",
+            low: "9",
+            close: "9",
+            volume: "1",
+            closed: false
+        }
+    });
+    expect(screen.getByText("3")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "eth" }));
     await waitFor(() => {

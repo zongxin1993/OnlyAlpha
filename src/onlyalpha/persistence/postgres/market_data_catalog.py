@@ -23,6 +23,7 @@ from onlyalpha.market_data.durable.models import (
     OnlyMarketDataScope,
     OnlyMarketDataSeal,
 )
+from onlyalpha.market_data.durable.revision import OnlyMarketDataConflictError
 
 from .config import OnlyPostgresConfig
 from .migration import OnlyPostgresSchemaVerifier
@@ -284,6 +285,11 @@ class OnlyPostgresMarketDataCatalog:
                         now,
                     ),
                 )
+                owner = connection.execute(
+                    "SELECT revision_id FROM market_data_revision WHERE manifest_id=%s", (manifest.manifest_id,)
+                ).fetchone()
+                if owner is None or owner["revision_id"] != revision.revision_id:
+                    raise OnlyMarketDataConflictError("REVISION_MANIFEST_ALREADY_SEALED")
                 for ordinal, (segment_id, content_hash) in enumerate(revision.segment_refs):
                     connection.execute(
                         "INSERT INTO market_revision_segment "
@@ -380,6 +386,17 @@ class OnlyPostgresMarketDataCatalog:
             row["sealed_at"],
         )
         return revision, seal
+
+    def sealed_revision_for_manifest(
+        self, manifest_id: str
+    ) -> tuple[OnlyMarketDataRevision, OnlyMarketDataSeal] | None:
+        with psycopg.connect(self._dsn) as connection:
+            row = connection.execute(
+                "SELECT r.revision_id FROM market_data_revision r "
+                "JOIN market_revision_seal s USING(revision_id) WHERE r.manifest_id=%s",
+                (manifest_id,),
+            ).fetchone()
+        return None if row is None else self.load_sealed_revision(str(row[0]))
 
     def latest_sealed_revision(self, scope: OnlyMarketDataScope) -> OnlyMarketDataRevision:
         payload = json.dumps(only_canonical_payload(scope), sort_keys=True, separators=(",", ":"))

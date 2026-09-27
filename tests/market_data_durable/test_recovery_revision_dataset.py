@@ -384,6 +384,26 @@ def test_multi_segment_revision_is_ordered_and_semantically_deterministic(tmp_pa
     assert first.fingerprint == second.fingerprint
 
 
+def test_acquisition_reuses_sealed_ingest_revision_for_identical_manifest(tmp_path: Path, fixed_now) -> None:
+    wal, segment, _ = _sealed(tmp_path, fixed_now, kind="BAR")
+    records = wal.read_sealed(segment.segment_id)
+    store = OnlyInMemoryMarketFactStore()
+    store.write_segment(segment, records)
+    catalog = OnlyInMemoryMarketDataCatalog()
+    committer = OnlyRevisionCommitService(store, catalog, now=fixed_now)
+    scope = _scope("BAR")
+    manifest, ingest_revision, ingest_seal = committer.commit(segment, scope, {segment.segment_id: records})
+    [fact] = records[0].canonical_facts
+
+    replayed_manifest, acquired_revision, acquired_seal = committer.commit_durable_facts(
+        (segment,), scope, (fact,), reason="REST_BACKFILL"
+    )
+
+    assert replayed_manifest == manifest
+    assert acquired_revision == ingest_revision
+    assert acquired_seal == ingest_seal
+
+
 def test_coverage_rejects_declared_scope_that_does_not_match_segment(tmp_path: Path, fixed_now) -> None:
     wal, segment, _ = _sealed(tmp_path, fixed_now, kind="BAR")
     [bundle] = wal.read_sealed(segment.segment_id)

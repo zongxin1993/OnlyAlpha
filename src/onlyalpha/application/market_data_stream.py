@@ -163,7 +163,7 @@ class OnlyMarketDataStreamSession:
                 bar_start=start,
                 bar_end=end,
                 ts_event=OnlyTimestamp.from_unix_nanos(preview.ts_event_ns).to_datetime(),
-                ts_init=OnlyTimestamp.from_unix_nanos(preview.ts_receive_ns).to_datetime(),
+                ts_init=OnlyTimestamp.from_unix_nanos(max(preview.ts_receive_ns, preview.ts_event_ns)).to_datetime(),
                 is_closed=False,
                 revision=0,
                 adjustment_type=OnlyAdjustmentType.RAW,
@@ -569,7 +569,7 @@ def _bar_preview(
         str(bar.close.value),
         str(bar.volume.value),
         OnlyTimestamp.from_datetime(bar.ts_event).unix_nanos,
-        OnlyTimestamp.from_datetime(bar.ts_init).unix_nanos,
+        preview.ts_receive_ns if preview is not None else OnlyTimestamp.from_datetime(bar.ts_init).unix_nanos,
     )
 
 

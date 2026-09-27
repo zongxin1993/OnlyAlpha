@@ -906,13 +906,14 @@ class OnlyMarketDataProductService:
         bar_gaps = tuple(item for item in manifest.gaps if isinstance(item, OnlyBarCoverageGap))
         expected = max(0, (scope.end_ns - scope.start_ns) // MINUTE_NS)
         unknown = len({fact.canonical_fact_id for fact in facts})
+        unsealed = manifest.coverage_status is OnlyCoverageStatus.COMPLETE and not complete
         return OnlyMarketDataCoverageProjectionV1(
-            manifest.coverage_status.value,
+            OnlyCoverageStatus.INCOMPLETE.value if unsealed else manifest.coverage_status.value,
             manifest.manifest_id,
             manifest.fingerprint,
             expected,
             unknown,
-            manifest.issues,
+            (*manifest.issues, "SEALED_REVISION_NOT_FOUND") if unsealed else manifest.issues,
             tuple(OnlyMarketDataCoverageGapV1(item.start_ns, item.end_ns) for item in bar_gaps),
             ()
             if complete

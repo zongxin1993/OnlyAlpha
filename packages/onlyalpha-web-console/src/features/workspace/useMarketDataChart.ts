@@ -124,6 +124,8 @@ export function useMarketDataChart(): MarketDataChartState {
     const [streamError, setStreamError] = useState<string | null>(null);
     const [lastClosedCursor, setLastClosedCursor] = useState<string | null>(null);
     const lastClosedCursorRef = useRef<string | null>(null);
+    const lastLiveStartRef = useRef<bigint | null>(null);
+    const lastClosedStartRef = useRef<bigint | null>(null);
     const streamGeneration = useRef(0);
     const historyGeneration = useRef(0);
     const historicalCursor = useRef<string | null>(null);
@@ -311,16 +313,44 @@ export function useMarketDataChart(): MarketDataChartState {
                                       : "failed"
                         );
                     } else if (event.event === "BASE_CURSOR") {
-                        setLastClosedCursor(event.sequence);
-                        lastClosedCursorRef.current = event.sequence;
+                        const cursor = lastClosedCursorRef.current ?? historicalCursor.current;
+                        if (cursor === null || BigInt(event.sequence) > BigInt(cursor)) {
+                            setLastClosedCursor(event.sequence);
+                            lastClosedCursorRef.current = event.sequence;
+                        }
                     } else if (event.event === "BAR_PREVIEW") {
-                        setLiveBar(onlyBarToCandle(event.bar));
+                        const start = BigInt(event.bar.bar_start_ns);
+                        if (
+                            (lastLiveStartRef.current === null ||
+                                start >= lastLiveStartRef.current) &&
+                            (lastClosedStartRef.current === null ||
+                                start > lastClosedStartRef.current)
+                        ) {
+                            lastLiveStartRef.current = start;
+                            setLiveBar(onlyBarToCandle(event.bar));
+                        }
                     } else if (event.event === "BAR_CLOSED") {
+                        const start = BigInt(event.bar.bar_start_ns);
+                        if (
+                            lastClosedStartRef.current !== null &&
+                            start <= lastClosedStartRef.current
+                        )
+                            return;
                         const candle = onlyBarToCandle(event.bar);
-                        setLiveBar(candle);
+                        lastClosedStartRef.current = start;
+                        if (
+                            lastLiveStartRef.current === null ||
+                            start >= lastLiveStartRef.current
+                        ) {
+                            lastLiveStartRef.current = start;
+                            setLiveBar(candle);
+                        }
                         setLastClosedStreamBar(candle);
-                        setLastClosedCursor(event.sequence);
-                        lastClosedCursorRef.current = event.sequence;
+                        const cursor = lastClosedCursorRef.current ?? historicalCursor.current;
+                        if (cursor === null || BigInt(event.sequence) > BigInt(cursor)) {
+                            setLastClosedCursor(event.sequence);
+                            lastClosedCursorRef.current = event.sequence;
+                        }
                     } else {
                         terminal = true;
                         setStreamError(
@@ -374,6 +404,8 @@ export function useMarketDataChart(): MarketDataChartState {
         setLastClosedStreamBar(null);
         setLastClosedCursor(null);
         lastClosedCursorRef.current = null;
+        lastLiveStartRef.current = null;
+        lastClosedStartRef.current = null;
         setStreamId(null);
         setStreamError(null);
         setRealtimeStatus("disabled");
@@ -408,6 +440,8 @@ export function useMarketDataChart(): MarketDataChartState {
             setLastClosedStreamBar(null);
             setLastClosedCursor(null);
             lastClosedCursorRef.current = null;
+            lastLiveStartRef.current = null;
+            lastClosedStartRef.current = null;
             setStreamId(null);
             setStreamError(null);
             setRealtimeStatus("disabled");
@@ -434,6 +468,8 @@ export function useMarketDataChart(): MarketDataChartState {
             streamGeneration.current += 1;
             const generation = ++historyGeneration.current;
             lastClosedCursorRef.current = null;
+            lastLiveStartRef.current = null;
+            lastClosedStartRef.current = null;
             setLastClosedCursor(null);
             setLiveBar(null);
             setLastClosedStreamBar(null);

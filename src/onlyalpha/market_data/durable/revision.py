@@ -286,6 +286,11 @@ class OnlyInMemoryMarketDataCatalog(OnlyMarketDataCatalog):
         prior_revision = self._revisions.get(revision.revision_id)
         if prior_revision is not None and prior_revision != revision:
             raise OnlyMarketDataConflictError("REVISION_ID_CONTENT_CONFLICT")
+        if any(
+            item.manifest_id == manifest.manifest_id and item.revision_id != revision.revision_id
+            for item in self._revisions.values()
+        ):
+            raise OnlyMarketDataConflictError("REVISION_MANIFEST_ALREADY_SEALED")
         prior_seal = self._seals.get(revision.revision_id)
         if prior_seal is not None and prior_seal != seal:
             raise OnlyMarketDataConflictError("SEALED_REVISION_IMMUTABLE")
@@ -322,6 +327,14 @@ class OnlyInMemoryMarketDataCatalog(OnlyMarketDataCatalog):
     def load_sealed_revision(self, revision_id: str) -> tuple[OnlyMarketDataRevision, OnlyMarketDataSeal]:
         revision = self._revisions[revision_id]
         return revision, self._seals[revision_id]
+
+    def sealed_revision_for_manifest(
+        self, manifest_id: str
+    ) -> tuple[OnlyMarketDataRevision, OnlyMarketDataSeal] | None:
+        for revision in self._revisions.values():
+            if revision.manifest_id == manifest_id and revision.revision_id in self._seals:
+                return revision, self._seals[revision.revision_id]
+        return None
 
     def latest_sealed_revision(self, scope: OnlyMarketDataScope) -> OnlyMarketDataRevision:
         candidates = [
@@ -423,11 +436,7 @@ class OnlyRevisionCommitService:
         if manifest.coverage_status is not OnlyCoverageStatus.COMPLETE:
             return manifest, None, None
         normalizers = tuple({(item.normalizer_id, item.normalizer_version) for item in facts})
-        revision = OnlyMarketDataRevision.build(
-            manifest, normalizers=normalizers, creation_reason=reason, parent_revision_id=parent_revision_id
-        )
-        seal = only_build_seal(revision, manifest, sealed_at=self._now())
-        self._catalog.commit_revision(ordered, manifest, revision, seal)
+        revision, seal = self._seal_complete(manifest, ordered, normalizers, reason, parent_revision_id)
         return manifest, revision, seal
 
     def commit_durable_facts(
@@ -449,15 +458,56 @@ class OnlyRevisionCommitService:
         self._catalog.commit_coverage_manifest(manifest)
         if manifest.coverage_status is not OnlyCoverageStatus.COMPLETE:
             return manifest, None, None
+        revision, seal = self._seal_complete(
+            manifest,
+            ordered,
+            tuple({(item.normalizer_id, item.normalizer_version) for item in facts}),
+            reason,
+            parent_revision_id,
+        )
+        return manifest, revision, seal
+
+    def _seal_complete(
+        self,
+        manifest: OnlyCoverageManifest,
+        segments: tuple[OnlyIngestSegment, ...],
+        normalizers: tuple[tuple[str, str], ...],
+        reason: str,
+        parent_revision_id: str | None,
+    ) -> tuple[OnlyMarketDataRevision, OnlyMarketDataSeal]:
+        def existing() -> tuple[OnlyMarketDataRevision, OnlyMarketDataSeal] | None:
+            found = self._catalog.sealed_revision_for_manifest(manifest.manifest_id)
+            if found is not None:
+                revision, _ = found
+                if (
+                    revision.scope != manifest.scope
+                    or revision.segment_refs != manifest.segment_refs
+                    or revision.normalizers != tuple(sorted(normalizers))
+                    or revision.parent_revision_id != parent_revision_id
+                ):
+                    raise OnlyMarketDataConflictError("REVISION_MANIFEST_CONTEXT_MISMATCH")
+            return found
+
+        prior = existing()
+        if prior is not None:
+            return prior
         revision = OnlyMarketDataRevision.build(
             manifest,
-            normalizers=tuple({(item.normalizer_id, item.normalizer_version) for item in facts}),
+            normalizers=normalizers,
             creation_reason=reason,
             parent_revision_id=parent_revision_id,
         )
         seal = only_build_seal(revision, manifest, sealed_at=self._now())
-        self._catalog.commit_revision(ordered, manifest, revision, seal)
-        return manifest, revision, seal
+        try:
+            self._catalog.commit_revision(segments, manifest, revision, seal)
+        except OnlyMarketDataConflictError as exc:
+            if str(exc) != "REVISION_MANIFEST_ALREADY_SEALED":
+                raise
+            winner = existing()
+            if winner is None:
+                raise
+            return winner
+        return revision, seal
 
 
 __all__ = [name for name in globals() if name.startswith("Only") or name.startswith("only_")]

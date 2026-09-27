@@ -79,12 +79,16 @@ def _segment(root: Path, fixed_now):  # type: ignore[no-untyped-def]
     return segment, wal.read_sealed(segment.segment_id)
 
 
-def test_clickhouse_migration_unknown_write_exact_round_trip_and_hot_cold(
+def test_clickhouse_migration_unknown_write_exact_round_trip_and_configured_storage(
     clickhouse_client: OnlyClickHouseClient, tmp_path: Path, fixed_now
 ) -> None:
     authority = OnlyClickHouseMigrationAuthority(clickhouse_client)
-    assert tuple(item.migration_id for item in authority.plan()) == ("0001_market_data_foundation",)
-    assert authority.migrate() == ("0001_market_data_foundation",)
+    expected_migrations = (
+        "0001_market_data_foundation",
+        "0002_market_data_integration_runtime_provenance",
+    )
+    assert tuple(item.migration_id for item in authority.plan()) == expected_migrations
+    assert authority.migrate() == expected_migrations
     authority.validate()
 
     partial_segment, partial_records = _segment(tmp_path / "partial", fixed_now)
@@ -145,7 +149,11 @@ def test_clickhouse_migration_unknown_write_exact_round_trip_and_hot_cold(
     before = clickhouse_client.query_json(
         "SELECT count() AS count, groupBitXor(cityHash64(tuple(*))) AS hash FROM market_trade"
     )
-    clickhouse_client.execute("ALTER TABLE market_trade MOVE PARTITION 202601 TO VOLUME 'cold'")
+    if clickhouse_client.config.storage_policy == "hot_cold":
+        clickhouse_client.execute("ALTER TABLE market_trade MOVE PARTITION 202601 TO VOLUME 'cold'")
+    else:
+        assert clickhouse_client.config.storage_policy == "default"
+        clickhouse_client.execute("OPTIMIZE TABLE market_trade FINAL")
     after = clickhouse_client.query_json(
         "SELECT count() AS count, groupBitXor(cityHash64(tuple(*))) AS hash FROM market_trade"
     )

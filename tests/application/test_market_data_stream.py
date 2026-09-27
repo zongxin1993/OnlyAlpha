@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
@@ -165,7 +166,8 @@ def test_derived_stream_emits_base_cursor_preview_and_seven_minute_close() -> No
 
     session.emit_closed(update(0))
     assert session.next_event(0).event == "BASE_CURSOR"  # type: ignore[union-attr]
-    session.emit_preview(_preview("1.75"))
+    forming = _preview("1.75")
+    session.emit_preview(replace(forming, ts_receive_ns=forming.ts_event_ns - 4_000_000_000))
     preview = session.next_event(0)
     assert preview is not None and preview.event == "BAR_PREVIEW"
     assert preview.payload["bar_specification"] == {"aggregation": "TIME", "step": 7, "price_type": "LAST"}

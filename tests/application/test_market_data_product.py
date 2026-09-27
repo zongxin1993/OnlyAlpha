@@ -711,7 +711,34 @@ def test_acquisition_seals_exact_revision_and_later_query_uses_database(tmp_path
     assert harness.provider.bar_fetches == fetches_after_acquisition
 
 
-@pytest.mark.parametrize("step", (7, 37))
+def test_complete_facts_without_exact_seal_do_not_claim_product_coverage(tmp_path: Path) -> None:
+    harness = _service(tmp_path)
+    reference = _reference(harness.revision_fingerprint)
+    start_ns, end_ns = _range()
+    harness.service.acquire_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
+    fetches = harness.provider.bar_fetches
+
+    unsealed = harness.service.query_bars(
+        reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=start_ns + MINUTE_NS
+    )
+    assert unsealed.coverage.status == "INCOMPLETE"
+    assert unsealed.coverage.issues == ("SEALED_REVISION_NOT_FOUND",)
+    assert unsealed.coverage.gaps == unsealed.coverage.planned_acquisition_ranges == ()
+    assert unsealed.bars == () and unsealed.revision_id is None
+    assert harness.provider.bar_fetches == fetches
+
+    sealed = harness.service.acquire_bars(
+        reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=start_ns + MINUTE_NS
+    )
+    reloaded = harness.service.query_bars(
+        reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=start_ns + MINUTE_NS
+    )
+    assert sealed.status == reloaded.coverage.status == "COMPLETE"
+    assert len(reloaded.bars) == 1 and reloaded.revision_id == sealed.revision_id
+    assert harness.provider.bar_fetches == fetches
+
+
+@pytest.mark.parametrize("step", (5, 7, 15, 37, 60))
 def test_derived_history_uses_exact_sealed_base_revision_without_provider_fetch(tmp_path: Path, step: int) -> None:
     harness = _service(tmp_path)
     reference = _reference(harness.revision_fingerprint)
