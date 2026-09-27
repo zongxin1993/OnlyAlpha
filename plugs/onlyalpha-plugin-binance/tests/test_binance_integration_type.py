@@ -1,3 +1,5 @@
+from datetime import UTC, date, datetime
+
 import pytest
 from onlyalpha_plugin_binance.spot.broker_factory import OnlyBinanceSpotBrokerFactory
 from onlyalpha_plugin_binance.spot.data_source.factory import OnlyBinanceSpotDataSourceFactory
@@ -6,6 +8,7 @@ from onlyalpha_plugin_binance.usdm.data_source import (
     OnlyBinanceUsdmDataSourceFactory,
 )
 
+from onlyalpha.domain.time import OnlyTradingDay
 from onlyalpha.plugin.integration import OnlyIntegrationCategory, OnlyIntegrationProbeCheck, OnlyIntegrationValueKind
 
 
@@ -41,6 +44,14 @@ def test_spot_data_source_declares_configuration_without_runtime_instruments() -
         fields[name] for name in ("timeout_seconds", "reconnect_initial_seconds", "reconnect_max_seconds")
     }
     assert all(field.minimum == 0.0 and field.exclusive_minimum for field in positive_fields)
+
+
+def test_spot_time_bar_calendar_is_utc_continuous_on_weekends() -> None:
+    factory = OnlyBinanceSpotDataSourceFactory()
+    calendar = factory.time_bar_calendar(factory.parse_config({}))
+    assert calendar.session_intervals_for_trading_day(OnlyTradingDay(date(2026, 1, 3))) == (
+        (datetime(2026, 1, 3, tzinfo=UTC), datetime(2026, 1, 4, tzinfo=UTC)),
+    )
 
 
 def test_spot_broker_declares_semantic_secrets_while_runtime_parser_keeps_env_migration_path() -> None:

@@ -1,6 +1,14 @@
-import { CandlestickSeries, ColorType, LineSeries, createChart } from "lightweight-charts";
-import type { CandlestickData, ISeriesApi, UTCTimestamp } from "lightweight-charts";
+import {
+    CandlestickSeries,
+    ColorType,
+    LineSeries,
+    TickMarkType,
+    createChart
+} from "lightweight-charts";
+import type { CandlestickData, ISeriesApi, Time, UTCTimestamp } from "lightweight-charts";
 import { useEffect, useMemo, useRef } from "react";
+import type { MarketDataBarSpecification } from "../../api/marketData/model";
+import { deriveTimeAxisPolicy } from "./timeAxisPolicy";
 import {
     buildPlaceholderBars,
     buildPlaceholderOverlay,
@@ -11,15 +19,19 @@ import {
 
 const EMPTY_OVERLAYS: readonly OverlaySpec[] = [];
 
+const utcTime = (seconds: number) => new Date(seconds * 1_000).toISOString();
+
 export function PriceChart({
     timeframe,
+    barSpecification,
     overlays = EMPTY_OVERLAYS,
     mode,
     bars: productBars,
     liveBar = null,
     historyKey = null
 }: {
-    readonly timeframe: Timeframe;
+    readonly timeframe?: Timeframe | undefined;
+    readonly barSpecification?: MarketDataBarSpecification | undefined;
     readonly overlays?: readonly OverlaySpec[];
     /**
      * `synthetic` renders the deterministic W0 placeholder series. `real` renders only
@@ -33,8 +45,11 @@ export function PriceChart({
     const container = useRef<HTMLDivElement>(null);
     const candleSeries = useRef<ISeriesApi<"Candlestick"> | null>(null);
     const overlaySeries = useRef<readonly ISeriesApi<"Line">[]>([]);
+    const chartRef = useRef<ReturnType<typeof createChart> | null>(null);
+    const previousHistoryKey = useRef<string | null>(null);
+    const lastRenderedTime = useRef<number | null>(null);
     const bars = useMemo(
-        () => (mode === "synthetic" ? buildPlaceholderBars(timeframe) : productBars),
+        () => (mode === "synthetic" ? buildPlaceholderBars(timeframe ?? "1D") : productBars),
         [mode, productBars, timeframe]
     );
     const renderedOverlays = useMemo(
@@ -50,6 +65,12 @@ export function PriceChart({
             tokens.getPropertyValue(name).trim() || fallback;
         const chart = createChart(element, {
             autoSize: true,
+            localization: {
+                timeFormatter: (time: Time) =>
+                    typeof time === "number"
+                        ? `${utcTime(time).slice(0, 16).replace("T", " ")} UTC`
+                        : ""
+            },
             layout: {
                 background: { type: ColorType.Solid, color: token("--surface", "#ffffff") },
                 textColor: token("--muted", "#5f6874"),
@@ -60,8 +81,20 @@ export function PriceChart({
                 horzLines: { color: token("--line-soft", "#eceae4") }
             },
             rightPriceScale: { borderColor: token("--line", "#e2e2dd") },
-            timeScale: { borderColor: token("--line", "#e2e2dd") }
+            timeScale: {
+                borderColor: token("--line", "#e2e2dd"),
+                timeVisible: false,
+                secondsVisible: false,
+                tickMarkFormatter: (time: Time, kind: TickMarkType) => {
+                    if (typeof time !== "number") return null;
+                    const value = utcTime(time);
+                    return kind === TickMarkType.Time || kind === TickMarkType.TimeWithSeconds
+                        ? value.slice(11, 16)
+                        : value.slice(5, 10);
+                }
+            }
         });
+        chartRef.current = chart;
         const series = chart.addSeries(CandlestickSeries, {
             upColor: token("--up", "#c8332a"),
             downColor: token("--down", "#2f7d47"),
@@ -85,30 +118,58 @@ export function PriceChart({
             );
             return line;
         });
-        const observer = new ResizeObserver(() => {
-            chart.timeScale().fitContent();
-        });
-        observer.observe(element);
-        chart.timeScale().fitContent();
         return () => {
-            observer.disconnect();
+            chartRef.current = null;
             candleSeries.current = null;
             overlaySeries.current = [];
+            lastRenderedTime.current = null;
             chart.remove();
         };
     }, [renderedOverlays]);
 
     useEffect(() => {
+        const chart = chartRef.current;
+        if (chart === null || barSpecification === undefined) return;
+        chart.timeScale().applyOptions({
+            timeVisible: deriveTimeAxisPolicy(
+                barSpecification,
+                container.current?.clientWidth ?? 600
+            ).timeVisible,
+            secondsVisible: false
+        });
+    }, [barSpecification]);
+
+    useEffect(() => {
         candleSeries.current?.setData([...bars]);
+        lastRenderedTime.current = bars.at(-1)?.time ?? null;
+        if (
+            mode === "real" &&
+            barSpecification !== undefined &&
+            previousHistoryKey.current !== historyKey &&
+            bars.length > 0
+        ) {
+            const visible = deriveTimeAxisPolicy(
+                barSpecification,
+                container.current?.clientWidth ?? 600
+            ).visibleBars;
+            chartRef.current?.timeScale().setVisibleLogicalRange({
+                from: Math.max(0, bars.length - visible),
+                to: bars.length + 4
+            });
+        }
+        previousHistoryKey.current = historyKey;
         overlaySeries.current.forEach((series, index) => {
             const overlay = renderedOverlays[index];
             if (overlay !== undefined) series.setData(buildPlaceholderOverlay([...bars], overlay));
         });
-    }, [bars, historyKey, renderedOverlays]);
+    }, [barSpecification, bars, historyKey, mode, renderedOverlays]);
 
     useEffect(() => {
-        if (liveBar !== null) candleSeries.current?.update(liveBar);
-    }, [liveBar]);
+        if (mode !== "real" || liveBar === null || candleSeries.current === null) return;
+        if (lastRenderedTime.current !== null && liveBar.time < lastRenderedTime.current) return;
+        candleSeries.current.update(liveBar);
+        lastRenderedTime.current = liveBar.time;
+    }, [barSpecification, bars, historyKey, liveBar, mode]);
 
     return <div className="chart-region__canvas" ref={container} data-testid="price-chart" />;
 }

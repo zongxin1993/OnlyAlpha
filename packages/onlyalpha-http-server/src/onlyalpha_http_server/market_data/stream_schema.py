@@ -2,6 +2,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .schema import MarketDataBarSpecificationDto
+
 
 class MarketDataStreamSourceReferenceDto(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -14,11 +16,11 @@ class MarketDataStreamSourceReferenceDto(BaseModel):
 class MarketDataStreamSubscribeDto(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     operation: Literal["SUBSCRIBE_BAR"]
     source_reference: MarketDataStreamSourceReferenceDto
     instrument_id: str = Field(min_length=1)
-    bar_specification: Literal["1m"]
+    bar_specification: MarketDataBarSpecificationDto
     resume_after_sequence: str = Field(pattern=r"^(?:0|[1-9][0-9]*)$")
 
 

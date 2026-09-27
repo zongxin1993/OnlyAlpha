@@ -122,6 +122,13 @@ class OnlyDataSourceInstrumentCatalog(Protocol):
     ) -> tuple[OnlyDataSourceInstrumentV1, ...]: ...
 
 
+@runtime_checkable
+class OnlyDataSourceTimeBarCalendar(Protocol):
+    """Provider-owned session authority for derived intraday Time Bars."""
+
+    def time_bar_calendar(self, plugin_config: object) -> OnlyTradingCalendar: ...
+
+
 class OnlyDataSource(
     OnlyHistoricalDataSource,
     OnlyMarketDataGateway,

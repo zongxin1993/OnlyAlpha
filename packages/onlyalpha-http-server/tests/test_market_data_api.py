@@ -10,6 +10,7 @@ from onlyalpha_http_server.market_data import (
 )
 
 from onlyalpha.application.market_data_product import (
+    BASE_BAR_SPECIFICATION,
     OnlyMarketDataAcquisitionProjectionV1,
     OnlyMarketDataBarsProjectionV1,
     OnlyMarketDataBarV1,
@@ -21,7 +22,9 @@ from onlyalpha.application.market_data_product import (
     OnlyMarketDataSourceProjectionV1,
     OnlyMarketDataSourceReferenceV1,
     OnlyMarketDataSourceSelectionV1,
+    OnlyMarketDataTimeBarCapabilityV1,
 )
+from onlyalpha.domain.market import OnlyBarSpecification
 
 INTEGRATION_ID = "00000000-0000-4000-8000-000000000301"
 REVISION_FINGERPRINT = "a" * 64
@@ -56,8 +59,8 @@ def _selection() -> OnlyMarketDataSourceSelectionV1:
 
 class _Service:
     def __init__(self) -> None:
-        self.bar_queries: list[tuple[str, int, int, str]] = []
-        self.acquisitions: list[tuple[str, int, int, str]] = []
+        self.bar_queries: list[tuple[str, int, int, OnlyBarSpecification]] = []
+        self.acquisitions: list[tuple[str, int, int, OnlyBarSpecification]] = []
         self.status_queries: list[str] = []
         self.bar_status = "COMPLETE"
         self.acquisition_state = "COMPLETE"
@@ -98,7 +101,13 @@ class _Service:
         self._raise()
         return (
             OnlyMarketDataSourceProjectionV1(
-                INTEGRATION_ID, REVISION_FINGERPRINT, "Golden Binance Spot", TYPE_ID, SOURCE_ID, ENVIRONMENT
+                INTEGRATION_ID,
+                REVISION_FINGERPRINT,
+                "Golden Binance Spot",
+                TYPE_ID,
+                SOURCE_ID,
+                ENVIRONMENT,
+                OnlyMarketDataTimeBarCapabilityV1(),
             ),
         )
 
@@ -109,7 +118,7 @@ class _Service:
         instrument_id: str,
         start_ns: int,
         end_ns: int,
-        bar_specification: str = "1m",
+        bar_specification: OnlyBarSpecification = BASE_BAR_SPECIFICATION,
     ) -> OnlyMarketDataBarsProjectionV1:
         self._raise()
         del reference
@@ -158,7 +167,7 @@ class _Service:
         instrument_id: str,
         start_ns: int,
         end_ns: int,
-        bar_specification: str = "1m",
+        bar_specification: OnlyBarSpecification = BASE_BAR_SPECIFICATION,
     ) -> OnlyMarketDataAcquisitionProjectionV1:
         self._raise()
         del reference
@@ -183,7 +192,7 @@ def _acquisition(status: str) -> OnlyMarketDataAcquisitionProjectionV1:
         SOURCE_ID,
         "f" * 64,
         INSTRUMENT_ID,
-        "1m",
+        BASE_BAR_SPECIFICATION,
         START_NS,
         START_NS + 2 * MINUTE_NS,
         "REST_BACKFILL",
@@ -255,7 +264,7 @@ def test_bars_query_is_db_first_and_reports_gap_projection_without_bars() -> Non
     assert body["revision_id"] is None
     assert body["coverage"]["planned_acquisition_ranges"] == [{"start_ns": START_NS_TEXT, "end_ns": END_NS_TEXT}]
     assert body["aggregation_source"] == "EXTERNAL" and body["adjustment"] == "RAW"
-    assert service.bar_queries == [(INSTRUMENT_ID, START_NS, START_NS + 2 * MINUTE_NS, "1m")]
+    assert service.bar_queries == [(INSTRUMENT_ID, START_NS, START_NS + 2 * MINUTE_NS, BASE_BAR_SPECIFICATION)]
 
     service.bar_status = "COMPLETE"
     complete = client.get(
@@ -284,6 +293,13 @@ def test_market_data_sources_projection_is_a_thin_product_read() -> None:
                 "type_id": TYPE_ID,
                 "source_id": SOURCE_ID,
                 "environment": ENVIRONMENT,
+                "time_bar_capability": {
+                    "aggregation": "TIME",
+                    "external_base_step_minutes": 1,
+                    "derived_supported": True,
+                    "minimum_step_minutes": 1,
+                    "maximum_step_minutes": 240,
+                },
             }
         ],
     }
@@ -307,7 +323,7 @@ def test_client_cannot_assert_canonical_source_identity() -> None:
             "instrument_id": INSTRUMENT_ID,
             "start_ns": START_NS_TEXT,
             "end_ns": END_NS_TEXT,
-            "bar_specification": "1m",
+            "bar_specification": {"aggregation": "TIME", "step": 1, "price_type": "LAST"},
             "provenance": "REST_BACKFILL",
         },
     )
@@ -343,14 +359,14 @@ def test_acquisition_command_and_status_query_are_thin_projections() -> None:
             "instrument_id": INSTRUMENT_ID,
             "start_ns": START_NS_TEXT,
             "end_ns": END_NS_TEXT,
-            "bar_specification": "1m",
+            "bar_specification": {"aggregation": "TIME", "step": 1, "price_type": "LAST"},
             "provenance": "REST_BACKFILL",
         },
     )
     assert created.status_code == 201, created.text
     assert created.json()["status"] == "COMPLETE"
     assert created.json()["integration_binding_fingerprint"] == "f" * 64
-    assert service.acquisitions == [(INSTRUMENT_ID, START_NS, START_NS + 2 * MINUTE_NS, "1m")]
+    assert service.acquisitions == [(INSTRUMENT_ID, START_NS, START_NS + 2 * MINUTE_NS, BASE_BAR_SPECIFICATION)]
 
     service.acquisition_state = "FAILED"
     status = client.get(

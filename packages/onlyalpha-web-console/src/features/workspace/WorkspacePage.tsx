@@ -6,8 +6,10 @@ import { DataSourceManager } from "../data/sources/DataSourceManager";
 import { useDataSourceOverview } from "../data/sources/overview";
 import { WorkspaceIcon, type WorkspaceIconName } from "../../shared/components/WorkspaceIcon";
 import { useMarketDataChart } from "./useMarketDataChart";
+import { formatBarSpecification, marketDataBarSpecification } from "../../api/marketData/model";
 
 const timeframes: readonly Timeframe[] = ["1m", "5m", "15m", "1H", "1D", "1W"];
+const realBarPresets = [1, 5, 15, 30, 60, 240] as const;
 
 /**
  * Shell-only fallback used when the workspace has no published market-data source.
@@ -227,6 +229,8 @@ export function WorkspacePage() {
     const [bottomTab, setBottomTab] = useState<"runs" | "results" | "backtest">("runs");
     const [bottomCollapsed, setBottomCollapsed] = useState(false);
     const [timeframe, setTimeframe] = useState<Timeframe>("1D");
+    const [customBarStep, setCustomBarStep] = useState("7");
+    const [customBarOpen, setCustomBarOpen] = useState(false);
     const [symbol, setSymbol] = useState<{ readonly code: string; readonly name: string }>(
         syntheticInstruments[0]
     );
@@ -237,7 +241,6 @@ export function WorkspacePage() {
     const marketData = useMarketDataChart();
     const realPath = marketData.reference !== null;
     const realInstrument = marketData.instrument;
-    const chartTimeframe: Timeframe = realInstrument === null ? timeframe : "1m";
     const symbolNeedle = symbolQuery.trim().toLowerCase();
     const symbolMatches: readonly { readonly code: string; readonly name: string }[] = realPath
         ? marketData.instruments.map((item) => ({
@@ -341,25 +344,106 @@ export function WorkspacePage() {
                                     }
                                 }}
                             />
-                            <select
-                                className="chart-region__timeframe"
-                                aria-label="时间周期"
-                                value={chartTimeframe}
-                                disabled={realInstrument !== null}
-                                onChange={(event) => {
-                                    setTimeframe(event.target.value as Timeframe);
-                                }}
-                            >
-                                {timeframes.map((item) => (
-                                    <option
-                                        key={item}
-                                        value={item}
-                                        disabled={realInstrument !== null && item !== "1m"}
+                            {realPath ? (
+                                <>
+                                    <select
+                                        className="chart-region__timeframe"
+                                        aria-label="时间周期"
+                                        value={
+                                            realBarPresets.includes(
+                                                marketData.barSpecification
+                                                    .step as (typeof realBarPresets)[number]
+                                            ) && !customBarOpen
+                                                ? String(marketData.barSpecification.step)
+                                                : "custom"
+                                        }
+                                        onChange={(event) => {
+                                            if (event.target.value === "custom")
+                                                setCustomBarOpen(true);
+                                            else {
+                                                setCustomBarOpen(false);
+                                                void marketData.selectBarStep(
+                                                    Number(event.target.value)
+                                                );
+                                            }
+                                        }}
                                     >
-                                        {item}
-                                    </option>
-                                ))}
-                            </select>
+                                        {realBarPresets.map((step) => (
+                                            <option
+                                                key={step}
+                                                value={step}
+                                                disabled={
+                                                    marketData.barCapability === null ||
+                                                    step >
+                                                        marketData.barCapability
+                                                            .maximum_step_minutes ||
+                                                    (step > 1 &&
+                                                        !marketData.barCapability.derived_supported)
+                                                }
+                                            >
+                                                {formatBarSpecification(
+                                                    marketDataBarSpecification(step)
+                                                )}
+                                            </option>
+                                        ))}
+                                        <option value="custom">自定义…</option>
+                                    </select>
+                                    {customBarOpen ||
+                                    !realBarPresets.includes(
+                                        marketData.barSpecification
+                                            .step as (typeof realBarPresets)[number]
+                                    ) ? (
+                                        <form
+                                            onSubmit={(event) => {
+                                                event.preventDefault();
+                                                const step = Number(customBarStep);
+                                                if (
+                                                    Number.isInteger(step) &&
+                                                    step >= 1 &&
+                                                    step <=
+                                                        (marketData.barCapability
+                                                            ?.maximum_step_minutes ?? 0) &&
+                                                    (step === 1 ||
+                                                        marketData.barCapability?.derived_supported)
+                                                )
+                                                    void marketData.selectBarStep(step);
+                                            }}
+                                        >
+                                            <input
+                                                aria-label="自定义周期分钟数"
+                                                type="number"
+                                                min="1"
+                                                max={
+                                                    marketData.barCapability
+                                                        ?.maximum_step_minutes ?? 240
+                                                }
+                                                step="1"
+                                                required
+                                                value={customBarStep}
+                                                onChange={(event) => {
+                                                    setCustomBarStep(event.target.value);
+                                                }}
+                                            />
+                                            <button type="submit">应用</button>
+                                        </form>
+                                    ) : null}
+                                </>
+                            ) : (
+                                <select
+                                    className="chart-region__timeframe"
+                                    aria-label="时间周期"
+                                    value={timeframe}
+                                    onChange={(event) => {
+                                        setTimeframe(event.target.value as Timeframe);
+                                    }}
+                                >
+                                    {timeframes.map((item) => (
+                                        <option key={item} value={item}>
+                                            {item}
+                                        </option>
+                                    ))}
+                                </select>
+                            )}
                         </div>
                         {symbolMatches.length === 0 ? null : (
                             <ul className="chart-region__suggestions">
@@ -465,12 +549,17 @@ export function WorkspacePage() {
                 </p>
                 <div className="chart-region__body">
                     <PriceChart
-                        timeframe={chartTimeframe}
+                        timeframe={realPath ? undefined : timeframe}
+                        barSpecification={realPath ? marketData.barSpecification : undefined}
                         overlays={overlays}
                         mode={realPath ? "real" : "synthetic"}
                         bars={marketData.bars}
                         liveBar={marketData.liveBar}
-                        historyKey={marketData.revisionFingerprint}
+                        historyKey={
+                            realPath
+                                ? `${marketData.revisionFingerprint ?? ""}:${String(marketData.barSpecification.step)}`
+                                : null
+                        }
                     />
                 </div>
             </section>

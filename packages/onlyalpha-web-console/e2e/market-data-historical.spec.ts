@@ -11,7 +11,14 @@ const source = {
     display_name: "Binance Spot LIVE",
     type_id: "binance.spot.market_data",
     source_id: "binance.spot.market_data.live",
-    environment: "LIVE"
+    environment: "LIVE",
+    time_bar_capability: {
+        aggregation: "TIME",
+        external_base_step_minutes: 1,
+        derived_supported: true,
+        minimum_step_minutes: 1,
+        maximum_step_minutes: 240
+    }
 };
 
 const instrument = {
@@ -48,11 +55,15 @@ function coverage(range: Range, complete: boolean, planned: readonly Range[] = [
     };
 }
 
-function bars(range: Range, complete: boolean, planned: readonly Range[] = []) {
+function bars(range: Range, complete: boolean, planned: readonly Range[] = [], step = 1) {
     const start = BigInt(range.start_ns);
+    const duration = BigInt(step) * minuteNs;
+    const day = BigInt(1_440) * minuteNs;
+    const dayStart = (start / day) * day;
+    const aligned = dayStart + ((start - dayStart + duration - BigInt(1)) / duration) * duration;
     const point = (offset: bigint, open: string, close: string) => ({
-        bar_start_ns: (start + offset).toString(),
-        bar_end_ns: (start + offset + minuteNs).toString(),
+        bar_start_ns: (aligned + offset).toString(),
+        bar_end_ns: (aligned + offset + duration).toString(),
         open,
         high: "102",
         low: "99",
@@ -73,8 +84,8 @@ function bars(range: Range, complete: boolean, planned: readonly Range[] = []) {
         display_symbol: instrument.display_symbol,
         venue: instrument.venue,
         market: instrument.market,
-        bar_specification: "1m",
-        aggregation_source: "EXTERNAL",
+        bar_specification: { aggregation: "TIME", step, price_type: "LAST" },
+        aggregation_source: step === 1 ? "EXTERNAL" : "INTERNAL",
         adjustment: "RAW",
         closed_only: true,
         ...range,
@@ -82,7 +93,9 @@ function bars(range: Range, complete: boolean, planned: readonly Range[] = []) {
         revision_id: complete ? `market-data-revision:${revisionFingerprint}` : null,
         revision_fingerprint: complete ? revisionFingerprint : null,
         seal_id: complete ? `seal:${"e".repeat(64)}` : null,
-        bars: complete ? [point(BigInt(0), "100", "101"), point(minuteNs, "101", "101.5")] : []
+        aggregation_semantics_version: step === 1 ? null : "TIME_BAR_V1",
+        calendar_fingerprint: step === 1 ? null : "a".repeat(64),
+        bars: complete ? [point(BigInt(0), "100", "101"), point(duration, "101", "101.5")] : []
     };
 }
 
@@ -90,6 +103,7 @@ async function controlledMarketData(page: Page, initial: FixtureMode) {
     let mode = initial;
     let acquisitionCount = 0;
     const providerRequests: Range[] = [];
+    const queriedSteps: number[] = [];
     await page.route("**/api/v2/**", async (route) => {
         const request = route.request();
         const url = new URL(request.url());
@@ -102,11 +116,13 @@ async function controlledMarketData(page: Page, initial: FixtureMode) {
                 instruments: [instrument]
             });
         if (url.pathname === "/api/v2/market-data/bars") {
+            const step = Number(url.searchParams.get("bar_step") ?? "1");
+            queriedSteps.push(step);
             const range = {
                 start_ns: url.searchParams.get("start_ns") ?? "",
                 end_ns: url.searchParams.get("end_ns") ?? ""
             };
-            if (mode === "complete") return json(route, bars(range, true));
+            if (mode === "complete") return json(route, bars(range, true, [], step));
             const planned =
                 mode === "tail"
                     ? [
@@ -116,7 +132,7 @@ async function controlledMarketData(page: Page, initial: FixtureMode) {
                           }
                       ]
                     : [range];
-            return json(route, bars(range, false, planned));
+            return json(route, bars(range, false, planned, step));
         }
         if (url.pathname === "/api/v2/market-data/acquisitions" && request.method() === "POST") {
             acquisitionCount += 1;
@@ -142,7 +158,7 @@ async function controlledMarketData(page: Page, initial: FixtureMode) {
                     source_id: source.source_id,
                     integration_binding_fingerprint: "f".repeat(64),
                     instrument_id: body.instrument_id,
-                    bar_specification: "1m",
+                    bar_specification: { aggregation: "TIME", step: 1, price_type: "LAST" },
                     ...requested,
                     provenance: "REST_BACKFILL",
                     coverage: coverage(requested, true),
@@ -158,7 +174,8 @@ async function controlledMarketData(page: Page, initial: FixtureMode) {
     });
     return {
         acquisitionCount: () => acquisitionCount,
-        providerRequests
+        providerRequests,
+        queriedSteps
     };
 }
 
@@ -185,8 +202,8 @@ test.describe("W1 historical golden path — CONTROLLED_TEST_EVIDENCE", () => {
         await expect(page.getByTestId("market-data-status")).toContainText(
             `历史 Revision ${revisionFingerprint.slice(0, 12)}`
         );
-        await expect(page.getByRole("combobox", { name: "时间周期" })).toHaveValue("1m");
-        await expect(page.getByRole("combobox", { name: "时间周期" })).toBeDisabled();
+        await expect(page.getByRole("combobox", { name: "时间周期" })).toHaveValue("1");
+        await expect(page.getByRole("combobox", { name: "时间周期" })).toBeEnabled();
         await expect(page.locator(".chart-region .synthetic-tag")).toHaveCount(0);
         await expect(page.getByRole("button", { name: /指标/ })).toBeDisabled();
         await expect(page.getByRole("button", { name: /因子/ })).toBeDisabled();
@@ -210,5 +227,20 @@ test.describe("W1 historical golden path — CONTROLLED_TEST_EVIDENCE", () => {
         expect(fixture.providerRequests).toHaveLength(1);
         const requested = fixture.providerRequests[0];
         expect(BigInt(requested.end_ns) - BigInt(requested.start_ns)).toBe(BigInt(2) * minuteNs);
+    });
+
+    test("custom 7m and 37m switch through typed history without a provider multi-period fetch", async ({
+        page
+    }) => {
+        const fixture = await controlledMarketData(page, "complete");
+        await selectBtc(page);
+        await page.getByRole("combobox", { name: "时间周期" }).selectOption("custom");
+        await page.getByRole("spinbutton", { name: "自定义周期分钟数" }).fill("7");
+        await page.getByRole("button", { name: "应用" }).click();
+        await expect.poll(() => fixture.queriedSteps[fixture.queriedSteps.length - 1]).toBe(7);
+        await page.getByRole("spinbutton", { name: "自定义周期分钟数" }).fill("37");
+        await page.getByRole("button", { name: "应用" }).click();
+        await expect.poll(() => fixture.queriedSteps[fixture.queriedSteps.length - 1]).toBe(37);
+        expect(fixture.acquisitionCount()).toBe(0);
     });
 });

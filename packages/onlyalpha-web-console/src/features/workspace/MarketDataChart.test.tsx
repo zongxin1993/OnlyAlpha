@@ -53,7 +53,11 @@ const chartMocks = vi.hoisted(() => {
     const addSeries = vi.fn<(definition: string) => typeof candles>((definition) =>
         definition === "Candlestick" ? candles : overlays
     );
-    const created = { addSeries, timeScale: () => ({ fitContent: vi.fn() }), remove: vi.fn() };
+    const created = {
+        addSeries,
+        timeScale: () => ({ applyOptions: vi.fn(), setVisibleLogicalRange: vi.fn() }),
+        remove: vi.fn()
+    };
     return {
         candles,
         overlays,
@@ -66,6 +70,7 @@ vi.mock("lightweight-charts", () => ({
     CandlestickSeries: "Candlestick",
     LineSeries: "Line",
     ColorType: { Solid: "solid" },
+    TickMarkType: { Time: 3, TimeWithSeconds: 4 },
     createChart: chartMocks.createChart
 }));
 
@@ -131,7 +136,12 @@ it("requests and renders exact minute-aligned nanoseconds on the canonical 1m gr
 it("updates realtime candles without recreating the chart", () => {
     const historical = onlyBarsToCandles(marketDataBars().bars);
     const view = render(
-        <PriceChart timeframe="1m" mode="real" bars={historical} historyKey="revision-a" />
+        <PriceChart
+            barSpecification={{ aggregation: "TIME", step: 7, price_type: "LAST" }}
+            mode="real"
+            bars={historical}
+            historyKey="revision-a"
+        />
     );
     const created = chartMocks.createChart.mock.calls.length;
     const second = historical.at(1);
@@ -140,7 +150,7 @@ it("updates realtime candles without recreating the chart", () => {
 
     view.rerender(
         <PriceChart
-            timeframe="1m"
+            barSpecification={{ aggregation: "TIME", step: 7, price_type: "LAST" }}
             mode="real"
             bars={historical}
             historyKey="revision-a"
@@ -150,6 +160,66 @@ it("updates realtime candles without recreating the chart", () => {
 
     expect(chartMocks.createChart).toHaveBeenCalledTimes(created);
     expect(chartMocks.candles.update).toHaveBeenLastCalledWith(preview);
+    view.rerender(
+        <PriceChart
+            barSpecification={{ aggregation: "TIME", step: 37, price_type: "LAST" }}
+            mode="real"
+            bars={historical.slice(1)}
+            historyKey="revision-b"
+        />
+    );
+    expect(chartMocks.candles.setData).toHaveBeenLastCalledWith(historical.slice(1));
+    expect(chartMocks.createChart).toHaveBeenCalledTimes(created);
+});
+
+it("ignores realtime bars older than the history or latest realtime candle", () => {
+    const historical = onlyBarsToCandles(marketDataBars().bars);
+    const first = historical[0];
+    const last = historical[1];
+    if (first === undefined || last === undefined) throw new Error("fixture requires two bars");
+    const specification = { aggregation: "TIME" as const, step: 1, price_type: "LAST" as const };
+    const view = render(
+        <PriceChart
+            mode="real"
+            barSpecification={specification}
+            bars={historical}
+            historyKey="revision-a"
+        />
+    );
+
+    view.rerender(
+        <PriceChart
+            mode="real"
+            barSpecification={specification}
+            bars={historical}
+            historyKey="revision-a"
+            liveBar={{ ...first, close: 999 }}
+        />
+    );
+    expect(chartMocks.candles.update).not.toHaveBeenCalled();
+
+    const next = { ...last, time: (last.time + 60) as typeof last.time, close: 103 };
+    view.rerender(
+        <PriceChart
+            mode="real"
+            barSpecification={specification}
+            bars={historical}
+            historyKey="revision-a"
+            liveBar={next}
+        />
+    );
+    expect(chartMocks.candles.update).toHaveBeenCalledExactlyOnceWith(next);
+
+    view.rerender(
+        <PriceChart
+            mode="real"
+            barSpecification={specification}
+            bars={historical}
+            historyKey="revision-a"
+            liveBar={{ ...last, close: 999 }}
+        />
+    );
+    expect(chartMocks.candles.update).toHaveBeenCalledTimes(1);
 });
 
 it("keeps the deterministic placeholder series only in the synthetic W0 context", async () => {
@@ -236,6 +306,34 @@ it("renders only canonical Product bars in real READY and disables synthetic ove
     expect(screen.getByTestId("market-data-status")).toHaveTextContent(
         /test\.market_data\.live · 历史 Revision dddddddddddd · ● 连接中/
     );
+});
+
+it("accepts a custom seven-minute specification through the real Product query", async () => {
+    const user = userEvent.setup();
+    const steps: number[] = [];
+    const client = marketDataClient({
+        listInstruments: () => Promise.resolve([marketDataInstrument()]),
+        queryBars: (_reference, query) => {
+            steps.push(query.bar_specification.step);
+            return Promise.resolve(
+                marketDataBars({
+                    bar_specification: query.bar_specification,
+                    aggregation_source: query.bar_specification.step === 1 ? "EXTERNAL" : "INTERNAL"
+                })
+            );
+        }
+    });
+    renderWorkspace(client);
+    await selectSource(user);
+    await selectBtcInstrument(user);
+    await user.selectOptions(screen.getByRole("combobox", { name: "时间周期" }), "custom");
+    await user.clear(screen.getByRole("spinbutton", { name: "自定义周期分钟数" }));
+    await user.type(screen.getByRole("spinbutton", { name: "自定义周期分钟数" }), "7");
+    await user.click(screen.getByRole("button", { name: "应用" }));
+    await waitFor(() => {
+        expect(steps).toContain(7);
+    });
+    expect(screen.getByRole("combobox", { name: "时间周期" })).toHaveValue("custom");
 });
 
 it("requests an explicit acquisition for incomplete coverage and then renders database bars", async () => {

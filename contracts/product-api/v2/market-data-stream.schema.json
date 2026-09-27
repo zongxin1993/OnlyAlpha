@@ -16,16 +16,26 @@
         "expected_type_id": { "type": "string", "minLength": 1 }
       }
     },
+    "barSpecification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["aggregation", "step", "price_type"],
+      "properties": {
+        "aggregation": { "const": "TIME" },
+        "step": { "type": "integer", "minimum": 1, "maximum": 240 },
+        "price_type": { "const": "LAST" }
+      }
+    },
     "subscribe": {
       "type": "object",
       "additionalProperties": false,
       "required": ["schema_version", "operation", "source_reference", "instrument_id", "bar_specification", "resume_after_sequence"],
       "properties": {
-        "schema_version": { "const": 1 },
+        "schema_version": { "const": 2 },
         "operation": { "const": "SUBSCRIBE_BAR" },
         "source_reference": { "$ref": "#/$defs/sourceReference" },
         "instrument_id": { "type": "string", "minLength": 1 },
-        "bar_specification": { "const": "1m" },
+        "bar_specification": { "$ref": "#/$defs/barSpecification" },
         "resume_after_sequence": { "type": "string", "pattern": "^(?:0|[1-9][0-9]*)$" }
       }
     },
@@ -33,8 +43,8 @@
       "type": "object",
       "required": ["schema_version", "event"],
       "properties": {
-        "schema_version": { "const": 1 },
-        "event": { "enum": ["SUBSCRIBED", "STATE", "BAR_PREVIEW", "BAR_CLOSED", "ERROR"] }
+        "schema_version": { "const": 2 },
+        "event": { "enum": ["SUBSCRIBED", "STATE", "BASE_CURSOR", "BAR_PREVIEW", "BAR_CLOSED", "ERROR"] }
       }
     }
   }

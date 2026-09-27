@@ -24,6 +24,7 @@ from onlyalpha.application.integration_application import (
     OnlyIntegrationQueryService,
 )
 from onlyalpha.application.integration_type_catalog import OnlyIntegrationTypeCatalog
+from onlyalpha.application.market_data_product import OnlyMarketDataProductService
 from onlyalpha.application.private_asset_product import (
     OnlyPrivateAssetProductService,
     OnlyProductAssetSearchProjectionService,
@@ -363,6 +364,7 @@ def render_document() -> JsonObject:
             integration_queries=cast(OnlyIntegrationQueryService, object()),
             integration_probes=cast(Any, object()),
             integration_operational_queries=cast(Any, object()),
+            market_data=cast(OnlyMarketDataProductService, object()),
         )
         return app.openapi()
     finally:

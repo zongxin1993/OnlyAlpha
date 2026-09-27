@@ -2,7 +2,7 @@ import { marketDataStreamEventSchema, marketDataStreamSubscribeSchema } from "./
 
 it("admits the exact-source cursor contract and rejects browser OHLCV truth", () => {
     const request = {
-        schema_version: 1,
+        schema_version: 2,
         operation: "SUBSCRIBE_BAR",
         source_reference: {
             integration_id: "integration",
@@ -10,7 +10,7 @@ it("admits the exact-source cursor contract and rejects browser OHLCV truth", ()
             expected_type_id: "binance.spot.market_data"
         },
         instrument_id: "BTCUSDT.BINANCE",
-        bar_specification: "1m",
+        bar_specification: { aggregation: "TIME", step: 1, price_type: "LAST" },
         resume_after_sequence: "42"
     };
     expect(marketDataStreamSubscribeSchema.parse(request)).toEqual(request);
@@ -32,21 +32,21 @@ it("keeps preview and closed event semantics distinct", () => {
     };
     expect(
         marketDataStreamEventSchema.parse({
-            schema_version: 1,
+            schema_version: 2,
             event: "BAR_PREVIEW",
             source_id: "source",
             instrument_id: "BTCUSDT.BINANCE",
-            bar_specification: "1m",
+            bar_specification: { aggregation: "TIME", step: 1, price_type: "LAST" },
             bar
         }).event
     ).toBe("BAR_PREVIEW");
     expect(
         marketDataStreamEventSchema.parse({
-            schema_version: 1,
+            schema_version: 2,
             event: "BAR_CLOSED",
             source_id: "source",
             instrument_id: "BTCUSDT.BINANCE",
-            bar_specification: "1m",
+            bar_specification: { aggregation: "TIME", step: 1, price_type: "LAST" },
             sequence: "1",
             bar: { ...bar, closed: true }
         }).event

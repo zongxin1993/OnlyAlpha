@@ -25,7 +25,7 @@ Indicator、Required Dependency 和 Snapshot 五项全部 ready 后，Dispatcher
 ## 3. 聚合与 Session 边界
 
 一个 Trading Runtime 的 `OnlyBarAggregationManager` 按目标 BarType 唯一持有 Aggregator；多个 Cluster 用引用计数
-共享 3m/5m/15m 结果，不共享可变策略状态。派生处理顺序是 dependency level（首版均为一级）、duration、
+共享有效的日内 N 分钟结果，不共享可变策略状态。派生处理顺序是 dependency level（首版均为一级）、duration、
 稳定 BarType ID。
 
 `OnlyTimeBarAggregator` 使用 `OnlyTradingCalendar.session_intervals_for_trading_day()` 锚定窗口，区间
@@ -74,7 +74,7 @@ Backtest 已装配完整同步路径，SIM 已装配 realtime/streaming path。
 
 ## 10. 已知限制
 
-- 只支持外部 1m TIME Bar 到内部 3m/5m/15m。
+- 支持外部 1m TIME Bar 到同标的、同价格类型、内部 N>1 分钟 TIME Bar；产品层仍须独立限制请求范围。
 - 尚无 Tick/Volume/Value Aggregator、partial Bar、修订替换、自动填充或持久化恢复。
 - 核心路径同步串行；长策略 callback 会阻塞该 Runtime 的后续输入。
 - Pipeline/Dispatcher 已装配进同步 Backtest RuntimeContext 与 SIM streaming path；Live 的 Real Broker 组合尚未实现。

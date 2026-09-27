@@ -33,6 +33,13 @@ export function marketDataSource(overrides: Partial<MarketDataSource> = {}): Mar
         type_id: "test.market_data",
         source_id: "test.market_data.live",
         environment: "LIVE",
+        time_bar_capability: {
+            aggregation: "TIME",
+            external_base_step_minutes: 1,
+            derived_supported: true,
+            minimum_step_minutes: 1,
+            maximum_step_minutes: 240
+        },
         ...overrides
     };
 }
@@ -66,7 +73,7 @@ export function marketDataBars(overrides: Partial<MarketDataBars> = {}): MarketD
         display_symbol: "BTCUSDT",
         venue: "TEST",
         market: "SPOT",
-        bar_specification: "1m",
+        bar_specification: { aggregation: "TIME", step: 1, price_type: "LAST" },
         aggregation_source: "EXTERNAL",
         adjustment: "RAW",
         closed_only: true,
@@ -85,6 +92,8 @@ export function marketDataBars(overrides: Partial<MarketDataBars> = {}): MarketD
         revision_id: "market-data-revision:" + "d".repeat(64),
         revision_fingerprint: "d".repeat(64),
         seal_id: "seal:" + "e".repeat(64),
+        aggregation_semantics_version: null,
+        calendar_fingerprint: null,
         bars: [
             {
                 bar_start_ns: "1767225600000000000",
@@ -121,7 +130,7 @@ export function marketDataAcquisition(
         source_id: "test.market_data.live",
         integration_binding_fingerprint: "f".repeat(64),
         instrument_id: "BTCUSDT.TEST",
-        bar_specification: "1m",
+        bar_specification: { aggregation: "TIME", step: 1, price_type: "LAST" },
         start_ns: "1767225600000000000",
         end_ns: "1767225720000000000",
         provenance: "REST_BACKFILL",

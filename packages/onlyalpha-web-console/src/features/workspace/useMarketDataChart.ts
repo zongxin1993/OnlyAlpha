@@ -3,11 +3,13 @@ import type { CandlestickData, UTCTimestamp } from "lightweight-charts";
 import { MarketDataWebError, type MarketDataApiClient } from "../../api/marketData/client";
 import { openMarketDataStream } from "../../api/marketData/stream";
 import type {
+    MarketDataBarSpecification,
     MarketDataCoverage,
     MarketDataInstrument,
     MarketDataSource,
     MarketDataSourceReference
 } from "../../api/marketData/model";
+import { marketDataBarSpecification } from "../../api/marketData/model";
 import { useMarketDataApi } from "../../app/providers";
 
 export const DEFAULT_WINDOW_SECONDS = 86_400;
@@ -35,6 +37,8 @@ export interface MarketDataChartState {
     readonly sourceId: string;
     readonly instruments: readonly MarketDataInstrument[];
     readonly instrument: MarketDataInstrument | null;
+    readonly barSpecification: MarketDataBarSpecification;
+    readonly barCapability: MarketDataSource["time_bar_capability"] | null;
     readonly status: MarketDataChartStatus;
     readonly message: string | null;
     readonly coverage: MarketDataCoverage | null;
@@ -49,6 +53,7 @@ export interface MarketDataChartState {
     readonly selectSource: (integrationId: string) => void;
     readonly searchInstruments: (query: string) => Promise<void>;
     readonly selectInstrument: (instrument: MarketDataInstrument) => Promise<void>;
+    readonly selectBarStep: (step: number) => Promise<void>;
 }
 
 /** The chart context is presentation state; every fact below comes from the Product API. */
@@ -104,6 +109,7 @@ export function useMarketDataChart(): MarketDataChartState {
     const [sourceId, setSourceId] = useState("");
     const [instruments, setInstruments] = useState<readonly MarketDataInstrument[]>([]);
     const [instrument, setInstrument] = useState<MarketDataInstrument | null>(null);
+    const [barSpecification, setBarSpecification] = useState(marketDataBarSpecification(1));
     const [status, setStatus] = useState<MarketDataChartStatus>("idle");
     const [message, setMessage] = useState<string | null>(null);
     const [coverage, setCoverage] = useState<MarketDataCoverage | null>(null);
@@ -119,6 +125,8 @@ export function useMarketDataChart(): MarketDataChartState {
     const [lastClosedCursor, setLastClosedCursor] = useState<string | null>(null);
     const lastClosedCursorRef = useRef<string | null>(null);
     const streamGeneration = useRef(0);
+    const historyGeneration = useRef(0);
+    const historicalCursor = useRef<string | null>(null);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -144,6 +152,7 @@ export function useMarketDataChart(): MarketDataChartState {
         () => (selectedSource === null ? null : onlyMarketDataSourceReference(selectedSource)),
         [selectedSource]
     );
+    const barCapability = selectedSource?.time_bar_capability ?? null;
 
     const apply = useCallback((error: unknown) => {
         const webError = error instanceof MarketDataWebError ? error : null;
@@ -164,9 +173,10 @@ export function useMarketDataChart(): MarketDataChartState {
                 instrument_id: string;
                 start_ns: string;
                 end_ns: string;
-                bar_specification: string;
+                bar_specification: MarketDataBarSpecification;
             },
-            pending: MarketDataCoverage
+            pending: MarketDataCoverage,
+            generation: number
         ) => {
             setStatus("acquiring");
             setMessage(
@@ -175,7 +185,11 @@ export function useMarketDataChart(): MarketDataChartState {
                     : `正在同步历史行情…（缺口 ${String(pending.gaps.length)} 分钟）`
             );
             try {
-                const acquisition = await client.createAcquisition(active, query);
+                const acquisition = await client.createAcquisition(active, {
+                    ...query,
+                    bar_specification: marketDataBarSpecification(1)
+                });
+                if (generation !== historyGeneration.current) return;
                 if (acquisition.status !== "COMPLETE") {
                     setCoverage(acquisition.coverage);
                     setStatus("failed");
@@ -187,6 +201,7 @@ export function useMarketDataChart(): MarketDataChartState {
                     return;
                 }
                 const reloaded = await client.queryBars(active, query);
+                if (generation !== historyGeneration.current) return;
                 setCoverage(reloaded.coverage);
                 setResolvedSourceId(reloaded.source_selection.source_id);
                 setBars(
@@ -200,26 +215,33 @@ export function useMarketDataChart(): MarketDataChartState {
                         : `历史行情仍不完整：${reloaded.coverage.issues.join(", ") || reloaded.coverage.status}`
                 );
             } catch (error) {
-                apply(error);
+                if (generation === historyGeneration.current) apply(error);
             }
         },
         [apply, client]
     );
 
     const load = useCallback(
-        async (active: MarketDataSourceReference, target: MarketDataInstrument) => {
+        async (
+            active: MarketDataSourceReference,
+            target: MarketDataInstrument,
+            specification: MarketDataBarSpecification,
+            generation: number
+        ) => {
             const range = onlyRecentClosedMinuteRange();
             const query = {
                 instrument_id: target.instrument_id,
                 start_ns: range.startNs,
                 end_ns: range.endNs,
-                bar_specification: "1m"
+                bar_specification: specification
             };
+            historicalCursor.current = (BigInt(range.endNs) / (60n * SECOND_NS) - 1n).toString();
             setStatus("loading");
             setRealtimeStatus("disabled");
             setMessage(null);
             try {
                 const loaded = await client.queryBars(active, query);
+                if (generation !== historyGeneration.current) return;
                 setCoverage(loaded.coverage);
                 setResolvedSourceId(loaded.source_selection.source_id);
                 if (loaded.coverage.status === "COMPLETE") {
@@ -230,9 +252,9 @@ export function useMarketDataChart(): MarketDataChartState {
                 }
                 setBars([]);
                 setRevisionFingerprint(null);
-                await acquire(active, query, loaded.coverage);
+                await acquire(active, query, loaded.coverage, generation);
             } catch (error) {
-                apply(error);
+                if (generation === historyGeneration.current) apply(error);
             }
         },
         [acquire, apply, client]
@@ -247,24 +269,34 @@ export function useMarketDataChart(): MarketDataChartState {
         let reconnect: number | undefined;
         let stopped = false;
         let terminal = false;
-        const historicalCursor = String(Math.floor(Number(bars[bars.length - 1]?.time ?? 0) / 60));
         const connect = () => {
             if (stopped) return;
             setRealtimeStatus("connecting");
             close = openMarketDataStream(
                 {
-                    schema_version: 1,
+                    schema_version: 2,
                     operation: "SUBSCRIBE_BAR",
                     source_reference: {
                         ...reference,
                         expected_type_id: reference.expected_type_id ?? ""
                     },
                     instrument_id: instrument.instrument_id,
-                    bar_specification: "1m",
-                    resume_after_sequence: lastClosedCursorRef.current ?? historicalCursor
+                    bar_specification: barSpecification,
+                    resume_after_sequence:
+                        lastClosedCursorRef.current ?? historicalCursor.current ?? "0"
                 },
                 (event) => {
                     if (generation !== streamGeneration.current) return;
+                    if (
+                        (event.event === "BAR_PREVIEW" || event.event === "BAR_CLOSED") &&
+                        event.bar_specification.step !== barSpecification.step
+                    ) {
+                        terminal = true;
+                        setStreamError("MARKET_DATA_BAR_SPECIFICATION_MISMATCH");
+                        setRealtimeStatus("failed");
+                        close();
+                        return;
+                    }
                     if (event.event === "SUBSCRIBED") setStreamId(event.stream_id);
                     else if (event.event === "STATE") {
                         setRealtimeStatus(
@@ -278,6 +310,9 @@ export function useMarketDataChart(): MarketDataChartState {
                                       ? "degraded"
                                       : "failed"
                         );
+                    } else if (event.event === "BASE_CURSOR") {
+                        setLastClosedCursor(event.sequence);
+                        lastClosedCursorRef.current = event.sequence;
                     } else if (event.event === "BAR_PREVIEW") {
                         setLiveBar(onlyBarToCandle(event.bar));
                     } else if (event.event === "BAR_CLOSED") {
@@ -292,7 +327,12 @@ export function useMarketDataChart(): MarketDataChartState {
                             `${event.code}${event.detail === undefined ? "" : `: ${event.detail}`}`
                         );
                         if (event.code === "HISTORY_REFRESH_REQUIRED")
-                            void load(reference, instrument);
+                            void load(
+                                reference,
+                                instrument,
+                                barSpecification,
+                                ++historyGeneration.current
+                            );
                         else setRealtimeStatus("failed");
                     }
                 },
@@ -317,11 +357,13 @@ export function useMarketDataChart(): MarketDataChartState {
             if (reconnect !== undefined) window.clearTimeout(reconnect);
             close();
         };
-    }, [bars, instrument, load, reference, status]);
+    }, [barSpecification, bars, instrument, load, reference, status]);
 
     const selectSource = useCallback((integrationId: string) => {
         streamGeneration.current += 1;
+        historyGeneration.current += 1;
         setSourceId(integrationId);
+        setBarSpecification(marketDataBarSpecification(1));
         setInstruments([]);
         setInstrument(null);
         setCoverage(null);
@@ -361,6 +403,7 @@ export function useMarketDataChart(): MarketDataChartState {
     const selectInstrument = useCallback(
         async (target: MarketDataInstrument) => {
             streamGeneration.current += 1;
+            const generation = ++historyGeneration.current;
             setLiveBar(null);
             setLastClosedStreamBar(null);
             setLastClosedCursor(null);
@@ -373,9 +416,33 @@ export function useMarketDataChart(): MarketDataChartState {
                 setMessage("请先选择数据源");
                 return;
             }
-            await load(reference, target);
+            await load(reference, target, barSpecification, generation);
         },
-        [load, reference]
+        [barSpecification, load, reference]
+    );
+
+    const selectBarStep = useCallback(
+        async (step: number) => {
+            if (
+                barCapability === null ||
+                step < barCapability.minimum_step_minutes ||
+                step > barCapability.maximum_step_minutes ||
+                (step > 1 && !barCapability.derived_supported)
+            )
+                return;
+            const specification = marketDataBarSpecification(step);
+            streamGeneration.current += 1;
+            const generation = ++historyGeneration.current;
+            lastClosedCursorRef.current = null;
+            setLastClosedCursor(null);
+            setLiveBar(null);
+            setLastClosedStreamBar(null);
+            setBars([]);
+            setBarSpecification(specification);
+            if (reference !== null && instrument !== null)
+                await load(reference, instrument, specification, generation);
+        },
+        [barCapability, instrument, load, reference]
     );
 
     return {
@@ -385,6 +452,8 @@ export function useMarketDataChart(): MarketDataChartState {
         sourceId,
         instruments,
         instrument,
+        barSpecification,
+        barCapability,
         status,
         message,
         coverage,
@@ -398,7 +467,8 @@ export function useMarketDataChart(): MarketDataChartState {
         lastClosedCursor,
         selectSource,
         searchInstruments,
-        selectInstrument
+        selectInstrument,
+        selectBarStep
     };
 }
 

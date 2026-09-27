@@ -8,7 +8,7 @@ from decimal import Decimal
 
 from onlyalpha.core.clock import OnlyClock
 from onlyalpha.domain.calendar import OnlyTradingCalendar
-from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyBarAggregation
+from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyAggregationSource, OnlyBarAggregation
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.domain.time import OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
@@ -51,10 +51,16 @@ class OnlyTimeBarAggregator(OnlyBarAggregator):
             raise OnlyBarAggregationError("source must be a time Bar")
         if target_bar_type.specification.aggregation is not OnlyBarAggregation.TIME:
             raise OnlyBarAggregationError("target must be a time Bar")
-        if source_bar_type.specification.step != 1:
+        if type(source_bar_type.specification.step) is not int or source_bar_type.specification.step != 1:
             raise OnlyBarAggregationError("first-phase source must be one-minute Bars")
-        if target_bar_type.specification.step not in {3, 5, 15}:
-            raise OnlyBarAggregationError("first-phase targets are 3m, 5m, and 15m")
+        if source_bar_type.aggregation_source is not OnlyAggregationSource.EXTERNAL:
+            raise OnlyBarAggregationError("source must be an external Bar")
+        if target_bar_type.aggregation_source is not OnlyAggregationSource.INTERNAL:
+            raise OnlyBarAggregationError("target must be an internal Bar")
+        if type(target_bar_type.specification.step) is not int or target_bar_type.specification.step <= 1:
+            raise OnlyBarAggregationError("target step must exceed one minute")
+        if source_bar_type.specification.price_type is not target_bar_type.specification.price_type:
+            raise OnlyBarAggregationError("source and target price types must match")
         self._source_bar_type = source_bar_type
         self._target_bar_type = target_bar_type
         self._calendar = calendar
@@ -85,7 +91,7 @@ class OnlyTimeBarAggregator(OnlyBarAggregator):
         source_duration = timedelta(minutes=self._source_bar_type.specification.step)
         if bar.bar_end - bar.bar_start != source_duration:
             raise OnlyBarAggregationError("source Bar duration does not match BarType")
-        window_start, window_end, is_partial = self._window_for(bar)
+        window_start, window_end, is_partial = self.window_for(bar)
         if self._skipped_until is not None:
             if bar.bar_end < self._skipped_until:
                 return None
@@ -115,7 +121,7 @@ class OnlyTimeBarAggregator(OnlyBarAggregator):
         self._reset()
         return result
 
-    def _window_for(self, bar: OnlyBar) -> tuple[datetime, datetime, bool]:
+    def window_for(self, bar: OnlyBar) -> tuple[datetime, datetime, bool]:
         intervals = self._calendar.session_intervals_for_trading_day(OnlyTradingDay(bar.trading_day))
         session = next(
             ((start, end) for start, end in intervals if start <= bar.bar_start < end and start < bar.bar_end <= end),
@@ -131,6 +137,22 @@ class OnlyTimeBarAggregator(OnlyBarAggregator):
         nominal_end = window_start + duration
         window_end = min(nominal_end, session_end)
         return window_start, window_end, nominal_end > session_end
+
+    def preview(self, bar: OnlyBar) -> OnlyBar | None:
+        """Project a forming target Bar without admitting the preview as a fact."""
+
+        if bar.bar_type != self._source_bar_type or bar.is_closed:
+            raise OnlyBarAggregationError("preview requires a forming source Bar")
+        window_start, window_end, is_partial = self.window_for(bar)
+        if is_partial or (self._window_start is not None and self._window_start != window_start):
+            return None
+        if self._bars:
+            if self._bars[-1].bar_end != bar.bar_start:
+                return None
+        elif bar.bar_start != window_start:
+            return None
+        bars = (*self._bars, bar)
+        return self._assemble(bars, window_start, window_end, bar.ts_event, bar.ts_init, closed=False)
 
     def _handle_incomplete_window(self) -> None:
         if not self._bars:
@@ -158,10 +180,22 @@ class OnlyTimeBarAggregator(OnlyBarAggregator):
 
     def _build_bar(self, window_start: datetime, window_end: datetime) -> OnlyBar:
         bars = tuple(self._bars)
-        self._require_consistent(bars)
         now = self._clock.now_utc()
         if now < window_end:
             raise OnlyBarAggregationError("Clock is earlier than derived Bar event time")
+        return self._assemble(bars, window_start, window_end, window_end, now, closed=True)
+
+    def _assemble(
+        self,
+        bars: tuple[OnlyBar, ...],
+        window_start: datetime,
+        window_end: datetime,
+        ts_event: datetime,
+        ts_init: datetime,
+        *,
+        closed: bool,
+    ) -> OnlyBar:
+        self._require_consistent(bars)
         quote_volume = self._sum_quantities(tuple(item.quote_volume for item in bars))
         turnover = self._sum_money(tuple(item.turnover for item in bars))
         trade_count = (
@@ -180,9 +214,9 @@ class OnlyTimeBarAggregator(OnlyBarAggregator):
             open_interest=bars[-1].open_interest,
             bar_start=window_start,
             bar_end=window_end,
-            ts_event=window_end,
-            ts_init=now,
-            is_closed=True,
+            ts_event=ts_event,
+            ts_init=ts_init,
+            is_closed=closed,
             revision=0,
             adjustment_type=bars[0].adjustment_type,
             trading_day=bars[0].trading_day,

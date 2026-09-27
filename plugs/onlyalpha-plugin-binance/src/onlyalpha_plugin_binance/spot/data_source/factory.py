@@ -1,6 +1,11 @@
 import time
 from collections.abc import Mapping, Sequence
+from datetime import time as wall_time
 
+from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
+from onlyalpha.domain.enums import OnlySessionType
+from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyVenueId
+from onlyalpha.domain.time import OnlyTimeZone
 from onlyalpha.plugin.capabilities import OnlyPluginValidationIssue
 from onlyalpha.plugin.data_source import (
     OnlyDataSourceCreateRequest,
@@ -64,6 +69,16 @@ class OnlyBinanceSpotDataSourceFactory:
             raise ValueError("BINANCE_PLUGIN_CONFIG_INVALID")
         return OnlyDataSourceMarketIdentityV1(
             VENUE, MARKET, plugin_config.environment.value, MARKET_SOURCE_IDS[plugin_config.environment]
+        )
+
+    def time_bar_calendar(self, plugin_config: object) -> OnlyTradingCalendar:
+        self.market_identity(plugin_config)
+        return OnlyTradingCalendar(
+            OnlyCalendarId("BINANCE-SPOT-24X7"),
+            OnlyVenueId(VENUE),
+            OnlyTimeZone("UTC"),
+            (OnlyTradingSession("continuous", wall_time(0), wall_time(0), OnlySessionType.CONTINUOUS),),
+            weekend_days=(),
         )
 
     def validate_request(self, request: OnlyDataSourceCreateRequest) -> Sequence[OnlyPluginValidationIssue]:

@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 
@@ -5,11 +6,12 @@ import pytest
 
 from onlyalpha.core.clock import OnlyVirtualClock
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
-from onlyalpha.domain.enums import OnlySessionType
+from onlyalpha.domain.enums import OnlyAggregationSource, OnlyBarAggregation, OnlyPriceType, OnlySessionType
 from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyVenueId
+from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
 from onlyalpha.domain.time import OnlyTimeZone
 from onlyalpha.market_data.aggregation.manager import OnlyBarAggregationManager
-from onlyalpha.market_data.aggregation.time_bar import OnlyBarAggregationError
+from onlyalpha.market_data.aggregation.time_bar import OnlyBarAggregationError, OnlyTimeBarAggregator
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription, OnlyMissingBarPolicy
 
 
@@ -28,6 +30,90 @@ def test_1m_to_3m_is_calendar_aligned(shanghai_calendar, bar_1m, bar_3m, make_ba
     assert bar.close.value == Decimal("10.07")
     assert bar.volume.value == Decimal("300")
     assert bar.trade_count == 3
+
+
+@pytest.mark.parametrize("step", (2, 7, 13, 37))
+def test_arbitrary_intraday_step_is_session_relative(shanghai_calendar, bar_1m, make_bar, step) -> None:
+    target = OnlyBarType(
+        bar_1m.instrument_id,
+        OnlyBarSpecification(step, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
+        OnlyAggregationSource.INTERNAL,
+    )
+    manager = OnlyBarAggregationManager(shanghai_calendar, OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC)))
+    manager.register_subscription(OnlyBarSubscription((bar_1m, target)))
+    outputs = [item for minute in range(step) for item in manager.process(make_bar(minute))]
+    assert len(outputs) == 1
+    assert outputs[0].bar_start == datetime(2026, 1, 5, 1, 30, tzinfo=UTC)
+    assert outputs[0].bar_end == outputs[0].bar_start + timedelta(minutes=step)
+    assert outputs[0].volume.value == 100 * step
+
+
+def test_missing_minute_in_arbitrary_window_cannot_close(shanghai_calendar, bar_1m, make_bar) -> None:
+    target = OnlyBarType(
+        bar_1m.instrument_id,
+        OnlyBarSpecification(13, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
+        OnlyAggregationSource.INTERNAL,
+    )
+    manager = OnlyBarAggregationManager(shanghai_calendar, OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC)))
+    manager.register_subscription(OnlyBarSubscription((bar_1m, target)))
+    for minute in range(5):
+        manager.process(make_bar(minute))
+    with pytest.raises(OnlyBarAggregationError, match="gap"):
+        manager.process(make_bar(6))
+
+
+def test_core_rejects_non_integer_target_step(shanghai_calendar, bar_1m) -> None:
+    target = OnlyBarType(
+        bar_1m.instrument_id,
+        OnlyBarSpecification(1.5, OnlyBarAggregation.TIME, OnlyPriceType.LAST),  # type: ignore[arg-type]
+        OnlyAggregationSource.INTERNAL,
+    )
+    with pytest.raises(OnlyBarAggregationError, match="target step"):
+        OnlyTimeBarAggregator(
+            bar_1m, target, shanghai_calendar, OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC))
+        )
+
+
+def test_arbitrary_window_preview_includes_closed_minutes_without_mutating_state(
+    shanghai_calendar, bar_1m, make_bar
+) -> None:
+    target = OnlyBarType(
+        bar_1m.instrument_id,
+        OnlyBarSpecification(7, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
+        OnlyAggregationSource.INTERNAL,
+    )
+    aggregator = OnlyTimeBarAggregator(
+        bar_1m, target, shanghai_calendar, OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC))
+    )
+    for minute in range(3):
+        assert aggregator.process(make_bar(minute)) is None
+    forming = make_bar(3)
+    forming = replace(forming, is_closed=False, ts_event=forming.bar_start + timedelta(seconds=30))
+    first = aggregator.preview(forming)
+    second = aggregator.preview(forming)
+    assert first == second
+    assert first is not None and first.is_closed is False
+    assert first.bar_start == datetime(2026, 1, 5, 1, 30, tzinfo=UTC)
+    assert first.bar_end == datetime(2026, 1, 5, 1, 37, tzinfo=UTC)
+    assert first.volume.value == 400
+    for minute in range(3, 7):
+        closed = aggregator.process(make_bar(minute))
+    assert closed is not None and closed.is_closed and closed.volume.value == 700
+
+
+def test_seven_minute_windows_follow_session_start(shanghai_calendar, bar_1m, make_bar) -> None:
+    target = OnlyBarType(
+        bar_1m.instrument_id,
+        OnlyBarSpecification(7, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
+        OnlyAggregationSource.INTERNAL,
+    )
+    manager = OnlyBarAggregationManager(shanghai_calendar, OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC)))
+    manager.register_subscription(OnlyBarSubscription((bar_1m, target)))
+    derived = [item for minute in range(21) for item in manager.process(make_bar(minute))]
+    start = datetime(2026, 1, 5, 1, 30, tzinfo=UTC)
+    assert [(bar.bar_start, bar.bar_end) for bar in derived] == [
+        (start + timedelta(minutes=7 * index), start + timedelta(minutes=7 * (index + 1))) for index in range(3)
+    ]
 
 
 def test_multiple_derived_bars_have_stable_duration_order(

@@ -365,6 +365,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/market-data/acquisitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Acquisition */
+        post: operations["create_acquisition_api_v2_market_data_acquisitions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/market-data/acquisitions/{acquisition_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Acquisition */
+        get: operations["get_acquisition_api_v2_market_data_acquisitions__acquisition_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/market-data/bars": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Query Bars */
+        get: operations["query_bars_api_v2_market_data_bars_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/market-data/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Sources */
+        get: operations["list_sources_api_v2_market_data_sources_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/market/instruments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Instruments */
+        get: operations["list_instruments_api_v2_market_instruments_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/private-assets": {
         parameters: {
             query?: never;
@@ -2061,6 +2146,287 @@ export interface components {
             items: components["schemas"]["IntegrationTypeDto"][];
         };
         JsonValue: unknown;
+        /** MarketDataAcquisitionDto */
+        MarketDataAcquisitionDto: {
+            /** Acquisition Id */
+            acquisition_id: string;
+            bar_specification: components["schemas"]["MarketDataBarSpecificationDto"];
+            coverage: components["schemas"]["MarketDataCoverageDto"];
+            /** End Ns */
+            end_ns: string;
+            /** Failure Detail */
+            failure_detail: string | null;
+            /** Instrument Id */
+            instrument_id: string;
+            /** Integration Binding Fingerprint */
+            integration_binding_fingerprint: string | null;
+            /** Provenance */
+            provenance: string;
+            /** Revision Fingerprint */
+            revision_fingerprint: string | null;
+            /** Revision Id */
+            revision_id: string | null;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /** Seal Id */
+            seal_id: string | null;
+            /** Source Id */
+            source_id: string;
+            /** Start Ns */
+            start_ns: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "PENDING" | "RUNNING" | "COMPLETE" | "FAILED";
+        };
+        /** MarketDataAcquisitionRequestDto */
+        MarketDataAcquisitionRequestDto: {
+            /**
+             * @default {
+             *       "aggregation": "TIME",
+             *       "price_type": "LAST",
+             *       "step": 1
+             *     }
+             */
+            bar_specification: components["schemas"]["MarketDataBarSpecificationDto"];
+            /** End Ns */
+            end_ns: string;
+            /** Instrument Id */
+            instrument_id: string;
+            /**
+             * Provenance
+             * @default REST_BACKFILL
+             * @constant
+             */
+            provenance: "REST_BACKFILL";
+            source_reference: components["schemas"]["MarketDataSourceReferenceDto"];
+            /** Start Ns */
+            start_ns: string;
+        };
+        /** MarketDataBarDto */
+        MarketDataBarDto: {
+            /** Bar End Ns */
+            bar_end_ns: string;
+            /** Bar Start Ns */
+            bar_start_ns: string;
+            /** Close */
+            close: string;
+            /** Closed */
+            closed: boolean;
+            /** High */
+            high: string;
+            /** Low */
+            low: string;
+            /** Open */
+            open: string;
+            /** Volume */
+            volume: string;
+        };
+        /** MarketDataBarSpecificationDto */
+        MarketDataBarSpecificationDto: {
+            /**
+             * Aggregation
+             * @constant
+             */
+            aggregation: "TIME";
+            /**
+             * Price Type
+             * @constant
+             */
+            price_type: "LAST";
+            /** Step */
+            step: number;
+        };
+        /** MarketDataBarsDto */
+        MarketDataBarsDto: {
+            /** Adjustment */
+            adjustment: string;
+            /** Aggregation Semantics Version */
+            aggregation_semantics_version: string | null;
+            /** Aggregation Source */
+            aggregation_source: string;
+            bar_specification: components["schemas"]["MarketDataBarSpecificationDto"];
+            /** Bars */
+            bars: components["schemas"]["MarketDataBarDto"][];
+            /** Calendar Fingerprint */
+            calendar_fingerprint: string | null;
+            /** Closed Only */
+            closed_only: boolean;
+            coverage: components["schemas"]["MarketDataCoverageDto"];
+            /** Display Symbol */
+            display_symbol: string;
+            /** End Ns */
+            end_ns: string;
+            /** Instrument Id */
+            instrument_id: string;
+            /** Market */
+            market: string;
+            /** Revision Fingerprint */
+            revision_fingerprint: string | null;
+            /** Revision Id */
+            revision_id: string | null;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /** Seal Id */
+            seal_id: string | null;
+            source_selection: components["schemas"]["MarketDataSourceSelectionDto"];
+            /** Start Ns */
+            start_ns: string;
+            /** Venue */
+            venue: string;
+        };
+        /** MarketDataCoverageDto */
+        MarketDataCoverageDto: {
+            /** Actual Bar Count */
+            actual_bar_count: number;
+            /** Expected Bar Count */
+            expected_bar_count: number;
+            /** Gaps */
+            gaps: components["schemas"]["MarketDataCoverageGapDto"][];
+            /** Issues */
+            issues: string[];
+            /** Manifest Fingerprint */
+            manifest_fingerprint: string | null;
+            /** Manifest Id */
+            manifest_id: string | null;
+            /** Planned Acquisition Ranges */
+            planned_acquisition_ranges: components["schemas"]["MarketDataCoverageGapDto"][];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "COMPLETE" | "INCOMPLETE" | "UNPROVABLE";
+        };
+        /** MarketDataCoverageGapDto */
+        MarketDataCoverageGapDto: {
+            /** End Ns */
+            end_ns: string;
+            /** Start Ns */
+            start_ns: string;
+        };
+        /** MarketDataErrorDto */
+        MarketDataErrorDto: {
+            /** Code */
+            code: string;
+            /** Detail */
+            detail: string;
+            /**
+             * Phase
+             * @enum {string}
+             */
+            phase: "QUERY" | "COMMAND";
+        };
+        /** MarketDataErrorEnvelopeDto */
+        MarketDataErrorEnvelopeDto: {
+            error: components["schemas"]["MarketDataErrorDto"];
+        };
+        /** MarketDataInstrumentDto */
+        MarketDataInstrumentDto: {
+            /** Asset Class */
+            asset_class: string;
+            /** Display Symbol */
+            display_symbol: string;
+            /** Instrument Id */
+            instrument_id: string;
+            /** Instrument Type */
+            instrument_type: string;
+            /** Market */
+            market: string;
+            /** Market Data Capabilities */
+            market_data_capabilities: string[];
+            /** Status */
+            status: string;
+            /** Venue */
+            venue: string;
+        };
+        /** MarketDataInstrumentListDto */
+        MarketDataInstrumentListDto: {
+            /** Instruments */
+            instruments: components["schemas"]["MarketDataInstrumentDto"][];
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            source_selection: components["schemas"]["MarketDataSourceSelectionDto"];
+        };
+        /** MarketDataSourceListDto */
+        MarketDataSourceListDto: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /** Sources */
+            sources: components["schemas"]["MarketDataSourceProjectionDto"][];
+        };
+        /** MarketDataSourceProjectionDto */
+        MarketDataSourceProjectionDto: {
+            /** Display Name */
+            display_name: string;
+            /** Environment */
+            environment: string;
+            /** Integration Id */
+            integration_id: string;
+            /** Integration Revision Fingerprint */
+            integration_revision_fingerprint: string;
+            /** Source Id */
+            source_id: string;
+            time_bar_capability: components["schemas"]["MarketDataTimeBarCapabilityDto"];
+            /** Type Id */
+            type_id: string;
+        };
+        /**
+         * MarketDataSourceReferenceDto
+         * @description Client request reference; the client asserts no canonical source identity.
+         */
+        MarketDataSourceReferenceDto: {
+            /** Expected Type Id */
+            expected_type_id?: string | null;
+            /** Integration Id */
+            integration_id: string;
+            /** Integration Revision Fingerprint */
+            integration_revision_fingerprint: string;
+        };
+        /**
+         * MarketDataSourceSelectionDto
+         * @description Server-derived canonical Market Source identity reported back to the client.
+         */
+        MarketDataSourceSelectionDto: {
+            /** Environment */
+            environment: string;
+            /** Integration Id */
+            integration_id: string;
+            /** Integration Revision Fingerprint */
+            integration_revision_fingerprint: string;
+            /** Source Id */
+            source_id: string;
+            /** Type Id */
+            type_id: string;
+        };
+        /** MarketDataTimeBarCapabilityDto */
+        MarketDataTimeBarCapabilityDto: {
+            /**
+             * Aggregation
+             * @constant
+             */
+            aggregation: "TIME";
+            /** Derived Supported */
+            derived_supported: boolean;
+            /** External Base Step Minutes */
+            external_base_step_minutes: number;
+            /** Maximum Step Minutes */
+            maximum_step_minutes: number;
+            /** Minimum Step Minutes */
+            minimum_step_minutes: number;
+        };
         /**
          * OnlyAdjustmentType
          * @enum {string}
@@ -5451,6 +5817,348 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    create_acquisition_api_v2_market_data_acquisitions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketDataAcquisitionRequestDto"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataAcquisitionDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    get_acquisition_api_v2_market_data_acquisitions__acquisition_id__get: {
+        parameters: {
+            query: {
+                integration_id: string;
+                integration_revision_fingerprint: string;
+                expected_type_id?: string | null;
+            };
+            header?: never;
+            path: {
+                acquisition_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataAcquisitionDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    query_bars_api_v2_market_data_bars_get: {
+        parameters: {
+            query: {
+                integration_id: string;
+                integration_revision_fingerprint: string;
+                instrument_id: string;
+                start_ns: string;
+                end_ns: string;
+                bar_step?: number;
+                bar_aggregation?: "TIME";
+                bar_price_type?: "LAST";
+                expected_type_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataBarsDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    list_sources_api_v2_market_data_sources_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataSourceListDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    list_instruments_api_v2_market_instruments_get: {
+        parameters: {
+            query: {
+                integration_id: string;
+                integration_revision_fingerprint: string;
+                expected_type_id?: string | null;
+                query?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataInstrumentListDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
                 };
             };
         };

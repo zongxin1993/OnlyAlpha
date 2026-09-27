@@ -16,7 +16,10 @@ from onlyalpha.application.market_data_product import (
     OnlyMarketDataSourceProjectionV1,
     OnlyMarketDataSourceReferenceV1,
     OnlyMarketDataSourceSelectionV1,
+    OnlyMarketDataTimeBarCapabilityV1,
 )
+from onlyalpha.domain.enums import OnlyBarAggregation, OnlyPriceType
+from onlyalpha.domain.market import OnlyBarSpecification
 
 _FINGERPRINT = r"^[0-9a-f]{64}$"
 # Exact nanoseconds travel as canonical decimal strings: a JSON number cannot carry
@@ -26,6 +29,19 @@ _NANOSECONDS = r"^(?:0|[1-9][0-9]*)$"
 
 class _Dto(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+
+class MarketDataBarSpecificationDto(_Dto):
+    aggregation: Literal["TIME"]
+    step: int = Field(ge=1, le=240)
+    price_type: Literal["LAST"]
+
+    def to_model(self) -> OnlyBarSpecification:
+        return OnlyBarSpecification(self.step, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
+
+    @classmethod
+    def from_model(cls, value: OnlyBarSpecification) -> MarketDataBarSpecificationDto:
+        return cls(aggregation="TIME", step=value.step, price_type="LAST")
 
 
 class MarketDataSourceSelectionDto(_Dto):
@@ -63,6 +79,24 @@ class MarketDataSourceReferenceDto(_Dto):
         )
 
 
+class MarketDataTimeBarCapabilityDto(_Dto):
+    aggregation: Literal["TIME"]
+    external_base_step_minutes: int
+    derived_supported: bool
+    minimum_step_minutes: int
+    maximum_step_minutes: int
+
+    @classmethod
+    def from_model(cls, value: OnlyMarketDataTimeBarCapabilityV1) -> MarketDataTimeBarCapabilityDto:
+        return cls(
+            aggregation="TIME",
+            external_base_step_minutes=value.external_base_step_minutes,
+            derived_supported=value.derived_supported,
+            minimum_step_minutes=value.minimum_step_minutes,
+            maximum_step_minutes=value.maximum_step_minutes,
+        )
+
+
 class MarketDataSourceProjectionDto(_Dto):
     integration_id: str
     integration_revision_fingerprint: str
@@ -70,6 +104,7 @@ class MarketDataSourceProjectionDto(_Dto):
     type_id: str
     source_id: str
     environment: str
+    time_bar_capability: MarketDataTimeBarCapabilityDto
 
     @classmethod
     def from_model(cls, value: OnlyMarketDataSourceProjectionV1) -> MarketDataSourceProjectionDto:
@@ -80,6 +115,7 @@ class MarketDataSourceProjectionDto(_Dto):
             type_id=value.type_id,
             source_id=value.source_id,
             environment=value.environment,
+            time_bar_capability=MarketDataTimeBarCapabilityDto.from_model(value.time_bar_capability),
         )
 
 
@@ -179,7 +215,7 @@ class MarketDataBarsDto(_Dto):
     display_symbol: str
     venue: str
     market: str
-    bar_specification: str
+    bar_specification: MarketDataBarSpecificationDto
     aggregation_source: str
     adjustment: str
     closed_only: bool
@@ -190,6 +226,8 @@ class MarketDataBarsDto(_Dto):
     revision_fingerprint: str | None
     seal_id: str | None
     bars: tuple[MarketDataBarDto, ...]
+    aggregation_semantics_version: str | None
+    calendar_fingerprint: str | None
 
     @classmethod
     def from_model(cls, value: OnlyMarketDataBarsProjectionV1) -> MarketDataBarsDto:
@@ -200,7 +238,7 @@ class MarketDataBarsDto(_Dto):
             display_symbol=value.display_symbol,
             venue=value.venue,
             market=value.market,
-            bar_specification=value.bar_specification,
+            bar_specification=MarketDataBarSpecificationDto.from_model(value.bar_specification),
             aggregation_source=value.aggregation_source,
             adjustment=value.adjustment,
             closed_only=value.closed_only,
@@ -210,6 +248,8 @@ class MarketDataBarsDto(_Dto):
             revision_id=value.revision_id,
             revision_fingerprint=value.revision_fingerprint,
             seal_id=value.seal_id,
+            aggregation_semantics_version=value.aggregation_semantics_version,
+            calendar_fingerprint=value.calendar_fingerprint,
             bars=tuple(
                 MarketDataBarDto(
                     bar_start_ns=str(item.bar_start_ns),
@@ -231,7 +271,9 @@ class MarketDataAcquisitionRequestDto(_Dto):
     instrument_id: str = Field(min_length=1)
     start_ns: str = Field(pattern=_NANOSECONDS)
     end_ns: str = Field(pattern=_NANOSECONDS)
-    bar_specification: str = "1m"
+    bar_specification: MarketDataBarSpecificationDto = MarketDataBarSpecificationDto(
+        aggregation="TIME", step=1, price_type="LAST"
+    )
     provenance: Literal["REST_BACKFILL"] = "REST_BACKFILL"
 
 
@@ -242,7 +284,7 @@ class MarketDataAcquisitionDto(_Dto):
     source_id: str
     integration_binding_fingerprint: str | None
     instrument_id: str
-    bar_specification: str
+    bar_specification: MarketDataBarSpecificationDto
     start_ns: str = Field(pattern=_NANOSECONDS)
     end_ns: str = Field(pattern=_NANOSECONDS)
     provenance: str
@@ -261,7 +303,7 @@ class MarketDataAcquisitionDto(_Dto):
             source_id=value.source_id,
             integration_binding_fingerprint=value.integration_binding_fingerprint,
             instrument_id=value.instrument_id,
-            bar_specification=value.bar_specification,
+            bar_specification=MarketDataBarSpecificationDto.from_model(value.bar_specification),
             start_ns=str(value.start_ns),
             end_ns=str(value.end_ns),
             provenance=value.provenance,

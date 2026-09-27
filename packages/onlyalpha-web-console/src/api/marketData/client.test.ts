@@ -21,7 +21,8 @@ const sources = { schema_version: 1 as const, sources: [marketDataSource()] };
 const query = {
     instrument_id: "BTCUSDT.TEST",
     start_ns: "1767225600000000000",
-    end_ns: "1767225720000000000"
+    end_ns: "1767225720000000000",
+    bar_specification: { aggregation: "TIME" as const, step: 1, price_type: "LAST" as const }
 };
 
 function stubFetch(response: Response): ReturnType<typeof vi.fn> {
@@ -69,9 +70,24 @@ it("omits an absent type guard and projects the server-derived canonical identit
 
     const url = new URL(String(fetchMock.mock.calls[0]?.[0]), "http://localhost");
     expect(url.searchParams.has("expected_type_id")).toBe(false);
-    expect(url.searchParams.get("bar_specification")).toBe("1m");
+    expect(url.searchParams.get("bar_step")).toBe("1");
     expect(bars.source_selection.source_id).toBe("test.market_data.live");
     expect(bars.revision_fingerprint).toBe("d".repeat(64));
+});
+
+it("rejects a historical response with a different Bar Specification", async () => {
+    stubFetch(
+        json(
+            marketDataBars({
+                bar_specification: { aggregation: "TIME", step: 7, price_type: "LAST" }
+            })
+        )
+    );
+    await expect(
+        new FetchMarketDataApiClient().queryBars(FIXTURE_REFERENCE, query)
+    ).rejects.toMatchObject({
+        code: "CONTRACT_ERROR"
+    });
 });
 
 it("posts an acquisition command carrying a source reference rather than a source selection", async () => {
@@ -90,7 +106,7 @@ it("posts an acquisition command carrying a source reference rather than a sourc
         instrument_id: query.instrument_id,
         start_ns: query.start_ns,
         end_ns: query.end_ns,
-        bar_specification: "1m",
+        bar_specification: { aggregation: "TIME", step: 1, price_type: "LAST" },
         provenance: "REST_BACKFILL"
     });
 });

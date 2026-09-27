@@ -91,3 +91,13 @@ canonical 成功权威始终是 Coverage COMPLETE + Market Data Revision + Seal�
 
 历史查询 fail closed：只有显式 `SEALED_REVISION_NOT_FOUND` 可以投影为"尚无数据"，catalog 不可用、损坏或 schema 不兼容必须
 传播为 Product error，且任何数据库失败都不得触发 provider acquisition。GET 路径只读 canonical database facts，不做任何 mutation。
+
+## 日内 Time-Bar Product 投影
+
+Product 的 Bar Specification 使用 Core 的 `TIME + step + LAST` 语义；当前规则是 1–240 整数分钟，1m 为唯一外部 canonical base，
+step > 1 的已关闭 Bar 是从精确 sealed 1m Revision、插件提供的 session Calendar 和 `TIME_BAR_V1` 聚合规则计算的 INTERNAL 投影。
+Source capability 显式报告是否提供该 Calendar，以及最小/最大 step。GET 使用请求的 1m 范围查找精确 Revision，只输出完全落在
+该范围内且从 session 起点对齐的目标窗口；范围两端不足一个完整窗口时不伪造部分目标 Bar。响应保留 base Revision ID/fingerprint，
+并报告 Calendar fingerprint 和聚合语义版本。缺少完整 base coverage 时返回 acquisition gaps；显式 Acquisition 仍只获取 1m。
+派生 GET 的 base 范围最多七天。Realtime 订阅也只连接 provider 1m，先从 durable 1m facts 重建当前目标窗口，再以同一聚合器
+生成 operational preview 与已关闭目标 Bar；base minute sequence 独立作为连续性 cursor。重建缺分钟时拒绝 READY 并要求刷新历史。

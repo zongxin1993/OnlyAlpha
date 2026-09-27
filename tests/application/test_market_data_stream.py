@@ -1,19 +1,33 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, time, timedelta
+from decimal import Decimal
 from types import SimpleNamespace
 
 from onlyalpha.application.market_data_stream import (
     OnlyMarketDataStreamEventV1,
     OnlyMarketDataStreamSession,
 )
-from onlyalpha.data.identifiers import OnlyMarketDataSourceId
-from onlyalpha.data.models import OnlyRealtimeBarPreviewV1
-from onlyalpha.domain.enums import OnlyAggregationSource, OnlyBarAggregation, OnlyPriceType
-from onlyalpha.domain.identifiers import OnlyInstrumentId
-from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
+from onlyalpha.core.clock import OnlyVirtualClock
+from onlyalpha.data.enums import OnlyMarketDataType
+from onlyalpha.data.identifiers import OnlyDataSequence, OnlyDataVersion, OnlyMarketDataSourceId, OnlyMarketDataUpdateId
+from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate, OnlyRealtimeBarPreviewV1
+from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
+from onlyalpha.domain.enums import (
+    OnlyAdjustmentType,
+    OnlyAggregationSource,
+    OnlyBarAggregation,
+    OnlyPriceType,
+    OnlySessionType,
+)
+from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyInstrumentId, OnlyRuntimeId, OnlyVenueId
+from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone
+from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
+from onlyalpha.market_data.aggregation.time_bar import OnlyTimeBarAggregator
 
 
-def _preview(close: str) -> OnlyRealtimeBarPreviewV1:
+def _preview(close: str, minute: int = 1) -> OnlyRealtimeBarPreviewV1:
     instrument = OnlyInstrumentId.parse("BTCUSDT.BINANCE")
     return OnlyRealtimeBarPreviewV1(
         OnlyMarketDataSourceId("binance.spot.market_data.us"),
@@ -23,19 +37,19 @@ def _preview(close: str) -> OnlyRealtimeBarPreviewV1:
             OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
             OnlyAggregationSource.EXTERNAL,
         ),
-        60_000_000_000,
-        120_000_000_000,
+        minute * 60_000_000_000,
+        (minute + 1) * 60_000_000_000,
         "1",
         "2",
         "0.5",
         close,
         "10",
-        1,
-        2,
+        (minute * 60 + 30) * 1_000_000_000,
+        (minute * 60 + 30) * 1_000_000_000,
     )
 
 
-def _session(events: list[str], *, capacity: int = 2) -> OnlyMarketDataStreamSession:
+def _session(events: list[str], *, capacity: int = 2, **projection: object) -> OnlyMarketDataStreamSession:
     source = SimpleNamespace(
         unsubscribe=lambda _request: events.append("unsubscribe"),
         stop=lambda: events.append("stop"),
@@ -54,6 +68,7 @@ def _session(events: list[str], *, capacity: int = 2) -> OnlyMarketDataStreamSes
         recovery=recovery,  # type: ignore[arg-type]
         reliable_capacity=capacity,
         on_close=lambda _stream_id: events.append("release"),
+        **projection,
     )
     session.activate(OnlyMarketDataStreamEventV1("SUBSCRIBED", {}))
     return session
@@ -83,3 +98,86 @@ def test_reliable_overflow_fails_explicitly_and_close_is_idempotent() -> None:
     session.close()
     session.close()
     assert events == ["unsubscribe", "stop", "recorder", "drain", "recovery", "release"]
+
+
+def test_derived_stream_emits_base_cursor_preview_and_seven_minute_close() -> None:
+    instrument = OnlyInstrumentId.parse("BTCUSDT.BINANCE")
+    source = OnlyMarketDataSourceId("binance.spot.market_data.us")
+    base = OnlyBarType(
+        instrument, OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST), OnlyAggregationSource.EXTERNAL
+    )
+    target = OnlyBarType(
+        instrument, OnlyBarSpecification(7, OnlyBarAggregation.TIME, OnlyPriceType.LAST), OnlyAggregationSource.INTERNAL
+    )
+    calendar = OnlyTradingCalendar(
+        OnlyCalendarId("TEST-24X7"),
+        OnlyVenueId("BINANCE"),
+        OnlyTimeZone("UTC"),
+        (OnlyTradingSession("continuous", time(0), time(0), OnlySessionType.CONTINUOUS),),
+        weekend_days=(),
+    )
+    aggregator = OnlyTimeBarAggregator(base, target, calendar, OnlyVirtualClock(datetime(1970, 1, 1, 1, tzinfo=UTC)))
+    session = _session(
+        [],
+        capacity=20,
+        aggregator=aggregator,
+        instrument=SimpleNamespace(price_precision=2, quantity_precision=0),
+        calendar=calendar,
+    )
+    assert session.next_event(0).event == "SUBSCRIBED"  # type: ignore[union-attr]
+
+    def update(minute: int) -> OnlyMarketDataInboundUpdate:
+        start = datetime(1970, 1, 1, tzinfo=UTC) + timedelta(minutes=minute)
+        end = start + timedelta(minutes=1)
+        bar = OnlyBar(
+            bar_type=base,
+            open=OnlyPrice(Decimal("1.00"), 2),
+            high=OnlyPrice(Decimal("2.00"), 2),
+            low=OnlyPrice(Decimal("0.50"), 2),
+            close=OnlyPrice(Decimal("1.50"), 2),
+            volume=OnlyQuantity(Decimal("10"), 0),
+            quote_volume=None,
+            turnover=None,
+            trade_count=1,
+            open_interest=None,
+            bar_start=start,
+            bar_end=end,
+            ts_event=end,
+            ts_init=end,
+            is_closed=True,
+            revision=0,
+            adjustment_type=OnlyAdjustmentType.RAW,
+            trading_day=start.date(),
+            session_type=OnlySessionType.CONTINUOUS,
+        )
+        return OnlyMarketDataInboundUpdate(
+            OnlyMarketDataUpdateId(f"bar-{minute}"),
+            OnlyRuntimeId("stream"),
+            source,
+            OnlyDataSequence(minute),
+            OnlyDataVersion("v1"),
+            instrument,
+            OnlyMarketDataType.BAR,
+            OnlyBarUpdate(bar),
+            OnlyTimestamp.from_datetime(end),
+            OnlyTimestamp.from_datetime(end),
+        )
+
+    session.emit_closed(update(0))
+    assert session.next_event(0).event == "BASE_CURSOR"  # type: ignore[union-attr]
+    session.emit_preview(_preview("1.75"))
+    preview = session.next_event(0)
+    assert preview is not None and preview.event == "BAR_PREVIEW"
+    assert preview.payload["bar_specification"] == {"aggregation": "TIME", "step": 7, "price_type": "LAST"}
+    assert preview.payload["bar"]["volume"] == "20"  # type: ignore[index]
+    for minute in range(1, 7):
+        session.emit_closed(update(minute))
+    messages = [session.next_event(0) for _ in range(7)]
+    assert [item.event for item in messages if item is not None].count("BAR_CLOSED") == 1
+    closed = messages[-1]
+    assert closed is not None and closed.payload["bar"]["closed"] is True  # type: ignore[index]
+    session.emit_preview(_preview("1.75", 7))
+    next_preview = session.next_event(0)
+    assert next_preview is not None and next_preview.event == "BAR_PREVIEW"
+    assert next_preview.payload["bar"]["bar_start_ns"] == "420000000000"  # type: ignore[index]
+    assert next_preview.payload["bar"]["volume"] == "10"  # type: ignore[index]

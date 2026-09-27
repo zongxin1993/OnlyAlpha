@@ -55,7 +55,7 @@ def test_stream_binds_exact_source_and_cleans_up_disconnect() -> None:
     with _client(service).websocket_connect("/api/v2/market-data/stream") as socket:
         socket.send_json(
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "operation": "SUBSCRIBE_BAR",
                 "source_reference": {
                     "integration_id": "integration",
@@ -63,12 +63,12 @@ def test_stream_binds_exact_source_and_cleans_up_disconnect() -> None:
                     "expected_type_id": "binance.spot.market_data",
                 },
                 "instrument_id": "BTCUSDT.BINANCE",
-                "bar_specification": "1m",
+                "bar_specification": {"aggregation": "TIME", "step": 1, "price_type": "LAST"},
                 "resume_after_sequence": "42",
             }
         )
         assert socket.receive_json()["event"] == "SUBSCRIBED"
-        assert socket.receive_json() == {"schema_version": 1, "event": "STATE", "state": "READY"}
+        assert socket.receive_json() == {"schema_version": 2, "event": "STATE", "state": "READY"}
         assert socket.receive_json()["event"] == "ERROR"
     reference, request = service.request
     assert reference.integration_revision_fingerprint == fingerprint

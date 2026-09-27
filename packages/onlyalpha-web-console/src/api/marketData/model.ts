@@ -4,6 +4,17 @@ const sha256 = z.string().regex(/^[0-9a-f]{64}$/);
 /** Exact nanoseconds travel as canonical decimal strings; JSON numbers lose int64 precision. */
 const nanos = z.string().regex(/^(?:0|[1-9][0-9]*)$/);
 
+export const marketDataBarSpecificationSchema = z.strictObject({
+    aggregation: z.literal("TIME"),
+    step: z.number().int().min(1).max(240),
+    price_type: z.literal("LAST")
+});
+export type MarketDataBarSpecification = z.infer<typeof marketDataBarSpecificationSchema>;
+export const marketDataBarSpecification = (step: number): MarketDataBarSpecification =>
+    marketDataBarSpecificationSchema.parse({ aggregation: "TIME", step, price_type: "LAST" });
+export const formatBarSpecification = (spec: MarketDataBarSpecification): string =>
+    spec.step % 60 === 0 ? `${String(spec.step / 60)}H` : `${String(spec.step)}m`;
+
 /** Client request reference. The browser asserts no canonical Market Source identity. */
 export const marketDataSourceReferenceSchema = z.strictObject({
     integration_id: z.string().min(1),
@@ -26,7 +37,14 @@ export const marketDataSourceSchema = z.strictObject({
     display_name: z.string().min(1),
     type_id: z.string().min(1),
     source_id: z.string().min(1),
-    environment: z.string().min(1)
+    environment: z.string().min(1),
+    time_bar_capability: z.strictObject({
+        aggregation: z.literal("TIME"),
+        external_base_step_minutes: z.literal(1),
+        derived_supported: z.boolean(),
+        minimum_step_minutes: z.number().int().positive(),
+        maximum_step_minutes: z.number().int().positive()
+    })
 });
 
 export const marketDataSourceListSchema = z.strictObject({
@@ -85,7 +103,7 @@ export const marketDataBarsSchema = z.strictObject({
     display_symbol: z.string().min(1),
     venue: z.string().min(1),
     market: z.string().min(1),
-    bar_specification: z.string().min(1),
+    bar_specification: marketDataBarSpecificationSchema,
     aggregation_source: z.string().min(1),
     adjustment: z.string().min(1),
     closed_only: z.boolean(),
@@ -95,6 +113,8 @@ export const marketDataBarsSchema = z.strictObject({
     revision_id: z.string().nullable(),
     revision_fingerprint: sha256.nullable(),
     seal_id: z.string().nullable(),
+    aggregation_semantics_version: z.string().nullable(),
+    calendar_fingerprint: sha256.nullable(),
     bars: z.array(marketDataBarSchema)
 });
 
@@ -105,7 +125,7 @@ export const marketDataAcquisitionSchema = z.strictObject({
     source_id: z.string().min(1),
     integration_binding_fingerprint: sha256.nullable(),
     instrument_id: z.string().min(1),
-    bar_specification: z.string().min(1),
+    bar_specification: marketDataBarSpecificationSchema,
     start_ns: nanos,
     end_ns: nanos,
     provenance: z.string().min(1),

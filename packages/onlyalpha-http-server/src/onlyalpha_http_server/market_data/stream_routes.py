@@ -25,7 +25,7 @@ def create_market_data_stream_router(service: OnlyMarketDataStreamProductService
                 request = MarketDataStreamSubscribeDto.model_validate(await websocket.receive_json())
             except (ValidationError, ValueError):
                 await websocket.send_json(
-                    {"schema_version": 1, "event": "ERROR", "code": "MARKET_DATA_STREAM_REQUEST_INVALID"}
+                    {"schema_version": 2, "event": "ERROR", "code": "MARKET_DATA_STREAM_REQUEST_INVALID"}
                 )
                 return
             reference = request.source_reference
@@ -37,7 +37,7 @@ def create_market_data_stream_router(service: OnlyMarketDataStreamProductService
                     reference.expected_type_id,
                 ),
                 instrument_id=request.instrument_id,
-                bar_specification=request.bar_specification,
+                bar_specification=request.bar_specification.to_model(),
                 resume_after_sequence=int(request.resume_after_sequence),
             )
             while True:
@@ -49,9 +49,9 @@ def create_market_data_stream_router(service: OnlyMarketDataStreamProductService
         except WebSocketDisconnect:
             pass
         except OnlyMarketDataProductError as exc:
-            await websocket.send_json({"schema_version": 1, "event": "ERROR", "code": exc.code, "detail": exc.detail})
+            await websocket.send_json({"schema_version": 2, "event": "ERROR", "code": exc.code, "detail": exc.detail})
         except Exception:
-            await websocket.send_json({"schema_version": 1, "event": "ERROR", "code": "MARKET_DATA_STREAM_UNAVAILABLE"})
+            await websocket.send_json({"schema_version": 2, "event": "ERROR", "code": "MARKET_DATA_STREAM_UNAVAILABLE"})
         finally:
             if session is not None:
                 await asyncio.to_thread(session.close)

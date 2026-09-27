@@ -1,18 +1,22 @@
 import { z } from "zod";
-import { marketDataBarSchema, marketDataSourceReferenceSchema } from "./model";
+import {
+    marketDataBarSchema,
+    marketDataBarSpecificationSchema,
+    marketDataSourceReferenceSchema
+} from "./model";
 
 export const marketDataStreamSubscribeSchema = z.strictObject({
-    schema_version: z.literal(1),
+    schema_version: z.literal(2),
     operation: z.literal("SUBSCRIBE_BAR"),
     source_reference: marketDataSourceReferenceSchema.extend({
         expected_type_id: z.string().min(1)
     }),
     instrument_id: z.string().min(1),
-    bar_specification: z.literal("1m"),
+    bar_specification: marketDataBarSpecificationSchema,
     resume_after_sequence: z.string().regex(/^(?:0|[1-9][0-9]*)$/)
 });
 
-const base = { schema_version: z.literal(1) };
+const base = { schema_version: z.literal(2) };
 export const marketDataStreamEventSchema = z.discriminatedUnion("event", [
     z.strictObject({
         ...base,
@@ -28,10 +32,15 @@ export const marketDataStreamEventSchema = z.discriminatedUnion("event", [
     }),
     z.strictObject({
         ...base,
+        event: z.literal("BASE_CURSOR"),
+        sequence: z.string().regex(/^(?:0|[1-9][0-9]*)$/)
+    }),
+    z.strictObject({
+        ...base,
         event: z.literal("BAR_PREVIEW"),
         source_id: z.string(),
         instrument_id: z.string(),
-        bar_specification: z.literal("1m"),
+        bar_specification: marketDataBarSpecificationSchema,
         bar: marketDataBarSchema
     }),
     z.strictObject({
@@ -39,7 +48,7 @@ export const marketDataStreamEventSchema = z.discriminatedUnion("event", [
         event: z.literal("BAR_CLOSED"),
         source_id: z.string(),
         instrument_id: z.string(),
-        bar_specification: z.literal("1m"),
+        bar_specification: marketDataBarSpecificationSchema,
         sequence: z.string().regex(/^(?:0|[1-9][0-9]*)$/),
         bar: marketDataBarSchema
     }),

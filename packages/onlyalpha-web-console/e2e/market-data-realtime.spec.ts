@@ -12,7 +12,14 @@ const source = {
     display_name: "Binance Spot US",
     type_id: "binance.spot.market_data",
     source_id: sourceId,
-    environment: "US"
+    environment: "US",
+    time_bar_capability: {
+        aggregation: "TIME",
+        external_base_step_minutes: 1,
+        derived_supported: true,
+        minimum_step_minutes: 1,
+        maximum_step_minutes: 240
+    }
 };
 const instrument = {
     instrument_id: "BTCUSDT.BINANCE",
@@ -28,10 +35,13 @@ const instrument = {
 const json = (route: Route, body: unknown) =>
     route.fulfill({ contentType: "application/json", body: JSON.stringify(body) });
 
-async function controlledRealtime(page: Page) {
+async function controlledRealtime(page: Page, holdRecovery = false) {
     let socket: WebSocketRoute | null = null;
     let connections = 0;
+    let releaseRecovery: (() => void) | null = null;
+    let emitStalePreview: (() => void) | null = null;
     const cursors: string[] = [];
+    const steps: number[] = [];
     await page.route("**/api/v2/**", (route) => {
         const url = new URL(route.request().url());
         if (url.pathname === "/api/v2/market-data/sources")
@@ -51,9 +61,11 @@ async function controlledRealtime(page: Page) {
         if (url.pathname === "/api/v2/market-data/bars") {
             const start = BigInt(url.searchParams.get("start_ns") ?? "0");
             const end = url.searchParams.get("end_ns") ?? "0";
+            const step = Number(url.searchParams.get("bar_step") ?? "1");
+            const duration = BigInt(step) * minuteNs;
             const bar = (offset: bigint, close: string) => ({
                 bar_start_ns: (start + offset).toString(),
-                bar_end_ns: (start + offset + minuteNs).toString(),
+                bar_end_ns: (start + offset + duration).toString(),
                 open: "100",
                 high: "103",
                 low: "99",
@@ -74,8 +86,8 @@ async function controlledRealtime(page: Page) {
                 display_symbol: instrument.display_symbol,
                 venue: instrument.venue,
                 market: instrument.market,
-                bar_specification: "1m",
-                aggregation_source: "EXTERNAL",
+                bar_specification: { aggregation: "TIME", step, price_type: "LAST" },
+                aggregation_source: step === 1 ? "EXTERNAL" : "INTERNAL",
                 adjustment: "RAW",
                 closed_only: true,
                 start_ns: start.toString(),
@@ -93,7 +105,9 @@ async function controlledRealtime(page: Page) {
                 revision_id: "revision",
                 revision_fingerprint: historicalRevision,
                 seal_id: "seal",
-                bars: [bar(BigInt(0), "101"), bar(minuteNs, "102")]
+                aggregation_semantics_version: step === 1 ? null : "TIME_BAR_V1",
+                calendar_fingerprint: step === 1 ? null : "a".repeat(64),
+                bars: [bar(BigInt(0), "101"), bar(duration, "102")]
             });
         }
         return route.fallback();
@@ -102,10 +116,14 @@ async function controlledRealtime(page: Page) {
         socket = ws;
         const connection = ++connections;
         ws.onMessage((message) => {
-            const request = JSON.parse(String(message)) as { resume_after_sequence: string };
+            const request = JSON.parse(String(message)) as {
+                resume_after_sequence: string;
+                bar_specification: { aggregation: "TIME"; step: number; price_type: "LAST" };
+            };
             cursors.push(request.resume_after_sequence);
+            steps.push(request.bar_specification.step);
             const send = (event: object) => {
-                ws.send(JSON.stringify({ schema_version: 1, ...event }));
+                ws.send(JSON.stringify({ schema_version: 2, ...event }));
             };
             send({
                 event: "SUBSCRIBED",
@@ -115,41 +133,60 @@ async function controlledRealtime(page: Page) {
             });
             send({ event: "STATE", state: "RECOVERING" });
             const sequence = (BigInt(request.resume_after_sequence) + BigInt(1)).toString();
+            const derivedBar = {
+                bar_start_ns: (BigInt(sequence) * minuteNs).toString(),
+                bar_end_ns: (
+                    (BigInt(sequence) + BigInt(request.bar_specification.step)) *
+                    minuteNs
+                ).toString(),
+                open: "102",
+                high: "104",
+                low: "101",
+                close: "103",
+                volume: "3",
+                closed: false
+            };
+            send({
+                event: "BAR_PREVIEW",
+                source_id: sourceId,
+                instrument_id: instrument.instrument_id,
+                bar_specification: request.bar_specification,
+                bar: derivedBar
+            });
             send({
                 event: "BAR_CLOSED",
                 source_id: sourceId,
                 instrument_id: instrument.instrument_id,
-                bar_specification: "1m",
+                bar_specification: request.bar_specification,
                 sequence,
-                bar: {
-                    bar_start_ns: (
-                        BigInt(sequence) *
-                        BigInt(60) *
-                        BigInt(1_000_000_000)
-                    ).toString(),
-                    bar_end_ns: (
-                        (BigInt(sequence) + BigInt(1)) *
-                        BigInt(60) *
-                        BigInt(1_000_000_000)
-                    ).toString(),
-                    open: "102",
-                    high: "104",
-                    low: "101",
-                    close: "103",
-                    volume: "3",
-                    closed: true
-                }
+                bar: { ...derivedBar, closed: true }
             });
-            setTimeout(
-                () => {
+            emitStalePreview = () => {
+                send({
+                    event: "BAR_PREVIEW",
+                    source_id: sourceId,
+                    instrument_id: instrument.instrument_id,
+                    bar_specification: request.bar_specification,
+                    bar: {
+                        ...derivedBar,
+                        bar_start_ns: ((BigInt(sequence) - BigInt(1)) * minuteNs).toString(),
+                        bar_end_ns: (BigInt(sequence) * minuteNs).toString()
+                    }
+                });
+                send({ event: "STATE", state: "RECOVERING" });
+            };
+            if (connection === 1 || !holdRecovery) send({ event: "STATE", state: "READY" });
+            else
+                releaseRecovery = () => {
                     send({ event: "STATE", state: "READY" });
-                },
-                connection === 1 ? 0 : 500
-            );
+                };
         });
     });
     return {
         cursors,
+        steps,
+        releaseRecovery: () => releaseRecovery?.(),
+        emitStalePreview: () => emitStalePreview?.(),
         disconnect: async () => {
             await socket?.close({ code: 1012, reason: "controlled disconnect" });
         }
@@ -159,7 +196,7 @@ async function controlledRealtime(page: Page) {
 test("history to realtime rollover and reconnect gap repair — CONTROLLED_TEST_EVIDENCE", async ({
     page
 }) => {
-    const fixture = await controlledRealtime(page);
+    const fixture = await controlledRealtime(page, true);
     await page.goto("/");
     await page.getByRole("combobox", { name: "数据源" }).selectOption(integrationId);
     await page.getByRole("searchbox", { name: "搜索标的" }).fill("BTCUSDT");
@@ -170,7 +207,52 @@ test("history to realtime rollover and reconnect gap repair — CONTROLLED_TEST_
     await fixture.disconnect();
     await expect(page.getByTestId("market-data-status")).toContainText("● 行情中断");
     await expect(page.getByTestId("market-data-status")).toContainText("● 恢复中");
+    fixture.releaseRecovery();
     await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
     expect(fixture.cursors).toHaveLength(2);
     expect(BigInt(fixture.cursors[1] ?? "0")).toBe(BigInt(fixture.cursors[0] ?? "0") + BigInt(1));
+});
+
+test("preset and custom periods subscribe to matching derived realtime bars — CONTROLLED_TEST_EVIDENCE", async ({
+    page
+}) => {
+    const fixture = await controlledRealtime(page);
+    await page.goto("/");
+    await page.getByRole("combobox", { name: "数据源" }).selectOption(integrationId);
+    await page.getByRole("searchbox", { name: "搜索标的" }).fill("BTCUSDT");
+    await page.getByRole("searchbox", { name: "搜索标的" }).press("Enter");
+    await page.getByRole("button", { name: /BTCUSDT\.BINANCE/ }).click();
+    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+
+    await page.getByRole("combobox", { name: "时间周期" }).selectOption("15");
+    await expect.poll(() => fixture.steps[fixture.steps.length - 1]).toBe(15);
+    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+
+    await page.getByRole("combobox", { name: "时间周期" }).selectOption("custom");
+    await page.getByRole("spinbutton", { name: "自定义周期分钟数" }).fill("7");
+    await page.getByRole("button", { name: "应用" }).click();
+    await expect.poll(() => fixture.steps[fixture.steps.length - 1]).toBe(7);
+    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+
+    await page.getByRole("spinbutton", { name: "自定义周期分钟数" }).fill("37");
+    await page.getByRole("button", { name: "应用" }).click();
+    await expect.poll(() => fixture.steps[fixture.steps.length - 1]).toBe(37);
+    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+    expect(fixture.steps).toEqual([1, 15, 7, 37]);
+});
+
+test("a stale realtime preview cannot crash the chart — CONTROLLED_TEST_EVIDENCE", async ({
+    page
+}) => {
+    const fixture = await controlledRealtime(page);
+    await page.goto("/");
+    await page.getByRole("combobox", { name: "数据源" }).selectOption(integrationId);
+    await page.getByRole("searchbox", { name: "搜索标的" }).fill("BTCUSDT");
+    await page.getByRole("searchbox", { name: "搜索标的" }).press("Enter");
+    await page.getByRole("button", { name: /BTCUSDT\.BINANCE/ }).click();
+    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+
+    fixture.emitStalePreview();
+    await expect(page.getByTestId("market-data-status")).toContainText("● 恢复中");
+    await expect(page.getByTestId("price-chart").locator("canvas").first()).toBeVisible();
 });

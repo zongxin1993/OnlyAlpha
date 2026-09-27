@@ -25,3 +25,18 @@ def test_forming_preview_is_not_a_canonical_market_fact() -> None:
     ingress = (ROOT / "src/onlyalpha/market_data/durable/ingress.py").read_text(encoding="utf-8")
     assert "class OnlyRealtimeBarPreviewV1" in models
     assert "OnlyRealtimeBarPreviewV1" not in ingress
+
+
+def test_real_time_bar_path_has_typed_specification_without_period_whitelist() -> None:
+    product = (ROOT / "src/onlyalpha/application/market_data_product.py").read_text(encoding="utf-8")
+    stream = (ROOT / "src/onlyalpha/application/market_data_stream.py").read_text(encoding="utf-8")
+    aggregator = (ROOT / "src/onlyalpha/market_data/aggregation/time_bar.py").read_text(encoding="utf-8")
+    workspace = (ROOT / "packages/onlyalpha-web-console/src/features/workspace/useMarketDataChart.ts").read_text(
+        encoding="utf-8"
+    )
+    assert "SUPPORTED_BAR_SPECIFICATION" not in product
+    assert "bar_specification: OnlyBarSpecification" in product
+    assert "bar_specification: OnlyBarSpecification" in stream
+    assert "{3, 5, 15}" not in aggregator
+    assert "Timeframe" not in workspace
+    assert "bar_specification: barSpecification" in workspace

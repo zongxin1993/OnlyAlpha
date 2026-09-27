@@ -6,6 +6,7 @@ import {
     marketDataInstrumentListSchema,
     marketDataSourceListSchema,
     type MarketDataAcquisition,
+    type MarketDataBarSpecification,
     type MarketDataBars,
     type MarketDataInstrument,
     type MarketDataSource,
@@ -28,7 +29,7 @@ export interface MarketDataBarsQuery {
     /** Canonical decimal nanoseconds; never a JSON number. */
     readonly start_ns: string;
     readonly end_ns: string;
-    readonly bar_specification?: string;
+    readonly bar_specification: MarketDataBarSpecification;
 }
 
 export type { MarketDataSource, MarketDataSourceReference };
@@ -118,7 +119,9 @@ function barsParams(
     params.set("instrument_id", query.instrument_id);
     params.set("start_ns", query.start_ns);
     params.set("end_ns", query.end_ns);
-    params.set("bar_specification", query.bar_specification ?? "1m");
+    params.set("bar_step", String(query.bar_specification.step));
+    params.set("bar_aggregation", query.bar_specification.aggregation);
+    params.set("bar_price_type", query.bar_specification.price_type);
     return params;
 }
 
@@ -152,11 +155,17 @@ export class FetchMarketDataApiClient implements MarketDataApiClient {
         query: MarketDataBarsQuery,
         signal?: AbortSignal
     ) {
-        return request(
+        const result = await request(
             marketDataBarsSchema,
             `/api/v2/market-data/bars?${barsParams(reference, query).toString()}`,
             read(signal)
         );
+        if (result.bar_specification.step !== query.bar_specification.step)
+            throw new MarketDataWebError(
+                "CONTRACT_ERROR",
+                "Market Data returned a different Bar Specification"
+            );
+        return result;
     }
     async createAcquisition(reference: MarketDataSourceReference, query: MarketDataBarsQuery) {
         return request(marketDataAcquisitionSchema, "/api/v2/market-data/acquisitions", {
@@ -166,7 +175,7 @@ export class FetchMarketDataApiClient implements MarketDataApiClient {
                 instrument_id: query.instrument_id,
                 start_ns: query.start_ns,
                 end_ns: query.end_ns,
-                bar_specification: query.bar_specification ?? "1m",
+                bar_specification: query.bar_specification,
                 provenance: "REST_BACKFILL"
             })
         });
