@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -68,9 +68,11 @@ from onlyalpha.market_data.durable import (
     OnlyInMemoryMarketFactStore,
     OnlyMarketDataAcquisitionAttempt,
     OnlyMarketDataAcquisitionIntent,
+    OnlyMarketDataConflictError,
     OnlyMarketDataRevision,
     OnlyMarketDataScope,
     OnlyMarketDataSeal,
+    only_deduplicate_facts,
 )
 from onlyalpha.market_data.resolution import OnlyBarCapability
 from onlyalpha.plugin.capabilities import OnlyDataSourceCapabilities
@@ -1339,6 +1341,38 @@ def test_query_fails_closed_on_corrupt_seal_and_fact_store_outage(tmp_path: Path
         harness.service.query_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
     assert store_error.value.code == "MARKET_DATA_FACT_STORE_UNAVAILABLE"
     assert harness.provider.bar_fetches == 1
+
+
+def test_duplicate_market_fact_ignores_capture_provenance_but_not_market_values(tmp_path: Path) -> None:
+    harness = _service(tmp_path)
+    reference = _reference(harness.revision_fingerprint)
+    start_ns, end_ns = _range()
+    result = harness.service.acquire_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
+    assert result.status == "COMPLETE" and result.revision_id is not None
+    revision, _ = harness.catalog.load_sealed_revision(result.revision_id)
+    [fact, *_] = harness.service._facts.read_revision_facts(revision, revision.scope)
+
+    duplicate_payload = json.loads(json.dumps(fact.canonical_payload))
+    duplicate_payload["runtime_id"] = "market-data-stream:reconnected"
+    duplicate_payload["ts_init"] = "2026-01-01T00:01:00.123456Z"
+    duplicate = replace(
+        fact,
+        raw_event_id="raw-event:reconnected",
+        ts_receive_ns=fact.ts_receive_ns + 123_456_000,
+        canonical_payload=duplicate_payload,
+        canonical_payload_hash=only_canonical_fingerprint(duplicate_payload),
+    )
+    assert len(only_deduplicate_facts((fact, duplicate))) == 1
+
+    conflicting_payload = json.loads(json.dumps(duplicate_payload))
+    conflicting_payload["payload"]["value"]["close"]["value"] = "999.00"
+    conflicting = replace(
+        duplicate,
+        canonical_payload=conflicting_payload,
+        canonical_payload_hash=only_canonical_fingerprint(conflicting_payload),
+    )
+    with pytest.raises(OnlyMarketDataConflictError, match="CANONICAL_FACT_CONFLICT"):
+        only_deduplicate_facts((fact, conflicting))
 
 
 def test_historical_query_is_mutation_free(tmp_path: Path) -> None:
