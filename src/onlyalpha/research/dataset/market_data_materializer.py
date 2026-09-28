@@ -10,12 +10,16 @@ from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate
 from onlyalpha.domain.calendar import OnlyTradingCalendar
-from onlyalpha.domain.enums import OnlyAggregationSource
 from onlyalpha.domain.market import OnlyBarType
 from onlyalpha.market_data.aggregation.time_bar import OnlyBarAggregationError, OnlyTimeBarAggregator
 from onlyalpha.market_data.durable.models import OnlyMarketDataScope
 from onlyalpha.market_data.durable.revision import OnlyHistoricalMarketDataQueryService
-from onlyalpha.market_data.resolution import OnlyBarConstructionIdentity, OnlyBarResolutionMode
+from onlyalpha.market_data.resolution import (
+    OnlyBarConstructionAlgorithmRegistry,
+    OnlyBarConstructionIdentity,
+    OnlyBarResolutionMode,
+)
+from onlyalpha.market_data.subscriptions import OnlyIncompleteBarPolicy, OnlyMissingBarPolicy
 
 from .definition import OnlyResearchDatasetDefinition
 from .identity import only_canonical_bars, only_content_fingerprint, only_snapshot_fingerprint
@@ -27,7 +31,7 @@ from .lineage import (
 )
 from .manifest import OnlyResearchDatasetProvenance, OnlyResearchDatasetSnapshot
 from .ports import OnlyResearchDatasetSnapshotStore
-from .schema import RESEARCH_BAR_DATASET_SCHEMA_V1
+from .schema import RESEARCH_BAR_DATASET_SCHEMA_V2
 from .validation import OnlyResearchDatasetError, only_validate_dataset_bars
 
 
@@ -108,11 +112,9 @@ class OnlySealedMarketDataDatasetMaterializer:
                 or construction.data_version != scope.data_version
             ):
                 raise OnlyResearchDatasetError("DATASET_MARKET_DATA_SCOPE_MISMATCH")
-            if construction.plan.target_specification != plan.definition.bar_specification or (
-                construction.plan.mode is OnlyBarResolutionMode.EXTERNAL_NATIVE
-            ) != (plan.definition.aggregation_source is OnlyAggregationSource.EXTERNAL):
+            if construction.plan.target_semantic != plan.definition.bar_semantic:
                 raise OnlyResearchDatasetError("DATASET_BAR_CONSTRUCTION_MISMATCH")
-            if construction.plan.mode is OnlyBarResolutionMode.EXTERNAL_NATIVE:
+            if construction.plan.mode is OnlyBarResolutionMode.PROVIDER_NATIVE:
                 if construction != scope.bar_construction:
                     raise OnlyResearchDatasetError("DATASET_BAR_CONSTRUCTION_MISMATCH")
             elif (
@@ -120,7 +122,7 @@ class OnlySealedMarketDataDatasetMaterializer:
                 or construction.base_revision_fingerprint != revision.fingerprint
                 or construction.base_seal_id != seal.seal_id
                 or scope.bar_construction is None
-                or scope.bar_construction.plan.target_specification != construction.plan.base_specification
+                or scope.bar_construction.plan.target_semantic != construction.plan.base_semantic
                 or construction.plan.alignment_id != scope.bar_construction.plan.alignment_id
                 or construction.plan.integration_revision_fingerprint
                 != scope.bar_construction.plan.integration_revision_fingerprint
@@ -135,18 +137,22 @@ class OnlySealedMarketDataDatasetMaterializer:
                 if not isinstance(update.payload, OnlyBarUpdate):
                     raise OnlyResearchDatasetError("DATASET_MARKET_DATA_FACT_KIND_INVALID")
                 instrument_bars.append(update.payload.bar)
-            if construction.plan.mode is OnlyBarResolutionMode.INTERNAL_DERIVED:
+            if construction.plan.mode is OnlyBarResolutionMode.DERIVED:
                 assert calendar is not None
+                recipe = construction.plan.resolved_recipe
+                OnlyBarConstructionAlgorithmRegistry().require(recipe)
+                assert recipe.incomplete_policy is not None
+                assert recipe.missing_policy is not None
                 source_type = instrument_bars[0].bar_type if instrument_bars else None
                 if source_type is None:
                     raise OnlyResearchDatasetError("DATASET_DERIVED_BASE_UNPROVABLE")
                 aggregator = OnlyTimeBarAggregator(
                     source_type,
-                    OnlyBarType(
-                        source_type.instrument_id, plan.definition.bar_specification, OnlyAggregationSource.INTERNAL
-                    ),
+                    OnlyBarType(source_type.instrument_id, plan.definition.bar_semantic),
                     calendar,
                     OnlyBacktestClock(plan.definition.time_range.end),
+                    incomplete_policy=OnlyIncompleteBarPolicy(recipe.incomplete_policy.value),
+                    missing_policy=OnlyMissingBarPolicy(recipe.missing_policy.value),
                 )
                 try:
                     instrument_bars = [
@@ -171,7 +177,10 @@ class OnlySealedMarketDataDatasetMaterializer:
                     None,
                     ((str(scope.start_ns), str(scope.end_ns)),),
                     ((str(scope.start_ns), str(scope.end_ns)),),
-                    {"bar_construction_fingerprint": construction.fingerprint},
+                    {
+                        "bar_construction_fingerprint": construction.fingerprint,
+                        "construction_recipe": construction.plan.resolved_recipe.to_dict(),
+                    },
                 )
             )
             revision_bindings.append(
@@ -192,7 +201,7 @@ class OnlySealedMarketDataDatasetMaterializer:
         construction_fingerprint = only_canonical_fingerprint(tuple(construction_bindings))
         fingerprint = only_snapshot_fingerprint(
             plan.definition,
-            RESEARCH_BAR_DATASET_SCHEMA_V1,
+            RESEARCH_BAR_DATASET_SCHEMA_V2,
             content,
             len(canonical),
             construction_fingerprint,
@@ -202,7 +211,7 @@ class OnlySealedMarketDataDatasetMaterializer:
             raise OnlyResearchDatasetError("DATASET_INPUT_INVALID: audit time must be UTC")
         snapshot = OnlyResearchDatasetSnapshot(
             plan.definition,
-            RESEARCH_BAR_DATASET_SCHEMA_V1,
+            RESEARCH_BAR_DATASET_SCHEMA_V2,
             content,
             len(canonical),
             fingerprint,

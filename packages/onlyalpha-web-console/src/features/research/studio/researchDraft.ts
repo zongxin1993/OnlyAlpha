@@ -13,12 +13,9 @@ export interface DatasetDraft {
     readonly registeredId: string;
     readonly start: string;
     readonly end: string;
-    readonly step: string;
-    readonly aggregation: "TIME" | "TICK" | "VOLUME" | "VALUE";
+    readonly durationMinutes: string;
     readonly priceType: "LAST" | "BID" | "ASK" | "MID" | "MARK";
-    readonly aggregationSource: "EXTERNAL" | "INTERNAL";
     readonly adjustmentType: "RAW" | "FORWARD" | "BACKWARD";
-    readonly adjustmentReference: string;
 }
 
 export interface ParameterDraft {
@@ -130,12 +127,9 @@ export const initialResearchDraft = (): ResearchDraft => ({
         registeredId: "",
         start: "",
         end: "",
-        step: "1",
-        aggregation: "TIME",
+        durationMinutes: "1",
         priceType: "LAST",
-        aggregationSource: "EXTERNAL",
-        adjustmentType: "RAW",
-        adjustmentReference: ""
+        adjustmentType: "RAW"
     },
     calculations: [],
     eligibility: null,

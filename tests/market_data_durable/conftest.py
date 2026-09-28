@@ -17,16 +17,13 @@ from onlyalpha.data.models import (
 )
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
-    OnlyAggregationSource,
-    OnlyBarAggregation,
     OnlyOrderSide,
-    OnlyPriceType,
     OnlySessionType,
 )
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRuntimeId, OnlyTradeId
 from onlyalpha.domain.market import (
     OnlyBar,
-    OnlyBarSpecification,
+    OnlyBarSemantic,
     OnlyBarType,
     OnlyMarketReferenceKind,
     OnlyMarketReferenceTick,
@@ -37,7 +34,6 @@ from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.market_data.resolution import (
     OnlyBarCapability,
     OnlyBarConstructionIdentity,
-    OnlyBarIntervalKind,
     only_plan_bar_resolution,
 )
 
@@ -45,24 +41,16 @@ SOURCE = OnlyMarketDataSourceId("BINANCE_SPOT")
 INSTRUMENT = OnlyInstrumentId.parse("BTCUSDT.BINANCE")
 VERSION = OnlyDataVersion("BINANCE_SPOT_V1")
 BASE = datetime(2026, 1, 1, tzinfo=UTC)
-BAR_TYPE = OnlyBarType(
-    INSTRUMENT,
-    OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-    OnlyAggregationSource.EXTERNAL,
-)
+BAR_TYPE = OnlyBarType(INSTRUMENT, OnlyBarSemantic.fixed_duration(1))
 BAR_TYPE_ID = only_canonical_fingerprint(BAR_TYPE.to_dict())
 
 
 def bar_construction(instrument: OnlyInstrumentId = INSTRUMENT) -> OnlyBarConstructionIdentity:
     return OnlyBarConstructionIdentity.build(
         only_plan_bar_resolution(
-            BAR_TYPE.specification,
-            (
-                OnlyBarCapability(
-                    BAR_TYPE.specification, OnlyBarIntervalKind.FIXED_DURATION, "UTC", True, True, grid_origin_ns=0
-                ),
-            ),
-            alignment_id="UTC",
+            BAR_TYPE.semantic,
+            (OnlyBarCapability(BAR_TYPE.semantic, True, True, "UTC", grid_origin_ns=0),),
+            calendar_fingerprint="UTC",
             source_id=str(SOURCE),
             instrument_id=str(instrument),
             integration_revision_fingerprint="a" * 64,

@@ -29,17 +29,14 @@ from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.data.identity import only_bar_update_id, only_trade_update_id
 from onlyalpha.data.models import OnlyMarketDataSubscriptionRequest, OnlyMarketReferenceUpdate, OnlyTradeTickUpdate
 from onlyalpha.domain.enums import (
-    OnlyAggregationSource,
     OnlyAssetClass,
-    OnlyBarAggregation,
     OnlyCurrencyType,
     OnlyInstrumentType,
     OnlyMarketType,
-    OnlyPriceType,
 )
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRawSymbol, OnlyRuntimeId
 from onlyalpha.domain.instrument import OnlyInstrument
-from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.value import OnlyCurrency, OnlyPrice, OnlyQuantity
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.market_data.durable import (
@@ -69,11 +66,7 @@ def _bar_type() -> tuple[OnlyInstrument, OnlyBarType]:
         tick_size=OnlyPrice(Decimal("0.01"), 2),
         step_size=OnlyQuantity(Decimal("1"), 0),
     )
-    return instrument, OnlyBarType(
-        instrument_id,
-        OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-        OnlyAggregationSource.EXTERNAL,
-    )
+    return instrument, OnlyBarType(instrument_id, OnlyBarSemantic.fixed_duration(1))
 
 
 def _request(tmp_path: Path, *, plugin_config: object | None = None) -> OnlyDataSourceCreateRequest:
@@ -150,11 +143,7 @@ def test_public_market_data_bar_subscription_connects_to_resolved_combined_strea
 def test_native_subscription_uses_same_exact_fifteen_minute_interval(tmp_path: Path) -> None:
     request = _request(tmp_path)
     instrument, _ = _bar_type()
-    native_type = OnlyBarType(
-        instrument.instrument_id,
-        OnlyBarSpecification(15, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-        OnlyAggregationSource.EXTERNAL,
-    )
+    native_type = OnlyBarType(instrument.instrument_id, OnlyBarSemantic.fixed_duration(15))
     resource = OnlyBinanceSpotDataSourceFactory().create(
         replace(request, bar_types={instrument.instrument_id: native_type})
     )
@@ -163,10 +152,8 @@ def test_native_subscription_uses_same_exact_fifteen_minute_interval(tmp_path: P
     )
     assert resource._streams(subscription) == ("btcusdt@kline_15m",)  # noqa: SLF001
     assert (
-        OnlyBinanceSpotDataSourceFactory()
-        .bar_capabilities(request.plugin_config, instrument.instrument_id)[3]
-        .specification
-        == native_type.specification
+        OnlyBinanceSpotDataSourceFactory().bar_capabilities(request.plugin_config, instrument.instrument_id)[3].semantic
+        == native_type.semantic
     )
     with pytest.raises(OnlyBinanceError, match="BINANCE_KLINE_INTERVAL_MISMATCH"):
         resource._normalize_event(  # noqa: SLF001

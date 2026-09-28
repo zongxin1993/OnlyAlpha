@@ -18,7 +18,7 @@ def _bar(config: OnlyClusterRunConfig, index: int, close: str) -> OnlyBar:
     return OnlyBar(
         bar_type=config.cluster.factors[0]
         .subscriptions.instrument_bars[0]
-        .bar_specification.to_bar_type(config.reference_data.instruments[0].instrument_id),
+        .bar_semantic.to_bar_type(config.reference_data.instruments[0].instrument_id),
         open=OnlyPrice(value, 2),
         high=OnlyPrice(value, 2),
         low=OnlyPrice(value, 2),
@@ -45,7 +45,7 @@ def test_macd_decimal_values_warmup_and_duplicate_idempotency() -> None:
     bar_type = (
         config.cluster.factors[0]
         .subscriptions.instrument_bars[0]
-        .bar_specification.to_bar_type(config.reference_data.instruments[0].instrument_id)
+        .bar_semantic.to_bar_type(config.reference_data.instruments[0].instrument_id)
     )
     indicator = OnlyMacdIndicator(
         OnlyMacdIndicatorConfig(OnlyIndicatorId("macd-test"), bar_type, 2, 3, 2, warmup_bars=3)
@@ -71,7 +71,7 @@ def test_macd_rejects_out_of_order_and_open_bars() -> None:
     bar_type = (
         config.cluster.factors[0]
         .subscriptions.instrument_bars[0]
-        .bar_specification.to_bar_type(config.reference_data.instruments[0].instrument_id)
+        .bar_semantic.to_bar_type(config.reference_data.instruments[0].instrument_id)
     )
     indicator = OnlyMacdIndicator(
         OnlyMacdIndicatorConfig(OnlyIndicatorId("macd-order"), bar_type, 2, 3, 2, warmup_bars=3)

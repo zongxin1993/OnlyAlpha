@@ -8,9 +8,9 @@ from enum import StrEnum
 
 from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_payload
-from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyAggregationSource
 from onlyalpha.domain.identifiers import OnlyInstrumentId
-from onlyalpha.domain.market import OnlyBarSpecification
+from onlyalpha.domain.market import OnlyBarSemantic
+from onlyalpha.market_data.resolution import OnlyBarConstructionRequirement
 
 STRATEGY_REVISION_SCHEMA_VERSION = 1
 
@@ -80,71 +80,50 @@ class OnlyStrategyUniverse:
 
 @dataclass(frozen=True, slots=True)
 class OnlyStrategyMarketInputContract:
-    bar_specification: OnlyBarSpecification
-    aggregation_source: OnlyAggregationSource
-    adjustment_type: OnlyAdjustmentType
-    adjustment_reference: str | None = None
+    bar_semantic: OnlyBarSemantic
+    construction_requirement: OnlyBarConstructionRequirement
     data_kind: OnlyStrategyDataKind = OnlyStrategyDataKind.BAR
     observation_admission: OnlyStrategyObservationAdmission = OnlyStrategyObservationAdmission.FINAL_ONLY
-    schema_version: int = 1
+    schema_version: int = 2
 
     def __post_init__(self) -> None:
-        if self.schema_version != 1:
+        if self.schema_version != 2:
             raise ValueError("unsupported Strategy Market Input Contract schema")
         if self.data_kind is not OnlyStrategyDataKind.BAR:
             raise ValueError("Strategy Market Input V1 supports BAR only")
         if self.observation_admission is not OnlyStrategyObservationAdmission.FINAL_ONLY:
             raise ValueError("Strategy Market Input V1 admits FINAL bars only")
-        if self.adjustment_type is OnlyAdjustmentType.RAW and self.adjustment_reference is not None:
-            raise ValueError("RAW Strategy input cannot declare an adjustment reference")
+        recipe = self.construction_requirement.recipe
+        if recipe is None or recipe.target_semantic != self.bar_semantic:
+            raise ValueError("Strategy Market Input must freeze one exact construction recipe")
 
     def to_dict(self) -> dict[str, object]:
         return {
             "schema_version": self.schema_version,
             "data_kind": self.data_kind.value,
-            "bar_specification": {
-                "step": self.bar_specification.step,
-                "aggregation": self.bar_specification.aggregation.value,
-                "price_type": self.bar_specification.price_type.value,
-            },
-            "aggregation_source": self.aggregation_source.value,
-            "adjustment_type": self.adjustment_type.value,
-            "adjustment_reference": self.adjustment_reference,
+            "bar_semantic": self.bar_semantic.to_dict(),
+            "construction_requirement": self.construction_requirement.to_dict(),
             "observation_admission": self.observation_admission.value,
         }
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> OnlyStrategyMarketInputContract:
-        from onlyalpha.domain.enums import OnlyBarAggregation, OnlyPriceType
-
         _exact(
             payload,
             {
                 "schema_version",
                 "data_kind",
-                "bar_specification",
-                "aggregation_source",
-                "adjustment_type",
-                "adjustment_reference",
+                "bar_semantic",
+                "construction_requirement",
                 "observation_admission",
             },
             "Strategy Market Input Contract",
         )
-        bar = _mapping(payload["bar_specification"], "Strategy bar specification")
-        _exact(bar, {"step", "aggregation", "price_type"}, "Strategy bar specification")
-        step = bar["step"]
-        if isinstance(step, bool) or not isinstance(step, int):
-            raise ValueError("Strategy bar step must be an integer")
-        adjustment_reference = payload["adjustment_reference"]
-        if adjustment_reference is not None and not isinstance(adjustment_reference, str):
-            raise ValueError("Strategy adjustment reference must be a string or null")
+        bar = _mapping(payload["bar_semantic"], "Strategy bar specification")
+        requirement = _mapping(payload["construction_requirement"], "Strategy construction requirement")
         return cls(
-            OnlyBarSpecification(
-                step, OnlyBarAggregation(_string(bar, "aggregation")), OnlyPriceType(_string(bar, "price_type"))
-            ),
-            OnlyAggregationSource(_string(payload, "aggregation_source")),
-            OnlyAdjustmentType(_string(payload, "adjustment_type")),
-            adjustment_reference,
+            OnlyBarSemantic.from_dict(bar),
+            OnlyBarConstructionRequirement.from_dict(requirement),
             OnlyStrategyDataKind(_string(payload, "data_kind")),
             OnlyStrategyObservationAdmission(_string(payload, "observation_admission")),
             _integer(payload, "schema_version"),

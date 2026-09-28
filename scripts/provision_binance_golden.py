@@ -71,19 +71,15 @@ from onlyalpha.data.models import (
     OnlyReferencePriceUpdate,
 )
 from onlyalpha.domain.enums import (
-    OnlyAdjustmentType,
-    OnlyAggregationSource,
-    OnlyBarAggregation,
     OnlyContractType,
     OnlyCurrencyType,
     OnlyMarketType,
-    OnlyPriceType,
 )
 from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyRawSymbol, OnlyRuntimeId
 from onlyalpha.domain.instrument import OnlyCryptoPerpetual, OnlyCryptoSpot, OnlyInstrument
 from onlyalpha.domain.market import (
     OnlyBar,
-    OnlyBarSpecification,
+    OnlyBarSemantic,
     OnlyBarType,
     OnlyFundingRateFact,
     OnlyReferencePriceFact,
@@ -141,7 +137,7 @@ from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_
 _SPOT_URL = "https://api.binance.com"
 _USDM_URL = "https://fapi.binance.com"
 _RUNTIME = OnlyRuntimeId("binance-golden-provisioner")
-_BAR_SPEC = OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
+_BAR_SPEC = OnlyBarSemantic.fixed_duration(1)
 _CAPTURE_SCHEMA = 1
 
 
@@ -678,7 +674,7 @@ def _persist_bars(
     if not pages:
         raise ValueError("BINANCE_BAR_HISTORY_EMPTY")
     ingress.seal()
-    bar_type = OnlyBarType(instrument.instrument_id, _BAR_SPEC, OnlyAggregationSource.EXTERNAL)
+    bar_type = OnlyBarType(instrument.instrument_id, _BAR_SPEC)
     scope = OnlyMarketDataScope(
         str(source),
         market,
@@ -788,12 +784,9 @@ def _definition(dataset: OnlyResearchDatasetDefinition) -> dict[str, object]:
                 else OnlyResearchUniverseKind.EXPLICIT_INSTRUMENT_SET,
                 tuple(str(item) for item in dataset.instruments),
             ),
-            dataset.bar_specification,
-            dataset.aggregation_source,
+            dataset.bar_semantic,
             dataset.time_range.start.isoformat(),
             dataset.time_range.end.isoformat(),
-            dataset.adjustment_type,
-            dataset.adjustment_reference,
         ),
         calculations,
         OnlyResearchComparison(
@@ -1178,7 +1171,7 @@ def provision(
                 timestamp_field=0,
                 page_size=1000,
             )
-            bar_type = OnlyBarType(instrument.instrument_id, _BAR_SPEC, OnlyAggregationSource.EXTERNAL)
+            bar_type = OnlyBarType(instrument.instrument_id, _BAR_SPEC)
             updates = tuple(
                 tuple(
                     _bar_update(only_normalize_rest_kline(row, instrument, bar_type), source, version)
@@ -1225,9 +1218,7 @@ def provision(
         dataset_definition = OnlyResearchDatasetDefinition(
             tuple(item.instrument_id for item in instruments),
             _BAR_SPEC,
-            OnlyAggregationSource.EXTERNAL,
             _dataset_event_range(start, end),
-            OnlyAdjustmentType.RAW,
         )
         results["spot"] = _publish_vertical(
             name="spot",
@@ -1277,7 +1268,7 @@ def provision(
             timestamp_field=0,
             page_size=1500,
         )
-        bar_type = OnlyBarType(usdm_instrument.instrument_id, _BAR_SPEC, OnlyAggregationSource.EXTERNAL)
+        bar_type = OnlyBarType(usdm_instrument.instrument_id, _BAR_SPEC)
         bar_updates = tuple(
             tuple(
                 _bar_update(only_normalize_binance_usdm_kline(row, usdm_instrument, bar_type), source, version)
@@ -1415,9 +1406,7 @@ def provision(
         dataset_definition = OnlyResearchDatasetDefinition(
             (usdm_instrument.instrument_id,),
             _BAR_SPEC,
-            OnlyAggregationSource.EXTERNAL,
             _dataset_event_range(start, end),
-            OnlyAdjustmentType.RAW,
         )
         results["usdm"] = _publish_vertical(
             name="usdm",

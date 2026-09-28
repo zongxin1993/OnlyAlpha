@@ -7,7 +7,7 @@ MarketData Snapshot 只表达标准化、聚合后的不可变行情视图。具
 
 ## 1. 基础 Bar 输入
 
-首版命令入口是 `OnlyMarketDataPipeline.process_bar(OnlyBar)`，支持外部、已关闭、revision=0 的 1m TIME
+首版命令入口是 `OnlyMarketDataPipeline.process_bar(OnlyBar)`，支持 provider-native、已关闭、revision=0 的 1m TIME
 Bar。要求 `ts_event == bar_end`、Runtime Clock 不早于事件、BarType 内顺序单调；重复、乱序、迟到与修订
 默认拒绝，不静默覆盖已用于策略决策的数据。
 
@@ -34,14 +34,13 @@ Indicator、Required Dependency 和 Snapshot 五项全部 ready 后，Dispatcher
 因此 Snapshot 的 `latest_closed` 不可能隐式返回 partial。
 
 固定时长 Bar 的 canonical semantic 分别绑定 `window_minutes`（Bar 覆盖时长）与 `stride_minutes`（输出网格间隔）；
-旧 `step=N` 只在入口规范化为 `window=N, stride=N`，不形成第二份 identity authority。现有 `TIME_BAR_V1`
+旧 `step=N` 不再被配置、Contract 或持久化入口接受。现有 `TIME_BAR@1`
 由 `OnlyAlignedTumblingWindowPolicy` 实现且只接受 `window == stride`；rolling semantic 使用独立的
-`ROLLING_TIME_BAR_V1` identity，但执行仍 fail closed，尚未启用 sliding policy。
+`ROLLING_TIME_BAR@1` recipe identity，但执行仍 fail closed，尚未启用 sliding policy。
 
-`OnlyBarResolutionMode` 是 Native/Derived construction 的唯一 Authority。`OnlyAggregationSource` 已降级为旧
-`OnlyBarType`、Research/Strategy schema 与运行时校验所需的兼容 projection：`EXTERNAL_NATIVE → EXTERNAL`、
-`INTERNAL_DERIVED → INTERNAL`；禁止反向使用它选择 capability、provider interval、historical/realtime plan。
-Resolution plan schema v2 才能持久化 window/stride；旧 plan identity 不静默重解释，读取时要求 rebuild。
+`OnlyBarConstructionRecipe` 是 Native/Derived construction 的唯一 Authority；`OnlyBarType` 只绑定 instrument 与
+`OnlyBarSemantic`。Resolution plan schema v3、Construction identity schema v2 与 Bar semantic schema v2 才是
+当前持久格式；旧 identity 不静默重解释，读取时要求 rebuild。
 
 ## 4. Cache
 
@@ -62,7 +61,7 @@ BarTypes、latest closed/history、TradingDay、SessionType 和 quality flags。
 
 ## 7. 主周期与多 Cluster
 
-PRIMARY_ONLY 下，默认主周期是订阅中最小 TIME step；显式 `primary_bar_type` 覆盖。若含 Tick/Volume/Value
+PRIMARY_ONLY 下，默认主周期是订阅中最小 fixed-duration stride；显式 `primary_bar_type` 覆盖。若含 Tick/Volume/Value
 等不可自然比较 Bar，必须显式指定。只有主周期在 `updated_bar_types` 中时才调用，每 Cluster/纳秒时间片
 最多一次。多个周期同时关闭仍只调用一次，策略从 Snapshot 读取其他周期。
 
@@ -84,7 +83,7 @@ Backtest 已装配完整同步路径，SIM 已装配 realtime/streaming path。
 
 ## 10. 已知限制
 
-- 支持外部 1m TIME Bar 到同标的、同价格类型、内部 N>1 分钟 TIME Bar；产品层仍须独立限制请求范围。
+- 支持 provider-native 1m TIME Bar 到同标的、同价格类型、derived N>1 分钟 TIME Bar；产品层仍须独立限制请求范围。
 - 尚无 Tick/Volume/Value Aggregator、partial Bar、修订替换、自动填充或持久化恢复。
 - 核心路径同步串行；长策略 callback 会阻塞该 Runtime 的后续输入。
 - Pipeline/Dispatcher 已装配进同步 Backtest RuntimeContext 与 SIM streaming path；Live 的 Real Broker 组合尚未实现。

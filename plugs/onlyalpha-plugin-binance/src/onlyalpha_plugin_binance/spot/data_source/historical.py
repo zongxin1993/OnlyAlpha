@@ -20,7 +20,7 @@ from onlyalpha.data.historical import (
     OnlyHistoricalTradeFetchResult,
 )
 from onlyalpha.data.identifiers import OnlyDataVersion
-from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyAggregationSource
+from onlyalpha.domain.enums import OnlyAdjustmentType
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBarType
 from onlyalpha_plugin_binance.common.http import OnlyBinancePublicHttpClient
@@ -117,7 +117,7 @@ class OnlyBinanceSpotHistoricalProvider:
         self._source_id = source_id
 
     def build_cache_key(self, request: OnlyHistoricalDataRequest) -> OnlyHistoricalBarCacheKey:
-        only_binance_bar_interval(request.bar_type.specification)
+        only_binance_bar_interval(request.bar_type.semantic)
         return OnlyHistoricalBarCacheKey(
             self._source_id,
             "bars",
@@ -128,8 +128,8 @@ class OnlyBinanceSpotHistoricalProvider:
             data_version=str(self._data_version),
             compatibility_profile_id=(
                 "BINANCE_SPOT_1M_CLOSED_V1"
-                if request.bar_type.specification.step == 1
-                else f"BINANCE_SPOT_{only_binance_bar_interval(request.bar_type.specification)}_CLOSED_V1"
+                if request.bar_type.semantic.window_minutes == 1
+                else f"BINANCE_SPOT_{only_binance_bar_interval(request.bar_type.semantic)}_CLOSED_V1"
             ),
             timestamp_semantics=OnlyBarTimestampSemantics.BAR_OPEN,
         )
@@ -137,15 +137,12 @@ class OnlyBinanceSpotHistoricalProvider:
     def fetch(self, request: OnlyHistoricalDataRequest, time_range: OnlyTimeRange) -> OnlyHistoricalFetchResult:
         if request.price_adjustment is not OnlyAdjustmentType.RAW:
             raise OnlyBinanceError("BINANCE_BAR_ADJUSTMENT_UNSUPPORTED")
-        if (
-            request.bar_type != self._bar_type
-            or self._bar_type.aggregation_source is not OnlyAggregationSource.EXTERNAL
-        ):
+        if request.bar_type != self._bar_type:
             raise OnlyBinanceError("BINANCE_BAR_TYPE_MISMATCH")
         start_ms = _milliseconds(time_range.start)
         end_ms = _milliseconds(time_range.end)
-        step_ms = self._bar_type.specification.step * 60_000
-        interval = only_binance_bar_interval(self._bar_type.specification)
+        step_ms = self._bar_type.semantic.stride_minutes * 60_000
+        interval = only_binance_bar_interval(self._bar_type.semantic)
         if start_ms % step_ms or end_ms % step_ms:
             raise OnlyBinanceError("BINANCE_KLINE_RANGE_UNALIGNED")
         cursor = start_ms

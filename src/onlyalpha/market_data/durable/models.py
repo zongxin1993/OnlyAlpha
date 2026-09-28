@@ -10,7 +10,6 @@ from enum import StrEnum
 
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.data.models import OnlyMarketDataInboundUpdate
-from onlyalpha.domain.enums import OnlyAggregationSource
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.market import OnlyBarType
 from onlyalpha.domain.time import only_require_utc
@@ -20,15 +19,8 @@ _BINDING_FINGERPRINT = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _construction_bar_type(instrument_id: str, construction: OnlyBarConstructionIdentity) -> str:
-    aggregation_source = (
-        OnlyAggregationSource.EXTERNAL
-        if construction.plan.mode is OnlyBarResolutionMode.EXTERNAL_NATIVE
-        else OnlyAggregationSource.INTERNAL
-    )
     return only_canonical_fingerprint(
-        OnlyBarType(
-            OnlyInstrumentId.parse(instrument_id), construction.plan.target_specification, aggregation_source
-        ).to_dict()
+        OnlyBarType(OnlyInstrumentId.parse(instrument_id), construction.plan.target_semantic).to_dict()
     )
 
 
@@ -151,7 +143,7 @@ class OnlyRawProviderEvidence:
         _require_optional_binding(self.integration_binding_fingerprint)
         if (
             self.bar_construction is not None
-            and self.bar_construction.plan.mode is not OnlyBarResolutionMode.EXTERNAL_NATIVE
+            and self.bar_construction.plan.mode is not OnlyBarResolutionMode.PROVIDER_NATIVE
         ):
             raise ValueError("RAW_PROVIDER_BAR_CONSTRUCTION_INVALID")
 
@@ -329,7 +321,7 @@ class OnlyIngestSegment:
         only_require_utc(self.sealed_at, "segment sealed_at")
         _require_optional_binding(self.integration_binding_fingerprint)
         if self.bar_construction is not None and (
-            self.bar_construction.plan.mode is not OnlyBarResolutionMode.EXTERNAL_NATIVE
+            self.bar_construction.plan.mode is not OnlyBarResolutionMode.PROVIDER_NATIVE
             or (
                 self.canonical_count > 0
                 and (

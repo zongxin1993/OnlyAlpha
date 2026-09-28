@@ -255,7 +255,7 @@ it.each([
     expect(submit.mock.calls[1]?.[1]).toBe(submit.mock.calls[0]?.[1]);
 });
 
-it("authors the existing Dataset price and adjustment fields into Resolution input", async () => {
+it("authors Dataset price and adjustment semantics into Resolution input", async () => {
     const resolveDefinition = vi.fn((definition: ResearchDefinitionTransport) => {
         void definition;
         return Promise.resolve(resolution);
@@ -264,16 +264,13 @@ it("authors the existing Dataset price and adjustment fields into Resolution inp
     const user = await completeMinimalDraft();
     await user.selectOptions(screen.getByLabelText("Price type"), "MARK");
     await user.selectOptions(screen.getByLabelText("Adjustment type"), "FORWARD");
-    await user.type(screen.getByLabelText("Adjustment reference"), "2026-01-01");
     await user.click(screen.getByRole("button", { name: "Resolve" }));
     await waitFor(() => {
         expect(resolveDefinition).toHaveBeenCalledTimes(1);
     });
 
     expect(resolveDefinition.mock.calls[0]?.[0].dataset).toMatchObject({
-        bar_specification: { price_type: "MARK" },
-        adjustment_type: "FORWARD",
-        adjustment_reference: "2026-01-01"
+        bar_semantic: { price_type: "MARK", adjustment_policy: "FORWARD" }
     });
 });
 

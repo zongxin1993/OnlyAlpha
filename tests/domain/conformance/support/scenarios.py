@@ -7,15 +7,12 @@ from decimal import Decimal
 from onlyalpha.domain.account import OnlyPnL, OnlyPnLCalculator, OnlyPosition
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
-    OnlyAggregationSource,
-    OnlyBarAggregation,
     OnlyLiquiditySide,
     OnlyOffset,
     OnlyOrderSide,
     OnlyOrderStatus,
     OnlyOrderType,
     OnlyPositionDirection,
-    OnlyPriceType,
     OnlySessionType,
     OnlyTimeInForce,
 )
@@ -31,7 +28,7 @@ from onlyalpha.domain.identifiers import (
     OnlyVenueOrderId,
 )
 from onlyalpha.domain.instrument import OnlyInstrument
-from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType, OnlyTradeTick
+from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType, OnlyTradeTick
 from onlyalpha.domain.market_rules import (
     OnlyFeeSchedule,
 )
@@ -172,11 +169,7 @@ def _run(name: str, instrument: OnlyInstrument) -> OnlyScenarioResult:
             instrument.instrument_id, now, now, 1, "demo", price, quantity, request.side, trade.trade_id
         )
         bar = OnlyBar(
-            bar_type=OnlyBarType(
-                instrument.instrument_id,
-                OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-                OnlyAggregationSource.EXTERNAL,
-            ),
+            bar_type=OnlyBarType(instrument.instrument_id, OnlyBarSemantic.fixed_duration(1)),
             open=price,
             high=current,
             low=price,

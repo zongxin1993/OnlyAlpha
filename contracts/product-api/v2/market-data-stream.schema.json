@@ -2,32 +2,163 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "onlyalpha.product-api.v2.market-data-stream",
   "$defs": {
-    "MarketDataBarSpecificationDto": {
+    "MarketDataBarSemanticDto": {
       "additionalProperties": false,
       "properties": {
-        "aggregation": {
-          "const": "TIME",
-          "title": "Aggregation",
-          "type": "string"
-        },
-        "step": {
-          "maximum": 240,
-          "minimum": 1,
-          "title": "Step",
+        "schema_version": {
+          "const": 2,
+          "title": "Schema Version",
           "type": "integer"
         },
+        "formation": {
+          "discriminator": {
+            "mapping": {
+              "CALENDAR_PERIOD": "#/$defs/MarketDataCalendarPeriodFormationDto",
+              "FIXED_DURATION": "#/$defs/MarketDataFixedDurationFormationDto",
+              "TICK_COUNT": "#/$defs/MarketDataTickCountFormationDto",
+              "VALUE": "#/$defs/MarketDataValueFormationDto",
+              "VOLUME": "#/$defs/MarketDataVolumeFormationDto"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/MarketDataFixedDurationFormationDto"
+            },
+            {
+              "$ref": "#/$defs/MarketDataCalendarPeriodFormationDto"
+            },
+            {
+              "$ref": "#/$defs/MarketDataTickCountFormationDto"
+            },
+            {
+              "$ref": "#/$defs/MarketDataVolumeFormationDto"
+            },
+            {
+              "$ref": "#/$defs/MarketDataValueFormationDto"
+            }
+          ],
+          "title": "Formation"
+        },
         "price_type": {
-          "const": "LAST",
+          "enum": [
+            "LAST",
+            "BID",
+            "ASK",
+            "MID",
+            "MARK",
+            "INDEX"
+          ],
           "title": "Price Type",
+          "type": "string"
+        },
+        "adjustment_policy": {
+          "enum": [
+            "RAW",
+            "FORWARD",
+            "BACKWARD"
+          ],
+          "title": "Adjustment Policy",
           "type": "string"
         }
       },
       "required": [
-        "aggregation",
-        "step",
-        "price_type"
+        "schema_version",
+        "formation",
+        "price_type",
+        "adjustment_policy"
       ],
-      "title": "MarketDataBarSpecificationDto",
+      "title": "MarketDataBarSemanticDto",
+      "type": "object"
+    },
+    "MarketDataCalendarPeriodFormationDto": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "CALENDAR_PERIOD",
+          "title": "Kind",
+          "type": "string"
+        },
+        "unit": {
+          "enum": [
+            "DAY",
+            "WEEK",
+            "MONTH"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "count": {
+          "minimum": 1,
+          "title": "Count",
+          "type": "integer"
+        },
+        "alignment": {
+          "enum": [
+            "UTC",
+            "SESSION_START"
+          ],
+          "title": "Alignment",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "kind",
+        "unit",
+        "count",
+        "alignment"
+      ],
+      "title": "MarketDataCalendarPeriodFormationDto",
+      "type": "object"
+    },
+    "MarketDataFixedDurationFormationDto": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "FIXED_DURATION",
+          "title": "Kind",
+          "type": "string"
+        },
+        "window_minutes": {
+          "maximum": 240,
+          "minimum": 1,
+          "title": "Window Minutes",
+          "type": "integer"
+        },
+        "stride_minutes": {
+          "maximum": 240,
+          "minimum": 1,
+          "title": "Stride Minutes",
+          "type": "integer"
+        },
+        "alignment": {
+          "enum": [
+            "UTC",
+            "SESSION_START"
+          ],
+          "title": "Alignment",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "kind",
+        "window_minutes",
+        "stride_minutes",
+        "alignment"
+      ],
+      "title": "MarketDataFixedDurationFormationDto",
       "type": "object"
     },
     "MarketDataStreamSourceReferenceDto": {
@@ -57,6 +188,87 @@
       "title": "MarketDataStreamSourceReferenceDto",
       "type": "object"
     },
+    "MarketDataTickCountFormationDto": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "TICK_COUNT",
+          "title": "Kind",
+          "type": "string"
+        },
+        "count": {
+          "minimum": 1,
+          "title": "Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "kind",
+        "count"
+      ],
+      "title": "MarketDataTickCountFormationDto",
+      "type": "object"
+    },
+    "MarketDataValueFormationDto": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "VALUE",
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "pattern": "^[0-9]+(?:\\.[0-9]+)?$",
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "kind",
+        "value"
+      ],
+      "title": "MarketDataValueFormationDto",
+      "type": "object"
+    },
+    "MarketDataVolumeFormationDto": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "VOLUME",
+          "title": "Kind",
+          "type": "string"
+        },
+        "quantity": {
+          "pattern": "^[0-9]+(?:\\.[0-9]+)?$",
+          "title": "Quantity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "kind",
+        "quantity"
+      ],
+      "title": "MarketDataVolumeFormationDto",
+      "type": "object"
+    },
     "MarketDataBarClosedDto": {
       "additionalProperties": false,
       "properties": {
@@ -73,8 +285,8 @@
           "title": "Instrument Id",
           "type": "string"
         },
-        "bar_specification": {
-          "$ref": "#/$defs/MarketDataBarSpecificationDto"
+        "bar_semantic": {
+          "$ref": "#/$defs/MarketDataBarSemanticDto"
         },
         "bar": {
           "$ref": "#/$defs/MarketDataBarDto"
@@ -94,7 +306,7 @@
         "schema_version",
         "source_id",
         "instrument_id",
-        "bar_specification",
+        "bar_semantic",
         "bar",
         "event",
         "sequence"
@@ -169,8 +381,8 @@
           "title": "Instrument Id",
           "type": "string"
         },
-        "bar_specification": {
-          "$ref": "#/$defs/MarketDataBarSpecificationDto"
+        "bar_semantic": {
+          "$ref": "#/$defs/MarketDataBarSemanticDto"
         },
         "bar": {
           "$ref": "#/$defs/MarketDataBarDto"
@@ -185,7 +397,7 @@
         "schema_version",
         "source_id",
         "instrument_id",
-        "bar_specification",
+        "bar_semantic",
         "bar",
         "event"
       ],
@@ -318,8 +530,8 @@
         },
         "resolution_mode": {
           "enum": [
-            "EXTERNAL_NATIVE",
-            "INTERNAL_DERIVED"
+            "PROVIDER_NATIVE",
+            "DERIVED"
           ],
           "title": "Resolution Mode",
           "type": "string"
@@ -329,10 +541,10 @@
           "title": "Resolution Plan Fingerprint",
           "type": "string"
         },
-        "cursor_bar_step_minutes": {
+        "cursor_bar_stride_minutes": {
           "maximum": 240,
           "minimum": 1,
-          "title": "Cursor Bar Step Minutes",
+          "title": "Cursor Bar Stride Minutes",
           "type": "integer"
         }
       },
@@ -344,7 +556,7 @@
         "instrument_id",
         "resolution_mode",
         "resolution_plan_fingerprint",
-        "cursor_bar_step_minutes"
+        "cursor_bar_stride_minutes"
       ],
       "title": "MarketDataSubscribedDto",
       "type": "object"
@@ -370,8 +582,8 @@
           "title": "Instrument Id",
           "type": "string"
         },
-        "bar_specification": {
-          "$ref": "#/$defs/MarketDataBarSpecificationDto"
+        "bar_semantic": {
+          "$ref": "#/$defs/MarketDataBarSemanticDto"
         },
         "resume_after_sequence": {
           "pattern": "^(?:0|[1-9][0-9]*)$",
@@ -397,7 +609,7 @@
         "operation",
         "source_reference",
         "instrument_id",
-        "bar_specification",
+        "bar_semantic",
         "resume_after_sequence"
       ],
       "title": "MarketDataStreamSubscribeDto",

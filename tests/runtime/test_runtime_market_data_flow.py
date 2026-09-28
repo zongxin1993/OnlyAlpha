@@ -7,6 +7,7 @@ from onlyalpha.cluster.demo import OnlyDemoCluster
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
+from tests.support.bar_graph import only_time_bar_graph
 
 
 def test_backtest_runtime_closes_1m_3m_snapshot_loop(
@@ -15,7 +16,9 @@ def test_backtest_runtime_closes_1m_3m_snapshot_loop(
     runtime_types: tuple[OnlyBarType, OnlyBarType],
 ) -> None:
     runtime = make_runtime("runtime")
-    cluster = OnlyDemoCluster(OnlyClusterConfig("demo"), OnlyBarSubscription(runtime_types))
+    cluster = OnlyDemoCluster(
+        OnlyClusterConfig("demo"), OnlyBarSubscription(runtime_types, only_time_bar_graph(*runtime_types))
+    )
     runtime.add_cluster("engine", cluster)
     runtime.start()
     results = [runtime.process_bar(make_runtime_bar(index, "10.00")) for index in range(3)]
@@ -41,7 +44,11 @@ def test_explicit_3m_primary_calls_once_with_latest_1m(
     runtime = make_runtime("runtime")
     cluster = OnlyDemoCluster(
         OnlyClusterConfig("demo"),
-        OnlyBarSubscription(runtime_types, primary_bar_type=runtime_types[1]),
+        OnlyBarSubscription(
+            runtime_types,
+            only_time_bar_graph(*runtime_types),
+            primary_bar_type=runtime_types[1],
+        ),
     )
     runtime.add_cluster("engine", cluster)
     runtime.start()

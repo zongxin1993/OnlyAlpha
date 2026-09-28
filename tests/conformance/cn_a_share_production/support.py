@@ -342,11 +342,17 @@ def only_cn_a_share_product_config(
                 "instrument_bars": [
                     {
                         "instrument_id": instrument_id,
-                        "bar_specification": {
-                            "step": 1,
-                            "aggregation": "TIME",
+                        "bar_semantic": {
+                            "schema_version": 2,
+                            "formation": {
+                                "schema_version": 1,
+                                "kind": "FIXED_DURATION",
+                                "window_minutes": 1,
+                                "stride_minutes": 1,
+                                "alignment": "SESSION_START",
+                            },
                             "price_type": "LAST",
-                            "source": "EXTERNAL",
+                            "adjustment_policy": "RAW",
                         },
                         "role": "PRIMARY",
                     }

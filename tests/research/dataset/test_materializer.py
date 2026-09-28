@@ -13,6 +13,7 @@ from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
 from onlyalpha.domain.enums import OnlySessionType
 from onlyalpha.domain.identifiers import OnlyCalendarId
 from onlyalpha.domain.time import OnlyTimeZone
+from onlyalpha.market_data.resolution import OnlyBarConstructionRecipe
 from onlyalpha.research.dataset import (
     OnlyParquetResearchDatasetSnapshotStore,
     OnlyResearchDatasetDefinition,
@@ -66,12 +67,12 @@ def _plan(source: str, factory: _Factory):
     )
     definition = OnlyResearchDatasetDefinition(
         (bar.instrument_id,),
-        bar.bar_type.specification,
-        bar.bar_type.aggregation_source,
+        bar.bar_type.semantic,
         OnlyTimeRange(bar.bar_start, bar.ts_event + timedelta(seconds=1)),
     )
     return OnlyResearchDatasetMaterializationPlan(
         definition,
+        OnlyBarConstructionRecipe.provider_native(definition.bar_semantic),
         OnlyMarketDataSourceId(source),
         factory,
         {},
@@ -102,7 +103,7 @@ def test_materializer_provider_identity_changes_provenance_not_snapshot(tmp_path
         assert (
             not hasattr(request, "runtime_id") and not hasattr(request, "clock") and not hasattr(request, "event_bus")
         )
-    assert snapshots[0].snapshot_fingerprint == snapshots[1].snapshot_fingerprint
+    assert snapshots[0].snapshot_fingerprint != snapshots[1].snapshot_fingerprint
     assert snapshots[0].content_fingerprint == snapshots[1].content_fingerprint
     assert snapshots[0].provenance != snapshots[1].provenance
 
@@ -112,6 +113,15 @@ def test_materialization_plan_and_runtime_admission_fail_closed_on_missing_autho
     plan = _plan("provider", factory)
     with pytest.raises(ValueError, match="batch_size"):
         replace(plan, batch_size=0)
+    with pytest.raises(ValueError, match="CONSTRUCTION_RECIPE_UNSUPPORTED"):
+        replace(
+            plan,
+            construction_recipe=OnlyBarConstructionRecipe.derived(
+                plan.definition.bar_semantic,
+                plan.definition.bar_semantic,
+                algorithm_id="TIME_BAR",
+            ),
+        )
 
     service = OnlyHistoricalCacheService(OnlyParquetHistoricalCacheStore(tmp_path / "cache"))
     store = OnlyParquetResearchDatasetSnapshotStore(tmp_path / "datasets")

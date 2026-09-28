@@ -39,7 +39,7 @@ def only_expected_closed_bar_boundaries(
     """Return required closed Bar ends after the frontier through the target."""
     if recovery_target.unix_nanos <= confirmed_bar_end.unix_nanos:
         return ()
-    duration = timedelta(minutes=bar_type.specification.step)
+    duration = timedelta(minutes=bar_type.semantic.stride_minutes)
     start = confirmed_bar_end.to_datetime()
     target = recovery_target.to_datetime()
     local_start = calendar.to_local(start).date() - timedelta(days=1)

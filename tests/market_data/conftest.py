@@ -7,13 +7,10 @@ import pytest
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
-    OnlyAggregationSource,
-    OnlyBarAggregation,
-    OnlyPriceType,
     OnlySessionType,
 )
 from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyInstrumentId, OnlySymbol, OnlyVenueId
-from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.time import OnlyTimeZone
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 
@@ -25,19 +22,11 @@ def instrument_id() -> OnlyInstrumentId:
 
 @pytest.fixture
 def bar_1m(instrument_id: OnlyInstrumentId) -> OnlyBarType:
-    return OnlyBarType(
-        instrument_id,
-        OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-        OnlyAggregationSource.EXTERNAL,
-    )
+    return OnlyBarType(instrument_id, OnlyBarSemantic.fixed_duration(1))
 
 
 def _derived(instrument_id: OnlyInstrumentId, step: int) -> OnlyBarType:
-    return OnlyBarType(
-        instrument_id,
-        OnlyBarSpecification(step, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-        OnlyAggregationSource.INTERNAL,
-    )
+    return OnlyBarType(instrument_id, OnlyBarSemantic.fixed_duration(step))
 
 
 @pytest.fixture

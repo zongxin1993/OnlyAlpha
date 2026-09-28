@@ -10,8 +10,6 @@ from enum import StrEnum
 from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
-    OnlyAggregationSource,
-    OnlyBarAggregation,
     OnlyBookType,
     OnlyOrderSide,
     OnlyPriceType,
@@ -197,22 +195,185 @@ class OnlyMarketReferenceTick(OnlyTick):
     price: OnlyPrice | None
 
 
+class OnlyBarFormationKind(StrEnum):
+    FIXED_DURATION = "FIXED_DURATION"
+    CALENDAR_PERIOD = "CALENDAR_PERIOD"
+    TICK_COUNT = "TICK_COUNT"
+    VOLUME = "VOLUME"
+    VALUE = "VALUE"
+
+
+class OnlyBarAlignment(StrEnum):
+    UTC = "UTC"
+    SESSION_START = "SESSION_START"
+
+
+class OnlyCalendarPeriodUnit(StrEnum):
+    DAY = "DAY"
+    WEEK = "WEEK"
+    MONTH = "MONTH"
+
+
 @dataclass(frozen=True, slots=True)
-class OnlyBarSpecification(OnlyDomainModel):
-    step: int
-    aggregation: OnlyBarAggregation
-    price_type: OnlyPriceType
+class OnlyFixedDurationBarFormation(OnlyDomainModel):
+    window_minutes: int
+    stride_minutes: int
+    alignment: OnlyBarAlignment = OnlyBarAlignment.SESSION_START
+    kind: OnlyBarFormationKind = OnlyBarFormationKind.FIXED_DURATION
 
     def __post_init__(self) -> None:
-        if self.step <= 0:
-            raise OnlyValidationError("bar step must be positive")
+        if (
+            self.kind is not OnlyBarFormationKind.FIXED_DURATION
+            or type(self.window_minutes) is not int
+            or type(self.stride_minutes) is not int
+            or not 1 <= self.window_minutes <= 240
+            or not 1 <= self.stride_minutes <= self.window_minutes
+        ):
+            raise OnlyValidationError("fixed-duration Bar formation is invalid")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyCalendarPeriodBarFormation(OnlyDomainModel):
+    unit: OnlyCalendarPeriodUnit
+    count: int = 1
+    alignment: OnlyBarAlignment = OnlyBarAlignment.SESSION_START
+    kind: OnlyBarFormationKind = OnlyBarFormationKind.CALENDAR_PERIOD
+
+    def __post_init__(self) -> None:
+        if self.kind is not OnlyBarFormationKind.CALENDAR_PERIOD or type(self.count) is not int or self.count < 1:
+            raise OnlyValidationError("calendar-period Bar formation is invalid")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyTickCountBarFormation(OnlyDomainModel):
+    count: int
+    kind: OnlyBarFormationKind = OnlyBarFormationKind.TICK_COUNT
+
+    def __post_init__(self) -> None:
+        if self.kind is not OnlyBarFormationKind.TICK_COUNT or type(self.count) is not int or self.count < 1:
+            raise OnlyValidationError("tick-count Bar formation is invalid")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyVolumeBarFormation(OnlyDomainModel):
+    quantity: Decimal
+    kind: OnlyBarFormationKind = OnlyBarFormationKind.VOLUME
+
+    def __post_init__(self) -> None:
+        if self.kind is not OnlyBarFormationKind.VOLUME or self.quantity <= 0:
+            raise OnlyValidationError("volume Bar formation is invalid")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyValueBarFormation(OnlyDomainModel):
+    value: Decimal
+    kind: OnlyBarFormationKind = OnlyBarFormationKind.VALUE
+
+    def __post_init__(self) -> None:
+        if self.kind is not OnlyBarFormationKind.VALUE or self.value <= 0:
+            raise OnlyValidationError("value Bar formation is invalid")
+
+
+type OnlyBarFormation = (
+    OnlyFixedDurationBarFormation
+    | OnlyCalendarPeriodBarFormation
+    | OnlyTickCountBarFormation
+    | OnlyVolumeBarFormation
+    | OnlyValueBarFormation
+)
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyBarSemantic(OnlyDomainModel):
+    schema_version = 2
+
+    formation: OnlyBarFormation
+    price_type: OnlyPriceType = OnlyPriceType.LAST
+    adjustment_policy: OnlyAdjustmentType = OnlyAdjustmentType.RAW
+
+    @property
+    def fingerprint(self) -> str:
+        from onlyalpha.canonical import only_canonical_fingerprint
+
+        return only_canonical_fingerprint(self.to_dict())
+
+    @property
+    def is_fixed_duration(self) -> bool:
+        return isinstance(self.formation, OnlyFixedDurationBarFormation)
+
+    @property
+    def window_minutes(self) -> int:
+        if not isinstance(self.formation, OnlyFixedDurationBarFormation):
+            raise OnlyValidationError("Bar semantic is not fixed-duration")
+        return self.formation.window_minutes
+
+    @property
+    def stride_minutes(self) -> int:
+        if not isinstance(self.formation, OnlyFixedDurationBarFormation):
+            raise OnlyValidationError("Bar semantic is not fixed-duration")
+        return self.formation.stride_minutes
+
+    @property
+    def is_aligned(self) -> bool:
+        return self.is_fixed_duration and self.window_minutes == self.stride_minutes
+
+    @classmethod
+    def fixed_duration(
+        cls,
+        window_minutes: int,
+        stride_minutes: int | None = None,
+        *,
+        alignment: OnlyBarAlignment = OnlyBarAlignment.SESSION_START,
+        price_type: OnlyPriceType = OnlyPriceType.LAST,
+        adjustment_policy: OnlyAdjustmentType = OnlyAdjustmentType.RAW,
+    ) -> "OnlyBarSemantic":
+        return cls(
+            OnlyFixedDurationBarFormation(
+                window_minutes,
+                window_minutes if stride_minutes is None else stride_minutes,
+                alignment,
+            ),
+            price_type,
+            adjustment_policy,
+        )
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> "OnlyBarSemantic":
+        if payload.get("schema_version") != cls.schema_version or not isinstance(payload.get("formation"), Mapping):
+            raise OnlyValidationError("Bar semantic schema is invalid")
+        formation_payload = payload["formation"]
+        assert isinstance(formation_payload, Mapping)
+        try:
+            kind = OnlyBarFormationKind(str(formation_payload["kind"]))
+            formation: OnlyBarFormation
+            if kind is OnlyBarFormationKind.FIXED_DURATION:
+                formation = OnlyFixedDurationBarFormation.from_dict(formation_payload)
+            elif kind is OnlyBarFormationKind.CALENDAR_PERIOD:
+                formation = OnlyCalendarPeriodBarFormation.from_dict(formation_payload)
+            elif kind is OnlyBarFormationKind.TICK_COUNT:
+                formation = OnlyTickCountBarFormation.from_dict(formation_payload)
+            elif kind is OnlyBarFormationKind.VOLUME:
+                formation = OnlyVolumeBarFormation.from_dict(formation_payload)
+            else:
+                formation = OnlyValueBarFormation.from_dict(formation_payload)
+            semantic = cls(
+                formation,
+                OnlyPriceType(str(payload["price_type"])),
+                OnlyAdjustmentType(str(payload["adjustment_policy"])),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise OnlyValidationError("Bar semantic is invalid") from exc
+        if semantic.to_dict() != dict(payload):
+            raise OnlyValidationError("Bar semantic is invalid")
+        return semantic
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyBarType(OnlyDomainModel):
+    schema_version = 2
+
     instrument_id: OnlyInstrumentId
-    specification: OnlyBarSpecification
-    aggregation_source: OnlyAggregationSource
+    semantic: OnlyBarSemantic
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -263,6 +424,8 @@ class OnlyBar(OnlyDomainModel):
             raise OnlyValidationError("bar trade_count cannot be negative")
         if not self.is_closed and self.revision != 0:
             raise OnlyValidationError("an updating bar cannot carry a revision")
+        if self.adjustment_type is not self.bar_type.semantic.adjustment_policy:
+            raise OnlyValidationError("bar adjustment does not match Bar semantic")
 
     def contains(self, timestamp: datetime) -> bool:
         _validate_market_time(timestamp, "timestamp")

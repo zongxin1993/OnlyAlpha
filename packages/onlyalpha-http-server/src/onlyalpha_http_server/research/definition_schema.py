@@ -13,7 +13,6 @@ from onlyalpha.calculation import (
     OnlyCalculationTypeDefinition,
     only_calculation_scalar_to_dict,
 )
-from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyAggregationSource, OnlyBarAggregation, OnlyPriceType
 from onlyalpha.research.definition.model import OnlyResearchDefinition, OnlyResearchUniverseKind
 from onlyalpha.research.definition.resolver import OnlyResearchDefinitionResolution
 from onlyalpha.research.evaluation.capability import OnlyResearchStatisticsCapability
@@ -25,6 +24,7 @@ from onlyalpha.research.evaluation.definition import (
     OnlyResearchWeighting,
 )
 
+from ..market_data.schema import MarketDataBarSemanticDto
 from .discovery import ResearchUniverseDiscovery
 from .schema import RESEARCH_API_SCHEMA_VERSION
 
@@ -194,20 +194,15 @@ class ResearchUniverseSelectionDto(_StrictDto):
     registered_id: str | None
 
 
-class ResearchBarSpecificationDto(_StrictDto):
-    step: StrictInt
-    aggregation: OnlyBarAggregation
-    price_type: OnlyPriceType
+class ResearchBarSemanticDto(MarketDataBarSemanticDto):
+    pass
 
 
 class ResearchDatasetSelectionDto(_StrictDto):
     universe: ResearchUniverseSelectionDto
-    bar_specification: ResearchBarSpecificationDto
-    aggregation_source: OnlyAggregationSource
+    bar_semantic: ResearchBarSemanticDto
     start: str
     end: str
-    adjustment_type: OnlyAdjustmentType
-    adjustment_reference: str | None
 
 
 class ResearchDatasetFieldRefDto(_StrictDto):

@@ -6,6 +6,7 @@ from onlyalpha.data.identity import only_bar_update_id, only_trade_update_id
 from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate, OnlyTradeTickUpdate
 from onlyalpha.data.processor import OnlyMarketDataDeduplicator, OnlyMarketDataSequenceTracker
 from onlyalpha.domain.identifiers import OnlyInstrumentId
+from onlyalpha.domain.market import OnlyBarSemantic
 from onlyalpha.domain.time import OnlyTimestamp
 
 from ..domain.conformance.support.market_data import build_bar, build_trade_tick
@@ -50,6 +51,25 @@ def test_fact_identity_is_transport_order_independent_and_envelope_v1_remains_re
     restored = OnlyMarketDataInboundUpdate.from_dict(legacy)
     assert restored.update_id == first.update_id
     assert restored.sequence_scope == first.sequence_scope
+
+
+def test_bar_fact_identity_uses_semantic_but_not_construction_provenance() -> None:
+    instrument = OnlyInstrumentId.parse("BTCUSDT.BINANCE")
+    update = _update(instrument, 1)
+    bar = update.payload.bar
+    source = update.source_id
+    version = update.data_version
+    same_semantic = only_bar_update_id(source, instrument, bar.bar_type, bar.bar_start, version)
+    changed_semantic = only_bar_update_id(
+        source,
+        instrument,
+        replace(bar.bar_type, semantic=OnlyBarSemantic.fixed_duration(5)),
+        bar.bar_start,
+        version,
+    )
+
+    assert same_semantic == update.update_id
+    assert changed_semantic != update.update_id
 
 
 def test_contiguous_sequence_is_isolated_by_instrument_and_bar_type() -> None:

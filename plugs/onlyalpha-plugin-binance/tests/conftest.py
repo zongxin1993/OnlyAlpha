@@ -3,17 +3,14 @@ from decimal import Decimal
 import pytest
 
 from onlyalpha.domain.enums import (
-    OnlyAggregationSource,
     OnlyAssetClass,
-    OnlyBarAggregation,
     OnlyCurrencyType,
     OnlyInstrumentType,
     OnlyMarketType,
-    OnlyPriceType,
 )
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRawSymbol
 from onlyalpha.domain.instrument import OnlyInstrument
-from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.value import OnlyCurrency, OnlyPrice, OnlyQuantity
 
 
@@ -35,8 +32,4 @@ def binance_bar_type() -> tuple[OnlyInstrument, OnlyBarType]:
         tick_size=OnlyPrice(Decimal("0.01"), 2),
         step_size=OnlyQuantity(Decimal("1"), 0),
     )
-    return instrument, OnlyBarType(
-        instrument_id,
-        OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-        OnlyAggregationSource.EXTERNAL,
-    )
+    return instrument, OnlyBarType(instrument_id, OnlyBarSemantic.fixed_duration(1))

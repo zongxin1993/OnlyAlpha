@@ -18,7 +18,7 @@ from onlyalpha.research.dataset.parquet_store import (
     OnlyParquetResearchDatasetSnapshotStore,
     OnlyResearchDatasetStoreError,
 )
-from onlyalpha.research.dataset.schema import RESEARCH_BAR_DATASET_SCHEMA_V1
+from onlyalpha.research.dataset.schema import RESEARCH_BAR_DATASET_SCHEMA_V2
 from tests.domain.conformance.support.market_data import build_bar
 
 
@@ -26,14 +26,24 @@ def _snapshot(created_at: datetime = datetime(2026, 1, 1, tzinfo=UTC)) -> tuple[
     bar = build_bar()
     definition = OnlyResearchDatasetDefinition(
         (bar.instrument_id,),
-        bar.bar_type.specification,
-        bar.bar_type.aggregation_source,
+        bar.bar_type.semantic,
         OnlyTimeRange(bar.bar_start, bar.ts_event + timedelta(seconds=1)),
     )
     content = only_content_fingerprint((bar,))
-    fingerprint = only_snapshot_fingerprint(definition, RESEARCH_BAR_DATASET_SCHEMA_V1, content, 1)
+    construction_fingerprint = "a" * 64
+    fingerprint = only_snapshot_fingerprint(
+        definition, RESEARCH_BAR_DATASET_SCHEMA_V2, content, 1, construction_fingerprint
+    )
     return OnlyResearchDatasetSnapshot(
-        definition, RESEARCH_BAR_DATASET_SCHEMA_V1, content, 1, fingerprint, (), (), created_at
+        definition,
+        RESEARCH_BAR_DATASET_SCHEMA_V2,
+        content,
+        1,
+        fingerprint,
+        (),
+        (),
+        created_at,
+        construction_fingerprint,
     ), ((bar,),)
 
 
@@ -109,6 +119,15 @@ def test_strict_manifest_rejects_unknown_field(tmp_path) -> None:
         store.load(committed.snapshot_fingerprint)
 
 
+def test_old_manifest_requires_dataset_rebuild() -> None:
+    snapshot, _ = _snapshot()
+    payload = snapshot.to_dict()
+    payload["schema_version"] = 1
+
+    with pytest.raises(ValueError, match="DATASET_REBUILD_REQUIRED"):
+        OnlyResearchDatasetSnapshot.from_dict(payload)
+
+
 def test_storage_codec_options_do_not_change_snapshot_identity(tmp_path) -> None:
     snapshot, partitions = _snapshot()
     first = OnlyParquetResearchDatasetSnapshotStore(tmp_path / "a", compression="zstd", row_group_size=1).commit(
@@ -132,7 +151,9 @@ def test_partition_layout_does_not_change_snapshot_identity(tmp_path) -> None:
         ts_init=bar.ts_init + timedelta(minutes=1),
     )
     content = only_content_fingerprint((bar, later))
-    fingerprint = only_snapshot_fingerprint(snapshot.definition, snapshot.dataset_schema, content, 2)
+    fingerprint = only_snapshot_fingerprint(
+        snapshot.definition, snapshot.dataset_schema, content, 2, snapshot.construction_fingerprint
+    )
     updated = replace(snapshot, content_fingerprint=content, row_count=2, snapshot_fingerprint=fingerprint)
     one = OnlyParquetResearchDatasetSnapshotStore(tmp_path / "one").commit(updated, ((bar, later),))
     two = OnlyParquetResearchDatasetSnapshotStore(tmp_path / "two").commit(updated, ((bar,), (later,)))

@@ -6,13 +6,10 @@ from onlyalpha_plugin_indicators.registration import registrations
 
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
-    OnlyAggregationSource,
-    OnlyBarAggregation,
-    OnlyPriceType,
     OnlySessionType,
 )
 from onlyalpha.domain.identifiers import OnlyInstrumentId
-from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.indicator.factory import OnlyIndicatorCreateRequest
 from onlyalpha.indicator.identifiers import (
@@ -30,11 +27,7 @@ from onlyalpha.indicator.identifiers import (
 )
 from onlyalpha.indicator.registry import OnlyIndicatorFactoryRegistry
 
-BAR_TYPE = OnlyBarType(
-    OnlyInstrumentId.parse("TEST.XNAS"),
-    OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-    OnlyAggregationSource.EXTERNAL,
-)
+BAR_TYPE = OnlyBarType(OnlyInstrumentId.parse("TEST.XNAS"), OnlyBarSemantic.fixed_duration(1))
 
 
 def _bar(index: int, close: str) -> OnlyBar:

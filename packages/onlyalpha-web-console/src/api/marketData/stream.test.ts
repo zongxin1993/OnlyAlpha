@@ -3,6 +3,7 @@ import {
     marketDataStreamSubscribeSchema,
     openMarketDataStream
 } from "./stream";
+import { marketDataBarSemantic } from "./model";
 
 it("admits the exact-source cursor contract and rejects browser OHLCV truth", () => {
     const request = {
@@ -14,7 +15,7 @@ it("admits the exact-source cursor contract and rejects browser OHLCV truth", ()
             expected_type_id: "binance.spot.market_data"
         },
         instrument_id: "BTCUSDT.BINANCE",
-        bar_specification: { aggregation: "TIME", step: 1, price_type: "LAST" },
+        bar_semantic: marketDataBarSemantic(1),
         resume_after_sequence: "42",
         resume_plan_fingerprint: "a".repeat(64)
     };
@@ -46,9 +47,9 @@ it("admits the exact-source cursor contract and rejects browser OHLCV truth", ()
             stream_id: "s",
             source_id: "source",
             instrument_id: "BTCUSDT.TEST",
-            resolution_mode: "EXTERNAL_NATIVE",
+            resolution_mode: "PROVIDER_NATIVE",
             resolution_plan_fingerprint: "a".repeat(64),
-            cursor_bar_step_minutes: 15
+            cursor_bar_stride_minutes: 15
         }).success
     ).toBe(true);
 });
@@ -89,7 +90,7 @@ it.each([
                 expected_type_id: "source"
             },
             instrument_id: "BTCUSDT.TEST",
-            bar_specification: { aggregation: "TIME", step: 1, price_type: "LAST" },
+            bar_semantic: marketDataBarSemantic(1),
             resume_after_sequence: "0",
             resume_plan_fingerprint: null
         },
@@ -119,7 +120,7 @@ it("keeps preview and closed event semantics distinct", () => {
             event: "BAR_PREVIEW",
             source_id: "source",
             instrument_id: "BTCUSDT.BINANCE",
-            bar_specification: { aggregation: "TIME", step: 1, price_type: "LAST" },
+            bar_semantic: marketDataBarSemantic(1),
             bar
         }).event
     ).toBe("BAR_PREVIEW");
@@ -129,7 +130,7 @@ it("keeps preview and closed event semantics distinct", () => {
             event: "BAR_CLOSED",
             source_id: "source",
             instrument_id: "BTCUSDT.BINANCE",
-            bar_specification: { aggregation: "TIME", step: 1, price_type: "LAST" },
+            bar_semantic: marketDataBarSemantic(1),
             sequence: "1",
             bar: { ...bar, closed: true }
         }).event

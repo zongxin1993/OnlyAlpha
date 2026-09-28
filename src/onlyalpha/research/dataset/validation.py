@@ -18,11 +18,9 @@ def only_validate_dataset_bars(definition: OnlyResearchDatasetDefinition, bars: 
     for bar in bars:
         if bar.instrument_id not in allowed:
             raise OnlyResearchDatasetError("DATASET_INPUT_INVALID: unknown instrument")
-        if bar.bar_type.specification != definition.bar_specification:
+        if bar.bar_type.semantic != definition.bar_semantic:
             raise OnlyResearchDatasetError("DATASET_INPUT_INVALID: Bar specification mismatch")
-        if bar.bar_type.aggregation_source is not definition.aggregation_source:
-            raise OnlyResearchDatasetError("DATASET_INPUT_INVALID: aggregation source mismatch")
-        if bar.adjustment_type is not definition.adjustment_type:
+        if bar.adjustment_type is not definition.bar_semantic.adjustment_policy:
             raise OnlyResearchDatasetError("DATASET_INPUT_INVALID: adjustment mismatch")
         if not bar.is_closed:
             raise OnlyResearchDatasetError("DATASET_INPUT_INVALID: open Bar")

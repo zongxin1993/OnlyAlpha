@@ -36,13 +36,10 @@ from onlyalpha.calculation.registry import (
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
-    OnlyAggregationSource,
-    OnlyBarAggregation,
-    OnlyPriceType,
     OnlySessionType,
 )
 from onlyalpha.domain.identifiers import OnlyInstrumentId
-from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.indicator.identifiers import OnlyIndicatorId
 from onlyalpha.research.calculation.backend import OnlyResearchCalculationBackend
@@ -401,11 +398,7 @@ def _array(data_type: OnlyCalculationDataType, values: tuple[object, ...]) -> pa
 
 def _bars(case_id: str, case_ordinal: int, values: tuple[Decimal, ...]) -> tuple[OnlyBar, ...]:
     instrument = OnlyInstrumentId.parse("CERTIFICATION.XNAS")
-    bar_type = OnlyBarType(
-        instrument,
-        OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-        OnlyAggregationSource.EXTERNAL,
-    )
+    bar_type = OnlyBarType(instrument, OnlyBarSemantic.fixed_duration(1))
     base = datetime(2026, 1, 5, 14, 30, tzinfo=UTC) + timedelta(days=case_ordinal)
     result: list[OnlyBar] = []
     for index, raw in enumerate(values):

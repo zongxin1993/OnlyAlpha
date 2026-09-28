@@ -16,13 +16,13 @@ from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.data.historical import OnlyHistoricalDataRequest
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.data.models import OnlyHistoricalBarRequest, OnlyHistoricalDataRange
-from onlyalpha.domain.enums import (
-    OnlyAggregationSource,
-    OnlyBarAggregation,
-    OnlyPriceType,
-)
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRuntimeId
-from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import (
+    OnlyBarSemantic,
+    OnlyBarType,
+    OnlyCalendarPeriodBarFormation,
+    OnlyCalendarPeriodUnit,
+)
 
 
 class OnlyFakeXtData:
@@ -41,11 +41,7 @@ class OnlyFakeXtData:
 
 def _request() -> OnlyHistoricalBarRequest:
     instrument = OnlyInstrumentId.parse("600000.XSHG")
-    bar_type = OnlyBarType(
-        instrument,
-        OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-        OnlyAggregationSource.EXTERNAL,
-    )
+    bar_type = OnlyBarType(instrument, OnlyBarSemantic.fixed_duration(1))
     return OnlyHistoricalBarRequest(
         "history-1",
         frozenset({instrument}),
@@ -62,8 +58,7 @@ def _daily_request() -> OnlyHistoricalBarRequest:
     instrument = OnlyInstrumentId.parse("600000.XSHG")
     bar_type = OnlyBarType(
         instrument,
-        OnlyBarSpecification(1440, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-        OnlyAggregationSource.EXTERNAL,
+        OnlyBarSemantic(OnlyCalendarPeriodBarFormation(OnlyCalendarPeriodUnit.DAY)),
     )
     return OnlyHistoricalBarRequest(
         "daily-history-1",

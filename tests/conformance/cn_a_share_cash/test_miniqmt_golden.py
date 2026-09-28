@@ -82,7 +82,18 @@ def _config() -> OnlyClusterRunConfig:
     payload["strategy"] = {"fingerprint": "0" * 64}
     subscription = payload["factors"][0]["subscriptions"]["instrument_bars"][0]
     subscription["instrument_id"] = "600000.XSHG"
-    subscription["bar_specification"]["step"] = 1440
+    subscription["bar_semantic"] = {
+        "schema_version": 2,
+        "formation": {
+            "schema_version": 1,
+            "kind": "CALENDAR_PERIOD",
+            "unit": "DAY",
+            "count": 1,
+            "alignment": "SESSION_START",
+        },
+        "price_type": "LAST",
+        "adjustment_policy": "RAW",
+    }
     return OnlyClusterRunConfig.from_mapping(payload, source_path=BASE_CONFIG)
 
 

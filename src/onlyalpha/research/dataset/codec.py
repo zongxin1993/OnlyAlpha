@@ -2,24 +2,19 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from decimal import Decimal
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
-from onlyalpha.domain.enums import (
-    OnlyAdjustmentType,
-    OnlyAggregationSource,
-    OnlyBarAggregation,
-    OnlyCurrencyType,
-    OnlyPriceType,
-    OnlySessionType,
-)
+from onlyalpha.canonical import only_canonical_json
+from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyCurrencyType, OnlySessionType
 from onlyalpha.domain.identifiers import OnlyInstrumentId
-from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity
 
-from .schema import RESEARCH_BAR_DATASET_SCHEMA_V1, OnlyResearchBarDatasetSchema
+from .schema import RESEARCH_BAR_DATASET_SCHEMA_V2, OnlyResearchBarDatasetSchema
 
 
 def _ns(value: datetime) -> int:
@@ -43,7 +38,7 @@ def _precision(value: Decimal, precision: int) -> Decimal:
 
 
 def only_bars_to_table(
-    bars: tuple[OnlyBar, ...], schema: OnlyResearchBarDatasetSchema = RESEARCH_BAR_DATASET_SCHEMA_V1
+    bars: tuple[OnlyBar, ...], schema: OnlyResearchBarDatasetSchema = RESEARCH_BAR_DATASET_SCHEMA_V2
 ) -> pa.Table:
     rows: list[dict[str, object]] = []
     for bar in bars:
@@ -51,10 +46,7 @@ def only_bars_to_table(
         rows.append(
             {
                 "instrument_id": str(bar.instrument_id),
-                "bar_step": bar.bar_type.specification.step,
-                "bar_aggregation": bar.bar_type.specification.aggregation.value,
-                "price_type": bar.bar_type.specification.price_type.value,
-                "aggregation_source": bar.bar_type.aggregation_source.value,
+                "bar_semantic_json": only_canonical_json(bar.bar_type.semantic.to_dict()),
                 "bar_start_ns": _ns(bar.bar_start),
                 "bar_end_ns": _ns(bar.bar_end),
                 "ts_event_ns": _ns(bar.ts_event),
@@ -86,7 +78,7 @@ def only_bars_to_table(
 
 
 def only_table_to_bars(
-    table: pa.Table, schema: OnlyResearchBarDatasetSchema = RESEARCH_BAR_DATASET_SCHEMA_V1
+    table: pa.Table, schema: OnlyResearchBarDatasetSchema = RESEARCH_BAR_DATASET_SCHEMA_V2
 ) -> tuple[OnlyBar, ...]:
     if table.schema != schema.arrow_schema:
         raise ValueError("DATASET_SCHEMA_UNSUPPORTED: Arrow schema mismatch")
@@ -119,12 +111,7 @@ def only_table_to_bars(
             OnlyBar(
                 bar_type=OnlyBarType(
                     OnlyInstrumentId.parse(row["instrument_id"]),
-                    OnlyBarSpecification(
-                        row["bar_step"],
-                        OnlyBarAggregation(row["bar_aggregation"]),
-                        OnlyPriceType(row["price_type"]),
-                    ),
-                    OnlyAggregationSource(row["aggregation_source"]),
+                    OnlyBarSemantic.from_dict(json.loads(row["bar_semantic_json"])),
                 ),
                 open=OnlyPrice(_precision(row["open"], row["price_precision"]), row["price_precision"]),
                 high=OnlyPrice(_precision(row["high"], row["price_precision"]), row["price_precision"]),

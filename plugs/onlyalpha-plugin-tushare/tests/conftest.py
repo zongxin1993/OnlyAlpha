@@ -5,10 +5,7 @@ import pytest
 
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
 from onlyalpha.domain.enums import (
-    OnlyAggregationSource,
-    OnlyBarAggregation,
     OnlyMarketType,
-    OnlyPriceType,
     OnlySessionType,
 )
 from onlyalpha.domain.identifiers import (
@@ -19,7 +16,12 @@ from onlyalpha.domain.identifiers import (
     OnlyVenueId,
 )
 from onlyalpha.domain.instrument import OnlyEquity
-from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import (
+    OnlyBarSemantic,
+    OnlyBarType,
+    OnlyCalendarPeriodBarFormation,
+    OnlyCalendarPeriodUnit,
+)
 from onlyalpha.domain.time import OnlyTimeZone
 from onlyalpha.domain.value import OnlyCurrency, OnlyMultiplier, OnlyPrice, OnlyQuantity
 
@@ -60,6 +62,5 @@ def instrument() -> OnlyEquity:
 def bar_type(instrument: OnlyEquity) -> OnlyBarType:
     return OnlyBarType(
         instrument.instrument_id,
-        OnlyBarSpecification(1440, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-        OnlyAggregationSource.EXTERNAL,
+        OnlyBarSemantic(OnlyCalendarPeriodBarFormation(OnlyCalendarPeriodUnit.DAY)),
     )

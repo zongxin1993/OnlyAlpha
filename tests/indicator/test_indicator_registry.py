@@ -18,7 +18,7 @@ from onlyalpha.indicator.registry import OnlyIndicatorFactoryRegistry
 def _bar_type():
     config = OnlyClusterRunConfig.load("test-data/legacy_macd/cluster.json")
     spec = config.cluster.factors[0].subscriptions.instrument_bars[0]
-    return spec.bar_specification.to_bar_type(spec.instrument_id)
+    return spec.bar_semantic.to_bar_type(spec.instrument_id)
 
 
 def _bar(index: int, close: str) -> OnlyBar:

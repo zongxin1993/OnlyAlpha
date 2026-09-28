@@ -3,14 +3,14 @@ from datetime import date, datetime, time
 import pytest
 
 from onlyalpha.domain.calendar import OnlySessionSchedule, OnlyTradingCalendar, OnlyTradingSession
-from onlyalpha.domain.enums import OnlyAggregationSource, OnlyBarAggregation, OnlyPriceType, OnlySessionType
+from onlyalpha.domain.enums import OnlySessionType
 from onlyalpha.domain.identifiers import (
     OnlyCalendarId,
     OnlyInstrumentId,
     OnlySymbol,
     OnlyVenueId,
 )
-from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone, OnlyTradingDay
 from onlyalpha.market.session_clock import OnlyMarketSessionResolver, OnlyMarketSessionState
 from onlyalpha.market_data.completed_boundary import OnlyCompletedBarBoundaryResolver
@@ -68,8 +68,7 @@ def test_holiday_and_special_schedule_are_authoritative() -> None:
 def _bar_type(step: int) -> OnlyBarType:
     return OnlyBarType(
         OnlyInstrumentId(OnlySymbol("600000"), OnlyVenueId("XSHG")),
-        OnlyBarSpecification(step, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-        OnlyAggregationSource.EXTERNAL,
+        OnlyBarSemantic.fixed_duration(step),
     )
 
 

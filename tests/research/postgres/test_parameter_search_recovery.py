@@ -174,11 +174,11 @@ def _initialize(root: Path, *, partial_plan_batch: bool) -> None:
         batch_size=2,
         coarse_stride=1,
     )
-    base_specification = specification(dataset.snapshot_fingerprint)
+    base_semantic = specification(dataset.snapshot_fingerprint)
     scientific_specification = OnlyResearchSpecification(
-        base_specification.dataset_snapshot_fingerprint,
-        base_specification.calculations,
-        base_specification.statistics,
+        base_semantic.dataset_snapshot_fingerprint,
+        base_semantic.calculations,
+        base_semantic.statistics,
         OnlyResearchScientificEvidenceSpec(
             "feature",
             (OnlyResearchSeriesSelector("feature", "momentum", "factor_value"),),

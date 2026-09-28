@@ -6,9 +6,10 @@ import pytest
 
 from onlyalpha.core.clock import OnlyVirtualClock
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
-from onlyalpha.domain.enums import OnlyAggregationSource, OnlyBarAggregation, OnlyPriceType, OnlySessionType
+from onlyalpha.domain.enums import OnlySessionType
+from onlyalpha.domain.errors import OnlyValidationError
 from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyVenueId
-from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.time import OnlyTimeZone
 from onlyalpha.market_data.aggregation.manager import OnlyBarAggregationManager
 from onlyalpha.market_data.aggregation.time_bar import (
@@ -16,13 +17,26 @@ from onlyalpha.market_data.aggregation.time_bar import (
     OnlyBarAggregationError,
     OnlyTimeBarAggregator,
 )
-from onlyalpha.market_data.subscriptions import OnlyBarSubscription, OnlyMissingBarPolicy
+from onlyalpha.market_data.resolution import OnlyBarConstructionRecipe, OnlyBarDependencyGraph, OnlyBarDerivedDependency
+from onlyalpha.market_data.subscriptions import OnlyBarSubscription
+
+
+def _subscription(source: OnlyBarType, *targets: OnlyBarType) -> OnlyBarSubscription:
+    edges = tuple(
+        OnlyBarDerivedDependency(
+            source,
+            target,
+            OnlyBarConstructionRecipe.derived(target.semantic, source.semantic, algorithm_id="TIME_BAR"),
+        )
+        for target in targets
+    )
+    return OnlyBarSubscription((source, *targets), OnlyBarDependencyGraph((source,), edges))
 
 
 def test_1m_to_3m_is_calendar_aligned(shanghai_calendar, bar_1m, bar_3m, make_bar) -> None:
     clock = OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC))
     manager = OnlyBarAggregationManager(shanghai_calendar, clock)
-    manager.register_subscription(OnlyBarSubscription((bar_1m, bar_3m)))
+    manager.register_subscription(_subscription(bar_1m, bar_3m))
     assert manager.process(make_bar(0)) == ()
     assert manager.process(make_bar(1)) == ()
     derived = manager.process(make_bar(2))
@@ -43,13 +57,9 @@ def test_aligned_tumbling_policy_rejects_rolling_stride(shanghai_calendar) -> No
 
 @pytest.mark.parametrize("step", (2, 7, 13, 37))
 def test_arbitrary_intraday_step_is_session_relative(shanghai_calendar, bar_1m, make_bar, step) -> None:
-    target = OnlyBarType(
-        bar_1m.instrument_id,
-        OnlyBarSpecification(step, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-        OnlyAggregationSource.INTERNAL,
-    )
+    target = OnlyBarType(bar_1m.instrument_id, OnlyBarSemantic.fixed_duration(step))
     manager = OnlyBarAggregationManager(shanghai_calendar, OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC)))
-    manager.register_subscription(OnlyBarSubscription((bar_1m, target)))
+    manager.register_subscription(_subscription(bar_1m, target))
     outputs = [item for minute in range(step) for item in manager.process(make_bar(minute))]
     assert len(outputs) == 1
     assert outputs[0].bar_start == datetime(2026, 1, 5, 1, 30, tzinfo=UTC)
@@ -58,13 +68,9 @@ def test_arbitrary_intraday_step_is_session_relative(shanghai_calendar, bar_1m, 
 
 
 def test_missing_minute_in_arbitrary_window_cannot_close(shanghai_calendar, bar_1m, make_bar) -> None:
-    target = OnlyBarType(
-        bar_1m.instrument_id,
-        OnlyBarSpecification(13, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-        OnlyAggregationSource.INTERNAL,
-    )
+    target = OnlyBarType(bar_1m.instrument_id, OnlyBarSemantic.fixed_duration(13))
     manager = OnlyBarAggregationManager(shanghai_calendar, OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC)))
-    manager.register_subscription(OnlyBarSubscription((bar_1m, target)))
+    manager.register_subscription(_subscription(bar_1m, target))
     for minute in range(5):
         manager.process(make_bar(minute))
     with pytest.raises(OnlyBarAggregationError, match="gap"):
@@ -72,25 +78,14 @@ def test_missing_minute_in_arbitrary_window_cannot_close(shanghai_calendar, bar_
 
 
 def test_core_rejects_non_integer_target_step(shanghai_calendar, bar_1m) -> None:
-    target = OnlyBarType(
-        bar_1m.instrument_id,
-        OnlyBarSpecification(1.5, OnlyBarAggregation.TIME, OnlyPriceType.LAST),  # type: ignore[arg-type]
-        OnlyAggregationSource.INTERNAL,
-    )
-    with pytest.raises(OnlyBarAggregationError, match="target step"):
-        OnlyTimeBarAggregator(
-            bar_1m, target, shanghai_calendar, OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC))
-        )
+    with pytest.raises(OnlyValidationError, match="formation is invalid"):
+        OnlyBarSemantic.fixed_duration(1.5)  # type: ignore[arg-type]
 
 
 def test_arbitrary_window_preview_includes_closed_minutes_without_mutating_state(
     shanghai_calendar, bar_1m, make_bar
 ) -> None:
-    target = OnlyBarType(
-        bar_1m.instrument_id,
-        OnlyBarSpecification(7, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-        OnlyAggregationSource.INTERNAL,
-    )
+    target = OnlyBarType(bar_1m.instrument_id, OnlyBarSemantic.fixed_duration(7))
     aggregator = OnlyTimeBarAggregator(
         bar_1m, target, shanghai_calendar, OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC))
     )
@@ -111,13 +106,9 @@ def test_arbitrary_window_preview_includes_closed_minutes_without_mutating_state
 
 
 def test_seven_minute_windows_follow_session_start(shanghai_calendar, bar_1m, make_bar) -> None:
-    target = OnlyBarType(
-        bar_1m.instrument_id,
-        OnlyBarSpecification(7, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-        OnlyAggregationSource.INTERNAL,
-    )
+    target = OnlyBarType(bar_1m.instrument_id, OnlyBarSemantic.fixed_duration(7))
     manager = OnlyBarAggregationManager(shanghai_calendar, OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC)))
-    manager.register_subscription(OnlyBarSubscription((bar_1m, target)))
+    manager.register_subscription(_subscription(bar_1m, target))
     derived = [item for minute in range(21) for item in manager.process(make_bar(minute))]
     start = datetime(2026, 1, 5, 1, 30, tzinfo=UTC)
     assert [(bar.bar_start, bar.bar_end) for bar in derived] == [
@@ -132,11 +123,57 @@ def test_multiple_derived_bars_have_stable_duration_order(
         shanghai_calendar,
         OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC)),
     )
-    manager.register_subscription(OnlyBarSubscription((bar_15m, bar_5m, bar_3m, bar_1m)))
+    manager.register_subscription(_subscription(bar_1m, bar_15m, bar_5m, bar_3m))
     results = []
     for minute in range(15):
         results = list(manager.process(make_bar(minute)))
     assert [item.bar_type for item in results] == [bar_3m, bar_5m, bar_15m]
+
+
+def test_manager_preserves_native_and_derived_runtime_graph(shanghai_calendar, bar_1m, bar_15m) -> None:
+    bar_7m = OnlyBarType(bar_1m.instrument_id, OnlyBarSemantic.fixed_duration(7))
+    manager = OnlyBarAggregationManager(
+        shanghai_calendar,
+        OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC)),
+    )
+    edge = OnlyBarDerivedDependency(
+        bar_1m,
+        bar_7m,
+        OnlyBarConstructionRecipe.derived(bar_7m.semantic, bar_1m.semantic, algorithm_id="TIME_BAR"),
+    )
+    subscription = OnlyBarSubscription(
+        (bar_1m, bar_7m, bar_15m),
+        OnlyBarDependencyGraph((bar_1m, bar_15m), (edge,)),
+    )
+
+    manager.register_subscription(subscription)
+
+    assert set(manager.graph.provider_inputs) == {bar_1m, bar_15m}
+    assert manager.graph.derived_dependencies == (edge,)
+
+
+def test_unavailable_rolling_executor_does_not_partially_register_graph(shanghai_calendar, bar_1m) -> None:
+    rolling = OnlyBarType(bar_1m.instrument_id, OnlyBarSemantic.fixed_duration(15, 1))
+    edge = OnlyBarDerivedDependency(
+        bar_1m,
+        rolling,
+        OnlyBarConstructionRecipe.derived(
+            rolling.semantic,
+            bar_1m.semantic,
+            algorithm_id="ROLLING_TIME_BAR",
+        ),
+    )
+    manager = OnlyBarAggregationManager(
+        shanghai_calendar,
+        OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC)),
+    )
+
+    with pytest.raises(ValueError, match="CONSTRUCTION_ALGORITHM_UNAVAILABLE"):
+        manager.register_subscription(
+            OnlyBarSubscription((bar_1m, rolling), OnlyBarDependencyGraph((bar_1m,), (edge,)))
+        )
+
+    assert manager.graph == OnlyBarDependencyGraph((), ())
 
 
 def test_multi_cluster_registration_reuses_same_aggregator(shanghai_calendar, bar_1m, bar_3m) -> None:
@@ -144,7 +181,7 @@ def test_multi_cluster_registration_reuses_same_aggregator(shanghai_calendar, ba
         shanghai_calendar,
         OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC)),
     )
-    subscription = OnlyBarSubscription((bar_1m, bar_3m))
+    subscription = _subscription(bar_1m, bar_3m)
     manager.register_subscription(subscription)
     manager.register_subscription(subscription)
     assert manager.aggregator_count == 1
@@ -155,9 +192,8 @@ def test_missing_source_bar_rejects_window(shanghai_calendar, bar_1m, bar_3m, ma
     manager = OnlyBarAggregationManager(
         shanghai_calendar,
         OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC)),
-        missing_policy=OnlyMissingBarPolicy.REJECT,
     )
-    manager.register_subscription(OnlyBarSubscription((bar_1m, bar_3m)))
+    manager.register_subscription(_subscription(bar_1m, bar_3m))
     manager.process(make_bar(0))
     with pytest.raises(OnlyBarAggregationError, match="gap"):
         manager.process(make_bar(2))
@@ -171,7 +207,7 @@ def test_afternoon_bars_anchor_at_afternoon_session_not_morning(shanghai_calenda
         shanghai_calendar,
         OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC)),
     )
-    manager.register_subscription(OnlyBarSubscription((bar_1m, bar_3m)))
+    manager.register_subscription(_subscription(bar_1m, bar_3m))
     start = datetime(2026, 1, 5, 5, 0, tzinfo=UTC)
     bars = []
     for minute in range(3):
@@ -226,7 +262,7 @@ def test_incomplete_session_tail_is_dropped_without_partial_bar(bar_1m, bar_3m) 
         short_calendar,
         OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC)),
     )
-    manager.register_subscription(OnlyBarSubscription((bar_1m, bar_3m)))
+    manager.register_subscription(_subscription(bar_1m, bar_3m))
     results = []
     start = datetime(2026, 1, 5, 1, 30, tzinfo=UTC)
     for minute in range(4):

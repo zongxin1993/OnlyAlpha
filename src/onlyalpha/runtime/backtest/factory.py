@@ -458,7 +458,7 @@ class OnlyBacktestRuntimeFactory:
             revision = resolver.resolve(cluster.strategy.fingerprint).revision
             contract = revision.market_input_contract
             for instrument_id in revision.universe.instruments:
-                bar_type = OnlyBarType(instrument_id, contract.bar_specification, contract.aggregation_source)
+                bar_type = OnlyBarType(instrument_id, contract.bar_semantic)
                 existing = result.get(instrument_id)
                 if existing is not None and existing != bar_type:
                     raise ValueError("Strategy Market Input Contracts conflict for one instrument")

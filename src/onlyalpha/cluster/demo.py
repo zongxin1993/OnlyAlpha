@@ -44,7 +44,7 @@ class OnlyDemoCluster(OnlyCluster):
             (
                 snapshot.latest_closed(bar_type)
                 for bar_type in snapshot.bars.latest_closed_bars
-                if bar_type.specification.step == 3
+                if bar_type.semantic.stride_minutes == 3
             ),
             None,
         )

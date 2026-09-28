@@ -9,9 +9,9 @@ from typing import cast
 import yaml
 
 from onlyalpha.config import OnlyClusterRunConfig, OnlyStrategyReferenceConfig
-from onlyalpha.domain.enums import OnlyAdjustmentType
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.market.product import OnlyMarketProductResolutionContext
+from onlyalpha.market_data.resolution import OnlyBarConstructionRecipe, OnlyBarConstructionRequirement
 from onlyalpha.runtime.defaults import OnlyEngineServices, only_default_engine_services
 from onlyalpha.runtime.planning import OnlyRuntimePlanner
 from onlyalpha.runtime.result import OnlyRuntimeResult
@@ -81,9 +81,10 @@ def only_migrate_cluster_to_strategy(
     )
     market_input_contract = (
         OnlyStrategyMarketInputContract(
-            subscriptions[0].bar_specification.to_bar_type(subscriptions[0].instrument_id).specification,
-            subscriptions[0].bar_specification.source,
-            OnlyAdjustmentType.RAW,
+            subscriptions[0].bar_semantic.semantic,
+            OnlyBarConstructionRequirement.exact(
+                OnlyBarConstructionRecipe.provider_native(subscriptions[0].bar_semantic.semantic)
+            ),
         )
         if subscriptions
         else case.revision.market_input_contract

@@ -42,10 +42,10 @@ from onlyalpha.calculation import (
 )
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.distribution import OnlyArtifactCalculationImplementation
-from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyAggregationSource, OnlyBarAggregation, OnlyPriceType
 from onlyalpha.domain.identifiers import OnlyInstrumentId
-from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType
 from onlyalpha.kernel import OnlyAlphaKernelHost
+from onlyalpha.market_data.resolution import OnlyBarConstructionRecipe, OnlyBarConstructionRequirement
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
     OnlyPostgresPrivateAssetProductProjectionStore,
@@ -300,9 +300,10 @@ def _cardinality_assets(
         1,
         OnlyStrategyUniverse((OnlyInstrumentId.parse("TEST.XSHG"),)),
         OnlyStrategyMarketInputContract(
-            OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-            OnlyAggregationSource.EXTERNAL,
-            OnlyAdjustmentType.RAW,
+            OnlyBarSemantic.fixed_duration(1),
+            OnlyBarConstructionRequirement.exact(
+                OnlyBarConstructionRecipe.provider_native(OnlyBarSemantic.fixed_duration(1))
+            ),
         ),
         tuple(calculations),
         tuple(sorted(dependencies)),
@@ -345,7 +346,7 @@ def _test_xshg_snapshot():  # type: ignore[no-untyped-def]
     values = tuple(
         replace(
             item,
-            bar_type=OnlyBarType(instrument, item.bar_type.specification, item.bar_type.aggregation_source),
+            bar_type=OnlyBarType(instrument, item.bar_type.semantic),
         )
         for item in bars()
         if str(item.instrument_id) == "A.XNAS"

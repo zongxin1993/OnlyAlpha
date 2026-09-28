@@ -403,34 +403,17 @@ export function ResearchStudioPage() {
                                 <input
                                     type="number"
                                     min="1"
-                                    value={studio.draft.dataset.step}
-                                    onChange={(event) => {
-                                        changeDraft((draft) => ({
-                                            ...draft,
-                                            dataset: { ...draft.dataset, step: event.target.value }
-                                        }));
-                                    }}
-                                />
-                            </label>
-                            <label>
-                                Aggregation
-                                <select
-                                    value={studio.draft.dataset.aggregation}
+                                    value={studio.draft.dataset.durationMinutes}
                                     onChange={(event) => {
                                         changeDraft((draft) => ({
                                             ...draft,
                                             dataset: {
                                                 ...draft.dataset,
-                                                aggregation: event.target
-                                                    .value as ResearchDraft["dataset"]["aggregation"]
+                                                durationMinutes: event.target.value
                                             }
                                         }));
                                     }}
-                                >
-                                    {["TIME", "TICK", "VOLUME", "VALUE"].map((value) => (
-                                        <option key={value}>{value}</option>
-                                    ))}
-                                </select>
+                                />
                             </label>
                             <label>
                                 Price type
@@ -453,25 +436,6 @@ export function ResearchStudioPage() {
                                 </select>
                             </label>
                             <label>
-                                Aggregation source
-                                <select
-                                    value={studio.draft.dataset.aggregationSource}
-                                    onChange={(event) => {
-                                        changeDraft((draft) => ({
-                                            ...draft,
-                                            dataset: {
-                                                ...draft.dataset,
-                                                aggregationSource: event.target
-                                                    .value as ResearchDraft["dataset"]["aggregationSource"]
-                                            }
-                                        }));
-                                    }}
-                                >
-                                    <option>EXTERNAL</option>
-                                    <option>INTERNAL</option>
-                                </select>
-                            </label>
-                            <label>
                                 Adjustment type
                                 <select
                                     value={studio.draft.dataset.adjustmentType}
@@ -490,23 +454,6 @@ export function ResearchStudioPage() {
                                     <option>FORWARD</option>
                                     <option>BACKWARD</option>
                                 </select>
-                            </label>
-                            <label>
-                                Adjustment reference
-                                <input
-                                    type="text"
-                                    placeholder="optional exact reference"
-                                    value={studio.draft.dataset.adjustmentReference}
-                                    onChange={(event) => {
-                                        changeDraft((draft) => ({
-                                            ...draft,
-                                            dataset: {
-                                                ...draft.dataset,
-                                                adjustmentReference: event.target.value
-                                            }
-                                        }));
-                                    }}
-                                />
                             </label>
                         </div>
                     </section>

@@ -7,14 +7,9 @@ import pytest
 from onlyalpha_plugin_targets.registration import FORWARD_RETURN
 
 from onlyalpha.calculation import OnlyCalculationDataType, OnlyCalculationKind, OnlyCalculationTypeReference
-from onlyalpha.domain.enums import (
-    OnlyAdjustmentType,
-    OnlyAggregationSource,
-    OnlyBarAggregation,
-    OnlyPriceType,
-)
 from onlyalpha.domain.identifiers import OnlyInstrumentId
-from onlyalpha.domain.market import OnlyBarSpecification
+from onlyalpha.domain.market import OnlyBarSemantic
+from onlyalpha.market_data.resolution import OnlyBarConstructionRecipe, OnlyBarConstructionRequirement
 from onlyalpha.quant_assets import (
     OnlyInMemoryPrivateStrategyResearchCompositionStore,
     OnlyPrivateAssetKind,
@@ -85,9 +80,10 @@ def _case():
         1,
         OnlyStrategyUniverse((OnlyInstrumentId.parse("TEST.XSHG"),)),
         OnlyStrategyMarketInputContract(
-            OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-            OnlyAggregationSource.EXTERNAL,
-            OnlyAdjustmentType.RAW,
+            OnlyBarSemantic.fixed_duration(1),
+            OnlyBarConstructionRequirement.exact(
+                OnlyBarConstructionRecipe.provider_native(OnlyBarSemantic.fixed_duration(1))
+            ),
         ),
         (calculation,),
         (OnlyPrivateStrategyFactorRevisionDependencyV1(factor.factor_id, factor.revision_fingerprint),),

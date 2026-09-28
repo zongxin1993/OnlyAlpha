@@ -15,7 +15,6 @@ from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
 from onlyalpha.calculation.definition import OnlyCalculationKind, OnlyCalculationTypeReference
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.domain.calendar import OnlyTradingCalendar
-from onlyalpha.domain.enums import OnlyAggregationSource, OnlyBarAggregation, OnlyPriceType
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
     OnlyCalendarId,
@@ -25,7 +24,7 @@ from onlyalpha.domain.identifiers import (
     OnlyVenueId,
 )
 from onlyalpha.domain.instrument import OnlyInstrument
-from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.factor.identifiers import OnlyFactorId
 from onlyalpha.indicator.identifiers import OnlyIndicatorId, OnlyIndicatorTypeId
@@ -179,31 +178,24 @@ class OnlyBrokerRuntimeConfig:
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyBarSpecificationConfig:
-    step: int
-    aggregation: OnlyBarAggregation
-    price_type: OnlyPriceType
-    source: OnlyAggregationSource
+class OnlyBarSemanticConfig:
+    semantic: OnlyBarSemantic
 
     def to_bar_type(self, instrument_id: OnlyInstrumentId) -> OnlyBarType:
-        return OnlyBarType(
-            instrument_id,
-            OnlyBarSpecification(self.step, self.aggregation, self.price_type),
-            self.source,
-        )
+        return OnlyBarType(instrument_id, self.semantic)
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyInstrumentBarSubscriptionConfig:
     instrument_id: OnlyInstrumentId
-    bar_specification: OnlyBarSpecificationConfig
+    bar_semantic: OnlyBarSemanticConfig
     role: OnlySubscriptionRole
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyUniverseBarSubscriptionConfig:
     universe_id: str
-    bar_specification: OnlyBarSpecificationConfig
+    bar_semantic: OnlyBarSemanticConfig
     role: OnlySubscriptionRole
 
 

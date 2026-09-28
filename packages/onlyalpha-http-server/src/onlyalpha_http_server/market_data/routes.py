@@ -12,13 +12,12 @@ from onlyalpha.application.market_data_product import (
     OnlyMarketDataProductService,
     OnlyMarketDataSourceReferenceV1,
 )
-from onlyalpha.domain.enums import OnlyBarAggregation, OnlyPriceType
-from onlyalpha.domain.market import OnlyBarSpecification
 
 from .schema import (
     MarketDataAcquisitionDto,
     MarketDataAcquisitionRequestDto,
     MarketDataBarsDto,
+    MarketDataBarSemanticDto,
     MarketDataErrorDto,
     MarketDataErrorEnvelopeDto,
     MarketDataInstrumentListDto,
@@ -72,9 +71,7 @@ def create_market_data_router(service: OnlyMarketDataProductService) -> APIRoute
         instrument_id: str,
         start_ns: _Nanoseconds,
         end_ns: _Nanoseconds,
-        bar_step: Annotated[int, Query(ge=1, le=240)] = 1,
-        bar_aggregation: Literal["TIME"] = "TIME",
-        bar_price_type: Literal["LAST"] = "LAST",
+        bar_semantic: str,
         expected_type_id: str | None = None,
     ) -> MarketDataBarsDto:
         return MarketDataBarsDto.from_model(
@@ -83,9 +80,7 @@ def create_market_data_router(service: OnlyMarketDataProductService) -> APIRoute
                 instrument_id=instrument_id,
                 start_ns=int(start_ns),
                 end_ns=int(end_ns),
-                bar_specification=OnlyBarSpecification(
-                    bar_step, OnlyBarAggregation(bar_aggregation), OnlyPriceType(bar_price_type)
-                ),
+                bar_semantic=MarketDataBarSemanticDto.model_validate_json(bar_semantic).to_model(),
             )
         )
 
@@ -102,7 +97,7 @@ def create_market_data_router(service: OnlyMarketDataProductService) -> APIRoute
                 instrument_id=request.instrument_id,
                 start_ns=int(request.start_ns),
                 end_ns=int(request.end_ns),
-                bar_specification=request.bar_specification.to_model(),
+                bar_semantic=request.bar_semantic.to_model(),
             )
         )
 

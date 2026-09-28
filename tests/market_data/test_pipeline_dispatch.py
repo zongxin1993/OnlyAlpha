@@ -9,7 +9,13 @@ from onlyalpha.cluster.bar_context import OnlyBarContext
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterConfig
 from onlyalpha.core.clock import OnlyClockView, OnlyLiveClock, OnlyVirtualClock
 from onlyalpha.domain.identifiers import OnlyEngineId, OnlyRuntimeId
-from onlyalpha.domain.market import OnlyBar, OnlyBarType
+from onlyalpha.domain.market import (
+    OnlyBar,
+    OnlyBarSemantic,
+    OnlyBarType,
+    OnlyCalendarPeriodBarFormation,
+    OnlyCalendarPeriodUnit,
+)
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.indicator.base import (
     OnlyBarIndicator,
@@ -27,6 +33,7 @@ from onlyalpha.market_data.dispatcher import OnlyClusterBarSubscription, OnlyStr
 from onlyalpha.market_data.pipeline import OnlyMarketDataPipeline, OnlyMarketDataPipelineError
 from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot, OnlyMarketDataSnapshotError
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
+from tests.support.bar_graph import only_native_bar_graph, only_time_bar_graph
 
 
 class OnlyRecordingCluster(OnlyCluster):
@@ -113,7 +120,7 @@ def test_default_1m_primary_calls_three_times_and_third_snapshot_is_ready(
     shanghai_calendar, bar_1m, bar_3m, make_bar
 ) -> None:
     cluster = OnlyRecordingCluster("cluster-a")
-    subscription = OnlyBarSubscription((bar_1m, bar_3m))
+    subscription = OnlyBarSubscription((bar_1m, bar_3m), only_time_bar_graph(bar_1m, bar_3m))
     pipeline, dispatcher, _ = _system(
         shanghai_calendar,
         (OnlyClusterBarSubscription(cluster, subscription),),
@@ -132,13 +139,19 @@ def test_default_1m_primary_calls_three_times_and_third_snapshot_is_ready(
 
 def test_external_daily_bar_runs_through_pipeline_and_dispatches(shanghai_calendar, bar_1m, make_bar) -> None:
     daily_bar_type = replace(
-        bar_1m,
-        specification=replace(bar_1m.specification, step=1440),
+        bar_1m, semantic=OnlyBarSemantic(OnlyCalendarPeriodBarFormation(OnlyCalendarPeriodUnit.DAY))
     )
     cluster = OnlyRecordingCluster("daily")
     pipeline, dispatcher, manager = _system(
         shanghai_calendar,
-        (OnlyClusterBarSubscription(cluster, OnlyBarSubscription((daily_bar_type,))),),
+        (
+            OnlyClusterBarSubscription(
+                cluster,
+                OnlyBarSubscription(
+                    (daily_bar_type,), only_native_bar_graph(daily_bar_type), primary_bar_type=daily_bar_type
+                ),
+            ),
+        ),
     )
     minute_bar = make_bar(0)
     daily_bar = replace(
@@ -162,7 +175,7 @@ def test_external_daily_bar_runs_through_pipeline_and_dispatches(shanghai_calend
 
 def test_explicit_3m_primary_calls_once_with_latest_1m(shanghai_calendar, bar_1m, bar_3m, make_bar) -> None:
     cluster = OnlyRecordingCluster("cluster-b")
-    subscription = OnlyBarSubscription((bar_1m, bar_3m), primary_bar_type=bar_3m)
+    subscription = OnlyBarSubscription((bar_1m, bar_3m), only_time_bar_graph(bar_1m, bar_3m), primary_bar_type=bar_3m)
     pipeline, dispatcher, _ = _system(
         shanghai_calendar,
         (OnlyClusterBarSubscription(cluster, subscription),),
@@ -183,10 +196,12 @@ def test_multiple_clusters_share_aggregation_and_use_different_primary_periods(
     pipeline, dispatcher, manager = _system(
         shanghai_calendar,
         (
-            OnlyClusterBarSubscription(cluster_a, OnlyBarSubscription((bar_1m, bar_3m))),
+            OnlyClusterBarSubscription(
+                cluster_a, OnlyBarSubscription((bar_1m, bar_3m), only_time_bar_graph(bar_1m, bar_3m))
+            ),
             OnlyClusterBarSubscription(
                 cluster_b,
-                OnlyBarSubscription((bar_1m, bar_3m), primary_bar_type=bar_3m),
+                OnlyBarSubscription((bar_1m, bar_3m), only_time_bar_graph(bar_1m, bar_3m), primary_bar_type=bar_3m),
             ),
         ),
     )
@@ -204,7 +219,9 @@ def test_all_derived_bars_and_required_indicator_finish_before_one_callback(
     cluster = OnlyRecordingCluster("cluster", order)
     indicator = OnlyCloseIndicator("close-15m", bar_15m, order)
     registration = OnlyIndicatorRegistration(indicator, OnlyIndicatorRequirement.REQUIRED)
-    subscription = OnlyBarSubscription((bar_1m, bar_3m, bar_5m, bar_15m))
+    subscription = OnlyBarSubscription(
+        (bar_1m, bar_3m, bar_5m, bar_15m), only_time_bar_graph(bar_1m, bar_3m, bar_5m, bar_15m)
+    )
     pipeline, dispatcher, _ = _system(
         shanghai_calendar,
         (OnlyClusterBarSubscription(cluster, subscription),),
@@ -227,7 +244,7 @@ def test_required_indicator_failure_blocks_dispatch(shanghai_calendar, bar_1m, m
     indicator = OnlyFailingIndicator("required-fail", bar_1m)
     pipeline, dispatcher, _ = _system(
         shanghai_calendar,
-        (OnlyClusterBarSubscription(cluster, OnlyBarSubscription((bar_1m,))),),
+        (OnlyClusterBarSubscription(cluster, OnlyBarSubscription((bar_1m,), only_native_bar_graph(bar_1m))),),
         (OnlyIndicatorRegistration(indicator, OnlyIndicatorRequirement.REQUIRED),),
     )
     with pytest.raises(OnlyMarketDataPipelineError, match="required indicator"):
@@ -242,7 +259,7 @@ def test_optional_indicator_failure_is_flagged_but_dispatch_continues(shanghai_c
     indicator = OnlyFailingIndicator("optional-fail", bar_1m)
     pipeline, dispatcher, _ = _system(
         shanghai_calendar,
-        (OnlyClusterBarSubscription(cluster, OnlyBarSubscription((bar_1m,))),),
+        (OnlyClusterBarSubscription(cluster, OnlyBarSubscription((bar_1m,), only_native_bar_graph(bar_1m))),),
         (OnlyIndicatorRegistration(indicator, OnlyIndicatorRequirement.OPTIONAL),),
     )
     update = pipeline.process_bar(make_bar(0))
@@ -257,7 +274,11 @@ def test_snapshot_is_immutable_closed_only_and_same_time_is_explicit(
     cluster = OnlyRecordingCluster("snapshot")
     pipeline, dispatcher, _ = _system(
         shanghai_calendar,
-        (OnlyClusterBarSubscription(cluster, OnlyBarSubscription((bar_1m, bar_3m))),),
+        (
+            OnlyClusterBarSubscription(
+                cluster, OnlyBarSubscription((bar_1m, bar_3m), only_time_bar_graph(bar_1m, bar_3m))
+            ),
+        ),
     )
     first = pipeline.process_bar(make_bar(0))
     dispatcher.dispatch(first)
@@ -276,7 +297,7 @@ def test_duplicate_and_late_bars_are_rejected(shanghai_calendar, bar_1m, make_ba
     cluster = OnlyRecordingCluster("sequence")
     pipeline, _, _ = _system(
         shanghai_calendar,
-        (OnlyClusterBarSubscription(cluster, OnlyBarSubscription((bar_1m,))),),
+        (OnlyClusterBarSubscription(cluster, OnlyBarSubscription((bar_1m,), only_native_bar_graph(bar_1m))),),
     )
     pipeline.process_bar(make_bar(1))
     with pytest.raises(OnlyMarketDataPipelineError, match="duplicate"):
@@ -306,7 +327,11 @@ def test_snapshot_update_result_and_input_events_replay_deterministically(
         cluster = OnlyRecordingCluster("replay")
         pipeline, dispatcher, _ = _system(
             shanghai_calendar,
-            (OnlyClusterBarSubscription(cluster, OnlyBarSubscription((bar_1m, bar_3m))),),
+            (
+                OnlyClusterBarSubscription(
+                    cluster, OnlyBarSubscription((bar_1m, bar_3m), only_time_bar_graph(bar_1m, bar_3m))
+                ),
+            ),
         )
         snapshots = []
         for payload in serialized_events:
@@ -324,7 +349,7 @@ def test_snapshot_update_result_and_input_events_replay_deterministically(
 def test_cluster_failure_is_isolated_from_other_cluster(shanghai_calendar, bar_1m, make_bar) -> None:
     failing = OnlyRecordingCluster("a-failing", failing=True)
     healthy = OnlyRecordingCluster("b-healthy")
-    subscription = OnlyBarSubscription((bar_1m,))
+    subscription = OnlyBarSubscription((bar_1m,), only_native_bar_graph(bar_1m))
     pipeline, dispatcher, _ = _system(
         shanghai_calendar,
         (
@@ -344,7 +369,7 @@ def test_same_cluster_cannot_dispatch_same_time_slice_twice(shanghai_calendar, b
     cluster = OnlyRecordingCluster("once")
     pipeline, dispatcher, _ = _system(
         shanghai_calendar,
-        (OnlyClusterBarSubscription(cluster, OnlyBarSubscription((bar_1m,))),),
+        (OnlyClusterBarSubscription(cluster, OnlyBarSubscription((bar_1m,), only_native_bar_graph(bar_1m))),),
     )
     update = pipeline.process_bar(make_bar(0))
     dispatcher.dispatch(update)
@@ -357,7 +382,7 @@ def test_runtime_pipeline_instances_do_not_share_mutable_aggregation(
 ) -> None:
     cluster_a = OnlyRecordingCluster("a")
     cluster_b = OnlyRecordingCluster("b")
-    subscription = OnlyBarSubscription((bar_1m, bar_3m), primary_bar_type=bar_3m)
+    subscription = OnlyBarSubscription((bar_1m, bar_3m), only_time_bar_graph(bar_1m, bar_3m), primary_bar_type=bar_3m)
     pipeline_a, dispatcher_a, manager_a = _system(
         shanghai_calendar,
         (OnlyClusterBarSubscription(cluster_a, subscription),),
@@ -391,11 +416,15 @@ def test_live_and_backtest_clocks_use_same_data_preparation_semantics(
         )
         cluster = OnlyRecordingCluster("cluster")
         dispatcher = OnlyStrategyBarDispatcher(pipeline, OnlyClockView(clock))
-        dispatcher.register(OnlyClusterBarSubscription(cluster, OnlyBarSubscription((bar_1m, bar_3m))))
+        dispatcher.register(
+            OnlyClusterBarSubscription(
+                cluster, OnlyBarSubscription((bar_1m, bar_3m), only_time_bar_graph(bar_1m, bar_3m))
+            )
+        )
         updated = []
         for minute in range(3):
             result = pipeline.process_bar(make_bar(minute))
-            updated.append(tuple(sorted(str(item.specification.step) for item in result.updated_bar_types)))
+            updated.append(tuple(sorted(str(item.semantic.stride_minutes) for item in result.updated_bar_types)))
             dispatcher.dispatch(result)
         return updated, len(cluster.calls)
 

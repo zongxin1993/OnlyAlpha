@@ -30,7 +30,7 @@ from onlyalpha.data.models import (
 )
 from onlyalpha.data.ports import OnlyMarketDataCapabilities
 from onlyalpha.domain.calendar import OnlyTradingCalendar
-from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyBarAggregation, OnlySessionType
+from onlyalpha.domain.enums import OnlyAdjustmentType, OnlySessionType
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
@@ -120,9 +120,9 @@ class OnlySyntheticInstrumentDataConfig:
     def __post_init__(self) -> None:
         if self.bar_type.instrument_id != self.instrument.instrument_id:
             raise ValueError("synthetic BarType must belong to its Instrument")
-        if self.bar_type.specification.aggregation is not OnlyBarAggregation.TIME:
+        if not self.bar_type.semantic.is_fixed_duration:
             raise ValueError("synthetic source supports TIME Bars only")
-        if self.bar_type.specification.step <= 0:
+        if self.bar_type.semantic.stride_minutes <= 0:
             raise ValueError("synthetic TIME Bar step must be positive")
         if not self.price_segments or not self.instrument.validates_price(self.initial_price):
             raise ValueError("synthetic source requires segments and a valid initial price")
@@ -253,7 +253,7 @@ class OnlySyntheticHistoricalDataSource:
         end = request.data_range.end_time
         local_start = config.trading_calendar.to_local(start).date() - timedelta(days=2)
         local_end = config.trading_calendar.to_local(end).date() + timedelta(days=2)
-        bar_delta = timedelta(minutes=config.bar_type.specification.step)
+        bar_delta = timedelta(minutes=config.bar_type.semantic.stride_minutes)
         slots: list[tuple[datetime, datetime, OnlyTradingDay, OnlySessionType]] = []
         day = local_start
         while day <= local_end:

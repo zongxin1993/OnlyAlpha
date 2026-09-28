@@ -19,7 +19,7 @@ from onlyalpha.core.clock import OnlyLiveClock
 from onlyalpha.data.enums import OnlyMarketDataType
 from onlyalpha.data.models import OnlyMarketDataSubscriptionRequest
 from onlyalpha.data.queue import OnlyMarketDataInboundQueue
-from onlyalpha.domain.enums import OnlyAggregationSource, OnlyRuntimeMode
+from onlyalpha.domain.enums import OnlyRuntimeMode
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
@@ -130,14 +130,11 @@ class OnlySimRuntimeFactory:
                     "SIM_CLUSTER_REQUIRED",
                     "SIM requires at least one enabled Cluster",
                 )
-            all_bar_types = frozenset(
-                bar_type
-                for cluster in clusters
-                if cluster.config.subscription is not None
-                for bar_type in cluster.config.subscription.bar_types
+            subscriptions = tuple(
+                cluster.config.subscription for cluster in clusters if cluster.config.subscription is not None
             )
             base_bar_types = frozenset(
-                item for item in all_bar_types if item.aggregation_source is OnlyAggregationSource.EXTERNAL
+                item for subscription in subscriptions for item in subscription.dependency_graph.provider_inputs
             )
             if not base_bar_types:
                 raise _OnlySimCompositionError(
@@ -385,9 +382,9 @@ class OnlySimRuntimeFactory:
                 historical_compatibility_profile=streaming.historical_compatibility_profile,
                 historical_timeout_seconds=streaming.historical_timeout_seconds,
                 warmup_alignment_steps=tuple(
-                    item.specification.step
-                    for item in all_bar_types
-                    if item.aggregation_source is OnlyAggregationSource.INTERNAL
+                    item.target.semantic.window_minutes
+                    for subscription in subscriptions
+                    for item in subscription.dependency_graph.derived_dependencies
                 ),
                 stale_after_seconds=streaming.stale_after_seconds,
                 observation_sinks=self._observation_sinks(config, request.user_data_root),

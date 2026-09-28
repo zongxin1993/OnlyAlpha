@@ -2,9 +2,9 @@ from dataclasses import replace
 
 import pytest
 
-from onlyalpha.domain.enums import OnlyAggregationSource
 from onlyalpha.domain.identifiers import OnlyInstrumentId
-from onlyalpha.domain.market import OnlyBarSpecification
+from onlyalpha.domain.market import OnlyBarSemantic
+from onlyalpha.market_data.resolution import OnlyBarConstructionRecipe, OnlyBarConstructionRequirement
 from onlyalpha.strategy import (
     OnlyStrategyImplementationBinding,
     OnlyStrategyMarketInputContract,
@@ -72,25 +72,27 @@ def test_every_strategy_semantic_boundary_changes_the_single_fingerprint(tmp_pat
     revision = case.revision
     original = revision.strategy_fingerprint
     contract = revision.market_input_contract
+    changed_semantic = OnlyBarSemantic.fixed_duration(contract.bar_semantic.window_minutes + 1)
     variants = (
         replace(revision, universe=OnlyStrategyUniverse((OnlyInstrumentId.parse("C.XNAS"),))),
         replace(
             revision,
-            market_input_contract=replace(
-                contract,
-                bar_specification=OnlyBarSpecification(
-                    contract.bar_specification.step + 1,
-                    contract.bar_specification.aggregation,
-                    contract.bar_specification.price_type,
-                ),
+            market_input_contract=OnlyStrategyMarketInputContract(
+                changed_semantic,
+                OnlyBarConstructionRequirement.exact(OnlyBarConstructionRecipe.provider_native(changed_semantic)),
             ),
         ),
         replace(
             revision,
             market_input_contract=OnlyStrategyMarketInputContract(
-                contract.bar_specification,
-                OnlyAggregationSource.INTERNAL,
-                contract.adjustment_type,
+                contract.bar_semantic,
+                OnlyBarConstructionRequirement.exact(
+                    OnlyBarConstructionRecipe.derived(
+                        contract.bar_semantic,
+                        OnlyBarSemantic.fixed_duration(1),
+                        algorithm_id="TIME_BAR",
+                    )
+                ),
             ),
         ),
         case.revision_variants[1],

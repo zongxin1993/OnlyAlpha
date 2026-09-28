@@ -1,257 +1,195 @@
 from __future__ import annotations
 
-import subprocess
-import sys
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_payload
-from onlyalpha.domain.enums import OnlyAggregationSource, OnlyBarAggregation, OnlyPriceType
+from onlyalpha.core.ranges import OnlyTimeRange
+from onlyalpha.domain.errors import OnlySerializationError
 from onlyalpha.domain.identifiers import OnlyInstrumentId
-from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
-from onlyalpha.market_data.durable.models import OnlyMarketDataScope
+from onlyalpha.domain.market import (
+    OnlyBarAlignment,
+    OnlyBarSemantic,
+    OnlyBarType,
+    OnlyCalendarPeriodBarFormation,
+    OnlyCalendarPeriodUnit,
+)
 from onlyalpha.market_data.resolution import (
     OnlyBarCapability,
+    OnlyBarConstructionAlgorithmRegistry,
     OnlyBarConstructionIdentity,
-    OnlyBarIntervalKind,
+    OnlyBarConstructionRecipe,
+    OnlyBarConstructionRequirement,
+    OnlyBarConstructionRequirementKind,
+    OnlyBarDependencyGraph,
+    OnlyBarDerivedDependency,
     OnlyBarResolutionMode,
     OnlyBarResolutionPlan,
-    OnlyCalendarBarSpecification,
-    OnlyCalendarBarUnit,
-    OnlyFixedDurationBarSemantic,
+    OnlyBarResolutionPolicy,
     only_expected_fixed_duration_bar_ends,
     only_plan_bar_resolution,
 )
+from onlyalpha.research.dataset.definition import OnlyResearchDatasetDefinition
+from onlyalpha.strategy.revision import OnlyStrategyMarketInputContract
+
+INSTRUMENT = OnlyInstrumentId.parse("BTCUSDT.BINANCE")
+REVISION = "a" * 64
+CALENDAR = "calendar:v1"
 
 
-def _bar(minutes: int) -> OnlyBarSpecification:
-    return OnlyBarSpecification(minutes, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
+def semantic(window: int, stride: int | None = None) -> OnlyBarSemantic:
+    return OnlyBarSemantic.fixed_duration(window, stride, alignment=OnlyBarAlignment.UTC)
 
 
-def _capability(minutes: int, alignment: str = "UTC") -> OnlyBarCapability:
-    return OnlyBarCapability(_bar(minutes), OnlyBarIntervalKind.FIXED_DURATION, alignment, True, True, grid_origin_ns=0)
+def capability(value: OnlyBarSemantic) -> OnlyBarCapability:
+    return OnlyBarCapability(value, True, True, CALENDAR, 0)
 
 
-def _semantic(window: int, stride: int) -> OnlyFixedDurationBarSemantic:
-    return OnlyFixedDurationBarSemantic(
-        OnlyBarAggregation.TIME,
-        OnlyBarIntervalKind.FIXED_DURATION,
-        window,
-        stride,
-        OnlyPriceType.LAST,
-    )
-
-
-def _plan(minutes: int, capabilities: tuple[OnlyBarCapability, ...]):
+def plan(
+    target: OnlyBarSemantic,
+    capabilities: tuple[OnlyBarCapability, ...],
+    requirement: OnlyBarConstructionRequirement | None = None,
+) -> OnlyBarResolutionPlan:
     return only_plan_bar_resolution(
-        _bar(minutes),
+        target,
         capabilities,
-        alignment_id="UTC",
-        source_id="source",
-        instrument_id="BTCUSDT.TEST",
-        integration_revision_fingerprint="a" * 64,
+        calendar_fingerprint=CALENDAR,
+        source_id="binance.spot.live",
+        instrument_id=str(INSTRUMENT),
+        integration_revision_fingerprint=REVISION,
+        requirement=requirement,
     )
 
 
-def _semantic_plan(window: int, stride: int, capabilities: tuple[OnlyBarCapability, ...]):
-    return only_plan_bar_resolution(
-        _semantic(window, stride),
-        capabilities,
-        alignment_id="UTC",
-        source_id="source",
-        instrument_id="BTCUSDT.TEST",
-        integration_revision_fingerprint="a" * 64,
+def test_same_semantic_has_distinct_native_and_derived_construction() -> None:
+    target = semantic(15)
+    native_plan = plan(target, (capability(target), capability(semantic(1))))
+    derived_recipe = OnlyBarConstructionRecipe.derived(target, semantic(1), algorithm_id="TIME_BAR")
+    derived_plan = plan(
+        target,
+        (capability(target), capability(semantic(1))),
+        OnlyBarConstructionRequirement.exact(derived_recipe),
     )
 
-
-def test_exact_compatible_native_and_derived_have_distinct_lineage() -> None:
-    native = _plan(5, (_capability(1), _capability(5)))
-    derived = _plan(5, (_capability(1),))
-    assert native.mode is OnlyBarResolutionMode.EXTERNAL_NATIVE
-    assert native.provider_specification == _bar(5)
-    assert derived.mode is OnlyBarResolutionMode.INTERNAL_DERIVED
-    assert derived.base_specification == _bar(1)
-    assert derived.aggregation_semantics_version == "TIME_BAR_V1"
-    assert native.fingerprint != derived.fingerprint
-    assert native == _plan(5, (_capability(1), _capability(5)))
-
-
-def test_incompatible_alignment_or_realtime_cannot_select_native() -> None:
-    unavailable_live = OnlyBarCapability(_bar(5), OnlyBarIntervalKind.FIXED_DURATION, "UTC", True, False)
-    plan = _plan(5, (_capability(1), _capability(5, "SESSION"), unavailable_live))
-    assert plan.mode is OnlyBarResolutionMode.INTERNAL_DERIVED
-
-
-def test_missing_base_fails_closed_and_calendar_unit_is_not_minutes() -> None:
-    with pytest.raises(ValueError, match="BAR_RESOLUTION_BASE_UNAVAILABLE"):
-        _plan(7, (_capability(5),))
-    calendar = OnlyBarCapability(
-        OnlyCalendarBarSpecification(OnlyCalendarBarUnit.DAY, 1, OnlyPriceType.LAST),
-        OnlyBarIntervalKind.CALENDAR_SESSION,
-        "SESSION",
-        True,
-        True,
-    )
-    assert calendar.specification != _bar(1440)
-    with pytest.raises(ValueError, match="BAR_RESOLUTION_BASE_UNAVAILABLE"):
-        _plan(7, (calendar,))
-
-
-def test_construction_identity_roundtrip_and_capability_evolution() -> None:
-    derived = _plan(7, (_capability(1),))
-    native = _plan(7, (_capability(1), _capability(7)))
-    assert type(derived).from_dict(derived.to_dict()) == derived
-    old = OnlyBarConstructionIdentity.build(
-        derived,
-        data_version="v1",
-        base_revision_id="revision:old",
-        base_revision_fingerprint="b" * 64,
-        base_seal_id="seal:old",
-    )
-    assert OnlyBarConstructionIdentity.from_dict(old.to_dict()) == old
-    assert OnlyBarConstructionIdentity.from_canonical_payload(only_canonical_payload(old)) == old
-    assert old.fingerprint != OnlyBarConstructionIdentity.build(native, data_version="v1").fingerprint
-    with pytest.raises(ValueError, match="BAR_CONSTRUCTION_BASE_REVISION_REQUIRED"):
-        OnlyBarConstructionIdentity.build(derived, data_version="v1")
-    with pytest.raises(ValueError, match="BAR_CONSTRUCTION_INVALID"):
-        OnlyBarConstructionIdentity.from_dict({**old.to_dict(), "fingerprint": "0" * 64})
-
-
-def test_native_and_derived_fifteen_minute_scopes_never_collide() -> None:
-    native_plan = _plan(15, (_capability(1), _capability(15)))
-    derived_plan = _plan(15, (_capability(1),))
+    assert OnlyBarType(INSTRUMENT, target) == OnlyBarType(INSTRUMENT, target)
+    assert native_plan.mode is OnlyBarResolutionMode.PROVIDER_NATIVE
+    assert derived_plan.mode is OnlyBarResolutionMode.DERIVED
     native = OnlyBarConstructionIdentity.build(native_plan, data_version="v1")
     derived = OnlyBarConstructionIdentity.build(
         derived_plan,
         data_version="v1",
-        base_revision_id="revision:base",
+        base_revision_id="revision:1",
         base_revision_fingerprint="b" * 64,
-        base_seal_id="seal:base",
-    )
-    kwargs = dict(
-        source_id="source",
-        market="SPOT",
-        instrument_id="BTCUSDT.TEST",
-        data_kind="BAR",
-        start_ns=0,
-        end_ns=15 * 60_000_000_000,
-        data_version="v1",
+        base_seal_id="seal:1",
     )
     assert native.fingerprint != derived.fingerprint
-    instrument = OnlyInstrumentId.parse("BTCUSDT.TEST")
-    native_type = only_canonical_fingerprint(
-        OnlyBarType(instrument, _bar(15), OnlyAggregationSource.EXTERNAL).to_dict()
+
+
+def test_capability_evolution_does_not_change_exact_strategy_recipe() -> None:
+    target = semantic(15)
+    recipe = OnlyBarConstructionRecipe.derived(target, semantic(1), algorithm_id="TIME_BAR")
+    requirement = OnlyBarConstructionRequirement.exact(recipe)
+    before = plan(target, (capability(semantic(1)),), requirement)
+    after = plan(target, (capability(semantic(1)), capability(target)), requirement)
+    interactive = plan(target, (capability(semantic(1)), capability(target)))
+
+    assert before.resolved_recipe == after.resolved_recipe == recipe
+    assert after.mode is OnlyBarResolutionMode.DERIVED
+    assert interactive.mode is OnlyBarResolutionMode.PROVIDER_NATIVE
+
+
+def test_research_to_live_exact_recipe_is_invariant_after_native_capability_appears() -> None:
+    target = semantic(15)
+    research_recipe = OnlyBarConstructionRecipe.derived(target, semantic(1), algorithm_id="TIME_BAR")
+    frozen = OnlyStrategyMarketInputContract(target, OnlyBarConstructionRequirement.exact(research_recipe))
+    evolved = (capability(semantic(1)), capability(target))
+
+    runtime_recipes = tuple(
+        plan(target, evolved, frozen.construction_requirement).resolved_recipe
+        for _runtime in ("BACKTEST", "SIM", "LIVE")
     )
-    derived_type = only_canonical_fingerprint(
-        OnlyBarType(instrument, _bar(15), OnlyAggregationSource.INTERNAL).to_dict()
+
+    assert runtime_recipes == (research_recipe, research_recipe, research_recipe)
+
+
+def test_runtime_dependency_graph_is_explicit() -> None:
+    one, seven, fifteen = semantic(1), semantic(7), semantic(15)
+    source = OnlyBarType(INSTRUMENT, one)
+    target = OnlyBarType(INSTRUMENT, seven)
+    recipe = OnlyBarConstructionRecipe.derived(seven, one, algorithm_id="TIME_BAR")
+    graph = OnlyBarDependencyGraph(
+        (source, OnlyBarType(INSTRUMENT, fifteen)),
+        (OnlyBarDerivedDependency(source, target, recipe),),
     )
-    assert OnlyMarketDataScope(**kwargs, bar_type=native_type, bar_construction=native) != OnlyMarketDataScope(
-        **kwargs, bar_type=derived_type, bar_construction=derived
-    )
+
+    assert graph.provider_inputs == (source, OnlyBarType(INSTRUMENT, fifteen))
+    assert graph.derived_dependencies[0].target == target
 
 
-def test_fixed_duration_semantic_represents_aligned_and_rolling_windows() -> None:
-    semantics = tuple(_semantic(window, stride) for window, stride in ((1, 1), (15, 15), (7, 7), (15, 1), (60, 5)))
-    assert [(item.window_minutes, item.stride_minutes) for item in semantics] == [
-        (1, 1),
-        (15, 15),
-        (7, 7),
-        (15, 1),
-        (60, 5),
-    ]
-    assert OnlyFixedDurationBarSemantic.from_legacy(_bar(15)) == _semantic(15, 15)
-    assert _capability(15).semantic == _semantic(15, 15)
-    assert OnlyFixedDurationBarSemantic.from_dict(_semantic(15, 1).to_dict()) == _semantic(15, 1)
-    assert len({item.fingerprint for item in (_semantic(15, 15), _semantic(15, 1), _semantic(15, 5))}) == 3
-
-    fresh_process = subprocess.check_output(
-        [
-            sys.executable,
-            "-c",
-            "from onlyalpha.market_data.resolution import *; "
-            "from onlyalpha.domain.enums import OnlyBarAggregation, OnlyPriceType; "
-            "print(OnlyFixedDurationBarSemantic(OnlyBarAggregation.TIME, "
-            "OnlyBarIntervalKind.FIXED_DURATION, 15, 1, OnlyPriceType.LAST).fingerprint)",
-        ],
-        text=True,
-    ).strip()
-    assert fresh_process == _semantic(15, 1).fingerprint
-
-
-def test_rolling_semantic_never_matches_native_and_has_distinct_lineage() -> None:
-    capabilities = (_capability(1), _capability(15))
-    plans = tuple(_semantic_plan(15, stride, capabilities) for stride in (15, 1, 5))
-    aligned, rolling_one, rolling_five = plans
-    assert aligned.mode is OnlyBarResolutionMode.EXTERNAL_NATIVE
-    assert rolling_one.mode is rolling_five.mode is OnlyBarResolutionMode.INTERNAL_DERIVED
-    assert (
-        rolling_one.aggregation_semantics_version == rolling_five.aggregation_semantics_version == "ROLLING_TIME_BAR_V1"
-    )
-    assert len({item.fingerprint for item in plans}) == 3
-    assert all(OnlyBarResolutionPlan.from_dict(item.to_dict()) == item for item in plans)
-
-    constructions = (
-        OnlyBarConstructionIdentity.build(aligned, data_version="v1"),
-        OnlyBarConstructionIdentity.build(
-            rolling_one,
-            data_version="v1",
-            base_revision_id="revision:base",
-            base_revision_fingerprint="b" * 64,
-            base_seal_id="seal:base",
-        ),
-        OnlyBarConstructionIdentity.build(
-            rolling_five,
-            data_version="v1",
-            base_revision_id="revision:base",
-            base_revision_fingerprint="b" * 64,
-            base_seal_id="seal:base",
-        ),
-    )
-    assert len({item.fingerprint for item in constructions}) == 3
-    dataset_binding_identities = {
-        only_canonical_fingerprint(("BTCUSDT.TEST", item.fingerprint, "c" * 64, "seal:base")) for item in constructions
-    }
-    assert len(dataset_binding_identities) == 3
-    with pytest.raises(ValueError, match="BAR_RESOLUTION_CONSTRUCTION_UNIMPLEMENTED"):
-        _ = rolling_one.target_specification
-
-
-def test_time_bar_v1_rejects_rolling_semantic() -> None:
-    rolling = _semantic_plan(15, 1, (_capability(1), _capability(15)))
-    payload = {**rolling.to_dict(), "aggregation_semantics_version": "TIME_BAR_V1"}
-    payload.pop("fingerprint")
-    forged = OnlyBarResolutionPlan(
-        rolling.target_semantic,
-        rolling.mode,
-        rolling.provider_semantic,
-        rolling.base_semantic,
-        "TIME_BAR_V1",
-        rolling.alignment_id,
-        rolling.source_id,
-        rolling.instrument_id,
-        rolling.integration_revision_fingerprint,
-        rolling.grid_origin_ns,
-        only_canonical_fingerprint(payload),
-    )
-    with pytest.raises(ValueError, match="BAR_RESOLUTION_CONSTRUCTION_UNIMPLEMENTED"):
-        OnlyBarConstructionIdentity.build(
-            forged,
-            data_version="v1",
-            base_revision_id="revision:base",
-            base_revision_fingerprint="b" * 64,
-            base_seal_id="seal:base",
+def test_runtime_dependency_graph_rejects_an_unprovided_source() -> None:
+    source = OnlyBarType(INSTRUMENT, semantic(1))
+    target = OnlyBarType(INSTRUMENT, semantic(7))
+    with pytest.raises(ValueError, match="BAR_DEPENDENCY_GRAPH_INVALID"):
+        OnlyBarDependencyGraph(
+            (),
+            (
+                OnlyBarDerivedDependency(
+                    source,
+                    target,
+                    OnlyBarConstructionRecipe.derived(target.semantic, source.semantic, algorithm_id="TIME_BAR"),
+                ),
+            ),
         )
 
 
-def test_expected_fixed_duration_grid_uses_stride_not_window() -> None:
+def test_rolling_recipe_is_fingerprintable_but_executor_fails_closed() -> None:
+    rolling = semantic(15, 1)
+    recipe = OnlyBarConstructionRecipe.derived(rolling, semantic(1), algorithm_id="ROLLING_TIME_BAR")
+    requirement = OnlyBarConstructionRequirement.exact(recipe)
+    resolved = plan(rolling, (capability(semantic(1)),), requirement)
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    definition = OnlyResearchDatasetDefinition((INSTRUMENT,), rolling, OnlyTimeRange(start, start + timedelta(hours=1)))
+    strategy_input = OnlyStrategyMarketInputContract(rolling, requirement)
+
+    assert OnlyBarConstructionRecipe.from_dict(recipe.to_dict()) == recipe
+    assert OnlyBarConstructionRequirement.from_dict(requirement.to_dict()) == requirement
+    assert OnlyResearchDatasetDefinition.from_dict(definition.to_dict()) == definition
+    assert OnlyStrategyMarketInputContract.from_dict(strategy_input.to_dict()) == strategy_input
+    assert resolved.resolved_recipe == recipe
+    with pytest.raises(ValueError, match="CONSTRUCTION_ALGORITHM_UNAVAILABLE"):
+        OnlyBarConstructionAlgorithmRegistry().require(recipe)
+
+
+def test_construction_requirement_rejects_policy_and_recipe_together() -> None:
+    target = semantic(15)
+    with pytest.raises(ValueError, match="BAR_CONSTRUCTION_REQUIREMENT_INVALID"):
+        OnlyBarConstructionRequirement(
+            OnlyBarConstructionRequirementKind.POLICY,
+            OnlyBarResolutionPolicy.PREFER_EXACT_NATIVE,
+            OnlyBarConstructionRecipe.provider_native(target),
+        )
+
+
+def test_semantic_variants_and_plan_persistence_are_versioned() -> None:
+    calendar = OnlyBarSemantic(OnlyCalendarPeriodBarFormation(OnlyCalendarPeriodUnit.DAY))
+    assert OnlyBarSemantic.from_dict(calendar.to_dict()) == calendar
+    resolved = plan(semantic(15), (capability(semantic(15)),))
+    assert OnlyBarResolutionPlan.from_dict(resolved.to_dict()) == resolved
+    with pytest.raises(ValueError, match="REBUILD_REQUIRED"):
+        OnlyBarResolutionPlan.from_dict({"schema_version": 2})
+    with pytest.raises(ValueError, match="REBUILD_REQUIRED"):
+        OnlyBarConstructionIdentity.from_dict({"schema_version": 1})
+    old_bar_type = OnlyBarType(INSTRUMENT, semantic(1)).to_dict()
+    old_bar_type["schema_version"] = 1
+    with pytest.raises(OnlySerializationError, match="schema version"):
+        OnlyBarType.from_dict(old_bar_type)
+
+
+def test_fixed_duration_output_grid_uses_window_and_stride() -> None:
     minute = 60_000_000_000
-    assert only_expected_fixed_duration_bar_ends(
-        _semantic(15, 5), start_ns=0, end_ns=30 * minute, grid_origin_ns=0
-    ) == (15 * minute, 20 * minute, 25 * minute, 30 * minute)
-
-
-def test_legacy_persisted_plan_requires_explicit_rebuild() -> None:
-    with pytest.raises(ValueError, match="BAR_RESOLUTION_PLAN_REBUILD_REQUIRED"):
-        OnlyBarResolutionPlan.from_dict({})
-    with pytest.raises(ValueError, match="BAR_RESOLUTION_PLAN_REBUILD_REQUIRED"):
-        OnlyBarResolutionPlan.from_canonical_payload({"target_specification": _bar(15).to_dict()})
+    assert only_expected_fixed_duration_bar_ends(semantic(15, 5), start_ns=0, end_ns=30 * minute, grid_origin_ns=0) == (
+        15 * minute,
+        20 * minute,
+        25 * minute,
+        30 * minute,
+    )

@@ -5,6 +5,18 @@ const revision = "a".repeat(64);
 const revisionFingerprint = "d".repeat(64);
 const minuteNs = BigInt("60000000000");
 const nativeSteps = new Set([1, 3, 5, 15, 30, 60, 120, 240]);
+const semantic = (durationMinutes: number) => ({
+    schema_version: 2,
+    formation: {
+        schema_version: 1,
+        kind: "FIXED_DURATION",
+        window_minutes: durationMinutes,
+        stride_minutes: durationMinutes,
+        alignment: "SESSION_START"
+    },
+    price_type: "LAST",
+    adjustment_policy: "RAW"
+});
 
 const source = {
     integration_id: integrationId,
@@ -14,11 +26,10 @@ const source = {
     source_id: "binance.spot.market_data.live",
     environment: "LIVE",
     time_bar_capability: {
-        aggregation: "TIME",
-        external_base_step_minutes: 1,
-        derived_supported: true,
-        minimum_step_minutes: 1,
-        maximum_step_minutes: 240
+        provider_base_semantic: semantic(1),
+        derived_algorithm: "TIME_BAR@1",
+        minimum_window_minutes: 1,
+        maximum_window_minutes: 240
     }
 };
 
@@ -86,9 +97,7 @@ function bars(range: Range, complete: boolean, planned: readonly Range[] = [], s
         display_symbol: instrument.display_symbol,
         venue: instrument.venue,
         market: instrument.market,
-        bar_specification: { aggregation: "TIME", step, price_type: "LAST" },
-        aggregation_source: native ? "EXTERNAL" : "INTERNAL",
-        adjustment: "RAW",
+        bar_semantic: semantic(step),
         closed_only: true,
         ...range,
         coverage: coverage(range, complete, planned),
@@ -97,7 +106,7 @@ function bars(range: Range, complete: boolean, planned: readonly Range[] = [], s
         seal_id: complete ? `seal:${"e".repeat(64)}` : null,
         aggregation_semantics_version: native ? null : "TIME_BAR_V1",
         calendar_fingerprint: native ? null : "a".repeat(64),
-        resolution_mode: native ? "EXTERNAL_NATIVE" : "INTERNAL_DERIVED",
+        resolution_mode: native ? "PROVIDER_NATIVE" : "DERIVED",
         resolution_plan_fingerprint: step.toString(16).padStart(64, "0"),
         base_revision_id: native ? null : `market-data-revision:${revisionFingerprint}`,
         construction_fingerprint: (step + 256).toString(16).padStart(64, "0"),
@@ -126,7 +135,10 @@ async function controlledMarketData(page: Page, initial: FixtureMode) {
                 instruments: [instrument]
             });
         if (url.pathname === "/api/v2/market-data/bars") {
-            const step = Number(url.searchParams.get("bar_step") ?? "1");
+            const requested = JSON.parse(
+                url.searchParams.get("bar_semantic") ?? "null"
+            ) as ReturnType<typeof semantic>;
+            const step = requested.formation.window_minutes;
             queriedSteps.push(step);
             const range = {
                 start_ns: url.searchParams.get("start_ns") ?? "",
@@ -168,7 +180,7 @@ async function controlledMarketData(page: Page, initial: FixtureMode) {
                     source_id: source.source_id,
                     integration_binding_fingerprint: "f".repeat(64),
                     instrument_id: body.instrument_id,
-                    bar_specification: { aggregation: "TIME", step: 1, price_type: "LAST" },
+                    bar_semantic: semantic(1),
                     ...requested,
                     provenance: "REST_BACKFILL",
                     coverage: coverage(requested, true),

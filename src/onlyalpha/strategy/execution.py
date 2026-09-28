@@ -15,7 +15,6 @@ from onlyalpha.calculation.registry import (
     OnlyTradingCalculationBackendResolver,
 )
 from onlyalpha.canonical import only_canonical_fingerprint
-from onlyalpha.domain.enums import OnlyAdjustmentType
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp
@@ -29,11 +28,7 @@ from onlyalpha.strategy.store import OnlyStrategyRevisionReader
 @dataclass(frozen=True, slots=True)
 class OnlyStrategyObservationKey:
     instrument_id: str
-    bar_step: int
-    bar_aggregation: str
-    price_type: str
-    aggregation_source: str
-    adjustment_type: str
+    bar_semantic_fingerprint: str
     bar_end_ns: int
 
     @property
@@ -80,14 +75,6 @@ class OnlyStrategyExecutionResolver:
     def resolve(self, strategy_fingerprint: OnlyStrategyFingerprint | str) -> OnlyStrategyExecutionPlan:
         try:
             revision = self._strategies.load_verified(strategy_fingerprint)
-            if (
-                revision.market_input_contract.adjustment_type is not OnlyAdjustmentType.RAW
-                or revision.market_input_contract.adjustment_reference is not None
-            ):
-                raise OnlyStrategyResolutionError(
-                    "STRATEGY_OBSERVATION_NOT_ADMITTED",
-                    "Trading Strategy input must be RAW without an adjustment reference",
-                )
             expected = {item.node_fingerprint: item for item in revision.implementation_bindings}
             for node in revision.decision_graph.nodes:
                 binding = expected[node.fingerprint]
@@ -143,11 +130,7 @@ class OnlyStrategyIncrementalExecutor:
             raise OnlyStrategyResolutionError("STRATEGY_OBSERVATION_NOT_ADMITTED", "instrument is outside Universe")
         if not bar.is_closed:
             raise OnlyStrategyResolutionError("STRATEGY_OBSERVATION_NOT_FINAL", instrument)
-        if (
-            bar.bar_type.specification != contract.bar_specification
-            or bar.bar_type.aggregation_source is not contract.aggregation_source
-            or bar.adjustment_type is not contract.adjustment_type
-        ):
+        if bar.bar_type.semantic != contract.bar_semantic:
             raise OnlyStrategyResolutionError("STRATEGY_OBSERVATION_NOT_ADMITTED", "Market Input Contract mismatch")
         key = only_strategy_observation_key(bar)
         observation_fingerprint = only_strategy_observation_fingerprint(bar)
@@ -267,8 +250,7 @@ class OnlyStrategyIncrementalExecutor:
                 registration = self._registration(node)
                 bar_type = OnlyBarType(
                     OnlyInstrumentId.parse(instrument),
-                    contract.bar_specification,
-                    contract.aggregation_source,
+                    contract.bar_semantic,
                 )
             except (KeyError, ValueError) as exc:
                 raise OnlyStrategyResolutionError("STRATEGY_CHECKPOINT_CORRUPT", key) from exc
@@ -342,11 +324,7 @@ def _decision_to_checkpoint(decision: OnlyStrategyDecision) -> Mapping[str, obje
         "instrument_id": decision.instrument_id,
         "observation_key": {
             "instrument_id": key.instrument_id,
-            "bar_step": key.bar_step,
-            "bar_aggregation": key.bar_aggregation,
-            "price_type": key.price_type,
-            "aggregation_source": key.aggregation_source,
-            "adjustment_type": key.adjustment_type,
+            "bar_semantic_fingerprint": key.bar_semantic_fingerprint,
             "bar_end_ns": key.bar_end_ns,
         },
         "observation_fingerprint": decision.observation_fingerprint,
@@ -372,11 +350,7 @@ def _decision_from_checkpoint(raw: object) -> OnlyStrategyDecision:
     }
     key_fields = {
         "instrument_id",
-        "bar_step",
-        "bar_aggregation",
-        "price_type",
-        "aggregation_source",
-        "adjustment_type",
+        "bar_semantic_fingerprint",
         "bar_end_ns",
     }
     if not isinstance(raw, Mapping) or set(raw) != fields:
@@ -384,7 +358,7 @@ def _decision_from_checkpoint(raw: object) -> OnlyStrategyDecision:
     key = raw["observation_key"]
     if not isinstance(key, Mapping) or set(key) != key_fields:
         raise OnlyStrategyResolutionError("STRATEGY_CHECKPOINT_CORRUPT", "invalid observation key")
-    integer_fields = (key["bar_step"], key["bar_end_ns"], raw["decision_time_ns"], raw["schema_version"])
+    integer_fields = (key["bar_end_ns"], raw["decision_time_ns"], raw["schema_version"])
     if any(not isinstance(value, int) or isinstance(value, bool) for value in integer_fields):
         raise OnlyStrategyResolutionError("STRATEGY_CHECKPOINT_CORRUPT", "invalid integer field")
     if any(not isinstance(raw[name], bool) for name in ("eligibility", "entry", "exit")):
@@ -394,10 +368,7 @@ def _decision_from_checkpoint(raw: object) -> OnlyStrategyDecision:
         raw["instrument_id"],
         raw["observation_fingerprint"],
         key["instrument_id"],
-        key["bar_aggregation"],
-        key["price_type"],
-        key["aggregation_source"],
-        key["adjustment_type"],
+        key["bar_semantic_fingerprint"],
     )
     if any(not isinstance(value, str) for value in string_values):
         raise OnlyStrategyResolutionError("STRATEGY_CHECKPOINT_CORRUPT", "invalid string field")
@@ -407,11 +378,7 @@ def _decision_from_checkpoint(raw: object) -> OnlyStrategyDecision:
             raw["instrument_id"],
             OnlyStrategyObservationKey(
                 key["instrument_id"],
-                key["bar_step"],
-                key["bar_aggregation"],
-                key["price_type"],
-                key["aggregation_source"],
-                key["adjustment_type"],
+                key["bar_semantic_fingerprint"],
                 key["bar_end_ns"],
             ),
             raw["observation_fingerprint"],
@@ -426,14 +393,9 @@ def _decision_from_checkpoint(raw: object) -> OnlyStrategyDecision:
 
 
 def only_strategy_observation_key(bar: OnlyBar) -> OnlyStrategyObservationKey:
-    specification = bar.bar_type.specification
     return OnlyStrategyObservationKey(
         str(bar.instrument_id),
-        specification.step,
-        specification.aggregation.value,
-        specification.price_type.value,
-        bar.bar_type.aggregation_source.value,
-        bar.adjustment_type.value,
+        bar.bar_type.semantic.fingerprint,
         OnlyTimestamp.from_datetime(bar.bar_end).unix_nanos,
     )
 
@@ -441,18 +403,13 @@ def only_strategy_observation_key(bar: OnlyBar) -> OnlyStrategyObservationKey:
 def only_strategy_observation_fingerprint(bar: OnlyBar) -> str:
     """Hash exact finalized BAR semantics while excluding transport/init metadata."""
 
-    specification = bar.bar_type.specification
+    semantic = bar.bar_type.semantic
     return only_canonical_fingerprint(
         {
             "domain": "onlyalpha.strategy.observation.bar",
             "schema_version": 1,
             "instrument_id": str(bar.instrument_id),
-            "bar_specification": {
-                "step": specification.step,
-                "aggregation": specification.aggregation.value,
-                "price_type": specification.price_type.value,
-            },
-            "aggregation_source": bar.bar_type.aggregation_source.value,
+            "bar_semantic": semantic.to_dict(),
             "bar_start": bar.bar_start,
             "bar_end": bar.bar_end,
             "ts_event": bar.ts_event,

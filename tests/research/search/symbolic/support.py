@@ -11,7 +11,7 @@ from onlyalpha_test_factor_provider.provider import quant_asset_provider as fact
 from onlyalpha.calculation import OnlyCalculationKind, OnlyCalculationTypeReference
 from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration
 from onlyalpha.research.calculation import only_research_dataset_source_contract
-from onlyalpha.research.dataset.schema import RESEARCH_BAR_DATASET_SCHEMA_V1
+from onlyalpha.research.dataset.schema import RESEARCH_BAR_DATASET_SCHEMA_V2
 from onlyalpha.research.search.symbolic import (
     OnlySymbolicCandidateOutputContractV1,
     OnlySymbolicComplexityConstraintsV1,
@@ -78,7 +78,7 @@ def scalar_parameters() -> dict[str, object]:
 
 
 def verified_dataset(fingerprint: str = "a" * 64) -> object:
-    schema = RESEARCH_BAR_DATASET_SCHEMA_V1
+    schema = RESEARCH_BAR_DATASET_SCHEMA_V2
     return SimpleNamespace(
         snapshot=SimpleNamespace(snapshot_fingerprint=fingerprint, dataset_schema=schema),
         table=pa.Table.from_pylist([], schema=schema.arrow_schema),

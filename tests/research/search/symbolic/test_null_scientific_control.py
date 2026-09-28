@@ -13,13 +13,10 @@ from onlyalpha_plugin_targets.registration import registrations as target_regist
 
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
-    OnlyAggregationSource,
-    OnlyBarAggregation,
-    OnlyPriceType,
     OnlySessionType,
 )
 from onlyalpha.domain.identifiers import OnlyEngineId, OnlyInstrumentId
-from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.engine import OnlyEngineConfig
 from onlyalpha.engine.engine import OnlyEngine
@@ -76,11 +73,7 @@ def _known_null_bars(seed: int = _KNOWN_NULL_SEED) -> tuple[OnlyBar, ...]:
     result = []
     base = datetime(2026, 1, 5, 14, 30, tzinfo=UTC)
     for instrument_index, instrument in enumerate(_KNOWN_NULL_INSTRUMENTS):
-        bar_type = OnlyBarType(
-            OnlyInstrumentId.parse(instrument),
-            OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-            OnlyAggregationSource.EXTERNAL,
-        )
+        bar_type = OnlyBarType(OnlyInstrumentId.parse(instrument), OnlyBarSemantic.fixed_duration(1))
         closes = [10_000 + instrument_index * 100]
         for innovation in innovations[instrument_index]:
             closes.append(closes[-1] + innovation)

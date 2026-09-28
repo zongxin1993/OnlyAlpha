@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, cast
+from typing import Annotated, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -18,8 +18,7 @@ from onlyalpha.application.market_data_product import (
     OnlyMarketDataSourceSelectionV1,
     OnlyMarketDataTimeBarCapabilityV1,
 )
-from onlyalpha.domain.enums import OnlyBarAggregation, OnlyPriceType
-from onlyalpha.domain.market import OnlyBarSpecification
+from onlyalpha.domain.market import OnlyBarSemantic
 
 _FINGERPRINT = r"^[0-9a-f]{64}$"
 # Exact nanoseconds travel as canonical decimal strings: a JSON number cannot carry
@@ -31,17 +30,62 @@ class _Dto(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
 
-class MarketDataBarSpecificationDto(_Dto):
-    aggregation: Literal["TIME"]
-    step: int = Field(ge=1, le=240)
-    price_type: Literal["LAST"]
+class MarketDataFixedDurationFormationDto(_Dto):
+    schema_version: Literal[1]
+    kind: Literal["FIXED_DURATION"]
+    window_minutes: int = Field(ge=1, le=240)
+    stride_minutes: int = Field(ge=1, le=240)
+    alignment: Literal["UTC", "SESSION_START"]
 
-    def to_model(self) -> OnlyBarSpecification:
-        return OnlyBarSpecification(self.step, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
+
+class MarketDataCalendarPeriodFormationDto(_Dto):
+    schema_version: Literal[1]
+    kind: Literal["CALENDAR_PERIOD"]
+    unit: Literal["DAY", "WEEK", "MONTH"]
+    count: int = Field(ge=1)
+    alignment: Literal["UTC", "SESSION_START"]
+
+
+class MarketDataTickCountFormationDto(_Dto):
+    schema_version: Literal[1]
+    kind: Literal["TICK_COUNT"]
+    count: int = Field(ge=1)
+
+
+class MarketDataVolumeFormationDto(_Dto):
+    schema_version: Literal[1]
+    kind: Literal["VOLUME"]
+    quantity: str = Field(pattern=r"^[0-9]+(?:\.[0-9]+)?$")
+
+
+class MarketDataValueFormationDto(_Dto):
+    schema_version: Literal[1]
+    kind: Literal["VALUE"]
+    value: str = Field(pattern=r"^[0-9]+(?:\.[0-9]+)?$")
+
+
+MarketDataBarFormationDto = Annotated[
+    MarketDataFixedDurationFormationDto
+    | MarketDataCalendarPeriodFormationDto
+    | MarketDataTickCountFormationDto
+    | MarketDataVolumeFormationDto
+    | MarketDataValueFormationDto,
+    Field(discriminator="kind"),
+]
+
+
+class MarketDataBarSemanticDto(_Dto):
+    schema_version: Literal[2]
+    formation: MarketDataBarFormationDto
+    price_type: Literal["LAST", "BID", "ASK", "MID", "MARK", "INDEX"]
+    adjustment_policy: Literal["RAW", "FORWARD", "BACKWARD"]
+
+    def to_model(self) -> OnlyBarSemantic:
+        return OnlyBarSemantic.from_dict(self.model_dump(mode="json"))
 
     @classmethod
-    def from_model(cls, value: OnlyBarSpecification) -> MarketDataBarSpecificationDto:
-        return cls(aggregation="TIME", step=value.step, price_type="LAST")
+    def from_model(cls, value: OnlyBarSemantic) -> MarketDataBarSemanticDto:
+        return cls.model_validate(value.to_dict())
 
 
 class MarketDataSourceSelectionDto(_Dto):
@@ -80,20 +124,18 @@ class MarketDataSourceReferenceDto(_Dto):
 
 
 class MarketDataTimeBarCapabilityDto(_Dto):
-    aggregation: Literal["TIME"]
-    external_base_step_minutes: int
-    derived_supported: bool
-    minimum_step_minutes: int
-    maximum_step_minutes: int
+    provider_base_semantic: MarketDataBarSemanticDto
+    derived_algorithm: Literal["TIME_BAR@1"] | None
+    minimum_window_minutes: int
+    maximum_window_minutes: int
 
     @classmethod
     def from_model(cls, value: OnlyMarketDataTimeBarCapabilityV1) -> MarketDataTimeBarCapabilityDto:
         return cls(
-            aggregation="TIME",
-            external_base_step_minutes=value.external_base_step_minutes,
-            derived_supported=value.derived_supported,
-            minimum_step_minutes=value.minimum_step_minutes,
-            maximum_step_minutes=value.maximum_step_minutes,
+            provider_base_semantic=MarketDataBarSemanticDto.from_model(value.provider_base_semantic),
+            derived_algorithm=cast(Literal["TIME_BAR@1"] | None, value.derived_algorithm),
+            minimum_window_minutes=value.minimum_window_minutes,
+            maximum_window_minutes=value.maximum_window_minutes,
         )
 
 
@@ -215,9 +257,7 @@ class MarketDataBarsDto(_Dto):
     display_symbol: str
     venue: str
     market: str
-    bar_specification: MarketDataBarSpecificationDto
-    aggregation_source: Literal["EXTERNAL", "INTERNAL"]
-    adjustment: Literal["RAW"]
+    bar_semantic: MarketDataBarSemanticDto
     closed_only: bool
     start_ns: str = Field(pattern=_NANOSECONDS)
     end_ns: str = Field(pattern=_NANOSECONDS)
@@ -228,7 +268,7 @@ class MarketDataBarsDto(_Dto):
     bars: tuple[MarketDataBarDto, ...]
     aggregation_semantics_version: str | None
     calendar_fingerprint: str | None = Field(pattern=_FINGERPRINT)
-    resolution_mode: Literal["EXTERNAL_NATIVE", "INTERNAL_DERIVED"] | None
+    resolution_mode: Literal["PROVIDER_NATIVE", "DERIVED"] | None
     resolution_plan_fingerprint: str | None = Field(pattern=_FINGERPRINT)
     base_revision_id: str | None
     construction_fingerprint: str | None = Field(pattern=_FINGERPRINT)
@@ -244,9 +284,7 @@ class MarketDataBarsDto(_Dto):
             display_symbol=value.display_symbol,
             venue=value.venue,
             market=value.market,
-            bar_specification=MarketDataBarSpecificationDto.from_model(value.bar_specification),
-            aggregation_source=cast(Literal["EXTERNAL", "INTERNAL"], value.aggregation_source),
-            adjustment=cast(Literal["RAW"], value.adjustment),
+            bar_semantic=MarketDataBarSemanticDto.from_model(value.bar_semantic),
             closed_only=value.closed_only,
             start_ns=str(value.start_ns),
             end_ns=str(value.end_ns),
@@ -256,7 +294,7 @@ class MarketDataBarsDto(_Dto):
             seal_id=value.seal_id,
             aggregation_semantics_version=value.aggregation_semantics_version,
             calendar_fingerprint=value.calendar_fingerprint,
-            resolution_mode=cast(Literal["EXTERNAL_NATIVE", "INTERNAL_DERIVED"] | None, value.resolution_mode),
+            resolution_mode=cast(Literal["PROVIDER_NATIVE", "DERIVED"] | None, value.resolution_mode),
             resolution_plan_fingerprint=value.resolution_plan_fingerprint,
             base_revision_id=value.base_revision_id,
             construction_fingerprint=value.construction_fingerprint,
@@ -283,8 +321,17 @@ class MarketDataAcquisitionRequestDto(_Dto):
     instrument_id: str = Field(min_length=1)
     start_ns: str = Field(pattern=_NANOSECONDS)
     end_ns: str = Field(pattern=_NANOSECONDS)
-    bar_specification: MarketDataBarSpecificationDto = MarketDataBarSpecificationDto(
-        aggregation="TIME", step=1, price_type="LAST"
+    bar_semantic: MarketDataBarSemanticDto = MarketDataBarSemanticDto(
+        schema_version=2,
+        formation=MarketDataFixedDurationFormationDto(
+            schema_version=1,
+            kind="FIXED_DURATION",
+            window_minutes=1,
+            stride_minutes=1,
+            alignment="SESSION_START",
+        ),
+        price_type="LAST",
+        adjustment_policy="RAW",
     )
     provenance: Literal["REST_BACKFILL"] = "REST_BACKFILL"
 
@@ -296,7 +343,7 @@ class MarketDataAcquisitionDto(_Dto):
     source_id: str
     integration_binding_fingerprint: str | None
     instrument_id: str
-    bar_specification: MarketDataBarSpecificationDto
+    bar_semantic: MarketDataBarSemanticDto
     start_ns: str = Field(pattern=_NANOSECONDS)
     end_ns: str = Field(pattern=_NANOSECONDS)
     provenance: str
@@ -315,7 +362,7 @@ class MarketDataAcquisitionDto(_Dto):
             source_id=value.source_id,
             integration_binding_fingerprint=value.integration_binding_fingerprint,
             instrument_id=value.instrument_id,
-            bar_specification=MarketDataBarSpecificationDto.from_model(value.bar_specification),
+            bar_semantic=MarketDataBarSemanticDto.from_model(value.bar_semantic),
             start_ns=str(value.start_ns),
             end_ns=str(value.end_ns),
             provenance=value.provenance,

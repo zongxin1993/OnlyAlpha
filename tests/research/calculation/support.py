@@ -6,28 +6,22 @@ from decimal import Decimal
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
-    OnlyAggregationSource,
-    OnlyBarAggregation,
-    OnlyPriceType,
     OnlySessionType,
 )
 from onlyalpha.domain.identifiers import OnlyInstrumentId
-from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
+from onlyalpha.market_data.resolution import OnlyBarConstructionRecipe
 from onlyalpha.research.dataset.definition import OnlyResearchDatasetDefinition
 from onlyalpha.research.dataset.identity import only_content_fingerprint, only_snapshot_fingerprint
-from onlyalpha.research.dataset.manifest import OnlyResearchDatasetSnapshot
-from onlyalpha.research.dataset.schema import RESEARCH_BAR_DATASET_SCHEMA_V1
+from onlyalpha.research.dataset.manifest import OnlyResearchDatasetProvenance, OnlyResearchDatasetSnapshot
+from onlyalpha.research.dataset.schema import RESEARCH_BAR_DATASET_SCHEMA_V2
 
 
 def bars() -> tuple[OnlyBar, ...]:
     result = []
     for instrument, values in (("B.XNAS", ("100", "90", "80", "70")), ("A.XNAS", ("1", "2", "4", "8"))):
-        bar_type = OnlyBarType(
-            OnlyInstrumentId.parse(instrument),
-            OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-            OnlyAggregationSource.EXTERNAL,
-        )
+        bar_type = OnlyBarType(OnlyInstrumentId.parse(instrument), OnlyBarSemantic.fixed_duration(1))
         for index, close in enumerate(values):
             start = datetime(2026, 1, 5, 1, 30, tzinfo=UTC) + timedelta(minutes=index)
             value = Decimal(close)
@@ -65,25 +59,41 @@ def snapshot(
     instruments = tuple(dict.fromkeys(item.instrument_id for item in values))
     definition = OnlyResearchDatasetDefinition(
         instruments,
-        first.bar_type.specification,
-        first.bar_type.aggregation_source,
+        first.bar_type.semantic,
         OnlyTimeRange(
             min(item.bar_start for item in values), max(item.ts_event for item in values) + timedelta(seconds=1)
         ),
     )
     canonical = tuple(sorted(values, key=lambda item: (str(item.instrument_id), item.ts_event)))
     content = only_content_fingerprint(canonical)
-    fingerprint = only_snapshot_fingerprint(definition, RESEARCH_BAR_DATASET_SCHEMA_V1, content, len(canonical))
+    construction_fingerprint = OnlyBarConstructionRecipe.provider_native(first.bar_type.semantic).fingerprint
+    provenance = (
+        OnlyResearchDatasetProvenance(
+            str(first.instrument_id),
+            "fixture",
+            "fixture",
+            "1",
+            "fixture-v1",
+            None,
+            (),
+            (),
+            {"construction_recipe": OnlyBarConstructionRecipe.provider_native(first.bar_type.semantic).to_dict()},
+        ),
+    )
+    fingerprint = only_snapshot_fingerprint(
+        definition, RESEARCH_BAR_DATASET_SCHEMA_V2, content, len(canonical), construction_fingerprint
+    )
     return (
         OnlyResearchDatasetSnapshot(
             definition,
-            RESEARCH_BAR_DATASET_SCHEMA_V1,
+            RESEARCH_BAR_DATASET_SCHEMA_V2,
             content,
             len(canonical),
             fingerprint,
             (),
-            (),
+            provenance,
             datetime(2026, 1, 1, tzinfo=UTC),
+            construction_fingerprint,
         ),
         (canonical,),
     )

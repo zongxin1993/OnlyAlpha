@@ -40,8 +40,8 @@ def test_real_time_bar_path_has_typed_specification_without_period_whitelist() -
         encoding="utf-8"
     )
     assert "SUPPORTED_BAR_SPECIFICATION" not in product
-    assert "bar_specification: OnlyBarSpecification" in product
-    assert "bar_specification: OnlyBarSpecification" in stream
+    assert "bar_semantic: OnlyBarSemantic" in product
+    assert "bar_semantic: OnlyBarSemantic" in stream
     assert "{3, 5, 15}" not in aggregator
     assert "Timeframe" not in workspace
-    assert "bar_specification: barSpecification" in workspace
+    assert "bar_semantic: barSemantic" in workspace

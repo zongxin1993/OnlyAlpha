@@ -8,12 +8,9 @@ from onlyalpha.broker import OnlyBrokerGatewayId, OnlyBrokerOrderRequest, OnlyBr
 from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
-    OnlyAggregationSource,
-    OnlyBarAggregation,
     OnlyOffset,
     OnlyOrderSide,
     OnlyOrderType,
-    OnlyPriceType,
     OnlySessionType,
     OnlyTimeInForce,
 )
@@ -26,7 +23,7 @@ from onlyalpha.domain.identifiers import (
     OnlySymbol,
     OnlyVenueId,
 )
-from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity
 
@@ -34,11 +31,7 @@ CNY = OnlyCurrency("CNY", 2)
 ACCOUNT = OnlyAccountId("virtual-account")
 INSTRUMENT = OnlyInstrumentId(OnlySymbol("600000"), OnlyVenueId("XSHG"))
 START = datetime(2026, 1, 5, 1, 30, tzinfo=UTC)
-BAR_TYPE = OnlyBarType(
-    INSTRUMENT,
-    OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-    OnlyAggregationSource.EXTERNAL,
-)
+BAR_TYPE = OnlyBarType(INSTRUMENT, OnlyBarSemantic.fixed_duration(1))
 
 
 def bar(day: date, minute: int, *, low: str = "9.90", high: str = "10.10") -> OnlyBar:

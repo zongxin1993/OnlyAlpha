@@ -2150,7 +2150,7 @@ export interface components {
         MarketDataAcquisitionDto: {
             /** Acquisition Id */
             acquisition_id: string;
-            bar_specification: components["schemas"]["MarketDataBarSpecificationDto"];
+            bar_semantic: components["schemas"]["MarketDataBarSemanticDto"];
             coverage: components["schemas"]["MarketDataCoverageDto"];
             /** End Ns */
             end_ns: string;
@@ -2187,12 +2187,19 @@ export interface components {
         MarketDataAcquisitionRequestDto: {
             /**
              * @default {
-             *       "aggregation": "TIME",
+             *       "adjustment_policy": "RAW",
+             *       "formation": {
+             *         "alignment": "SESSION_START",
+             *         "kind": "FIXED_DURATION",
+             *         "schema_version": 1,
+             *         "stride_minutes": 1,
+             *         "window_minutes": 1
+             *       },
              *       "price_type": "LAST",
-             *       "step": 1
+             *       "schema_version": 2
              *     }
              */
-            bar_specification: components["schemas"]["MarketDataBarSpecificationDto"];
+            bar_semantic: components["schemas"]["MarketDataBarSemanticDto"];
             /** End Ns */
             end_ns: string;
             /** Instrument Id */
@@ -2226,36 +2233,31 @@ export interface components {
             /** Volume */
             volume: string;
         };
-        /** MarketDataBarSpecificationDto */
-        MarketDataBarSpecificationDto: {
+        /** MarketDataBarSemanticDto */
+        MarketDataBarSemanticDto: {
             /**
-             * Aggregation
-             * @constant
+             * Adjustment Policy
+             * @enum {string}
              */
-            aggregation: "TIME";
+            adjustment_policy: "RAW" | "FORWARD" | "BACKWARD";
+            /** Formation */
+            formation: components["schemas"]["MarketDataFixedDurationFormationDto"] | components["schemas"]["MarketDataCalendarPeriodFormationDto"] | components["schemas"]["MarketDataTickCountFormationDto"] | components["schemas"]["MarketDataVolumeFormationDto"] | components["schemas"]["MarketDataValueFormationDto"];
             /**
              * Price Type
+             * @enum {string}
+             */
+            price_type: "LAST" | "BID" | "ASK" | "MID" | "MARK" | "INDEX";
+            /**
+             * Schema Version
              * @constant
              */
-            price_type: "LAST";
-            /** Step */
-            step: number;
+            schema_version: 2;
         };
         /** MarketDataBarsDto */
         MarketDataBarsDto: {
-            /**
-             * Adjustment
-             * @constant
-             */
-            adjustment: "RAW";
             /** Aggregation Semantics Version */
             aggregation_semantics_version: string | null;
-            /**
-             * Aggregation Source
-             * @enum {string}
-             */
-            aggregation_source: "EXTERNAL" | "INTERNAL";
-            bar_specification: components["schemas"]["MarketDataBarSpecificationDto"];
+            bar_semantic: components["schemas"]["MarketDataBarSemanticDto"];
             /** Bars */
             bars: components["schemas"]["MarketDataBarDto"][];
             /** Base Revision Id */
@@ -2276,7 +2278,7 @@ export interface components {
             /** Market */
             market: string;
             /** Resolution Mode */
-            resolution_mode: ("EXTERNAL_NATIVE" | "INTERNAL_DERIVED") | null;
+            resolution_mode: ("PROVIDER_NATIVE" | "DERIVED") | null;
             /** Resolution Plan Fingerprint */
             resolution_plan_fingerprint: string | null;
             /** Resume After Sequence */
@@ -2299,6 +2301,31 @@ export interface components {
             start_ns: string;
             /** Venue */
             venue: string;
+        };
+        /** MarketDataCalendarPeriodFormationDto */
+        MarketDataCalendarPeriodFormationDto: {
+            /**
+             * Alignment
+             * @enum {string}
+             */
+            alignment: "UTC" | "SESSION_START";
+            /** Count */
+            count: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "CALENDAR_PERIOD";
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /**
+             * Unit
+             * @enum {string}
+             */
+            unit: "DAY" | "WEEK" | "MONTH";
         };
         /** MarketDataCoverageDto */
         MarketDataCoverageDto: {
@@ -2344,6 +2371,28 @@ export interface components {
         /** MarketDataErrorEnvelopeDto */
         MarketDataErrorEnvelopeDto: {
             error: components["schemas"]["MarketDataErrorDto"];
+        };
+        /** MarketDataFixedDurationFormationDto */
+        MarketDataFixedDurationFormationDto: {
+            /**
+             * Alignment
+             * @enum {string}
+             */
+            alignment: "UTC" | "SESSION_START";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "FIXED_DURATION";
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /** Stride Minutes */
+            stride_minutes: number;
+            /** Window Minutes */
+            window_minutes: number;
         };
         /** MarketDataInstrumentDto */
         MarketDataInstrumentDto: {
@@ -2429,37 +2478,61 @@ export interface components {
             /** Type Id */
             type_id: string;
         };
-        /** MarketDataTimeBarCapabilityDto */
-        MarketDataTimeBarCapabilityDto: {
+        /** MarketDataTickCountFormationDto */
+        MarketDataTickCountFormationDto: {
+            /** Count */
+            count: number;
             /**
-             * Aggregation
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "TICK_COUNT";
+            /**
+             * Schema Version
              * @constant
              */
-            aggregation: "TIME";
-            /** Derived Supported */
-            derived_supported: boolean;
-            /** External Base Step Minutes */
-            external_base_step_minutes: number;
-            /** Maximum Step Minutes */
-            maximum_step_minutes: number;
-            /** Minimum Step Minutes */
-            minimum_step_minutes: number;
+            schema_version: 1;
         };
-        /**
-         * OnlyAdjustmentType
-         * @enum {string}
-         */
-        OnlyAdjustmentType: "RAW" | "FORWARD" | "BACKWARD";
-        /**
-         * OnlyAggregationSource
-         * @enum {string}
-         */
-        OnlyAggregationSource: "EXTERNAL" | "INTERNAL";
-        /**
-         * OnlyBarAggregation
-         * @enum {string}
-         */
-        OnlyBarAggregation: "TIME" | "TICK" | "VOLUME" | "VALUE";
+        /** MarketDataTimeBarCapabilityDto */
+        MarketDataTimeBarCapabilityDto: {
+            /** Derived Algorithm */
+            derived_algorithm: "TIME_BAR@1" | null;
+            /** Maximum Window Minutes */
+            maximum_window_minutes: number;
+            /** Minimum Window Minutes */
+            minimum_window_minutes: number;
+            provider_base_semantic: components["schemas"]["MarketDataBarSemanticDto"];
+        };
+        /** MarketDataValueFormationDto */
+        MarketDataValueFormationDto: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "VALUE";
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /** Value */
+            value: string;
+        };
+        /** MarketDataVolumeFormationDto */
+        MarketDataVolumeFormationDto: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "VOLUME";
+            /** Quantity */
+            quantity: string;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+        };
         /**
          * OnlyCalculationDataType
          * @enum {string}
@@ -2490,11 +2563,6 @@ export interface components {
          * @enum {string}
          */
         OnlyIntegrationValueKind: "STRING" | "INTEGER" | "NUMBER" | "BOOLEAN" | "ENUM" | "DURATION" | "PATH" | "STRING_INTEGER_MAP";
-        /**
-         * OnlyPriceType
-         * @enum {string}
-         */
-        OnlyPriceType: "LAST" | "BID" | "ASK" | "MID" | "MARK";
         /**
          * OnlyPrivateAssetKind
          * @enum {string}
@@ -2933,12 +3001,25 @@ export interface components {
              */
             schema_version: 1;
         };
-        /** ResearchBarSpecificationDto */
-        ResearchBarSpecificationDto: {
-            aggregation: components["schemas"]["OnlyBarAggregation"];
-            price_type: components["schemas"]["OnlyPriceType"];
-            /** Step */
-            step: number;
+        /** ResearchBarSemanticDto */
+        ResearchBarSemanticDto: {
+            /**
+             * Adjustment Policy
+             * @enum {string}
+             */
+            adjustment_policy: "RAW" | "FORWARD" | "BACKWARD";
+            /** Formation */
+            formation: components["schemas"]["MarketDataFixedDurationFormationDto"] | components["schemas"]["MarketDataCalendarPeriodFormationDto"] | components["schemas"]["MarketDataTickCountFormationDto"] | components["schemas"]["MarketDataVolumeFormationDto"] | components["schemas"]["MarketDataValueFormationDto"];
+            /**
+             * Price Type
+             * @enum {string}
+             */
+            price_type: "LAST" | "BID" | "ASK" | "MID" | "MARK" | "INDEX";
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 2;
         };
         /** ResearchCalculationCatalogDto */
         ResearchCalculationCatalogDto: {
@@ -3119,11 +3200,7 @@ export interface components {
         };
         /** ResearchDatasetSelectionDto */
         ResearchDatasetSelectionDto: {
-            /** Adjustment Reference */
-            adjustment_reference: string | null;
-            adjustment_type: components["schemas"]["OnlyAdjustmentType"];
-            aggregation_source: components["schemas"]["OnlyAggregationSource"];
-            bar_specification: components["schemas"]["ResearchBarSpecificationDto"];
+            bar_semantic: components["schemas"]["ResearchBarSemanticDto"];
             /** End */
             end: string;
             /** Start */
@@ -5987,9 +6064,7 @@ export interface operations {
                 instrument_id: string;
                 start_ns: string;
                 end_ns: string;
-                bar_step?: number;
-                bar_aggregation?: "TIME";
-                bar_price_type?: "LAST";
+                bar_semantic: string;
                 expected_type_id?: string | null;
             };
             header?: never;

@@ -26,7 +26,7 @@ def _source(config: OnlyClusterRunConfig) -> OnlySyntheticHistoricalDataSource:
     bar_type = (
         config.cluster.factors[0]
         .subscriptions.instrument_bars[0]
-        .bar_specification.to_bar_type(config.reference_data.instruments[0].instrument_id)
+        .bar_semantic.to_bar_type(config.reference_data.instruments[0].instrument_id)
     )
     clock = OnlyBacktestClock(config.start_time)
     event_bus = OnlyEventBus(scope=OnlyEventScope(config.runtime.engine_id, config.runtime_id))
@@ -64,7 +64,7 @@ def _load(config: OnlyClusterRunConfig, source: OnlySyntheticHistoricalDataSourc
     bar_type = (
         config.cluster.factors[0]
         .subscriptions.instrument_bars[0]
-        .bar_specification.to_bar_type(config.reference_data.instruments[0].instrument_id)
+        .bar_semantic.to_bar_type(config.reference_data.instruments[0].instrument_id)
     )
     assert config.start_time is not None and config.end_time is not None
     request = OnlyHistoricalBarRequest(

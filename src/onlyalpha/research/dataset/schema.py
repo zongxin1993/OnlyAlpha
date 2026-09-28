@@ -21,7 +21,7 @@ class OnlyResearchDatasetColumn:
 @dataclass(frozen=True, slots=True)
 class OnlyResearchBarDatasetSchema:
     schema_id: str = "onlyalpha.research.historical_bar"
-    schema_version: int = 1
+    schema_version: int = 2
 
     @property
     def columns(self) -> tuple[OnlyResearchDatasetColumn, ...]:
@@ -64,10 +64,7 @@ _COLUMNS = tuple(
     OnlyResearchDatasetColumn(*item)
     for item in (
         ("instrument_id", "utf8", False, "instrument_identity"),
-        ("bar_step", "int32", False, "bar_specification"),
-        ("bar_aggregation", "utf8", False, "bar_specification"),
-        ("price_type", "utf8", False, "bar_specification"),
-        ("aggregation_source", "utf8", False, "bar_specification"),
+        ("bar_semantic_json", "utf8", False, "bar_semantic"),
         ("bar_start_ns", "int64", False, "utc_timestamp"),
         ("bar_end_ns", "int64", False, "utc_timestamp"),
         ("ts_event_ns", "int64", False, "utc_timestamp"),
@@ -97,4 +94,4 @@ _COLUMNS = tuple(
 )
 
 
-RESEARCH_BAR_DATASET_SCHEMA_V1 = OnlyResearchBarDatasetSchema()
+RESEARCH_BAR_DATASET_SCHEMA_V2 = OnlyResearchBarDatasetSchema()

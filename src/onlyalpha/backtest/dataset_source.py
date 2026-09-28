@@ -104,11 +104,7 @@ class OnlyBacktestDatasetSourceFactory:
             definition.instruments != tuple(sorted(request.instruments, key=str))
             or definition.time_range.start != request.clock.now_utc()
             or not configured_bar_types
-            or any(
-                bar_type.specification != definition.bar_specification
-                or bar_type.aggregation_source is not definition.aggregation_source
-                for bar_type in configured_bar_types
-            )
+            or any(bar_type.semantic != definition.bar_semantic for bar_type in configured_bar_types)
         ):
             return (OnlyPluginValidationIssue("DATASET_CONTRACT_MISMATCH", "Dataset and Runtime contract differ"),)
         return ()

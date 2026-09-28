@@ -506,9 +506,9 @@ class OnlyBinanceSpotDataSource:
             instrument = self._request.instruments[instrument_id]
             symbol = str(instrument.raw_symbol)
             if OnlyMarketDataType.BAR in request.data_types:
-                specification = self._request.bar_types[instrument_id].specification
+                specification = self._request.bar_types[instrument_id].semantic
                 interval = only_binance_bar_interval(specification)
-                step_ms = specification.step * 60_000
+                step_ms = specification.stride_minutes * 60_000
                 last = int(minute.timestamp() * 1000) // step_ms - 1
                 if request.resume_after_sequence is not None and request.resume_after_sequence > last:
                     raise OnlyBinanceError("MARKET_DATA_RESUME_CURSOR_INVALID")
@@ -557,7 +557,7 @@ class OnlyBinanceSpotDataSource:
             symbol = str(kline.get("s", symbol)).upper()
             kline_instrument = self._symbol_map[symbol]
             if kline.get("i") != only_binance_bar_interval(
-                self._request.bar_types[kline_instrument.instrument_id].specification
+                self._request.bar_types[kline_instrument.instrument_id].semantic
             ):
                 raise OnlyBinanceError("BINANCE_KLINE_INTERVAL_MISMATCH")
             bar = only_normalize_ws_kline(
@@ -590,9 +590,9 @@ class OnlyBinanceSpotDataSource:
                 for item in trade_rows
             )
         elif update.data_type is OnlyMarketDataType.BAR:
-            specification = self._request.bar_types[update.instrument_id].specification
+            specification = self._request.bar_types[update.instrument_id].semantic
             interval = only_binance_bar_interval(specification)
-            step_ms = specification.step * 60_000
+            step_ms = specification.stride_minutes * 60_000
             start_ms = first * step_ms
             end_ms = (last + 1) * step_ms
             bar_rows = self._historical.klines(str(instrument.raw_symbol), start_ms, end_ms, last - first + 1, interval)
@@ -615,7 +615,7 @@ class OnlyBinanceSpotDataSource:
     def _bar_update(
         self, bar: OnlyBar, data_version: OnlyDataVersion, *, rest: bool = False
     ) -> OnlyMarketDataInboundUpdate:
-        sequence = int(bar.bar_start.timestamp()) // (60 * bar.bar_type.specification.step)
+        sequence = int(bar.bar_start.timestamp()) // (60 * bar.bar_type.semantic.stride_minutes)
         return self._envelope(
             only_bar_update_id(self.source_id, bar.instrument_id, bar.bar_type, bar.bar_start, data_version),
             sequence,
@@ -748,7 +748,7 @@ class OnlyBinanceSpotDataSource:
             symbol = str(self._request.instruments[instrument_id].raw_symbol).lower()
             for data_type in sorted(request.data_types, key=lambda item: item.value):
                 suffix = (
-                    f"kline_{only_binance_bar_interval(self._request.bar_types[instrument_id].specification)}"
+                    f"kline_{only_binance_bar_interval(self._request.bar_types[instrument_id].semantic)}"
                     if data_type is OnlyMarketDataType.BAR
                     else "trade"
                     if data_type is OnlyMarketDataType.TRADE

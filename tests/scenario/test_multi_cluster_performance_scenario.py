@@ -5,10 +5,10 @@ from pathlib import Path
 from typing import cast
 
 from onlyalpha.config import OnlyClusterRunConfig, OnlyStrategyReferenceConfig
-from onlyalpha.domain.enums import OnlyAdjustmentType
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngineConfig
 from onlyalpha.engine.engine import OnlyEngine
+from onlyalpha.market_data.resolution import OnlyBarConstructionRecipe, OnlyBarConstructionRequirement
 from onlyalpha.strategy import (
     OnlyStrategyMarketInputContract,
     OnlyStrategyUniverse,
@@ -32,9 +32,10 @@ def test_engine_multi_cluster_performance_full_vertical_slice(tmp_path: Path) ->
         case.revision,
         universe=OnlyStrategyUniverse(tuple(item.instrument_id for item in first.reference_data.instruments)),
         market_input_contract=OnlyStrategyMarketInputContract(
-            subscription.bar_specification.to_bar_type(subscription.instrument_id).specification,
-            subscription.bar_specification.source,
-            OnlyAdjustmentType.RAW,
+            subscription.bar_semantic.semantic,
+            OnlyBarConstructionRequirement.exact(
+                OnlyBarConstructionRecipe.provider_native(subscription.bar_semantic.semantic)
+            ),
         ),
     )
     publish_frozen_strategy_for_execution_test(tmp_path / "research", revision)

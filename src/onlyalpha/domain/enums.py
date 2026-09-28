@@ -177,11 +177,6 @@ class OnlyPriceType(StrEnum):
     MARK = "MARK"
 
 
-class OnlyAggregationSource(StrEnum):
-    EXTERNAL = "EXTERNAL"
-    INTERNAL = "INTERNAL"
-
-
 class OnlyAdjustmentType(StrEnum):
     RAW = "RAW"
     FORWARD = "FORWARD"

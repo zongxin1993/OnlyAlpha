@@ -36,11 +36,9 @@ class OnlyMiniQmtLiveNormalizer:
 
     @staticmethod
     def period(bar_type: OnlyBarType) -> str:
-        from .historical import PERIODS
+        from .historical import only_miniqmt_period
 
-        period = PERIODS.get(bar_type.specification.step)
-        if period is None:
-            raise ValueError(f"unsupported MiniQMT period: {bar_type.specification.step}m")
+        period, _ = only_miniqmt_period(bar_type)
         return period
 
     def publish(self, raw: Any, instrument_id: OnlyInstrumentId, period: str) -> None:
@@ -74,7 +72,7 @@ class OnlyMiniQmtLiveNormalizer:
         event = utc_from_xt(row["time"])
         bar_type = self._request.bar_types[instrument_id]
         precision = self._request.instruments[instrument_id].price_precision
-        minutes = bar_type.specification.step
+        minutes = bar_type.semantic.stride_minutes
         # XtQuant labels minute K-lines by their end boundary. A 13:01
         # callback therefore represents the evolving 13:00-13:01 Bar.
         bar = OnlyBar(

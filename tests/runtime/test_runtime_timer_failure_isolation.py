@@ -8,6 +8,7 @@ from onlyalpha.market_data.subscriptions import OnlyBarSubscription
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.context import OnlyRuntimeContextError, OnlyTimerContext
 from onlyalpha.runtime.runtime import OnlyRuntimeState
+from tests.support.bar_graph import only_time_bar_graph
 
 
 class OnlyOrderedCluster(OnlyCluster):
@@ -37,7 +38,9 @@ def test_same_timestamp_timer_fires_before_bar(
     runtime_types: tuple[OnlyBarType, OnlyBarType],
 ) -> None:
     runtime = make_runtime("runtime", {"ordered": "1000000.00"})
-    cluster = OnlyOrderedCluster(OnlyClusterConfig("ordered"), OnlyBarSubscription(runtime_types))
+    cluster = OnlyOrderedCluster(
+        OnlyClusterConfig("ordered"), OnlyBarSubscription(runtime_types, only_time_bar_graph(*runtime_types))
+    )
     runtime.add_cluster("engine", cluster)
     runtime.start()
     for index in range(3):
@@ -52,7 +55,9 @@ def test_cluster_stop_cancels_timer_and_releases_subscription(
     runtime_types: tuple[OnlyBarType, OnlyBarType],
 ) -> None:
     runtime = make_runtime("runtime", {"ordered": "1000000.00"})
-    cluster = OnlyOrderedCluster(OnlyClusterConfig("ordered"), OnlyBarSubscription(runtime_types))
+    cluster = OnlyOrderedCluster(
+        OnlyClusterConfig("ordered"), OnlyBarSubscription(runtime_types, only_time_bar_graph(*runtime_types))
+    )
     runtime.add_cluster("engine", cluster)
     runtime.start()
     assert runtime.status().active_timer_count == 1
@@ -71,7 +76,7 @@ def test_failed_cluster_stops_receiving_while_healthy_cluster_continues(
     runtime_types: tuple[OnlyBarType, OnlyBarType],
 ) -> None:
     runtime = make_runtime("runtime", {"a-failing": "500000.00", "b-healthy": "500000.00"})
-    subscription = OnlyBarSubscription(runtime_types)
+    subscription = OnlyBarSubscription(runtime_types, only_time_bar_graph(*runtime_types))
     failing = OnlyOrderedCluster(OnlyClusterConfig("a-failing"), subscription, fail=True)
     healthy = OnlyOrderedCluster(OnlyClusterConfig("b-healthy"), subscription)
     runtime.add_cluster("engine", failing)

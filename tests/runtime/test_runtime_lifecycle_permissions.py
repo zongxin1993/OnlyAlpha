@@ -10,6 +10,7 @@ from onlyalpha.market_data.subscriptions import OnlyBarSubscription
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.context import OnlyRuntimeContextError
 from onlyalpha.runtime.runtime import OnlyRuntimeState
+from tests.support.bar_graph import only_time_bar_graph
 
 
 def test_runtime_and_cluster_lifecycle_is_manager_owned(
@@ -61,7 +62,7 @@ def test_subscription_is_initialization_only_and_released_on_stop(
     runtime_types: tuple[OnlyBarType, OnlyBarType],
 ) -> None:
     runtime = make_runtime("runtime")
-    subscription = OnlyBarSubscription(runtime_types)
+    subscription = OnlyBarSubscription(runtime_types, only_time_bar_graph(*runtime_types))
     cluster = OnlyDemoCluster(OnlyClusterConfig("demo"), subscription)
     runtime.add_cluster("engine", cluster)
     runtime.initialize()

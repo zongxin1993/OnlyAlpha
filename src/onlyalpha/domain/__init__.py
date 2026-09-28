@@ -24,7 +24,6 @@ from onlyalpha.domain.calendar import (
 from onlyalpha.domain.catalog import OnlyInstrumentCatalog
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
-    OnlyAggregationSource,
     OnlyAssetClass,
     OnlyBarAggregation,
     OnlyBookType,
@@ -98,15 +97,23 @@ from onlyalpha.domain.instrument import (
 )
 from onlyalpha.domain.market import (
     OnlyBar,
-    OnlyBarSpecification,
+    OnlyBarAlignment,
+    OnlyBarFormationKind,
+    OnlyBarSemantic,
     OnlyBarType,
+    OnlyCalendarPeriodBarFormation,
+    OnlyCalendarPeriodUnit,
+    OnlyFixedDurationBarFormation,
     OnlyFundingRateFact,
     OnlyOrderBook,
     OnlyOrderBookLevel,
     OnlyQuoteTick,
     OnlyReferencePriceFact,
     OnlyTick,
+    OnlyTickCountBarFormation,
     OnlyTradeTick,
+    OnlyValueBarFormation,
+    OnlyVolumeBarFormation,
 )
 from onlyalpha.domain.market_rules import (
     OnlyFeeSchedule,

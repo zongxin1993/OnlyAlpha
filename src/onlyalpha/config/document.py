@@ -17,7 +17,7 @@ from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
 from onlyalpha.calculation.definition import OnlyCalculationKind, OnlyCalculationTypeReference
 from onlyalpha.config.models import (
     OnlyAccountRuntimeConfig,
-    OnlyBarSpecificationConfig,
+    OnlyBarSemanticConfig,
     OnlyBrokerFeeContractConfig,
     OnlyBrokerRuntimeConfig,
     OnlyClusterCapitalConfig,
@@ -47,13 +47,10 @@ from onlyalpha.config.persistence import OnlyRuntimePersistenceConfig
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
 from onlyalpha.domain.enums import (
-    OnlyAggregationSource,
     OnlyAssetClass,
-    OnlyBarAggregation,
     OnlyContractType,
     OnlyCurrencyType,
     OnlyMarketType,
-    OnlyPriceType,
     OnlySessionType,
     OnlySettlementType,
 )
@@ -74,6 +71,7 @@ from onlyalpha.domain.instrument import (
     OnlyFuture,
     OnlyInstrument,
 )
+from onlyalpha.domain.market import OnlyBarSemantic
 from onlyalpha.domain.time import OnlyTimeZone, only_require_utc
 from onlyalpha.domain.value import (
     OnlyCurrency,
@@ -771,37 +769,22 @@ class _OnlyClusterDocumentParser:
     def _instrument_bar(self, raw: OnlyJsonMapping, path: str) -> OnlyInstrumentBarSubscriptionConfig:
         return OnlyInstrumentBarSubscriptionConfig(
             _instrument_id(self._str(raw.get("instrument_id"), f"{path}.instrument_id"), f"{path}.instrument_id"),
-            self._bar_spec(
-                self._map(raw.get("bar_specification"), f"{path}.bar_specification"), f"{path}.bar_specification"
-            ),
+            self._bar_semantic(self._map(raw.get("bar_semantic"), f"{path}.bar_semantic"), f"{path}.bar_semantic"),
             OnlySubscriptionRole(self._str(raw.get("role", "AUXILIARY"), f"{path}.role")),
         )
 
     def _universe_bar(self, raw: OnlyJsonMapping, path: str) -> OnlyUniverseBarSubscriptionConfig:
         return OnlyUniverseBarSubscriptionConfig(
             self._str(raw.get("universe_id"), f"{path}.universe_id"),
-            self._bar_spec(
-                self._map(raw.get("bar_specification"), f"{path}.bar_specification"), f"{path}.bar_specification"
-            ),
+            self._bar_semantic(self._map(raw.get("bar_semantic"), f"{path}.bar_semantic"), f"{path}.bar_semantic"),
             OnlySubscriptionRole(self._str(raw.get("role", "AUXILIARY"), f"{path}.role")),
         )
 
-    def _bar_spec(self, raw: OnlyJsonMapping, path: str) -> OnlyBarSpecificationConfig:
-        aggregation = self._str(raw.get("aggregation"), f"{path}.aggregation")
-        # 配置层允许 MINUTE/HOUR/DAY，当前 Domain 统一映射到 TIME。
-        aggregation = {
-            "MINUTE": "TIME",
-            "HOUR": "TIME",
-            "DAY": "TIME",
-            "WEEK": "TIME",
-            "MONTH": "TIME",
-        }.get(aggregation, aggregation)
-        return OnlyBarSpecificationConfig(
-            self._int(raw.get("step"), f"{path}.step", 1),
-            OnlyBarAggregation(aggregation),
-            OnlyPriceType(self._str(raw.get("price_type", "LAST"), f"{path}.price_type")),
-            OnlyAggregationSource(self._str(raw.get("source", "EXTERNAL"), f"{path}.source")),
-        )
+    def _bar_semantic(self, raw: OnlyJsonMapping, path: str) -> OnlyBarSemanticConfig:
+        try:
+            return OnlyBarSemanticConfig(OnlyBarSemantic.from_dict(raw))
+        except Exception as exc:
+            raise OnlyClusterConfigError(f"{path} INVALID_BAR_SEMANTIC") from exc
 
     def _output(self, raw: OnlyJsonMapping) -> OnlyOutputConfig:
         unknown = set(raw) - {"formats", "overwrite"}

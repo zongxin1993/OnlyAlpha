@@ -10,9 +10,8 @@ from onlyalpha.data.models import (
     OnlyMarketDataSubscriptionRequest,
     OnlyMarketDataUnsubscriptionRequest,
 )
-from onlyalpha.domain.enums import OnlyAggregationSource, OnlyBarAggregation, OnlyPriceType
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRuntimeId
-from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType
 
 
 class OnlyFakeXtData:
@@ -134,11 +133,7 @@ def test_stop_unsubscribes_once_and_ignores_late_sdk_callback() -> None:
 def test_live_bar_uses_instrument_price_precision_and_remains_open() -> None:
     updates: list[object] = []
     instrument = OnlyInstrumentId.parse("600000.XSHG")
-    bar_type = OnlyBarType(
-        instrument,
-        OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-        OnlyAggregationSource.EXTERNAL,
-    )
+    bar_type = OnlyBarType(instrument, OnlyBarSemantic.fixed_duration(1))
     request = SimpleNamespace(
         source_id=OnlyMarketDataSourceId("miniqmt"),
         runtime_id=OnlyRuntimeId("runtime"),
@@ -175,11 +170,7 @@ def test_live_bar_uses_instrument_price_precision_and_remains_open() -> None:
 
 def test_bar_subscription_explicitly_requests_xtquant_live_tail() -> None:
     instrument = OnlyInstrumentId.parse("600000.XSHG")
-    bar_type = OnlyBarType(
-        instrument,
-        OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-        OnlyAggregationSource.EXTERNAL,
-    )
+    bar_type = OnlyBarType(instrument, OnlyBarSemantic.fixed_duration(1))
     request = SimpleNamespace(
         source_id=OnlyMarketDataSourceId("miniqmt"),
         runtime_id=OnlyRuntimeId("runtime"),

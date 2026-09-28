@@ -5,14 +5,11 @@ from decimal import Decimal
 
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
-    OnlyAggregationSource,
-    OnlyBarAggregation,
     OnlyOrderSide,
-    OnlyPriceType,
     OnlySessionType,
 )
 from onlyalpha.domain.identifiers import OnlyTradeId
-from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType, OnlyQuoteTick, OnlyTradeTick
+from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType, OnlyQuoteTick, OnlyTradeTick
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
 
 from .instruments import build_instruments
@@ -54,11 +51,7 @@ def build_bar() -> OnlyBar:
     instrument = build_instruments()["a_share"]
     start = datetime(2026, 1, 5, 1, 30, tzinfo=UTC)
     return OnlyBar(
-        bar_type=OnlyBarType(
-            instrument.instrument_id,
-            OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-            OnlyAggregationSource.EXTERNAL,
-        ),
+        bar_type=OnlyBarType(instrument.instrument_id, OnlyBarSemantic.fixed_duration(1)),
         open=OnlyPrice(Decimal("10.00"), 2),
         high=OnlyPrice(Decimal("10.10"), 2),
         low=OnlyPrice(Decimal("9.90"), 2),

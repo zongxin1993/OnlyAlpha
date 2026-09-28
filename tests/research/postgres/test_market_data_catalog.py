@@ -10,8 +10,7 @@ import psycopg
 import pytest
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_payload
-from onlyalpha.domain.enums import OnlyBarAggregation, OnlyPriceType
-from onlyalpha.domain.market import OnlyBarSpecification
+from onlyalpha.domain.market import OnlyBarSemantic
 from onlyalpha.market_data.durable import (
     OnlyAcquisitionOutcome,
     OnlyInMemoryMarketFactStore,
@@ -23,7 +22,6 @@ from onlyalpha.market_data.durable import (
 from onlyalpha.market_data.resolution import (
     OnlyBarCapability,
     OnlyBarConstructionIdentity,
-    OnlyBarIntervalKind,
     only_plan_bar_resolution,
 )
 from onlyalpha.persistence.postgres import OnlyPostgresMarketDataCatalog
@@ -45,12 +43,12 @@ def test_native_construction_scope_survives_catalog_reload(postgres_dsn: str, tm
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     wal, legacy_segment, _ = _sealed(tmp_path / "native", lambda: BASE.replace(hour=1), kind="BAR")
     del wal
-    specification = OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
+    specification = OnlyBarSemantic.fixed_duration(1)
     scope = _scope("BAR")
     plan = only_plan_bar_resolution(
         specification,
-        (OnlyBarCapability(specification, OnlyBarIntervalKind.FIXED_DURATION, "UTC", True, True, grid_origin_ns=0),),
-        alignment_id="UTC",
+        (OnlyBarCapability(specification, True, True, "UTC", grid_origin_ns=0),),
+        calendar_fingerprint="UTC",
         source_id=scope.source_id,
         instrument_id=scope.instrument_id,
         integration_revision_fingerprint="a" * 64,
@@ -63,6 +61,15 @@ def test_native_construction_scope_survives_catalog_reload(postgres_dsn: str, tm
     assert catalog.load_durable_segments((segment.segment_id,)) == (segment,)
     assert catalog.list_durable_segments(constructed_scope) == (segment,)
     assert catalog.list_durable_segments(replace(scope, bar_construction=None)) == ()
+    acquisition = OnlyMarketDataAcquisitionIntent.build(
+        constructed_scope.source_id,
+        constructed_scope,
+        provenance=OnlyMarketDataProvenance.REST_BACKFILL,
+        admitted_at=BASE,
+        integration_binding_fingerprint="5" * 64,
+    )
+    assert catalog.admit_acquisition_intent(acquisition) == acquisition
+    assert catalog.load_acquisition_intent(acquisition.acquisition_id) == acquisition
 
 
 def test_market_data_catalog_concurrent_commit_is_immutable_and_survives_restore(

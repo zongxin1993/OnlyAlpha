@@ -13,8 +13,7 @@ from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHi
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.data.historical import OnlyHistoricalDataRequest, OnlyHistoricalTradeDataRequest
 from onlyalpha.data.identifiers import OnlyDataVersion
-from onlyalpha.domain.enums import OnlyAggregationSource, OnlyBarAggregation, OnlyPriceType
-from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType
 
 
 class FakeHistoricalClient:
@@ -118,11 +117,7 @@ def test_historical_bar_exact_half_open_range_and_open_tail_cannot_close_coverag
 
 def test_native_fifteen_minute_fetch_uses_exact_provider_interval(binance_bar_type) -> None:  # type: ignore[no-untyped-def]
     instrument, _ = binance_bar_type
-    bar_type = OnlyBarType(
-        instrument.instrument_id,
-        OnlyBarSpecification(15, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-        OnlyAggregationSource.EXTERNAL,
-    )
+    bar_type = OnlyBarType(instrument.instrument_id, OnlyBarSemantic.fixed_duration(15))
     start = datetime(2026, 1, 1, tzinfo=UTC)
     end = start + timedelta(minutes=30)
 

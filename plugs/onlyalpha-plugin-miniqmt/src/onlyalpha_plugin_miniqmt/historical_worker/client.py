@@ -126,7 +126,7 @@ class OnlyMiniQmtHistoricalIsolatedClient:
     def _transport_request(self, request: OnlyHistoricalWarmupRequest) -> OnlyMiniQmtWorkerRequest:
         profile = resolve_profile(request.compatibility_profile_id)
         instrument = self._create_request.instruments[request.instrument_id]
-        minutes = request.bar_type.specification.step
+        minutes = request.bar_type.semantic.stride_minutes
         period = "1d" if minutes == 1_440 else f"{minutes // 60}h" if minutes % 60 == 0 else f"{minutes}m"
         requested_start = request.requested_start.to_datetime().astimezone(UTC).isoformat().replace("+00:00", "Z")
         end = request.end_time.to_datetime().astimezone(UTC).isoformat().replace("+00:00", "Z")

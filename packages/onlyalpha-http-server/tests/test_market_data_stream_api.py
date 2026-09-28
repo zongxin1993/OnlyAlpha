@@ -9,6 +9,11 @@ from onlyalpha_http_server.market_data.stream_schema import (
 from pydantic import ValidationError
 
 from onlyalpha.application.market_data_stream import OnlyMarketDataStreamEventV1
+from onlyalpha.domain.market import OnlyBarSemantic
+
+
+def _semantic(minutes: int) -> dict[str, object]:
+    return OnlyBarSemantic.fixed_duration(minutes).to_dict()
 
 
 class _Session:
@@ -21,9 +26,9 @@ class _Session:
                         "stream_id": "s",
                         "source_id": "source",
                         "instrument_id": "BTCUSDT.BINANCE",
-                        "resolution_mode": "EXTERNAL_NATIVE",
+                        "resolution_mode": "PROVIDER_NATIVE",
                         "resolution_plan_fingerprint": "a" * 64,
-                        "cursor_bar_step_minutes": 15,
+                        "cursor_bar_stride_minutes": 15,
                     },
                 ),
                 OnlyMarketDataStreamEventV1("STATE", {"state": "READY"}),
@@ -76,7 +81,7 @@ def test_stream_rejects_nonzero_resume_without_plan() -> None:
                     "expected_type_id": "binance.spot.market_data",
                 },
                 "instrument_id": "BTCUSDT.BINANCE",
-                "bar_specification": {"aggregation": "TIME", "step": 15, "price_type": "LAST"},
+                "bar_semantic": _semantic(15),
                 "resume_after_sequence": "42",
             }
         )
@@ -95,7 +100,7 @@ def test_zero_resume_does_not_require_plan_fingerprint() -> None:
                 "expected_type_id": "binance.spot.market_data",
             },
             "instrument_id": "BTCUSDT.BINANCE",
-            "bar_specification": {"aggregation": "TIME", "step": 15, "price_type": "LAST"},
+            "bar_semantic": _semantic(15),
             "resume_after_sequence": "0",
         }
     )
@@ -109,9 +114,9 @@ def test_server_subscribed_event_rejects_uncontracted_fields() -> None:
         "stream_id": "s",
         "source_id": "source",
         "instrument_id": "BTCUSDT.BINANCE",
-        "resolution_mode": "EXTERNAL_NATIVE",
+        "resolution_mode": "PROVIDER_NATIVE",
         "resolution_plan_fingerprint": "a" * 64,
-        "cursor_bar_step_minutes": 15,
+        "cursor_bar_stride_minutes": 15,
     }
     assert market_data_stream_event_adapter.validate_python(event).event == "SUBSCRIBED"
     with pytest.raises(ValidationError):
@@ -132,7 +137,7 @@ def test_stream_binds_exact_source_and_cleans_up_disconnect() -> None:
                     "expected_type_id": "binance.spot.market_data",
                 },
                 "instrument_id": "BTCUSDT.BINANCE",
-                "bar_specification": {"aggregation": "TIME", "step": 1, "price_type": "LAST"},
+                "bar_semantic": _semantic(1),
                 "resume_after_sequence": "42",
                 "resume_plan_fingerprint": fingerprint,
             }

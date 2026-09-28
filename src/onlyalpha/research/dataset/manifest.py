@@ -8,13 +8,12 @@ from datetime import datetime
 
 from .definition import OnlyResearchDatasetDefinition
 from .identity import only_snapshot_fingerprint
-from .schema import RESEARCH_BAR_DATASET_SCHEMA_V1, OnlyResearchBarDatasetSchema
+from .schema import RESEARCH_BAR_DATASET_SCHEMA_V2, OnlyResearchBarDatasetSchema
 from .strict import (
     require_exact_fields,
     require_int,
     require_list,
     require_mapping,
-    require_optional_str,
     require_sha256,
     require_str,
     require_utc_datetime,
@@ -53,11 +52,17 @@ class OnlyResearchDatasetSnapshot:
     partitions: tuple[OnlyResearchDatasetPartitionManifest, ...]
     provenance: tuple[OnlyResearchDatasetProvenance, ...]
     created_at: datetime
-    construction_fingerprint: str | None = None
+    construction_fingerprint: str
+
+    def __post_init__(self) -> None:
+        if len(self.construction_fingerprint) != 64 or any(
+            character not in "0123456789abcdef" for character in self.construction_fingerprint
+        ):
+            raise ValueError("DATASET_CONSTRUCTION_IDENTITY_INVALID")
 
     def to_dict(self) -> dict[str, object]:
         payload = {
-            "schema_version": 1,
+            "schema_version": 2,
             "snapshot_fingerprint": self.snapshot_fingerprint,
             "definition": self.definition.to_dict(),
             "definition_fingerprint": self.definition.fingerprint,
@@ -90,9 +95,8 @@ class OnlyResearchDatasetSnapshot:
                 for item in self.provenance
             ],
             "created_at": self.created_at.isoformat(),
+            "construction_fingerprint": self.construction_fingerprint,
         }
-        if self.construction_fingerprint is not None:
-            payload["construction_fingerprint"] = self.construction_fingerprint
         return payload
 
     @classmethod
@@ -112,19 +116,19 @@ class OnlyResearchDatasetSnapshot:
                 "partitions",
                 "provenance",
                 "created_at",
-            }
-            | ({"construction_fingerprint"} if "construction_fingerprint" in payload else set()),
+                "construction_fingerprint",
+            },
             context,
         )
-        if require_int(payload, "schema_version", context) != 1:
-            raise ValueError("DATASET_SCHEMA_UNSUPPORTED")
+        if require_int(payload, "schema_version", context) != 2:
+            raise ValueError("DATASET_REBUILD_REQUIRED")
         definition = OnlyResearchDatasetDefinition.from_dict(require_mapping(payload["definition"], "definition"))
         if require_sha256(payload, "definition_fingerprint", context) != definition.fingerprint:
             raise ValueError("DATASET_SNAPSHOT_CORRUPT: definition fingerprint")
         schema_payload = require_mapping(payload["dataset_schema"], "dataset schema")
-        if schema_payload != RESEARCH_BAR_DATASET_SCHEMA_V1.semantic_payload():
+        if schema_payload != RESEARCH_BAR_DATASET_SCHEMA_V2.semantic_payload():
             raise ValueError("DATASET_SCHEMA_UNSUPPORTED")
-        schema = RESEARCH_BAR_DATASET_SCHEMA_V1
+        schema = RESEARCH_BAR_DATASET_SCHEMA_V2
         if require_sha256(payload, "dataset_schema_fingerprint", context) != schema.fingerprint:
             raise ValueError("DATASET_SNAPSHOT_CORRUPT: schema fingerprint")
         partitions = tuple(_partition(item) for item in require_list(payload["partitions"], "partitions"))
@@ -138,9 +142,7 @@ class OnlyResearchDatasetSnapshot:
             partitions,
             provenance,
             require_utc_datetime(payload, "created_at", context),
-            require_optional_str(payload, "construction_fingerprint", context)
-            if "construction_fingerprint" in payload
-            else None,
+            require_sha256(payload, "construction_fingerprint", context),
         )
         if result.row_count < 0:
             raise ValueError("DATASET_SNAPSHOT_CORRUPT: negative row count")

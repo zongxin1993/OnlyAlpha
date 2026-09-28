@@ -110,7 +110,7 @@
     "latest_bars": [
       [
         "{\"schema_version\":1,\"symbol\":{\"schema_version\":1,\"value\":\"TESTETF\"},\"venue\":{\"schema_version\":1,\"value\":\"XSHG\"}}",
-        "{\"adjustment_type\":\"RAW\",\"bar_end\":\"2026-01-05T01:59:00Z\",\"bar_start\":\"2026-01-05T01:58:00Z\",\"bar_type\":{\"aggregation_source\":\"EXTERNAL\",\"instrument_id\":{\"schema_version\":1,\"symbol\":{\"schema_version\":1,\"value\":\"TESTETF\"},\"venue\":{\"schema_version\":1,\"value\":\"XSHG\"}},\"schema_version\":1,\"specification\":{\"aggregation\":\"TIME\",\"price_type\":\"LAST\",\"schema_version\":1,\"step\":1}},\"close\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.36\"},\"high\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.39\"},\"is_closed\":true,\"low\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.29\"},\"open\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.32\"},\"open_interest\":null,\"quote_volume\":null,\"revision\":0,\"schema_version\":1,\"session_type\":\"CONTINUOUS\",\"trade_count\":120,\"trading_day\":\"2026-01-05\",\"ts_event\":\"2026-01-05T01:59:00Z\",\"ts_init\":\"2026-01-05T01:59:00Z\",\"turnover\":null,\"volume\":{\"precision\":0,\"schema_version\":1,\"value\":\"12000\"}}"
+        "{\"adjustment_type\":\"RAW\",\"bar_end\":\"2026-01-05T01:59:00Z\",\"bar_start\":\"2026-01-05T01:58:00Z\",\"bar_type\":{\"instrument_id\":{\"schema_version\":1,\"symbol\":{\"schema_version\":1,\"value\":\"TESTETF\"},\"venue\":{\"schema_version\":1,\"value\":\"XSHG\"}},\"schema_version\":2,\"semantic\":{\"adjustment_policy\":\"RAW\",\"formation\":{\"alignment\":\"SESSION_START\",\"kind\":\"FIXED_DURATION\",\"schema_version\":1,\"stride_minutes\":1,\"window_minutes\":1},\"price_type\":\"LAST\",\"schema_version\":2}},\"close\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.36\"},\"high\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.39\"},\"is_closed\":true,\"low\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.29\"},\"open\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.32\"},\"open_interest\":null,\"quote_volume\":null,\"revision\":0,\"schema_version\":1,\"session_type\":\"CONTINUOUS\",\"trade_count\":120,\"trading_day\":\"2026-01-05\",\"ts_event\":\"2026-01-05T01:59:00Z\",\"ts_init\":\"2026-01-05T01:59:00Z\",\"turnover\":null,\"volume\":{\"precision\":0,\"schema_version\":1,\"value\":\"12000\"}}"
       ]
     ],
     "orders": [
@@ -162,18 +162,18 @@
     "ETX-18a9b2dbed106c965643c91f6da803eaa57ec03c217874479b55b4de2da59c5e",
     "ETX-70ab95fa4ebde60aa70df91c165154fa1764bce1c184943484c2f5639a5edbb0"
   ],
-  "configuration_fingerprint": "d7f5177d3ec6fba10ff05e59354cf83682afe484ac19978417259351ac1e5150",
+  "configuration_fingerprint": "8f38a232e59b900c40f5d29fb97f9b6bc71d90a408b18fe515957462136b8199",
   "database_archive": "database.sqlite3.gz",
-  "database_fingerprint": "03f50716b974eb7daf6f3e48d86a8946217ddf0d8937124ca90ded1682762836",
-  "database_template": "long_close_multi_fill_baseline-03f50716b974eb7daf6f3e48d86a8946217ddf0d8937124ca90ded1682762836.sqlite3",
+  "database_fingerprint": "1677c53381012f3d34b8ba5f20b88721e5411f93ffe405688985b22ab59c15dc",
+  "database_template": "long_close_multi_fill_baseline-1677c53381012f3d34b8ba5f20b88721e5411f93ffe405688985b22ab59c15dc.sqlite3",
   "fill_count": 6,
   "onlyalpha_version": "0.9.9",
   "order_count": 2,
   "persistence_schema_version": "5",
-  "result_fingerprint": "aa99138fd61b22bc6bc7c3171640b3a1082e78d1b55e342b263aaf7474c2406e",
-  "scenario_fingerprint": "d7f5177d3ec6fba10ff05e59354cf83682afe484ac19978417259351ac1e5150",
+  "result_fingerprint": "50e3004faba89f421b3443bf583f1af69e48ad7d0bba4d25a9228ac0d716c39c",
+  "scenario_fingerprint": "8f38a232e59b900c40f5d29fb97f9b6bc71d90a408b18fe515957462136b8199",
   "strategy_fingerprints": [
-    "b8e389ad83146692237c20a8bd8949c2f9ae840872f6facdff25f27d300014eb"
+    "8b267896bc113b456e0da1bcf932fa0dffaa5853841450d592c517242222591b"
   ],
   "terminal_count": 0
 }

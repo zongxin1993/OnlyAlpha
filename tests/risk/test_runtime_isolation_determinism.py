@@ -2,6 +2,7 @@ from onlyalpha.cluster.base import OnlyClusterConfig
 from onlyalpha.cluster.demo import OnlyDemoCluster
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
+from tests.support.bar_graph import only_native_bar_graph
 
 from ..runtime_support.common import (
     only_demo_bar,
@@ -35,7 +36,9 @@ def test_runtime_risk_state_and_reservations_are_isolated(order_request) -> None
 def test_risk_snapshot_is_refreshed_before_bar_callback() -> None:
     runtime = only_demo_runtime("risk-pre-bar", ("risk-cluster",))
     bar_1m, _ = only_demo_bar_types()
-    cluster = OnlyDemoCluster(OnlyClusterConfig("risk-cluster"), OnlyBarSubscription((bar_1m,)))
+    cluster = OnlyDemoCluster(
+        OnlyClusterConfig("risk-cluster"), OnlyBarSubscription((bar_1m,), only_native_bar_graph(bar_1m))
+    )
     runtime.add_cluster("engine", cluster)
     runtime.start()
     assert cluster.context is not None

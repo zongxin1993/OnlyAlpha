@@ -3,13 +3,10 @@ from decimal import Decimal
 
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
-    OnlyAggregationSource,
-    OnlyBarAggregation,
-    OnlyPriceType,
     OnlySessionType,
 )
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlySymbol, OnlyVenueId
-from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 
 
@@ -20,8 +17,7 @@ def test_one_minute_bar_is_half_open() -> None:
     bar = OnlyBar(
         bar_type=OnlyBarType(
             OnlyInstrumentId(OnlySymbol("600000"), OnlyVenueId("XSHG")),
-            OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-            OnlyAggregationSource.INTERNAL,
+            OnlyBarSemantic.fixed_duration(1),
         ),
         open=price,
         high=price,

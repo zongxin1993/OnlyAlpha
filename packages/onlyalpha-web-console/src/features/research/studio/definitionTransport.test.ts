@@ -202,7 +202,7 @@ it("builds the complete formal Definition transport without resolving semantics"
     expect(JSON.stringify(result)).not.toContain("fingerprint");
 });
 
-it("preserves the admitted Dataset price and adjustment authoring semantics", () => {
+it("preserves the admitted Dataset price and adjustment semantics", () => {
     const draft = admittedDraft();
     const result = buildResearchDefinitionTransport(
         {
@@ -210,18 +210,13 @@ it("preserves the admitted Dataset price and adjustment authoring semantics", ()
             dataset: {
                 ...draft.dataset,
                 priceType: "MARK",
-                aggregationSource: "INTERNAL",
-                adjustmentType: "FORWARD",
-                adjustmentReference: " 2026-01-01 "
+                adjustmentType: "FORWARD"
             }
         },
         catalog
     );
     expect(result.dataset).toMatchObject({
-        bar_specification: { price_type: "MARK" },
-        aggregation_source: "INTERNAL",
-        adjustment_type: "FORWARD",
-        adjustment_reference: "2026-01-01"
+        bar_semantic: { price_type: "MARK", adjustment_policy: "FORWARD" }
     });
 });
 

@@ -11,7 +11,8 @@ from onlyalpha.cache.historical import (
 from onlyalpha.cache.historical.models import OnlyCachePolicy
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.data.historical import OnlyHistoricalDataRequest
-from tests.support.provider_frames import OnlyFakeFrame, row
+
+from .support import OnlyFakeFrame, row
 
 
 class OnlyCountingClient:

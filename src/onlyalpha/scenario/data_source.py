@@ -143,7 +143,7 @@ class OnlyScenarioDataSourceFactory:
             turnover=None,
             trade_count=None,
             open_interest=None,
-            bar_start=event - timedelta(minutes=bar_type.specification.step),
+            bar_start=event - timedelta(minutes=bar_type.semantic.stride_minutes),
             bar_end=event,
             ts_event=event,
             ts_init=ts_init.to_datetime(),

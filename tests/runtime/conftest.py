@@ -7,10 +7,7 @@ import pytest
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
-    OnlyAggregationSource,
-    OnlyBarAggregation,
     OnlyMarketType,
-    OnlyPriceType,
     OnlyRuntimeMode,
     OnlySessionType,
 )
@@ -23,7 +20,7 @@ from onlyalpha.domain.identifiers import (
     OnlyVenueId,
 )
 from onlyalpha.domain.instrument import OnlyEquity
-from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.time import OnlyTimeZone, OnlyTradingDay
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, OnlyPrice, OnlyQuantity
 from onlyalpha.fee.basis import only_default_fee_basis_provider_registry
@@ -40,16 +37,8 @@ from tests.runtime_support.market_product import only_generic_market_product
 def runtime_types() -> tuple[OnlyBarType, OnlyBarType]:
     instrument_id = OnlyInstrumentId(OnlySymbol("600000"), OnlyVenueId("XSHG"))
     return (
-        OnlyBarType(
-            instrument_id,
-            OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-            OnlyAggregationSource.EXTERNAL,
-        ),
-        OnlyBarType(
-            instrument_id,
-            OnlyBarSpecification(3, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-            OnlyAggregationSource.INTERNAL,
-        ),
+        OnlyBarType(instrument_id, OnlyBarSemantic.fixed_duration(1)),
+        OnlyBarType(instrument_id, OnlyBarSemantic.fixed_duration(3)),
     )
 
 

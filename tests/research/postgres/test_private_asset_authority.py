@@ -18,6 +18,8 @@ from onlyalpha_runtime_generation_manager import OnlyLocalImmutableArtifactStore
 
 from onlyalpha.calculation import OnlyCalculationBackendKind, OnlyCalculationKind, OnlyCalculationReference
 from onlyalpha.canonical import only_canonical_json
+from onlyalpha.domain.market import OnlyBarSemantic
+from onlyalpha.market_data.resolution import OnlyBarConstructionRecipe, OnlyBarConstructionRequirement
 from onlyalpha.persistence.postgres import (
     OnlyPostgresPrivateAssetStore,
     OnlyPostgresPrivateStrategyResearchCompositionStore,
@@ -76,6 +78,19 @@ from tests.support.research_run_seeder import OnlyPostgresResearchRunSeeder
 pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
 
 
+def _market_input() -> dict[str, object]:
+    semantic = OnlyBarSemantic.fixed_duration(1)
+    return {
+        "schema_version": 2,
+        "data_kind": "BAR",
+        "bar_semantic": semantic.to_dict(),
+        "construction_requirement": OnlyBarConstructionRequirement.exact(
+            OnlyBarConstructionRecipe.provider_native(semantic)
+        ).to_dict(),
+        "observation_admission": "FINAL_ONLY",
+    }
+
+
 def _factor(factor_id: str = "private.factor.momentum", **changes: object) -> OnlyPrivateFactorDraft:
     values: dict[str, object] = {
         "factor_id": factor_id,
@@ -99,15 +114,7 @@ def _strategy(**changes: object) -> OnlyPrivateStrategyDraft:
     definition = {
         "schema_version": 1,
         "universe": {"kind": "SINGLE_INSTRUMENT", "instruments": ["TEST.XSHG"]},
-        "market_input": {
-            "schema_version": 1,
-            "data_kind": "BAR",
-            "bar_specification": {"step": 1, "aggregation": "TIME", "price_type": "LAST"},
-            "aggregation_source": "EXTERNAL",
-            "adjustment_type": "RAW",
-            "adjustment_reference": None,
-            "observation_admission": "FINAL_ONLY",
-        },
+        "market_input": _market_input(),
         "calculations": [
             {
                 "instance_key": "signal",

@@ -8,6 +8,7 @@ from typing import cast
 
 from onlyalpha.cache.historical.api import OnlyHistoricalCacheProvider
 from onlyalpha.cache.historical.service import OnlyHistoricalCacheService
+from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.data.historical import OnlyHistoricalDataProviderCreateRequest, OnlyHistoricalDataRequest
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 
@@ -15,7 +16,7 @@ from .identity import only_canonical_bars, only_content_fingerprint, only_snapsh
 from .manifest import OnlyResearchDatasetProvenance, OnlyResearchDatasetSnapshot
 from .plan import OnlyResearchDatasetMaterializationPlan
 from .ports import OnlyResearchDatasetSnapshotStore
-from .schema import RESEARCH_BAR_DATASET_SCHEMA_V1
+from .schema import RESEARCH_BAR_DATASET_SCHEMA_V2
 from .validation import OnlyResearchDatasetError, only_validate_dataset_bars
 
 
@@ -33,6 +34,7 @@ class OnlyResearchDatasetMaterializer:
     def materialize(self, plan: OnlyResearchDatasetMaterializationPlan) -> OnlyResearchDatasetSnapshot:
         bars: list[OnlyBar] = []
         provenance: list[OnlyResearchDatasetProvenance] = []
+        recipe = plan.construction_recipe
         for instrument_id in plan.definition.instruments:
             instrument = plan.instruments.get(instrument_id)
             if instrument is None or instrument.trading_calendar_id is None:
@@ -53,10 +55,10 @@ class OnlyResearchDatasetMaterializer:
             )
             request = OnlyHistoricalDataRequest(
                 instrument_id,
-                OnlyBarType(instrument_id, plan.definition.bar_specification, plan.definition.aggregation_source),
+                OnlyBarType(instrument_id, plan.definition.bar_semantic),
                 plan.definition.time_range,
-                plan.definition.adjustment_type,
-                plan.definition.adjustment_reference,
+                plan.definition.bar_semantic.adjustment_policy,
+                None,
             )
             result = self._cache.load(request, cast(OnlyHistoricalCacheProvider, provider), plan.cache_policy)
             bars.extend(result.records)
@@ -70,27 +72,38 @@ class OnlyResearchDatasetMaterializer:
                     result.manifest.content_fingerprint,
                     tuple((item.start.isoformat(), item.end.isoformat()) for item in result.manifest.resolved_ranges),
                     tuple((item.start.isoformat(), item.end.isoformat()) for item in result.manifest.observed_ranges),
-                    result.manifest.metadata,
+                    {**result.manifest.metadata, "construction_recipe": recipe.to_dict()},
                 )
             )
         canonical = only_canonical_bars(tuple(bars))
         only_validate_dataset_bars(plan.definition, canonical)
         content = only_content_fingerprint(canonical)
+        construction_fingerprint = only_canonical_fingerprint(
+            {
+                "recipe_fingerprint": recipe.fingerprint,
+                "source_id": str(plan.source_id),
+                "data_version": str(plan.data_version),
+                "calendars": tuple(
+                    sorted(only_canonical_fingerprint(item.to_dict()) for item in plan.calendars.values())
+                ),
+            }
+        )
         fingerprint = only_snapshot_fingerprint(
-            plan.definition, RESEARCH_BAR_DATASET_SCHEMA_V1, content, len(canonical)
+            plan.definition, RESEARCH_BAR_DATASET_SCHEMA_V2, content, len(canonical), construction_fingerprint
         )
         created_at = self._audit_time()
         if created_at.tzinfo is None or created_at.utcoffset() != timedelta(0):
             raise OnlyResearchDatasetError("DATASET_INPUT_INVALID: audit time must be UTC")
         snapshot = OnlyResearchDatasetSnapshot(
             plan.definition,
-            RESEARCH_BAR_DATASET_SCHEMA_V1,
+            RESEARCH_BAR_DATASET_SCHEMA_V2,
             content,
             len(canonical),
             fingerprint,
             (),
             tuple(provenance),
             created_at,
+            construction_fingerprint,
         )
         partitions = tuple(
             tuple(bar for bar in canonical if bar.instrument_id == instrument_id)

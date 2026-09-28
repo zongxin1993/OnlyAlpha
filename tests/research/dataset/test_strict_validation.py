@@ -4,7 +4,7 @@ from datetime import timedelta
 import pytest
 
 from onlyalpha.core.ranges import OnlyTimeRange
-from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyAggregationSource
+from onlyalpha.domain.enums import OnlyAdjustmentType
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.research.dataset.definition import OnlyResearchDatasetDefinition
 from onlyalpha.research.dataset.strict import (
@@ -26,8 +26,7 @@ def _definition() -> OnlyResearchDatasetDefinition:
     bar = build_bar()
     return OnlyResearchDatasetDefinition(
         (bar.instrument_id,),
-        bar.bar_type.specification,
-        bar.bar_type.aggregation_source,
+        bar.bar_type.semantic,
         OnlyTimeRange(bar.bar_start, bar.ts_event + timedelta(seconds=1)),
     )
 
@@ -37,10 +36,22 @@ def _definition() -> OnlyResearchDatasetDefinition:
     (
         lambda bar: replace(bar, bar_type=replace(bar.bar_type, instrument_id=OnlyInstrumentId.parse("OTHER.XSHG"))),
         lambda bar: replace(
-            bar, bar_type=replace(bar.bar_type, specification=replace(bar.bar_type.specification, step=5))
+            bar,
+            bar_type=replace(
+                bar.bar_type,
+                semantic=replace(
+                    bar.bar_type.semantic, formation=replace(bar.bar_type.semantic.formation, window_minutes=5)
+                ),
+            ),
         ),
-        lambda bar: replace(bar, bar_type=replace(bar.bar_type, aggregation_source=OnlyAggregationSource.INTERNAL)),
-        lambda bar: replace(bar, adjustment_type=OnlyAdjustmentType.FORWARD),
+        lambda bar: replace(
+            bar,
+            bar_type=replace(
+                bar.bar_type,
+                semantic=replace(bar.bar_type.semantic, adjustment_policy=OnlyAdjustmentType.FORWARD),
+            ),
+            adjustment_type=OnlyAdjustmentType.FORWARD,
+        ),
         lambda bar: replace(bar, is_closed=False),
         lambda bar: replace(
             bar,
@@ -81,7 +92,7 @@ def test_definition_reader_rejects_wrong_scalar_types_versions_and_duplicates() 
         OnlyResearchDatasetDefinition.from_dict(unknown)
 
     with pytest.raises(ValueError, match="SCHEMA_UNSUPPORTED"):
-        replace(_definition(), schema_version=2)
+        replace(_definition(), schema_version=1)
     with pytest.raises(ValueError, match="STRICT closed"):
         replace(_definition(), closed_only=False)
     invalid_instruments = dict(payload)

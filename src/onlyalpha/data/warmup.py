@@ -7,7 +7,7 @@ from enum import StrEnum
 from typing import Protocol
 
 from onlyalpha.data.identifiers import OnlyDataVersion
-from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyAggregationSource, OnlyBarAggregation
+from onlyalpha.domain.enums import OnlyAdjustmentType
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRuntimeId
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp
@@ -57,9 +57,7 @@ class OnlyHistoricalWarmupRequest:
             raise ValueError("historical warmup requested range must be increasing")
         if self.end_time > self.bootstrap_observed_at:
             raise ValueError("historical warmup end cannot exceed its bootstrap observation")
-        if self.bar_type.aggregation_source is not OnlyAggregationSource.EXTERNAL:
-            raise ValueError("historical warmup requires an external Bar type")
-        if self.bar_type.specification.aggregation is not OnlyBarAggregation.TIME:
+        if not self.bar_type.semantic.is_fixed_duration:
             raise ValueError("historical warmup supports time Bars only")
         if self.adjustment_type is not OnlyAdjustmentType.RAW:
             raise ValueError("historical warmup requires explicit RAW adjustment")

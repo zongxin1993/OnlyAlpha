@@ -7,7 +7,6 @@ from dataclasses import dataclass
 
 from onlyalpha.core.clock import OnlyClock
 from onlyalpha.core.time import only_unix_ns_to_datetime_utc
-from onlyalpha.domain.enums import OnlyAggregationSource, OnlyBarAggregation
 from onlyalpha.domain.identifiers import OnlyEngineId, OnlyRuntimeId
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp
@@ -267,10 +266,6 @@ class OnlyMarketDataPipeline:
     def _validate_input(self, bar: OnlyBar) -> None:
         if not bar.is_closed:
             raise OnlyMarketDataPipelineError("base input must be a closed Bar")
-        if bar.bar_type.aggregation_source is not OnlyAggregationSource.EXTERNAL:
-            raise OnlyMarketDataPipelineError("base input must be externally aggregated")
-        if bar.bar_type.specification.aggregation is not OnlyBarAggregation.TIME:
-            raise OnlyMarketDataPipelineError("first-phase base input must be a time Bar")
         if bar.ts_event != bar.bar_end:
             raise OnlyMarketDataPipelineError("closed base Bar ts_event must equal bar_end")
         if bar.revision != 0 and self._revision_policy is OnlyBarRevisionPolicy.REJECT:

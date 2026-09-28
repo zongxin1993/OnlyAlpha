@@ -18,6 +18,8 @@ from onlyalpha.application.private_asset_product import (
     OnlyProductAssetSearchQueryV1,
     OnlyProductAssetSearchStatus,
 )
+from onlyalpha.domain.market import OnlyBarSemantic
+from onlyalpha.market_data.resolution import OnlyBarConstructionRecipe, OnlyBarConstructionRequirement
 from onlyalpha.quant_assets.private import (
     OnlyPrivateAssetAuthorityUnavailableError,
     OnlyPrivateAssetCorruptError,
@@ -30,6 +32,19 @@ from onlyalpha.quant_assets.private import (
 from onlyalpha.quant_assets.private_factor_execution import ONLY_PRIVATE_FACTOR_API_V1
 
 NOW = datetime(2026, 9, 19, tzinfo=UTC)
+
+
+def _market_input() -> dict[str, object]:
+    semantic = OnlyBarSemantic.fixed_duration(1)
+    return {
+        "schema_version": 2,
+        "data_kind": "BAR",
+        "bar_semantic": semantic.to_dict(),
+        "construction_requirement": OnlyBarConstructionRequirement.exact(
+            OnlyBarConstructionRecipe.provider_native(semantic)
+        ).to_dict(),
+        "observation_admission": "FINAL_ONLY",
+    }
 
 
 def _factor(
@@ -70,15 +85,7 @@ def _strategy(
     definition = {
         "schema_version": 1,
         "universe": {"kind": "SINGLE_INSTRUMENT", "instruments": ["TEST.XSHG"]},
-        "market_input": {
-            "schema_version": 1,
-            "data_kind": "BAR",
-            "bar_specification": {"step": 1, "aggregation": "TIME", "price_type": "LAST"},
-            "aggregation_source": "EXTERNAL",
-            "adjustment_type": "RAW",
-            "adjustment_reference": None,
-            "observation_admission": "FINAL_ONLY",
-        },
+        "market_input": _market_input(),
         "calculations": [
             {
                 "instance_key": "signal",

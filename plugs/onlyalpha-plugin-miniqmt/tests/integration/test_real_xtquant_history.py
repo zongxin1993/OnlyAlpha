@@ -12,12 +12,9 @@ from onlyalpha.data.identifiers import OnlyDataVersion
 from onlyalpha.data.warmup import OnlyHistoricalWarmupRequest, OnlyHistoricalWarmupStatus
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
-    OnlyAggregationSource,
-    OnlyBarAggregation,
-    OnlyPriceType,
 )
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRuntimeId
-from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp
 
 pytestmark = [
@@ -34,11 +31,7 @@ pytestmark = [
 
 def test_real_history_is_isolated_and_returns_fifty_closed_bars(tmp_path: Path) -> None:
     instrument = OnlyInstrumentId.parse(os.environ.get("ONLYALPHA_MINIQMT_SYMBOL", "000001.XSHE"))
-    bar_type = OnlyBarType(
-        instrument,
-        OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-        OnlyAggregationSource.EXTERNAL,
-    )
+    bar_type = OnlyBarType(instrument, OnlyBarSemantic.fixed_duration(1))
     end = datetime.fromisoformat(os.environ.get("ONLYALPHA_MINIQMT_END", "2026-08-03T02:00:00+00:00"))
     request = OnlyHistoricalWarmupRequest(
         "real-history-read-only",

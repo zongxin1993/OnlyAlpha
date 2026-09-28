@@ -49,7 +49,7 @@ def create_market_data_stream_router(service: OnlyMarketDataStreamProductService
                     reference.expected_type_id,
                 ),
                 instrument_id=request.instrument_id,
-                bar_specification=request.bar_specification.to_model(),
+                bar_semantic=request.bar_semantic.to_model(),
                 resume_after_sequence=int(request.resume_after_sequence),
                 resume_plan_fingerprint=request.resume_plan_fingerprint,
             )

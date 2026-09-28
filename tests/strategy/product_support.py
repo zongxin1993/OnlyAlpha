@@ -8,6 +8,7 @@ from onlyalpha.application import OnlyCalculationEquivalenceCertificationApplica
 from onlyalpha.calculation import OnlyCalculationEquivalenceEvidenceV2Store, OnlyCalculationRegistry
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.domain.market import OnlyBar
+from onlyalpha.market_data.resolution import OnlyBarConstructionRecipe, OnlyBarConstructionRequirement
 from onlyalpha.research import (
     OnlyParquetResearchCalculationResultStore,
     OnlyParquetResearchDatasetSnapshotStore,
@@ -150,10 +151,10 @@ def strategy_product_case(
             OnlyStrategySignalBinding(by_role["EXIT_SIGNAL"].node_fingerprint, by_role["EXIT_SIGNAL"].output_name),
         )
         market_input = OnlyStrategyMarketInputContract(
-            dataset_definition.bar_specification,
-            dataset_definition.aggregation_source,
-            dataset_definition.adjustment_type,
-            dataset_definition.adjustment_reference,
+            dataset_definition.bar_semantic,
+            OnlyBarConstructionRequirement.exact(
+                OnlyBarConstructionRecipe.provider_native(dataset_definition.bar_semantic)
+            ),
         )
         admitted = OnlyStrategyTradingAdmissionService(registry, equivalence).admit(
             selected.graph,

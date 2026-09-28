@@ -10,7 +10,7 @@ from onlyalpha_http_server.market_data import (
 )
 
 from onlyalpha.application.market_data_product import (
-    BASE_BAR_SPECIFICATION,
+    BASE_BAR_SEMANTIC,
     OnlyMarketDataAcquisitionProjectionV1,
     OnlyMarketDataBarsProjectionV1,
     OnlyMarketDataBarV1,
@@ -24,7 +24,7 @@ from onlyalpha.application.market_data_product import (
     OnlyMarketDataSourceSelectionV1,
     OnlyMarketDataTimeBarCapabilityV1,
 )
-from onlyalpha.domain.market import OnlyBarSpecification
+from onlyalpha.domain.market import OnlyBarSemantic
 
 INTEGRATION_ID = "00000000-0000-4000-8000-000000000301"
 REVISION_FINGERPRINT = "a" * 64
@@ -59,8 +59,8 @@ def _selection() -> OnlyMarketDataSourceSelectionV1:
 
 class _Service:
     def __init__(self) -> None:
-        self.bar_queries: list[tuple[str, int, int, OnlyBarSpecification]] = []
-        self.acquisitions: list[tuple[str, int, int, OnlyBarSpecification]] = []
+        self.bar_queries: list[tuple[str, int, int, OnlyBarSemantic]] = []
+        self.acquisitions: list[tuple[str, int, int, OnlyBarSemantic]] = []
         self.status_queries: list[str] = []
         self.bar_status = "COMPLETE"
         self.acquisition_state = "COMPLETE"
@@ -118,11 +118,11 @@ class _Service:
         instrument_id: str,
         start_ns: int,
         end_ns: int,
-        bar_specification: OnlyBarSpecification = BASE_BAR_SPECIFICATION,
+        bar_semantic: OnlyBarSemantic = BASE_BAR_SEMANTIC,
     ) -> OnlyMarketDataBarsProjectionV1:
         self._raise()
         del reference
-        self.bar_queries.append((instrument_id, start_ns, end_ns, bar_specification))
+        self.bar_queries.append((instrument_id, start_ns, end_ns, bar_semantic))
         coverage = _coverage(self.bar_status)
         bars = (
             (
@@ -147,9 +147,7 @@ class _Service:
             "BTCUSDT",
             "BINANCE",
             "SPOT",
-            bar_specification,
-            "EXTERNAL",
-            "RAW",
+            bar_semantic,
             True,
             start_ns,
             end_ns,
@@ -167,11 +165,11 @@ class _Service:
         instrument_id: str,
         start_ns: int,
         end_ns: int,
-        bar_specification: OnlyBarSpecification = BASE_BAR_SPECIFICATION,
+        bar_semantic: OnlyBarSemantic = BASE_BAR_SEMANTIC,
     ) -> OnlyMarketDataAcquisitionProjectionV1:
         self._raise()
         del reference
-        self.acquisitions.append((instrument_id, start_ns, end_ns, bar_specification))
+        self.acquisitions.append((instrument_id, start_ns, end_ns, bar_semantic))
         return _acquisition(self.acquisition_state)
 
     def acquisition_status(
@@ -192,7 +190,7 @@ def _acquisition(status: str) -> OnlyMarketDataAcquisitionProjectionV1:
         SOURCE_ID,
         "f" * 64,
         INSTRUMENT_ID,
-        BASE_BAR_SPECIFICATION,
+        BASE_BAR_SEMANTIC,
         START_NS,
         START_NS + 2 * MINUTE_NS,
         "REST_BACKFILL",
@@ -217,6 +215,7 @@ def _selection_params(**overrides: object) -> dict[str, object]:
         "integration_id": INTEGRATION_ID,
         "integration_revision_fingerprint": REVISION_FINGERPRINT,
         "expected_type_id": TYPE_ID,
+        "bar_semantic": BASE_BAR_SEMANTIC.to_json(),
     }
     values.update(overrides)
     return values
@@ -263,8 +262,8 @@ def test_bars_query_is_db_first_and_reports_gap_projection_without_bars() -> Non
     assert body["bars"] == []
     assert body["revision_id"] is None
     assert body["coverage"]["planned_acquisition_ranges"] == [{"start_ns": START_NS_TEXT, "end_ns": END_NS_TEXT}]
-    assert body["aggregation_source"] == "EXTERNAL" and body["adjustment"] == "RAW"
-    assert service.bar_queries == [(INSTRUMENT_ID, START_NS, START_NS + 2 * MINUTE_NS, BASE_BAR_SPECIFICATION)]
+    assert body["bar_semantic"] == BASE_BAR_SEMANTIC.to_dict()
+    assert service.bar_queries == [(INSTRUMENT_ID, START_NS, START_NS + 2 * MINUTE_NS, BASE_BAR_SEMANTIC)]
 
     service.bar_status = "COMPLETE"
     complete = client.get(
@@ -294,11 +293,10 @@ def test_market_data_sources_projection_is_a_thin_product_read() -> None:
                 "source_id": SOURCE_ID,
                 "environment": ENVIRONMENT,
                 "time_bar_capability": {
-                    "aggregation": "TIME",
-                    "external_base_step_minutes": 1,
-                    "derived_supported": True,
-                    "minimum_step_minutes": 1,
-                    "maximum_step_minutes": 240,
+                    "provider_base_semantic": OnlyBarSemantic.fixed_duration(1).to_dict(),
+                    "derived_algorithm": "TIME_BAR@1",
+                    "minimum_window_minutes": 1,
+                    "maximum_window_minutes": 240,
                 },
             }
         ],
@@ -323,7 +321,7 @@ def test_client_cannot_assert_canonical_source_identity() -> None:
             "instrument_id": INSTRUMENT_ID,
             "start_ns": START_NS_TEXT,
             "end_ns": END_NS_TEXT,
-            "bar_specification": {"aggregation": "TIME", "step": 1, "price_type": "LAST"},
+            "bar_semantic": BASE_BAR_SEMANTIC.to_dict(),
             "provenance": "REST_BACKFILL",
         },
     )
@@ -359,14 +357,14 @@ def test_acquisition_command_and_status_query_are_thin_projections() -> None:
             "instrument_id": INSTRUMENT_ID,
             "start_ns": START_NS_TEXT,
             "end_ns": END_NS_TEXT,
-            "bar_specification": {"aggregation": "TIME", "step": 1, "price_type": "LAST"},
+            "bar_semantic": BASE_BAR_SEMANTIC.to_dict(),
             "provenance": "REST_BACKFILL",
         },
     )
     assert created.status_code == 201, created.text
     assert created.json()["status"] == "COMPLETE"
     assert created.json()["integration_binding_fingerprint"] == "f" * 64
-    assert service.acquisitions == [(INSTRUMENT_ID, START_NS, START_NS + 2 * MINUTE_NS, BASE_BAR_SPECIFICATION)]
+    assert service.acquisitions == [(INSTRUMENT_ID, START_NS, START_NS + 2 * MINUTE_NS, BASE_BAR_SEMANTIC)]
 
     service.acquisition_state = "FAILED"
     status = client.get(

@@ -122,3 +122,11 @@ def test_aggregation_source_cannot_drive_resolution_or_provider_interval_choice(
     for source in (resolution, provider_intervals):
         assert "OnlyAggregationSource" not in source
         assert "aggregation_source" not in source
+
+
+def test_production_has_no_legacy_bar_construction_source_model() -> None:
+    production = "\n".join(_source(Path(root)) for root in ("src", "packages", "plugs"))
+    assert "OnlyAggregationSource" not in production
+    assert "aggregation_source" not in production
+    assert "OnlyBarSpecification" not in production
+    assert "bar_specification" not in production

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import NoReturn, Protocol
 
 from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
+from onlyalpha.market_data.resolution import OnlyBarConstructionRecipe, OnlyBarConstructionRequirement
 from onlyalpha.quant_assets.private_strategy_composition import (
     OnlyPrivateStrategyResearchCompositionError,
 )
@@ -43,6 +44,21 @@ from onlyalpha.strategy.store import (
     _only_authorize_frozen_strategy_publication,
     _OnlyFrozenStrategyPublisher,
 )
+
+
+def _dataset_construction_requirement(provenance: tuple[object, ...]) -> OnlyBarConstructionRequirement:
+    recipes: set[OnlyBarConstructionRecipe] = set()
+    for item in provenance:
+        metadata = getattr(item, "source_metadata", None)
+        if not isinstance(metadata, dict) and not isinstance(metadata, Mapping):
+            raise OnlyStrategyFreezeError("DATASET_CONSTRUCTION_UNPROVABLE", "missing construction metadata")
+        raw = metadata.get("construction_recipe")
+        if not isinstance(raw, Mapping):
+            raise OnlyStrategyFreezeError("DATASET_CONSTRUCTION_UNPROVABLE", "missing exact construction recipe")
+        recipes.add(OnlyBarConstructionRecipe.from_dict(raw))
+    if len(recipes) != 1:
+        raise OnlyStrategyFreezeError("DATASET_CONSTRUCTION_AMBIGUOUS", "Dataset must use one exact recipe")
+    return OnlyBarConstructionRequirement.exact(next(iter(recipes)))
 
 
 class _ResearchRunStore(Protocol):
@@ -430,11 +446,10 @@ class OnlyStrategyFreezeService:
             ):
                 self._fail("RESEARCH_RESULT_CORRUPT", "Dataset linkage differs across verified evidence")
             dataset_definition = verified_dataset.snapshot.definition
+            construction_requirement = _dataset_construction_requirement(verified_dataset.snapshot.provenance)
             market_input_contract = OnlyStrategyMarketInputContract(
-                dataset_definition.bar_specification,
-                dataset_definition.aggregation_source,
-                dataset_definition.adjustment_type,
-                dataset_definition.adjustment_reference,
+                dataset_definition.bar_semantic,
+                construction_requirement,
             )
             if exact_resolution is None:
                 admitted = admission.admit(

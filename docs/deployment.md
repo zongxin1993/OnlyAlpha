@@ -183,3 +183,9 @@ preserves the provisioned authority state, databases and agent roots so a subseq
 replays the stored Product command receipts instead of re-provisioning from scratch. Use
 `down -v` only when you intend to discard all durable dev state. The web-e2e runner
 (`deploy/run-web-e2e.sh`) uses an isolated namespace and always tears down with `-v`.
+
+The Bar semantic/construction schema is an intentional breaking development boundary. A
+checkout containing pre-boundary Bar WAL, scope, revision, Dataset, or Strategy data must
+fail closed; it is not migrated or reinterpreted. Export anything that must be retained,
+run the canonical `down -v` command above, then rebuild the development authorities from
+current imports and provider facts.

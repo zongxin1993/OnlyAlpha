@@ -90,7 +90,7 @@ def _research_bars():
     return tuple(
         replace(
             bar,
-            bar_type=OnlyBarType(instrument, bar.bar_type.specification, bar.bar_type.aggregation_source),
+            bar_type=OnlyBarType(instrument, bar.bar_type.semantic),
         )
         for bar in bars()[:4]
     )

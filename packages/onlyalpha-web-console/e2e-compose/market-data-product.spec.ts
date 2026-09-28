@@ -7,8 +7,8 @@ const lastMatch = <T>(values: readonly T[], predicate: (value: T) => boolean): T
 
 async function matchingProductEvidence(
     observed: ReturnType<typeof observeProduct>,
-    step: number,
-    mode: "EXTERNAL_NATIVE" | "INTERNAL_DERIVED"
+    durationMinutes: number,
+    mode: "PROVIDER_NATIVE" | "DERIVED"
 ) {
     await expect
         .poll(
@@ -16,7 +16,10 @@ async function matchingProductEvidence(
                 const http = lastMatch(
                     observed.bars,
                     (value) =>
-                        (value.bar_specification as { step?: number } | undefined)?.step === step
+                        (
+                            value.bar_semantic as
+                                { formation?: { window_minutes?: number } } | undefined
+                        )?.formation?.window_minutes === durationMinutes
                 );
                 return observed.subscribed.some(
                     (value) =>
@@ -29,7 +32,9 @@ async function matchingProductEvidence(
         .toBe(true);
     const http = lastMatch(
         observed.bars,
-        (value) => (value.bar_specification as { step?: number } | undefined)?.step === step
+        (value) =>
+            (value.bar_semantic as { formation?: { window_minutes?: number } } | undefined)
+                ?.formation?.window_minutes === durationMinutes
     );
     return {
         http,
@@ -126,17 +131,16 @@ test("real Browser uses one native 15m resolution across HTTP and stream", async
     await page.getByRole("combobox", { name: "时间周期" }).selectOption("15");
     await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
 
-    const { http, stream } = await matchingProductEvidence(observed, 15, "EXTERNAL_NATIVE");
+    const { http, stream } = await matchingProductEvidence(observed, 15, "PROVIDER_NATIVE");
     expect(http).toMatchObject({
-        aggregation_source: "EXTERNAL",
-        resolution_mode: "EXTERNAL_NATIVE",
+        resolution_mode: "PROVIDER_NATIVE",
         base_revision_id: null
     });
     expect(http?.resolution_plan_fingerprint).toBe(stream?.resolution_plan_fingerprint);
     expect(http?.construction_fingerprint).toMatch(/^[0-9a-f]{64}$/);
     expect(stream).toMatchObject({
-        resolution_mode: "EXTERNAL_NATIVE",
-        cursor_bar_step_minutes: 15
+        resolution_mode: "PROVIDER_NATIVE",
+        cursor_bar_stride_minutes: 15
     });
     const provider = await stats(page);
     expect(provider.kline_requests.length).toBeGreaterThan(0);
@@ -157,24 +161,23 @@ test("real Browser keeps derived 7m intent while Product uses base 1m", async ({
     await page.getByRole("button", { name: "应用" }).click();
     await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
 
-    const { http, stream } = await matchingProductEvidence(observed, 7, "INTERNAL_DERIVED");
+    const { http, stream } = await matchingProductEvidence(observed, 7, "DERIVED");
     expect(http).toMatchObject({
-        aggregation_source: "INTERNAL",
-        resolution_mode: "INTERNAL_DERIVED",
+        resolution_mode: "DERIVED",
         aggregation_semantics_version: "TIME_BAR_V1"
     });
     expect(http?.base_revision_id).toBe(http?.revision_id);
     expect(http?.resolution_plan_fingerprint).toBe(stream?.resolution_plan_fingerprint);
     expect(stream).toMatchObject({
-        resolution_mode: "INTERNAL_DERIVED",
-        cursor_bar_step_minutes: 1
+        resolution_mode: "DERIVED",
+        cursor_bar_stride_minutes: 1
     });
     expect(BigInt(String(http?.resume_after_sequence))).toBe(
         BigInt(String(http?.end_ns)) / minuteNs - BigInt(1)
     );
     expect(
         observed.requests
-            .filter((url) => url.searchParams.get("bar_step") === "7")
+            .filter((url) => url.searchParams.get("bar_semantic")?.includes('"window_minutes":7'))
             .every((url) => !url.searchParams.has("base_step"))
     ).toBe(true);
     const provider = await stats(page);

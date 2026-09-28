@@ -34,7 +34,7 @@ from onlyalpha.data.models import (
 from onlyalpha.data.registry import OnlyMarketDataSourceRegistry
 from onlyalpha.domain.calendar import OnlyTradingCalendar
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRuntimeId
-from onlyalpha.domain.market import OnlyBar, OnlyBarType
+from onlyalpha.domain.market import OnlyBar, OnlyBarType, OnlyFixedDurationBarFormation
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.market_data.dispatcher import OnlyBarDispatchResult, OnlyStrategyBarDispatcher
 from onlyalpha.market_data.pipeline import OnlyMarketDataPipeline, OnlyMarketDataUpdateResult
@@ -173,8 +173,10 @@ class OnlyMarketDataGapDetector:
         previous = self._last_bars.get(bar.bar_type)
         if previous is None or bar.bar_start <= previous.bar_end:
             return tuple(dict.fromkeys(flags))
-        interval = timedelta(minutes=bar.bar_type.specification.step)
-        if bar.bar_start - previous.bar_end < interval:
+        formation = bar.bar_type.semantic.formation
+        if isinstance(formation, OnlyFixedDurationBarFormation) and bar.bar_start - previous.bar_end < timedelta(
+            minutes=formation.stride_minutes
+        ):
             return tuple(dict.fromkeys(flags))
         calendar = self._calendars.get(bar.instrument_id)
         same_session = False

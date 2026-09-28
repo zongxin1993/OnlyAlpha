@@ -7,16 +7,67 @@ const sha256 = z.string().regex(/^[0-9a-f]{64}$/);
 /** Exact nanoseconds travel as canonical decimal strings; JSON numbers lose int64 precision. */
 const nanos = z.string().regex(/^(?:0|[1-9][0-9]*)$/);
 
-export const marketDataBarSpecificationSchema = z.strictObject({
-    aggregation: z.literal("TIME"),
-    step: z.number().int().min(1).max(240),
-    price_type: z.literal("LAST")
+export const marketDataBarSemanticSchema = z.strictObject({
+    schema_version: z.literal(2),
+    formation: z.discriminatedUnion("kind", [
+        z.strictObject({
+            schema_version: z.literal(1),
+            kind: z.literal("FIXED_DURATION"),
+            window_minutes: z.number().int().min(1).max(240),
+            stride_minutes: z.number().int().min(1).max(240),
+            alignment: z.enum(["UTC", "SESSION_START"])
+        }),
+        z.strictObject({
+            schema_version: z.literal(1),
+            kind: z.literal("CALENDAR_PERIOD"),
+            unit: z.enum(["DAY", "WEEK", "MONTH"]),
+            count: z.number().int().min(1),
+            alignment: z.enum(["UTC", "SESSION_START"])
+        }),
+        z.strictObject({
+            schema_version: z.literal(1),
+            kind: z.literal("TICK_COUNT"),
+            count: z.number().int().min(1)
+        }),
+        z.strictObject({
+            schema_version: z.literal(1),
+            kind: z.literal("VOLUME"),
+            quantity: z.string()
+        }),
+        z.strictObject({
+            schema_version: z.literal(1),
+            kind: z.literal("VALUE"),
+            value: z.string()
+        })
+    ]),
+    price_type: z.enum(["LAST", "BID", "ASK", "MID", "MARK", "INDEX"]),
+    adjustment_policy: z.enum(["RAW", "FORWARD", "BACKWARD"])
 });
-export type MarketDataBarSpecification = z.infer<typeof marketDataBarSpecificationSchema>;
-export const marketDataBarSpecification = (step: number): MarketDataBarSpecification =>
-    marketDataBarSpecificationSchema.parse({ aggregation: "TIME", step, price_type: "LAST" });
-export const formatBarSpecification = (spec: MarketDataBarSpecification): string =>
-    spec.step % 60 === 0 ? `${String(spec.step / 60)}H` : `${String(spec.step)}m`;
+export type MarketDataBarSemantic = z.infer<typeof marketDataBarSemanticSchema>;
+export const marketDataBarSemantic = (durationMinutes: number): MarketDataBarSemantic =>
+    marketDataBarSemanticSchema.parse({
+        schema_version: 2,
+        formation: {
+            schema_version: 1,
+            kind: "FIXED_DURATION",
+            window_minutes: durationMinutes,
+            stride_minutes: durationMinutes,
+            alignment: "SESSION_START"
+        },
+        price_type: "LAST",
+        adjustment_policy: "RAW"
+    });
+export const formatBarSemantic = (spec: MarketDataBarSemantic): string =>
+    spec.formation.kind === "FIXED_DURATION"
+        ? spec.formation.window_minutes % 60 === 0
+            ? `${String(spec.formation.window_minutes / 60)}H`
+            : `${String(spec.formation.window_minutes)}m`
+        : spec.formation.kind;
+export const fixedDurationMinutes = (semantic: MarketDataBarSemantic): number => {
+    if (semantic.formation.kind !== "FIXED_DURATION")
+        throw new Error("Market Data view requires a fixed-duration Bar semantic");
+    return semantic.formation.window_minutes;
+};
 
 /** Client request reference. The browser asserts no canonical Market Source identity. */
 export const marketDataSourceReferenceSchema = z.strictObject({
@@ -42,11 +93,10 @@ export const marketDataSourceSchema = z.strictObject({
     source_id: z.string().min(1),
     environment: z.string().min(1),
     time_bar_capability: z.strictObject({
-        aggregation: z.literal("TIME"),
-        external_base_step_minutes: z.literal(1),
-        derived_supported: z.boolean(),
-        minimum_step_minutes: z.number().int().positive(),
-        maximum_step_minutes: z.number().int().positive()
+        provider_base_semantic: marketDataBarSemanticSchema,
+        derived_algorithm: z.literal("TIME_BAR@1").nullable(),
+        minimum_window_minutes: z.number().int().positive(),
+        maximum_window_minutes: z.number().int().positive()
     })
 });
 
@@ -106,7 +156,7 @@ export const marketDataAcquisitionSchema = z.strictObject({
     source_id: z.string().min(1),
     integration_binding_fingerprint: sha256.nullable(),
     instrument_id: z.string().min(1),
-    bar_specification: marketDataBarSpecificationSchema,
+    bar_semantic: marketDataBarSemanticSchema,
     start_ns: nanos,
     end_ns: nanos,
     provenance: z.string().min(1),

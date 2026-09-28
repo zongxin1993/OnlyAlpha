@@ -8,8 +8,8 @@ from decimal import Decimal
 
 from onlyalpha.core.clock import OnlyClock
 from onlyalpha.domain.calendar import OnlyTradingCalendar
-from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyAggregationSource, OnlyBarAggregation
-from onlyalpha.domain.market import OnlyBar, OnlyBarType
+from onlyalpha.domain.enums import OnlyAdjustmentType
+from onlyalpha.domain.market import OnlyBar, OnlyBarType, OnlyFixedDurationBarFormation
 from onlyalpha.domain.time import OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
 from onlyalpha.market_data.subscriptions import OnlyIncompleteBarPolicy, OnlyMissingBarPolicy
@@ -71,26 +71,22 @@ class OnlyTimeBarAggregator(OnlyBarAggregator):
     ) -> None:
         if source_bar_type.instrument_id != target_bar_type.instrument_id:
             raise OnlyBarAggregationError("source and target instruments must match")
-        if source_bar_type.specification.aggregation is not OnlyBarAggregation.TIME:
+        if not isinstance(source_bar_type.semantic.formation, OnlyFixedDurationBarFormation):
             raise OnlyBarAggregationError("source must be a time Bar")
-        if target_bar_type.specification.aggregation is not OnlyBarAggregation.TIME:
+        if not isinstance(target_bar_type.semantic.formation, OnlyFixedDurationBarFormation):
             raise OnlyBarAggregationError("target must be a time Bar")
-        if type(source_bar_type.specification.step) is not int or source_bar_type.specification.step != 1:
+        if source_bar_type.semantic.window_minutes != 1 or source_bar_type.semantic.stride_minutes != 1:
             raise OnlyBarAggregationError("first-phase source must be one-minute Bars")
-        if source_bar_type.aggregation_source is not OnlyAggregationSource.EXTERNAL:
-            raise OnlyBarAggregationError("source must be an external Bar")
-        if target_bar_type.aggregation_source is not OnlyAggregationSource.INTERNAL:
-            raise OnlyBarAggregationError("target must be an internal Bar")
-        if type(target_bar_type.specification.step) is not int or target_bar_type.specification.step <= 1:
-            raise OnlyBarAggregationError("target step must exceed one minute")
-        if source_bar_type.specification.price_type is not target_bar_type.specification.price_type:
+        if target_bar_type.semantic.window_minutes <= 1 or not target_bar_type.semantic.is_aligned:
+            raise OnlyBarAggregationError("TIME_BAR requires an aligned target longer than one minute")
+        if source_bar_type.semantic.price_type is not target_bar_type.semantic.price_type:
             raise OnlyBarAggregationError("source and target price types must match")
         self._source_bar_type = source_bar_type
         self._target_bar_type = target_bar_type
         self._window_policy = OnlyAlignedTumblingWindowPolicy(
             calendar,
-            window_minutes=target_bar_type.specification.step,
-            stride_minutes=target_bar_type.specification.step,
+            window_minutes=target_bar_type.semantic.window_minutes,
+            stride_minutes=target_bar_type.semantic.stride_minutes,
         )
         self._clock = clock
         self._incomplete_policy = incomplete_policy
@@ -116,7 +112,7 @@ class OnlyTimeBarAggregator(OnlyBarAggregator):
             raise OnlyBarAggregationError("aggregator accepts closed Bars only")
         if bar.revision != 0:
             raise OnlyBarAggregationError("first-phase aggregation rejects revisions")
-        source_duration = timedelta(minutes=self._source_bar_type.specification.step)
+        source_duration = timedelta(minutes=self._source_bar_type.semantic.window_minutes)
         if bar.bar_end - bar.bar_start != source_duration:
             raise OnlyBarAggregationError("source Bar duration does not match BarType")
         window_start, window_end, is_partial = self.window_for(bar)

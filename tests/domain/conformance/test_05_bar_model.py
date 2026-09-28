@@ -3,18 +3,15 @@ from decimal import Decimal
 
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
-    OnlyAggregationSource,
-    OnlyBarAggregation,
-    OnlyPriceType,
     OnlySessionType,
 )
-from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
 
 
 def test_bar_has_complete_time_volume_and_revision_semantics(instrument_id, cny) -> None:
-    spec = OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
-    bar_type = OnlyBarType(instrument_id, spec, OnlyAggregationSource.EXTERNAL)
+    spec = OnlyBarSemantic.fixed_duration(1)
+    bar_type = OnlyBarType(instrument_id, spec)
     start = datetime(2026, 1, 5, 1, 30, tzinfo=UTC)
     bar = OnlyBar(
         bar_type=bar_type,

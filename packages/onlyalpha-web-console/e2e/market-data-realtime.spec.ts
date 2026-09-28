@@ -5,8 +5,20 @@ const integrationRevision = "a".repeat(64);
 const historicalRevision = "d".repeat(64);
 const sourceId = "binance.spot.market_data.us";
 const minuteNs = BigInt("60000000000");
-const planFingerprint = (step: number) => step.toString(16).padStart(64, "0");
+const planFingerprint = (durationMinutes: number) => durationMinutes.toString(16).padStart(64, "0");
 const nativeSteps = new Set([1, 3, 5, 15, 30, 60, 120, 240]);
+const semantic = (durationMinutes: number) => ({
+    schema_version: 2,
+    formation: {
+        schema_version: 1,
+        kind: "FIXED_DURATION",
+        window_minutes: durationMinutes,
+        stride_minutes: durationMinutes,
+        alignment: "SESSION_START"
+    },
+    price_type: "LAST",
+    adjustment_policy: "RAW"
+});
 
 const source = {
     integration_id: integrationId,
@@ -16,11 +28,10 @@ const source = {
     source_id: sourceId,
     environment: "US",
     time_bar_capability: {
-        aggregation: "TIME",
-        external_base_step_minutes: 1,
-        derived_supported: true,
-        minimum_step_minutes: 1,
-        maximum_step_minutes: 240
+        provider_base_semantic: semantic(1),
+        derived_algorithm: "TIME_BAR@1",
+        minimum_window_minutes: 1,
+        maximum_window_minutes: 240
     }
 };
 const instrument = {
@@ -66,7 +77,10 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
         if (url.pathname === "/api/v2/market-data/bars") {
             const start = BigInt(url.searchParams.get("start_ns") ?? "0");
             const end = BigInt(url.searchParams.get("end_ns") ?? "0");
-            const step = Number(url.searchParams.get("bar_step") ?? "1");
+            const requested = JSON.parse(
+                url.searchParams.get("bar_semantic") ?? "null"
+            ) as ReturnType<typeof semantic>;
+            const step = requested.formation.window_minutes;
             const native = nativeSteps.has(step);
             const historyComplete = !acquireHistory || completedSteps.has(step);
             const duration = BigInt(step) * minuteNs;
@@ -93,9 +107,7 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
                 display_symbol: instrument.display_symbol,
                 venue: instrument.venue,
                 market: instrument.market,
-                bar_specification: { aggregation: "TIME", step, price_type: "LAST" },
-                aggregation_source: native ? "EXTERNAL" : "INTERNAL",
-                adjustment: "RAW",
+                bar_semantic: semantic(step),
                 closed_only: true,
                 start_ns: start.toString(),
                 end_ns: end.toString(),
@@ -116,7 +128,7 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
                 seal_id: historyComplete ? "seal" : null,
                 aggregation_semantics_version: native ? null : "TIME_BAR_V1",
                 calendar_fingerprint: native ? null : "a".repeat(64),
-                resolution_mode: native ? "EXTERNAL_NATIVE" : "INTERNAL_DERIVED",
+                resolution_mode: native ? "PROVIDER_NATIVE" : "DERIVED",
                 resolution_plan_fingerprint: planFingerprint(step),
                 base_revision_id: native ? null : "revision",
                 construction_fingerprint: (step + 256).toString(16).padStart(64, "0"),
@@ -138,10 +150,10 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
             const request = route.request().postDataJSON() as {
                 start_ns: string;
                 end_ns: string;
-                bar_specification: { step: number };
+                bar_semantic: ReturnType<typeof semantic>;
             };
-            acquisitionSteps.push(request.bar_specification.step);
-            completedSteps.add(request.bar_specification.step);
+            acquisitionSteps.push(request.bar_semantic.formation.window_minutes);
+            completedSteps.add(request.bar_semantic.formation.window_minutes);
             return json(route, {
                 schema_version: 1,
                 acquisition_id: `acquisition:${"b".repeat(64)}`,
@@ -149,11 +161,7 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
                 source_id: sourceId,
                 integration_binding_fingerprint: "f".repeat(64),
                 instrument_id: instrument.instrument_id,
-                bar_specification: {
-                    aggregation: "TIME",
-                    step: request.bar_specification.step,
-                    price_type: "LAST"
-                },
+                bar_semantic: request.bar_semantic,
                 start_ns: request.start_ns,
                 end_ns: request.end_ns,
                 provenance: "REST_BACKFILL",
@@ -182,10 +190,11 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
             const request = JSON.parse(String(message)) as {
                 resume_after_sequence: string;
                 resume_plan_fingerprint: string;
-                bar_specification: { aggregation: "TIME"; step: number; price_type: "LAST" };
+                bar_semantic: ReturnType<typeof semantic>;
             };
             cursors.push(request.resume_after_sequence);
-            steps.push(request.bar_specification.step);
+            const step = request.bar_semantic.formation.window_minutes;
+            steps.push(step);
             const send = (event: object) => {
                 ws.send(JSON.stringify({ schema_version: 2, ...event }));
             };
@@ -194,22 +203,15 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
                 stream_id: `stream-${String(connection)}`,
                 source_id: sourceId,
                 instrument_id: instrument.instrument_id,
-                resolution_mode: nativeSteps.has(request.bar_specification.step)
-                    ? "EXTERNAL_NATIVE"
-                    : "INTERNAL_DERIVED",
-                resolution_plan_fingerprint: planFingerprint(request.bar_specification.step),
-                cursor_bar_step_minutes: nativeSteps.has(request.bar_specification.step)
-                    ? request.bar_specification.step
-                    : 1
+                resolution_mode: nativeSteps.has(step) ? "PROVIDER_NATIVE" : "DERIVED",
+                resolution_plan_fingerprint: planFingerprint(step),
+                cursor_bar_stride_minutes: nativeSteps.has(step) ? step : 1
             });
             send({ event: "STATE", state: "RECOVERING" });
             const sequence = (BigInt(request.resume_after_sequence) + BigInt(1)).toString();
             const derivedBar = {
                 bar_start_ns: (BigInt(sequence) * minuteNs).toString(),
-                bar_end_ns: (
-                    (BigInt(sequence) + BigInt(request.bar_specification.step)) *
-                    minuteNs
-                ).toString(),
+                bar_end_ns: ((BigInt(sequence) + BigInt(step)) * minuteNs).toString(),
                 open: "102",
                 high: "104",
                 low: "101",
@@ -221,14 +223,14 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
                 event: "BAR_PREVIEW",
                 source_id: sourceId,
                 instrument_id: instrument.instrument_id,
-                bar_specification: request.bar_specification,
+                bar_semantic: request.bar_semantic,
                 bar: derivedBar
             });
             send({
                 event: "BAR_CLOSED",
                 source_id: sourceId,
                 instrument_id: instrument.instrument_id,
-                bar_specification: request.bar_specification,
+                bar_semantic: request.bar_semantic,
                 sequence,
                 bar: { ...derivedBar, closed: true }
             });
@@ -237,7 +239,7 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
                     event: "BAR_PREVIEW",
                     source_id: sourceId,
                     instrument_id: instrument.instrument_id,
-                    bar_specification: request.bar_specification,
+                    bar_semantic: request.bar_semantic,
                     bar: {
                         ...derivedBar,
                         bar_start_ns: ((BigInt(sequence) - BigInt(1)) * minuteNs).toString(),

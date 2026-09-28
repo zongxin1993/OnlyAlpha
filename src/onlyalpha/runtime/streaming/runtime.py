@@ -667,18 +667,18 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 else min(self._historical_requested_end, closed_cutoff)
             )
             request = OnlyHistoricalWarmupRequest(
-                f"bootstrap-{self.runtime_id}-{bar_type.instrument_id}-{bar_type.specification.step}",
-                OnlyRuntimeId(self.runtime_id),
-                bar_type.instrument_id,
-                bar_type,
-                self._bootstrap_bars + alignment,
-                OnlyTimestamp.from_datetime(closed_cutoff.to_datetime() - timedelta(days=10)),
-                closed_cutoff,
-                observed_at,
-                self._streaming_data_version,
-                OnlyAdjustmentType.RAW,
-                self._historical_timeout_seconds,
-                self._historical_compatibility_profile,
+                request_id=f"bootstrap-{self.runtime_id}-{bar_type.instrument_id}-{bar_type.semantic.stride_minutes}",
+                runtime_id=OnlyRuntimeId(self.runtime_id),
+                instrument_id=bar_type.instrument_id,
+                bar_type=bar_type,
+                required_bars=self._bootstrap_bars + alignment,
+                requested_start=OnlyTimestamp.from_datetime(closed_cutoff.to_datetime() - timedelta(days=10)),
+                end_time=closed_cutoff,
+                bootstrap_observed_at=observed_at,
+                data_version=self._streaming_data_version,
+                adjustment_type=OnlyAdjustmentType.RAW,
+                timeout_seconds=self._historical_timeout_seconds,
+                compatibility_profile_id=self._historical_compatibility_profile,
             )
             self._acceptance_execution_stage = "HISTORICAL_WORKER"
             result = load_warmup(request)
@@ -1488,7 +1488,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         )
         if active is None:
             return None
-        steps = tuple(item.specification.step for item in self._driver.subscription.bar_types)
+        steps = tuple(item.semantic.stride_minutes for item in self._driver.subscription.bar_types)
         duration = timedelta(minutes=min(steps))
         last = self._continuity.last_closed_bar_end
         candidate = (

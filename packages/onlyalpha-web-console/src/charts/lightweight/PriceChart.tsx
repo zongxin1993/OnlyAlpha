@@ -7,7 +7,7 @@ import {
 } from "lightweight-charts";
 import type { CandlestickData, ISeriesApi, Time, UTCTimestamp } from "lightweight-charts";
 import { useEffect, useMemo, useRef } from "react";
-import type { MarketDataBarSpecification } from "../../api/marketData/model";
+import type { MarketDataBarSemantic } from "../../api/marketData/model";
 import { deriveTimeAxisPolicy } from "./timeAxisPolicy";
 import {
     buildPlaceholderBars,
@@ -23,7 +23,7 @@ const utcTime = (seconds: number) => new Date(seconds * 1_000).toISOString();
 
 export function PriceChart({
     timeframe,
-    barSpecification,
+    barSemantic,
     overlays = EMPTY_OVERLAYS,
     mode,
     bars: productBars,
@@ -31,7 +31,7 @@ export function PriceChart({
     historyKey = null
 }: {
     readonly timeframe?: Timeframe | undefined;
-    readonly barSpecification?: MarketDataBarSpecification | undefined;
+    readonly barSemantic?: MarketDataBarSemantic | undefined;
     readonly overlays?: readonly OverlaySpec[];
     /**
      * `synthetic` renders the deterministic W0 placeholder series. `real` renders only
@@ -129,27 +129,25 @@ export function PriceChart({
 
     useEffect(() => {
         const chart = chartRef.current;
-        if (chart === null || barSpecification === undefined) return;
+        if (chart === null || barSemantic === undefined) return;
         chart.timeScale().applyOptions({
-            timeVisible: deriveTimeAxisPolicy(
-                barSpecification,
-                container.current?.clientWidth ?? 600
-            ).timeVisible,
+            timeVisible: deriveTimeAxisPolicy(barSemantic, container.current?.clientWidth ?? 600)
+                .timeVisible,
             secondsVisible: false
         });
-    }, [barSpecification]);
+    }, [barSemantic]);
 
     useEffect(() => {
         candleSeries.current?.setData([...bars]);
         lastRenderedTime.current = bars.at(-1)?.time ?? null;
         if (
             mode === "real" &&
-            barSpecification !== undefined &&
+            barSemantic !== undefined &&
             previousHistoryKey.current !== historyKey &&
             bars.length > 0
         ) {
             const visible = deriveTimeAxisPolicy(
-                barSpecification,
+                barSemantic,
                 container.current?.clientWidth ?? 600
             ).visibleBars;
             chartRef.current?.timeScale().setVisibleLogicalRange({
@@ -162,14 +160,14 @@ export function PriceChart({
             const overlay = renderedOverlays[index];
             if (overlay !== undefined) series.setData(buildPlaceholderOverlay([...bars], overlay));
         });
-    }, [barSpecification, bars, historyKey, mode, renderedOverlays]);
+    }, [barSemantic, bars, historyKey, mode, renderedOverlays]);
 
     useEffect(() => {
         if (mode !== "real" || liveBar === null || candleSeries.current === null) return;
         if (lastRenderedTime.current !== null && liveBar.time < lastRenderedTime.current) return;
         candleSeries.current.update(liveBar);
         lastRenderedTime.current = liveBar.time;
-    }, [barSpecification, bars, historyKey, liveBar, mode]);
+    }, [barSemantic, bars, historyKey, liveBar, mode]);
 
     return <div className="chart-region__canvas" ref={container} data-testid="price-chart" />;
 }

@@ -364,10 +364,7 @@ class OnlyStrategyTradingAdmissionService:
         signals: OnlyStrategySignalSemantics,
         market_input_contract: OnlyStrategyMarketInputContract,
     ) -> None:
-        if (
-            market_input_contract.adjustment_type is not OnlyAdjustmentType.RAW
-            or market_input_contract.adjustment_reference is not None
-        ):
+        if market_input_contract.bar_semantic.adjustment_policy is not OnlyAdjustmentType.RAW:
             raise OnlyStrategyAdmissionError(
                 "STRATEGY_NOT_TRADING_ADMISSIBLE",
                 "Trading Strategy input must be RAW without an adjustment reference",

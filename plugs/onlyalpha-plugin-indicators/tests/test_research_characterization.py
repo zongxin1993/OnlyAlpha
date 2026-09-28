@@ -16,21 +16,14 @@ from onlyalpha_plugin_indicators.registration import (
 from onlyalpha.calculation import OnlyCalculationBackendKind
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
-    OnlyAggregationSource,
-    OnlyBarAggregation,
-    OnlyPriceType,
     OnlySessionType,
 )
 from onlyalpha.domain.identifiers import OnlyInstrumentId
-from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.indicator.identifiers import OnlyIndicatorId
 
-BAR_TYPE = OnlyBarType(
-    OnlyInstrumentId.parse("TEST.XNAS"),
-    OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-    OnlyAggregationSource.EXTERNAL,
-)
+BAR_TYPE = OnlyBarType(OnlyInstrumentId.parse("TEST.XNAS"), OnlyBarSemantic.fixed_duration(1))
 
 
 def _bar(index: int, close: str, *, high: str | None = None, low: str | None = None) -> OnlyBar:

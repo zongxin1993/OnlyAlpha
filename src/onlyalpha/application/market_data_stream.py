@@ -13,12 +13,12 @@ from logging import Logger
 from pathlib import Path
 
 from onlyalpha.application.market_data_product import (
-    BASE_BAR_SPECIFICATION,
+    BASE_BAR_SEMANTIC,
     OnlyMarketDataProductError,
     OnlyMarketDataProductService,
     OnlyMarketDataSourceReferenceV1,
     OnlyResolvedMarketDataRuntime,
-    only_product_bar_specification,
+    only_product_bar_semantic,
 )
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
 from onlyalpha.config.models import OnlyDataSourceCoverageConfig
@@ -34,10 +34,10 @@ from onlyalpha.data.models import (
     OnlyRealtimeBarPreviewV1,
 )
 from onlyalpha.domain.calendar import OnlyTradingCalendar
-from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyAggregationSource
+from onlyalpha.domain.enums import OnlyAdjustmentType
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRuntimeId
 from onlyalpha.domain.instrument import OnlyInstrument
-from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.event.bus import OnlyEventBus
@@ -54,7 +54,12 @@ from onlyalpha.market_data.durable.revision import (
     only_deduplicate_facts,
 )
 from onlyalpha.market_data.durable.wal import OnlyMarketDataWal
-from onlyalpha.market_data.resolution import OnlyBarConstructionIdentity, OnlyBarResolutionMode, OnlyBarResolutionPlan
+from onlyalpha.market_data.resolution import (
+    OnlyBarConstructionAlgorithmRegistry,
+    OnlyBarConstructionIdentity,
+    OnlyBarResolutionMode,
+    OnlyBarResolutionPlan,
+)
 from onlyalpha.plugin.capabilities import OnlyDataSourceCapabilities
 from onlyalpha.plugin.data_source import (
     OnlyDataSource,
@@ -288,7 +293,7 @@ class OnlyMarketDataStreamProductService:
         reference: OnlyMarketDataSourceReferenceV1,
         *,
         instrument_id: str,
-        bar_specification: OnlyBarSpecification,
+        bar_semantic: OnlyBarSemantic,
         resume_after_sequence: int,
         resume_plan_fingerprint: str | None = None,
     ) -> OnlyMarketDataStreamSession:
@@ -298,7 +303,7 @@ class OnlyMarketDataStreamProductService:
             return self._open(
                 reference,
                 instrument_id=instrument_id,
-                bar_specification=bar_specification,
+                bar_semantic=bar_semantic,
                 resume_after_sequence=resume_after_sequence,
                 resume_plan_fingerprint=resume_plan_fingerprint,
             )
@@ -311,19 +316,17 @@ class OnlyMarketDataStreamProductService:
         reference: OnlyMarketDataSourceReferenceV1,
         *,
         instrument_id: str,
-        bar_specification: OnlyBarSpecification,
+        bar_semantic: OnlyBarSemantic,
         resume_after_sequence: int,
         resume_plan_fingerprint: str | None,
     ) -> OnlyMarketDataStreamSession:
-        only_product_bar_specification(bar_specification)
+        only_product_bar_semantic(bar_semantic)
         resolved = self._historical.resolve_runtime(reference)
-        plan = self._historical._plan(resolved, instrument_id, bar_specification)
+        plan = self._historical._plan(resolved, instrument_id, bar_semantic)
         if resume_after_sequence > 0 and resume_plan_fingerprint != plan.fingerprint:
             raise OnlyMarketDataProductError("MARKET_DATA_RESUME_PLAN_MISMATCH")
-        provider_specification = (
-            bar_specification if plan.mode is OnlyBarResolutionMode.EXTERNAL_NATIVE else BASE_BAR_SPECIFICATION
-        )
-        provider_plan = self._historical._plan(resolved, instrument_id, provider_specification)
+        provider_semantic = bar_semantic if plan.mode is OnlyBarResolutionMode.PROVIDER_NATIVE else BASE_BAR_SEMANTIC
+        provider_plan = self._historical._plan(resolved, instrument_id, provider_semantic)
         construction = OnlyBarConstructionIdentity.build(provider_plan, data_version=str(resolved.data_version))
         try:
             instrument_key = OnlyInstrumentId.parse(instrument_id)
@@ -339,13 +342,14 @@ class OnlyMarketDataStreamProductService:
 
         aggregator = None
         calendar = None
-        if plan.mode is OnlyBarResolutionMode.INTERNAL_DERIVED:
+        if plan.mode is OnlyBarResolutionMode.DERIVED:
+            OnlyBarConstructionAlgorithmRegistry().require(plan.resolved_recipe)
             if not isinstance(resolved.factory, OnlyDataSourceTimeBarCalendar):
                 raise OnlyMarketDataProductError("MARKET_DATA_TIME_BAR_CALENDAR_UNAVAILABLE")
             calendar = resolved.factory.time_bar_calendar(resolved.plugin_config)
             aggregator = OnlyTimeBarAggregator(
                 _bar_type(instrument_key),
-                OnlyBarType(instrument_key, bar_specification, OnlyAggregationSource.INTERNAL),
+                OnlyBarType(instrument_key, bar_semantic),
                 calendar,
                 self._clock,
             )
@@ -398,7 +402,7 @@ class OnlyMarketDataStreamProductService:
             self._clock,
             OnlyEventBus(),
             {instrument_key: instrument},
-            {instrument_key: _bar_type(instrument_key, provider_specification)},
+            {instrument_key: _bar_type(instrument_key, provider_semantic)},
             {},
             (),
             OnlyDataSourceCoverageConfig(instrument_ids=(instrument_key,)),
@@ -445,7 +449,7 @@ class OnlyMarketDataStreamProductService:
                     resolved.source_id,
                     frozenset({instrument_key}),
                     frozenset({OnlyMarketDataType.BAR}),
-                    frozenset({_bar_type(instrument_key, provider_specification)}),
+                    frozenset({_bar_type(instrument_key, provider_semantic)}),
                     resume_after_sequence,
                 )
             )
@@ -474,7 +478,7 @@ class OnlyMarketDataStreamProductService:
                     "instrument_id": instrument_id,
                     "resolution_mode": plan.mode.value,
                     "resolution_plan_fingerprint": plan.fingerprint,
-                    "cursor_bar_step_minutes": provider_specification.step,
+                    "cursor_bar_stride_minutes": provider_semantic.stride_minutes,
                 },
             )
         )
@@ -515,7 +519,7 @@ class OnlyMarketDataStreamProductService:
             )
         except (ValueError, StopIteration) as exc:
             raise OnlyMarketDataProductError("MARKET_DATA_RESUME_CURSOR_INVALID") from exc
-        duration = timedelta(minutes=aggregator.target_bar_type.specification.step)
+        duration = timedelta(minutes=aggregator.target_bar_type.semantic.window_minutes)
         window_start = session_start + ((bar_start - session_start) // duration) * duration
         start_ns = OnlyTimestamp.from_datetime(window_start).unix_nanos
         end_ns = (resume_after_sequence + 1) * _MINUTE_NS
@@ -564,12 +568,8 @@ def _product_state(state: OnlyMarketDataConnectionState) -> str:
     return "CONNECTING"
 
 
-def _spec_payload(specification: OnlyBarSpecification) -> dict[str, object]:
-    return {
-        "aggregation": specification.aggregation.value,
-        "step": specification.step,
-        "price_type": specification.price_type.value,
-    }
+def _spec_payload(semantic: OnlyBarSemantic) -> dict[str, object]:
+    return semantic.to_dict()
 
 
 def _bar_preview(
@@ -598,7 +598,7 @@ def _preview_payload(preview: OnlyRealtimeBarPreviewV1) -> dict[str, object]:
     return {
         "source_id": str(preview.source_id),
         "instrument_id": str(preview.instrument_id),
-        "bar_specification": _spec_payload(preview.bar_type.specification),
+        "bar_semantic": _spec_payload(preview.bar_type.semantic),
         "bar": {
             "bar_start_ns": str(preview.bar_start_ns),
             "bar_end_ns": str(preview.bar_end_ns),

@@ -18,8 +18,7 @@ from onlyalpha.calculation import (
     only_calculation_scalar_to_dict,
 )
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_payload
-from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyAggregationSource, OnlyBarAggregation, OnlyPriceType
-from onlyalpha.domain.market import OnlyBarSpecification
+from onlyalpha.domain.market import OnlyBarSemantic
 from onlyalpha.research.dataset import OnlyResearchDatasetDefinition
 from onlyalpha.research.evaluation.definition import OnlyResearchStatisticsDefinition
 
@@ -91,12 +90,9 @@ class OnlyResearchUniverseSelection:
 @dataclass(frozen=True, slots=True)
 class OnlyResearchDatasetSelection:
     universe: OnlyResearchUniverseSelection
-    bar_specification: OnlyBarSpecification
-    aggregation_source: OnlyAggregationSource
+    bar_semantic: OnlyBarSemantic
     start: str
     end: str
-    adjustment_type: OnlyAdjustmentType = OnlyAdjustmentType.RAW
-    adjustment_reference: str | None = None
 
     def __post_init__(self) -> None:
         # Exact UTC/time-range admission remains owned by the existing Dataset Definition.
@@ -110,26 +106,16 @@ class OnlyResearchDatasetSelection:
 
         return OnlyResearchDatasetDefinition(
             tuple(OnlyInstrumentId.parse(item) for item in instrument_ids),
-            self.bar_specification,
-            self.aggregation_source,
+            self.bar_semantic,
             OnlyTimeRange(datetime.fromisoformat(self.start), datetime.fromisoformat(self.end)),
-            self.adjustment_type,
-            self.adjustment_reference,
         )
 
     def to_dict(self) -> Mapping[str, object]:
         return {
             "universe": self.universe.to_dict(),
-            "bar_specification": {
-                "step": self.bar_specification.step,
-                "aggregation": self.bar_specification.aggregation.value,
-                "price_type": self.bar_specification.price_type.value,
-            },
-            "aggregation_source": self.aggregation_source.value,
+            "bar_semantic": self.bar_semantic.to_dict(),
             "start": self.start,
             "end": self.end,
-            "adjustment_type": self.adjustment_type.value,
-            "adjustment_reference": self.adjustment_reference,
         }
 
     @classmethod
@@ -138,33 +124,18 @@ class OnlyResearchDatasetSelection:
             payload,
             {
                 "universe",
-                "bar_specification",
-                "aggregation_source",
+                "bar_semantic",
                 "start",
                 "end",
-                "adjustment_type",
-                "adjustment_reference",
             },
             "Dataset selection",
         )
-        bar = _mapping(payload["bar_specification"])
-        _exact(bar, {"step", "aggregation", "price_type"}, "bar specification")
-        step = bar["step"]
-        if isinstance(step, bool) or not isinstance(step, int):
-            raise ValueError("bar step must be an integer")
-        adjustment_reference = payload["adjustment_reference"]
-        if adjustment_reference is not None and not isinstance(adjustment_reference, str):
-            raise ValueError("adjustment_reference must be a string or null")
+        bar = _mapping(payload["bar_semantic"])
         return cls(
             OnlyResearchUniverseSelection.from_dict(_mapping(payload["universe"])),
-            OnlyBarSpecification(
-                step, OnlyBarAggregation(_string(bar["aggregation"])), OnlyPriceType(_string(bar["price_type"]))
-            ),
-            OnlyAggregationSource(_string(payload["aggregation_source"])),
+            OnlyBarSemantic.from_dict(bar),
             _string(payload["start"]),
             _string(payload["end"]),
-            OnlyAdjustmentType(_string(payload["adjustment_type"])),
-            adjustment_reference,
         )
 
 

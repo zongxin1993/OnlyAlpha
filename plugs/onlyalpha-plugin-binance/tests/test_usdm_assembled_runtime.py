@@ -38,15 +38,12 @@ from onlyalpha.data.models import (
 )
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
 from onlyalpha.domain.enums import (
-    OnlyAggregationSource,
-    OnlyBarAggregation,
     OnlyContractType,
     OnlyCurrencyType,
     OnlyMarketType,
     OnlyOffset,
     OnlyOrderSide,
     OnlyOrderType,
-    OnlyPriceType,
     OnlyRuntimeMode,
     OnlySessionType,
     OnlyTimeInForce,
@@ -62,7 +59,7 @@ from onlyalpha.domain.identifiers import (
     OnlyRuntimeId,
 )
 from onlyalpha.domain.instrument import OnlyCryptoPerpetual
-from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone, OnlyTradingDay
 from onlyalpha.domain.trading import OnlyReferencePriceKind
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, OnlyPrice, OnlyQuantity
@@ -79,6 +76,7 @@ from onlyalpha.market.product import (
     OnlyMarketProductVersion,
 )
 from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine
+from onlyalpha.market_data.resolution import OnlyBarDependencyGraph
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
 from onlyalpha.plugin.capabilities import OnlyDataSourceCapabilities
 from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
@@ -98,7 +96,9 @@ USDT = OnlyCurrency("USDT", 8, OnlyCurrencyType.CRYPTO)
 
 class _OrderCluster(OnlyCluster):
     def __init__(self, bar_type: OnlyBarType) -> None:
-        super().__init__(OnlyClusterConfig(str(CLUSTER), OnlyBarSubscription((bar_type,))))
+        super().__init__(
+            OnlyClusterConfig(str(CLUSTER), OnlyBarSubscription((bar_type,), OnlyBarDependencyGraph((bar_type,), ())))
+        )
         self.pending_order: OnlyOrderRequest | None = None
         self.submit_results: list[object] = []
 
@@ -316,11 +316,7 @@ def _runtime(
         OnlyTimeZone("UTC"),
         (OnlyTradingSession("continuous", time(0), time(0), OnlySessionType.CONTINUOUS),),
     )
-    bar_type = OnlyBarType(
-        INSTRUMENT,
-        OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-        OnlyAggregationSource.EXTERNAL,
-    )
+    bar_type = OnlyBarType(INSTRUMENT, OnlyBarSemantic.fixed_duration(1))
     source = _source(tmp_path, instrument, bar_type)
     clock = OnlyBacktestClock(START)
     queue = OnlyBoundedBrokerInboundQueue()

@@ -11,14 +11,23 @@ const MarketDataBarDtoSchema = z.strictObject({
     volume: z.string(),
     closed: z.boolean()
 });
-const MarketDataBarSpecificationDtoSchema = z.strictObject({
-    aggregation: z.literal("TIME"),
-    step: z.number().int().min(1).max(240),
-    price_type: z.literal("LAST")
+const MarketDataCalendarPeriodFormationDtoSchema = z.strictObject({
+    schema_version: z.literal(1),
+    kind: z.literal("CALENDAR_PERIOD"),
+    unit: z.enum(["DAY", "WEEK", "MONTH"]),
+    count: z.number().int().min(1),
+    alignment: z.enum(["UTC", "SESSION_START"])
 });
 const MarketDataCoverageGapDtoSchema = z.strictObject({
     start_ns: z.string().regex(new RegExp("^(?:0|[1-9][0-9]*)$")),
     end_ns: z.string().regex(new RegExp("^(?:0|[1-9][0-9]*)$"))
+});
+const MarketDataFixedDurationFormationDtoSchema = z.strictObject({
+    schema_version: z.literal(1),
+    kind: z.literal("FIXED_DURATION"),
+    window_minutes: z.number().int().min(1).max(240),
+    stride_minutes: z.number().int().min(1).max(240),
+    alignment: z.enum(["UTC", "SESSION_START"])
 });
 const MarketDataSourceSelectionDtoSchema = z.strictObject({
     integration_id: z.string().min(1),
@@ -26,6 +35,33 @@ const MarketDataSourceSelectionDtoSchema = z.strictObject({
     type_id: z.string().min(1),
     source_id: z.string().min(1),
     environment: z.string().min(1)
+});
+const MarketDataTickCountFormationDtoSchema = z.strictObject({
+    schema_version: z.literal(1),
+    kind: z.literal("TICK_COUNT"),
+    count: z.number().int().min(1)
+});
+const MarketDataValueFormationDtoSchema = z.strictObject({
+    schema_version: z.literal(1),
+    kind: z.literal("VALUE"),
+    value: z.string().regex(new RegExp("^[0-9]+(?:\\.[0-9]+)?$"))
+});
+const MarketDataVolumeFormationDtoSchema = z.strictObject({
+    schema_version: z.literal(1),
+    kind: z.literal("VOLUME"),
+    quantity: z.string().regex(new RegExp("^[0-9]+(?:\\.[0-9]+)?$"))
+});
+const MarketDataBarSemanticDtoSchema = z.strictObject({
+    schema_version: z.literal(2),
+    formation: z.union([
+        MarketDataFixedDurationFormationDtoSchema,
+        MarketDataCalendarPeriodFormationDtoSchema,
+        MarketDataTickCountFormationDtoSchema,
+        MarketDataVolumeFormationDtoSchema,
+        MarketDataValueFormationDtoSchema
+    ]),
+    price_type: z.enum(["LAST", "BID", "ASK", "MID", "MARK", "INDEX"]),
+    adjustment_policy: z.enum(["RAW", "FORWARD", "BACKWARD"])
 });
 const MarketDataCoverageDtoSchema = z.strictObject({
     status: z.enum(["COMPLETE", "INCOMPLETE", "UNPROVABLE"]),
@@ -45,9 +81,7 @@ export const marketDataBarsSchema = z
         display_symbol: z.string(),
         venue: z.string(),
         market: z.string(),
-        bar_specification: MarketDataBarSpecificationDtoSchema,
-        aggregation_source: z.enum(["EXTERNAL", "INTERNAL"]),
-        adjustment: z.literal("RAW"),
+        bar_semantic: MarketDataBarSemanticDtoSchema,
         closed_only: z.boolean(),
         start_ns: z.string().regex(new RegExp("^(?:0|[1-9][0-9]*)$")),
         end_ns: z.string().regex(new RegExp("^(?:0|[1-9][0-9]*)$")),
@@ -58,7 +92,7 @@ export const marketDataBarsSchema = z
         bars: z.array(MarketDataBarDtoSchema),
         aggregation_semantics_version: z.string().nullable(),
         calendar_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")).nullable(),
-        resolution_mode: z.enum(["EXTERNAL_NATIVE", "INTERNAL_DERIVED"]).nullable(),
+        resolution_mode: z.enum(["PROVIDER_NATIVE", "DERIVED"]).nullable(),
         resolution_plan_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")).nullable(),
         base_revision_id: z.string().nullable(),
         construction_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")).nullable(),

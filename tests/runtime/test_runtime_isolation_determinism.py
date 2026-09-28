@@ -7,6 +7,7 @@ from onlyalpha.cluster.demo import OnlyDemoCluster
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
+from tests.support.bar_graph import only_time_bar_graph
 
 
 def _replay(
@@ -17,7 +18,9 @@ def _replay(
     close: str,
 ) -> tuple[tuple[object, ...], int, tuple[int, ...]]:
     runtime = make_runtime(runtime_id)
-    cluster = OnlyDemoCluster(OnlyClusterConfig("demo"), OnlyBarSubscription(bar_types))
+    cluster = OnlyDemoCluster(
+        OnlyClusterConfig("demo"), OnlyBarSubscription(bar_types, only_time_bar_graph(*bar_types))
+    )
     runtime.add_cluster("engine", cluster)
     runtime.start()
     results = [runtime.process_bar(make_bar(index, close)) for index in range(3)]

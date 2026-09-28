@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, time
 from logging import Logger
 from pathlib import Path
@@ -40,9 +40,9 @@ from onlyalpha.data.models import (
     OnlyMarketDataInboundUpdate,
 )
 from onlyalpha.domain.calendar import OnlyTradingCalendar
-from onlyalpha.domain.enums import OnlyAggregationSource, OnlyBarAggregation, OnlyPriceType
+from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyPriceType
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRuntimeId
-from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.market_data.aggregation.time_bar import OnlyBarAggregationError, OnlyTimeBarAggregator
@@ -97,8 +97,8 @@ SCHEMA_VERSION = 1
 DEFAULT_ACQUISITION_SECONDS = 86_400
 MAX_ACQUISITION_SECONDS = 7 * 86_400
 MINUTE_NS = 60_000_000_000
-BASE_BAR_SPECIFICATION = OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
-MAX_INTRADAY_STEP_MINUTES = 240
+BASE_BAR_SEMANTIC = OnlyBarSemantic.fixed_duration(1)
+MAX_FIXED_DURATION_WINDOW_MINUTES = 240
 _WAL_CAPACITY_BYTES = 256 * 1024 * 1024
 
 # A configured Integration that cannot be resolved for this Product is simply not
@@ -119,16 +119,16 @@ class OnlyMarketDataProductError(RuntimeError):
         super().__init__(f"{code}: {self.detail}")
 
 
-def only_product_bar_specification(specification: OnlyBarSpecification) -> OnlyBarSpecification:
+def only_product_bar_semantic(semantic: OnlyBarSemantic) -> OnlyBarSemantic:
     if (
-        not isinstance(specification, OnlyBarSpecification)
-        or type(specification.step) is not int
-        or not 1 <= specification.step <= MAX_INTRADAY_STEP_MINUTES
-        or specification.aggregation is not OnlyBarAggregation.TIME
-        or specification.price_type is not OnlyPriceType.LAST
+        not isinstance(semantic, OnlyBarSemantic)
+        or not semantic.is_fixed_duration
+        or not 1 <= semantic.window_minutes <= MAX_FIXED_DURATION_WINDOW_MINUTES
+        or semantic.price_type is not OnlyPriceType.LAST
+        or semantic.adjustment_policy is not OnlyAdjustmentType.RAW
     ):
-        raise OnlyMarketDataProductError("MARKET_DATA_BAR_SPECIFICATION_UNSUPPORTED")
-    return specification
+        raise OnlyMarketDataProductError("MARKET_DATA_BAR_SEMANTIC_UNSUPPORTED")
+    return semantic
 
 
 class OnlyIntegrationListing(Protocol):
@@ -183,11 +183,10 @@ class OnlyMarketDataSourceSelectionV1:
 
 @dataclass(frozen=True, slots=True)
 class OnlyMarketDataTimeBarCapabilityV1:
-    aggregation: str = "TIME"
-    external_base_step_minutes: int = 1
-    derived_supported: bool = True
-    minimum_step_minutes: int = 1
-    maximum_step_minutes: int = MAX_INTRADAY_STEP_MINUTES
+    provider_base_semantic: OnlyBarSemantic = field(default_factory=lambda: OnlyBarSemantic.fixed_duration(1))
+    derived_algorithm: str | None = "TIME_BAR@1"
+    minimum_window_minutes: int = 1
+    maximum_window_minutes: int = MAX_FIXED_DURATION_WINDOW_MINUTES
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,9 +262,7 @@ class OnlyMarketDataBarsProjectionV1:
     display_symbol: str
     venue: str
     market: str
-    bar_specification: OnlyBarSpecification
-    aggregation_source: str
-    adjustment: str
+    bar_semantic: OnlyBarSemantic
     closed_only: bool
     start_ns: int
     end_ns: int
@@ -292,7 +289,7 @@ class OnlyMarketDataAcquisitionProjectionV1:
     source_id: str
     integration_binding_fingerprint: str | None
     instrument_id: str
-    bar_specification: OnlyBarSpecification
+    bar_semantic: OnlyBarSemantic
     start_ns: int
     end_ns: int
     provenance: str
@@ -420,7 +417,9 @@ class OnlyMarketDataProductService:
                     resolved.selection.source_id,
                     resolved.environment,
                     OnlyMarketDataTimeBarCapabilityV1(
-                        derived_supported=isinstance(resolved.factory, OnlyDataSourceTimeBarCalendar)
+                        derived_algorithm=(
+                            "TIME_BAR@1" if isinstance(resolved.factory, OnlyDataSourceTimeBarCalendar) else None
+                        )
                     ),
                 )
             )
@@ -476,20 +475,20 @@ class OnlyMarketDataProductService:
         instrument_id: str,
         start_ns: int,
         end_ns: int,
-        bar_specification: OnlyBarSpecification = BASE_BAR_SPECIFICATION,
+        bar_semantic: OnlyBarSemantic = BASE_BAR_SEMANTIC,
     ) -> OnlyMarketDataBarsProjectionV1:
         """DB-first exact read; a Query never acquires, retries or mutates state."""
 
         resolved = self.resolve_runtime(reference)
-        specification = only_product_bar_specification(bar_specification)
-        if specification.step > 1 and end_ns - start_ns > MAX_ACQUISITION_SECONDS * 1_000_000_000:
+        semantic = only_product_bar_semantic(bar_semantic)
+        if semantic.window_minutes > 1 and end_ns - start_ns > MAX_ACQUISITION_SECONDS * 1_000_000_000:
             raise OnlyMarketDataProductError("MARKET_DATA_DERIVED_RANGE_TOO_LARGE")
-        plan = self._plan(resolved, instrument_id, specification)
+        plan = self._plan(resolved, instrument_id, semantic)
         self._assert_target_grid(plan, start_ns, end_ns)
         acquisition_plan = (
             plan
-            if plan.mode is OnlyBarResolutionMode.EXTERNAL_NATIVE
-            else self._plan(resolved, instrument_id, BASE_BAR_SPECIFICATION)
+            if plan.mode is OnlyBarResolutionMode.PROVIDER_NATIVE
+            else self._plan(resolved, instrument_id, BASE_BAR_SEMANTIC)
         )
         scope = self._scope(
             resolved,
@@ -520,10 +519,10 @@ class OnlyMarketDataProductService:
                         for fact in facts
                     )
                 )
-                if plan.mode is OnlyBarResolutionMode.EXTERNAL_NATIVE:
+                if plan.mode is OnlyBarResolutionMode.PROVIDER_NATIVE:
                     bars = self._bars(facts)
                 else:
-                    bars, calendar_fingerprint = self._derived_bars(resolved, facts, specification)
+                    bars, calendar_fingerprint = self._derived_bars(resolved, facts, semantic)
                     if calendar_fingerprint != plan.alignment_id:
                         raise OnlyMarketDataProductError("MARKET_DATA_BAR_ALIGNMENT_CHANGED")
                 revision_id = revision.revision_id
@@ -531,7 +530,7 @@ class OnlyMarketDataProductService:
                 seal_id = seal.seal_id
                 construction_fingerprint = (
                     scope.bar_construction.fingerprint
-                    if plan.mode is OnlyBarResolutionMode.EXTERNAL_NATIVE
+                    if plan.mode is OnlyBarResolutionMode.PROVIDER_NATIVE
                     else OnlyBarConstructionIdentity.build(
                         plan,
                         data_version=scope.data_version,
@@ -554,13 +553,7 @@ class OnlyMarketDataProductService:
             _display_symbol(instrument_id, resolved.venue),
             resolved.venue,
             resolved.market,
-            specification,
-            (
-                OnlyAggregationSource.EXTERNAL
-                if plan.mode is OnlyBarResolutionMode.EXTERNAL_NATIVE
-                else OnlyAggregationSource.INTERNAL
-            ).value,
-            "RAW",
+            semantic,
             True,
             start_ns,
             end_ns,
@@ -570,10 +563,10 @@ class OnlyMarketDataProductService:
             seal_id,
             bars,
             plan.aggregation_semantics_version,
-            plan.alignment_id if plan.mode is OnlyBarResolutionMode.EXTERNAL_NATIVE else calendar_fingerprint,
+            plan.calendar_fingerprint if plan.mode is OnlyBarResolutionMode.PROVIDER_NATIVE else calendar_fingerprint,
             plan.mode.value,
             plan.fingerprint,
-            revision_id if plan.mode is OnlyBarResolutionMode.INTERNAL_DERIVED else None,
+            revision_id if plan.mode is OnlyBarResolutionMode.DERIVED else None,
             construction_fingerprint,
             resume_after_sequence if coverage.complete else None,
             plan.fingerprint if coverage.complete else None,
@@ -588,7 +581,7 @@ class OnlyMarketDataProductService:
         instrument_id: str,
         start_ns: int,
         end_ns: int,
-        bar_specification: OnlyBarSpecification = BASE_BAR_SPECIFICATION,
+        bar_semantic: OnlyBarSemantic = BASE_BAR_SEMANTIC,
     ) -> OnlyMarketDataAcquisitionProjectionV1:
         """Validate, admit the execution intent durably, then execute.
 
@@ -598,13 +591,13 @@ class OnlyMarketDataProductService:
         """
 
         resolved = self.resolve_runtime(reference)
-        specification = only_product_bar_specification(bar_specification)
-        plan = self._plan(resolved, instrument_id, specification)
+        semantic = only_product_bar_semantic(bar_semantic)
+        plan = self._plan(resolved, instrument_id, semantic)
         self._assert_target_grid(plan, start_ns, end_ns)
         acquisition_plan = (
             plan
-            if plan.mode is OnlyBarResolutionMode.EXTERNAL_NATIVE
-            else self._plan(resolved, instrument_id, BASE_BAR_SPECIFICATION)
+            if plan.mode is OnlyBarResolutionMode.PROVIDER_NATIVE
+            else self._plan(resolved, instrument_id, BASE_BAR_SEMANTIC)
         )
         scope = self._scope(
             resolved,
@@ -781,10 +774,10 @@ class OnlyMarketDataProductService:
     ) -> OnlyMarketDataScope:
         if start_ns >= end_ns:
             raise OnlyMarketDataProductError("MARKET_DATA_RANGE_INVALID", "requested range must be increasing")
-        if plan.mode is not OnlyBarResolutionMode.EXTERNAL_NATIVE or plan.provider_specification is None:
+        if plan.mode is not OnlyBarResolutionMode.PROVIDER_NATIVE or plan.provider_semantic is None:
             raise OnlyMarketDataProductError("MARKET_DATA_ACQUISITION_PLAN_INVALID")
-        specification = plan.provider_specification
-        grid = specification.step * MINUTE_NS
+        semantic = plan.provider_semantic
+        grid = semantic.stride_minutes * MINUTE_NS
         if (start_ns - plan.grid_origin_ns) % grid or (end_ns - plan.grid_origin_ns) % grid:
             raise OnlyMarketDataProductError(
                 "MARKET_DATA_RANGE_INVALID", "requested range must align to the selected bar grid"
@@ -805,7 +798,7 @@ class OnlyMarketDataProductService:
             start_ns,
             end_ns,
             str(resolved.data_version),
-            only_canonical_fingerprint(_bar_type(instrument, specification).to_dict()),
+            only_canonical_fingerprint(_bar_type(instrument, semantic).to_dict()),
             bar_construction=OnlyBarConstructionIdentity.build(plan, data_version=str(resolved.data_version)),
         )
 
@@ -813,7 +806,7 @@ class OnlyMarketDataProductService:
         self,
         resolved: OnlyResolvedMarketDataRuntime,
         instrument_id: str,
-        specification: OnlyBarSpecification,
+        semantic: OnlyBarSemantic,
     ) -> OnlyBarResolutionPlan:
         if not isinstance(resolved.factory, OnlyDataSourceBarCapabilities) or not isinstance(
             resolved.factory, OnlyDataSourceTimeBarCalendar
@@ -833,14 +826,14 @@ class OnlyMarketDataProductService:
         alignment_id = only_canonical_fingerprint(calendar.to_dict())
         try:
             plan = only_plan_bar_resolution(
-                specification,
+                semantic,
                 resolved.factory.bar_capabilities(resolved.plugin_config, OnlyInstrumentId.parse(instrument_id)),
-                alignment_id=alignment_id,
+                calendar_fingerprint=alignment_id,
                 source_id=str(resolved.source_id),
                 instrument_id=instrument_id,
                 integration_revision_fingerprint=resolved.selection.integration_revision_fingerprint,
             )
-            if plan.mode is OnlyBarResolutionMode.INTERNAL_DERIVED and plan.grid_origin_ns != 0:
+            if plan.mode is OnlyBarResolutionMode.DERIVED and plan.grid_origin_ns != 0:
                 raise ValueError("BAR_RESOLUTION_BASE_ALIGNMENT_UNSUPPORTED")
             return plan
         except (ValueError, TypeError) as exc:
@@ -848,8 +841,8 @@ class OnlyMarketDataProductService:
 
     @staticmethod
     def _assert_target_grid(plan: OnlyBarResolutionPlan, start_ns: int, end_ns: int) -> None:
-        if plan.mode is OnlyBarResolutionMode.INTERNAL_DERIVED:
-            step_ns = plan.target_specification.step * MINUTE_NS
+        if plan.mode is OnlyBarResolutionMode.DERIVED:
+            step_ns = plan.target_semantic.stride_minutes * MINUTE_NS
             day_ns = 86_400 * 1_000_000_000
             if (
                 (start_ns % day_ns) % step_ns
@@ -952,7 +945,7 @@ class OnlyMarketDataProductService:
             self._clock,
             OnlyEventBus(),
             {instrument.instrument_id: instrument},
-            {instrument.instrument_id: _bar_type(instrument.instrument_id, _scope_bar_specification(scope))},
+            {instrument.instrument_id: _bar_type(instrument.instrument_id, _scope_bar_semantic(scope))},
             {},
             (),
             OnlyDataSourceCoverageConfig(instrument_ids=(instrument.instrument_id,)),
@@ -1036,7 +1029,7 @@ class OnlyMarketDataProductService:
         step_ns = (
             MINUTE_NS
             if scope.bar_construction is None
-            else scope.bar_construction.plan.target_specification.step * MINUTE_NS
+            else scope.bar_construction.plan.target_semantic.stride_minutes * MINUTE_NS
         )
         expected = max(0, (scope.end_ns - scope.start_ns) // step_ns)
         unknown = len({fact.canonical_fact_id for fact in facts})
@@ -1082,7 +1075,7 @@ class OnlyMarketDataProductService:
         self,
         resolved: OnlyResolvedMarketDataRuntime,
         facts: tuple[OnlyCanonicalMarketFactRecord, ...],
-        specification: OnlyBarSpecification,
+        semantic: OnlyBarSemantic,
     ) -> tuple[tuple[OnlyMarketDataBarV1, ...], str]:
         if not isinstance(resolved.factory, OnlyDataSourceTimeBarCalendar):
             raise OnlyMarketDataProductError("MARKET_DATA_TIME_BAR_CALENDAR_UNAVAILABLE")
@@ -1098,7 +1091,7 @@ class OnlyMarketDataProductService:
         if not source_bars:
             return (), calendar_fingerprint
         source_type = source_bars[0].bar_type
-        target_type = OnlyBarType(source_type.instrument_id, specification, OnlyAggregationSource.INTERNAL)
+        target_type = OnlyBarType(source_type.instrument_id, semantic)
         aggregator = OnlyTimeBarAggregator(source_type, target_type, calendar, self._clock)
         derived: list[OnlyBar] = []
         started = False
@@ -1198,7 +1191,7 @@ class OnlyMarketDataProductService:
             intent.source_id,
             intent.integration_binding_fingerprint,
             intent.requested_scope.instrument_id,
-            _scope_bar_specification(intent.requested_scope),
+            _scope_bar_semantic(intent.requested_scope),
             intent.requested_scope.start_ns,
             intent.requested_scope.end_ns,
             intent.provenance.value,
@@ -1210,20 +1203,14 @@ class OnlyMarketDataProductService:
         )
 
 
-def _bar_type(
-    instrument_id: OnlyInstrumentId, specification: OnlyBarSpecification = BASE_BAR_SPECIFICATION
-) -> OnlyBarType:
-    return OnlyBarType(
-        instrument_id,
-        specification,
-        OnlyAggregationSource.EXTERNAL,
-    )
+def _bar_type(instrument_id: OnlyInstrumentId, semantic: OnlyBarSemantic = BASE_BAR_SEMANTIC) -> OnlyBarType:
+    return OnlyBarType(instrument_id, semantic)
 
 
-def _scope_bar_specification(scope: OnlyMarketDataScope) -> OnlyBarSpecification:
+def _scope_bar_semantic(scope: OnlyMarketDataScope) -> OnlyBarSemantic:
     if scope.bar_construction is None:
         raise OnlyMarketDataProductError("MARKET_DATA_BAR_CONSTRUCTION_UNPROVABLE")
-    return scope.bar_construction.plan.target_specification
+    return scope.bar_construction.plan.target_semantic
 
 
 def _drain(recovery: OnlyMarketDataRecoveryCoordinator) -> None:
@@ -1239,7 +1226,7 @@ def _bar_request(
     return OnlyHistoricalBarRequest(
         f"market-data-acquisition:{planned.start_ns}:{planned.end_ns}",
         frozenset({instrument}),
-        frozenset({_bar_type(instrument, _scope_bar_specification(scope))}),
+        frozenset({_bar_type(instrument, _scope_bar_semantic(scope))}),
         OnlyHistoricalDataRange(
             OnlyTimestamp.from_unix_nanos(planned.start_ns).to_datetime(),
             OnlyTimestamp.from_unix_nanos(planned.end_ns).to_datetime(),
@@ -1258,8 +1245,8 @@ __all__ = [
     "DEFAULT_ACQUISITION_SECONDS",
     "MAX_ACQUISITION_SECONDS",
     "SCHEMA_VERSION",
-    "BASE_BAR_SPECIFICATION",
-    "MAX_INTRADAY_STEP_MINUTES",
+    "BASE_BAR_SEMANTIC",
+    "MAX_FIXED_DURATION_WINDOW_MINUTES",
     "OnlyMarketDataAcquisitionProjectionV1",
     "OnlyMarketDataBarV1",
     "OnlyMarketDataBarsProjectionV1",

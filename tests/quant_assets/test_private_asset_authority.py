@@ -4,6 +4,8 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
+from onlyalpha.domain.market import OnlyBarSemantic
+from onlyalpha.market_data.resolution import OnlyBarConstructionRecipe, OnlyBarConstructionRequirement
 from onlyalpha.quant_assets import (
     OnlyPrivateAssetCorruptError,
     OnlyPrivateAssetInvalidError,
@@ -20,6 +22,19 @@ from onlyalpha.quant_assets import (
     OnlyPrivateStrategyDraft,
     OnlyPrivateStrategyRevision,
 )
+
+
+def _market_input() -> dict[str, object]:
+    semantic = OnlyBarSemantic.fixed_duration(1)
+    return {
+        "schema_version": 2,
+        "data_kind": "BAR",
+        "bar_semantic": semantic.to_dict(),
+        "construction_requirement": OnlyBarConstructionRequirement.exact(
+            OnlyBarConstructionRecipe.provider_native(semantic)
+        ).to_dict(),
+        "observation_admission": "FINAL_ONLY",
+    }
 
 
 class _Revisions:
@@ -61,15 +76,7 @@ def _strategy_definition(instruments: tuple[str, ...] = ("TEST.XSHG",)) -> dict[
     return {
         "schema_version": 1,
         "universe": {"kind": "SINGLE_INSTRUMENT", "instruments": list(instruments)},
-        "market_input": {
-            "schema_version": 1,
-            "data_kind": "BAR",
-            "bar_specification": {"step": 1, "aggregation": "TIME", "price_type": "LAST"},
-            "aggregation_source": "EXTERNAL",
-            "adjustment_type": "RAW",
-            "adjustment_reference": None,
-            "observation_admission": "FINAL_ONLY",
-        },
+        "market_input": _market_input(),
         "calculations": [
             {
                 "instance_key": "signal",

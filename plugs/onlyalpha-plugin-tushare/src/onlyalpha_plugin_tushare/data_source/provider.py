@@ -8,13 +8,9 @@ from onlyalpha.cache.historical.models import OnlyHistoricalBarCacheKey
 from onlyalpha.core.ranges import OnlyTimeRange, only_merge_ranges
 from onlyalpha.data.historical import OnlyDataQualityReport, OnlyHistoricalDataRequest, OnlyHistoricalFetchResult
 from onlyalpha.domain.calendar import OnlyTradingCalendar
-from onlyalpha.domain.enums import (
-    OnlyAdjustmentType,
-    OnlyBarAggregation,
-    OnlySessionType,
-)
+from onlyalpha.domain.enums import OnlyAdjustmentType, OnlySessionType
 from onlyalpha.domain.instrument import OnlyInstrument
-from onlyalpha.domain.market import OnlyBar
+from onlyalpha.domain.market import OnlyBar, OnlyCalendarPeriodBarFormation, OnlyCalendarPeriodUnit
 from onlyalpha.domain.time import OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
 
@@ -50,13 +46,14 @@ class OnlyTushareHistoricalDataProvider:
         )
 
     def fetch(self, request: OnlyHistoricalDataRequest, time_range: OnlyTimeRange) -> OnlyHistoricalFetchResult:
+        formation = request.bar_type.semantic.formation
         if (
-            request.bar_type.specification.aggregation is not OnlyBarAggregation.TIME
-            or request.bar_type.specification.step != 1440
+            not isinstance(formation, OnlyCalendarPeriodBarFormation)
+            or formation.unit is not OnlyCalendarPeriodUnit.DAY
         ):
             raise OnlyTushareError(
                 "TUSHARE_UNSUPPORTED_BAR_TYPE",
-                "only 1440-minute daily Bars are supported",
+                "only calendar DAY Bars are supported",
             )
         symbol = only_to_tushare_symbol(request.instrument_id)
         asset = only_to_tushare_asset(self._instrument)

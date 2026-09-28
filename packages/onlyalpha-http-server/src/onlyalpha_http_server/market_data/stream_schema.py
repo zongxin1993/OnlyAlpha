@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
-from .schema import MarketDataBarDto, MarketDataBarSpecificationDto
+from .schema import MarketDataBarDto, MarketDataBarSemanticDto
 
 
 class MarketDataStreamSourceReferenceDto(BaseModel):
@@ -22,7 +22,7 @@ class MarketDataStreamSubscribeDto(BaseModel):
     operation: Literal["SUBSCRIBE_BAR"]
     source_reference: MarketDataStreamSourceReferenceDto
     instrument_id: str = Field(min_length=1)
-    bar_specification: MarketDataBarSpecificationDto
+    bar_semantic: MarketDataBarSemanticDto
     resume_after_sequence: str = Field(pattern=r"^(?:0|[1-9][0-9]*)$")
     resume_plan_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
@@ -44,9 +44,9 @@ class MarketDataSubscribedDto(_Event):
     stream_id: str
     source_id: str
     instrument_id: str
-    resolution_mode: Literal["EXTERNAL_NATIVE", "INTERNAL_DERIVED"]
+    resolution_mode: Literal["PROVIDER_NATIVE", "DERIVED"]
     resolution_plan_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
-    cursor_bar_step_minutes: int = Field(ge=1, le=240)
+    cursor_bar_stride_minutes: int = Field(ge=1, le=240)
 
 
 class MarketDataStateDto(_Event):
@@ -62,7 +62,7 @@ class MarketDataBaseCursorDto(_Event):
 class _BarEvent(_Event):
     source_id: str
     instrument_id: str
-    bar_specification: MarketDataBarSpecificationDto
+    bar_semantic: MarketDataBarSemanticDto
     bar: MarketDataBarDto
 
 

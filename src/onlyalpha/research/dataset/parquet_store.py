@@ -27,7 +27,7 @@ from .manifest import (
     OnlyResearchDatasetSnapshot,
 )
 from .ports import OnlyResearchDatasetVerification, OnlyVerifiedResearchDataset
-from .schema import RESEARCH_BAR_DATASET_SCHEMA_V1
+from .schema import RESEARCH_BAR_DATASET_SCHEMA_V2
 
 
 class OnlyResearchDatasetStoreError(RuntimeError):
@@ -282,7 +282,11 @@ class OnlyParquetResearchDatasetSnapshotStore:
                 raise ValueError("global content mismatch")
             if (
                 only_snapshot_fingerprint(
-                    snapshot.definition, snapshot.dataset_schema, snapshot.content_fingerprint, snapshot.row_count
+                    snapshot.definition,
+                    snapshot.dataset_schema,
+                    snapshot.content_fingerprint,
+                    snapshot.row_count,
+                    snapshot.construction_fingerprint,
                 )
                 != snapshot.snapshot_fingerprint
             ):
@@ -290,7 +294,7 @@ class OnlyParquetResearchDatasetSnapshotStore:
             table = (
                 pa.concat_tables(tables)
                 if tables
-                else pa.Table.from_pylist([], schema=RESEARCH_BAR_DATASET_SCHEMA_V1.arrow_schema)
+                else pa.Table.from_pylist([], schema=RESEARCH_BAR_DATASET_SCHEMA_V2.arrow_schema)
             )
             if table.schema != snapshot.dataset_schema.arrow_schema or table.num_rows != snapshot.row_count:
                 raise ValueError("verified table mismatch")

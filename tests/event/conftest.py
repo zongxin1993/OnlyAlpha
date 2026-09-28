@@ -5,13 +5,10 @@ import pytest
 
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
-    OnlyAggregationSource,
-    OnlyBarAggregation,
-    OnlyPriceType,
     OnlySessionType,
 )
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlySymbol, OnlyVenueId
-from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 
 
@@ -24,11 +21,7 @@ def instrument_id() -> OnlyInstrumentId:
 def closed_bar(instrument_id: OnlyInstrumentId) -> OnlyBar:
     start = datetime(2026, 1, 5, 1, 30, tzinfo=UTC)
     return OnlyBar(
-        bar_type=OnlyBarType(
-            instrument_id,
-            OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-            OnlyAggregationSource.EXTERNAL,
-        ),
+        bar_type=OnlyBarType(instrument_id, OnlyBarSemantic.fixed_duration(1)),
         open=OnlyPrice(Decimal("10.00"), 2),
         high=OnlyPrice(Decimal("10.10"), 2),
         low=OnlyPrice(Decimal("9.90"), 2),

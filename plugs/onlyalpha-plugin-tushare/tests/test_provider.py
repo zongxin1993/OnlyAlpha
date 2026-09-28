@@ -8,7 +8,8 @@ from onlyalpha_plugin_tushare.data_source.provider import (
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.data.historical import OnlyHistoricalDataRequest
 from onlyalpha.domain.enums import OnlyAdjustmentType
-from tests.support.provider_frames import OnlyFakeFrame, row
+
+from .support import OnlyFakeFrame, row
 
 
 class OnlyFakeClient:

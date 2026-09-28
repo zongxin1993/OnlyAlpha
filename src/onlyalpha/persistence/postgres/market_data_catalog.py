@@ -66,7 +66,7 @@ class OnlyPostgresMarketDataCatalog:
         the stored value instead of conflicting on a newly generated retry timestamp.
         """
 
-        scope = json.dumps(only_canonical_payload(intent.requested_scope), sort_keys=True, separators=(",", ":"))
+        scope = json.dumps(_scope_payload(intent.requested_scope), sort_keys=True, separators=(",", ":"))
         with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
             with connection.transaction():
                 connection.execute(
@@ -103,7 +103,7 @@ class OnlyPostgresMarketDataCatalog:
                 ) != (
                     intent.request_fingerprint,
                     intent.source_id,
-                    only_canonical_payload(intent.requested_scope),
+                    _scope_payload(intent.requested_scope),
                     intent.provenance.value,
                     intent.integration_binding_fingerprint,
                     intent.identity_version,
@@ -263,7 +263,7 @@ class OnlyPostgresMarketDataCatalog:
     ) -> None:
         if manifest.coverage_status is not OnlyCoverageStatus.COMPLETE:
             raise RuntimeError("POSTGRES_REVISION_REQUIRES_COMPLETE_COVERAGE")
-        scope = json.dumps(only_canonical_payload(manifest.scope), sort_keys=True, separators=(",", ":"))
+        scope = json.dumps(_scope_payload(manifest.scope), sort_keys=True, separators=(",", ":"))
         now = seal.sealed_at
         with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
             with connection.transaction():
@@ -402,7 +402,7 @@ class OnlyPostgresMarketDataCatalog:
         return None if row is None else self.load_sealed_revision(str(row[0]))
 
     def latest_sealed_revision(self, scope: OnlyMarketDataScope) -> OnlyMarketDataRevision:
-        payload = json.dumps(only_canonical_payload(scope), sort_keys=True, separators=(",", ":"))
+        payload = json.dumps(_scope_payload(scope), sort_keys=True, separators=(",", ":"))
         with psycopg.connect(self._dsn) as connection:
             row = connection.execute(
                 "SELECT revision_id FROM market_latest_sealed_revision WHERE scope=%s", (payload,)
@@ -427,7 +427,7 @@ class OnlyPostgresMarketDataCatalog:
     def _insert_manifest(
         connection: psycopg.Connection[dict[str, object]], manifest: OnlyCoverageManifest, created_at: datetime
     ) -> None:
-        scope = json.dumps(only_canonical_payload(manifest.scope), sort_keys=True, separators=(",", ":"))
+        scope = json.dumps(_scope_payload(manifest.scope), sort_keys=True, separators=(",", ":"))
         gaps = json.dumps(
             [only_canonical_payload(item) for item in manifest.gaps], sort_keys=True, separators=(",", ":")
         )
@@ -475,7 +475,7 @@ class OnlyPostgresMarketDataCatalog:
             tuple((str(item["segment_id"]), str(item["segment_content_hash"])) for item in refs),
         ) != (
             manifest.fingerprint,
-            only_canonical_payload(manifest.scope),
+            _scope_payload(manifest.scope),
             manifest.complete,
             manifest.coverage_status.value,
             manifest.proof,
@@ -677,7 +677,7 @@ class OnlyPostgresMarketDataCatalog:
         actual_revision_refs = tuple(
             (str(row["segment_id"]), str(row["segment_content_hash"])) for row in revision_segment_rows
         )
-        expected_scope = only_canonical_payload(manifest.scope)
+        expected_scope = _scope_payload(manifest.scope)
         if (
             manifest_row is None
             or (
@@ -747,6 +747,15 @@ def _scope(value: object) -> OnlyMarketDataScope:
         if value.get("bar_construction") is None
         else OnlyBarConstructionIdentity.from_canonical_payload(value["bar_construction"]),
     )
+
+
+def _scope_payload(scope: OnlyMarketDataScope) -> dict[str, object]:
+    payload = only_canonical_payload(scope)
+    if not isinstance(payload, dict):  # pragma: no cover - OnlyMarketDataScope is a dataclass
+        raise TypeError("MARKET_DATA_SCOPE_INVALID")
+    if scope.bar_construction is not None:
+        payload["bar_construction"] = scope.bar_construction.to_dict()
+    return payload
 
 
 def _string_tuple(value: object) -> tuple[str, ...] | None:

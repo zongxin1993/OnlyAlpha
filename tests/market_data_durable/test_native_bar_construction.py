@@ -9,8 +9,7 @@ import pytest
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.data.identity import only_bar_update_id
 from onlyalpha.data.models import OnlyBarUpdate
-from onlyalpha.domain.enums import OnlyAggregationSource, OnlyBarAggregation, OnlyPriceType
-from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.market_data.durable import (
     OnlyBarCoverageGap,
@@ -24,7 +23,6 @@ from onlyalpha.market_data.durable import (
 from onlyalpha.market_data.resolution import (
     OnlyBarCapability,
     OnlyBarConstructionIdentity,
-    OnlyBarIntervalKind,
     only_plan_bar_resolution,
 )
 
@@ -33,11 +31,11 @@ from .test_recovery_revision_dataset import _observation
 
 
 def test_native_forming_bar_raw_evidence_retains_construction_identity(tmp_path: Path, fixed_now) -> None:
-    specification = OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
+    specification = OnlyBarSemantic.fixed_duration(1)
     plan = only_plan_bar_resolution(
         specification,
-        (OnlyBarCapability(specification, OnlyBarIntervalKind.FIXED_DURATION, "UTC", True, True, grid_origin_ns=0),),
-        alignment_id="UTC",
+        (OnlyBarCapability(specification, True, True, "UTC", grid_origin_ns=0),),
+        calendar_fingerprint="UTC",
         source_id=str(SOURCE),
         instrument_id=str(INSTRUMENT),
         integration_revision_fingerprint="a" * 64,
@@ -62,12 +60,12 @@ def test_native_forming_bar_raw_evidence_retains_construction_identity(tmp_path:
 
 
 def test_native_fifteen_minute_coverage_survives_wal_reload(tmp_path: Path, fixed_now) -> None:
-    specification = OnlyBarSpecification(15, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
-    bar_type = OnlyBarType(INSTRUMENT, specification, OnlyAggregationSource.EXTERNAL)
+    specification = OnlyBarSemantic.fixed_duration(15)
+    bar_type = OnlyBarType(INSTRUMENT, specification)
     plan = only_plan_bar_resolution(
         specification,
-        (OnlyBarCapability(specification, OnlyBarIntervalKind.FIXED_DURATION, "UTC", True, True, grid_origin_ns=0),),
-        alignment_id="UTC",
+        (OnlyBarCapability(specification, True, True, "UTC", grid_origin_ns=0),),
+        calendar_fingerprint="UTC",
         source_id=str(SOURCE),
         instrument_id=str(INSTRUMENT),
         integration_revision_fingerprint="a" * 64,

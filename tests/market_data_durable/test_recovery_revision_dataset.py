@@ -14,14 +14,10 @@ from onlyalpha.data.identity import only_bar_update_id
 from onlyalpha.data.models import OnlyBarUpdate
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
 from onlyalpha.domain.enums import (
-    OnlyAdjustmentType,
-    OnlyAggregationSource,
-    OnlyBarAggregation,
-    OnlyPriceType,
     OnlySessionType,
 )
 from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyInstrumentId, OnlyVenueId
-from onlyalpha.domain.market import OnlyBarSpecification
+from onlyalpha.domain.market import OnlyBarSemantic
 from onlyalpha.domain.time import OnlyTimeZone
 from onlyalpha.market_data.durable import (
     OnlyBarCoverageGap,
@@ -44,7 +40,6 @@ from onlyalpha.market_data.durable import (
 from onlyalpha.market_data.resolution import (
     OnlyBarCapability,
     OnlyBarConstructionIdentity,
-    OnlyBarIntervalKind,
     only_plan_bar_resolution,
 )
 from onlyalpha.research.dataset.definition import OnlyResearchDatasetDefinition
@@ -529,10 +524,8 @@ def test_exact_revision_dataset_materialization_is_deterministic(tmp_path: Path,
     revision = catalog.latest_sealed_revision(_scope("BAR"))
     definition = OnlyResearchDatasetDefinition(
         (INSTRUMENT,),
-        BAR_TYPE.specification,
-        OnlyAggregationSource.EXTERNAL,
+        BAR_TYPE.semantic,
         OnlyTimeRange(BASE, BASE + timedelta(minutes=1, microseconds=1)),
-        OnlyAdjustmentType.RAW,
     )
     plan = OnlySealedMarketDataMaterializationPlan((revision.revision_id,), definition, (_scope("BAR"),))
     store = _SnapshotStore()
@@ -556,13 +549,11 @@ def test_derived_dataset_binds_sealed_base_and_distinct_snapshot_identity(tmp_pa
         weekend_days=(),
     )
     alignment = only_canonical_fingerprint(calendar.to_dict())
-    capability = OnlyBarCapability(
-        BAR_TYPE.specification, OnlyBarIntervalKind.FIXED_DURATION, alignment, True, True, grid_origin_ns=0
-    )
+    capability = OnlyBarCapability(BAR_TYPE.semantic, True, True, alignment, grid_origin_ns=0)
     base_plan = only_plan_bar_resolution(
-        BAR_TYPE.specification,
+        BAR_TYPE.semantic,
         (capability,),
-        alignment_id=alignment,
+        calendar_fingerprint=alignment,
         source_id="BINANCE_SPOT",
         instrument_id=str(INSTRUMENT),
         integration_revision_fingerprint="a" * 64,
@@ -594,11 +585,11 @@ def test_derived_dataset_binds_sealed_base_and_distinct_snapshot_identity(tmp_pa
         scope,
         {segment.segment_id: records},
     )
-    target = OnlyBarSpecification(7, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
+    target = OnlyBarSemantic.fixed_duration(7)
     derived_plan = only_plan_bar_resolution(
         target,
         (capability,),
-        alignment_id=alignment,
+        calendar_fingerprint=alignment,
         source_id="BINANCE_SPOT",
         instrument_id=str(INSTRUMENT),
         integration_revision_fingerprint="a" * 64,
@@ -613,9 +604,7 @@ def test_derived_dataset_binds_sealed_base_and_distinct_snapshot_identity(tmp_pa
     definition = OnlyResearchDatasetDefinition(
         (INSTRUMENT,),
         target,
-        OnlyAggregationSource.INTERNAL,
         OnlyTimeRange(BASE, BASE + timedelta(minutes=7, microseconds=1)),
-        OnlyAdjustmentType.RAW,
     )
     store = _SnapshotStore()
     materializer = OnlySealedMarketDataDatasetMaterializer(
@@ -639,9 +628,9 @@ def test_derived_dataset_binds_sealed_base_and_distinct_snapshot_identity(tmp_pa
         target,
         (
             capability,
-            OnlyBarCapability(target, OnlyBarIntervalKind.FIXED_DURATION, alignment, True, True, grid_origin_ns=0),
+            OnlyBarCapability(target, True, True, alignment, grid_origin_ns=0),
         ),
-        alignment_id=alignment,
+        calendar_fingerprint=alignment,
         source_id="BINANCE_SPOT",
         instrument_id=str(INSTRUMENT),
         integration_revision_fingerprint="a" * 64,
@@ -691,10 +680,8 @@ def test_same_dataset_content_keeps_distinct_revision_bound_snapshot_identity(tm
 
     definition = OnlyResearchDatasetDefinition(
         (INSTRUMENT,),
-        BAR_TYPE.specification,
-        OnlyAggregationSource.EXTERNAL,
+        BAR_TYPE.semantic,
         OnlyTimeRange(BASE, BASE + timedelta(minutes=1, microseconds=1)),
-        OnlyAdjustmentType.RAW,
     )
     store = _SnapshotStore()
     materializer = OnlySealedMarketDataDatasetMaterializer(
@@ -756,10 +743,8 @@ def test_two_instrument_dataset_binds_one_exact_revision_per_scope(tmp_path: Pat
         scopes.append(scope)
     definition = OnlyResearchDatasetDefinition(
         (INSTRUMENT, eth),
-        BAR_TYPE.specification,
-        OnlyAggregationSource.EXTERNAL,
+        BAR_TYPE.semantic,
         OnlyTimeRange(BASE, BASE + timedelta(minutes=1, microseconds=1)),
-        OnlyAdjustmentType.RAW,
     )
     plan = OnlySealedMarketDataMaterializationPlan(tuple(revisions), definition, tuple(scopes))
     snapshot_store = _SnapshotStore()

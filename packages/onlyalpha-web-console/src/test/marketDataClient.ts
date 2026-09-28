@@ -8,6 +8,7 @@ import type {
     MarketDataSourceReference,
     MarketDataSourceSelection
 } from "../api/marketData/model";
+import { marketDataBarSemantic } from "../api/marketData/model";
 
 const unused = (): Promise<never> => Promise.reject(new Error("unused Market Data API method"));
 
@@ -34,11 +35,10 @@ export function marketDataSource(overrides: Partial<MarketDataSource> = {}): Mar
         source_id: "test.market_data.live",
         environment: "LIVE",
         time_bar_capability: {
-            aggregation: "TIME",
-            external_base_step_minutes: 1,
-            derived_supported: true,
-            minimum_step_minutes: 1,
-            maximum_step_minutes: 240
+            provider_base_semantic: marketDataBarSemantic(1),
+            derived_algorithm: "TIME_BAR@1",
+            minimum_window_minutes: 1,
+            maximum_window_minutes: 240
         },
         ...overrides
     };
@@ -73,9 +73,7 @@ export function marketDataBars(overrides: Partial<MarketDataBars> = {}): MarketD
         display_symbol: "BTCUSDT",
         venue: "TEST",
         market: "SPOT",
-        bar_specification: { aggregation: "TIME", step: 1, price_type: "LAST" },
-        aggregation_source: "EXTERNAL",
-        adjustment: "RAW",
+        bar_semantic: marketDataBarSemantic(1),
         closed_only: true,
         start_ns: "1767225600000000000",
         end_ns: "1767225720000000000",
@@ -94,7 +92,7 @@ export function marketDataBars(overrides: Partial<MarketDataBars> = {}): MarketD
         seal_id: "seal:" + "e".repeat(64),
         aggregation_semantics_version: null,
         calendar_fingerprint: null,
-        resolution_mode: "EXTERNAL_NATIVE",
+        resolution_mode: "PROVIDER_NATIVE",
         resolution_plan_fingerprint: "f".repeat(64),
         base_revision_id: null,
         construction_fingerprint: "9".repeat(64),
@@ -136,7 +134,7 @@ export function marketDataAcquisition(
         source_id: "test.market_data.live",
         integration_binding_fingerprint: "f".repeat(64),
         instrument_id: "BTCUSDT.TEST",
-        bar_specification: { aggregation: "TIME", step: 1, price_type: "LAST" },
+        bar_semantic: marketDataBarSemantic(1),
         start_ns: "1767225600000000000",
         end_ns: "1767225720000000000",
         provenance: "REST_BACKFILL",

@@ -19,9 +19,9 @@ from onlyalpha.data.models import (
     OnlyMarketDataInboundUpdate,
 )
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
-from onlyalpha.domain.enums import OnlyAggregationSource, OnlyBarAggregation, OnlyPriceType, OnlySessionType
+from onlyalpha.domain.enums import OnlySessionType
 from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyVenueId
-from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone
 from onlyalpha.market_data.aggregation.time_bar import OnlyTimeBarAggregator
 from onlyalpha.market_data.durable import (
@@ -38,7 +38,6 @@ from onlyalpha.market_data.durable import (
 from onlyalpha.market_data.resolution import (
     OnlyBarCapability,
     OnlyBarConstructionIdentity,
-    OnlyBarIntervalKind,
     only_plan_bar_resolution,
 )
 from onlyalpha.persistence.clickhouse import (
@@ -203,16 +202,12 @@ def test_native_fifteen_minute_revision_survives_real_database_restart(tmp_path:
     client = _clickhouse(database)
     OnlyClickHouseMigrationAuthority(client).migrate()
     try:
-        specification = OnlyBarSpecification(15, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
-        bar_type = OnlyBarType(INSTRUMENT, specification, OnlyAggregationSource.EXTERNAL)
+        specification = OnlyBarSemantic.fixed_duration(15)
+        bar_type = OnlyBarType(INSTRUMENT, specification)
         plan = only_plan_bar_resolution(
             specification,
-            (
-                OnlyBarCapability(
-                    specification, OnlyBarIntervalKind.FIXED_DURATION, "UTC", True, True, grid_origin_ns=0
-                ),
-            ),
-            alignment_id="UTC",
+            (OnlyBarCapability(specification, True, True, "UTC", grid_origin_ns=0),),
+            calendar_fingerprint="UTC",
             source_id=str(SOURCE),
             instrument_id=str(INSTRUMENT),
             integration_revision_fingerprint="a" * 64,
@@ -294,25 +289,24 @@ def test_derived_seven_minute_identity_rebuilds_from_real_sealed_base(tmp_path: 
         )
         alignment = only_canonical_fingerprint(calendar.to_dict())
         capability = OnlyBarCapability(
-            BAR_TYPE.specification,
-            OnlyBarIntervalKind.FIXED_DURATION,
+            BAR_TYPE.semantic,
+            True,
+            True,
             alignment,
-            True,
-            True,
             grid_origin_ns=0,
         )
 
-        def plan(specification: OnlyBarSpecification):  # type: ignore[no-untyped-def]
+        def plan(specification: OnlyBarSemantic):  # type: ignore[no-untyped-def]
             return only_plan_bar_resolution(
                 specification,
                 (capability,),
-                alignment_id=alignment,
+                calendar_fingerprint=alignment,
                 source_id=str(SOURCE),
                 instrument_id=str(INSTRUMENT),
                 integration_revision_fingerprint="a" * 64,
             )
 
-        base_construction = OnlyBarConstructionIdentity.build(plan(BAR_TYPE.specification), data_version=str(VERSION))
+        base_construction = OnlyBarConstructionIdentity.build(plan(BAR_TYPE.semantic), data_version=str(VERSION))
         now = lambda: BASE + timedelta(hours=1)  # noqa: E731
         wal = OnlyMarketDataWal(tmp_path / "derived-wal", capacity_bytes=2_000_000, now=now)
         ingress = OnlyMarketDataIngress(
@@ -346,7 +340,7 @@ def test_derived_seven_minute_identity_rebuilds_from_real_sealed_base(tmp_path: 
             scope,
             {segment.segment_id: records},
         )
-        target = OnlyBarSpecification(7, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
+        target = OnlyBarSemantic.fixed_duration(7)
         derived_plan = plan(target)
 
         def reconstruct(
@@ -370,7 +364,7 @@ def test_derived_seven_minute_identity_rebuilds_from_real_sealed_base(tmp_path: 
             )
             aggregator = OnlyTimeBarAggregator(
                 BAR_TYPE,
-                OnlyBarType(INSTRUMENT, target, OnlyAggregationSource.INTERNAL),
+                OnlyBarType(INSTRUMENT, target),
                 calendar,
                 OnlyBacktestClock(BASE + timedelta(hours=1)),
             )

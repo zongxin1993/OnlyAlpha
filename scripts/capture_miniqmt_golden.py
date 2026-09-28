@@ -21,15 +21,15 @@ from onlyalpha_plugin_miniqmt.sdk.loader import load_xtquant  # noqa: E402
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId  # noqa: E402
 from onlyalpha.data.models import OnlyHistoricalBarRequest, OnlyHistoricalDataRange  # noqa: E402
 from onlyalpha.data.sources import OnlyParquetHistoricalDataSource  # noqa: E402
-from onlyalpha.domain.enums import (  # noqa: E402
-    OnlyAggregationSource,
-    OnlyBarAggregation,
-    OnlyPriceType,
-)
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRuntimeId  # noqa: E402
-from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType  # noqa: E402
+from onlyalpha.domain.market import (  # noqa: E402
+    OnlyBarSemantic,
+    OnlyBarType,
+    OnlyCalendarPeriodBarFormation,
+    OnlyCalendarPeriodUnit,
+)
 
-DATASET_SCHEMA_VERSION = 1
+DATASET_SCHEMA_VERSION = 2
 DATA_VERSION = "miniqmt-cn-a-share-v1"
 MISSING_RESOURCES = (
     "historical_st_status",
@@ -63,11 +63,13 @@ def _xtquant_version() -> str:
     return str(getattr(package, "__version__", "unknown"))
 
 
-def _bar_minutes(value: str) -> int:
+def _bar_semantic(value: str) -> OnlyBarSemantic:
     normalized = value.lower()
+    if normalized == "1d":
+        return OnlyBarSemantic(OnlyCalendarPeriodBarFormation(OnlyCalendarPeriodUnit.DAY))
     for minutes, period in PERIODS.items():
         if period == normalized:
-            return minutes
+            return OnlyBarSemantic.fixed_duration(minutes)
     raise ValueError(f"unsupported MiniQMT bar type: {value}")
 
 
@@ -79,12 +81,7 @@ def capture(args: argparse.Namespace) -> None:
     if output.exists() and not args.force:
         raise FileExistsError(f"output exists; pass --force to replace it: {output}")
     instrument = OnlyInstrumentId.parse(args.instrument)
-    minutes = _bar_minutes(args.bar)
-    bar_type = OnlyBarType(
-        instrument,
-        OnlyBarSpecification(minutes, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-        OnlyAggregationSource.EXTERNAL,
-    )
+    bar_type = OnlyBarType(instrument, _bar_semantic(args.bar))
     shanghai = ZoneInfo("Asia/Shanghai")
     start_day = date.fromisoformat(args.start)
     end_day = date.fromisoformat(args.end)

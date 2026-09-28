@@ -2152,8 +2152,8 @@
             "title": "Acquisition Id",
             "type": "string"
           },
-          "bar_specification": {
-            "$ref": "#/components/schemas/MarketDataBarSpecificationDto"
+          "bar_semantic": {
+            "$ref": "#/components/schemas/MarketDataBarSemanticDto"
           },
           "coverage": {
             "$ref": "#/components/schemas/MarketDataCoverageDto"
@@ -2258,7 +2258,7 @@
           "source_id",
           "integration_binding_fingerprint",
           "instrument_id",
-          "bar_specification",
+          "bar_semantic",
           "start_ns",
           "end_ns",
           "provenance",
@@ -2274,12 +2274,19 @@
       "MarketDataAcquisitionRequestDto": {
         "additionalProperties": false,
         "properties": {
-          "bar_specification": {
-            "$ref": "#/components/schemas/MarketDataBarSpecificationDto",
+          "bar_semantic": {
+            "$ref": "#/components/schemas/MarketDataBarSemanticDto",
             "default": {
-              "aggregation": "TIME",
+              "adjustment_policy": "RAW",
+              "formation": {
+                "alignment": "SESSION_START",
+                "kind": "FIXED_DURATION",
+                "schema_version": 1,
+                "stride_minutes": 1,
+                "window_minutes": 1
+              },
               "price_type": "LAST",
-              "step": 1
+              "schema_version": 2
             }
           },
           "end_ns": {
@@ -2367,42 +2374,78 @@
         "title": "MarketDataBarDto",
         "type": "object"
       },
-      "MarketDataBarSpecificationDto": {
+      "MarketDataBarSemanticDto": {
         "additionalProperties": false,
         "properties": {
-          "aggregation": {
-            "const": "TIME",
-            "title": "Aggregation",
+          "adjustment_policy": {
+            "enum": [
+              "RAW",
+              "FORWARD",
+              "BACKWARD"
+            ],
+            "title": "Adjustment Policy",
             "type": "string"
           },
+          "formation": {
+            "discriminator": {
+              "mapping": {
+                "CALENDAR_PERIOD": "#/components/schemas/MarketDataCalendarPeriodFormationDto",
+                "FIXED_DURATION": "#/components/schemas/MarketDataFixedDurationFormationDto",
+                "TICK_COUNT": "#/components/schemas/MarketDataTickCountFormationDto",
+                "VALUE": "#/components/schemas/MarketDataValueFormationDto",
+                "VOLUME": "#/components/schemas/MarketDataVolumeFormationDto"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MarketDataFixedDurationFormationDto"
+              },
+              {
+                "$ref": "#/components/schemas/MarketDataCalendarPeriodFormationDto"
+              },
+              {
+                "$ref": "#/components/schemas/MarketDataTickCountFormationDto"
+              },
+              {
+                "$ref": "#/components/schemas/MarketDataVolumeFormationDto"
+              },
+              {
+                "$ref": "#/components/schemas/MarketDataValueFormationDto"
+              }
+            ],
+            "title": "Formation"
+          },
           "price_type": {
-            "const": "LAST",
+            "enum": [
+              "LAST",
+              "BID",
+              "ASK",
+              "MID",
+              "MARK",
+              "INDEX"
+            ],
             "title": "Price Type",
             "type": "string"
           },
-          "step": {
-            "maximum": 240.0,
-            "minimum": 1.0,
-            "title": "Step",
+          "schema_version": {
+            "const": 2,
+            "title": "Schema Version",
             "type": "integer"
           }
         },
         "required": [
-          "aggregation",
-          "step",
-          "price_type"
+          "schema_version",
+          "formation",
+          "price_type",
+          "adjustment_policy"
         ],
-        "title": "MarketDataBarSpecificationDto",
+        "title": "MarketDataBarSemanticDto",
         "type": "object"
       },
       "MarketDataBarsDto": {
         "additionalProperties": false,
         "properties": {
-          "adjustment": {
-            "const": "RAW",
-            "title": "Adjustment",
-            "type": "string"
-          },
           "aggregation_semantics_version": {
             "anyOf": [
               {
@@ -2414,16 +2457,8 @@
             ],
             "title": "Aggregation Semantics Version"
           },
-          "aggregation_source": {
-            "enum": [
-              "EXTERNAL",
-              "INTERNAL"
-            ],
-            "title": "Aggregation Source",
-            "type": "string"
-          },
-          "bar_specification": {
-            "$ref": "#/components/schemas/MarketDataBarSpecificationDto"
+          "bar_semantic": {
+            "$ref": "#/components/schemas/MarketDataBarSemanticDto"
           },
           "bars": {
             "items": {
@@ -2495,8 +2530,8 @@
             "anyOf": [
               {
                 "enum": [
-                  "EXTERNAL_NATIVE",
-                  "INTERNAL_DERIVED"
+                  "PROVIDER_NATIVE",
+                  "DERIVED"
                 ],
                 "type": "string"
               },
@@ -2601,9 +2636,7 @@
           "display_symbol",
           "venue",
           "market",
-          "bar_specification",
-          "aggregation_source",
-          "adjustment",
+          "bar_semantic",
           "closed_only",
           "start_ns",
           "end_ns",
@@ -2622,6 +2655,52 @@
           "resume_plan_fingerprint"
         ],
         "title": "MarketDataBarsDto",
+        "type": "object"
+      },
+      "MarketDataCalendarPeriodFormationDto": {
+        "additionalProperties": false,
+        "properties": {
+          "alignment": {
+            "enum": [
+              "UTC",
+              "SESSION_START"
+            ],
+            "title": "Alignment",
+            "type": "string"
+          },
+          "count": {
+            "minimum": 1.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "kind": {
+            "const": "CALENDAR_PERIOD",
+            "title": "Kind",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "unit": {
+            "enum": [
+              "DAY",
+              "WEEK",
+              "MONTH"
+            ],
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "kind",
+          "unit",
+          "count",
+          "alignment"
+        ],
+        "title": "MarketDataCalendarPeriodFormationDto",
         "type": "object"
       },
       "MarketDataCoverageDto": {
@@ -2762,6 +2841,50 @@
           "error"
         ],
         "title": "MarketDataErrorEnvelopeDto",
+        "type": "object"
+      },
+      "MarketDataFixedDurationFormationDto": {
+        "additionalProperties": false,
+        "properties": {
+          "alignment": {
+            "enum": [
+              "UTC",
+              "SESSION_START"
+            ],
+            "title": "Alignment",
+            "type": "string"
+          },
+          "kind": {
+            "const": "FIXED_DURATION",
+            "title": "Kind",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "stride_minutes": {
+            "maximum": 240.0,
+            "minimum": 1.0,
+            "title": "Stride Minutes",
+            "type": "integer"
+          },
+          "window_minutes": {
+            "maximum": 240.0,
+            "minimum": 1.0,
+            "title": "Window Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "kind",
+          "window_minutes",
+          "stride_minutes",
+          "alignment"
+        ],
+        "title": "MarketDataFixedDurationFormationDto",
         "type": "object"
       },
       "MarketDataInstrumentDto": {
@@ -2983,67 +3106,122 @@
         "title": "MarketDataSourceSelectionDto",
         "type": "object"
       },
-      "MarketDataTimeBarCapabilityDto": {
+      "MarketDataTickCountFormationDto": {
         "additionalProperties": false,
         "properties": {
-          "aggregation": {
-            "const": "TIME",
-            "title": "Aggregation",
+          "count": {
+            "minimum": 1.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "kind": {
+            "const": "TICK_COUNT",
+            "title": "Kind",
             "type": "string"
           },
-          "derived_supported": {
-            "title": "Derived Supported",
-            "type": "boolean"
-          },
-          "external_base_step_minutes": {
-            "title": "External Base Step Minutes",
-            "type": "integer"
-          },
-          "maximum_step_minutes": {
-            "title": "Maximum Step Minutes",
-            "type": "integer"
-          },
-          "minimum_step_minutes": {
-            "title": "Minimum Step Minutes",
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
             "type": "integer"
           }
         },
         "required": [
-          "aggregation",
-          "external_base_step_minutes",
-          "derived_supported",
-          "minimum_step_minutes",
-          "maximum_step_minutes"
+          "schema_version",
+          "kind",
+          "count"
+        ],
+        "title": "MarketDataTickCountFormationDto",
+        "type": "object"
+      },
+      "MarketDataTimeBarCapabilityDto": {
+        "additionalProperties": false,
+        "properties": {
+          "derived_algorithm": {
+            "anyOf": [
+              {
+                "const": "TIME_BAR@1",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Derived Algorithm"
+          },
+          "maximum_window_minutes": {
+            "title": "Maximum Window Minutes",
+            "type": "integer"
+          },
+          "minimum_window_minutes": {
+            "title": "Minimum Window Minutes",
+            "type": "integer"
+          },
+          "provider_base_semantic": {
+            "$ref": "#/components/schemas/MarketDataBarSemanticDto"
+          }
+        },
+        "required": [
+          "provider_base_semantic",
+          "derived_algorithm",
+          "minimum_window_minutes",
+          "maximum_window_minutes"
         ],
         "title": "MarketDataTimeBarCapabilityDto",
         "type": "object"
       },
-      "OnlyAdjustmentType": {
-        "enum": [
-          "RAW",
-          "FORWARD",
-          "BACKWARD"
+      "MarketDataValueFormationDto": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "VALUE",
+            "title": "Kind",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "value": {
+            "pattern": "^[0-9]+(?:\\.[0-9]+)?$",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "kind",
+          "value"
         ],
-        "title": "OnlyAdjustmentType",
-        "type": "string"
+        "title": "MarketDataValueFormationDto",
+        "type": "object"
       },
-      "OnlyAggregationSource": {
-        "enum": [
-          "EXTERNAL",
-          "INTERNAL"
+      "MarketDataVolumeFormationDto": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "VOLUME",
+            "title": "Kind",
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^[0-9]+(?:\\.[0-9]+)?$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "kind",
+          "quantity"
         ],
-        "title": "OnlyAggregationSource",
-        "type": "string"
-      },
-      "OnlyBarAggregation": {
-        "enum": [
-          "TIME",
-          "TICK",
-          "VOLUME",
-          "VALUE"
-        ],
-        "title": "OnlyBarAggregation",
-        "type": "string"
+        "title": "MarketDataVolumeFormationDto",
+        "type": "object"
       },
       "OnlyCalculationDataType": {
         "enum": [
@@ -3104,17 +3282,6 @@
           "STRING_INTEGER_MAP"
         ],
         "title": "OnlyIntegrationValueKind",
-        "type": "string"
-      },
-      "OnlyPriceType": {
-        "enum": [
-          "LAST",
-          "BID",
-          "ASK",
-          "MID",
-          "MARK"
-        ],
-        "title": "OnlyPriceType",
         "type": "string"
       },
       "OnlyPrivateAssetKind": {
@@ -4213,26 +4380,73 @@
         "title": "ResearchAuthoringProvenanceDto",
         "type": "object"
       },
-      "ResearchBarSpecificationDto": {
+      "ResearchBarSemanticDto": {
         "additionalProperties": false,
         "properties": {
-          "aggregation": {
-            "$ref": "#/components/schemas/OnlyBarAggregation"
+          "adjustment_policy": {
+            "enum": [
+              "RAW",
+              "FORWARD",
+              "BACKWARD"
+            ],
+            "title": "Adjustment Policy",
+            "type": "string"
+          },
+          "formation": {
+            "discriminator": {
+              "mapping": {
+                "CALENDAR_PERIOD": "#/components/schemas/MarketDataCalendarPeriodFormationDto",
+                "FIXED_DURATION": "#/components/schemas/MarketDataFixedDurationFormationDto",
+                "TICK_COUNT": "#/components/schemas/MarketDataTickCountFormationDto",
+                "VALUE": "#/components/schemas/MarketDataValueFormationDto",
+                "VOLUME": "#/components/schemas/MarketDataVolumeFormationDto"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MarketDataFixedDurationFormationDto"
+              },
+              {
+                "$ref": "#/components/schemas/MarketDataCalendarPeriodFormationDto"
+              },
+              {
+                "$ref": "#/components/schemas/MarketDataTickCountFormationDto"
+              },
+              {
+                "$ref": "#/components/schemas/MarketDataVolumeFormationDto"
+              },
+              {
+                "$ref": "#/components/schemas/MarketDataValueFormationDto"
+              }
+            ],
+            "title": "Formation"
           },
           "price_type": {
-            "$ref": "#/components/schemas/OnlyPriceType"
+            "enum": [
+              "LAST",
+              "BID",
+              "ASK",
+              "MID",
+              "MARK",
+              "INDEX"
+            ],
+            "title": "Price Type",
+            "type": "string"
           },
-          "step": {
-            "title": "Step",
+          "schema_version": {
+            "const": 2,
+            "title": "Schema Version",
             "type": "integer"
           }
         },
         "required": [
-          "step",
-          "aggregation",
-          "price_type"
+          "schema_version",
+          "formation",
+          "price_type",
+          "adjustment_policy"
         ],
-        "title": "ResearchBarSpecificationDto",
+        "title": "ResearchBarSemanticDto",
         "type": "object"
       },
       "ResearchCalculationCatalogDto": {
@@ -4784,25 +4998,8 @@
       "ResearchDatasetSelectionDto": {
         "additionalProperties": false,
         "properties": {
-          "adjustment_reference": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Adjustment Reference"
-          },
-          "adjustment_type": {
-            "$ref": "#/components/schemas/OnlyAdjustmentType"
-          },
-          "aggregation_source": {
-            "$ref": "#/components/schemas/OnlyAggregationSource"
-          },
-          "bar_specification": {
-            "$ref": "#/components/schemas/ResearchBarSpecificationDto"
+          "bar_semantic": {
+            "$ref": "#/components/schemas/ResearchBarSemanticDto"
           },
           "end": {
             "title": "End",
@@ -4818,12 +5015,9 @@
         },
         "required": [
           "universe",
-          "bar_specification",
-          "aggregation_source",
+          "bar_semantic",
           "start",
-          "end",
-          "adjustment_type",
-          "adjustment_reference"
+          "end"
         ],
         "title": "ResearchDatasetSelectionDto",
         "type": "object"
@@ -10427,35 +10621,10 @@
           },
           {
             "in": "query",
-            "name": "bar_step",
-            "required": false,
+            "name": "bar_semantic",
+            "required": true,
             "schema": {
-              "default": 1,
-              "maximum": 240,
-              "minimum": 1,
-              "title": "Bar Step",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "bar_aggregation",
-            "required": false,
-            "schema": {
-              "const": "TIME",
-              "default": "TIME",
-              "title": "Bar Aggregation",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "bar_price_type",
-            "required": false,
-            "schema": {
-              "const": "LAST",
-              "default": "LAST",
-              "title": "Bar Price Type",
+              "title": "Bar Semantic",
               "type": "string"
             }
           },

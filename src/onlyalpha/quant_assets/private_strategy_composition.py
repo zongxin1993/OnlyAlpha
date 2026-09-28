@@ -599,12 +599,9 @@ def _dataset(
 
     return OnlyResearchDatasetSelection(
         OnlyResearchUniverseSelection(kind, tuple(str(item) for item in universe.instruments)),
-        definition.market_input.bar_specification,
-        definition.market_input.aggregation_source,
+        definition.market_input.bar_semantic,
         context.start,
         context.end,
-        definition.market_input.adjustment_type,
-        definition.market_input.adjustment_reference,
     )
 
 

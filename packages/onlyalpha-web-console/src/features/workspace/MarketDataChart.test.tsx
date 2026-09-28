@@ -3,7 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { AppProviders } from "../../app/providers";
 import { MarketDataWebError } from "../../api/marketData/client";
 import type { MarketDataApiClient } from "../../api/marketData/client";
-import type { MarketDataAcquisition, MarketDataBars } from "../../api/marketData/model";
+import {
+    fixedDurationMinutes,
+    marketDataBarSemantic,
+    type MarketDataAcquisition,
+    type MarketDataBars
+} from "../../api/marketData/model";
 import { buildPlaceholderBars } from "../../charts/lightweight/placeholderBars";
 import { PriceChart } from "../../charts/lightweight/PriceChart";
 import {
@@ -137,7 +142,7 @@ it("updates realtime candles without recreating the chart", () => {
     const historical = onlyBarsToCandles(marketDataBars().bars);
     const view = render(
         <PriceChart
-            barSpecification={{ aggregation: "TIME", step: 7, price_type: "LAST" }}
+            barSemantic={marketDataBarSemantic(7)}
             mode="real"
             bars={historical}
             historyKey="revision-a"
@@ -150,7 +155,7 @@ it("updates realtime candles without recreating the chart", () => {
 
     view.rerender(
         <PriceChart
-            barSpecification={{ aggregation: "TIME", step: 7, price_type: "LAST" }}
+            barSemantic={marketDataBarSemantic(7)}
             mode="real"
             bars={historical}
             historyKey="revision-a"
@@ -162,7 +167,7 @@ it("updates realtime candles without recreating the chart", () => {
     expect(chartMocks.candles.update).toHaveBeenLastCalledWith(preview);
     view.rerender(
         <PriceChart
-            barSpecification={{ aggregation: "TIME", step: 37, price_type: "LAST" }}
+            barSemantic={marketDataBarSemantic(37)}
             mode="real"
             bars={historical.slice(1)}
             historyKey="revision-b"
@@ -177,11 +182,11 @@ it("ignores realtime bars older than the history or latest realtime candle", () 
     const first = historical[0];
     const last = historical[1];
     if (first === undefined || last === undefined) throw new Error("fixture requires two bars");
-    const specification = { aggregation: "TIME" as const, step: 1, price_type: "LAST" as const };
+    const specification = marketDataBarSemantic(1);
     const view = render(
         <PriceChart
             mode="real"
-            barSpecification={specification}
+            barSemantic={specification}
             bars={historical}
             historyKey="revision-a"
         />
@@ -190,7 +195,7 @@ it("ignores realtime bars older than the history or latest realtime candle", () 
     view.rerender(
         <PriceChart
             mode="real"
-            barSpecification={specification}
+            barSemantic={specification}
             bars={historical}
             historyKey="revision-a"
             liveBar={{ ...first, close: 999 }}
@@ -202,7 +207,7 @@ it("ignores realtime bars older than the history or latest realtime candle", () 
     view.rerender(
         <PriceChart
             mode="real"
-            barSpecification={specification}
+            barSemantic={specification}
             bars={historical}
             historyKey="revision-a"
             liveBar={next}
@@ -213,7 +218,7 @@ it("ignores realtime bars older than the history or latest realtime candle", () 
     view.rerender(
         <PriceChart
             mode="real"
-            barSpecification={specification}
+            barSemantic={specification}
             bars={historical}
             historyKey="revision-a"
             liveBar={{ ...last, close: 999 }}
@@ -314,11 +319,10 @@ it("accepts a custom seven-minute specification through the real Product query",
     const client = marketDataClient({
         listInstruments: () => Promise.resolve([marketDataInstrument()]),
         queryBars: (_reference, query) => {
-            steps.push(query.bar_specification.step);
+            steps.push(fixedDurationMinutes(query.bar_semantic));
             return Promise.resolve(
                 marketDataBars({
-                    bar_specification: query.bar_specification,
-                    aggregation_source: query.bar_specification.step === 1 ? "EXTERNAL" : "INTERNAL"
+                    bar_semantic: query.bar_semantic
                 })
             );
         }

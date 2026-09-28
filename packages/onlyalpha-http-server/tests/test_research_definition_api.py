@@ -233,7 +233,7 @@ def test_definition_transport_errors_have_definition_ownership(tmp_path) -> None
     cases = (
         {**payload, "unknown": True},
         {**payload, "schema_version": "1"},
-        {**payload, "dataset": {**payload["dataset"], "aggregation_source": "UNKNOWN"}},
+        {**payload, "dataset": {**payload["dataset"], "construction_source": "UNKNOWN"}},
         invalid_precision,
     )
     for invalid in cases:

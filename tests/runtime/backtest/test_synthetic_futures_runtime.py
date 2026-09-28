@@ -26,15 +26,12 @@ from onlyalpha.data.models import OnlyMarketDataInboundUpdate, OnlyReferencePric
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
-    OnlyAggregationSource,
     OnlyAssetClass,
-    OnlyBarAggregation,
     OnlyMarginMode,
     OnlyMarketType,
     OnlyOffset,
     OnlyOrderSide,
     OnlyOrderType,
-    OnlyPriceType,
     OnlyRuntimeMode,
     OnlySessionType,
     OnlySettlementType,
@@ -53,7 +50,7 @@ from onlyalpha.domain.identifiers import (
     OnlyVenueId,
 )
 from onlyalpha.domain.instrument import OnlyFuture
-from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType, OnlyReferencePriceFact
+from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType, OnlyReferencePriceFact
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone, OnlyTradingDay
 from onlyalpha.domain.trading import (
     OnlyExecutionIntent,
@@ -206,11 +203,7 @@ def _runtime(
         ),
         plugin_resources=(broker,),
     )
-    bar_type = OnlyBarType(
-        INSTRUMENT,
-        OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-        OnlyAggregationSource.EXTERNAL,
-    )
+    bar_type = OnlyBarType(INSTRUMENT, OnlyBarSemantic.fixed_duration(1))
     cluster = OnlyIntegrationCluster((bar_type,), cluster_id=CLUSTER)
     runtime.register_instrument(instrument)
     runtime.add_cluster(ENGINE, cluster)

@@ -20,7 +20,7 @@ from onlyalpha.plugin.descriptor import OnlyPluginDescriptor, OnlyPluginType
 from onlyalpha.plugin.version import ONLYALPHA_PLUGIN_API_VERSION
 from onlyalpha.scenario.data_source import OnlyScenarioHistoricalDataSource
 
-DATASET_SCHEMA_VERSION = 1
+DATASET_SCHEMA_VERSION = 2
 
 REQUIRED_MANIFEST_FIELDS = frozenset(
     {

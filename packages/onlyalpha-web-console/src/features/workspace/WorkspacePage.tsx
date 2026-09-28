@@ -6,7 +6,11 @@ import { DataSourceManager } from "../data/sources/DataSourceManager";
 import { useDataSourceOverview } from "../data/sources/overview";
 import { WorkspaceIcon, type WorkspaceIconName } from "../../shared/components/WorkspaceIcon";
 import { useMarketDataChart } from "./useMarketDataChart";
-import { formatBarSpecification, marketDataBarSpecification } from "../../api/marketData/model";
+import {
+    fixedDurationMinutes,
+    formatBarSemantic,
+    marketDataBarSemantic
+} from "../../api/marketData/model";
 
 const timeframes: readonly Timeframe[] = ["1m", "5m", "15m", "1H", "1D", "1W"];
 const realBarPresets = [1, 5, 15, 30, 60, 240] as const;
@@ -229,7 +233,7 @@ export function WorkspacePage() {
     const [bottomTab, setBottomTab] = useState<"runs" | "results" | "backtest">("runs");
     const [bottomCollapsed, setBottomCollapsed] = useState(false);
     const [timeframe, setTimeframe] = useState<Timeframe>("1D");
-    const [customBarStep, setCustomBarStep] = useState("7");
+    const [customBarDuration, setCustomBarDuration] = useState("7");
     const [customBarOpen, setCustomBarOpen] = useState(false);
     const [symbol, setSymbol] = useState<{ readonly code: string; readonly name: string }>(
         syntheticInstruments[0]
@@ -351,10 +355,13 @@ export function WorkspacePage() {
                                         aria-label="时间周期"
                                         value={
                                             realBarPresets.includes(
-                                                marketData.barSpecification
-                                                    .step as (typeof realBarPresets)[number]
+                                                fixedDurationMinutes(
+                                                    marketData.barSemantic
+                                                ) as (typeof realBarPresets)[number]
                                             ) && !customBarOpen
-                                                ? String(marketData.barSpecification.step)
+                                                ? String(
+                                                      fixedDurationMinutes(marketData.barSemantic)
+                                                  )
                                                 : "custom"
                                         }
                                         onChange={(event) => {
@@ -362,28 +369,28 @@ export function WorkspacePage() {
                                                 setCustomBarOpen(true);
                                             else {
                                                 setCustomBarOpen(false);
-                                                void marketData.selectBarStep(
+                                                void marketData.selectBarDuration(
                                                     Number(event.target.value)
                                                 );
                                             }
                                         }}
                                     >
-                                        {realBarPresets.map((step) => (
+                                        {realBarPresets.map((durationMinutes) => (
                                             <option
-                                                key={step}
-                                                value={step}
+                                                key={durationMinutes}
+                                                value={durationMinutes}
                                                 disabled={
                                                     marketData.barCapability === null ||
-                                                    step <
+                                                    durationMinutes <
                                                         marketData.barCapability
-                                                            .minimum_step_minutes ||
-                                                    step >
+                                                            .minimum_window_minutes ||
+                                                    durationMinutes >
                                                         marketData.barCapability
-                                                            .maximum_step_minutes
+                                                            .maximum_window_minutes
                                                 }
                                             >
-                                                {formatBarSpecification(
-                                                    marketDataBarSpecification(step)
+                                                {formatBarSemantic(
+                                                    marketDataBarSemantic(durationMinutes)
                                                 )}
                                             </option>
                                         ))}
@@ -391,23 +398,26 @@ export function WorkspacePage() {
                                     </select>
                                     {customBarOpen ||
                                     !realBarPresets.includes(
-                                        marketData.barSpecification
-                                            .step as (typeof realBarPresets)[number]
+                                        fixedDurationMinutes(
+                                            marketData.barSemantic
+                                        ) as (typeof realBarPresets)[number]
                                     ) ? (
                                         <form
                                             onSubmit={(event) => {
                                                 event.preventDefault();
-                                                const step = Number(customBarStep);
+                                                const durationMinutes = Number(customBarDuration);
                                                 if (
-                                                    Number.isInteger(step) &&
-                                                    step >=
+                                                    Number.isInteger(durationMinutes) &&
+                                                    durationMinutes >=
                                                         (marketData.barCapability
-                                                            ?.minimum_step_minutes ?? 1) &&
-                                                    step <=
+                                                            ?.minimum_window_minutes ?? 1) &&
+                                                    durationMinutes <=
                                                         (marketData.barCapability
-                                                            ?.maximum_step_minutes ?? 0)
+                                                            ?.maximum_window_minutes ?? 0)
                                                 )
-                                                    void marketData.selectBarStep(step);
+                                                    void marketData.selectBarDuration(
+                                                        durationMinutes
+                                                    );
                                             }}
                                         >
                                             <input
@@ -416,13 +426,13 @@ export function WorkspacePage() {
                                                 min="1"
                                                 max={
                                                     marketData.barCapability
-                                                        ?.maximum_step_minutes ?? 240
+                                                        ?.maximum_window_minutes ?? 240
                                                 }
                                                 step="1"
                                                 required
-                                                value={customBarStep}
+                                                value={customBarDuration}
                                                 onChange={(event) => {
-                                                    setCustomBarStep(event.target.value);
+                                                    setCustomBarDuration(event.target.value);
                                                 }}
                                             />
                                             <button type="submit">应用</button>
@@ -551,14 +561,14 @@ export function WorkspacePage() {
                 <div className="chart-region__body">
                     <PriceChart
                         timeframe={realPath ? undefined : timeframe}
-                        barSpecification={realPath ? marketData.barSpecification : undefined}
+                        barSemantic={realPath ? marketData.barSemantic : undefined}
                         overlays={overlays}
                         mode={realPath ? "real" : "synthetic"}
                         bars={marketData.bars}
                         liveBar={marketData.liveBar}
                         historyKey={
                             realPath
-                                ? `${marketData.revisionFingerprint ?? ""}:${String(marketData.barSpecification.step)}`
+                                ? `${marketData.revisionFingerprint ?? ""}:${String(fixedDurationMinutes(marketData.barSemantic))}`
                                 : null
                         }
                     />

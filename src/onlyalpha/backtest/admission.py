@@ -143,13 +143,7 @@ class OnlyBacktestAdmissionService:
     @staticmethod
     def _verify_strategy_dataset(strategy: OnlyStrategyRevision, definition) -> None:  # type: ignore[no-untyped-def]
         contract = strategy.market_input_contract
-        if (
-            strategy.universe.instruments != definition.instruments
-            or contract.bar_specification != definition.bar_specification
-            or contract.aggregation_source is not definition.aggregation_source
-            or contract.adjustment_type is not definition.adjustment_type
-            or contract.adjustment_reference != definition.adjustment_reference
-        ):
+        if strategy.universe.instruments != definition.instruments or contract.bar_semantic != definition.bar_semantic:
             _reject("DATASET_CONTRACT_MISMATCH", "Strategy Market Input Contract and Dataset differ")
 
     @staticmethod

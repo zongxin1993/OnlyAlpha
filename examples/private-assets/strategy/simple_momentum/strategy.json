@@ -31,13 +31,36 @@
         "right": {"data_type": "DECIMAL", "kind": "LITERAL", "value": {"type": "DECIMAL", "value": "0"}}
       },
       "market_input": {
-        "adjustment_reference": null,
-        "adjustment_type": "RAW",
-        "aggregation_source": "EXTERNAL",
-        "bar_specification": {"aggregation": "TIME", "price_type": "LAST", "step": 1},
+        "bar_semantic": {
+          "schema_version": 2,
+          "formation": {"schema_version": 1, "kind": "FIXED_DURATION", "window_minutes": 1, "stride_minutes": 1, "alignment": "SESSION_START"},
+          "price_type": "LAST",
+          "adjustment_policy": "RAW"
+        },
+        "construction_requirement": {
+          "schema_version": 1,
+          "kind": "EXACT_RECIPE",
+          "policy": null,
+          "recipe": {
+            "schema_version": 1,
+            "target_semantic": {
+              "schema_version": 2,
+              "formation": {"schema_version": 1, "kind": "FIXED_DURATION", "window_minutes": 1, "stride_minutes": 1, "alignment": "SESSION_START"},
+              "price_type": "LAST",
+              "adjustment_policy": "RAW"
+            },
+            "kind": "PROVIDER_NATIVE",
+            "base_semantic": null,
+            "algorithm_id": null,
+            "algorithm_version": null,
+            "missing_policy": null,
+            "incomplete_policy": null,
+            "alignment_requirement": null
+          }
+        },
         "data_kind": "BAR",
         "observation_admission": "FINAL_ONLY",
-        "schema_version": 1
+        "schema_version": 2
       },
       "schema_version": 1,
       "signals": {

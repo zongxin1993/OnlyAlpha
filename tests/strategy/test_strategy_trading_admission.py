@@ -9,6 +9,7 @@ from onlyalpha.calculation import (
     only_implementation_manifest_from_bytes,
 )
 from onlyalpha.domain.enums import OnlyAdjustmentType
+from onlyalpha.market_data.resolution import OnlyBarConstructionRecipe, OnlyBarConstructionRequirement
 from onlyalpha.research import OnlyResearchCalculationImplementationBinding
 from onlyalpha.strategy import OnlyStrategyAdmissionError, OnlyStrategyTradingAdmissionService
 from onlyalpha.strategy.admission import (
@@ -108,10 +109,13 @@ def test_admission_requires_explicit_equivalence_evidence(tmp_path) -> None:
 @pytest.mark.parametrize("adjustment_type", (OnlyAdjustmentType.FORWARD, OnlyAdjustmentType.BACKWARD))
 def test_admission_rejects_non_raw_market_input(tmp_path, adjustment_type) -> None:
     case = strategy_product_case(tmp_path)
+    semantic = replace(case.revision.market_input_contract.bar_semantic, adjustment_policy=adjustment_type)
     adjusted = replace(
         case.revision.market_input_contract,
-        adjustment_type=adjustment_type,
-        adjustment_reference="2026-08-24",
+        bar_semantic=semantic,
+        construction_requirement=OnlyBarConstructionRequirement.exact(
+            OnlyBarConstructionRecipe.provider_native(semantic)
+        ),
     )
 
     with pytest.raises(OnlyStrategyAdmissionError) as error:

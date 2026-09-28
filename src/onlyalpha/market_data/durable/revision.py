@@ -9,7 +9,7 @@ from threading import RLock
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.core.clock import only_system_utc_now
 from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate
-from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyAggregationSource, OnlyBarAggregation
+from onlyalpha.domain.enums import OnlyAdjustmentType
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.market_data.resolution import OnlyBarResolutionMode, only_expected_fixed_duration_bar_ends
 
@@ -111,10 +111,10 @@ def only_build_coverage(
                 issues=("BAR_CONSTRUCTION_UNPROVABLE",),
                 gaps=(),
             )
-        if construction is not None and construction.plan.mode is not OnlyBarResolutionMode.EXTERNAL_NATIVE:
+        if construction is not None and construction.plan.mode is not OnlyBarResolutionMode.PROVIDER_NATIVE:
             raise OnlyMarketDataConflictError("DERIVED_BARS_HAVE_NO_PROVIDER_COVERAGE")
         semantic = construction.plan.target_semantic
-        specification = construction.plan.target_specification
+        specification = construction.plan.target_semantic
         window_ns = semantic.window_minutes * 60_000_000_000
         stride_ns = semantic.stride_minutes * 60_000_000_000
         origin = construction.plan.grid_origin_ns
@@ -135,9 +135,8 @@ def only_build_coverage(
             and OnlyTimestamp.from_datetime(item.bar.bar_end).unix_nanos
             - OnlyTimestamp.from_datetime(item.bar.bar_start).unix_nanos
             == window_ns
-            and item.bar.bar_type.specification == specification
-            and item.bar.bar_type.specification.aggregation is OnlyBarAggregation.TIME
-            and item.bar.bar_type.aggregation_source is OnlyAggregationSource.EXTERNAL
+            and item.bar.bar_type.semantic == specification
+            and item.bar.bar_type.semantic.is_fixed_duration
             and item.bar.adjustment_type is OnlyAdjustmentType.RAW
             and str(item.bar.instrument_id) == scope.instrument_id
             and OnlyTimestamp.from_datetime(item.bar.bar_end).unix_nanos == fact.ts_event_ns

@@ -2,6 +2,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AppProviders } from "../../app/providers";
 import type { MarketDataStreamEvent } from "../../api/marketData/stream";
+import { fixedDurationMinutes, marketDataBarSemantic } from "../../api/marketData/model";
 import {
     dataSourceSummary,
     dataSourceType,
@@ -65,10 +66,10 @@ function Harness() {
             <button type="button" onClick={() => void state.selectInstrument(eth)}>
                 eth
             </button>
-            <button type="button" onClick={() => void state.selectBarStep(7)}>
+            <button type="button" onClick={() => void state.selectBarDuration(7)}>
                 7m
             </button>
-            <button type="button" onClick={() => void state.selectBarStep(37)}>
+            <button type="button" onClick={() => void state.selectBarDuration(37)}>
                 37m
             </button>
             <output>{state.liveBar?.close ?? "none"}</output>
@@ -113,7 +114,7 @@ it("ignores queued events from a stale source or instrument stream", async () =>
         event: "BAR_PREVIEW",
         source_id: "test.market_data.live",
         instrument_id: "BTCUSDT.TEST",
-        bar_specification: { aggregation: "TIME", step: 1, price_type: "LAST" },
+        bar_semantic: marketDataBarSemantic(1),
         bar: {
             bar_start_ns: "60000000000",
             bar_end_ns: "120000000000",
@@ -146,7 +147,7 @@ it("ignores queued events from a stale source or instrument stream", async () =>
         event: "BAR_PREVIEW",
         source_id: "test.market_data.live",
         instrument_id: "BTCUSDT.TEST",
-        bar_specification: { aggregation: "TIME", step: 1, price_type: "LAST" },
+        bar_semantic: marketDataBarSemantic(1),
         bar: {
             bar_start_ns: "120000000000",
             bar_end_ns: "180000000000",
@@ -166,7 +167,7 @@ it("ignores queued events from a stale source or instrument stream", async () =>
         event: "BAR_PREVIEW",
         source_id: "test.market_data.live",
         instrument_id: "BTCUSDT.TEST",
-        bar_specification: { aggregation: "TIME", step: 1, price_type: "LAST" },
+        bar_semantic: marketDataBarSemantic(1),
         bar: {
             bar_start_ns: "60000000000",
             bar_end_ns: "120000000000",
@@ -195,7 +196,7 @@ it("ignores queued events from a stale source or instrument stream", async () =>
         event: "BAR_PREVIEW",
         source_id: "test.market_data.live",
         instrument_id: "BTCUSDT.TEST",
-        bar_specification: { aggregation: "TIME", step: 1, price_type: "LAST" },
+        bar_semantic: marketDataBarSemantic(1),
         bar: {
             bar_start_ns: "120000000000",
             bar_end_ns: "180000000000",
@@ -227,10 +228,8 @@ it("switches 1m to 7m to 37m by closing each old stream and loading typed histor
             })}
             marketDataClient={marketDataClient({
                 queryBars: (_reference, query) => {
-                    steps.push(query.bar_specification.step);
-                    return Promise.resolve(
-                        marketDataBars({ bar_specification: query.bar_specification })
-                    );
+                    steps.push(fixedDurationMinutes(query.bar_semantic));
+                    return Promise.resolve(marketDataBars({ bar_semantic: query.bar_semantic }));
                 }
             })}
         >
@@ -254,8 +253,10 @@ it("switches 1m to 7m to 37m by closing each old stream and loading typed histor
     expect(steps).toEqual([1, 7, 37]);
     expect(stream.closed.count).toBeGreaterThanOrEqual(2);
     expect(
-        stream.requests.map(
-            (request) => (request as { bar_specification: { step: number } }).bar_specification.step
+        stream.requests.map((request) =>
+            fixedDurationMinutes(
+                (request as { bar_semantic: ReturnType<typeof marketDataBarSemantic> }).bar_semantic
+            )
         )
     ).toEqual([1, 7, 37]);
     first?.({
@@ -263,7 +264,7 @@ it("switches 1m to 7m to 37m by closing each old stream and loading typed histor
         event: "BAR_PREVIEW",
         source_id: "test.market_data.live",
         instrument_id: "BTCUSDT.TEST",
-        bar_specification: { aggregation: "TIME", step: 1, price_type: "LAST" },
+        bar_semantic: marketDataBarSemantic(1),
         bar: {
             bar_start_ns: "60000000000",
             bar_end_ns: "120000000000",
@@ -281,7 +282,7 @@ it("switches 1m to 7m to 37m by closing each old stream and loading typed histor
         event: "BAR_PREVIEW",
         source_id: "test.market_data.live",
         instrument_id: "BTCUSDT.TEST",
-        bar_specification: { aggregation: "TIME", step: 7, price_type: "LAST" },
+        bar_semantic: marketDataBarSemantic(7),
         bar: {
             bar_start_ns: "60000000000",
             bar_end_ns: "480000000000",
@@ -323,9 +324,9 @@ it("fails a mismatched plan without reconnecting", async () => {
             stream_id: "wrong",
             source_id: "test.market_data.live",
             instrument_id: "BTCUSDT.TEST",
-            resolution_mode: "EXTERNAL_NATIVE",
+            resolution_mode: "PROVIDER_NATIVE",
             resolution_plan_fingerprint: "a".repeat(64),
-            cursor_bar_step_minutes: 1
+            cursor_bar_stride_minutes: 1
         });
         stream.disconnects[0]?.();
     });

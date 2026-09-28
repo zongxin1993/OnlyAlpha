@@ -1,18 +1,14 @@
 from dataclasses import replace
 from datetime import UTC, datetime
+from decimal import Decimal
 
 import pytest
 
 from onlyalpha.data.identifiers import OnlyDataVersion
 from onlyalpha.data.warmup import OnlyHistoricalWarmupRequest
-from onlyalpha.domain.enums import (
-    OnlyAdjustmentType,
-    OnlyAggregationSource,
-    OnlyBarAggregation,
-    OnlyPriceType,
-)
+from onlyalpha.domain.enums import OnlyAdjustmentType
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRuntimeId
-from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType, OnlyVolumeBarFormation
 from onlyalpha.domain.time import OnlyTimestamp
 
 pytestmark = pytest.mark.contract
@@ -24,11 +20,7 @@ def _request() -> OnlyHistoricalWarmupRequest:
         "warmup-1",
         OnlyRuntimeId("streaming-1"),
         instrument,
-        OnlyBarType(
-            instrument,
-            OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-            OnlyAggregationSource.EXTERNAL,
-        ),
+        OnlyBarType(instrument, OnlyBarSemantic.fixed_duration(1)),
         50,
         OnlyTimestamp.from_datetime(datetime(2026, 7, 24, 2, tzinfo=UTC)),
         OnlyTimestamp.from_datetime(datetime(2026, 8, 3, 2, tzinfo=UTC)),
@@ -55,9 +47,9 @@ def test_warmup_request_rejects_ambiguous_or_unsafe_values(changes: dict[str, ob
         replace(_request(), **changes)
 
 
-def test_warmup_request_requires_external_time_bar() -> None:
+def test_warmup_request_requires_fixed_duration_bar() -> None:
     request = _request()
-    internal = replace(request.bar_type, aggregation_source=OnlyAggregationSource.INTERNAL)
+    volume = OnlyBarType(request.instrument_id, OnlyBarSemantic(OnlyVolumeBarFormation(Decimal("100"))))
 
-    with pytest.raises(ValueError, match="external"):
-        replace(request, bar_type=internal)
+    with pytest.raises(ValueError, match="time Bars"):
+        replace(request, bar_type=volume)

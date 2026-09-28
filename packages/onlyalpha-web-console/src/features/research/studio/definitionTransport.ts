@@ -250,19 +250,26 @@ export function buildResearchDefinitionTransport(
                 instrument_ids: registered ? [] : instruments,
                 registered_id: registered ? draft.dataset.registeredId.trim() : null
             },
-            bar_specification: {
-                step: positiveInteger(draft.dataset.step, "dataset.bar_specification.step"),
-                aggregation: draft.dataset.aggregation,
-                price_type: draft.dataset.priceType
+            bar_semantic: {
+                schema_version: 2,
+                formation: {
+                    schema_version: 1,
+                    kind: "FIXED_DURATION",
+                    window_minutes: positiveInteger(
+                        draft.dataset.durationMinutes,
+                        "dataset.bar_semantic.window_minutes"
+                    ),
+                    stride_minutes: positiveInteger(
+                        draft.dataset.durationMinutes,
+                        "dataset.bar_semantic.stride_minutes"
+                    ),
+                    alignment: "SESSION_START"
+                },
+                price_type: draft.dataset.priceType,
+                adjustment_policy: draft.dataset.adjustmentType
             },
-            aggregation_source: draft.dataset.aggregationSource,
             start: required(draft.dataset.start, "dataset.start"),
-            end: required(draft.dataset.end, "dataset.end"),
-            adjustment_type: draft.dataset.adjustmentType,
-            adjustment_reference:
-                draft.dataset.adjustmentReference.trim().length === 0
-                    ? null
-                    : draft.dataset.adjustmentReference.trim()
+            end: required(draft.dataset.end, "dataset.end")
         },
         calculations: calculationInstances,
         eligibility:

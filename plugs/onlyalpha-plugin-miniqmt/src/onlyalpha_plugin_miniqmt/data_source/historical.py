@@ -10,7 +10,13 @@ from onlyalpha.data.models import OnlyBarUpdate, OnlyHistoricalBarRequest, OnlyM
 from onlyalpha.domain.enums import OnlyAdjustmentType, OnlySessionType
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.instrument import OnlyInstrument
-from onlyalpha.domain.market import OnlyBar
+from onlyalpha.domain.market import (
+    OnlyBar,
+    OnlyBarType,
+    OnlyCalendarPeriodBarFormation,
+    OnlyCalendarPeriodUnit,
+    OnlyFixedDurationBarFormation,
+)
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
@@ -20,6 +26,20 @@ from ..mapping.market_data import quantized_decimal, utc_from_xt, valid_ohlc
 
 PERIODS = {1: "1m", 5: "5m", 15: "15m", 30: "30m", 60: "1h", 1440: "1d"}
 _SHANGHAI = ZoneInfo("Asia/Shanghai")
+
+
+def only_miniqmt_period(bar_type: OnlyBarType) -> tuple[str, int | None]:
+    formation = bar_type.semantic.formation
+    if isinstance(formation, OnlyCalendarPeriodBarFormation):
+        if formation.unit is OnlyCalendarPeriodUnit.DAY and formation.count == 1:
+            return "1d", None
+        raise ValueError("unsupported MiniQMT calendar period")
+    if not isinstance(formation, OnlyFixedDurationBarFormation):
+        raise ValueError("unsupported MiniQMT Bar formation")
+    period = PERIODS.get(formation.stride_minutes)
+    if period is None:
+        raise ValueError(f"unsupported MiniQMT period: {formation.stride_minutes}m")
+    return period, formation.stride_minutes
 
 
 def load_bars(
@@ -61,10 +81,7 @@ def load_normalized_bars(
 
     records: list[OnlyBar] = []
     for bar_type in sorted(request.bar_types, key=str):
-        minutes = bar_type.specification.step
-        period = PERIODS.get(minutes)
-        if period is None:
-            raise ValueError(f"unsupported MiniQMT period: {minutes}m")
+        period, minutes = only_miniqmt_period(bar_type)
         symbol = to_xt_symbol(bar_type.instrument_id)
         start_time = request.data_range.start_time.astimezone(_SHANGHAI).strftime("%Y%m%d%H%M%S")
         end_time = request.data_range.end_time.astimezone(_SHANGHAI).strftime("%Y%m%d%H%M%S")
@@ -93,7 +110,7 @@ def load_normalized_bars(
             local_trading_day = raw_event.astimezone(_SHANGHAI).date()
             event = (
                 datetime.combine(local_trading_day, time(15), _SHANGHAI).astimezone(raw_event.tzinfo)
-                if minutes == 1440
+                if minutes is None
                 else raw_event
             )
             if event in seen or not (request.data_range.start_time <= event < request.data_range.end_time):
@@ -115,7 +132,7 @@ def load_normalized_bars(
                 open_interest=None,
                 bar_start=(
                     datetime.combine(local_trading_day, time(9, 30), _SHANGHAI).astimezone(raw_event.tzinfo)
-                    if minutes == 1440
+                    if minutes is None
                     else event - timedelta(minutes=minutes)
                 ),
                 bar_end=event,
@@ -124,7 +141,7 @@ def load_normalized_bars(
                 is_closed=True,
                 revision=0,
                 adjustment_type=OnlyAdjustmentType.RAW,
-                trading_day=local_trading_day if minutes == 1440 else event.date(),
+                trading_day=local_trading_day if minutes is None else event.date(),
                 session_type=OnlySessionType.REGULAR,
             )
             records.append(bar)

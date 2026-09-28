@@ -5,15 +5,12 @@ from onlyalpha.domain.account import OnlyAccount, OnlyBalance, OnlyPortfolio
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
-    OnlyAggregationSource,
-    OnlyBarAggregation,
     OnlyBookType,
     OnlyMarginMode,
-    OnlyPriceType,
     OnlySessionType,
 )
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyInstrumentId, OnlyVenueId
-from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType, OnlyOrderBook, OnlyOrderBookLevel
+from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType, OnlyOrderBook, OnlyOrderBookLevel
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity
 
 
@@ -40,11 +37,7 @@ def test_multicurrency_account_has_no_implicit_portfolio_conversion() -> None:
 def test_bar_order_book_and_calendar_invariants(instrument_id: OnlyInstrumentId) -> None:
     start = datetime(2026, 1, 5, 1, 30, tzinfo=UTC)
     bar = OnlyBar(
-        bar_type=OnlyBarType(
-            instrument_id,
-            OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-            OnlyAggregationSource.EXTERNAL,
-        ),
+        bar_type=OnlyBarType(instrument_id, OnlyBarSemantic.fixed_duration(1)),
         open=OnlyPrice(Decimal("10.00"), 2),
         high=OnlyPrice(Decimal("10.20"), 2),
         low=OnlyPrice(Decimal("9.90"), 2),

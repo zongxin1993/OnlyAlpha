@@ -16,13 +16,10 @@ from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate, On
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
-    OnlyAggregationSource,
-    OnlyBarAggregation,
-    OnlyPriceType,
     OnlySessionType,
 )
 from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyInstrumentId, OnlyRuntimeId, OnlyVenueId
-from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.market_data.aggregation.time_bar import OnlyTimeBarAggregator
@@ -33,11 +30,7 @@ def _preview(close: str, minute: int = 1) -> OnlyRealtimeBarPreviewV1:
     return OnlyRealtimeBarPreviewV1(
         OnlyMarketDataSourceId("binance.spot.market_data.us"),
         instrument,
-        OnlyBarType(
-            instrument,
-            OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-            OnlyAggregationSource.EXTERNAL,
-        ),
+        OnlyBarType(instrument, OnlyBarSemantic.fixed_duration(1)),
         minute * 60_000_000_000,
         (minute + 1) * 60_000_000_000,
         "1",
@@ -104,12 +97,8 @@ def test_reliable_overflow_fails_explicitly_and_close_is_idempotent() -> None:
 def test_derived_stream_emits_base_cursor_preview_and_seven_minute_close() -> None:
     instrument = OnlyInstrumentId.parse("BTCUSDT.BINANCE")
     source = OnlyMarketDataSourceId("binance.spot.market_data.us")
-    base = OnlyBarType(
-        instrument, OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST), OnlyAggregationSource.EXTERNAL
-    )
-    target = OnlyBarType(
-        instrument, OnlyBarSpecification(7, OnlyBarAggregation.TIME, OnlyPriceType.LAST), OnlyAggregationSource.INTERNAL
-    )
+    base = OnlyBarType(instrument, OnlyBarSemantic.fixed_duration(1))
+    target = OnlyBarType(instrument, OnlyBarSemantic.fixed_duration(7))
     calendar = OnlyTradingCalendar(
         OnlyCalendarId("TEST-24X7"),
         OnlyVenueId("BINANCE"),
@@ -170,7 +159,7 @@ def test_derived_stream_emits_base_cursor_preview_and_seven_minute_close() -> No
     session.emit_preview(replace(forming, ts_receive_ns=forming.ts_event_ns - 4_000_000_000))
     preview = session.next_event(0)
     assert preview is not None and preview.event == "BAR_PREVIEW"
-    assert preview.payload["bar_specification"] == {"aggregation": "TIME", "step": 7, "price_type": "LAST"}
+    assert preview.payload["bar_semantic"] == target.semantic.to_dict()
     assert preview.payload["bar"]["volume"] == "20"  # type: ignore[index]
     for minute in range(1, 7):
         session.emit_closed(update(minute))

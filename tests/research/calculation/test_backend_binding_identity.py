@@ -23,7 +23,7 @@ from onlyalpha.research.calculation import (
     only_research_calculation_fingerprint,
 )
 from onlyalpha.research.dataset.codec import only_bars_to_table
-from onlyalpha.research.dataset.schema import RESEARCH_BAR_DATASET_SCHEMA_V1
+from onlyalpha.research.dataset.schema import RESEARCH_BAR_DATASET_SCHEMA_V2
 from tests.research.calculation.support import bars
 
 
@@ -85,7 +85,7 @@ def test_dataset_sources_bind_exact_columns(source: str) -> None:
         source,
         OnlyInputDefinition("value", OnlyCalculationDataType.DECIMAL),
         table,
-        RESEARCH_BAR_DATASET_SCHEMA_V1,
+        RESEARCH_BAR_DATASET_SCHEMA_V2,
     )
     assert result.equals(table.column(source.split(".")[1]))
 
@@ -94,27 +94,27 @@ def test_dataset_source_binding_fails_closed_on_contract_mismatch() -> None:
     table = only_bars_to_table(bars())
     expected = OnlyInputDefinition("value", OnlyCalculationDataType.DECIMAL)
     with pytest.raises(OnlyResearchCalculationError, match="RESEARCH_SOURCE_UNSUPPORTED"):
-        only_bind_research_dataset_source("bar.unknown", expected, table, RESEARCH_BAR_DATASET_SCHEMA_V1)
+        only_bind_research_dataset_source("bar.unknown", expected, table, RESEARCH_BAR_DATASET_SCHEMA_V2)
     with pytest.raises(OnlyResearchCalculationError, match="data_type"):
         only_bind_research_dataset_source(
             "bar.close",
             replace(expected, data_type=OnlyCalculationDataType.INTEGER),
             table,
-            RESEARCH_BAR_DATASET_SCHEMA_V1,
+            RESEARCH_BAR_DATASET_SCHEMA_V2,
         )
     with pytest.raises(OnlyResearchCalculationError, match="semantic_type"):
         only_bind_research_dataset_source(
-            "bar.close", replace(expected, semantic_type="COUNT"), table, RESEARCH_BAR_DATASET_SCHEMA_V1
+            "bar.close", replace(expected, semantic_type="COUNT"), table, RESEARCH_BAR_DATASET_SCHEMA_V2
         )
     with pytest.raises(OnlyResearchCalculationError, match="unit"):
         only_bind_research_dataset_source(
-            "bar.close", replace(expected, unit="USD"), table, RESEARCH_BAR_DATASET_SCHEMA_V1
+            "bar.close", replace(expected, unit="USD"), table, RESEARCH_BAR_DATASET_SCHEMA_V2
         )
     missing = table.drop(["close"])
     with pytest.raises(OnlyResearchCalculationError, match="missing column"):
-        only_bind_research_dataset_source("bar.close", expected, missing, RESEARCH_BAR_DATASET_SCHEMA_V1)
+        only_bind_research_dataset_source("bar.close", expected, missing, RESEARCH_BAR_DATASET_SCHEMA_V2)
     with pytest.raises(OnlyResearchCalculationError, match="nullability"):
-        only_bind_research_dataset_source("bar.quote_volume", expected, table, RESEARCH_BAR_DATASET_SCHEMA_V1)
+        only_bind_research_dataset_source("bar.quote_volume", expected, table, RESEARCH_BAR_DATASET_SCHEMA_V2)
 
 
 def test_dataset_source_binding_uses_authoritative_unit_contract(monkeypatch) -> None:
@@ -127,7 +127,7 @@ def test_dataset_source_binding_uses_authoritative_unit_contract(monkeypatch) ->
         "bar.close",
         OnlyInputDefinition("value", OnlyCalculationDataType.DECIMAL, unit="USD"),
         table,
-        RESEARCH_BAR_DATASET_SCHEMA_V1,
+        RESEARCH_BAR_DATASET_SCHEMA_V2,
     )
     assert result.equals(table.column("close"))
     with pytest.raises(OnlyResearchCalculationError, match="unit"):
@@ -135,7 +135,7 @@ def test_dataset_source_binding_uses_authoritative_unit_contract(monkeypatch) ->
             "bar.close",
             OnlyInputDefinition("value", OnlyCalculationDataType.DECIMAL, unit="EUR"),
             table,
-            RESEARCH_BAR_DATASET_SCHEMA_V1,
+            RESEARCH_BAR_DATASET_SCHEMA_V2,
         )
 
 
@@ -149,7 +149,7 @@ def test_dataset_source_binding_uses_authoritative_unit_contract(monkeypatch) ->
 def test_dataset_source_binding_rejects_unsupported_dimensions(expected: OnlyInputDefinition) -> None:
     with pytest.raises(OnlyResearchCalculationError) as raised:
         only_bind_research_dataset_source(
-            "bar.close", expected, only_bars_to_table(bars()), RESEARCH_BAR_DATASET_SCHEMA_V1
+            "bar.close", expected, only_bars_to_table(bars()), RESEARCH_BAR_DATASET_SCHEMA_V2
         )
     assert raised.value.code == "RESEARCH_INPUT_INCOMPATIBLE"
     assert raised.value.detail == "bar.close dimensions"
@@ -177,7 +177,7 @@ def test_dataset_source_binding_rejects_wrong_arrow_field(field: pa.Field) -> No
             "bar.close",
             OnlyInputDefinition("value", OnlyCalculationDataType.DECIMAL),
             incompatible,
-            RESEARCH_BAR_DATASET_SCHEMA_V1,
+            RESEARCH_BAR_DATASET_SCHEMA_V2,
         )
     assert raised.value.code == "RESEARCH_INPUT_INCOMPATIBLE"
     assert raised.value.detail == "wrong Arrow field close"

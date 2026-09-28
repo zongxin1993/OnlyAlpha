@@ -5,9 +5,9 @@ from decimal import Decimal
 import pytest
 
 from onlyalpha.calculation import OnlyCalculationBackendKind, OnlyCalculationRegistry
-from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyAggregationSource
+from onlyalpha.domain.enums import OnlyAdjustmentType
 from onlyalpha.domain.identifiers import OnlyInstrumentId
-from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.value import OnlyPrice
 from onlyalpha.research import OnlyResearchCalculationBackendResolver, OnlyResearchCalculationExecutor
 from onlyalpha.strategy import (
@@ -104,7 +104,7 @@ def test_corrected_final_bar_fails_without_implicit_state_rollback(tmp_path) -> 
     assert error.value.code == "CORRECTED_FINAL_BAR_UNSUPPORTED"
 
 
-@pytest.mark.parametrize("mismatch", ("instrument", "bar_specification", "aggregation_source", "adjustment"))
+@pytest.mark.parametrize("mismatch", ("instrument", "bar_semantic", "adjustment"))
 def test_market_input_contract_mismatches_fail_closed(tmp_path, mismatch) -> None:
     case = strategy_product_case(tmp_path / "case")
     store = OnlyFrozenStrategyRevisionStore(tmp_path / "semantic")
@@ -118,33 +118,27 @@ def test_market_input_contract_mismatches_fail_closed(tmp_path, mismatch) -> Non
             bar,
             bar_type=OnlyBarType(
                 OnlyInstrumentId.parse("OTHER.XNAS"),
-                bar.bar_type.specification,
-                bar.bar_type.aggregation_source,
+                bar.bar_type.semantic,
             ),
         )
-    elif mismatch == "bar_specification":
-        specification = bar.bar_type.specification
+    elif mismatch == "bar_semantic":
+        specification = bar.bar_type.semantic
         bar = replace(
             bar,
             bar_type=OnlyBarType(
                 bar.instrument_id,
-                OnlyBarSpecification(
-                    specification.step + 1,
-                    specification.aggregation,
-                    specification.price_type,
-                ),
-                bar.bar_type.aggregation_source,
+                OnlyBarSemantic.fixed_duration(specification.window_minutes + 1),
             ),
         )
-    elif mismatch == "aggregation_source":
-        source = (
-            OnlyAggregationSource.INTERNAL
-            if bar.bar_type.aggregation_source is OnlyAggregationSource.EXTERNAL
-            else OnlyAggregationSource.EXTERNAL
-        )
-        bar = replace(bar, bar_type=OnlyBarType(bar.instrument_id, bar.bar_type.specification, source))
     else:
-        bar = replace(bar, adjustment_type=OnlyAdjustmentType.FORWARD)
+        bar = replace(
+            bar,
+            bar_type=replace(
+                bar.bar_type,
+                semantic=replace(bar.bar_type.semantic, adjustment_policy=OnlyAdjustmentType.FORWARD),
+            ),
+            adjustment_type=OnlyAdjustmentType.FORWARD,
+        )
 
     with pytest.raises(OnlyStrategyResolutionError) as error:
         executor.execute(bar)

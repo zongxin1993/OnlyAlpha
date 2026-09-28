@@ -120,3 +120,47 @@ exactly-reproducing identity-bearing subset (§5).
 ## 8. Independent Review result
 
 Pending — to be completed by the bounded Independent Review.
+
+## 9. Bar semantic and construction identity re-certification (2026-09-28)
+
+This section records the separate re-certification required by the breaking Bar semantic and
+construction consolidation based on `4f1445d009d7f448bd6033a20279ccbb53d5ca31`.
+
+The old baselines persisted `OnlyBarType` schema 1 with `aggregation_source` and a step-based
+specification. The regenerated baselines persist schema 2 with `instrument_id` plus exact
+`OnlyBarSemantic` (`FIXED_DURATION`, window, stride, alignment, price type and adjustment
+policy). Strategy inputs now freeze an exact construction recipe. This is an intentional
+identity break; no legacy payload is translated or silently reinterpreted.
+
+| Item | Old | New |
+| --- | --- | --- |
+| Strategy fingerprints | `b8e389ad83146692237c20a8bd8949c2f9ae840872f6facdff25f27d300014eb` or `1c278a395b536cad8deb400d32956792a31ffc7c9ec069f0238011333fca2e96` | `8b267896bc113b456e0da1bcf932fa0dffaa5853841450d592c517242222591b` |
+| Persisted Bar type | schema 1, step plus aggregation source | schema 2, semantic only |
+| Construction requirement | implicit source classification | exact immutable recipe |
+
+Affected baselines are `long_close_multi_fill_baseline`, `long_close_whole_baseline`,
+`multi_cluster_close_baseline` and `terminal_after_partial_fill_baseline`; each has a regenerated
+`canonical_projection.json`, `database.sqlite3.gz` and `manifest.json`. Configuration, result,
+database and derived runtime identities change because they transitively bind the new Bar and
+Strategy identities. Prices, quantities, ordered market/execution facts and scenario behavior
+remain governed by the same recovery assertions.
+
+Reproduction and verification:
+
+```bash
+uv run --no-sync python scripts/regenerate_recovery_baselines.py \
+  --baseline long_close_multi_fill_baseline \
+  --baseline long_close_whole_baseline \
+  --baseline multi_cluster_close_baseline \
+  --baseline terminal_after_partial_fill_baseline
+
+.venv/bin/pytest -q \
+  tests/runtime/recovery/test_recovery_baseline_support.py \
+  tests/integration/test_engine_recovery_long_close_multi_fill.py \
+  tests/integration/test_engine_recovery_multi_cluster_close_cost.py
+```
+
+The selected recovery proof passed all 19 cases. The bounded independent review found no
+Authority split, compatibility fallback or behavioral weakening in the changed recovery
+projection. The pre-existing wall-clock limitation in section 6 still applies to raw database
+byte reproduction and is not used as semantic equivalence evidence.

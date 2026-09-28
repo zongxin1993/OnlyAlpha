@@ -6,7 +6,7 @@ import {
     marketDataInstrumentListSchema,
     marketDataSourceListSchema,
     type MarketDataAcquisition,
-    type MarketDataBarSpecification,
+    type MarketDataBarSemantic,
     type MarketDataBars,
     type MarketDataInstrument,
     type MarketDataSource,
@@ -29,7 +29,7 @@ export interface MarketDataBarsQuery {
     /** Canonical decimal nanoseconds; never a JSON number. */
     readonly start_ns: string;
     readonly end_ns: string;
-    readonly bar_specification: MarketDataBarSpecification;
+    readonly bar_semantic: MarketDataBarSemantic;
 }
 
 export type { MarketDataSource, MarketDataSourceReference };
@@ -119,9 +119,7 @@ function barsParams(
     params.set("instrument_id", query.instrument_id);
     params.set("start_ns", query.start_ns);
     params.set("end_ns", query.end_ns);
-    params.set("bar_step", String(query.bar_specification.step));
-    params.set("bar_aggregation", query.bar_specification.aggregation);
-    params.set("bar_price_type", query.bar_specification.price_type);
+    params.set("bar_semantic", JSON.stringify(query.bar_semantic));
     return params;
 }
 
@@ -160,7 +158,7 @@ export class FetchMarketDataApiClient implements MarketDataApiClient {
             `/api/v2/market-data/bars?${barsParams(reference, query).toString()}`,
             read(signal)
         );
-        if (result.bar_specification.step !== query.bar_specification.step)
+        if (JSON.stringify(result.bar_semantic) !== JSON.stringify(query.bar_semantic))
             throw new MarketDataWebError(
                 "CONTRACT_ERROR",
                 "Market Data returned a different Bar Specification"
@@ -175,7 +173,7 @@ export class FetchMarketDataApiClient implements MarketDataApiClient {
                 instrument_id: query.instrument_id,
                 start_ns: query.start_ns,
                 end_ns: query.end_ns,
-                bar_specification: query.bar_specification,
+                bar_semantic: query.bar_semantic,
                 provenance: "REST_BACKFILL"
             })
         });

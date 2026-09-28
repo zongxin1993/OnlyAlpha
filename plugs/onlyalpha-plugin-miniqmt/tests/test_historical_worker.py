@@ -31,12 +31,9 @@ from onlyalpha.data.warmup import (
 )
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
-    OnlyAggregationSource,
-    OnlyBarAggregation,
-    OnlyPriceType,
 )
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRuntimeId
-from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp
 
 pytestmark = [pytest.mark.contract, pytest.mark.miniqmt]
@@ -48,11 +45,7 @@ _TIMEOUT_SCENARIO_DEADLINE_SECONDS = 1
 
 def _request(*, timeout: int) -> OnlyHistoricalWarmupRequest:
     instrument_id = OnlyInstrumentId.parse("600000.XSHG")
-    bar_type = OnlyBarType(
-        instrument_id,
-        OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-        OnlyAggregationSource.EXTERNAL,
-    )
+    bar_type = OnlyBarType(instrument_id, OnlyBarSemantic.fixed_duration(1))
     return OnlyHistoricalWarmupRequest(
         "warmup-test",
         OnlyRuntimeId("streaming-test"),

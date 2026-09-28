@@ -31,15 +31,12 @@ from onlyalpha.data.sources import OnlyInMemoryHistoricalDataSource, OnlyInMemor
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
-    OnlyAggregationSource,
-    OnlyBarAggregation,
     OnlyCurrencyType,
     OnlyMarketType,
     OnlyOffset,
     OnlyOrderSide,
     OnlyOrderStatus,
     OnlyOrderType,
-    OnlyPriceType,
     OnlyRuntimeMode,
     OnlySessionType,
 )
@@ -56,7 +53,7 @@ from onlyalpha.domain.identifiers import (
     OnlyVenueId,
 )
 from onlyalpha.domain.instrument import OnlyEquity
-from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.time import OnlyTimeZone, OnlyTradingDay
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, OnlyPrice, OnlyQuantity
 from onlyalpha.event.bus import OnlyEventBus
@@ -76,6 +73,7 @@ from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceSt
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
 from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerSnapshot
 from tests.runtime_support.market_product import only_cn_ashare_market_product, only_generic_market_product
+from tests.support.bar_graph import only_time_bar_graph
 
 ENGINE_ID = "integration-engine"
 RUNTIME_ID = "integration-runtime"
@@ -193,7 +191,11 @@ class OnlyIntegrationCluster(OnlyCluster):
         super().__init__(
             OnlyClusterConfig(
                 str(cluster_id),
-                OnlyBarSubscription(bar_types, primary_bar_type=primary_bar_type),
+                OnlyBarSubscription(
+                    bar_types,
+                    only_time_bar_graph(bar_types[0], *bar_types[1:]),
+                    primary_bar_type=primary_bar_type,
+                ),
             ),
         )
         self.pending_order: OnlyOrderRequest | None = None
@@ -249,16 +251,8 @@ class OnlyIntegrationEnvironment:
             trading_calendar_id=OnlyCalendarId("XSHG"),
             timezone="Asia/Shanghai",
         )
-        self.bar_1m = OnlyBarType(
-            INSTRUMENT_ID,
-            OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-            OnlyAggregationSource.EXTERNAL,
-        )
-        self.bar_3m = OnlyBarType(
-            INSTRUMENT_ID,
-            OnlyBarSpecification(3, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
-            OnlyAggregationSource.INTERNAL,
-        )
+        self.bar_1m = OnlyBarType(INSTRUMENT_ID, OnlyBarSemantic.fixed_duration(1))
+        self.bar_3m = OnlyBarType(INSTRUMENT_ID, OnlyBarSemantic.fixed_duration(3))
         if cn_ashare_market:
             binding = only_cn_ashare_market_product(self.instrument, previous_close="11.00")
         else:

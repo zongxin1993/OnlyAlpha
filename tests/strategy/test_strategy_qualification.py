@@ -352,7 +352,7 @@ def test_same_subject_policy_and_research_evidence_is_deterministic_and_replayab
     assert first.outcome is OnlyQualificationOutcome.APPROVED
     # The fingerprint binds the exact canonical StrategyRevision and research
     # evidence while preserving the qualification outcome and criterion.
-    assert first.decision_fingerprint == "49d7320a395211f9c5a658745dc3f7bb9ae23a8de172bb660b200bb975db0144"
+    assert first.decision_fingerprint == "ac2c56d4cdc7619b70db319915dc5fd795a7e92d0076005ea8e78820f072e983"
     assert evaluator.replay(first.decision_fingerprint) == first
 
 
