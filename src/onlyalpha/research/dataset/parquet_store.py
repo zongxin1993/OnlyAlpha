@@ -177,6 +177,7 @@ class OnlyParquetResearchDatasetSnapshotStore:
                 tuple(manifests),
                 snapshot.provenance,
                 snapshot.created_at,
+                snapshot.construction_fingerprint,
             )
             (stage / "manifest.json").write_text(
                 json.dumps(committed.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":")),

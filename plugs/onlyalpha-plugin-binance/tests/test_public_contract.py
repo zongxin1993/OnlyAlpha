@@ -35,7 +35,7 @@ def test_current_binance_public_reference_contract(configuration: dict[str, obje
     server_time = json.loads(client.server_time())["serverTime"]
     assert json.loads(client.exchange_info(("BTCUSDT",)))["symbols"][0]["symbol"] == "BTCUSDT"
     end_ms = int(server_time) - int(server_time) % 60_000
-    assert OnlyBinanceSpotHistoricalClient(http).klines("BTCUSDT", end_ms - 120_000, end_ms, 2)
+    assert OnlyBinanceSpotHistoricalClient(http).klines("BTCUSDT", end_ms - 120_000, end_ms, 2, "1m")
 
 
 @pytest.mark.external

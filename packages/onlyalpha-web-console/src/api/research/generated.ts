@@ -2252,10 +2252,14 @@ export interface components {
             bar_specification: components["schemas"]["MarketDataBarSpecificationDto"];
             /** Bars */
             bars: components["schemas"]["MarketDataBarDto"][];
+            /** Base Revision Id */
+            base_revision_id: string | null;
             /** Calendar Fingerprint */
             calendar_fingerprint: string | null;
             /** Closed Only */
             closed_only: boolean;
+            /** Construction Fingerprint */
+            construction_fingerprint: string | null;
             coverage: components["schemas"]["MarketDataCoverageDto"];
             /** Display Symbol */
             display_symbol: string;
@@ -2265,6 +2269,10 @@ export interface components {
             instrument_id: string;
             /** Market */
             market: string;
+            /** Resolution Mode */
+            resolution_mode: string | null;
+            /** Resolution Plan Fingerprint */
+            resolution_plan_fingerprint: string | null;
             /** Revision Fingerprint */
             revision_fingerprint: string | null;
             /** Revision Id */

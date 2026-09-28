@@ -7,6 +7,7 @@ import json
 from collections.abc import Mapping
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
+from onlyalpha.market_data.resolution import OnlyBarConstructionIdentity
 
 from .models import (
     OnlyCanonicalMarketFactRecord,
@@ -45,6 +46,8 @@ def only_encode_record_bundle(bundle: OnlyMarketDataRecordBundle) -> bytes:
         # Absent means "written before Integration runtime provenance existed"; records
         # produced by an exact Integration runtime binding always carry it.
         evidence_value["integration_binding_fingerprint"] = evidence.integration_binding_fingerprint
+    if evidence.bar_construction is not None:
+        evidence_value["bar_construction"] = evidence.bar_construction.to_dict()
     value = {
         "schema_version": 1,
         "evidence": evidence_value,
@@ -100,6 +103,11 @@ def only_decode_record_bundle(payload: bytes) -> OnlyMarketDataRecordBundle:
         raw_sha256=str(evidence_raw["raw_sha256"]),
         provenance=OnlyMarketDataProvenance(str(evidence_raw["provenance"])),
         integration_binding_fingerprint=_optional_str(evidence_raw.get("integration_binding_fingerprint")),
+        bar_construction=(
+            None
+            if evidence_raw.get("bar_construction") is None
+            else OnlyBarConstructionIdentity.from_dict(evidence_raw["bar_construction"])
+        ),
     )
     facts: list[OnlyCanonicalMarketFactRecord] = []
     for value in facts_raw:

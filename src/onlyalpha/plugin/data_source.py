@@ -26,6 +26,7 @@ from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyInstrumentId, OnlyR
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBarType
 from onlyalpha.event.bus import OnlyEventBus
+from onlyalpha.market_data.resolution import OnlyBarCapability
 from onlyalpha.plugin.capabilities import OnlyDataSourceCapabilities, OnlyPluginValidationIssue
 from onlyalpha.plugin.descriptor import OnlyPluginDescriptor
 from onlyalpha.plugin.lifecycle import OnlyPluginResource
@@ -127,6 +128,15 @@ class OnlyDataSourceTimeBarCalendar(Protocol):
     """Provider-owned session authority for derived intraday Time Bars."""
 
     def time_bar_calendar(self, plugin_config: object) -> OnlyTradingCalendar: ...
+
+
+@runtime_checkable
+class OnlyDataSourceBarCapabilities(Protocol):
+    """Published native bar semantics for an exact source and instrument."""
+
+    def bar_capabilities(
+        self, plugin_config: object, instrument_id: OnlyInstrumentId
+    ) -> tuple[OnlyBarCapability, ...]: ...
 
 
 class OnlyDataSource(

@@ -35,13 +35,15 @@ def only_snapshot_fingerprint(
     schema: OnlyResearchBarDatasetSchema,
     content_fingerprint: str,
     row_count: int,
+    construction_fingerprint: str | None = None,
 ) -> str:
-    return only_canonical_fingerprint(
-        {
-            "schema_version": 1,
-            "definition_fingerprint": definition.fingerprint,
-            "dataset_schema_fingerprint": schema.fingerprint,
-            "content_fingerprint": content_fingerprint,
-            "row_count": row_count,
-        }
-    )
+    payload = {
+        "schema_version": 1,
+        "definition_fingerprint": definition.fingerprint,
+        "dataset_schema_fingerprint": schema.fingerprint,
+        "content_fingerprint": content_fingerprint,
+        "row_count": row_count,
+    }
+    if construction_fingerprint is not None:
+        payload["construction_fingerprint"] = construction_fingerprint
+    return only_canonical_fingerprint(payload)

@@ -91,3 +91,22 @@ def test_market_source_identity_is_plugin_owned_and_not_core_branching() -> None
         assert forbidden not in application, forbidden
         assert forbidden not in spi, forbidden
     assert "identity.source_id" in application
+
+
+def test_bar_resolution_is_shared_and_durable_without_provider_branches() -> None:
+    product = Path("src/onlyalpha/application/market_data_product.py").read_text()
+    stream = Path("src/onlyalpha/application/market_data_stream.py").read_text()
+    scope = Path("src/onlyalpha/market_data/durable/models.py").read_text()
+    coverage = Path("src/onlyalpha/market_data/durable/revision.py").read_text()
+    wal = Path("src/onlyalpha/market_data/durable/wal.py").read_text()
+    dataset = Path("src/onlyalpha/research/dataset/market_data_materializer.py").read_text()
+    assert "only_plan_bar_resolution(" in product
+    assert "self._historical._plan(" in stream
+    assert "bar_construction: OnlyBarConstructionIdentity" in scope
+    assert "segment.bar_construction != scope.bar_construction" in coverage
+    assert "construction.plan.target_specification" in coverage
+    assert "BAR_CONSTRUCTION_UNPROVABLE" in coverage
+    assert 'value["bar_construction"] = segment.bar_construction.to_dict()' in wal
+    assert "construction_bindings" in dataset
+    for source in (product, stream, coverage, dataset):
+        assert "onlyalpha_plugin_binance" not in source

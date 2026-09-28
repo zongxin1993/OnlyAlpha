@@ -20,12 +20,13 @@ from onlyalpha.data.historical import (
     OnlyHistoricalTradeFetchResult,
 )
 from onlyalpha.data.identifiers import OnlyDataVersion
-from onlyalpha.domain.enums import OnlyAdjustmentType
+from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyAggregationSource
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBarType
 from onlyalpha_plugin_binance.common.http import OnlyBinancePublicHttpClient
 from onlyalpha_plugin_binance.errors import OnlyBinanceError
 
+from .intervals import NATIVE_INTERVALS, only_binance_bar_interval
 from .normalize import only_normalize_rest_kline, only_normalize_rest_trade
 
 
@@ -40,12 +41,14 @@ class OnlyBinanceSpotHistoricalClient:
     def _get_json(self, endpoint: str, params: Mapping[str, str]) -> bytes:
         return self._http.get_json(endpoint, params)
 
-    def klines(self, symbol: str, start_ms: int, end_ms: int, limit: int) -> Sequence[Sequence[object]]:
+    def klines(self, symbol: str, start_ms: int, end_ms: int, limit: int, interval: str) -> Sequence[Sequence[object]]:
+        if interval not in NATIVE_INTERVALS.values():
+            raise OnlyBinanceError("BINANCE_BAR_SPECIFICATION_UNSUPPORTED")
         raw = self._get_json(
             "/api/v3/klines",
             {
                 "symbol": symbol,
-                "interval": "1m",
+                "interval": interval,
                 "startTime": str(start_ms),
                 "endTime": str(end_ms - 1),
                 "limit": str(limit),
@@ -114,6 +117,7 @@ class OnlyBinanceSpotHistoricalProvider:
         self._source_id = source_id
 
     def build_cache_key(self, request: OnlyHistoricalDataRequest) -> OnlyHistoricalBarCacheKey:
+        only_binance_bar_interval(request.bar_type.specification)
         return OnlyHistoricalBarCacheKey(
             self._source_id,
             "bars",
@@ -122,25 +126,38 @@ class OnlyBinanceSpotHistoricalProvider:
             request.price_adjustment,
             request.adjustment_reference,
             data_version=str(self._data_version),
-            compatibility_profile_id="BINANCE_SPOT_1M_CLOSED_V1",
+            compatibility_profile_id=(
+                "BINANCE_SPOT_1M_CLOSED_V1"
+                if request.bar_type.specification.step == 1
+                else f"BINANCE_SPOT_{only_binance_bar_interval(request.bar_type.specification)}_CLOSED_V1"
+            ),
             timestamp_semantics=OnlyBarTimestampSemantics.BAR_OPEN,
         )
 
     def fetch(self, request: OnlyHistoricalDataRequest, time_range: OnlyTimeRange) -> OnlyHistoricalFetchResult:
         if request.price_adjustment is not OnlyAdjustmentType.RAW:
             raise OnlyBinanceError("BINANCE_BAR_ADJUSTMENT_UNSUPPORTED")
+        if (
+            request.bar_type != self._bar_type
+            or self._bar_type.aggregation_source is not OnlyAggregationSource.EXTERNAL
+        ):
+            raise OnlyBinanceError("BINANCE_BAR_TYPE_MISMATCH")
         start_ms = _milliseconds(time_range.start)
         end_ms = _milliseconds(time_range.end)
+        step_ms = self._bar_type.specification.step * 60_000
+        interval = only_binance_bar_interval(self._bar_type.specification)
+        if start_ms % step_ms or end_ms % step_ms:
+            raise OnlyBinanceError("BINANCE_KLINE_RANGE_UNALIGNED")
         cursor = start_ms
         rows: list[object] = []
         while cursor < end_ms:
-            page = self._client.klines(str(self._instrument.raw_symbol), cursor, end_ms, self._page_size)
+            page = self._client.klines(str(self._instrument.raw_symbol), cursor, end_ms, self._page_size, interval)
             if not page:
                 break
             open_times = [int(str(item[0])) for item in page]
             if open_times != sorted(open_times) or len(set(open_times)) != len(open_times):
                 raise OnlyBinanceError("BINANCE_KLINE_PAGE_ORDER_INVALID")
-            next_cursor = open_times[-1] + 60_000
+            next_cursor = open_times[-1] + step_ms
             if next_cursor <= cursor:
                 raise OnlyBinanceError("BINANCE_KLINE_PAGINATION_NO_PROGRESS")
             if any(value < start_ms or value >= end_ms for value in open_times):
@@ -164,7 +181,7 @@ class OnlyBinanceSpotHistoricalProvider:
             for item in bars
             if time_range.start <= item.bar_start and item.bar_end <= time_range.end and item.bar_end <= self._now()
         )
-        expected = tuple(range(start_ms, end_ms, 60_000)) if start_ms % 60_000 == 0 else ()
+        expected = tuple(range(start_ms, end_ms, step_ms))
         complete = (
             bool(expected or start_ms == end_ms) and tuple(_milliseconds(item.bar_start) for item in closed) == expected
         )

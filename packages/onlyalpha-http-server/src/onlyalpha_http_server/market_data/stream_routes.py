@@ -39,6 +39,7 @@ def create_market_data_stream_router(service: OnlyMarketDataStreamProductService
                 instrument_id=request.instrument_id,
                 bar_specification=request.bar_specification.to_model(),
                 resume_after_sequence=int(request.resume_after_sequence),
+                resume_plan_fingerprint=request.resume_plan_fingerprint,
             )
             while True:
                 event = await asyncio.to_thread(session.next_event)

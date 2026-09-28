@@ -24,7 +24,7 @@ from onlyalpha.market_data.durable import (
     only_plan_contiguous_bar_gaps,
 )
 
-from .conftest import BAR_TYPE, BASE, INSTRUMENT, SOURCE, VERSION, bar_update
+from .conftest import BAR_CONSTRUCTION, BAR_TYPE, BASE, INSTRUMENT, SOURCE, VERSION, bar_update
 from .test_recovery_revision_dataset import _observation
 
 BINDING = "1" * 64
@@ -43,6 +43,7 @@ def _three_minute_scope() -> OnlyMarketDataScope:
         start + 3 * MINUTE,
         str(VERSION),
         only_canonical_fingerprint(BAR_TYPE.to_dict()),
+        bar_construction=BAR_CONSTRUCTION,
     )
 
 
@@ -53,6 +54,7 @@ def _write(wal: OnlyMarketDataWal, segment_id: str, *, binding: str | None, inde
         normalizer_version="1",
         ingest_clock_ns=lambda: 5,
         integration_binding_fingerprint=binding,
+        bar_construction=BAR_CONSTRUCTION,
     )
     ingress.begin_segment(segment_id)
     ingress.record(_observation(10 + index, "REST_BACKFILL"), bar_update(index))
@@ -154,6 +156,7 @@ def test_backfill_accepts_one_coalesced_planned_range_for_adjacent_gaps(tmp_path
         normalizer_id="binance-spot",
         normalizer_version="1",
         ingest_clock_ns=lambda: 5,
+        bar_construction=BAR_CONSTRUCTION,
     )
     ingress.begin_segment("initial")
     ingress.record(_observation(11, "REST_BACKFILL"), bar_update(0))

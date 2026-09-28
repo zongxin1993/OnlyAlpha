@@ -147,6 +147,37 @@ def test_public_market_data_bar_subscription_connects_to_resolved_combined_strea
         resource.stop()
 
 
+def test_native_subscription_uses_same_exact_fifteen_minute_interval(tmp_path: Path) -> None:
+    request = _request(tmp_path)
+    instrument, _ = _bar_type()
+    native_type = OnlyBarType(
+        instrument.instrument_id,
+        OnlyBarSpecification(15, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
+        OnlyAggregationSource.EXTERNAL,
+    )
+    resource = OnlyBinanceSpotDataSourceFactory().create(
+        replace(request, bar_types={instrument.instrument_id: native_type})
+    )
+    subscription = OnlyMarketDataSubscriptionRequest(
+        "native-bars", resource.source_id, frozenset({instrument.instrument_id}), frozenset({OnlyMarketDataType.BAR})
+    )
+    assert resource._streams(subscription) == ("btcusdt@kline_15m",)  # noqa: SLF001
+    assert (
+        OnlyBinanceSpotDataSourceFactory()
+        .bar_capabilities(request.plugin_config, instrument.instrument_id)[3]
+        .specification
+        == native_type.specification
+    )
+    with pytest.raises(OnlyBinanceError, match="BINANCE_KLINE_INTERVAL_MISMATCH"):
+        resource._normalize_event(  # noqa: SLF001
+            {
+                "e": "kline",
+                "s": "BTCUSDT",
+                "k": {"s": "BTCUSDT", "i": "1m", "t": 1_767_225_600_000, "x": False},
+            }
+        )
+
+
 def test_config_factory_and_public_resource_lifecycle_are_fail_closed(tmp_path: Path) -> None:
     factory = OnlyBinanceSpotDataSourceFactory()
     config = factory.parse_config({"timeout_seconds": "2", "rest_page_size": "250"})
@@ -464,7 +495,7 @@ def test_forming_kline_is_wal_durable_preview_only(tmp_path: Path) -> None:
 
     assert (
         resource.ingest_websocket_message(
-            b'{"e":"kline","E":1767225600124,"s":"BTCUSDT","k":{"t":1767225600000,"s":"BTCUSDT","o":"10.00","h":"11.00","l":"9.00","c":"10.50","v":"100","x":false}}'
+            b'{"e":"kline","E":1767225600124,"s":"BTCUSDT","k":{"t":1767225600000,"i":"1m","s":"BTCUSDT","o":"10.00","h":"11.00","l":"9.00","c":"10.50","v":"100","x":false}}'
         )
         == ()
     )
@@ -488,7 +519,7 @@ def test_wal_failure_prevents_forming_kline_visibility(tmp_path: Path) -> None:
 
     with pytest.raises(RuntimeError, match="WAL_FAILED"):
         resource.ingest_websocket_message(
-            b'{"e":"kline","E":1767225600124,"s":"BTCUSDT","k":{"t":1767225600000,"s":"BTCUSDT","o":"10.00","h":"11.00","l":"9.00","c":"10.50","v":"100","x":false}}'
+            b'{"e":"kline","E":1767225600124,"s":"BTCUSDT","k":{"t":1767225600000,"i":"1m","s":"BTCUSDT","o":"10.00","h":"11.00","l":"9.00","c":"10.50","v":"100","x":false}}'
         )
 
     assert previews == []
@@ -523,7 +554,7 @@ def test_closed_kline_is_wal_durable_before_canonical_delivery(tmp_path: Path) -
     resource._continuity.complete_recovery()  # noqa: SLF001
 
     accepted = resource.ingest_websocket_message(
-        b'{"e":"kline","E":1767225660000,"s":"BTCUSDT","k":{"t":1767225600000,"s":"BTCUSDT","o":"10.00","h":"11.00","l":"9.00","c":"10.50","v":"100","q":"1050","n":42,"x":true}}'
+        b'{"e":"kline","E":1767225660000,"s":"BTCUSDT","k":{"t":1767225600000,"i":"1m","s":"BTCUSDT","o":"10.00","h":"11.00","l":"9.00","c":"10.50","v":"100","q":"1050","n":42,"x":true}}'
     )
 
     assert delivered == list(accepted) and len(accepted) == 1

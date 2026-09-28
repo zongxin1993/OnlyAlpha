@@ -21,7 +21,7 @@ from onlyalpha.market_data.durable import (
     OnlyRevisionCommitService,
 )
 
-from .conftest import BAR_TYPE, BAR_TYPE_ID, BASE, INSTRUMENT, SOURCE, VERSION, bar_update
+from .conftest import BAR_CONSTRUCTION, BAR_TYPE, BAR_TYPE_ID, BASE, INSTRUMENT, SOURCE, VERSION, bar_update
 from .test_recovery_revision_dataset import _observation
 
 BINDING = "3" * 64
@@ -76,6 +76,7 @@ def _two_minute_scope() -> OnlyMarketDataScope:
         base_ns + 120_000_000_000,
         str(VERSION),
         BAR_TYPE_ID,
+        bar_construction=BAR_CONSTRUCTION,
     )
 
 
@@ -94,7 +95,11 @@ def _write_bar(
 def test_backfill_uses_exact_typed_gap_same_wal_and_creates_complete_child_revision(tmp_path, fixed_now) -> None:  # type: ignore[no-untyped-def]
     wal = OnlyMarketDataWal(tmp_path, capacity_bytes=2_000_000, now=fixed_now)
     ingress = OnlyMarketDataIngress(
-        wal, normalizer_id="binance-spot", normalizer_version="1", ingest_clock_ns=lambda: 5
+        wal,
+        normalizer_id="binance-spot",
+        normalizer_version="1",
+        ingest_clock_ns=lambda: 5,
+        bar_construction=BAR_CONSTRUCTION,
     )
     first_id = _write_bar(ingress, "initial", 0, "101.00000000")
     store = OnlyInMemoryMarketFactStore()
@@ -137,7 +142,11 @@ def test_backfill_uses_exact_typed_gap_same_wal_and_creates_complete_child_revis
 def test_backfill_rejects_source_stream_that_bypasses_durable_recorder(tmp_path, fixed_now) -> None:  # type: ignore[no-untyped-def]
     wal = OnlyMarketDataWal(tmp_path, capacity_bytes=2_000_000, now=fixed_now)
     ingress = OnlyMarketDataIngress(
-        wal, normalizer_id="binance-spot", normalizer_version="1", ingest_clock_ns=lambda: 5
+        wal,
+        normalizer_id="binance-spot",
+        normalizer_version="1",
+        ingest_clock_ns=lambda: 5,
+        bar_construction=BAR_CONSTRUCTION,
     )
     first_id = _write_bar(ingress, "initial", 0, "101.00000000")
     store = OnlyInMemoryMarketFactStore()
@@ -170,7 +179,13 @@ def test_backfill_rejects_source_stream_that_bypasses_durable_recorder(tmp_path,
 
 def test_correction_composes_from_durable_parent_without_old_wal_and_is_deterministic(tmp_path, fixed_now) -> None:  # type: ignore[no-untyped-def]
     wal = OnlyMarketDataWal(tmp_path, capacity_bytes=2_000_000, now=fixed_now)
-    ingress = OnlyMarketDataIngress(wal, normalizer_id="n", normalizer_version="1", ingest_clock_ns=lambda: 5)
+    ingress = OnlyMarketDataIngress(
+        wal,
+        normalizer_id="n",
+        normalizer_version="1",
+        ingest_clock_ns=lambda: 5,
+        bar_construction=BAR_CONSTRUCTION,
+    )
     first_id = _write_bar(ingress, "s1", 0, "101.00000000")
     second_id = _write_bar(ingress, "s-bad", 1, "101.50000000")
     store = OnlyInMemoryMarketFactStore()

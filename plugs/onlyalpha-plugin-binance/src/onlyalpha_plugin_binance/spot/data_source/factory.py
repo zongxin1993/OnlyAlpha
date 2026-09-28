@@ -2,10 +2,13 @@ import time
 from collections.abc import Mapping, Sequence
 from datetime import time as wall_time
 
+from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
-from onlyalpha.domain.enums import OnlySessionType
-from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyVenueId
+from onlyalpha.domain.enums import OnlyBarAggregation, OnlyPriceType, OnlySessionType
+from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyInstrumentId, OnlyVenueId
+from onlyalpha.domain.market import OnlyBarSpecification
 from onlyalpha.domain.time import OnlyTimeZone
+from onlyalpha.market_data.resolution import OnlyBarCapability, OnlyBarIntervalKind
 from onlyalpha.plugin.capabilities import OnlyPluginValidationIssue
 from onlyalpha.plugin.data_source import (
     OnlyDataSourceCreateRequest,
@@ -26,7 +29,14 @@ from ...descriptor import (
 from ..reference.client import OnlyBinanceSpotReferenceClient
 from .config import OnlyBinanceMarketEnvironment, OnlyBinanceSpotDataSourceConfig
 from .historical import OnlyBinanceSpotHistoricalClient
-from .instrument_catalog import MARKET, VENUE, OnlyBinanceSpotInstrumentCatalog
+from .instrument_catalog import (
+    MARKET,
+    REFERENCE_SYMBOLS,
+    VENUE,
+    OnlyBinanceSpotInstrumentCatalog,
+    only_binance_raw_symbol,
+)
+from .intervals import NATIVE_INTERVALS
 from .probe import OnlyBinanceSpotProbe
 from .resource import OnlyBinanceSpotDataSource
 from .websocket import OnlyBinanceWebSocketTransport
@@ -47,6 +57,23 @@ class OnlyBinanceSpotDataSourceFactory:
         LEGACY_SPOT_DATA_INTEGRATION_TYPE.fingerprint,
         PRE_REALTIME_SPOT_DATA_INTEGRATION_TYPE.fingerprint,
     )
+
+    def bar_capabilities(self, plugin_config: object, instrument_id: OnlyInstrumentId) -> tuple[OnlyBarCapability, ...]:
+        self.market_identity(plugin_config)
+        if only_binance_raw_symbol(str(instrument_id)) not in REFERENCE_SYMBOLS:
+            return ()
+        alignment_id = only_canonical_fingerprint(self.time_bar_calendar(plugin_config).to_dict())
+        return tuple(
+            OnlyBarCapability(
+                OnlyBarSpecification(minutes, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
+                OnlyBarIntervalKind.FIXED_DURATION,
+                alignment_id,
+                True,
+                True,
+                grid_origin_ns=0,
+            )
+            for minutes in NATIVE_INTERVALS
+        )
 
     def parse_config(self, extensions: Mapping[str, object]) -> OnlyBinanceSpotDataSourceConfig:
         return OnlyBinanceSpotDataSourceConfig.parse(extensions)

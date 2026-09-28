@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from onlyalpha.data.evidence import OnlyDurabilityState, OnlyDurableRecordReceipt, OnlyRawProviderObservation
 from onlyalpha.data.models import OnlyMarketDataInboundUpdate
+from onlyalpha.market_data.resolution import OnlyBarConstructionIdentity
 
 from .models import (
     OnlyCanonicalMarketFactRecord,
@@ -28,6 +29,7 @@ class OnlyMarketDataIngress:
         ingest_clock_ns: Callable[[], int],
         barrier: Callable[[str], None] | None = None,
         integration_binding_fingerprint: str | None = None,
+        bar_construction: OnlyBarConstructionIdentity | None = None,
     ) -> None:
         self._wal = wal
         self._normalizer_id = normalizer_id
@@ -35,6 +37,7 @@ class OnlyMarketDataIngress:
         self._ingest_clock_ns = ingest_clock_ns
         self._barrier = barrier or (lambda _stage: None)
         self._integration_binding_fingerprint = integration_binding_fingerprint
+        self._bar_construction = bar_construction
         self._segment_id: str | None = None
 
     def begin_segment(self, segment_id: str | None = None) -> str:
@@ -65,6 +68,7 @@ class OnlyMarketDataIngress:
             payload=observation.payload,
             provenance=OnlyMarketDataProvenance(observation.provenance),
             integration_binding_fingerprint=self._integration_binding_fingerprint,
+            bar_construction=self._bar_construction,
         )
         updates = (
             ()

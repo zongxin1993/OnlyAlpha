@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
+from onlyalpha_plugin_binance.errors import OnlyBinanceError
 from onlyalpha_plugin_binance.spot.data_source.historical import (
     OnlyBinanceSpotHistoricalClient,
     OnlyBinanceSpotHistoricalProvider,
@@ -11,6 +13,8 @@ from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHi
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.data.historical import OnlyHistoricalDataRequest, OnlyHistoricalTradeDataRequest
 from onlyalpha.data.identifiers import OnlyDataVersion
+from onlyalpha.domain.enums import OnlyAggregationSource, OnlyBarAggregation, OnlyPriceType
+from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
 
 
 class FakeHistoricalClient:
@@ -20,8 +24,9 @@ class FakeHistoricalClient:
         self.trades = trades
         self.kline_calls: list[tuple[int, int]] = []
 
-    def klines(self, symbol: str, start_ms: int, end_ms: int, limit: int):  # type: ignore[no-untyped-def]
+    def klines(self, symbol: str, start_ms: int, end_ms: int, limit: int, interval: str):  # type: ignore[no-untyped-def]
         self.kline_calls.append((start_ms, end_ms))
+        assert interval == "1m"
         return [item for item in self.klines_result if start_ms <= int(item[0]) < end_ms][:limit]
 
     def aggregate_trade_locator(self, symbol: str, start_ms: int, end_ms: int):  # type: ignore[no-untyped-def]
@@ -78,6 +83,12 @@ def test_reference_price_client_uses_exact_rest_semantics() -> None:
     assert OnlyBinanceSpotHistoricalClient(missing).reference_price("BTCUSDT") is None  # type: ignore[arg-type]
 
 
+def test_rest_client_rejects_unsupported_interval_before_network() -> None:
+    client = OnlyBinanceSpotHistoricalClient(FakeHttpClient(b"[]"))  # type: ignore[arg-type]
+    with pytest.raises(OnlyBinanceError, match="BINANCE_BAR_SPECIFICATION_UNSUPPORTED"):
+        client.klines("BTCUSDT", 0, 60_000, 1, "7m")
+
+
 def test_historical_bar_exact_half_open_range_and_open_tail_cannot_close_coverage(tmp_path, binance_bar_type) -> None:  # type: ignore[no-untyped-def]
     start = datetime(2026, 1, 1, tzinfo=UTC)
     end = start + timedelta(minutes=3)
@@ -103,6 +114,28 @@ def test_historical_bar_exact_half_open_range_and_open_tail_cannot_close_coverag
     )
     assert len(incomplete.records) == 2
     assert incomplete.resolved_ranges == ()
+
+
+def test_native_fifteen_minute_fetch_uses_exact_provider_interval(binance_bar_type) -> None:  # type: ignore[no-untyped-def]
+    instrument, _ = binance_bar_type
+    bar_type = OnlyBarType(
+        instrument.instrument_id,
+        OnlyBarSpecification(15, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
+        OnlyAggregationSource.EXTERNAL,
+    )
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    end = start + timedelta(minutes=30)
+
+    class NativeClient(FakeHistoricalClient):
+        def klines(self, symbol, start_ms, end_ms, limit, interval="1m"):  # type: ignore[no-untyped-def]
+            assert interval == "15m"
+            return [_kline(start), _kline(start + timedelta(minutes=15))]
+
+    provider, _, _ = _provider(NativeClient([]), end, (instrument, bar_type))
+    time_range = OnlyTimeRange(start, end)
+    result = provider.fetch(OnlyHistoricalDataRequest(instrument.instrument_id, bar_type, time_range), time_range)
+    assert result.resolved_ranges == (time_range,)
+    assert [bar.bar_end for bar in result.records] == [start + timedelta(minutes=15), end]
 
 
 def test_historical_raw_trade_locator_rows_are_not_emitted_and_range_is_exact(binance_bar_type) -> None:  # type: ignore[no-untyped-def]

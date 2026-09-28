@@ -228,6 +228,10 @@ class MarketDataBarsDto(_Dto):
     bars: tuple[MarketDataBarDto, ...]
     aggregation_semantics_version: str | None
     calendar_fingerprint: str | None
+    resolution_mode: str | None
+    resolution_plan_fingerprint: str | None
+    base_revision_id: str | None
+    construction_fingerprint: str | None
 
     @classmethod
     def from_model(cls, value: OnlyMarketDataBarsProjectionV1) -> MarketDataBarsDto:
@@ -250,6 +254,10 @@ class MarketDataBarsDto(_Dto):
             seal_id=value.seal_id,
             aggregation_semantics_version=value.aggregation_semantics_version,
             calendar_fingerprint=value.calendar_fingerprint,
+            resolution_mode=value.resolution_mode,
+            resolution_plan_fingerprint=value.resolution_plan_fingerprint,
+            base_revision_id=value.base_revision_id,
+            construction_fingerprint=value.construction_fingerprint,
             bars=tuple(
                 MarketDataBarDto(
                     bar_start_ns=str(item.bar_start_ns),

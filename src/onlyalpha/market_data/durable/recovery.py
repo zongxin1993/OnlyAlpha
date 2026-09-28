@@ -179,6 +179,7 @@ class OnlyMarketDataRecoveryCoordinator:
                 scope.data_kind,
                 scope.data_version,
                 scope.bar_type,
+                None if scope.bar_construction is None else scope.bar_construction.fingerprint,
             )
             entry = groups.setdefault(key, ([], []))
             entry[0].append(segment_id)
@@ -241,9 +242,26 @@ def _merge_recovery_scopes(scopes: tuple[OnlyMarketDataScope, ...]) -> OnlyMarke
     if not scopes:
         raise ValueError("MARKET_DATA_RECOVERY_SCOPE_EMPTY")
     first = scopes[0]
-    identity = (first.source_id, first.market, first.instrument_id, first.data_kind, first.data_version, first.bar_type)
+    identity = (
+        first.source_id,
+        first.market,
+        first.instrument_id,
+        first.data_kind,
+        first.data_version,
+        first.bar_type,
+        first.bar_construction,
+    )
     if any(
-        (item.source_id, item.market, item.instrument_id, item.data_kind, item.data_version, item.bar_type) != identity
+        (
+            item.source_id,
+            item.market,
+            item.instrument_id,
+            item.data_kind,
+            item.data_version,
+            item.bar_type,
+            item.bar_construction,
+        )
+        != identity
         for item in scopes
     ):
         raise RuntimeError("MARKET_DATA_RECOVERY_SCOPE_CONFLICT")
@@ -263,6 +281,7 @@ def _merge_recovery_scopes(scopes: tuple[OnlyMarketDataScope, ...]) -> OnlyMarke
         first.bar_type,
         min(item[0] for item in sequences) if len(sequences) == len(scopes) else None,
         max(item[1] for item in sequences) if len(sequences) == len(scopes) else None,
+        first.bar_construction,
     )
 
 

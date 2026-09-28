@@ -10,9 +10,26 @@ from enum import StrEnum
 
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.data.models import OnlyMarketDataInboundUpdate
+from onlyalpha.domain.enums import OnlyAggregationSource
+from onlyalpha.domain.identifiers import OnlyInstrumentId
+from onlyalpha.domain.market import OnlyBarType
 from onlyalpha.domain.time import only_require_utc
+from onlyalpha.market_data.resolution import OnlyBarConstructionIdentity, OnlyBarResolutionMode
 
 _BINDING_FINGERPRINT = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _construction_bar_type(instrument_id: str, construction: OnlyBarConstructionIdentity) -> str:
+    aggregation_source = (
+        OnlyAggregationSource.EXTERNAL
+        if construction.plan.mode is OnlyBarResolutionMode.EXTERNAL_NATIVE
+        else OnlyAggregationSource.INTERNAL
+    )
+    return only_canonical_fingerprint(
+        OnlyBarType(
+            OnlyInstrumentId.parse(instrument_id), construction.plan.target_specification, aggregation_source
+        ).to_dict()
+    )
 
 
 def _require_binding(value: str) -> None:
@@ -110,6 +127,7 @@ class OnlyRawProviderEvidence:
     raw_sha256: str
     provenance: OnlyMarketDataProvenance
     integration_binding_fingerprint: str | None = None
+    bar_construction: OnlyBarConstructionIdentity | None = None
 
     def __post_init__(self) -> None:
         if hashlib.sha256(self.payload).hexdigest() != self.raw_sha256:
@@ -131,6 +149,11 @@ class OnlyRawProviderEvidence:
         ):
             raise ValueError("RAW_EVIDENCE_IDENTITY_INVALID")
         _require_optional_binding(self.integration_binding_fingerprint)
+        if (
+            self.bar_construction is not None
+            and self.bar_construction.plan.mode is not OnlyBarResolutionMode.EXTERNAL_NATIVE
+        ):
+            raise ValueError("RAW_PROVIDER_BAR_CONSTRUCTION_INVALID")
 
     @classmethod
     def capture(
@@ -152,6 +175,7 @@ class OnlyRawProviderEvidence:
         payload_codec: str = "application/json",
         provider_schema: str = "v1",
         integration_binding_fingerprint: str | None = None,
+        bar_construction: OnlyBarConstructionIdentity | None = None,
     ) -> OnlyRawProviderEvidence:
         raw_hash = hashlib.sha256(payload).hexdigest()
         identity = only_canonical_fingerprint(
@@ -186,6 +210,7 @@ class OnlyRawProviderEvidence:
             raw_hash,
             provenance,
             integration_binding_fingerprint,
+            bar_construction,
         )
 
 
@@ -297,11 +322,21 @@ class OnlyIngestSegment:
     first_sequence: int | None = None
     last_sequence: int | None = None
     integration_binding_fingerprint: str | None = None
+    bar_construction: OnlyBarConstructionIdentity | None = None
 
     def __post_init__(self) -> None:
         only_require_utc(self.created_at, "segment created_at")
         only_require_utc(self.sealed_at, "segment sealed_at")
         _require_optional_binding(self.integration_binding_fingerprint)
+        if self.bar_construction is not None and (
+            self.data_kind != "BAR"
+            or self.bar_construction.plan.mode is not OnlyBarResolutionMode.EXTERNAL_NATIVE
+            or self.bar_construction.data_version != self.data_version
+            or self.bar_construction.plan.source_id != self.source_id
+            or self.bar_construction.plan.instrument_id != self.instrument_id
+            or self.bar_type != _construction_bar_type(self.instrument_id, self.bar_construction)
+        ):
+            raise ValueError("SEGMENT_BAR_CONSTRUCTION_INVALID")
         if (
             self.sealed_at < self.created_at
             or self.schema_version != 1
@@ -350,6 +385,8 @@ class OnlyIngestSegment:
             or self.data_version is None
         ):
             raise ValueError(f"SEGMENT_RECOVERY_SCOPE_UNPROVABLE:{self.segment_id}")
+        if self.data_kind == "BAR" and self.bar_construction is None:
+            raise ValueError(f"SEGMENT_BAR_CONSTRUCTION_UNPROVABLE:{self.segment_id}")
         return OnlyMarketDataScope(
             self.source_id,
             self.market,
@@ -361,6 +398,7 @@ class OnlyIngestSegment:
             self.bar_type,
             self.first_sequence,
             self.last_sequence,
+            self.bar_construction,
         )
 
 
@@ -376,10 +414,19 @@ class OnlyMarketDataScope:
     bar_type: str | None = None
     first_sequence: int | None = None
     last_sequence: int | None = None
+    bar_construction: OnlyBarConstructionIdentity | None = None
 
     def __post_init__(self) -> None:
         if self.start_ns >= self.end_ns:
             raise ValueError("MARKET_DATA_SCOPE_INVALID")
+        if self.bar_construction is not None and (
+            self.data_kind != "BAR"
+            or self.bar_construction.data_version != self.data_version
+            or self.bar_construction.plan.source_id != self.source_id
+            or self.bar_construction.plan.instrument_id != self.instrument_id
+            or self.bar_type != _construction_bar_type(self.instrument_id, self.bar_construction)
+        ):
+            raise ValueError("MARKET_DATA_SCOPE_CONSTRUCTION_INVALID")
         if (self.first_sequence is None) != (self.last_sequence is None):
             raise ValueError("MARKET_DATA_SEQUENCE_SCOPE_INCOMPLETE")
         if (

@@ -16,6 +16,7 @@ from typing import TypedDict, cast
 
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.core.clock import only_system_utc_now
+from onlyalpha.market_data.resolution import OnlyBarConstructionIdentity
 
 from .codec import only_decode_record_bundle, only_encode_record_bundle
 from .models import (
@@ -168,6 +169,7 @@ class OnlyMarketDataWal:
             evidence.provider_schema,
             evidence.payload_codec,
             evidence.integration_binding_fingerprint,
+            evidence.bar_construction,
         )
         if any(
             (
@@ -181,6 +183,7 @@ class OnlyMarketDataWal:
                 item.evidence.provider_schema,
                 item.evidence.payload_codec,
                 item.evidence.integration_binding_fingerprint,
+                item.evidence.bar_construction,
             )
             != scope_identity
             for item in bundles
@@ -261,6 +264,11 @@ class OnlyMarketDataWal:
             first_sequence=_optional_int(raw.get("first_sequence", fallback.get("first_sequence"))),
             last_sequence=_optional_int(raw.get("last_sequence", fallback.get("last_sequence"))),
             integration_binding_fingerprint=_optional_str(raw.get("integration_binding_fingerprint")),
+            bar_construction=(
+                None
+                if raw.get("bar_construction") is None
+                else OnlyBarConstructionIdentity.from_dict(cast(Mapping[str, object], raw["bar_construction"]))
+            ),
         )
 
     def _recover_sealed_metadata(self, segment_id: str) -> None:
@@ -331,10 +339,13 @@ class OnlyMarketDataWal:
     def verify_sealed(self, segment: OnlyIngestSegment) -> bool:
         path = self._path(segment.segment_id, "sealed")
         records = tuple(self._read_frames(path, sealed=True))
-        return (
-            len(records) == segment.record_count
-            and hashlib.sha256(path.read_bytes()).hexdigest() == segment.content_hash
-        )
+        if (
+            len(records) != segment.record_count
+            or hashlib.sha256(path.read_bytes()).hexdigest() != segment.content_hash
+        ):
+            return False
+        bundles = tuple(only_decode_record_bundle(payload) for _, payload in records)
+        return self._build_segment(segment.segment_id, bundles, segment.created_at, segment.sealed_at, path) == segment
 
     def recover_open(self, segment_id: str) -> OnlyWalRecoveryResult:
         path = self._path(segment_id, "open")
@@ -608,6 +619,13 @@ class OnlyMarketDataWal:
         wal_path: Path,
     ) -> OnlyIngestSegment:
         evidence = bundles[0].evidence
+        if any(
+            item.evidence.source_id != evidence.source_id
+            or item.evidence.bar_construction != evidence.bar_construction
+            or item.evidence.integration_binding_fingerprint != evidence.integration_binding_fingerprint
+            for item in bundles
+        ):
+            raise OnlyWalError("WAL_SEGMENT_CONSTRUCTION_CONFLICT")
         facts = tuple(fact for bundle in bundles for fact in bundle.canonical_facts)
         recovery = self._recovery_metadata(facts)
         return OnlyIngestSegment(
@@ -629,6 +647,7 @@ class OnlyMarketDataWal:
             created_at=created_at,
             sealed_at=sealed_at,
             integration_binding_fingerprint=evidence.integration_binding_fingerprint,
+            bar_construction=evidence.bar_construction,
             **recovery,
         )
 
@@ -720,6 +739,8 @@ class OnlyMarketDataWal:
         }
         if segment.integration_binding_fingerprint is not None:
             value["integration_binding_fingerprint"] = segment.integration_binding_fingerprint
+        if segment.bar_construction is not None:
+            value["bar_construction"] = segment.bar_construction.to_dict()
         return value
 
     def _path(self, segment_id: str, state: str) -> Path:

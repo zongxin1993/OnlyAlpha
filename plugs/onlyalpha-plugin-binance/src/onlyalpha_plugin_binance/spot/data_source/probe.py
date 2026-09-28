@@ -172,7 +172,7 @@ class OnlyBinanceSpotProbe:
         end_ms = server_time_ms - server_time_ms % 60_000
         start_ms = end_ms - 120_000
         try:
-            rows = self._historical.klines(symbol, start_ms, end_ms, 3)
+            rows = self._historical.klines(symbol, start_ms, end_ms, 3, "1m")
             _validate_klines(rows, start_ms=start_ms, end_ms=end_ms)
         except (IndexError, InvalidOperation, KeyError, TypeError, ValueError, OnlyBinanceSchemaError):
             return self._schema_failure(

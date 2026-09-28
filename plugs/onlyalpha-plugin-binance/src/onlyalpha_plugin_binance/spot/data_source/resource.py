@@ -58,6 +58,7 @@ from ...descriptor import DATA_DESCRIPTOR
 from .config import OnlyBinanceSpotDataSourceConfig
 from .continuity import OnlyBinanceSpotContinuityCoordinator
 from .historical import OnlyBinanceSpotHistoricalClient, OnlyBinanceSpotHistoricalProvider
+from .intervals import only_binance_bar_interval
 from .normalize import (
     only_normalize_reference_price,
     only_normalize_rest_kline,
@@ -505,7 +506,10 @@ class OnlyBinanceSpotDataSource:
             instrument = self._request.instruments[instrument_id]
             symbol = str(instrument.raw_symbol)
             if OnlyMarketDataType.BAR in request.data_types:
-                last = int(minute.timestamp()) // 60 - 1
+                specification = self._request.bar_types[instrument_id].specification
+                interval = only_binance_bar_interval(specification)
+                step_ms = specification.step * 60_000
+                last = int(minute.timestamp() * 1000) // step_ms - 1
                 if request.resume_after_sequence is not None and request.resume_after_sequence > last:
                     raise OnlyBinanceError("MARKET_DATA_RESUME_CURSOR_INVALID")
                 first = request.resume_after_sequence + 1 if request.resume_after_sequence is not None else last
@@ -514,7 +518,7 @@ class OnlyBinanceSpotDataSource:
                     continue
                 if count > self._config.realtime_resume_max_bars:
                     raise OnlyBinanceError("HISTORY_REFRESH_REQUIRED")
-                rows = self._historical.klines(symbol, first * 60_000, (last + 1) * 60_000, count)
+                rows = self._historical.klines(symbol, first * step_ms, (last + 1) * step_ms, count, interval)
                 normalized = tuple(
                     only_normalize_rest_kline(item, instrument, self._request.bar_types[instrument_id]) for item in rows
                 )
@@ -552,6 +556,10 @@ class OnlyBinanceSpotDataSource:
                 raise OnlyBinanceError("BINANCE_KLINE_EVENT_INVALID")
             symbol = str(kline.get("s", symbol)).upper()
             kline_instrument = self._symbol_map[symbol]
+            if kline.get("i") != only_binance_bar_interval(
+                self._request.bar_types[kline_instrument.instrument_id].specification
+            ):
+                raise OnlyBinanceError("BINANCE_KLINE_INTERVAL_MISMATCH")
             bar = only_normalize_ws_kline(
                 kline,
                 kline_instrument,
@@ -582,9 +590,12 @@ class OnlyBinanceSpotDataSource:
                 for item in trade_rows
             )
         elif update.data_type is OnlyMarketDataType.BAR:
-            start_ms = first * 60_000
-            end_ms = (last + 1) * 60_000
-            bar_rows = self._historical.klines(str(instrument.raw_symbol), start_ms, end_ms, last - first + 1)
+            specification = self._request.bar_types[update.instrument_id].specification
+            interval = only_binance_bar_interval(specification)
+            step_ms = specification.step * 60_000
+            start_ms = first * step_ms
+            end_ms = (last + 1) * step_ms
+            bar_rows = self._historical.klines(str(instrument.raw_symbol), start_ms, end_ms, last - first + 1, interval)
             from .normalize import only_normalize_rest_kline
 
             recovered = tuple(
@@ -604,7 +615,7 @@ class OnlyBinanceSpotDataSource:
     def _bar_update(
         self, bar: OnlyBar, data_version: OnlyDataVersion, *, rest: bool = False
     ) -> OnlyMarketDataInboundUpdate:
-        sequence = int(bar.bar_start.timestamp()) // 60
+        sequence = int(bar.bar_start.timestamp()) // (60 * bar.bar_type.specification.step)
         return self._envelope(
             only_bar_update_id(self.source_id, bar.instrument_id, bar.bar_type, bar.bar_start, data_version),
             sequence,
@@ -732,16 +743,19 @@ class OnlyBinanceSpotDataSource:
         return OnlyTimestamp.from_unix_nanos(self._request.clock.timestamp_ns()).to_datetime()
 
     def _streams(self, request: OnlyMarketDataSubscriptionRequest) -> tuple[str, ...]:
-        suffixes = {
-            OnlyMarketDataType.BAR: "kline_1m",
-            OnlyMarketDataType.TRADE: "trade",
-            OnlyMarketDataType.MARKET_REFERENCE: "referencePrice",
-        }
-        return tuple(
-            f"{str(self._request.instruments[instrument_id].raw_symbol).lower()}@{suffixes[data_type]}"
-            for instrument_id in sorted(request.instrument_ids, key=str)
-            for data_type in sorted(request.data_types, key=lambda item: item.value)
-        )
+        streams = []
+        for instrument_id in sorted(request.instrument_ids, key=str):
+            symbol = str(self._request.instruments[instrument_id].raw_symbol).lower()
+            for data_type in sorted(request.data_types, key=lambda item: item.value):
+                suffix = (
+                    f"kline_{only_binance_bar_interval(self._request.bar_types[instrument_id].specification)}"
+                    if data_type is OnlyMarketDataType.BAR
+                    else "trade"
+                    if data_type is OnlyMarketDataType.TRADE
+                    else "referencePrice"
+                )
+                streams.append(f"{symbol}@{suffix}")
+        return tuple(streams)
 
     def _connection(
         self, status: OnlyMarketDataRequestStatus, reason: str | None = None

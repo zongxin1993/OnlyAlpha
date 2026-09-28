@@ -54,7 +54,8 @@ class _Historical:
         self.rows = rows if rows is not None else [_kline(NOW_MS - 120_000), _kline(NOW_MS - 60_000)]
         self.calls: list[tuple[str, int, int, int]] = []
 
-    def klines(self, symbol: str, start_ms: int, end_ms: int, limit: int) -> list[list[object]]:
+    def klines(self, symbol: str, start_ms: int, end_ms: int, limit: int, interval: str) -> list[list[object]]:
+        assert interval == "1m"
         self.calls.append((symbol, start_ms, end_ms, limit))
         return self.rows
 

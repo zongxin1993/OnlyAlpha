@@ -2427,6 +2427,17 @@
             "title": "Bars",
             "type": "array"
           },
+          "base_revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Revision Id"
+          },
           "calendar_fingerprint": {
             "anyOf": [
               {
@@ -2441,6 +2452,17 @@
           "closed_only": {
             "title": "Closed Only",
             "type": "boolean"
+          },
+          "construction_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Construction Fingerprint"
           },
           "coverage": {
             "$ref": "#/components/schemas/MarketDataCoverageDto"
@@ -2461,6 +2483,28 @@
           "market": {
             "title": "Market",
             "type": "string"
+          },
+          "resolution_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution Mode"
+          },
+          "resolution_plan_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution Plan Fingerprint"
           },
           "revision_fingerprint": {
             "anyOf": [
@@ -2532,7 +2576,11 @@
           "seal_id",
           "bars",
           "aggregation_semantics_version",
-          "calendar_fingerprint"
+          "calendar_fingerprint",
+          "resolution_mode",
+          "resolution_plan_fingerprint",
+          "base_revision_id",
+          "construction_fingerprint"
         ],
         "title": "MarketDataBarsDto",
         "type": "object"

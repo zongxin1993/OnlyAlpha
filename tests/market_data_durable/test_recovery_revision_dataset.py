@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import timedelta
+from datetime import time, timedelta
 from pathlib import Path
 
 import pytest
@@ -12,8 +12,17 @@ from onlyalpha.data.enums import OnlyDataSequenceSemantics
 from onlyalpha.data.evidence import OnlyRawProviderObservation
 from onlyalpha.data.identity import only_bar_update_id
 from onlyalpha.data.models import OnlyBarUpdate
-from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyAggregationSource
-from onlyalpha.domain.identifiers import OnlyInstrumentId
+from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
+from onlyalpha.domain.enums import (
+    OnlyAdjustmentType,
+    OnlyAggregationSource,
+    OnlyBarAggregation,
+    OnlyPriceType,
+    OnlySessionType,
+)
+from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyInstrumentId, OnlyVenueId
+from onlyalpha.domain.market import OnlyBarSpecification
+from onlyalpha.domain.time import OnlyTimeZone
 from onlyalpha.market_data.durable import (
     OnlyBarCoverageGap,
     OnlyCoverageStatus,
@@ -32,13 +41,30 @@ from onlyalpha.market_data.durable import (
     only_build_coverage,
     only_build_seal,
 )
+from onlyalpha.market_data.resolution import (
+    OnlyBarCapability,
+    OnlyBarConstructionIdentity,
+    OnlyBarIntervalKind,
+    only_plan_bar_resolution,
+)
 from onlyalpha.research.dataset.definition import OnlyResearchDatasetDefinition
+from onlyalpha.research.dataset.identity import only_snapshot_fingerprint
 from onlyalpha.research.dataset.market_data_materializer import (
     OnlySealedMarketDataDatasetMaterializer,
     OnlySealedMarketDataMaterializationPlan,
 )
 
-from .conftest import BAR_TYPE, BAR_TYPE_ID, BASE, INSTRUMENT, bar_update, reference_update, trade_update
+from .conftest import (
+    BAR_CONSTRUCTION,
+    BAR_TYPE,
+    BAR_TYPE_ID,
+    BASE,
+    INSTRUMENT,
+    bar_construction,
+    bar_update,
+    reference_update,
+    trade_update,
+)
 
 
 def _observation(event_id: int, provenance: str = "REALTIME_STREAM") -> OnlyRawProviderObservation:
@@ -72,7 +98,11 @@ def _sealed(
         tmp_path, capacity_bytes=2_000_000, now=fixed_now, identity_factory=lambda: f"segment-{close}"
     )
     ingress = OnlyMarketDataIngress(
-        wal, normalizer_id="binance-spot", normalizer_version="1", ingest_clock_ns=lambda: 5
+        wal,
+        normalizer_id="binance-spot",
+        normalizer_version="1",
+        ingest_clock_ns=lambda: 5,
+        bar_construction=BAR_CONSTRUCTION if kind == "BAR" else None,
     )
     ingress.begin_segment()
     update = (
@@ -99,13 +129,18 @@ def _scope(kind: str) -> OnlyMarketDataScope:
         BAR_TYPE_ID if kind == "BAR" else None,
         10 if kind == "TRADE" else None,
         10 if kind == "TRADE" else None,
+        BAR_CONSTRUCTION if kind == "BAR" else None,
     )
 
 
 def test_shifted_bar_window_excludes_prior_bar_ending_at_start(tmp_path: Path, fixed_now) -> None:
     wal = OnlyMarketDataWal(tmp_path, capacity_bytes=2_000_000, now=fixed_now)
     ingress = OnlyMarketDataIngress(
-        wal, normalizer_id="binance-spot", normalizer_version="1", ingest_clock_ns=lambda: 5
+        wal,
+        normalizer_id="binance-spot",
+        normalizer_version="1",
+        ingest_clock_ns=lambda: 5,
+        bar_construction=BAR_CONSTRUCTION,
     )
     ingress.begin_segment("overlapping-bars")
     ingress.record(_observation(10), bar_update(0))
@@ -336,7 +371,7 @@ def test_market_reference_is_durable_unprovable_and_wal_reclaimed_without_seal(t
     coordinator = OnlyMarketDataRecoveryCoordinator(
         wal, store, catalog, OnlyRevisionCommitService(store, catalog, now=fixed_now)
     )
-    scope = replace(_scope("BAR"), data_kind="MARKET_REFERENCE", bar_type=None)
+    scope = replace(_scope("BAR"), data_kind="MARKET_REFERENCE", bar_type=None, bar_construction=None)
 
     assert coordinator.drain(segment.segment_id, scope) == "DURABLE_ONLY:UNPROVABLE"
     assert catalog.is_segment_committed(segment.segment_id, segment.content_hash)
@@ -362,6 +397,7 @@ def test_multi_segment_revision_is_ordered_and_semantically_deterministic(tmp_pa
         int((BASE + timedelta(minutes=2)).timestamp() * 1_000_000_000),
         "BINANCE_SPOT_V1",
         BAR_TYPE_ID,
+        bar_construction=BAR_CONSTRUCTION,
     )
     first_catalog = OnlyInMemoryMarketDataCatalog()
     second_catalog = OnlyInMemoryMarketDataCatalog()
@@ -409,7 +445,7 @@ def test_coverage_rejects_declared_scope_that_does_not_match_segment(tmp_path: P
     [bundle] = wal.read_sealed(segment.segment_id)
 
     with pytest.raises(OnlyMarketDataConflictError, match="SEGMENT_SCOPE_MISMATCH"):
-        only_build_coverage(replace(_scope("BAR"), data_version="WRONG"), (segment,), bundle.canonical_facts)
+        only_build_coverage(replace(_scope("BAR"), market="WRONG"), (segment,), bundle.canonical_facts)
 
 
 def test_exact_read_fails_closed_when_durable_physical_segment_becomes_partial(tmp_path: Path, fixed_now) -> None:
@@ -431,7 +467,11 @@ def test_exact_read_fails_closed_when_durable_physical_segment_becomes_partial(t
 def test_recovery_groups_finite_segments_into_one_complete_revision(tmp_path: Path, fixed_now) -> None:
     wal = OnlyMarketDataWal(tmp_path, capacity_bytes=2_000_000, now=fixed_now)
     ingress = OnlyMarketDataIngress(
-        wal, normalizer_id="binance-spot", normalizer_version="1", ingest_clock_ns=lambda: 5
+        wal,
+        normalizer_id="binance-spot",
+        normalizer_version="1",
+        ingest_clock_ns=lambda: 5,
+        bar_construction=BAR_CONSTRUCTION,
     )
     segment_ids = []
     for index in range(2):
@@ -507,7 +547,119 @@ def test_exact_revision_dataset_materialization_is_deterministic(tmp_path: Path,
     assert first.materialization.market_data_revision_bindings[0].revision_id == revision.revision_id
 
 
-def test_same_dataset_content_keeps_distinct_revision_lineage(tmp_path: Path, fixed_now) -> None:
+def test_derived_dataset_binds_sealed_base_and_distinct_snapshot_identity(tmp_path: Path, fixed_now) -> None:
+    calendar = OnlyTradingCalendar(
+        OnlyCalendarId("TEST-24X7"),
+        OnlyVenueId("BINANCE"),
+        OnlyTimeZone("UTC"),
+        (OnlyTradingSession("continuous", time(0), time(0), OnlySessionType.CONTINUOUS),),
+        weekend_days=(),
+    )
+    alignment = only_canonical_fingerprint(calendar.to_dict())
+    capability = OnlyBarCapability(
+        BAR_TYPE.specification, OnlyBarIntervalKind.FIXED_DURATION, alignment, True, True, grid_origin_ns=0
+    )
+    base_plan = only_plan_bar_resolution(
+        BAR_TYPE.specification,
+        (capability,),
+        alignment_id=alignment,
+        source_id="BINANCE_SPOT",
+        instrument_id=str(INSTRUMENT),
+        integration_revision_fingerprint="a" * 64,
+    )
+    base_construction = OnlyBarConstructionIdentity.build(base_plan, data_version="BINANCE_SPOT_V1")
+    wal = OnlyMarketDataWal(tmp_path, capacity_bytes=2_000_000, now=fixed_now)
+    ingress = OnlyMarketDataIngress(
+        wal,
+        normalizer_id="binance-spot",
+        normalizer_version="1",
+        ingest_clock_ns=lambda: 5,
+        bar_construction=base_construction,
+    )
+    ingress.begin_segment("seven-base-bars")
+    for index in range(7):
+        ingress.record(_observation(20 + index), bar_update(index))
+    segment = ingress.seal()
+    scope = replace(
+        _scope("BAR"),
+        end_ns=_scope("BAR").start_ns + 7 * 60_000_000_000,
+        bar_construction=base_construction,
+    )
+    facts = OnlyInMemoryMarketFactStore()
+    catalog = OnlyInMemoryMarketDataCatalog()
+    records = wal.read_sealed(segment.segment_id)
+    facts.write_segment(segment, records)
+    _, revision, seal = OnlyRevisionCommitService(facts, catalog, now=fixed_now).commit(
+        segment,
+        scope,
+        {segment.segment_id: records},
+    )
+    target = OnlyBarSpecification(7, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
+    derived_plan = only_plan_bar_resolution(
+        target,
+        (capability,),
+        alignment_id=alignment,
+        source_id="BINANCE_SPOT",
+        instrument_id=str(INSTRUMENT),
+        integration_revision_fingerprint="a" * 64,
+    )
+    derived = OnlyBarConstructionIdentity.build(
+        derived_plan,
+        data_version=scope.data_version,
+        base_revision_id=revision.revision_id,
+        base_revision_fingerprint=revision.fingerprint,
+        base_seal_id=seal.seal_id,
+    )
+    definition = OnlyResearchDatasetDefinition(
+        (INSTRUMENT,),
+        target,
+        OnlyAggregationSource.INTERNAL,
+        OnlyTimeRange(BASE, BASE + timedelta(minutes=7, microseconds=1)),
+        OnlyAdjustmentType.RAW,
+    )
+    store = _SnapshotStore()
+    materializer = OnlySealedMarketDataDatasetMaterializer(
+        OnlyHistoricalMarketDataQueryService(catalog, facts),
+        store,
+        store,
+        fixed_now,
+    )
+    result = materializer.materialize_with_lineage(
+        OnlySealedMarketDataMaterializationPlan(
+            (revision.revision_id,),
+            definition,
+            (scope,),
+            (derived,),
+            (calendar,),
+        )
+    )
+    assert result.snapshot.row_count == 1
+    assert result.snapshot.construction_fingerprint is not None
+    native_plan = only_plan_bar_resolution(
+        target,
+        (
+            capability,
+            OnlyBarCapability(target, OnlyBarIntervalKind.FIXED_DURATION, alignment, True, True, grid_origin_ns=0),
+        ),
+        alignment_id=alignment,
+        source_id="BINANCE_SPOT",
+        instrument_id=str(INSTRUMENT),
+        integration_revision_fingerprint="a" * 64,
+    )
+    native = OnlyBarConstructionIdentity.build(native_plan, data_version=scope.data_version)
+    assert result.snapshot.snapshot_fingerprint != only_snapshot_fingerprint(
+        definition,
+        result.snapshot.dataset_schema,
+        result.snapshot.content_fingerprint,
+        result.snapshot.row_count,
+        native.fingerprint,
+    )
+    assert result.snapshot.provenance[0].source_metadata["bar_construction_fingerprint"] == derived.fingerprint
+    with pytest.raises(ValueError, match="BAR_CONSTRUCTION_BASE_REVISION_REQUIRED"):
+        OnlyBarConstructionIdentity.build(derived_plan, data_version=scope.data_version)
+
+
+def test_same_dataset_content_keeps_distinct_revision_bound_snapshot_identity(tmp_path: Path, fixed_now) -> None:
     facts = OnlyInMemoryMarketFactStore()
     catalog = OnlyInMemoryMarketDataCatalog()
     commit = OnlyRevisionCommitService(facts, catalog, now=fixed_now)
@@ -518,7 +670,11 @@ def test_same_dataset_content_keeps_distinct_revision_lineage(tmp_path: Path, fi
 
     wal2 = OnlyMarketDataWal(tmp_path / "r2", capacity_bytes=2_000_000, now=fixed_now)
     ingress2 = OnlyMarketDataIngress(
-        wal2, normalizer_id="binance-spot", normalizer_version="1", ingest_clock_ns=lambda: 5
+        wal2,
+        normalizer_id="binance-spot",
+        normalizer_version="1",
+        ingest_clock_ns=lambda: 5,
+        bar_construction=BAR_CONSTRUCTION,
     )
     ingress2.begin_segment("same-content-r2")
     ingress2.record(_observation(10), bar_update())
@@ -551,7 +707,8 @@ def test_same_dataset_content_keeps_distinct_revision_lineage(tmp_path: Path, fi
         OnlySealedMarketDataMaterializationPlan((r2.revision_id,), definition, (_scope("BAR"),))
     )
 
-    assert first.snapshot.snapshot_fingerprint == second.snapshot.snapshot_fingerprint
+    assert first.snapshot.content_fingerprint == second.snapshot.content_fingerprint
+    assert first.snapshot.snapshot_fingerprint != second.snapshot.snapshot_fingerprint
     assert first.materialization.materialization_id != second.materialization.materialization_id
     assert first.materialization.market_data_revision_bindings != second.materialization.market_data_revision_bindings
 
@@ -577,7 +734,11 @@ def test_two_instrument_dataset_binds_one_exact_revision_per_scope(tmp_path: Pat
     for name, update in (("btc", btc_update), ("eth", eth_update)):
         wal = OnlyMarketDataWal(tmp_path / name, capacity_bytes=1_000_000, now=fixed_now)
         ingress = OnlyMarketDataIngress(
-            wal, normalizer_id="binance-spot", normalizer_version="1", ingest_clock_ns=lambda: 5
+            wal,
+            normalizer_id="binance-spot",
+            normalizer_version="1",
+            ingest_clock_ns=lambda: 5,
+            bar_construction=bar_construction(update.instrument_id),
         )
         segment_id = ingress.begin_segment(f"segment-{name}")
         ingress.record(_observation(10), update)
@@ -586,6 +747,7 @@ def test_two_instrument_dataset_binds_one_exact_revision_per_scope(tmp_path: Pat
             _scope("BAR"),
             instrument_id=str(update.instrument_id),
             bar_type=only_canonical_fingerprint(update.payload.bar.bar_type.to_dict()),
+            bar_construction=bar_construction(update.instrument_id),
         )
         OnlyMarketDataRecoveryCoordinator(
             wal, store, catalog, OnlyRevisionCommitService(store, catalog, now=fixed_now)
@@ -610,7 +772,7 @@ def test_two_instrument_dataset_binds_one_exact_revision_per_scope(tmp_path: Pat
     )
 
     assert materialized.snapshot.row_count == 2
-    assert all(item.source_metadata == {} for item in materialized.snapshot.provenance)
+    assert all("bar_construction_fingerprint" in item.source_metadata for item in materialized.snapshot.provenance)
     assert materialized.snapshot.snapshot_fingerprint == reversed_materialized.snapshot.snapshot_fingerprint
     assert materialized.materialization.materialization_id == reversed_materialized.materialization.materialization_id
 

@@ -24,6 +24,7 @@ from onlyalpha.market_data.durable.models import (
     OnlyMarketDataSeal,
 )
 from onlyalpha.market_data.durable.revision import OnlyMarketDataConflictError
+from onlyalpha.market_data.resolution import OnlyBarConstructionIdentity
 
 from .config import OnlyPostgresConfig
 from .migration import OnlyPostgresSchemaVerifier
@@ -339,7 +340,8 @@ class OnlyPostgresMarketDataCatalog:
             rows = connection.execute(
                 self._segment_select()
                 + " WHERE source_id=%s AND market=%s AND instrument_id=%s AND data_kind=%s AND data_version=%s "
-                "AND bar_type IS NOT DISTINCT FROM %s AND start_ns < %s AND end_ns > %s ORDER BY segment_id",
+                "AND bar_type IS NOT DISTINCT FROM %s AND bar_construction->>'fingerprint' IS NOT DISTINCT FROM %s "
+                "AND start_ns < %s AND end_ns > %s ORDER BY segment_id",
                 (
                     scope.source_id,
                     scope.market,
@@ -347,6 +349,7 @@ class OnlyPostgresMarketDataCatalog:
                     scope.data_kind,
                     scope.data_version,
                     scope.bar_type,
+                    None if scope.bar_construction is None else scope.bar_construction.fingerprint,
                     scope.end_ns,
                     scope.start_ns,
                 ),
@@ -488,11 +491,14 @@ class OnlyPostgresMarketDataCatalog:
             "SELECT segment_id,capture_session_id,source_id,market,stream,provider,venue,capture_mode,"
             "provider_schema,codec,schema_version,record_count,raw_count,canonical_count,content_hash,"
             "created_at,sealed_at,instrument_id,data_kind,start_ns,end_ns,data_version,bar_type,"
-            "first_sequence,last_sequence,integration_binding_fingerprint FROM market_ingest_segment"
+            "first_sequence,last_sequence,integration_binding_fingerprint,bar_construction FROM market_ingest_segment"
         )
 
     @staticmethod
     def _segment(row: Mapping[str, object]) -> OnlyIngestSegment:
+        construction = row["bar_construction"]
+        if construction is not None and not isinstance(construction, Mapping):
+            raise ValueError("POSTGRES_BAR_CONSTRUCTION_INVALID")
         return OnlyIngestSegment(
             str(row["segment_id"]),
             str(row["capture_session_id"]),
@@ -520,6 +526,7 @@ class OnlyPostgresMarketDataCatalog:
             None if row["first_sequence"] is None else int(str(row["first_sequence"])),
             None if row["last_sequence"] is None else int(str(row["last_sequence"])),
             None if row["integration_binding_fingerprint"] is None else str(row["integration_binding_fingerprint"]),
+            None if construction is None else OnlyBarConstructionIdentity.from_dict(construction),
         )
 
     @staticmethod
@@ -579,8 +586,8 @@ class OnlyPostgresMarketDataCatalog:
             "(segment_id,capture_session_id,source_id,market,stream,provider,venue,capture_mode,provider_schema,codec,"
             "schema_version,record_count,raw_count,canonical_count,content_hash,created_at,sealed_at,instrument_id,"
             "data_kind,start_ns,end_ns,data_version,bar_type,first_sequence,last_sequence,"
-            "integration_binding_fingerprint) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+            "integration_binding_fingerprint,bar_construction) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb) "
             "ON CONFLICT DO NOTHING",
             (
                 segment.segment_id,
@@ -609,6 +616,7 @@ class OnlyPostgresMarketDataCatalog:
                 segment.first_sequence,
                 segment.last_sequence,
                 segment.integration_binding_fingerprint,
+                None if segment.bar_construction is None else json.dumps(segment.bar_construction.to_dict()),
             ),
         )
 
@@ -735,6 +743,9 @@ def _scope(value: object) -> OnlyMarketDataScope:
         None if value.get("bar_type") is None else str(value["bar_type"]),
         None if value.get("first_sequence") is None else int(str(value["first_sequence"])),
         None if value.get("last_sequence") is None else int(str(value["last_sequence"])),
+        None
+        if value.get("bar_construction") is None
+        else OnlyBarConstructionIdentity.from_canonical_payload(value["bar_construction"]),
     )
 
 

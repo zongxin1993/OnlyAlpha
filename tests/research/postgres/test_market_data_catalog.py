@@ -10,6 +10,8 @@ import psycopg
 import pytest
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_payload
+from onlyalpha.domain.enums import OnlyBarAggregation, OnlyPriceType
+from onlyalpha.domain.market import OnlyBarSpecification
 from onlyalpha.market_data.durable import (
     OnlyAcquisitionOutcome,
     OnlyInMemoryMarketFactStore,
@@ -17,6 +19,12 @@ from onlyalpha.market_data.durable import (
     OnlyMarketDataProvenance,
     OnlyRevisionCommitService,
     only_build_coverage,
+)
+from onlyalpha.market_data.resolution import (
+    OnlyBarCapability,
+    OnlyBarConstructionIdentity,
+    OnlyBarIntervalKind,
+    only_plan_bar_resolution,
 )
 from onlyalpha.persistence.postgres import OnlyPostgresMarketDataCatalog
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
@@ -31,6 +39,30 @@ pytestmark = [
     pytest.mark.requires_network,
     pytest.mark.postgres,
 ]
+
+
+def test_native_construction_scope_survives_catalog_reload(postgres_dsn: str, tmp_path: Path) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    wal, legacy_segment, _ = _sealed(tmp_path / "native", lambda: BASE.replace(hour=1), kind="BAR")
+    del wal
+    specification = OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
+    scope = _scope("BAR")
+    plan = only_plan_bar_resolution(
+        specification,
+        (OnlyBarCapability(specification, OnlyBarIntervalKind.FIXED_DURATION, "UTC", True, True, grid_origin_ns=0),),
+        alignment_id="UTC",
+        source_id=scope.source_id,
+        instrument_id=scope.instrument_id,
+        integration_revision_fingerprint="a" * 64,
+    )
+    construction = OnlyBarConstructionIdentity.build(plan, data_version=scope.data_version)
+    segment = replace(legacy_segment, segment_id="native-construction-1", bar_construction=construction)
+    constructed_scope = replace(scope, bar_construction=construction)
+    catalog = OnlyPostgresMarketDataCatalog(postgres_dsn)
+    catalog.commit_durable_segments((segment,))
+    assert catalog.load_durable_segments((segment.segment_id,)) == (segment,)
+    assert catalog.list_durable_segments(constructed_scope) == (segment,)
+    assert catalog.list_durable_segments(replace(scope, bar_construction=None)) == ()
 
 
 def test_market_data_catalog_concurrent_commit_is_immutable_and_survives_restore(
@@ -236,6 +268,7 @@ def test_pre_0038_acquisition_identity_remains_exactly_readable(postgres_dsn: st
     assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == (
         "0038_market_data_acquisition_identity",
         "0039_market_data_acquisition_versioned_attempt_outcome",
+        "0040_market_bar_construction_identity",
     )
     catalog = OnlyPostgresMarketDataCatalog(postgres_dsn)
     loaded = catalog.load_acquisition_intent(acquisition_id)

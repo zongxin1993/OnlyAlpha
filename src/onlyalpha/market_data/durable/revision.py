@@ -9,7 +9,9 @@ from threading import RLock
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.core.clock import only_system_utc_now
 from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate
-from onlyalpha.domain.enums import OnlyAggregationSource, OnlyBarAggregation
+from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyAggregationSource, OnlyBarAggregation
+from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.market_data.resolution import OnlyBarResolutionMode
 
 from .models import (
     OnlyBarCoverageGap,
@@ -82,6 +84,7 @@ def only_build_coverage(
             or segment.data_kind != scope.data_kind
             or segment.data_version != scope.data_version
             or segment.bar_type != scope.bar_type
+            or segment.bar_construction != scope.bar_construction
         ):
             raise OnlyMarketDataConflictError(f"SEGMENT_SCOPE_MISMATCH:{segment.segment_id}")
     if any(item.segment_id not in segment_ids for item in facts):
@@ -98,24 +101,51 @@ def only_build_coverage(
     issues: list[str] = []
     proof: list[str] = [f"canonical_fact_count={len(in_scope)}"]
     if scope.data_kind == "BAR":
-        minute = 60_000_000_000
-        expected = tuple(range(scope.start_ns + minute, scope.end_ns + 1, minute))
+        construction = scope.bar_construction
+        if construction is None:
+            return OnlyCoverageManifest.build(
+                scope,
+                tuple((item.segment_id, item.content_hash) for item in segments),
+                coverage_status=OnlyCoverageStatus.UNPROVABLE,
+                proof=(f"canonical_fact_count={len(in_scope)}",),
+                issues=("BAR_CONSTRUCTION_UNPROVABLE",),
+                gaps=(),
+            )
+        if construction is not None and construction.plan.mode is not OnlyBarResolutionMode.EXTERNAL_NATIVE:
+            raise OnlyMarketDataConflictError("DERIVED_BARS_HAVE_NO_PROVIDER_COVERAGE")
+        specification = construction.plan.target_specification
+        minute = specification.step * 60_000_000_000
+        origin = construction.plan.grid_origin_ns
+        grid_aligned = (scope.start_ns - origin) % minute == 0 and (scope.end_ns - origin) % minute == 0
+        expected = tuple(range(scope.start_ns + minute, scope.end_ns + 1, minute)) if grid_aligned else ()
         actual = tuple(item.ts_event_ns for item in in_scope)
         bars = tuple(OnlyMarketDataInboundUpdate.from_dict(item.canonical_payload).payload for item in in_scope)
         semantic_valid = all(
             isinstance(item, OnlyBarUpdate)
             and item.bar.is_closed
             and item.bar.ts_event == item.bar.bar_end
-            and int((item.bar.bar_end - item.bar.bar_start).total_seconds()) == 60
-            and item.bar.bar_type.specification.step == 1
+            and OnlyTimestamp.from_datetime(item.bar.bar_end).unix_nanos
+            - OnlyTimestamp.from_datetime(item.bar.bar_start).unix_nanos
+            == minute
+            and item.bar.bar_type.specification == specification
             and item.bar.bar_type.specification.aggregation is OnlyBarAggregation.TIME
             and item.bar.bar_type.aggregation_source is OnlyAggregationSource.EXTERNAL
-            for item in bars
+            and item.bar.adjustment_type is OnlyAdjustmentType.RAW
+            and str(item.bar.instrument_id) == scope.instrument_id
+            and OnlyTimestamp.from_datetime(item.bar.bar_end).unix_nanos == fact.ts_event_ns
+            and (fact.ts_event_ns - origin) % minute == 0
+            and fact.canonical_payload.get("data_version") == scope.data_version
+            and (scope.bar_type is None or only_canonical_fingerprint(item.bar.bar_type.to_dict()) == scope.bar_type)
+            for item, fact in zip(bars, in_scope, strict=True)
         )
-        status = OnlyCoverageStatus.COMPLETE if actual == expected and semantic_valid else OnlyCoverageStatus.INCOMPLETE
+        status = (
+            OnlyCoverageStatus.COMPLETE
+            if grid_aligned and actual == expected and semantic_valid
+            else OnlyCoverageStatus.INCOMPLETE
+        )
         proof.append(f"bar_grid_count={len(expected)}")
-        proof.append(f"closed_external_1m={str(semantic_valid).lower()}")
-        if actual != expected:
+        proof.append(f"closed_external_bar={str(semantic_valid).lower()}")
+        if not grid_aligned or actual != expected:
             issues.append("BAR_GRID_INCOMPLETE")
         if not semantic_valid:
             issues.append("BAR_SEMANTICS_INVALID")
@@ -315,6 +345,8 @@ class OnlyInMemoryMarketDataCatalog(OnlyMarketDataCatalog):
                     and item.instrument_id == scope.instrument_id
                     and item.data_kind == scope.data_kind
                     and item.data_version == scope.data_version
+                    and item.bar_type == scope.bar_type
+                    and item.bar_construction == scope.bar_construction
                     and item.start_ns is not None
                     and item.end_ns is not None
                     and item.start_ns < scope.end_ns
@@ -351,10 +383,13 @@ class OnlyHistoricalMarketDataQueryService:
         self._fact_store = fact_store
 
     def resolve(self, revision_id: str) -> OnlyMarketDataRevision:
+        return self.resolve_with_seal(revision_id)[0]
+
+    def resolve_with_seal(self, revision_id: str) -> tuple[OnlyMarketDataRevision, OnlyMarketDataSeal]:
         revision, seal = self._catalog.load_sealed_revision(revision_id)
         if seal.revision_fingerprint != revision.fingerprint:
             raise OnlyMarketDataSealError("REVISION_SEAL_FINGERPRINT_MISMATCH")
-        return revision
+        return revision, seal
 
     def resolve_latest(self, scope: OnlyMarketDataScope) -> OnlyMarketDataRevision:
         """Convenience projection; callers receive and must bind the exact revision."""

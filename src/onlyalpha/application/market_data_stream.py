@@ -54,6 +54,7 @@ from onlyalpha.market_data.durable.revision import (
     only_deduplicate_facts,
 )
 from onlyalpha.market_data.durable.wal import OnlyMarketDataWal
+from onlyalpha.market_data.resolution import OnlyBarConstructionIdentity, OnlyBarResolutionMode, OnlyBarResolutionPlan
 from onlyalpha.plugin.capabilities import OnlyDataSourceCapabilities
 from onlyalpha.plugin.data_source import (
     OnlyDataSource,
@@ -289,6 +290,7 @@ class OnlyMarketDataStreamProductService:
         instrument_id: str,
         bar_specification: OnlyBarSpecification,
         resume_after_sequence: int,
+        resume_plan_fingerprint: str | None = None,
     ) -> OnlyMarketDataStreamSession:
         if not self._slots.acquire(blocking=False):
             raise OnlyMarketDataProductError("MARKET_DATA_STREAM_CAPACITY_EXCEEDED")
@@ -298,6 +300,7 @@ class OnlyMarketDataStreamProductService:
                 instrument_id=instrument_id,
                 bar_specification=bar_specification,
                 resume_after_sequence=resume_after_sequence,
+                resume_plan_fingerprint=resume_plan_fingerprint,
             )
         except Exception:
             self._slots.release()
@@ -310,9 +313,18 @@ class OnlyMarketDataStreamProductService:
         instrument_id: str,
         bar_specification: OnlyBarSpecification,
         resume_after_sequence: int,
+        resume_plan_fingerprint: str | None,
     ) -> OnlyMarketDataStreamSession:
         only_product_bar_specification(bar_specification)
         resolved = self._historical.resolve_runtime(reference)
+        plan = self._historical._plan(resolved, instrument_id, bar_specification)
+        if resume_after_sequence > 0 and resume_plan_fingerprint != plan.fingerprint:
+            raise OnlyMarketDataProductError("MARKET_DATA_RESUME_PLAN_MISMATCH")
+        provider_specification = (
+            bar_specification if plan.mode is OnlyBarResolutionMode.EXTERNAL_NATIVE else BASE_BAR_SPECIFICATION
+        )
+        provider_plan = self._historical._plan(resolved, instrument_id, provider_specification)
+        construction = OnlyBarConstructionIdentity.build(provider_plan, data_version=str(resolved.data_version))
         try:
             instrument_key = OnlyInstrumentId.parse(instrument_id)
         except Exception as exc:
@@ -327,7 +339,7 @@ class OnlyMarketDataStreamProductService:
 
         aggregator = None
         calendar = None
-        if bar_specification != BASE_BAR_SPECIFICATION:
+        if plan.mode is OnlyBarResolutionMode.INTERNAL_DERIVED:
             if not isinstance(resolved.factory, OnlyDataSourceTimeBarCalendar):
                 raise OnlyMarketDataProductError("MARKET_DATA_TIME_BAR_CALENDAR_UNAVAILABLE")
             calendar = resolved.factory.time_bar_calendar(resolved.plugin_config)
@@ -337,7 +349,7 @@ class OnlyMarketDataStreamProductService:
                 calendar,
                 self._clock,
             )
-            self._bootstrap(resolved, instrument_id, resume_after_sequence, calendar, aggregator)
+            self._bootstrap(resolved, instrument_id, resume_after_sequence, calendar, aggregator, provider_plan)
         stream_id = uuid.uuid4().hex
         root = self._wal_root / str(resolved.source_id) / "realtime" / stream_id
         wal = OnlyMarketDataWal(root / "wal", capacity_bytes=_WAL_CAPACITY_BYTES)
@@ -358,6 +370,7 @@ class OnlyMarketDataStreamProductService:
                 normalizer_version=str(descriptor.plugin_version),
                 ingest_clock_ns=self._clock.timestamp_ns,
                 integration_binding_fingerprint=resolved.binding_fingerprint,
+                bar_construction=construction,
             ),
             max_records_per_segment=1,
             on_sealed=drain.submit,
@@ -385,7 +398,7 @@ class OnlyMarketDataStreamProductService:
             self._clock,
             OnlyEventBus(),
             {instrument_key: instrument},
-            {instrument_key: _bar_type(instrument_key)},
+            {instrument_key: _bar_type(instrument_key, provider_specification)},
             {},
             (),
             OnlyDataSourceCoverageConfig(instrument_ids=(instrument_key,)),
@@ -432,7 +445,7 @@ class OnlyMarketDataStreamProductService:
                     resolved.source_id,
                     frozenset({instrument_key}),
                     frozenset({OnlyMarketDataType.BAR}),
-                    frozenset({_bar_type(instrument_key)}),
+                    frozenset({_bar_type(instrument_key, provider_specification)}),
                     resume_after_sequence,
                 )
             )
@@ -455,7 +468,14 @@ class OnlyMarketDataStreamProductService:
         session.activate(
             OnlyMarketDataStreamEventV1(
                 "SUBSCRIBED",
-                {"stream_id": stream_id, "source_id": str(resolved.source_id), "instrument_id": instrument_id},
+                {
+                    "stream_id": stream_id,
+                    "source_id": str(resolved.source_id),
+                    "instrument_id": instrument_id,
+                    "resolution_mode": plan.mode.value,
+                    "resolution_plan_fingerprint": plan.fingerprint,
+                    "cursor_bar_step_minutes": provider_specification.step,
+                },
             )
         )
         with self._lock:
@@ -481,6 +501,7 @@ class OnlyMarketDataStreamProductService:
         resume_after_sequence: int,
         calendar: OnlyTradingCalendar,
         aggregator: OnlyTimeBarAggregator,
+        provider_plan: OnlyBarResolutionPlan,
     ) -> None:
         if resume_after_sequence < 0:
             raise OnlyMarketDataProductError("MARKET_DATA_RESUME_CURSOR_INVALID")
@@ -500,7 +521,7 @@ class OnlyMarketDataStreamProductService:
         end_ns = (resume_after_sequence + 1) * _MINUTE_NS
         if start_ns == end_ns:
             return
-        scope = self._historical._scope(resolved, instrument_id, start_ns, end_ns)
+        scope = self._historical._scope(resolved, instrument_id, start_ns, end_ns, provider_plan)
         try:
             segments = self._catalog.list_durable_segments(scope)
             facts = self._facts.read_segment_facts(tuple(segments), scope)

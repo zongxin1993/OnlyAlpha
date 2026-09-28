@@ -14,6 +14,7 @@ from .strict import (
     require_int,
     require_list,
     require_mapping,
+    require_optional_str,
     require_sha256,
     require_str,
     require_utc_datetime,
@@ -52,9 +53,10 @@ class OnlyResearchDatasetSnapshot:
     partitions: tuple[OnlyResearchDatasetPartitionManifest, ...]
     provenance: tuple[OnlyResearchDatasetProvenance, ...]
     created_at: datetime
+    construction_fingerprint: str | None = None
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        payload = {
             "schema_version": 1,
             "snapshot_fingerprint": self.snapshot_fingerprint,
             "definition": self.definition.to_dict(),
@@ -89,6 +91,9 @@ class OnlyResearchDatasetSnapshot:
             ],
             "created_at": self.created_at.isoformat(),
         }
+        if self.construction_fingerprint is not None:
+            payload["construction_fingerprint"] = self.construction_fingerprint
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchDatasetSnapshot:
@@ -107,7 +112,8 @@ class OnlyResearchDatasetSnapshot:
                 "partitions",
                 "provenance",
                 "created_at",
-            },
+            }
+            | ({"construction_fingerprint"} if "construction_fingerprint" in payload else set()),
             context,
         )
         if require_int(payload, "schema_version", context) != 1:
@@ -132,12 +138,19 @@ class OnlyResearchDatasetSnapshot:
             partitions,
             provenance,
             require_utc_datetime(payload, "created_at", context),
+            require_optional_str(payload, "construction_fingerprint", context)
+            if "construction_fingerprint" in payload
+            else None,
         )
         if result.row_count < 0:
             raise ValueError("DATASET_SNAPSHOT_CORRUPT: negative row count")
         if (
             only_snapshot_fingerprint(
-                result.definition, result.dataset_schema, result.content_fingerprint, result.row_count
+                result.definition,
+                result.dataset_schema,
+                result.content_fingerprint,
+                result.row_count,
+                result.construction_fingerprint,
             )
             != result.snapshot_fingerprint
         ):

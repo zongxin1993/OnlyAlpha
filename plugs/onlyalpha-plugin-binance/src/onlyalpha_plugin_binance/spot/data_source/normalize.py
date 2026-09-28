@@ -88,7 +88,7 @@ def only_normalize_ws_kline_preview(
         instrument.instrument_id,
         bar_type,
         start_ns,
-        start_ns + 60_000_000_000,
+        start_ns + bar_type.specification.step * 60_000_000_000,
         str(_decimal(raw["o"])),
         str(_decimal(raw["h"])),
         str(_decimal(raw["l"])),
@@ -112,8 +112,10 @@ def _bar(
     quote_volume: object,
     trade_count: object,
 ) -> OnlyBar:
+    if int(str(start)) % (bar_type.specification.step * 60_000):
+        raise OnlyBinanceError("BINANCE_KLINE_ALIGNMENT_INVALID")
     bar_start = only_binance_milliseconds(start)
-    bar_end = bar_start + timedelta(minutes=1)
+    bar_end = bar_start + timedelta(minutes=bar_type.specification.step)
     return OnlyBar(
         bar_type=bar_type,
         open=OnlyPrice(_decimal(open_value), instrument.price_precision),

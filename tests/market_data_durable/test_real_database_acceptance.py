@@ -2,13 +2,28 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import timedelta
+from dataclasses import replace
+from datetime import time, timedelta
 from pathlib import Path
 
 import psycopg
 import pytest
 
-from onlyalpha.data.models import OnlyHistoricalBarRequest, OnlyHistoricalDataRange
+from onlyalpha.canonical import only_canonical_fingerprint
+from onlyalpha.core.clock import OnlyBacktestClock
+from onlyalpha.data.identity import only_bar_update_id
+from onlyalpha.data.models import (
+    OnlyBarUpdate,
+    OnlyHistoricalBarRequest,
+    OnlyHistoricalDataRange,
+    OnlyMarketDataInboundUpdate,
+)
+from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
+from onlyalpha.domain.enums import OnlyAggregationSource, OnlyBarAggregation, OnlyPriceType, OnlySessionType
+from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyVenueId
+from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone
+from onlyalpha.market_data.aggregation.time_bar import OnlyTimeBarAggregator
 from onlyalpha.market_data.durable import (
     OnlyHistoricalMarketDataQueryService,
     OnlyMarketDataAcquisitionIntent,
@@ -16,8 +31,15 @@ from onlyalpha.market_data.durable import (
     OnlyMarketDataIngress,
     OnlyMarketDataProvenance,
     OnlyMarketDataRecoveryCoordinator,
+    OnlyMarketDataScope,
     OnlyMarketDataWal,
     OnlyRevisionCommitService,
+)
+from onlyalpha.market_data.resolution import (
+    OnlyBarCapability,
+    OnlyBarConstructionIdentity,
+    OnlyBarIntervalKind,
+    only_plan_bar_resolution,
 )
 from onlyalpha.persistence.clickhouse import (
     OnlyClickHouseClient,
@@ -31,8 +53,9 @@ from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthor
 from scripts.database import _backup, _restore_test
 from scripts.market_data_database import _backup_segment, _restore_segment
 
-from .conftest import BAR_TYPE, BASE, INSTRUMENT, SOURCE, VERSION
+from .conftest import BAR_CONSTRUCTION, BAR_TYPE, BASE, INSTRUMENT, SOURCE, VERSION, bar_update
 from .test_backfill_and_correction import _HistoricalSource, _two_minute_scope, _write_bar
+from .test_recovery_revision_dataset import _observation
 
 pytestmark = [
     pytest.mark.database_acceptance,
@@ -75,7 +98,11 @@ def test_combined_real_database_authority_recovery_and_maintenance(tmp_path: Pat
     fixed_now = lambda: BASE + timedelta(hours=1)  # noqa: E731 - explicit deterministic clock input
     wal = OnlyMarketDataWal(tmp_path / "wal", capacity_bytes=2_000_000, now=fixed_now)
     ingress = OnlyMarketDataIngress(
-        wal, normalizer_id="binance-spot", normalizer_version="1", ingest_clock_ns=lambda: 5
+        wal,
+        normalizer_id="binance-spot",
+        normalizer_version="1",
+        ingest_clock_ns=lambda: 5,
+        bar_construction=BAR_CONSTRUCTION,
     )
     initial_id = _write_bar(ingress, "accept-initial", 0, "101.00000000")
     store = OnlyClickHouseMarketFactStore(client)
@@ -165,4 +192,196 @@ def test_combined_real_database_authority_recovery_and_maintenance(tmp_path: Pat
             )
             connection.execute("DROP DATABASE IF EXISTS onlyalpha_restore_test")
         restored_clickhouse.execute(f"DROP DATABASE IF EXISTS {restore_database} SYNC", database="default")
+        client.execute(f"DROP DATABASE IF EXISTS {database} SYNC", database="default")
+
+
+def test_native_fifteen_minute_revision_survives_real_database_restart(tmp_path: Path) -> None:
+    postgres_dsn = os.environ["ONLYALPHA_POSTGRES_DSN"]
+    only_assert_postgres_test_database(postgres_dsn)
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    database = f"onlyalpha_test_{uuid.uuid4().hex}"
+    client = _clickhouse(database)
+    OnlyClickHouseMigrationAuthority(client).migrate()
+    try:
+        specification = OnlyBarSpecification(15, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
+        bar_type = OnlyBarType(INSTRUMENT, specification, OnlyAggregationSource.EXTERNAL)
+        plan = only_plan_bar_resolution(
+            specification,
+            (
+                OnlyBarCapability(
+                    specification, OnlyBarIntervalKind.FIXED_DURATION, "UTC", True, True, grid_origin_ns=0
+                ),
+            ),
+            alignment_id="UTC",
+            source_id=str(SOURCE),
+            instrument_id=str(INSTRUMENT),
+            integration_revision_fingerprint="a" * 64,
+        )
+        construction = OnlyBarConstructionIdentity.build(plan, data_version=str(VERSION))
+        now = lambda: BASE + timedelta(hours=1)  # noqa: E731
+        wal = OnlyMarketDataWal(tmp_path / "native-wal", capacity_bytes=2_000_000, now=now)
+        ingress = OnlyMarketDataIngress(
+            wal,
+            normalizer_id="binance-spot",
+            normalizer_version="1",
+            ingest_clock_ns=lambda: 5,
+            bar_construction=construction,
+        )
+        ingress.begin_segment("native-fifteen")
+        base = bar_update()
+        end = BASE + timedelta(minutes=15)
+        bar = replace(base.payload.bar, bar_type=bar_type, bar_end=end, ts_event=end, ts_init=end)
+        update = replace(
+            base,
+            update_id=only_bar_update_id(SOURCE, INSTRUMENT, bar_type, BASE, VERSION),
+            payload=OnlyBarUpdate(bar),
+            ts_event=OnlyTimestamp.from_datetime(end),
+            ts_init=OnlyTimestamp.from_datetime(end),
+            sequence_scope=None,
+        )
+        ingress.record(_observation(15), update)
+        segment = ingress.seal()
+        scope = OnlyMarketDataScope(
+            str(SOURCE),
+            "SPOT",
+            str(INSTRUMENT),
+            "BAR",
+            OnlyTimestamp.from_datetime(BASE).unix_nanos,
+            OnlyTimestamp.from_datetime(end).unix_nanos,
+            str(VERSION),
+            only_canonical_fingerprint(bar_type.to_dict()),
+            bar_construction=construction,
+        )
+        records = wal.read_sealed(segment.segment_id)
+        store = OnlyClickHouseMarketFactStore(client)
+        store.write_segment(segment, records)
+        catalog = OnlyPostgresMarketDataCatalog(postgres_dsn, now=now)
+        _, revision, seal = OnlyRevisionCommitService(store, catalog, now=now).commit(
+            segment,
+            scope,
+            {segment.segment_id: records},
+        )
+        fresh_store = OnlyClickHouseMarketFactStore(_clickhouse(database))
+        fresh_catalog = OnlyPostgresMarketDataCatalog(postgres_dsn, now=now)
+        restored, restored_seal = fresh_catalog.load_sealed_revision(revision.revision_id)
+        assert restored == revision and restored_seal == seal
+        assert restored.scope.bar_construction == construction
+        assert fresh_catalog.load_durable_segments((segment.segment_id,)) == (segment,)
+        assert (
+            len(
+                OnlyHistoricalMarketDataQueryService(fresh_catalog, fresh_store).read_exact(revision.revision_id, scope)
+            )
+            == 1
+        )
+    finally:
+        client.execute(f"DROP DATABASE IF EXISTS {database} SYNC", database="default")
+
+
+def test_derived_seven_minute_identity_rebuilds_from_real_sealed_base(tmp_path: Path) -> None:
+    postgres_dsn = os.environ["ONLYALPHA_POSTGRES_DSN"]
+    only_assert_postgres_test_database(postgres_dsn)
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    database = f"onlyalpha_test_{uuid.uuid4().hex}"
+    client = _clickhouse(database)
+    OnlyClickHouseMigrationAuthority(client).migrate()
+    try:
+        calendar = OnlyTradingCalendar(
+            OnlyCalendarId("TEST-24X7"),
+            OnlyVenueId("BINANCE"),
+            OnlyTimeZone("UTC"),
+            (OnlyTradingSession("continuous", time(0), time(0), OnlySessionType.CONTINUOUS),),
+            weekend_days=(),
+        )
+        alignment = only_canonical_fingerprint(calendar.to_dict())
+        capability = OnlyBarCapability(
+            BAR_TYPE.specification,
+            OnlyBarIntervalKind.FIXED_DURATION,
+            alignment,
+            True,
+            True,
+            grid_origin_ns=0,
+        )
+
+        def plan(specification: OnlyBarSpecification):  # type: ignore[no-untyped-def]
+            return only_plan_bar_resolution(
+                specification,
+                (capability,),
+                alignment_id=alignment,
+                source_id=str(SOURCE),
+                instrument_id=str(INSTRUMENT),
+                integration_revision_fingerprint="a" * 64,
+            )
+
+        base_construction = OnlyBarConstructionIdentity.build(plan(BAR_TYPE.specification), data_version=str(VERSION))
+        now = lambda: BASE + timedelta(hours=1)  # noqa: E731
+        wal = OnlyMarketDataWal(tmp_path / "derived-wal", capacity_bytes=2_000_000, now=now)
+        ingress = OnlyMarketDataIngress(
+            wal,
+            normalizer_id="binance-spot",
+            normalizer_version="1",
+            ingest_clock_ns=lambda: 5,
+            bar_construction=base_construction,
+        )
+        ingress.begin_segment("derived-seven-base")
+        for index in range(7):
+            ingress.record(_observation(20 + index), bar_update(index))
+        segment = ingress.seal()
+        scope = OnlyMarketDataScope(
+            str(SOURCE),
+            "SPOT",
+            str(INSTRUMENT),
+            "BAR",
+            OnlyTimestamp.from_datetime(BASE).unix_nanos,
+            OnlyTimestamp.from_datetime(BASE + timedelta(minutes=7)).unix_nanos,
+            str(VERSION),
+            only_canonical_fingerprint(BAR_TYPE.to_dict()),
+            bar_construction=base_construction,
+        )
+        records = wal.read_sealed(segment.segment_id)
+        store = OnlyClickHouseMarketFactStore(client)
+        store.write_segment(segment, records)
+        catalog = OnlyPostgresMarketDataCatalog(postgres_dsn, now=now)
+        _, revision, seal = OnlyRevisionCommitService(store, catalog, now=now).commit(
+            segment,
+            scope,
+            {segment.segment_id: records},
+        )
+        target = OnlyBarSpecification(7, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
+        derived_plan = plan(target)
+
+        def reconstruct(
+            current_catalog: OnlyPostgresMarketDataCatalog,
+            current_store: OnlyClickHouseMarketFactStore,
+        ) -> tuple[str, object]:
+            exact_revision, exact_seal = current_catalog.load_sealed_revision(revision.revision_id)
+            construction = OnlyBarConstructionIdentity.build(
+                derived_plan,
+                data_version=str(VERSION),
+                base_revision_id=exact_revision.revision_id,
+                base_revision_fingerprint=exact_revision.fingerprint,
+                base_seal_id=exact_seal.seal_id,
+            )
+            source_bars = tuple(
+                OnlyMarketDataInboundUpdate.from_dict(fact.canonical_payload).payload.bar
+                for fact in OnlyHistoricalMarketDataQueryService(current_catalog, current_store).read_exact(
+                    revision.revision_id,
+                    scope,
+                )
+            )
+            aggregator = OnlyTimeBarAggregator(
+                BAR_TYPE,
+                OnlyBarType(INSTRUMENT, target, OnlyAggregationSource.INTERNAL),
+                calendar,
+                OnlyBacktestClock(BASE + timedelta(hours=1)),
+            )
+            projected = tuple(bar for source in source_bars if (bar := aggregator.process(source)) is not None)
+            return construction.fingerprint, projected
+
+        before = reconstruct(catalog, store)
+        after = reconstruct(
+            OnlyPostgresMarketDataCatalog(postgres_dsn), OnlyClickHouseMarketFactStore(_clickhouse(database))
+        )
+        assert before == after
+        assert len(before[1]) == 1
+    finally:
         client.execute(f"DROP DATABASE IF EXISTS {database} SYNC", database="default")

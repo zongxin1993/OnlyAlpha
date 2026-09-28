@@ -21,11 +21,13 @@ from onlyalpha.application.integration_configuration import (
 )
 from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeResolver
 from onlyalpha.application.market_data_product import (
+    BASE_BAR_SPECIFICATION,
     OnlyMarketDataProductError,
     OnlyMarketDataProductService,
     OnlyMarketDataSourceReferenceV1,
 )
 from onlyalpha.application.market_data_stream import OnlyMarketDataStreamProductService
+from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.data.enums import (
     OnlyDataSequenceSemantics,
@@ -73,6 +75,7 @@ from onlyalpha.market_data.durable import (
     OnlyMarketDataScope,
     OnlyMarketDataSeal,
 )
+from onlyalpha.market_data.resolution import OnlyBarCapability, OnlyBarIntervalKind
 from onlyalpha.plugin.capabilities import OnlyDataSourceCapabilities
 from onlyalpha.plugin.data_source import (
     OnlyDataSourceInstrumentCatalogRequestV1,
@@ -269,12 +272,15 @@ class _FakeSource:
 
     def load_bars(self, request: object) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:
         self._provider.bar_fetches += 1
+        bar_type = next(iter(request.bar_types))  # type: ignore[attr-defined]
+        self._provider.bar_steps.append(bar_type.specification.step)
         fault = self._provider.fetch_fault()
         if fault is not None:
             raise fault
         start_ns = OnlyTimestamp.from_datetime(request.data_range.start_time).unix_nanos  # type: ignore[attr-defined]
         end_ns = OnlyTimestamp.from_datetime(request.data_range.end_time).unix_nanos  # type: ignore[attr-defined]
-        updates = tuple(self._update(item) for item in range(start_ns, end_ns, MINUTE_NS))
+        duration_ns = bar_type.specification.step * MINUTE_NS
+        updates = tuple(self._update(item, bar_type) for item in range(start_ns, end_ns, duration_ns))
         self._record(start_ns, end_ns, updates)
         return OnlyHistoricalDataStream(updates, 1024)
 
@@ -284,11 +290,10 @@ class _FakeSource:
     def load_quotes(self, request: object) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:
         raise AssertionError("market-data acquisition must not request quotes")
 
-    def _update(self, start_ns: int) -> OnlyMarketDataInboundUpdate:
+    def _update(self, start_ns: int, bar_type: OnlyBarType) -> OnlyMarketDataInboundUpdate:
         request = self._request
-        bar_type = _bar_type()
         start = OnlyTimestamp.from_unix_nanos(start_ns).to_datetime()
-        end = OnlyTimestamp.from_unix_nanos(start_ns + MINUTE_NS).to_datetime()
+        end = OnlyTimestamp.from_unix_nanos(start_ns + bar_type.specification.step * MINUTE_NS).to_datetime()
         bar = OnlyBar(
             bar_type=bar_type,
             open=OnlyPrice(Decimal("100.00"), 2),
@@ -344,6 +349,7 @@ class _FakeSource:
 class _ProviderCalls:
     def __init__(self, faults: _Faults | None = None) -> None:
         self.bar_fetches = 0
+        self.bar_steps: list[int] = []
         self.reference_lookups = 0
         self._faults = faults or _Faults()
 
@@ -373,6 +379,7 @@ class _FakeFactory:
             capabilities=OnlyDataSourceCapabilities(historical_bars=True),
         )
         self._provider = provider
+        self.native_minutes = (1,)
 
     def parse_config(self, extensions: Mapping[str, object]) -> object:
         return dict(extensions)
@@ -404,6 +411,21 @@ class _FakeFactory:
             OnlyTimeZone("UTC"),
             (OnlyTradingSession("continuous", time(0), time(0), OnlySessionType.CONTINUOUS),),
             weekend_days=(),
+        )
+
+    def bar_capabilities(self, plugin_config: object, instrument_id: OnlyInstrumentId) -> tuple[OnlyBarCapability, ...]:
+        del instrument_id
+        alignment_id = only_canonical_fingerprint(self.time_bar_calendar(plugin_config).to_dict())
+        return tuple(
+            OnlyBarCapability(
+                OnlyBarSpecification(minutes, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
+                OnlyBarIntervalKind.FIXED_DURATION,
+                alignment_id,
+                True,
+                True,
+                grid_origin_ns=0,
+            )
+            for minutes in self.native_minutes
         )
 
     def list_instruments(
@@ -489,6 +511,7 @@ def _service(
     *,
     configurations: tuple[Mapping[str, object], ...] = ({},),
     faults: _Faults | None = None,
+    native_minutes: tuple[int, ...] = (1,),
 ) -> _Harness:
     descriptor = _descriptor()
     faults = faults or _Faults()
@@ -510,6 +533,7 @@ def _service(
     )
     provider = _ProviderCalls(faults)
     factory = _FakeFactory(descriptor, provider, faults)
+    factory.native_minutes = native_minutes
     registry = OnlyDataSourceFactoryRegistry()
     registry.register(factory)
     catalog = _FaultyCatalog(faults)
@@ -689,6 +713,7 @@ def test_acquisition_seals_exact_revision_and_later_query_uses_database(tmp_path
     assert acquisition.revision_id is not None
     assert acquisition.seal_id is not None
     assert harness.provider.bar_fetches == 1
+    assert harness.provider.bar_steps == [1]
     assert acquisition.integration_binding_fingerprint is not None
 
     intent = harness.catalog.load_acquisition_intent(acquisition.acquisition_id)
@@ -763,19 +788,261 @@ def test_derived_history_uses_exact_sealed_base_revision_without_provider_fetch(
     assert harness.provider.bar_fetches == fetches
 
 
-def test_acquisition_command_requires_external_base_one_minute_specification(tmp_path: Path) -> None:
+def test_derived_acquisition_fetches_only_its_external_base(tmp_path: Path) -> None:
     harness = _service(tmp_path)
     start_ns, end_ns = _range(minutes=7)
-    with pytest.raises(OnlyMarketDataProductError, match="MARKET_DATA_ACQUISITION_BASE_REQUIRED"):
-        harness.service.acquire_bars(
+    reference = _reference(harness.revision_fingerprint)
+    target = OnlyBarSpecification(7, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
+    before = harness.service.query_bars(
+        reference,
+        instrument_id=str(INSTRUMENT),
+        start_ns=start_ns,
+        end_ns=end_ns,
+        bar_specification=target,
+    )
+    assert before.coverage.status == "INCOMPLETE"
+    assert before.construction_fingerprint is None
+    acquisition = harness.service.acquire_bars(
+        reference,
+        instrument_id=str(INSTRUMENT),
+        start_ns=start_ns,
+        end_ns=end_ns,
+        bar_specification=target,
+    )
+    assert acquisition.status == "COMPLETE"
+    assert acquisition.bar_specification.step == 1
+    assert harness.provider.bar_fetches == 1
+    assert harness.provider.bar_steps == [1]
+    after = harness.service.query_bars(
+        reference,
+        instrument_id=str(INSTRUMENT),
+        start_ns=start_ns,
+        end_ns=end_ns,
+        bar_specification=target,
+    )
+    assert after.coverage.status == "COMPLETE"
+    assert after.base_revision_id == acquisition.revision_id
+    assert after.construction_fingerprint is not None
+
+
+def test_derived_query_rejects_partial_target_grid_without_acquiring(tmp_path: Path) -> None:
+    harness = _service(tmp_path)
+    start_ns, end_ns = _range(minutes=7)
+    with pytest.raises(OnlyMarketDataProductError, match="MARKET_DATA_DERIVED_RANGE_UNALIGNED"):
+        harness.service.query_bars(
             _reference(harness.revision_fingerprint),
             instrument_id=str(INSTRUMENT),
-            start_ns=start_ns,
-            end_ns=end_ns,
+            start_ns=start_ns + MINUTE_NS,
+            end_ns=end_ns + MINUTE_NS,
             bar_specification=OnlyBarSpecification(7, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
         )
     assert harness.provider.bar_fetches == 0
     assert harness.catalog.mutations == 0
+
+
+def test_derived_query_rejects_partial_session_at_utc_midnight(tmp_path: Path) -> None:
+    harness = _service(tmp_path)
+    start_ns, _ = _range(minutes=7)
+    midnight_ns = start_ns + 86_400 * 1_000_000_000
+    target = OnlyBarSpecification(7, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
+    with pytest.raises(OnlyMarketDataProductError, match="MARKET_DATA_DERIVED_RANGE_UNALIGNED"):
+        harness.service.query_bars(
+            _reference(harness.revision_fingerprint),
+            instrument_id=str(INSTRUMENT),
+            start_ns=start_ns,
+            end_ns=midnight_ns,
+            bar_specification=target,
+        )
+    assert harness.catalog.mutations == 0
+
+
+def test_native_fifteen_minute_acquisition_and_query_use_native_authority(tmp_path: Path) -> None:
+    harness = _service(tmp_path, native_minutes=(1, 15))
+    reference = _reference(harness.revision_fingerprint)
+    start_ns, end_ns = _range(minutes=60)
+    specification = OnlyBarSpecification(15, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
+    cold = harness.service.query_bars(
+        reference,
+        instrument_id=str(INSTRUMENT),
+        start_ns=start_ns,
+        end_ns=end_ns,
+        bar_specification=specification,
+    )
+    assert cold.coverage.status == "INCOMPLETE" and cold.bars == ()
+    assert harness.provider.bar_fetches == 0 and harness.catalog.mutations == 0
+    acquired = harness.service.acquire_bars(
+        reference,
+        instrument_id=str(INSTRUMENT),
+        start_ns=start_ns,
+        end_ns=end_ns,
+        bar_specification=specification,
+    )
+    assert acquired.status == "COMPLETE"
+    assert acquired.coverage.expected_bar_count == 4
+    assert acquired.bar_specification == specification
+    assert harness.provider.bar_steps == [15]
+    fetched = harness.provider.bar_fetches
+    queried = harness.service.query_bars(
+        reference,
+        instrument_id=str(INSTRUMENT),
+        start_ns=start_ns,
+        end_ns=end_ns,
+        bar_specification=specification,
+    )
+    assert queried.resolution_mode == "EXTERNAL_NATIVE"
+    assert queried.coverage.status == "COMPLETE"
+    assert queried.revision_id == acquired.revision_id
+    assert len(queried.bars) == 4
+    assert harness.provider.bar_fetches == fetched
+
+
+def test_native_acquisition_failure_never_falls_back_to_sealed_base(tmp_path: Path) -> None:
+    harness = _service(
+        tmp_path,
+        native_minutes=(1, 15),
+        faults=_Faults(fetch_faults=(None, RuntimeError("native provider unavailable"))),
+    )
+    reference = _reference(harness.revision_fingerprint)
+    start_ns, end_ns = _range(minutes=15)
+    base = harness.service.acquire_bars(
+        reference,
+        instrument_id=str(INSTRUMENT),
+        start_ns=start_ns,
+        end_ns=end_ns,
+    )
+    assert base.status == "COMPLETE"
+    specification = OnlyBarSpecification(15, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
+    native = harness.service.acquire_bars(
+        reference,
+        instrument_id=str(INSTRUMENT),
+        start_ns=start_ns,
+        end_ns=end_ns,
+        bar_specification=specification,
+    )
+    assert native.status == "FAILED"
+    queried = harness.service.query_bars(
+        reference,
+        instrument_id=str(INSTRUMENT),
+        start_ns=start_ns,
+        end_ns=end_ns,
+        bar_specification=specification,
+    )
+    assert queried.resolution_mode == "EXTERNAL_NATIVE"
+    assert queried.coverage.status == "INCOMPLETE"
+    assert queried.bars == ()
+    assert harness.provider.bar_steps == [1, 15]
+
+
+def test_native_stream_failure_does_not_subscribe_to_base(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = _service(tmp_path, native_minutes=(1, 15))
+    reference = _reference(harness.revision_fingerprint)
+    attempted: list[int] = []
+
+    class _FailingNativeSource(_FakeSource):
+        def subscribe(self, request: object) -> OnlyMarketDataSubscriptionResult:
+            attempted.append(next(iter(request.bar_types)).specification.step)  # type: ignore[attr-defined]
+            raise RuntimeError("native websocket unavailable")
+
+    monkeypatch.setattr(
+        harness.factory, "create", lambda request: _FailingNativeSource(request, provider=harness.provider)
+    )
+    stream = OnlyMarketDataStreamProductService(
+        historical=harness.service,
+        catalog=harness.catalog,
+        fact_store=harness.service._facts,
+        wal_root=harness.wal_root,
+        clock=OnlyBacktestClock(BASE + timedelta(hours=1)),
+        logger=__import__("logging").getLogger(__name__),
+    )
+    with pytest.raises(OnlyMarketDataProductError, match="MARKET_DATA_STREAM_SUBSCRIBE_FAILED"):
+        stream.open(
+            reference,
+            instrument_id=str(INSTRUMENT),
+            bar_specification=OnlyBarSpecification(15, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
+            resume_after_sequence=0,
+        )
+    assert attempted == [15]
+
+
+def test_native_fifteen_minute_stream_uses_native_cursor_and_bar_type(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = _service(tmp_path, native_minutes=(1, 15))
+    reference = _reference(harness.revision_fingerprint)
+    start_ns, end_ns = _range(minutes=15)
+    specification = OnlyBarSpecification(15, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
+    acquired = harness.service.acquire_bars(
+        reference,
+        instrument_id=str(INSTRUMENT),
+        start_ns=start_ns,
+        end_ns=end_ns,
+        bar_specification=specification,
+    )
+    assert acquired.status == "COMPLETE"
+    resolved = harness.service.resolve_runtime(reference)
+    scope = harness.service._scope(
+        resolved, str(INSTRUMENT), start_ns, end_ns, harness.service._plan(resolved, str(INSTRUMENT), specification)
+    )
+    segments = harness.catalog.list_durable_segments(scope)
+    [fact] = harness.service._facts.read_segment_facts(segments, scope)
+    update = OnlyMarketDataInboundUpdate.from_dict(fact.canonical_payload)
+    requested_steps = []
+
+    class _NativeSource(_FakeSource):
+        def subscribe(self, request: object) -> OnlyMarketDataSubscriptionResult:
+            requested_steps.append(next(iter(request.bar_types)).specification.step)  # type: ignore[attr-defined]
+            self._request.market_data_sink(update)  # type: ignore[attr-defined]
+            return OnlyMarketDataSubscriptionResult(OnlyMarketDataRequestStatus.ACCEPTED, "native")
+
+        def unsubscribe(self, _request: object) -> None:
+            return None
+
+    monkeypatch.setattr(harness.factory, "create", lambda request: _NativeSource(request, provider=harness.provider))
+    stream = OnlyMarketDataStreamProductService(
+        historical=harness.service,
+        catalog=harness.catalog,
+        fact_store=harness.service._facts,
+        wal_root=harness.wal_root,
+        clock=OnlyBacktestClock(BASE + timedelta(hours=1)),
+        logger=__import__("logging").getLogger(__name__),
+    )
+    with pytest.raises(OnlyMarketDataProductError, match="MARKET_DATA_RESUME_PLAN_MISMATCH"):
+        stream.open(
+            reference,
+            instrument_id=str(INSTRUMENT),
+            bar_specification=specification,
+            resume_after_sequence=start_ns // (15 * MINUTE_NS),
+            resume_plan_fingerprint=harness.service._plan(
+                resolved, str(INSTRUMENT), _bar_type().specification
+            ).fingerprint,
+        )
+    session = stream.open(
+        reference,
+        instrument_id=str(INSTRUMENT),
+        bar_specification=specification,
+        resume_after_sequence=start_ns // (15 * MINUTE_NS),
+        resume_plan_fingerprint=harness.service._plan(resolved, str(INSTRUMENT), specification).fingerprint,
+    )
+    events = []
+    while event := session.next_event(0):
+        events.append(event)
+    assert requested_steps == [15]
+    assert events[0].payload["resolution_mode"] == "EXTERNAL_NATIVE"
+    assert events[0].payload["cursor_bar_step_minutes"] == 15
+    historical = harness.service.query_bars(
+        reference,
+        instrument_id=str(INSTRUMENT),
+        start_ns=start_ns,
+        end_ns=end_ns,
+        bar_specification=specification,
+    )
+    assert events[0].payload["resolution_plan_fingerprint"] == historical.resolution_plan_fingerprint
+    assert any(event.event == "BAR_CLOSED" and event.payload["bar_specification"]["step"] == 15 for event in events)
+    stream.close()
 
 
 def test_acquisition_seals_complete_overlapping_bars_without_refetch(tmp_path: Path) -> None:
@@ -934,13 +1201,14 @@ def test_a_new_integration_binding_is_a_distinct_legal_acquisition_for_the_same_
     # Distinct exact runtime bindings are distinct legal execution intents ...
     assert failed.acquisition_id != completed.acquisition_id
     assert intent_a.integration_binding_fingerprint != intent_b.integration_binding_fingerprint
-    # ... while the canonical market scope (and therefore market fact identity) converges.
-    assert intent_a.requested_scope == intent_b.requested_scope
+    # The revision is part of Construction Identity; provider facts retain their own identity.
+    assert intent_a.requested_scope != intent_b.requested_scope
+    assert intent_a.requested_scope.bar_construction != intent_b.requested_scope.bar_construction
     converged = harness.service.query_bars(
         _reference(revision_a), instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns
     )
-    assert converged.coverage.status == "COMPLETE"
-    assert converged.revision_id == completed.revision_id
+    assert converged.coverage.status == "INCOMPLETE"
+    assert converged.revision_id is None
 
 
 def test_the_execution_intent_is_durable_before_any_provider_side_effect(tmp_path: Path) -> None:
@@ -1087,6 +1355,7 @@ def test_thirteen_minute_reconnect_repairs_gap_replays_once_then_reports_ready(
     resolved = harness.service.resolve_runtime(reference)
     base_ns = int(datetime(2026, 1, 1, tzinfo=UTC).timestamp()) * 1_000_000_000
     target = OnlyBarSpecification(13, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
+    plan_fingerprint = harness.service._plan(resolved, str(INSTRUMENT), target).fingerprint
     stream = OnlyMarketDataStreamProductService(
         historical=harness.service,
         catalog=harness.catalog,
@@ -1108,9 +1377,21 @@ def test_thirteen_minute_reconnect_repairs_gap_replays_once_then_reports_ready(
     acquire(0, 4)
     cursor = base_ns // MINUTE_NS + 8
     with pytest.raises(OnlyMarketDataProductError, match="HISTORY_REFRESH_REQUIRED"):
-        stream.open(reference, instrument_id=str(INSTRUMENT), bar_specification=target, resume_after_sequence=cursor)
+        stream.open(
+            reference,
+            instrument_id=str(INSTRUMENT),
+            bar_specification=target,
+            resume_after_sequence=cursor,
+            resume_plan_fingerprint=plan_fingerprint,
+        )
     acquire(4, 13)
-    scope = harness.service._scope(resolved, str(INSTRUMENT), base_ns + 9 * MINUTE_NS, base_ns + 13 * MINUTE_NS)
+    scope = harness.service._scope(
+        resolved,
+        str(INSTRUMENT),
+        base_ns + 9 * MINUTE_NS,
+        base_ns + 13 * MINUTE_NS,
+        harness.service._plan(resolved, str(INSTRUMENT), BASE_BAR_SPECIFICATION),
+    )
     segments = harness.catalog.list_durable_segments(scope)
     facts = harness.service._facts.read_segment_facts(tuple(segments), scope)
     replay = tuple(OnlyMarketDataInboundUpdate.from_dict(fact.canonical_payload) for fact in facts)
@@ -1131,12 +1412,18 @@ def test_thirteen_minute_reconnect_repairs_gap_replays_once_then_reports_ready(
 
     monkeypatch.setattr(harness.factory, "create", lambda request: _ReplaySource(request, provider=harness.provider))
     session = stream.open(
-        reference, instrument_id=str(INSTRUMENT), bar_specification=target, resume_after_sequence=cursor
+        reference,
+        instrument_id=str(INSTRUMENT),
+        bar_specification=target,
+        resume_after_sequence=cursor,
+        resume_plan_fingerprint=plan_fingerprint,
     )
     events = []
     while event := session.next_event(0):
         events.append(event)
     closed = [event for event in events if event.event == "BAR_CLOSED"]
+    assert events[0].payload["resolution_plan_fingerprint"] == plan_fingerprint
+    assert events[0].payload["cursor_bar_step_minutes"] == 1
     assert len(closed) == 1
     assert closed[0].payload["bar_specification"] == {"aggregation": "TIME", "step": 13, "price_type": "LAST"}
     assert closed[0].payload["bar"]["bar_start_ns"] == str(base_ns)  # type: ignore[index]

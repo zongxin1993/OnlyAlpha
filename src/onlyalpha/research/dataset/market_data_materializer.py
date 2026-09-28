@@ -7,9 +7,15 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from onlyalpha.canonical import only_canonical_fingerprint
+from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate
+from onlyalpha.domain.calendar import OnlyTradingCalendar
+from onlyalpha.domain.enums import OnlyAggregationSource
+from onlyalpha.domain.market import OnlyBarType
+from onlyalpha.market_data.aggregation.time_bar import OnlyBarAggregationError, OnlyTimeBarAggregator
 from onlyalpha.market_data.durable.models import OnlyMarketDataScope
 from onlyalpha.market_data.durable.revision import OnlyHistoricalMarketDataQueryService
+from onlyalpha.market_data.resolution import OnlyBarConstructionIdentity, OnlyBarResolutionMode
 
 from .definition import OnlyResearchDatasetDefinition
 from .identity import only_canonical_bars, only_content_fingerprint, only_snapshot_fingerprint
@@ -30,6 +36,8 @@ class OnlySealedMarketDataMaterializationPlan:
     revision_ids: tuple[str, ...]
     definition: OnlyResearchDatasetDefinition
     scopes: tuple[OnlyMarketDataScope, ...]
+    constructions: tuple[OnlyBarConstructionIdentity, ...] = ()
+    calendars: tuple[OnlyTradingCalendar | None, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -44,6 +52,16 @@ class OnlySealedMarketDataMaterializationPlan:
             raise ValueError("DATASET_MARKET_DATA_SCOPE_MISMATCH")
         if any(scope.data_kind != "BAR" for scope in self.scopes):
             raise ValueError("DATASET_MARKET_DATA_KIND_UNSUPPORTED")
+        if not self.constructions:
+            if any(scope.bar_construction is None for scope in self.scopes):
+                raise ValueError("DATASET_BAR_CONSTRUCTION_UNPROVABLE")
+            object.__setattr__(self, "constructions", tuple(scope.bar_construction for scope in self.scopes))
+        if len(self.constructions) != len(self.scopes):
+            raise ValueError("DATASET_BAR_CONSTRUCTION_INVALID")
+        if not self.calendars:
+            object.__setattr__(self, "calendars", (None,) * len(self.scopes))
+        if len(self.calendars) != len(self.scopes):
+            raise ValueError("DATASET_BAR_CALENDAR_INVALID")
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,11 +92,42 @@ class OnlySealedMarketDataDatasetMaterializer:
         bars = []
         provenance = []
         revision_bindings = []
+        construction_bindings = []
         bindings = tuple(
-            sorted(zip(plan.scopes, plan.revision_ids, strict=True), key=lambda item: item[0].instrument_id)
+            sorted(
+                zip(plan.scopes, plan.revision_ids, plan.constructions, plan.calendars, strict=True),
+                key=lambda item: item[0].instrument_id,
+            )
         )
-        for scope, revision_id in bindings:
-            revision = self._query.resolve(revision_id)
+        for scope, revision_id, construction, calendar in bindings:
+            revision, seal = self._query.resolve_with_seal(revision_id)
+            if (
+                revision.scope != scope
+                or construction.plan.instrument_id != scope.instrument_id
+                or construction.plan.source_id != scope.source_id
+                or construction.data_version != scope.data_version
+            ):
+                raise OnlyResearchDatasetError("DATASET_MARKET_DATA_SCOPE_MISMATCH")
+            if construction.plan.target_specification != plan.definition.bar_specification or (
+                construction.plan.mode is OnlyBarResolutionMode.EXTERNAL_NATIVE
+            ) != (plan.definition.aggregation_source is OnlyAggregationSource.EXTERNAL):
+                raise OnlyResearchDatasetError("DATASET_BAR_CONSTRUCTION_MISMATCH")
+            if construction.plan.mode is OnlyBarResolutionMode.EXTERNAL_NATIVE:
+                if construction != scope.bar_construction:
+                    raise OnlyResearchDatasetError("DATASET_BAR_CONSTRUCTION_MISMATCH")
+            elif (
+                construction.base_revision_id != revision_id
+                or construction.base_revision_fingerprint != revision.fingerprint
+                or construction.base_seal_id != seal.seal_id
+                or scope.bar_construction is None
+                or scope.bar_construction.plan.target_specification != construction.plan.base_specification
+                or construction.plan.alignment_id != scope.bar_construction.plan.alignment_id
+                or construction.plan.integration_revision_fingerprint
+                != scope.bar_construction.plan.integration_revision_fingerprint
+                or calendar is None
+                or only_canonical_fingerprint(calendar.to_dict()) != construction.plan.alignment_id
+            ):
+                raise OnlyResearchDatasetError("DATASET_DERIVED_BASE_UNPROVABLE")
             facts = self._query.read_exact(revision_id, scope)
             instrument_bars = []
             for fact in facts:
@@ -86,6 +135,31 @@ class OnlySealedMarketDataDatasetMaterializer:
                 if not isinstance(update.payload, OnlyBarUpdate):
                     raise OnlyResearchDatasetError("DATASET_MARKET_DATA_FACT_KIND_INVALID")
                 instrument_bars.append(update.payload.bar)
+            if construction.plan.mode is OnlyBarResolutionMode.INTERNAL_DERIVED:
+                assert calendar is not None
+                source_type = instrument_bars[0].bar_type if instrument_bars else None
+                if source_type is None:
+                    raise OnlyResearchDatasetError("DATASET_DERIVED_BASE_UNPROVABLE")
+                aggregator = OnlyTimeBarAggregator(
+                    source_type,
+                    OnlyBarType(
+                        source_type.instrument_id, plan.definition.bar_specification, OnlyAggregationSource.INTERNAL
+                    ),
+                    calendar,
+                    OnlyBacktestClock(plan.definition.time_range.end),
+                )
+                try:
+                    instrument_bars = [
+                        projected for bar in instrument_bars if (projected := aggregator.process(bar)) is not None
+                    ]
+                except OnlyBarAggregationError as exc:
+                    raise OnlyResearchDatasetError("DATASET_DERIVED_BASE_INVALID") from exc
+                if (
+                    not instrument_bars
+                    or instrument_bars[0].bar_start != plan.definition.time_range.start
+                    or instrument_bars[-1].bar_end < plan.definition.time_range.end - timedelta(microseconds=1)
+                ):
+                    raise OnlyResearchDatasetError("DATASET_DERIVED_RANGE_INCOMPLETE")
             bars.extend(instrument_bars)
             provenance.append(
                 OnlyResearchDatasetProvenance(
@@ -97,7 +171,7 @@ class OnlySealedMarketDataDatasetMaterializer:
                     None,
                     ((str(scope.start_ns), str(scope.end_ns)),),
                     ((str(scope.start_ns), str(scope.end_ns)),),
-                    {},
+                    {"bar_construction_fingerprint": construction.fingerprint},
                 )
             )
             revision_bindings.append(
@@ -109,11 +183,19 @@ class OnlySealedMarketDataDatasetMaterializer:
                     revision.fingerprint,
                 )
             )
+            construction_bindings.append(
+                (scope.instrument_id, construction.fingerprint, revision.fingerprint, seal.seal_id)
+            )
         canonical = only_canonical_bars(tuple(bars))
         only_validate_dataset_bars(plan.definition, canonical)
         content = only_content_fingerprint(canonical)
+        construction_fingerprint = only_canonical_fingerprint(tuple(construction_bindings))
         fingerprint = only_snapshot_fingerprint(
-            plan.definition, RESEARCH_BAR_DATASET_SCHEMA_V1, content, len(canonical)
+            plan.definition,
+            RESEARCH_BAR_DATASET_SCHEMA_V1,
+            content,
+            len(canonical),
+            construction_fingerprint,
         )
         created_at = self._audit_time()
         if created_at.tzinfo is None or created_at.utcoffset() != timedelta(0):
@@ -127,6 +209,7 @@ class OnlySealedMarketDataDatasetMaterializer:
             (),
             tuple(provenance),
             created_at,
+            construction_fingerprint,
         )
         partitions = tuple(
             tuple(bar for bar in canonical if bar.instrument_id == instrument_id)
@@ -140,7 +223,11 @@ class OnlySealedMarketDataDatasetMaterializer:
             )
         )
         request_fingerprint = only_canonical_fingerprint(
-            {"definition": plan.definition, "scopes": tuple(scope for scope, _ in bindings)}
+            {
+                "definition": plan.definition,
+                "scopes": tuple(scope for scope, _, _, _ in bindings),
+                "constructions": tuple(item.fingerprint for _, _, item, _ in bindings),
+            }
         )
         materializer_id = "onlyalpha.sealed-market-data"
         materializer_version = "1"
