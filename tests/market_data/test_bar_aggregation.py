@@ -22,6 +22,7 @@ from onlyalpha.market_data.aggregation.manager import OnlyBarAggregationManager
 from onlyalpha.market_data.aggregation.time_bar import (
     OnlyAlignedTumblingWindowPolicy,
     OnlyTimeBarAggregator,
+    OnlyTimeBarConstructionExecutor,
 )
 from onlyalpha.market_data.resolution import (
     OnlyBarConstructionAlgorithmRegistry,
@@ -70,7 +71,7 @@ def test_registry_creates_time_bar_executor(shanghai_calendar, bar_1m, bar_3m) -
     executor = OnlyBarConstructionAlgorithmRegistry().create_executor(
         edge, shanghai_calendar, OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC))
     )
-    assert isinstance(executor, OnlyTimeBarAggregator)
+    assert isinstance(executor, OnlyTimeBarConstructionExecutor)
 
 
 def test_aligned_tumbling_policy_rejects_rolling_stride(shanghai_calendar) -> None:
@@ -150,7 +151,8 @@ def test_multiple_derived_bars_have_stable_duration_order(
     results = []
     for minute in range(15):
         results = list(manager.process(make_bar(minute)))
-    assert [item.bar_type for item in results] == [bar_3m, bar_5m, bar_15m]
+    lane_order = {lane.edge.target: lane.lane_id for lane in manager.compiled_plan.construction_lanes}
+    assert [item.bar_type for item in results] == sorted((bar_3m, bar_5m, bar_15m), key=lane_order.__getitem__)
 
 
 def test_manager_preserves_native_and_derived_runtime_graph(shanghai_calendar, bar_1m, bar_15m) -> None:
@@ -215,7 +217,7 @@ def test_rolling_executor_factory_dispatches_without_manager_branch(shanghai_cal
             return getattr(fact, "bar_type", None) == bar_1m
 
         def process(self, bar):
-            return None
+            return ()
 
         def capture_checkpoint(self):
             return None
@@ -236,7 +238,7 @@ def test_rolling_executor_factory_dispatches_without_manager_branch(shanghai_cal
     assert manager.graph.derived_dependencies == (edge,)
 
 
-def test_trade_bar_executor_can_join_manager_without_manager_change(shanghai_calendar, bar_1m) -> None:
+def test_anonymous_fact_cannot_be_routed_as_trade(shanghai_calendar, bar_1m) -> None:
     source = OnlyTradeInputType(bar_1m.instrument_id)
     target = OnlyBarType(bar_1m.instrument_id, OnlyBarSemantic(OnlyTickCountBarFormation(1000)))
     edge = OnlyMarketDataConstructionEdge(
@@ -252,7 +254,7 @@ def test_trade_bar_executor_can_join_manager_without_manager_change(shanghai_cal
             return fact is tick
 
         def process(self, fact):
-            return None
+            return ()
 
         def capture_checkpoint(self):
             return None
@@ -289,8 +291,8 @@ def test_aggregation_checkpoint_is_versioned_by_lane(shanghai_calendar, bar_1m, 
     first.register_subscription(subscription)
     second.register_subscription(subscription)
     checkpoint = first.capture_checkpoint()
-    assert isinstance(checkpoint, dict) and checkpoint["schema_version"] == 2
-    with pytest.raises(ValueError, match="participant graph changed"):
+    assert isinstance(checkpoint, dict) and checkpoint["schema_version"] == 3
+    with pytest.raises(ValueError, match="CHECKPOINT_REBUILD_REQUIRED"):
         second.restore_checkpoint(checkpoint)
     with pytest.raises(ValueError, match="CHECKPOINT_REBUILD_REQUIRED"):
         first.restore_checkpoint({"aggregators": [], "reference_counts": []})

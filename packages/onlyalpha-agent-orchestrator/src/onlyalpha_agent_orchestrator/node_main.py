@@ -106,7 +106,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             readiness=lambda: False,
             configured=False,
         )
-        uvicorn.run(app, host=args.host, port=args.port)
+        uvicorn.run(app, host=args.host, port=args.port, access_log=False)
         return 0
     if not all(value is not None for value in bootstrap_configuration):
         raise ValueError("AGENT_CONFIGURATION_INCOMPLETE")
@@ -162,7 +162,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         control_bearer_token=_secret(args.control_token_file),
         readiness=runtime.is_ready,
     )
-    uvicorn.run(app, host=args.host, port=args.port)
+    uvicorn.run(app, host=args.host, port=args.port, access_log=False)
     return 0
 
 

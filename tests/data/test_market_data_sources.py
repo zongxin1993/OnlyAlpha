@@ -110,7 +110,9 @@ def test_replay_stable_order_duplicate_and_audit() -> None:
     second = update_for(env, 1, 2, source_id)
     duplicate = update_for(env, 0, 3, source_id, update_id=str(first.update_id))
     source = OnlyInMemoryHistoricalDataSource(source_id, (second, duplicate, first))
-    result = env.runtime.replay_historical_bars(source, request_for(env))
+    from onlyalpha.data.models import OnlyHistoricalMarketDataInputPlan
+
+    result = env.runtime.replay_historical_market_data(source, OnlyHistoricalMarketDataInputPlan((request_for(env),)))
     assert tuple(event.update.ts_event.unix_nanos for event in result.events) == tuple(
         sorted(event.update.ts_event.unix_nanos for event in result.events)
     )

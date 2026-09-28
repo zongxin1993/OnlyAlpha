@@ -40,7 +40,7 @@ class OnlyAlignedTumblingWindowPolicy:
 
 
 class OnlyTimeBarAggregator(OnlyBarAggregator):
-    """Aggregate one-minute Bars within Calendar session boundaries."""
+    """Aggregate aligned fixed-duration Bars within Calendar session boundaries."""
 
     def __init__(
         self,
@@ -58,10 +58,14 @@ class OnlyTimeBarAggregator(OnlyBarAggregator):
             raise OnlyBarAggregationError("source must be a time Bar")
         if not isinstance(target_bar_type.semantic.formation, OnlyFixedDurationBarFormation):
             raise OnlyBarAggregationError("target must be a time Bar")
-        if source_bar_type.semantic.window_minutes != 1 or source_bar_type.semantic.stride_minutes != 1:
-            raise OnlyBarAggregationError("first-phase source must be one-minute Bars")
-        if target_bar_type.semantic.window_minutes <= 1 or not target_bar_type.semantic.is_aligned:
-            raise OnlyBarAggregationError("TIME_BAR requires an aligned target longer than one minute")
+        if not source_bar_type.semantic.is_aligned:
+            raise OnlyBarAggregationError("TIME_BAR requires an aligned source")
+        if (
+            target_bar_type.semantic.window_minutes <= source_bar_type.semantic.window_minutes
+            or not target_bar_type.semantic.is_aligned
+            or target_bar_type.semantic.window_minutes % source_bar_type.semantic.window_minutes
+        ):
+            raise OnlyBarAggregationError("TIME_BAR requires an aligned target divisible by its source")
         if source_bar_type.semantic.price_type is not target_bar_type.semantic.price_type:
             raise OnlyBarAggregationError("source and target price types must match")
         self._source_bar_type = source_bar_type
@@ -274,3 +278,27 @@ class OnlyTimeBarAggregator(OnlyBarAggregator):
     @staticmethod
     def _decode_time(value: object) -> datetime | None:
         return None if value is None else datetime.fromisoformat(str(value))
+
+
+class OnlyTimeBarConstructionExecutor:
+    """Adapt the established TIME_BAR algorithm to the generic executor protocol."""
+
+    def __init__(self, aggregator: OnlyTimeBarAggregator) -> None:
+        self._aggregator = aggregator
+
+    @property
+    def target_bar_type(self) -> OnlyBarType:
+        return self._aggregator.target_bar_type
+
+    def accepts(self, fact: object) -> bool:
+        return self._aggregator.accepts(fact)
+
+    def process(self, fact: object) -> tuple[object, ...]:
+        result = self._aggregator.process(fact)
+        return () if result is None else (result,)
+
+    def capture_checkpoint(self) -> object:
+        return self._aggregator.capture_checkpoint()
+
+    def restore_checkpoint(self, payload: object) -> None:
+        self._aggregator.restore_checkpoint(payload)

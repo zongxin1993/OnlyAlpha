@@ -1110,7 +1110,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         if startup_status.state is OnlyKernelState.READY:
             app.state.experiment_memory_projection_builder = memory_builder
-        uvicorn.run(app, host=args.host, port=args.port)
+        uvicorn.run(app, host=args.host, port=args.port, access_log=False)
     finally:
         generation_host.close()
         if kernel.state is OnlyKernelState.READY:

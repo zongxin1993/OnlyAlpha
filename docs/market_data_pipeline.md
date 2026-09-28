@@ -27,7 +27,7 @@ Indicator、Required Dependency 和 Snapshot 五项全部 ready 后，Dispatcher
 一个 Trading Runtime 的 `OnlyBarAggregationManager` 按 Construction Lane ID 持有 Executor；多个 Cluster 用引用计数
 共享相同 Recipe 与 Source Binding 的结果，不共享可变策略状态。当前同一 Bar Semantic 的 Native 与 Derived
 Construction 不能同时激活，显式报 `RUNTIME_CONSTRUCTION_LANE_CONFLICT`。派生处理顺序是 dependency level
-（首版均为一级）、duration、稳定 BarType ID。
+递增、同层 Construction Lane ID 递增；edge 声明和 Cluster 注册顺序不参与执行顺序。
 
 `OnlyTimeBarAggregator` 使用 `OnlyTradingCalendar.session_intervals_for_trading_day()` 锚定窗口，区间
 `[start,end)`，不对 Unix timestamp 取模。上午、午休、下午、夜盘、DST 与特殊 Session 由同一 Calendar
@@ -47,7 +47,8 @@ Construction Graph schema v1 使用 typed BAR/TRADE provider input node；TRADE�
 未注册的 TICK_BAR/VOLUME_BAR/VALUE_BAR executor fail closed。TIME_BAR@1 由 Algorithm Registry 的 factory 创建，
 Manager 不选择具体算法。Runtime Lane ID 绑定 output、recipe fingerprint 与 source binding identity；
 Dataset 的 ConstructionIdentity 仍是独立的 durable evidence。Bar Subscription schema v3 与 Aggregation checkpoint
-participant v2 拒绝旧格式并要求 rebuild。
+participant v3 拒绝旧格式并要求 rebuild。Compiled Graph 以 provider lane 和 derived lane 为路由 Authority，按
+topological level、lane ID 稳定顺序同步传播到 fixpoint；任一下游失败都会令 Runtime fail-stop，Pipeline 不提交部分结果。
 
 ## 4. Cache
 
@@ -93,7 +94,8 @@ Backtest 已装配完整同步路径，SIM 已装配 realtime/streaming path。
 - 支持 provider-native 1m TIME Bar 到同标的、同价格类型、derived N>1 分钟 TIME Bar；产品层仍须独立限制请求范围。
 - Domain 接受任意正数 fixed-duration window/stride（stride 不大于 window）；当前 Resolution 层对超过 240m
   返回 `BAR_RESOLUTION_UNSUPPORTED`。
-- 尚无 Tick/Volume/Value Aggregator、partial Bar、修订替换、自动填充或持久化恢复。
+- 尚无正式 Tick/Volume/Value Aggregator、partial Bar、修订替换或自动填充；Construction executor state 已纳入
+  graph/lane-aware checkpoint 恢复。
 - 核心路径同步串行；长策略 callback 会阻塞该 Runtime 的后续输入。
 - Pipeline/Dispatcher 已装配进同步 Backtest RuntimeContext 与 SIM streaming path；Live 的 Real Broker 组合尚未实现。
 - Indicator 值首版限 Decimal/int/string/bool/None，复杂向量需后续稳定 DTO。

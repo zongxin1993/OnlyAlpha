@@ -313,6 +313,36 @@ class OnlyHistoricalTradeRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyHistoricalMarketDataInputPlan:
+    bar_requests: tuple[OnlyHistoricalBarRequest, ...] = ()
+    trade_requests: tuple[OnlyHistoricalTradeRequest, ...] = ()
+
+    def __post_init__(self) -> None:
+        requests: tuple[OnlyHistoricalBarRequest | OnlyHistoricalTradeRequest, ...] = (
+            *self.bar_requests,
+            *self.trade_requests,
+        )
+        if not requests:
+            raise ValueError("HISTORICAL_MARKET_DATA_INPUTS_EMPTY")
+        if len({request.data_version for request in requests}) != 1:
+            raise ValueError("HISTORICAL_MARKET_DATA_VERSION_MISMATCH")
+        if len({request.data_range for request in requests}) != 1:
+            raise ValueError("HISTORICAL_MARKET_DATA_RANGE_MISMATCH")
+
+    @property
+    def data_version(self) -> OnlyDataVersion:
+        return (self.bar_requests[0] if self.bar_requests else self.trade_requests[0]).data_version
+
+    @property
+    def batch_size(self) -> int:
+        values: tuple[int, ...] = (
+            *(request.batch_size for request in self.bar_requests),
+            *(request.batch_size for request in self.trade_requests),
+        )
+        return min(values)
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyHistoricalDataStream[T]:
     records: tuple[T, ...]
     batch_size: int

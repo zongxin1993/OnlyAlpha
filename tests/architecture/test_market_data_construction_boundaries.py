@@ -16,17 +16,25 @@ def test_backtest_loads_graph_provider_inputs_and_manager_uses_registry() -> Non
     backtest = (ROOT / "src/onlyalpha/runtime/backtest/factory.py").read_text(encoding="utf-8")
     manager = (ROOT / "src/onlyalpha/market_data/aggregation/manager.py").read_text(encoding="utf-8")
     graph = (ROOT / "src/onlyalpha/market_data/resolution.py").read_text(encoding="utf-8")
+    compiler = (ROOT / "src/onlyalpha/market_data/aggregation/compiler.py").read_text(encoding="utf-8")
 
-    assert "subscription.dependency_graph.provider_inputs" in backtest
+    assert "cluster.config.subscription.dependency_graph" in backtest
+    assert "graph.provider_inputs" in backtest
     assert "subscription.bar_types" not in backtest
     assert "OnlyTimeBarAggregator" not in manager
     assert "aggregation.time_bar" not in manager
     assert "create_executor(dependency" in manager
+    assert "outgoing_by_lane" in compiler
+    assert "source_lane_id" in manager
+    assert "if item.accepts(fact)" not in manager
     assert "OnlyTradeInputType" in graph
     assert "class OnlyTradeInputType" in (ROOT / "src/onlyalpha/domain/market.py").read_text(encoding="utf-8")
     sim = (ROOT / "src/onlyalpha/runtime/sim/factory.py").read_text(encoding="utf-8")
     streaming = (ROOT / "src/onlyalpha/runtime/streaming/runtime.py").read_text(encoding="utf-8")
     assert "subscription.dependency_graph.provider_inputs" in sim
+    assert "only_project_construction_provider_requirement" in sim
+    assert "isinstance(item, OnlyBarType)" not in sim
+    assert "only_historical_market_data_input_plan" in backtest
     assert "for bar_type in sorted(self._driver.subscription.bar_types" in streaming
     assert "bar = pipeline.base_bar" in streaming
 

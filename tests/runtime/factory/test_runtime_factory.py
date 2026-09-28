@@ -147,7 +147,7 @@ def test_derived_backtest_loads_only_provider_one_minute(
     runtime = build.runtime
     try:
         run_plan = runtime._run_plan._plan  # type: ignore[attr-defined]
-        historical = run_plan._request
+        (historical,) = run_plan._input_plan.bar_requests
         assert {bar.semantic.window_minutes for bar in historical.bar_types} == {1}
         source = run_plan._source
         original_load = source.load_bars
@@ -197,7 +197,7 @@ def test_native_fifteen_minute_backtest_requests_fifteen_minutes(tmp_path: Path)
     build = only_default_engine_services().assembler.build(plan, tmp_path)
     assert build.runtime is not None, build.failure_message
     try:
-        historical = build.runtime._run_plan._plan._request  # type: ignore[attr-defined]
+        (historical,) = build.runtime._run_plan._plan._input_plan.bar_requests  # type: ignore[attr-defined]
         assert {bar.semantic.window_minutes for bar in historical.bar_types} == {15}
         build.runtime.initialize()
         build.runtime.start()
@@ -239,7 +239,7 @@ def test_mixed_cluster_backtest_unions_only_provider_inputs(tmp_path: Path) -> N
     build = only_default_engine_services().assembler.build(plan, tmp_path)
     assert build.runtime is not None, build.failure_message
     try:
-        historical = build.runtime._run_plan._plan._request  # type: ignore[attr-defined]
+        (historical,) = build.runtime._run_plan._plan._input_plan.bar_requests  # type: ignore[attr-defined]
         assert {bar.semantic.window_minutes for bar in historical.bar_types} == {1, 15}
     finally:
         build.runtime.close()

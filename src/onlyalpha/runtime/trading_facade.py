@@ -55,6 +55,7 @@ from onlyalpha.data.models import (
     OnlyHistoricalBarRequest,
     OnlyHistoricalDataRange,
     OnlyHistoricalDataStream,
+    OnlyHistoricalMarketDataInputPlan,
     OnlyHistoricalReplayConfig,
     OnlyHistoricalReplayResult,
     OnlyMarketDataInboundUpdate,
@@ -490,7 +491,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         market_data_source_binding_identity: str | None = None,
         replay_data_version: OnlyDataVersion | None = None,
         recovery_source: OnlyHistoricalDataSource | None = None,
-        recovery_request: OnlyHistoricalBarRequest | None = None,
+        recovery_input_plan: OnlyHistoricalMarketDataInputPlan | None = None,
         recovery_economic_requests: tuple[OnlyHistoricalFactRequest, ...] = (),
         plugin_resources: tuple[OnlyPluginResource, ...] = (),
         execution_reference_profile: OnlyExecutionReferenceProfile | None = None,
@@ -1150,7 +1151,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         self._checkpoint_registry.register(
             OnlyJsonRuntimeCheckpointParticipant(
                 "market-data.aggregation",
-                2,
+                3,
                 aggregation.capture_checkpoint,
                 aggregation.restore_checkpoint,
             )
@@ -1387,7 +1388,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         self._backtest_recovery_session: OnlyBacktestRecoverySession | None = None
         recovery_replay = OnlyBacktestRecoveryReplayService(
             source=recovery_source,
-            request=recovery_request,
+            input_plan=recovery_input_plan,
             economic_requests=recovery_economic_requests,
             source_registry=market_data_source_registry,
             replay=historical_replay_service,
@@ -1941,10 +1942,10 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             results.append(self._services.market_data_processor.process(update))
         return tuple(results)
 
-    def replay_historical_bars(
+    def replay_historical_market_data(
         self,
         source: OnlyHistoricalDataSource,
-        request: OnlyHistoricalBarRequest,
+        input_plan: OnlyHistoricalMarketDataInputPlan,
         economic_requests: tuple[OnlyHistoricalFactRequest, ...] = (),
     ) -> OnlyHistoricalReplayResult:
         """Load through HistoricalDataSource, then merge/advance/process through ReplayService."""
@@ -1955,16 +1956,17 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             self._services.market_data_source_registry.register(source)
         economic_source = cast(OnlyHistoricalFactSource, source)
         streams = (
-            source.load_bars(request),
+            *(source.load_bars(request) for request in input_plan.bar_requests),
+            *(source.load_trades(request) for request in input_plan.trade_requests),
             *(economic_source.load_facts(item) for item in economic_requests),
         )
         prepared = self._services.historical_replay_service.prepare(
             OnlyHistoricalReplayConfig(streams, source_priority=(source.source_id,))
         )
-        stream = OnlyHistoricalDataStream(prepared.updates, request.batch_size)
+        stream = OnlyHistoricalDataStream(prepared.updates, input_plan.batch_size)
         replay_cursor = self._replay_cursor
         if replay_cursor.last_update_id is not None:
-            if source.source_id != replay_cursor.source_id or request.data_version != replay_cursor.data_version:
+            if source.source_id != replay_cursor.source_id or input_plan.data_version != replay_cursor.data_version:
                 raise OnlyRuntimeError("replay cursor source identity or data version changed")
             matched = tuple(
                 index

@@ -5,8 +5,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from onlyalpha.data.enums import OnlyMarketDataType
+from onlyalpha.data.identifiers import OnlyDataVersion
+from onlyalpha.data.models import (
+    OnlyHistoricalBarRequest,
+    OnlyHistoricalDataRange,
+    OnlyHistoricalMarketDataInputPlan,
+    OnlyHistoricalTradeRequest,
+)
+from onlyalpha.domain.identifiers import OnlyRuntimeId
+from onlyalpha.domain.market import OnlyBarType, OnlyTradeInputType
 from onlyalpha.domain.trading import OnlyReferencePriceKind
 from onlyalpha.market.product import OnlyCompiledMarketPolicy
+from onlyalpha.market_data.resolution import OnlyMarketDataConstructionGraph
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,4 +53,43 @@ def only_kernel_economic_input_requirements(
     )
 
 
-__all__ = ["OnlyKernelEconomicInputRequirement", "only_kernel_economic_input_requirements"]
+def only_historical_market_data_input_plan(
+    runtime_id: OnlyRuntimeId,
+    graph: OnlyMarketDataConstructionGraph,
+    data_range: OnlyHistoricalDataRange,
+    data_version: OnlyDataVersion,
+    *,
+    batch_size: int,
+) -> OnlyHistoricalMarketDataInputPlan:
+    bar_types = frozenset(item for item in graph.provider_inputs if isinstance(item, OnlyBarType))
+    trade_instruments = frozenset(
+        item.instrument_id for item in graph.provider_inputs if isinstance(item, OnlyTradeInputType)
+    )
+    return OnlyHistoricalMarketDataInputPlan(
+        (
+            OnlyHistoricalBarRequest(
+                f"{runtime_id}-historical-bars",
+                frozenset(item.instrument_id for item in bar_types),
+                bar_types,
+                data_range,
+                data_version,
+                batch_size=batch_size,
+            ),
+        )
+        if bar_types
+        else (),
+        (
+            OnlyHistoricalTradeRequest(
+                f"{runtime_id}-historical-trades",
+                trade_instruments,
+                data_range,
+                data_version,
+                batch_size=batch_size,
+            ),
+        )
+        if trade_instruments
+        else (),
+    )
+
+
+__all__ = [name for name in globals() if name.startswith(("Only", "only_"))]

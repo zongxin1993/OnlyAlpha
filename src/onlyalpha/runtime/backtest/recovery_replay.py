@@ -8,8 +8,8 @@ from typing import cast
 from onlyalpha.data.enums import OnlyMarketDataProcessingStatus
 from onlyalpha.data.historical.models import OnlyHistoricalFactRequest
 from onlyalpha.data.models import (
-    OnlyHistoricalBarRequest,
     OnlyHistoricalDataStream,
+    OnlyHistoricalMarketDataInputPlan,
     OnlyHistoricalReplayConfig,
 )
 from onlyalpha.data.ports import OnlyHistoricalDataSource, OnlyHistoricalFactSource
@@ -31,7 +31,7 @@ class OnlyBacktestRecoveryReplayService:
         self,
         *,
         source: OnlyHistoricalDataSource | None,
-        request: OnlyHistoricalBarRequest | None,
+        input_plan: OnlyHistoricalMarketDataInputPlan | None,
         economic_requests: tuple[OnlyHistoricalFactRequest, ...],
         source_registry: OnlyMarketDataSourceRegistry,
         replay: OnlyHistoricalReplayService,
@@ -39,7 +39,7 @@ class OnlyBacktestRecoveryReplayService:
         deactivate: Callable[[], None],
     ) -> None:
         self._source = source
-        self._request = request
+        self._input_plan = input_plan
         self._economic_requests = economic_requests
         self._source_registry = source_registry
         self._replay = replay
@@ -51,17 +51,18 @@ class OnlyBacktestRecoveryReplayService:
         checkpoint: OnlyRuntimeCheckpoint,
         execution_session: OnlyExecutionRecoverySession,
     ) -> OnlyRuntimeRecoveryDriverResult:
-        if self._source is None or self._request is None:
+        if self._source is None or self._input_plan is None:
             raise RuntimeError("Recovery replay source is unavailable")
         if not self._source_registry.contains(self._source.source_id):
             self._source_registry.register(self._source)
         economic_source = cast(OnlyHistoricalFactSource, self._source)
         streams = (
-            self._source.load_bars(self._request),
+            *(self._source.load_bars(request) for request in self._input_plan.bar_requests),
+            *(self._source.load_trades(request) for request in self._input_plan.trade_requests),
             *(economic_source.load_facts(item) for item in self._economic_requests),
         )
         prepared = self._replay.prepare(OnlyHistoricalReplayConfig(streams, source_priority=(self._source.source_id,)))
-        stream = OnlyHistoricalDataStream(prepared.updates, self._request.batch_size)
+        stream = OnlyHistoricalDataStream(prepared.updates, self._input_plan.batch_size)
         cursor = only_backtest_replay_cursor(checkpoint)
         if cursor.last_update_id is None:
             remaining = stream.records

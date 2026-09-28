@@ -10,7 +10,7 @@ from onlyalpha.cluster.base import OnlyCluster, OnlyClusterState
 from onlyalpha.collector import OnlyBacktestResultCollector
 from onlyalpha.config import OnlyRuntimeAssemblyPlan
 from onlyalpha.data.historical.models import OnlyHistoricalFactRequest
-from onlyalpha.data.models import OnlyHistoricalBarRequest
+from onlyalpha.data.models import OnlyHistoricalMarketDataInputPlan
 from onlyalpha.data.ports import OnlyHistoricalDataSource
 from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyRuntimeId
@@ -43,13 +43,13 @@ class OnlyBacktestRunPlan:
         self,
         config: OnlyRuntimeAssemblyPlan,
         source: OnlyHistoricalDataSource,
-        request: OnlyHistoricalBarRequest,
+        input_plan: OnlyHistoricalMarketDataInputPlan,
         clusters: tuple[OnlyCluster, ...],
         economic_requests: tuple[OnlyHistoricalFactRequest, ...] = (),
     ) -> None:
         self._config = config
         self._source = source
-        self._request = request
+        self._input_plan = input_plan
         self._clusters = clusters
         self._economic_requests = economic_requests
         self._completed = False
@@ -63,9 +63,14 @@ class OnlyBacktestRunPlan:
         self._completed = True
         self._runtime = runtime
         self._collector.start()
-        request = self._request
-        generated = self._source.load_bars(request)
-        replay = runtime.replay_historical_bars(self._source, request, self._economic_requests)
+        generated_count = sum(
+            len(stream.records)
+            for stream in (
+                *(self._source.load_bars(request) for request in self._input_plan.bar_requests),
+                *(self._source.load_trades(request) for request in self._input_plan.trade_requests),
+            )
+        )
+        replay = runtime.replay_historical_market_data(self._source, self._input_plan, self._economic_requests)
         runtime.drain_broker_inbound()
         progress = runtime.result_progress.snapshot()
         status = (
@@ -78,7 +83,7 @@ class OnlyBacktestRunPlan:
             else OnlyBacktestStatus.COMPLETED
         )
         return self._build_result(
-            len(generated.records),
+            generated_count,
             progress.processed_bar_count,
             progress.duplicate_count,
             progress.gap_detected_count,

@@ -20,7 +20,6 @@ from onlyalpha.data.enums import OnlyMarketDataType
 from onlyalpha.data.models import OnlyMarketDataSubscriptionRequest
 from onlyalpha.data.queue import OnlyMarketDataInboundQueue
 from onlyalpha.domain.enums import OnlyRuntimeMode
-from onlyalpha.domain.market import OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
@@ -34,6 +33,7 @@ from onlyalpha.market_data.durable.recorder import OnlyDurableMarketDataRecorder
 from onlyalpha.market_data.durable.recovery import OnlyMarketDataRecoveryCoordinator
 from onlyalpha.market_data.durable.revision import OnlyRevisionCommitService
 from onlyalpha.market_data.durable.wal import OnlyMarketDataWal
+from onlyalpha.market_data.resolution import OnlyMarketDataConstructionGraph
 from onlyalpha.observation import (
     OnlyConsoleObservationSink,
     OnlyJsonLinesObservationSink,
@@ -66,6 +66,7 @@ from onlyalpha.runtime.streaming.execution import OnlyExecutionSubmissionCapabil
 from onlyalpha.runtime.streaming.requirements import (
     OnlyRuntimeMarketDataRequirement,
     only_compose_runtime_market_data_requirements,
+    only_project_construction_provider_requirement,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -134,22 +135,20 @@ class OnlySimRuntimeFactory:
             subscriptions = tuple(
                 cluster.config.subscription for cluster in clusters if cluster.config.subscription is not None
             )
-            base_bar_types = frozenset(
-                item
-                for subscription in subscriptions
-                for item in subscription.dependency_graph.provider_inputs
-                if isinstance(item, OnlyBarType)
+            provider_inputs = tuple(
+                {item for subscription in subscriptions for item in subscription.dependency_graph.provider_inputs}
             )
-            if not base_bar_types:
+            dependencies = tuple(
+                {item for subscription in subscriptions for item in subscription.dependency_graph.derived_dependencies}
+            )
+            if not provider_inputs:
                 raise _OnlySimCompositionError(
-                    "SIM_EXTERNAL_BAR_SUBSCRIPTION_REQUIRED",
-                    "SIM requires an external base Bar subscription",
+                    "SIM_EXTERNAL_MARKET_DATA_SUBSCRIPTION_REQUIRED",
+                    "SIM requires an external market-data subscription",
                 )
             requirements = [
-                OnlyRuntimeMarketDataRequirement(
-                    "STRATEGY_REVISION",
-                    frozenset({OnlyMarketDataType.BAR}),
-                    base_bar_types,
+                only_project_construction_provider_requirement(
+                    OnlyMarketDataConstructionGraph(provider_inputs, dependencies)
                 )
             ]
             if streaming.execution_reference_profile is not None:
@@ -167,7 +166,7 @@ class OnlySimRuntimeFactory:
                 else Path(tempfile.gettempdir()) / "onlyalpha" / "runtime_state" / str(config.runtime_id)
             )
             lease = OnlyRuntimeStateLease(state_root, config.runtime_id)
-            by_instrument = {item.instrument_id: item for item in base_bar_types}
+            by_instrument = {item.instrument_id: item for item in requirement_plan.bar_types}
             data_factory = components.data_sources.resolve(source_common.plugin_id)
             wal = OnlyMarketDataWal(
                 state_root / "market_data" / "wal",
@@ -218,8 +217,8 @@ class OnlySimRuntimeFactory:
                 data_factory.parse_config(source_common.extensions),
                 config.runtime.runtime_type,
                 OnlyDataSourceCapabilities(
-                    historical_bars=True,
-                    live_bars=True,
+                    historical_bars=OnlyMarketDataType.BAR in requirement_plan.data_types,
+                    live_bars=OnlyMarketDataType.BAR in requirement_plan.data_types,
                     live_ticks=OnlyMarketDataType.TRADE in requirement_plan.data_types,
                     live_reconnect=True,
                 ),

@@ -185,8 +185,8 @@ class OnlyMarketDataPipeline:
         try:
             self._validate_input(bar)
             facts.append(self._fact(OnlyBarValidatedEvent, OnlyKnownEventType.BAR_VALIDATED, bar, bar))
-            self._cache.update_closed(bar)
             derived = self._aggregation_manager.process(bar)
+            self._cache.update_closed(bar)
             updated: dict[OnlyBarType, OnlyBar] = {bar.bar_type: bar}
             for derived_bar in derived:
                 self._cache.update_closed(derived_bar)

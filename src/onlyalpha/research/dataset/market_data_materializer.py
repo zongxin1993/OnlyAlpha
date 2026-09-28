@@ -10,8 +10,11 @@ from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate
 from onlyalpha.domain.calendar import OnlyTradingCalendar
-from onlyalpha.domain.market import OnlyBarType
-from onlyalpha.market_data.aggregation.base import OnlyBarAggregationError, OnlyBarAggregator
+from onlyalpha.domain.market import OnlyBar, OnlyBarType
+from onlyalpha.market_data.aggregation.base import (
+    OnlyBarAggregationError,
+    OnlyMarketDataConstructionExecutor,
+)
 from onlyalpha.market_data.durable.models import OnlyMarketDataScope
 from onlyalpha.market_data.durable.revision import OnlyHistoricalMarketDataQueryService
 from onlyalpha.market_data.resolution import (
@@ -150,15 +153,16 @@ class OnlySealedMarketDataDatasetMaterializer:
                     OnlyBarType(source_type.instrument_id, plan.definition.bar_semantic),
                     recipe,
                 )
-                aggregator = self._algorithm_registry.create_executor(
+                executor = self._algorithm_registry.create_executor(
                     edge, calendar, OnlyBacktestClock(plan.definition.time_range.end)
                 )
-                if not isinstance(aggregator, OnlyBarAggregator):
+                if not isinstance(executor, OnlyMarketDataConstructionExecutor):
                     raise OnlyResearchDatasetError("DATASET_CONSTRUCTION_EXECUTOR_INVALID")
                 try:
-                    instrument_bars = [
-                        projected for bar in instrument_bars if (projected := aggregator.process(bar)) is not None
-                    ]
+                    projected = tuple(output for bar in instrument_bars for output in executor.process(bar))
+                    if not all(isinstance(output, OnlyBar) for output in projected):
+                        raise OnlyResearchDatasetError("DATASET_CONSTRUCTION_EXECUTOR_INVALID")
+                    instrument_bars = [output for output in projected if isinstance(output, OnlyBar)]
                 except OnlyBarAggregationError as exc:
                     raise OnlyResearchDatasetError("DATASET_DERIVED_BASE_INVALID") from exc
                 if (

@@ -600,7 +600,10 @@ class OnlyBarConstructionAlgorithmRegistry:
     def _time_bar_factory(edge: OnlyMarketDataConstructionEdge, calendar: object, clock: object) -> object:
         from onlyalpha.core.clock import OnlyClock
         from onlyalpha.domain.calendar import OnlyTradingCalendar
-        from onlyalpha.market_data.aggregation.time_bar import OnlyTimeBarAggregator
+        from onlyalpha.market_data.aggregation.time_bar import (
+            OnlyTimeBarAggregator,
+            OnlyTimeBarConstructionExecutor,
+        )
         from onlyalpha.market_data.subscriptions import OnlyIncompleteBarPolicy, OnlyMissingBarPolicy
 
         assert isinstance(calendar, OnlyTradingCalendar)
@@ -609,13 +612,15 @@ class OnlyBarConstructionAlgorithmRegistry:
             raise ValueError("CONSTRUCTION_ALGORITHM_INPUT_KIND_INVALID")
         assert edge.recipe.incomplete_policy is not None
         assert edge.recipe.missing_policy is not None
-        return OnlyTimeBarAggregator(
-            edge.source,
-            edge.target,
-            calendar,
-            clock,
-            incomplete_policy=OnlyIncompleteBarPolicy(edge.recipe.incomplete_policy.value),
-            missing_policy=OnlyMissingBarPolicy(edge.recipe.missing_policy.value),
+        return OnlyTimeBarConstructionExecutor(
+            OnlyTimeBarAggregator(
+                edge.source,
+                edge.target,
+                calendar,
+                clock,
+                incomplete_policy=OnlyIncompleteBarPolicy(edge.recipe.incomplete_policy.value),
+                missing_policy=OnlyMissingBarPolicy(edge.recipe.missing_policy.value),
+            )
         )
 
     def require(self, recipe: OnlyBarConstructionRecipe) -> None:

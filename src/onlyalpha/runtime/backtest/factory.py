@@ -19,7 +19,7 @@ from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.data.enums import OnlyMarketDataType
 from onlyalpha.data.historical.models import OnlyHistoricalFactRequest
-from onlyalpha.data.models import OnlyHistoricalBarRequest, OnlyHistoricalDataRange
+from onlyalpha.data.models import OnlyHistoricalDataRange
 from onlyalpha.domain.enums import OnlyRuntimeMode
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.market import OnlyBarType
@@ -28,6 +28,7 @@ from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
 from onlyalpha.market.economics import OnlyEconomicModel
 from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine
+from onlyalpha.market_data.resolution import OnlyMarketDataConstructionGraph
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.plugin.broker import OnlyBrokerComponent, OnlyBrokerCreateRequest, OnlyBrokerGatewayFactory
 from onlyalpha.plugin.capabilities import (
@@ -42,7 +43,10 @@ from onlyalpha.plugin.lifecycle import OnlyPluginResource
 from onlyalpha.runtime.assembler import OnlyComponentFactoryRegistries
 from onlyalpha.runtime.backtest.config import OnlyBacktestRuntimeExtensionConfig
 from onlyalpha.runtime.backtest.driver import OnlyBacktestDriver
-from onlyalpha.runtime.backtest.input_requirements import only_kernel_economic_input_requirements
+from onlyalpha.runtime.backtest.input_requirements import (
+    only_historical_market_data_input_plan,
+    only_kernel_economic_input_requirements,
+)
 from onlyalpha.runtime.backtest.run_plan import OnlyBacktestRunPlan
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.broker_integration import only_resolve_broker_runtime_configuration
@@ -162,23 +166,24 @@ class OnlyBacktestRuntimeFactory:
             )
             if not clusters:
                 raise ValueError("product Backtest requires at least one enabled Cluster")
-            bar_types = frozenset(
-                bar_type
+            graphs = tuple(
+                cluster.config.subscription.dependency_graph
                 for cluster in clusters
                 if cluster.config.subscription is not None
-                for bar_type in cluster.config.subscription.dependency_graph.provider_inputs
-                if isinstance(bar_type, OnlyBarType)
+            )
+            construction_graph = OnlyMarketDataConstructionGraph(
+                tuple({item for graph in graphs for item in graph.provider_inputs}),
+                tuple({item for graph in graphs for item in graph.derived_dependencies}),
             )
             source_common = next(item for item in config.data_sources if item.enabled)
-            request_model = OnlyHistoricalBarRequest(
-                f"{config.runtime_id}-historical-bars",
-                frozenset(item.instrument_id for item in bar_types),
-                bar_types,
+            input_plan = only_historical_market_data_input_plan(
+                config.runtime_id,
+                construction_graph,
                 OnlyHistoricalDataRange(config.start_time, config.end_time),  # type: ignore[arg-type]
                 source_common.data_version,
                 batch_size=source_common.batch_size,
             )
-            run_plan = OnlyBacktestRunPlan(config, source, request_model, clusters, plan.economic_requests)
+            run_plan = OnlyBacktestRunPlan(config, source, input_plan, clusters, plan.economic_requests)
             if config.start_time is None:
                 raise ValueError("BACKTEST requires runtime.start_time")
             runtime = OnlyBacktestRuntime(
@@ -197,7 +202,7 @@ class OnlyBacktestRuntimeFactory:
                 replay_source_id=source.source_id,
                 replay_data_version=source_common.data_version,
                 recovery_source=source,
-                recovery_request=request_model,
+                recovery_input_plan=input_plan,
                 recovery_economic_requests=plan.economic_requests,
                 plugin_resources=(source, broker_resource),
             )

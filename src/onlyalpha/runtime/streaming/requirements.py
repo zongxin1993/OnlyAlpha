@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from onlyalpha.data.enums import OnlyMarketDataType
-from onlyalpha.domain.market import OnlyBarType
+from onlyalpha.domain.market import OnlyBarType, OnlyTradeInputType
+from onlyalpha.market_data.resolution import OnlyMarketDataConstructionGraph
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +41,24 @@ def only_compose_runtime_market_data_requirements(
         ordered,
         frozenset(kind for item in ordered for kind in item.data_types),
         frozenset(bar_type for item in ordered for bar_type in item.bar_types),
+    )
+
+
+def only_project_construction_provider_requirement(
+    graph: OnlyMarketDataConstructionGraph,
+    *,
+    authority: str = "STRATEGY_REVISION",
+) -> OnlyRuntimeMarketDataRequirement:
+    data_types = frozenset(
+        OnlyMarketDataType.TRADE if isinstance(item, OnlyTradeInputType) else OnlyMarketDataType.BAR
+        for item in graph.provider_inputs
+    )
+    if not data_types:
+        raise ValueError("CONSTRUCTION_PROVIDER_INPUTS_EMPTY")
+    return OnlyRuntimeMarketDataRequirement(
+        authority,
+        data_types,
+        frozenset(item for item in graph.provider_inputs if isinstance(item, OnlyBarType)),
     )
 
 
