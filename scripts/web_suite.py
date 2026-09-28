@@ -20,6 +20,7 @@ def _run(*command: str, cwd: Path = WEB) -> None:
 
 def static() -> None:
     _run("uv", "run", "python", "scripts/openapi_contract.py", "check", cwd=ROOT)
+    _run("uv", "run", "python", "scripts/market_data_stream_contract.py", "check", cwd=ROOT)
     try:
         check_generated_client()
     except ValueError as exc:

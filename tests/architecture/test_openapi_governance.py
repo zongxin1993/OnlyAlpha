@@ -21,7 +21,12 @@ def test_one_v2_canonical_contract_policy_and_one_bounded_pre_freeze_authorizati
     )
     authorization = ROOT / "contracts/product-api/v2/authorized-a0-corrections.json"
     policy = ROOT / "contracts/product-api/v2/compatibility-policy.json"
-    assert contracts == [authorization, policy, ROOT / "contracts/product-api/v2/openapi.json"]
+    stream = ROOT / "contracts/product-api/v2/market-data-stream.schema.json"
+    assert contracts == [authorization, policy, stream, ROOT / "contracts/product-api/v2/openapi.json"]
+    assert "scripts/market_data_stream_contract.py" in (ROOT / "scripts/web_suite.py").read_text(encoding="utf-8")
+    assert "scripts/market_data_stream_contract.py check" in (ROOT / ".github/workflows/quality.yml").read_text(
+        encoding="utf-8"
+    )
     manifest = json.loads(authorization.read_text(encoding="utf-8"))
     assert manifest["classification"] == "REQUIRED_A0_CONTRACT_CORRECTION"
     assert manifest["adr"] == "docs/adr/0109-product-api-v2-a0-pre-freeze-contract-correction.md"

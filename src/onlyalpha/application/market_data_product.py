@@ -280,6 +280,8 @@ class OnlyMarketDataBarsProjectionV1:
     resolution_plan_fingerprint: str | None = None
     base_revision_id: str | None = None
     construction_fingerprint: str | None = None
+    resume_after_sequence: str | None = None
+    resume_plan_fingerprint: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -504,11 +506,20 @@ class OnlyMarketDataProductService:
             seal_id: str | None = None
             calendar_fingerprint: str | None = None
             construction_fingerprint: str | None = None
+            resume_after_sequence: str | None = None
             if sealed is not None:
                 if scope.bar_construction is None:
                     raise OnlyMarketDataProductError("MARKET_DATA_BAR_CONSTRUCTION_UNPROVABLE")
                 revision, seal = sealed
                 facts = self._queries.read_exact(revision.revision_id, scope)
+                if not facts:
+                    raise OnlyMarketDataProductError("MARKET_DATA_RESUME_CURSOR_UNPROVABLE")
+                resume_after_sequence = str(
+                    max(
+                        int(OnlyMarketDataInboundUpdate.from_dict(fact.canonical_payload).source_sequence)
+                        for fact in facts
+                    )
+                )
                 if plan.mode is OnlyBarResolutionMode.EXTERNAL_NATIVE:
                     bars = self._bars(facts)
                 else:
@@ -564,6 +575,8 @@ class OnlyMarketDataProductService:
             plan.fingerprint,
             revision_id if plan.mode is OnlyBarResolutionMode.INTERNAL_DERIVED else None,
             construction_fingerprint,
+            resume_after_sequence if coverage.complete else None,
+            plan.fingerprint if coverage.complete else None,
         )
 
     # --- Product Command ---------------------------------------------------------------

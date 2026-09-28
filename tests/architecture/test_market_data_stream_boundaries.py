@@ -15,8 +15,13 @@ def test_browser_stream_uses_only_product_websocket_and_cursor_truth() -> None:
     client = (ROOT / "packages/onlyalpha-web-console/src/api/marketData/stream.ts").read_text(encoding="utf-8")
     assert "/api/v2/market-data/stream" in client
     assert "binance.com" not in client
-    subscribe = client.split("marketDataStreamSubscribeSchema", 1)[1].split("});", 1)[0]
-    assert "resume_after_sequence" in subscribe
+    generated = (ROOT / "packages/onlyalpha-web-console/src/api/marketData/stream.generated.ts").read_text(
+        encoding="utf-8"
+    )
+    subscribe = generated.split("export const marketDataStreamSubscribeSchema =", 1)[1].split(
+        "export const marketDataStreamEventSchema", 1
+    )[0]
+    assert "resume_after_sequence" in subscribe and "resume_plan_fingerprint" in subscribe
     assert all(field not in subscribe for field in ("open:", "high:", "low:", "close:", "volume:"))
 
 

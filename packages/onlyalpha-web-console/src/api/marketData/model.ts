@@ -96,27 +96,37 @@ export const marketDataInstrumentListSchema = z.strictObject({
     instruments: z.array(marketDataInstrumentSchema)
 });
 
-export const marketDataBarsSchema = z.strictObject({
-    schema_version: z.literal(1),
-    source_selection: marketDataSourceSelectionSchema,
-    instrument_id: z.string().min(1),
-    display_symbol: z.string().min(1),
-    venue: z.string().min(1),
-    market: z.string().min(1),
-    bar_specification: marketDataBarSpecificationSchema,
-    aggregation_source: z.string().min(1),
-    adjustment: z.string().min(1),
-    closed_only: z.boolean(),
-    start_ns: nanos,
-    end_ns: nanos,
-    coverage: marketDataCoverageSchema,
-    revision_id: z.string().nullable(),
-    revision_fingerprint: sha256.nullable(),
-    seal_id: z.string().nullable(),
-    aggregation_semantics_version: z.string().nullable(),
-    calendar_fingerprint: sha256.nullable(),
-    bars: z.array(marketDataBarSchema)
-});
+export const marketDataBarsSchema = z
+    .strictObject({
+        schema_version: z.literal(1),
+        source_selection: marketDataSourceSelectionSchema,
+        instrument_id: z.string().min(1),
+        display_symbol: z.string().min(1),
+        venue: z.string().min(1),
+        market: z.string().min(1),
+        bar_specification: marketDataBarSpecificationSchema,
+        aggregation_source: z.string().min(1),
+        adjustment: z.string().min(1),
+        closed_only: z.boolean(),
+        start_ns: nanos,
+        end_ns: nanos,
+        coverage: marketDataCoverageSchema,
+        revision_id: z.string().nullable(),
+        revision_fingerprint: sha256.nullable(),
+        seal_id: z.string().nullable(),
+        aggregation_semantics_version: z.string().nullable(),
+        calendar_fingerprint: sha256.nullable(),
+        bars: z.array(marketDataBarSchema),
+        resume_after_sequence: nanos.nullable(),
+        resume_plan_fingerprint: sha256.nullable()
+    })
+    .refine((value) => {
+        const complete = value.coverage.status === "COMPLETE";
+        return (
+            (value.resume_after_sequence !== null) === complete &&
+            (value.resume_plan_fingerprint !== null) === complete
+        );
+    });
 
 export const marketDataAcquisitionSchema = z.strictObject({
     schema_version: z.literal(1),

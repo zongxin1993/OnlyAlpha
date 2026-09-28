@@ -95,6 +95,10 @@ function bars(range: Range, complete: boolean, planned: readonly Range[] = [], s
         seal_id: complete ? `seal:${"e".repeat(64)}` : null,
         aggregation_semantics_version: step === 1 ? null : "TIME_BAR_V1",
         calendar_fingerprint: step === 1 ? null : "a".repeat(64),
+        resume_after_sequence: complete
+            ? (BigInt(range.end_ns) / minuteNs - BigInt(1)).toString()
+            : null,
+        resume_plan_fingerprint: complete ? step.toString(16).padStart(64, "0") : null,
         bars: complete ? [point(BigInt(0), "100", "101"), point(duration, "101", "101.5")] : []
     };
 }

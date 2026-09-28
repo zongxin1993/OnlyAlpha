@@ -232,6 +232,8 @@ class MarketDataBarsDto(_Dto):
     resolution_plan_fingerprint: str | None
     base_revision_id: str | None
     construction_fingerprint: str | None
+    resume_after_sequence: str | None = Field(pattern=_NANOSECONDS)
+    resume_plan_fingerprint: str | None = Field(pattern=_FINGERPRINT)
 
     @classmethod
     def from_model(cls, value: OnlyMarketDataBarsProjectionV1) -> MarketDataBarsDto:
@@ -258,6 +260,8 @@ class MarketDataBarsDto(_Dto):
             resolution_plan_fingerprint=value.resolution_plan_fingerprint,
             base_revision_id=value.base_revision_id,
             construction_fingerprint=value.construction_fingerprint,
+            resume_after_sequence=value.resume_after_sequence,
+            resume_plan_fingerprint=value.resume_plan_fingerprint,
             bars=tuple(
                 MarketDataBarDto(
                     bar_start_ns=str(item.bar_start_ns),

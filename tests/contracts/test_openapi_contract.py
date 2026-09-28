@@ -497,6 +497,8 @@ def test_current_v2_schema_vocabulary_is_fully_governed() -> None:
         "enum",
         "format",
         "items",
+        "maximum",
+        "minLength",
         "minimum",
         "oneOf",
         "pattern",

@@ -374,11 +374,12 @@ export function WorkspacePage() {
                                                 value={step}
                                                 disabled={
                                                     marketData.barCapability === null ||
+                                                    step <
+                                                        marketData.barCapability
+                                                            .minimum_step_minutes ||
                                                     step >
                                                         marketData.barCapability
-                                                            .maximum_step_minutes ||
-                                                    (step > 1 &&
-                                                        !marketData.barCapability.derived_supported)
+                                                            .maximum_step_minutes
                                                 }
                                             >
                                                 {formatBarSpecification(
@@ -399,12 +400,12 @@ export function WorkspacePage() {
                                                 const step = Number(customBarStep);
                                                 if (
                                                     Number.isInteger(step) &&
-                                                    step >= 1 &&
+                                                    step >=
+                                                        (marketData.barCapability
+                                                            ?.minimum_step_minutes ?? 1) &&
                                                     step <=
                                                         (marketData.barCapability
-                                                            ?.maximum_step_minutes ?? 0) &&
-                                                    (step === 1 ||
-                                                        marketData.barCapability?.derived_supported)
+                                                            ?.maximum_step_minutes ?? 0)
                                                 )
                                                     void marketData.selectBarStep(step);
                                             }}

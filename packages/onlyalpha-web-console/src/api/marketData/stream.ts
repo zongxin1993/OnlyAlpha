@@ -1,85 +1,41 @@
-import { z } from "zod";
 import {
-    marketDataBarSchema,
-    marketDataBarSpecificationSchema,
-    marketDataSourceReferenceSchema
-} from "./model";
+    marketDataStreamEventSchema,
+    type MarketDataStreamEvent,
+    type MarketDataStreamSubscribe
+} from "./stream.generated";
 
-export const marketDataStreamSubscribeSchema = z.strictObject({
-    schema_version: z.literal(2),
-    operation: z.literal("SUBSCRIBE_BAR"),
-    source_reference: marketDataSourceReferenceSchema.extend({
-        expected_type_id: z.string().min(1)
-    }),
-    instrument_id: z.string().min(1),
-    bar_specification: marketDataBarSpecificationSchema,
-    resume_after_sequence: z.string().regex(/^(?:0|[1-9][0-9]*)$/)
-});
-
-const base = { schema_version: z.literal(2) };
-export const marketDataStreamEventSchema = z.discriminatedUnion("event", [
-    z.strictObject({
-        ...base,
-        event: z.literal("SUBSCRIBED"),
-        stream_id: z.string(),
-        source_id: z.string(),
-        instrument_id: z.string()
-    }),
-    z.strictObject({
-        ...base,
-        event: z.literal("STATE"),
-        state: z.enum(["CONNECTING", "RECOVERING", "READY", "DEGRADED", "FAILED", "CLOSED"])
-    }),
-    z.strictObject({
-        ...base,
-        event: z.literal("BASE_CURSOR"),
-        sequence: z.string().regex(/^(?:0|[1-9][0-9]*)$/)
-    }),
-    z.strictObject({
-        ...base,
-        event: z.literal("BAR_PREVIEW"),
-        source_id: z.string(),
-        instrument_id: z.string(),
-        bar_specification: marketDataBarSpecificationSchema,
-        bar: marketDataBarSchema
-    }),
-    z.strictObject({
-        ...base,
-        event: z.literal("BAR_CLOSED"),
-        source_id: z.string(),
-        instrument_id: z.string(),
-        bar_specification: marketDataBarSpecificationSchema,
-        sequence: z.string().regex(/^(?:0|[1-9][0-9]*)$/),
-        bar: marketDataBarSchema
-    }),
-    z.strictObject({
-        ...base,
-        event: z.literal("ERROR"),
-        code: z.string(),
-        detail: z.string().optional()
-    })
-]);
-
-export type MarketDataStreamSubscribe = z.infer<typeof marketDataStreamSubscribeSchema>;
-export type MarketDataStreamEvent = z.infer<typeof marketDataStreamEventSchema>;
+export { marketDataStreamEventSchema, marketDataStreamSubscribeSchema } from "./stream.generated";
+export type { MarketDataStreamEvent, MarketDataStreamSubscribe } from "./stream.generated";
 
 export function openMarketDataStream(
     request: MarketDataStreamSubscribe,
     onEvent: (event: MarketDataStreamEvent) => void,
-    onDisconnect: () => void
+    onDisconnect: (failure?: "MALFORMED_JSON" | "CONTRACT_ERROR") => void
 ): () => void {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const socket = new WebSocket(`${protocol}//${window.location.host}/api/v2/market-data/stream`);
+    let terminalFailure: "MALFORMED_JSON" | "CONTRACT_ERROR" | undefined;
     socket.addEventListener("open", () => {
         socket.send(JSON.stringify(request));
     });
     socket.addEventListener("message", (message) => {
-        const admitted = marketDataStreamEventSchema.safeParse(JSON.parse(String(message.data)));
+        let payload: unknown;
+        try {
+            payload = JSON.parse(String(message.data));
+        } catch {
+            terminalFailure = "MALFORMED_JSON";
+            socket.close(1002, "invalid JSON");
+            return;
+        }
+        const admitted = marketDataStreamEventSchema.safeParse(payload);
         if (admitted.success) onEvent(admitted.data);
-        else socket.close(1002, "contract error");
+        else {
+            terminalFailure = "CONTRACT_ERROR";
+            socket.close(1002, "contract error");
+        }
     });
     socket.addEventListener("close", () => {
-        onDisconnect();
+        onDisconnect(terminalFailure);
     });
     socket.addEventListener("error", () => {
         socket.close();

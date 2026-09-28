@@ -5,6 +5,7 @@ const integrationRevision = "a".repeat(64);
 const historicalRevision = "d".repeat(64);
 const sourceId = "binance.spot.market_data.us";
 const minuteNs = BigInt("60000000000");
+const planFingerprint = (step: number) => step.toString(16).padStart(64, "0");
 
 const source = {
     integration_id: integrationId,
@@ -38,8 +39,9 @@ const json = (route: Route, body: unknown) =>
 async function controlledRealtime(page: Page, holdRecovery = false, acquireHistory = false) {
     let socket: WebSocketRoute | null = null;
     let connections = 0;
-    let historyComplete = !acquireHistory;
+    const completedSteps = new Set<number>();
     let acquisitions = 0;
+    const acquisitionSteps: number[] = [];
     let releaseRecovery: (() => void) | null = null;
     let emitStalePreview: (() => void) | null = null;
     const cursors: string[] = [];
@@ -62,8 +64,9 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
             });
         if (url.pathname === "/api/v2/market-data/bars") {
             const start = BigInt(url.searchParams.get("start_ns") ?? "0");
-            const end = url.searchParams.get("end_ns") ?? "0";
+            const end = BigInt(url.searchParams.get("end_ns") ?? "0");
             const step = Number(url.searchParams.get("bar_step") ?? "1");
+            const historyComplete = !acquireHistory || completedSteps.has(step);
             const duration = BigInt(step) * minuteNs;
             const bar = (offset: bigint, close: string) => ({
                 bar_start_ns: (start + offset).toString(),
@@ -93,7 +96,7 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
                 adjustment: "RAW",
                 closed_only: true,
                 start_ns: start.toString(),
-                end_ns: end,
+                end_ns: end.toString(),
                 coverage: {
                     status: historyComplete ? "COMPLETE" : "INCOMPLETE",
                     manifest_id: "manifest",
@@ -101,16 +104,23 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
                     expected_bar_count: 1440,
                     actual_bar_count: historyComplete ? 1440 : 0,
                     issues: historyComplete ? [] : ["BAR_GRID_INCOMPLETE"],
-                    gaps: historyComplete ? [] : [{ start_ns: String(start), end_ns: end }],
+                    gaps: historyComplete ? [] : [{ start_ns: String(start), end_ns: String(end) }],
                     planned_acquisition_ranges: historyComplete
                         ? []
-                        : [{ start_ns: String(start), end_ns: end }]
+                        : [{ start_ns: String(start), end_ns: String(end) }]
                 },
                 revision_id: historyComplete ? "revision" : null,
                 revision_fingerprint: historyComplete ? historicalRevision : null,
                 seal_id: historyComplete ? "seal" : null,
                 aggregation_semantics_version: step === 1 ? null : "TIME_BAR_V1",
                 calendar_fingerprint: step === 1 ? null : "a".repeat(64),
+                resume_after_sequence: historyComplete
+                    ? (
+                          end / (step === 15 ? BigInt(15) * minuteNs : minuteNs) -
+                          BigInt(1)
+                      ).toString()
+                    : null,
+                resume_plan_fingerprint: historyComplete ? planFingerprint(step) : null,
                 bars: historyComplete ? [bar(BigInt(0), "101"), bar(duration, "102")] : []
             });
         }
@@ -119,8 +129,13 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
             route.request().method() === "POST"
         ) {
             acquisitions += 1;
-            historyComplete = true;
-            const request = route.request().postDataJSON() as { start_ns: string; end_ns: string };
+            const request = route.request().postDataJSON() as {
+                start_ns: string;
+                end_ns: string;
+                bar_specification: { step: number };
+            };
+            acquisitionSteps.push(request.bar_specification.step);
+            completedSteps.add(request.bar_specification.step);
             return json(route, {
                 schema_version: 1,
                 acquisition_id: `acquisition:${"b".repeat(64)}`,
@@ -128,7 +143,11 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
                 source_id: sourceId,
                 integration_binding_fingerprint: "f".repeat(64),
                 instrument_id: instrument.instrument_id,
-                bar_specification: { aggregation: "TIME", step: 1, price_type: "LAST" },
+                bar_specification: {
+                    aggregation: "TIME",
+                    step: request.bar_specification.step,
+                    price_type: "LAST"
+                },
                 start_ns: request.start_ns,
                 end_ns: request.end_ns,
                 provenance: "REST_BACKFILL",
@@ -156,6 +175,7 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
         ws.onMessage((message) => {
             const request = JSON.parse(String(message)) as {
                 resume_after_sequence: string;
+                resume_plan_fingerprint: string;
                 bar_specification: { aggregation: "TIME"; step: number; price_type: "LAST" };
             };
             cursors.push(request.resume_after_sequence);
@@ -167,7 +187,11 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
                 event: "SUBSCRIBED",
                 stream_id: `stream-${String(connection)}`,
                 source_id: sourceId,
-                instrument_id: instrument.instrument_id
+                instrument_id: instrument.instrument_id,
+                resolution_mode:
+                    request.bar_specification.step === 15 ? "EXTERNAL_NATIVE" : "INTERNAL_DERIVED",
+                resolution_plan_fingerprint: planFingerprint(request.bar_specification.step),
+                cursor_bar_step_minutes: request.bar_specification.step === 15 ? 15 : 1
             });
             send({ event: "STATE", state: "RECOVERING" });
             const sequence = (BigInt(request.resume_after_sequence) + BigInt(1)).toString();
@@ -224,6 +248,7 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
         cursors,
         steps,
         acquisitions: () => acquisitions,
+        acquisitionSteps,
         releaseRecovery: () => releaseRecovery?.(),
         emitStalePreview: () => emitStalePreview?.(),
         disconnect: async () => {
@@ -275,7 +300,7 @@ test("explicit history acquisition, typed realtime and exact reconnect — CONTR
     await expect(page.getByTestId("market-data-status")).toContainText("● 恢复中");
     fixture.releaseRecovery();
     await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
-    expect(fixture.acquisitions()).toBe(1);
+    expect(fixture.acquisitions()).toBe(2);
     expect(BigInt(fixture.cursors[fixture.cursors.length - 1] ?? "0")).toBeGreaterThan(
         BigInt(fixture.cursors[fixture.cursors.length - 2] ?? "0")
     );
@@ -311,6 +336,29 @@ test("preset and custom periods subscribe to matching derived realtime bars — 
     await expect.poll(() => fixture.steps[fixture.steps.length - 1]).toBe(37);
     await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
     expect(fixture.steps).toEqual([1, 15, 60, 7, 37]);
+});
+
+test("native 15m and derived 7m use target acquisition and Product resume metadata", async ({
+    page
+}) => {
+    const fixture = await controlledRealtime(page, false, true);
+    await page.goto("/");
+    await page.getByRole("combobox", { name: "数据源" }).selectOption(integrationId);
+    await page.getByRole("searchbox", { name: "搜索标的" }).fill("BTCUSDT");
+    await page.getByRole("searchbox", { name: "搜索标的" }).press("Enter");
+    await page.getByRole("button", { name: /BTCUSDT\.BINANCE/ }).click();
+    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+
+    await page.getByRole("combobox", { name: "时间周期" }).selectOption("15");
+    await expect.poll(() => fixture.acquisitionSteps).toEqual([1, 15]);
+    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+
+    await page.getByRole("combobox", { name: "时间周期" }).selectOption("custom");
+    await page.getByRole("spinbutton", { name: "自定义周期分钟数" }).fill("7");
+    await page.getByRole("button", { name: "应用" }).click();
+    await expect.poll(() => fixture.acquisitionSteps).toEqual([1, 15, 7]);
+    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+    expect(fixture.steps).toEqual([1, 15, 7]);
 });
 
 test("a stale realtime preview cannot crash the chart — CONTROLLED_TEST_EVIDENCE", async ({

@@ -1,51 +1,467 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "onlyalpha.product-api.v2.market-data-stream",
-  "oneOf": [
-    { "$ref": "#/$defs/subscribe" },
-    { "$ref": "#/$defs/event" }
-  ],
   "$defs": {
-    "sourceReference": {
-      "type": "object",
+    "MarketDataBarSpecificationDto": {
       "additionalProperties": false,
-      "required": ["integration_id", "integration_revision_fingerprint", "expected_type_id"],
       "properties": {
-        "integration_id": { "type": "string", "minLength": 1 },
-        "integration_revision_fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-        "expected_type_id": { "type": "string", "minLength": 1 }
-      }
+        "aggregation": {
+          "const": "TIME",
+          "title": "Aggregation",
+          "type": "string"
+        },
+        "step": {
+          "maximum": 240,
+          "minimum": 1,
+          "title": "Step",
+          "type": "integer"
+        },
+        "price_type": {
+          "const": "LAST",
+          "title": "Price Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "aggregation",
+        "step",
+        "price_type"
+      ],
+      "title": "MarketDataBarSpecificationDto",
+      "type": "object"
     },
-    "barSpecification": {
-      "type": "object",
+    "MarketDataStreamSourceReferenceDto": {
       "additionalProperties": false,
-      "required": ["aggregation", "step", "price_type"],
       "properties": {
-        "aggregation": { "const": "TIME" },
-        "step": { "type": "integer", "minimum": 1, "maximum": 240 },
-        "price_type": { "const": "LAST" }
-      }
+        "integration_id": {
+          "minLength": 1,
+          "title": "Integration Id",
+          "type": "string"
+        },
+        "integration_revision_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Integration Revision Fingerprint",
+          "type": "string"
+        },
+        "expected_type_id": {
+          "minLength": 1,
+          "title": "Expected Type Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "integration_id",
+        "integration_revision_fingerprint",
+        "expected_type_id"
+      ],
+      "title": "MarketDataStreamSourceReferenceDto",
+      "type": "object"
+    },
+    "MarketDataBarClosedDto": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 2,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "instrument_id": {
+          "title": "Instrument Id",
+          "type": "string"
+        },
+        "bar_specification": {
+          "$ref": "#/$defs/MarketDataBarSpecificationDto"
+        },
+        "bar": {
+          "$ref": "#/$defs/MarketDataBarDto"
+        },
+        "event": {
+          "const": "BAR_CLOSED",
+          "title": "Event",
+          "type": "string"
+        },
+        "sequence": {
+          "pattern": "^(?:0|[1-9][0-9]*)$",
+          "title": "Sequence",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "source_id",
+        "instrument_id",
+        "bar_specification",
+        "bar",
+        "event",
+        "sequence"
+      ],
+      "title": "MarketDataBarClosedDto",
+      "type": "object"
+    },
+    "MarketDataBarDto": {
+      "additionalProperties": false,
+      "properties": {
+        "bar_start_ns": {
+          "pattern": "^(?:0|[1-9][0-9]*)$",
+          "title": "Bar Start Ns",
+          "type": "string"
+        },
+        "bar_end_ns": {
+          "pattern": "^(?:0|[1-9][0-9]*)$",
+          "title": "Bar End Ns",
+          "type": "string"
+        },
+        "open": {
+          "title": "Open",
+          "type": "string"
+        },
+        "high": {
+          "title": "High",
+          "type": "string"
+        },
+        "low": {
+          "title": "Low",
+          "type": "string"
+        },
+        "close": {
+          "title": "Close",
+          "type": "string"
+        },
+        "volume": {
+          "title": "Volume",
+          "type": "string"
+        },
+        "closed": {
+          "title": "Closed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "bar_start_ns",
+        "bar_end_ns",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "closed"
+      ],
+      "title": "MarketDataBarDto",
+      "type": "object"
+    },
+    "MarketDataBarPreviewDto": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 2,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "instrument_id": {
+          "title": "Instrument Id",
+          "type": "string"
+        },
+        "bar_specification": {
+          "$ref": "#/$defs/MarketDataBarSpecificationDto"
+        },
+        "bar": {
+          "$ref": "#/$defs/MarketDataBarDto"
+        },
+        "event": {
+          "const": "BAR_PREVIEW",
+          "title": "Event",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "source_id",
+        "instrument_id",
+        "bar_specification",
+        "bar",
+        "event"
+      ],
+      "title": "MarketDataBarPreviewDto",
+      "type": "object"
+    },
+    "MarketDataBaseCursorDto": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 2,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "event": {
+          "const": "BASE_CURSOR",
+          "title": "Event",
+          "type": "string"
+        },
+        "sequence": {
+          "pattern": "^(?:0|[1-9][0-9]*)$",
+          "title": "Sequence",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "event",
+        "sequence"
+      ],
+      "title": "MarketDataBaseCursorDto",
+      "type": "object"
+    },
+    "MarketDataStateDto": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 2,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "event": {
+          "const": "STATE",
+          "title": "Event",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "CONNECTING",
+            "RECOVERING",
+            "READY",
+            "DEGRADED",
+            "FAILED",
+            "CLOSED"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "event",
+        "state"
+      ],
+      "title": "MarketDataStateDto",
+      "type": "object"
+    },
+    "MarketDataStreamErrorDto": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 2,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "event": {
+          "const": "ERROR",
+          "title": "Event",
+          "type": "string"
+        },
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        }
+      },
+      "required": [
+        "schema_version",
+        "event",
+        "code"
+      ],
+      "title": "MarketDataStreamErrorDto",
+      "type": "object"
+    },
+    "MarketDataSubscribedDto": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 2,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "event": {
+          "const": "SUBSCRIBED",
+          "title": "Event",
+          "type": "string"
+        },
+        "stream_id": {
+          "title": "Stream Id",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "instrument_id": {
+          "title": "Instrument Id",
+          "type": "string"
+        },
+        "resolution_mode": {
+          "enum": [
+            "EXTERNAL_NATIVE",
+            "INTERNAL_DERIVED"
+          ],
+          "title": "Resolution Mode",
+          "type": "string"
+        },
+        "resolution_plan_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Resolution Plan Fingerprint",
+          "type": "string"
+        },
+        "cursor_bar_step_minutes": {
+          "maximum": 240,
+          "minimum": 1,
+          "title": "Cursor Bar Step Minutes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "event",
+        "stream_id",
+        "source_id",
+        "instrument_id",
+        "resolution_mode",
+        "resolution_plan_fingerprint",
+        "cursor_bar_step_minutes"
+      ],
+      "title": "MarketDataSubscribedDto",
+      "type": "object"
     },
     "subscribe": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["schema_version", "operation", "source_reference", "instrument_id", "bar_specification", "resume_after_sequence"],
       "properties": {
-        "schema_version": { "const": 2 },
-        "operation": { "const": "SUBSCRIBE_BAR" },
-        "source_reference": { "$ref": "#/$defs/sourceReference" },
-        "instrument_id": { "type": "string", "minLength": 1 },
-        "bar_specification": { "$ref": "#/$defs/barSpecification" },
-        "resume_after_sequence": { "type": "string", "pattern": "^(?:0|[1-9][0-9]*)$" }
+        "schema_version": {
+          "const": 2,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "operation": {
+          "const": "SUBSCRIBE_BAR",
+          "title": "Operation",
+          "type": "string"
+        },
+        "source_reference": {
+          "$ref": "#/$defs/MarketDataStreamSourceReferenceDto"
+        },
+        "instrument_id": {
+          "minLength": 1,
+          "title": "Instrument Id",
+          "type": "string"
+        },
+        "bar_specification": {
+          "$ref": "#/$defs/MarketDataBarSpecificationDto"
+        },
+        "resume_after_sequence": {
+          "pattern": "^(?:0|[1-9][0-9]*)$",
+          "title": "Resume After Sequence",
+          "type": "string"
+        },
+        "resume_plan_fingerprint": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resume Plan Fingerprint"
+        }
+      },
+      "required": [
+        "schema_version",
+        "operation",
+        "source_reference",
+        "instrument_id",
+        "bar_specification",
+        "resume_after_sequence"
+      ],
+      "title": "MarketDataStreamSubscribeDto",
+      "type": "object",
+      "if": {
+        "properties": {
+          "resume_after_sequence": {
+            "not": {
+              "const": "0"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "resume_plan_fingerprint"
+        ],
+        "properties": {
+          "resume_plan_fingerprint": {
+            "type": "string"
+          }
+        }
       }
     },
     "event": {
-      "type": "object",
-      "required": ["schema_version", "event"],
-      "properties": {
-        "schema_version": { "const": 2 },
-        "event": { "enum": ["SUBSCRIBED", "STATE", "BASE_CURSOR", "BAR_PREVIEW", "BAR_CLOSED", "ERROR"] }
-      }
+      "discriminator": {
+        "mapping": {
+          "BAR_CLOSED": "#/$defs/MarketDataBarClosedDto",
+          "BAR_PREVIEW": "#/$defs/MarketDataBarPreviewDto",
+          "BASE_CURSOR": "#/$defs/MarketDataBaseCursorDto",
+          "ERROR": "#/$defs/MarketDataStreamErrorDto",
+          "STATE": "#/$defs/MarketDataStateDto",
+          "SUBSCRIBED": "#/$defs/MarketDataSubscribedDto"
+        },
+        "propertyName": "event"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/MarketDataSubscribedDto"
+        },
+        {
+          "$ref": "#/$defs/MarketDataStateDto"
+        },
+        {
+          "$ref": "#/$defs/MarketDataBaseCursorDto"
+        },
+        {
+          "$ref": "#/$defs/MarketDataBarPreviewDto"
+        },
+        {
+          "$ref": "#/$defs/MarketDataBarClosedDto"
+        },
+        {
+          "$ref": "#/$defs/MarketDataStreamErrorDto"
+        }
+      ]
     }
-  }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/subscribe"
+    },
+    {
+      "$ref": "#/$defs/event"
+    }
+  ]
 }

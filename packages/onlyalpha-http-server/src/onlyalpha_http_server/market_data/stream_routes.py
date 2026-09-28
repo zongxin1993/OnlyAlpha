@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from onlyalpha.application.market_data_product import OnlyMarketDataProductError, OnlyMarketDataSourceReferenceV1
 from onlyalpha.application.market_data_stream import OnlyMarketDataStreamProductService
 
-from .stream_schema import MarketDataStreamSubscribeDto
+from .stream_schema import MarketDataStreamSubscribeDto, market_data_stream_event_adapter
 
 
 def create_market_data_stream_router(service: OnlyMarketDataStreamProductService) -> APIRouter:
@@ -23,7 +23,19 @@ def create_market_data_stream_router(service: OnlyMarketDataStreamProductService
         try:
             try:
                 request = MarketDataStreamSubscribeDto.model_validate(await websocket.receive_json())
-            except (ValidationError, ValueError):
+            except ValidationError as exc:
+                code = (
+                    "MARKET_DATA_RESUME_PLAN_MISMATCH"
+                    if any(
+                        error["loc"] == ()
+                        and str(error.get("ctx", {}).get("error")) == "MARKET_DATA_RESUME_PLAN_MISMATCH"
+                        for error in exc.errors()
+                    )
+                    else "MARKET_DATA_STREAM_REQUEST_INVALID"
+                )
+                await websocket.send_json({"schema_version": 2, "event": "ERROR", "code": code})
+                return
+            except ValueError:
                 await websocket.send_json(
                     {"schema_version": 2, "event": "ERROR", "code": "MARKET_DATA_STREAM_REQUEST_INVALID"}
                 )
@@ -44,7 +56,9 @@ def create_market_data_stream_router(service: OnlyMarketDataStreamProductService
             while True:
                 event = await asyncio.to_thread(session.next_event)
                 if event is not None:
-                    await websocket.send_json(event.to_dict())
+                    await websocket.send_json(
+                        market_data_stream_event_adapter.validate_python(event.to_dict()).model_dump(exclude_none=True)
+                    )
                     if event.event == "ERROR":
                         return
         except WebSocketDisconnect:

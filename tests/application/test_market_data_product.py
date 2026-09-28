@@ -319,7 +319,7 @@ class _FakeSource:
             only_bar_update_id(request.source_id, INSTRUMENT, bar_type, start, request.data_version),  # type: ignore[attr-defined]
             OnlyRuntimeId("market-data-runtime"),
             request.source_id,  # type: ignore[attr-defined]
-            OnlyDataSequence(start_ns // MINUTE_NS),
+            OnlyDataSequence(start_ns // (bar_type.specification.step * MINUTE_NS)),
             request.data_version,  # type: ignore[attr-defined]
             INSTRUMENT,
             OnlyMarketDataType.BAR,
@@ -778,6 +778,8 @@ def test_derived_history_uses_exact_sealed_base_revision_without_provider_fetch(
         bar_specification=OnlyBarSpecification(step, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
     )
     assert projected.coverage.status == "COMPLETE"
+    assert projected.resume_after_sequence == str(end_ns // MINUTE_NS - 1)
+    assert projected.resume_plan_fingerprint == projected.resolution_plan_fingerprint
     assert projected.aggregation_source == "INTERNAL"
     assert projected.revision_id == acquired.revision_id
     assert projected.revision_fingerprint == acquired.revision_fingerprint
@@ -891,6 +893,8 @@ def test_native_fifteen_minute_acquisition_and_query_use_native_authority(tmp_pa
     )
     assert queried.resolution_mode == "EXTERNAL_NATIVE"
     assert queried.coverage.status == "COMPLETE"
+    assert queried.resume_after_sequence == str(end_ns // (15 * MINUTE_NS) - 1)
+    assert queried.resume_plan_fingerprint == queried.resolution_plan_fingerprint
     assert queried.revision_id == acquired.revision_id
     assert len(queried.bars) == 4
     assert harness.provider.bar_fetches == fetched
@@ -1002,6 +1006,14 @@ def test_native_fifteen_minute_stream_uses_native_cursor_and_bar_type(
             return None
 
     monkeypatch.setattr(harness.factory, "create", lambda request: _NativeSource(request, provider=harness.provider))
+    historical = harness.service.query_bars(
+        reference,
+        instrument_id=str(INSTRUMENT),
+        start_ns=start_ns,
+        end_ns=end_ns,
+        bar_specification=specification,
+    )
+    assert historical.resume_after_sequence == str(start_ns // (15 * MINUTE_NS))
     stream = OnlyMarketDataStreamProductService(
         historical=harness.service,
         catalog=harness.catalog,
@@ -1024,8 +1036,8 @@ def test_native_fifteen_minute_stream_uses_native_cursor_and_bar_type(
         reference,
         instrument_id=str(INSTRUMENT),
         bar_specification=specification,
-        resume_after_sequence=start_ns // (15 * MINUTE_NS),
-        resume_plan_fingerprint=harness.service._plan(resolved, str(INSTRUMENT), specification).fingerprint,
+        resume_after_sequence=int(historical.resume_after_sequence),
+        resume_plan_fingerprint=historical.resume_plan_fingerprint,
     )
     events = []
     while event := session.next_event(0):
@@ -1033,13 +1045,6 @@ def test_native_fifteen_minute_stream_uses_native_cursor_and_bar_type(
     assert requested_steps == [15]
     assert events[0].payload["resolution_mode"] == "EXTERNAL_NATIVE"
     assert events[0].payload["cursor_bar_step_minutes"] == 15
-    historical = harness.service.query_bars(
-        reference,
-        instrument_id=str(INSTRUMENT),
-        start_ns=start_ns,
-        end_ns=end_ns,
-        bar_specification=specification,
-    )
     assert events[0].payload["resolution_plan_fingerprint"] == historical.resolution_plan_fingerprint
     assert any(event.event == "BAR_CLOSED" and event.payload["bar_specification"]["step"] == 15 for event in events)
     stream.close()

@@ -2506,6 +2506,30 @@
             ],
             "title": "Resolution Plan Fingerprint"
           },
+          "resume_after_sequence": {
+            "anyOf": [
+              {
+                "pattern": "^(?:0|[1-9][0-9]*)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resume After Sequence"
+          },
+          "resume_plan_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resume Plan Fingerprint"
+          },
           "revision_fingerprint": {
             "anyOf": [
               {
@@ -2580,7 +2604,9 @@
           "resolution_mode",
           "resolution_plan_fingerprint",
           "base_revision_id",
-          "construction_fingerprint"
+          "construction_fingerprint",
+          "resume_after_sequence",
+          "resume_plan_fingerprint"
         ],
         "title": "MarketDataBarsDto",
         "type": "object"

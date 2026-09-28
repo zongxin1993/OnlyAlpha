@@ -2273,6 +2273,10 @@ export interface components {
             resolution_mode: string | null;
             /** Resolution Plan Fingerprint */
             resolution_plan_fingerprint: string | null;
+            /** Resume After Sequence */
+            resume_after_sequence: string | null;
+            /** Resume Plan Fingerprint */
+            resume_plan_fingerprint: string | null;
             /** Revision Fingerprint */
             revision_fingerprint: string | null;
             /** Revision Id */

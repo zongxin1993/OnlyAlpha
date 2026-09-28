@@ -94,6 +94,8 @@ export function marketDataBars(overrides: Partial<MarketDataBars> = {}): MarketD
         seal_id: "seal:" + "e".repeat(64),
         aggregation_semantics_version: null,
         calendar_fingerprint: null,
+        resume_after_sequence: "29453761",
+        resume_plan_fingerprint: "f".repeat(64),
         bars: [
             {
                 bar_start_ns: "1767225600000000000",
@@ -173,6 +175,8 @@ export function incompleteBars(): MarketDataBars {
         revision_id: null,
         revision_fingerprint: null,
         seal_id: null,
+        resume_after_sequence: null,
+        resume_plan_fingerprint: null,
         bars: []
     });
 }
