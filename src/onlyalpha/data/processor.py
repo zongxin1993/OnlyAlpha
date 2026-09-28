@@ -37,7 +37,7 @@ from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRuntimeId
 from onlyalpha.domain.market import OnlyBar, OnlyBarType, OnlyFixedDurationBarFormation
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.market_data.dispatcher import OnlyBarDispatchResult, OnlyStrategyBarDispatcher
-from onlyalpha.market_data.pipeline import OnlyMarketDataPipeline, OnlyMarketDataUpdateResult
+from onlyalpha.market_data.pipeline import OnlyDispatchReadyMarketDataResult, OnlyMarketDataPipeline
 from onlyalpha.market_data.realtime_state import OnlyRealtimeMarketStateStore
 
 
@@ -236,7 +236,7 @@ class OnlyMarketDataProcessor:
         gap_detector: OnlyMarketDataGapDetector,
         audit_store: OnlyMarketDataAuditStore,
         event_publisher: OnlyMarketDataEventPublisher,
-        before_dispatch: Callable[[OnlyMarketDataUpdateResult], None] | None = None,
+        before_dispatch: Callable[[OnlyDispatchReadyMarketDataResult], None] | None = None,
         after_dispatch: Callable[[OnlyMarketDataInboundUpdate], None] | None = None,
         after_processing: Callable[[OnlyMarketDataInboundUpdate, OnlyMarketDataProcessingResult], None] | None = None,
         realtime_state: OnlyRealtimeMarketStateStore | None = None,
@@ -306,9 +306,22 @@ class OnlyMarketDataProcessor:
         self._deduplicator.remember(update)
         self._sequence_tracker.commit(update)
         self._gap_detector.commit(update)
-        if isinstance(update.payload, OnlyTradeTickUpdate) and self._realtime_state is not None:
+        if isinstance(update.payload, OnlyTradeTickUpdate):
             try:
-                self._realtime_state.apply_trade(update, quality, self._sequence)
+                quality_strings = tuple(
+                    sorted(item.value for item in quality.flags if item is not OnlyMarketDataQualityFlag.VALID)
+                )
+                trade_result = self._pipeline.process_trade(
+                    update.payload.trade,
+                    input_quality_flags=quality_strings,
+                )
+                if self._realtime_state is not None:
+                    self._realtime_state.apply_trade(update, quality, self._sequence)
+                if trade_result is None:
+                    return self._finish(update, OnlyMarketDataProcessingStatus.APPLIED, quality, validation)
+                self._before_dispatch(trade_result)
+                dispatches = self._dispatcher.dispatch(trade_result)
+                self._after_dispatch(update)
             except Exception as exc:
                 return self._finish(
                     update,
@@ -317,23 +330,30 @@ class OnlyMarketDataProcessor:
                     validation,
                     failure=OnlyMarketDataFailure(type(exc).__name__, str(exc)),
                 )
-            return self._finish(update, OnlyMarketDataProcessingStatus.APPLIED, quality, validation)
+            return self._finish(
+                update,
+                OnlyMarketDataProcessingStatus.APPLIED,
+                quality,
+                validation,
+                trade_result,
+                dispatches,
+            )
         if not isinstance(update.payload, OnlyBarUpdate):
             return self._finish(update, OnlyMarketDataProcessingStatus.IGNORED, quality, validation)
         try:
             quality_strings = tuple(
                 sorted(item.value for item in quality.flags if item is not OnlyMarketDataQualityFlag.VALID)
             )
-            pipeline_result = self._pipeline.process_bar(update.payload.bar, input_quality_flags=quality_strings)
-            self._before_dispatch(pipeline_result)
-            dispatches = self._dispatcher.dispatch(pipeline_result)
+            bar_result = self._pipeline.process_bar(update.payload.bar, input_quality_flags=quality_strings)
+            self._before_dispatch(bar_result)
+            dispatches = self._dispatcher.dispatch(bar_result)
             self._after_dispatch(update)
             return self._finish(
                 update,
                 OnlyMarketDataProcessingStatus.APPLIED,
                 quality,
                 validation,
-                pipeline_result,
+                bar_result,
                 dispatches,
             )
         except Exception as exc:
@@ -367,7 +387,7 @@ class OnlyMarketDataProcessor:
         status: OnlyMarketDataProcessingStatus,
         quality: OnlyMarketDataQuality,
         validation: OnlyMarketDataValidationResult,
-        pipeline_result: OnlyMarketDataUpdateResult | None = None,
+        pipeline_result: OnlyDispatchReadyMarketDataResult | None = None,
         dispatches: tuple[OnlyBarDispatchResult, ...] = (),
         failure: OnlyMarketDataFailure | None = None,
     ) -> OnlyMarketDataProcessingResult:

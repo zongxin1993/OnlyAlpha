@@ -1205,16 +1205,17 @@ class OnlyRuntime:
 
     def _publish_runtime_fact(self, event_type: str) -> None:
         clock = self._services.clock
+        timestamp_ns = clock.timestamp_ns()
         self._services.event_router.publish_lifecycle(
             OnlyEvent(
                 event_type,
-                clock.now_utc(),
+                OnlyTimestamp.from_unix_nanos(timestamp_ns).to_datetime(),
                 self.config.engine_id,
                 self.config.runtime_id,
                 "runtime",
                 1,
-                ts_init_ns=clock.timestamp_ns(),
-                timestamp_ns=clock.timestamp_ns(),
+                ts_init_ns=timestamp_ns,
+                timestamp_ns=timestamp_ns,
             )
         )
 

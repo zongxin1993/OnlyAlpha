@@ -5,16 +5,20 @@ MarketData Snapshot 只表达标准化、聚合后的不可变行情视图。具
 本文的 Cache、Aggregation、Dispatcher 与 Cluster 边界属于 Trading Runtime。Research 可以复用 canonical Bar、Indicator
 和 Factor 定义，但只拥有 Dataset/Calculation/Result state，不为结构对称创建 Trading Cluster 或交易 authority。
 
-## 1. 基础 Bar 输入
+## 1. Provider 输入
 
-首版命令入口是 `OnlyMarketDataPipeline.process_bar(OnlyBar)`，支持 provider-native、已关闭、revision=0 的 1m TIME
-Bar。要求 `ts_event == bar_end`、Runtime Clock 不早于事件、BarType 内顺序单调；重复、乱序、迟到与修订
-默认拒绝，不静默覆盖已用于策略决策的数据。
+Pipeline 有两种 provider 入口：`process_bar(OnlyBar)` 处理 provider-native 已关闭 Bar；
+`process_trade(OnlyTradeTick)` 只在 Construction Graph 存在 `TRADE → BAR` lane 时驱动已注册 executor。
+Strategy 的交付语义始终是 closed Bar，raw Trade 不会直接 dispatch。executor 未闭合 Bar 时不产生
+Cache/Snapshot/dispatch；闭合后的真实 Bar 进入与 provider Bar 共用的 commit 路径。
+
+Provider Bar 要求 `ts_event == bar_end`、Runtime Clock 不早于事件、BarType 内顺序单调；重复、乱序、
+迟到与修订默认拒绝，不静默覆盖已用于策略决策的数据。
 
 ## 2. 固定数据准备顺序
 
 ```text
-校验/去重 → 基础 Bar Cache → Runtime Aggregation Manager → 派生 Bar 校验/Cache
+校验/去重 → Runtime Aggregation Manager → 已关闭 Bar 校验/Cache
 → 不可变 MarketData Snapshot → Dispatcher → Cluster Pipeline
 → scoped Indicator → TimeSeries Factor → CrossSection Factor → Required Factor Barrier → Strategy
 ```
@@ -48,7 +52,8 @@ Construction Graph schema v1 使用 typed BAR/TRADE provider input node；TRADE�
 Manager 不选择具体算法。Runtime Lane ID 绑定 output、recipe fingerprint 与 source binding identity；
 Dataset 的 ConstructionIdentity 仍是独立的 durable evidence。Bar Subscription schema v3 与 Aggregation checkpoint
 participant v3 拒绝旧格式并要求 rebuild。Compiled Graph 以 provider lane 和 derived lane 为路由 Authority，按
-topological level、lane ID 稳定顺序同步传播到 fixpoint；任一下游失败都会令 Runtime fail-stop，Pipeline 不提交部分结果。
+topological level、lane ID 稳定顺序同步传播到 fixpoint；任一 Construction executor 失败都会令
+Manager fail-stop，且在有效 constructed Bar 进入 Cache/dispatch 前失败。
 
 ## 4. Cache
 
@@ -84,7 +89,8 @@ FILL_FORWARD 与 TRUNCATE 接口已预留但首版明确拒绝，避免把无成
 
 ## 9. 重放
 
-Event、Bar Subscription、Update Result、Snapshot 和 Dispatch Result 均提供稳定 DTO。Event/Snapshot 保存
+Event、Bar Subscription、provider-Bar Update Result、Snapshot 和 Dispatch Result 均提供稳定 DTO。Trade construction
+使用独立 immutable result，保留 input Trade 和 constructed Bars，不伪造 provider base Bar。Event/Snapshot 保存
 Unix 纳秒，Bar 保存 Decimal/UTC/强类型 Domain DTO。相同序列在新 Runtime Pipeline 中重放，Snapshot、
 主 Bar、updated types、调用次数与调用时刻一致。Backtest、Sim 与 future Live 共用同一 prepare/dispatch 语义。当前
 Backtest 已装配完整同步路径，SIM 已装配 realtime/streaming path。

@@ -20,10 +20,13 @@ from onlyalpha.data.identifiers import OnlyDataSequence, OnlyDataVersion
 from onlyalpha.data.identity import only_bar_update_id
 from onlyalpha.data.models import (
     OnlyBarUpdate,
+    OnlyHistoricalDataRange,
+    OnlyHistoricalTradeRequest,
     OnlyMarketDataInboundUpdate,
     OnlyMarketDataProcessingResult,
     OnlyMarketDataSubscriptionRequest,
     OnlyMarketDataUnsubscriptionRequest,
+    OnlyTradeTickUpdate,
 )
 from onlyalpha.data.ports import OnlyHistoricalDataSource, OnlyMarketDataGateway
 from onlyalpha.data.queue import OnlyMarketDataInboundQueue
@@ -38,7 +41,7 @@ from onlyalpha.domain.calendar import OnlyTradingCalendar
 from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyRuntimeMode
 from onlyalpha.domain.execution import OnlyOrderRequest, OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyRuntimeId
-from onlyalpha.domain.market import OnlyBar, OnlyBarType
+from onlyalpha.domain.market import OnlyBar, OnlyBarType, OnlyTradeInputType
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.execution.reference import OnlyExecutionReferenceProfile
@@ -48,7 +51,7 @@ from onlyalpha.market.session_clock import (
     OnlyMarketSessionState,
 )
 from onlyalpha.market_data.completed_boundary import OnlyCompletedBarBoundaryResolver
-from onlyalpha.market_data.pipeline import OnlyMarketDataUpdateResult
+from onlyalpha.market_data.pipeline import OnlyMarketDataUpdateResult, OnlyTradeConstructionUpdateResult
 from onlyalpha.market_data.watermark import OnlyHistoricalWatermark
 from onlyalpha.observation import (
     OnlyCompositeObservationSink,
@@ -649,13 +652,15 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             self._driver.subscription_id = None
 
     def _bootstrap(self) -> None:
-        load_warmup = getattr(self._driver.source, "load_warmup", None)
-        if not callable(load_warmup):
-            raise OnlyRuntimeError("streaming DataSource does not provide the Historical Warmup Port")
         observed_at = OnlyTimestamp.from_datetime(self._services.clock.now_utc())
         self._bootstrap_observed_at = observed_at
+        records: list[OnlyMarketDataInboundUpdate] = []
         bars: list[OnlyBar] = []
         alignment = lcm(*self._warmup_alignment_steps) if self._warmup_alignment_steps else 1
+        if self._driver.subscription.bar_types:
+            load_warmup = getattr(self._driver.source, "load_warmup", None)
+            if not callable(load_warmup):
+                raise OnlyRuntimeError("streaming DataSource does not provide the Historical Warmup Port")
         for bar_type in sorted(self._driver.subscription.bar_types, key=str):
             closed_cutoff = OnlyCompletedBarBoundaryResolver().latest_completed_bar_end(
                 calendar=self._selected_calendar,
@@ -682,6 +687,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 compatibility_profile_id=self._historical_compatibility_profile,
             )
             self._acceptance_execution_stage = "HISTORICAL_WORKER"
+            assert callable(load_warmup)
             result = load_warmup(request)
             self._historical_warmup_results.append(result)
             if result.status is not OnlyHistoricalWarmupStatus.SUCCESS:
@@ -708,9 +714,8 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             bars.extend(aligned)
             if not aligned:
                 raise OnlyRuntimeError("historical warmup returned no aligned Bars")
-        ordered = sorted(bars, key=lambda bar: (bar.bar_end, str(bar.bar_type)))
         source_id = self._driver.source.source_id  # type: ignore[union-attr]
-        records = tuple(
+        records.extend(
             OnlyMarketDataInboundUpdate(
                 only_bar_update_id(
                     source_id, bar.instrument_id, bar.bar_type, bar.bar_start, self._streaming_data_version
@@ -727,27 +732,65 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 metadata=(("warmup", "historical"),),
                 sequence_semantics=OnlyDataSequenceSemantics.MONOTONIC,
             )
-            for sequence, bar in enumerate(ordered, start=1)
+            for sequence, bar in enumerate(sorted(bars, key=lambda item: (item.bar_end, str(item.bar_type))), start=1)
+        )
+        if OnlyMarketDataType.TRADE in self._driver.subscription.data_types:
+            load_trades = getattr(self._driver.source, "load_trades", None)
+            if not callable(load_trades):
+                raise OnlyRuntimeError("streaming DataSource does not provide historical Trade input")
+            trade_range = OnlyHistoricalDataRange(
+                observed_at.to_datetime() - timedelta(days=10),
+                observed_at.to_datetime(),
+            )
+            self._historical_requested_end = observed_at
+            trade_request = OnlyHistoricalTradeRequest(
+                f"bootstrap-{self.runtime_id}-trades",
+                self._driver.subscription.instrument_ids,
+                trade_range,
+                self._streaming_data_version,
+            )
+            trade_start_ns = OnlyTimestamp.from_datetime(trade_range.start_time).unix_nanos
+            trade_end_ns = OnlyTimestamp.from_datetime(trade_range.end_time).unix_nanos
+            for update in load_trades(trade_request):
+                event_ns = update.ts_event.unix_nanos
+                if (
+                    not isinstance(update.payload, OnlyTradeTickUpdate)
+                    or update.source_id != source_id
+                    or update.instrument_id not in self._driver.subscription.instrument_ids
+                    or update.data_version != self._streaming_data_version
+                    or not trade_start_ns <= event_ns < trade_end_ns
+                ):
+                    raise OnlyRuntimeError("historical Trade bootstrap returned an invalid provider fact")
+                records.append(update)
+        ordered_records = sorted(
+            records,
+            key=lambda item: (
+                item.ts_event.unix_nanos,
+                0 if item.data_type is OnlyMarketDataType.TRADE else 1,
+                str(item.instrument_id),
+                int(item.source_sequence),
+                str(item.update_id),
+            ),
         )
         self._acceptance_execution_stage = "HISTORICAL_REPLAY"
         processed_records: list[OnlyMarketDataInboundUpdate] = []
         processed_by_type: dict[OnlyBarType, list[OnlyBar]] = {}
         replay_sequence = 0
-        for update in records:
-            if not isinstance(update.payload, OnlyBarUpdate):
-                raise AssertionError("historical warmup records must contain Bars")
-            bar = update.payload.bar
-            self._historical_replay_attempted_count += 1
-            self._historical_last_attempted_bar_end = OnlyTimestamp.from_datetime(bar.bar_end)
-            if not self._historical_bar_is_in_calendar_session(bar):
-                self._record_historical_rejection("HISTORICAL_BAR_OUTSIDE_CALENDAR_SESSION")
-                continue
-            replay_sequence += 1
-            update = replace(
-                update,
-                source_sequence=OnlyDataSequence(replay_sequence),
-                metadata=update.metadata + (("provider_sequence", str(int(update.source_sequence))),),
-            )
+        delivery_counts: dict[OnlyBarType, int] = {}
+        for update in ordered_records:
+            bar = update.payload.bar if isinstance(update.payload, OnlyBarUpdate) else None
+            if bar is not None:
+                self._historical_replay_attempted_count += 1
+                self._historical_last_attempted_bar_end = OnlyTimestamp.from_datetime(bar.bar_end)
+                if not self._historical_bar_is_in_calendar_session(bar):
+                    self._record_historical_rejection("HISTORICAL_BAR_OUTSIDE_CALENDAR_SESSION")
+                    continue
+                replay_sequence += 1
+                update = replace(
+                    update,
+                    source_sequence=OnlyDataSequence(replay_sequence),
+                    metadata=update.metadata + (("provider_sequence", str(int(update.source_sequence))),),
+                )
             outcome = self._semantic_lane.process(update, self._record_processing_result)
             if not outcome.started or outcome.result is None:
                 raise OnlyRuntimeError("historical warmup lost processing permission")
@@ -757,7 +800,17 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 if self._historical_first_rejection_reason is None:
                     self._historical_first_rejection_reason = "HISTORICAL_BAR_DUPLICATE"
                 continue
-            if not isinstance(result.pipeline_result, OnlyMarketDataUpdateResult):
+            if result.status is OnlyMarketDataProcessingStatus.APPLIED and isinstance(
+                update.payload, OnlyTradeTickUpdate
+            ):
+                processed_records.append(update)
+                trade_pipeline = result.pipeline_result
+                if isinstance(trade_pipeline, OnlyTradeConstructionUpdateResult):
+                    for constructed in trade_pipeline.constructed_bars:
+                        delivery_counts[constructed.bar_type] = delivery_counts.get(constructed.bar_type, 0) + 1
+                        self._historical_last_processed_bar_end = OnlyTimestamp.from_datetime(constructed.bar_end)
+                continue
+            if not isinstance(result.pipeline_result, OnlyMarketDataUpdateResult) or bar is None:
                 reason = (
                     result.status.value
                     if result.failure is None
@@ -769,10 +822,26 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 continue
             processed_records.append(update)
             processed_by_type.setdefault(bar.bar_type, []).append(result.pipeline_result.base_bar)
+            for updated_bar_type in result.pipeline_result.updated_bar_types:
+                delivery_counts[updated_bar_type] = delivery_counts.get(updated_bar_type, 0) + 1
             self._historical_last_processed_bar_end = OnlyTimestamp.from_datetime(
                 result.pipeline_result.base_bar.bar_end
             )
-        if not processed_records:
+        required_count = max(1, self._bootstrap_bars)
+        trade_root_primary_bar_types = {
+            bar_type
+            for cluster in self.clusters
+            if cluster.config.subscription is not None
+            for bar_type in (cluster.config.subscription.primary_bar_type,)
+            if bar_type is not None
+            and any(
+                isinstance(item, OnlyTradeInputType)
+                for item in cluster.config.subscription.dependency_graph.provider_inputs
+            )
+        }
+        if not processed_records or any(
+            delivery_counts.get(bar_type, 0) < required_count for bar_type in trade_root_primary_bar_types
+        ):
             raise OnlyHistoricalValidationError("NO_HISTORICAL_BAR_PROCESSED")
         self._acceptance_execution_stage = "HISTORICAL_WATERMARK"
         for bar_type, processed in sorted(processed_by_type.items(), key=lambda item: str(item[0])):
@@ -792,7 +861,9 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             if watermark.last_bar_end != OnlyTimestamp.from_datetime(latest.bar_end):
                 raise AssertionError("historical Watermark must equal the last processed Bar")
             self._historical_watermarks[(str(bar_type.instrument_id), bar_type)] = watermark
-        self._live_finalizer.seed_closed_sequences(tuple(processed_records))
+        self._live_finalizer.seed_closed_sequences(
+            tuple(item for item in processed_records if isinstance(item.payload, OnlyBarUpdate))
+        )
         set_floor = getattr(self._driver.source, "set_live_sequence_floor", None)
         if callable(set_floor):
             set_floor(max(int(item.source_sequence) for item in processed_records))
@@ -857,6 +928,29 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             self._latest_sources[key] = source
             if self.streaming_phase is not OnlyStreamingPhase.BOOTSTRAP:
                 self._publish_observations(bar, source)
+            if (
+                self._persistence_config.checkpoint.enabled
+                and not self._checkpoint_suspended
+                and self.streaming_phase is OnlyStreamingPhase.LIVE
+            ):
+                self._create_verified_streaming_checkpoint()
+        elif isinstance(pipeline, OnlyTradeConstructionUpdateResult):
+            self._derived_internal_bar_count += len(pipeline.constructed_bars)
+            if self.streaming_phase is OnlyStreamingPhase.BOOTSTRAP:
+                self._historical_processed_bar_count += len(pipeline.constructed_bars)
+            source = (
+                OnlyObservationSource.HISTORICAL_BOOTSTRAP
+                if self.streaming_phase is OnlyStreamingPhase.BOOTSTRAP
+                else OnlyObservationSource.CATCH_UP
+                if self.streaming_phase is OnlyStreamingPhase.CATCH_UP
+                else OnlyObservationSource.LIVE
+            )
+            for bar in pipeline.constructed_bars:
+                key = (str(bar.instrument_id), bar.bar_type)
+                self._latest_bars[key] = bar
+                self._latest_sources[key] = source
+                if self.streaming_phase is not OnlyStreamingPhase.BOOTSTRAP:
+                    self._publish_observations(bar, source)
             if (
                 self._persistence_config.checkpoint.enabled
                 and not self._checkpoint_suspended
@@ -1490,6 +1584,8 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         if active is None:
             return None
         steps = tuple(item.semantic.stride_minutes for item in self._driver.subscription.bar_types)
+        if not steps:
+            return None
         duration = timedelta(minutes=min(steps))
         last = self._continuity.last_closed_bar_end
         candidate = (

@@ -82,14 +82,15 @@ class OnlyBarSubscription:
             raise ValueError("Bar subscription cannot contain duplicate BarTypes")
         if len({item.instrument_id for item in unique}) != 1:
             raise ValueError("first-phase Bar subscription supports one instrument")
-        graph_nodes = set(self.dependency_graph.provider_inputs)
-        if any(not isinstance(item, OnlyBarType) for item in graph_nodes) or any(
-            not isinstance(edge.source, OnlyBarType) for edge in self.dependency_graph.derived_dependencies
-        ):
-            raise ValueError("BAR_SUBSCRIPTION_INPUT_KIND_INVALID")
-        graph_nodes.update(item.target for item in self.dependency_graph.derived_dependencies)
-        if graph_nodes != set(unique):
+        graph_bar_nodes = {item for item in self.dependency_graph.provider_inputs if isinstance(item, OnlyBarType)}
+        graph_bar_nodes.update(item.target for item in self.dependency_graph.derived_dependencies)
+        if graph_bar_nodes != set(unique):
             raise ValueError("Bar subscription must exactly match its dependency graph")
+        graph_instruments = {item.instrument_id for item in self.dependency_graph.provider_inputs} | {
+            item.target.instrument_id for item in self.dependency_graph.derived_dependencies
+        }
+        if graph_instruments != {unique[0].instrument_id}:
+            raise ValueError("Bar subscription dependency graph instrument scope mismatch")
         if self.delivery_mode is not OnlyBarDeliveryMode.PRIMARY_ONLY:
             raise ValueError("first-phase dispatcher only supports PRIMARY_ONLY")
         primary = self.primary_bar_type

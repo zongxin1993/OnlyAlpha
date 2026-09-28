@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from onlyalpha.data.enums import OnlyMarketDataType
 from onlyalpha.domain.market import OnlyBarType, OnlyTradeInputType
 from onlyalpha.market_data.resolution import OnlyMarketDataConstructionGraph
+from onlyalpha.plugin.capabilities import OnlyDataSourceCapabilities
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +60,26 @@ def only_project_construction_provider_requirement(
         authority,
         data_types,
         frozenset(item for item in graph.provider_inputs if isinstance(item, OnlyBarType)),
+    )
+
+
+def only_project_data_source_capabilities(
+    plan: OnlyRuntimeMarketDataRequirementPlan,
+    *,
+    historical: bool = False,
+    live: bool = False,
+    live_reconnect: bool = False,
+) -> OnlyDataSourceCapabilities:
+    """Project exact provider families without merging independent time horizons."""
+
+    bars = OnlyMarketDataType.BAR in plan.data_types
+    trades = OnlyMarketDataType.TRADE in plan.data_types
+    return OnlyDataSourceCapabilities(
+        historical_bars=historical and bars,
+        historical_ticks=historical and trades,
+        live_bars=live and bars,
+        live_ticks=live and trades,
+        live_reconnect=live_reconnect,
     )
 
 

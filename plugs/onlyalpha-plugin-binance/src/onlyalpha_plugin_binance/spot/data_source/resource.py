@@ -229,7 +229,7 @@ class OnlyBinanceSpotDataSource:
         )
         updates: list[OnlyMarketDataInboundUpdate] = []
         for instrument_id in sorted(request.instrument_ids, key=str):
-            provider = self._provider(instrument_id, self._request.bar_types[instrument_id], request.data_version)
+            provider = self._provider(instrument_id, None, request.data_version)
             result = cache.load_trades(
                 OnlyHistoricalTradeDataRequest(
                     instrument_id,
@@ -721,7 +721,7 @@ class OnlyBinanceSpotDataSource:
     def _provider(
         self,
         instrument_id: OnlyInstrumentId,
-        bar_type: OnlyBarType,
+        bar_type: OnlyBarType | None,
         data_version: OnlyDataVersion,
     ) -> OnlyBinanceSpotHistoricalProvider:
         return OnlyBinanceSpotHistoricalProvider(

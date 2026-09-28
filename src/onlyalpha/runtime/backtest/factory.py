@@ -14,6 +14,7 @@ from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeErro
 from onlyalpha.broker.inbound import OnlyBoundedBrokerInboundQueue
 from onlyalpha.broker.ports import OnlyBrokerGateway
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
+from onlyalpha.canonical import only_canonical_json
 from onlyalpha.cluster.factory import only_strategy_market_data_graph
 from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.core.ranges import OnlyTimeRange
@@ -58,6 +59,11 @@ from onlyalpha.runtime.persistence.factory import (
 from onlyalpha.runtime.persistence.store import OnlyRuntimePersistenceStorePort
 from onlyalpha.runtime.planning import OnlyRuntimePlan
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
+from onlyalpha.runtime.streaming.requirements import (
+    only_compose_runtime_market_data_requirements,
+    only_project_construction_provider_requirement,
+    only_project_data_source_capabilities,
+)
 from onlyalpha.strategy.execution import OnlyStrategyExecutionResolver
 from onlyalpha.strategy.store import OnlyFrozenStrategyRevisionStore
 
@@ -76,6 +82,7 @@ class _OnlyBacktestPluginPlan:
     broker_request: OnlyBrokerCreateRequest
     broker_checkpoint_schema_version: int | None
     economic_requests: tuple[OnlyHistoricalFactRequest, ...]
+    construction_graph: OnlyMarketDataConstructionGraph
 
 
 class OnlyBacktestRuntimeFactory:
@@ -166,19 +173,10 @@ class OnlyBacktestRuntimeFactory:
             )
             if not clusters:
                 raise ValueError("product Backtest requires at least one enabled Cluster")
-            graphs = tuple(
-                cluster.config.subscription.dependency_graph
-                for cluster in clusters
-                if cluster.config.subscription is not None
-            )
-            construction_graph = OnlyMarketDataConstructionGraph(
-                tuple({item for graph in graphs for item in graph.provider_inputs}),
-                tuple({item for graph in graphs for item in graph.derived_dependencies}),
-            )
             source_common = next(item for item in config.data_sources if item.enabled)
             input_plan = only_historical_market_data_input_plan(
                 config.runtime_id,
-                construction_graph,
+                plan.construction_graph,
                 OnlyHistoricalDataRange(config.start_time, config.end_time),  # type: ignore[arg-type]
                 source_common.data_version,
                 batch_size=source_common.batch_size,
@@ -335,7 +333,13 @@ class OnlyBacktestRuntimeFactory:
             queue_policy=runtime_config.event_queue_policy,
         )
         queue = OnlyBoundedBrokerInboundQueue(runtime_config.event_capacity)
-        bar_types = self._configured_bar_types(request)
+        construction_graph = self._configured_construction_graph(request)
+        bar_types: dict[OnlyInstrumentId, OnlyBarType] = {}
+        for item in sorted(
+            (item for item in construction_graph.provider_inputs if isinstance(item, OnlyBarType)),
+            key=lambda value: value.to_json(),
+        ):
+            bar_types.setdefault(item.instrument_id, item)
         economic_requests = tuple(
             OnlyHistoricalFactRequest(
                 instrument_id,
@@ -349,8 +353,15 @@ class OnlyBacktestRuntimeFactory:
             for requirement in only_kernel_economic_input_requirements(policy)
         )
         required_families = frozenset(item.fact_family for item in economic_requests)
+        construction_capabilities = only_project_data_source_capabilities(
+            only_compose_runtime_market_data_requirements(
+                only_project_construction_provider_requirement(construction_graph)
+            ),
+            historical=True,
+        )
         required_data_capabilities = OnlyDataSourceCapabilities(
-            historical_bars=True,
+            historical_bars=construction_capabilities.historical_bars,
+            historical_ticks=construction_capabilities.historical_ticks,
             historical_reference_prices=OnlyMarketDataType.REFERENCE_PRICE in required_families,
             historical_funding_rates=OnlyMarketDataType.FUNDING_RATE in required_families,
             historical_settlements=OnlyMarketDataType.SETTLEMENT in required_families,
@@ -361,6 +372,14 @@ class OnlyBacktestRuntimeFactory:
             components.integration_runtime_resolver,
             required_data_capabilities,
         )
+        source_capabilities = data_factory.descriptor.capabilities
+        if not isinstance(source_capabilities, OnlyDataSourceCapabilities):
+            raise ValueError("Backtest DataSource must declare market-data capabilities")
+        missing_source_capabilities = source_capabilities.missing(required_data_capabilities)
+        if missing_source_capabilities:
+            raise ValueError(
+                "Backtest DataSource is missing required capabilities: " + ", ".join(missing_source_capabilities)
+            )
         if config.runtime.persistence.checkpoint.enabled:
             data_checkpoint = self._require_checkpoint_capability(data_factory.descriptor.capabilities, "DataSource")
             if data_checkpoint is not OnlyCheckpointCapability.STATELESS:
@@ -437,6 +456,7 @@ class OnlyBacktestRuntimeFactory:
             broker_request,
             broker_checkpoint_version,
             economic_requests,
+            construction_graph,
         )
 
     @staticmethod
@@ -447,7 +467,7 @@ class OnlyBacktestRuntimeFactory:
         return capability
 
     @staticmethod
-    def _configured_bar_types(request: OnlyRuntimeBuildRequest) -> dict[OnlyInstrumentId, OnlyBarType]:
+    def _configured_construction_graph(request: OnlyRuntimeBuildRequest) -> OnlyMarketDataConstructionGraph:
         config = request.config
         components = request.components
         if not isinstance(components, OnlyComponentFactoryRegistries):
@@ -458,17 +478,32 @@ class OnlyBacktestRuntimeFactory:
             OnlyFrozenStrategyRevisionStore(OnlyUserDataLayout(request.user_data_root).research_root),
             components.calculations,
         )
-        result: dict[OnlyInstrumentId, OnlyBarType] = {}
+        graphs = []
         for cluster in config.clusters:
             if not cluster.enabled:
                 continue
             revision = resolver.resolve(cluster.strategy.fingerprint).revision
-            for bar_type in only_strategy_market_data_graph(revision).provider_inputs:
-                if isinstance(bar_type, OnlyBarType):
-                    existing = result.get(bar_type.instrument_id)
-                    if existing is None or bar_type.to_json() < existing.to_json():
-                        result[bar_type.instrument_id] = bar_type
-        return result
+            graphs.append(only_strategy_market_data_graph(revision))
+        return OnlyMarketDataConstructionGraph(
+            tuple(
+                sorted(
+                    {item for graph in graphs for item in graph.provider_inputs},
+                    key=lambda item: only_canonical_json(item.to_dict()),
+                )
+            ),
+            tuple(
+                sorted(
+                    {item for graph in graphs for item in graph.derived_dependencies},
+                    key=lambda item: only_canonical_json(
+                        {
+                            "source": item.source.to_dict(),
+                            "target": item.target.to_dict(),
+                            "recipe": item.recipe.to_dict(),
+                        }
+                    ),
+                )
+            ),
+        )
 
     @staticmethod
     def _raise_issues(

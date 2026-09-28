@@ -184,7 +184,11 @@ from onlyalpha.market_data.dispatcher import (
     OnlyClusterBarSubscription,
     OnlyStrategyBarDispatcher,
 )
-from onlyalpha.market_data.pipeline import OnlyMarketDataPipeline, OnlyMarketDataUpdateResult
+from onlyalpha.market_data.pipeline import (
+    OnlyDispatchReadyMarketDataResult,
+    OnlyMarketDataPipeline,
+    OnlyMarketDataUpdateResult,
+)
 from onlyalpha.market_data.realtime_state import OnlyRealtimeMarketStateStore
 from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription, OnlyBarSubscriptionId
@@ -958,9 +962,10 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
 
         self._drain_execution_updates_for_checkpoint = drain_execution_updates
 
-        def before_market_dispatch(result: OnlyMarketDataUpdateResult) -> None:
+        def before_market_dispatch(result: OnlyDispatchReadyMarketDataResult) -> None:
             event_router.publish_direct_many(result.facts)
-            trading_day = OnlyTradingDay(result.base_bar.trading_day)
+            decision_bar = result.decision_bar
+            trading_day = OnlyTradingDay(decision_bar.trading_day)
             execution_event_buffer.begin()
             try:
                 if self._last_market_trading_day is None:
@@ -969,10 +974,10 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
                     self._trading_day_boundary_coordinator.process_boundary(
                         self._last_market_trading_day,
                         trading_day,
-                        OnlyTimestamp.from_datetime(result.base_bar.ts_event),
+                        OnlyTimestamp.from_datetime(decision_bar.ts_event),
                     )
                     self._last_market_trading_day = trading_day
-                self._apply_market_valuations(result.base_bar, trading_day)
+                self._apply_market_valuations(decision_bar, trading_day)
             except Exception:
                 execution_event_buffer.abort()
                 raise
@@ -983,7 +988,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             )
             self._record_execution_delivery(None, delivery)
             if deterministic_broker_driver is not None and not self._execution_checkpoint_blocked:
-                deterministic_broker_driver.on_bar(result.base_bar)
+                deterministic_broker_driver.on_bar(decision_bar)
                 drain_execution_updates()
 
         def after_market_dispatch(update: OnlyMarketDataInboundUpdate) -> None:

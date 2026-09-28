@@ -11,6 +11,7 @@ _EXPORTS = {
     "OnlyDataReadyBarrier": "onlyalpha.market_data.pipeline",
     "OnlyMarketDataPipeline": "onlyalpha.market_data.pipeline",
     "OnlyMarketDataUpdateResult": "onlyalpha.market_data.pipeline",
+    "OnlyTradeConstructionUpdateResult": "onlyalpha.market_data.pipeline",
     "OnlyBarSnapshot": "onlyalpha.market_data.snapshot",
     "OnlyMarketDataSnapshot": "onlyalpha.market_data.snapshot",
     "OnlyBarDeliveryMode": "onlyalpha.market_data.subscriptions",

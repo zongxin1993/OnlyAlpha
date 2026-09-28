@@ -4,15 +4,47 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from onlyalpha.cluster.bar_context import OnlyBarContext
+from onlyalpha.cluster.base import OnlyCluster, OnlyClusterConfig
+from onlyalpha.core.clock import OnlyClockView, OnlyVirtualClock
+from onlyalpha.data.audit import OnlyMarketDataAuditStore, OnlyMarketDataEventPublisher
 from onlyalpha.data.enums import OnlyDataSequenceSemantics, OnlyMarketDataProcessingStatus, OnlyMarketDataType
-from onlyalpha.data.identifiers import OnlyDataSequence, OnlyDataVersion
+from onlyalpha.data.identifiers import OnlyDataSequence, OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.data.identity import only_trade_update_id
 from onlyalpha.data.models import OnlyMarketDataInboundUpdate, OnlyTradeTickUpdate
+from onlyalpha.data.processor import (
+    OnlyMarketDataDeduplicator,
+    OnlyMarketDataGapDetector,
+    OnlyMarketDataProcessor,
+    OnlyMarketDataSequenceTracker,
+)
+from onlyalpha.data.registry import OnlyMarketDataSourceRegistry
+from onlyalpha.data.sources import OnlyInMemoryHistoricalDataSource
 from onlyalpha.domain.enums import OnlyOrderSide
-from onlyalpha.domain.identifiers import OnlyTradeId
-from onlyalpha.domain.market import OnlyTradeTick
+from onlyalpha.domain.identifiers import OnlyEngineId, OnlyRuntimeId, OnlyTradeId
+from onlyalpha.domain.market import (
+    OnlyBar,
+    OnlyBarSemantic,
+    OnlyBarType,
+    OnlyTickCountBarFormation,
+    OnlyTradeInputType,
+    OnlyTradeSemantic,
+    OnlyTradeTick,
+)
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
+from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
+from onlyalpha.market_data.aggregation.manager import OnlyBarAggregationManager
+from onlyalpha.market_data.cache import OnlyMarketDataCache
+from onlyalpha.market_data.dispatcher import OnlyClusterBarSubscription, OnlyStrategyBarDispatcher
+from onlyalpha.market_data.pipeline import OnlyMarketDataPipeline, OnlyTradeConstructionUpdateResult
+from onlyalpha.market_data.realtime_state import OnlyRealtimeMarketStateStore
+from onlyalpha.market_data.resolution import (
+    OnlyBarConstructionRecipe,
+    OnlyMarketDataConstructionEdge,
+    OnlyMarketDataConstructionGraph,
+)
+from onlyalpha.market_data.subscriptions import OnlyBarSubscription
 from tests.integration_demo.environment import DAY_ONE, INSTRUMENT_ID, OnlyIntegrationEnvironment
 
 
@@ -127,3 +159,116 @@ def test_interleaved_trades_do_not_change_bar_strategy_dispatch() -> None:
     assert len(bars_only.cluster.snapshots) == len(with_trades.cluster.snapshots)
     assert tuple(bars_only.cluster.snapshots) == tuple(with_trades.cluster.snapshots)
     assert bars_only.cluster.submit_results == with_trades.cluster.submit_results
+
+
+def test_trade_construction_dispatches_only_when_a_canonical_bar_closes() -> None:
+    env = OnlyIntegrationEnvironment()
+    target = OnlyBarType(INSTRUMENT_ID, OnlyBarSemantic(OnlyTickCountBarFormation(3)))
+    source = OnlyTradeInputType(INSTRUMENT_ID)
+    edge = OnlyMarketDataConstructionEdge(
+        source,
+        target,
+        OnlyBarConstructionRecipe.derived(target.semantic, OnlyTradeSemantic(), algorithm_id="TICK_BAR"),
+    )
+
+    class TickExecutor:
+        target_bar_type = target
+
+        def __init__(self) -> None:
+            self.count = 0
+
+        @staticmethod
+        def accepts(fact: object) -> bool:
+            return isinstance(fact, OnlyTradeTick)
+
+        def process(self, fact: object) -> tuple[OnlyBar, ...]:
+            self.count += 1
+            if self.count < 3:
+                return ()
+            return (replace(env.make_bar(DAY_ONE, 0, "10.00"), bar_type=target),)
+
+        def capture_checkpoint(self) -> object:
+            return {"count": self.count}
+
+        def restore_checkpoint(self, payload: object) -> None:
+            assert isinstance(payload, dict)
+            self.count = int(payload["count"])
+
+    class TradeBarCluster(OnlyCluster):
+        def __init__(self) -> None:
+            super().__init__(
+                OnlyClusterConfig(
+                    "trade-bars",
+                    OnlyBarSubscription(
+                        (target,),
+                        OnlyMarketDataConstructionGraph((source,), (edge,)),
+                        primary_bar_type=target,
+                    ),
+                )
+            )
+            self.received: list[OnlyBar] = []
+
+        def on_bar(self, bar: OnlyBar, context: OnlyBarContext) -> None:
+            del context
+            self.received.append(bar)
+
+    clock = OnlyVirtualClock(datetime(2026, 1, 5, 1, 31, tzinfo=UTC))
+    manager = OnlyBarAggregationManager(env.calendar, clock)
+    manager._algorithm_registry.register_factory(  # noqa: SLF001
+        "TICK_BAR", 1, "TRADE", "BAR", lambda *_: TickExecutor()
+    )
+    cluster = TradeBarCluster()
+    pipeline = OnlyMarketDataPipeline(
+        OnlyEngineId("engine"),
+        OnlyRuntimeId("runtime"),
+        clock,
+        OnlyMarketDataCache(),
+        manager,
+        OnlyIndicatorPipeline(),
+    )
+    dispatcher = OnlyStrategyBarDispatcher(pipeline, OnlyClockView(clock))
+    assert cluster.config.subscription is not None
+    dispatcher.register(OnlyClusterBarSubscription(cluster, cluster.config.subscription))
+    source_id = OnlyMarketDataSourceId("trades")
+    sources = OnlyMarketDataSourceRegistry()
+    sources.register(OnlyInMemoryHistoricalDataSource(source_id))
+    realtime_state = OnlyRealtimeMarketStateStore(OnlyRuntimeId("runtime"))
+    processor = OnlyMarketDataProcessor(
+        OnlyRuntimeId("runtime"),
+        clock,
+        {INSTRUMENT_ID},
+        sources,
+        pipeline,
+        dispatcher,
+        OnlyMarketDataDeduplicator(),
+        OnlyMarketDataSequenceTracker(),
+        OnlyMarketDataGapDetector({INSTRUMENT_ID: env.calendar}),
+        OnlyMarketDataAuditStore(),
+        OnlyMarketDataEventPublisher(),
+        realtime_state=realtime_state,
+    )
+
+    def update(sequence: int, price: str) -> OnlyMarketDataInboundUpdate:
+        value = _trade(env, sequence, price)
+        assert isinstance(value.payload, OnlyTradeTickUpdate)
+        trade = replace(value.payload.trade, source=str(source_id))
+        return replace(
+            value,
+            update_id=only_trade_update_id(source_id, INSTRUMENT_ID, trade.trade_id, value.data_version),
+            runtime_id=OnlyRuntimeId("runtime"),
+            source_id=source_id,
+            payload=OnlyTradeTickUpdate(trade),
+            sequence_scope=None,
+        )
+
+    first = processor.process(update(100, "10.00"))
+    second = processor.process(update(101, "10.01"))
+    third = processor.process(update(102, "10.02"))
+
+    assert first.pipeline_result is None and second.pipeline_result is None
+    assert first.dispatches == second.dispatches == ()
+    assert isinstance(third.pipeline_result, OnlyTradeConstructionUpdateResult)
+    assert cluster.received == [third.pipeline_result.constructed_bars[0]], third.dispatches
+    assert cluster.received[0].bar_type == target
+    reference = realtime_state.capture(OnlyTimestamp.from_datetime(clock.now_utc()))
+    assert reference.latest_trade(INSTRUMENT_ID) is not None

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from onlyalpha.core.clock import OnlyClock
 from onlyalpha.core.time import only_unix_ns_to_datetime_utc
 from onlyalpha.domain.identifiers import OnlyEngineId, OnlyRuntimeId
-from onlyalpha.domain.market import OnlyBar, OnlyBarType
+from onlyalpha.domain.market import OnlyBar, OnlyBarType, OnlyTradeTick
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.model import (
     OnlyBarReceivedEvent,
@@ -25,6 +25,7 @@ from onlyalpha.indicator.pipeline import (
     OnlyIndicatorFailure,
     OnlyIndicatorPipeline,
     OnlyIndicatorPipelineError,
+    OnlyIndicatorUpdateResult,
 )
 from onlyalpha.market_data.aggregation.manager import OnlyBarAggregationManager
 from onlyalpha.market_data.cache import OnlyMarketDataCache
@@ -80,6 +81,10 @@ class OnlyMarketDataUpdateResult:
     sequence: int
     facts: tuple[OnlyEvent, ...]
 
+    @property
+    def decision_bar(self) -> OnlyBar:
+        return self.base_bar
+
     def to_dict(self) -> dict[str, object]:
         return {
             "schema_version": 1,
@@ -128,6 +133,28 @@ class OnlyMarketDataUpdateResult:
             sequence=int(str(payload["sequence"])),
             facts=tuple(OnlyEvent.from_dict(mapping(item)) for item in items(payload["facts"])),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyTradeConstructionUpdateResult:
+    """Dispatch-ready Bar state truthfully triggered by one provider Trade."""
+
+    input_trade: OnlyTradeTick
+    constructed_bars: tuple[OnlyBar, ...]
+    updated_bar_types: frozenset[OnlyBarType]
+    updated_indicator_ids: tuple[OnlyIndicatorId, ...]
+    optional_indicator_failures: tuple[OnlyIndicatorFailure, ...]
+    snapshot: OnlyMarketDataSnapshot
+    barrier: OnlyDataReadyBarrier
+    sequence: int
+    facts: tuple[OnlyEvent, ...]
+
+    @property
+    def decision_bar(self) -> OnlyBar:
+        return self.snapshot.primary_bar
+
+
+OnlyDispatchReadyMarketDataResult = OnlyMarketDataUpdateResult | OnlyTradeConstructionUpdateResult
 
 
 class OnlyMarketDataPipeline:
@@ -186,11 +213,9 @@ class OnlyMarketDataPipeline:
             self._validate_input(bar)
             facts.append(self._fact(OnlyBarValidatedEvent, OnlyKnownEventType.BAR_VALIDATED, bar, bar))
             derived = self._aggregation_manager.process(bar)
-            self._cache.update_closed(bar)
-            updated: dict[OnlyBarType, OnlyBar] = {bar.bar_type: bar}
+            updated = {bar.bar_type: bar}
+            updated.update((derived_bar.bar_type, derived_bar) for derived_bar in derived)
             for derived_bar in derived:
-                self._cache.update_closed(derived_bar)
-                updated[derived_bar.bar_type] = derived_bar
                 facts.append(
                     self._fact(
                         OnlyDerivedBarCreatedEvent,
@@ -199,35 +224,7 @@ class OnlyMarketDataPipeline:
                         derived_bar,
                     )
                 )
-            histories = self._cache.histories_all()
-            indicator_result = self._indicator_pipeline.update(updated, histories)
-            quality_flags = input_quality_flags + tuple(
-                f"OPTIONAL_INDICATOR_MISSING:{failure.indicator_id}" for failure in indicator_result.failures
-            )
-            now_ns = self._clock.timestamp_ns()
-            global_snapshot = OnlyMarketDataSnapshot(
-                ts_event=OnlyTimestamp.from_datetime(bar.bar_end),
-                ts_init=OnlyTimestamp.from_unix_nanos(now_ns),
-                runtime_id=self._runtime_id,
-                cluster_id=None,
-                instrument_id=bar.instrument_id,
-                primary_bar_type=bar.bar_type,
-                primary_bar=bar,
-                updated_bar_types=frozenset(updated),
-                bars=OnlyBarSnapshot(
-                    self._cache.latest_all(),
-                    histories,
-                    {},
-                    self._cache.versions_all(),
-                ),
-                indicator_values=self._indicator_pipeline.values(),
-                indicator_versions=self._indicator_pipeline.versions(),
-                trading_day=bar.trading_day,
-                session_type=bar.session_type,
-                quality_flags=quality_flags,
-            )
-            barrier = OnlyDataReadyBarrier(True, True, True, True, True)
-            barrier.require_ready()
+            indicator_result, global_snapshot, barrier = self._commit_bars(updated, bar, input_quality_flags)
             facts.append(
                 self._fact(
                     OnlyMarketDataSnapshotReadyEvent,
@@ -262,6 +259,98 @@ class OnlyMarketDataPipeline:
             if isinstance(exc, OnlyIndicatorPipelineError):
                 raise OnlyMarketDataPipelineError(str(exc)) from exc
             raise OnlyMarketDataPipelineError(f"market-data pipeline failed: {exc}") from exc
+
+    def process_trade(
+        self,
+        trade: OnlyTradeTick,
+        *,
+        input_quality_flags: tuple[str, ...] = (),
+    ) -> OnlyTradeConstructionUpdateResult | None:
+        self._sequence += 1
+        try:
+            constructed = self._aggregation_manager.process(trade)
+            if not constructed:
+                return None
+            for bar in constructed:
+                self._validate_constructed(bar)
+            updated = {bar.bar_type: bar for bar in constructed}
+            anchor = max(constructed, key=lambda item: (item.bar_end, only_bar_type_id(item.bar_type)))
+            facts = [
+                self._fact(OnlyDerivedBarCreatedEvent, OnlyKnownEventType.DERIVED_BAR_CREATED, bar, bar)
+                for bar in constructed
+            ]
+            indicator_result, snapshot, barrier = self._commit_bars(updated, anchor, input_quality_flags)
+            facts.append(
+                self._fact(
+                    OnlyMarketDataSnapshotReadyEvent,
+                    OnlyKnownEventType.MARKET_DATA_SNAPSHOT_READY,
+                    anchor,
+                    {"snapshot_ts_event_ns": snapshot.ts_event.unix_nanos},
+                )
+            )
+            return OnlyTradeConstructionUpdateResult(
+                trade,
+                constructed,
+                frozenset(updated),
+                indicator_result.updated_indicator_ids,
+                indicator_result.failures,
+                snapshot,
+                barrier,
+                self._sequence,
+                tuple(facts),
+            )
+        except Exception as exc:
+            if isinstance(exc, OnlyMarketDataPipelineError):
+                raise
+            if isinstance(exc, OnlyIndicatorPipelineError):
+                raise OnlyMarketDataPipelineError(str(exc)) from exc
+            raise OnlyMarketDataPipelineError(f"market-data pipeline failed: {exc}") from exc
+
+    def _commit_bars(
+        self,
+        updated: dict[OnlyBarType, OnlyBar],
+        anchor: OnlyBar,
+        input_quality_flags: tuple[str, ...],
+    ) -> tuple[OnlyIndicatorUpdateResult, OnlyMarketDataSnapshot, OnlyDataReadyBarrier]:
+        for bar in updated.values():
+            self._cache.update_closed(bar)
+        histories = self._cache.histories_all()
+        indicator_result = self._indicator_pipeline.update(updated, histories)
+        quality_flags = input_quality_flags + tuple(
+            f"OPTIONAL_INDICATOR_MISSING:{failure.indicator_id}" for failure in indicator_result.failures
+        )
+        snapshot = OnlyMarketDataSnapshot(
+            ts_event=OnlyTimestamp.from_datetime(anchor.bar_end),
+            ts_init=OnlyTimestamp.from_unix_nanos(self._clock.timestamp_ns()),
+            runtime_id=self._runtime_id,
+            cluster_id=None,
+            instrument_id=anchor.instrument_id,
+            primary_bar_type=anchor.bar_type,
+            primary_bar=anchor,
+            updated_bar_types=frozenset(updated),
+            bars=OnlyBarSnapshot(
+                self._cache.latest_all(),
+                histories,
+                {},
+                self._cache.versions_all(),
+            ),
+            indicator_values=self._indicator_pipeline.values(),
+            indicator_versions=self._indicator_pipeline.versions(),
+            trading_day=anchor.trading_day,
+            session_type=anchor.session_type,
+            quality_flags=quality_flags,
+        )
+        barrier = OnlyDataReadyBarrier(True, True, True, True, True)
+        barrier.require_ready()
+        return indicator_result, snapshot, barrier
+
+    def _validate_constructed(self, bar: OnlyBar) -> None:
+        if not bar.is_closed or bar.ts_event != bar.bar_end:
+            raise OnlyMarketDataPipelineError("constructed output must be a correctly closed Bar")
+        if bar.revision != 0 and self._revision_policy is OnlyBarRevisionPolicy.REJECT:
+            raise OnlyMarketDataPipelineError("Bar revisions are not supported")
+        if self._clock.now_utc() < bar.bar_end:
+            raise OnlyMarketDataPipelineError("Runtime Clock is earlier than constructed Bar event time")
 
     def _validate_input(self, bar: OnlyBar) -> None:
         if not bar.is_closed:

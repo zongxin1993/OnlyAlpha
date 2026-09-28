@@ -5,10 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
+from onlyalpha.canonical import only_canonical_json
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterConfig
 from onlyalpha.cluster.scenario_action_workload import OnlyScenarioActionWorkload
 from onlyalpha.config import OnlyClusterImportConfig, OnlyRuntimeAssemblyPlan
-from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType
+from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType, OnlyTradeInputType, OnlyTradeSemantic
 from onlyalpha.indicator.registry import OnlyIndicatorFactoryRegistry
 from onlyalpha.market_data.resolution import (
     OnlyBarConstructionKind,
@@ -28,7 +29,7 @@ def only_strategy_market_data_graph(revision: OnlyStrategyRevision) -> OnlyMarke
         raise ValueError("STRATEGY_EXACT_BAR_CONSTRUCTION_REQUIRED")
     recipe = contract.construction_requirement.recipe
     assert recipe is not None
-    providers: list[OnlyBarType] = []
+    providers: list[OnlyBarType | OnlyTradeInputType] = []
     edges: list[OnlyMarketDataConstructionEdge] = []
     for instrument_id in revision.universe.instruments:
         target = OnlyBarType(instrument_id, contract.bar_semantic)
@@ -36,13 +37,17 @@ def only_strategy_market_data_graph(revision: OnlyStrategyRevision) -> OnlyMarke
             providers.append(target)
         else:
             base = recipe.base_semantic
-            if not isinstance(base, OnlyBarSemantic):
+            source: OnlyBarType | OnlyTradeInputType
+            if isinstance(base, OnlyBarSemantic):
+                source = OnlyBarType(instrument_id, base)
+            elif isinstance(base, OnlyTradeSemantic):
+                source = OnlyTradeInputType(instrument_id)
+            else:
                 raise ValueError("CONSTRUCTION_ALGORITHM_UNAVAILABLE")
-            source = OnlyBarType(instrument_id, base)
             providers.append(source)
             edges.append(OnlyMarketDataConstructionEdge(source, target, recipe))
-    provider_bar_types = tuple(sorted(providers, key=only_bar_type_id))
-    return OnlyMarketDataConstructionGraph(provider_bar_types, tuple(edges))
+    provider_inputs = tuple(sorted(providers, key=lambda item: only_canonical_json(item.to_dict())))
+    return OnlyMarketDataConstructionGraph(provider_inputs, tuple(edges))
 
 
 class OnlyClusterFactory:

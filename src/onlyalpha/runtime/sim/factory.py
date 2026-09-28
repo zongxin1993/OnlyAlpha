@@ -13,6 +13,8 @@ from pathlib import Path
 
 from onlyalpha.broker.inbound import OnlyBoundedBrokerInboundQueue
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
+from onlyalpha.canonical import only_canonical_json
+from onlyalpha.cluster.factory import only_strategy_market_data_graph
 from onlyalpha.config import OnlyRuntimeAssemblyPlan
 from onlyalpha.config.persistence import OnlyRuntimePersistenceBackend
 from onlyalpha.core.clock import OnlyLiveClock
@@ -20,6 +22,8 @@ from onlyalpha.data.enums import OnlyMarketDataType
 from onlyalpha.data.models import OnlyMarketDataSubscriptionRequest
 from onlyalpha.data.queue import OnlyMarketDataInboundQueue
 from onlyalpha.domain.enums import OnlyRuntimeMode
+from onlyalpha.domain.identifiers import OnlyInstrumentId
+from onlyalpha.domain.market import OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
@@ -67,7 +71,11 @@ from onlyalpha.runtime.streaming.requirements import (
     OnlyRuntimeMarketDataRequirement,
     only_compose_runtime_market_data_requirements,
     only_project_construction_provider_requirement,
+    only_project_data_source_capabilities,
 )
+from onlyalpha.strategy.errors import OnlyStrategyResolutionError, OnlyStrategyStoreError
+from onlyalpha.strategy.execution import OnlyStrategyExecutionResolver
+from onlyalpha.strategy.store import OnlyFrozenStrategyRevisionStore
 
 _LOGGER = logging.getLogger(__name__)
 _MARKET_DATA_WAL_CAPACITY_BYTES = 1024 * 1024 * 1024
@@ -88,7 +96,16 @@ class OnlySimRuntimeFactory:
 
     def validate(self, request: OnlyRuntimeBuildRequest) -> OnlyRuntimeBuildResult:
         try:
-            components, _, _ = self._validate(request)
+            try:
+                components, _, _, _, _ = self._validate(request)
+            except OnlyStrategyResolutionError as exc:
+                cause = exc.__cause__
+                if not isinstance(cause, OnlyStrategyStoreError) or cause.code not in {
+                    "STRATEGY_NOT_FOUND",
+                    "STRATEGY_FREEZE_RELATION_NOT_FOUND",
+                }:
+                    raise
+                components, _, _, _, _ = self._validate(request, resolve_construction=False)
             components.runtime_persistence_stores.validate(request.config.runtime.persistence)
             self._validate_durable_root(request)
         except Exception as exc:
@@ -103,7 +120,18 @@ class OnlySimRuntimeFactory:
         clock: OnlyLiveClock | None = None
         event_bus: OnlyEventBus | None = None
         try:
-            components, streaming, reconciliation_policy = self._validate(request)
+            (
+                components,
+                streaming,
+                reconciliation_policy,
+                construction_graph,
+                required_source_capabilities,
+            ) = self._validate(request)
+            if construction_graph is None:
+                raise _OnlySimCompositionError(
+                    "STRATEGY_SEMANTIC_ROOT_REQUIRED",
+                    "SIM Strategy resolution requires the shared semantic root",
+                )
             config = request.config
             source_common = next(item for item in config.data_sources if item.enabled)
             broker_common = next(item for item in config.brokers if item.enabled)
@@ -135,22 +163,12 @@ class OnlySimRuntimeFactory:
             subscriptions = tuple(
                 cluster.config.subscription for cluster in clusters if cluster.config.subscription is not None
             )
-            provider_inputs = tuple(
-                {item for subscription in subscriptions for item in subscription.dependency_graph.provider_inputs}
-            )
-            dependencies = tuple(
-                {item for subscription in subscriptions for item in subscription.dependency_graph.derived_dependencies}
-            )
-            if not provider_inputs:
+            if not construction_graph.provider_inputs:
                 raise _OnlySimCompositionError(
                     "SIM_EXTERNAL_MARKET_DATA_SUBSCRIPTION_REQUIRED",
                     "SIM requires an external market-data subscription",
                 )
-            requirements = [
-                only_project_construction_provider_requirement(
-                    OnlyMarketDataConstructionGraph(provider_inputs, dependencies)
-                )
-            ]
+            requirements = [only_project_construction_provider_requirement(construction_graph)]
             if streaming.execution_reference_profile is not None:
                 requirements.append(
                     OnlyRuntimeMarketDataRequirement(
@@ -166,7 +184,10 @@ class OnlySimRuntimeFactory:
                 else Path(tempfile.gettempdir()) / "onlyalpha" / "runtime_state" / str(config.runtime_id)
             )
             lease = OnlyRuntimeStateLease(state_root, config.runtime_id)
-            by_instrument = {item.instrument_id: item for item in requirement_plan.bar_types}
+            by_instrument: dict[OnlyInstrumentId, OnlyBarType] = {}
+            for item in sorted(requirement_plan.bar_types, key=lambda value: value.to_json()):
+                by_instrument.setdefault(item.instrument_id, item)
+            instrument_ids = frozenset(item.instrument_id for item in construction_graph.provider_inputs)
             data_factory = components.data_sources.resolve(source_common.plugin_id)
             wal = OnlyMarketDataWal(
                 state_root / "market_data" / "wal",
@@ -216,12 +237,7 @@ class OnlySimRuntimeFactory:
                 source_common.source_id,
                 data_factory.parse_config(source_common.extensions),
                 config.runtime.runtime_type,
-                OnlyDataSourceCapabilities(
-                    historical_bars=OnlyMarketDataType.BAR in requirement_plan.data_types,
-                    live_bars=OnlyMarketDataType.BAR in requirement_plan.data_types,
-                    live_ticks=OnlyMarketDataType.TRADE in requirement_plan.data_types,
-                    live_reconnect=True,
-                ),
+                required_source_capabilities,
                 clock,
                 event_bus,
                 config.reference_data.instrument_by_id,
@@ -358,7 +374,7 @@ class OnlySimRuntimeFactory:
             subscription = OnlyMarketDataSubscriptionRequest(
                 f"sim-{config.runtime_id}",
                 source_common.source_id,
-                frozenset(by_instrument),
+                instrument_ids,
                 requirement_plan.data_types,
                 requirement_plan.bar_types,
             )
@@ -388,6 +404,7 @@ class OnlySimRuntimeFactory:
                     item.target.semantic.window_minutes
                     for subscription in subscriptions
                     for item in subscription.dependency_graph.derived_dependencies
+                    if item.target.semantic.is_fixed_duration
                 ),
                 stale_after_seconds=streaming.stale_after_seconds,
                 observation_sinks=self._observation_sinks(config, request.user_data_root),
@@ -447,10 +464,14 @@ class OnlySimRuntimeFactory:
     @staticmethod
     def _validate(
         request: OnlyRuntimeBuildRequest,
+        *,
+        resolve_construction: bool = True,
     ) -> tuple[
         OnlyComponentFactoryRegistries,
         OnlyStreamingRuntimeConfig,
         OnlyFeeReconciliationPolicy,
+        OnlyMarketDataConstructionGraph | None,
+        OnlyDataSourceCapabilities,
     ]:
         components = request.components
         if not isinstance(components, OnlyComponentFactoryRegistries):
@@ -484,12 +505,36 @@ class OnlySimRuntimeFactory:
             )
         source_factory = components.data_sources.resolve(sources[0].plugin_id)
         source_capabilities = source_factory.descriptor.capabilities
-        required_source_capabilities = OnlyDataSourceCapabilities(
-            historical_bars=True,
-            live_bars=True,
-            live_ticks=streaming.execution_reference_profile is not None,
-            live_reconnect=True,
+        construction_graph = (
+            None
+            if request.user_data_root is None or not resolve_construction
+            else OnlySimRuntimeFactory._construction_graph(request)
         )
+        required_source_capabilities = OnlyDataSourceCapabilities()
+        if construction_graph is not None:
+            construction_requirement = only_project_construction_provider_requirement(construction_graph)
+            construction_plan = only_compose_runtime_market_data_requirements(construction_requirement)
+            live_requirements = [construction_requirement]
+            if streaming.execution_reference_profile is not None:
+                live_requirements.append(
+                    OnlyRuntimeMarketDataRequirement(
+                        "EXECUTION_RISK_REFERENCE",
+                        frozenset({OnlyMarketDataType.TRADE}),
+                    )
+                )
+            historical = only_project_data_source_capabilities(construction_plan, historical=True)
+            live = only_project_data_source_capabilities(
+                only_compose_runtime_market_data_requirements(*live_requirements),
+                live=True,
+                live_reconnect=True,
+            )
+            required_source_capabilities = OnlyDataSourceCapabilities(
+                historical_bars=historical.historical_bars,
+                historical_ticks=historical.historical_ticks,
+                live_bars=live.live_bars,
+                live_ticks=live.live_ticks,
+                live_reconnect=live.live_reconnect,
+            )
         if not isinstance(source_capabilities, OnlyDataSourceCapabilities):
             raise _OnlySimCompositionError(
                 "SIM_DATA_SOURCE_CAPABILITY_REQUIRED",
@@ -553,7 +598,47 @@ class OnlySimRuntimeFactory:
             account.fee_reconciliation_policy.policy_version,
             account.initial_cash.currency,
         )
-        return components, streaming, reconciliation_policy
+        return components, streaming, reconciliation_policy, construction_graph, required_source_capabilities
+
+    @staticmethod
+    def _construction_graph(request: OnlyRuntimeBuildRequest) -> OnlyMarketDataConstructionGraph:
+        components = request.components
+        if not isinstance(components, OnlyComponentFactoryRegistries):
+            raise TypeError("Sim factory requires OnlyComponentFactoryRegistries")
+        if request.user_data_root is None:
+            raise _OnlySimCompositionError(
+                "STRATEGY_SEMANTIC_ROOT_REQUIRED",
+                "SIM Strategy resolution requires the shared semantic root",
+            )
+        resolver = OnlyStrategyExecutionResolver(
+            OnlyFrozenStrategyRevisionStore(OnlyUserDataLayout(request.user_data_root).research_root),
+            components.calculations,
+        )
+        graphs = [
+            only_strategy_market_data_graph(resolver.resolve(cluster.strategy.fingerprint).revision)
+            for cluster in request.config.clusters
+            if cluster.enabled
+        ]
+        return OnlyMarketDataConstructionGraph(
+            tuple(
+                sorted(
+                    {item for graph in graphs for item in graph.provider_inputs},
+                    key=lambda item: only_canonical_json(item.to_dict()),
+                )
+            ),
+            tuple(
+                sorted(
+                    {item for graph in graphs for item in graph.derived_dependencies},
+                    key=lambda item: only_canonical_json(
+                        {
+                            "source": item.source.to_dict(),
+                            "target": item.target.to_dict(),
+                            "recipe": item.recipe.to_dict(),
+                        }
+                    ),
+                )
+            ),
+        )
 
     @staticmethod
     def _validate_durable_root(request: OnlyRuntimeBuildRequest) -> None:

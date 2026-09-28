@@ -11,7 +11,7 @@ from onlyalpha.cluster.manager import OnlyClusterExecutionResult, OnlyClusterFai
 from onlyalpha.core.clock import OnlyClockView
 from onlyalpha.domain.identifiers import OnlyClusterId
 from onlyalpha.domain.market import OnlyBar
-from onlyalpha.market_data.pipeline import OnlyMarketDataPipeline, OnlyMarketDataUpdateResult
+from onlyalpha.market_data.pipeline import OnlyDispatchReadyMarketDataResult, OnlyMarketDataPipeline
 from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshotError
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
 
@@ -145,7 +145,7 @@ class OnlyStrategyBarDispatcher:
     def subscription_count(self) -> int:
         return len(self._plans)
 
-    def dispatch(self, update: OnlyMarketDataUpdateResult) -> tuple[OnlyBarDispatchResult, ...]:
+    def dispatch(self, update: OnlyDispatchReadyMarketDataResult) -> tuple[OnlyBarDispatchResult, ...]:
         update.barrier.require_ready()
         results: list[OnlyBarDispatchResult] = []
         for cluster_id in sorted(self._plans, key=str):

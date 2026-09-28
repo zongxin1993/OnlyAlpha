@@ -5,6 +5,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 from typing import cast
 
 import pytest
@@ -27,7 +28,13 @@ from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.data.enums import OnlyMarketDataConnectionState, OnlyMarketDataRequestStatus, OnlyMarketDataType
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.data.identity import only_bar_update_id, only_trade_update_id
-from onlyalpha.data.models import OnlyMarketDataSubscriptionRequest, OnlyMarketReferenceUpdate, OnlyTradeTickUpdate
+from onlyalpha.data.models import (
+    OnlyHistoricalDataRange,
+    OnlyHistoricalTradeRequest,
+    OnlyMarketDataSubscriptionRequest,
+    OnlyMarketReferenceUpdate,
+    OnlyTradeTickUpdate,
+)
 from onlyalpha.domain.enums import (
     OnlyAssetClass,
     OnlyCurrencyType,
@@ -163,6 +170,47 @@ def test_native_subscription_uses_same_exact_fifteen_minute_interval(tmp_path: P
                 "k": {"s": "BTCUSDT", "i": "1m", "t": 1_767_225_600_000, "x": False},
             }
         )
+
+
+def test_trade_only_subscription_does_not_require_bar_context(tmp_path: Path) -> None:
+    request = replace(_request(tmp_path), bar_types={})
+    resource = OnlyBinanceSpotDataSourceFactory().create(request)
+    instrument, _ = _bar_type()
+    subscription = OnlyMarketDataSubscriptionRequest(
+        "trades-only",
+        resource.source_id,
+        frozenset({instrument.instrument_id}),
+        frozenset({OnlyMarketDataType.TRADE}),
+    )
+
+    assert resource._streams(subscription) == ("btcusdt@trade",)  # noqa: SLF001
+
+
+def test_historical_trades_do_not_require_bar_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    request = replace(_request(tmp_path), bar_types={})
+    resource = OnlyBinanceSpotDataSourceFactory().create(request)
+    instrument, _ = _bar_type()
+
+    class Cache:
+        @staticmethod
+        def load_trades(query, provider, policy):  # type: ignore[no-untyped-def]
+            del query, policy
+            assert provider._bar_type is None  # noqa: SLF001
+            return SimpleNamespace(records=())
+
+    monkeypatch.setattr(resource, "_require_cache", lambda: Cache())
+    stream = resource.load_trades(
+        OnlyHistoricalTradeRequest(
+            "trades",
+            frozenset({instrument.instrument_id}),
+            OnlyHistoricalDataRange(
+                datetime(2025, 12, 31, tzinfo=UTC),
+                datetime(2026, 1, 1, tzinfo=UTC),
+            ),
+            request.data_version,
+        )
+    )
+    assert stream.records == ()
 
 
 def test_config_factory_and_public_resource_lifecycle_are_fail_closed(tmp_path: Path) -> None:

@@ -18,7 +18,7 @@ def test_backtest_loads_graph_provider_inputs_and_manager_uses_registry() -> Non
     graph = (ROOT / "src/onlyalpha/market_data/resolution.py").read_text(encoding="utf-8")
     compiler = (ROOT / "src/onlyalpha/market_data/aggregation/compiler.py").read_text(encoding="utf-8")
 
-    assert "cluster.config.subscription.dependency_graph" in backtest
+    assert "_configured_construction_graph" in backtest
     assert "graph.provider_inputs" in backtest
     assert "subscription.bar_types" not in backtest
     assert "OnlyTimeBarAggregator" not in manager
@@ -31,12 +31,14 @@ def test_backtest_loads_graph_provider_inputs_and_manager_uses_registry() -> Non
     assert "class OnlyTradeInputType" in (ROOT / "src/onlyalpha/domain/market.py").read_text(encoding="utf-8")
     sim = (ROOT / "src/onlyalpha/runtime/sim/factory.py").read_text(encoding="utf-8")
     streaming = (ROOT / "src/onlyalpha/runtime/streaming/runtime.py").read_text(encoding="utf-8")
-    assert "subscription.dependency_graph.provider_inputs" in sim
+    assert "only_strategy_market_data_graph" in sim
     assert "only_project_construction_provider_requirement" in sim
-    assert "isinstance(item, OnlyBarType)" not in sim
+    assert "instrument_ids = frozenset(item.instrument_id for item in construction_graph.provider_inputs)" in sim
     assert "only_historical_market_data_input_plan" in backtest
-    assert "for bar_type in sorted(self._driver.subscription.bar_types" in streaming
-    assert "bar = pipeline.base_bar" in streaming
+    assert "OnlyHistoricalTradeRequest" in streaming
+    assert "load_trades(trade_request)" in streaming
+    assert "OnlyTradeConstructionUpdateResult" in streaming
+    assert "if item.target.semantic.is_fixed_duration" in sim
 
 
 def test_transport_market_data_vocabularies_match_domain() -> None:

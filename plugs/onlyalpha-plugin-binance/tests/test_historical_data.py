@@ -144,7 +144,16 @@ def test_historical_raw_trade_locator_rows_are_not_emitted_and_range_is_exact(bi
         {"id": 13, "price": "12.00", "qty": "3", "time": start_ms + 2_000, "isBuyerMaker": False},
     ]
     client = FakeHistoricalClient([], locator=({"a": 999, "f": 10},), trades=trades)
-    provider, instrument, _ = _provider(client, end + timedelta(seconds=1), binance_bar_type)
+    instrument, _ = binance_bar_type
+    provider = OnlyBinanceSpotHistoricalProvider(
+        client,
+        instrument,
+        None,
+        OnlyDataVersion("binance-v1"),
+        page_size=2,
+        now=lambda: end + timedelta(seconds=1),
+        source_id="binance",
+    )
     time_range = OnlyTimeRange(start, end)
     result = provider.fetch_trades(OnlyHistoricalTradeDataRequest(instrument.instrument_id, time_range), time_range)
     assert tuple(str(item.trade_id) for item in result.records) == ("11", "12")

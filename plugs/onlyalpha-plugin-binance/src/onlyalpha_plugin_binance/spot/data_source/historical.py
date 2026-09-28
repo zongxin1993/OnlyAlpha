@@ -101,7 +101,7 @@ class OnlyBinanceSpotHistoricalProvider:
         self,
         client: OnlyBinanceSpotHistoricalClient,
         instrument: OnlyInstrument,
-        bar_type: OnlyBarType,
+        bar_type: OnlyBarType | None,
         data_version: OnlyDataVersion,
         *,
         page_size: int,
@@ -117,6 +117,8 @@ class OnlyBinanceSpotHistoricalProvider:
         self._source_id = source_id
 
     def build_cache_key(self, request: OnlyHistoricalDataRequest) -> OnlyHistoricalBarCacheKey:
+        if self._bar_type is None:
+            raise OnlyBinanceError("BINANCE_BAR_TYPE_REQUIRED")
         only_binance_bar_interval(request.bar_type.semantic)
         return OnlyHistoricalBarCacheKey(
             self._source_id,
@@ -135,6 +137,8 @@ class OnlyBinanceSpotHistoricalProvider:
         )
 
     def fetch(self, request: OnlyHistoricalDataRequest, time_range: OnlyTimeRange) -> OnlyHistoricalFetchResult:
+        if self._bar_type is None:
+            raise OnlyBinanceError("BINANCE_BAR_TYPE_REQUIRED")
         if request.price_adjustment is not OnlyAdjustmentType.RAW:
             raise OnlyBinanceError("BINANCE_BAR_ADJUSTMENT_UNSUPPORTED")
         if request.bar_type != self._bar_type:

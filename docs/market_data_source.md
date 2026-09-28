@@ -7,17 +7,19 @@ Queue；它不属于 BrokerGateway，不持有 Pipeline、Cache、Cluster、Cloc
 `OnlyBar`、`OnlyQuoteTick`、`OnlyTradeTick`，来源元数据由 frozen `OnlyMarketDataInboundUpdate` 保存。
 
 ```text
-Decision Lane:  closed BAR → MarketData Queue → Processor → Bar Pipeline → Strategy
+Decision Lane:  provider BAR → MarketData Queue → Processor → Construction/Bar Pipeline → Strategy
+                provider TRADE → MarketData Queue → Processor → Construction Manager → closed BAR → Strategy
 Reference Lane: TRADE → MarketData Queue → Processor → Realtime Market State → immutable Snapshot
 Trading execution: Strategy Decision + immutable Snapshot → Order/Risk → Broker Queue → ExecutionProcessor
-BACKTEST: Local HistoricalDataSource → ReplayService → Clock → Processor → Bar Pipeline
+BACKTEST: Local HistoricalDataSource → ReplayService → Clock → Processor → Construction/Bar Pipeline
 ```
 
-Strategy Revision 的正式市场输入仍是 closed Bar（第一生产阶段为 1 Minute Closed Bar）。Trade 不进入 Bar Pipeline、不触发
-Strategy/Cluster dispatch，也不改变 Strategy fingerprint；它只在通过同一 Processor 的 scope、identity、sequence、gap 和 quality
-检查后，以 `APPLIED` 状态推进 Runtime-wide、provider-neutral 的 realtime reference projection。Execution/Risk 在一次 planning
-cycle 开始时只 capture 一份 immutable snapshot，后到 Trade 只影响后续 cycle。缺失、过期、错误 source/quality 或 unresolved gap
-对新的 risk-increasing execution fail closed；risk-reducing/neutral safety path 不依赖该 reference。
+Strategy Revision 的正式交付输入仍是 closed Bar。冻结的 Construction Recipe 可以要求 provider BAR，也可以要求
+provider TRADE 并通过注册 executor 构造 Bar。raw Trade 本身永不触发 Strategy/Cluster dispatch；只有新的 canonical
+closed Bar 会进入 Cache/Snapshot/Dispatcher。同一 Trade 也可在通过 Processor 检查后独立推进 realtime reference
+projection，但 reference requirement 与 Strategy construction requirement 互不授权。Execution/Risk 在一次 planning cycle
+开始时只 capture 一份 immutable snapshot；缺失、过期、错误 source/quality 或 unresolved gap 对新的
+risk-increasing execution fail closed。
 
 Decision continuity 与 reference continuity 是不同的 Runtime consequence lane。Bar gap 继续进入既有 decision-lane historical
 recovery；Trade gap 只把对应 realtime reference scope 标记为 unresolved，trusted Trade 停在 gap 前，Streaming Runtime 与 closed-Bar
@@ -55,9 +57,11 @@ MarketData Queue 与 Broker Queue 分离，默认有界且不静默丢数据。T
 Deduplicator、SequenceTracker、GapDetector、AuditStore、ReplayService 和 Gateway。Cluster 的 `ctx.market_data` 仍只返回
 immutable Snapshot。Research Runtime 只拥有其 Dataset/Calculation state，不为结构对称创建 Broker Queue 或交易处理器。
 
-一个订阅选择一个主 Source，不自动融合或切换。Runtime subscription requirement 由 Strategy BAR requirement 与显式
-Execution/Risk TRADE reference requirement 组合成 union，但二者 Authority 和 identity 保持独立。尚未实现 Level 2、分布式服务、
-自动主备或复杂公司行动。
+一个订阅选择一个主 Source，不自动融合或切换。Runtime 从 generic Construction Graph provider inputs 投影
+BAR/TRADE 数据族与 instrument scope：纯 Trade-root 的 provider `bar_types` 合法为空，但 `instrument_ids` 不得丢失。
+Backtest 只要求 construction 需要的 historical BAR/TICK capability；SIM historical capability 同样只来自 bootstrap
+construction，live capability 才与显式 Execution/Risk TRADE reference requirement 求并集。两种 Authority 和 identity 保持独立。
+尚未实现 Level 2、分布式服务、自动主备或复杂公司行动。
 
 ## 规范 Market Source identity
 

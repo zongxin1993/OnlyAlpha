@@ -31,7 +31,11 @@ from onlyalpha.market_data.resolution import (
     OnlyMarketDataConstructionGraph,
 )
 from onlyalpha.runtime.backtest.input_requirements import only_historical_market_data_input_plan
-from onlyalpha.runtime.streaming.requirements import only_project_construction_provider_requirement
+from onlyalpha.runtime.streaming.requirements import (
+    only_compose_runtime_market_data_requirements,
+    only_project_construction_provider_requirement,
+    only_project_data_source_capabilities,
+)
 
 
 def _time_edge(source: OnlyBarType, target: OnlyBarType) -> OnlyMarketDataConstructionEdge:
@@ -175,6 +179,50 @@ def test_downstream_failure_exposes_no_partial_pipeline_commit(
         manager.process(make_bar(1))
 
 
+def test_trade_construction_failure_exposes_no_partial_cache(shanghai_calendar, bar_1m) -> None:
+    source = OnlyTradeInputType(bar_1m.instrument_id)
+    target = OnlyBarType(bar_1m.instrument_id, OnlyBarSemantic(OnlyTickCountBarFormation(1)))
+    edge = OnlyMarketDataConstructionEdge(
+        source,
+        target,
+        OnlyBarConstructionRecipe.derived(target.semantic, OnlyTradeSemantic(), algorithm_id="TEST_FAIL"),
+    )
+    registry = OnlyBarConstructionAlgorithmRegistry()
+    registry.register_factory("TEST_FAIL", 1, "TRADE", "BAR", lambda item, *_: _Executor(item, fails=True))
+    manager = _manager(
+        shanghai_calendar,
+        OnlyMarketDataConstructionGraph((source,), (edge,)),
+        registry=registry,
+    )
+    cache = OnlyMarketDataCache()
+    pipeline = OnlyMarketDataPipeline(
+        OnlyEngineId("engine"),
+        OnlyRuntimeId("runtime"),
+        OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC)),
+        cache,
+        manager,
+        OnlyIndicatorPipeline(),
+    )
+    now = datetime(2026, 1, 5, 1, 30, tzinfo=UTC)
+    trade = OnlyTradeTick(
+        bar_1m.instrument_id,
+        now,
+        now,
+        1,
+        "TEST",
+        OnlyPrice(Decimal("10"), 2),
+        OnlyQuantity(Decimal("1"), 0),
+        OnlyOrderSide.BUY,
+        OnlyTradeId("trade-failure"),
+    )
+
+    with pytest.raises(OnlyMarketDataPipelineError, match="downstream failed"):
+        pipeline.process_trade(trade)
+    assert cache.latest_all() == {}
+    with pytest.raises(OnlyBarAggregationError, match="RECOVERY_REQUIRED"):
+        manager.process(trade)
+
+
 def test_checkpoint_restart_equals_uninterrupted(shanghai_calendar, bar_1m, bar_5m, bar_15m, make_bar) -> None:
     graph = _dag(bar_1m, bar_5m, bar_15m)
     uninterrupted = _manager(shanghai_calendar, graph)
@@ -234,6 +282,10 @@ def test_bar_and_trade_provider_inputs_project_to_sim_and_backtest_requests(bar_
     realtime = only_project_construction_provider_requirement(graph)
     assert realtime.data_types == frozenset({OnlyMarketDataType.BAR, OnlyMarketDataType.TRADE})
     assert realtime.bar_types == frozenset({bar_1m})
+    capabilities = only_project_data_source_capabilities(
+        only_compose_runtime_market_data_requirements(realtime), historical=True
+    )
+    assert capabilities.historical_bars and capabilities.historical_ticks
 
     plan = only_historical_market_data_input_plan(
         OnlyRuntimeId("runtime"),

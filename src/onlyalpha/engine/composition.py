@@ -95,15 +95,10 @@ class OnlyClusterComposition:
         return OnlyClusterCompositionPlan(config, environment, claims, installations, market_product, fingerprint)
 
     def _admit_integrations(self, config: OnlyClusterRunConfig) -> OnlyClusterRunConfig:
-        required = (
-            OnlyDataSourceCapabilities(historical_bars=True)
-            if config.runtime_type == "BACKTEST"
-            else OnlyDataSourceCapabilities(
-                historical_bars=True,
-                live_bars=True,
-                live_reconnect=True,
-            )
-        )
+        # Exact BAR/TRADE families belong to the Runtime Factory after it resolves
+        # the frozen Strategy construction graph. This early stage admits only the
+        # immutable Integration binding and must not invent a universal BAR need.
+        required = OnlyDataSourceCapabilities()
         admitted = tuple(
             only_admit_data_source_runtime_configuration(
                 source,
