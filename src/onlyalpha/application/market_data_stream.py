@@ -41,7 +41,8 @@ from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.event.bus import OnlyEventBus
-from onlyalpha.market_data.aggregation.time_bar import OnlyBarAggregationError, OnlyTimeBarAggregator
+from onlyalpha.market_data.aggregation.base import OnlyBarAggregationError
+from onlyalpha.market_data.aggregation.time_bar import OnlyTimeBarAggregator
 from onlyalpha.market_data.durable.drain import OnlyMarketDataDrainService
 from onlyalpha.market_data.durable.ingress import OnlyMarketDataIngress
 from onlyalpha.market_data.durable.models import OnlyCoverageStatus, OnlyRecordingState

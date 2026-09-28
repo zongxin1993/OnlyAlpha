@@ -18,6 +18,7 @@ from onlyalpha.application.market_data_product import (
     OnlyMarketDataSourceSelectionV1,
     OnlyMarketDataTimeBarCapabilityV1,
 )
+from onlyalpha.domain.enums import OnlyPriceType
 from onlyalpha.domain.market import OnlyBarSemantic
 
 _FINGERPRINT = r"^[0-9a-f]{64}$"
@@ -33,8 +34,8 @@ class _Dto(BaseModel):
 class MarketDataFixedDurationFormationDto(_Dto):
     schema_version: Literal[1]
     kind: Literal["FIXED_DURATION"]
-    window_minutes: int = Field(ge=1, le=240)
-    stride_minutes: int = Field(ge=1, le=240)
+    window_minutes: int = Field(ge=1)
+    stride_minutes: int = Field(ge=1)
     alignment: Literal["UTC", "SESSION_START"]
 
 
@@ -77,7 +78,7 @@ MarketDataBarFormationDto = Annotated[
 class MarketDataBarSemanticDto(_Dto):
     schema_version: Literal[2]
     formation: MarketDataBarFormationDto
-    price_type: Literal["LAST", "BID", "ASK", "MID", "MARK", "INDEX"]
+    price_type: OnlyPriceType = Field(strict=False)
     adjustment_policy: Literal["RAW", "FORWARD", "BACKWARD"]
 
     def to_model(self) -> OnlyBarSemantic:
@@ -330,7 +331,7 @@ class MarketDataAcquisitionRequestDto(_Dto):
             stride_minutes=1,
             alignment="SESSION_START",
         ),
-        price_type="LAST",
+        price_type=OnlyPriceType.LAST,
         adjustment_policy="RAW",
     )
     provenance: Literal["REST_BACKFILL"] = "REST_BACKFILL"

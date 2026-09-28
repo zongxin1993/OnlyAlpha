@@ -3,7 +3,11 @@ from decimal import Decimal
 import pytest
 
 from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType, OnlyVolumeBarFormation
-from onlyalpha.market_data.resolution import OnlyBarConstructionRecipe, OnlyBarDependencyGraph, OnlyBarDerivedDependency
+from onlyalpha.market_data.resolution import (
+    OnlyBarConstructionRecipe,
+    OnlyMarketDataConstructionEdge,
+    OnlyMarketDataConstructionGraph,
+)
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
 
 
@@ -11,7 +15,7 @@ def _subscription(
     source: OnlyBarType, *targets: OnlyBarType, primary: OnlyBarType | None = None
 ) -> OnlyBarSubscription:
     edges = tuple(
-        OnlyBarDerivedDependency(
+        OnlyMarketDataConstructionEdge(
             source,
             target,
             OnlyBarConstructionRecipe.derived(target.semantic, source.semantic, algorithm_id="TIME_BAR"),
@@ -19,7 +23,7 @@ def _subscription(
         for target in targets
         if target.semantic.is_fixed_duration
     )
-    graph = OnlyBarDependencyGraph((source,), edges)
+    graph = OnlyMarketDataConstructionGraph((source,), edges)
     return OnlyBarSubscription((source, *targets), graph, primary_bar_type=primary)
 
 
@@ -40,17 +44,17 @@ def test_non_time_bar_requires_explicit_primary(instrument_id, bar_1m) -> None:
     )
     with pytest.raises(ValueError, match="exactly match"):
         _subscription(bar_1m, volume)
-    native_volume = OnlyBarDependencyGraph((bar_1m, volume), ())
+    native_volume = OnlyMarketDataConstructionGraph((bar_1m, volume), ())
     assert OnlyBarSubscription((bar_1m, volume), native_volume, primary_bar_type=volume).primary_bar_type == volume
 
 
 def test_subscription_rejects_primary_outside_set(bar_1m, bar_3m) -> None:
     with pytest.raises(ValueError, match="included"):
-        OnlyBarSubscription((bar_1m,), OnlyBarDependencyGraph((bar_1m,), ()), primary_bar_type=bar_3m)
+        OnlyBarSubscription((bar_1m,), OnlyMarketDataConstructionGraph((bar_1m,), ()), primary_bar_type=bar_3m)
 
 
 def test_subscription_loader_rejects_unknown_or_malformed_fields(bar_1m) -> None:
-    payload = OnlyBarSubscription((bar_1m,), OnlyBarDependencyGraph((bar_1m,), ())).to_dict()
+    payload = OnlyBarSubscription((bar_1m,), OnlyMarketDataConstructionGraph((bar_1m,), ())).to_dict()
     payload["bar_types"] = [*payload["bar_types"], "ignored"]  # type: ignore[misc]
     with pytest.raises(ValueError, match="BAR_SUBSCRIPTION_INVALID"):
         OnlyBarSubscription.from_dict(payload)

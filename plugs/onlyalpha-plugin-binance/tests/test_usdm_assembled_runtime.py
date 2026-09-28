@@ -76,7 +76,7 @@ from onlyalpha.market.product import (
     OnlyMarketProductVersion,
 )
 from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine
-from onlyalpha.market_data.resolution import OnlyBarDependencyGraph
+from onlyalpha.market_data.resolution import OnlyMarketDataConstructionGraph
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
 from onlyalpha.plugin.capabilities import OnlyDataSourceCapabilities
 from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
@@ -97,7 +97,7 @@ USDT = OnlyCurrency("USDT", 8, OnlyCurrencyType.CRYPTO)
 class _OrderCluster(OnlyCluster):
     def __init__(self, bar_type: OnlyBarType) -> None:
         super().__init__(
-            OnlyClusterConfig(str(CLUSTER), OnlyBarSubscription((bar_type,), OnlyBarDependencyGraph((bar_type,), ())))
+            OnlyClusterConfig(str(CLUSTER), OnlyBarSubscription((bar_type,), OnlyMarketDataConstructionGraph((bar_type,), ())))
         )
         self.pending_order: OnlyOrderRequest | None = None
         self.submit_results: list[object] = []

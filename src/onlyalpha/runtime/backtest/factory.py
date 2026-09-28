@@ -14,6 +14,7 @@ from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeErro
 from onlyalpha.broker.inbound import OnlyBoundedBrokerInboundQueue
 from onlyalpha.broker.ports import OnlyBrokerGateway
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
+from onlyalpha.cluster.factory import only_strategy_market_data_graph
 from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.data.enums import OnlyMarketDataType
@@ -165,7 +166,8 @@ class OnlyBacktestRuntimeFactory:
                 bar_type
                 for cluster in clusters
                 if cluster.config.subscription is not None
-                for bar_type in cluster.config.subscription.bar_types
+                for bar_type in cluster.config.subscription.dependency_graph.provider_inputs
+                if isinstance(bar_type, OnlyBarType)
             )
             source_common = next(item for item in config.data_sources if item.enabled)
             request_model = OnlyHistoricalBarRequest(
@@ -456,13 +458,11 @@ class OnlyBacktestRuntimeFactory:
             if not cluster.enabled:
                 continue
             revision = resolver.resolve(cluster.strategy.fingerprint).revision
-            contract = revision.market_input_contract
-            for instrument_id in revision.universe.instruments:
-                bar_type = OnlyBarType(instrument_id, contract.bar_semantic)
-                existing = result.get(instrument_id)
-                if existing is not None and existing != bar_type:
-                    raise ValueError("Strategy Market Input Contracts conflict for one instrument")
-                result[instrument_id] = bar_type
+            for bar_type in only_strategy_market_data_graph(revision).provider_inputs:
+                if isinstance(bar_type, OnlyBarType):
+                    existing = result.get(bar_type.instrument_id)
+                    if existing is None or bar_type.to_json() < existing.to_json():
+                        result[bar_type.instrument_id] = bar_type
         return result
 
     @staticmethod

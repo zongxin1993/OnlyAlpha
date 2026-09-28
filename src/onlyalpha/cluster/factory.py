@@ -8,17 +8,41 @@ from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterConfig
 from onlyalpha.cluster.scenario_action_workload import OnlyScenarioActionWorkload
 from onlyalpha.config import OnlyClusterImportConfig, OnlyRuntimeAssemblyPlan
-from onlyalpha.domain.market import OnlyBarType
+from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType
 from onlyalpha.indicator.registry import OnlyIndicatorFactoryRegistry
 from onlyalpha.market_data.resolution import (
     OnlyBarConstructionKind,
     OnlyBarConstructionRequirementKind,
-    OnlyBarDependencyGraph,
-    OnlyBarDerivedDependency,
+    OnlyMarketDataConstructionEdge,
+    OnlyMarketDataConstructionGraph,
 )
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription, only_bar_type_id
 from onlyalpha.strategy.execution import OnlyStrategyExecutionResolver
+from onlyalpha.strategy.revision import OnlyStrategyRevision
 from onlyalpha.strategy.store import OnlyFrozenStrategyRevisionStore
+
+
+def only_strategy_market_data_graph(revision: OnlyStrategyRevision) -> OnlyMarketDataConstructionGraph:
+    contract = revision.market_input_contract
+    if contract.construction_requirement.kind is not OnlyBarConstructionRequirementKind.EXACT_RECIPE:
+        raise ValueError("STRATEGY_EXACT_BAR_CONSTRUCTION_REQUIRED")
+    recipe = contract.construction_requirement.recipe
+    assert recipe is not None
+    providers: list[OnlyBarType] = []
+    edges: list[OnlyMarketDataConstructionEdge] = []
+    for instrument_id in revision.universe.instruments:
+        target = OnlyBarType(instrument_id, contract.bar_semantic)
+        if recipe.kind is OnlyBarConstructionKind.PROVIDER_NATIVE:
+            providers.append(target)
+        else:
+            base = recipe.base_semantic
+            if not isinstance(base, OnlyBarSemantic):
+                raise ValueError("CONSTRUCTION_ALGORITHM_UNAVAILABLE")
+            source = OnlyBarType(instrument_id, base)
+            providers.append(source)
+            edges.append(OnlyMarketDataConstructionEdge(source, target, recipe))
+    provider_bar_types = tuple(sorted(providers, key=only_bar_type_id))
+    return OnlyMarketDataConstructionGraph(provider_bar_types, tuple(edges))
 
 
 class OnlyClusterFactory:
@@ -45,25 +69,16 @@ class OnlyClusterFactory:
         ).resolve(config.strategy.fingerprint)
         revision = plan.revision
         contract = revision.market_input_contract
-        if contract.construction_requirement.kind is not OnlyBarConstructionRequirementKind.EXACT_RECIPE:
-            raise ValueError("STRATEGY_EXACT_BAR_CONSTRUCTION_REQUIRED")
-        recipe = contract.construction_requirement.recipe
-        assert recipe is not None
-        providers: list[OnlyBarType] = []
-        targets: list[OnlyBarType] = []
-        edges: list[OnlyBarDerivedDependency] = []
-        for instrument_id in revision.universe.instruments:
-            target = OnlyBarType(instrument_id, contract.bar_semantic)
-            targets.append(target)
-            if recipe.kind is OnlyBarConstructionKind.PROVIDER_NATIVE:
-                providers.append(target)
-            else:
-                assert recipe.base_semantic is not None
-                source = OnlyBarType(instrument_id, recipe.base_semantic)
-                providers.append(source)
-                edges.append(OnlyBarDerivedDependency(source, target, recipe))
-        bar_types = tuple(sorted(set((*providers, *targets)), key=only_bar_type_id))
-        graph = OnlyBarDependencyGraph(tuple(sorted(providers, key=only_bar_type_id)), tuple(edges))
+        graph = only_strategy_market_data_graph(revision)
+        bar_types = tuple(
+            sorted(
+                {
+                    *(item for item in graph.provider_inputs if isinstance(item, OnlyBarType)),
+                    *(edge.target for edge in graph.derived_dependencies),
+                },
+                key=only_bar_type_id,
+            )
+        )
         cluster_subscription = OnlyBarSubscription(
             bar_types, graph, primary_bar_type=OnlyBarType(revision.universe.instruments[0], contract.bar_semantic)
         )

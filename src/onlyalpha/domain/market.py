@@ -1,5 +1,7 @@
 """Immutable market data facts and fully specified bars."""
 
+import hashlib
+import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -226,7 +228,7 @@ class OnlyFixedDurationBarFormation(OnlyDomainModel):
             self.kind is not OnlyBarFormationKind.FIXED_DURATION
             or type(self.window_minutes) is not int
             or type(self.stride_minutes) is not int
-            or not 1 <= self.window_minutes <= 240
+            or self.window_minutes < 1
             or not 1 <= self.stride_minutes <= self.window_minutes
         ):
             raise OnlyValidationError("fixed-duration Bar formation is invalid")
@@ -293,9 +295,9 @@ class OnlyBarSemantic(OnlyDomainModel):
 
     @property
     def fingerprint(self) -> str:
-        from onlyalpha.canonical import only_canonical_fingerprint
-
-        return only_canonical_fingerprint(self.to_dict())
+        return hashlib.sha256(
+            json.dumps(self.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
 
     @property
     def is_fixed_duration(self) -> bool:
@@ -374,6 +376,40 @@ class OnlyBarType(OnlyDomainModel):
 
     instrument_id: OnlyInstrumentId
     semantic: OnlyBarSemantic
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyTradeSemantic:
+    """Canonical unaggregated trade input semantic."""
+
+    def to_dict(self) -> dict[str, object]:
+        return {"schema_version": 1, "kind": "TRADE"}
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, object]) -> "OnlyTradeSemantic":
+        if dict(value) != cls().to_dict():
+            raise OnlyValidationError("Trade semantic is invalid")
+        return cls()
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyTradeInputType:
+    instrument_id: OnlyInstrumentId
+    semantic: OnlyTradeSemantic = OnlyTradeSemantic()
+
+    def to_dict(self) -> dict[str, object]:
+        return {"schema_version": 1, "instrument_id": str(self.instrument_id), "semantic": self.semantic.to_dict()}
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, object]) -> "OnlyTradeInputType":
+        if value.get("schema_version") != 1 or not isinstance(value.get("semantic"), Mapping):
+            raise OnlyValidationError("Trade input is invalid")
+        semantic = value["semantic"]
+        assert isinstance(semantic, Mapping)
+        result = cls(OnlyInstrumentId.parse(str(value["instrument_id"])), OnlyTradeSemantic.from_dict(semantic))
+        if result.to_dict() != dict(value):
+            raise OnlyValidationError("Trade input is invalid")
+        return result
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

@@ -20,6 +20,7 @@ from onlyalpha.data.enums import OnlyMarketDataType
 from onlyalpha.data.models import OnlyMarketDataSubscriptionRequest
 from onlyalpha.data.queue import OnlyMarketDataInboundQueue
 from onlyalpha.domain.enums import OnlyRuntimeMode
+from onlyalpha.domain.market import OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
@@ -134,7 +135,10 @@ class OnlySimRuntimeFactory:
                 cluster.config.subscription for cluster in clusters if cluster.config.subscription is not None
             )
             base_bar_types = frozenset(
-                item for subscription in subscriptions for item in subscription.dependency_graph.provider_inputs
+                item
+                for subscription in subscriptions
+                for item in subscription.dependency_graph.provider_inputs
+                if isinstance(item, OnlyBarType)
             )
             if not base_bar_types:
                 raise _OnlySimCompositionError(

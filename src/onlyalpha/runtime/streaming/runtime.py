@@ -141,6 +141,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             runtime_persistence_store=persistence_store,
             persistence_config=persistence_config,
             config_fingerprint=config_fingerprint,
+            market_data_source_binding_identity=str(data_source.source_id),  # type: ignore[union-attr]
             plugin_resources=(
                 ((broker_resource,) if broker_resource is not None else ()) + (cast(OnlyPluginResource, data_source),)
             ),

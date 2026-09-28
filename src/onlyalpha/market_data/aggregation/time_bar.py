@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -12,24 +11,8 @@ from onlyalpha.domain.enums import OnlyAdjustmentType
 from onlyalpha.domain.market import OnlyBar, OnlyBarType, OnlyFixedDurationBarFormation
 from onlyalpha.domain.time import OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
+from onlyalpha.market_data.aggregation.base import OnlyBarAggregationError, OnlyBarAggregator
 from onlyalpha.market_data.subscriptions import OnlyIncompleteBarPolicy, OnlyMissingBarPolicy
-
-
-class OnlyBarAggregationError(Exception):
-    """Input Bar cannot be deterministically assigned or aggregated."""
-
-
-class OnlyBarAggregator(ABC):
-    @property
-    @abstractmethod
-    def source_bar_type(self) -> OnlyBarType: ...
-
-    @property
-    @abstractmethod
-    def target_bar_type(self) -> OnlyBarType: ...
-
-    @abstractmethod
-    def process(self, bar: OnlyBar) -> OnlyBar | None: ...
 
 
 class OnlyAlignedTumblingWindowPolicy:
@@ -105,7 +88,13 @@ class OnlyTimeBarAggregator(OnlyBarAggregator):
     def target_bar_type(self) -> OnlyBarType:
         return self._target_bar_type
 
-    def process(self, bar: OnlyBar) -> OnlyBar | None:
+    def accepts(self, fact: object) -> bool:
+        return isinstance(fact, OnlyBar) and fact.bar_type == self._source_bar_type
+
+    def process(self, fact: object) -> OnlyBar | None:
+        if not isinstance(fact, OnlyBar):
+            raise OnlyBarAggregationError("aggregator received a non-Bar fact")
+        bar = fact
         if bar.bar_type != self._source_bar_type:
             raise OnlyBarAggregationError("aggregator received an unexpected BarType")
         if not bar.is_closed:

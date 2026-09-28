@@ -45,7 +45,8 @@ from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRuntimeId
 from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.bus import OnlyEventBus
-from onlyalpha.market_data.aggregation.time_bar import OnlyBarAggregationError, OnlyTimeBarAggregator
+from onlyalpha.market_data.aggregation.base import OnlyBarAggregationError
+from onlyalpha.market_data.aggregation.time_bar import OnlyTimeBarAggregator
 from onlyalpha.market_data.durable.backfill import (
     OnlyMarketDataBackfillCoordinator,
     only_plan_contiguous_bar_gaps,
@@ -73,6 +74,7 @@ from onlyalpha.market_data.durable.revision import (
 )
 from onlyalpha.market_data.durable.wal import OnlyMarketDataWal
 from onlyalpha.market_data.resolution import (
+    OnlyBarConstructionAlgorithmRegistry,
     OnlyBarConstructionIdentity,
     OnlyBarResolutionMode,
     OnlyBarResolutionPlan,
@@ -123,7 +125,7 @@ def only_product_bar_semantic(semantic: OnlyBarSemantic) -> OnlyBarSemantic:
     if (
         not isinstance(semantic, OnlyBarSemantic)
         or not semantic.is_fixed_duration
-        or not 1 <= semantic.window_minutes <= MAX_FIXED_DURATION_WINDOW_MINUTES
+        or semantic.window_minutes < 1
         or semantic.price_type is not OnlyPriceType.LAST
         or semantic.adjustment_policy is not OnlyAdjustmentType.RAW
     ):
@@ -833,6 +835,7 @@ class OnlyMarketDataProductService:
                 instrument_id=instrument_id,
                 integration_revision_fingerprint=resolved.selection.integration_revision_fingerprint,
             )
+            OnlyBarConstructionAlgorithmRegistry().require(plan.resolved_recipe)
             if plan.mode is OnlyBarResolutionMode.DERIVED and plan.grid_origin_ns != 0:
                 raise ValueError("BAR_RESOLUTION_BASE_ALIGNMENT_UNSUPPORTED")
             return plan

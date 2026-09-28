@@ -2417,16 +2417,7 @@
             "title": "Formation"
           },
           "price_type": {
-            "enum": [
-              "LAST",
-              "BID",
-              "ASK",
-              "MID",
-              "MARK",
-              "INDEX"
-            ],
-            "title": "Price Type",
-            "type": "string"
+            "$ref": "#/components/schemas/OnlyPriceType"
           },
           "schema_version": {
             "const": 2,
@@ -2865,13 +2856,11 @@
             "type": "integer"
           },
           "stride_minutes": {
-            "maximum": 240.0,
             "minimum": 1.0,
             "title": "Stride Minutes",
             "type": "integer"
           },
           "window_minutes": {
-            "maximum": 240.0,
             "minimum": 1.0,
             "title": "Window Minutes",
             "type": "integer"
@@ -3282,6 +3271,17 @@
           "STRING_INTEGER_MAP"
         ],
         "title": "OnlyIntegrationValueKind",
+        "type": "string"
+      },
+      "OnlyPriceType": {
+        "enum": [
+          "LAST",
+          "BID",
+          "ASK",
+          "MID",
+          "MARK"
+        ],
+        "title": "OnlyPriceType",
         "type": "string"
       },
       "OnlyPrivateAssetKind": {
@@ -4423,16 +4423,7 @@
             "title": "Formation"
           },
           "price_type": {
-            "enum": [
-              "LAST",
-              "BID",
-              "ASK",
-              "MID",
-              "MARK",
-              "INDEX"
-            ],
-            "title": "Price Type",
-            "type": "string"
+            "$ref": "#/components/schemas/OnlyPriceType"
           },
           "schema_version": {
             "const": 2,

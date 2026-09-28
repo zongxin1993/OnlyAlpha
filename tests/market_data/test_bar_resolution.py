@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 
+from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.domain.errors import OnlySerializationError
 from onlyalpha.domain.identifiers import OnlyInstrumentId
@@ -13,6 +15,11 @@ from onlyalpha.domain.market import (
     OnlyBarType,
     OnlyCalendarPeriodBarFormation,
     OnlyCalendarPeriodUnit,
+    OnlyTickCountBarFormation,
+    OnlyTradeInputType,
+    OnlyTradeSemantic,
+    OnlyValueBarFormation,
+    OnlyVolumeBarFormation,
 )
 from onlyalpha.market_data.resolution import (
     OnlyBarCapability,
@@ -21,11 +28,12 @@ from onlyalpha.market_data.resolution import (
     OnlyBarConstructionRecipe,
     OnlyBarConstructionRequirement,
     OnlyBarConstructionRequirementKind,
-    OnlyBarDependencyGraph,
-    OnlyBarDerivedDependency,
     OnlyBarResolutionMode,
     OnlyBarResolutionPlan,
     OnlyBarResolutionPolicy,
+    OnlyMarketDataConstructionEdge,
+    OnlyMarketDataConstructionGraph,
+    OnlyMarketDataConstructionLane,
     only_expected_fixed_duration_bar_ends,
     only_plan_bar_resolution,
 )
@@ -117,23 +125,72 @@ def test_runtime_dependency_graph_is_explicit() -> None:
     source = OnlyBarType(INSTRUMENT, one)
     target = OnlyBarType(INSTRUMENT, seven)
     recipe = OnlyBarConstructionRecipe.derived(seven, one, algorithm_id="TIME_BAR")
-    graph = OnlyBarDependencyGraph(
+    graph = OnlyMarketDataConstructionGraph(
         (source, OnlyBarType(INSTRUMENT, fifteen)),
-        (OnlyBarDerivedDependency(source, target, recipe),),
+        (OnlyMarketDataConstructionEdge(source, target, recipe),),
     )
 
     assert graph.provider_inputs == (source, OnlyBarType(INSTRUMENT, fifteen))
     assert graph.derived_dependencies[0].target == target
+    assert (
+        graph.fingerprint
+        == OnlyMarketDataConstructionGraph(
+            tuple(reversed(graph.provider_inputs)), graph.derived_dependencies
+        ).fingerprint
+    )
+
+
+@pytest.mark.parametrize(
+    ("formation", "algorithm"),
+    (
+        (OnlyTickCountBarFormation(1000), "TICK_BAR"),
+        (OnlyVolumeBarFormation(Decimal("100000")), "VOLUME_BAR"),
+        (OnlyValueBarFormation(Decimal("1000000")), "VALUE_BAR"),
+    ),
+)
+def test_trade_bar_graph_roundtrip_and_unavailable_executor(formation, algorithm: str) -> None:
+    source = OnlyTradeInputType(INSTRUMENT)
+    target = OnlyBarType(INSTRUMENT, OnlyBarSemantic(formation))
+    recipe = OnlyBarConstructionRecipe.derived(target.semantic, OnlyTradeSemantic(), algorithm_id=algorithm)
+    edge = OnlyMarketDataConstructionEdge(source, target, recipe)
+    graph = OnlyMarketDataConstructionGraph((source,), (edge,))
+
+    assert OnlyMarketDataConstructionGraph.from_dict(graph.to_dict()) == graph
+    assert graph.fingerprint == OnlyMarketDataConstructionGraph.from_dict(graph.to_dict()).fingerprint
+    with pytest.raises(ValueError, match="CONSTRUCTION_ALGORITHM_UNAVAILABLE"):
+        OnlyBarConstructionAlgorithmRegistry().create_executor(edge, None, None)
+
+
+def test_same_bar_semantic_different_construction_has_different_lane() -> None:
+    target = OnlyBarType(INSTRUMENT, semantic(15))
+    native = OnlyBarConstructionRecipe.provider_native(target.semantic)
+    derived = OnlyBarConstructionRecipe.derived(target.semantic, semantic(1), algorithm_id="TIME_BAR")
+    native_lane = OnlyMarketDataConstructionLane(target, native.fingerprint, "source:binance")
+    derived_lane = OnlyMarketDataConstructionLane(target, derived.fingerprint, "source:binance")
+
+    assert native_lane.output == derived_lane.output
+    assert native_lane.lane_id != derived_lane.lane_id
+    assert OnlyMarketDataConstructionLane.from_dict(native_lane.to_dict()) == native_lane
+    with pytest.raises(ValueError, match="CONSTRUCTION_LANE_REBUILD_REQUIRED"):
+        OnlyMarketDataConstructionLane.from_dict({**native_lane.to_dict(), "schema_version": 0})
+
+
+def test_long_duration_is_semantic_but_unavailable_without_capability() -> None:
+    target = semantic(720)
+    assert OnlyBarSemantic.from_dict(target.to_dict()) == target
+    assert target.fingerprint == only_canonical_fingerprint(target.to_dict())
+    with pytest.raises(ValueError, match="BAR_RESOLUTION_UNSUPPORTED"):
+        plan(target, ())
 
 
 def test_runtime_dependency_graph_rejects_an_unprovided_source() -> None:
     source = OnlyBarType(INSTRUMENT, semantic(1))
     target = OnlyBarType(INSTRUMENT, semantic(7))
     with pytest.raises(ValueError, match="BAR_DEPENDENCY_GRAPH_INVALID"):
-        OnlyBarDependencyGraph(
+        OnlyMarketDataConstructionGraph(
             (),
             (
-                OnlyBarDerivedDependency(
+                OnlyMarketDataConstructionEdge(
                     source,
                     target,
                     OnlyBarConstructionRecipe.derived(target.semantic, source.semantic, algorithm_id="TIME_BAR"),

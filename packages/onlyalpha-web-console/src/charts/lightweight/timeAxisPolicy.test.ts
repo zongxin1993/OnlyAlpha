@@ -10,6 +10,13 @@ it.each([7, 37, 120])("derives intraday viewport from width for arbitrary %im ba
     expect(wide.visibleBars).toBeGreaterThan(narrow.visibleBars);
 });
 
-it.each([0, -1, 1.5, 241])("rejects an invalid real minute step %s", (step) => {
+it.each([0, -1, 1.5])("rejects an invalid real minute step %s", (step) => {
     expect(() => marketDataBarSemantic(step)).toThrow();
+});
+
+it("keeps a 720-minute Bar semantic valid", () => {
+    expect(marketDataBarSemantic(720).formation).toMatchObject({
+        window_minutes: 720,
+        stride_minutes: 720
+    });
 });

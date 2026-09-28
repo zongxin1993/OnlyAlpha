@@ -2,18 +2,66 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
-from onlyalpha.canonical import only_canonical_fingerprint
+from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyPriceType
 from onlyalpha.domain.market import (
     OnlyBarAlignment,
     OnlyBarSemantic,
     OnlyBarType,
     OnlyFixedDurationBarFormation,
+    OnlyTickCountBarFormation,
+    OnlyTradeInputType,
+    OnlyTradeSemantic,
+    OnlyValueBarFormation,
+    OnlyVolumeBarFormation,
 )
+
+type OnlyMarketDataInputType = OnlyBarType | OnlyTradeInputType
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyMarketDataConstructionLane:
+    output: OnlyBarType
+    recipe_fingerprint: str
+    source_binding_identity: str
+
+    def __post_init__(self) -> None:
+        if (
+            len(self.recipe_fingerprint) != 64
+            or any(character not in "0123456789abcdef" for character in self.recipe_fingerprint)
+            or not self.source_binding_identity.strip()
+        ):
+            raise ValueError("CONSTRUCTION_LANE_INVALID")
+
+    @property
+    def lane_id(self) -> str:
+        return only_canonical_fingerprint(self.to_dict())
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": 1,
+            "output": self.output.to_dict(),
+            "recipe_fingerprint": self.recipe_fingerprint,
+            "source_binding_identity": self.source_binding_identity,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, object]) -> OnlyMarketDataConstructionLane:
+        output = value.get("output")
+        if value.get("schema_version") != 1 or not isinstance(output, Mapping):
+            raise ValueError("CONSTRUCTION_LANE_REBUILD_REQUIRED")
+        lane = cls(
+            OnlyBarType.from_dict(output),
+            str(value["recipe_fingerprint"]),
+            str(value["source_binding_identity"]),
+        )
+        if lane.to_dict() != dict(value):
+            raise ValueError("CONSTRUCTION_LANE_INVALID")
+        return lane
 
 
 class OnlyBarConstructionKind(StrEnum):
@@ -49,7 +97,7 @@ class OnlyBarIncompletePolicy(StrEnum):
 class OnlyBarConstructionRecipe:
     target_semantic: OnlyBarSemantic
     kind: OnlyBarConstructionKind
-    base_semantic: OnlyBarSemantic | None = None
+    base_semantic: OnlyBarSemantic | OnlyTradeSemantic | None = None
     algorithm_id: str | None = None
     algorithm_version: int | None = None
     missing_policy: OnlyBarMissingPolicy | None = None
@@ -58,25 +106,37 @@ class OnlyBarConstructionRecipe:
 
     def __post_init__(self) -> None:
         native = self.kind is OnlyBarConstructionKind.PROVIDER_NATIVE
+        if not isinstance(self.target_semantic, OnlyBarSemantic) or not isinstance(self.kind, OnlyBarConstructionKind):
+            raise ValueError("BAR_CONSTRUCTION_RECIPE_INVALID")
         derived = (
-            self.base_semantic,
             self.algorithm_id,
             self.algorithm_version,
             self.missing_policy,
             self.incomplete_policy,
-            self.alignment_requirement,
         )
-        if (native and any(value is not None for value in derived)) or (
-            not native and any(value is None for value in derived)
-        ):
+        if (
+            native
+            and (
+                self.base_semantic is not None
+                or self.alignment_requirement is not None
+                or any(value is not None for value in derived)
+            )
+        ) or (not native and (self.base_semantic is None or any(value is None for value in derived))):
             raise ValueError("BAR_CONSTRUCTION_RECIPE_INVALID")
         if not native:
-            assert self.base_semantic is not None
+            if not isinstance(self.base_semantic, OnlyBarSemantic | OnlyTradeSemantic):
+                raise ValueError("BAR_CONSTRUCTION_RECIPE_INVALID")
             if (
                 self.algorithm_version is None
                 or self.algorithm_version < 1
-                or self.target_semantic.price_type is not self.base_semantic.price_type
-                or self.target_semantic.adjustment_policy is not self.base_semantic.adjustment_policy
+                or (
+                    isinstance(self.base_semantic, OnlyBarSemantic)
+                    and (
+                        self.target_semantic.price_type is not self.base_semantic.price_type
+                        or self.target_semantic.adjustment_policy is not self.base_semantic.adjustment_policy
+                    )
+                )
+                or (isinstance(self.base_semantic, OnlyTradeSemantic) and self.alignment_requirement is not None)
             ):
                 raise ValueError("BAR_CONSTRUCTION_RECIPE_INVALID")
 
@@ -88,16 +148,20 @@ class OnlyBarConstructionRecipe:
     def derived(
         cls,
         target: OnlyBarSemantic,
-        base: OnlyBarSemantic,
+        base: OnlyBarSemantic | OnlyTradeSemantic,
         *,
         algorithm_id: str,
         algorithm_version: int = 1,
         missing_policy: OnlyBarMissingPolicy = OnlyBarMissingPolicy.REJECT,
         incomplete_policy: OnlyBarIncompletePolicy = OnlyBarIncompletePolicy.DROP,
     ) -> OnlyBarConstructionRecipe:
-        if not base.is_fixed_duration:
+        if isinstance(base, OnlyBarSemantic) and not base.is_fixed_duration:
             raise ValueError("BAR_CONSTRUCTION_RECIPE_BASE_UNSUPPORTED")
-        assert isinstance(base.formation, OnlyFixedDurationBarFormation)
+        alignment = (
+            base.formation.alignment
+            if isinstance(base, OnlyBarSemantic) and isinstance(base.formation, OnlyFixedDurationBarFormation)
+            else None
+        )
         return cls(
             target,
             OnlyBarConstructionKind.DERIVED,
@@ -106,7 +170,7 @@ class OnlyBarConstructionRecipe:
             algorithm_version,
             missing_policy,
             incomplete_policy,
-            base.formation.alignment,
+            alignment,
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -134,7 +198,11 @@ class OnlyBarConstructionRecipe:
         recipe = cls(
             OnlyBarSemantic.from_dict(target),
             OnlyBarConstructionKind(str(value["kind"])),
-            None if base is None else OnlyBarSemantic.from_dict(base),
+            None
+            if base is None
+            else (
+                OnlyTradeSemantic.from_dict(base) if base.get("kind") == "TRADE" else OnlyBarSemantic.from_dict(base)
+            ),
             None if value.get("algorithm_id") is None else str(value["algorithm_id"]),
             None if value.get("algorithm_version") is None else int(str(value["algorithm_version"])),
             None if value.get("missing_policy") is None else OnlyBarMissingPolicy(str(value["missing_policy"])),
@@ -243,7 +311,8 @@ class OnlyBarResolutionPlan:
 
     @property
     def base_semantic(self) -> OnlyBarSemantic | None:
-        return self.resolved_recipe.base_semantic
+        base = self.resolved_recipe.base_semantic
+        return base if isinstance(base, OnlyBarSemantic) else None
 
     @property
     def aggregation_semantics_version(self) -> str | None:
@@ -393,8 +462,8 @@ class OnlyBarConstructionIdentity:
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyBarDerivedDependency:
-    source: OnlyBarType
+class OnlyMarketDataConstructionEdge:
+    source: OnlyMarketDataInputType
     target: OnlyBarType
     recipe: OnlyBarConstructionRecipe
 
@@ -406,12 +475,32 @@ class OnlyBarDerivedDependency:
             or self.recipe.kind is not OnlyBarConstructionKind.DERIVED
         ):
             raise ValueError("BAR_DEPENDENCY_INVALID")
+        input_kind = "TRADE" if isinstance(self.source, OnlyTradeInputType) else "BAR"
+        expected = {
+            "TIME_BAR": "BAR",
+            "ROLLING_TIME_BAR": "BAR",
+            "TICK_BAR": "TRADE",
+            "VOLUME_BAR": "TRADE",
+            "VALUE_BAR": "TRADE",
+        }.get(self.recipe.algorithm_id or "")
+        if expected is not None and expected != input_kind:
+            raise ValueError("CONSTRUCTION_ALGORITHM_INPUT_KIND_INVALID")
+        formation = self.target.semantic.formation
+        required_formation = {
+            "TIME_BAR": OnlyFixedDurationBarFormation,
+            "ROLLING_TIME_BAR": OnlyFixedDurationBarFormation,
+            "TICK_BAR": OnlyTickCountBarFormation,
+            "VOLUME_BAR": OnlyVolumeBarFormation,
+            "VALUE_BAR": OnlyValueBarFormation,
+        }.get(self.recipe.algorithm_id or "")
+        if required_formation is not None and not isinstance(formation, required_formation):
+            raise ValueError("CONSTRUCTION_ALGORITHM_OUTPUT_KIND_INVALID")
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyBarDependencyGraph:
-    provider_inputs: tuple[OnlyBarType, ...]
-    derived_dependencies: tuple[OnlyBarDerivedDependency, ...]
+class OnlyMarketDataConstructionGraph:
+    provider_inputs: tuple[OnlyMarketDataInputType, ...]
+    derived_dependencies: tuple[OnlyMarketDataConstructionEdge, ...]
 
     def __post_init__(self) -> None:
         if len(set(self.provider_inputs)) != len(self.provider_inputs):
@@ -422,13 +511,13 @@ class OnlyBarDependencyGraph:
         available_sources = set(self.provider_inputs) | targets
         if any(item.source not in available_sources for item in self.derived_dependencies):
             raise ValueError("BAR_DEPENDENCY_GRAPH_INVALID")
-        adjacency: dict[OnlyBarType, tuple[OnlyBarType, ...]] = {}
+        adjacency: dict[OnlyMarketDataInputType, tuple[OnlyBarType, ...]] = {}
         for edge in self.derived_dependencies:
             adjacency[edge.source] = (*adjacency.get(edge.source, ()), edge.target)
-        visiting: set[OnlyBarType] = set()
-        visited: set[OnlyBarType] = set()
+        visiting: set[OnlyMarketDataInputType] = set()
+        visited: set[OnlyMarketDataInputType] = set()
 
-        def visit(node: OnlyBarType) -> None:
+        def visit(node: OnlyMarketDataInputType) -> None:
             if node in visiting:
                 raise ValueError("BAR_DEPENDENCY_GRAPH_CYCLE")
             if node in visited:
@@ -442,10 +531,92 @@ class OnlyBarDependencyGraph:
         for node in adjacency:
             visit(node)
 
+    def to_dict(self) -> dict[str, object]:
+        edges = [
+            {"source": edge.source.to_dict(), "target": edge.target.to_dict(), "recipe": edge.recipe.to_dict()}
+            for edge in self.derived_dependencies
+        ]
+        return {
+            "schema_version": 1,
+            "provider_inputs": sorted((item.to_dict() for item in self.provider_inputs), key=only_canonical_json),
+            "derived_dependencies": sorted(edges, key=only_canonical_json),
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, object]) -> OnlyMarketDataConstructionGraph:
+        if value.get("schema_version") != 1:
+            raise ValueError("CONSTRUCTION_GRAPH_REBUILD_REQUIRED")
+
+        def input_type(raw: object) -> OnlyMarketDataInputType:
+            if not isinstance(raw, Mapping) or not isinstance(raw.get("semantic"), Mapping):
+                raise ValueError("CONSTRUCTION_GRAPH_INVALID")
+            semantic = raw["semantic"]
+            return OnlyTradeInputType.from_dict(raw) if semantic.get("kind") == "TRADE" else OnlyBarType.from_dict(raw)
+
+        providers = value.get("provider_inputs")
+        edges = value.get("derived_dependencies")
+        if not isinstance(providers, list) or not isinstance(edges, list):
+            raise ValueError("CONSTRUCTION_GRAPH_INVALID")
+        result = cls(
+            tuple(input_type(item) for item in providers),
+            tuple(
+                OnlyMarketDataConstructionEdge(
+                    input_type(item["source"]),
+                    OnlyBarType.from_dict(item["target"]),
+                    OnlyBarConstructionRecipe.from_dict(item["recipe"]),
+                )
+                for item in edges
+                if isinstance(item, Mapping)
+            ),
+        )
+        if result.to_dict() != dict(value):
+            raise ValueError("CONSTRUCTION_GRAPH_INVALID")
+        return result
+
+    @property
+    def fingerprint(self) -> str:
+        return only_canonical_fingerprint(self.to_dict())
+
 
 class OnlyBarConstructionAlgorithmRegistry:
     def __init__(self) -> None:
-        self._available = frozenset({("TIME_BAR", 1)})
+        self._factories: dict[tuple[str, int], tuple[str, str, Callable[..., object]]] = {}
+        self.register_factory("TIME_BAR", 1, "BAR", "BAR", self._time_bar_factory)
+
+    def register_factory(
+        self,
+        algorithm_id: str,
+        algorithm_version: int,
+        input_kind: str,
+        output_kind: str,
+        factory: Callable[..., object],
+    ) -> None:
+        key = (algorithm_id, algorithm_version)
+        if not algorithm_id or algorithm_version < 1 or not input_kind or not output_kind or key in self._factories:
+            raise ValueError("CONSTRUCTION_ALGORITHM_REGISTRATION_INVALID")
+        self._factories[key] = (input_kind, output_kind, factory)
+
+    @staticmethod
+    def _time_bar_factory(edge: OnlyMarketDataConstructionEdge, calendar: object, clock: object) -> object:
+        from onlyalpha.core.clock import OnlyClock
+        from onlyalpha.domain.calendar import OnlyTradingCalendar
+        from onlyalpha.market_data.aggregation.time_bar import OnlyTimeBarAggregator
+        from onlyalpha.market_data.subscriptions import OnlyIncompleteBarPolicy, OnlyMissingBarPolicy
+
+        assert isinstance(calendar, OnlyTradingCalendar)
+        assert isinstance(clock, OnlyClock)
+        if not isinstance(edge.source, OnlyBarType):
+            raise ValueError("CONSTRUCTION_ALGORITHM_INPUT_KIND_INVALID")
+        assert edge.recipe.incomplete_policy is not None
+        assert edge.recipe.missing_policy is not None
+        return OnlyTimeBarAggregator(
+            edge.source,
+            edge.target,
+            calendar,
+            clock,
+            incomplete_policy=OnlyIncompleteBarPolicy(edge.recipe.incomplete_policy.value),
+            missing_policy=OnlyMissingBarPolicy(edge.recipe.missing_policy.value),
+        )
 
     def require(self, recipe: OnlyBarConstructionRecipe) -> None:
         if (
@@ -454,9 +625,19 @@ class OnlyBarConstructionAlgorithmRegistry:
                 recipe.algorithm_id,
                 recipe.algorithm_version,
             )
-            not in self._available
+            not in self._factories
         ):
             raise ValueError("CONSTRUCTION_ALGORITHM_UNAVAILABLE")
+
+    def create_executor(self, edge: OnlyMarketDataConstructionEdge, calendar: object, clock: object) -> object:
+        self.require(edge.recipe)
+        assert edge.recipe.algorithm_id is not None and edge.recipe.algorithm_version is not None
+        input_kind, output_kind, factory = self._factories[(edge.recipe.algorithm_id, edge.recipe.algorithm_version)]
+        if input_kind != ("TRADE" if isinstance(edge.source, OnlyTradeInputType) else "BAR"):
+            raise ValueError("CONSTRUCTION_ALGORITHM_INPUT_KIND_INVALID")
+        if output_kind != "BAR":
+            raise ValueError("CONSTRUCTION_ALGORITHM_OUTPUT_KIND_INVALID")
+        return factory(edge, calendar, clock)
 
 
 def only_plan_bar_resolution(
@@ -476,6 +657,7 @@ def only_plan_bar_resolution(
         target.price_type is not OnlyPriceType.LAST
         or target.adjustment_policy is not OnlyAdjustmentType.RAW
         or not target.is_fixed_duration
+        or target.window_minutes > 240
         or not calendar_fingerprint
         or not source_id
         or not instrument_id

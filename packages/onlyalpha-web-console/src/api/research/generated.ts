@@ -2242,11 +2242,7 @@ export interface components {
             adjustment_policy: "RAW" | "FORWARD" | "BACKWARD";
             /** Formation */
             formation: components["schemas"]["MarketDataFixedDurationFormationDto"] | components["schemas"]["MarketDataCalendarPeriodFormationDto"] | components["schemas"]["MarketDataTickCountFormationDto"] | components["schemas"]["MarketDataVolumeFormationDto"] | components["schemas"]["MarketDataValueFormationDto"];
-            /**
-             * Price Type
-             * @enum {string}
-             */
-            price_type: "LAST" | "BID" | "ASK" | "MID" | "MARK" | "INDEX";
+            price_type: components["schemas"]["OnlyPriceType"];
             /**
              * Schema Version
              * @constant
@@ -2563,6 +2559,11 @@ export interface components {
          * @enum {string}
          */
         OnlyIntegrationValueKind: "STRING" | "INTEGER" | "NUMBER" | "BOOLEAN" | "ENUM" | "DURATION" | "PATH" | "STRING_INTEGER_MAP";
+        /**
+         * OnlyPriceType
+         * @enum {string}
+         */
+        OnlyPriceType: "LAST" | "BID" | "ASK" | "MID" | "MARK";
         /**
          * OnlyPrivateAssetKind
          * @enum {string}
@@ -3010,11 +3011,7 @@ export interface components {
             adjustment_policy: "RAW" | "FORWARD" | "BACKWARD";
             /** Formation */
             formation: components["schemas"]["MarketDataFixedDurationFormationDto"] | components["schemas"]["MarketDataCalendarPeriodFormationDto"] | components["schemas"]["MarketDataTickCountFormationDto"] | components["schemas"]["MarketDataVolumeFormationDto"] | components["schemas"]["MarketDataValueFormationDto"];
-            /**
-             * Price Type
-             * @enum {string}
-             */
-            price_type: "LAST" | "BID" | "ASK" | "MID" | "MARK" | "INDEX";
+            price_type: components["schemas"]["OnlyPriceType"];
             /**
              * Schema Version
              * @constant

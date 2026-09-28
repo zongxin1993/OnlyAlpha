@@ -11,15 +11,15 @@ from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate
 from onlyalpha.domain.calendar import OnlyTradingCalendar
 from onlyalpha.domain.market import OnlyBarType
-from onlyalpha.market_data.aggregation.time_bar import OnlyBarAggregationError, OnlyTimeBarAggregator
+from onlyalpha.market_data.aggregation.base import OnlyBarAggregationError, OnlyBarAggregator
 from onlyalpha.market_data.durable.models import OnlyMarketDataScope
 from onlyalpha.market_data.durable.revision import OnlyHistoricalMarketDataQueryService
 from onlyalpha.market_data.resolution import (
     OnlyBarConstructionAlgorithmRegistry,
     OnlyBarConstructionIdentity,
     OnlyBarResolutionMode,
+    OnlyMarketDataConstructionEdge,
 )
-from onlyalpha.market_data.subscriptions import OnlyIncompleteBarPolicy, OnlyMissingBarPolicy
 
 from .definition import OnlyResearchDatasetDefinition
 from .identity import only_canonical_bars, only_content_fingerprint, only_snapshot_fingerprint
@@ -81,11 +81,13 @@ class OnlySealedMarketDataDatasetMaterializer:
         store: OnlyResearchDatasetSnapshotStore,
         materialization_store: OnlyDatasetMaterializationStore,
         audit_time: Callable[[], datetime],
+        algorithm_registry: OnlyBarConstructionAlgorithmRegistry | None = None,
     ) -> None:
         self._query = query
         self._store = store
         self._materialization_store = materialization_store
         self._audit_time = audit_time
+        self._algorithm_registry = algorithm_registry or OnlyBarConstructionAlgorithmRegistry()
 
     def materialize(self, plan: OnlySealedMarketDataMaterializationPlan) -> OnlyResearchDatasetSnapshot:
         return self.materialize_with_lineage(plan).snapshot
@@ -140,20 +142,19 @@ class OnlySealedMarketDataDatasetMaterializer:
             if construction.plan.mode is OnlyBarResolutionMode.DERIVED:
                 assert calendar is not None
                 recipe = construction.plan.resolved_recipe
-                OnlyBarConstructionAlgorithmRegistry().require(recipe)
-                assert recipe.incomplete_policy is not None
-                assert recipe.missing_policy is not None
                 source_type = instrument_bars[0].bar_type if instrument_bars else None
                 if source_type is None:
                     raise OnlyResearchDatasetError("DATASET_DERIVED_BASE_UNPROVABLE")
-                aggregator = OnlyTimeBarAggregator(
+                edge = OnlyMarketDataConstructionEdge(
                     source_type,
                     OnlyBarType(source_type.instrument_id, plan.definition.bar_semantic),
-                    calendar,
-                    OnlyBacktestClock(plan.definition.time_range.end),
-                    incomplete_policy=OnlyIncompleteBarPolicy(recipe.incomplete_policy.value),
-                    missing_policy=OnlyMissingBarPolicy(recipe.missing_policy.value),
+                    recipe,
                 )
+                aggregator = self._algorithm_registry.create_executor(
+                    edge, calendar, OnlyBacktestClock(plan.definition.time_range.end)
+                )
+                if not isinstance(aggregator, OnlyBarAggregator):
+                    raise OnlyResearchDatasetError("DATASET_CONSTRUCTION_EXECUTOR_INVALID")
                 try:
                     instrument_bars = [
                         projected for bar in instrument_bars if (projected := aggregator.process(bar)) is not None

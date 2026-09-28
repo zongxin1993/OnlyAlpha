@@ -487,6 +487,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         persistence_config: OnlyRuntimePersistenceConfig | None = None,
         config_fingerprint: str = "",
         replay_source_id: OnlyMarketDataSourceId | None = None,
+        market_data_source_binding_identity: str | None = None,
         replay_data_version: OnlyDataVersion | None = None,
         recovery_source: OnlyHistoricalDataSource | None = None,
         recovery_request: OnlyHistoricalBarRequest | None = None,
@@ -554,7 +555,12 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         )
         direct_execution_event_publisher.publish(execution_event_buffer.seal())
         market_cache = OnlyMarketDataCache(runtime_config.history_limit)
-        aggregation = OnlyBarAggregationManager(selected_calendar, clock)
+        aggregation = OnlyBarAggregationManager(
+            selected_calendar,
+            clock,
+            source_binding_identity=market_data_source_binding_identity
+            or str(replay_source_id or runtime_config.runtime_id),
+        )
         indicators = OnlyIndicatorPipeline()
         pipeline = OnlyMarketDataPipeline(
             runtime_config.engine_id,  # type: ignore[arg-type]
@@ -1144,7 +1150,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         self._checkpoint_registry.register(
             OnlyJsonRuntimeCheckpointParticipant(
                 "market-data.aggregation",
-                1,
+                2,
                 aggregation.capture_checkpoint,
                 aggregation.restore_checkpoint,
             )

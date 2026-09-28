@@ -1,16 +1,19 @@
 import json
 from collections.abc import Callable
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
 
 from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeError
-from onlyalpha.config import OnlyClusterRunConfig
+from onlyalpha.config import OnlyClusterRunConfig, OnlyStrategyReferenceConfig
 from onlyalpha.config.document import OnlyClusterConfigError
-from onlyalpha.domain.identifiers import OnlyEngineId
+from onlyalpha.domain.identifiers import OnlyClusterId, OnlyEngineId
+from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.value import OnlyCurrency
+from onlyalpha.market_data.resolution import OnlyBarConstructionRecipe, OnlyBarConstructionRequirement
 from onlyalpha.plugin.broker import OnlyBrokerGatewayFactory
 from onlyalpha.plugin.capabilities import OnlyBrokerPluginCapabilities, OnlyDataSourceCapabilities
 from onlyalpha.plugin.data_source import OnlyDataSourceFactory
@@ -22,9 +25,12 @@ from onlyalpha.runtime.factory import OnlyRuntimeBuildRequest, OnlyRuntimeFactor
 from onlyalpha.runtime.planning import OnlyRuntimePlanner
 from onlyalpha.runtime.research import only_research_runtime_plan
 from onlyalpha.runtime.sim.factory import OnlySimRuntimeFactory
+from onlyalpha.strategy.revision import OnlyStrategyMarketInputContract
+from onlyalpha.strategy.store import OnlyFrozenStrategyRevisionStore
 from tests.runtime.research.support import workload_case
 from tests.runtime_support.market_product import only_generic_market_product
 from tests.runtime_support.runner import only_migrate_cluster_to_strategy
+from tests.strategy.product_support import publish_frozen_strategy_for_execution_test
 
 
 def _plan(runtime_type: str, user_data_root: Path | None = None):
@@ -110,6 +116,133 @@ def test_backtest_factory_is_selected_through_runtime_assembler(tmp_path: Path) 
     assert build.runtime is not None
     assert build.runtime.runtime_type == "BACKTEST"
     build.runtime.close()
+
+
+@pytest.mark.parametrize("target_minutes", (7, 15))
+def test_derived_backtest_loads_only_provider_one_minute(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target_minutes: int
+) -> None:
+    plan = _plan("BACKTEST", tmp_path)
+    native = OnlyFrozenStrategyRevisionStore(tmp_path / "research").load_verified(
+        plan.assembly_plan.clusters[0].strategy.fingerprint
+    )
+    base = native.market_input_contract.bar_semantic
+    target = OnlyBarSemantic.fixed_duration(target_minutes, alignment=base.formation.alignment)
+    derived = replace(
+        native,
+        market_input_contract=OnlyStrategyMarketInputContract(
+            target,
+            OnlyBarConstructionRequirement.exact(
+                OnlyBarConstructionRecipe.derived(target, base, algorithm_id="TIME_BAR")
+            ),
+        ),
+    )
+    publish_frozen_strategy_for_execution_test(tmp_path / "research", derived)
+    cluster = replace(
+        plan.assembly_plan.clusters[0], strategy=OnlyStrategyReferenceConfig(str(derived.strategy_fingerprint))
+    )
+    plan = replace(plan, assembly_plan=replace(plan.assembly_plan, clusters=(cluster,)))
+    build = only_default_engine_services().assembler.build(plan, tmp_path)
+    assert build.runtime is not None, build.failure_message
+    runtime = build.runtime
+    try:
+        run_plan = runtime._run_plan._plan  # type: ignore[attr-defined]
+        historical = run_plan._request
+        assert {bar.semantic.window_minutes for bar in historical.bar_types} == {1}
+        source = run_plan._source
+        original_load = source.load_bars
+        observed: list[frozenset[OnlyBarType]] = []
+
+        def load_only_provider_input(request):
+            observed.append(request.bar_types)
+            if any(bar.semantic.window_minutes == target_minutes for bar in request.bar_types):
+                raise AssertionError("Provider rejects derived Bars")
+            return original_load(request)
+
+        monkeypatch.setattr(source, "load_bars", load_only_provider_input)
+        runtime.initialize()
+        runtime.start()
+        result = runtime.run()
+        assert result.status == "COMPLETED"
+        assert observed and all({bar.semantic.window_minutes for bar in bars} == {1} for bars in observed)
+        assert (
+            runtime._services.market_data_cache.latest_closed(  # type: ignore[attr-defined]
+                OnlyBarType(native.universe.instruments[0], target)
+            )
+            is not None
+        )
+    finally:
+        runtime.close()
+
+
+def test_native_fifteen_minute_backtest_requests_fifteen_minutes(tmp_path: Path) -> None:
+    plan = _plan("BACKTEST", tmp_path)
+    native = OnlyFrozenStrategyRevisionStore(tmp_path / "research").load_verified(
+        plan.assembly_plan.clusters[0].strategy.fingerprint
+    )
+    fifteen = OnlyBarSemantic.fixed_duration(
+        15, alignment=native.market_input_contract.bar_semantic.formation.alignment
+    )
+    revision = replace(
+        native,
+        market_input_contract=OnlyStrategyMarketInputContract(
+            fifteen, OnlyBarConstructionRequirement.exact(OnlyBarConstructionRecipe.provider_native(fifteen))
+        ),
+    )
+    publish_frozen_strategy_for_execution_test(tmp_path / "research", revision)
+    cluster = replace(
+        plan.assembly_plan.clusters[0], strategy=OnlyStrategyReferenceConfig(str(revision.strategy_fingerprint))
+    )
+    plan = replace(plan, assembly_plan=replace(plan.assembly_plan, clusters=(cluster,)))
+    build = only_default_engine_services().assembler.build(plan, tmp_path)
+    assert build.runtime is not None, build.failure_message
+    try:
+        historical = build.runtime._run_plan._plan._request  # type: ignore[attr-defined]
+        assert {bar.semantic.window_minutes for bar in historical.bar_types} == {15}
+        build.runtime.initialize()
+        build.runtime.start()
+        assert build.runtime.run().status == "COMPLETED"
+    finally:
+        build.runtime.close()
+
+
+def test_mixed_cluster_backtest_unions_only_provider_inputs(tmp_path: Path) -> None:
+    plan = _plan("BACKTEST", tmp_path)
+    native = OnlyFrozenStrategyRevisionStore(tmp_path / "research").load_verified(
+        plan.assembly_plan.clusters[0].strategy.fingerprint
+    )
+    one = native.market_input_contract.bar_semantic
+    seven = OnlyBarSemantic.fixed_duration(7, alignment=one.formation.alignment)
+    fifteen = OnlyBarSemantic.fixed_duration(15, alignment=one.formation.alignment)
+    recipes = (
+        OnlyBarConstructionRecipe.provider_native(one),
+        OnlyBarConstructionRecipe.derived(seven, one, algorithm_id="TIME_BAR"),
+        OnlyBarConstructionRecipe.provider_native(fifteen),
+    )
+    clusters = []
+    for index, recipe in enumerate(recipes):
+        revision = replace(
+            native,
+            market_input_contract=OnlyStrategyMarketInputContract(
+                recipe.target_semantic, OnlyBarConstructionRequirement.exact(recipe)
+            ),
+        )
+        publish_frozen_strategy_for_execution_test(tmp_path / "research", revision)
+        clusters.append(
+            replace(
+                plan.assembly_plan.clusters[0],
+                cluster_id=OnlyClusterId(f"mixed-{index}"),
+                strategy=OnlyStrategyReferenceConfig(str(revision.strategy_fingerprint)),
+            )
+        )
+    plan = replace(plan, assembly_plan=replace(plan.assembly_plan, clusters=tuple(clusters)))
+    build = only_default_engine_services().assembler.build(plan, tmp_path)
+    assert build.runtime is not None, build.failure_message
+    try:
+        historical = build.runtime._run_plan._plan._request  # type: ignore[attr-defined]
+        assert {bar.semantic.window_minutes for bar in historical.bar_types} == {1, 15}
+    finally:
+        build.runtime.close()
 
 
 @pytest.mark.parametrize(

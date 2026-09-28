@@ -4,14 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import cast
 from uuid import UUID, uuid4
 
 from onlyalpha.domain.market import OnlyBarType, OnlyFixedDurationBarFormation
 from onlyalpha.market_data.resolution import (
-    OnlyBarConstructionRecipe,
-    OnlyBarDependencyGraph,
-    OnlyBarDerivedDependency,
+    OnlyMarketDataConstructionGraph,
 )
 
 
@@ -71,7 +68,7 @@ class OnlyBarSubscription:
     """One Cluster's immutable set of Bar requirements."""
 
     bar_types: tuple[OnlyBarType, ...]
-    dependency_graph: OnlyBarDependencyGraph
+    dependency_graph: OnlyMarketDataConstructionGraph
     primary_bar_type: OnlyBarType | None = None
     delivery_mode: OnlyBarDeliveryMode = OnlyBarDeliveryMode.PRIMARY_ONLY
     freshness_policy: OnlyBarFreshnessPolicy = OnlyBarFreshnessPolicy.LATEST_CLOSED
@@ -86,6 +83,10 @@ class OnlyBarSubscription:
         if len({item.instrument_id for item in unique}) != 1:
             raise ValueError("first-phase Bar subscription supports one instrument")
         graph_nodes = set(self.dependency_graph.provider_inputs)
+        if any(not isinstance(item, OnlyBarType) for item in graph_nodes) or any(
+            not isinstance(edge.source, OnlyBarType) for edge in self.dependency_graph.derived_dependencies
+        ):
+            raise ValueError("BAR_SUBSCRIPTION_INPUT_KIND_INVALID")
         graph_nodes.update(item.target for item in self.dependency_graph.derived_dependencies)
         if graph_nodes != set(unique):
             raise ValueError("Bar subscription must exactly match its dependency graph")
@@ -103,20 +104,10 @@ class OnlyBarSubscription:
 
     def to_dict(self) -> dict[str, object]:
         return {
-            "schema_version": 2,
+            "schema_version": 3,
             "subscription_id": str(self.subscription_id),
             "bar_types": [item.to_dict() for item in self.bar_types],
-            "dependency_graph": {
-                "provider_inputs": [item.to_dict() for item in self.dependency_graph.provider_inputs],
-                "derived_dependencies": [
-                    {
-                        "source": item.source.to_dict(),
-                        "target": item.target.to_dict(),
-                        "recipe": item.recipe.to_dict(),
-                    }
-                    for item in self.dependency_graph.derived_dependencies
-                ],
-            },
+            "dependency_graph": self.dependency_graph.to_dict(),
             "primary_bar_type": self.primary_bar_type.to_dict(),  # type: ignore[union-attr]
             "delivery_mode": self.delivery_mode.value,
             "freshness_policy": self.freshness_policy.value,
@@ -124,7 +115,7 @@ class OnlyBarSubscription:
 
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> OnlyBarSubscription:
-        if payload.get("schema_version") != 2:
+        if payload.get("schema_version") != 3:
             raise ValueError("BAR_SUBSCRIPTION_REBUILD_REQUIRED")
         raw_bar_types = payload["bar_types"]
         if not isinstance(raw_bar_types, list):
@@ -135,34 +126,11 @@ class OnlyBarSubscription:
         graph_payload = payload.get("dependency_graph")
         if not isinstance(graph_payload, dict):
             raise ValueError("BAR_SUBSCRIPTION_REBUILD_REQUIRED")
-        provider_inputs = graph_payload.get("provider_inputs")
-        dependencies = graph_payload.get("derived_dependencies")
-        if not isinstance(provider_inputs, list) or not isinstance(dependencies, list):
-            raise ValueError("BAR_SUBSCRIPTION_REBUILD_REQUIRED")
-        if any(not isinstance(item, dict) for item in (*raw_bar_types, *provider_inputs)) or any(
-            not isinstance(item, dict)
-            or not isinstance(item.get("source"), dict)
-            or not isinstance(item.get("target"), dict)
-            or not isinstance(item.get("recipe"), dict)
-            for item in dependencies
-        ):
+        if any(not isinstance(item, dict) for item in raw_bar_types):
             raise ValueError("BAR_SUBSCRIPTION_INVALID")
-        bar_type_payloads = tuple(cast(dict[str, object], item) for item in raw_bar_types)
-        provider_payloads = tuple(cast(dict[str, object], item) for item in provider_inputs)
-        dependency_payloads = tuple(cast(dict[str, object], item) for item in dependencies)
-        graph = OnlyBarDependencyGraph(
-            tuple(OnlyBarType.from_dict(item) for item in provider_payloads),
-            tuple(
-                OnlyBarDerivedDependency(
-                    OnlyBarType.from_dict(cast(dict[str, object], item["source"])),
-                    OnlyBarType.from_dict(cast(dict[str, object], item["target"])),
-                    OnlyBarConstructionRecipe.from_dict(cast(dict[str, object], item["recipe"])),
-                )
-                for item in dependency_payloads
-            ),
-        )
+        graph = OnlyMarketDataConstructionGraph.from_dict(graph_payload)
         result = cls(
-            tuple(OnlyBarType.from_dict(item) for item in bar_type_payloads),
+            tuple(OnlyBarType.from_dict(item) for item in raw_bar_types),
             graph,
             OnlyBarType.from_dict(primary_payload),
             OnlyBarDeliveryMode(str(payload["delivery_mode"])),

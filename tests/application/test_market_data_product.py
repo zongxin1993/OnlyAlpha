@@ -55,7 +55,6 @@ from onlyalpha.domain.enums import (
     OnlyMarketType,
     OnlySessionType,
 )
-from onlyalpha.domain.errors import OnlyValidationError
 from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyInstrumentId, OnlyRuntimeId, OnlyVenueId
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType
@@ -1106,13 +1105,32 @@ def test_incomplete_gap_projection_uses_contiguous_acquisition_ranges(tmp_path: 
     assert harness.provider.bar_fetches == 1
 
 
-def test_unsupported_bar_semantic_and_unbounded_window_are_rejected(tmp_path: Path) -> None:
+def test_unsupported_resolution_and_unbounded_acquisition_are_rejected(tmp_path: Path) -> None:
     harness = _service(tmp_path)
     reference = _reference(harness.revision_fingerprint)
     start_ns, end_ns = _range()
 
-    with pytest.raises(OnlyValidationError, match="formation is invalid"):
-        OnlyBarSemantic.fixed_duration(241)
+    long_bar = OnlyBarSemantic.fixed_duration(720)
+    with pytest.raises(OnlyMarketDataProductError) as resolution_error:
+        harness.service.query_bars(
+            reference,
+            instrument_id=str(INSTRUMENT),
+            start_ns=start_ns,
+            end_ns=end_ns,
+            bar_semantic=long_bar,
+        )
+    assert resolution_error.value.code == "MARKET_DATA_BAR_RESOLUTION_UNAVAILABLE"
+
+    rolling = OnlyBarSemantic.fixed_duration(15, 1)
+    with pytest.raises(OnlyMarketDataProductError) as rolling_error:
+        harness.service.query_bars(
+            reference,
+            instrument_id=str(INSTRUMENT),
+            start_ns=start_ns,
+            end_ns=end_ns,
+            bar_semantic=rolling,
+        )
+    assert rolling_error.value.code == "MARKET_DATA_BAR_RESOLUTION_UNAVAILABLE"
 
     with pytest.raises(OnlyMarketDataProductError) as error:
         harness.service.acquire_bars(

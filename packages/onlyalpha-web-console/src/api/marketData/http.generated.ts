@@ -25,8 +25,8 @@ const MarketDataCoverageGapDtoSchema = z.strictObject({
 const MarketDataFixedDurationFormationDtoSchema = z.strictObject({
     schema_version: z.literal(1),
     kind: z.literal("FIXED_DURATION"),
-    window_minutes: z.number().int().min(1).max(240),
-    stride_minutes: z.number().int().min(1).max(240),
+    window_minutes: z.number().int().min(1),
+    stride_minutes: z.number().int().min(1),
     alignment: z.enum(["UTC", "SESSION_START"])
 });
 const MarketDataSourceSelectionDtoSchema = z.strictObject({
@@ -51,6 +51,7 @@ const MarketDataVolumeFormationDtoSchema = z.strictObject({
     kind: z.literal("VOLUME"),
     quantity: z.string().regex(new RegExp("^[0-9]+(?:\\.[0-9]+)?$"))
 });
+const OnlyPriceTypeSchema = z.enum(["LAST", "BID", "ASK", "MID", "MARK"]);
 const MarketDataBarSemanticDtoSchema = z.strictObject({
     schema_version: z.literal(2),
     formation: z.union([
@@ -60,7 +61,7 @@ const MarketDataBarSemanticDtoSchema = z.strictObject({
         MarketDataVolumeFormationDtoSchema,
         MarketDataValueFormationDtoSchema
     ]),
-    price_type: z.enum(["LAST", "BID", "ASK", "MID", "MARK", "INDEX"]),
+    price_type: OnlyPriceTypeSchema,
     adjustment_policy: z.enum(["RAW", "FORWARD", "BACKWARD"])
 });
 const MarketDataCoverageDtoSchema = z.strictObject({

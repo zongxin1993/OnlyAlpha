@@ -9,28 +9,39 @@ from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
 from onlyalpha.domain.enums import OnlySessionType
 from onlyalpha.domain.errors import OnlyValidationError
 from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyVenueId
-from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType
+from onlyalpha.domain.market import (
+    OnlyBarSemantic,
+    OnlyBarType,
+    OnlyTickCountBarFormation,
+    OnlyTradeInputType,
+    OnlyTradeSemantic,
+)
 from onlyalpha.domain.time import OnlyTimeZone
+from onlyalpha.market_data.aggregation.base import OnlyBarAggregationError, OnlyBarAggregator
 from onlyalpha.market_data.aggregation.manager import OnlyBarAggregationManager
 from onlyalpha.market_data.aggregation.time_bar import (
     OnlyAlignedTumblingWindowPolicy,
-    OnlyBarAggregationError,
     OnlyTimeBarAggregator,
 )
-from onlyalpha.market_data.resolution import OnlyBarConstructionRecipe, OnlyBarDependencyGraph, OnlyBarDerivedDependency
+from onlyalpha.market_data.resolution import (
+    OnlyBarConstructionAlgorithmRegistry,
+    OnlyBarConstructionRecipe,
+    OnlyMarketDataConstructionEdge,
+    OnlyMarketDataConstructionGraph,
+)
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
 
 
 def _subscription(source: OnlyBarType, *targets: OnlyBarType) -> OnlyBarSubscription:
     edges = tuple(
-        OnlyBarDerivedDependency(
+        OnlyMarketDataConstructionEdge(
             source,
             target,
             OnlyBarConstructionRecipe.derived(target.semantic, source.semantic, algorithm_id="TIME_BAR"),
         )
         for target in targets
     )
-    return OnlyBarSubscription((source, *targets), OnlyBarDependencyGraph((source,), edges))
+    return OnlyBarSubscription((source, *targets), OnlyMarketDataConstructionGraph((source,), edges))
 
 
 def test_1m_to_3m_is_calendar_aligned(shanghai_calendar, bar_1m, bar_3m, make_bar) -> None:
@@ -48,6 +59,18 @@ def test_1m_to_3m_is_calendar_aligned(shanghai_calendar, bar_1m, bar_3m, make_ba
     assert bar.close.value == Decimal("10.07")
     assert bar.volume.value == Decimal("300")
     assert bar.trade_count == 3
+
+
+def test_registry_creates_time_bar_executor(shanghai_calendar, bar_1m, bar_3m) -> None:
+    edge = OnlyMarketDataConstructionEdge(
+        bar_1m,
+        bar_3m,
+        OnlyBarConstructionRecipe.derived(bar_3m.semantic, bar_1m.semantic, algorithm_id="TIME_BAR"),
+    )
+    executor = OnlyBarConstructionAlgorithmRegistry().create_executor(
+        edge, shanghai_calendar, OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC))
+    )
+    assert isinstance(executor, OnlyTimeBarAggregator)
 
 
 def test_aligned_tumbling_policy_rejects_rolling_stride(shanghai_calendar) -> None:
@@ -136,14 +159,14 @@ def test_manager_preserves_native_and_derived_runtime_graph(shanghai_calendar, b
         shanghai_calendar,
         OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC)),
     )
-    edge = OnlyBarDerivedDependency(
+    edge = OnlyMarketDataConstructionEdge(
         bar_1m,
         bar_7m,
         OnlyBarConstructionRecipe.derived(bar_7m.semantic, bar_1m.semantic, algorithm_id="TIME_BAR"),
     )
     subscription = OnlyBarSubscription(
         (bar_1m, bar_7m, bar_15m),
-        OnlyBarDependencyGraph((bar_1m, bar_15m), (edge,)),
+        OnlyMarketDataConstructionGraph((bar_1m, bar_15m), (edge,)),
     )
 
     manager.register_subscription(subscription)
@@ -154,7 +177,7 @@ def test_manager_preserves_native_and_derived_runtime_graph(shanghai_calendar, b
 
 def test_unavailable_rolling_executor_does_not_partially_register_graph(shanghai_calendar, bar_1m) -> None:
     rolling = OnlyBarType(bar_1m.instrument_id, OnlyBarSemantic.fixed_duration(15, 1))
-    edge = OnlyBarDerivedDependency(
+    edge = OnlyMarketDataConstructionEdge(
         bar_1m,
         rolling,
         OnlyBarConstructionRecipe.derived(
@@ -170,10 +193,107 @@ def test_unavailable_rolling_executor_does_not_partially_register_graph(shanghai
 
     with pytest.raises(ValueError, match="CONSTRUCTION_ALGORITHM_UNAVAILABLE"):
         manager.register_subscription(
-            OnlyBarSubscription((bar_1m, rolling), OnlyBarDependencyGraph((bar_1m,), (edge,)))
+            OnlyBarSubscription((bar_1m, rolling), OnlyMarketDataConstructionGraph((bar_1m,), (edge,)))
         )
 
-    assert manager.graph == OnlyBarDependencyGraph((), ())
+    assert manager.graph == OnlyMarketDataConstructionGraph((), ())
+
+
+def test_rolling_executor_factory_dispatches_without_manager_branch(shanghai_calendar, bar_1m) -> None:
+    rolling = OnlyBarType(bar_1m.instrument_id, OnlyBarSemantic.fixed_duration(15, 1))
+    edge = OnlyMarketDataConstructionEdge(
+        bar_1m,
+        rolling,
+        OnlyBarConstructionRecipe.derived(rolling.semantic, bar_1m.semantic, algorithm_id="ROLLING_TIME_BAR"),
+    )
+
+    class MockRollingExecutor(OnlyBarAggregator):
+        source_bar_type = bar_1m
+        target_bar_type = rolling
+
+        def accepts(self, fact):
+            return getattr(fact, "bar_type", None) == bar_1m
+
+        def process(self, bar):
+            return None
+
+        def capture_checkpoint(self):
+            return None
+
+        def restore_checkpoint(self, payload):
+            pass
+
+    registry = OnlyBarConstructionAlgorithmRegistry()
+    registry.register_factory("ROLLING_TIME_BAR", 1, "BAR", "BAR", lambda *_: MockRollingExecutor())
+    manager = OnlyBarAggregationManager(
+        shanghai_calendar, OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC)), registry
+    )
+    manager.register_subscription(
+        OnlyBarSubscription((bar_1m, rolling), OnlyMarketDataConstructionGraph((bar_1m,), (edge,)))
+    )
+
+    assert manager.aggregator_count == 1
+    assert manager.graph.derived_dependencies == (edge,)
+
+
+def test_trade_bar_executor_can_join_manager_without_manager_change(shanghai_calendar, bar_1m) -> None:
+    source = OnlyTradeInputType(bar_1m.instrument_id)
+    target = OnlyBarType(bar_1m.instrument_id, OnlyBarSemantic(OnlyTickCountBarFormation(1000)))
+    edge = OnlyMarketDataConstructionEdge(
+        source,
+        target,
+        OnlyBarConstructionRecipe.derived(target.semantic, OnlyTradeSemantic(), algorithm_id="TICK_BAR"),
+    )
+
+    class MockTickExecutor(OnlyBarAggregator):
+        target_bar_type = target
+
+        def accepts(self, fact):
+            return fact is tick
+
+        def process(self, fact):
+            return None
+
+        def capture_checkpoint(self):
+            return None
+
+        def restore_checkpoint(self, payload):
+            pass
+
+    tick = object()
+    registry = OnlyBarConstructionAlgorithmRegistry()
+    registry.register_factory("TICK_BAR", 1, "TRADE", "BAR", lambda *_: MockTickExecutor())
+    manager = OnlyBarAggregationManager(
+        shanghai_calendar, OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC)), registry
+    )
+    graph = OnlyMarketDataConstructionGraph((source,), (edge,))
+    manager.register_graph(graph)
+
+    assert manager.graph == graph
+    assert manager.process(tick) == ()
+
+
+def test_runtime_rejects_native_and_derived_lane_for_same_bar(shanghai_calendar, bar_1m, bar_15m) -> None:
+    manager = OnlyBarAggregationManager(shanghai_calendar, OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC)))
+    manager.register_subscription(OnlyBarSubscription((bar_15m,), OnlyMarketDataConstructionGraph((bar_15m,), ())))
+    with pytest.raises(OnlyBarAggregationError, match="RUNTIME_CONSTRUCTION_LANE_CONFLICT"):
+        manager.register_subscription(_subscription(bar_1m, bar_15m))
+    assert manager.graph.provider_inputs == (bar_15m,)
+
+
+def test_aggregation_checkpoint_is_versioned_by_lane(shanghai_calendar, bar_1m, bar_3m) -> None:
+    clock = OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC))
+    first = OnlyBarAggregationManager(shanghai_calendar, clock, source_binding_identity="source-a")
+    second = OnlyBarAggregationManager(shanghai_calendar, clock, source_binding_identity="source-b")
+    subscription = _subscription(bar_1m, bar_3m)
+    first.register_subscription(subscription)
+    second.register_subscription(subscription)
+    checkpoint = first.capture_checkpoint()
+    assert isinstance(checkpoint, dict) and checkpoint["schema_version"] == 2
+    with pytest.raises(ValueError, match="participant graph changed"):
+        second.restore_checkpoint(checkpoint)
+    with pytest.raises(ValueError, match="CHECKPOINT_REBUILD_REQUIRED"):
+        first.restore_checkpoint({"aggregators": [], "reference_counts": []})
 
 
 def test_multi_cluster_registration_reuses_same_aggregator(shanghai_calendar, bar_1m, bar_3m) -> None:

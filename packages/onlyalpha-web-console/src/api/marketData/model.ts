@@ -13,8 +13,8 @@ export const marketDataBarSemanticSchema = z.strictObject({
         z.strictObject({
             schema_version: z.literal(1),
             kind: z.literal("FIXED_DURATION"),
-            window_minutes: z.number().int().min(1).max(240),
-            stride_minutes: z.number().int().min(1).max(240),
+            window_minutes: z.number().int().min(1),
+            stride_minutes: z.number().int().min(1),
             alignment: z.enum(["UTC", "SESSION_START"])
         }),
         z.strictObject({
@@ -40,7 +40,7 @@ export const marketDataBarSemanticSchema = z.strictObject({
             value: z.string()
         })
     ]),
-    price_type: z.enum(["LAST", "BID", "ASK", "MID", "MARK", "INDEX"]),
+    price_type: z.enum(["LAST", "BID", "ASK", "MID", "MARK"]),
     adjustment_policy: z.enum(["RAW", "FORWARD", "BACKWARD"])
 });
 export type MarketDataBarSemantic = z.infer<typeof marketDataBarSemanticSchema>;

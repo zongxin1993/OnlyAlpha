@@ -111,6 +111,8 @@ from onlyalpha.domain.market import (
     OnlyReferencePriceFact,
     OnlyTick,
     OnlyTickCountBarFormation,
+    OnlyTradeInputType,
+    OnlyTradeSemantic,
     OnlyTradeTick,
     OnlyValueBarFormation,
     OnlyVolumeBarFormation,
