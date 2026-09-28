@@ -203,4 +203,6 @@ def test_web_e2e_runner_isolated_and_artifact_safe() -> None:
     assert "up -d --build --wait" in runner
     assert "run --build --rm playwright" in runner
     assert "compose --profile web-e2e down -v --remove-orphans" in runner
+    assert "localhost,127.0.0.1,postgres,clickhouse,api,web" in runner
+    assert "data-api.binance.vision,data-stream.binance.vision" in runner
     assert "--abort-on-container-exit" not in runner

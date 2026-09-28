@@ -94,6 +94,10 @@ export function marketDataBars(overrides: Partial<MarketDataBars> = {}): MarketD
         seal_id: "seal:" + "e".repeat(64),
         aggregation_semantics_version: null,
         calendar_fingerprint: null,
+        resolution_mode: "EXTERNAL_NATIVE",
+        resolution_plan_fingerprint: "f".repeat(64),
+        base_revision_id: null,
+        construction_fingerprint: "9".repeat(64),
         resume_after_sequence: "29453761",
         resume_plan_fingerprint: "f".repeat(64),
         bars: [

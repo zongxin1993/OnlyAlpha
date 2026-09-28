@@ -11,7 +11,11 @@ from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyVenueId
 from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
 from onlyalpha.domain.time import OnlyTimeZone
 from onlyalpha.market_data.aggregation.manager import OnlyBarAggregationManager
-from onlyalpha.market_data.aggregation.time_bar import OnlyBarAggregationError, OnlyTimeBarAggregator
+from onlyalpha.market_data.aggregation.time_bar import (
+    OnlyAlignedTumblingWindowPolicy,
+    OnlyBarAggregationError,
+    OnlyTimeBarAggregator,
+)
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription, OnlyMissingBarPolicy
 
 
@@ -30,6 +34,11 @@ def test_1m_to_3m_is_calendar_aligned(shanghai_calendar, bar_1m, bar_3m, make_ba
     assert bar.close.value == Decimal("10.07")
     assert bar.volume.value == Decimal("300")
     assert bar.trade_count == 3
+
+
+def test_aligned_tumbling_policy_rejects_rolling_stride(shanghai_calendar) -> None:
+    with pytest.raises(OnlyBarAggregationError, match="TIME_BAR_V1_REQUIRES_ALIGNED_TUMBLING_SEMANTIC"):
+        OnlyAlignedTumblingWindowPolicy(shanghai_calendar, window_minutes=15, stride_minutes=1)
 
 
 @pytest.mark.parametrize("step", (2, 7, 13, 37))

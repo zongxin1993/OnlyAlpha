@@ -6,6 +6,7 @@ const historicalRevision = "d".repeat(64);
 const sourceId = "binance.spot.market_data.us";
 const minuteNs = BigInt("60000000000");
 const planFingerprint = (step: number) => step.toString(16).padStart(64, "0");
+const nativeSteps = new Set([1, 3, 5, 15, 30, 60, 120, 240]);
 
 const source = {
     integration_id: integrationId,
@@ -66,6 +67,7 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
             const start = BigInt(url.searchParams.get("start_ns") ?? "0");
             const end = BigInt(url.searchParams.get("end_ns") ?? "0");
             const step = Number(url.searchParams.get("bar_step") ?? "1");
+            const native = nativeSteps.has(step);
             const historyComplete = !acquireHistory || completedSteps.has(step);
             const duration = BigInt(step) * minuteNs;
             const bar = (offset: bigint, close: string) => ({
@@ -92,7 +94,7 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
                 venue: instrument.venue,
                 market: instrument.market,
                 bar_specification: { aggregation: "TIME", step, price_type: "LAST" },
-                aggregation_source: step === 1 ? "EXTERNAL" : "INTERNAL",
+                aggregation_source: native ? "EXTERNAL" : "INTERNAL",
                 adjustment: "RAW",
                 closed_only: true,
                 start_ns: start.toString(),
@@ -112,8 +114,12 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
                 revision_id: historyComplete ? "revision" : null,
                 revision_fingerprint: historyComplete ? historicalRevision : null,
                 seal_id: historyComplete ? "seal" : null,
-                aggregation_semantics_version: step === 1 ? null : "TIME_BAR_V1",
-                calendar_fingerprint: step === 1 ? null : "a".repeat(64),
+                aggregation_semantics_version: native ? null : "TIME_BAR_V1",
+                calendar_fingerprint: native ? null : "a".repeat(64),
+                resolution_mode: native ? "EXTERNAL_NATIVE" : "INTERNAL_DERIVED",
+                resolution_plan_fingerprint: planFingerprint(step),
+                base_revision_id: native ? null : "revision",
+                construction_fingerprint: (step + 256).toString(16).padStart(64, "0"),
                 resume_after_sequence: historyComplete
                     ? (
                           end / (step === 15 ? BigInt(15) * minuteNs : minuteNs) -
@@ -188,10 +194,13 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
                 stream_id: `stream-${String(connection)}`,
                 source_id: sourceId,
                 instrument_id: instrument.instrument_id,
-                resolution_mode:
-                    request.bar_specification.step === 15 ? "EXTERNAL_NATIVE" : "INTERNAL_DERIVED",
+                resolution_mode: nativeSteps.has(request.bar_specification.step)
+                    ? "EXTERNAL_NATIVE"
+                    : "INTERNAL_DERIVED",
                 resolution_plan_fingerprint: planFingerprint(request.bar_specification.step),
-                cursor_bar_step_minutes: request.bar_specification.step === 15 ? 15 : 1
+                cursor_bar_step_minutes: nativeSteps.has(request.bar_specification.step)
+                    ? request.bar_specification.step
+                    : 1
             });
             send({ event: "STATE", state: "RECOVERING" });
             const sequence = (BigInt(request.resume_after_sequence) + BigInt(1)).toString();

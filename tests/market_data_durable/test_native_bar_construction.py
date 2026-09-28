@@ -32,6 +32,35 @@ from .conftest import BASE, INSTRUMENT, SOURCE, VERSION, bar_update
 from .test_recovery_revision_dataset import _observation
 
 
+def test_native_forming_bar_raw_evidence_retains_construction_identity(tmp_path: Path, fixed_now) -> None:
+    specification = OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
+    plan = only_plan_bar_resolution(
+        specification,
+        (OnlyBarCapability(specification, OnlyBarIntervalKind.FIXED_DURATION, "UTC", True, True, grid_origin_ns=0),),
+        alignment_id="UTC",
+        source_id=str(SOURCE),
+        instrument_id=str(INSTRUMENT),
+        integration_revision_fingerprint="a" * 64,
+    )
+    construction = OnlyBarConstructionIdentity.build(plan, data_version=str(VERSION))
+    wal = OnlyMarketDataWal(tmp_path, capacity_bytes=1_000_000, now=fixed_now)
+    ingress = OnlyMarketDataIngress(
+        wal,
+        normalizer_id="binance-spot",
+        normalizer_version="1",
+        ingest_clock_ns=lambda: 5,
+        bar_construction=construction,
+    )
+    ingress.begin_segment("forming-bar")
+    ingress.record(_observation(0), None)
+
+    segment = ingress.seal()
+
+    assert segment.canonical_count == 0
+    assert segment.bar_construction == construction
+    assert wal.verify_sealed(segment)
+
+
 def test_native_fifteen_minute_coverage_survives_wal_reload(tmp_path: Path, fixed_now) -> None:
     specification = OnlyBarSpecification(15, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
     bar_type = OnlyBarType(INSTRUMENT, specification, OnlyAggregationSource.EXTERNAL)

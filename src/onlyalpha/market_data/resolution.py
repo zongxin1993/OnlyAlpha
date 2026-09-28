@@ -28,6 +28,73 @@ class OnlyBarResolutionMode(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyFixedDurationBarSemantic:
+    """Canonical fixed-duration Bar meaning; emission stride is independent of window."""
+
+    aggregation: OnlyBarAggregation
+    interval_kind: OnlyBarIntervalKind
+    window_minutes: int
+    stride_minutes: int
+    price_type: OnlyPriceType
+
+    def __post_init__(self) -> None:
+        if (
+            self.aggregation is not OnlyBarAggregation.TIME
+            or self.interval_kind is not OnlyBarIntervalKind.FIXED_DURATION
+            or type(self.window_minutes) is not int
+            or type(self.stride_minutes) is not int
+            or not 1 <= self.window_minutes <= 240
+            or not 1 <= self.stride_minutes <= self.window_minutes
+        ):
+            raise ValueError("FIXED_DURATION_BAR_SEMANTIC_INVALID")
+
+    @classmethod
+    def from_legacy(cls, value: OnlyBarSpecification) -> OnlyFixedDurationBarSemantic:
+        return cls(
+            value.aggregation,
+            OnlyBarIntervalKind.FIXED_DURATION,
+            value.step,
+            value.step,
+            value.price_type,
+        )
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, object]) -> OnlyFixedDurationBarSemantic:
+        semantic = cls(
+            OnlyBarAggregation(str(value["aggregation"])),
+            OnlyBarIntervalKind(str(value["interval_kind"])),
+            int(str(value["window_minutes"])),
+            int(str(value["stride_minutes"])),
+            OnlyPriceType(str(value["price_type"])),
+        )
+        if semantic.to_dict() != dict(value):
+            raise ValueError("FIXED_DURATION_BAR_SEMANTIC_INVALID")
+        return semantic
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "aggregation": self.aggregation.value,
+            "interval_kind": self.interval_kind.value,
+            "window_minutes": self.window_minutes,
+            "stride_minutes": self.stride_minutes,
+            "price_type": self.price_type.value,
+        }
+
+    @property
+    def fingerprint(self) -> str:
+        return only_canonical_fingerprint(self.to_dict())
+
+    @property
+    def is_aligned(self) -> bool:
+        return self.window_minutes == self.stride_minutes
+
+    def aligned_specification(self) -> OnlyBarSpecification:
+        if not self.is_aligned:
+            raise ValueError("BAR_RESOLUTION_CONSTRUCTION_UNIMPLEMENTED")
+        return OnlyBarSpecification(self.window_minutes, self.aggregation, self.price_type)
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyCalendarBarSpecification:
     """Session-aligned bars are distinct from elapsed minutes."""
 
@@ -44,7 +111,7 @@ class OnlyCalendarBarSpecification:
 class OnlyBarCapability:
     """One exact provider bar, including alignment and both delivery channels."""
 
-    specification: OnlyBarSpecification | OnlyCalendarBarSpecification
+    semantic: OnlyFixedDurationBarSemantic | OnlyBarSpecification | OnlyCalendarBarSpecification
     interval_kind: OnlyBarIntervalKind
     alignment_id: str
     historical_supported: bool
@@ -53,23 +120,33 @@ class OnlyBarCapability:
     grid_origin_ns: int | None = None
 
     def __post_init__(self) -> None:
+        if isinstance(self.semantic, OnlyBarSpecification):
+            object.__setattr__(self, "semantic", OnlyFixedDurationBarSemantic.from_legacy(self.semantic))
         if (
             not self.alignment_id
             or self.adjustment != "RAW"
             or (self.interval_kind is OnlyBarIntervalKind.FIXED_DURATION)
-            != isinstance(self.specification, OnlyBarSpecification)
+            != isinstance(self.semantic, OnlyFixedDurationBarSemantic)
             or (self.grid_origin_ns is not None and self.interval_kind is not OnlyBarIntervalKind.FIXED_DURATION)
             or (self.grid_origin_ns is not None and type(self.grid_origin_ns) is not int)
         ):
             raise ValueError("BAR_CAPABILITY_INVALID")
 
+    @property
+    def specification(self) -> OnlyBarSpecification | OnlyCalendarBarSpecification:
+        if isinstance(self.semantic, OnlyCalendarBarSpecification):
+            return self.semantic
+        if isinstance(self.semantic, OnlyBarSpecification):
+            return self.semantic
+        return self.semantic.aligned_specification()
+
 
 @dataclass(frozen=True, slots=True)
 class OnlyBarResolutionPlan:
-    target_specification: OnlyBarSpecification
+    target_semantic: OnlyFixedDurationBarSemantic
     mode: OnlyBarResolutionMode
-    provider_specification: OnlyBarSpecification | None
-    base_specification: OnlyBarSpecification | None
+    provider_semantic: OnlyFixedDurationBarSemantic | None
+    base_semantic: OnlyFixedDurationBarSemantic | None
     aggregation_semantics_version: str | None
     alignment_id: str
     source_id: str
@@ -78,12 +155,25 @@ class OnlyBarResolutionPlan:
     grid_origin_ns: int
     fingerprint: str
 
+    @property
+    def target_specification(self) -> OnlyBarSpecification:
+        return self.target_semantic.aligned_specification()
+
+    @property
+    def provider_specification(self) -> OnlyBarSpecification | None:
+        return None if self.provider_semantic is None else self.provider_semantic.aligned_specification()
+
+    @property
+    def base_specification(self) -> OnlyBarSpecification | None:
+        return None if self.base_semantic is None else self.base_semantic.aligned_specification()
+
     def to_dict(self) -> dict[str, object]:
         payload = {
-            "target": self.target_specification.to_dict(),
+            "schema_version": 2,
+            "target": self.target_semantic.to_dict(),
             "mode": self.mode.value,
-            "provider": None if self.provider_specification is None else self.provider_specification.to_dict(),
-            "base": None if self.base_specification is None else self.base_specification.to_dict(),
+            "provider": None if self.provider_semantic is None else self.provider_semantic.to_dict(),
+            "base": None if self.base_semantic is None else self.base_semantic.to_dict(),
             "aggregation_semantics_version": self.aggregation_semantics_version,
             "alignment_id": self.alignment_id,
             "source_id": self.source_id,
@@ -95,19 +185,21 @@ class OnlyBarResolutionPlan:
 
     @classmethod
     def from_dict(cls, value: Mapping[str, object]) -> OnlyBarResolutionPlan:
-        def specification(key: str) -> OnlyBarSpecification | None:
+        def semantic(key: str) -> OnlyFixedDurationBarSemantic | None:
             item = value[key]
             if item is not None and not isinstance(item, Mapping):
                 raise ValueError("BAR_RESOLUTION_PLAN_INVALID")
-            return None if item is None else OnlyBarSpecification.from_dict(item)
+            return None if item is None else OnlyFixedDurationBarSemantic.from_dict(item)
 
+        if value.get("schema_version") != 2:
+            raise ValueError("BAR_RESOLUTION_PLAN_REBUILD_REQUIRED")
         if not isinstance(value["target"], Mapping):
             raise ValueError("BAR_RESOLUTION_PLAN_INVALID")
         plan = cls(
-            OnlyBarSpecification.from_dict(value["target"]),
+            OnlyFixedDurationBarSemantic.from_dict(value["target"]),
             OnlyBarResolutionMode(str(value["mode"])),
-            specification("provider"),
-            specification("base"),
+            semantic("provider"),
+            semantic("base"),
             None if value["aggregation_semantics_version"] is None else str(value["aggregation_semantics_version"]),
             str(value["alignment_id"]),
             str(value["source_id"]),
@@ -120,22 +212,23 @@ class OnlyBarResolutionPlan:
             raise ValueError("BAR_RESOLUTION_PLAN_INVALID")
         if plan.mode is OnlyBarResolutionMode.EXTERNAL_NATIVE:
             valid = (
-                plan.provider_specification == plan.target_specification
-                and plan.base_specification is None
+                plan.provider_semantic == plan.target_semantic
+                and plan.base_semantic is None
                 and plan.aggregation_semantics_version is None
             )
         else:
             valid = (
-                plan.provider_specification is None
-                and plan.base_specification is not None
-                and plan.aggregation_semantics_version == "TIME_BAR_V1"
+                plan.provider_semantic is None
+                and plan.base_semantic is not None
+                and plan.aggregation_semantics_version
+                == ("TIME_BAR_V1" if plan.target_semantic.is_aligned else "ROLLING_TIME_BAR_V1")
             )
         if not valid:
             raise ValueError("BAR_RESOLUTION_PLAN_INVALID")
-        grid_specification = plan.provider_specification or plan.base_specification
+        grid_semantic = plan.provider_semantic or plan.base_semantic
         if (
-            grid_specification is None
-            or not 0 <= plan.grid_origin_ns < grid_specification.step * 60_000_000_000
+            grid_semantic is None
+            or not 0 <= plan.grid_origin_ns < grid_semantic.stride_minutes * 60_000_000_000
             or len(plan.integration_revision_fingerprint) != 64
             or any(char not in "0123456789abcdef" for char in plan.integration_revision_fingerprint)
         ):
@@ -146,24 +239,24 @@ class OnlyBarResolutionPlan:
     def from_canonical_payload(cls, value: Mapping[str, object]) -> OnlyBarResolutionPlan:
         """Read the canonical dataclass projection persisted inside a scope JSONB."""
 
-        def specification(key: str) -> dict[str, object] | None:
+        if "target_semantic" not in value:
+            raise ValueError("BAR_RESOLUTION_PLAN_REBUILD_REQUIRED")
+
+        def semantic(key: str) -> dict[str, object] | None:
             item = value[key]
             if item is None:
                 return None
             if not isinstance(item, Mapping):
                 raise ValueError("BAR_RESOLUTION_PLAN_INVALID")
-            return OnlyBarSpecification(
-                int(str(item["step"])),
-                OnlyBarAggregation(str(item["aggregation"])),
-                OnlyPriceType(str(item["price_type"])),
-            ).to_dict()
+            return OnlyFixedDurationBarSemantic.from_dict(item).to_dict()
 
         return cls.from_dict(
             {
-                "target": specification("target_specification"),
+                "schema_version": 2,
+                "target": semantic("target_semantic"),
                 "mode": value["mode"],
-                "provider": specification("provider_specification"),
-                "base": specification("base_specification"),
+                "provider": semantic("provider_semantic"),
+                "base": semantic("base_semantic"),
                 "aggregation_semantics_version": value["aggregation_semantics_version"],
                 "alignment_id": value["alignment_id"],
                 "source_id": value["source_id"],
@@ -199,6 +292,8 @@ class OnlyBarConstructionIdentity:
     ) -> OnlyBarConstructionIdentity:
         if not data_version or plan.to_dict()["fingerprint"] != plan.fingerprint:
             raise ValueError("BAR_CONSTRUCTION_INVALID")
+        if plan.aggregation_semantics_version == "TIME_BAR_V1" and not plan.target_semantic.is_aligned:
+            raise ValueError("BAR_RESOLUTION_CONSTRUCTION_UNIMPLEMENTED")
         base = (base_revision_id, base_revision_fingerprint, base_seal_id)
         if (plan.mode is OnlyBarResolutionMode.EXTERNAL_NATIVE and any(base)) or (
             plan.mode is OnlyBarResolutionMode.INTERNAL_DERIVED and not all(base)
@@ -257,7 +352,7 @@ class OnlyBarConstructionIdentity:
 
 
 def only_plan_bar_resolution(
-    target: OnlyBarSpecification,
+    target: OnlyBarSpecification | OnlyFixedDurationBarSemantic,
     capabilities: tuple[OnlyBarCapability, ...],
     *,
     alignment_id: str,
@@ -267,10 +362,12 @@ def only_plan_bar_resolution(
 ) -> OnlyBarResolutionPlan:
     """Choose exact compatible native or deterministic 1m aggregation, never a silent fallback."""
 
+    target_semantic = (
+        OnlyFixedDurationBarSemantic.from_legacy(target) if isinstance(target, OnlyBarSpecification) else target
+    )
     if (
-        target.aggregation is not OnlyBarAggregation.TIME
-        or target.price_type is not OnlyPriceType.LAST
-        or not 1 <= target.step <= 240
+        target_semantic.aggregation is not OnlyBarAggregation.TIME
+        or target_semantic.price_type is not OnlyPriceType.LAST
         or not alignment_id
         or not source_id
         or not instrument_id
@@ -279,12 +376,14 @@ def only_plan_bar_resolution(
         or any(char not in "0123456789abcdef" for char in integration_revision_fingerprint)
     ):
         raise ValueError("BAR_RESOLUTION_UNSUPPORTED")
-    base = OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST)
+    base = OnlyFixedDurationBarSemantic(
+        OnlyBarAggregation.TIME, OnlyBarIntervalKind.FIXED_DURATION, 1, 1, OnlyPriceType.LAST
+    )
     usable = tuple(
         capability
         for capability in capabilities
         if capability.interval_kind is OnlyBarIntervalKind.FIXED_DURATION
-        and capability.specification == target
+        and capability.semantic == target_semantic
         and capability.alignment_id == alignment_id
         and capability.historical_supported
         and capability.realtime_supported
@@ -295,14 +394,14 @@ def only_plan_bar_resolution(
         raise ValueError("BAR_RESOLUTION_AMBIGUOUS")
     if usable:
         mode = OnlyBarResolutionMode.EXTERNAL_NATIVE
-        provider, derived_base, version = target, None, None
+        provider, derived_base, version = target_semantic, None, None
         grid_origin_ns = usable[0].grid_origin_ns
     else:
         base_usable = tuple(
             capability
             for capability in capabilities
             if capability.interval_kind is OnlyBarIntervalKind.FIXED_DURATION
-            and capability.specification == base
+            and capability.semantic == base
             and capability.alignment_id == alignment_id
             and capability.historical_supported
             and capability.realtime_supported
@@ -314,15 +413,17 @@ def only_plan_bar_resolution(
         if len(base_usable) != 1:
             raise ValueError("BAR_RESOLUTION_AMBIGUOUS")
         mode = OnlyBarResolutionMode.INTERNAL_DERIVED
-        provider, derived_base, version = None, base, "TIME_BAR_V1"
+        provider, derived_base = None, base
+        version = "TIME_BAR_V1" if target_semantic.is_aligned else "ROLLING_TIME_BAR_V1"
         grid_origin_ns = base_usable[0].grid_origin_ns
     assert grid_origin_ns is not None
-    grid_specification = provider or derived_base
-    assert grid_specification is not None
-    grid_origin_ns %= grid_specification.step * 60_000_000_000
+    grid_semantic = provider or derived_base
+    assert grid_semantic is not None
+    grid_origin_ns %= grid_semantic.stride_minutes * 60_000_000_000
     fingerprint = only_canonical_fingerprint(
         {
-            "target": target.to_dict(),
+            "schema_version": 2,
+            "target": target_semantic.to_dict(),
             "mode": mode.value,
             "provider": None if provider is None else provider.to_dict(),
             "base": None if derived_base is None else derived_base.to_dict(),
@@ -335,7 +436,7 @@ def only_plan_bar_resolution(
         }
     )
     return OnlyBarResolutionPlan(
-        target,
+        target_semantic,
         mode,
         provider,
         derived_base,
@@ -347,3 +448,19 @@ def only_plan_bar_resolution(
         grid_origin_ns,
         fingerprint,
     )
+
+
+def only_expected_fixed_duration_bar_ends(
+    semantic: OnlyFixedDurationBarSemantic,
+    *,
+    start_ns: int,
+    end_ns: int,
+    grid_origin_ns: int,
+) -> tuple[int, ...]:
+    """Return an output grid using stride while keeping Bar duration as window."""
+
+    stride_ns = semantic.stride_minutes * 60_000_000_000
+    window_ns = semantic.window_minutes * 60_000_000_000
+    if start_ns >= end_ns or (start_ns - grid_origin_ns) % stride_ns or (end_ns - grid_origin_ns) % stride_ns:
+        return ()
+    return tuple(range(start_ns + window_ns, end_ns + 1, stride_ns))

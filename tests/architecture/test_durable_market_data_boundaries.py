@@ -104,9 +104,21 @@ def test_bar_resolution_is_shared_and_durable_without_provider_branches() -> Non
     assert "self._historical._plan(" in stream
     assert "bar_construction: OnlyBarConstructionIdentity" in scope
     assert "segment.bar_construction != scope.bar_construction" in coverage
-    assert "construction.plan.target_specification" in coverage
+    assert "construction.plan.target_semantic" in coverage
+    assert "semantic.window_minutes" in coverage
+    assert "semantic.stride_minutes" in coverage
     assert "BAR_CONSTRUCTION_UNPROVABLE" in coverage
     assert 'value["bar_construction"] = segment.bar_construction.to_dict()' in wal
     assert "construction_bindings" in dataset
     for source in (product, stream, coverage, dataset):
         assert "onlyalpha_plugin_binance" not in source
+
+
+def test_aggregation_source_cannot_drive_resolution_or_provider_interval_choice() -> None:
+    resolution = Path("src/onlyalpha/market_data/resolution.py").read_text()
+    provider_intervals = Path(
+        "plugs/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance/spot/data_source/intervals.py"
+    ).read_text()
+    for source in (resolution, provider_intervals):
+        assert "OnlyAggregationSource" not in source
+        assert "aggregation_source" not in source

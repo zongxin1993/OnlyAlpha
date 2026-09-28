@@ -11,7 +11,7 @@ from onlyalpha.core.clock import only_system_utc_now
 from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate
 from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyAggregationSource, OnlyBarAggregation
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.market_data.resolution import OnlyBarResolutionMode
+from onlyalpha.market_data.resolution import OnlyBarResolutionMode, only_expected_fixed_duration_bar_ends
 
 from .models import (
     OnlyBarCoverageGap,
@@ -113,11 +113,19 @@ def only_build_coverage(
             )
         if construction is not None and construction.plan.mode is not OnlyBarResolutionMode.EXTERNAL_NATIVE:
             raise OnlyMarketDataConflictError("DERIVED_BARS_HAVE_NO_PROVIDER_COVERAGE")
+        semantic = construction.plan.target_semantic
         specification = construction.plan.target_specification
-        minute = specification.step * 60_000_000_000
+        window_ns = semantic.window_minutes * 60_000_000_000
+        stride_ns = semantic.stride_minutes * 60_000_000_000
         origin = construction.plan.grid_origin_ns
-        grid_aligned = (scope.start_ns - origin) % minute == 0 and (scope.end_ns - origin) % minute == 0
-        expected = tuple(range(scope.start_ns + minute, scope.end_ns + 1, minute)) if grid_aligned else ()
+        expected = only_expected_fixed_duration_bar_ends(
+            semantic, start_ns=scope.start_ns, end_ns=scope.end_ns, grid_origin_ns=origin
+        )
+        grid_aligned = (
+            scope.start_ns < scope.end_ns
+            and (scope.start_ns - origin) % stride_ns == 0
+            and (scope.end_ns - origin) % stride_ns == 0
+        )
         actual = tuple(item.ts_event_ns for item in in_scope)
         bars = tuple(OnlyMarketDataInboundUpdate.from_dict(item.canonical_payload).payload for item in in_scope)
         semantic_valid = all(
@@ -126,14 +134,14 @@ def only_build_coverage(
             and item.bar.ts_event == item.bar.bar_end
             and OnlyTimestamp.from_datetime(item.bar.bar_end).unix_nanos
             - OnlyTimestamp.from_datetime(item.bar.bar_start).unix_nanos
-            == minute
+            == window_ns
             and item.bar.bar_type.specification == specification
             and item.bar.bar_type.specification.aggregation is OnlyBarAggregation.TIME
             and item.bar.bar_type.aggregation_source is OnlyAggregationSource.EXTERNAL
             and item.bar.adjustment_type is OnlyAdjustmentType.RAW
             and str(item.bar.instrument_id) == scope.instrument_id
             and OnlyTimestamp.from_datetime(item.bar.bar_end).unix_nanos == fact.ts_event_ns
-            and (fact.ts_event_ns - origin) % minute == 0
+            and (fact.ts_event_ns - origin) % stride_ns == 0
             and fact.canonical_payload.get("data_version") == scope.data_version
             and (scope.bar_type is None or only_canonical_fingerprint(item.bar.bar_type.to_dict()) == scope.bar_type)
             for item, fact in zip(bars, in_scope, strict=True)
@@ -185,7 +193,7 @@ def only_build_coverage(
     gaps: tuple[OnlyBarCoverageGap | OnlyTradeCoverageGap, ...]
     if scope.data_kind == "BAR":
         actual_set = {item.ts_event_ns for item in in_scope}
-        gaps = tuple(OnlyBarCoverageGap(item - minute, item) for item in expected if item not in actual_set)
+        gaps = tuple(OnlyBarCoverageGap(item - stride_ns, item) for item in expected if item not in actual_set)
     elif scope.data_kind == "TRADE" and expected:
         actual_set = set(sequences)
         missing = tuple(item for item in expected if item not in actual_set)

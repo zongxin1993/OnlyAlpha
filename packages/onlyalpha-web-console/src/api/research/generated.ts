@@ -2243,12 +2243,18 @@ export interface components {
         };
         /** MarketDataBarsDto */
         MarketDataBarsDto: {
-            /** Adjustment */
-            adjustment: string;
+            /**
+             * Adjustment
+             * @constant
+             */
+            adjustment: "RAW";
             /** Aggregation Semantics Version */
             aggregation_semantics_version: string | null;
-            /** Aggregation Source */
-            aggregation_source: string;
+            /**
+             * Aggregation Source
+             * @enum {string}
+             */
+            aggregation_source: "EXTERNAL" | "INTERNAL";
             bar_specification: components["schemas"]["MarketDataBarSpecificationDto"];
             /** Bars */
             bars: components["schemas"]["MarketDataBarDto"][];
@@ -2270,7 +2276,7 @@ export interface components {
             /** Market */
             market: string;
             /** Resolution Mode */
-            resolution_mode: string | null;
+            resolution_mode: ("EXTERNAL_NATIVE" | "INTERNAL_DERIVED") | null;
             /** Resolution Plan Fingerprint */
             resolution_plan_fingerprint: string | null;
             /** Resume After Sequence */

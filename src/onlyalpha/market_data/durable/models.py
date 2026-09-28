@@ -329,12 +329,17 @@ class OnlyIngestSegment:
         only_require_utc(self.sealed_at, "segment sealed_at")
         _require_optional_binding(self.integration_binding_fingerprint)
         if self.bar_construction is not None and (
-            self.data_kind != "BAR"
-            or self.bar_construction.plan.mode is not OnlyBarResolutionMode.EXTERNAL_NATIVE
-            or self.bar_construction.data_version != self.data_version
-            or self.bar_construction.plan.source_id != self.source_id
-            or self.bar_construction.plan.instrument_id != self.instrument_id
-            or self.bar_type != _construction_bar_type(self.instrument_id, self.bar_construction)
+            self.bar_construction.plan.mode is not OnlyBarResolutionMode.EXTERNAL_NATIVE
+            or (
+                self.canonical_count > 0
+                and (
+                    self.data_kind != "BAR"
+                    or self.bar_construction.data_version != self.data_version
+                    or self.bar_construction.plan.source_id != self.source_id
+                    or self.bar_construction.plan.instrument_id != self.instrument_id
+                    or self.bar_type != _construction_bar_type(self.instrument_id, self.bar_construction)
+                )
+            )
         ):
             raise ValueError("SEGMENT_BAR_CONSTRUCTION_INVALID")
         if (

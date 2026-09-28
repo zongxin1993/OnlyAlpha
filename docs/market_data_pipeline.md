@@ -33,6 +33,16 @@ Indicator、Required Dependency 和 Snapshot 五项全部 ready 后，Dispatcher
 解释，禁止跨 Session 拼接。Session 尾部不足一个目标周期默认 DROP；REJECT 可配置。首版不生成 partial，
 因此 Snapshot 的 `latest_closed` 不可能隐式返回 partial。
 
+固定时长 Bar 的 canonical semantic 分别绑定 `window_minutes`（Bar 覆盖时长）与 `stride_minutes`（输出网格间隔）；
+旧 `step=N` 只在入口规范化为 `window=N, stride=N`，不形成第二份 identity authority。现有 `TIME_BAR_V1`
+由 `OnlyAlignedTumblingWindowPolicy` 实现且只接受 `window == stride`；rolling semantic 使用独立的
+`ROLLING_TIME_BAR_V1` identity，但执行仍 fail closed，尚未启用 sliding policy。
+
+`OnlyBarResolutionMode` 是 Native/Derived construction 的唯一 Authority。`OnlyAggregationSource` 已降级为旧
+`OnlyBarType`、Research/Strategy schema 与运行时校验所需的兼容 projection：`EXTERNAL_NATIVE → EXTERNAL`、
+`INTERNAL_DERIVED → INTERNAL`；禁止反向使用它选择 capability、provider interval、historical/realtime plan。
+Resolution plan schema v2 才能持久化 window/stride；旧 plan identity 不静默重解释，读取时要求 rebuild。
+
 ## 4. Cache
 
 `OnlyMarketDataCache` 是 Trading Runtime 所有的可变内部真值，按 BarType 保存 latest closed、history 与单调 version。

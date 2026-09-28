@@ -2399,6 +2399,7 @@
         "additionalProperties": false,
         "properties": {
           "adjustment": {
+            "const": "RAW",
             "title": "Adjustment",
             "type": "string"
           },
@@ -2414,6 +2415,10 @@
             "title": "Aggregation Semantics Version"
           },
           "aggregation_source": {
+            "enum": [
+              "EXTERNAL",
+              "INTERNAL"
+            ],
             "title": "Aggregation Source",
             "type": "string"
           },
@@ -2441,6 +2446,7 @@
           "calendar_fingerprint": {
             "anyOf": [
               {
+                "pattern": "^[0-9a-f]{64}$",
                 "type": "string"
               },
               {
@@ -2456,6 +2462,7 @@
           "construction_fingerprint": {
             "anyOf": [
               {
+                "pattern": "^[0-9a-f]{64}$",
                 "type": "string"
               },
               {
@@ -2487,6 +2494,10 @@
           "resolution_mode": {
             "anyOf": [
               {
+                "enum": [
+                  "EXTERNAL_NATIVE",
+                  "INTERNAL_DERIVED"
+                ],
                 "type": "string"
               },
               {
@@ -2498,6 +2509,7 @@
           "resolution_plan_fingerprint": {
             "anyOf": [
               {
+                "pattern": "^[0-9a-f]{64}$",
                 "type": "string"
               },
               {
@@ -2533,6 +2545,7 @@
           "revision_fingerprint": {
             "anyOf": [
               {
+                "pattern": "^[0-9a-f]{64}$",
                 "type": "string"
               },
               {
@@ -2639,6 +2652,7 @@
           "manifest_fingerprint": {
             "anyOf": [
               {
+                "pattern": "^[0-9a-f]{64}$",
                 "type": "string"
               },
               {

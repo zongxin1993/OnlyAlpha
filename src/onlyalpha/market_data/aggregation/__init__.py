@@ -5,10 +5,15 @@ from onlyalpha.market_data.aggregation.manager import (
     OnlyBarAggregationGraph,
     OnlyBarAggregationManager,
 )
-from onlyalpha.market_data.aggregation.time_bar import OnlyBarAggregator, OnlyTimeBarAggregator
+from onlyalpha.market_data.aggregation.time_bar import (
+    OnlyAlignedTumblingWindowPolicy,
+    OnlyBarAggregator,
+    OnlyTimeBarAggregator,
+)
 
 __all__ = [
     "OnlyAggregationDependency",
+    "OnlyAlignedTumblingWindowPolicy",
     "OnlyBarAggregationGraph",
     "OnlyBarAggregationManager",
     "OnlyBarAggregator",

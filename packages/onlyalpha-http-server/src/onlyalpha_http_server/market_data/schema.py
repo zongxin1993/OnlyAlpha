@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -174,7 +174,7 @@ class MarketDataCoverageGapDto(_Dto):
 class MarketDataCoverageDto(_Dto):
     status: Literal["COMPLETE", "INCOMPLETE", "UNPROVABLE"]
     manifest_id: str | None
-    manifest_fingerprint: str | None
+    manifest_fingerprint: str | None = Field(pattern=_FINGERPRINT)
     expected_bar_count: int
     actual_bar_count: int
     issues: tuple[str, ...]
@@ -216,22 +216,22 @@ class MarketDataBarsDto(_Dto):
     venue: str
     market: str
     bar_specification: MarketDataBarSpecificationDto
-    aggregation_source: str
-    adjustment: str
+    aggregation_source: Literal["EXTERNAL", "INTERNAL"]
+    adjustment: Literal["RAW"]
     closed_only: bool
     start_ns: str = Field(pattern=_NANOSECONDS)
     end_ns: str = Field(pattern=_NANOSECONDS)
     coverage: MarketDataCoverageDto
     revision_id: str | None
-    revision_fingerprint: str | None
+    revision_fingerprint: str | None = Field(pattern=_FINGERPRINT)
     seal_id: str | None
     bars: tuple[MarketDataBarDto, ...]
     aggregation_semantics_version: str | None
-    calendar_fingerprint: str | None
-    resolution_mode: str | None
-    resolution_plan_fingerprint: str | None
+    calendar_fingerprint: str | None = Field(pattern=_FINGERPRINT)
+    resolution_mode: Literal["EXTERNAL_NATIVE", "INTERNAL_DERIVED"] | None
+    resolution_plan_fingerprint: str | None = Field(pattern=_FINGERPRINT)
     base_revision_id: str | None
-    construction_fingerprint: str | None
+    construction_fingerprint: str | None = Field(pattern=_FINGERPRINT)
     resume_after_sequence: str | None = Field(pattern=_NANOSECONDS)
     resume_plan_fingerprint: str | None = Field(pattern=_FINGERPRINT)
 
@@ -245,8 +245,8 @@ class MarketDataBarsDto(_Dto):
             venue=value.venue,
             market=value.market,
             bar_specification=MarketDataBarSpecificationDto.from_model(value.bar_specification),
-            aggregation_source=value.aggregation_source,
-            adjustment=value.adjustment,
+            aggregation_source=cast(Literal["EXTERNAL", "INTERNAL"], value.aggregation_source),
+            adjustment=cast(Literal["RAW"], value.adjustment),
             closed_only=value.closed_only,
             start_ns=str(value.start_ns),
             end_ns=str(value.end_ns),
@@ -256,7 +256,7 @@ class MarketDataBarsDto(_Dto):
             seal_id=value.seal_id,
             aggregation_semantics_version=value.aggregation_semantics_version,
             calendar_fingerprint=value.calendar_fingerprint,
-            resolution_mode=value.resolution_mode,
+            resolution_mode=cast(Literal["EXTERNAL_NATIVE", "INTERNAL_DERIVED"] | None, value.resolution_mode),
             resolution_plan_fingerprint=value.resolution_plan_fingerprint,
             base_revision_id=value.base_revision_id,
             construction_fingerprint=value.construction_fingerprint,

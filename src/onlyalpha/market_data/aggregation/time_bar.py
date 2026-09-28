@@ -32,6 +32,30 @@ class OnlyBarAggregator(ABC):
     def process(self, bar: OnlyBar) -> OnlyBar | None: ...
 
 
+class OnlyAlignedTumblingWindowPolicy:
+    """Session-aware aligned windows for the current non-overlapping algorithm."""
+
+    def __init__(self, calendar: OnlyTradingCalendar, *, window_minutes: int, stride_minutes: int) -> None:
+        if window_minutes < 1 or window_minutes != stride_minutes:
+            raise OnlyBarAggregationError("TIME_BAR_V1_REQUIRES_ALIGNED_TUMBLING_SEMANTIC")
+        self._calendar = calendar
+        self._duration = timedelta(minutes=window_minutes)
+
+    def window_for(self, bar: OnlyBar) -> tuple[datetime, datetime, bool]:
+        intervals = self._calendar.session_intervals_for_trading_day(OnlyTradingDay(bar.trading_day))
+        session = next(
+            ((start, end) for start, end in intervals if start <= bar.bar_start < end and start < bar.bar_end <= end),
+            None,
+        )
+        if session is None:
+            raise OnlyBarAggregationError("source Bar is outside its Calendar session")
+        session_start, session_end = session
+        elapsed = bar.bar_start - session_start
+        window_start = session_start + (elapsed // self._duration) * self._duration
+        nominal_end = window_start + self._duration
+        return window_start, min(nominal_end, session_end), nominal_end > session_end
+
+
 class OnlyTimeBarAggregator(OnlyBarAggregator):
     """Aggregate one-minute Bars within Calendar session boundaries."""
 
@@ -63,7 +87,11 @@ class OnlyTimeBarAggregator(OnlyBarAggregator):
             raise OnlyBarAggregationError("source and target price types must match")
         self._source_bar_type = source_bar_type
         self._target_bar_type = target_bar_type
-        self._calendar = calendar
+        self._window_policy = OnlyAlignedTumblingWindowPolicy(
+            calendar,
+            window_minutes=target_bar_type.specification.step,
+            stride_minutes=target_bar_type.specification.step,
+        )
         self._clock = clock
         self._incomplete_policy = incomplete_policy
         self._missing_policy = missing_policy
@@ -122,21 +150,7 @@ class OnlyTimeBarAggregator(OnlyBarAggregator):
         return result
 
     def window_for(self, bar: OnlyBar) -> tuple[datetime, datetime, bool]:
-        intervals = self._calendar.session_intervals_for_trading_day(OnlyTradingDay(bar.trading_day))
-        session = next(
-            ((start, end) for start, end in intervals if start <= bar.bar_start < end and start < bar.bar_end <= end),
-            None,
-        )
-        if session is None:
-            raise OnlyBarAggregationError("source Bar is outside its Calendar session")
-        session_start, session_end = session
-        duration = timedelta(minutes=self._target_bar_type.specification.step)
-        elapsed = bar.bar_start - session_start
-        window_index = elapsed // duration
-        window_start = session_start + window_index * duration
-        nominal_end = window_start + duration
-        window_end = min(nominal_end, session_end)
-        return window_start, window_end, nominal_end > session_end
+        return self._window_policy.window_for(bar)
 
     def preview(self, bar: OnlyBar) -> OnlyBar | None:
         """Project a forming target Bar without admitting the preview as a fact."""

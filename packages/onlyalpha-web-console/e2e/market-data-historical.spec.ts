@@ -4,6 +4,7 @@ const integrationId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const revision = "a".repeat(64);
 const revisionFingerprint = "d".repeat(64);
 const minuteNs = BigInt("60000000000");
+const nativeSteps = new Set([1, 3, 5, 15, 30, 60, 120, 240]);
 
 const source = {
     integration_id: integrationId,
@@ -56,6 +57,7 @@ function coverage(range: Range, complete: boolean, planned: readonly Range[] = [
 }
 
 function bars(range: Range, complete: boolean, planned: readonly Range[] = [], step = 1) {
+    const native = nativeSteps.has(step);
     const start = BigInt(range.start_ns);
     const duration = BigInt(step) * minuteNs;
     const day = BigInt(1_440) * minuteNs;
@@ -85,7 +87,7 @@ function bars(range: Range, complete: boolean, planned: readonly Range[] = [], s
         venue: instrument.venue,
         market: instrument.market,
         bar_specification: { aggregation: "TIME", step, price_type: "LAST" },
-        aggregation_source: step === 1 ? "EXTERNAL" : "INTERNAL",
+        aggregation_source: native ? "EXTERNAL" : "INTERNAL",
         adjustment: "RAW",
         closed_only: true,
         ...range,
@@ -93,8 +95,12 @@ function bars(range: Range, complete: boolean, planned: readonly Range[] = [], s
         revision_id: complete ? `market-data-revision:${revisionFingerprint}` : null,
         revision_fingerprint: complete ? revisionFingerprint : null,
         seal_id: complete ? `seal:${"e".repeat(64)}` : null,
-        aggregation_semantics_version: step === 1 ? null : "TIME_BAR_V1",
-        calendar_fingerprint: step === 1 ? null : "a".repeat(64),
+        aggregation_semantics_version: native ? null : "TIME_BAR_V1",
+        calendar_fingerprint: native ? null : "a".repeat(64),
+        resolution_mode: native ? "EXTERNAL_NATIVE" : "INTERNAL_DERIVED",
+        resolution_plan_fingerprint: step.toString(16).padStart(64, "0"),
+        base_revision_id: native ? null : `market-data-revision:${revisionFingerprint}`,
+        construction_fingerprint: (step + 256).toString(16).padStart(64, "0"),
         resume_after_sequence: complete
             ? (BigInt(range.end_ns) / minuteNs - BigInt(1)).toString()
             : null,

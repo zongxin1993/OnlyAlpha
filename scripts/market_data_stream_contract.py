@@ -49,6 +49,8 @@ def _expression(schema: dict[str, Any]) -> str:
         return result
     if kind == "boolean":
         return "z.boolean()"
+    if kind == "array":
+        return f"z.array({_expression(schema['items'])})"
     if kind == "null":
         return "z.null()"
     if kind == "object":
