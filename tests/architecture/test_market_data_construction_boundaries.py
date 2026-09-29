@@ -44,6 +44,8 @@ def test_backtest_loads_graph_provider_inputs_and_manager_uses_registry() -> Non
     assert "OnlyTradeProcessingConsequence.CONSTRUCTION_ONLY" in streaming
     assert "data_type is OnlyMarketDataType.TRADE" in streaming
     assert "provider-input recovery has no confirmed frontier" in streaming
+    assert "_construction_recovery_inputs = construction_graph.provider_inputs" in streaming
+    assert "CONSTRUCTION_EXECUTOR_RESULT_CONTRACT_VIOLATION" in manager
     assert "TRADE_CONSTRUCTION_OUTPUT_BAR_TYPE_DUPLICATE" in (ROOT / "src/onlyalpha/market_data/pipeline.py").read_text(
         encoding="utf-8"
     )

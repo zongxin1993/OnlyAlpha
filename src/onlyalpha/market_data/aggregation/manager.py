@@ -176,6 +176,7 @@ class OnlyBarAggregationManager:
         self._processing = True
         queue = deque((_OnlyConstructionWorkItem(provider_lanes[0].lane_id, fact),))
         outputs: list[OnlyBar] = []
+        output_types = set()
         try:
             while queue:
                 current = queue.popleft()
@@ -188,6 +189,9 @@ class OnlyBarAggregationManager:
                     for output in produced:
                         if not isinstance(output, OnlyBar) or output.bar_type != lane.edge.target:
                             raise OnlyBarAggregationError("CONSTRUCTION_EXECUTOR_OUTPUT_CONTRACT_VIOLATION")
+                        if output.bar_type in output_types:
+                            raise OnlyBarAggregationError("CONSTRUCTION_EXECUTOR_RESULT_CONTRACT_VIOLATION")
+                        output_types.add(output.bar_type)
                         outputs.append(output)
                         queue.append(_OnlyConstructionWorkItem(lane.lane_id, output))
         except Exception:

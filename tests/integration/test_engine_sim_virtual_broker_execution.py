@@ -94,7 +94,12 @@ class _FakeLiveXtData:
             callback({"000001.SZ": row})
 
 
-def _config(tmp_path: Path, *, checkpoint: bool = False) -> OnlyClusterRunConfig:
+def _config(
+    tmp_path: Path,
+    *,
+    checkpoint: bool = False,
+    reference_trade: bool = False,
+) -> OnlyClusterRunConfig:
     baseline = OnlyClusterRunConfig.load("test-data/runtime/miniqmt_sim_acceptance.yaml")
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["runtime"]["extensions"]["streaming"]["bootstrap_bars"] = 10
@@ -103,6 +108,13 @@ def _config(tmp_path: Path, *, checkpoint: bool = False) -> OnlyClusterRunConfig
         "path": "sim-runtime.sqlite3",
         "checkpoint": {"enabled": checkpoint},
     }
+    if reference_trade:
+        payload["runtime"]["extensions"]["execution_reference"] = {
+            "profile_id": "last-trade-v1",
+            "policy_version": 1,
+            "kind": "LAST_TRADE",
+            "fallback": "NONE",
+        }
     userdata = tmp_path / "userdata_mini"
     userdata.mkdir(parents=True, exist_ok=True)
     payload["data_sources"][0]["extensions"]["userdata_mini_path"] = str(userdata)
@@ -132,6 +144,7 @@ def _engine(
     *,
     engine_id: str,
     checkpoint: bool = False,
+    reference_trade: bool = False,
     initial_time: datetime = _INITIAL_TIME,
 ) -> tuple[OnlyEngine, _FakeLiveXtData, OnlyBacktestClock, Path]:
     xtdata = _FakeLiveXtData()
@@ -159,7 +172,7 @@ def _engine(
     )
     user_data = tmp_path / "user_data"
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId(engine_id), user_data))
-    engine.add_cluster(_config(tmp_path, checkpoint=checkpoint))
+    engine.add_cluster(_config(tmp_path, checkpoint=checkpoint, reference_trade=reference_trade))
     return engine, xtdata, clock, user_data
 
 
@@ -827,6 +840,70 @@ def test_bar_root_bootstrap_ignores_independent_live_trade_subscription(
             {OnlyMarketDataType.BAR, OnlyMarketDataType.TRADE}
         )
         assert runtime.historical_watermarks
+    finally:
+        engine.stop()
+
+
+def test_bar_root_reference_trade_disconnect_never_requires_historical_ticks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from onlyalpha.data.enums import OnlyMarketDataRequestStatus
+    from onlyalpha.data.models import OnlyMarketDataSubscriptionResult
+    from onlyalpha.market_data.durable.recovery import OnlyMarketDataRecoveryCoordinator
+
+    monkeypatch.setenv("ONLYALPHA_CLICKHOUSE_URL", "http://unused")
+    monkeypatch.setenv("ONLYALPHA_POSTGRES_DSN", "postgresql://localhost/onlyalpha_test")
+    monkeypatch.setattr("onlyalpha.persistence.clickhouse.OnlyClickHouseMarketFactStore", lambda _client: object())
+    monkeypatch.setattr("onlyalpha.persistence.postgres.OnlyPostgresMarketDataCatalog", lambda _dsn: object())
+    monkeypatch.setattr(OnlyMarketDataRecoveryCoordinator, "recover_all", lambda _self: ())
+    monkeypatch.setattr(OnlyMarketDataRecoveryCoordinator, "recover_sealed", lambda _self: ())
+    engine, _, clock, _ = _engine(
+        tmp_path,
+        monkeypatch,
+        engine_id="sim-bar-root-reference-recovery",
+        reference_trade=True,
+    )
+    engine.initialize()
+    runtime = cast(OnlySimRuntime, engine.runtimes[0])
+    source = cast(OnlyMiniQmtDataSource, runtime._driver.source)  # type: ignore[attr-defined]
+    monkeypatch.setattr(
+        source,
+        "subscribe",
+        lambda _request: OnlyMarketDataSubscriptionResult(OnlyMarketDataRequestStatus.ACCEPTED, "bar-trade"),
+    )
+    monkeypatch.setattr(source, "unsubscribe", lambda _request: None)
+    engine.start()
+    load_trade_calls = 0
+
+    def reject_historical_trade(*_args: object) -> object:
+        nonlocal load_trade_calls
+        load_trade_calls += 1
+        raise AssertionError("reference-only Trade cannot authorize Core historical recovery")
+
+    monkeypatch.setattr(source, "load_trades", reject_historical_trade, raising=False)
+    monkeypatch.setattr(source, "load_bars", lambda request: _recovery_stream(runtime, request))
+    try:
+        assert not source._request.requested_capabilities.historical_ticks  # type: ignore[attr-defined]
+        _publish_streaming_trade(runtime, 100, "10.00")
+        _wait_until(
+            lambda: (
+                runtime.realtime_market_state.capture(OnlyTimestamp.from_unix_nanos(clock.timestamp_ns())).latest_trade(
+                    next(iter(runtime.historical_watermarks)).bar_type.instrument_id
+                )
+                is not None
+            ),
+            "reference Trade did not become ready",
+        )
+        before = runtime.streaming_phase_snapshot
+        source.disconnect()
+        clock.advance_to(datetime(2026, 8, 4, 1, 42, tzinfo=UTC))
+
+        _wait_for_recovery_cycle(runtime, before, expected_generation=1)
+
+        assert load_trade_calls == 0
+        assert runtime.streaming_phase is OnlyStreamingPhase.LIVE
+        assert runtime.recovery_failure is None
     finally:
         engine.stop()
 

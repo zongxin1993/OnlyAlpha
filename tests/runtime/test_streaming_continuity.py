@@ -42,7 +42,7 @@ def test_continuity_frontier_is_monotonic_and_dedup_is_bounded(make_runtime_bar)
 
     assert len(tracker._recent) == 2  # type: ignore[attr-defined]
     assert tracker.last_closed_bar_end == OnlyTimestamp.from_datetime(updates[-1].payload.bar.bar_end)
-    assert tracker.accepted_sequence(updates[-1].source_id, OnlyMarketDataType.BAR) == 3
+    assert tracker.accepted_sequence(tracker.key(updates[-1])) == 3
     assert tracker.contains(updates[-1])
     with pytest.raises(ValueError, match="NOT_MONOTONIC"):
         tracker.advance(updates[-1])
@@ -98,11 +98,7 @@ def test_trade_frontier_is_sequence_owned_and_checkpointed(make_runtime_bar) -> 
     tracker.advance(trade_update(10, later))
     earlier = OnlyTimestamp.from_unix_nanos(later.unix_nanos - 1_000_000_000)
     tracker.advance(trade_update(11, earlier))
-    frontier = tracker.frontier(
-        OnlyMarketDataSourceId("source"),
-        template.instrument_id,
-        OnlyMarketDataType.TRADE,
-    )
+    frontier = tracker.frontier(tracker.key(trade_update(11, earlier)))
     assert frontier is not None and frontier.canonical_sequence == 11
 
     restored = OnlyStreamingContinuityTracker()

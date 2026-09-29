@@ -237,22 +237,24 @@ def test_duplicate_trade_construction_output_type_fails_before_cache_commit(
     class DuplicateExecutor(_Executor):
         def process(self, fact):
             del fact
+            self._count += 1
             bar = replace(make_bar(0), bar_type=target)
             return bar, bar
 
     registry = OnlyBarConstructionAlgorithmRegistry()
     registry.register_factory("DUPLICATE", 1, "TRADE", "BAR", lambda item, *_: DuplicateExecutor(item))
     cache = OnlyMarketDataCache()
+    manager = _manager(
+        shanghai_calendar,
+        OnlyMarketDataConstructionGraph((source,), (edge,)),
+        registry=registry,
+    )
     pipeline = OnlyMarketDataPipeline(
         OnlyEngineId("engine"),
         OnlyRuntimeId("runtime"),
         OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC)),
         cache,
-        _manager(
-            shanghai_calendar,
-            OnlyMarketDataConstructionGraph((source,), (edge,)),
-            registry=registry,
-        ),
+        manager,
         OnlyIndicatorPipeline(),
     )
     now = datetime(2026, 1, 5, 1, 30, tzinfo=UTC)
@@ -268,9 +270,11 @@ def test_duplicate_trade_construction_output_type_fails_before_cache_commit(
         OnlyTradeId("trade-duplicate-output"),
     )
 
-    with pytest.raises(OnlyMarketDataPipelineError, match="TRADE_CONSTRUCTION_OUTPUT_BAR_TYPE_DUPLICATE"):
+    with pytest.raises(OnlyMarketDataPipelineError, match="CONSTRUCTION_EXECUTOR_RESULT_CONTRACT_VIOLATION"):
         pipeline.process_trade(trade)
     assert cache.latest_all() == {}
+    with pytest.raises(OnlyBarAggregationError, match="CONSTRUCTION_RUNTIME_RECOVERY_REQUIRED"):
+        manager.process(trade)
 
 
 def test_checkpoint_restart_equals_uninterrupted(shanghai_calendar, bar_1m, bar_5m, bar_15m, make_bar) -> None:

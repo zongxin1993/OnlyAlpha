@@ -113,14 +113,21 @@ def _sim_plan(
     )
 
 
-def _trade_root_plan(runtime_type: str, user_data_root: Path):
+def _trade_root_plan(runtime_type: str, user_data_root: Path, *, reference_trade: bool = False):
+    def configure_sim(payload: dict[str, Any]) -> None:
+        payload["runtime"]["extensions"].update({"streaming": {"bootstrap_bars": 1}})
+        if reference_trade:
+            payload["runtime"]["extensions"]["execution_reference"] = {
+                "profile_id": "last-trade-v1",
+                "policy_version": 1,
+                "kind": "LAST_TRADE",
+                "fallback": "NONE",
+            }
+
     plan = (
         _plan("BACKTEST", user_data_root)
         if runtime_type == "BACKTEST"
-        else _sim_plan(
-            lambda payload: payload["runtime"]["extensions"].update({"streaming": {"bootstrap_bars": 1}}),
-            user_data_root=user_data_root,
-        )
+        else _sim_plan(configure_sim, user_data_root=user_data_root)
     )
     store = OnlyFrozenStrategyRevisionStore(user_data_root / "research")
     native = store.load_verified(plan.assembly_plan.clusters[0].strategy.fingerprint)
@@ -927,14 +934,25 @@ def test_trade_root_sim_integration_revision_never_falls_back_without_resolver(t
     assert factory.created == []
 
 
+@pytest.mark.parametrize("reference_trade", (False, True))
 def test_trade_root_sim_disconnect_recovers_provider_trade_suffix(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    reference_trade: bool,
 ) -> None:
     from onlyalpha.runtime.streaming.phase import OnlyStreamingDataState, OnlyStreamingPhase
 
+    if reference_trade:
+        from onlyalpha.market_data.durable.recovery import OnlyMarketDataRecoveryCoordinator
+
+        monkeypatch.setenv("ONLYALPHA_CLICKHOUSE_URL", "http://unused")
+        monkeypatch.setenv("ONLYALPHA_POSTGRES_DSN", "postgresql://localhost/onlyalpha_test")
+        monkeypatch.setattr("onlyalpha.persistence.clickhouse.OnlyClickHouseMarketFactStore", lambda _client: object())
+        monkeypatch.setattr("onlyalpha.persistence.postgres.OnlyPostgresMarketDataCatalog", lambda _dsn: object())
+        monkeypatch.setattr(OnlyMarketDataRecoveryCoordinator, "recover_all", lambda _self: ())
+        monkeypatch.setattr(OnlyMarketDataRecoveryCoordinator, "recover_sealed", lambda _self: ())
     _install_test_tick_executor(monkeypatch)
-    plan, _ = _trade_root_plan("SIM", tmp_path)
+    plan, _ = _trade_root_plan("SIM", tmp_path, reference_trade=reference_trade)
     services = only_default_engine_services()
     source_factory = _TradeDataSourceFactory("trade-recovery", live=True)
     services.assembler.components.data_sources.register(

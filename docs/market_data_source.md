@@ -68,6 +68,9 @@ Streaming 生命周期保持四条显式 lane：Historical Construction 只从 C
 只允许实时 TRADE 更新 operational projection；Recovery 组合 provider-input frontier 与 Construction checkpoint 后，经同一
 Processor 重放。实时 reference requirement 不授权 historical Trade bootstrap。derived Tick/Volume/Value Bar 不是 provider
 continuity frontier；其恢复 cursor 属于 provider Trade identity/sequence，pending construction state 属于 executor checkpoint。
+Core historical recovery 同样只枚举 Construction Graph provider root；reference-only Trade frontier 只能由 provider-native
+reconnect/baseline 恢复。每个 cursor 直接绑定 exact Streaming key（source、data version、instrument、data kind、BarType），
+不得使用同 source/data kind 下其他 instrument 或 BarType 的最大 sequence。
 
 ## 规范 Market Source identity
 

@@ -139,34 +139,12 @@ class OnlyStreamingContinuityTracker:
             default=None,
         )
 
-    def frontier(
-        self,
-        source_id: OnlyMarketDataSourceId,
-        instrument_id: OnlyInstrumentId,
-        data_type: OnlyMarketDataType,
-        bar_type: OnlyBarType | None = None,
-    ) -> OnlyStreamingStreamFrontier | None:
-        return next(
-            (
-                item
-                for item in self._frontiers.values()
-                if item.key.source_id == source_id
-                and item.key.instrument_id == instrument_id
-                and item.key.data_type is data_type
-                and item.key.bar_type == bar_type
-            ),
-            None,
-        )
+    def frontier(self, key: OnlyStreamingStreamKey) -> OnlyStreamingStreamFrontier | None:
+        return self._frontiers.get(key.canonical)
 
-    def accepted_sequence(self, source_id: OnlyMarketDataSourceId, data_type: OnlyMarketDataType) -> int:
-        return max(
-            (
-                item.canonical_sequence
-                for item in self._frontiers.values()
-                if item.key.source_id == source_id and item.key.data_type is data_type
-            ),
-            default=0,
-        )
+    def accepted_sequence(self, key: OnlyStreamingStreamKey) -> int:
+        frontier = self.frontier(key)
+        return 0 if frontier is None else frontier.canonical_sequence
 
     def capture_checkpoint(self) -> object:
         return {

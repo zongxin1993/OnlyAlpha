@@ -54,6 +54,8 @@ Dataset 的 ConstructionIdentity 仍是独立的 durable evidence。Bar Subscrip
 participant v3 拒绝旧格式并要求 rebuild。Compiled Graph 以 provider lane 和 derived lane 为路由 Authority，按
 topological level、lane ID 稳定顺序同步传播到 fixpoint；任一 Construction executor 失败都会令
 Manager fail-stop，且在有效 constructed Bar 进入 Cache/dispatch 前失败。
+同一 provider trigger 返回重复 BarType 也属于 executor result contract violation，由 Manager 在 transaction 内 fail-stop；
+后续调用必须先完成 Construction recovery，Pipeline 的防御检查不拥有该 transaction authority。
 
 ## 4. Cache
 
