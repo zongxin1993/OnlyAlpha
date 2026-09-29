@@ -343,6 +343,17 @@ def test_acquisition_execution_lease_is_cross_catalog_and_released(postgres_dsn:
     first = first_catalog.admit_acquisition_intent(_acquisition("BINANCE_SPOT", "1" * 64))
     second = first_catalog.admit_acquisition_intent(_acquisition("BINANCE_SPOT_TESTNET", "2" * 64))
 
+    with psycopg.connect(postgres_dsn) as connection:
+        before = connection.execute("SELECT count(*) FROM market_acquisition_execution_lock_key").fetchone()
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        observed = tuple(
+            executor.map(lambda _: first_catalog.acquisition_execution_active(first.acquisition_id), range(2))
+        )
+    with psycopg.connect(postgres_dsn) as connection:
+        after = connection.execute("SELECT count(*) FROM market_acquisition_execution_lock_key").fetchone()
+    assert observed == (False, False)
+    assert before == after
+
     owner = first_catalog.try_acquire_acquisition_execution(first.acquisition_id)
     non_owner = second_catalog.try_acquire_acquisition_execution(first.acquisition_id)
     independent = second_catalog.try_acquire_acquisition_execution(second.acquisition_id)
@@ -350,12 +361,23 @@ def test_acquisition_execution_lease_is_cross_catalog_and_released(postgres_dsn:
         assert owner.acquired
         assert not non_owner.acquired
         assert independent.acquired
-        assert second_catalog.acquisition_execution_active(first.acquisition_id)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            assert tuple(
+                executor.map(lambda _: second_catalog.acquisition_execution_active(first.acquisition_id), range(2))
+            ) == (True, True)
+        assert owner._connection is not None
+        with psycopg.connect(postgres_dsn) as connection:
+            state = connection.execute(
+                "SELECT state FROM pg_stat_activity WHERE pid=%s", (owner._connection.info.backend_pid,)
+            ).fetchone()
+        assert state == ("idle",)
         assert second_catalog.latest_acquisition_attempt(first.acquisition_id) is None
     finally:
         non_owner.close()
         independent.close()
         owner.close()
+
+    assert not second_catalog.acquisition_execution_active(first.acquisition_id)
 
     retry = second_catalog.try_acquire_acquisition_execution(first.acquisition_id)
     try:

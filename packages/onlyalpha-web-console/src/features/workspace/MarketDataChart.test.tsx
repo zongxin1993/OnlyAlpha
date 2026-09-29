@@ -408,7 +408,7 @@ it("submits multiple server-planned acquisition ranges in order", async () => {
     expect(queries).toBe(2);
 });
 
-it("observes a running acquisition before re-querying the same window", async () => {
+it("re-enters the command after owner loss and re-queries the frozen window", async () => {
     const setTimeout = window.setTimeout.bind(window);
     vi.spyOn(window, "setTimeout").mockImplementation((handler: TimerHandler, timeout?: number) => {
         if (timeout === 250 && typeof handler === "function") {
@@ -419,9 +419,12 @@ it("observes a running acquisition before re-querying the same window", async ()
     });
     const user = userEvent.setup();
     const calls: string[] = [];
+    const queries: Parameters<MarketDataApiClient["queryBars"]>[1][] = [];
+    let creates = 0;
     const client = marketDataClient({
         listInstruments: () => Promise.resolve([marketDataInstrument()]),
-        queryBars: () => {
+        queryBars: (_reference, query) => {
+            queries.push(query);
             calls.push("bars");
             return Promise.resolve(
                 calls.filter((item) => item === "bars").length === 1
@@ -430,15 +433,15 @@ it("observes a running acquisition before re-querying the same window", async ()
             );
         },
         createAcquisition: () => {
-            calls.push("create:PENDING");
-            return Promise.resolve(marketDataAcquisition({ status: "PENDING" }));
+            creates += 1;
+            calls.push(creates === 1 ? "create:RUNNING" : "create:COMPLETE");
+            return Promise.resolve(
+                marketDataAcquisition({ status: creates === 1 ? "RUNNING" : "COMPLETE" })
+            );
         },
         getAcquisition: () => {
-            const running = !calls.includes("status:RUNNING");
-            calls.push(running ? "status:RUNNING" : "status:COMPLETE");
-            return Promise.resolve(
-                marketDataAcquisition({ status: running ? "RUNNING" : "COMPLETE" })
-            );
+            calls.push("status:PENDING");
+            return Promise.resolve(marketDataAcquisition({ status: "PENDING" }));
         }
     });
     renderWorkspace(client);
@@ -449,11 +452,20 @@ it("observes a running acquisition before re-querying the same window", async ()
     await waitFor(() => {
         expect(calls).toEqual([
             "bars",
-            "create:PENDING",
-            "status:RUNNING",
-            "status:COMPLETE",
+            "create:RUNNING",
+            "status:PENDING",
+            "create:COMPLETE",
             "bars"
         ]);
+    });
+    expect(queries).toHaveLength(2);
+    const initial = queries[0];
+    if (initial === undefined) throw new Error("initial Market Data query was not recorded");
+    expect(queries[1]).toMatchObject({
+        anchor_kind: "BEFORE_TIME",
+        before_ns: incompleteBars().resolved_end_ns,
+        target_bar_count: initial.target_bar_count,
+        bar_semantic: initial.bar_semantic
     });
     expect(renderedPrices()).toEqual([101, 102.5]);
 });

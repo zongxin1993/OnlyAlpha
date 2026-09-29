@@ -14,7 +14,7 @@ from datetime import datetime, time
 from logging import Logger
 from pathlib import Path
 from types import MappingProxyType
-from typing import Protocol, cast
+from typing import Literal, Protocol, cast
 
 from onlyalpha.application.integration_configuration import OnlyIntegration, OnlyIntegrationLifecycleState
 from onlyalpha.application.integration_runtime import (
@@ -126,9 +126,10 @@ _INELIGIBLE_SOURCE_CODES = frozenset(
 
 
 class OnlyMarketDataProductError(RuntimeError):
-    def __init__(self, code: str, detail: str | None = None) -> None:
+    def __init__(self, code: str, detail: str | None = None, *, phase: Literal["QUERY", "COMMAND"] = "QUERY") -> None:
         self.code = code
         self.detail = detail or code
+        self.phase = phase
         super().__init__(f"{code}: {self.detail}")
 
 
@@ -515,7 +516,7 @@ class OnlyMarketDataProductService:
         scope = self._scope(resolved, instrument_id, window.resolved_start_ns, window.resolved_end_ns, acquisition_plan)
         family = OnlyMarketDataRangeFamily.from_scope(scope)
         try:
-            verified = self._ranges.read(family, window.provider_intervals)
+            verified = self._ranges.read(family, window.target_intervals)
             bars: tuple[OnlyMarketDataBarV1, ...] = ()
             calendar_fingerprint: str | None = None
             resume_after_sequence: str | None = None
@@ -573,9 +574,9 @@ class OnlyMarketDataProductService:
                 verified.coverage_status.value,
                 None,
                 None,
-                verified.expected_fact_count,
-                len(verified.facts),
-                (),
+                target_bar_count,
+                verified.complete_interval_count,
+                verified.issues,
                 tuple(OnlyMarketDataCoverageGapV1(item.start_ns, item.end_ns) for item in verified.gaps),
                 tuple(OnlyMarketDataCoverageGapV1(item.start_ns, item.end_ns) for item in planned),
             )
@@ -584,7 +585,6 @@ class OnlyMarketDataProductService:
         except OnlyMarketDataSealError as exc:
             code = str(exc)
             if code not in {
-                "MARKET_DATA_RANGE_FAMILY_MISMATCH",
                 "MARKET_DATA_REVISION_EVIDENCE_INVALID",
                 "MARKET_DATA_CATALOG_UNAVAILABLE",
             }:
@@ -626,6 +626,26 @@ class OnlyMarketDataProductService:
     # --- Product Command ---------------------------------------------------------------
 
     def acquire_bars(
+        self,
+        reference: OnlyMarketDataSourceReferenceV1,
+        *,
+        instrument_id: str,
+        start_ns: int,
+        end_ns: int,
+        bar_semantic: OnlyBarSemantic = BASE_BAR_SEMANTIC,
+    ) -> OnlyMarketDataAcquisitionProjectionV1:
+        try:
+            return self._acquire_bars(
+                reference,
+                instrument_id=instrument_id,
+                start_ns=start_ns,
+                end_ns=end_ns,
+                bar_semantic=bar_semantic,
+            )
+        except OnlyMarketDataProductError as exc:
+            raise OnlyMarketDataProductError(exc.code, exc.detail, phase="COMMAND") from exc
+
+    def _acquire_bars(
         self,
         reference: OnlyMarketDataSourceReferenceV1,
         *,

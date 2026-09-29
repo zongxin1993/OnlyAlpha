@@ -14,6 +14,7 @@ from typing import NamedTuple
 
 import pytest
 
+import onlyalpha.market_data.durable.range_query as range_query
 from onlyalpha.application.integration_configuration import (
     OnlyIntegration,
     OnlyIntegrationId,
@@ -66,6 +67,7 @@ from onlyalpha.market_data.durable import (
     OnlyBarCoverageGap,
     OnlyCanonicalMarketFactRecord,
     OnlyCoverageManifest,
+    OnlyCoverageStatus,
     OnlyIngestSegment,
     OnlyInMemoryMarketDataCatalog,
     OnlyInMemoryMarketFactStore,
@@ -76,6 +78,7 @@ from onlyalpha.market_data.durable import (
     OnlyMarketDataRevision,
     OnlyMarketDataScope,
     OnlyMarketDataSeal,
+    OnlyMarketDataSealError,
     only_deduplicate_facts,
 )
 from onlyalpha.market_data.durable.range_query import OnlyBarWindowAnchorKind, only_plan_acquisition_ranges
@@ -491,7 +494,7 @@ class _State:
 
 
 class _Harness(NamedTuple):
-    service: _TestMarketDataProductService
+    service: OnlyMarketDataProductService
     provider: _ProviderCalls
     catalog: OnlyInMemoryMarketDataCatalog
     factory: _FakeFactory
@@ -501,29 +504,25 @@ class _Harness(NamedTuple):
     wal_root: Path
 
 
-class _TestMarketDataProductService(OnlyMarketDataProductService):
-    """Keep older exact-range assertions focused while production exposes only windows."""
+def _query_bars(
+    service: OnlyMarketDataProductService,
+    reference: OnlyMarketDataSourceReferenceV1,
+    *,
+    instrument_id: str,
+    start_ns: int,
+    end_ns: int,
+    bar_semantic: OnlyBarSemantic = BASE_BAR_SEMANTIC,
+):
+    """Arrange an exact test range through the canonical Bar Window contract."""
 
-    def query_bars(  # type: ignore[override]
-        self,
-        reference: OnlyMarketDataSourceReferenceV1,
-        *,
-        instrument_id: str,
-        start_ns: int,
-        end_ns: int,
-        bar_semantic: OnlyBarSemantic = BASE_BAR_SEMANTIC,
-    ):
-        return super().query_bars(
-            reference,
-            instrument_id=instrument_id,
-            anchor_kind=OnlyBarWindowAnchorKind.BEFORE_TIME,
-            before_ns=end_ns,
-            target_bar_count=(end_ns - start_ns) // (bar_semantic.stride_minutes * MINUTE_NS),
-            bar_semantic=bar_semantic,
-        )
-
-    def query_window(self, *args: object, **kwargs: object):
-        return super().query_bars(*args, **kwargs)  # type: ignore[arg-type]
+    return service.query_bars(
+        reference,
+        instrument_id=instrument_id,
+        anchor_kind=OnlyBarWindowAnchorKind.BEFORE_TIME,
+        before_ns=end_ns,
+        target_bar_count=(end_ns - start_ns) // (bar_semantic.stride_minutes * MINUTE_NS),
+        bar_semantic=bar_semantic,
+    )
 
 
 def _revision(sequence: int, configuration: Mapping[str, object]) -> OnlyIntegrationRevision:
@@ -574,7 +573,7 @@ def _service(
     catalog = _FaultyCatalog(faults)
     wal_root = tmp_path / "market-data"
     return _Harness(
-        _TestMarketDataProductService(
+        OnlyMarketDataProductService(
             resolver=resolver,
             integrations=state,
             data_sources=registry,
@@ -648,11 +647,11 @@ def test_live_and_testnet_never_share_a_market_data_scope(tmp_path: Path) -> Non
     assert source_id(live) == source_id(live_timeout_changed) == "test.spot.live"
     assert source_id(testnet) == "test.spot.spot_testnet"
 
-    live_scope = harness.service.query_bars(
-        _reference(live), instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns
+    live_scope = _query_bars(
+        harness.service, _reference(live), instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns
     )
-    testnet_scope = harness.service.query_bars(
-        _reference(testnet), instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns
+    testnet_scope = _query_bars(
+        harness.service, _reference(testnet), instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns
     )
     assert live_scope.source_selection.environment == "LIVE"
     assert testnet_scope.source_selection.environment == "SPOT_TESTNET"
@@ -668,8 +667,8 @@ def test_live_and_testnet_never_share_a_market_data_scope(tmp_path: Path) -> Non
     assert not family.matches(replace(revision.scope, market="FUTURES"))
     # LIVE facts never satisfy the Testnet scope.
     assert (
-        harness.service.query_bars(
-            _reference(testnet), instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns
+        _query_bars(
+            harness.service, _reference(testnet), instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns
         ).coverage.status
         == "INCOMPLETE"
     )
@@ -731,7 +730,9 @@ def test_bars_query_is_db_first_and_never_acquires(tmp_path: Path) -> None:
     reference = _reference(harness.revision_fingerprint)
     start_ns, end_ns = _range()
 
-    projection = harness.service.query_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
+    projection = _query_bars(
+        harness.service, reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns
+    )
     assert projection.coverage.status == "INCOMPLETE"
     assert projection.bars == ()
     assert projection.revision_evidence == ()
@@ -764,7 +765,7 @@ def test_acquisition_seals_exact_revision_and_later_query_uses_database(tmp_path
     assert attempt is not None and attempt.outcome.value == "COMPLETE" and attempt.attempt_number == 1
 
     fetches_after_acquisition = harness.provider.bar_fetches
-    reloaded = harness.service.query_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
+    reloaded = _query_bars(harness.service, reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
     assert reloaded.coverage.status == "COMPLETE"
     assert len(reloaded.bars) == 2
     assert [item.revision_id for item in reloaded.revision_evidence] == [acquisition.revision_id]
@@ -834,7 +835,7 @@ def test_adjacent_revisions_compose_into_one_deterministic_window(
     assert first.status == second.status == "COMPLETE"
     fetches = harness.provider.bar_fetches
 
-    projected = harness.service.query_window(
+    projected = harness.service.query_bars(
         reference,
         instrument_id=str(INSTRUMENT),
         anchor_kind=OnlyBarWindowAnchorKind.BEFORE_TIME,
@@ -847,7 +848,7 @@ def test_adjacent_revisions_compose_into_one_deterministic_window(
         "list_current_sealed_revisions_overlapping",
         lambda *args, **kwargs: tuple(reversed(discovered(*args, **kwargs))),
     )
-    repeated = harness.service.query_window(
+    repeated = harness.service.query_bars(
         reference,
         instrument_id=str(INSTRUMENT),
         anchor_kind=OnlyBarWindowAnchorKind.BEFORE_TIME,
@@ -890,7 +891,7 @@ def test_conflicting_fact_across_revisions_fails_closed(tmp_path: Path) -> None:
     fact_store._facts[key] = conflicting
 
     with pytest.raises(OnlyMarketDataProductError) as error:
-        harness.service.query_window(
+        harness.service.query_bars(
             reference,
             instrument_id=str(INSTRUMENT),
             anchor_kind=OnlyBarWindowAnchorKind.BEFORE_TIME,
@@ -926,7 +927,7 @@ def test_complete_window_with_unprovable_provider_cursor_fails_closed(
     monkeypatch.setattr(harness.service._ranges, "read", read_without_cursor)
 
     with pytest.raises(OnlyMarketDataProductError) as error:
-        harness.service.query_window(
+        harness.service.query_bars(
             reference,
             instrument_id=str(INSTRUMENT),
             anchor_kind=OnlyBarWindowAnchorKind.BEFORE_TIME,
@@ -943,8 +944,8 @@ def test_sealed_larger_scope_can_verify_a_smaller_window_without_resealing(tmp_p
     harness.service.acquire_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
     fetches = harness.provider.bar_fetches
 
-    unsealed = harness.service.query_bars(
-        reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=start_ns + MINUTE_NS
+    unsealed = _query_bars(
+        harness.service, reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=start_ns + MINUTE_NS
     )
     assert unsealed.coverage.status == "COMPLETE"
     assert len(unsealed.bars) == 1
@@ -954,8 +955,8 @@ def test_sealed_larger_scope_can_verify_a_smaller_window_without_resealing(tmp_p
     sealed = harness.service.acquire_bars(
         reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=start_ns + MINUTE_NS
     )
-    reloaded = harness.service.query_bars(
-        reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=start_ns + MINUTE_NS
+    reloaded = _query_bars(
+        harness.service, reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=start_ns + MINUTE_NS
     )
     assert sealed.status == reloaded.coverage.status == "COMPLETE"
     assert len(reloaded.bars) == 1
@@ -970,7 +971,8 @@ def test_derived_history_uses_exact_sealed_base_revision_without_provider_fetch(
     start_ns, end_ns = _range(minutes=step)
     acquired = harness.service.acquire_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
     fetches = harness.provider.bar_fetches
-    projected = harness.service.query_bars(
+    projected = _query_bars(
+        harness.service,
         reference,
         instrument_id=str(INSTRUMENT),
         start_ns=start_ns,
@@ -994,7 +996,8 @@ def test_derived_acquisition_fetches_only_its_external_base(tmp_path: Path) -> N
     start_ns, end_ns = _range(minutes=7)
     reference = _reference(harness.revision_fingerprint)
     target = OnlyBarSemantic.fixed_duration(7)
-    before = harness.service.query_bars(
+    before = _query_bars(
+        harness.service,
         reference,
         instrument_id=str(INSTRUMENT),
         start_ns=start_ns,
@@ -1014,7 +1017,8 @@ def test_derived_acquisition_fetches_only_its_external_base(tmp_path: Path) -> N
     assert acquisition.bar_semantic.stride_minutes == 1
     assert harness.provider.bar_fetches == 1
     assert harness.provider.bar_steps == [1]
-    after = harness.service.query_bars(
+    after = _query_bars(
+        harness.service,
         reference,
         instrument_id=str(INSTRUMENT),
         start_ns=start_ns,
@@ -1041,7 +1045,7 @@ def test_derived_bar_is_aggregated_once_across_adjacent_revisions(tmp_path: Path
             == "COMPLETE"
         )
 
-    projection = harness.service.query_window(
+    projection = harness.service.query_bars(
         reference,
         instrument_id=str(INSTRUMENT),
         anchor_kind=OnlyBarWindowAnchorKind.BEFORE_TIME,
@@ -1055,11 +1059,48 @@ def test_derived_bar_is_aggregated_once_across_adjacent_revisions(tmp_path: Path
     assert Decimal(projection.bars[0].volume) == 74
 
 
+def test_semantic_invalid_interval_without_timestamp_gap_never_completes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    harness = _service(tmp_path)
+    reference = _reference(harness.revision_fingerprint)
+    start_ns, end_ns = _range(minutes=1)
+    assert (
+        harness.service.acquire_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns).status
+        == "COMPLETE"
+    )
+    build_coverage = range_query.only_build_coverage
+
+    def semantic_invalid(*args: object, **kwargs: object):
+        coverage = build_coverage(*args, **kwargs)  # type: ignore[arg-type]
+        return replace(
+            coverage,
+            coverage_status=OnlyCoverageStatus.INCOMPLETE,
+            issues=("BAR_NOT_CLOSED",),
+            gaps=(),
+        )
+
+    monkeypatch.setattr(range_query, "only_build_coverage", semantic_invalid)
+    projection = _query_bars(
+        harness.service,
+        reference,
+        instrument_id=str(INSTRUMENT),
+        start_ns=start_ns,
+        end_ns=end_ns,
+    )
+    assert projection.coverage.status == "INCOMPLETE"
+    assert projection.coverage.actual_bar_count == 0
+    assert projection.coverage.issues == ("BAR_NOT_CLOSED",)
+    assert projection.bars == ()
+    assert projection.history_projection_fingerprint is None
+    assert projection.resume_after_sequence is None
+
+
 def test_window_rejects_invalid_anchor_combination_without_acquiring(tmp_path: Path) -> None:
     harness = _service(tmp_path)
     start_ns, end_ns = _range(minutes=7)
     with pytest.raises(OnlyMarketDataProductError, match="MARKET_DATA_WINDOW_REQUEST_INVALID"):
-        harness.service.query_window(
+        harness.service.query_bars(
             _reference(harness.revision_fingerprint),
             instrument_id=str(INSTRUMENT),
             anchor_kind=OnlyBarWindowAnchorKind.LATEST_CLOSED,
@@ -1070,6 +1111,18 @@ def test_window_rejects_invalid_anchor_combination_without_acquiring(tmp_path: P
     assert harness.provider.bar_fetches == 0
     assert harness.catalog.mutations == 0
 
+    for invalid_before_ns in (0, end_ns + 60 * MINUTE_NS):
+        with pytest.raises(OnlyMarketDataProductError, match="MARKET_DATA_WINDOW_REQUEST_INVALID"):
+            harness.service.query_bars(
+                _reference(harness.revision_fingerprint),
+                instrument_id=str(INSTRUMENT),
+                anchor_kind=OnlyBarWindowAnchorKind.BEFORE_TIME,
+                before_ns=invalid_before_ns,
+                target_bar_count=1,
+            )
+    assert harness.provider.bar_fetches == 0
+    assert harness.catalog.mutations == 0
+
 
 @pytest.mark.parametrize("step,tail", ((7, 5), (37, 34)))
 def test_derived_window_plans_across_utc_sessions_without_incomplete_tails(
@@ -1077,9 +1130,9 @@ def test_derived_window_plans_across_utc_sessions_without_incomplete_tails(
 ) -> None:
     harness = _service(tmp_path)
     start_ns, _ = _range(minutes=7)
-    midnight_ns = start_ns + 86_400 * 1_000_000_000
+    midnight_ns = start_ns
     target = OnlyBarSemantic.fixed_duration(step)
-    projected = harness.service.query_window(
+    projected = harness.service.query_bars(
         _reference(harness.revision_fingerprint),
         instrument_id=str(INSTRUMENT),
         anchor_kind=OnlyBarWindowAnchorKind.BEFORE_TIME,
@@ -1096,7 +1149,7 @@ def test_derived_window_plans_across_utc_sessions_without_incomplete_tails(
 
 def test_latest_closed_window_uses_injected_clock_and_count_bound(tmp_path: Path) -> None:
     harness = _service(tmp_path)
-    projected = harness.service.query_window(
+    projected = harness.service.query_bars(
         _reference(harness.revision_fingerprint),
         instrument_id=str(INSTRUMENT),
         anchor_kind=OnlyBarWindowAnchorKind.LATEST_CLOSED,
@@ -1107,7 +1160,7 @@ def test_latest_closed_window_uses_injected_clock_and_count_bound(tmp_path: Path
     assert projected.resolved_end_ns == expected_end
     assert projected.resolved_start_ns == expected_end - 3 * MINUTE_NS
     with pytest.raises(OnlyMarketDataProductError, match="MARKET_DATA_WINDOW_REQUEST_INVALID"):
-        harness.service.query_window(
+        harness.service.query_bars(
             _reference(harness.revision_fingerprint),
             instrument_id=str(INSTRUMENT),
             anchor_kind=OnlyBarWindowAnchorKind.LATEST_CLOSED,
@@ -1120,7 +1173,8 @@ def test_native_fifteen_minute_acquisition_and_query_use_native_authority(tmp_pa
     reference = _reference(harness.revision_fingerprint)
     start_ns, end_ns = _range(minutes=60)
     specification = OnlyBarSemantic.fixed_duration(15)
-    cold = harness.service.query_bars(
+    cold = _query_bars(
+        harness.service,
         reference,
         instrument_id=str(INSTRUMENT),
         start_ns=start_ns,
@@ -1141,7 +1195,8 @@ def test_native_fifteen_minute_acquisition_and_query_use_native_authority(tmp_pa
     assert acquired.bar_semantic == specification
     assert harness.provider.bar_steps == [15]
     fetched = harness.provider.bar_fetches
-    queried = harness.service.query_bars(
+    queried = _query_bars(
+        harness.service,
         reference,
         instrument_id=str(INSTRUMENT),
         start_ns=start_ns,
@@ -1181,7 +1236,8 @@ def test_native_acquisition_failure_never_falls_back_to_sealed_base(tmp_path: Pa
         bar_semantic=specification,
     )
     assert native.status == "FAILED"
-    queried = harness.service.query_bars(
+    queried = _query_bars(
+        harness.service,
         reference,
         instrument_id=str(INSTRUMENT),
         start_ns=start_ns,
@@ -1263,7 +1319,8 @@ def test_native_fifteen_minute_stream_uses_native_cursor_and_bar_type(
             return None
 
     monkeypatch.setattr(harness.factory, "create", lambda request: _NativeSource(request, provider=harness.provider))
-    historical = harness.service.query_bars(
+    historical = _query_bars(
+        harness.service,
         reference,
         instrument_id=str(INSTRUMENT),
         start_ns=start_ns,
@@ -1322,8 +1379,8 @@ def test_acquisition_seals_complete_overlapping_bars_without_refetch(tmp_path: P
     assert shifted.revision_id is not None and shifted.revision_id != first.revision_id
     assert shifted.seal_id is not None
     assert harness.provider.bar_fetches == 1
-    bars = harness.service.query_bars(
-        reference, instrument_id=str(INSTRUMENT), start_ns=shifted_start_ns, end_ns=end_ns
+    bars = _query_bars(
+        harness.service, reference, instrument_id=str(INSTRUMENT), start_ns=shifted_start_ns, end_ns=end_ns
     )
     assert bars.coverage.status == "COMPLETE"
     assert len(bars.bars) == 1
@@ -1360,7 +1417,7 @@ def test_incomplete_gap_projection_uses_contiguous_acquisition_ranges(tmp_path: 
     )
     assert first.status == "COMPLETE"
 
-    wider = harness.service.query_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
+    wider = _query_bars(harness.service, reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
     assert wider.coverage.status == "INCOMPLETE"
     assert tuple((item.start_ns, item.end_ns) for item in wider.coverage.planned_acquisition_ranges) == (
         (start_ns + 2 * MINUTE_NS, end_ns),
@@ -1394,7 +1451,7 @@ def test_window_reports_exact_head_middle_and_tail_gaps(
         )
         assert result.status == "COMPLETE"
 
-    projection = harness.service.query_window(
+    projection = harness.service.query_bars(
         reference,
         instrument_id=str(INSTRUMENT),
         anchor_kind=OnlyBarWindowAnchorKind.BEFORE_TIME,
@@ -1402,6 +1459,8 @@ def test_window_reports_exact_head_middle_and_tail_gaps(
         target_bar_count=4,
     )
     assert projection.coverage.status == "INCOMPLETE"
+    assert projection.coverage.expected_bar_count == 4
+    assert projection.coverage.actual_bar_count == sum(end - start for start, end in covered)
     assert projection.bars == ()
     assert tuple((item.start_ns, item.end_ns) for item in projection.coverage.planned_acquisition_ranges) == (
         (start_ns + expected_gap[0] * MINUTE_NS, start_ns + expected_gap[1] * MINUTE_NS),
@@ -1431,7 +1490,8 @@ def test_unsupported_resolution_and_unbounded_acquisition_are_rejected(tmp_path:
 
     long_bar = OnlyBarSemantic.fixed_duration(720)
     with pytest.raises(OnlyMarketDataProductError) as resolution_error:
-        harness.service.query_bars(
+        _query_bars(
+            harness.service,
             reference,
             instrument_id=str(INSTRUMENT),
             start_ns=start_ns,
@@ -1442,7 +1502,8 @@ def test_unsupported_resolution_and_unbounded_acquisition_are_rejected(tmp_path:
 
     rolling = OnlyBarSemantic.fixed_duration(15, 1)
     with pytest.raises(OnlyMarketDataProductError) as rolling_error:
-        harness.service.query_bars(
+        _query_bars(
+            harness.service,
             reference,
             instrument_id=str(INSTRUMENT),
             start_ns=start_ns,
@@ -1466,7 +1527,8 @@ def test_instrument_must_belong_to_the_selected_source_venue(tmp_path: Path) -> 
     harness = _service(tmp_path)
     start_ns, end_ns = _range()
     with pytest.raises(OnlyMarketDataProductError) as error:
-        harness.service.query_bars(
+        _query_bars(
+            harness.service,
             _reference(harness.revision_fingerprint),
             instrument_id="BTCUSDT.BINANCE",
             start_ns=start_ns,
@@ -1534,8 +1596,8 @@ def test_a_new_integration_binding_is_a_distinct_legal_acquisition_for_the_same_
     # The revision is part of Construction Identity; provider facts retain their own identity.
     assert intent_a.requested_scope != intent_b.requested_scope
     assert intent_a.requested_scope.bar_construction != intent_b.requested_scope.bar_construction
-    converged = harness.service.query_bars(
-        _reference(revision_a), instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns
+    converged = _query_bars(
+        harness.service, _reference(revision_a), instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns
     )
     assert converged.coverage.status == "INCOMPLETE"
     assert converged.revision_evidence == ()
@@ -1601,8 +1663,8 @@ def test_sealed_revision_stays_canonical_when_attempt_evidence_cannot_be_persist
     assert acquisition.status == "COMPLETE"
     assert acquisition.revision_id is not None and acquisition.seal_id is not None
     assert (
-        harness.service.query_bars(
-            reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns
+        _query_bars(
+            harness.service, reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns
         ).coverage.status
         == "COMPLETE"
     )
@@ -1615,17 +1677,18 @@ def test_historical_query_fails_closed_and_never_acquires_on_database_failure(tm
 
     harness.faults.sealed_lookup = RuntimeError("postgres down")
     with pytest.raises(OnlyMarketDataProductError) as query_error:
-        harness.service.query_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
+        _query_bars(harness.service, reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
     assert query_error.value.code == "MARKET_DATA_CATALOG_UNAVAILABLE"
     with pytest.raises(OnlyMarketDataProductError) as command_error:
         harness.service.acquire_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
     assert command_error.value.code == "MARKET_DATA_CATALOG_UNAVAILABLE"
+    assert command_error.value.phase == "COMMAND"
     assert harness.provider.bar_fetches == 0
     assert harness.provider.reference_lookups == 0
 
     harness.faults.sealed_lookup = KeyError("SOMETHING_ELSE")
     with pytest.raises(OnlyMarketDataProductError) as corrupt_error:
-        harness.service.query_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
+        _query_bars(harness.service, reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
     assert corrupt_error.value.code == "MARKET_DATA_CATALOG_UNAVAILABLE"
 
 
@@ -1640,15 +1703,36 @@ def test_query_fails_closed_on_corrupt_seal_and_fact_store_outage(tmp_path: Path
 
     harness.faults.corrupt_seal = True
     with pytest.raises(OnlyMarketDataProductError) as corrupt_error:
-        harness.service.query_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
+        _query_bars(harness.service, reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
     assert corrupt_error.value.code == "MARKET_DATA_REVISION_EVIDENCE_INVALID"
 
     harness.faults.corrupt_seal = False
     harness.faults.fact_read = RuntimeError("clickhouse down")
     with pytest.raises(OnlyMarketDataProductError) as store_error:
-        harness.service.query_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
+        _query_bars(harness.service, reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
     assert store_error.value.code == "MARKET_DATA_FACT_STORE_UNAVAILABLE"
     assert harness.provider.bar_fetches == 1
+
+
+def test_query_classifies_revision_family_mismatch_as_evidence_corruption(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    harness = _service(tmp_path)
+
+    def mismatched_family(*args: object, **kwargs: object) -> None:
+        raise OnlyMarketDataSealError("MARKET_DATA_RANGE_FAMILY_MISMATCH")
+
+    monkeypatch.setattr(range_query.OnlyVerifiedMarketDataRangeQuery, "read", mismatched_family)
+    start_ns, end_ns = _range()
+    with pytest.raises(OnlyMarketDataProductError) as error:
+        _query_bars(
+            harness.service,
+            _reference(harness.revision_fingerprint),
+            instrument_id=str(INSTRUMENT),
+            start_ns=start_ns,
+            end_ns=end_ns,
+        )
+    assert error.value.code == "MARKET_DATA_REVISION_EVIDENCE_INVALID"
 
 
 def test_duplicate_market_fact_ignores_capture_provenance_but_not_market_values(tmp_path: Path) -> None:
@@ -1691,8 +1775,8 @@ def test_historical_query_is_mutation_free(tmp_path: Path) -> None:
     harness.service.list_sources()
     harness.service.list_instruments(reference, query="btc")
     assert (
-        harness.service.query_bars(
-            reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns
+        _query_bars(
+            harness.service, reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns
         ).coverage.status
         == "INCOMPLETE"
     )

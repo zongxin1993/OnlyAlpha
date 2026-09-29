@@ -61,6 +61,7 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
     let emitStalePreview: (() => void) | null = null;
     const cursors: string[] = [];
     const steps: number[] = [];
+    const historyAnchors: string[] = [];
     await page.route("**/api/v2/**", (route) => {
         const url = new URL(route.request().url());
         if (url.pathname === "/api/v2/market-data/sources")
@@ -78,11 +79,15 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
                 instruments: [instrument]
             });
         if (url.pathname === "/api/v2/market-data/bars") {
-            expect(url.searchParams.get("anchor_kind")).toBe("LATEST_CLOSED");
+            const anchor = url.searchParams.get("anchor_kind");
+            expect(anchor === "LATEST_CLOSED" || anchor === "BEFORE_TIME").toBe(true);
+            historyAnchors.push(anchor ?? "");
             expect(url.searchParams.get("target_bar_count")).toBe("1440");
             expect(url.searchParams.has("start_ns")).toBe(false);
             const start = historyStart;
             const end = historyEnd;
+            if (anchor === "BEFORE_TIME")
+                expect(url.searchParams.get("before_ns")).toBe(end.toString());
             const requested = JSON.parse(
                 url.searchParams.get("bar_semantic") ?? "null"
             ) as ReturnType<typeof semantic>;
@@ -115,8 +120,8 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
                 market: instrument.market,
                 bar_semantic: semantic(step),
                 closed_only: true,
-                anchor_kind: "LATEST_CLOSED",
-                requested_before_ns: null,
+                anchor_kind: anchor,
+                requested_before_ns: anchor === "BEFORE_TIME" ? end.toString() : null,
                 requested_bar_count: 1440,
                 resolved_start_ns: start.toString(),
                 resolved_end_ns: end.toString(),
@@ -279,6 +284,7 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
         steps,
         acquisitions: () => acquisitions,
         acquisitionSteps,
+        historyAnchors,
         releaseRecovery: () => releaseRecovery?.(),
         emitStalePreview: () => emitStalePreview?.(),
         disconnect: async () => {
@@ -319,6 +325,7 @@ test("explicit history acquisition, typed realtime and exact reconnect — CONTR
     await expect(page.getByTestId("market-data-source-tag")).toHaveText("real · DB");
     await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
     expect(fixture.acquisitions()).toBe(1);
+    expect(fixture.historyAnchors.slice(0, 2)).toEqual(["LATEST_CLOSED", "BEFORE_TIME"]);
     await expect(page.getByTestId("price-chart").locator("canvas").first()).toBeVisible();
 
     await page.getByRole("combobox", { name: "时间周期" }).selectOption("5");

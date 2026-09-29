@@ -67,6 +67,7 @@ class _Service:
         self.acquisitions: list[tuple[str, int, int, OnlyBarSemantic]] = []
         self.status_queries: list[str] = []
         self.bar_status = "COMPLETE"
+        self.partial_evidence = False
         self.acquisition_state = "COMPLETE"
         self.failure: OnlyMarketDataProductError | None = None
 
@@ -157,7 +158,7 @@ class _Service:
                     START_NS + 2 * MINUTE_NS,
                 ),
             )
-            if coverage.complete
+            if coverage.complete or self.partial_evidence
             else ()
         )
         return OnlyMarketDataBarWindowProjectionV1(
@@ -294,6 +295,14 @@ def test_bars_query_is_db_first_and_reports_gap_projection_without_bars() -> Non
     assert body["bar_semantic"] == BASE_BAR_SEMANTIC.to_dict()
     assert service.bar_queries == [(INSTRUMENT_ID, 0, 2, BASE_BAR_SEMANTIC)]
 
+    service.partial_evidence = True
+    partial = client.get(
+        "/api/v2/market-data/bars",
+        params=_selection_params(instrument_id=INSTRUMENT_ID),
+    )
+    assert partial.status_code == 200, partial.text
+    assert partial.json()["revision_evidence"][0]["revision_fingerprint"] == "d" * 64
+
     service.bar_status = "COMPLETE"
     complete = client.get(
         "/api/v2/market-data/bars",
@@ -421,6 +430,38 @@ def test_market_data_errors_map_to_explicit_http_status() -> None:
 
     service.failure = OnlyMarketDataProductError("MARKET_DATA_ACQUISITION_PROVENANCE_CONFLICT", "different binding")
     assert client.get("/api/v2/market-data/bars", params=params).status_code == 409
+
+    expected = {
+        "MARKET_DATA_WINDOW_REQUEST_INVALID": ("QUERY", 400),
+        "MARKET_DATA_RANGE_COMPOSITION_CONFLICT": ("QUERY", 409),
+        "MARKET_DATA_REVISION_EVIDENCE_INVALID": ("QUERY", 500),
+        "MARKET_DATA_CATALOG_UNAVAILABLE": ("QUERY", 503),
+        "MARKET_DATA_FACT_STORE_UNAVAILABLE": ("QUERY", 503),
+    }
+    for code, (phase, status) in expected.items():
+        service.failure = OnlyMarketDataProductError(code)
+        response = client.get("/api/v2/market-data/bars", params=params)
+        assert response.status_code == status
+        assert response.json()["error"]["phase"] == phase
+
+    service.failure = OnlyMarketDataProductError("MARKET_DATA_CATALOG_UNAVAILABLE", phase="COMMAND")
+    command = client.post(
+        "/api/v2/market-data/acquisitions",
+        json={
+            "source_reference": {
+                "integration_id": INTEGRATION_ID,
+                "integration_revision_fingerprint": REVISION_FINGERPRINT,
+                "expected_type_id": TYPE_ID,
+            },
+            "instrument_id": INSTRUMENT_ID,
+            "start_ns": START_NS_TEXT,
+            "end_ns": END_NS_TEXT,
+            "bar_semantic": BASE_BAR_SEMANTIC.to_dict(),
+            "provenance": "REST_BACKFILL",
+        },
+    )
+    assert command.status_code == 503
+    assert command.json()["error"]["phase"] == "COMMAND"
 
     service.failure = None
     invalid = client.get(

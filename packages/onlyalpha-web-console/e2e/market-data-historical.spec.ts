@@ -72,7 +72,13 @@ function coverage(range: Range, complete: boolean, planned: readonly Range[] = [
     };
 }
 
-function bars(range: Range, complete: boolean, planned: readonly Range[] = [], step = 1) {
+function bars(
+    range: Range,
+    complete: boolean,
+    planned: readonly Range[] = [],
+    step = 1,
+    anchorKind: "LATEST_CLOSED" | "BEFORE_TIME" = "LATEST_CLOSED"
+) {
     const native = nativeSteps.has(step);
     const start = BigInt(range.start_ns);
     const duration = BigInt(step) * minuteNs;
@@ -104,8 +110,8 @@ function bars(range: Range, complete: boolean, planned: readonly Range[] = [], s
         market: instrument.market,
         bar_semantic: semantic(step),
         closed_only: true,
-        anchor_kind: "LATEST_CLOSED",
-        requested_before_ns: null,
+        anchor_kind: anchorKind,
+        requested_before_ns: anchorKind === "BEFORE_TIME" ? range.end_ns : null,
         requested_bar_count: 1440,
         resolved_start_ns: range.start_ns,
         resolved_end_ns: range.end_ns,
@@ -142,6 +148,7 @@ async function controlledMarketData(page: Page, initial: FixtureMode) {
     let acquisitionCount = 0;
     const providerRequests: Range[] = [];
     const queriedSteps: number[] = [];
+    const queriedAnchors: string[] = [];
     await page.route("**/api/v2/**", async (route) => {
         const request = route.request();
         const url = new URL(request.url());
@@ -159,11 +166,19 @@ async function controlledMarketData(page: Page, initial: FixtureMode) {
             ) as ReturnType<typeof semantic>;
             const step = requested.formation.window_minutes;
             queriedSteps.push(step);
-            expect(url.searchParams.get("anchor_kind")).toBe("LATEST_CLOSED");
+            const anchor = url.searchParams.get("anchor_kind");
+            expect(anchor === "LATEST_CLOSED" || anchor === "BEFORE_TIME").toBe(true);
+            queriedAnchors.push(anchor ?? "");
             expect(url.searchParams.get("target_bar_count")).toBe("1440");
             expect(url.searchParams.has("start_ns")).toBe(false);
             const range = fixtureRange;
-            if (mode === "complete") return json(route, bars(range, true, [], step));
+            if (anchor === "BEFORE_TIME")
+                expect(url.searchParams.get("before_ns")).toBe(range.end_ns);
+            if (mode === "complete")
+                return json(
+                    route,
+                    bars(range, true, [], step, anchor as "LATEST_CLOSED" | "BEFORE_TIME")
+                );
             const planned =
                 mode === "tail"
                     ? [
@@ -216,7 +231,8 @@ async function controlledMarketData(page: Page, initial: FixtureMode) {
     return {
         acquisitionCount: () => acquisitionCount,
         providerRequests,
-        queriedSteps
+        queriedSteps,
+        queriedAnchors
     };
 }
 
@@ -249,6 +265,7 @@ test.describe("W1 historical golden path — CONTROLLED_TEST_EVIDENCE", () => {
         await expect(page.getByRole("button", { name: /指标/ })).toBeDisabled();
         await expect(page.getByRole("button", { name: /因子/ })).toBeDisabled();
         expect(fixture.acquisitionCount()).toBe(1);
+        expect(fixture.queriedAnchors.slice(0, 2)).toEqual(["LATEST_CLOSED", "BEFORE_TIME"]);
 
         await page.reload();
         await page.getByRole("combobox", { name: "数据源" }).selectOption(integrationId);

@@ -287,6 +287,7 @@ class OnlyPostgresMarketDataCatalog:
                     raise RuntimeError("POSTGRES_ACQUISITION_INTENT_NOT_FOUND")
                 if str(row["acquisition_id"]) != acquisition_id:
                     raise RuntimeError("POSTGRES_ACQUISITION_EXECUTION_LOCK_COLLISION")
+            connection.autocommit = True
             acquired = connection.execute("SELECT pg_try_advisory_lock(%s) AS acquired", (lock_key,)).fetchone()
             if acquired is None or not bool(acquired["acquired"]):
                 connection.close()
@@ -297,11 +298,18 @@ class OnlyPostgresMarketDataCatalog:
         return _PostgresAcquisitionExecutionLease(connection, lock_key)
 
     def acquisition_execution_active(self, acquisition_id: str) -> bool:
-        lease = self.try_acquire_acquisition_execution(acquisition_id)
-        try:
-            return not lease.acquired
-        finally:
-            lease.close()
+        with psycopg.connect(self._dsn) as connection:
+            row = connection.execute(
+                "SELECT EXISTS("
+                "SELECT 1 FROM market_acquisition_execution_lock_key AS mapping "
+                "JOIN pg_locks AS held ON held.locktype='advisory' AND held.granted "
+                "AND held.classid=((mapping.lock_key >> 32) & 4294967295)::oid "
+                "AND held.objid=(mapping.lock_key & 4294967295)::oid AND held.objsubid=1 "
+                "WHERE mapping.acquisition_id=%s"
+                ")",
+                (acquisition_id,),
+            ).fetchone()
+        return bool(row and row[0])
 
     def commit_coverage_manifest(self, manifest: OnlyCoverageManifest) -> None:
         with psycopg.connect(self._dsn, row_factory=dict_row) as connection:

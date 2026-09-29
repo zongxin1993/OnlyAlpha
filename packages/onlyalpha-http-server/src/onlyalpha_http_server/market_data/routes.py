@@ -36,6 +36,7 @@ _ERROR_RESPONSES: dict[int | str, dict[str, object]] = {
     400: {"model": MarketDataErrorEnvelopeDto},
     404: {"model": MarketDataErrorEnvelopeDto},
     409: {"model": MarketDataErrorEnvelopeDto},
+    500: {"model": MarketDataErrorEnvelopeDto},
     503: {"model": MarketDataErrorEnvelopeDto},
 }
 
@@ -126,8 +127,17 @@ def create_market_data_router(service: OnlyMarketDataProductService) -> APIRoute
 
 
 def market_data_error_response(error: OnlyMarketDataProductError) -> JSONResponse:
-    phase: Literal["QUERY", "COMMAND"] = "COMMAND" if error.code.startswith("MARKET_DATA_ACQUISITION") else "QUERY"
-    if error.code.endswith("NOT_FOUND"):
+    status_by_code = {
+        "MARKET_DATA_WINDOW_REQUEST_INVALID": 400,
+        "MARKET_DATA_RANGE_COMPOSITION_CONFLICT": 409,
+        "MARKET_DATA_REVISION_EVIDENCE_INVALID": 500,
+        "MARKET_DATA_CATALOG_CORRUPT": 500,
+        "MARKET_DATA_CATALOG_UNAVAILABLE": 503,
+        "MARKET_DATA_FACT_STORE_UNAVAILABLE": 503,
+    }
+    if error.code in status_by_code:
+        status = status_by_code[error.code]
+    elif error.code.endswith("NOT_FOUND"):
         status = 404
     elif error.code.endswith("_UNAVAILABLE") or error.code.endswith("_UNRESOLVED"):
         status = 503
@@ -137,7 +147,7 @@ def market_data_error_response(error: OnlyMarketDataProductError) -> JSONRespons
         status = 409
     else:
         status = 400
-    body = MarketDataErrorEnvelopeDto(error=MarketDataErrorDto(phase=phase, code=error.code, detail=error.detail))
+    body = MarketDataErrorEnvelopeDto(error=MarketDataErrorDto(phase=error.phase, code=error.code, detail=error.detail))
     return JSONResponse(status_code=status, content=body.model_dump(mode="json"))
 
 

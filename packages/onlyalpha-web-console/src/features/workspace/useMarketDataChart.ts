@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CandlestickData, UTCTimestamp } from "lightweight-charts";
-import { MarketDataWebError, type MarketDataApiClient } from "../../api/marketData/client";
+import {
+    MarketDataWebError,
+    type MarketDataApiClient,
+    type MarketDataBarsQuery
+} from "../../api/marketData/client";
 import { openMarketDataStream } from "../../api/marketData/stream";
 import type {
     MarketDataBarSemantic,
@@ -162,12 +166,7 @@ export function useMarketDataChart(): MarketDataChartState {
     const acquire = useCallback(
         async (
             active: MarketDataSourceReference,
-            query: {
-                instrument_id: string;
-                anchor_kind: "LATEST_CLOSED";
-                target_bar_count: number;
-                bar_semantic: MarketDataBarSemantic;
-            },
+            query: MarketDataBarsQuery,
             ranges: readonly { start_ns: string; end_ns: string }[],
             generation: number
         ) => {
@@ -183,14 +182,25 @@ export function useMarketDataChart(): MarketDataChartState {
                     });
                     while (
                         generation === historyGeneration.current &&
-                        (acquisition.status === "PENDING" || acquisition.status === "RUNNING")
+                        acquisition.status !== "COMPLETE"
                     ) {
-                        await new Promise((resolve) => window.setTimeout(resolve, 250));
+                        if (acquisition.status === "FAILED") break;
                         if (generation !== historyGeneration.current) return;
-                        acquisition = await client.getAcquisition(
-                            active,
-                            acquisition.acquisition_id
-                        );
+                        if (acquisition.status === "PENDING") {
+                            acquisition = await client.createAcquisition(active, {
+                                instrument_id: query.instrument_id,
+                                start_ns: range.start_ns,
+                                end_ns: range.end_ns,
+                                bar_semantic: query.bar_semantic
+                            });
+                        } else {
+                            await new Promise((resolve) => window.setTimeout(resolve, 250));
+                            if (generation !== historyGeneration.current) return;
+                            acquisition = await client.getAcquisition(
+                                active,
+                                acquisition.acquisition_id
+                            );
+                        }
                     }
                     if (generation !== historyGeneration.current) return;
                     if (acquisition.status !== "COMPLETE") {
@@ -271,7 +281,11 @@ export function useMarketDataChart(): MarketDataChartState {
                 setHistoryProjectionFingerprint(null);
                 await acquire(
                     active,
-                    query,
+                    {
+                        ...query,
+                        anchor_kind: "BEFORE_TIME",
+                        before_ns: loaded.resolved_end_ns
+                    },
                     loaded.coverage.planned_acquisition_ranges,
                     generation
                 );

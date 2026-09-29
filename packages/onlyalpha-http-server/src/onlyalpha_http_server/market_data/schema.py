@@ -344,7 +344,7 @@ class MarketDataBarWindowDto(_Dto):
         complete = self.coverage.status == "COMPLETE"
         if (
             bool(self.bars) != complete
-            or bool(self.revision_evidence) != complete
+            or (complete and not self.revision_evidence)
             or (self.history_projection_fingerprint is not None) != complete
             or (self.resume_after_sequence is not None) != complete
             or (self.resume_plan_fingerprint is not None) != complete

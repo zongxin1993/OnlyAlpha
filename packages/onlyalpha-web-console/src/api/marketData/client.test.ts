@@ -105,6 +105,34 @@ it("rejects a historical response with a different Bar Semantic", async () => {
     });
 });
 
+it("accepts incomplete history with verified partial Revision evidence", async () => {
+    const complete = marketDataBars();
+    stubFetch(
+        json({
+            ...complete,
+            coverage: {
+                ...complete.coverage,
+                status: "INCOMPLETE",
+                actual_bar_count: 1,
+                issues: ["BAR_GRID_INCOMPLETE"],
+                gaps: [{ start_ns: query.before_ns, end_ns: "1767225780000000000" }],
+                planned_acquisition_ranges: [
+                    { start_ns: query.before_ns, end_ns: "1767225780000000000" }
+                ]
+            },
+            bars: [],
+            history_projection_fingerprint: null,
+            derived_projection_fingerprint: null,
+            resume_after_sequence: null,
+            resume_plan_fingerprint: null
+        })
+    );
+
+    const partial = await new FetchMarketDataApiClient().queryBars(FIXTURE_REFERENCE, query);
+    expect(partial.coverage.status).toBe("INCOMPLETE");
+    expect(partial.revision_evidence).toEqual(complete.revision_evidence);
+});
+
 it("posts an acquisition command carrying a source reference rather than a source selection", async () => {
     const fetchMock = stubFetch(json(marketDataAcquisition()));
     const acquisition = await new FetchMarketDataApiClient().createAcquisition(

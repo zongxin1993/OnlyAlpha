@@ -115,7 +115,7 @@ export const marketDataBarsSchema = z
         const derived = value.resolution_mode === "DERIVED";
         return (
             value.bars.length > 0 === complete &&
-            value.revision_evidence.length > 0 === complete &&
+            (!complete || value.revision_evidence.length > 0) &&
             (value.history_projection_fingerprint !== null) === complete &&
             (value.resume_after_sequence !== null) === complete &&
             (value.resume_plan_fingerprint !== null) === complete &&

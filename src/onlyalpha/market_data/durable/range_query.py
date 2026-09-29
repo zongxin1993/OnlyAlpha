@@ -66,7 +66,9 @@ class OnlyVerifiedMarketDataRange:
     facts: tuple[OnlyCanonicalMarketFactRecord, ...]
     evidence: tuple[OnlyMarketDataRevisionEvidence, ...]
     gaps: tuple[OnlyBarCoverageGap, ...]
-    expected_fact_count: int
+    expected_base_fact_count: int
+    complete_interval_count: int
+    issues: tuple[str, ...]
 
 
 def only_plan_utc_24x7_bar_window(
@@ -82,6 +84,8 @@ def only_plan_utc_24x7_bar_window(
     if target_bar_count < 1 or not semantic.is_fixed_duration or not semantic.is_aligned:
         raise ValueError("MARKET_DATA_WINDOW_REQUEST_INVALID")
     if (anchor_kind is OnlyBarWindowAnchorKind.LATEST_CLOSED) != (before_ns is None):
+        raise ValueError("MARKET_DATA_WINDOW_REQUEST_INVALID")
+    if before_ns is not None and (before_ns <= 0 or before_ns > latest_closed_ns):
         raise ValueError("MARKET_DATA_WINDOW_REQUEST_INVALID")
     anchor = latest_closed_ns if before_ns is None else before_ns
     step_ns = semantic.stride_minutes * MINUTE_NS
@@ -102,6 +106,8 @@ def only_plan_utc_24x7_bar_window(
         intervals.append(OnlyBarCoverageGap(start, end))
         end = start
     ordered = tuple(reversed(intervals))
+    if ordered[0].start_ns < 0:
+        raise ValueError("MARKET_DATA_WINDOW_REQUEST_INVALID")
     merged = _merge_ranges(ordered)
     return OnlyBarWindowPlan(
         anchor_kind,
@@ -196,8 +202,11 @@ class OnlyVerifiedMarketDataRangeQuery:
         selected = only_deduplicate_facts(tuple(facts))
         ordered_segments = tuple(sorted(segments.values(), key=lambda item: (item.segment_id, item.content_hash)))
         gaps: list[OnlyBarCoverageGap] = []
-        expected = 0
+        issues: list[str] = []
+        expected_base_facts = 0
         unprovable = False
+        incomplete = False
+        complete_intervals = 0
         for interval in intervals:
             scope = OnlyMarketDataScope(
                 family.source_id,
@@ -211,16 +220,20 @@ class OnlyVerifiedMarketDataRangeQuery:
                 bar_construction=family.bar_construction,
             )
             coverage = only_build_coverage(scope, ordered_segments, selected)
-            expected += int(
+            expected_base_facts += int(
                 next(item.split("=", 1)[1] for item in coverage.proof if item.startswith("bar_grid_count="))
             )
             gaps.extend(item for item in coverage.gaps if isinstance(item, OnlyBarCoverageGap))
             unprovable = unprovable or coverage.coverage_status is OnlyCoverageStatus.UNPROVABLE
+            incomplete = incomplete or coverage.coverage_status is OnlyCoverageStatus.INCOMPLETE
+            issues.extend(coverage.issues)
+            if coverage.coverage_status is OnlyCoverageStatus.COMPLETE and not coverage.issues and not coverage.gaps:
+                complete_intervals += 1
         status = (
             OnlyCoverageStatus.UNPROVABLE
             if unprovable
             else OnlyCoverageStatus.INCOMPLETE
-            if gaps
+            if incomplete or issues or gaps
             else OnlyCoverageStatus.COMPLETE
         )
         return OnlyVerifiedMarketDataRange(
@@ -228,7 +241,9 @@ class OnlyVerifiedMarketDataRangeQuery:
             selected if status is OnlyCoverageStatus.COMPLETE else (),
             tuple(sorted(evidence, key=lambda item: (item.covered_start_ns, item.covered_end_ns, item.revision_id))),
             tuple(sorted(set(gaps), key=lambda item: (item.start_ns, item.end_ns))),
-            expected,
+            expected_base_facts,
+            complete_intervals,
+            tuple(sorted(set(issues))),
         )
 
     def _verify_revision(
@@ -241,8 +256,13 @@ class OnlyVerifiedMarketDataRangeQuery:
     ]:
         if not family.matches(revision.scope):
             raise OnlyMarketDataSealError("MARKET_DATA_RANGE_FAMILY_MISMATCH")
-        stored, seal = self._catalog.load_sealed_revision(revision.revision_id)
-        manifest = self._catalog.load_coverage_manifest(revision.manifest_id)
+        try:
+            stored, seal = self._catalog.load_sealed_revision(revision.revision_id)
+            manifest = self._catalog.load_coverage_manifest(revision.manifest_id)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise OnlyMarketDataSealError("MARKET_DATA_REVISION_EVIDENCE_INVALID") from exc
+        except Exception as exc:
+            raise OnlyMarketDataSealError("MARKET_DATA_CATALOG_UNAVAILABLE") from exc
         if (
             stored != revision
             or manifest.manifest_id != revision.manifest_id
@@ -260,7 +280,12 @@ class OnlyVerifiedMarketDataRangeQuery:
             or only_build_seal(revision, manifest, sealed_at=seal.sealed_at) != seal
         ):
             raise OnlyMarketDataSealError("MARKET_DATA_REVISION_EVIDENCE_INVALID")
-        segments = self._catalog.load_durable_segments(tuple(item[0] for item in revision.segment_refs))
+        try:
+            segments = self._catalog.load_durable_segments(tuple(item[0] for item in revision.segment_refs))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise OnlyMarketDataSealError("MARKET_DATA_REVISION_EVIDENCE_INVALID") from exc
+        except Exception as exc:
+            raise OnlyMarketDataSealError("MARKET_DATA_CATALOG_UNAVAILABLE") from exc
         if tuple((item.segment_id, item.content_hash) for item in segments) != revision.segment_refs:
             raise OnlyMarketDataSealError("MARKET_DATA_REVISION_EVIDENCE_INVALID")
         return self._exact.read_exact(revision.revision_id, revision.scope), segments, manifest, seal
