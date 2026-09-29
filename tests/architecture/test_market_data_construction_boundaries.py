@@ -39,6 +39,14 @@ def test_backtest_loads_graph_provider_inputs_and_manager_uses_registry() -> Non
     assert "load_trades(trade_request)" in streaming
     assert "OnlyTradeConstructionUpdateResult" in streaming
     assert "if item.target.semantic.is_fixed_duration" in sim
+    assert "construction_graph=construction_graph" in sim
+    assert "self._construction_graph.provider_inputs" in streaming
+    assert "OnlyTradeProcessingConsequence.CONSTRUCTION_ONLY" in streaming
+    assert "data_type is OnlyMarketDataType.TRADE" in streaming
+    assert "provider-input recovery has no confirmed frontier" in streaming
+    assert "TRADE_CONSTRUCTION_OUTPUT_BAR_TYPE_DUPLICATE" in (ROOT / "src/onlyalpha/market_data/pipeline.py").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_transport_market_data_vocabularies_match_domain() -> None:

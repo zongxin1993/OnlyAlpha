@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from onlyalpha.data.enums import OnlyMarketDataType
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId, OnlyMarketDataUpdateId
-from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate
+from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate, OnlyTradeTickUpdate
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.market import OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp
@@ -20,7 +20,7 @@ class OnlyStreamingStreamKey:
     data_version: OnlyDataVersion
     instrument_id: OnlyInstrumentId
     data_type: OnlyMarketDataType
-    bar_type: OnlyBarType
+    bar_type: OnlyBarType | None
 
     @property
     def canonical(self) -> str:
@@ -30,7 +30,7 @@ class OnlyStreamingStreamKey:
                 str(self.data_version),
                 str(self.instrument_id),
                 self.data_type.value,
-                self.bar_type.to_json(),
+                "" if self.bar_type is None else self.bar_type.to_json(),
             )
         )
 
@@ -49,7 +49,7 @@ class OnlyStreamingStreamFrontier:
 class OnlyStreamingContinuityTracker:
     """Own monotonic Streaming frontiers and bounded overlap dedup state."""
 
-    checkpoint_schema_version = 1
+    checkpoint_schema_version = 2
 
     def __init__(self, *, dedup_capacity: int = 4096) -> None:
         if dedup_capacity < 1:
@@ -61,14 +61,14 @@ class OnlyStreamingContinuityTracker:
 
     @staticmethod
     def key(update: OnlyMarketDataInboundUpdate) -> OnlyStreamingStreamKey:
-        if not isinstance(update.payload, OnlyBarUpdate):
-            raise ValueError("Streaming continuity currently requires a Bar update")
+        if not isinstance(update.payload, OnlyBarUpdate | OnlyTradeTickUpdate):
+            raise ValueError("Streaming continuity requires a Bar or Trade update")
         return OnlyStreamingStreamKey(
             update.source_id,
             update.data_version,
             update.instrument_id,
             update.data_type,
-            update.payload.bar.bar_type,
+            update.payload.bar.bar_type if isinstance(update.payload, OnlyBarUpdate) else None,
         )
 
     def contains(self, update: OnlyMarketDataInboundUpdate) -> bool:
@@ -84,16 +84,28 @@ class OnlyStreamingContinuityTracker:
         )
 
     def advance(self, update: OnlyMarketDataInboundUpdate) -> OnlyStreamingStreamFrontier:
-        if not isinstance(update.payload, OnlyBarUpdate) or not update.payload.bar.is_closed:
+        if not isinstance(update.payload, OnlyBarUpdate | OnlyTradeTickUpdate):
+            raise ValueError("Streaming continuity advances only with provider Bar or Trade facts")
+        if isinstance(update.payload, OnlyBarUpdate) and not update.payload.bar.is_closed:
             raise ValueError("Streaming continuity advances only with closed Bars")
         key = self.key(update)
         canonical = key.canonical
-        bar = update.payload.bar
-        start = OnlyTimestamp.from_datetime(bar.bar_start)
-        end = OnlyTimestamp.from_datetime(bar.bar_end)
+        start = (
+            OnlyTimestamp.from_datetime(update.payload.bar.bar_start)
+            if isinstance(update.payload, OnlyBarUpdate)
+            else update.ts_event
+        )
+        end = (
+            OnlyTimestamp.from_datetime(update.payload.bar.bar_end)
+            if isinstance(update.payload, OnlyBarUpdate)
+            else update.ts_event
+        )
         previous = self._frontiers.get(canonical)
-        if previous is not None and end.unix_nanos <= previous.last_closed_bar_end.unix_nanos:
-            raise ValueError("STREAMING_CONTINUITY_FRONTIER_NOT_MONOTONIC")
+        if previous is not None:
+            if key.data_type is OnlyMarketDataType.BAR and end.unix_nanos <= previous.last_closed_bar_end.unix_nanos:
+                raise ValueError("STREAMING_CONTINUITY_FRONTIER_NOT_MONOTONIC")
+            if key.data_type is OnlyMarketDataType.TRADE and int(update.source_sequence) <= previous.canonical_sequence:
+                raise ValueError("STREAMING_CONTINUITY_FRONTIER_NOT_MONOTONIC")
         provider = next((int(value) for name, value in update.metadata if name == "provider_sequence"), None)
         frontier = OnlyStreamingStreamFrontier(
             key,
@@ -118,7 +130,33 @@ class OnlyStreamingContinuityTracker:
 
     @property
     def last_closed_bar_end(self) -> OnlyTimestamp | None:
-        return max((item.last_closed_bar_end for item in self._frontiers.values()), default=None)
+        return max(
+            (
+                item.last_closed_bar_end
+                for item in self._frontiers.values()
+                if item.key.data_type is OnlyMarketDataType.BAR
+            ),
+            default=None,
+        )
+
+    def frontier(
+        self,
+        source_id: OnlyMarketDataSourceId,
+        instrument_id: OnlyInstrumentId,
+        data_type: OnlyMarketDataType,
+        bar_type: OnlyBarType | None = None,
+    ) -> OnlyStreamingStreamFrontier | None:
+        return next(
+            (
+                item
+                for item in self._frontiers.values()
+                if item.key.source_id == source_id
+                and item.key.instrument_id == instrument_id
+                and item.key.data_type is data_type
+                and item.key.bar_type == bar_type
+            ),
+            None,
+        )
 
     def accepted_sequence(self, source_id: OnlyMarketDataSourceId, data_type: OnlyMarketDataType) -> int:
         return max(
@@ -135,7 +173,7 @@ class OnlyStreamingContinuityTracker:
             "dedup_capacity": self._capacity,
             "frontiers": [
                 {
-                    "bar_type": item.key.bar_type.to_json(),
+                    "bar_type": None if item.key.bar_type is None else item.key.bar_type.to_json(),
                     "canonical_sequence": item.canonical_sequence,
                     "data_type": item.key.data_type.value,
                     "data_version": str(item.key.data_version),
@@ -169,7 +207,7 @@ class OnlyStreamingContinuityTracker:
                 OnlyDataVersion(str(raw["data_version"])),
                 OnlyInstrumentId.parse(str(raw["instrument_id"])),
                 OnlyMarketDataType(str(raw["data_type"])),
-                OnlyBarType.from_json(str(raw["bar_type"])),
+                None if raw["bar_type"] is None else OnlyBarType.from_json(str(raw["bar_type"])),
             )
             self._frontiers[key.canonical] = OnlyStreamingStreamFrontier(
                 key,

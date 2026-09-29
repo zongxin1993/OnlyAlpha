@@ -13,6 +13,7 @@ from typing import cast
 
 from onlyalpha.broker.inbound import OnlyBrokerInboundQueue
 from onlyalpha.broker.ports import OnlyBrokerGateway
+from onlyalpha.canonical import only_canonical_json
 from onlyalpha.config.persistence import OnlyRuntimePersistenceConfig
 from onlyalpha.core.clock import OnlyLiveClock, OnlyTimerEvent, OnlyTimerHandle, OnlyTimerId
 from onlyalpha.data.enums import OnlyDataSequenceSemantics, OnlyMarketDataProcessingStatus, OnlyMarketDataType
@@ -29,6 +30,7 @@ from onlyalpha.data.models import (
     OnlyTradeTickUpdate,
 )
 from onlyalpha.data.ports import OnlyHistoricalDataSource, OnlyMarketDataGateway
+from onlyalpha.data.processor import OnlyTradeProcessingConsequence
 from onlyalpha.data.queue import OnlyMarketDataInboundQueue
 from onlyalpha.data.warmup import (
     OnlyHistoricalValidationError,
@@ -52,6 +54,7 @@ from onlyalpha.market.session_clock import (
 )
 from onlyalpha.market_data.completed_boundary import OnlyCompletedBarBoundaryResolver
 from onlyalpha.market_data.pipeline import OnlyMarketDataUpdateResult, OnlyTradeConstructionUpdateResult
+from onlyalpha.market_data.resolution import OnlyMarketDataConstructionGraph
 from onlyalpha.market_data.watermark import OnlyHistoricalWatermark
 from onlyalpha.observation import (
     OnlyCompositeObservationSink,
@@ -111,6 +114,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         persistence_config: OnlyRuntimePersistenceConfig | None = None,
         config_fingerprint: str = "",
         subscription: OnlyMarketDataSubscriptionRequest,
+        construction_graph: OnlyMarketDataConstructionGraph,
         data_version: OnlyDataVersion,
         execution_service: OnlyExecutionService | None = None,
         broker_gateway: OnlyBrokerGateway | None = None,
@@ -151,6 +155,18 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             execution_reference_profile=execution_reference_profile,
         )
         self._bootstrap_bars = bootstrap_bars
+        self._construction_graph = construction_graph
+        reference_inputs = (
+            tuple(OnlyTradeInputType(item) for item in sorted(subscription.instrument_ids, key=str))
+            if execution_reference_profile is not None
+            else ()
+        )
+        self._recovery_provider_inputs = tuple(
+            sorted(
+                {*construction_graph.provider_inputs, *reference_inputs},
+                key=lambda item: only_canonical_json(item.to_dict()),
+            )
+        )
         self._streaming_data_version = data_version
         self._historical_compatibility_profile = historical_compatibility_profile
         self._historical_protocol_version = historical_protocol_version
@@ -209,7 +225,18 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         self._processing_results: deque[OnlyMarketDataProcessingResult] = deque(maxlen=self._processing_result_capacity)
         self._processing_result_count = 0
         self._live_finalizer = OnlyLiveBarFinalizer()
-        self._semantic_lane = OnlyStreamingSemanticLane(self._services.market_data_processor)
+        constructs_from_trade = any(isinstance(item, OnlyTradeInputType) for item in construction_graph.provider_inputs)
+        trade_consequence = (
+            OnlyTradeProcessingConsequence.CONSTRUCTION_AND_REFERENCE
+            if constructs_from_trade and execution_reference_profile is not None
+            else OnlyTradeProcessingConsequence.CONSTRUCTION_ONLY
+            if constructs_from_trade
+            else OnlyTradeProcessingConsequence.REFERENCE_ONLY
+        )
+        self._semantic_lane = OnlyStreamingSemanticLane(
+            self._services.market_data_processor,
+            trade_consequence,
+        )
         self._timer_registry = OnlyRuntimeTimerRegistry(
             OnlyRuntimeId(self.runtime_id),
             clock,
@@ -657,11 +684,17 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         records: list[OnlyMarketDataInboundUpdate] = []
         bars: list[OnlyBar] = []
         alignment = lcm(*self._warmup_alignment_steps) if self._warmup_alignment_steps else 1
-        if self._driver.subscription.bar_types:
+        provider_bar_types = tuple(
+            sorted(
+                (item for item in self._construction_graph.provider_inputs if isinstance(item, OnlyBarType)),
+                key=str,
+            )
+        )
+        if provider_bar_types:
             load_warmup = getattr(self._driver.source, "load_warmup", None)
             if not callable(load_warmup):
                 raise OnlyRuntimeError("streaming DataSource does not provide the Historical Warmup Port")
-        for bar_type in sorted(self._driver.subscription.bar_types, key=str):
+        for bar_type in provider_bar_types:
             closed_cutoff = OnlyCompletedBarBoundaryResolver().latest_completed_bar_end(
                 calendar=self._selected_calendar,
                 bar_type=bar_type,
@@ -734,7 +767,12 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             )
             for sequence, bar in enumerate(sorted(bars, key=lambda item: (item.bar_end, str(item.bar_type))), start=1)
         )
-        if OnlyMarketDataType.TRADE in self._driver.subscription.data_types:
+        trade_instruments = frozenset(
+            item.instrument_id
+            for item in self._construction_graph.provider_inputs
+            if isinstance(item, OnlyTradeInputType)
+        )
+        if trade_instruments:
             load_trades = getattr(self._driver.source, "load_trades", None)
             if not callable(load_trades):
                 raise OnlyRuntimeError("streaming DataSource does not provide historical Trade input")
@@ -745,7 +783,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             self._historical_requested_end = observed_at
             trade_request = OnlyHistoricalTradeRequest(
                 f"bootstrap-{self.runtime_id}-trades",
-                self._driver.subscription.instrument_ids,
+                trade_instruments,
                 trade_range,
                 self._streaming_data_version,
             )
@@ -756,7 +794,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 if (
                     not isinstance(update.payload, OnlyTradeTickUpdate)
                     or update.source_id != source_id
-                    or update.instrument_id not in self._driver.subscription.instrument_ids
+                    or update.instrument_id not in trade_instruments
                     or update.data_version != self._streaming_data_version
                     or not trade_start_ns <= event_ns < trade_end_ns
                 ):
@@ -791,7 +829,11 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                     source_sequence=OnlyDataSequence(replay_sequence),
                     metadata=update.metadata + (("provider_sequence", str(int(update.source_sequence))),),
                 )
-            outcome = self._semantic_lane.process(update, self._record_processing_result)
+            outcome = self._semantic_lane.process(
+                update,
+                self._record_processing_result,
+                trade_consequence=OnlyTradeProcessingConsequence.CONSTRUCTION_ONLY,
+            )
             if not outcome.started or outcome.result is None:
                 raise OnlyRuntimeError("historical warmup lost processing permission")
             result = outcome.result
@@ -908,6 +950,8 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             self._duplicate_count += 1
         if result.status is OnlyMarketDataProcessingStatus.GAP_DETECTED:
             self._sequence_gap_count += 1
+        if result.status is OnlyMarketDataProcessingStatus.APPLIED and isinstance(update.payload, OnlyTradeTickUpdate):
+            self._continuity.advance(update)
         pipeline = result.pipeline_result
         if isinstance(pipeline, OnlyMarketDataUpdateResult):
             self._closed_external_bar_count += 1
@@ -1058,10 +1102,14 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         try:
             observed = OnlyTimestamp.from_datetime(self._services.clock.now_utc())
             for frontier in self._continuity.frontiers:
-                target = OnlyCompletedBarBoundaryResolver().latest_completed_bar_end(
-                    calendar=self._selected_calendar,
-                    bar_type=frontier.key.bar_type,
-                    observed_at=observed,
+                target = (
+                    observed
+                    if frontier.key.data_type is OnlyMarketDataType.TRADE
+                    else OnlyCompletedBarBoundaryResolver().latest_completed_bar_end(
+                        calendar=self._selected_calendar,
+                        bar_type=cast(OnlyBarType, frontier.key.bar_type),
+                        observed_at=observed,
+                    )
                 )
                 plan = OnlyStreamingRecoveryPlan(
                     self._recovery_generation + 1,
@@ -1070,6 +1118,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                     frontier.key.bar_type,
                     frontier.last_closed_bar_end,
                     target,
+                    data_type=frontier.key.data_type,
                 )
                 self._recovery_generation += 1
                 batch = self._recovery_loader.load(
@@ -1244,7 +1293,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 return
             accepted_sequence = self._continuity.accepted_sequence(
                 self._driver.source.source_id,  # type: ignore[union-attr]
-                OnlyMarketDataType.BAR,
+                plan.data_type,
             )
             self._recovery_stage = OnlyStreamingRecoveryStage.LOADING_HISTORY
             batch = self._recovery_loader.load(plan, accepted_sequence)
@@ -1259,7 +1308,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                     raise AssertionError("started processing must return a result")
                 result = outcome.result
                 if result.status is not OnlyMarketDataProcessingStatus.APPLIED:
-                    raise OnlyRuntimeError(f"recovery Bar was not applied: {result.status.value}")
+                    raise OnlyRuntimeError(f"recovery provider fact was not applied: {result.status.value}")
             if not self._transition_streaming_phase(OnlyStreamingPhase.CATCH_UP):
                 return
             self._recovery_stage = OnlyStreamingRecoveryStage.RECONCILING_SUFFIX
@@ -1401,19 +1450,36 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         self._recover_stale_or_disconnect(health.data_state)
 
     def _recover_stale_or_disconnect(self, state: OnlyStreamingDataState) -> None:
-        if not self._latest_bars:
-            self._fail_streaming_recovery("stale recovery has no confirmed Bar frontier")
-            return
         if not self._transition_streaming_phase(OnlyStreamingPhase.DEGRADED):
             return
         if state is OnlyStreamingDataState.DISCONNECTED and not self._reconnect_source():
             self._fail_streaming_recovery("streaming DataSource reconnect failed")
             return
-        for _key, confirmed in sorted(self._latest_bars.items(), key=lambda item: str(item[0])):
-            target = OnlyCompletedBarBoundaryResolver().latest_completed_bar_end(
-                calendar=self._selected_calendar,
-                bar_type=confirmed.bar_type,
-                observed_at=OnlyTimestamp.from_datetime(self._services.clock.now_utc()),
+        observed = OnlyTimestamp.from_datetime(self._services.clock.now_utc())
+        for provider_input in self._recovery_provider_inputs:
+            data_type = (
+                OnlyMarketDataType.TRADE if isinstance(provider_input, OnlyTradeInputType) else OnlyMarketDataType.BAR
+            )
+            bar_type = provider_input if isinstance(provider_input, OnlyBarType) else None
+            frontier = self._continuity.frontier(
+                self._driver.source.source_id,  # type: ignore[union-attr]
+                provider_input.instrument_id,
+                data_type,
+                bar_type,
+            )
+            if frontier is None:
+                if provider_input not in self._construction_graph.provider_inputs:
+                    continue
+                self._fail_streaming_recovery("provider-input recovery has no confirmed frontier")
+                return
+            target = (
+                observed
+                if data_type is OnlyMarketDataType.TRADE
+                else OnlyCompletedBarBoundaryResolver().latest_completed_bar_end(
+                    calendar=self._selected_calendar,
+                    bar_type=cast(OnlyBarType, bar_type),
+                    observed_at=observed,
+                )
             )
             self._recovery_generation += 1
             plan = OnlyStreamingRecoveryPlan(
@@ -1421,10 +1487,11 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 OnlyStreamingRecoveryReason.DISCONNECTED
                 if state is OnlyStreamingDataState.DISCONNECTED
                 else OnlyStreamingRecoveryReason.STALE,
-                confirmed.instrument_id,
-                confirmed.bar_type,
-                OnlyTimestamp.from_datetime(confirmed.bar_end),
+                provider_input.instrument_id,
+                bar_type,
+                frontier.last_closed_bar_end,
                 target,
+                data_type=data_type,
             )
             self._recover_market_continuity(plan)
             if self.streaming_phase is OnlyStreamingPhase.FAILED:

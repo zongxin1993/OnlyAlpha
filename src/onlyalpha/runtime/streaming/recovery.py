@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from enum import StrEnum
 
+from onlyalpha.data.enums import OnlyMarketDataType
 from onlyalpha.data.models import OnlyMarketDataInboundUpdate
 from onlyalpha.domain.calendar import OnlyTradingCalendar
 from onlyalpha.domain.identifiers import OnlyInstrumentId
@@ -23,10 +24,17 @@ class OnlyStreamingRecoveryPlan:
     generation: int
     reason: OnlyStreamingRecoveryReason
     instrument_id: OnlyInstrumentId
-    bar_type: OnlyBarType
+    bar_type: OnlyBarType | None
     confirmed_bar_end: OnlyTimestamp
     recovery_target: OnlyTimestamp
     trigger_update: OnlyMarketDataInboundUpdate | None = None
+    data_type: OnlyMarketDataType = OnlyMarketDataType.BAR
+
+    def __post_init__(self) -> None:
+        if (self.data_type is OnlyMarketDataType.BAR) != (self.bar_type is not None):
+            raise ValueError("STREAMING_RECOVERY_PROVIDER_INPUT_INVALID")
+        if self.data_type not in {OnlyMarketDataType.BAR, OnlyMarketDataType.TRADE}:
+            raise ValueError("STREAMING_RECOVERY_PROVIDER_INPUT_INVALID")
 
 
 def only_expected_closed_bar_boundaries(

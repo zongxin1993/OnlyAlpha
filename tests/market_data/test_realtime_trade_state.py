@@ -17,6 +17,7 @@ from onlyalpha.data.processor import (
     OnlyMarketDataGapDetector,
     OnlyMarketDataProcessor,
     OnlyMarketDataSequenceTracker,
+    OnlyTradeProcessingConsequence,
 )
 from onlyalpha.data.registry import OnlyMarketDataSourceRegistry
 from onlyalpha.data.sources import OnlyInMemoryHistoricalDataSource
@@ -272,3 +273,90 @@ def test_trade_construction_dispatches_only_when_a_canonical_bar_closes() -> Non
     assert cluster.received[0].bar_type == target
     reference = realtime_state.capture(OnlyTimestamp.from_datetime(clock.now_utc()))
     assert reference.latest_trade(INSTRUMENT_ID) is not None
+
+
+def test_historical_trade_construction_does_not_seed_realtime_reference() -> None:
+    env = OnlyIntegrationEnvironment()
+    target = OnlyBarType(INSTRUMENT_ID, OnlyBarSemantic(OnlyTickCountBarFormation(1)))
+    source = OnlyTradeInputType(INSTRUMENT_ID)
+    edge = OnlyMarketDataConstructionEdge(
+        source,
+        target,
+        OnlyBarConstructionRecipe.derived(target.semantic, OnlyTradeSemantic(), algorithm_id="TICK_BAR"),
+    )
+
+    class TickExecutor:
+        target_bar_type = target
+
+        @staticmethod
+        def accepts(fact: object) -> bool:
+            return isinstance(fact, OnlyTradeTick)
+
+        @staticmethod
+        def process(fact: object) -> tuple[OnlyBar, ...]:
+            assert isinstance(fact, OnlyTradeTick)
+            return (replace(env.make_bar(DAY_ONE, 0, "10.00"), bar_type=target),)
+
+        @staticmethod
+        def capture_checkpoint() -> object:
+            return {}
+
+        @staticmethod
+        def restore_checkpoint(payload: object) -> None:
+            assert payload == {}
+
+    clock = OnlyVirtualClock(datetime(2026, 1, 5, 1, 31, tzinfo=UTC))
+    manager = OnlyBarAggregationManager(env.calendar, clock)
+    manager._algorithm_registry.register_factory(  # noqa: SLF001
+        "TICK_BAR", 1, "TRADE", "BAR", lambda *_: TickExecutor()
+    )
+    manager.register_graph(OnlyMarketDataConstructionGraph((source,), (edge,)))
+    cache = OnlyMarketDataCache()
+    pipeline = OnlyMarketDataPipeline(
+        OnlyEngineId("engine"),
+        OnlyRuntimeId("runtime"),
+        clock,
+        cache,
+        manager,
+        OnlyIndicatorPipeline(),
+    )
+    realtime_state = OnlyRealtimeMarketStateStore(OnlyRuntimeId("runtime"))
+    sources = OnlyMarketDataSourceRegistry()
+    source_id = OnlyMarketDataSourceId("trades")
+    sources.register(OnlyInMemoryHistoricalDataSource(source_id))
+    processor = OnlyMarketDataProcessor(
+        OnlyRuntimeId("runtime"),
+        clock,
+        {INSTRUMENT_ID},
+        sources,
+        pipeline,
+        OnlyStrategyBarDispatcher(pipeline, OnlyClockView(clock)),
+        OnlyMarketDataDeduplicator(),
+        OnlyMarketDataSequenceTracker(),
+        OnlyMarketDataGapDetector({INSTRUMENT_ID: env.calendar}),
+        OnlyMarketDataAuditStore(),
+        OnlyMarketDataEventPublisher(),
+        realtime_state=realtime_state,
+    )
+
+    historical = replace(
+        _trade(env, 100, "10.00"),
+        runtime_id=OnlyRuntimeId("runtime"),
+        source_id=source_id,
+        sequence_scope=None,
+    )
+    result = processor.process(
+        historical,
+        trade_consequence=OnlyTradeProcessingConsequence.CONSTRUCTION_ONLY,
+    )
+    assert isinstance(result.pipeline_result, OnlyTradeConstructionUpdateResult)
+    assert realtime_state.capture(OnlyTimestamp.from_datetime(clock.now_utc())).latest_trade(INSTRUMENT_ID) is None
+
+    live = replace(
+        _trade(env, 101, "10.01"),
+        runtime_id=OnlyRuntimeId("runtime"),
+        source_id=source_id,
+        sequence_scope=None,
+    )
+    processor.process(live, trade_consequence=OnlyTradeProcessingConsequence.REFERENCE_ONLY)
+    assert realtime_state.capture(OnlyTimestamp.from_datetime(clock.now_utc())).latest_trade(INSTRUMENT_ID) is not None

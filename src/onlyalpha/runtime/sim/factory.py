@@ -11,6 +11,7 @@ from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 
+from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeError
 from onlyalpha.broker.inbound import OnlyBoundedBrokerInboundQueue
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
 from onlyalpha.canonical import only_canonical_json
@@ -57,6 +58,10 @@ from onlyalpha.runtime.assembler import OnlyComponentFactoryRegistries
 from onlyalpha.runtime.broker_integration import (
     only_resolve_broker_runtime_configuration,
     only_resolve_broker_runtime_factory,
+)
+from onlyalpha.runtime.data_source_integration import (
+    only_resolve_data_source_runtime_configuration,
+    only_resolve_data_source_runtime_factory,
 )
 from onlyalpha.runtime.factory import OnlyRuntimeBuildRequest, OnlyRuntimeBuildResult
 from onlyalpha.runtime.persistence.factory import OnlyRuntimePersistenceStoreCreateRequest
@@ -188,7 +193,12 @@ class OnlySimRuntimeFactory:
             for item in sorted(requirement_plan.bar_types, key=lambda value: value.to_json()):
                 by_instrument.setdefault(item.instrument_id, item)
             instrument_ids = frozenset(item.instrument_id for item in construction_graph.provider_inputs)
-            data_factory = components.data_sources.resolve(source_common.plugin_id)
+            data_factory, data_plugin_config = only_resolve_data_source_runtime_configuration(
+                source_common,
+                components.data_sources,
+                components.integration_runtime_resolver,
+                required_source_capabilities,
+            )
             wal = OnlyMarketDataWal(
                 state_root / "market_data" / "wal",
                 capacity_bytes=_MARKET_DATA_WAL_CAPACITY_BYTES,
@@ -235,7 +245,7 @@ class OnlySimRuntimeFactory:
                 )
             data_request = OnlyDataSourceCreateRequest(
                 source_common.source_id,
-                data_factory.parse_config(source_common.extensions),
+                data_plugin_config,
                 config.runtime.runtime_type,
                 required_source_capabilities,
                 clock,
@@ -396,6 +406,7 @@ class OnlySimRuntimeFactory:
                 persistence_config=config.runtime.persistence,
                 config_fingerprint=self._fingerprint(request),
                 subscription=subscription,
+                construction_graph=construction_graph,
                 data_version=source_common.data_version,
                 bootstrap_bars=streaming.bootstrap_bars,
                 historical_compatibility_profile=streaming.historical_compatibility_profile,
@@ -503,8 +514,6 @@ class OnlySimRuntimeFactory:
                 "SIM_DATA_SOURCE_COUNT_INVALID",
                 "SIM requires exactly one enabled realtime DataSource",
             )
-        source_factory = components.data_sources.resolve(sources[0].plugin_id)
-        source_capabilities = source_factory.descriptor.capabilities
         construction_graph = (
             None
             if request.user_data_root is None or not resolve_construction
@@ -535,6 +544,13 @@ class OnlySimRuntimeFactory:
                 live_ticks=live.live_ticks,
                 live_reconnect=live.live_reconnect,
             )
+        source_factory = only_resolve_data_source_runtime_factory(
+            sources[0],
+            components.data_sources,
+            components.integration_runtime_resolver,
+            required_source_capabilities,
+        )
+        source_capabilities = source_factory.descriptor.capabilities
         if not isinstance(source_capabilities, OnlyDataSourceCapabilities):
             raise _OnlySimCompositionError(
                 "SIM_DATA_SOURCE_CAPABILITY_REQUIRED",
@@ -727,7 +743,7 @@ class OnlySimRuntimeFactory:
 
     @staticmethod
     def _failure(exc: Exception) -> OnlyRuntimeBuildResult:
-        if isinstance(exc, (_OnlySimCompositionError, OnlyPluginError)):
+        if isinstance(exc, (_OnlySimCompositionError, OnlyPluginError, OnlyIntegrationRuntimeError)):
             code = exc.code
         else:
             code = "RUNTIME_ASSEMBLY_FAILED"

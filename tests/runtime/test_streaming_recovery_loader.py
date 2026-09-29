@@ -1,10 +1,16 @@
+from datetime import timedelta
+from decimal import Decimal
+
 import pytest
 
-from onlyalpha.data.enums import OnlyMarketDataType
+from onlyalpha.data.enums import OnlyDataSequenceSemantics, OnlyMarketDataType
 from onlyalpha.data.identifiers import OnlyDataSequence, OnlyDataVersion, OnlyMarketDataSourceId, OnlyMarketDataUpdateId
-from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate
-from onlyalpha.domain.identifiers import OnlyRuntimeId
+from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate, OnlyTradeTickUpdate
+from onlyalpha.domain.enums import OnlyOrderSide
+from onlyalpha.domain.identifiers import OnlyRuntimeId, OnlyTradeId
+from onlyalpha.domain.market import OnlyTradeTick
 from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.runtime.runtime import OnlyRuntimeError
 from onlyalpha.runtime.streaming.recovery import OnlyStreamingRecoveryPlan, OnlyStreamingRecoveryReason
 from onlyalpha.runtime.streaming.recovery_loader import OnlyStreamingRecoveryLoader
@@ -20,6 +26,10 @@ class _Source:
         self.updates = updates
 
     def load_bars(self, request: object) -> tuple[OnlyMarketDataInboundUpdate, ...]:
+        del request
+        return self.updates
+
+    def load_trades(self, request: object) -> tuple[OnlyMarketDataInboundUpdate, ...]:
         del request
         return self.updates
 
@@ -98,3 +108,59 @@ def test_loader_rejects_incomplete_coverage(runtime_calendar, make_runtime_bar) 
 
     with pytest.raises(OnlyRuntimeError, match="coverage is incomplete"):
         loader.load(plan, 0)
+
+
+def test_loader_recovers_trade_suffix_by_provider_sequence(runtime_calendar, make_runtime_bar) -> None:
+    template = make_runtime_bar(0)
+    source_id = OnlyMarketDataSourceId("live")
+    version = OnlyDataVersion("v1")
+    confirmed = OnlyTimestamp.from_datetime(template.bar_end)
+
+    def update(sequence: int, seconds: int) -> OnlyMarketDataInboundUpdate:
+        timestamp = OnlyTimestamp.from_datetime(template.bar_end + timedelta(seconds=seconds))
+        trade = OnlyTradeTick(
+            template.instrument_id,
+            timestamp.to_datetime(),
+            timestamp.to_datetime(),
+            sequence,
+            str(source_id),
+            OnlyPrice(Decimal("10"), 2),
+            OnlyQuantity(Decimal("1"), 0),
+            OnlyOrderSide.BUY,
+            OnlyTradeId(f"trade-{sequence}"),
+        )
+        return OnlyMarketDataInboundUpdate(
+            OnlyMarketDataUpdateId(f"trade-{sequence}"),
+            OnlyRuntimeId("provider"),
+            source_id,
+            OnlyDataSequence(sequence),
+            version,
+            template.instrument_id,
+            OnlyMarketDataType.TRADE,
+            OnlyTradeTickUpdate(trade),
+            timestamp,
+            timestamp,
+            sequence_semantics=OnlyDataSequenceSemantics.CONTIGUOUS,
+        )
+
+    loader = OnlyStreamingRecoveryLoader(
+        source=_Source((update(12, 2), update(11, 1))),  # type: ignore[arg-type]
+        calendar=runtime_calendar,
+        data_version=version,
+        runtime_id=OnlyRuntimeId("runtime"),
+        source_id=source_id,
+    )
+    plan = OnlyStreamingRecoveryPlan(
+        2,
+        OnlyStreamingRecoveryReason.DISCONNECTED,
+        template.instrument_id,
+        None,
+        confirmed,
+        OnlyTimestamp.from_datetime(template.bar_end + timedelta(seconds=3)),
+        data_type=OnlyMarketDataType.TRADE,
+    )
+
+    batch = loader.load(plan, 10)
+
+    assert tuple(int(item.source_sequence) for item in batch.updates) == (11, 12)
+    assert all(item.runtime_id == OnlyRuntimeId("runtime") for item in batch.updates)

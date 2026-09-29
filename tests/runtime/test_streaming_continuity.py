@@ -1,12 +1,16 @@
 from dataclasses import replace
+from decimal import Decimal
 
 import pytest
 
-from onlyalpha.data.enums import OnlyMarketDataType
+from onlyalpha.data.enums import OnlyDataSequenceSemantics, OnlyMarketDataType
 from onlyalpha.data.identifiers import OnlyDataSequence, OnlyDataVersion, OnlyMarketDataSourceId, OnlyMarketDataUpdateId
-from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate
-from onlyalpha.domain.identifiers import OnlyRuntimeId
+from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate, OnlyTradeTickUpdate
+from onlyalpha.domain.enums import OnlyOrderSide
+from onlyalpha.domain.identifiers import OnlyRuntimeId, OnlyTradeId
+from onlyalpha.domain.market import OnlyTradeTick
 from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.runtime.streaming.continuity import OnlyStreamingContinuityTracker
 
 pytestmark = [pytest.mark.unit, pytest.mark.sim_recovery]
@@ -58,3 +62,49 @@ def test_continuity_checkpoint_round_trip_excludes_partial_bar(make_runtime_bar)
     assert restored.frontiers == original.frontiers
     assert restored.capture_checkpoint() == original.capture_checkpoint()
     assert "pending" not in str(original.capture_checkpoint()).lower()
+
+
+def test_trade_frontier_is_sequence_owned_and_checkpointed(make_runtime_bar) -> None:
+    tracker = OnlyStreamingContinuityTracker()
+    template = make_runtime_bar(0)
+    later = OnlyTimestamp.from_datetime(template.bar_end)
+
+    def trade_update(sequence: int, timestamp: OnlyTimestamp) -> OnlyMarketDataInboundUpdate:
+        trade = OnlyTradeTick(
+            template.instrument_id,
+            timestamp.to_datetime(),
+            timestamp.to_datetime(),
+            sequence,
+            "source",
+            OnlyPrice(Decimal("10"), 2),
+            OnlyQuantity(Decimal("1"), 0),
+            OnlyOrderSide.BUY,
+            OnlyTradeId(f"trade-{sequence}"),
+        )
+        return OnlyMarketDataInboundUpdate(
+            OnlyMarketDataUpdateId(f"trade-update-{sequence}"),
+            OnlyRuntimeId("runtime"),
+            OnlyMarketDataSourceId("source"),
+            OnlyDataSequence(sequence),
+            OnlyDataVersion("version"),
+            template.instrument_id,
+            OnlyMarketDataType.TRADE,
+            OnlyTradeTickUpdate(trade),
+            timestamp,
+            timestamp,
+            sequence_semantics=OnlyDataSequenceSemantics.CONTIGUOUS,
+        )
+
+    tracker.advance(trade_update(10, later))
+    earlier = OnlyTimestamp.from_unix_nanos(later.unix_nanos - 1_000_000_000)
+    tracker.advance(trade_update(11, earlier))
+    frontier = tracker.frontier(
+        OnlyMarketDataSourceId("source"),
+        template.instrument_id,
+        OnlyMarketDataType.TRADE,
+    )
+    assert frontier is not None and frontier.canonical_sequence == 11
+
+    restored = OnlyStreamingContinuityTracker()
+    restored.restore_checkpoint(tracker.capture_checkpoint())
+    assert restored.frontiers == tracker.frontiers

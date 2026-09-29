@@ -3,6 +3,7 @@
 from dataclasses import dataclass, replace
 from datetime import timedelta
 
+from onlyalpha.data.enums import OnlyDataSequenceSemantics, OnlyMarketDataType
 from onlyalpha.data.identifiers import (
     OnlyDataSequence,
     OnlyDataSequenceScope,
@@ -13,7 +14,9 @@ from onlyalpha.data.models import (
     OnlyBarUpdate,
     OnlyHistoricalBarRequest,
     OnlyHistoricalDataRange,
+    OnlyHistoricalTradeRequest,
     OnlyMarketDataInboundUpdate,
+    OnlyTradeTickUpdate,
 )
 from onlyalpha.data.ports import OnlyHistoricalDataSource
 from onlyalpha.domain.calendar import OnlyTradingCalendar
@@ -49,6 +52,10 @@ class OnlyStreamingRecoveryLoader:
         self._source_id = source_id
 
     def load(self, plan: OnlyStreamingRecoveryPlan, accepted_sequence: int) -> OnlyStreamingRecoveryBatch:
+        if plan.data_type is OnlyMarketDataType.TRADE:
+            return self._load_trades(plan, accepted_sequence)
+        if plan.bar_type is None:
+            raise OnlyRuntimeError("Bar recovery requires a provider BarType")
         expected = only_expected_closed_bar_boundaries(
             calendar=self._calendar,
             bar_type=plan.bar_type,
@@ -111,3 +118,61 @@ class OnlyStreamingRecoveryLoader:
             for offset, boundary in enumerate(expected, start=1)
         )
         return OnlyStreamingRecoveryBatch(plan, updates)
+
+    def _load_trades(
+        self,
+        plan: OnlyStreamingRecoveryPlan,
+        accepted_sequence: int,
+    ) -> OnlyStreamingRecoveryBatch:
+        request = OnlyHistoricalTradeRequest(
+            f"recovery-{self._runtime_id}-{plan.generation}",
+            frozenset({plan.instrument_id}),
+            OnlyHistoricalDataRange(
+                plan.recovery_target.to_datetime() - timedelta(days=10),
+                plan.recovery_target.to_datetime() + timedelta(microseconds=1),
+            ),
+            self._data_version,
+        )
+        candidates = []
+        for candidate in self._source.load_trades(request):
+            if (
+                not isinstance(candidate.payload, OnlyTradeTickUpdate)
+                or candidate.source_id != self._source_id
+                or candidate.instrument_id != plan.instrument_id
+                or candidate.data_version != self._data_version
+            ):
+                raise OnlyRuntimeError("historical Trade recovery identity mismatch")
+            if candidate.ts_event.unix_nanos > plan.recovery_target.unix_nanos:
+                continue
+            if int(candidate.source_sequence) <= accepted_sequence:
+                continue
+            candidates.append(candidate)
+        ordered = sorted(
+            candidates,
+            key=lambda item: (int(item.source_sequence), item.ts_event.unix_nanos, str(item.update_id)),
+        )
+        if len({item.update_id for item in ordered}) != len(ordered):
+            raise OnlyRuntimeError("historical Trade recovery returned duplicate provider facts")
+        expected = accepted_sequence
+        for candidate in ordered:
+            if candidate.sequence_semantics is OnlyDataSequenceSemantics.CONTIGUOUS:
+                expected += 1
+                if int(candidate.source_sequence) != expected:
+                    raise OnlyRuntimeError("historical Trade recovery sequence is incomplete")
+            else:
+                expected = int(candidate.source_sequence)
+        return OnlyStreamingRecoveryBatch(
+            plan,
+            tuple(
+                replace(
+                    candidate,
+                    runtime_id=self._runtime_id,
+                    metadata=candidate.metadata
+                    + (
+                        ("recovery_generation", str(plan.generation)),
+                        ("recovery_source", "historical"),
+                    ),
+                )
+                for candidate in ordered
+            ),
+        )

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from datetime import timedelta
+from enum import StrEnum
 
 from onlyalpha.core.clock import OnlyClock
 from onlyalpha.data.audit import OnlyMarketDataAuditRecord, OnlyMarketDataAuditStore, OnlyMarketDataEventPublisher
@@ -39,6 +40,22 @@ from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.market_data.dispatcher import OnlyBarDispatchResult, OnlyStrategyBarDispatcher
 from onlyalpha.market_data.pipeline import OnlyDispatchReadyMarketDataResult, OnlyMarketDataPipeline
 from onlyalpha.market_data.realtime_state import OnlyRealtimeMarketStateStore
+
+
+class OnlyTradeProcessingConsequence(StrEnum):
+    """Authorized consequences after one canonical Trade admission."""
+
+    CONSTRUCTION_ONLY = "CONSTRUCTION_ONLY"
+    REFERENCE_ONLY = "REFERENCE_ONLY"
+    CONSTRUCTION_AND_REFERENCE = "CONSTRUCTION_AND_REFERENCE"
+
+    @property
+    def constructs_bars(self) -> bool:
+        return self is not OnlyTradeProcessingConsequence.REFERENCE_ONLY
+
+    @property
+    def projects_reference(self) -> bool:
+        return self is not OnlyTradeProcessingConsequence.CONSTRUCTION_ONLY
 
 
 class OnlyMarketDataDeduplicator:
@@ -268,7 +285,12 @@ class OnlyMarketDataProcessor:
             raise ValueError("MarketData processor checkpoint must be an object")
         self._sequence = int(payload["processing_sequence"])
 
-    def process(self, update: OnlyMarketDataInboundUpdate) -> OnlyMarketDataProcessingResult:
+    def process(
+        self,
+        update: OnlyMarketDataInboundUpdate,
+        *,
+        trade_consequence: OnlyTradeProcessingConsequence = OnlyTradeProcessingConsequence.CONSTRUCTION_AND_REFERENCE,
+    ) -> OnlyMarketDataProcessingResult:
         self._sequence += 1
         validation = self._validate(update)
         if not validation.valid:
@@ -311,11 +333,15 @@ class OnlyMarketDataProcessor:
                 quality_strings = tuple(
                     sorted(item.value for item in quality.flags if item is not OnlyMarketDataQualityFlag.VALID)
                 )
-                trade_result = self._pipeline.process_trade(
-                    update.payload.trade,
-                    input_quality_flags=quality_strings,
+                trade_result = (
+                    self._pipeline.process_trade(
+                        update.payload.trade,
+                        input_quality_flags=quality_strings,
+                    )
+                    if trade_consequence.constructs_bars
+                    else None
                 )
-                if self._realtime_state is not None:
+                if trade_consequence.projects_reference and self._realtime_state is not None:
                     self._realtime_state.apply_trade(update, quality, self._sequence)
                 if trade_result is None:
                     return self._finish(update, OnlyMarketDataProcessingStatus.APPLIED, quality, validation)

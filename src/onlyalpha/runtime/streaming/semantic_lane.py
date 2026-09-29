@@ -8,7 +8,7 @@ from threading import RLock
 from typing import TypeVar
 
 from onlyalpha.data.models import OnlyMarketDataInboundUpdate, OnlyMarketDataProcessingResult
-from onlyalpha.data.processor import OnlyMarketDataProcessor
+from onlyalpha.data.processor import OnlyMarketDataProcessor, OnlyTradeProcessingConsequence
 
 T = TypeVar("T")
 
@@ -34,8 +34,13 @@ OnlyStreamingProcessingCommit = Callable[
 class OnlyStreamingSemanticLane:
     """Own permission to complete exactly one mutation action before another starts."""
 
-    def __init__(self, processor: OnlyMarketDataProcessor) -> None:
+    def __init__(
+        self,
+        processor: OnlyMarketDataProcessor,
+        trade_consequence: OnlyTradeProcessingConsequence | None = None,
+    ) -> None:
         self._processor = processor
+        self._trade_consequence = trade_consequence
         self._permission = RLock()
         self._revoked = False
 
@@ -49,9 +54,13 @@ class OnlyStreamingSemanticLane:
         self,
         update: OnlyMarketDataInboundUpdate,
         commit_result: OnlyStreamingProcessingCommit,
+        *,
+        trade_consequence: OnlyTradeProcessingConsequence | None = None,
     ) -> OnlyStreamingSemanticOutcome[OnlyMarketDataProcessingResult]:
         def action() -> OnlyMarketDataProcessingResult:
-            result = self._processor.process(update)
+            selected = trade_consequence or self._trade_consequence
+            process_kwargs = {} if selected is None else {"trade_consequence": selected}
+            result = self._processor.process(update, **process_kwargs)
             commit_result(update, result)
             return result
 

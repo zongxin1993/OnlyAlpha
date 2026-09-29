@@ -794,6 +794,43 @@ def test_engine_sim_virtual_broker_executes_accepted_then_next_bar_trade(
     )
 
 
+def test_bar_root_bootstrap_ignores_independent_live_trade_subscription(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from onlyalpha.data.enums import OnlyMarketDataRequestStatus
+    from onlyalpha.data.models import OnlyMarketDataSubscriptionResult
+
+    engine, _, _, _ = _engine(tmp_path, monkeypatch, engine_id="sim-bar-root-live-trade")
+    engine.initialize()
+    runtime = cast(OnlySimRuntime, engine.runtimes[0])
+    source = cast(OnlyMiniQmtDataSource, runtime._driver.source)  # type: ignore[attr-defined]
+    runtime._driver.subscription = replace(  # type: ignore[attr-defined]
+        runtime.streaming_subscription,
+        data_types=frozenset({OnlyMarketDataType.BAR, OnlyMarketDataType.TRADE}),
+    )
+
+    def reject_historical_trade(*_args: object) -> object:
+        raise AssertionError("live Trade authority must not authorize historical Trade bootstrap")
+
+    monkeypatch.setattr(source, "load_trades", reject_historical_trade, raising=False)
+    monkeypatch.setattr(
+        source,
+        "subscribe",
+        lambda _request: OnlyMarketDataSubscriptionResult(OnlyMarketDataRequestStatus.ACCEPTED, "bar-trade"),
+    )
+    monkeypatch.setattr(source, "unsubscribe", lambda _request: None)
+    try:
+        engine.start()
+        assert runtime.state is OnlyRuntimeState.RUNNING
+        assert runtime.streaming_subscription.data_types == frozenset(
+            {OnlyMarketDataType.BAR, OnlyMarketDataType.TRADE}
+        )
+        assert runtime.historical_watermarks
+    finally:
+        engine.stop()
+
+
 def test_engine_sim_stop_is_not_a_broker_trading_command(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -63,6 +63,12 @@ Backtest 只要求 construction 需要的 historical BAR/TICK capability；SIM h
 construction，live capability 才与显式 Execution/Risk TRADE reference requirement 求并集。两种 Authority 和 identity 保持独立。
 尚未实现 Level 2、分布式服务、自动主备或复杂公司行动。
 
+Streaming 生命周期保持四条显式 lane：Historical Construction 只从 Construction Graph 的 provider BAR/TRADE root
+重建 Strategy Bar 状态；Realtime Construction 让实时 provider root 经 Processor 继续 Construction；Execution/Risk Reference
+只允许实时 TRADE 更新 operational projection；Recovery 组合 provider-input frontier 与 Construction checkpoint 后，经同一
+Processor 重放。实时 reference requirement 不授权 historical Trade bootstrap。derived Tick/Volume/Value Bar 不是 provider
+continuity frontier；其恢复 cursor 属于 provider Trade identity/sequence，pending construction state 属于 executor checkpoint。
+
 ## 规范 Market Source identity
 
 DataSource 实现通过 `OnlyDataSourceMarketIdentityV1` 声明 canonical Market Source identity（`provider/venue`、

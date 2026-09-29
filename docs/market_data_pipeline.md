@@ -95,6 +95,12 @@ Unix 纳秒，Bar 保存 Decimal/UTC/强类型 Domain DTO。相同序列在新 R
 主 Bar、updated types、调用次数与调用时刻一致。Backtest、Sim 与 future Live 共用同一 prepare/dispatch 语义。当前
 Backtest 已装配完整同步路径，SIM 已装配 realtime/streaming path。
 
+历史 Trade bootstrap 与正常实时 Trade 共享 Processor 的 scope/source/instrument/lookahead/dedup/sequence/gap/quality admission，
+但 consequence authority 显式分离：bootstrap 只进入 Construction，不更新 realtime execution-reference projection；正常实时
+Trade 按 Runtime 已组合的 Construction/Reference requirement 执行 construction-only、reference-only 或二者。一个
+Trade-trigger transaction 若产生重复 BarType，会在 Cache、Indicator、Snapshot 与 dispatch 前 fail closed，避免映射覆盖造成
+静默丢失。
+
 ## 10. 已知限制
 
 - 支持 provider-native 1m TIME Bar 到同标的、同价格类型、derived N>1 分钟 TIME Bar；产品层仍须独立限制请求范围。

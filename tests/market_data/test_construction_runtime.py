@@ -223,6 +223,56 @@ def test_trade_construction_failure_exposes_no_partial_cache(shanghai_calendar, 
         manager.process(trade)
 
 
+def test_duplicate_trade_construction_output_type_fails_before_cache_commit(
+    shanghai_calendar, bar_1m, make_bar
+) -> None:
+    source = OnlyTradeInputType(bar_1m.instrument_id)
+    target = OnlyBarType(bar_1m.instrument_id, OnlyBarSemantic(OnlyTickCountBarFormation(1)))
+    edge = OnlyMarketDataConstructionEdge(
+        source,
+        target,
+        OnlyBarConstructionRecipe.derived(target.semantic, OnlyTradeSemantic(), algorithm_id="DUPLICATE"),
+    )
+
+    class DuplicateExecutor(_Executor):
+        def process(self, fact):
+            del fact
+            bar = replace(make_bar(0), bar_type=target)
+            return bar, bar
+
+    registry = OnlyBarConstructionAlgorithmRegistry()
+    registry.register_factory("DUPLICATE", 1, "TRADE", "BAR", lambda item, *_: DuplicateExecutor(item))
+    cache = OnlyMarketDataCache()
+    pipeline = OnlyMarketDataPipeline(
+        OnlyEngineId("engine"),
+        OnlyRuntimeId("runtime"),
+        OnlyVirtualClock(datetime(2026, 1, 5, 7, 0, tzinfo=UTC)),
+        cache,
+        _manager(
+            shanghai_calendar,
+            OnlyMarketDataConstructionGraph((source,), (edge,)),
+            registry=registry,
+        ),
+        OnlyIndicatorPipeline(),
+    )
+    now = datetime(2026, 1, 5, 1, 30, tzinfo=UTC)
+    trade = OnlyTradeTick(
+        bar_1m.instrument_id,
+        now,
+        now,
+        1,
+        "TEST",
+        OnlyPrice(Decimal("10"), 2),
+        OnlyQuantity(Decimal("1"), 0),
+        OnlyOrderSide.BUY,
+        OnlyTradeId("trade-duplicate-output"),
+    )
+
+    with pytest.raises(OnlyMarketDataPipelineError, match="TRADE_CONSTRUCTION_OUTPUT_BAR_TYPE_DUPLICATE"):
+        pipeline.process_trade(trade)
+    assert cache.latest_all() == {}
+
+
 def test_checkpoint_restart_equals_uninterrupted(shanghai_calendar, bar_1m, bar_5m, bar_15m, make_bar) -> None:
     graph = _dag(bar_1m, bar_5m, bar_15m)
     uninterrupted = _manager(shanghai_calendar, graph)

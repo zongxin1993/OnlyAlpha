@@ -273,6 +273,8 @@ class OnlyMarketDataPipeline:
                 return None
             for bar in constructed:
                 self._validate_constructed(bar)
+            if len({bar.bar_type for bar in constructed}) != len(constructed):
+                raise OnlyMarketDataPipelineError("TRADE_CONSTRUCTION_OUTPUT_BAR_TYPE_DUPLICATE")
             updated = {bar.bar_type: bar for bar in constructed}
             anchor = max(constructed, key=lambda item: (item.bar_end, only_bar_type_id(item.bar_type)))
             facts = [

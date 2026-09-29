@@ -82,6 +82,14 @@ def test_runtime_factories_use_the_exact_broker_integration_resolution_boundary(
         assert "only_resolve_broker_runtime_configuration(" in source
 
 
+def test_sim_uses_exact_data_source_integration_resolution_boundary() -> None:
+    source = (ROOT / "src/onlyalpha/runtime/sim/factory.py").read_text(encoding="utf-8")
+
+    assert "only_resolve_data_source_runtime_factory(" in source
+    assert "only_resolve_data_source_runtime_configuration(" in source
+    assert "components.data_sources.resolve(source_common.plugin_id)" not in source
+
+
 def test_broker_probe_has_no_order_mutation_call_surface() -> None:
     tree = ast.parse(BINANCE_BROKER_FACTORY.read_text(encoding="utf-8"), filename=str(BINANCE_BROKER_FACTORY))
     probe = next(

@@ -6,14 +6,27 @@ from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 from threading import Event
+from types import MappingProxyType
 from typing import Any, cast
 
 import pytest
 
-from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeError
+from onlyalpha.application.integration_configuration import OnlyIntegrationId
+from onlyalpha.application.integration_runtime import (
+    OnlyIntegrationRuntimeBindingV1,
+    OnlyIntegrationRuntimeError,
+    OnlyResolvedIntegrationRuntimeConfiguration,
+    OnlyResolvedIntegrationSecrets,
+)
 from onlyalpha.cluster.factory import only_strategy_market_data_graph
 from onlyalpha.config import OnlyClusterRunConfig, OnlyStrategyReferenceConfig
 from onlyalpha.config.document import OnlyClusterConfigError
+from onlyalpha.config.models import OnlyRuntimeConfigurationMode
+from onlyalpha.config.persistence import (
+    OnlyRuntimeCheckpointConfig,
+    OnlyRuntimePersistenceBackend,
+    OnlyRuntimePersistenceConfig,
+)
 from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyOrderSide, OnlySessionType
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyEngineId
 from onlyalpha.domain.market import (
@@ -26,9 +39,20 @@ from onlyalpha.domain.market import (
 from onlyalpha.domain.value import OnlyCurrency, OnlyPrice, OnlyQuantity
 from onlyalpha.market_data.resolution import OnlyBarConstructionRecipe, OnlyBarConstructionRequirement
 from onlyalpha.plugin.broker import OnlyBrokerGatewayFactory
-from onlyalpha.plugin.capabilities import OnlyBrokerPluginCapabilities, OnlyDataSourceCapabilities
+from onlyalpha.plugin.capabilities import (
+    OnlyBrokerPluginCapabilities,
+    OnlyCheckpointCapability,
+    OnlyDataSourceCapabilities,
+)
 from onlyalpha.plugin.data_source import OnlyDataSourceFactory
 from onlyalpha.plugin.descriptor import OnlyPluginDescriptor, OnlyPluginOrigin, OnlyPluginOriginType, OnlyPluginType
+from onlyalpha.plugin.integration import (
+    OnlyIntegrationCategory,
+    OnlyIntegrationConfigurationContractV1,
+    OnlyIntegrationTypeDescriptorV1,
+    OnlyIntegrationTypeId,
+    only_integration_capability_ids,
+)
 from onlyalpha.plugin.version import ONLYALPHA_PLUGIN_API_VERSION
 from onlyalpha.runtime.backtest.factory import OnlyBacktestRuntimeFactory
 from onlyalpha.runtime.defaults import only_default_engine_services
@@ -163,12 +187,14 @@ class _TickCountExecutor:
         )
 
     def capture_checkpoint(self) -> object:
-        return {"pending_trade_ids": [str(item.trade_id) for item in self._trades]}
+        return {"pending_trades": [item.to_dict() for item in self._trades]}
 
     def restore_checkpoint(self, payload: object) -> None:
-        if not isinstance(payload, dict) or payload.get("pending_trade_ids"):
-            raise ValueError("test executor restores only closed boundaries")
-        self._trades = []
+        from onlyalpha.domain.market import OnlyTradeTick
+
+        if not isinstance(payload, dict) or not isinstance(payload.get("pending_trades"), list):
+            raise ValueError("invalid test executor checkpoint")
+        self._trades = [OnlyTradeTick.from_dict(item) for item in payload["pending_trades"]]
 
 
 class _TradeDataSource:
@@ -180,16 +206,31 @@ class _TradeDataSource:
         self.plugin_resource_id = f"{descriptor.plugin_id}:{request.source_id}"
         self.source_id = request.source_id
         self.state = OnlyPluginLifecycleState.CREATED
+        self.recovery_updates = ()
+        self.load_bar_calls = 0
+        self.load_trade_calls = []
+        self._connected = False
 
     def initialize(self) -> None:
         from onlyalpha.plugin.lifecycle import OnlyPluginLifecycleState
 
         self.state = OnlyPluginLifecycleState.INITIALIZED
 
-    def connect(self) -> None:
+    def connect(self):  # type: ignore[no-untyped-def]
+        from onlyalpha.data.enums import OnlyMarketDataConnectionState, OnlyMarketDataRequestStatus
+        from onlyalpha.data.identifiers import OnlyMarketDataGatewayId
+        from onlyalpha.data.models import OnlyMarketDataConnectionResult, OnlyMarketDataConnectionSnapshot
         from onlyalpha.plugin.lifecycle import OnlyPluginLifecycleState
 
         self.state = OnlyPluginLifecycleState.CONNECTED
+        self._connected = True
+        return OnlyMarketDataConnectionResult(
+            OnlyMarketDataRequestStatus.ACCEPTED,
+            OnlyMarketDataConnectionSnapshot(
+                OnlyMarketDataGatewayId(f"gateway-{self.source_id}"),
+                OnlyMarketDataConnectionState.CONNECTED,
+            ),
+        )
 
     def start(self) -> None:
         from onlyalpha.plugin.lifecycle import OnlyPluginLifecycleState
@@ -200,18 +241,24 @@ class _TradeDataSource:
         from onlyalpha.plugin.lifecycle import OnlyPluginLifecycleState
 
         self.state = OnlyPluginLifecycleState.STOPPED
+        self._connected = False
 
     def close(self) -> None:
         from onlyalpha.plugin.lifecycle import OnlyPluginLifecycleState
 
         self.state = OnlyPluginLifecycleState.STOPPED
+        self._connected = False
 
     def load_bars(self, request):  # type: ignore[no-untyped-def]
+        self.load_bar_calls += 1
         raise AssertionError(f"Trade-root Runtime requested provider Bars: {request}")
 
     def load_trades(self, request):  # type: ignore[no-untyped-def]
         from onlyalpha.data.models import OnlyHistoricalDataStream
 
+        self.load_trade_calls.append(request)
+        if request.request_id.startswith("recovery-"):
+            return OnlyHistoricalDataStream(self.recovery_updates, request.batch_size)
         end = request.data_range.end_time
         return OnlyHistoricalDataStream(self._updates(end - timedelta(seconds=4), 1), request.batch_size)
 
@@ -225,8 +272,35 @@ class _TradeDataSource:
 
         return OnlyHistoricalDataStream((), request.batch_size)
 
-    def authenticate(self) -> None:
-        pass
+    def authenticate(self):  # type: ignore[no-untyped-def]
+        from onlyalpha.data.enums import OnlyMarketDataConnectionState, OnlyMarketDataRequestStatus
+        from onlyalpha.data.identifiers import OnlyMarketDataGatewayId
+        from onlyalpha.data.models import OnlyMarketDataConnectionResult, OnlyMarketDataConnectionSnapshot
+
+        return OnlyMarketDataConnectionResult(
+            OnlyMarketDataRequestStatus.ACCEPTED,
+            OnlyMarketDataConnectionSnapshot(
+                OnlyMarketDataGatewayId(f"gateway-{self.source_id}"),
+                OnlyMarketDataConnectionState.READY,
+            ),
+        )
+
+    def disconnect(self):  # type: ignore[no-untyped-def]
+        from onlyalpha.data.enums import OnlyMarketDataRequestStatus
+        from onlyalpha.data.models import OnlyMarketDataConnectionResult
+
+        self._connected = False
+        return OnlyMarketDataConnectionResult(OnlyMarketDataRequestStatus.ACCEPTED, self.connection_snapshot())
+
+    def connection_snapshot(self):  # type: ignore[no-untyped-def]
+        from onlyalpha.data.enums import OnlyMarketDataConnectionState
+        from onlyalpha.data.identifiers import OnlyMarketDataGatewayId
+        from onlyalpha.data.models import OnlyMarketDataConnectionSnapshot
+
+        return OnlyMarketDataConnectionSnapshot(
+            OnlyMarketDataGatewayId(f"gateway-{self.source_id}"),
+            OnlyMarketDataConnectionState.READY if self._connected else OnlyMarketDataConnectionState.DISCONNECTED,
+        )
 
     def subscribe(self, request):  # type: ignore[no-untyped-def]
         from onlyalpha.data.enums import OnlyMarketDataRequestStatus, OnlyMarketDataType
@@ -240,9 +314,9 @@ class _TradeDataSource:
     def unsubscribe(self, request):  # type: ignore[no-untyped-def]
         del request
 
-    def emit_live(self) -> None:
+    def emit_live(self, *, sequence: int = 4, count: int = 3) -> None:
         now = self.request.clock.now_utc()
-        for update in self._updates(now - timedelta(seconds=3), 4):
+        for update in self._updates(now - timedelta(seconds=count), sequence)[:count]:
             assert self.request.market_data_sink is not None
             self.request.market_data_sink(update)
 
@@ -302,13 +376,31 @@ class _TradeDataSourceFactory:
                 historical_ticks=True,
                 live_ticks=live,
                 live_reconnect=live,
+                supports_runtime_checkpoint=OnlyCheckpointCapability.STATELESS,
             ),
+        )
+        self.integration_type = OnlyIntegrationTypeDescriptorV1(
+            OnlyIntegrationTypeId(f"test.{plugin_id.replace('-', '_')}"),
+            OnlyIntegrationCategory.DATA_SOURCE,
+            plugin_id,
+            "Trade DataSource for tests.",
+            "tests",
+            plugin_id,
+            self.descriptor.plugin_version,
+            str(self.descriptor.api_version),
+            only_integration_capability_ids(self.descriptor.capabilities),
+            OnlyIntegrationConfigurationContractV1(()),
         )
         self.created: list[_TradeDataSource] = []
 
     @staticmethod
     def parse_config(extensions: object) -> object:
         return extensions
+
+    @staticmethod
+    def parse_runtime_integration_config(public: object, secrets: object) -> object:
+        del secrets
+        return public
 
     @staticmethod
     def validate_request(request: object) -> tuple[object, ...]:
@@ -319,6 +411,34 @@ class _TradeDataSourceFactory:
         source = _TradeDataSource(request, self.descriptor)
         self.created.append(source)
         return source
+
+
+class _IntegrationResolver:
+    def __init__(self, factory: _TradeDataSourceFactory) -> None:
+        self.factory = factory
+        self.binding = OnlyIntegrationRuntimeBindingV1(
+            OnlyIntegrationId("b52eb762-34cf-47d4-8cca-56ef93f0d2ac"),
+            "a" * 64,
+            factory.integration_type.type_id.value,
+            OnlyIntegrationCategory.DATA_SOURCE,
+            factory.integration_type.fingerprint,
+            "b" * 64,
+        )
+        self.calls: list[tuple[str, ...]] = []
+
+    def resolve(self, binding: object, *, expected_category: object, required_capabilities: object) -> object:
+        assert binding == self.binding
+        assert expected_category is OnlyIntegrationCategory.DATA_SOURCE
+        required = tuple(cast(tuple[str, ...], required_capabilities))
+        self.calls.append(required)
+        if not set(required).issubset(self.factory.integration_type.capabilities):
+            raise OnlyIntegrationRuntimeError("INTEGRATION_RUNTIME_CAPABILITY_MISSING")
+        return OnlyResolvedIntegrationRuntimeConfiguration(
+            self.binding,
+            self.factory.integration_type,
+            MappingProxyType({}),
+            OnlyResolvedIntegrationSecrets({}),
+        )
 
 
 def _install_test_tick_executor(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -707,6 +827,234 @@ def test_trade_root_sim_bootstraps_and_continues_from_live_trades(
     finally:
         runtime.stop()
         runtime.close()
+
+
+def test_trade_root_sim_uses_exact_integration_revision_data_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_test_tick_executor(monkeypatch)
+    plan, _ = _trade_root_plan("SIM", tmp_path)
+    factory = _TradeDataSourceFactory("trade-integration", live=True)
+    resolver = _IntegrationResolver(factory)
+    services = only_default_engine_services(integration_runtime_resolver=resolver)  # type: ignore[arg-type]
+    services.assembler.components.data_sources.register(
+        cast(OnlyDataSourceFactory, factory),
+        origin=_test_origin(),
+    )
+    source = replace(
+        plan.assembly_plan.data_sources[0],
+        plugin_id="",
+        extensions=MappingProxyType({}),
+        configuration_mode=OnlyRuntimeConfigurationMode.INTEGRATION_REVISION,
+        integration_binding=MappingProxyType(resolver.binding.to_dict()),
+    )
+    plan = replace(plan, assembly_plan=replace(plan.assembly_plan, data_sources=(source,)))
+
+    build = services.assembler.build(plan, tmp_path)
+
+    assert build.runtime is not None, build.failure_message
+    runtime = build.runtime
+    try:
+        runtime.initialize()
+        runtime.start()
+        assert factory.created[-1].request.plugin_config == {}
+        assert set(resolver.calls[-1]) == {"HISTORICAL_TICKS", "LIVE_TICKS", "LIVE_RECONNECT"}
+    finally:
+        runtime.stop()
+        runtime.close()
+
+
+@pytest.mark.parametrize(
+    "capabilities",
+    (
+        OnlyDataSourceCapabilities(live_ticks=True, live_reconnect=True),
+        OnlyDataSourceCapabilities(historical_ticks=True, live_reconnect=True),
+    ),
+)
+def test_trade_root_sim_integration_revision_missing_tick_capability_fails_closed(
+    tmp_path: Path,
+    capabilities: OnlyDataSourceCapabilities,
+) -> None:
+    plan, _ = _trade_root_plan("SIM", tmp_path)
+    factory = _TradeDataSourceFactory("trade-integration-incomplete", live=True)
+    factory.descriptor = replace(factory.descriptor, capabilities=capabilities)
+    factory.integration_type = replace(
+        factory.integration_type,
+        capabilities=only_integration_capability_ids(capabilities),
+    )
+    resolver = _IntegrationResolver(factory)
+    services = only_default_engine_services(integration_runtime_resolver=resolver)  # type: ignore[arg-type]
+    services.assembler.components.data_sources.register(
+        cast(OnlyDataSourceFactory, factory),
+        origin=_test_origin(),
+    )
+    source = replace(
+        plan.assembly_plan.data_sources[0],
+        plugin_id="",
+        extensions=MappingProxyType({}),
+        configuration_mode=OnlyRuntimeConfigurationMode.INTEGRATION_REVISION,
+        integration_binding=MappingProxyType(resolver.binding.to_dict()),
+    )
+    plan = replace(plan, assembly_plan=replace(plan.assembly_plan, data_sources=(source,)))
+
+    result = services.assembler.validate(plan, tmp_path)
+
+    assert result.failure_code == "INTEGRATION_RUNTIME_CAPABILITY_MISSING"
+
+
+def test_trade_root_sim_integration_revision_never_falls_back_without_resolver(tmp_path: Path) -> None:
+    plan, _ = _trade_root_plan("SIM", tmp_path)
+    factory = _TradeDataSourceFactory("trade-integration-no-resolver", live=True)
+    binding = _IntegrationResolver(factory).binding
+    services = only_default_engine_services()
+    services.assembler.components.data_sources.register(
+        cast(OnlyDataSourceFactory, factory),
+        origin=_test_origin(),
+    )
+    source = replace(
+        plan.assembly_plan.data_sources[0],
+        plugin_id="",
+        extensions=MappingProxyType({}),
+        configuration_mode=OnlyRuntimeConfigurationMode.INTEGRATION_REVISION,
+        integration_binding=MappingProxyType(binding.to_dict()),
+    )
+    plan = replace(plan, assembly_plan=replace(plan.assembly_plan, data_sources=(source,)))
+
+    result = services.assembler.validate(plan, tmp_path)
+
+    assert result.failure_code == "INTEGRATION_RUNTIME_RESOLVER_UNAVAILABLE"
+    assert factory.created == []
+
+
+def test_trade_root_sim_disconnect_recovers_provider_trade_suffix(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from onlyalpha.runtime.streaming.phase import OnlyStreamingDataState, OnlyStreamingPhase
+
+    _install_test_tick_executor(monkeypatch)
+    plan, _ = _trade_root_plan("SIM", tmp_path)
+    services = only_default_engine_services()
+    source_factory = _TradeDataSourceFactory("trade-recovery", live=True)
+    services.assembler.components.data_sources.register(
+        cast(OnlyDataSourceFactory, source_factory),
+        origin=_test_origin(),
+    )
+    source_config = replace(plan.assembly_plan.data_sources[0], plugin_id="trade-recovery")
+    plan = replace(plan, assembly_plan=replace(plan.assembly_plan, data_sources=(source_config,)))
+    build = services.assembler.build(plan, tmp_path)
+    assert build.runtime is not None, build.failure_message
+    runtime = build.runtime
+    processed = Event()
+    original_after = runtime.market_data_processor._after_processing  # noqa: SLF001
+
+    def observe(update, result) -> None:  # type: ignore[no-untyped-def]
+        original_after(update, result)
+        if int(update.source_sequence) == 5:
+            processed.set()
+
+    runtime.market_data_processor._after_processing = observe  # type: ignore[attr-defined]  # noqa: SLF001
+    try:
+        runtime.initialize()
+        runtime.start()
+        source = source_factory.created[-1]
+        source.emit_live(sequence=4, count=2)
+        assert processed.wait(2), "live Trade prefix was not processed"
+        before = runtime.clusters[0].last_pipeline_result
+        source.recovery_updates = source._updates(source.request.clock.now_utc() - timedelta(seconds=1), 6)  # noqa: SLF001
+        source.disconnect()
+
+        runtime._recover_stale_or_disconnect(OnlyStreamingDataState.DISCONNECTED)  # noqa: SLF001
+
+        assert runtime.streaming_phase is OnlyStreamingPhase.LIVE, (
+            runtime.recovery_failure,
+            runtime.processing_results[-1].failure,
+        )
+        assert runtime.recovery_failure is None
+        assert runtime.clusters[0].last_pipeline_result is not before
+        assert source.load_bar_calls == 0
+        assert any(request.request_id.startswith("recovery-") for request in source.load_trade_calls)
+        recovered_sequences = tuple(
+            item.source_sequence for item in runtime.market_data_audit_store.records() if item.source_sequence == 6
+        )
+        assert recovered_sequences == (6,)
+    finally:
+        runtime.stop()
+        runtime.close()
+
+
+def test_trade_root_sim_restart_restores_pending_executor_and_trade_frontier(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from onlyalpha.market_data.pipeline import OnlyTradeConstructionUpdateResult
+
+    _install_test_tick_executor(monkeypatch)
+    plan, _ = _trade_root_plan("SIM", tmp_path)
+    persistence = OnlyRuntimePersistenceConfig(
+        OnlyRuntimePersistenceBackend.SQLITE,
+        "trade-root.sqlite3",
+        OnlyRuntimeCheckpointConfig(True),
+    )
+    plan = replace(
+        plan,
+        assembly_plan=replace(
+            plan.assembly_plan,
+            runtime=replace(plan.assembly_plan.runtime, persistence=persistence),
+        ),
+    )
+    services = only_default_engine_services()
+    source_factory = _TradeDataSourceFactory("trade-restart", live=True)
+    services.assembler.components.data_sources.register(
+        cast(OnlyDataSourceFactory, source_factory),
+        origin=_test_origin(),
+    )
+    source_config = replace(plan.assembly_plan.data_sources[0], plugin_id="trade-restart")
+    plan = replace(plan, assembly_plan=replace(plan.assembly_plan, data_sources=(source_config,)))
+
+    first_build = services.assembler.build(plan, tmp_path)
+    assert first_build.runtime is not None, first_build.failure_message
+    first = first_build.runtime
+    prefix_processed = Event()
+    original_after = first.market_data_processor._after_processing  # noqa: SLF001
+
+    def observe(update, result) -> None:  # type: ignore[no-untyped-def]
+        original_after(update, result)
+        if int(update.source_sequence) == 5:
+            prefix_processed.set()
+
+    first.market_data_processor._after_processing = observe  # type: ignore[attr-defined]  # noqa: SLF001
+    first.initialize()
+    first.start()
+    source_factory.created[-1].emit_live(sequence=4, count=2)
+    assert prefix_processed.wait(2), "partial TickBar prefix was not processed"
+    checkpoint = first._semantic_lane.execute(first._create_verified_streaming_checkpoint)  # noqa: SLF001
+    assert checkpoint.started
+    first.stop()
+    first.close()
+
+    second_build = services.assembler.build(plan, tmp_path)
+    assert second_build.runtime is not None, second_build.failure_message
+    second = second_build.runtime
+    source = source_factory.created[-1]
+    source.recovery_updates = source._updates(source.request.clock.now_utc() - timedelta(seconds=1), 6)  # noqa: SLF001
+    try:
+        second.initialize()
+        second.start()
+        pipeline = next(
+            item.pipeline_result
+            for item in second.processing_results
+            if isinstance(item.pipeline_result, OnlyTradeConstructionUpdateResult)
+        )
+        assert pipeline.input_trade.sequence == 6
+        assert pipeline.constructed_bars[0].trade_count == 3
+        assert tuple(
+            item.source_sequence for item in second.market_data_audit_store.records() if item.source_sequence == 6
+        ) == (6,)
+    finally:
+        second.stop()
+        second.close()
 
 
 @pytest.mark.parametrize(

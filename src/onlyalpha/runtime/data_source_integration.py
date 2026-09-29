@@ -10,6 +10,7 @@ from onlyalpha.application.integration_runtime import (
     OnlyIntegrationRuntimeBindingV1,
     OnlyIntegrationRuntimeError,
     OnlyIntegrationRuntimeResolver,
+    OnlyResolvedIntegrationRuntimeConfiguration,
 )
 from onlyalpha.config.models import OnlyDataSourceRuntimeConfig, OnlyJsonMapping, OnlyRuntimeConfigurationMode
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
@@ -60,9 +61,38 @@ def only_resolve_data_source_runtime_configuration(
     resolver: OnlyIntegrationRuntimeResolver | None,
     required_capabilities: OnlyDataSourceCapabilities,
 ) -> tuple[OnlyDataSourceFactory, object]:
-    if source.configuration_mode is OnlyRuntimeConfigurationMode.LEGACY:
-        factory = registry.resolve(source.plugin_id)
+    factory, resolved = _resolve_data_source_runtime(
+        source,
+        registry,
+        resolver,
+        required_capabilities,
+    )
+    if resolved is None:
         return factory, factory.parse_config(source.extensions)
+    adapter = cast(OnlyDataSourceIntegrationRuntimeAdapter, factory)
+    return factory, adapter.parse_runtime_integration_config(
+        resolved.public_configuration,
+        resolved.secrets.as_mapping(),
+    )
+
+
+def only_resolve_data_source_runtime_factory(
+    source: OnlyDataSourceRuntimeConfig,
+    registry: OnlyDataSourceFactoryRegistry,
+    resolver: OnlyIntegrationRuntimeResolver | None,
+    required_capabilities: OnlyDataSourceCapabilities,
+) -> OnlyDataSourceFactory:
+    return _resolve_data_source_runtime(source, registry, resolver, required_capabilities)[0]
+
+
+def _resolve_data_source_runtime(
+    source: OnlyDataSourceRuntimeConfig,
+    registry: OnlyDataSourceFactoryRegistry,
+    resolver: OnlyIntegrationRuntimeResolver | None,
+    required_capabilities: OnlyDataSourceCapabilities,
+) -> tuple[OnlyDataSourceFactory, OnlyResolvedIntegrationRuntimeConfiguration | None]:
+    if source.configuration_mode is OnlyRuntimeConfigurationMode.LEGACY:
+        return registry.resolve(source.plugin_id), None
     if resolver is None or source.integration_binding is None:
         raise OnlyIntegrationRuntimeError("INTEGRATION_RUNTIME_RESOLVER_UNAVAILABLE")
 
@@ -82,10 +112,7 @@ def only_resolve_data_source_runtime_configuration(
         raise OnlyIntegrationRuntimeError("INTEGRATION_RUNTIME_IMPLEMENTATION_MISMATCH")
     if not isinstance(factory, OnlyDataSourceIntegrationRuntimeAdapter):
         raise OnlyIntegrationRuntimeError("INTEGRATION_RUNTIME_IMPLEMENTATION_UNAVAILABLE")
-    return factory, factory.parse_runtime_integration_config(
-        resolved.public_configuration,
-        resolved.secrets.as_mapping(),
-    )
+    return factory, resolved
 
 
 def _admit_reference(
