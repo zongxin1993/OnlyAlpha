@@ -379,3 +379,77 @@ def test_derived_seven_minute_identity_rebuilds_from_real_sealed_base(tmp_path: 
         assert len(before[1]) == 1
     finally:
         client.execute(f"DROP DATABASE IF EXISTS {database} SYNC", database="default")
+
+
+def test_real_databases_batch_nine_page_segments_and_idempotent_retry(tmp_path: Path) -> None:
+    postgres_dsn = os.environ["ONLYALPHA_POSTGRES_DSN"]
+    only_assert_postgres_test_database(postgres_dsn)
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    database = f"onlyalpha_test_{uuid.uuid4().hex}"
+    client = _clickhouse(database)
+    OnlyClickHouseMigrationAuthority(client).migrate()
+    try:
+        now = lambda: BASE + timedelta(hours=1)  # noqa: E731
+        wal = OnlyMarketDataWal(tmp_path / "batch-wal", capacity_bytes=4_000_000, now=now)
+        ingress = OnlyMarketDataIngress(
+            wal,
+            normalizer_id="binance-spot",
+            normalizer_version="1",
+            ingest_clock_ns=lambda: 5,
+            bar_construction=BAR_CONSTRUCTION,
+        )
+        batch_id = uuid.uuid4().hex
+        segments = []
+        records_by_segment = {}
+        for page in range(9):
+            ingress.begin_segment(f"real-batch-{batch_id}-{page}")
+            ingress.record(
+                _observation(100 + page, "REST_BACKFILL"),
+                (bar_update(page * 2), bar_update(page * 2 + 1)),
+            )
+            segment = ingress.seal()
+            segments.append(segment)
+            records_by_segment[segment.segment_id] = wal.read_sealed(segment.segment_id)
+        base_ns = OnlyTimestamp.from_datetime(BASE).unix_nanos
+        scope = OnlyMarketDataScope(
+            str(SOURCE),
+            "SPOT",
+            str(INSTRUMENT),
+            "BAR",
+            base_ns,
+            base_ns + 18 * 60_000_000_000,
+            str(VERSION),
+            only_canonical_fingerprint(BAR_TYPE.to_dict()),
+            bar_construction=BAR_CONSTRUCTION,
+        )
+        segment_batch = tuple(segments)
+        store = OnlyClickHouseMarketFactStore(client)
+        catalog = OnlyPostgresMarketDataCatalog(postgres_dsn, now=now)
+        committer = OnlyRevisionCommitService(store, catalog, now=now)
+
+        store.write_segments(segment_batch, records_by_segment)
+        verified = store.verify_segments(segment_batch, records_by_segment, scope)
+        manifest, revision, seal = committer.commit_if_complete(
+            segment_batch,
+            scope,
+            records_by_segment,
+            verified_batch=verified,
+            reason="BACKFILL",
+        )
+        assert manifest.complete and revision is not None and seal is not None
+        assert len(revision.segment_refs) == 9
+        assert len(OnlyHistoricalMarketDataQueryService(catalog, store).read_exact(revision.revision_id, scope)) == 18
+
+        store.write_segments(segment_batch, records_by_segment)
+        replayed = store.verify_segments(segment_batch, records_by_segment, scope)
+        replay_manifest, replay_revision, replay_seal = committer.commit_if_complete(
+            segment_batch,
+            scope,
+            records_by_segment,
+            verified_batch=replayed,
+            reason="BACKFILL",
+        )
+        assert (replay_manifest, replay_revision, replay_seal) == (manifest, revision, seal)
+        assert catalog.segments_committed(segment_batch) == (True,) * 9
+    finally:
+        client.execute(f"DROP DATABASE IF EXISTS {database} SYNC", database="default")

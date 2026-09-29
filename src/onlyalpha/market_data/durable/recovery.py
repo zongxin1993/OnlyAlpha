@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from enum import StrEnum
 from threading import Lock
+from time import perf_counter_ns
 
 from .models import OnlyIngestSegment, OnlyMarketDataHealth, OnlyMarketDataScope
 from .ports import OnlyMarketDataCatalog, OnlyMarketFactStore
 from .revision import OnlyRevisionCommitService
 from .wal import OnlyMarketDataWal
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class OnlyMarketDataCrashBoundary(StrEnum):
@@ -86,11 +90,9 @@ class OnlyMarketDataRecoveryCoordinator:
             if not should_continue():
                 return None
             segments.append(self._wal.load_segment(segment_id))
-        committed: list[bool] = []
-        for segment in segments:
-            if not should_continue():
-                return None
-            committed.append(self._catalog.is_segment_committed(segment.segment_id, segment.content_hash))
+        if not should_continue():
+            return None
+        committed = self._catalog.segments_committed(tuple(segments))
         if any(committed) and not all(committed):
             raise RuntimeError("MARKET_DATA_RECOVERY_COMMIT_SET_CONFLICT")
         records_by_segment = {}
@@ -98,24 +100,37 @@ class OnlyMarketDataRecoveryCoordinator:
             if not should_continue():
                 return None
             records_by_segment[segment.segment_id] = self._wal.read_sealed(segment.segment_id)
+        store_started = perf_counter_ns()
         if not all(committed):
-            for segment in segments:
-                if not should_continue():
-                    return None
-                state = self._facts.inspect_segment(segment)
-                if state == "ABSENT":
-                    self._barrier(OnlyMarketDataCrashBoundary.C3_SEALED_BEFORE_STORE)
-                    self._facts.write_segment(segment, records_by_segment[segment.segment_id])
-                elif state != "EXACT":
-                    raise RuntimeError(f"MARKET_DATA_STORE_{state}")
-                self._barrier(OnlyMarketDataCrashBoundary.C5_STORE_BEFORE_VERIFY)
-                self._facts.verify_segment(segment, records_by_segment[segment.segment_id])
-                with self._state_lock:
-                    self._last_verified_segment = segment.segment_id
+            self._barrier(OnlyMarketDataCrashBoundary.C3_SEALED_BEFORE_STORE)
+            self._facts.write_segments(tuple(segments), records_by_segment)
+        batch_store_ms = (perf_counter_ns() - store_started) // 1_000_000
+        self._barrier(OnlyMarketDataCrashBoundary.C5_STORE_BEFORE_VERIFY)
+        verify_started = perf_counter_ns()
+        verified = self._facts.verify_segments(tuple(segments), records_by_segment, scope)
+        batch_verify_ms = (perf_counter_ns() - verify_started) // 1_000_000
+        with self._state_lock:
+            self._last_verified_segment = segments[-1].segment_id
         if not should_continue():
             return None
         self._barrier(OnlyMarketDataCrashBoundary.C6_VERIFIED_BEFORE_CATALOG)
-        manifest, revision, _ = self._committer.commit_if_complete(tuple(segments), scope, records_by_segment)
+        catalog_started = perf_counter_ns()
+        if all(committed):
+            manifest = revision = None
+        else:
+            manifest, revision, _ = self._committer.commit_if_complete(
+                tuple(segments), scope, records_by_segment, verified_batch=verified
+            )
+        catalog_commit_ms = (perf_counter_ns() - catalog_started) // 1_000_000
+        _LOGGER.info(
+            "market_data_recovery_batch wal_segment_count=%d canonical_fact_count=%d "
+            "batch_store_ms=%d batch_verify_ms=%d catalog_commit_ms=%d",
+            len(segments),
+            sum(item.canonical_count for item in segments),
+            batch_store_ms,
+            batch_verify_ms,
+            catalog_commit_ms,
+        )
         with self._state_lock:
             self._last_committed_segment = segments[-1].segment_id
             self._last_recovery_error = None
@@ -125,9 +140,12 @@ class OnlyMarketDataRecoveryCoordinator:
                 return None
             self._wal.mark_gc_eligible(segment.segment_id)
             self._wal.collect_garbage(segment.segment_id)
+        if all(committed):
+            return "ALREADY_COMMITTED"
         if revision is None:
+            assert manifest is not None
             return f"DURABLE_ONLY:{manifest.coverage_status.value}"
-        return "ALREADY_COMMITTED" if all(committed) else "COMMITTED"
+        return "COMMITTED"
 
     def recover_all(self, *, should_continue: Callable[[], bool] | None = None) -> tuple[str, ...]:
         continue_recovery = should_continue or (lambda: True)
@@ -202,20 +220,19 @@ class OnlyMarketDataRecoveryCoordinator:
         records = self._wal.read_sealed(segment.segment_id)
         if not should_continue():
             return False
-        state = self._facts.inspect_segment(segment)
-        if state == "ABSENT":
+        committed = self._catalog.segments_committed((segment,))[0]
+        if not committed:
             self._barrier(OnlyMarketDataCrashBoundary.C3_SEALED_BEFORE_STORE)
-            self._facts.write_segment(segment, records)
-        elif state != "EXACT":
-            raise RuntimeError(f"MARKET_DATA_STORE_{state}")
+            self._facts.write_segments((segment,), {segment.segment_id: records})
         self._barrier(OnlyMarketDataCrashBoundary.C5_STORE_BEFORE_VERIFY)
-        self._facts.verify_segment(segment, records)
+        self._facts.verify_segments((segment,), {segment.segment_id: records})
         with self._state_lock:
             self._last_verified_segment = segment.segment_id
         if not should_continue():
             return False
         self._barrier(OnlyMarketDataCrashBoundary.C6_VERIFIED_BEFORE_CATALOG)
-        self._catalog.commit_durable_segments((segment,))
+        if not committed:
+            self._catalog.commit_durable_segments((segment,))
         with self._state_lock:
             self._last_committed_segment = segment.segment_id
             self._last_recovery_error = None

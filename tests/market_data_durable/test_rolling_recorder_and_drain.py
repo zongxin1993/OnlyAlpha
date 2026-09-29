@@ -197,10 +197,10 @@ def test_database_failure_keeps_sealed_wal_for_same_recovery_path(tmp_path, fixe
     class FailingStore(OnlyInMemoryMarketFactStore):
         unavailable = True
 
-        def write_segment(self, segment, records):
+        def write_segments(self, segments, records_by_segment):
             if self.unavailable:
                 raise RuntimeError("database unavailable")
-            return super().write_segment(segment, records)
+            return super().write_segments(segments, records_by_segment)
 
     store = FailingStore()
     catalog = OnlyInMemoryMarketDataCatalog()
@@ -331,10 +331,10 @@ def test_clean_shutdown_leaves_failed_database_tail_for_fresh_recovery(tmp_path,
     class FailingStore(OnlyInMemoryMarketFactStore):
         unavailable = True
 
-        def write_segment(self, segment, records):
+        def write_segments(self, segments, records_by_segment):
             if self.unavailable:
                 raise RuntimeError("database unavailable")
-            return super().write_segment(segment, records)
+            return super().write_segments(segments, records_by_segment)
 
     store = FailingStore()
     catalog = OnlyInMemoryMarketDataCatalog()
@@ -422,8 +422,8 @@ def test_stop_finishes_current_bounded_unit_and_leaves_remaining_backlog(tmp_pat
             self.release = threading.Event()
             self._pause_once = True
 
-        def write_segment(self, segment, records):
-            result = super().write_segment(segment, records)
+        def write_segments(self, segments, records_by_segment):
+            result = super().write_segments(segments, records_by_segment)
             if self._pause_once:
                 self._pause_once = False
                 self.entered.set()

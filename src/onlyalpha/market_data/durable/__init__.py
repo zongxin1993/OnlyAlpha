@@ -33,6 +33,7 @@ from .models import (
     OnlyRecordingState,
     OnlySegmentState,
     OnlyTradeCoverageGap,
+    OnlyVerifiedSegmentBatch,
 )
 from .ports import OnlyMarketDataCatalog, OnlyMarketFactStore
 from .range_query import (

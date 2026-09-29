@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -432,6 +433,71 @@ class OnlyMarketDataScope:
             and self.first_sequence > self.last_sequence
         ):
             raise ValueError("MARKET_DATA_SEQUENCE_SCOPE_INVALID")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyVerifiedSegmentBatch:
+    """Exact physical-store proof bound to one immutable record set and scope."""
+
+    segment_refs: tuple[tuple[str, str], ...]
+    record_set_fingerprint: str
+    scope: OnlyMarketDataScope | None
+
+    @classmethod
+    def build(
+        cls,
+        segments: tuple[OnlyIngestSegment, ...],
+        records_by_segment: Mapping[str, tuple[OnlyMarketDataRecordBundle, ...]],
+        scope: OnlyMarketDataScope | None,
+    ) -> OnlyVerifiedSegmentBatch:
+        ordered = tuple(sorted(segments, key=lambda item: (item.segment_id, item.content_hash)))
+        if not ordered or len({item.segment_id for item in ordered}) != len(ordered):
+            raise ValueError("MARKET_DATA_VERIFIED_SEGMENT_SET_INVALID")
+        if set(records_by_segment) != {item.segment_id for item in ordered}:
+            raise ValueError("MARKET_DATA_VERIFIED_RECORD_SET_MISMATCH")
+        if scope is not None:
+            family = OnlyMarketDataRangeFamily.from_scope(scope)
+            if any(
+                item.start_ns is None
+                or item.end_ns is None
+                or not family.matches(item.recovery_scope())
+                or item.start_ns < scope.start_ns
+                or item.end_ns > scope.end_ns
+                for item in ordered
+            ):
+                raise ValueError("MARKET_DATA_VERIFIED_SCOPE_MISMATCH")
+        record_set = tuple(
+            (
+                segment.segment_id,
+                segment.content_hash,
+                tuple(
+                    (
+                        bundle.evidence.raw_event_id,
+                        bundle.evidence.raw_sha256,
+                        tuple(
+                            (fact.canonical_fact_id, fact.raw_event_id, fact.canonical_payload_hash)
+                            for fact in bundle.canonical_facts
+                        ),
+                    )
+                    for bundle in records_by_segment[segment.segment_id]
+                ),
+            )
+            for segment in ordered
+        )
+        return cls(
+            tuple((item.segment_id, item.content_hash) for item in ordered),
+            only_canonical_fingerprint(record_set),
+            scope,
+        )
+
+    def assert_matches(
+        self,
+        segments: tuple[OnlyIngestSegment, ...],
+        records_by_segment: Mapping[str, tuple[OnlyMarketDataRecordBundle, ...]],
+        scope: OnlyMarketDataScope | None,
+    ) -> None:
+        if self != type(self).build(segments, records_by_segment, scope):
+            raise ValueError("MARKET_DATA_VERIFIED_BATCH_MISMATCH")
 
 
 @dataclass(frozen=True, slots=True)

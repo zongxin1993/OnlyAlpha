@@ -231,9 +231,9 @@ class _FaultyFactStore(OnlyInMemoryMarketFactStore):
         self._faults = faults
         self.writes = 0
 
-    def write_segment(self, segment, records):  # type: ignore[no-untyped-def]
-        self.writes += 1
-        return super().write_segment(segment, records)
+    def write_segments(self, segments, records_by_segment):  # type: ignore[no-untyped-def]
+        self.writes += len(segments)
+        return super().write_segments(segments, records_by_segment)
 
     def read_segment_facts(
         self, segments: tuple[OnlyIngestSegment, ...], scope: OnlyMarketDataScope
@@ -1572,7 +1572,7 @@ def test_acquisition_plan_merges_adjacent_gaps_and_splits_at_exact_bound() -> No
 
 
 def test_derived_window_plans_one_base_grid_envelope_without_hiding_exact_gaps(tmp_path: Path) -> None:
-    harness = _service(tmp_path)
+    harness = _service(tmp_path, page_minutes=1000)
     reference = _reference(harness.revision_fingerprint)
     semantic = OnlyBarSemantic.fixed_duration(7)
     window = only_plan_utc_24x7_bar_window(
@@ -1608,6 +1608,7 @@ def test_derived_window_plans_one_base_grid_envelope_without_hiding_exact_gaps(t
     assert planned.end_ns - planned.start_ns <= MAX_ACQUISITION_SECONDS * 1_000_000_000
     assert all(planned.start_ns <= gap.start_ns and gap.end_ns <= planned.end_ns for gap in projection.coverage.gaps)
 
+    pages_before_derived_acquisition = harness.provider.page_observations
     acquired = harness.service.acquire_bars(
         reference,
         instrument_id=str(INSTRUMENT),
@@ -1616,6 +1617,9 @@ def test_derived_window_plans_one_base_grid_envelope_without_hiding_exact_gaps(t
         bar_semantic=semantic,
     )
     assert acquired.status == "COMPLETE"
+    assert harness.provider.page_observations - pages_before_derived_acquisition == 9
+    acquired_revision, _ = harness.catalog.load_sealed_revision(acquired.revision_id or "")
+    assert len(acquired_revision.segment_refs) == 9
     complete = harness.service.query_bars(
         reference,
         instrument_id=str(INSTRUMENT),

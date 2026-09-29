@@ -497,6 +497,208 @@ def test_recovery_groups_finite_segments_into_one_complete_revision(tmp_path: Pa
     )
 
 
+def test_grouped_recovery_uses_one_batch_store_verify_and_catalog_observation(tmp_path: Path, fixed_now) -> None:
+    wal = OnlyMarketDataWal(tmp_path, capacity_bytes=4_000_000, now=fixed_now)
+    ingress = OnlyMarketDataIngress(
+        wal,
+        normalizer_id="binance-spot",
+        normalizer_version="1",
+        ingest_clock_ns=lambda: 5,
+        bar_construction=BAR_CONSTRUCTION,
+    )
+    for page in range(9):
+        ingress.begin_segment(f"page-{page}")
+        ingress.record(_observation(page), (bar_update(page * 2), bar_update(page * 2 + 1)))
+        ingress.seal()
+
+    class CountingStore(OnlyInMemoryMarketFactStore):
+        batch_writes = 0
+        batch_verifications = 0
+        single_writes = 0
+        single_verifications = 0
+
+        def write_segment(self, segment, records):  # type: ignore[no-untyped-def]
+            self.single_writes += 1
+            return super().write_segment(segment, records)
+
+        def verify_segment(self, segment, records):  # type: ignore[no-untyped-def]
+            self.single_verifications += 1
+            return super().verify_segment(segment, records)
+
+        def write_segments(self, segments, records_by_segment):  # type: ignore[no-untyped-def]
+            self.batch_writes += 1
+            return super().write_segments(segments, records_by_segment)
+
+        def verify_segments(self, segments, records_by_segment, scope=None):  # type: ignore[no-untyped-def]
+            self.batch_verifications += 1
+            return super().verify_segments(segments, records_by_segment, scope)
+
+    class CountingCatalog(OnlyInMemoryMarketDataCatalog):
+        batch_observations = 0
+        single_observations = 0
+
+        def segments_committed(self, segments):  # type: ignore[no-untyped-def]
+            self.batch_observations += 1
+            return super().segments_committed(segments)
+
+        def is_segment_committed(self, segment_id, content_hash):  # type: ignore[no-untyped-def]
+            self.single_observations += 1
+            return super().is_segment_committed(segment_id, content_hash)
+
+    store = CountingStore()
+    catalog = CountingCatalog()
+    scope = replace(_scope("BAR"), end_ns=_scope("BAR").start_ns + 18 * 60_000_000_000)
+    recovery = OnlyMarketDataRecoveryCoordinator(
+        wal, store, catalog, OnlyRevisionCommitService(store, catalog, now=fixed_now)
+    )
+
+    assert recovery.recover_all() == ("COMMITTED",)
+    assert (store.batch_writes, store.batch_verifications) == (1, 1)
+    assert (store.single_writes, store.single_verifications) == (0, 0)
+    assert (catalog.batch_observations, catalog.single_observations) == (1, 0)
+    assert len(catalog.latest_sealed_revision(scope).segment_refs) == 9
+
+
+@pytest.mark.parametrize("crash_stage", ["C3", "C5", "C6", "C7"])
+def test_multi_segment_crash_boundaries_retry_deterministically(tmp_path: Path, fixed_now, crash_stage: str) -> None:
+    wal = OnlyMarketDataWal(tmp_path, capacity_bytes=2_000_000, now=fixed_now)
+    ingress = OnlyMarketDataIngress(
+        wal,
+        normalizer_id="binance-spot",
+        normalizer_version="1",
+        ingest_clock_ns=lambda: 5,
+        bar_construction=BAR_CONSTRUCTION,
+    )
+    for index in range(2):
+        ingress.begin_segment(f"crash-batch-{index}")
+        ingress.record(_observation(index), bar_update(index))
+        ingress.seal()
+    store = OnlyInMemoryMarketFactStore()
+    catalog = OnlyInMemoryMarketDataCatalog()
+    scope = replace(_scope("BAR"), end_ns=_scope("BAR").start_ns + 2 * 60_000_000_000)
+    fired = False
+
+    def barrier(stage) -> None:  # type: ignore[no-untyped-def]
+        nonlocal fired
+        if stage.value == crash_stage and not fired:
+            fired = True
+            raise RuntimeError(f"injected {crash_stage}")
+
+    with pytest.raises(RuntimeError, match="injected"):
+        OnlyMarketDataRecoveryCoordinator(
+            wal,
+            store,
+            catalog,
+            OnlyRevisionCommitService(store, catalog, now=fixed_now),
+            barrier=barrier,
+        ).recover_all()
+    result = OnlyMarketDataRecoveryCoordinator(
+        wal, store, catalog, OnlyRevisionCommitService(store, catalog, now=fixed_now)
+    ).recover_all()
+    assert result in {("COMMITTED",), ("ALREADY_COMMITTED",)}
+    assert wal.scan_uncommitted() == ()
+    assert len(catalog.latest_sealed_revision(scope).segment_refs) == 2
+
+
+def test_multi_segment_raw_write_crash_remains_fail_closed_with_wal_preserved(tmp_path: Path, fixed_now) -> None:
+    wal = OnlyMarketDataWal(tmp_path, capacity_bytes=2_000_000, now=fixed_now)
+    ingress = OnlyMarketDataIngress(
+        wal,
+        normalizer_id="binance-spot",
+        normalizer_version="1",
+        ingest_clock_ns=lambda: 5,
+        bar_construction=BAR_CONSTRUCTION,
+    )
+    for index in range(2):
+        ingress.begin_segment(f"raw-crash-batch-{index}")
+        ingress.record(_observation(index), bar_update(index))
+        ingress.seal()
+    fired = False
+
+    def fault(stage: str) -> None:
+        nonlocal fired
+        if stage == "AFTER_RAW_WRITE" and not fired:
+            fired = True
+            raise RuntimeError("injected batch raw crash")
+
+    store = OnlyInMemoryMarketFactStore(fault=fault)
+    catalog = OnlyInMemoryMarketDataCatalog()
+    recovery = OnlyMarketDataRecoveryCoordinator(
+        wal, store, catalog, OnlyRevisionCommitService(store, catalog, now=fixed_now)
+    )
+
+    with pytest.raises(RuntimeError, match="injected batch raw crash"):
+        recovery.recover_all()
+    with pytest.raises(RuntimeError, match="MARKET_DATA_STORE_PARTIAL"):
+        recovery.recover_all()
+    assert len(wal.scan_uncommitted()) == 2
+
+
+def test_multi_segment_canonical_chunk_crash_replays_exact_and_absent_segments(tmp_path: Path, fixed_now) -> None:
+    wal = OnlyMarketDataWal(tmp_path, capacity_bytes=2_000_000, now=fixed_now)
+    ingress = OnlyMarketDataIngress(
+        wal,
+        normalizer_id="binance-spot",
+        normalizer_version="1",
+        ingest_clock_ns=lambda: 5,
+        bar_construction=BAR_CONSTRUCTION,
+    )
+    for index in range(2):
+        ingress.begin_segment(f"canonical-chunk-crash-{index}")
+        ingress.record(_observation(index), bar_update(index))
+        ingress.seal()
+
+    class ChunkCrashStore(OnlyInMemoryMarketFactStore):
+        crashed = False
+
+        def write_segments(self, segments, records_by_segment):  # type: ignore[no-untyped-def]
+            if not self.crashed:
+                self.crashed = True
+                first = segments[0]
+                super().write_segments((first,), {first.segment_id: records_by_segment[first.segment_id]})
+                raise RuntimeError("injected canonical chunk crash")
+            return super().write_segments(segments, records_by_segment)
+
+    store = ChunkCrashStore()
+    catalog = OnlyInMemoryMarketDataCatalog()
+    scope = replace(_scope("BAR"), end_ns=_scope("BAR").start_ns + 2 * 60_000_000_000)
+    recovery = OnlyMarketDataRecoveryCoordinator(
+        wal, store, catalog, OnlyRevisionCommitService(store, catalog, now=fixed_now)
+    )
+
+    with pytest.raises(RuntimeError, match="injected canonical chunk crash"):
+        recovery.recover_all()
+    assert recovery.recover_all() == ("COMMITTED",)
+    assert wal.scan_uncommitted() == ()
+    assert len(catalog.latest_sealed_revision(scope).segment_refs) == 2
+
+
+def test_grouped_recovery_rejects_mixed_committed_catalog_state(tmp_path: Path, fixed_now) -> None:
+    wal = OnlyMarketDataWal(tmp_path, capacity_bytes=2_000_000, now=fixed_now)
+    ingress = OnlyMarketDataIngress(
+        wal,
+        normalizer_id="binance-spot",
+        normalizer_version="1",
+        ingest_clock_ns=lambda: 5,
+        bar_construction=BAR_CONSTRUCTION,
+    )
+    segments = []
+    for index in range(2):
+        ingress.begin_segment(f"mixed-commit-{index}")
+        ingress.record(_observation(index), bar_update(index))
+        segments.append(ingress.seal())
+    store = OnlyInMemoryMarketFactStore()
+    catalog = OnlyInMemoryMarketDataCatalog()
+    catalog.commit_durable_segments((segments[0],))
+    recovery = OnlyMarketDataRecoveryCoordinator(
+        wal, store, catalog, OnlyRevisionCommitService(store, catalog, now=fixed_now)
+    )
+
+    with pytest.raises(RuntimeError, match="MARKET_DATA_RECOVERY_COMMIT_SET_CONFLICT"):
+        recovery.recover_all()
+    assert len(wal.scan_uncommitted()) == 2
+
+
 class _SnapshotStore:
     def __init__(self) -> None:
         self.snapshots = {}

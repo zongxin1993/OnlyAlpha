@@ -17,13 +17,21 @@ from onlyalpha.market_data.durable.models import (
     OnlyMarketDataRecordBundle,
     OnlyMarketDataRevision,
     OnlyMarketDataScope,
+    OnlyVerifiedSegmentBatch,
 )
 
 from .client import OnlyClickHouseClient
 from .version import only_assert_supported_clickhouse_server
 
 _SEGMENT_VERIFY_CHUNK_SIZE = 1_000
+_ROW_INSERT_CHUNK_SIZE = 10_000
 _SEGMENT_TABLES = ("market_raw_event", "market_trade", "market_bar", "market_reference_price")
+_TABLE_IDENTITIES = {
+    "market_raw_event": ("raw_event_id",),
+    "market_trade": ("canonical_fact_id", "raw_event_id"),
+    "market_bar": ("canonical_fact_id", "raw_event_id"),
+    "market_reference_price": ("canonical_fact_id", "raw_event_id"),
+}
 
 
 class OnlyClickHouseSegmentConflictError(RuntimeError):
@@ -51,50 +59,132 @@ class OnlyClickHouseMarketFactStore:
         return "CONFLICT"
 
     def write_segment(self, segment: OnlyIngestSegment, records: tuple[OnlyMarketDataRecordBundle, ...]) -> None:
-        raw_rows = tuple(self._raw_row(segment, ordinal, bundle) for ordinal, bundle in enumerate(records))
-        fact_rows: dict[str, list[dict[str, object]]] = {
-            "market_trade": [],
-            "market_bar": [],
-            "market_reference_price": [],
-        }
-        for bundle in records:
-            for fact in bundle.canonical_facts:
-                table = _table(fact.data_kind)
-                fact_rows[table].append(self._fact_row(segment, fact))
-        expected_raw = {str(row["raw_event_id"]): str(row["record_hash"]) for row in raw_rows}
-        stored_raw = self._stored_hashes("market_raw_event", "raw_event_id", segment.segment_id)
-        _assert_no_conflict(stored_raw, expected_raw, "RAW_SEGMENT_CONFLICT")
-        missing_raw = [row for row in raw_rows if str(row["raw_event_id"]) not in stored_raw]
-        if missing_raw:
-            self._client.insert_json_each_row("market_raw_event", missing_raw)
-        for table, rows in fact_rows.items():
-            expected = {str(row["canonical_fact_id"]): str(row["record_hash"]) for row in rows}
-            stored = self._stored_hashes(table, "canonical_fact_id", segment.segment_id)
-            _assert_no_conflict(stored, expected, "CANONICAL_SEGMENT_CONFLICT")
-            missing = [row for row in rows if str(row["canonical_fact_id"]) not in stored]
-            if missing:
-                self._client.insert_json_each_row(table, missing)
+        self.write_segments((segment,), {segment.segment_id: records})
+
+    def write_segments(
+        self,
+        segments: tuple[OnlyIngestSegment, ...],
+        records_by_segment: Mapping[str, tuple[OnlyMarketDataRecordBundle, ...]],
+    ) -> None:
+        OnlyVerifiedSegmentBatch.build(segments, records_by_segment, None)
+        rows_by_table = self._expected_rows(segments, records_by_segment)
+        states = self._classify_segments(segments, rows_by_table)
+        if any(state in {"PARTIAL", "CONFLICT"} for state in states.values()):
+            failed = next(state for state in states.values() if state in {"PARTIAL", "CONFLICT"})
+            raise OnlyClickHouseSegmentConflictError(f"CLICKHOUSE_SEGMENT_{failed}")
+        absent = {segment_id for segment_id, state in states.items() if state == "ABSENT"}
+        for table, rows in rows_by_table.items():
+            missing = [row for row in rows if str(row["segment_id"]) in absent]
+            for offset in range(0, len(missing), _ROW_INSERT_CHUNK_SIZE):
+                self._client.insert_json_each_row(table, missing[offset : offset + _ROW_INSERT_CHUNK_SIZE])
 
     def verify_segment(self, segment: OnlyIngestSegment, records: tuple[OnlyMarketDataRecordBundle, ...]) -> None:
-        if self.inspect_segment(segment) != "EXACT":
+        self.verify_segments(
+            (segment,),
+            {segment.segment_id: records},
+            segment.recovery_scope() if segment.canonical_count else None,
+        )
+
+    def verify_segments(
+        self,
+        segments: tuple[OnlyIngestSegment, ...],
+        records_by_segment: Mapping[str, tuple[OnlyMarketDataRecordBundle, ...]],
+        scope: OnlyMarketDataScope | None = None,
+    ) -> OnlyVerifiedSegmentBatch:
+        verified = OnlyVerifiedSegmentBatch.build(segments, records_by_segment, scope)
+        states = self._classify_segments(segments, self._expected_rows(segments, records_by_segment))
+        if any(state != "EXACT" for state in states.values()):
             raise OnlyClickHouseSegmentConflictError("CLICKHOUSE_SEGMENT_NOT_EXACT")
-        raw_rows = tuple(self._raw_row(segment, ordinal, bundle) for ordinal, bundle in enumerate(records))
-        expected_raw = {str(row["raw_event_id"]): str(row["record_hash"]) for row in raw_rows}
-        if self._stored_hashes("market_raw_event", "raw_event_id", segment.segment_id) != expected_raw:
-            raise OnlyClickHouseSegmentConflictError("CLICKHOUSE_RAW_SEGMENT_NOT_EXACT")
-        for data_kind, table in (
-            ("TRADE", "market_trade"),
-            ("BAR", "market_bar"),
-            ("MARKET_REFERENCE", "market_reference_price"),
-        ):
-            expected = {
-                fact.canonical_fact_id: str(self._fact_row(segment, fact)["record_hash"])
-                for bundle in records
-                for fact in bundle.canonical_facts
-                if fact.data_kind == data_kind
-            }
-            if self._stored_hashes(table, "canonical_fact_id", segment.segment_id) != expected:
-                raise OnlyClickHouseSegmentConflictError("CLICKHOUSE_CANONICAL_SEGMENT_NOT_EXACT")
+        return verified
+
+    def _expected_rows(
+        self,
+        segments: tuple[OnlyIngestSegment, ...],
+        records_by_segment: Mapping[str, tuple[OnlyMarketDataRecordBundle, ...]],
+    ) -> dict[str, list[dict[str, object]]]:
+        rows_by_table: dict[str, list[dict[str, object]]] = {table: [] for table in _SEGMENT_TABLES}
+        for segment in segments:
+            records = records_by_segment[segment.segment_id]
+            rows_by_table["market_raw_event"].extend(
+                self._raw_row(segment, ordinal, bundle) for ordinal, bundle in enumerate(records)
+            )
+            for bundle in records:
+                for fact in bundle.canonical_facts:
+                    rows_by_table[_table(fact.data_kind)].append(self._fact_row(segment, fact))
+        return rows_by_table
+
+    def _classify_segments(
+        self,
+        segments: tuple[OnlyIngestSegment, ...],
+        rows_by_table: Mapping[str, list[dict[str, object]]],
+    ) -> dict[str, str]:
+        segment_ids = tuple(item.segment_id for item in segments)
+        expected: dict[str, dict[str, dict[tuple[str, ...], tuple[str, str]]]] = {
+            table: {segment_id: {} for segment_id in segment_ids} for table in _SEGMENT_TABLES
+        }
+        for table, rows in rows_by_table.items():
+            identities = _TABLE_IDENTITIES[table]
+            for row in rows:
+                segment_id = str(row["segment_id"])
+                identity = tuple(str(row[item]) for item in identities)
+                if identity in expected[table][segment_id]:
+                    raise ValueError("MARKET_DATA_EXPECTED_ROW_IDENTITY_DUPLICATE")
+                expected[table][segment_id][identity] = (
+                    str(row["record_hash"]),
+                    str(row["segment_content_hash"]),
+                )
+        stored = self._stored_rows(segment_ids)
+        states: dict[str, str] = {}
+        for segment in segments:
+            if not any(stored[table][segment.segment_id] for table in _SEGMENT_TABLES):
+                states[segment.segment_id] = "ABSENT"
+                continue
+            conflict = False
+            partial = False
+            for table in _SEGMENT_TABLES:
+                wanted = expected[table][segment.segment_id]
+                actual = stored[table][segment.segment_id]
+                for identity, (record_hash, content_hash, physical_count) in actual.items():
+                    if (
+                        identity not in wanted
+                        or wanted[identity] != (record_hash, content_hash)
+                        or content_hash != segment.content_hash
+                        or physical_count != 1
+                    ):
+                        conflict = True
+                partial = partial or set(actual) != set(wanted)
+            states[segment.segment_id] = "CONFLICT" if conflict else "PARTIAL" if partial else "EXACT"
+        return states
+
+    def _stored_rows(
+        self, segment_ids: tuple[str, ...]
+    ) -> dict[str, dict[str, dict[tuple[str, ...], tuple[str, str, int]]]]:
+        result: dict[str, dict[str, dict[tuple[str, ...], tuple[str, str, int]]]] = {
+            table: {segment_id: {} for segment_id in segment_ids} for table in _SEGMENT_TABLES
+        }
+        for offset in range(0, len(segment_ids), _SEGMENT_VERIFY_CHUNK_SIZE):
+            chunk = segment_ids[offset : offset + _SEGMENT_VERIFY_CHUNK_SIZE]
+            quoted = ",".join(_quote(item) for item in chunk)
+            for table, identities in _TABLE_IDENTITIES.items():
+                identity_sql = ", ".join(identities)
+                rows = self._client.query_json(
+                    f"SELECT segment_id, {identity_sql}, record_hash, segment_content_hash, "
+                    f"count() AS physical_count FROM {table} WHERE segment_id IN ({quoted}) "
+                    f"GROUP BY segment_id, {identity_sql}, record_hash, segment_content_hash"
+                )
+                for row in rows:
+                    segment_id = str(row["segment_id"])
+                    if segment_id not in result[table]:
+                        raise OnlyClickHouseSegmentConflictError("CLICKHOUSE_UNEXPECTED_SEGMENT_ID")
+                    identity = tuple(str(row[item]) for item in identities)
+                    if identity in result[table][segment_id]:
+                        raise OnlyClickHouseSegmentConflictError("CLICKHOUSE_IDENTITY_HASH_CONFLICT")
+                    result[table][segment_id][identity] = (
+                        str(row["record_hash"]),
+                        str(row["segment_content_hash"]),
+                        int(str(row["physical_count"])),
+                    )
+        return result
 
     def read_revision_facts(
         self, revision: OnlyMarketDataRevision, scope: OnlyMarketDataScope
@@ -180,28 +270,6 @@ class OnlyClickHouseMarketFactStore:
                 f"SELECT DISTINCT segment_content_hash FROM {table} WHERE segment_id={_quote(segment_id)}"
             )
             result.update(str(row["segment_content_hash"]) for row in rows)
-        return result
-
-    def _stored_fact_hashes(self, segment_id: str) -> dict[str, str]:
-        result: dict[str, str] = {}
-        for table in ("market_trade", "market_bar", "market_reference_price"):
-            for key, value in self._stored_hashes(table, "canonical_fact_id", segment_id).items():
-                prior = result.setdefault(key, value)
-                if prior != value:
-                    raise OnlyClickHouseSegmentConflictError("CANONICAL_FACT_STORAGE_CONFLICT")
-        return result
-
-    def _stored_hashes(self, table: str, identity: str, segment_id: str) -> dict[str, str]:
-        rows = self._client.query_json(
-            f"SELECT {identity}, record_hash, count() AS physical_count FROM {table} "
-            f"WHERE segment_id={_quote(segment_id)} GROUP BY {identity}, record_hash"
-        )
-        result: dict[str, str] = {}
-        for row in rows:
-            key, value = str(row[identity]), str(row["record_hash"])
-            prior = result.setdefault(key, value)
-            if prior != value:
-                raise OnlyClickHouseSegmentConflictError("CLICKHOUSE_IDENTITY_HASH_CONFLICT")
         return result
 
     @staticmethod
@@ -356,15 +424,6 @@ def _iso_ns(value: object) -> int:
 
 def _quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
-
-
-def _compatible_subset(stored: Mapping[str, str], expected: Mapping[str, str]) -> bool:
-    return all(expected.get(key) == value for key, value in stored.items())
-
-
-def _assert_no_conflict(stored: Mapping[str, str], expected: Mapping[str, str], message: str) -> None:
-    if not _compatible_subset(stored, expected):
-        raise OnlyClickHouseSegmentConflictError(message)
 
 
 __all__ = [name for name in globals() if name.startswith("Only")]

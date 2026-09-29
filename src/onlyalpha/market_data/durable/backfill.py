@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
+from time import perf_counter_ns
 
 from onlyalpha.data.models import OnlyHistoricalBarRequest, OnlyHistoricalTradeRequest
 from onlyalpha.data.ports import OnlyHistoricalDataSource
@@ -20,6 +22,8 @@ from .models import (
 from .ports import OnlyMarketDataCatalog, OnlyMarketFactStore
 from .recovery import OnlyMarketDataRecoveryCoordinator
 from .revision import OnlyRevisionCommitService, only_build_coverage
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def only_plan_contiguous_bar_gaps(
@@ -108,7 +112,11 @@ class OnlyMarketDataBackfillCoordinator:
         ):
             raise ValueError("BACKFILL_BAR_REQUEST_SCOPE_MISMATCH")
         prior = {item.segment_id for item in self._catalog.list_durable_segments(acquisition.requested_scope)}
+        fetch_started = perf_counter_ns()
         tuple(self._source.load_bars(request))
+        _LOGGER.info(
+            "market_data_provider_fetch provider_fetch_ms=%d", (perf_counter_ns() - fetch_started) // 1_000_000
+        )
         recovery_results = self._recovery.recover_all()
         return self._finish(acquisition, prior, parent_revision_id, recovery_results)
 
@@ -124,7 +132,11 @@ class OnlyMarketDataBackfillCoordinator:
         if acquisition.requested_scope.data_kind != "TRADE" or gap not in before.gaps:
             raise ValueError("BACKFILL_TRADE_GAP_NOT_REQUESTED")
         prior = {item.segment_id for item in self._catalog.list_durable_segments(acquisition.requested_scope)}
+        fetch_started = perf_counter_ns()
         tuple(self._source.load_trades(request))
+        _LOGGER.info(
+            "market_data_provider_fetch provider_fetch_ms=%d", (perf_counter_ns() - fetch_started) // 1_000_000
+        )
         recovery_results = self._recovery.recover_all()
         return self._finish(acquisition, prior, parent_revision_id, recovery_results)
 
@@ -136,9 +148,29 @@ class OnlyMarketDataBackfillCoordinator:
         recovery_results: tuple[str, ...],
     ) -> OnlyMarketDataBackfillResult:
         available = self._catalog.list_durable_segments(acquisition.requested_scope)
-        if not any(item.segment_id not in prior_segment_ids for item in available):
+        new_segment_ids = {item.segment_id for item in available if item.segment_id not in prior_segment_ids}
+        if not new_segment_ids:
             raise RuntimeError("BACKFILL_DURABLE_SEGMENT_NOT_CREATED")
         if parent_revision_id is None:
+            try:
+                latest_revision = self._catalog.latest_sealed_revision(acquisition.requested_scope)
+            except KeyError as exc:
+                if not exc.args or exc.args[0] != "SEALED_REVISION_NOT_FOUND":
+                    raise
+            else:
+                stored, latest_seal = self._catalog.load_sealed_revision(latest_revision.revision_id)
+                manifest = self._catalog.load_coverage_manifest(stored.manifest_id)
+                if (
+                    stored == latest_revision
+                    and stored.scope == acquisition.requested_scope
+                    and manifest.scope == acquisition.requested_scope
+                    and manifest.coverage_status is OnlyCoverageStatus.COMPLETE
+                    and not manifest.issues
+                    and manifest.segment_refs == stored.segment_refs
+                    and latest_seal.revision_fingerprint == stored.fingerprint
+                    and new_segment_ids.issubset({item[0] for item in stored.segment_refs})
+                ):
+                    return OnlyMarketDataBackfillResult(acquisition, manifest, stored, latest_seal, recovery_results)
             selected = available
         else:
             parent, _ = self._catalog.load_sealed_revision(parent_revision_id)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Protocol
 
@@ -16,6 +17,7 @@ from .models import (
     OnlyMarketDataRevision,
     OnlyMarketDataScope,
     OnlyMarketDataSeal,
+    OnlyVerifiedSegmentBatch,
 )
 
 
@@ -29,6 +31,17 @@ class OnlyMarketFactStore(Protocol):
     def inspect_segment(self, segment: OnlyIngestSegment) -> str: ...
     def write_segment(self, segment: OnlyIngestSegment, records: tuple[OnlyMarketDataRecordBundle, ...]) -> None: ...
     def verify_segment(self, segment: OnlyIngestSegment, records: tuple[OnlyMarketDataRecordBundle, ...]) -> None: ...
+    def write_segments(
+        self,
+        segments: tuple[OnlyIngestSegment, ...],
+        records_by_segment: Mapping[str, tuple[OnlyMarketDataRecordBundle, ...]],
+    ) -> None: ...
+    def verify_segments(
+        self,
+        segments: tuple[OnlyIngestSegment, ...],
+        records_by_segment: Mapping[str, tuple[OnlyMarketDataRecordBundle, ...]],
+        scope: OnlyMarketDataScope | None = None,
+    ) -> OnlyVerifiedSegmentBatch: ...
     def read_revision_facts(
         self, revision: OnlyMarketDataRevision, scope: OnlyMarketDataScope
     ) -> tuple[OnlyCanonicalMarketFactRecord, ...]: ...
@@ -58,6 +71,7 @@ class OnlyMarketDataCatalog(Protocol):
         seal: OnlyMarketDataSeal,
     ) -> None: ...
     def is_segment_committed(self, segment_id: str, content_hash: str) -> bool: ...
+    def segments_committed(self, segments: tuple[OnlyIngestSegment, ...]) -> tuple[bool, ...]: ...
     def load_durable_segments(self, segment_ids: tuple[str, ...]) -> tuple[OnlyIngestSegment, ...]: ...
     def list_durable_segments(self, scope: OnlyMarketDataScope) -> tuple[OnlyIngestSegment, ...]: ...
     def load_sealed_revision(self, revision_id: str) -> tuple[OnlyMarketDataRevision, OnlyMarketDataSeal]: ...

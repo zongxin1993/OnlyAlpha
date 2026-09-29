@@ -519,6 +519,13 @@ def _compose_market_data_product(
     fact_store = cast(Any, _LazyClickHouseMarketFactStore())
     clock = OnlyLiveClock()
     logger = logging.getLogger("onlyalpha.http.market-data")
+    timing_handler = logging.StreamHandler()
+    timing_handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    for timing_logger in (logger, logging.getLogger("onlyalpha.market_data.durable")):
+        timing_logger.disabled = False
+        timing_logger.setLevel(logging.INFO)
+        timing_logger.handlers = [timing_handler]
+        timing_logger.propagate = False
     wal_root = layout_root / "market-data"
     historical = OnlyMarketDataProductService(
         resolver=resolver,

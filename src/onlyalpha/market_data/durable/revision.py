@@ -27,6 +27,7 @@ from .models import (
     OnlyMarketDataScope,
     OnlyMarketDataSeal,
     OnlyTradeCoverageGap,
+    OnlyVerifiedSegmentBatch,
 )
 from .ports import OnlyAcquisitionExecutionLease, OnlyMarketDataCatalog, OnlyMarketFactStore
 
@@ -369,6 +370,12 @@ class OnlyInMemoryMarketDataCatalog(OnlyMarketDataCatalog):
         segment = self._segments.get(segment_id)
         return segment is not None and segment.content_hash == content_hash
 
+    def segments_committed(self, segments: tuple[OnlyIngestSegment, ...]) -> tuple[bool, ...]:
+        return tuple(
+            (stored := self._segments.get(item.segment_id)) is not None and stored.content_hash == item.content_hash
+            for item in segments
+        )
+
     def load_durable_segments(self, segment_ids: tuple[str, ...]) -> tuple[OnlyIngestSegment, ...]:
         return tuple(self._segments[item] for item in segment_ids)
 
@@ -497,10 +504,13 @@ class OnlyRevisionCommitService:
         parent_revision_id: str | None = None,
         reason: str = "INGEST",
     ) -> tuple[OnlyCoverageManifest, OnlyMarketDataRevision, OnlyMarketDataSeal]:
+        selected = (segments,) if isinstance(segments, OnlyIngestSegment) else tuple(segments)
+        verified = self._facts.verify_segments(selected, records_by_segment, scope)
         manifest, revision, seal = self.commit_if_complete(
             segments,
             scope,
             records_by_segment,
+            verified_batch=verified,
             parent_revision_id=parent_revision_id,
             reason=reason,
         )
@@ -514,6 +524,7 @@ class OnlyRevisionCommitService:
         scope: OnlyMarketDataScope,
         records_by_segment: dict[str, tuple[OnlyMarketDataRecordBundle, ...]],
         *,
+        verified_batch: OnlyVerifiedSegmentBatch,
         parent_revision_id: str | None = None,
         reason: str = "INGEST",
     ) -> tuple[OnlyCoverageManifest, OnlyMarketDataRevision | None, OnlyMarketDataSeal | None]:
@@ -525,8 +536,7 @@ class OnlyRevisionCommitService:
             raise ValueError("MARKET_DATA_REVISION_SEGMENT_DUPLICATE")
         if set(records_by_segment) != {item.segment_id for item in ordered}:
             raise ValueError("MARKET_DATA_REVISION_RECORD_SET_MISMATCH")
-        for segment in ordered:
-            self._facts.verify_segment(segment, records_by_segment[segment.segment_id])
+        verified_batch.assert_matches(ordered, records_by_segment, scope)
         self._catalog.commit_durable_segments(ordered)
         facts = tuple(
             fact
@@ -555,7 +565,7 @@ class OnlyRevisionCommitService:
         ordered = tuple(sorted(segments, key=lambda item: (item.segment_id, item.content_hash)))
         if not ordered or len({item.segment_id for item in ordered}) != len(ordered):
             raise ValueError("MARKET_DATA_DURABLE_REVISION_SEGMENT_SET_INVALID")
-        if any(not self._catalog.is_segment_committed(item.segment_id, item.content_hash) for item in ordered):
+        if not all(self._catalog.segments_committed(ordered)):
             raise OnlyMarketDataConflictError("REVISION_REFERENCES_NON_DURABLE_SEGMENT")
         only_verify_canonical_uniqueness(facts)
         manifest = only_build_coverage(scope, ordered, facts)

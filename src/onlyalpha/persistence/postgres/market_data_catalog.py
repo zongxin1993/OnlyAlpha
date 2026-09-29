@@ -363,9 +363,8 @@ class OnlyPostgresMarketDataCatalog:
         now = seal.sealed_at
         with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
             with connection.transaction():
-                for segment in segments:
-                    if not self._is_segment_committed(connection, segment.segment_id, segment.content_hash):
-                        raise RuntimeError("POSTGRES_REVISION_REFERENCES_NON_DURABLE_SEGMENT")
+                if not all(self._segments_committed(connection, segments)):
+                    raise RuntimeError("POSTGRES_REVISION_REFERENCES_NON_DURABLE_SEGMENT")
                 self._insert_manifest(connection, manifest, now)
                 connection.execute(
                     "INSERT INTO market_data_revision "
@@ -417,6 +416,12 @@ class OnlyPostgresMarketDataCatalog:
                 (segment_id, content_hash),
             ).fetchone()
         return bool(row and row[0])
+
+    def segments_committed(self, segments: tuple[OnlyIngestSegment, ...]) -> tuple[bool, ...]:
+        if not segments or len({item.segment_id for item in segments}) != len(segments):
+            raise ValueError("POSTGRES_SEGMENT_COMMIT_SET_INVALID")
+        with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+            return self._segments_committed(connection, segments)
 
     def load_durable_segments(self, segment_ids: tuple[str, ...]) -> tuple[OnlyIngestSegment, ...]:
         if not segment_ids:
@@ -536,16 +541,26 @@ class OnlyPostgresMarketDataCatalog:
         return tuple(self.load_sealed_revision(str(row[0]))[0] for row in rows)
 
     @staticmethod
-    def _is_segment_committed(
-        connection: psycopg.Connection[dict[str, object]], segment_id: str, content_hash: str
-    ) -> bool:
-        row = connection.execute(
-            "SELECT EXISTS(SELECT 1 FROM market_ingest_segment s JOIN market_segment_state_event e "
+    def _segments_committed(
+        connection: psycopg.Connection[dict[str, object]], segments: tuple[OnlyIngestSegment, ...]
+    ) -> tuple[bool, ...]:
+        rows = connection.execute(
+            "WITH requested AS ("
+            "SELECT * FROM unnest(%s::text[], %s::text[]) AS item(segment_id,content_hash)) "
+            "SELECT requested.segment_id, EXISTS("
+            "SELECT 1 FROM market_ingest_segment s JOIN market_segment_state_event e "
             "ON e.segment_id=s.segment_id AND e.state IN ('DURABLE_SEGMENT_COMMITTED','COMMITTED') "
-            "WHERE s.segment_id=%s AND s.content_hash=%s) AS committed",
-            (segment_id, content_hash),
-        ).fetchone()
-        return bool(row and row["committed"])
+            "WHERE s.segment_id=requested.segment_id AND s.content_hash=requested.content_hash"
+            ") AS committed FROM requested",
+            (
+                [item.segment_id for item in segments],
+                [item.content_hash for item in segments],
+            ),
+        ).fetchall()
+        committed = {str(row["segment_id"]): bool(row["committed"]) for row in rows}
+        if set(committed) != {item.segment_id for item in segments}:
+            raise RuntimeError("POSTGRES_SEGMENT_COMMIT_OBSERVATION_INVALID")
+        return tuple(committed[item.segment_id] for item in segments)
 
     @staticmethod
     def _insert_manifest(
@@ -754,12 +769,7 @@ class OnlyPostgresMarketDataCatalog:
         ).fetchall()
         actual = tuple(OnlyPostgresMarketDataCatalog._segment(row) for row in rows)
         expected = tuple(sorted(segments, key=lambda item: item.segment_id))
-        if actual != expected or any(
-            not OnlyPostgresMarketDataCatalog._is_segment_committed(
-                connection, segment.segment_id, segment.content_hash
-            )
-            for segment in expected
-        ):
+        if actual != expected or not all(OnlyPostgresMarketDataCatalog._segments_committed(connection, expected)):
             raise RuntimeError("POSTGRES_DURABLE_SEGMENT_COMMIT_CONFLICT")
 
     @staticmethod

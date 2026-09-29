@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, time
 from logging import Logger
 from pathlib import Path
+from time import perf_counter_ns
 from types import MappingProxyType
 from typing import Literal, Protocol, cast
 
@@ -493,6 +494,7 @@ class OnlyMarketDataProductService:
     ) -> OnlyMarketDataBarWindowProjectionV1:
         """DB-first verified range read; a Query never acquires or mutates state."""
 
+        query_started = perf_counter_ns()
         resolved = self.resolve_runtime(reference)
         semantic = only_product_bar_semantic(bar_semantic)
         if target_bar_count < 1 or target_bar_count > MAX_TARGET_BAR_COUNT:
@@ -601,7 +603,7 @@ class OnlyMarketDataProductService:
             raise OnlyMarketDataProductError(
                 "MARKET_DATA_FACT_STORE_UNAVAILABLE", "canonical market-data store is unavailable"
             ) from exc
-        return OnlyMarketDataBarWindowProjectionV1(
+        projection = OnlyMarketDataBarWindowProjectionV1(
             SCHEMA_VERSION,
             resolved.selection,
             instrument_id,
@@ -627,6 +629,8 @@ class OnlyMarketDataProductService:
             resume_after_sequence if coverage.complete else None,
             plan.fingerprint if coverage.complete else None,
         )
+        self._logger.info("market_data_final_query final_query_ms=%d", (perf_counter_ns() - query_started) // 1_000_000)
+        return projection
 
     # --- Product Command ---------------------------------------------------------------
 

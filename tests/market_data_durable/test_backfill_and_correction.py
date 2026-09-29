@@ -177,6 +177,56 @@ def test_backfill_rejects_source_stream_that_bypasses_durable_recorder(tmp_path,
         coordinator.backfill_bar_gap(acquisition, request, gap)  # type: ignore[arg-type]
 
 
+def test_finish_reuses_exact_recovery_seal_without_reading_or_recommitting_facts(tmp_path, fixed_now) -> None:  # type: ignore[no-untyped-def]
+    wal = OnlyMarketDataWal(tmp_path, capacity_bytes=2_000_000, now=fixed_now)
+    ingress = OnlyMarketDataIngress(
+        wal,
+        normalizer_id="binance-spot",
+        normalizer_version="1",
+        ingest_clock_ns=lambda: 5,
+        bar_construction=BAR_CONSTRUCTION,
+    )
+    _write_bar(ingress, "page-1", 0, "101.00000000", "REST_BACKFILL")
+    _write_bar(ingress, "page-2", 1, "102.00000000", "REST_BACKFILL")
+
+    class CountingStore(OnlyInMemoryMarketFactStore):
+        reads = 0
+
+        def read_segment_facts(self, segments, scope):  # type: ignore[no-untyped-def]
+            self.reads += 1
+            return super().read_segment_facts(segments, scope)
+
+    class CountingCommitter(OnlyRevisionCommitService):
+        durable_commits = 0
+
+        def commit_durable_facts(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            self.durable_commits += 1
+            return super().commit_durable_facts(*args, **kwargs)
+
+    store = CountingStore()
+    catalog = OnlyInMemoryMarketDataCatalog()
+    committer = CountingCommitter(store, catalog, now=fixed_now)
+    recovery = OnlyMarketDataRecoveryCoordinator(wal, store, catalog, committer)
+    recovery_results = recovery.recover_all()
+    scope = _two_minute_scope()
+    acquisition = OnlyMarketDataAcquisitionIntent.build(
+        str(SOURCE),
+        scope,
+        provenance=OnlyMarketDataProvenance.REST_BACKFILL,
+        admitted_at=fixed_now(),
+        integration_binding_fingerprint=BINDING,
+    )
+    coordinator = OnlyMarketDataBackfillCoordinator(_HistoricalSource(ingress), catalog, store, recovery, committer)
+
+    result = coordinator._finish(acquisition, set(), None, recovery_results)
+
+    assert result.manifest.complete
+    assert result.revision is not None and result.seal is not None
+    assert len(result.revision.segment_refs) == 2
+    assert store.reads == 0
+    assert committer.durable_commits == 0
+
+
 def test_correction_composes_from_durable_parent_without_old_wal_and_is_deterministic(tmp_path, fixed_now) -> None:  # type: ignore[no-untyped-def]
     wal = OnlyMarketDataWal(tmp_path, capacity_bytes=2_000_000, now=fixed_now)
     ingress = OnlyMarketDataIngress(
