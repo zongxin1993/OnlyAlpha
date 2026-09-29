@@ -404,7 +404,10 @@ def test_real_databases_batch_nine_page_segments_and_idempotent_retry(tmp_path: 
         for page in range(9):
             ingress.begin_segment(f"real-batch-{batch_id}-{page}")
             ingress.record(
-                _observation(100 + page, "REST_BACKFILL"),
+                replace(
+                    _observation(100 + page, "REST_BACKFILL"),
+                    capture_session_id=f"real-batch-{batch_id}",
+                ),
                 (bar_update(page * 2), bar_update(page * 2 + 1)),
             )
             segment = ingress.seal()
