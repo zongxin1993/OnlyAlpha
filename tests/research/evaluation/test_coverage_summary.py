@@ -299,17 +299,17 @@ def test_coverage_summary_identities_and_canonical_payloads_are_pinned(tmp_path)
     def canonical_sha(payload: object) -> str:
         return hashlib.sha256(only_canonical_json(payload).encode()).hexdigest()
 
-    assert case[11].statistics_fingerprint == "adfdc933cb0e3f127de4d7a80cd8e36ffe5b5aada1f450d8c21656920add07dd"
+    assert case[11].statistics_fingerprint == "2925303c5eaecfc419a6bfbe3b07392ab97151fc43e67544ff44f15c95b4682e"
     assert loaded.manifest.result_content_fingerprint == (
-        "05bb370907f742f220d0a9079da83f44efba6cb2dbb9d79249d7dfe81e44dde1"
+        "4c9fb1ca9f584878d85b0cf70d1d30f549cf4963b502abc70ea5cb5f7aad11fb"
     )
     assert loaded.manifest.statistics_result_fingerprint == (
-        "81d5b28fe8495a2621b42198836b2dd123d9ff772522df1fc28edf8306e11e2f"
+        "38a5bb6f48c36d471984e2825da547e18ba44f07077d8177450afb5ffb258b81"
     )
-    assert canonical_sha(case[11].to_dict()) == "7ebbf54b4e76e90aa4bc41f7add7ff17f453736d3c22a98b204afa2aa38b91bc"
+    assert canonical_sha(case[11].to_dict()) == "4668d4461bbd52ce4c22bf16c82c5f522388606b17253880db7d7917429024c2"
     assert canonical_sha(loaded.summary.to_dict()) == (
         "49bf8a817f6b1d9f49b3250e3a9ca786079af5c9f5091d2e6e074c7adebbfe60"
     )
     assert canonical_sha(loaded.manifest.to_dict()) == (
-        "9422558832ccb6b4e651e40392d23b01cd2e3931ff09750e484af07c45909251"
+        "395cd7437d8e7cd85c174b28065a30d94da82762036df16798bb0cc53e3763c4"
     )

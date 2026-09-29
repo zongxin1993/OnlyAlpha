@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -201,13 +202,14 @@ class OnlyVerifiedMarketDataRangeQuery:
 
         selected = only_deduplicate_facts(tuple(facts))
         ordered_segments = tuple(sorted(segments.values(), key=lambda item: (item.segment_id, item.content_hash)))
+        interval_inputs = _partition_interval_inputs(intervals, ordered_segments, selected)
         gaps: list[OnlyBarCoverageGap] = []
         issues: list[str] = []
         expected_base_facts = 0
         unprovable = False
         incomplete = False
         complete_intervals = 0
-        for interval in intervals:
+        for interval, (interval_segments, interval_facts) in zip(intervals, interval_inputs, strict=True):
             scope = OnlyMarketDataScope(
                 family.source_id,
                 family.market,
@@ -219,7 +221,7 @@ class OnlyVerifiedMarketDataRangeQuery:
                 family.bar_type,
                 bar_construction=family.bar_construction,
             )
-            coverage = only_build_coverage(scope, ordered_segments, selected)
+            coverage = only_build_coverage(scope, interval_segments, interval_facts)
             expected_base_facts += int(
                 next(item.split("=", 1)[1] for item in coverage.proof if item.startswith("bar_grid_count="))
             )
@@ -288,11 +290,37 @@ class OnlyVerifiedMarketDataRangeQuery:
             raise OnlyMarketDataSealError("MARKET_DATA_CATALOG_UNAVAILABLE") from exc
         if tuple((item.segment_id, item.content_hash) for item in segments) != revision.segment_refs:
             raise OnlyMarketDataSealError("MARKET_DATA_REVISION_EVIDENCE_INVALID")
-        return self._exact.read_exact(revision.revision_id, revision.scope), segments, manifest, seal
+        return self._exact._read_verified_segments(revision, segments, revision.scope), segments, manifest, seal
 
 
 def only_history_projection_fingerprint(value: object) -> str:
     return only_canonical_fingerprint(value)
+
+
+def _partition_interval_inputs(
+    intervals: tuple[OnlyBarCoverageGap, ...],
+    segments: tuple[OnlyIngestSegment, ...],
+    facts: tuple[OnlyCanonicalMarketFactRecord, ...],
+) -> tuple[tuple[tuple[OnlyIngestSegment, ...], tuple[OnlyCanonicalMarketFactRecord, ...]], ...]:
+    indexed = sorted(enumerate(intervals), key=lambda item: (item[1].start_ns, item[1].end_ns))
+    if any(left.end_ns > right.start_ns for (_, left), (_, right) in zip(indexed, indexed[1:], strict=False)):
+        raise ValueError("MARKET_DATA_WINDOW_REQUEST_INVALID")
+    starts = tuple(item.start_ns for _, item in indexed)
+    ends = tuple(item.end_ns for _, item in indexed)
+    segment_buckets: list[list[OnlyIngestSegment]] = [[] for _ in intervals]
+    fact_buckets: list[list[OnlyCanonicalMarketFactRecord]] = [[] for _ in intervals]
+    for fact in facts:
+        position = bisect_left(ends, fact.ts_event_ns)
+        if position < len(indexed) and starts[position] < fact.ts_event_ns:
+            fact_buckets[indexed[position][0]].append(fact)
+    for segment in segments:
+        if segment.start_ns is None or segment.end_ns is None:
+            raise OnlyMarketDataConflictError(f"SEGMENT_SCOPE_MISMATCH:{segment.segment_id}")
+        position = bisect_right(ends, segment.start_ns)
+        while position < len(indexed) and starts[position] < segment.end_ns:
+            segment_buckets[indexed[position][0]].append(segment)
+            position += 1
+    return tuple((tuple(segment_buckets[index]), tuple(fact_buckets[index])) for index in range(len(intervals)))
 
 
 def _merge_ranges(ranges: tuple[OnlyBarCoverageGap, ...]) -> tuple[OnlyBarCoverageGap, ...]:

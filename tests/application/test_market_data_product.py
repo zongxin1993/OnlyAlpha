@@ -864,6 +864,61 @@ def test_adjacent_revisions_compose_into_one_deterministic_window(
     assert harness.provider.bar_fetches == fetches
 
 
+def test_large_complete_window_reads_and_decodes_each_durable_fact_once_per_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    harness = _service(tmp_path)
+    reference = _reference(harness.revision_fingerprint)
+    bar_count = 50
+    start_ns, end_ns = _range(minutes=bar_count)
+    acquired = harness.service.acquire_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
+    fetches = harness.provider.bar_fetches
+    fact_store = harness.service._facts
+    read_segment_facts = fact_store.read_segment_facts
+    reads = 0
+
+    def counted_read(segments, scope):  # type: ignore[no-untyped-def]
+        nonlocal reads
+        reads += 1
+        return read_segment_facts(segments, scope)
+
+    decode = OnlyMarketDataInboundUpdate.from_dict
+    decodes = 0
+    build_coverage = range_query.only_build_coverage
+    coverage_fact_visits = 0
+
+    def counted_decode(value):  # type: ignore[no-untyped-def]
+        nonlocal decodes
+        decodes += 1
+        return decode(value)
+
+    def counted_coverage(scope, segments, facts):  # type: ignore[no-untyped-def]
+        nonlocal coverage_fact_visits
+        coverage_fact_visits += len(facts)
+        return build_coverage(scope, segments, facts)
+
+    monkeypatch.setattr(fact_store, "read_segment_facts", counted_read)
+    monkeypatch.setattr(OnlyMarketDataInboundUpdate, "from_dict", staticmethod(counted_decode))
+    monkeypatch.setattr(range_query, "only_build_coverage", counted_coverage)
+    projected = _query_bars(
+        harness.service,
+        reference,
+        instrument_id=str(INSTRUMENT),
+        start_ns=start_ns,
+        end_ns=end_ns,
+    )
+
+    assert projected.coverage.status == "COMPLETE"
+    assert len(projected.bars) == bar_count
+    assert [item.revision_id for item in projected.revision_evidence] == [acquired.revision_id]
+    assert projected.history_projection_fingerprint is not None
+    assert projected.resume_after_sequence == str(end_ns // MINUTE_NS - 1)
+    assert reads == 1
+    assert decodes <= 2 * bar_count
+    assert coverage_fact_visits == bar_count
+    assert harness.provider.bar_fetches == fetches
+
+
 def test_conflicting_fact_across_revisions_fails_closed(tmp_path: Path) -> None:
     harness = _service(tmp_path)
     reference = _reference(harness.revision_fingerprint)

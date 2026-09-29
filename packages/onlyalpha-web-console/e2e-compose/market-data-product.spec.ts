@@ -134,10 +134,11 @@ test("real Browser uses one native 15m resolution across HTTP and stream", async
     const { http, stream } = await matchingProductEvidence(observed, 15, "PROVIDER_NATIVE");
     expect(http).toMatchObject({
         resolution_mode: "PROVIDER_NATIVE",
-        base_revision_id: null
+        derived_projection_fingerprint: null
     });
+    expect(http?.history_projection_fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    expect((http?.revision_evidence as unknown[] | undefined)?.length).toBeGreaterThan(0);
     expect(http?.resolution_plan_fingerprint).toBe(stream?.resolution_plan_fingerprint);
-    expect(http?.construction_fingerprint).toMatch(/^[0-9a-f]{64}$/);
     expect(stream).toMatchObject({
         resolution_mode: "PROVIDER_NATIVE",
         cursor_bar_stride_minutes: 15
@@ -166,14 +167,16 @@ test("real Browser keeps derived 7m intent while Product uses base 1m", async ({
         resolution_mode: "DERIVED",
         aggregation_semantics_version: "TIME_BAR_V1"
     });
-    expect(http?.base_revision_id).toBe(http?.revision_id);
+    expect(http?.history_projection_fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    expect(http?.derived_projection_fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    expect((http?.revision_evidence as unknown[] | undefined)?.length).toBeGreaterThan(0);
     expect(http?.resolution_plan_fingerprint).toBe(stream?.resolution_plan_fingerprint);
     expect(stream).toMatchObject({
         resolution_mode: "DERIVED",
         cursor_bar_stride_minutes: 1
     });
     expect(BigInt(String(http?.resume_after_sequence))).toBe(
-        BigInt(String(http?.end_ns)) / minuteNs - BigInt(1)
+        BigInt(String(http?.resolved_end_ns)) / minuteNs - BigInt(1)
     );
     expect(
         observed.requests

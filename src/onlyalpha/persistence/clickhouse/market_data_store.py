@@ -22,6 +22,9 @@ from onlyalpha.market_data.durable.models import (
 from .client import OnlyClickHouseClient
 from .version import only_assert_supported_clickhouse_server
 
+_SEGMENT_VERIFY_CHUNK_SIZE = 1_000
+_SEGMENT_TABLES = ("market_raw_event", "market_trade", "market_bar", "market_reference_price")
+
 
 class OnlyClickHouseSegmentConflictError(RuntimeError):
     pass
@@ -102,9 +105,43 @@ class OnlyClickHouseMarketFactStore:
     def read_segment_facts(
         self, segments: tuple[OnlyIngestSegment, ...], scope: OnlyMarketDataScope
     ) -> tuple[OnlyCanonicalMarketFactRecord, ...]:
-        if any(self.inspect_segment(item) != "EXACT" for item in segments):
-            raise OnlyClickHouseSegmentConflictError("CLICKHOUSE_SEGMENT_NOT_EXACT")
+        self._verify_segments_exact(segments)
         return self._read_facts(tuple(item.segment_id for item in segments), scope)
+
+    def _verify_segments_exact(self, segments: tuple[OnlyIngestSegment, ...]) -> None:
+        expected = {item.segment_id: item for item in segments}
+        if len(expected) != len(segments):
+            raise OnlyClickHouseSegmentConflictError("CLICKHOUSE_SEGMENT_NOT_EXACT")
+        raw_counts = {segment_id: 0 for segment_id in expected}
+        canonical_counts = {segment_id: 0 for segment_id in expected}
+        hashes = {segment_id: set[str]() for segment_id in expected}
+        segment_ids = tuple(expected)
+        for offset in range(0, len(segment_ids), _SEGMENT_VERIFY_CHUNK_SIZE):
+            chunk = segment_ids[offset : offset + _SEGMENT_VERIFY_CHUNK_SIZE]
+            quoted = ",".join(_quote(item) for item in chunk)
+            for table in _SEGMENT_TABLES:
+                rows = self._client.query_json(
+                    "SELECT segment_id, segment_content_hash, count() AS physical_count FROM "
+                    f"{table} WHERE segment_id IN ({quoted}) "
+                    "GROUP BY segment_id, segment_content_hash"
+                )
+                for row in rows:
+                    segment_id = str(row["segment_id"])
+                    if segment_id not in expected:
+                        raise OnlyClickHouseSegmentConflictError("CLICKHOUSE_SEGMENT_NOT_EXACT")
+                    count = int(str(row["physical_count"]))
+                    if table == "market_raw_event":
+                        raw_counts[segment_id] += count
+                    else:
+                        canonical_counts[segment_id] += count
+                    hashes[segment_id].add(str(row["segment_content_hash"]))
+        if any(
+            raw_counts[item.segment_id] != item.raw_count
+            or canonical_counts[item.segment_id] != item.canonical_count
+            or hashes[item.segment_id] != {item.content_hash}
+            for item in segments
+        ):
+            raise OnlyClickHouseSegmentConflictError("CLICKHOUSE_SEGMENT_NOT_EXACT")
 
     def _read_facts(
         self, segment_ids: tuple[str, ...], scope: OnlyMarketDataScope
@@ -129,7 +166,7 @@ class OnlyClickHouseMarketFactStore:
 
     def _segment_counts(self, segment_id: str) -> tuple[int, int, int, int]:
         result: list[int] = []
-        for table in ("market_raw_event", "market_trade", "market_bar", "market_reference_price"):
+        for table in _SEGMENT_TABLES:
             rows = self._client.query_json(
                 f"SELECT count() AS count FROM {table} WHERE segment_id={_quote(segment_id)}"
             )
@@ -138,7 +175,7 @@ class OnlyClickHouseMarketFactStore:
 
     def _segment_hashes(self, segment_id: str) -> set[str]:
         result: set[str] = set()
-        for table in ("market_raw_event", "market_trade", "market_bar", "market_reference_price"):
+        for table in _SEGMENT_TABLES:
             rows = self._client.query_json(
                 f"SELECT DISTINCT segment_content_hash FROM {table} WHERE segment_id={_quote(segment_id)}"
             )

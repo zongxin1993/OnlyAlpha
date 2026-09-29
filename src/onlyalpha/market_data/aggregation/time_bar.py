@@ -11,8 +11,11 @@ from onlyalpha.domain.enums import OnlyAdjustmentType
 from onlyalpha.domain.market import OnlyBar, OnlyBarType, OnlyFixedDurationBarFormation
 from onlyalpha.domain.time import OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
-from onlyalpha.market_data.aggregation.base import OnlyBarAggregationError, OnlyBarAggregator
-from onlyalpha.market_data.subscriptions import OnlyIncompleteBarPolicy, OnlyMissingBarPolicy
+from onlyalpha.market_data.aggregation.base import (
+    OnlyBarAggregationError,
+    OnlyBarAggregator,
+)
+from onlyalpha.market_data.construction_policy import OnlyBarIncompletePolicy, OnlyBarMissingPolicy
 
 
 class OnlyAlignedTumblingWindowPolicy:
@@ -49,8 +52,8 @@ class OnlyTimeBarAggregator(OnlyBarAggregator):
         calendar: OnlyTradingCalendar,
         clock: OnlyClock,
         *,
-        incomplete_policy: OnlyIncompleteBarPolicy = OnlyIncompleteBarPolicy.DROP,
-        missing_policy: OnlyMissingBarPolicy = OnlyMissingBarPolicy.REJECT,
+        incomplete_policy: OnlyBarIncompletePolicy = OnlyBarIncompletePolicy.DROP,
+        missing_policy: OnlyBarMissingPolicy = OnlyBarMissingPolicy.REJECT,
     ) -> None:
         if source_bar_type.instrument_id != target_bar_type.instrument_id:
             raise OnlyBarAggregationError("source and target instruments must match")
@@ -161,23 +164,23 @@ class OnlyTimeBarAggregator(OnlyBarAggregator):
         if not self._bars:
             self._reset()
             return
-        if self._missing_policy is OnlyMissingBarPolicy.SKIP_WINDOW:
+        if self._missing_policy is OnlyBarMissingPolicy.SKIP_WINDOW:
             self._reset()
             return
         raise OnlyBarAggregationError("derived Bar window ended with missing source Bars")
 
     def _handle_missing_window(self, window_end: datetime) -> None:
         self._reset()
-        if self._missing_policy is OnlyMissingBarPolicy.SKIP_WINDOW:
+        if self._missing_policy is OnlyBarMissingPolicy.SKIP_WINDOW:
             self._skipped_until = window_end
             return None
         raise OnlyBarAggregationError("source Bar sequence has a gap")
 
     def _finish_partial_window(self) -> OnlyBar | None:
-        if self._incomplete_policy is OnlyIncompleteBarPolicy.DROP:
+        if self._incomplete_policy is OnlyBarIncompletePolicy.DROP:
             self._reset()
             return None
-        if self._incomplete_policy is OnlyIncompleteBarPolicy.REJECT:
+        if self._incomplete_policy is OnlyBarIncompletePolicy.REJECT:
             raise OnlyBarAggregationError("session ends with an incomplete derived Bar")
         raise OnlyBarAggregationError("partial Bar emission is not implemented in the first phase")
 

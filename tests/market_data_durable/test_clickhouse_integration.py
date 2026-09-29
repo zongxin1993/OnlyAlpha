@@ -68,15 +68,51 @@ class _LostAcknowledgementClient:
         return self._client.query_json(sql, database=database)
 
 
-def _segment(root: Path, fixed_now):  # type: ignore[no-untyped-def]
-    wal = OnlyMarketDataWal(root, capacity_bytes=1_000_000, now=fixed_now, identity_factory=lambda: "segment-ch")
+def _segment(root: Path, fixed_now, *, sequence: int = 10, segment_id: str = "segment-ch"):  # type: ignore[no-untyped-def]
+    wal = OnlyMarketDataWal(root, capacity_bytes=1_000_000, now=fixed_now, identity_factory=lambda: segment_id)
     ingress = OnlyMarketDataIngress(
         wal, normalizer_id="binance-spot", normalizer_version="1", ingest_clock_ns=lambda: 123456789
     )
     ingress.begin_segment()
-    ingress.record(observation(), trade_update(price="100.12000000"))
+    event = replace(
+        observation(f'{{"e":"trade","t":{sequence}}}'.encode()),
+        provider_event_id=str(sequence),
+        provider_sequence=sequence,
+    )
+    ingress.record(event, trade_update(sequence, price="100.12000000"))
     segment = ingress.seal()
     return segment, wal.read_sealed(segment.segment_id)
+
+
+def test_clickhouse_batch_verifies_many_one_record_segments_and_reads_in_order(
+    clickhouse_client: OnlyClickHouseClient, tmp_path: Path, fixed_now
+) -> None:
+    OnlyClickHouseMigrationAuthority(clickhouse_client).migrate()
+    store = OnlyClickHouseMarketFactStore(clickhouse_client)
+    segments = []
+    for index in range(10):
+        segment, records = _segment(
+            tmp_path / str(index), fixed_now, sequence=100 + index, segment_id=f"segment-batch-{index}"
+        )
+        store.write_segment(segment, records)
+        segments.append(segment)
+    base_ns = int(BASE.timestamp() * 1_000_000_000)
+    scope = OnlyMarketDataScope(
+        "BINANCE_SPOT",
+        "SPOT",
+        str(INSTRUMENT),
+        "TRADE",
+        base_ns,
+        base_ns + 200_000_000_000,
+        "BINANCE_SPOT_V1",
+        None,
+        100,
+        109,
+    )
+
+    facts = store.read_segment_facts(tuple(segments), scope)
+
+    assert [item.canonical_payload["source_sequence"] for item in facts] == list(range(100, 110))
 
 
 def test_clickhouse_migration_unknown_write_exact_round_trip_and_configured_storage(

@@ -23,21 +23,6 @@ class OnlyBarFreshnessPolicy(StrEnum):
     SAME_EVENT_TIME = "SAME_EVENT_TIME"
 
 
-class OnlyIncompleteBarPolicy(StrEnum):
-    DROP = "DROP"
-    EMIT_PARTIAL = "EMIT_PARTIAL"
-    TRUNCATE_AT_SESSION_END = "TRUNCATE_AT_SESSION_END"
-    REJECT = "REJECT"
-
-
-class OnlyMissingBarPolicy(StrEnum):
-    REJECT = "REJECT"
-    SKIP_WINDOW = "SKIP_WINDOW"
-    EMIT_PARTIAL = "EMIT_PARTIAL"
-    INSERT_EMPTY = "INSERT_EMPTY"
-    FILL_FORWARD = "FILL_FORWARD"
-
-
 class OnlyMarketDataSequencePolicy(StrEnum):
     REJECT = "REJECT"
     IGNORE_EXACT_DUPLICATE = "IGNORE_EXACT_DUPLICATE"

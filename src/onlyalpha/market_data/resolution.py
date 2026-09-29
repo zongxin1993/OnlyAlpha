@@ -19,6 +19,7 @@ from onlyalpha.domain.market import (
     OnlyValueBarFormation,
     OnlyVolumeBarFormation,
 )
+from onlyalpha.market_data.construction_policy import OnlyBarIncompletePolicy, OnlyBarMissingPolicy
 
 type OnlyMarketDataInputType = OnlyBarType | OnlyTradeInputType
 
@@ -81,16 +82,6 @@ class OnlyBarResolutionPolicy(StrEnum):
 class OnlyBarConstructionRequirementKind(StrEnum):
     POLICY = "POLICY"
     EXACT_RECIPE = "EXACT_RECIPE"
-
-
-class OnlyBarMissingPolicy(StrEnum):
-    REJECT = "REJECT"
-    SKIP_WINDOW = "SKIP_WINDOW"
-
-
-class OnlyBarIncompletePolicy(StrEnum):
-    DROP = "DROP"
-    REJECT = "REJECT"
 
 
 @dataclass(frozen=True, slots=True)
@@ -604,7 +595,6 @@ class OnlyBarConstructionAlgorithmRegistry:
             OnlyTimeBarAggregator,
             OnlyTimeBarConstructionExecutor,
         )
-        from onlyalpha.market_data.subscriptions import OnlyIncompleteBarPolicy, OnlyMissingBarPolicy
 
         assert isinstance(calendar, OnlyTradingCalendar)
         assert isinstance(clock, OnlyClock)
@@ -618,8 +608,8 @@ class OnlyBarConstructionAlgorithmRegistry:
                 edge.target,
                 calendar,
                 clock,
-                incomplete_policy=OnlyIncompleteBarPolicy(edge.recipe.incomplete_policy.value),
-                missing_policy=OnlyMissingBarPolicy(edge.recipe.missing_policy.value),
+                incomplete_policy=edge.recipe.incomplete_policy,
+                missing_policy=edge.recipe.missing_policy,
             )
         )
 

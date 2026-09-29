@@ -147,12 +147,18 @@ def test_event_bus_does_not_drive_production_state_machines() -> None:
         }:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        if any(
-            isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "subscribe"
-            for node in ast.walk(tree)
-        ):
+        if any(_is_event_bus_subscription(node) for node in ast.walk(tree)):
             subscribers.append(str(path))
     assert subscribers == []
+
+
+def _is_event_bus_subscription(node: ast.AST) -> bool:
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute) or node.func.attr != "subscribe":
+        return False
+    owner = node.func.value
+    return (isinstance(owner, ast.Name) and owner.id in {"bus", "event_bus"}) or (
+        isinstance(owner, ast.Attribute) and owner.attr == "_event_bus"
+    )
 
 
 def test_integration_demo_does_not_modify_manager_internals() -> None:

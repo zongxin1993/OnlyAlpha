@@ -247,7 +247,7 @@ def test_reference_denial_does_not_mutate_original_strategy_decision() -> None:
     decision = OnlyStrategyDecision(
         "a" * 64,
         str(INSTRUMENT),
-        OnlyStrategyObservationKey(str(INSTRUMENT), 1, "TIME", "LAST", "EXTERNAL", "RAW", NOW.unix_nanos),
+        OnlyStrategyObservationKey(str(INSTRUMENT), "c" * 64, NOW.unix_nanos),
         "b" * 64,
         NOW,
         True,

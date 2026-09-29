@@ -458,9 +458,17 @@ class OnlyHistoricalMarketDataQueryService:
 
     def read_exact(self, revision_id: str, scope: OnlyMarketDataScope) -> tuple[OnlyCanonicalMarketFactRecord, ...]:
         revision = self.resolve(revision_id)
+        segments = self._catalog.load_durable_segments(tuple(item[0] for item in revision.segment_refs))
+        return self._read_verified_segments(revision, segments, scope)
+
+    def _read_verified_segments(
+        self,
+        revision: OnlyMarketDataRevision,
+        segments: tuple[OnlyIngestSegment, ...],
+        scope: OnlyMarketDataScope,
+    ) -> tuple[OnlyCanonicalMarketFactRecord, ...]:
         if revision.scope != scope:
             raise ValueError("REVISION_SCOPE_MISMATCH")
-        segments = self._catalog.load_durable_segments(tuple(item[0] for item in revision.segment_refs))
         if tuple((item.segment_id, item.content_hash) for item in segments) != revision.segment_refs:
             raise OnlyMarketDataSealError("REVISION_SEGMENT_METADATA_MISMATCH")
         facts = self._fact_store.read_segment_facts(segments, scope)
