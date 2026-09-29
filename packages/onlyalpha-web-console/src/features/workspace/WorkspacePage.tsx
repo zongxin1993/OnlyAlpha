@@ -541,8 +541,8 @@ export function WorkspacePage() {
                 >
                     {marketData.message ??
                         (marketData.status === "ready"
-                            ? `${marketData.resolvedSourceId ?? "真实数据源"} · 历史 Revision ${
-                                  marketData.revisionFingerprint?.slice(0, 12) ?? "—"
+                            ? `${marketData.resolvedSourceId ?? "真实数据源"} · 历史投影 ${
+                                  marketData.historyProjectionFingerprint?.slice(0, 12) ?? "—"
                               } · ${
                                   marketData.realtimeStatus === "ready"
                                       ? "● 实时"
@@ -568,7 +568,7 @@ export function WorkspacePage() {
                         liveBar={marketData.liveBar}
                         historyKey={
                             realPath
-                                ? `${marketData.revisionFingerprint ?? ""}:${String(fixedDurationMinutes(marketData.barSemantic))}`
+                                ? `${marketData.historyProjectionFingerprint ?? ""}:${String(fixedDurationMinutes(marketData.barSemantic))}`
                                 : null
                         }
                     />

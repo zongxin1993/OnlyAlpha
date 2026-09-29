@@ -21,9 +21,17 @@ const sources = { schema_version: 1 as const, sources: [marketDataSource()] };
 
 const query = {
     instrument_id: "BTCUSDT.TEST",
-    start_ns: "1767225600000000000",
-    end_ns: "1767225720000000000",
+    anchor_kind: "BEFORE_TIME" as const,
+    before_ns: "1767225720000000000",
+    target_bar_count: 2,
     bar_semantic: marketDataBarSemantic(1)
+};
+
+const acquisitionQuery = {
+    instrument_id: query.instrument_id,
+    start_ns: "1767225600000000000",
+    end_ns: query.before_ns,
+    bar_semantic: query.bar_semantic
 };
 
 function stubFetch(response: Response): ReturnType<typeof vi.fn> {
@@ -74,8 +82,12 @@ it("omits an absent type guard and projects the server-derived canonical identit
     expect(JSON.parse(url.searchParams.get("bar_semantic") ?? "null")).toEqual(
         marketDataBarSemantic(1)
     );
+    expect(url.searchParams.get("anchor_kind")).toBe("BEFORE_TIME");
+    expect(url.searchParams.get("before_ns")).toBe(query.before_ns);
+    expect(url.searchParams.get("target_bar_count")).toBe("2");
+    expect(url.searchParams.has("start_ns")).toBe(false);
     expect(bars.source_selection.source_id).toBe("test.market_data.live");
-    expect(bars.revision_fingerprint).toBe("d".repeat(64));
+    expect(bars.history_projection_fingerprint).toBe("8".repeat(64));
 });
 
 it("rejects a historical response with a different Bar Semantic", async () => {
@@ -97,7 +109,7 @@ it("posts an acquisition command carrying a source reference rather than a sourc
     const fetchMock = stubFetch(json(marketDataAcquisition()));
     const acquisition = await new FetchMarketDataApiClient().createAcquisition(
         FIXTURE_REFERENCE,
-        query
+        acquisitionQuery
     );
 
     expect(acquisition.status).toBe("COMPLETE");
@@ -107,8 +119,8 @@ it("posts an acquisition command carrying a source reference rather than a sourc
     expect(body).toEqual({
         source_reference: FIXTURE_REFERENCE,
         instrument_id: query.instrument_id,
-        start_ns: query.start_ns,
-        end_ns: query.end_ns,
+        start_ns: acquisitionQuery.start_ns,
+        end_ns: acquisitionQuery.end_ns,
         bar_semantic: marketDataBarSemantic(1),
         provenance: "REST_BACKFILL"
     });

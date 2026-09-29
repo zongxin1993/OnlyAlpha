@@ -3,8 +3,11 @@ import { expect, test, type Page, type Route, type WebSocketRoute } from "@playw
 const integrationId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const integrationRevision = "a".repeat(64);
 const historicalRevision = "d".repeat(64);
+const historyFingerprint = "8".repeat(64);
 const sourceId = "binance.spot.market_data.us";
 const minuteNs = BigInt("60000000000");
+const historyStart = BigInt("1767225600000000000");
+const historyEnd = historyStart + BigInt(1_440) * minuteNs;
 const planFingerprint = (durationMinutes: number) => durationMinutes.toString(16).padStart(64, "0");
 const nativeSteps = new Set([1, 3, 5, 15, 30, 60, 120, 240]);
 const semantic = (durationMinutes: number) => ({
@@ -75,8 +78,11 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
                 instruments: [instrument]
             });
         if (url.pathname === "/api/v2/market-data/bars") {
-            const start = BigInt(url.searchParams.get("start_ns") ?? "0");
-            const end = BigInt(url.searchParams.get("end_ns") ?? "0");
+            expect(url.searchParams.get("anchor_kind")).toBe("LATEST_CLOSED");
+            expect(url.searchParams.get("target_bar_count")).toBe("1440");
+            expect(url.searchParams.has("start_ns")).toBe(false);
+            const start = historyStart;
+            const end = historyEnd;
             const requested = JSON.parse(
                 url.searchParams.get("bar_semantic") ?? "null"
             ) as ReturnType<typeof semantic>;
@@ -109,8 +115,11 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
                 market: instrument.market,
                 bar_semantic: semantic(step),
                 closed_only: true,
-                start_ns: start.toString(),
-                end_ns: end.toString(),
+                anchor_kind: "LATEST_CLOSED",
+                requested_before_ns: null,
+                requested_bar_count: 1440,
+                resolved_start_ns: start.toString(),
+                resolved_end_ns: end.toString(),
                 coverage: {
                     status: historyComplete ? "COMPLETE" : "INCOMPLETE",
                     manifest_id: "manifest",
@@ -123,15 +132,25 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
                         ? []
                         : [{ start_ns: String(start), end_ns: String(end) }]
                 },
-                revision_id: historyComplete ? "revision" : null,
-                revision_fingerprint: historyComplete ? historicalRevision : null,
-                seal_id: historyComplete ? "seal" : null,
+                revision_evidence: historyComplete
+                    ? [
+                          {
+                              revision_id: "revision",
+                              revision_fingerprint: historicalRevision,
+                              manifest_id: "manifest",
+                              manifest_fingerprint: "c".repeat(64),
+                              seal_id: "seal",
+                              covered_start_ns: start.toString(),
+                              covered_end_ns: end.toString()
+                          }
+                      ]
+                    : [],
+                history_projection_fingerprint: historyComplete ? historyFingerprint : null,
+                derived_projection_fingerprint: historyComplete && !native ? "9".repeat(64) : null,
                 aggregation_semantics_version: native ? null : "TIME_BAR_V1",
                 calendar_fingerprint: native ? null : "a".repeat(64),
                 resolution_mode: native ? "PROVIDER_NATIVE" : "DERIVED",
                 resolution_plan_fingerprint: planFingerprint(step),
-                base_revision_id: native ? null : "revision",
-                construction_fingerprint: (step + 256).toString(16).padStart(64, "0"),
                 resume_after_sequence: historyComplete
                     ? (
                           end / (step === 15 ? BigInt(15) * minuteNs : minuteNs) -

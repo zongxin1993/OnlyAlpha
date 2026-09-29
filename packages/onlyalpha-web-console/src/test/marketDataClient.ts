@@ -75,8 +75,11 @@ export function marketDataBars(overrides: Partial<MarketDataBars> = {}): MarketD
         market: "SPOT",
         bar_semantic: marketDataBarSemantic(1),
         closed_only: true,
-        start_ns: "1767225600000000000",
-        end_ns: "1767225720000000000",
+        anchor_kind: "BEFORE_TIME",
+        requested_before_ns: "1767225720000000000",
+        requested_bar_count: 2,
+        resolved_start_ns: "1767225600000000000",
+        resolved_end_ns: "1767225720000000000",
         coverage: {
             status: "COMPLETE",
             manifest_id: "manifest:" + "c".repeat(64),
@@ -87,15 +90,23 @@ export function marketDataBars(overrides: Partial<MarketDataBars> = {}): MarketD
             gaps: [],
             planned_acquisition_ranges: []
         },
-        revision_id: "market-data-revision:" + "d".repeat(64),
-        revision_fingerprint: "d".repeat(64),
-        seal_id: "seal:" + "e".repeat(64),
+        revision_evidence: [
+            {
+                revision_id: "market-data-revision:" + "d".repeat(64),
+                revision_fingerprint: "d".repeat(64),
+                manifest_id: "manifest:" + "c".repeat(64),
+                manifest_fingerprint: "c".repeat(64),
+                seal_id: "seal:" + "e".repeat(64),
+                covered_start_ns: "1767225600000000000",
+                covered_end_ns: "1767225720000000000"
+            }
+        ],
+        history_projection_fingerprint: "8".repeat(64),
+        derived_projection_fingerprint: null,
         aggregation_semantics_version: null,
         calendar_fingerprint: null,
         resolution_mode: "PROVIDER_NATIVE",
         resolution_plan_fingerprint: "f".repeat(64),
-        base_revision_id: null,
-        construction_fingerprint: "9".repeat(64),
         resume_after_sequence: "29453761",
         resume_plan_fingerprint: "f".repeat(64),
         bars: [
@@ -160,7 +171,7 @@ export function marketDataClient(
     };
 }
 
-export function incompleteBars(): MarketDataBars {
+export function incompleteBars(overrides: Partial<MarketDataBars> = {}): MarketDataBars {
     return marketDataBars({
         coverage: {
             status: "INCOMPLETE",
@@ -174,12 +185,13 @@ export function incompleteBars(): MarketDataBars {
                 { start_ns: "1767225600000000000", end_ns: "1767225720000000000" }
             ]
         },
-        revision_id: null,
-        revision_fingerprint: null,
-        seal_id: null,
+        revision_evidence: [],
+        history_projection_fingerprint: null,
+        derived_projection_fingerprint: null,
         resume_after_sequence: null,
         resume_plan_fingerprint: null,
-        bars: []
+        bars: [],
+        ...overrides
     });
 }
 

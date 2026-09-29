@@ -12,8 +12,8 @@ from onlyalpha_http_server.market_data import (
 from onlyalpha.application.market_data_product import (
     BASE_BAR_SEMANTIC,
     OnlyMarketDataAcquisitionProjectionV1,
-    OnlyMarketDataBarsProjectionV1,
     OnlyMarketDataBarV1,
+    OnlyMarketDataBarWindowProjectionV1,
     OnlyMarketDataCoverageGapV1,
     OnlyMarketDataCoverageProjectionV1,
     OnlyMarketDataInstrumentListProjectionV1,
@@ -25,6 +25,10 @@ from onlyalpha.application.market_data_product import (
     OnlyMarketDataTimeBarCapabilityV1,
 )
 from onlyalpha.domain.market import OnlyBarSemantic
+from onlyalpha.market_data.durable.range_query import (
+    OnlyBarWindowAnchorKind,
+    OnlyMarketDataRevisionEvidence,
+)
 
 INTEGRATION_ID = "00000000-0000-4000-8000-000000000301"
 REVISION_FINGERPRINT = "a" * 64
@@ -116,13 +120,14 @@ class _Service:
         reference: OnlyMarketDataSourceReferenceV1,
         *,
         instrument_id: str,
-        start_ns: int,
-        end_ns: int,
+        anchor_kind: OnlyBarWindowAnchorKind,
+        target_bar_count: int,
+        before_ns: int | None = None,
         bar_semantic: OnlyBarSemantic = BASE_BAR_SEMANTIC,
-    ) -> OnlyMarketDataBarsProjectionV1:
+    ) -> OnlyMarketDataBarWindowProjectionV1:
         self._raise()
         del reference
-        self.bar_queries.append((instrument_id, start_ns, end_ns, bar_semantic))
+        self.bar_queries.append((instrument_id, before_ns or 0, target_bar_count, bar_semantic))
         coverage = _coverage(self.bar_status)
         bars = (
             (
@@ -140,22 +145,44 @@ class _Service:
             if coverage.complete
             else ()
         )
-        return OnlyMarketDataBarsProjectionV1(
-            1,
-            _selection(),
-            instrument_id,
-            "BTCUSDT",
-            "BINANCE",
-            "SPOT",
-            bar_semantic,
-            True,
-            start_ns,
-            end_ns,
-            coverage,
-            "market-data-revision:" + "d" * 64 if coverage.complete else None,
-            "d" * 64 if coverage.complete else None,
-            "seal:" + "e" * 64 if coverage.complete else None,
-            bars,
+        evidence = (
+            (
+                OnlyMarketDataRevisionEvidence(
+                    "market-data-revision:" + "d" * 64,
+                    "d" * 64,
+                    "manifest:" + "c" * 64,
+                    "c" * 64,
+                    "seal:" + "e" * 64,
+                    START_NS,
+                    START_NS + 2 * MINUTE_NS,
+                ),
+            )
+            if coverage.complete
+            else ()
+        )
+        return OnlyMarketDataBarWindowProjectionV1(
+            schema_version=1,
+            source_selection=_selection(),
+            instrument_id=instrument_id,
+            display_symbol="BTCUSDT",
+            venue="BINANCE",
+            market="SPOT",
+            bar_semantic=bar_semantic,
+            closed_only=True,
+            anchor_kind=anchor_kind.value,
+            requested_before_ns=before_ns,
+            requested_bar_count=target_bar_count,
+            resolved_start_ns=START_NS,
+            resolved_end_ns=START_NS + 2 * MINUTE_NS,
+            coverage=coverage,
+            bars=bars,
+            revision_evidence=evidence,
+            history_projection_fingerprint="d" * 64 if coverage.complete else None,
+            derived_projection_fingerprint=None,
+            resolution_mode="PROVIDER_NATIVE",
+            resolution_plan_fingerprint="f" * 64,
+            resume_after_sequence="1" if coverage.complete else None,
+            resume_plan_fingerprint="f" * 64 if coverage.complete else None,
         )
 
     def acquire_bars(
@@ -216,6 +243,8 @@ def _selection_params(**overrides: object) -> dict[str, object]:
         "integration_revision_fingerprint": REVISION_FINGERPRINT,
         "expected_type_id": TYPE_ID,
         "bar_semantic": BASE_BAR_SEMANTIC.to_json(),
+        "anchor_kind": "LATEST_CLOSED",
+        "target_bar_count": 2,
     }
     values.update(overrides)
     return values
@@ -254,28 +283,28 @@ def test_bars_query_is_db_first_and_reports_gap_projection_without_bars() -> Non
     client = _client(service)
     response = client.get(
         "/api/v2/market-data/bars",
-        params=_selection_params(instrument_id=INSTRUMENT_ID, start_ns=START_NS_TEXT, end_ns=END_NS_TEXT),
+        params=_selection_params(instrument_id=INSTRUMENT_ID),
     )
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["coverage"]["status"] == "INCOMPLETE"
     assert body["bars"] == []
-    assert body["revision_id"] is None
+    assert body["revision_evidence"] == []
     assert body["coverage"]["planned_acquisition_ranges"] == [{"start_ns": START_NS_TEXT, "end_ns": END_NS_TEXT}]
     assert body["bar_semantic"] == BASE_BAR_SEMANTIC.to_dict()
-    assert service.bar_queries == [(INSTRUMENT_ID, START_NS, START_NS + 2 * MINUTE_NS, BASE_BAR_SEMANTIC)]
+    assert service.bar_queries == [(INSTRUMENT_ID, 0, 2, BASE_BAR_SEMANTIC)]
 
     service.bar_status = "COMPLETE"
     complete = client.get(
         "/api/v2/market-data/bars",
-        params=_selection_params(instrument_id=INSTRUMENT_ID, start_ns=START_NS_TEXT, end_ns=END_NS_TEXT),
+        params=_selection_params(instrument_id=INSTRUMENT_ID),
     )
     assert complete.status_code == 200
     assert complete.json()["coverage"]["status"] == "COMPLETE"
     assert complete.json()["bars"][0]["close"] == "101.00"
     assert complete.json()["bars"][0]["bar_start_ns"] == START_NS_TEXT
-    assert complete.json()["start_ns"] == START_NS_TEXT
-    assert complete.json()["revision_fingerprint"] == "d" * 64
+    assert complete.json()["resolved_start_ns"] == START_NS_TEXT
+    assert complete.json()["history_projection_fingerprint"] == "d" * 64
 
 
 def test_market_data_sources_projection_is_a_thin_product_read() -> None:
@@ -333,8 +362,6 @@ def test_client_cannot_assert_canonical_source_identity() -> None:
         "/api/v2/market-data/bars",
         params=_selection_params(
             instrument_id=INSTRUMENT_ID,
-            start_ns=START_NS,
-            end_ns=START_NS + 2 * MINUTE_NS,
             source_id="binance.spot.market_data.spot_testnet",
         ),
     )
@@ -381,7 +408,7 @@ def test_acquisition_command_and_status_query_are_thin_projections() -> None:
 def test_market_data_errors_map_to_explicit_http_status() -> None:
     service = _Service()
     client = _client(service)
-    params = _selection_params(instrument_id=INSTRUMENT_ID, start_ns=START_NS_TEXT, end_ns=END_NS_TEXT)
+    params = _selection_params(instrument_id=INSTRUMENT_ID)
 
     service.failure = OnlyMarketDataProductError("MARKET_DATA_ACQUISITION_NOT_FOUND", "no such acquisition")
     assert client.get("/api/v2/market-data/bars", params=params).status_code == 404
@@ -396,6 +423,9 @@ def test_market_data_errors_map_to_explicit_http_status() -> None:
     assert client.get("/api/v2/market-data/bars", params=params).status_code == 409
 
     service.failure = None
-    invalid = client.get("/api/v2/market-data/bars", params=_selection_params(instrument_id=INSTRUMENT_ID))
+    invalid = client.get(
+        "/api/v2/market-data/bars",
+        params={"integration_id": INTEGRATION_ID, "integration_revision_fingerprint": REVISION_FINGERPRINT},
+    )
     assert invalid.status_code == 400
     assert invalid.json()["error"]["code"] == "MARKET_DATA_REQUEST_INVALID"

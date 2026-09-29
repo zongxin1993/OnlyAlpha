@@ -2249,52 +2249,57 @@ export interface components {
              */
             schema_version: 2;
         };
-        /** MarketDataBarsDto */
-        MarketDataBarsDto: {
+        /** MarketDataBarWindowDto */
+        MarketDataBarWindowDto: {
             /** Aggregation Semantics Version */
             aggregation_semantics_version: string | null;
+            /**
+             * Anchor Kind
+             * @enum {string}
+             */
+            anchor_kind: "LATEST_CLOSED" | "BEFORE_TIME";
             bar_semantic: components["schemas"]["MarketDataBarSemanticDto"];
             /** Bars */
             bars: components["schemas"]["MarketDataBarDto"][];
-            /** Base Revision Id */
-            base_revision_id: string | null;
             /** Calendar Fingerprint */
             calendar_fingerprint: string | null;
             /** Closed Only */
             closed_only: boolean;
-            /** Construction Fingerprint */
-            construction_fingerprint: string | null;
             coverage: components["schemas"]["MarketDataCoverageDto"];
+            /** Derived Projection Fingerprint */
+            derived_projection_fingerprint: string | null;
             /** Display Symbol */
             display_symbol: string;
-            /** End Ns */
-            end_ns: string;
+            /** History Projection Fingerprint */
+            history_projection_fingerprint: string | null;
             /** Instrument Id */
             instrument_id: string;
             /** Market */
             market: string;
+            /** Requested Bar Count */
+            requested_bar_count: number;
+            /** Requested Before Ns */
+            requested_before_ns: string | null;
             /** Resolution Mode */
             resolution_mode: ("PROVIDER_NATIVE" | "DERIVED") | null;
             /** Resolution Plan Fingerprint */
             resolution_plan_fingerprint: string | null;
+            /** Resolved End Ns */
+            resolved_end_ns: string;
+            /** Resolved Start Ns */
+            resolved_start_ns: string;
             /** Resume After Sequence */
             resume_after_sequence: string | null;
             /** Resume Plan Fingerprint */
             resume_plan_fingerprint: string | null;
-            /** Revision Fingerprint */
-            revision_fingerprint: string | null;
-            /** Revision Id */
-            revision_id: string | null;
+            /** Revision Evidence */
+            revision_evidence: components["schemas"]["MarketDataRevisionEvidenceDto"][];
             /**
              * Schema Version
              * @constant
              */
             schema_version: 1;
-            /** Seal Id */
-            seal_id: string | null;
             source_selection: components["schemas"]["MarketDataSourceSelectionDto"];
-            /** Start Ns */
-            start_ns: string;
             /** Venue */
             venue: string;
         };
@@ -2419,6 +2424,23 @@ export interface components {
              */
             schema_version: 1;
             source_selection: components["schemas"]["MarketDataSourceSelectionDto"];
+        };
+        /** MarketDataRevisionEvidenceDto */
+        MarketDataRevisionEvidenceDto: {
+            /** Covered End Ns */
+            covered_end_ns: string;
+            /** Covered Start Ns */
+            covered_start_ns: string;
+            /** Manifest Fingerprint */
+            manifest_fingerprint: string;
+            /** Manifest Id */
+            manifest_id: string;
+            /** Revision Fingerprint */
+            revision_fingerprint: string;
+            /** Revision Id */
+            revision_id: string;
+            /** Seal Id */
+            seal_id: string;
         };
         /** MarketDataSourceListDto */
         MarketDataSourceListDto: {
@@ -6059,9 +6081,10 @@ export interface operations {
                 integration_id: string;
                 integration_revision_fingerprint: string;
                 instrument_id: string;
-                start_ns: string;
-                end_ns: string;
+                anchor_kind: "LATEST_CLOSED" | "BEFORE_TIME";
                 bar_semantic: string;
+                target_bar_count: number;
+                before_ns?: string | null;
                 expected_type_id?: string | null;
             };
             header?: never;
@@ -6076,7 +6099,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataBarsDto"];
+                    "application/json": components["schemas"]["MarketDataBarWindowDto"];
                 };
             };
             /** @description Bad Request */

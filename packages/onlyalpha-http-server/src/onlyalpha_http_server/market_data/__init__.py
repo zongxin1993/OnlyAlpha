@@ -9,7 +9,7 @@ from .routes import (
 from .schema import (
     MarketDataAcquisitionDto,
     MarketDataAcquisitionRequestDto,
-    MarketDataBarsDto,
+    MarketDataBarWindowDto,
     MarketDataErrorDto,
     MarketDataErrorEnvelopeDto,
     MarketDataInstrumentListDto,
@@ -20,7 +20,7 @@ __all__ = [
     "MARKET_DATA_ROUTE_TAG",
     "MarketDataAcquisitionDto",
     "MarketDataAcquisitionRequestDto",
-    "MarketDataBarsDto",
+    "MarketDataBarWindowDto",
     "MarketDataErrorDto",
     "MarketDataErrorEnvelopeDto",
     "MarketDataInstrumentListDto",

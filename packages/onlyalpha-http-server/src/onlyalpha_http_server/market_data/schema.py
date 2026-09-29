@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import Annotated, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from onlyalpha.application.market_data_product import (
     OnlyMarketDataAcquisitionProjectionV1,
-    OnlyMarketDataBarsProjectionV1,
+    OnlyMarketDataBarWindowProjectionV1,
     OnlyMarketDataCoverageGapV1,
     OnlyMarketDataCoverageProjectionV1,
     OnlyMarketDataInstrumentListProjectionV1,
@@ -251,7 +251,17 @@ class MarketDataBarDto(_Dto):
     closed: bool
 
 
-class MarketDataBarsDto(_Dto):
+class MarketDataRevisionEvidenceDto(_Dto):
+    revision_id: str = Field(min_length=1)
+    revision_fingerprint: str = Field(pattern=_FINGERPRINT)
+    manifest_id: str = Field(min_length=1)
+    manifest_fingerprint: str = Field(pattern=_FINGERPRINT)
+    seal_id: str = Field(min_length=1)
+    covered_start_ns: str = Field(pattern=_NANOSECONDS)
+    covered_end_ns: str = Field(pattern=_NANOSECONDS)
+
+
+class MarketDataBarWindowDto(_Dto):
     schema_version: Literal[1]
     source_selection: MarketDataSourceSelectionDto
     instrument_id: str
@@ -260,24 +270,25 @@ class MarketDataBarsDto(_Dto):
     market: str
     bar_semantic: MarketDataBarSemanticDto
     closed_only: bool
-    start_ns: str = Field(pattern=_NANOSECONDS)
-    end_ns: str = Field(pattern=_NANOSECONDS)
+    anchor_kind: Literal["LATEST_CLOSED", "BEFORE_TIME"]
+    requested_before_ns: str | None = Field(pattern=_NANOSECONDS)
+    requested_bar_count: int = Field(ge=1)
+    resolved_start_ns: str = Field(pattern=_NANOSECONDS)
+    resolved_end_ns: str = Field(pattern=_NANOSECONDS)
     coverage: MarketDataCoverageDto
-    revision_id: str | None
-    revision_fingerprint: str | None = Field(pattern=_FINGERPRINT)
-    seal_id: str | None
     bars: tuple[MarketDataBarDto, ...]
+    revision_evidence: tuple[MarketDataRevisionEvidenceDto, ...]
+    history_projection_fingerprint: str | None = Field(pattern=_FINGERPRINT)
+    derived_projection_fingerprint: str | None = Field(pattern=_FINGERPRINT)
     aggregation_semantics_version: str | None
     calendar_fingerprint: str | None = Field(pattern=_FINGERPRINT)
     resolution_mode: Literal["PROVIDER_NATIVE", "DERIVED"] | None
     resolution_plan_fingerprint: str | None = Field(pattern=_FINGERPRINT)
-    base_revision_id: str | None
-    construction_fingerprint: str | None = Field(pattern=_FINGERPRINT)
     resume_after_sequence: str | None = Field(pattern=_NANOSECONDS)
     resume_plan_fingerprint: str | None = Field(pattern=_FINGERPRINT)
 
     @classmethod
-    def from_model(cls, value: OnlyMarketDataBarsProjectionV1) -> MarketDataBarsDto:
+    def from_model(cls, value: OnlyMarketDataBarWindowProjectionV1) -> MarketDataBarWindowDto:
         return cls(
             schema_version=1,
             source_selection=MarketDataSourceSelectionDto.from_model(value.source_selection),
@@ -287,18 +298,30 @@ class MarketDataBarsDto(_Dto):
             market=value.market,
             bar_semantic=MarketDataBarSemanticDto.from_model(value.bar_semantic),
             closed_only=value.closed_only,
-            start_ns=str(value.start_ns),
-            end_ns=str(value.end_ns),
+            anchor_kind=cast(Literal["LATEST_CLOSED", "BEFORE_TIME"], value.anchor_kind),
+            requested_before_ns=None if value.requested_before_ns is None else str(value.requested_before_ns),
+            requested_bar_count=value.requested_bar_count,
+            resolved_start_ns=str(value.resolved_start_ns),
+            resolved_end_ns=str(value.resolved_end_ns),
             coverage=MarketDataCoverageDto.from_model(value.coverage),
-            revision_id=value.revision_id,
-            revision_fingerprint=value.revision_fingerprint,
-            seal_id=value.seal_id,
+            revision_evidence=tuple(
+                MarketDataRevisionEvidenceDto(
+                    revision_id=item.revision_id,
+                    revision_fingerprint=item.revision_fingerprint,
+                    manifest_id=item.manifest_id,
+                    manifest_fingerprint=item.manifest_fingerprint,
+                    seal_id=item.seal_id,
+                    covered_start_ns=str(item.covered_start_ns),
+                    covered_end_ns=str(item.covered_end_ns),
+                )
+                for item in value.revision_evidence
+            ),
+            history_projection_fingerprint=value.history_projection_fingerprint,
+            derived_projection_fingerprint=value.derived_projection_fingerprint,
             aggregation_semantics_version=value.aggregation_semantics_version,
             calendar_fingerprint=value.calendar_fingerprint,
             resolution_mode=cast(Literal["PROVIDER_NATIVE", "DERIVED"] | None, value.resolution_mode),
             resolution_plan_fingerprint=value.resolution_plan_fingerprint,
-            base_revision_id=value.base_revision_id,
-            construction_fingerprint=value.construction_fingerprint,
             resume_after_sequence=value.resume_after_sequence,
             resume_plan_fingerprint=value.resume_plan_fingerprint,
             bars=tuple(
@@ -315,6 +338,20 @@ class MarketDataBarsDto(_Dto):
                 for item in value.bars
             ),
         )
+
+    @model_validator(mode="after")
+    def _complete_contract(self) -> MarketDataBarWindowDto:
+        complete = self.coverage.status == "COMPLETE"
+        if (
+            bool(self.bars) != complete
+            or bool(self.revision_evidence) != complete
+            or (self.history_projection_fingerprint is not None) != complete
+            or (self.resume_after_sequence is not None) != complete
+            or (self.resume_plan_fingerprint is not None) != complete
+            or (self.derived_projection_fingerprint is not None) != (complete and self.resolution_mode == "DERIVED")
+        ):
+            raise ValueError("MARKET_DATA_WINDOW_RESPONSE_INVALID")
+        return self
 
 
 class MarketDataAcquisitionRequestDto(_Dto):
@@ -389,13 +426,14 @@ __all__ = [
     "MarketDataAcquisitionDto",
     "MarketDataAcquisitionRequestDto",
     "MarketDataBarDto",
-    "MarketDataBarsDto",
+    "MarketDataBarWindowDto",
     "MarketDataCoverageDto",
     "MarketDataCoverageGapDto",
     "MarketDataErrorDto",
     "MarketDataErrorEnvelopeDto",
     "MarketDataInstrumentDto",
     "MarketDataInstrumentListDto",
+    "MarketDataRevisionEvidenceDto",
     "MarketDataSourceListDto",
     "MarketDataSourceProjectionDto",
     "MarketDataSourceReferenceDto",

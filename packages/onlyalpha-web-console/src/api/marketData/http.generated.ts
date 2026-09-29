@@ -29,6 +29,15 @@ const MarketDataFixedDurationFormationDtoSchema = z.strictObject({
     stride_minutes: z.number().int().min(1),
     alignment: z.enum(["UTC", "SESSION_START"])
 });
+const MarketDataRevisionEvidenceDtoSchema = z.strictObject({
+    revision_id: z.string().min(1),
+    revision_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")),
+    manifest_id: z.string().min(1),
+    manifest_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")),
+    seal_id: z.string().min(1),
+    covered_start_ns: z.string().regex(new RegExp("^(?:0|[1-9][0-9]*)$")),
+    covered_end_ns: z.string().regex(new RegExp("^(?:0|[1-9][0-9]*)$"))
+});
 const MarketDataSourceSelectionDtoSchema = z.strictObject({
     integration_id: z.string().min(1),
     integration_revision_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")),
@@ -84,27 +93,33 @@ export const marketDataBarsSchema = z
         market: z.string(),
         bar_semantic: MarketDataBarSemanticDtoSchema,
         closed_only: z.boolean(),
-        start_ns: z.string().regex(new RegExp("^(?:0|[1-9][0-9]*)$")),
-        end_ns: z.string().regex(new RegExp("^(?:0|[1-9][0-9]*)$")),
+        anchor_kind: z.enum(["LATEST_CLOSED", "BEFORE_TIME"]),
+        requested_before_ns: z.string().regex(new RegExp("^(?:0|[1-9][0-9]*)$")).nullable(),
+        requested_bar_count: z.number().int().min(1),
+        resolved_start_ns: z.string().regex(new RegExp("^(?:0|[1-9][0-9]*)$")),
+        resolved_end_ns: z.string().regex(new RegExp("^(?:0|[1-9][0-9]*)$")),
         coverage: MarketDataCoverageDtoSchema,
-        revision_id: z.string().nullable(),
-        revision_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")).nullable(),
-        seal_id: z.string().nullable(),
         bars: z.array(MarketDataBarDtoSchema),
+        revision_evidence: z.array(MarketDataRevisionEvidenceDtoSchema),
+        history_projection_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")).nullable(),
+        derived_projection_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")).nullable(),
         aggregation_semantics_version: z.string().nullable(),
         calendar_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")).nullable(),
         resolution_mode: z.enum(["PROVIDER_NATIVE", "DERIVED"]).nullable(),
         resolution_plan_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")).nullable(),
-        base_revision_id: z.string().nullable(),
-        construction_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")).nullable(),
         resume_after_sequence: z.string().regex(new RegExp("^(?:0|[1-9][0-9]*)$")).nullable(),
         resume_plan_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")).nullable()
     })
     .refine((value) => {
         const complete = value.coverage.status === "COMPLETE";
+        const derived = value.resolution_mode === "DERIVED";
         return (
+            value.bars.length > 0 === complete &&
+            value.revision_evidence.length > 0 === complete &&
+            (value.history_projection_fingerprint !== null) === complete &&
             (value.resume_after_sequence !== null) === complete &&
-            (value.resume_plan_fingerprint !== null) === complete
+            (value.resume_plan_fingerprint !== null) === complete &&
+            (value.derived_projection_fingerprint !== null) === (complete && derived)
         );
     });
 export type MarketDataBars = z.infer<typeof marketDataBarsSchema>;

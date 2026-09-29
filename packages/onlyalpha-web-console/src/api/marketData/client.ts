@@ -26,7 +26,15 @@ export class MarketDataWebError extends Error {
 
 export interface MarketDataBarsQuery {
     readonly instrument_id: string;
-    /** Canonical decimal nanoseconds; never a JSON number. */
+    readonly anchor_kind: "LATEST_CLOSED" | "BEFORE_TIME";
+    readonly before_ns?: string;
+    readonly target_bar_count: number;
+    readonly bar_semantic: MarketDataBarSemantic;
+}
+
+export interface MarketDataAcquisitionQuery {
+    readonly instrument_id: string;
+    /** Exact server-planned canonical decimal nanoseconds. */
     readonly start_ns: string;
     readonly end_ns: string;
     readonly bar_semantic: MarketDataBarSemantic;
@@ -48,7 +56,7 @@ export interface MarketDataApiClient {
     ): Promise<MarketDataBars>;
     createAcquisition(
         reference: MarketDataSourceReference,
-        query: MarketDataBarsQuery
+        query: MarketDataAcquisitionQuery
     ): Promise<MarketDataAcquisition>;
     getAcquisition(
         reference: MarketDataSourceReference,
@@ -117,8 +125,9 @@ function barsParams(
 ): URLSearchParams {
     const params = referenceParams(reference);
     params.set("instrument_id", query.instrument_id);
-    params.set("start_ns", query.start_ns);
-    params.set("end_ns", query.end_ns);
+    params.set("anchor_kind", query.anchor_kind);
+    params.set("target_bar_count", String(query.target_bar_count));
+    if (query.before_ns !== undefined) params.set("before_ns", query.before_ns);
     params.set("bar_semantic", JSON.stringify(query.bar_semantic));
     return params;
 }
@@ -165,7 +174,10 @@ export class FetchMarketDataApiClient implements MarketDataApiClient {
             );
         return result;
     }
-    async createAcquisition(reference: MarketDataSourceReference, query: MarketDataBarsQuery) {
+    async createAcquisition(
+        reference: MarketDataSourceReference,
+        query: MarketDataAcquisitionQuery
+    ) {
         return request(marketDataAcquisitionSchema, "/api/v2/market-data/acquisitions", {
             method: "POST",
             body: JSON.stringify({

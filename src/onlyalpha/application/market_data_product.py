@@ -8,7 +8,6 @@ plugin, and historical reads are served from the database.
 
 from __future__ import annotations
 
-import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, time
@@ -60,15 +59,25 @@ from onlyalpha.market_data.durable.models import (
     OnlyMarketDataAcquisitionAttempt,
     OnlyMarketDataAcquisitionIntent,
     OnlyMarketDataProvenance,
+    OnlyMarketDataRangeFamily,
     OnlyMarketDataRevision,
     OnlyMarketDataScope,
     OnlyMarketDataSeal,
 )
 from onlyalpha.market_data.durable.ports import OnlyMarketDataCatalog, OnlyMarketFactStore
+from onlyalpha.market_data.durable.range_query import (
+    OnlyBarWindowAnchorKind,
+    OnlyMarketDataRevisionEvidence,
+    OnlyVerifiedMarketDataRangeQuery,
+    only_history_projection_fingerprint,
+    only_plan_acquisition_ranges,
+    only_plan_utc_24x7_bar_window,
+)
 from onlyalpha.market_data.durable.recorder import OnlyDurableMarketDataRecorder
 from onlyalpha.market_data.durable.recovery import OnlyMarketDataRecoveryCoordinator
 from onlyalpha.market_data.durable.revision import (
-    OnlyHistoricalMarketDataQueryService,
+    OnlyMarketDataConflictError,
+    OnlyMarketDataSealError,
     OnlyRevisionCommitService,
     only_build_coverage,
 )
@@ -101,6 +110,8 @@ MAX_ACQUISITION_SECONDS = 7 * 86_400
 MINUTE_NS = 60_000_000_000
 BASE_BAR_SEMANTIC = OnlyBarSemantic.fixed_duration(1)
 MAX_FIXED_DURATION_WINDOW_MINUTES = 240
+DEFAULT_TARGET_BAR_COUNT = 1_440
+MAX_TARGET_BAR_COUNT = 2_000
 _WAL_CAPACITY_BYTES = 256 * 1024 * 1024
 
 # A configured Integration that cannot be resolved for this Product is simply not
@@ -257,7 +268,7 @@ class OnlyMarketDataCoverageProjectionV1:
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyMarketDataBarsProjectionV1:
+class OnlyMarketDataBarWindowProjectionV1:
     schema_version: int
     source_selection: OnlyMarketDataSourceSelectionV1
     instrument_id: str
@@ -266,19 +277,20 @@ class OnlyMarketDataBarsProjectionV1:
     market: str
     bar_semantic: OnlyBarSemantic
     closed_only: bool
-    start_ns: int
-    end_ns: int
+    anchor_kind: str
+    requested_before_ns: int | None
+    requested_bar_count: int
+    resolved_start_ns: int
+    resolved_end_ns: int
     coverage: OnlyMarketDataCoverageProjectionV1
-    revision_id: str | None
-    revision_fingerprint: str | None
-    seal_id: str | None
     bars: tuple[OnlyMarketDataBarV1, ...]
+    revision_evidence: tuple[OnlyMarketDataRevisionEvidence, ...]
+    history_projection_fingerprint: str | None
+    derived_projection_fingerprint: str | None
     aggregation_semantics_version: str | None = None
     calendar_fingerprint: str | None = None
     resolution_mode: str | None = None
     resolution_plan_fingerprint: str | None = None
-    base_revision_id: str | None = None
-    construction_fingerprint: str | None = None
     resume_after_sequence: str | None = None
     resume_plan_fingerprint: str | None = None
 
@@ -375,9 +387,7 @@ class OnlyMarketDataProductService:
         self._logger = logger
         self._batch_size = batch_size
         self._now = now
-        self._queries = OnlyHistoricalMarketDataQueryService(catalog, fact_store)
-        self._lock = threading.Lock()
-        self._running: dict[str, int] = {}
+        self._ranges = OnlyVerifiedMarketDataRangeQuery(catalog, fact_store)
 
     # --- Product Query -----------------------------------------------------------------
 
@@ -475,80 +485,118 @@ class OnlyMarketDataProductService:
         reference: OnlyMarketDataSourceReferenceV1,
         *,
         instrument_id: str,
-        start_ns: int,
-        end_ns: int,
+        anchor_kind: OnlyBarWindowAnchorKind,
+        target_bar_count: int,
+        before_ns: int | None = None,
         bar_semantic: OnlyBarSemantic = BASE_BAR_SEMANTIC,
-    ) -> OnlyMarketDataBarsProjectionV1:
-        """DB-first exact read; a Query never acquires, retries or mutates state."""
+    ) -> OnlyMarketDataBarWindowProjectionV1:
+        """DB-first verified range read; a Query never acquires or mutates state."""
 
         resolved = self.resolve_runtime(reference)
         semantic = only_product_bar_semantic(bar_semantic)
-        if semantic.window_minutes > 1 and end_ns - start_ns > MAX_ACQUISITION_SECONDS * 1_000_000_000:
-            raise OnlyMarketDataProductError("MARKET_DATA_DERIVED_RANGE_TOO_LARGE")
+        if target_bar_count < 1 or target_bar_count > MAX_TARGET_BAR_COUNT:
+            raise OnlyMarketDataProductError("MARKET_DATA_WINDOW_REQUEST_INVALID")
         plan = self._plan(resolved, instrument_id, semantic)
-        self._assert_target_grid(plan, start_ns, end_ns)
         acquisition_plan = (
             plan
             if plan.mode is OnlyBarResolutionMode.PROVIDER_NATIVE
             else self._plan(resolved, instrument_id, BASE_BAR_SEMANTIC)
         )
-        scope = self._scope(
-            resolved,
-            instrument_id,
-            start_ns,
-            end_ns,
-            acquisition_plan,
-        )
         try:
-            sealed = self._sealed_for_scope(scope)
+            window = only_plan_utc_24x7_bar_window(
+                semantic,
+                anchor_kind=anchor_kind,
+                before_ns=before_ns,
+                target_bar_count=target_bar_count,
+                latest_closed_ns=self._closed_minute_ns(),
+            )
+        except (TypeError, ValueError) as exc:
+            raise OnlyMarketDataProductError("MARKET_DATA_WINDOW_REQUEST_INVALID", str(exc)) from exc
+        scope = self._scope(resolved, instrument_id, window.resolved_start_ns, window.resolved_end_ns, acquisition_plan)
+        family = OnlyMarketDataRangeFamily.from_scope(scope)
+        try:
+            verified = self._ranges.read(family, window.provider_intervals)
             bars: tuple[OnlyMarketDataBarV1, ...] = ()
-            revision_id: str | None = None
-            revision_fingerprint: str | None = None
-            seal_id: str | None = None
             calendar_fingerprint: str | None = None
-            construction_fingerprint: str | None = None
             resume_after_sequence: str | None = None
-            if sealed is not None:
-                if scope.bar_construction is None:
-                    raise OnlyMarketDataProductError("MARKET_DATA_BAR_CONSTRUCTION_UNPROVABLE")
-                revision, seal = sealed
-                facts = self._queries.read_exact(revision.revision_id, scope)
-                if not facts:
-                    raise OnlyMarketDataProductError("MARKET_DATA_RESUME_CURSOR_UNPROVABLE")
-                resume_after_sequence = str(
-                    max(
-                        int(OnlyMarketDataInboundUpdate.from_dict(fact.canonical_payload).source_sequence)
-                        for fact in facts
-                    )
+            history_fingerprint: str | None = None
+            derived_fingerprint: str | None = None
+            if verified.coverage_status is OnlyCoverageStatus.COMPLETE:
+                if not verified.facts:
+                    raise OnlyMarketDataProductError("MARKET_DATA_RANGE_CURSOR_UNPROVABLE")
+                try:
+                    latest = max(verified.facts, key=lambda item: (item.ts_event_ns, item.canonical_fact_id))
+                    sequence = latest.canonical_payload.get("source_sequence")
+                    if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 0:
+                        raise ValueError("provider sequence is absent")
+                    resume_after_sequence = str(sequence)
+                except Exception as exc:
+                    raise OnlyMarketDataProductError("MARKET_DATA_RANGE_CURSOR_UNPROVABLE") from exc
+                history_fingerprint = only_history_projection_fingerprint(
+                    {
+                        "source_selection": resolved.selection,
+                        "range_family": family,
+                        "anchor_kind": anchor_kind.value,
+                        "requested_before_ns": before_ns,
+                        "requested_bar_count": target_bar_count,
+                        "resolved_start_ns": window.resolved_start_ns,
+                        "resolved_end_ns": window.resolved_end_ns,
+                        "bar_semantic": semantic,
+                        "resolution_plan_fingerprint": plan.fingerprint,
+                        "revision_evidence": verified.evidence,
+                    }
                 )
                 if plan.mode is OnlyBarResolutionMode.PROVIDER_NATIVE:
-                    bars = self._bars(facts)
+                    bars = self._crop_bars(self._bars(verified.facts), window.target_intervals)
                 else:
-                    bars, calendar_fingerprint = self._derived_bars(resolved, facts, semantic)
+                    bars, calendar_fingerprint = self._derived_bars(resolved, verified.facts, semantic)
+                    bars = self._crop_bars(bars, window.target_intervals)
                     if calendar_fingerprint != plan.alignment_id:
                         raise OnlyMarketDataProductError("MARKET_DATA_BAR_ALIGNMENT_CHANGED")
-                revision_id = revision.revision_id
-                revision_fingerprint = revision.fingerprint
-                seal_id = seal.seal_id
-                construction_fingerprint = (
-                    scope.bar_construction.fingerprint
-                    if plan.mode is OnlyBarResolutionMode.PROVIDER_NATIVE
-                    else OnlyBarConstructionIdentity.build(
-                        plan,
-                        data_version=scope.data_version,
-                        base_revision_id=revision.revision_id,
-                        base_revision_fingerprint=revision.fingerprint,
-                        base_seal_id=seal.seal_id,
-                    ).fingerprint
-                )
-            coverage = self._coverage(scope, sealed is not None)
+                    derived_fingerprint = only_history_projection_fingerprint(
+                        {
+                            "history_projection_fingerprint": history_fingerprint,
+                            "target_semantic": semantic,
+                            "resolution_plan_fingerprint": plan.fingerprint,
+                            "resolved_start_ns": window.resolved_start_ns,
+                            "resolved_end_ns": window.resolved_end_ns,
+                        }
+                    )
+                if len(bars) != target_bar_count:
+                    raise OnlyMarketDataProductError("MARKET_DATA_REVISION_EVIDENCE_INVALID")
+            planned = only_plan_acquisition_ranges(
+                verified.gaps,
+                window.target_intervals,
+                maximum_duration_ns=MAX_ACQUISITION_SECONDS * 1_000_000_000,
+            )
+            coverage = OnlyMarketDataCoverageProjectionV1(
+                verified.coverage_status.value,
+                None,
+                None,
+                verified.expected_fact_count,
+                len(verified.facts),
+                (),
+                tuple(OnlyMarketDataCoverageGapV1(item.start_ns, item.end_ns) for item in verified.gaps),
+                tuple(OnlyMarketDataCoverageGapV1(item.start_ns, item.end_ns) for item in planned),
+            )
+        except OnlyMarketDataConflictError as exc:
+            raise OnlyMarketDataProductError("MARKET_DATA_RANGE_COMPOSITION_CONFLICT", str(exc)) from exc
+        except OnlyMarketDataSealError as exc:
+            code = str(exc)
+            if code not in {
+                "MARKET_DATA_RANGE_FAMILY_MISMATCH",
+                "MARKET_DATA_REVISION_EVIDENCE_INVALID",
+                "MARKET_DATA_CATALOG_UNAVAILABLE",
+            }:
+                code = "MARKET_DATA_REVISION_EVIDENCE_INVALID"
+            raise OnlyMarketDataProductError(code, str(exc)) from exc
         except OnlyMarketDataProductError:
             raise
         except Exception as exc:
             raise OnlyMarketDataProductError(
                 "MARKET_DATA_FACT_STORE_UNAVAILABLE", "canonical market-data store is unavailable"
             ) from exc
-        return OnlyMarketDataBarsProjectionV1(
+        return OnlyMarketDataBarWindowProjectionV1(
             SCHEMA_VERSION,
             resolved.selection,
             instrument_id,
@@ -557,19 +605,20 @@ class OnlyMarketDataProductService:
             resolved.market,
             semantic,
             True,
-            start_ns,
-            end_ns,
+            anchor_kind.value,
+            before_ns,
+            target_bar_count,
+            window.resolved_start_ns,
+            window.resolved_end_ns,
             coverage,
-            revision_id,
-            revision_fingerprint,
-            seal_id,
             bars,
+            verified.evidence,
+            history_fingerprint,
+            derived_fingerprint,
             plan.aggregation_semantics_version,
             plan.calendar_fingerprint if plan.mode is OnlyBarResolutionMode.PROVIDER_NATIVE else calendar_fingerprint,
             plan.mode.value,
             plan.fingerprint,
-            revision_id if plan.mode is OnlyBarResolutionMode.DERIVED else None,
-            construction_fingerprint,
             resume_after_sequence if coverage.complete else None,
             plan.fingerprint if coverage.complete else None,
         )
@@ -616,8 +665,26 @@ class OnlyMarketDataProductService:
             admitted_at=self._now(),
             integration_binding_fingerprint=resolved.binding_fingerprint,
         )
-        with self._lock:
-            admitted = self._admit(intent)
+        admitted = self._admit(intent)
+        sealed = self._sealed_for_scope(scope)
+        if sealed is not None:
+            return self._projection(
+                resolved,
+                admitted,
+                status="COMPLETE",
+                revision=sealed[0],
+                seal=sealed[1],
+                failure_detail=None,
+            )
+        try:
+            lease = self._catalog.try_acquire_acquisition_execution(admitted.acquisition_id)
+        except Exception as exc:
+            raise OnlyMarketDataProductError(
+                "MARKET_DATA_CATALOG_UNAVAILABLE", "acquisition execution ownership is unavailable"
+            ) from exc
+        if not lease.acquired:
+            return self._projection(resolved, admitted, status="RUNNING", revision=None, seal=None, failure_detail=None)
+        try:
             sealed = self._sealed_for_scope(scope)
             if sealed is not None:
                 return self._projection(
@@ -628,36 +695,30 @@ class OnlyMarketDataProductService:
                     seal=sealed[1],
                     failure_detail=None,
                 )
-            started_at = self._now()
-            attempt = self._start_attempt(admitted.acquisition_id, started_at=started_at)
-            self._running[admitted.acquisition_id] = self._running.get(admitted.acquisition_id, 0) + 1
-        try:
+            attempt = self._start_attempt(admitted.acquisition_id, started_at=self._now())
             revision, seal, failure = self._execute_acquisition(resolved, admitted)
-        finally:
-            with self._lock:
-                remaining = self._running[admitted.acquisition_id] - 1
-                if remaining:
-                    self._running[admitted.acquisition_id] = remaining
-                else:
-                    del self._running[admitted.acquisition_id]
-        if failure is None and revision is not None and seal is not None:
-            # Canonical success authority is Coverage + Revision + Seal; the COMPLETE
-            # attempt is operational evidence and cannot demote an already sealed revision.
-            try:
-                self._record_attempt(
-                    attempt,
-                    OnlyAcquisitionOutcome.COMPLETE,
-                    detail="MARKET_DATA_ACQUISITION_COMPLETE",
-                    revision_id=revision.revision_id,
+            if failure is None and revision is not None and seal is not None:
+                # Coverage + Revision + Seal are canonical success even if optional
+                # operational attempt evidence cannot be completed.
+                try:
+                    self._record_attempt(
+                        attempt,
+                        OnlyAcquisitionOutcome.COMPLETE,
+                        detail="MARKET_DATA_ACQUISITION_COMPLETE",
+                        revision_id=revision.revision_id,
+                    )
+                except Exception as exc:
+                    self._logger.warning("market-data acquisition attempt evidence failed: %s", exc)
+                return self._projection(
+                    resolved, admitted, status="COMPLETE", revision=revision, seal=seal, failure_detail=None
                 )
-            except Exception as exc:
-                self._logger.warning("market-data acquisition attempt evidence failed: %s", exc)
+            detail = failure or "MARKET_DATA_ACQUISITION_INCOMPLETE"
+            self._record_terminal_failure(attempt, detail=detail)
             return self._projection(
-                resolved, admitted, status="COMPLETE", revision=revision, seal=seal, failure_detail=None
+                resolved, admitted, status="FAILED", revision=None, seal=None, failure_detail=detail
             )
-        detail = failure or "MARKET_DATA_ACQUISITION_INCOMPLETE"
-        self._record_terminal_failure(attempt, detail=detail)
-        return self._projection(resolved, admitted, status="FAILED", revision=None, seal=None, failure_detail=detail)
+        finally:
+            lease.close()
 
     def acquisition_status(
         self, reference: OnlyMarketDataSourceReferenceV1, acquisition_id: str
@@ -684,7 +745,13 @@ class OnlyMarketDataProductService:
             return self._projection(
                 resolved, intent, status="COMPLETE", revision=sealed[0], seal=sealed[1], failure_detail=None
             )
-        if acquisition_id in self._running:
+        try:
+            active = self._catalog.acquisition_execution_active(acquisition_id)
+        except Exception as exc:
+            raise OnlyMarketDataProductError(
+                "MARKET_DATA_CATALOG_UNAVAILABLE", "acquisition execution ownership is unavailable"
+            ) from exc
+        if active:
             return self._projection(resolved, intent, status="RUNNING", revision=None, seal=None, failure_detail=None)
         if attempt is not None and attempt.outcome is OnlyAcquisitionOutcome.FAILED:
             return self._projection(
@@ -1074,6 +1141,13 @@ class OnlyMarketDataProductService:
             )
         return tuple(sorted(bars, key=lambda item: item.bar_start_ns))
 
+    @staticmethod
+    def _crop_bars(
+        bars: tuple[OnlyMarketDataBarV1, ...], intervals: tuple[OnlyBarCoverageGap, ...]
+    ) -> tuple[OnlyMarketDataBarV1, ...]:
+        expected = {(item.start_ns, item.end_ns) for item in intervals}
+        return tuple(item for item in bars if (item.bar_start_ns, item.bar_end_ns) in expected)
+
     def _derived_bars(
         self,
         resolved: OnlyResolvedMarketDataRuntime,
@@ -1246,13 +1320,15 @@ def _display_symbol(instrument_id: str, venue: str) -> str:
 
 __all__ = [
     "DEFAULT_ACQUISITION_SECONDS",
+    "DEFAULT_TARGET_BAR_COUNT",
     "MAX_ACQUISITION_SECONDS",
     "SCHEMA_VERSION",
     "BASE_BAR_SEMANTIC",
     "MAX_FIXED_DURATION_WINDOW_MINUTES",
+    "MAX_TARGET_BAR_COUNT",
     "OnlyMarketDataAcquisitionProjectionV1",
     "OnlyMarketDataBarV1",
-    "OnlyMarketDataBarsProjectionV1",
+    "OnlyMarketDataBarWindowProjectionV1",
     "OnlyMarketDataCoverageGapV1",
     "OnlyMarketDataCoverageProjectionV1",
     "OnlyMarketDataInstrumentProjectionV1",

@@ -2434,7 +2434,7 @@
         "title": "MarketDataBarSemanticDto",
         "type": "object"
       },
-      "MarketDataBarsDto": {
+      "MarketDataBarWindowDto": {
         "additionalProperties": false,
         "properties": {
           "aggregation_semantics_version": {
@@ -2448,6 +2448,14 @@
             ],
             "title": "Aggregation Semantics Version"
           },
+          "anchor_kind": {
+            "enum": [
+              "LATEST_CLOSED",
+              "BEFORE_TIME"
+            ],
+            "title": "Anchor Kind",
+            "type": "string"
+          },
           "bar_semantic": {
             "$ref": "#/components/schemas/MarketDataBarSemanticDto"
           },
@@ -2457,17 +2465,6 @@
             },
             "title": "Bars",
             "type": "array"
-          },
-          "base_revision_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Base Revision Id"
           },
           "calendar_fingerprint": {
             "anyOf": [
@@ -2485,7 +2482,10 @@
             "title": "Closed Only",
             "type": "boolean"
           },
-          "construction_fingerprint": {
+          "coverage": {
+            "$ref": "#/components/schemas/MarketDataCoverageDto"
+          },
+          "derived_projection_fingerprint": {
             "anyOf": [
               {
                 "pattern": "^[0-9a-f]{64}$",
@@ -2495,19 +2495,23 @@
                 "type": "null"
               }
             ],
-            "title": "Construction Fingerprint"
-          },
-          "coverage": {
-            "$ref": "#/components/schemas/MarketDataCoverageDto"
+            "title": "Derived Projection Fingerprint"
           },
           "display_symbol": {
             "title": "Display Symbol",
             "type": "string"
           },
-          "end_ns": {
-            "pattern": "^(?:0|[1-9][0-9]*)$",
-            "title": "End Ns",
-            "type": "string"
+          "history_projection_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "History Projection Fingerprint"
           },
           "instrument_id": {
             "title": "Instrument Id",
@@ -2516,6 +2520,23 @@
           "market": {
             "title": "Market",
             "type": "string"
+          },
+          "requested_bar_count": {
+            "minimum": 1.0,
+            "title": "Requested Bar Count",
+            "type": "integer"
+          },
+          "requested_before_ns": {
+            "anyOf": [
+              {
+                "pattern": "^(?:0|[1-9][0-9]*)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Before Ns"
           },
           "resolution_mode": {
             "anyOf": [
@@ -2544,6 +2565,16 @@
             ],
             "title": "Resolution Plan Fingerprint"
           },
+          "resolved_end_ns": {
+            "pattern": "^(?:0|[1-9][0-9]*)$",
+            "title": "Resolved End Ns",
+            "type": "string"
+          },
+          "resolved_start_ns": {
+            "pattern": "^(?:0|[1-9][0-9]*)$",
+            "title": "Resolved Start Ns",
+            "type": "string"
+          },
           "resume_after_sequence": {
             "anyOf": [
               {
@@ -2568,52 +2599,20 @@
             ],
             "title": "Resume Plan Fingerprint"
           },
-          "revision_fingerprint": {
-            "anyOf": [
-              {
-                "pattern": "^[0-9a-f]{64}$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Revision Fingerprint"
-          },
-          "revision_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Revision Id"
+          "revision_evidence": {
+            "items": {
+              "$ref": "#/components/schemas/MarketDataRevisionEvidenceDto"
+            },
+            "title": "Revision Evidence",
+            "type": "array"
           },
           "schema_version": {
             "const": 1,
             "title": "Schema Version",
             "type": "integer"
           },
-          "seal_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Seal Id"
-          },
           "source_selection": {
             "$ref": "#/components/schemas/MarketDataSourceSelectionDto"
-          },
-          "start_ns": {
-            "pattern": "^(?:0|[1-9][0-9]*)$",
-            "title": "Start Ns",
-            "type": "string"
           },
           "venue": {
             "title": "Venue",
@@ -2629,23 +2628,24 @@
           "market",
           "bar_semantic",
           "closed_only",
-          "start_ns",
-          "end_ns",
+          "anchor_kind",
+          "requested_before_ns",
+          "requested_bar_count",
+          "resolved_start_ns",
+          "resolved_end_ns",
           "coverage",
-          "revision_id",
-          "revision_fingerprint",
-          "seal_id",
           "bars",
+          "revision_evidence",
+          "history_projection_fingerprint",
+          "derived_projection_fingerprint",
           "aggregation_semantics_version",
           "calendar_fingerprint",
           "resolution_mode",
           "resolution_plan_fingerprint",
-          "base_revision_id",
-          "construction_fingerprint",
           "resume_after_sequence",
           "resume_plan_fingerprint"
         ],
-        "title": "MarketDataBarsDto",
+        "title": "MarketDataBarWindowDto",
         "type": "object"
       },
       "MarketDataCalendarPeriodFormationDto": {
@@ -2953,6 +2953,57 @@
           "instruments"
         ],
         "title": "MarketDataInstrumentListDto",
+        "type": "object"
+      },
+      "MarketDataRevisionEvidenceDto": {
+        "additionalProperties": false,
+        "properties": {
+          "covered_end_ns": {
+            "pattern": "^(?:0|[1-9][0-9]*)$",
+            "title": "Covered End Ns",
+            "type": "string"
+          },
+          "covered_start_ns": {
+            "pattern": "^(?:0|[1-9][0-9]*)$",
+            "title": "Covered Start Ns",
+            "type": "string"
+          },
+          "manifest_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Manifest Fingerprint",
+            "type": "string"
+          },
+          "manifest_id": {
+            "minLength": 1,
+            "title": "Manifest Id",
+            "type": "string"
+          },
+          "revision_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Revision Fingerprint",
+            "type": "string"
+          },
+          "revision_id": {
+            "minLength": 1,
+            "title": "Revision Id",
+            "type": "string"
+          },
+          "seal_id": {
+            "minLength": 1,
+            "title": "Seal Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision_id",
+          "revision_fingerprint",
+          "manifest_id",
+          "manifest_fingerprint",
+          "seal_id",
+          "covered_start_ns",
+          "covered_end_ns"
+        ],
+        "title": "MarketDataRevisionEvidenceDto",
         "type": "object"
       },
       "MarketDataSourceListDto": {
@@ -10592,21 +10643,14 @@
           },
           {
             "in": "query",
-            "name": "start_ns",
+            "name": "anchor_kind",
             "required": true,
             "schema": {
-              "pattern": "^(?:0|[1-9][0-9]*)$",
-              "title": "Start Ns",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "end_ns",
-            "required": true,
-            "schema": {
-              "pattern": "^(?:0|[1-9][0-9]*)$",
-              "title": "End Ns",
+              "enum": [
+                "LATEST_CLOSED",
+                "BEFORE_TIME"
+              ],
+              "title": "Anchor Kind",
               "type": "string"
             }
           },
@@ -10617,6 +10661,34 @@
             "schema": {
               "title": "Bar Semantic",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target_bar_count",
+            "required": true,
+            "schema": {
+              "maximum": 2000,
+              "minimum": 1,
+              "title": "Target Bar Count",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before_ns",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(?:0|[1-9][0-9]*)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before Ns"
             }
           },
           {
@@ -10641,7 +10713,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MarketDataBarsDto"
+                  "$ref": "#/components/schemas/MarketDataBarWindowDto"
                 }
               }
             },

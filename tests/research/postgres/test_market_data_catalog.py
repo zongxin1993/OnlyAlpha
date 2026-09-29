@@ -13,11 +13,16 @@ from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_paylo
 from onlyalpha.domain.market import OnlyBarSemantic
 from onlyalpha.market_data.durable import (
     OnlyAcquisitionOutcome,
+    OnlyCoverageManifest,
+    OnlyCoverageStatus,
     OnlyInMemoryMarketFactStore,
     OnlyMarketDataAcquisitionIntent,
     OnlyMarketDataProvenance,
+    OnlyMarketDataRangeFamily,
+    OnlyMarketDataRevision,
     OnlyRevisionCommitService,
     only_build_coverage,
+    only_build_seal,
 )
 from onlyalpha.market_data.resolution import (
     OnlyBarCapability,
@@ -276,6 +281,7 @@ def test_pre_0038_acquisition_identity_remains_exactly_readable(postgres_dsn: st
         "0038_market_data_acquisition_identity",
         "0039_market_data_acquisition_versioned_attempt_outcome",
         "0040_market_bar_construction_identity",
+        "0041_market_data_range_lookup",
     )
     catalog = OnlyPostgresMarketDataCatalog(postgres_dsn)
     loaded = catalog.load_acquisition_intent(acquisition_id)
@@ -328,3 +334,112 @@ def test_attempt_start_is_atomic_per_intent_and_keeps_interrupted_occurrences(
     with ThreadPoolExecutor(max_workers=2) as executor:
         distinct = tuple(executor.map(start_distinct, (first.acquisition_id, second.acquisition_id)))
     assert distinct == (11, 1)
+
+
+def test_acquisition_execution_lease_is_cross_catalog_and_released(postgres_dsn: str) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    first_catalog = OnlyPostgresMarketDataCatalog(postgres_dsn)
+    second_catalog = OnlyPostgresMarketDataCatalog(postgres_dsn)
+    first = first_catalog.admit_acquisition_intent(_acquisition("BINANCE_SPOT", "1" * 64))
+    second = first_catalog.admit_acquisition_intent(_acquisition("BINANCE_SPOT_TESTNET", "2" * 64))
+
+    owner = first_catalog.try_acquire_acquisition_execution(first.acquisition_id)
+    non_owner = second_catalog.try_acquire_acquisition_execution(first.acquisition_id)
+    independent = second_catalog.try_acquire_acquisition_execution(second.acquisition_id)
+    try:
+        assert owner.acquired
+        assert not non_owner.acquired
+        assert independent.acquired
+        assert second_catalog.acquisition_execution_active(first.acquisition_id)
+        assert second_catalog.latest_acquisition_attempt(first.acquisition_id) is None
+    finally:
+        non_owner.close()
+        independent.close()
+        owner.close()
+
+    retry = second_catalog.try_acquire_acquisition_execution(first.acquisition_id)
+    try:
+        assert retry.acquired
+        assert not first_catalog.acquisition_execution_active(second.acquisition_id)
+    finally:
+        retry.close()
+
+
+def test_current_range_lookup_loads_manifest_and_has_exact_family_index(postgres_dsn: str, tmp_path: Path) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    wal, segment, _ = _sealed(tmp_path / "range", lambda: BASE, kind="BAR")
+    records = wal.read_sealed(segment.segment_id)
+    store = OnlyInMemoryMarketFactStore()
+    store.write_segment(segment, records)
+    catalog = OnlyPostgresMarketDataCatalog(postgres_dsn)
+    manifest, revision, _ = OnlyRevisionCommitService(store, catalog, now=lambda: BASE).commit(
+        segment, _scope("BAR"), {segment.segment_id: records}
+    )
+
+    superseding_manifest = OnlyCoverageManifest.build(
+        revision.scope,
+        manifest.segment_refs,
+        coverage_status=OnlyCoverageStatus.COMPLETE,
+        proof=manifest.proof + ("superseding=true",),
+    )
+    superseding_revision = OnlyMarketDataRevision.build(
+        superseding_manifest,
+        normalizers=revision.normalizers,
+        creation_reason="REPAIR",
+        parent_revision_id=revision.revision_id,
+    )
+    superseding_seal = only_build_seal(
+        superseding_revision, superseding_manifest, sealed_at=BASE + timedelta(seconds=1)
+    )
+    catalog.commit_revision((segment,), superseding_manifest, superseding_revision, superseding_seal)
+
+    family = OnlyMarketDataRangeFamily.from_scope(revision.scope)
+    assert catalog.list_current_sealed_revisions_overlapping(
+        family, revision.scope.start_ns, revision.scope.end_ns
+    ) == (superseding_revision,)
+    assert (
+        catalog.list_current_sealed_revisions_overlapping(family, revision.scope.end_ns, revision.scope.end_ns + 1)
+        == ()
+    )
+    assert catalog.load_coverage_manifest(superseding_manifest.manifest_id) == superseding_manifest
+
+    with psycopg.connect(postgres_dsn) as connection:
+        definition = connection.execute(
+            "SELECT indexdef FROM pg_indexes WHERE indexname='market_data_revision_range_family_overlap_idx'"
+        ).fetchone()
+        connection.execute("SET LOCAL enable_seqscan=off")
+        plan = connection.execute(
+            "EXPLAIN (COSTS OFF) SELECT revision_id FROM market_latest_sealed_revision "
+            "WHERE scope->>'source_id'=%s AND scope->>'market'=%s AND scope->>'instrument_id'=%s "
+            "AND scope->>'data_kind'=%s AND scope->>'data_version'=%s "
+            "AND scope->>'bar_type' IS NOT DISTINCT FROM %s "
+            "AND scope#>>'{bar_construction,fingerprint}' IS NOT DISTINCT FROM %s "
+            "AND (scope->>'start_ns')::BIGINT < %s AND (scope->>'end_ns')::BIGINT > %s",
+            (
+                family.source_id,
+                family.market,
+                family.instrument_id,
+                family.data_kind,
+                family.data_version,
+                family.bar_type,
+                family.bar_construction.fingerprint if family.bar_construction is not None else None,
+                revision.scope.end_ns,
+                revision.scope.start_ns,
+            ),
+        ).fetchall()
+    assert definition is not None
+    assert all(
+        token in definition[0]
+        for token in (
+            "source_id",
+            "market",
+            "instrument_id",
+            "data_kind",
+            "data_version",
+            "bar_type",
+            "fingerprint",
+            "start_ns",
+            "end_ns",
+        )
+    )
+    assert "market_data_revision_range_family_overlap_idx" in "\n".join(row[0] for row in plan)

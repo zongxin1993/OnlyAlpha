@@ -21,13 +21,14 @@ from .models import (
     OnlyIngestSegment,
     OnlyMarketDataAcquisitionAttempt,
     OnlyMarketDataAcquisitionIntent,
+    OnlyMarketDataRangeFamily,
     OnlyMarketDataRecordBundle,
     OnlyMarketDataRevision,
     OnlyMarketDataScope,
     OnlyMarketDataSeal,
     OnlyTradeCoverageGap,
 )
-from .ports import OnlyMarketDataCatalog, OnlyMarketFactStore
+from .ports import OnlyAcquisitionExecutionLease, OnlyMarketDataCatalog, OnlyMarketFactStore
 
 _REQUIRED_SEAL_CHECKS = (
     "SEGMENT_HASH_VERIFIED",
@@ -242,6 +243,7 @@ class OnlyInMemoryMarketDataCatalog(OnlyMarketDataCatalog):
         self._segments: dict[str, OnlyIngestSegment] = {}
         self._acquisitions: dict[str, OnlyMarketDataAcquisitionIntent] = {}
         self._acquisition_attempts: dict[str, list[OnlyMarketDataAcquisitionAttempt]] = {}
+        self._active_acquisitions: set[str] = set()
         self._manifests: dict[str, OnlyCoverageManifest] = {}
         self._revisions: dict[str, OnlyMarketDataRevision] = {}
         self._seals: dict[str, OnlyMarketDataSeal] = {}
@@ -298,6 +300,30 @@ class OnlyInMemoryMarketDataCatalog(OnlyMarketDataCatalog):
             return None
         return max(recorded, key=lambda item: (item.attempt_number, item.attempt_id))
 
+    def try_acquire_acquisition_execution(self, acquisition_id: str) -> OnlyAcquisitionExecutionLease:
+        catalog = self
+
+        class Lease:
+            def __init__(self) -> None:
+                with catalog._acquisition_lock:
+                    if acquisition_id not in catalog._acquisitions:
+                        raise OnlyMarketDataConflictError("ACQUISITION_INTENT_NOT_ADMITTED")
+                    self.acquired = acquisition_id not in catalog._active_acquisitions
+                    if self.acquired:
+                        catalog._active_acquisitions.add(acquisition_id)
+
+            def close(self) -> None:
+                if self.acquired:
+                    with catalog._acquisition_lock:
+                        catalog._active_acquisitions.discard(acquisition_id)
+                    self.acquired = False
+
+        return Lease()
+
+    def acquisition_execution_active(self, acquisition_id: str) -> bool:
+        with self._acquisition_lock:
+            return acquisition_id in self._active_acquisitions
+
     def commit_coverage_manifest(self, manifest: OnlyCoverageManifest) -> None:
         prior = self._manifests.get(manifest.manifest_id)
         if prior is not None and prior != manifest:
@@ -308,6 +334,9 @@ class OnlyInMemoryMarketDataCatalog(OnlyMarketDataCatalog):
         ):
             raise OnlyMarketDataConflictError("COVERAGE_REFERENCES_NON_DURABLE_SEGMENT")
         self._manifests.setdefault(manifest.manifest_id, manifest)
+
+    def load_coverage_manifest(self, manifest_id: str) -> OnlyCoverageManifest:
+        return self._manifests[manifest_id]
 
     def commit_revision(
         self,
@@ -384,6 +413,29 @@ class OnlyInMemoryMarketDataCatalog(OnlyMarketDataCatalog):
         if not candidates:
             raise KeyError("SEALED_REVISION_NOT_FOUND")
         return sorted(candidates, key=lambda item: item.revision_id)[-1]
+
+    def list_current_sealed_revisions_overlapping(
+        self, family: OnlyMarketDataRangeFamily, start_ns: int, end_ns: int
+    ) -> tuple[OnlyMarketDataRevision, ...]:
+        if start_ns >= end_ns:
+            raise ValueError("MARKET_DATA_RANGE_INVALID")
+        latest: dict[OnlyMarketDataScope, OnlyMarketDataRevision] = {}
+        for revision in self._revisions.values():
+            if (
+                revision.revision_id in self._seals
+                and family.matches(revision.scope)
+                and revision.scope.start_ns < end_ns
+                and revision.scope.end_ns > start_ns
+            ):
+                prior = latest.get(revision.scope)
+                if prior is None or (
+                    self._seals[revision.revision_id].sealed_at,
+                    revision.revision_id,
+                ) > (self._seals[prior.revision_id].sealed_at, prior.revision_id):
+                    latest[revision.scope] = revision
+        return tuple(
+            sorted(latest.values(), key=lambda item: (item.scope.start_ns, item.scope.end_ns, item.revision_id))
+        )
 
 
 class OnlyHistoricalMarketDataQueryService:

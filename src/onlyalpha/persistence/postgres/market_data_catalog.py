@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Mapping
 from datetime import datetime
+from hashlib import sha256
 
 import psycopg
 from psycopg.rows import dict_row
@@ -13,15 +14,18 @@ from onlyalpha.canonical import only_canonical_payload
 from onlyalpha.core.clock import only_system_utc_now
 from onlyalpha.market_data.durable.models import (
     OnlyAcquisitionOutcome,
+    OnlyBarCoverageGap,
     OnlyCoverageManifest,
     OnlyCoverageStatus,
     OnlyIngestSegment,
     OnlyMarketDataAcquisitionAttempt,
     OnlyMarketDataAcquisitionIntent,
     OnlyMarketDataProvenance,
+    OnlyMarketDataRangeFamily,
     OnlyMarketDataRevision,
     OnlyMarketDataScope,
     OnlyMarketDataSeal,
+    OnlyTradeCoverageGap,
 )
 from onlyalpha.market_data.durable.revision import OnlyMarketDataConflictError
 from onlyalpha.market_data.resolution import OnlyBarConstructionIdentity
@@ -29,6 +33,22 @@ from onlyalpha.market_data.resolution import OnlyBarConstructionIdentity
 from .config import OnlyPostgresConfig
 from .migration import OnlyPostgresSchemaVerifier
 from .version import only_assert_supported_postgres_server
+
+
+class _PostgresAcquisitionExecutionLease:
+    def __init__(self, connection: psycopg.Connection[dict[str, object]] | None, lock_key: int | None = None) -> None:
+        self._connection = connection
+        self._lock_key = lock_key
+
+    @property
+    def acquired(self) -> bool:
+        return self._connection is not None
+
+    def close(self) -> None:
+        if self._connection is not None:
+            self._connection.execute("SELECT pg_advisory_unlock(%s)", (self._lock_key,))
+            self._connection.close()
+            self._connection = None
 
 
 class OnlyPostgresMarketDataCatalog:
@@ -249,10 +269,78 @@ class OnlyPostgresMarketDataCatalog:
             int(row["identity_version"]),
         )
 
+    def try_acquire_acquisition_execution(self, acquisition_id: str) -> _PostgresAcquisitionExecutionLease:
+        lock_key = int.from_bytes(sha256(acquisition_id.encode("utf-8")).digest()[:8], "big", signed=True)
+        connection = psycopg.connect(self._dsn, row_factory=dict_row)
+        try:
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO market_acquisition_execution_lock_key(lock_key,acquisition_id) "
+                    "VALUES (%s,%s) ON CONFLICT DO NOTHING",
+                    (lock_key, acquisition_id),
+                )
+                row = connection.execute(
+                    "SELECT acquisition_id FROM market_acquisition_execution_lock_key WHERE lock_key=%s",
+                    (lock_key,),
+                ).fetchone()
+                if row is None:
+                    raise RuntimeError("POSTGRES_ACQUISITION_INTENT_NOT_FOUND")
+                if str(row["acquisition_id"]) != acquisition_id:
+                    raise RuntimeError("POSTGRES_ACQUISITION_EXECUTION_LOCK_COLLISION")
+            acquired = connection.execute("SELECT pg_try_advisory_lock(%s) AS acquired", (lock_key,)).fetchone()
+            if acquired is None or not bool(acquired["acquired"]):
+                connection.close()
+                return _PostgresAcquisitionExecutionLease(None)
+        except Exception:
+            connection.close()
+            raise
+        return _PostgresAcquisitionExecutionLease(connection, lock_key)
+
+    def acquisition_execution_active(self, acquisition_id: str) -> bool:
+        lease = self.try_acquire_acquisition_execution(acquisition_id)
+        try:
+            return not lease.acquired
+        finally:
+            lease.close()
+
     def commit_coverage_manifest(self, manifest: OnlyCoverageManifest) -> None:
         with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
             with connection.transaction():
                 self._insert_manifest(connection, manifest, self._now())
+
+    def load_coverage_manifest(self, manifest_id: str) -> OnlyCoverageManifest:
+        with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+            row = connection.execute(
+                "SELECT manifest_fingerprint,scope,coverage_status,proof,issues,gaps "
+                "FROM market_coverage_manifest WHERE manifest_id=%s",
+                (manifest_id,),
+            ).fetchone()
+            refs = connection.execute(
+                "SELECT segment_id,segment_content_hash FROM market_coverage_manifest_segment "
+                "WHERE manifest_id=%s ORDER BY ordinal",
+                (manifest_id,),
+            ).fetchall()
+        if row is None:
+            raise KeyError("COVERAGE_MANIFEST_NOT_FOUND")
+        gaps = row["gaps"]
+        if not isinstance(gaps, list):
+            raise ValueError("POSTGRES_COVERAGE_MANIFEST_INVALID")
+        decoded_gaps = tuple(
+            OnlyBarCoverageGap(int(item["start_ns"]), int(item["end_ns"]))
+            if "start_ns" in item
+            else OnlyTradeCoverageGap(int(item["first_sequence"]), int(item["last_sequence"]))
+            for item in gaps
+        )
+        return OnlyCoverageManifest(
+            manifest_id,
+            _scope(row["scope"]),
+            tuple((str(item["segment_id"]), str(item["segment_content_hash"])) for item in refs),
+            OnlyCoverageStatus(str(row["coverage_status"])),
+            tuple(str(item) for item in row["proof"]),
+            tuple(str(item) for item in row["issues"]),
+            decoded_gaps,
+            str(row["manifest_fingerprint"]),
+        )
 
     def commit_revision(
         self,
@@ -410,6 +498,34 @@ class OnlyPostgresMarketDataCatalog:
         if row is None:
             raise KeyError("SEALED_REVISION_NOT_FOUND")
         return self.load_sealed_revision(str(row[0]))[0]
+
+    def list_current_sealed_revisions_overlapping(
+        self, family: OnlyMarketDataRangeFamily, start_ns: int, end_ns: int
+    ) -> tuple[OnlyMarketDataRevision, ...]:
+        if start_ns >= end_ns:
+            raise ValueError("MARKET_DATA_RANGE_INVALID")
+        with psycopg.connect(self._dsn) as connection:
+            rows = connection.execute(
+                "SELECT revision_id FROM market_latest_sealed_revision "
+                "WHERE scope->>'source_id'=%s AND scope->>'market'=%s AND scope->>'instrument_id'=%s "
+                "AND scope->>'data_kind'=%s AND scope->>'data_version'=%s "
+                "AND scope->>'bar_type' IS NOT DISTINCT FROM %s "
+                "AND scope#>>'{bar_construction,fingerprint}' IS NOT DISTINCT FROM %s "
+                "AND (scope->>'start_ns')::BIGINT < %s AND (scope->>'end_ns')::BIGINT > %s "
+                "ORDER BY (scope->>'start_ns')::BIGINT,(scope->>'end_ns')::BIGINT,revision_id",
+                (
+                    family.source_id,
+                    family.market,
+                    family.instrument_id,
+                    family.data_kind,
+                    family.data_version,
+                    family.bar_type,
+                    None if family.bar_construction is None else family.bar_construction.fingerprint,
+                    end_ns,
+                    start_ns,
+                ),
+            ).fetchall()
+        return tuple(self.load_sealed_revision(str(row[0]))[0] for row in rows)
 
     @staticmethod
     def _is_segment_committed(

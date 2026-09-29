@@ -22,7 +22,10 @@ def test_browser_uses_product_cursor_and_target_acquisition_without_resolution_b
     assert "historicalCursor" not in source
     assert "endNs /" not in source
     assert "bar_semantic: marketDataBarSemantic(1)" not in source
-    assert "client.createAcquisition(active, query)" in source
+    assert "loaded.coverage.planned_acquisition_ranges" in source
+    assert "client.createAcquisition(active, {" in source
+    assert "start_ns: range.start_ns" in source and "end_ns: range.end_ns" in source
+    assert "Date.now" not in source
     assert '"PROVIDER_NATIVE"' not in source and '"DERIVED"' not in source
     workspace = (ROOT / "packages/onlyalpha-web-console/src/features/workspace/WorkspacePage.tsx").read_text(
         encoding="utf-8"

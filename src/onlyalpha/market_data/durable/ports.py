@@ -11,11 +11,18 @@ from .models import (
     OnlyIngestSegment,
     OnlyMarketDataAcquisitionAttempt,
     OnlyMarketDataAcquisitionIntent,
+    OnlyMarketDataRangeFamily,
     OnlyMarketDataRecordBundle,
     OnlyMarketDataRevision,
     OnlyMarketDataScope,
     OnlyMarketDataSeal,
 )
+
+
+class OnlyAcquisitionExecutionLease(Protocol):
+    @property
+    def acquired(self) -> bool: ...
+    def close(self) -> None: ...
 
 
 class OnlyMarketFactStore(Protocol):
@@ -39,7 +46,10 @@ class OnlyMarketDataCatalog(Protocol):
     ) -> OnlyMarketDataAcquisitionAttempt: ...
     def record_acquisition_attempt(self, attempt: OnlyMarketDataAcquisitionAttempt) -> None: ...
     def latest_acquisition_attempt(self, acquisition_id: str) -> OnlyMarketDataAcquisitionAttempt | None: ...
+    def try_acquire_acquisition_execution(self, acquisition_id: str) -> OnlyAcquisitionExecutionLease: ...
+    def acquisition_execution_active(self, acquisition_id: str) -> bool: ...
     def commit_coverage_manifest(self, manifest: OnlyCoverageManifest) -> None: ...
+    def load_coverage_manifest(self, manifest_id: str) -> OnlyCoverageManifest: ...
     def commit_revision(
         self,
         segments: tuple[OnlyIngestSegment, ...],
@@ -55,6 +65,9 @@ class OnlyMarketDataCatalog(Protocol):
         self, manifest_id: str
     ) -> tuple[OnlyMarketDataRevision, OnlyMarketDataSeal] | None: ...
     def latest_sealed_revision(self, scope: OnlyMarketDataScope) -> OnlyMarketDataRevision: ...
+    def list_current_sealed_revisions_overlapping(
+        self, family: OnlyMarketDataRangeFamily, start_ns: int, end_ns: int
+    ) -> tuple[OnlyMarketDataRevision, ...]: ...
 
 
 __all__ = [name for name in globals() if name.startswith("Only")]

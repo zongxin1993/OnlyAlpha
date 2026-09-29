@@ -8,16 +8,18 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
 from onlyalpha.application.market_data_product import (
+    MAX_TARGET_BAR_COUNT,
     OnlyMarketDataProductError,
     OnlyMarketDataProductService,
     OnlyMarketDataSourceReferenceV1,
 )
+from onlyalpha.market_data.durable.range_query import OnlyBarWindowAnchorKind
 
 from .schema import (
     MarketDataAcquisitionDto,
     MarketDataAcquisitionRequestDto,
-    MarketDataBarsDto,
     MarketDataBarSemanticDto,
+    MarketDataBarWindowDto,
     MarketDataErrorDto,
     MarketDataErrorEnvelopeDto,
     MarketDataInstrumentListDto,
@@ -64,22 +66,24 @@ def create_market_data_router(service: OnlyMarketDataProductService) -> APIRoute
             )
         )
 
-    @router.get("/api/v2/market-data/bars", response_model=MarketDataBarsDto, responses=_ERROR_RESPONSES)
+    @router.get("/api/v2/market-data/bars", response_model=MarketDataBarWindowDto, responses=_ERROR_RESPONSES)
     def query_bars(
         integration_id: str,
         integration_revision_fingerprint: str,
         instrument_id: str,
-        start_ns: _Nanoseconds,
-        end_ns: _Nanoseconds,
+        anchor_kind: Literal["LATEST_CLOSED", "BEFORE_TIME"],
         bar_semantic: str,
+        target_bar_count: int = Query(ge=1, le=MAX_TARGET_BAR_COUNT),
+        before_ns: _Nanoseconds | None = None,
         expected_type_id: str | None = None,
-    ) -> MarketDataBarsDto:
-        return MarketDataBarsDto.from_model(
+    ) -> MarketDataBarWindowDto:
+        return MarketDataBarWindowDto.from_model(
             service.query_bars(
                 _reference(integration_id, integration_revision_fingerprint, expected_type_id),
                 instrument_id=instrument_id,
-                start_ns=int(start_ns),
-                end_ns=int(end_ns),
+                anchor_kind=OnlyBarWindowAnchorKind(anchor_kind),
+                target_bar_count=target_bar_count,
+                before_ns=None if before_ns is None else int(before_ns),
                 bar_semantic=MarketDataBarSemanticDto.model_validate_json(bar_semantic).to_model(),
             )
         )

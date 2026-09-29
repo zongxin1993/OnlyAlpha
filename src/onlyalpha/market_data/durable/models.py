@@ -435,6 +435,34 @@ class OnlyMarketDataScope:
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyMarketDataRangeFamily:
+    """Exact non-temporal identity of one provider-history series."""
+
+    source_id: str
+    market: str
+    instrument_id: str
+    data_kind: str
+    data_version: str
+    bar_type: str | None = None
+    bar_construction: OnlyBarConstructionIdentity | None = None
+
+    @classmethod
+    def from_scope(cls, scope: OnlyMarketDataScope) -> OnlyMarketDataRangeFamily:
+        return cls(
+            scope.source_id,
+            scope.market,
+            scope.instrument_id,
+            scope.data_kind,
+            scope.data_version,
+            scope.bar_type,
+            scope.bar_construction,
+        )
+
+    def matches(self, scope: OnlyMarketDataScope) -> bool:
+        return self == type(self).from_scope(scope)
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyMarketDataAcquisitionIntent:
     """Durable execution intent for one exact provider/source/scope/binding.
 

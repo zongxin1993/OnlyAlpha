@@ -3,7 +3,12 @@ import { expect, test, type Page, type Route } from "@playwright/test";
 const integrationId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const revision = "a".repeat(64);
 const revisionFingerprint = "d".repeat(64);
+const historyFingerprint = "8".repeat(64);
 const minuteNs = BigInt("60000000000");
+const fixtureRange = {
+    start_ns: "1767225600000000000",
+    end_ns: "1767225720000000000"
+};
 const nativeSteps = new Set([1, 3, 5, 15, 30, 60, 120, 240]);
 const semantic = (durationMinutes: number) => ({
     schema_version: 2,
@@ -99,17 +104,31 @@ function bars(range: Range, complete: boolean, planned: readonly Range[] = [], s
         market: instrument.market,
         bar_semantic: semantic(step),
         closed_only: true,
-        ...range,
+        anchor_kind: "LATEST_CLOSED",
+        requested_before_ns: null,
+        requested_bar_count: 1440,
+        resolved_start_ns: range.start_ns,
+        resolved_end_ns: range.end_ns,
         coverage: coverage(range, complete, planned),
-        revision_id: complete ? `market-data-revision:${revisionFingerprint}` : null,
-        revision_fingerprint: complete ? revisionFingerprint : null,
-        seal_id: complete ? `seal:${"e".repeat(64)}` : null,
+        revision_evidence: complete
+            ? [
+                  {
+                      revision_id: `market-data-revision:${revisionFingerprint}`,
+                      revision_fingerprint: revisionFingerprint,
+                      manifest_id: `manifest:${"c".repeat(64)}`,
+                      manifest_fingerprint: "c".repeat(64),
+                      seal_id: `seal:${"e".repeat(64)}`,
+                      covered_start_ns: range.start_ns,
+                      covered_end_ns: range.end_ns
+                  }
+              ]
+            : [],
+        history_projection_fingerprint: complete ? historyFingerprint : null,
+        derived_projection_fingerprint: complete && !native ? "9".repeat(64) : null,
         aggregation_semantics_version: native ? null : "TIME_BAR_V1",
         calendar_fingerprint: native ? null : "a".repeat(64),
         resolution_mode: native ? "PROVIDER_NATIVE" : "DERIVED",
         resolution_plan_fingerprint: step.toString(16).padStart(64, "0"),
-        base_revision_id: native ? null : `market-data-revision:${revisionFingerprint}`,
-        construction_fingerprint: (step + 256).toString(16).padStart(64, "0"),
         resume_after_sequence: complete
             ? (BigInt(range.end_ns) / minuteNs - BigInt(1)).toString()
             : null,
@@ -140,10 +159,10 @@ async function controlledMarketData(page: Page, initial: FixtureMode) {
             ) as ReturnType<typeof semantic>;
             const step = requested.formation.window_minutes;
             queriedSteps.push(step);
-            const range = {
-                start_ns: url.searchParams.get("start_ns") ?? "",
-                end_ns: url.searchParams.get("end_ns") ?? ""
-            };
+            expect(url.searchParams.get("anchor_kind")).toBe("LATEST_CLOSED");
+            expect(url.searchParams.get("target_bar_count")).toBe("1440");
+            expect(url.searchParams.has("start_ns")).toBe(false);
+            const range = fixtureRange;
             if (mode === "complete") return json(route, bars(range, true, [], step));
             const planned =
                 mode === "tail"
@@ -222,7 +241,7 @@ test.describe("W1 historical golden path — CONTROLLED_TEST_EVIDENCE", () => {
             (await page.getByTestId("price-chart").locator("canvas").first().boundingBox())?.height
         ).toBeGreaterThan(100);
         await expect(page.getByTestId("market-data-status")).toContainText(
-            `历史 Revision ${revisionFingerprint.slice(0, 12)}`
+            `历史投影 ${historyFingerprint.slice(0, 12)}`
         );
         await expect(page.getByRole("combobox", { name: "时间周期" })).toHaveValue("1");
         await expect(page.getByRole("combobox", { name: "时间周期" })).toBeEnabled();

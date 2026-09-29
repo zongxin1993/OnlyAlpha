@@ -9,10 +9,10 @@ import type {
     MarketDataSource,
     MarketDataSourceReference
 } from "../../api/marketData/model";
-import { fixedDurationMinutes, marketDataBarSemantic } from "../../api/marketData/model";
+import { marketDataBarSemantic } from "../../api/marketData/model";
 import { useMarketDataApi } from "../../app/providers";
 
-export const DEFAULT_WINDOW_SECONDS = 86_400;
+export const DEFAULT_TARGET_BAR_COUNT = 1_440;
 const SECOND_NS = 1_000_000_000n;
 export const STREAM_RECONNECT_DELAYS_MS = [250, 500, 1000, 2000, 4000] as const;
 
@@ -44,7 +44,7 @@ export interface MarketDataChartState {
     readonly message: string | null;
     readonly coverage: MarketDataCoverage | null;
     readonly bars: readonly CandlestickData<UTCTimestamp>[];
-    readonly revisionFingerprint: string | null;
+    readonly historyProjectionFingerprint: string | null;
     readonly realtimeStatus: MarketDataRealtimeStatus;
     readonly liveBar: CandlestickData<UTCTimestamp> | null;
     readonly lastClosedStreamBar: CandlestickData<UTCTimestamp> | null;
@@ -63,30 +63,6 @@ export function onlyMarketDataSourceReference(source: MarketDataSource): MarketD
         integration_id: source.integration_id,
         integration_revision_fingerprint: source.integration_revision_fingerprint,
         expected_type_id: source.type_id
-    };
-}
-
-export function onlyRecentClosedMinuteRange(
-    now = Date.now(),
-    windowSeconds = DEFAULT_WINDOW_SECONDS,
-    stepMinutes = 1
-): { startNs: string; endNs: string } {
-    // The UTC 24/7 Product grid requires complete target bars; cursor authority remains server-side.
-    const dayMs = 86_400_000;
-    const stepMs = stepMinutes * 60_000;
-    let dayStart = Math.floor(now / dayMs) * dayMs;
-    let end = dayStart + Math.floor((now - dayStart) / stepMs) * stepMs;
-    if (end === dayStart && dayMs % stepMs !== 0) {
-        dayStart -= dayMs;
-        end = dayStart + Math.floor(dayMs / stepMs) * stepMs;
-    }
-    const start =
-        dayMs % stepMs === 0
-            ? end - Math.floor((windowSeconds * 1000) / stepMs) * stepMs
-            : dayStart;
-    return {
-        startNs: (BigInt(start) * 1_000_000n).toString(10),
-        endNs: (BigInt(end) * 1_000_000n).toString(10)
     };
 }
 
@@ -127,7 +103,9 @@ export function useMarketDataChart(): MarketDataChartState {
     const [message, setMessage] = useState<string | null>(null);
     const [coverage, setCoverage] = useState<MarketDataCoverage | null>(null);
     const [bars, setBars] = useState<readonly CandlestickData<UTCTimestamp>[]>([]);
-    const [revisionFingerprint, setRevisionFingerprint] = useState<string | null>(null);
+    const [historyProjectionFingerprint, setHistoryProjectionFingerprint] = useState<string | null>(
+        null
+    );
     const [resolvedSourceId, setResolvedSourceId] = useState<string | null>(null);
     const [realtimeStatus, setRealtimeStatus] = useState<MarketDataRealtimeStatus>("disabled");
     const [liveBar, setLiveBar] = useState<CandlestickData<UTCTimestamp> | null>(null);
@@ -172,7 +150,7 @@ export function useMarketDataChart(): MarketDataChartState {
     const apply = useCallback((error: unknown) => {
         const webError = error instanceof MarketDataWebError ? error : null;
         setBars([]);
-        setRevisionFingerprint(null);
+        setHistoryProjectionFingerprint(null);
         setStatus("failed");
         setMessage(
             webError === null
@@ -186,26 +164,43 @@ export function useMarketDataChart(): MarketDataChartState {
             active: MarketDataSourceReference,
             query: {
                 instrument_id: string;
-                start_ns: string;
-                end_ns: string;
+                anchor_kind: "LATEST_CLOSED";
+                target_bar_count: number;
                 bar_semantic: MarketDataBarSemantic;
             },
+            ranges: readonly { start_ns: string; end_ns: string }[],
             generation: number
         ) => {
             setStatus("acquiring");
             setMessage("正在同步历史行情…");
             try {
-                const acquisition = await client.createAcquisition(active, query);
-                if (generation !== historyGeneration.current) return;
-                if (acquisition.status !== "COMPLETE") {
-                    setCoverage(acquisition.coverage);
-                    setStatus("failed");
-                    setMessage(
-                        `历史行情同步${acquisition.status === "FAILED" ? "失败" : "未完成"}：${
-                            acquisition.failure_detail ?? acquisition.status
-                        }`
-                    );
-                    return;
+                for (const range of ranges) {
+                    let acquisition = await client.createAcquisition(active, {
+                        instrument_id: query.instrument_id,
+                        start_ns: range.start_ns,
+                        end_ns: range.end_ns,
+                        bar_semantic: query.bar_semantic
+                    });
+                    while (
+                        generation === historyGeneration.current &&
+                        (acquisition.status === "PENDING" || acquisition.status === "RUNNING")
+                    ) {
+                        await new Promise((resolve) => window.setTimeout(resolve, 250));
+                        if (generation !== historyGeneration.current) return;
+                        acquisition = await client.getAcquisition(
+                            active,
+                            acquisition.acquisition_id
+                        );
+                    }
+                    if (generation !== historyGeneration.current) return;
+                    if (acquisition.status !== "COMPLETE") {
+                        setCoverage(acquisition.coverage);
+                        setStatus("failed");
+                        setMessage(
+                            `历史行情同步失败：${acquisition.failure_detail ?? acquisition.status}`
+                        );
+                        return;
+                    }
                 }
                 const reloaded = await client.queryBars(active, query);
                 if (generation !== historyGeneration.current) return;
@@ -214,7 +209,7 @@ export function useMarketDataChart(): MarketDataChartState {
                 setBars(
                     reloaded.coverage.status === "COMPLETE" ? onlyBarsToCandles(reloaded.bars) : []
                 );
-                setRevisionFingerprint(reloaded.revision_fingerprint);
+                setHistoryProjectionFingerprint(reloaded.history_projection_fingerprint);
                 resume.current =
                     reloaded.resume_after_sequence !== null &&
                     reloaded.resume_plan_fingerprint !== null
@@ -243,15 +238,10 @@ export function useMarketDataChart(): MarketDataChartState {
             specification: MarketDataBarSemantic,
             generation: number
         ) => {
-            const range = onlyRecentClosedMinuteRange(
-                Date.now(),
-                DEFAULT_WINDOW_SECONDS,
-                fixedDurationMinutes(specification)
-            );
             const query = {
                 instrument_id: target.instrument_id,
-                start_ns: range.startNs,
-                end_ns: range.endNs,
+                anchor_kind: "LATEST_CLOSED" as const,
+                target_bar_count: DEFAULT_TARGET_BAR_COUNT,
                 bar_semantic: specification
             };
             resume.current = null;
@@ -273,13 +263,18 @@ export function useMarketDataChart(): MarketDataChartState {
                               }
                             : null;
                     setBars(onlyBarsToCandles(loaded.bars));
-                    setRevisionFingerprint(loaded.revision_fingerprint);
+                    setHistoryProjectionFingerprint(loaded.history_projection_fingerprint);
                     setStatus("ready");
                     return;
                 }
                 setBars([]);
-                setRevisionFingerprint(null);
-                await acquire(active, query, generation);
+                setHistoryProjectionFingerprint(null);
+                await acquire(
+                    active,
+                    query,
+                    loaded.coverage.planned_acquisition_ranges,
+                    generation
+                );
             } catch (error) {
                 if (generation === historyGeneration.current) apply(error);
             }
@@ -492,7 +487,7 @@ export function useMarketDataChart(): MarketDataChartState {
         setInstrument(null);
         setCoverage(null);
         setBars([]);
-        setRevisionFingerprint(null);
+        setHistoryProjectionFingerprint(null);
         setResolvedSourceId(null);
         setLiveBar(null);
         setLastClosedStreamBar(null);
@@ -592,7 +587,7 @@ export function useMarketDataChart(): MarketDataChartState {
         message,
         coverage,
         bars,
-        revisionFingerprint,
+        historyProjectionFingerprint,
         realtimeStatus,
         liveBar,
         lastClosedStreamBar,

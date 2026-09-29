@@ -26,7 +26,7 @@ import {
     marketDataInstrument
 } from "../../test/marketDataClient";
 import { researchClient } from "../../test/researchClient";
-import { onlyBarsToCandles, onlyRecentClosedMinuteRange } from "./useMarketDataChart";
+import { onlyBarsToCandles } from "./useMarketDataChart";
 import { WorkspacePage } from "./WorkspacePage";
 
 class NoopResizeObserver {
@@ -127,11 +127,11 @@ beforeEach(() => {
     chartMocks.overlays.setData.mockClear();
 });
 
-it("requests and renders exact minute-aligned nanoseconds on the canonical 1m grid", () => {
-    const range = onlyRecentClosedMinuteRange(Date.UTC(2026, 0, 1, 0, 0, 30), 3_600);
-    expect(range.endNs).toBe("1767225600000000000");
-    expect(range.startNs).toBe("1767222000000000000");
-    expect(BigInt(range.endNs) % 60_000_000_000n).toBe(0n);
+afterEach(() => {
+    vi.restoreAllMocks();
+});
+
+it("renders canonical Product bars without browser range planning", () => {
     expect(onlyBarsToCandles(marketDataBars().bars)).toEqual([
         { time: 1_767_225_600, open: 100, high: 102, low: 99, close: 101 },
         { time: 1_767_225_660, open: 101, high: 103, low: 100, close: 102.5 }
@@ -309,7 +309,7 @@ it("renders only canonical Product bars in real READY and disables synthetic ove
     expect(screen.getByRole("button", { name: /指标/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: /因子/ })).toBeDisabled();
     expect(screen.getByTestId("market-data-status")).toHaveTextContent(
-        /test\.market_data\.live · 历史 Revision dddddddddddd · ● 连接中/
+        /test\.market_data\.live · 历史投影 888888888888 · ● 连接中/
     );
 });
 
@@ -364,6 +364,96 @@ it("requests an explicit acquisition for incomplete coverage and then renders da
     });
     await waitFor(() => {
         expect(screen.getByTestId("market-data-source-tag")).toHaveTextContent("real · DB");
+    });
+    expect(renderedPrices()).toEqual([101, 102.5]);
+});
+
+it("submits multiple server-planned acquisition ranges in order", async () => {
+    const user = userEvent.setup();
+    const ranges = [
+        { start_ns: "1767225600000000000", end_ns: "1767225660000000000" },
+        { start_ns: "1767225660000000000", end_ns: "1767225720000000000" }
+    ];
+    const submitted: string[] = [];
+    let queries = 0;
+    const client = marketDataClient({
+        listInstruments: () => Promise.resolve([marketDataInstrument()]),
+        queryBars: () => {
+            queries += 1;
+            return Promise.resolve(
+                queries === 1
+                    ? incompleteBars({
+                          coverage: {
+                              ...incompleteBars().coverage,
+                              gaps: ranges,
+                              planned_acquisition_ranges: ranges
+                          }
+                      })
+                    : marketDataBars()
+            );
+        },
+        createAcquisition: (_reference, query) => {
+            submitted.push(`${query.start_ns}-${query.end_ns}`);
+            return Promise.resolve(marketDataAcquisition());
+        }
+    });
+    renderWorkspace(client);
+
+    await selectSource(user);
+    await selectBtcInstrument(user);
+
+    await waitFor(() => {
+        expect(submitted).toEqual(ranges.map((range) => `${range.start_ns}-${range.end_ns}`));
+    });
+    expect(queries).toBe(2);
+});
+
+it("observes a running acquisition before re-querying the same window", async () => {
+    const setTimeout = window.setTimeout.bind(window);
+    vi.spyOn(window, "setTimeout").mockImplementation((handler: TimerHandler, timeout?: number) => {
+        if (timeout === 250 && typeof handler === "function") {
+            queueMicrotask(handler as () => void);
+            return 1;
+        }
+        return setTimeout(handler, timeout);
+    });
+    const user = userEvent.setup();
+    const calls: string[] = [];
+    const client = marketDataClient({
+        listInstruments: () => Promise.resolve([marketDataInstrument()]),
+        queryBars: () => {
+            calls.push("bars");
+            return Promise.resolve(
+                calls.filter((item) => item === "bars").length === 1
+                    ? incompleteBars()
+                    : marketDataBars()
+            );
+        },
+        createAcquisition: () => {
+            calls.push("create:PENDING");
+            return Promise.resolve(marketDataAcquisition({ status: "PENDING" }));
+        },
+        getAcquisition: () => {
+            const running = !calls.includes("status:RUNNING");
+            calls.push(running ? "status:RUNNING" : "status:COMPLETE");
+            return Promise.resolve(
+                marketDataAcquisition({ status: running ? "RUNNING" : "COMPLETE" })
+            );
+        }
+    });
+    renderWorkspace(client);
+
+    await selectSource(user);
+    await selectBtcInstrument(user);
+
+    await waitFor(() => {
+        expect(calls).toEqual([
+            "bars",
+            "create:PENDING",
+            "status:RUNNING",
+            "status:COMPLETE",
+            "bars"
+        ]);
     });
     expect(renderedPrices()).toEqual([101, 102.5]);
 });
