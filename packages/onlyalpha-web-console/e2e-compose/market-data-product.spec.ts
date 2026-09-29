@@ -10,17 +10,28 @@ async function matchingProductEvidence(
     durationMinutes: number,
     mode: "PROVIDER_NATIVE" | "DERIVED"
 ) {
+    const matchesHttp = (value: Record<string, unknown>) =>
+        (value.bar_semantic as { formation?: { window_minutes?: number } } | undefined)?.formation
+            ?.window_minutes === durationMinutes &&
+        value.resolution_mode === mode &&
+        (
+            value.coverage as
+                | { status?: string; expected_bar_count?: number; actual_bar_count?: number }
+                | undefined
+        )?.status === "COMPLETE" &&
+        (value.coverage as { expected_bar_count?: number } | undefined)?.expected_bar_count ===
+            1440 &&
+        (value.coverage as { actual_bar_count?: number } | undefined)?.actual_bar_count === 1440 &&
+        Array.isArray(value.bars) &&
+        value.bars.length === 1440 &&
+        Array.isArray(value.revision_evidence) &&
+        value.revision_evidence.length > 0 &&
+        typeof value.history_projection_fingerprint === "string" &&
+        /^[0-9a-f]{64}$/.test(value.history_projection_fingerprint);
     await expect
         .poll(
             () => {
-                const http = lastMatch(
-                    observed.bars,
-                    (value) =>
-                        (
-                            value.bar_semantic as
-                                { formation?: { window_minutes?: number } } | undefined
-                        )?.formation?.window_minutes === durationMinutes
-                );
+                const http = lastMatch(observed.bars, matchesHttp);
                 return observed.subscribed.some(
                     (value) =>
                         value.resolution_mode === mode &&
@@ -30,12 +41,7 @@ async function matchingProductEvidence(
             { timeout: 45_000 }
         )
         .toBe(true);
-    const http = lastMatch(
-        observed.bars,
-        (value) =>
-            (value.bar_semantic as { formation?: { window_minutes?: number } } | undefined)
-                ?.formation?.window_minutes === durationMinutes
-    );
+    const http = lastMatch(observed.bars, matchesHttp);
     return {
         http,
         stream: lastMatch(
@@ -129,13 +135,19 @@ test("real Browser uses one native 15m resolution across HTTP and stream", async
     await scenario(page);
 
     await page.getByRole("combobox", { name: "时间周期" }).selectOption("15");
-    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
-
     const { http, stream } = await matchingProductEvidence(observed, 15, "PROVIDER_NATIVE");
+    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
     expect(http).toMatchObject({
+        requested_bar_count: 1440,
+        coverage: {
+            status: "COMPLETE",
+            expected_bar_count: 1440,
+            actual_bar_count: 1440
+        },
         resolution_mode: "PROVIDER_NATIVE",
         derived_projection_fingerprint: null
     });
+    expect((http?.bars as unknown[] | undefined)?.length).toBe(1440);
     expect(http?.history_projection_fingerprint).toMatch(/^[0-9a-f]{64}$/);
     expect((http?.revision_evidence as unknown[] | undefined)?.length).toBeGreaterThan(0);
     expect(http?.resolution_plan_fingerprint).toBe(stream?.resolution_plan_fingerprint);
@@ -160,13 +172,19 @@ test("real Browser keeps derived 7m intent while Product uses base 1m", async ({
     await page.getByRole("combobox", { name: "时间周期" }).selectOption("custom");
     await page.getByRole("spinbutton", { name: "自定义周期分钟数" }).fill("7");
     await page.getByRole("button", { name: "应用" }).click();
-    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
-
     const { http, stream } = await matchingProductEvidence(observed, 7, "DERIVED");
+    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
     expect(http).toMatchObject({
+        requested_bar_count: 1440,
+        coverage: {
+            status: "COMPLETE",
+            expected_bar_count: 1440,
+            actual_bar_count: 1440
+        },
         resolution_mode: "DERIVED",
         aggregation_semantics_version: "TIME_BAR_V1"
     });
+    expect((http?.bars as unknown[] | undefined)?.length).toBe(1440);
     expect(http?.history_projection_fingerprint).toMatch(/^[0-9a-f]{64}$/);
     expect(http?.derived_projection_fingerprint).toMatch(/^[0-9a-f]{64}$/);
     expect((http?.revision_evidence as unknown[] | undefined)?.length).toBeGreaterThan(0);
