@@ -71,6 +71,8 @@ continuity frontier；其恢复 cursor 属于 provider Trade identity/sequence�
 Core historical recovery 同样只枚举 Construction Graph provider root；reference-only Trade frontier 只能由 provider-native
 reconnect/baseline 恢复。每个 cursor 直接绑定 exact Streaming key（source、data version、instrument、data kind、BarType），
 不得使用同 source/data kind 下其他 instrument 或 BarType 的最大 sequence。
+当一个 Runtime 有多个 provider root 时，每个 root 的历史 replay 仍使用自己的 exact cursor，但它们共同属于一个 Runtime recovery
+transaction；Runtime-global realtime suffix 只能在全部 root replay 完成后处理一次，全部 continuity 验证完成前不得恢复 LIVE。
 
 ## 规范 Market Source identity
 

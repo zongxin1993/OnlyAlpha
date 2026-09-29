@@ -5,7 +5,7 @@ from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
-from threading import Event
+from threading import Event, Thread
 from types import MappingProxyType
 from typing import Any, cast
 
@@ -265,9 +265,19 @@ class _TradeDataSource:
 
         self.load_trade_calls.append(request)
         if request.request_id.startswith("recovery-"):
-            return OnlyHistoricalDataStream(self.recovery_updates, request.batch_size)
+            return OnlyHistoricalDataStream(
+                tuple(update for update in self.recovery_updates if update.instrument_id in request.instrument_ids),
+                request.batch_size,
+            )
         end = request.data_range.end_time
-        return OnlyHistoricalDataStream(self._updates(end - timedelta(seconds=4), 1), request.batch_size)
+        return OnlyHistoricalDataStream(
+            tuple(
+                update
+                for instrument_id in sorted(request.instrument_ids, key=str)
+                for update in self._updates(end - timedelta(seconds=4), 1, instrument_id=instrument_id)
+            ),
+            request.batch_size,
+        )
 
     def load_quotes(self, request):  # type: ignore[no-untyped-def]
         from onlyalpha.data.models import OnlyHistoricalDataStream
@@ -327,7 +337,7 @@ class _TradeDataSource:
             assert self.request.market_data_sink is not None
             self.request.market_data_sink(update)
 
-    def _updates(self, start, sequence: int):  # type: ignore[no-untyped-def]
+    def _updates(self, start, sequence: int, *, instrument_id=None):  # type: ignore[no-untyped-def]
         from onlyalpha.data.enums import OnlyDataSequenceSemantics, OnlyMarketDataType
         from onlyalpha.data.identifiers import OnlyDataSequence
         from onlyalpha.data.identity import only_trade_update_id
@@ -336,7 +346,7 @@ class _TradeDataSource:
         from onlyalpha.domain.market import OnlyTradeTick
         from onlyalpha.domain.time import OnlyTimestamp
 
-        instrument_id = next(iter(self.request.instruments))
+        instrument_id = instrument_id or next(iter(self.request.instruments))
         result = []
         for offset in range(3):
             event = start + timedelta(seconds=offset + 1)
@@ -998,6 +1008,180 @@ def test_trade_root_sim_disconnect_recovers_provider_trade_suffix(
         )
         assert recovered_sequences == (6,)
     finally:
+        runtime.stop()
+        runtime.close()
+
+
+@pytest.mark.parametrize("second_fails", (False, True), ids=("success", "second-root-fails"))
+def test_multi_provider_disconnect_is_one_atomic_recovery_transaction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    second_fails: bool,
+) -> None:
+    from onlyalpha_plugin_generic_t0_cash.factory import OnlyGenericT0CashMarketProductFactory
+
+    from onlyalpha.config.models import OnlyClusterCapitalConfig, OnlyClusterCapitalMode
+    from onlyalpha.data.enums import OnlyMarketDataProcessingStatus
+    from onlyalpha.domain.enums import OnlyOffset, OnlyOrderType
+    from onlyalpha.domain.execution import OnlyOrderRequest
+    from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyOrderRequestId
+    from onlyalpha.domain.market import OnlyTradeInputType
+    from onlyalpha.domain.value import OnlyMoney, OnlyQuantity
+    from onlyalpha.market.product import OnlyMarketProductResolutionContext
+    from onlyalpha.runtime.streaming.phase import OnlyStreamingDataState, OnlyStreamingPhase
+    from onlyalpha.strategy.revision import OnlyStrategyUniverse
+    from tests.runtime_support.market_product import _NoResources
+
+    _install_test_tick_executor(monkeypatch)
+    plan, revision = _trade_root_plan("SIM", tmp_path)
+    first_instrument = revision.universe.instruments[0]
+    second_instrument = OnlyInstrumentId.parse("000002.XSHE")
+    second_revision = replace(
+        revision,
+        universe=OnlyStrategyUniverse((second_instrument,)),
+    )
+    publish_frozen_strategy_for_execution_test(tmp_path / "research", second_revision)
+    account_cash = plan.assembly_plan.accounts[0].initial_cash
+    capital = OnlyClusterCapitalConfig(
+        OnlyClusterCapitalMode.FIXED_CAPITAL,
+        OnlyMoney(account_cash.amount / 2, account_cash.currency),
+    )
+    first_cluster = replace(plan.assembly_plan.clusters[0], capital=capital)
+    second_cluster = replace(
+        plan.assembly_plan.clusters[0],
+        cluster_id=OnlyClusterId("multi-provider-second"),
+        strategy=OnlyStrategyReferenceConfig(str(second_revision.strategy_fingerprint)),
+        capital=capital,
+    )
+    reference = plan.assembly_plan.reference_data
+    instruments = reference.instruments + (replace(reference.instruments[0], instrument_id=second_instrument),)
+    universes = tuple(
+        replace(item, instrument_ids=tuple(sorted({*item.instrument_ids, second_instrument}, key=str)))
+        for item in plan.assembly_plan.universes
+    )
+    persistence = OnlyRuntimePersistenceConfig(
+        OnlyRuntimePersistenceBackend.SQLITE,
+        "multi-provider-recovery.sqlite3",
+        OnlyRuntimeCheckpointConfig(True),
+    )
+    source_factory = _TradeDataSourceFactory("multi-trade-recovery", live=True)
+    services = only_default_engine_services()
+    services.assembler.components.data_sources.register(
+        cast(OnlyDataSourceFactory, source_factory),
+        origin=_test_origin(),
+    )
+    source_config = replace(plan.assembly_plan.data_sources[0], plugin_id="multi-trade-recovery")
+    plan = replace(
+        plan,
+        market_product=OnlyGenericT0CashMarketProductFactory().resolve(
+            plan.assembly_plan.market,
+            OnlyMarketProductResolutionContext(_NoResources(), instruments),
+        ),
+        assembly_plan=replace(
+            plan.assembly_plan,
+            runtime=replace(plan.assembly_plan.runtime, persistence=persistence),
+            reference_data=replace(reference, instruments=instruments),
+            universes=universes,
+            data_sources=(source_config,),
+            clusters=(first_cluster, second_cluster),
+        ),
+    )
+    build = services.assembler.build(plan, tmp_path)
+    assert build.runtime is not None, build.failure_message
+    runtime = build.runtime
+    entered_second = Event()
+    release_second = Event()
+    recovery_errors: list[BaseException] = []
+    try:
+        runtime.initialize()
+        runtime.start()
+        source = source_factory.created[-1]
+        roots = runtime._construction_recovery_inputs  # noqa: SLF001
+        assert roots == tuple(
+            sorted((OnlyTradeInputType(first_instrument), OnlyTradeInputType(second_instrument)), key=str)
+        )
+        now = source.request.clock.now_utc()
+        source.recovery_updates = tuple(
+            source._updates(now - timedelta(seconds=1), 4, instrument_id=root.instrument_id)[0]  # noqa: SLF001
+            for root in roots
+        )
+        second_root = roots[1]
+        original_load = source.load_trades
+
+        def block_second(request):  # type: ignore[no-untyped-def]
+            if request.instrument_ids == frozenset({second_root.instrument_id}):
+                entered_second.set()
+                assert release_second.wait(runtime.streaming_recovery_watchdog_seconds)
+                if second_fails:
+                    raise RuntimeError("second provider recovery failed")
+            return original_load(request)
+
+        monkeypatch.setattr(source, "load_trades", block_second)
+        checkpoint_count = 0
+        original_checkpoint = runtime._create_verified_streaming_checkpoint  # noqa: SLF001
+
+        def count_checkpoint() -> None:
+            nonlocal checkpoint_count
+            checkpoint_count += 1
+            original_checkpoint()
+
+        monkeypatch.setattr(runtime, "_create_verified_streaming_checkpoint", count_checkpoint)
+        before = runtime.streaming_phase_snapshot
+        source.disconnect()
+
+        def recover() -> None:
+            try:
+                runtime._recover_stale_or_disconnect(OnlyStreamingDataState.DISCONNECTED)  # noqa: SLF001
+            except BaseException as exc:
+                recovery_errors.append(exc)
+
+        recovery = Thread(target=recover)
+        recovery.start()
+        assert entered_second.wait(runtime.streaming_recovery_watchdog_seconds)
+        blocked = runtime.streaming_phase_snapshot
+        assert blocked.phase is OnlyStreamingPhase.RECOVERING
+        assert blocked.revision == before.revision + 2
+        assert runtime.recovery_generation == 1
+        assert runtime.recovery_failure is None
+
+        request = OnlyOrderRequest(
+            OnlyOrderRequestId("multi-provider-recovery-order"),
+            first_instrument,
+            OnlyOrderSide.BUY,
+            OnlyOrderType.MARKET,
+            OnlyQuantity(Decimal("1"), 0),
+            offset=OnlyOffset.OPEN,
+        )
+        context = runtime.clusters[0].context
+        assert context is not None
+        denied = context.orders.submit(request)
+        assert denied.error == "ORDER_INTENT_SUPPRESSED_DURING_RECOVERY"
+
+        suffix = source._updates(  # noqa: SLF001
+            now - timedelta(seconds=1), 5, instrument_id=second_root.instrument_id
+        )[0]
+        runtime._services.market_data_inbound.put(suffix)  # noqa: SLF001
+        assert all(item.update_id != suffix.update_id for item in runtime.market_data_audit_store.records())
+
+        release_second.set()
+        recovery.join(runtime.streaming_recovery_watchdog_seconds)
+        assert not recovery.is_alive()
+        assert recovery_errors == []
+        completed = runtime.streaming_phase_snapshot
+        if second_fails:
+            assert completed.phase is OnlyStreamingPhase.FAILED
+            assert runtime.recovery_failure == "second provider recovery failed"
+            assert all(item.update_id != suffix.update_id for item in runtime.market_data_audit_store.records())
+            assert checkpoint_count == 0
+            return
+        assert completed.phase is OnlyStreamingPhase.LIVE, runtime.recovery_failure
+        assert completed.revision == before.revision + 4
+        assert tuple(
+            item.status for item in runtime.market_data_audit_store.records() if item.update_id == suffix.update_id
+        ) == (OnlyMarketDataProcessingStatus.APPLIED,)
+        assert checkpoint_count == 1
+    finally:
+        release_second.set()
         runtime.stop()
         runtime.close()
 

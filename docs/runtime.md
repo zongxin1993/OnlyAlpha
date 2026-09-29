@@ -130,6 +130,8 @@ Next-Bar 因果顺序固定为 Bar N Strategy intent 后 Accepted、同 Bar 不�
 `SQLITE + checkpoint.enabled=true` 还要求稳定 `user_data` state root，并提供正式 new-process restart 合同。P6.4 已实现 unexpected-gap、STALE 与
 disconnect 的 same-process recovery：缺失历史事实经现有 Historical Port 加载、严格验证和归一化后进入同一 Processor/Pipeline，
 恢复期既有 Broker order 可继续推进而 Strategy 新订单被抑制，buffered realtime suffix 追平并显式证明 continuity 后才恢复 LIVE。
+同一 Runtime 的一次 STALE/DISCONNECTED incident 只产生一个 recovery generation：所有 Construction provider-input 的 exact
+历史 frontier 必须先在该事务内恢复，随后才统一 reconcile Runtime-global suffix、验证全部 frontier、写一次成功 checkpoint 并恢复 LIVE。
 P6.5 将 Runtime-neutral Checkpoint/Recovery Kernel 接入 SIM：`initialize()` 只恢复本地 durable authorities，`start()` 在资源启动后
 先订阅 realtime 并 buffer，再完成 historical repair、transaction tail、Timer occurrence、continuity proof、post-recovery validation
 与 verified recovery checkpoint，最后才恢复 Cluster、Timer 和 LIVE admission。Closed-Bar 与 Timer semantic action 在同一 Semantic

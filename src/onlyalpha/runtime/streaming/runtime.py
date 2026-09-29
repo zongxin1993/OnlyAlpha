@@ -1272,10 +1272,13 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             OnlyTimestamp.from_datetime(bar.bar_start),
             trigger,
         )
-        self._recover_market_continuity(plan)
+        self._recover_market_continuity((plan,))
 
-    def _recover_market_continuity(self, plan: OnlyStreamingRecoveryPlan) -> None:
-        self._recovery_plan = plan
+    def _recover_market_continuity(self, plans: tuple[OnlyStreamingRecoveryPlan, ...]) -> None:
+        if not plans:
+            self._fail_streaming_recovery("streaming recovery requires at least one provider-input plan")
+            return
+        self._recovery_plan = plans[0]
         self._recovery_stage = OnlyStreamingRecoveryStage.PLAN_INSTALLED
         self._live_finalizer.reset_pending()
         try:
@@ -1283,33 +1286,16 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 return
             if not self._transition_streaming_phase(OnlyStreamingPhase.RECOVERING):
                 return
-            accepted_sequence = self._continuity.accepted_sequence(
-                OnlyStreamingStreamKey(
-                    self._driver.source.source_id,  # type: ignore[union-attr]
-                    self._streaming_data_version,
-                    plan.instrument_id,
-                    plan.data_type,
-                    plan.bar_type,
-                )
-            )
-            self._recovery_stage = OnlyStreamingRecoveryStage.LOADING_HISTORY
-            batch = self._recovery_loader.load(plan, accepted_sequence)
-            if self._semantic_lane.revoked or self.streaming_phase is OnlyStreamingPhase.STOPPING:
-                return
-            self._recovery_stage = OnlyStreamingRecoveryStage.REPLAYING_HISTORY
-            for update in batch.updates:
-                outcome = self._semantic_lane.process(update, self._record_processing_result)
-                if not outcome.started:
+            for plan in plans:
+                if not self._replay_recovery_plan(plan):
                     return
-                if outcome.result is None:
-                    raise AssertionError("started processing must return a result")
-                result = outcome.result
-                if result.status is not OnlyMarketDataProcessingStatus.APPLIED:
-                    raise OnlyRuntimeError(f"recovery provider fact was not applied: {result.status.value}")
             if not self._transition_streaming_phase(OnlyStreamingPhase.CATCH_UP):
                 return
             self._recovery_stage = OnlyStreamingRecoveryStage.RECONCILING_SUFFIX
-            buffered = (() if plan.trigger_update is None else (plan.trigger_update,)) + self._drain_buffered_updates()
+            buffered = (
+                tuple(plan.trigger_update for plan in plans if plan.trigger_update is not None)
+                + self._drain_buffered_updates()
+            )
             self._process_buffered_updates(buffered)
             while True:
                 if self._semantic_lane.revoked:
@@ -1321,7 +1307,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             if self._semantic_lane.revoked:
                 return
             self._recovery_stage = OnlyStreamingRecoveryStage.VERIFYING_CONTINUITY
-            self._verify_recovery_complete(plan)
+            self._verify_recovery_complete(plans)
             if self._persistence_config.checkpoint.enabled:
                 checkpoint = self._semantic_lane.execute(self._create_verified_streaming_checkpoint)
                 if not checkpoint.started:
@@ -1331,6 +1317,32 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             self._transition_streaming_phase(OnlyStreamingPhase.LIVE)
         except Exception as exc:
             self._fail_streaming_recovery(str(exc))
+
+    def _replay_recovery_plan(self, plan: OnlyStreamingRecoveryPlan) -> bool:
+        self._recovery_plan = plan
+        accepted_sequence = self._continuity.accepted_sequence(
+            OnlyStreamingStreamKey(
+                self._driver.source.source_id,  # type: ignore[union-attr]
+                self._streaming_data_version,
+                plan.instrument_id,
+                plan.data_type,
+                plan.bar_type,
+            )
+        )
+        self._recovery_stage = OnlyStreamingRecoveryStage.LOADING_HISTORY
+        batch = self._recovery_loader.load(plan, accepted_sequence)
+        if self._semantic_lane.revoked or self.streaming_phase is OnlyStreamingPhase.STOPPING:
+            return False
+        self._recovery_stage = OnlyStreamingRecoveryStage.REPLAYING_HISTORY
+        for update in batch.updates:
+            outcome = self._semantic_lane.process(update, self._record_processing_result)
+            if not outcome.started:
+                return False
+            if outcome.result is None:
+                raise AssertionError("started processing must return a result")
+            if outcome.result.status is not OnlyMarketDataProcessingStatus.APPLIED:
+                raise OnlyRuntimeError(f"recovery provider fact was not applied: {outcome.result.status.value}")
+        return True
 
     def _drain_buffered_updates(self) -> tuple[OnlyMarketDataInboundUpdate, ...]:
         updates: list[OnlyMarketDataInboundUpdate] = []
@@ -1391,14 +1403,28 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 }:
                     raise OnlyRuntimeError(f"buffered realtime update was not applied: {result.status.value}")
 
-    def _verify_recovery_complete(self, plan: OnlyStreamingRecoveryPlan) -> None:
+    def _verify_recovery_complete(self, plans: tuple[OnlyStreamingRecoveryPlan, ...]) -> None:
         if self._semantic_lane.revoked or self.streaming_phase in {
             OnlyStreamingPhase.STOPPING,
             OnlyStreamingPhase.FAILED,
         }:
             raise OnlyRuntimeError("streaming recovery lost processing permission")
-        if self._recovery_plan != plan or len(self._services.market_data_inbound) != 0:
+        if self._recovery_plan not in plans or len(self._services.market_data_inbound) != 0:
             raise OnlyRuntimeError("streaming recovery did not reconcile its buffered suffix")
+        if any(
+            self._continuity.frontier(
+                OnlyStreamingStreamKey(
+                    self._driver.source.source_id,  # type: ignore[union-attr]
+                    self._streaming_data_version,
+                    plan.instrument_id,
+                    plan.data_type,
+                    plan.bar_type,
+                )
+            )
+            is None
+            for plan in plans
+        ):
+            raise OnlyRuntimeError("streaming recovery has an unresolved provider-input frontier")
         if not self._source_connected() or self._driver.subscription_id is None or not self.worker_alive:
             raise OnlyRuntimeError("streaming transport is not healthy after recovery")
         observed = OnlyTimestamp.from_datetime(self._services.clock.now_utc())
@@ -1453,6 +1479,9 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             self._fail_streaming_recovery("streaming DataSource reconnect failed")
             return
         observed = OnlyTimestamp.from_datetime(self._services.clock.now_utc())
+        self._recovery_generation += 1
+        generation = self._recovery_generation
+        plans: list[OnlyStreamingRecoveryPlan] = []
         for provider_input in self._construction_recovery_inputs:
             data_type = (
                 OnlyMarketDataType.TRADE if isinstance(provider_input, OnlyTradeInputType) else OnlyMarketDataType.BAR
@@ -1471,21 +1500,20 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                     observed_at=observed,
                 )
             )
-            self._recovery_generation += 1
-            plan = OnlyStreamingRecoveryPlan(
-                self._recovery_generation,
-                OnlyStreamingRecoveryReason.DISCONNECTED
-                if state is OnlyStreamingDataState.DISCONNECTED
-                else OnlyStreamingRecoveryReason.STALE,
-                provider_input.instrument_id,
-                bar_type,
-                frontier.last_closed_bar_end,
-                target,
-                data_type=data_type,
+            plans.append(
+                OnlyStreamingRecoveryPlan(
+                    generation,
+                    OnlyStreamingRecoveryReason.DISCONNECTED
+                    if state is OnlyStreamingDataState.DISCONNECTED
+                    else OnlyStreamingRecoveryReason.STALE,
+                    provider_input.instrument_id,
+                    bar_type,
+                    frontier.last_closed_bar_end,
+                    target,
+                    data_type=data_type,
+                )
             )
-            self._recover_market_continuity(plan)
-            if self.streaming_phase is OnlyStreamingPhase.FAILED:
-                return
+        self._recover_market_continuity(tuple(plans))
 
     def _stream_key(self, provider_input: OnlyBarType | OnlyTradeInputType) -> OnlyStreamingStreamKey:
         return OnlyStreamingStreamKey(
