@@ -569,6 +569,11 @@ class OnlyMarketDataProductService:
                 verified.gaps,
                 window.target_intervals,
                 maximum_duration_ns=MAX_ACQUISITION_SECONDS * 1_000_000_000,
+                provider_grid_step_ns=(
+                    acquisition_plan.provider_semantic.stride_minutes * MINUTE_NS
+                    if plan.mode is OnlyBarResolutionMode.DERIVED and acquisition_plan.provider_semantic is not None
+                    else None
+                ),
             )
             coverage = OnlyMarketDataCoverageProjectionV1(
                 verified.coverage_status.value,
@@ -664,12 +669,18 @@ class OnlyMarketDataProductService:
         resolved = self.resolve_runtime(reference)
         semantic = only_product_bar_semantic(bar_semantic)
         plan = self._plan(resolved, instrument_id, semantic)
-        self._assert_target_grid(plan, start_ns, end_ns)
         acquisition_plan = (
             plan
             if plan.mode is OnlyBarResolutionMode.PROVIDER_NATIVE
             else self._plan(resolved, instrument_id, BASE_BAR_SEMANTIC)
         )
+        if plan.mode is OnlyBarResolutionMode.DERIVED:
+            provider_semantic = acquisition_plan.provider_semantic
+            if provider_semantic is None:
+                raise OnlyMarketDataProductError("MARKET_DATA_DERIVED_RANGE_UNALIGNED")
+            step_ns = provider_semantic.stride_minutes * MINUTE_NS
+            if start_ns % step_ns or end_ns % step_ns:
+                raise OnlyMarketDataProductError("MARKET_DATA_DERIVED_RANGE_UNALIGNED")
         scope = self._scope(
             resolved,
             instrument_id,
@@ -929,18 +940,6 @@ class OnlyMarketDataProductService:
         except (ValueError, TypeError) as exc:
             raise OnlyMarketDataProductError("MARKET_DATA_BAR_RESOLUTION_UNAVAILABLE", str(exc)) from exc
 
-    @staticmethod
-    def _assert_target_grid(plan: OnlyBarResolutionPlan, start_ns: int, end_ns: int) -> None:
-        if plan.mode is OnlyBarResolutionMode.DERIVED:
-            step_ns = plan.target_semantic.stride_minutes * MINUTE_NS
-            day_ns = 86_400 * 1_000_000_000
-            if (
-                (start_ns % day_ns) % step_ns
-                or (end_ns % day_ns) % step_ns
-                or (day_ns % step_ns and start_ns // day_ns != end_ns // day_ns)
-            ):
-                raise OnlyMarketDataProductError("MARKET_DATA_DERIVED_RANGE_UNALIGNED")
-
     def _assert_acquisition_window(self, start_ns: int, end_ns: int) -> None:
         if (end_ns - start_ns) // 1_000_000_000 > MAX_ACQUISITION_SECONDS:
             raise OnlyMarketDataProductError(
@@ -1011,12 +1010,11 @@ class OnlyMarketDataProductService:
             OnlyRevisionCommitService(self._facts, self._catalog, now=self._now),
         )
         recovery.recover_all()
-        # One provider response is one durable segment, drained synchronously: the
-        # acquisition must observe canonical Coverage before it can report COMPLETE.
+        # One provider response remains one durable segment. The bounded backfill
+        # drains all sealed pages together after provider loading completes.
         recorder = OnlyDurableMarketDataRecorder(
             ingress,
             max_records_per_segment=1,
-            on_sealed=lambda _segment: _drain(recovery),
         )
         instrument_id = OnlyInstrumentId.parse(scope.instrument_id)
         instruments = resolved.catalog.list_instruments(
@@ -1308,12 +1306,6 @@ def _scope_bar_semantic(scope: OnlyMarketDataScope) -> OnlyBarSemantic:
     if scope.bar_construction is None:
         raise OnlyMarketDataProductError("MARKET_DATA_BAR_CONSTRUCTION_UNPROVABLE")
     return scope.bar_construction.plan.target_semantic
-
-
-def _drain(recovery: OnlyMarketDataRecoveryCoordinator) -> None:
-    """Sealed WAL segments become canonical evidence before the acquisition proceeds."""
-
-    recovery.recover_all()
 
 
 def _bar_request(

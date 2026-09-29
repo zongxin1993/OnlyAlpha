@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, time, timedelta
@@ -25,6 +25,7 @@ from onlyalpha.application.integration_configuration import (
 from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeResolver
 from onlyalpha.application.market_data_product import (
     BASE_BAR_SEMANTIC,
+    MAX_ACQUISITION_SECONDS,
     OnlyMarketDataProductError,
     OnlyMarketDataProductService,
     OnlyMarketDataSourceReferenceV1,
@@ -81,7 +82,11 @@ from onlyalpha.market_data.durable import (
     OnlyMarketDataSealError,
     only_deduplicate_facts,
 )
-from onlyalpha.market_data.durable.range_query import OnlyBarWindowAnchorKind, only_plan_acquisition_ranges
+from onlyalpha.market_data.durable.range_query import (
+    OnlyBarWindowAnchorKind,
+    only_plan_acquisition_ranges,
+    only_plan_utc_24x7_bar_window,
+)
 from onlyalpha.market_data.resolution import OnlyBarCapability
 from onlyalpha.plugin.capabilities import OnlyDataSourceCapabilities
 from onlyalpha.plugin.data_source import (
@@ -157,6 +162,7 @@ class _Faults:
     sealed_lookup: Exception | None = None
     corrupt_seal: bool = False
     fact_read: Exception | None = None
+    crash_after_pages: int | None = None
 
 
 class _FaultyCatalog(OnlyInMemoryMarketDataCatalog):
@@ -223,6 +229,11 @@ class _FaultyFactStore(OnlyInMemoryMarketFactStore):
     def __init__(self, faults: _Faults) -> None:
         super().__init__()
         self._faults = faults
+        self.writes = 0
+
+    def write_segment(self, segment, records):  # type: ignore[no-untyped-def]
+        self.writes += 1
+        return super().write_segment(segment, records)
 
     def read_segment_facts(
         self, segments: tuple[OnlyIngestSegment, ...], scope: OnlyMarketDataScope
@@ -289,7 +300,19 @@ class _FakeSource:
         end_ns = OnlyTimestamp.from_datetime(request.data_range.end_time).unix_nanos  # type: ignore[attr-defined]
         duration_ns = bar_type.semantic.stride_minutes * MINUTE_NS
         updates = tuple(self._update(item, bar_type) for item in range(start_ns, end_ns, duration_ns))
-        self._record(start_ns, end_ns, updates)
+        page_size = len(updates) if self._provider.page_minutes is None else self._provider.page_minutes
+        for offset in range(0, len(updates), page_size):
+            page = updates[offset : offset + page_size]
+            self._record(
+                OnlyTimestamp.from_datetime(page[0].payload.bar.bar_start).unix_nanos,
+                OnlyTimestamp.from_datetime(page[-1].payload.bar.bar_end).unix_nanos,
+                page,
+            )
+            self._provider.page_observations += 1
+            if self._provider.canonical_writes is not None:
+                self._provider.writes_seen_after_page.append(self._provider.canonical_writes())
+            if self._provider.page_observations == self._provider._faults.crash_after_pages:
+                raise RuntimeError("provider crashed after durable page")
         return OnlyHistoricalDataStream(updates, 1024)
 
     def load_trades(self, request: object) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:
@@ -359,6 +382,11 @@ class _ProviderCalls:
         self.bar_fetches = 0
         self.bar_steps: list[int] = []
         self.reference_lookups = 0
+        self.sessions = 0
+        self.page_minutes: int | None = None
+        self.page_observations = 0
+        self.canonical_writes: Callable[[], int] | None = None
+        self.writes_seen_after_page: list[int] = []
         self._faults = faults or _Faults()
         self.entered: Event | None = None
         self.release: Event | None = None
@@ -411,6 +439,7 @@ class _FakeFactory:
     def create(self, request: object) -> _FakeSource:
         if self._faults.provider_open is not None:
             raise self._faults.provider_open
+        self._provider.sessions += 1
         return _FakeSource(request, provider=self._provider)
 
     def market_identity(self, plugin_config: object) -> OnlyDataSourceMarketIdentityV1:
@@ -546,6 +575,7 @@ def _service(
     configurations: tuple[Mapping[str, object], ...] = ({},),
     faults: _Faults | None = None,
     native_minutes: tuple[int, ...] = (1,),
+    page_minutes: int | None = None,
 ) -> _Harness:
     descriptor = _descriptor()
     faults = faults or _Faults()
@@ -566,19 +596,22 @@ def _service(
         _Catalog(descriptor),
     )
     provider = _ProviderCalls(faults)
+    provider.page_minutes = page_minutes
     factory = _FakeFactory(descriptor, provider, faults)
     factory.native_minutes = native_minutes
     registry = OnlyDataSourceFactoryRegistry()
     registry.register(factory)
     catalog = _FaultyCatalog(faults)
     wal_root = tmp_path / "market-data"
+    fact_store = _FaultyFactStore(faults)
+    provider.canonical_writes = lambda: fact_store.writes
     return _Harness(
         OnlyMarketDataProductService(
             resolver=resolver,
             integrations=state,
             data_sources=registry,
             catalog=catalog,
-            fact_store=_FaultyFactStore(faults),
+            fact_store=fact_store,
             wal_root=wal_root,
             clock=OnlyBacktestClock(BASE + timedelta(hours=1)),
             logger=__import__("logging").getLogger(__name__),
@@ -1195,9 +1228,9 @@ def test_derived_window_plans_across_utc_sessions_without_incomplete_tails(
         target_bar_count=2,
         bar_semantic=target,
     )
+    assert len(projected.coverage.gaps) == 2 * step
     assert tuple((item.start_ns, item.end_ns) for item in projected.coverage.planned_acquisition_ranges) == (
-        (midnight_ns - (tail + step) * MINUTE_NS, midnight_ns - tail * MINUTE_NS),
-        (midnight_ns, midnight_ns + step * MINUTE_NS),
+        (midnight_ns - (tail + step) * MINUTE_NS, midnight_ns + step * MINUTE_NS),
     )
     assert harness.catalog.mutations == 0
 
@@ -1536,6 +1569,141 @@ def test_acquisition_plan_merges_adjacent_gaps_and_splits_at_exact_bound() -> No
         OnlyBarCoverageGap(MINUTE_NS, 4 * MINUTE_NS),
         OnlyBarCoverageGap(4 * MINUTE_NS, 6 * MINUTE_NS),
     )
+
+
+def test_derived_window_plans_one_base_grid_envelope_without_hiding_exact_gaps(tmp_path: Path) -> None:
+    harness = _service(tmp_path)
+    reference = _reference(harness.revision_fingerprint)
+    semantic = OnlyBarSemantic.fixed_duration(7)
+    window = only_plan_utc_24x7_bar_window(
+        semantic,
+        anchor_kind=OnlyBarWindowAnchorKind.LATEST_CLOSED,
+        before_ns=None,
+        target_bar_count=1440,
+        latest_closed_ns=harness.service._closed_minute_ns(),
+    )
+    assert (
+        harness.service.acquire_bars(
+            reference,
+            instrument_id=str(INSTRUMENT),
+            start_ns=window.resolved_end_ns - 1439 * MINUTE_NS,
+            end_ns=window.resolved_end_ns,
+        ).status
+        == "COMPLETE"
+    )
+
+    projection = harness.service.query_bars(
+        reference,
+        instrument_id=str(INSTRUMENT),
+        anchor_kind=OnlyBarWindowAnchorKind.LATEST_CLOSED,
+        target_bar_count=1440,
+        bar_semantic=semantic,
+    )
+    assert projection.coverage.status == "INCOMPLETE"
+    assert projection.coverage.actual_bar_count == 204
+    assert len(projection.coverage.gaps) == 8646
+    assert len(projection.coverage.planned_acquisition_ranges) == 1
+    [planned] = projection.coverage.planned_acquisition_ranges
+    assert planned.start_ns % MINUTE_NS == planned.end_ns % MINUTE_NS == 0
+    assert planned.end_ns - planned.start_ns <= MAX_ACQUISITION_SECONDS * 1_000_000_000
+    assert all(planned.start_ns <= gap.start_ns and gap.end_ns <= planned.end_ns for gap in projection.coverage.gaps)
+
+    acquired = harness.service.acquire_bars(
+        reference,
+        instrument_id=str(INSTRUMENT),
+        start_ns=planned.start_ns,
+        end_ns=planned.end_ns,
+        bar_semantic=semantic,
+    )
+    assert acquired.status == "COMPLETE"
+    complete = harness.service.query_bars(
+        reference,
+        instrument_id=str(INSTRUMENT),
+        anchor_kind=OnlyBarWindowAnchorKind.LATEST_CLOSED,
+        target_bar_count=1440,
+        bar_semantic=semantic,
+    )
+    assert complete.coverage.status == "COMPLETE"
+    assert complete.coverage.expected_bar_count == complete.coverage.actual_bar_count == 1440
+    assert len(complete.bars) == 1440
+    assert complete.revision_evidence
+    assert complete.history_projection_fingerprint is not None
+    assert complete.derived_projection_fingerprint is not None
+    assert complete.resume_after_sequence == str(complete.resolved_end_ns // MINUTE_NS - 1)
+    assert complete.resume_plan_fingerprint == complete.resolution_plan_fingerprint
+
+
+def test_base_grid_envelope_splits_at_the_minimum_bounded_count() -> None:
+    maximum = MAX_ACQUISITION_SECONDS * 1_000_000_000
+    gaps = (
+        OnlyBarCoverageGap(MINUTE_NS, 2 * MINUTE_NS),
+        OnlyBarCoverageGap(maximum + 2 * MINUTE_NS, maximum + 3 * MINUTE_NS),
+    )
+    planned = only_plan_acquisition_ranges(
+        gaps,
+        gaps,
+        maximum_duration_ns=maximum,
+        provider_grid_step_ns=MINUTE_NS,
+    )
+    assert planned == (
+        OnlyBarCoverageGap(MINUTE_NS, maximum + MINUTE_NS),
+        OnlyBarCoverageGap(maximum + MINUTE_NS, maximum + 3 * MINUTE_NS),
+    )
+
+
+def test_historical_acquisition_defers_canonical_recovery_until_all_pages_are_wal_durable(
+    tmp_path: Path,
+) -> None:
+    harness = _service(tmp_path, page_minutes=2)
+    start_ns, end_ns = _range(minutes=6)
+    result = harness.service.acquire_bars(
+        _reference(harness.revision_fingerprint),
+        instrument_id=str(INSTRUMENT),
+        start_ns=start_ns,
+        end_ns=end_ns,
+    )
+    assert result.status == "COMPLETE"
+    assert harness.provider.sessions == 1
+    assert harness.provider.page_observations == 3
+    assert harness.provider.writes_seen_after_page == [0, 0, 0]
+    revision, seal = harness.catalog.load_sealed_revision(result.revision_id or "")
+    assert seal.revision_id == revision.revision_id
+    assert len(revision.segment_refs) == 3
+
+
+def test_retry_recovers_wal_pages_and_fetches_only_the_remaining_gap(tmp_path: Path) -> None:
+    faults = _Faults(crash_after_pages=1)
+    harness = _service(tmp_path, faults=faults, page_minutes=2)
+    reference = _reference(harness.revision_fingerprint)
+    start_ns, end_ns = _range(minutes=6)
+
+    failed = harness.service.acquire_bars(
+        reference,
+        instrument_id=str(INSTRUMENT),
+        start_ns=start_ns,
+        end_ns=end_ns,
+    )
+    completed = harness.service.acquire_bars(
+        reference,
+        instrument_id=str(INSTRUMENT),
+        start_ns=start_ns,
+        end_ns=end_ns,
+    )
+    assert failed.status == "FAILED"
+    assert completed.status == "COMPLETE"
+    assert failed.acquisition_id == completed.acquisition_id
+    assert harness.provider.sessions == harness.provider.bar_fetches == 2
+    assert harness.provider.page_observations == 3
+    projected = _query_bars(
+        harness.service,
+        reference,
+        instrument_id=str(INSTRUMENT),
+        start_ns=start_ns,
+        end_ns=end_ns,
+    )
+    assert projected.coverage.status == "COMPLETE"
+    assert len(projected.bars) == 6
+    assert len({bar.bar_end_ns for bar in projected.bars}) == 6
 
 
 def test_unsupported_resolution_and_unbounded_acquisition_are_rejected(tmp_path: Path) -> None:

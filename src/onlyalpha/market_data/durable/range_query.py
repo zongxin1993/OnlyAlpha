@@ -126,7 +126,23 @@ def only_plan_acquisition_ranges(
     target_intervals: tuple[OnlyBarCoverageGap, ...],
     *,
     maximum_duration_ns: int,
+    provider_grid_step_ns: int | None = None,
 ) -> tuple[OnlyBarCoverageGap, ...]:
+    if provider_grid_step_ns is not None:
+        if provider_grid_step_ns <= 0:
+            raise ValueError("MARKET_DATA_ACQUISITION_PLAN_UNAVAILABLE")
+        if not gaps:
+            return ()
+        start_ns = min(item.start_ns for item in gaps)
+        end_ns = max(item.end_ns for item in gaps)
+        if start_ns % provider_grid_step_ns or end_ns % provider_grid_step_ns:
+            raise ValueError("MARKET_DATA_ACQUISITION_PLAN_UNAVAILABLE")
+        chunk_ns = maximum_duration_ns - maximum_duration_ns % provider_grid_step_ns
+        if chunk_ns <= 0:
+            raise ValueError("MARKET_DATA_ACQUISITION_PLAN_UNAVAILABLE")
+        return tuple(
+            OnlyBarCoverageGap(cursor, min(end_ns, cursor + chunk_ns)) for cursor in range(start_ns, end_ns, chunk_ns)
+        )
     affected = _merge_ranges(
         tuple(
             target
