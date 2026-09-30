@@ -134,7 +134,9 @@ export class OnlyMarketDataBarLedger {
         const latestClosed = this.latestClosedStart();
         if (
             (latestClosed !== null && BigInt(bar.bar_start_ns) <= BigInt(latestClosed)) ||
-            (this.preview !== null && BigInt(bar.bar_start_ns) < BigInt(this.preview.bar_start_ns))
+            (this.preview !== null &&
+                (BigInt(bar.bar_start_ns) < BigInt(this.preview.bar_start_ns) ||
+                    sameBar(this.preview, bar)))
         ) {
             return {
                 changed: false,

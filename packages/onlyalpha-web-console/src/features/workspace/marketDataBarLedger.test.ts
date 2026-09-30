@@ -16,6 +16,14 @@ function bar(start: string, overrides: Partial<MarketDataBar> = {}): MarketDataB
 }
 
 describe("MarketDataBarLedger", () => {
+    it("replays an identical preview without changing its version or value", () => {
+        const ledger = new OnlyMarketDataBarLedger("context");
+        const preview = bar("100", { closed: false });
+        ledger.applyPreview(preview);
+        const before = ledger.snapshot();
+        expect(ledger.applyPreview({ ...preview }).changed).toBe(false);
+        expect(ledger.snapshot()).toEqual(before);
+    });
     it("orders unsorted closed history by exact nanoseconds", () => {
         const ledger = new OnlyMarketDataBarLedger("context");
 
