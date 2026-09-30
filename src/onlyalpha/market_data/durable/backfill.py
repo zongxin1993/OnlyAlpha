@@ -21,7 +21,7 @@ from .models import (
 )
 from .ports import OnlyMarketDataCatalog, OnlyMarketFactStore
 from .recovery import OnlyMarketDataRecoveryCoordinator
-from .revision import OnlyRevisionCommitService, only_build_coverage
+from .revision import OnlyRevisionCommitService, only_build_coverage, only_verify_revision_authority
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -148,8 +148,10 @@ class OnlyMarketDataBackfillCoordinator:
         recovery_results: tuple[str, ...],
     ) -> OnlyMarketDataBackfillResult:
         available = self._catalog.list_durable_segments(acquisition.requested_scope)
-        new_segment_ids = {item.segment_id for item in available if item.segment_id not in prior_segment_ids}
-        if not new_segment_ids:
+        new_segment_refs = {
+            (item.segment_id, item.content_hash) for item in available if item.segment_id not in prior_segment_ids
+        }
+        if not new_segment_refs:
             raise RuntimeError("BACKFILL_DURABLE_SEGMENT_NOT_CREATED")
         if parent_revision_id is None:
             try:
@@ -160,16 +162,12 @@ class OnlyMarketDataBackfillCoordinator:
             else:
                 stored, latest_seal = self._catalog.load_sealed_revision(latest_revision.revision_id)
                 manifest = self._catalog.load_coverage_manifest(stored.manifest_id)
-                if (
-                    stored == latest_revision
-                    and stored.scope == acquisition.requested_scope
-                    and manifest.scope == acquisition.requested_scope
-                    and manifest.coverage_status is OnlyCoverageStatus.COMPLETE
-                    and not manifest.issues
-                    and manifest.segment_refs == stored.segment_refs
-                    and latest_seal.revision_fingerprint == stored.fingerprint
-                    and new_segment_ids.issubset({item[0] for item in stored.segment_refs})
-                ):
+                only_verify_revision_authority(stored, manifest, latest_seal)
+                if stored != latest_revision or stored.scope != acquisition.requested_scope:
+                    raise RuntimeError("MARKET_DATA_REVISION_EVIDENCE_INVALID")
+                if {item[0] for item in new_segment_refs}.issubset({item[0] for item in stored.segment_refs}):
+                    if not new_segment_refs.issubset(set(stored.segment_refs)):
+                        raise RuntimeError("MARKET_DATA_REVISION_EVIDENCE_INVALID")
                     return OnlyMarketDataBackfillResult(acquisition, manifest, stored, latest_seal, recovery_results)
             selected = available
         else:

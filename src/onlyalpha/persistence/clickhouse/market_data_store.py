@@ -146,7 +146,9 @@ class OnlyClickHouseMarketFactStore:
             for table in _SEGMENT_TABLES:
                 wanted = expected[table][segment.segment_id]
                 actual = stored[table][segment.segment_id]
-                expected_hash = _record_set_hash(item[0] for item in wanted.values())
+                expected_hash = _record_set_hash(
+                    _row_proof((*identity, *values)) for identity, values in wanted.items()
+                )
                 expected_count = len(wanted)
                 if actual is None:
                     partial = partial or bool(wanted)
@@ -201,9 +203,19 @@ class OnlyClickHouseMarketFactStore:
             chunk = segment_ids[offset : offset + _SEGMENT_VERIFY_CHUNK_SIZE]
             quoted = ",".join(_quote(item) for item in chunk)
             for table in _SEGMENT_TABLES:
+                proof_columns = (*_TABLE_IDENTITIES[table], "record_hash", "segment_content_hash")
+                row_proof = (
+                    "concat("
+                    + ", ".join(
+                        part
+                        for column in proof_columns
+                        for part in (f"toString(length(toString({column})))", "':'", f"toString({column})")
+                    )
+                    + ")"
+                )
                 rows = self._client.query_json(
                     "SELECT segment_id, count() AS physical_count, "
-                    "lower(hex(SHA256(arrayStringConcat(arraySort(groupArray(record_hash)), '')))) "
+                    f"lower(hex(SHA256(arrayStringConcat(arraySort(groupArray({row_proof})), '')))) "
                     "AS record_set_hash, groupUniqArray(segment_content_hash) AS segment_content_hashes "
                     f"FROM {table} WHERE segment_id IN ({quoted}) GROUP BY segment_id"
                 )
@@ -488,8 +500,12 @@ def _quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
-def _record_set_hash(record_hashes: Iterable[str]) -> str:
-    return sha256("".join(sorted(record_hashes)).encode()).hexdigest()
+def _row_proof(parts: tuple[str, ...]) -> str:
+    return "".join(f"{len(part.encode('utf-8'))}:{part}" for part in parts)
+
+
+def _record_set_hash(row_proofs: Iterable[str]) -> str:
+    return sha256("".join(sorted(row_proofs)).encode()).hexdigest()
 
 
 __all__ = [name for name in globals() if name.startswith("Only")]

@@ -115,12 +115,9 @@ class OnlyMarketDataRecoveryCoordinator:
             return None
         self._barrier(OnlyMarketDataCrashBoundary.C6_VERIFIED_BEFORE_CATALOG)
         catalog_started = perf_counter_ns()
-        if all(committed):
-            manifest = revision = None
-        else:
-            manifest, revision, _ = self._committer.commit_if_complete(
-                tuple(segments), scope, records_by_segment, verified_batch=verified
-            )
+        manifest, revision, _ = self._committer.commit_if_complete(
+            tuple(segments), scope, records_by_segment, verified_batch=verified
+        )
         catalog_commit_ms = (perf_counter_ns() - catalog_started) // 1_000_000
         _LOGGER.info(
             "market_data_recovery_batch wal_segment_count=%d canonical_fact_count=%d "
@@ -140,12 +137,9 @@ class OnlyMarketDataRecoveryCoordinator:
                 return None
             self._wal.mark_gc_eligible(segment.segment_id)
             self._wal.collect_garbage(segment.segment_id)
-        if all(committed):
-            return "ALREADY_COMMITTED"
         if revision is None:
-            assert manifest is not None
             return f"DURABLE_ONLY:{manifest.coverage_status.value}"
-        return "COMMITTED"
+        return "ALREADY_COMMITTED" if all(committed) else "COMMITTED"
 
     def recover_all(self, *, should_continue: Callable[[], bool] | None = None) -> tuple[str, ...]:
         continue_recovery = should_continue or (lambda: True)

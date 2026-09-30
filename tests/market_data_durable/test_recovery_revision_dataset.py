@@ -559,6 +559,59 @@ def test_grouped_recovery_uses_one_batch_store_verify_and_catalog_observation(tm
     assert len(catalog.latest_sealed_revision(scope).segment_refs) == 9
 
 
+@pytest.mark.parametrize("failed_commit", ["segments", "manifest"])
+def test_recovery_finishes_catalog_after_partial_commit(tmp_path: Path, fixed_now, failed_commit: str) -> None:
+    wal = OnlyMarketDataWal(tmp_path, capacity_bytes=2_000_000, now=fixed_now)
+    ingress = OnlyMarketDataIngress(
+        wal,
+        normalizer_id="binance-spot",
+        normalizer_version="1",
+        ingest_clock_ns=lambda: 5,
+        bar_construction=BAR_CONSTRUCTION,
+    )
+    for index in range(2):
+        ingress.begin_segment(f"partial-catalog-{index}")
+        ingress.record(_observation(index), bar_update(index))
+        ingress.seal()
+
+    class FaultCatalog(OnlyInMemoryMarketDataCatalog):
+        failed = False
+
+        def commit_durable_segments(self, segments):  # type: ignore[no-untyped-def]
+            super().commit_durable_segments(segments)
+            if failed_commit == "segments" and not self.failed:
+                self.failed = True
+                raise RuntimeError("injected catalog crash")
+
+        def commit_coverage_manifest(self, manifest):  # type: ignore[no-untyped-def]
+            super().commit_coverage_manifest(manifest)
+            if failed_commit == "manifest" and not self.failed:
+                self.failed = True
+                raise RuntimeError("injected catalog crash")
+
+    class CountingStore(OnlyInMemoryMarketFactStore):
+        writes = 0
+
+        def write_segments(self, segments, records_by_segment):  # type: ignore[no-untyped-def]
+            self.writes += 1
+            return super().write_segments(segments, records_by_segment)
+
+    store = CountingStore()
+    catalog = FaultCatalog()
+    recovery = OnlyMarketDataRecoveryCoordinator(
+        wal, store, catalog, OnlyRevisionCommitService(store, catalog, now=fixed_now)
+    )
+    with pytest.raises(RuntimeError, match="injected catalog crash"):
+        recovery.recover_all()
+    assert len(wal.scan_uncommitted()) == 2
+    assert recovery.recover_all() in {("COMMITTED",), ("ALREADY_COMMITTED",)}
+    assert store.writes == 1
+    scope = replace(_scope("BAR"), end_ns=_scope("BAR").start_ns + 2 * 60_000_000_000)
+    revision = catalog.latest_sealed_revision(scope)
+    assert len(revision.segment_refs) == 2
+    assert wal.scan_uncommitted() == ()
+
+
 @pytest.mark.parametrize("crash_stage", ["C3", "C5", "C6", "C7"])
 def test_multi_segment_crash_boundaries_retry_deterministically(tmp_path: Path, fixed_now, crash_stage: str) -> None:
     wal = OnlyMarketDataWal(tmp_path, capacity_bytes=2_000_000, now=fixed_now)

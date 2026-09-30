@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import datetime, timedelta
 from enum import StrEnum
 
@@ -455,6 +456,40 @@ class OnlyVerifiedSegmentBatch:
             raise ValueError("MARKET_DATA_VERIFIED_SEGMENT_SET_INVALID")
         if set(records_by_segment) != {item.segment_id for item in ordered}:
             raise ValueError("MARKET_DATA_VERIFIED_RECORD_SET_MISMATCH")
+        for segment in ordered:
+            records = records_by_segment[segment.segment_id]
+            if (
+                len(records) != segment.record_count
+                or len(records) != segment.raw_count
+                or sum(len(bundle.canonical_facts) for bundle in records) != segment.canonical_count
+            ):
+                raise ValueError("MARKET_DATA_VERIFIED_SEGMENT_COUNT_MISMATCH")
+            for bundle in records:
+                evidence = bundle.evidence
+                if (
+                    evidence.source_id != segment.source_id
+                    or evidence.capture_session_id != segment.capture_session_id
+                    or evidence.provider != segment.provider
+                    or evidence.venue != segment.venue
+                    or evidence.market != segment.market
+                    or evidence.stream != segment.stream
+                    or evidence.provenance != segment.capture_mode
+                    or evidence.provider_schema != segment.provider_schema
+                    or evidence.payload_codec != segment.codec
+                    or evidence.integration_binding_fingerprint != segment.integration_binding_fingerprint
+                    or evidence.bar_construction != segment.bar_construction
+                ):
+                    raise ValueError("MARKET_DATA_VERIFIED_EVIDENCE_MISMATCH")
+                if any(
+                    fact.segment_id != segment.segment_id
+                    or fact.source_id != segment.source_id
+                    or fact.capture_session_id != segment.capture_session_id
+                    or fact.provenance != segment.capture_mode
+                    or fact.instrument_id != segment.instrument_id
+                    or fact.data_kind != segment.data_kind
+                    for fact in bundle.canonical_facts
+                ):
+                    raise ValueError("MARKET_DATA_VERIFIED_FACT_MISMATCH")
         if scope is not None:
             family = OnlyMarketDataRangeFamily.from_scope(scope)
             if any(
@@ -468,16 +503,16 @@ class OnlyVerifiedSegmentBatch:
                 raise ValueError("MARKET_DATA_VERIFIED_SCOPE_MISMATCH")
         record_set = tuple(
             (
-                segment.segment_id,
-                segment.content_hash,
+                only_canonical_fingerprint(segment),
                 tuple(
                     (
-                        bundle.evidence.raw_event_id,
-                        bundle.evidence.raw_sha256,
-                        tuple(
-                            (fact.canonical_fact_id, fact.raw_event_id, fact.canonical_payload_hash)
-                            for fact in bundle.canonical_facts
-                        ),
+                        {
+                            item.name: getattr(bundle.evidence, item.name)
+                            for item in fields(bundle.evidence)
+                            if item.name != "payload"
+                        },
+                        base64.b64encode(bundle.evidence.payload).decode("ascii"),
+                        bundle.canonical_facts,
                     )
                     for bundle in records_by_segment[segment.segment_id]
                 ),

@@ -236,6 +236,44 @@ def only_build_seal(
     return OnlyMarketDataSeal(f"seal:{fingerprint}", revision.revision_id, revision.fingerprint, checks, sealed_at)
 
 
+def only_verify_revision_authority(
+    revision: OnlyMarketDataRevision,
+    manifest: OnlyCoverageManifest,
+    seal: OnlyMarketDataSeal,
+) -> None:
+    """Verify complete sealed authority using catalog metadata alone."""
+    try:
+        valid = (
+            manifest.manifest_id == revision.manifest_id
+            and manifest.scope == revision.scope
+            and manifest.segment_refs == revision.segment_refs
+            and manifest.coverage_status is OnlyCoverageStatus.COMPLETE
+            and not manifest.issues
+            and not manifest.gaps
+            and OnlyCoverageManifest.build(
+                manifest.scope,
+                manifest.segment_refs,
+                coverage_status=manifest.coverage_status,
+                proof=manifest.proof,
+                issues=manifest.issues,
+                gaps=manifest.gaps,
+            )
+            == manifest
+            and OnlyMarketDataRevision.build(
+                manifest,
+                normalizers=revision.normalizers,
+                creation_reason=revision.creation_reason,
+                parent_revision_id=revision.parent_revision_id,
+            )
+            == revision
+            and only_build_seal(revision, manifest, sealed_at=seal.sealed_at) == seal
+        )
+    except (TypeError, ValueError) as exc:
+        raise OnlyMarketDataSealError("MARKET_DATA_REVISION_EVIDENCE_INVALID") from exc
+    if not valid:
+        raise OnlyMarketDataSealError("MARKET_DATA_REVISION_EVIDENCE_INVALID")
+
+
 class OnlyInMemoryMarketDataCatalog(OnlyMarketDataCatalog):
     """Deterministic test/reference implementation with put-once semantics."""
 
@@ -592,7 +630,8 @@ class OnlyRevisionCommitService:
         def existing() -> tuple[OnlyMarketDataRevision, OnlyMarketDataSeal] | None:
             found = self._catalog.sealed_revision_for_manifest(manifest.manifest_id)
             if found is not None:
-                revision, _ = found
+                revision, existing_seal = found
+                only_verify_revision_authority(revision, manifest, existing_seal)
                 if (
                     revision.scope != manifest.scope
                     or revision.segment_refs != manifest.segment_refs

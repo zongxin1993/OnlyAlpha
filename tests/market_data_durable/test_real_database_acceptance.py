@@ -427,18 +427,36 @@ def test_real_databases_batch_nine_page_segments_and_idempotent_retry(tmp_path: 
         )
         segment_batch = tuple(segments)
         store = OnlyClickHouseMarketFactStore(client)
+
+        class CrashAfterSegments(OnlyPostgresMarketDataCatalog):
+            def commit_durable_segments(self, segments):  # type: ignore[no-untyped-def]
+                super().commit_durable_segments(segments)
+                raise RuntimeError("injected durable segment commit crash")
+
+        crashing_catalog = CrashAfterSegments(postgres_dsn, now=now)
+        crashing_recovery = OnlyMarketDataRecoveryCoordinator(
+            wal, store, crashing_catalog, OnlyRevisionCommitService(store, crashing_catalog, now=now)
+        )
+        with pytest.raises(RuntimeError, match="injected durable segment commit crash"):
+            crashing_recovery.recover_all()
+        assert len(wal.scan_uncommitted()) == 9
+
+        def physical_counts() -> tuple[int, int]:
+            quoted = ",".join("'" + item.segment_id + "'" for item in segment_batch)
+            return tuple(
+                int(client.query_json(f"SELECT count() AS n FROM {table} WHERE segment_id IN ({quoted})")[0]["n"])
+                for table in ("market_raw_event", "market_bar")
+            )  # type: ignore[return-value]
+
+        before_recovery = physical_counts()
         catalog = OnlyPostgresMarketDataCatalog(postgres_dsn, now=now)
         committer = OnlyRevisionCommitService(store, catalog, now=now)
-
-        store.write_segments(segment_batch, records_by_segment)
-        verified = store.verify_segments(segment_batch, records_by_segment, scope)
-        manifest, revision, seal = committer.commit_if_complete(
-            segment_batch,
-            scope,
-            records_by_segment,
-            verified_batch=verified,
-            reason="BACKFILL",
-        )
+        assert OnlyMarketDataRecoveryCoordinator(wal, store, catalog, committer).recover_all() == ("ALREADY_COMMITTED",)
+        assert physical_counts() == before_recovery == (9, 18)
+        assert wal.scan_uncommitted() == ()
+        revision = catalog.latest_sealed_revision(scope)
+        manifest = catalog.load_coverage_manifest(revision.manifest_id)
+        _, seal = catalog.load_sealed_revision(revision.revision_id)
         assert manifest.complete and revision is not None and seal is not None
         assert len(revision.segment_refs) == 9
         assert len(OnlyHistoricalMarketDataQueryService(catalog, store).read_exact(revision.revision_id, scope)) == 18
@@ -450,9 +468,14 @@ def test_real_databases_batch_nine_page_segments_and_idempotent_retry(tmp_path: 
             scope,
             records_by_segment,
             verified_batch=replayed,
-            reason="BACKFILL",
+            reason="INGEST",
         )
         assert (replay_manifest, replay_revision, replay_seal) == (manifest, revision, seal)
         assert catalog.segments_committed(segment_batch) == (True,) * 9
+        assert physical_counts() == (9, 18)
+        with psycopg.connect(postgres_dsn) as connection:
+            assert connection.execute(
+                "SELECT count(*) FROM market_data_revision WHERE manifest_id=%s", (manifest.manifest_id,)
+            ).fetchone() == (1,)
     finally:
         client.execute(f"DROP DATABASE IF EXISTS {database} SYNC", database="default")

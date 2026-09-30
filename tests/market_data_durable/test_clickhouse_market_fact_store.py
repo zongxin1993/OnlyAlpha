@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 
@@ -11,12 +11,15 @@ import pytest
 
 from onlyalpha.market_data.durable import (
     OnlyIngestSegment,
+    OnlyInMemoryMarketFactStore,
     OnlyMarketDataIngress,
     OnlyMarketDataProvenance,
     OnlyMarketDataScope,
     OnlyMarketDataWal,
+    OnlyVerifiedSegmentBatch,
 )
 from onlyalpha.persistence.clickhouse import OnlyClickHouseMarketFactStore, OnlyClickHouseSegmentConflictError
+from onlyalpha.persistence.clickhouse.market_data_store import _row_proof
 
 from .conftest import BAR_CONSTRUCTION, BAR_TYPE_ID, BASE, INSTRUMENT, bar_update
 from .test_recovery_revision_dataset import _observation
@@ -90,7 +93,16 @@ class _BatchClient:
                     "segment_id": segment_id,
                     "physical_count": len(rows),
                     "record_set_hash": sha256(
-                        "".join(sorted(str(row["record_hash"]) for row in rows)).encode()
+                        "".join(
+                            sorted(
+                                _row_proof(
+                                    tuple(
+                                        str(row[item]) for item in (*identities, "record_hash", "segment_content_hash")
+                                    )
+                                )
+                                for row in rows
+                            )
+                        ).encode()
                     ).hexdigest(),
                     "segment_content_hashes": sorted({str(row["segment_content_hash"]) for row in rows}),
                 }
@@ -266,6 +278,92 @@ def test_batch_write_and_verify_query_count_is_bounded_by_tables_not_segments(tm
     assert counts[0] == counts[1]
 
 
+@pytest.mark.parametrize("field,value", [("record_count", 2), ("canonical_count", 0), ("canonical_count", 2)])
+@pytest.mark.parametrize("store_kind", ["memory", "clickhouse"])
+def test_verified_batch_rejects_segment_count_mismatch(
+    tmp_path: Path, fixed_now, field: str, value: int, store_kind: str
+) -> None:
+    segments, records, scope = _batch(tmp_path / field / str(value) / store_kind, fixed_now, 1)
+    segment = replace(segments[0], **{field: value, **({"raw_count": value} if field == "record_count" else {})})
+    store = OnlyInMemoryMarketFactStore() if store_kind == "memory" else OnlyClickHouseMarketFactStore(_BatchClient())  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="MARKET_DATA_VERIFIED"):
+        store.write_segments((segment,), records)
+
+
+@pytest.mark.parametrize(
+    "field,value", [("segment_id", "other"), ("source_id", "other"), ("instrument_id", "other"), ("data_kind", "TRADE")]
+)
+@pytest.mark.parametrize("store_kind", ["memory", "clickhouse"])
+def test_verified_batch_rejects_canonical_mismatch(
+    tmp_path: Path, fixed_now, field: str, value: str, store_kind: str
+) -> None:
+    segments, records, scope = _batch(tmp_path / field / store_kind, fixed_now, 1)
+    segment = segments[0]
+    bundle = records[segment.segment_id][0]
+    changed = {
+        segment.segment_id: (replace(bundle, canonical_facts=(replace(bundle.canonical_facts[0], **{field: value}),)),)
+    }
+    store = OnlyInMemoryMarketFactStore() if store_kind == "memory" else OnlyClickHouseMarketFactStore(_BatchClient())  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="MARKET_DATA_VERIFIED"):
+        store.write_segments(segments, changed)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("provider", "other"),
+        ("venue", "other"),
+        ("market", "other"),
+        ("stream", "other"),
+        ("provider_schema", "other"),
+        ("payload_codec", "other"),
+        ("integration_binding_fingerprint", "f" * 64),
+    ],
+)
+def test_verified_batch_rejects_capture_metadata_mismatch(tmp_path: Path, fixed_now, field: str, value: str) -> None:
+    segments, records, scope = _batch(tmp_path / field, fixed_now, 1)
+    segment = segments[0]
+    bundle = records[segment.segment_id][0]
+    changed = {segment.segment_id: (replace(bundle, evidence=replace(bundle.evidence, **{field: value})),)}
+    with pytest.raises(ValueError, match="MARKET_DATA_VERIFIED_EVIDENCE_MISMATCH"):
+        OnlyVerifiedSegmentBatch.build(segments, changed, scope)
+
+
+def test_verified_batch_binds_full_segment_metadata(tmp_path: Path, fixed_now) -> None:
+    segments, records, scope = _batch(tmp_path, fixed_now, 1)
+    verified = OnlyVerifiedSegmentBatch.build(segments, records, scope)
+    changed = replace(segments[0], sealed_at=segments[0].sealed_at + timedelta(seconds=1))
+    with pytest.raises(ValueError, match="MARKET_DATA_VERIFIED_BATCH_MISMATCH"):
+        verified.assert_matches((changed,), records, scope)
+
+
+@pytest.mark.parametrize("table,identity", [("market_raw_event", "raw_event_id"), ("market_bar", "canonical_fact_id")])
+def test_duplicate_identity_replacing_another_row_is_conflict(
+    tmp_path: Path, fixed_now, table: str, identity: str
+) -> None:
+    wal = OnlyMarketDataWal(tmp_path, capacity_bytes=1_000_000, now=fixed_now)
+    ingress = OnlyMarketDataIngress(
+        wal,
+        normalizer_id="test",
+        normalizer_version="1",
+        ingest_clock_ns=lambda: 5,
+        bar_construction=BAR_CONSTRUCTION,
+    )
+    ingress.begin_segment("two-row-segment")
+    for index in range(2):
+        ingress.record(_observation(index), bar_update(index))
+    segment = ingress.seal()
+    records = {segment.segment_id: wal.read_sealed(segment.segment_id)}
+    scope = segment.recovery_scope()
+    client = _BatchClient()
+    store = OnlyClickHouseMarketFactStore(client)  # type: ignore[arg-type]
+    store.write_segments((segment,), records)
+    rows = client.rows[table]
+    rows[1][identity] = rows[0][identity]
+    with pytest.raises(OnlyClickHouseSegmentConflictError, match="CLICKHOUSE_SEGMENT_NOT_EXACT"):
+        store.verify_segments((segment,), records, scope)
+
+
 @pytest.mark.parametrize(
     "case",
     (
@@ -280,6 +378,9 @@ def test_batch_write_and_verify_query_count_is_bounded_by_tables_not_segments(tm
         "extra physical duplicate",
         "unexpected Segment ID",
         "mixed EXACT and PARTIAL batch",
+        "raw identity substitution",
+        "canonical identity substitution",
+        "canonical raw identity substitution",
     ),
 )
 def test_batch_exact_verification_failure_matrix(tmp_path: Path, fixed_now, case: str) -> None:
@@ -316,6 +417,12 @@ def test_batch_exact_verification_failure_matrix(tmp_path: Path, fixed_now, case
         client.unexpected = ("market_raw_event", unexpected)
     elif case == "mixed EXACT and PARTIAL batch":
         raw[:] = [row for row in raw if row["segment_id"] != segments[-1].segment_id]
+    elif case == "raw identity substitution":
+        raw[0]["raw_event_id"] = "substituted-raw-id"
+    elif case == "canonical identity substitution":
+        canonical[0]["canonical_fact_id"] = "substituted-fact-id"
+    elif case == "canonical raw identity substitution":
+        canonical[0]["raw_event_id"] = "substituted-raw-id"
     else:  # pragma: no cover - exhaustive parametrization
         raise AssertionError(case)
 

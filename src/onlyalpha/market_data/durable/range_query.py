@@ -25,8 +25,8 @@ from .revision import (
     OnlyMarketDataConflictError,
     OnlyMarketDataSealError,
     only_build_coverage,
-    only_build_seal,
     only_deduplicate_facts,
+    only_verify_revision_authority,
 )
 
 MINUTE_NS = 60_000_000_000
@@ -304,23 +304,9 @@ class OnlyVerifiedMarketDataRangeQuery:
             raise OnlyMarketDataSealError("MARKET_DATA_REVISION_EVIDENCE_INVALID") from exc
         except Exception as exc:
             raise OnlyMarketDataSealError("MARKET_DATA_CATALOG_UNAVAILABLE") from exc
-        if (
-            stored != revision
-            or manifest.manifest_id != revision.manifest_id
-            or manifest.scope != revision.scope
-            or manifest.segment_refs != revision.segment_refs
-            or manifest.coverage_status is not OnlyCoverageStatus.COMPLETE
-            or manifest.issues
-            or OnlyMarketDataRevision.build(
-                manifest,
-                normalizers=revision.normalizers,
-                creation_reason=revision.creation_reason,
-                parent_revision_id=revision.parent_revision_id,
-            )
-            != revision
-            or only_build_seal(revision, manifest, sealed_at=seal.sealed_at) != seal
-        ):
+        if stored != revision:
             raise OnlyMarketDataSealError("MARKET_DATA_REVISION_EVIDENCE_INVALID")
+        only_verify_revision_authority(revision, manifest, seal)
         try:
             segments = self._catalog.load_durable_segments(tuple(item[0] for item in revision.segment_refs))
         except (KeyError, TypeError, ValueError) as exc:

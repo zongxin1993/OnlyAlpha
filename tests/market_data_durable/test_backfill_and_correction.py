@@ -177,7 +177,23 @@ def test_backfill_rejects_source_stream_that_bypasses_durable_recorder(tmp_path,
         coordinator.backfill_bar_gap(acquisition, request, gap)  # type: ignore[arg-type]
 
 
-def test_finish_reuses_exact_recovery_seal_without_reading_or_recommitting_facts(tmp_path, fixed_now) -> None:  # type: ignore[no-untyped-def]
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        None,
+        "seal_id",
+        "missing_check",
+        "extra_check",
+        "normalizers",
+        "creation_reason",
+        "parent_revision_id",
+        "fingerprint",
+        "manifest_refs",
+    ],
+)
+def test_finish_reuses_exact_recovery_seal_without_reading_or_recommitting_facts(
+    tmp_path, fixed_now, corruption: str | None
+) -> None:  # type: ignore[no-untyped-def]
     wal = OnlyMarketDataWal(tmp_path, capacity_bytes=2_000_000, now=fixed_now)
     ingress = OnlyMarketDataIngress(
         wal,
@@ -217,6 +233,32 @@ def test_finish_reuses_exact_recovery_seal_without_reading_or_recommitting_facts
         integration_binding_fingerprint=BINDING,
     )
     coordinator = OnlyMarketDataBackfillCoordinator(_HistoricalSource(ingress), catalog, store, recovery, committer)
+
+    if corruption is not None:
+        revision = catalog.latest_sealed_revision(scope)
+        seal = catalog.load_sealed_revision(revision.revision_id)[1]
+        if corruption == "seal_id":
+            catalog._seals[revision.revision_id] = replace(seal, seal_id="wrong")
+        elif corruption == "missing_check":
+            catalog._seals[revision.revision_id] = replace(seal, checks=seal.checks[1:])
+        elif corruption == "extra_check":
+            catalog._seals[revision.revision_id] = replace(seal, checks=(*seal.checks, "EXTRA"))
+        elif corruption == "manifest_refs":
+            manifest = catalog.load_coverage_manifest(revision.manifest_id)
+            catalog._manifests[manifest.manifest_id] = replace(manifest, segment_refs=manifest.segment_refs[:1])
+        else:
+            value = {
+                "normalizers": (("wrong", "1"),),
+                "creation_reason": "WRONG",
+                "parent_revision_id": "wrong",
+                "fingerprint": "wrong",
+            }[corruption]
+            catalog._revisions[revision.revision_id] = replace(revision, **{corruption: value})
+        with pytest.raises(RuntimeError, match="MARKET_DATA_REVISION_EVIDENCE_INVALID"):
+            coordinator._finish(acquisition, set(), None, recovery_results)
+        assert store.reads == 0
+        assert committer.durable_commits == 0
+        return
 
     result = coordinator._finish(acquisition, set(), None, recovery_results)
 
