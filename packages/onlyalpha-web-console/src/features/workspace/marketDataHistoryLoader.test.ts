@@ -30,6 +30,8 @@ function completePage(bars: readonly MarketDataBar[] = [earlierBar]) {
     return marketDataBars({
         requested_before_ns: firstCurrentBar.bar_start_ns,
         requested_bar_count: OLDER_HISTORY_TARGET_BAR_COUNT,
+        resolved_start_ns: earlierBar.bar_start_ns,
+        resolved_end_ns: firstCurrentBar.bar_start_ns,
         bars: [...bars],
         coverage: {
             ...marketDataBars().coverage,
@@ -50,6 +52,7 @@ function loaderHarness(overrides: {
     const loader = new OnlyMarketDataHistoryLoader({
         client,
         reference: FIXTURE_REFERENCE,
+        expectedSourceId: "test.market_data.live",
         contextKey: "context",
         isCurrent: overrides.current ?? (() => true),
         merge: (bars) => ledger.mergeHistory(bars)
@@ -65,6 +68,30 @@ const load = (loader: OnlyMarketDataHistoryLoader, semantic = marketDataBarSeman
     });
 
 describe("older Market Data history", () => {
+    it.each(["first query", "frozen re-query"])(
+        "rejects a mismatched %s without merging or registering the page",
+        async (path) => {
+            const wrong = { ...completePage(), instrument_id: "ETHUSDT.TEST" };
+            const incomplete = {
+                ...completePage([]),
+                history_projection_fingerprint: null,
+                resume_after_sequence: null,
+                resume_plan_fingerprint: null,
+                coverage: { ...completePage().coverage, status: "INCOMPLETE" as const }
+            };
+            const queryBars = vi.fn();
+            if (path === "frozen re-query") queryBars.mockResolvedValueOnce(incomplete);
+            queryBars.mockResolvedValueOnce(wrong).mockResolvedValueOnce(completePage());
+            const { ledger, loader } = loaderHarness({ queryBars });
+            const before = ledger.snapshot();
+            await expect(load(loader)).rejects.toMatchObject({
+                code: "MARKET_DATA_HISTORY_RESPONSE_MISMATCH"
+            });
+            expect(ledger.snapshot()).toEqual(before);
+            expect(await load(loader)).toMatchObject({ status: "loaded", prependedCount: 1 });
+            expect(queryBars).toHaveBeenCalledTimes(path === "first query" ? 2 : 3);
+        }
+    );
     it("changes the presentation context key for every exact identity field", () => {
         const semantic = marketDataBarSemantic(1);
         const base = onlyMarketDataChartContextKey(FIXTURE_REFERENCE, "BTCUSDT.TEST", semantic);
@@ -103,16 +130,17 @@ describe("older Market Data history", () => {
     });
 
     it("uses only server-planned ranges then repeats the frozen page query", async () => {
-        const frozenIncomplete = marketDataBars({
-            anchor_kind: "BEFORE_TIME",
-            requested_before_ns: firstCurrentBar.bar_start_ns,
-            requested_bar_count: OLDER_HISTORY_TARGET_BAR_COUNT,
+        const frozenIncomplete = {
+            ...completePage([]),
+            history_projection_fingerprint: null,
+            resume_after_sequence: null,
+            resume_plan_fingerprint: null,
             coverage: {
                 ...marketDataBars().coverage,
                 status: "INCOMPLETE",
                 planned_acquisition_ranges: [{ start_ns: "10", end_ns: "20" }]
             }
-        });
+        };
         const queryBars = vi
             .fn()
             .mockResolvedValueOnce(frozenIncomplete)
@@ -154,8 +182,9 @@ describe("older Market Data history", () => {
     });
 
     it("marks history exhausted and blocks further pages when COMPLETE adds no earlier bar", async () => {
-        const queryBars = vi.fn(() => Promise.resolve(completePage([firstCurrentBar])));
-        const { loader } = loaderHarness({ queryBars });
+        const queryBars = vi.fn(() => Promise.resolve(completePage()));
+        const { ledger, loader } = loaderHarness({ queryBars });
+        ledger.mergeHistory([earlierBar]);
 
         expect(await load(loader)).toMatchObject({ status: "exhausted" });
         await loader.loadOlder({

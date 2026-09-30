@@ -158,13 +158,28 @@ export function marketDataAcquisition(
     };
 }
 
+/** A contract fake echoes the exact request, not a fixed BEFORE_TIME/count fixture. */
+export function marketDataBarsForQuery(
+    query: MarketDataBarsQuery,
+    overrides: Partial<MarketDataBars> = {}
+): MarketDataBars {
+    return marketDataBars({
+        instrument_id: query.instrument_id,
+        bar_semantic: query.bar_semantic,
+        anchor_kind: query.anchor_kind,
+        requested_before_ns: query.before_ns ?? null,
+        requested_bar_count: query.target_bar_count,
+        ...overrides
+    });
+}
+
 export function marketDataClient(
     overrides: Partial<MarketDataApiClient> = {}
 ): MarketDataApiClient {
     return {
         listSources: () => Promise.resolve([marketDataSource()]),
         listInstruments: () => Promise.resolve([]),
-        queryBars: () => Promise.resolve(marketDataBars()),
+        queryBars: (_reference, query) => Promise.resolve(marketDataBarsForQuery(query)),
         createAcquisition: () => Promise.resolve(marketDataAcquisition()),
         getAcquisition: unused,
         ...overrides
@@ -173,6 +188,9 @@ export function marketDataClient(
 
 export function incompleteBars(overrides: Partial<MarketDataBars> = {}): MarketDataBars {
     return marketDataBars({
+        anchor_kind: "LATEST_CLOSED",
+        requested_before_ns: null,
+        requested_bar_count: 1440,
         coverage: {
             status: "INCOMPLETE",
             manifest_id: null,

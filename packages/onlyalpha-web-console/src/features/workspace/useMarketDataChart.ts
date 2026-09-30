@@ -25,6 +25,10 @@ import {
     OnlyMarketDataHistoryLoader,
     onlyMarketDataChartContextKey
 } from "./marketDataHistoryLoader";
+import {
+    MarketDataBarsAuthorityMismatchError,
+    onlyAssertMarketDataBarsAuthority
+} from "./marketDataBarsAuthority";
 
 export const DEFAULT_TARGET_BAR_COUNT = 1_440;
 const SECOND_NS = 1_000_000_000n;
@@ -180,7 +184,11 @@ export function useMarketDataChart(): MarketDataChartState {
     const barCapability = selectedSource?.time_bar_capability ?? null;
 
     const apply = useCallback((error: unknown) => {
-        const webError = error instanceof MarketDataWebError ? error : null;
+        const webError =
+            error instanceof MarketDataWebError ||
+            error instanceof MarketDataBarsAuthorityMismatchError
+                ? error
+                : null;
         ledger.current = null;
         olderHistoryLoader.current = null;
         setLedgerSnapshot(null);
@@ -210,7 +218,7 @@ export function useMarketDataChart(): MarketDataChartState {
     const publishCompleteHistory = useCallback(
         (
             active: MarketDataSourceReference,
-            query: MarketDataBarsQuery,
+            expectedSourceId: string,
             generation: number,
             activeLedger: OnlyMarketDataBarLedger,
             loaded: MarketDataBars
@@ -237,6 +245,7 @@ export function useMarketDataChart(): MarketDataChartState {
             olderHistoryLoader.current = new OnlyMarketDataHistoryLoader({
                 client,
                 reference: active,
+                expectedSourceId,
                 contextKey: activeLedger.contextKey,
                 isCurrent: () =>
                     generation === historyGeneration.current && ledger.current === activeLedger,
@@ -260,6 +269,7 @@ export function useMarketDataChart(): MarketDataChartState {
     const acquire = useCallback(
         async (
             active: MarketDataSourceReference,
+            expectedSourceId: string,
             query: MarketDataBarsQuery,
             ranges: readonly { start_ns: string; end_ns: string }[],
             generation: number,
@@ -309,9 +319,27 @@ export function useMarketDataChart(): MarketDataChartState {
                 }
                 const reloaded = await client.queryBars(active, query);
                 if (generation !== historyGeneration.current) return;
+                onlyAssertMarketDataBarsAuthority(
+                    {
+                        reference: active,
+                        expectedSourceId,
+                        instrumentId: query.instrument_id,
+                        barSemantic: query.bar_semantic,
+                        anchorKind: query.anchor_kind,
+                        targetBarCount: query.target_bar_count,
+                        ...(query.before_ns === undefined ? {} : { beforeNs: query.before_ns })
+                    },
+                    reloaded
+                );
                 setCoverage(reloaded.coverage);
                 if (reloaded.coverage.status === "COMPLETE") {
-                    publishCompleteHistory(active, query, generation, activeLedger, reloaded);
+                    publishCompleteHistory(
+                        active,
+                        expectedSourceId,
+                        generation,
+                        activeLedger,
+                        reloaded
+                    );
                 } else {
                     setStatus("incomplete");
                     setMessage(
@@ -328,6 +356,7 @@ export function useMarketDataChart(): MarketDataChartState {
     const load = useCallback(
         async (
             active: MarketDataSourceReference,
+            expectedSourceId: string,
             target: MarketDataInstrument,
             specification: MarketDataBarSemantic,
             generation: number
@@ -356,14 +385,32 @@ export function useMarketDataChart(): MarketDataChartState {
             try {
                 const loaded = await client.queryBars(active, query);
                 if (generation !== historyGeneration.current) return;
+                onlyAssertMarketDataBarsAuthority(
+                    {
+                        reference: active,
+                        expectedSourceId,
+                        instrumentId: query.instrument_id,
+                        barSemantic: query.bar_semantic,
+                        anchorKind: query.anchor_kind,
+                        targetBarCount: query.target_bar_count
+                    },
+                    loaded
+                );
                 setCoverage(loaded.coverage);
                 if (loaded.coverage.status === "COMPLETE") {
-                    publishCompleteHistory(active, query, generation, activeLedger, loaded);
+                    publishCompleteHistory(
+                        active,
+                        expectedSourceId,
+                        generation,
+                        activeLedger,
+                        loaded
+                    );
                     return;
                 }
                 setHistoryProjectionFingerprint(null);
                 await acquire(
                     active,
+                    expectedSourceId,
                     {
                         ...query,
                         anchor_kind: "BEFORE_TIME",
@@ -388,11 +435,11 @@ export function useMarketDataChart(): MarketDataChartState {
             resume.current = null;
             setLastClosedCursor(null);
             setStreamId(null);
-            if (reference !== null && instrument !== null)
-                void load(reference, instrument, barSemantic, generation);
+            if (reference !== null && selectedSource !== null && instrument !== null)
+                void load(reference, selectedSource.source_id, instrument, barSemantic, generation);
         }
         previousRevision.current = revision;
-    }, [reference, instrument, barSemantic, load]);
+    }, [reference, selectedSource, instrument, barSemantic, load]);
 
     useEffect(() => {
         if (
@@ -522,6 +569,7 @@ export function useMarketDataChart(): MarketDataChartState {
                             setStreamId(null);
                             void load(
                                 reference,
+                                resolvedSourceId,
                                 instrument,
                                 barSemantic,
                                 ++historyGeneration.current
@@ -616,13 +664,13 @@ export function useMarketDataChart(): MarketDataChartState {
             setStreamError(null);
             setRealtimeStatus("disabled");
             setInstrument(target);
-            if (reference === null) {
+            if (reference === null || selectedSource === null) {
                 setMessage("请先选择数据源");
                 return;
             }
-            await load(reference, target, barSemantic, generation);
+            await load(reference, selectedSource.source_id, target, barSemantic, generation);
         },
-        [barSemantic, load, reference]
+        [barSemantic, load, reference, selectedSource]
     );
 
     const selectBarDuration = useCallback(
@@ -647,10 +695,16 @@ export function useMarketDataChart(): MarketDataChartState {
             setOlderHistoryStatus("idle");
             setOlderHistoryMessage(null);
             setBarSemantic(specification);
-            if (reference !== null && instrument !== null)
-                await load(reference, instrument, specification, generation);
+            if (reference !== null && selectedSource !== null && instrument !== null)
+                await load(
+                    reference,
+                    selectedSource.source_id,
+                    instrument,
+                    specification,
+                    generation
+                );
         },
-        [barCapability, instrument, load, reference]
+        [barCapability, instrument, load, reference, selectedSource]
     );
 
     const loadOlderHistory = useCallback(async () => {

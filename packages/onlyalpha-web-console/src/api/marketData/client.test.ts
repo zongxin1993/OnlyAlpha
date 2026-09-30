@@ -101,7 +101,7 @@ it("rejects a historical response with a different Bar Semantic", async () => {
     await expect(
         new FetchMarketDataApiClient().queryBars(FIXTURE_REFERENCE, query)
     ).rejects.toMatchObject({
-        code: "CONTRACT_ERROR"
+        code: "MARKET_DATA_HISTORY_RESPONSE_MISMATCH"
     });
 });
 

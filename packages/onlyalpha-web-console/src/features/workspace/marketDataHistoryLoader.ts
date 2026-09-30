@@ -6,6 +6,7 @@ import {
     type MarketDataSourceReference
 } from "../../api/marketData/model";
 import type { MarketDataBarLedgerMerge } from "./marketDataBarLedger";
+import { onlyAssertMarketDataBarsAuthority } from "./marketDataBarsAuthority";
 
 export const OLDER_HISTORY_TARGET_BAR_COUNT = 240;
 
@@ -31,6 +32,7 @@ export interface OlderHistoryLoadResult {
 interface OlderHistoryLoaderOptions {
     readonly client: MarketDataApiClient;
     readonly reference: MarketDataSourceReference;
+    readonly expectedSourceId: string;
     readonly contextKey: string;
     readonly isCurrent: () => boolean;
     readonly merge: (bars: readonly MarketDataBar[]) => MarketDataBarLedgerMerge;
@@ -86,6 +88,17 @@ export class OnlyMarketDataHistoryLoader {
         let page = await this.options.client.queryBars(this.options.reference, query);
         if (!this.options.isCurrent()) return { status: "stale", prependedCount: 0 };
 
+        const expectation = {
+            reference: this.options.reference,
+            expectedSourceId: this.options.expectedSourceId,
+            instrumentId: query.instrument_id,
+            barSemantic: query.bar_semantic,
+            anchorKind: query.anchor_kind,
+            targetBarCount: query.target_bar_count,
+            ...(query.before_ns === undefined ? {} : { beforeNs: query.before_ns })
+        };
+        onlyAssertMarketDataBarsAuthority(expectation, page);
+
         if (page.coverage.status !== "COMPLETE") {
             this.options.onAcquiring?.();
             for (const range of page.coverage.planned_acquisition_ranges) {
@@ -129,6 +142,7 @@ export class OnlyMarketDataHistoryLoader {
             }
             page = await this.options.client.queryBars(this.options.reference, query);
             if (!this.options.isCurrent()) return { status: "stale", prependedCount: 0 };
+            onlyAssertMarketDataBarsAuthority(expectation, page);
         }
         if (page.coverage.status !== "COMPLETE") {
             throw new Error("Older history remains incomplete after server-planned acquisition");

@@ -169,7 +169,7 @@ export class FetchMarketDataApiClient implements MarketDataApiClient {
         );
         if (JSON.stringify(result.bar_semantic) !== JSON.stringify(query.bar_semantic))
             throw new MarketDataWebError(
-                "CONTRACT_ERROR",
+                "MARKET_DATA_HISTORY_RESPONSE_MISMATCH",
                 "Market Data returned a different Bar Specification"
             );
         return result;
