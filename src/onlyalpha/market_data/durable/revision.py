@@ -478,7 +478,7 @@ class OnlyInMemoryMarketDataCatalog(OnlyMarketDataCatalog):
         ]
         if not candidates:
             raise KeyError("SEALED_REVISION_NOT_FOUND")
-        return sorted(candidates, key=lambda item: item.revision_id)[-1]
+        return max(candidates, key=lambda item: (self._seals[item.revision_id].sealed_at, item.revision_id))
 
     def list_current_sealed_revisions_overlapping(
         self, family: OnlyMarketDataRangeFamily, start_ns: int, end_ns: int

@@ -56,6 +56,7 @@ from onlyalpha.market_data.durable.models import (
     OnlyAcquisitionOutcome,
     OnlyBarCoverageGap,
     OnlyCanonicalMarketFactRecord,
+    OnlyCoverageManifest,
     OnlyCoverageStatus,
     OnlyMarketDataAcquisitionAttempt,
     OnlyMarketDataAcquisitionIntent,
@@ -77,6 +78,7 @@ from onlyalpha.market_data.durable.range_query import (
 from onlyalpha.market_data.durable.recorder import OnlyDurableMarketDataRecorder
 from onlyalpha.market_data.durable.recovery import OnlyMarketDataRecoveryCoordinator
 from onlyalpha.market_data.durable.revision import (
+    OnlyHistoricalMarketDataQueryService,
     OnlyMarketDataConflictError,
     OnlyMarketDataSealError,
     OnlyRevisionCommitService,
@@ -328,6 +330,14 @@ class OnlyResolvedMarketDataRuntime:
     factory: object
     plugin_config: object
     catalog: OnlyDataSourceInstrumentCatalog
+
+
+@dataclass(frozen=True, slots=True)
+class _OnlyExactSealedHistory:
+    revision: OnlyMarketDataRevision
+    manifest: OnlyCoverageManifest
+    seal: OnlyMarketDataSeal
+    facts: tuple[OnlyCanonicalMarketFactRecord, ...]
 
 
 class _OnlyAcquisitionSession:
@@ -707,8 +717,7 @@ class OnlyMarketDataProductService:
                 resolved,
                 admitted,
                 status="COMPLETE",
-                revision=sealed[0],
-                seal=sealed[1],
+                sealed=sealed,
                 failure_detail=None,
             )
         try:
@@ -718,7 +727,7 @@ class OnlyMarketDataProductService:
                 "MARKET_DATA_CATALOG_UNAVAILABLE", "acquisition execution ownership is unavailable"
             ) from exc
         if not lease.acquired:
-            return self._projection(resolved, admitted, status="RUNNING", revision=None, seal=None, failure_detail=None)
+            return self._projection(resolved, admitted, status="RUNNING", sealed=None, failure_detail=None)
         try:
             sealed = self._sealed_for_scope(scope)
             if sealed is not None:
@@ -726,13 +735,12 @@ class OnlyMarketDataProductService:
                     resolved,
                     admitted,
                     status="COMPLETE",
-                    revision=sealed[0],
-                    seal=sealed[1],
+                    sealed=sealed,
                     failure_detail=None,
                 )
             attempt = self._start_attempt(admitted.acquisition_id, started_at=self._now())
-            revision, seal, failure = self._execute_acquisition(resolved, admitted)
-            if failure is None and revision is not None and seal is not None:
+            sealed, failure = self._execute_acquisition(resolved, admitted)
+            if failure is None and sealed is not None:
                 # Coverage + Revision + Seal are canonical success even if optional
                 # operational attempt evidence cannot be completed.
                 try:
@@ -740,18 +748,14 @@ class OnlyMarketDataProductService:
                         attempt,
                         OnlyAcquisitionOutcome.COMPLETE,
                         detail="MARKET_DATA_ACQUISITION_COMPLETE",
-                        revision_id=revision.revision_id,
+                        revision_id=sealed.revision.revision_id,
                     )
                 except Exception as exc:
                     self._logger.warning("market-data acquisition attempt evidence failed: %s", exc)
-                return self._projection(
-                    resolved, admitted, status="COMPLETE", revision=revision, seal=seal, failure_detail=None
-                )
+                return self._projection(resolved, admitted, status="COMPLETE", sealed=sealed, failure_detail=None)
             detail = failure or "MARKET_DATA_ACQUISITION_INCOMPLETE"
             self._record_terminal_failure(attempt, detail=detail)
-            return self._projection(
-                resolved, admitted, status="FAILED", revision=None, seal=None, failure_detail=detail
-            )
+            return self._projection(resolved, admitted, status="FAILED", sealed=None, failure_detail=detail)
         finally:
             lease.close()
 
@@ -777,9 +781,7 @@ class OnlyMarketDataProductService:
             )
         sealed = self._sealed_for_scope(intent.requested_scope)
         if sealed is not None:
-            return self._projection(
-                resolved, intent, status="COMPLETE", revision=sealed[0], seal=sealed[1], failure_detail=None
-            )
+            return self._projection(resolved, intent, status="COMPLETE", sealed=sealed, failure_detail=None)
         try:
             active = self._catalog.acquisition_execution_active(acquisition_id)
         except Exception as exc:
@@ -787,12 +789,10 @@ class OnlyMarketDataProductService:
                 "MARKET_DATA_CATALOG_UNAVAILABLE", "acquisition execution ownership is unavailable"
             ) from exc
         if active:
-            return self._projection(resolved, intent, status="RUNNING", revision=None, seal=None, failure_detail=None)
+            return self._projection(resolved, intent, status="RUNNING", sealed=None, failure_detail=None)
         if attempt is not None and attempt.outcome is OnlyAcquisitionOutcome.FAILED:
-            return self._projection(
-                resolved, intent, status="FAILED", revision=None, seal=None, failure_detail=attempt.detail
-            )
-        return self._projection(resolved, intent, status="PENDING", revision=None, seal=None, failure_detail=None)
+            return self._projection(resolved, intent, status="FAILED", sealed=None, failure_detail=attempt.detail)
+        return self._projection(resolved, intent, status="PENDING", sealed=None, failure_detail=None)
 
     # --- Internals ---------------------------------------------------------------------
 
@@ -961,7 +961,7 @@ class OnlyMarketDataProductService:
 
     def _execute_acquisition(
         self, resolved: OnlyResolvedMarketDataRuntime, intent: OnlyMarketDataAcquisitionIntent
-    ) -> tuple[OnlyMarketDataRevision | None, OnlyMarketDataSeal | None, str | None]:
+    ) -> tuple[_OnlyExactSealedHistory | None, str | None]:
         session: _OnlyAcquisitionSession | None = None
         try:
             session = self._open_session(resolved, intent.requested_scope)
@@ -984,11 +984,13 @@ class OnlyMarketDataProductService:
             session.close()
             sealed = self._sealed_for_scope(intent.requested_scope)
             if sealed is None:
-                return None, None, self._coverage(intent.requested_scope, False).status
-            return sealed[0], sealed[1], None
+                return None, self._coverage(intent.requested_scope).status
+            return sealed, None
+        except OnlyMarketDataProductError:
+            raise
         except Exception as exc:
             self._logger.warning("market-data acquisition failed: %s", exc)
-            return None, None, f"{type(exc).__name__}:{exc}"
+            return None, f"{type(exc).__name__}:{exc}"
         finally:
             if session is not None:
                 session.close()
@@ -1068,7 +1070,7 @@ class OnlyMarketDataProductService:
         source.authenticate()
         return session
 
-    def _sealed_for_scope(self, scope: OnlyMarketDataScope) -> tuple[OnlyMarketDataRevision, OnlyMarketDataSeal] | None:
+    def _sealed_for_scope(self, scope: OnlyMarketDataScope) -> _OnlyExactSealedHistory | None:
         """Explicit not-found is the only condition that may mean "no data yet".
 
         An unavailable, corrupt or schema-incompatible catalog must never be projected
@@ -1088,37 +1090,52 @@ class OnlyMarketDataProductService:
             raise OnlyMarketDataProductError(
                 "MARKET_DATA_CATALOG_UNAVAILABLE", "canonical market-data catalog is unavailable"
             ) from exc
+        query = OnlyHistoricalMarketDataQueryService(self._catalog, self._facts)
         try:
-            stored, seal = self._catalog.load_sealed_revision(revision.revision_id)
-        except KeyError as exc:
+            stored, seal = query.resolve_with_seal(revision.revision_id)
+            manifest = self._catalog.load_coverage_manifest(stored.manifest_id)
+        except (KeyError, TypeError, ValueError) as exc:
             raise OnlyMarketDataProductError(
-                "MARKET_DATA_CATALOG_CORRUPT", "latest sealed revision is not readable"
+                "MARKET_DATA_CATALOG_CORRUPT", "latest sealed revision evidence is not readable"
             ) from exc
+        except OnlyMarketDataSealError as exc:
+            raise OnlyMarketDataProductError("MARKET_DATA_REVISION_EVIDENCE_INVALID", str(exc)) from exc
         except Exception as exc:
             raise OnlyMarketDataProductError(
                 "MARKET_DATA_CATALOG_UNAVAILABLE", "canonical market-data catalog is unavailable"
             ) from exc
-        if (
-            stored.revision_id != revision.revision_id
-            or stored.scope != scope
-            or stored.fingerprint != revision.fingerprint
-            or seal.revision_fingerprint != stored.fingerprint
-        ):
+        if stored != revision or stored.scope != scope:
             raise OnlyMarketDataProductError(
                 "MARKET_DATA_CATALOG_CORRUPT", "sealed revision does not match its own scope identity"
             )
-        return stored, seal
-
-    def _coverage(self, scope: OnlyMarketDataScope, complete: bool) -> OnlyMarketDataCoverageProjectionV1:
         try:
-            segments = self._catalog.list_durable_segments(scope)
+            facts = query.read_exact(stored.revision_id, scope)
+        except (OnlyMarketDataSealError, OnlyMarketDataConflictError, KeyError, TypeError, ValueError) as exc:
+            raise OnlyMarketDataProductError("MARKET_DATA_REVISION_EVIDENCE_INVALID", str(exc)) from exc
         except Exception as exc:
             raise OnlyMarketDataProductError(
-                "MARKET_DATA_CATALOG_UNAVAILABLE", "canonical market-data catalog is unavailable"
+                "MARKET_DATA_FACT_STORE_UNAVAILABLE", "canonical market-data store is unavailable"
             ) from exc
-        proofs = self._catalog.load_physical_proofs(tuple(item.segment_id for item in segments)) if segments else ()
-        facts = self._facts.read_segment_facts(tuple(segments), scope, proofs) if segments else ()
-        manifest = only_build_coverage(scope, tuple(segments), facts)
+        return _OnlyExactSealedHistory(stored, manifest, seal, facts)
+
+    def _coverage(
+        self, scope: OnlyMarketDataScope, sealed: _OnlyExactSealedHistory | None = None
+    ) -> OnlyMarketDataCoverageProjectionV1:
+        if sealed is not None:
+            manifest = sealed.manifest
+            facts = sealed.facts
+            complete = True
+        else:
+            complete = False
+            try:
+                segments = self._catalog.list_durable_segments(scope)
+            except Exception as exc:
+                raise OnlyMarketDataProductError(
+                    "MARKET_DATA_CATALOG_UNAVAILABLE", "canonical market-data catalog is unavailable"
+                ) from exc
+            proofs = self._catalog.load_physical_proofs(tuple(item.segment_id for item in segments)) if segments else ()
+            facts = self._facts.read_segment_facts(tuple(segments), scope, proofs) if segments else ()
+            manifest = only_build_coverage(scope, tuple(segments), facts)
         bar_gaps = tuple(item for item in manifest.gaps if isinstance(item, OnlyBarCoverageGap))
         step_ns = (
             MINUTE_NS
@@ -1281,8 +1298,7 @@ class OnlyMarketDataProductService:
         intent: OnlyMarketDataAcquisitionIntent,
         *,
         status: str,
-        revision: OnlyMarketDataRevision | None,
-        seal: OnlyMarketDataSeal | None,
+        sealed: _OnlyExactSealedHistory | None,
         failure_detail: str | None,
     ) -> OnlyMarketDataAcquisitionProjectionV1:
         return OnlyMarketDataAcquisitionProjectionV1(
@@ -1296,10 +1312,10 @@ class OnlyMarketDataProductService:
             intent.requested_scope.start_ns,
             intent.requested_scope.end_ns,
             intent.provenance.value,
-            self._coverage(intent.requested_scope, revision is not None),
-            None if revision is None else revision.revision_id,
-            None if revision is None else revision.fingerprint,
-            None if seal is None else seal.seal_id,
+            self._coverage(intent.requested_scope, sealed),
+            None if sealed is None else sealed.revision.revision_id,
+            None if sealed is None else sealed.revision.fingerprint,
+            None if sealed is None else sealed.seal.seal_id,
             failure_detail,
         )
 

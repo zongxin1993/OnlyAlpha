@@ -76,11 +76,16 @@ from onlyalpha.market_data.durable import (
     OnlyMarketDataAcquisitionAttempt,
     OnlyMarketDataAcquisitionIntent,
     OnlyMarketDataConflictError,
+    OnlyMarketDataCorrectionComposer,
+    OnlyMarketDataIngress,
     OnlyMarketDataRangeFamily,
+    OnlyMarketDataRecoveryCoordinator,
     OnlyMarketDataRevision,
     OnlyMarketDataScope,
     OnlyMarketDataSeal,
     OnlyMarketDataSealError,
+    OnlyMarketDataWal,
+    OnlyRevisionCommitService,
     only_deduplicate_facts,
 )
 from onlyalpha.market_data.durable.range_query import (
@@ -638,6 +643,63 @@ def _range(minutes: int = 2) -> tuple[int, int]:
     return start, start + minutes * MINUTE_NS
 
 
+def _correct_latest_bar(harness: _Harness, revision_id: str, tmp_path: Path) -> OnlyMarketDataRevision:
+    parent, _ = harness.catalog.load_sealed_revision(revision_id)
+    segment_ids = tuple(item[0] for item in parent.segment_refs)
+    facts = harness.service._facts.read_segment_facts(
+        harness.catalog.load_durable_segments(segment_ids),
+        parent.scope,
+        harness.catalog.load_physical_proofs(segment_ids),
+    )
+    fact = max(facts, key=lambda item: item.ts_event_ns)
+    replaced_id = fact.segment_id
+    update = OnlyMarketDataInboundUpdate.from_dict(fact.canonical_payload)
+    assert isinstance(update.payload, OnlyBarUpdate)
+    corrected_bar = replace(
+        update.payload.bar,
+        high=OnlyPrice(Decimal("999.00"), 2),
+        close=OnlyPrice(Decimal("999.00"), 2),
+    )
+    corrected_update = replace(update, payload=OnlyBarUpdate(corrected_bar))
+    wal = OnlyMarketDataWal(tmp_path / "correction", capacity_bytes=2_000_000)
+    ingress = OnlyMarketDataIngress(
+        wal,
+        normalizer_id="test-data",
+        normalizer_version="1.0.0",
+        ingest_clock_ns=lambda: corrected_update.ts_init.unix_nanos,
+        bar_construction=parent.scope.bar_construction,
+    )
+    replacement_id = ingress.begin_segment("corrected-segment")
+    ingress.record(
+        OnlyRawProviderObservation(
+            source_id=parent.scope.source_id,
+            capture_session_id="correction",
+            provider="TEST",
+            venue="TEST",
+            market=parent.scope.market,
+            stream="/klines",
+            provider_event_type="correction",
+            ts_receive_ns=corrected_update.ts_init.unix_nanos,
+            payload=b"corrected",
+            provenance="REPAIR",
+        ),
+        corrected_update,
+    )
+    ingress.seal()
+    committer = OnlyRevisionCommitService(harness.service._facts, harness.catalog)
+    recovery = OnlyMarketDataRecoveryCoordinator(wal, harness.service._facts, harness.catalog, committer)
+    corrected_scope = replace(
+        parent.scope,
+        start_ns=OnlyTimestamp.from_datetime(corrected_bar.bar_start).unix_nanos,
+        end_ns=OnlyTimestamp.from_datetime(corrected_bar.bar_end).unix_nanos,
+    )
+    assert recovery.drain(replacement_id, corrected_scope) == "COMMITTED"
+    _, corrected, _ = OnlyMarketDataCorrectionComposer(harness.catalog, harness.service._facts, committer).compose(
+        parent.revision_id, ((replaced_id, replacement_id),)
+    )
+    return corrected
+
+
 def test_instrument_query_uses_provider_reference_and_rejects_unknown_symbol(tmp_path: Path) -> None:
     harness = _service(tmp_path)
 
@@ -812,6 +874,143 @@ def test_acquisition_seals_exact_revision_and_later_query_uses_database(tmp_path
     assert repeated.status == "COMPLETE"
     assert repeated.acquisition_id == acquisition.acquisition_id
     assert harness.provider.bar_fetches == fetches_after_acquisition
+
+
+@pytest.mark.parametrize("caller", ["acquire", "status"])
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "seal_id",
+        "missing_seal_check",
+        "extra_seal_check",
+        "revision_fingerprint",
+        "manifest_fingerprint",
+        "manifest_segment_refs",
+        "missing_physical_proof",
+        "physical_fact_mutation",
+        "coverage_mismatch",
+    ],
+)
+def test_complete_projection_rejects_inexact_sealed_authority(tmp_path: Path, caller: str, damage: str) -> None:
+    harness = _service(tmp_path)
+    reference = _reference(harness.revision_fingerprint)
+    start_ns, end_ns = _range()
+    acquisition = harness.service.acquire_bars(
+        reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns
+    )
+    assert acquisition.revision_id is not None
+    revision, seal = harness.catalog.load_sealed_revision(acquisition.revision_id)
+    manifest = harness.catalog.load_coverage_manifest(revision.manifest_id)
+    segment_id = revision.segment_refs[0][0]
+
+    if damage == "seal_id":
+        harness.catalog._seals[revision.revision_id] = replace(seal, seal_id="wrong")
+    elif damage == "missing_seal_check":
+        harness.catalog._seals[revision.revision_id] = replace(seal, checks=seal.checks[:-1])
+    elif damage == "extra_seal_check":
+        harness.catalog._seals[revision.revision_id] = replace(seal, checks=(*seal.checks, "EXTRA"))
+    elif damage == "revision_fingerprint":
+        harness.catalog._revisions[revision.revision_id] = replace(revision, fingerprint="f" * 64)
+    elif damage == "manifest_fingerprint":
+        harness.catalog._manifests[manifest.manifest_id] = replace(manifest, fingerprint="f" * 64)
+    elif damage == "manifest_segment_refs":
+        harness.catalog._manifests[manifest.manifest_id] = replace(manifest, segment_refs=())
+    elif damage == "missing_physical_proof":
+        del harness.catalog._physical_proofs[segment_id]
+    elif damage == "physical_fact_mutation":
+        key = next(key for key in harness.service._facts._facts if key[0] == segment_id)
+        fact = harness.service._facts._facts[key]
+        harness.service._facts._facts[key] = replace(fact, ts_receive_ns=fact.ts_receive_ns + 1)
+    else:
+        harness.catalog._manifests[manifest.manifest_id] = replace(
+            manifest, proof=(*manifest.proof[:-1], "closed_external_bar=false")
+        )
+
+    with pytest.raises(OnlyMarketDataProductError) as error:
+        if caller == "acquire":
+            harness.service.acquire_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
+        else:
+            harness.service.acquisition_status(reference, acquisition.acquisition_id)
+    assert error.value.code in {
+        "MARKET_DATA_CATALOG_CORRUPT",
+        "MARKET_DATA_REVISION_EVIDENCE_INVALID",
+        "MARKET_DATA_FACT_STORE_UNAVAILABLE",
+    }
+
+
+def test_complete_projection_uses_only_latest_corrected_revision(tmp_path: Path) -> None:
+    harness = _service(tmp_path, page_minutes=1)
+    reference = _reference(harness.revision_fingerprint)
+    start_ns, end_ns = _range()
+    acquired = harness.service.acquire_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
+    assert acquired.revision_id is not None
+    corrected = _correct_latest_bar(harness, acquired.revision_id, tmp_path)
+
+    repeated = harness.service.acquire_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
+    status = harness.service.acquisition_status(reference, acquired.acquisition_id)
+    queried = _query_bars(harness.service, reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
+
+    assert repeated.status == status.status == "COMPLETE"
+    assert repeated.revision_id == status.revision_id == corrected.revision_id
+    assert repeated.coverage.actual_bar_count == status.coverage.actual_bar_count == 2
+    assert [item.close for item in queried.bars] == ["101.00", "999.00"]
+    assert len(harness.catalog.list_durable_segments(corrected.scope)) == 3
+
+
+def test_derived_bootstrap_uses_corrected_current_history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    harness = _service(tmp_path, page_minutes=1)
+    reference = _reference(harness.revision_fingerprint)
+    start_ns, end_ns = _range()
+    acquired = harness.service.acquire_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
+    assert acquired.revision_id is not None
+    corrected = _correct_latest_bar(harness, acquired.revision_id, tmp_path)
+    assert corrected.parent_revision_id == acquired.revision_id
+    target = OnlyBarSemantic.fixed_duration(2)
+    resolved = harness.service.resolve_runtime(reference)
+    plan = harness.service._plan(resolved, str(INSTRUMENT), target)
+
+    class _SubscribedSource(_FakeSource):
+        def subscribe(self, _request: object) -> OnlyMarketDataSubscriptionResult:
+            return OnlyMarketDataSubscriptionResult(OnlyMarketDataRequestStatus.ACCEPTED, "corrected")
+
+        def unsubscribe(self, _request: object) -> None:
+            return None
+
+    monkeypatch.setattr(
+        harness.factory, "create", lambda request: _SubscribedSource(request, provider=harness.provider)
+    )
+    stream = OnlyMarketDataStreamProductService(
+        historical=harness.service,
+        catalog=harness.catalog,
+        fact_store=harness.service._facts,
+        wal_root=harness.wal_root,
+        clock=OnlyBacktestClock(BASE + timedelta(hours=1)),
+        logger=__import__("logging").getLogger(__name__),
+    )
+
+    session = stream.open(
+        reference,
+        instrument_id=str(INSTRUMENT),
+        bar_semantic=target,
+        resume_after_sequence=end_ns // MINUTE_NS - 1,
+        resume_plan_fingerprint=plan.fingerprint,
+    )
+
+    event = session.next_event(0)
+    assert event is not None and event.event == "SUBSCRIBED"
+    stream.close()
+
+    seal = harness.catalog._seals[corrected.revision_id]
+    harness.catalog._seals[corrected.revision_id] = replace(seal, checks=(*seal.checks, "corrupt"))
+    with pytest.raises(OnlyMarketDataProductError) as error:
+        stream.open(
+            reference,
+            instrument_id=str(INSTRUMENT),
+            bar_semantic=target,
+            resume_after_sequence=end_ns // MINUTE_NS - 1,
+            resume_plan_fingerprint=plan.fingerprint,
+        )
+    assert error.value.code == "HISTORY_REFRESH_REQUIRED"
 
 
 def test_same_acquisition_has_one_execution_and_non_owner_starts_no_attempt(tmp_path: Path) -> None:

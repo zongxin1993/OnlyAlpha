@@ -45,14 +45,19 @@ from onlyalpha.market_data.aggregation.base import OnlyBarAggregationError
 from onlyalpha.market_data.aggregation.time_bar import OnlyTimeBarAggregator
 from onlyalpha.market_data.durable.drain import OnlyMarketDataDrainService
 from onlyalpha.market_data.durable.ingress import OnlyMarketDataIngress
-from onlyalpha.market_data.durable.models import OnlyCoverageStatus, OnlyRecordingState
+from onlyalpha.market_data.durable.models import (
+    OnlyBarCoverageGap,
+    OnlyCoverageStatus,
+    OnlyMarketDataRangeFamily,
+    OnlyRecordingState,
+)
 from onlyalpha.market_data.durable.ports import OnlyMarketDataCatalog, OnlyMarketFactStore
 from onlyalpha.market_data.durable.recorder import OnlyDurableMarketDataRecorder
 from onlyalpha.market_data.durable.recovery import OnlyMarketDataRecoveryCoordinator
 from onlyalpha.market_data.durable.revision import (
+    OnlyMarketDataConflictError,
+    OnlyMarketDataSealError,
     OnlyRevisionCommitService,
-    only_build_coverage,
-    only_deduplicate_facts,
 )
 from onlyalpha.market_data.durable.wal import OnlyMarketDataWal
 from onlyalpha.market_data.resolution import (
@@ -528,19 +533,21 @@ class OnlyMarketDataStreamProductService:
             return
         scope = self._historical._scope(resolved, instrument_id, start_ns, end_ns, provider_plan)
         try:
-            segments = self._catalog.list_durable_segments(scope)
-            proofs = self._catalog.load_physical_proofs(tuple(item.segment_id for item in segments))
-            facts = self._facts.read_segment_facts(tuple(segments), scope, proofs)
-            coverage = only_build_coverage(scope, tuple(segments), facts)
-            if coverage.coverage_status is not OnlyCoverageStatus.COMPLETE:
+            verified = self._historical._ranges.read(
+                OnlyMarketDataRangeFamily.from_scope(scope),
+                (OnlyBarCoverageGap(start_ns, end_ns),),
+            )
+            if verified.coverage_status is not OnlyCoverageStatus.COMPLETE:
                 raise OnlyMarketDataProductError("HISTORY_REFRESH_REQUIRED")
-            for fact in only_deduplicate_facts(facts):
+            for fact in verified.facts:
                 update = OnlyMarketDataInboundUpdate.from_dict(fact.canonical_payload)
                 if not isinstance(update.payload, OnlyBarUpdate):
                     raise OnlyMarketDataProductError("MARKET_DATA_DERIVED_SOURCE_INVALID")
                 aggregator.process(update.payload.bar)
         except OnlyMarketDataProductError:
             raise
+        except (OnlyMarketDataConflictError, OnlyMarketDataSealError) as exc:
+            raise OnlyMarketDataProductError("HISTORY_REFRESH_REQUIRED") from exc
         except Exception as exc:
             raise OnlyMarketDataProductError("MARKET_DATA_DERIVED_BOOTSTRAP_UNAVAILABLE") from exc
 

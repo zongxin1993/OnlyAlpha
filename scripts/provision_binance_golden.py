@@ -94,6 +94,11 @@ from onlyalpha.market_data.durable.models import OnlyMarketDataScope
 from onlyalpha.market_data.durable.recovery import OnlyMarketDataRecoveryCoordinator
 from onlyalpha.market_data.durable.revision import OnlyHistoricalMarketDataQueryService, OnlyRevisionCommitService
 from onlyalpha.market_data.durable.wal import OnlyMarketDataWal
+from onlyalpha.market_data.resolution import (
+    OnlyBarCapability,
+    OnlyBarConstructionIdentity,
+    only_plan_bar_resolution,
+)
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.clickhouse import (
     OnlyClickHouseClient,
@@ -650,12 +655,24 @@ def _persist_bars(
     store: OnlyClickHouseMarketFactStore,
     catalog: OnlyPostgresMarketDataCatalog,
 ) -> tuple[str, OnlyMarketDataScope]:
+    bar_type = OnlyBarType(instrument.instrument_id, _BAR_SPEC)
+    calendar_fingerprint = only_canonical_fingerprint(_calendar())
+    plan = only_plan_bar_resolution(
+        _BAR_SPEC,
+        (OnlyBarCapability(_BAR_SPEC, True, True, calendar_fingerprint, 0),),
+        calendar_fingerprint=calendar_fingerprint,
+        source_id=str(source),
+        instrument_id=str(instrument.instrument_id),
+        integration_revision_fingerprint=capture_session.split(":", 1)[0],
+    )
+    construction = OnlyBarConstructionIdentity.build(plan, data_version=str(version))
     wal = OnlyMarketDataWal(wal_root, capacity_bytes=512 * 1024 * 1024)
     ingress = OnlyMarketDataIngress(
         wal,
         normalizer_id=f"onlyalpha-plugin-binance-{market.lower()}",
         normalizer_version="1",
         ingest_clock_ns=time.time_ns,
+        bar_construction=construction,
     )
     segment_id = ingress.begin_segment()
     physical_capture_session = _capture_session_id(capture_session, segment_id)
@@ -674,7 +691,6 @@ def _persist_bars(
     if not pages:
         raise ValueError("BINANCE_BAR_HISTORY_EMPTY")
     ingress.seal()
-    bar_type = OnlyBarType(instrument.instrument_id, _BAR_SPEC)
     scope = OnlyMarketDataScope(
         str(source),
         market,
@@ -684,6 +700,7 @@ def _persist_bars(
         int(end.timestamp() * 1_000_000_000),
         str(version),
         only_canonical_fingerprint(bar_type.to_dict()),
+        bar_construction=construction,
     )
     coordinator = OnlyMarketDataRecoveryCoordinator(
         wal,
@@ -693,7 +710,10 @@ def _persist_bars(
     )
     if coordinator.drain(segment_id, scope) not in {"COMMITTED", "ALREADY_COMMITTED"}:
         raise ValueError("BINANCE_BAR_REVISION_INCOMPLETE")
-    return catalog.latest_sealed_revision(scope).revision_id, scope
+    query = OnlyHistoricalMarketDataQueryService(catalog, store)
+    revision = query.resolve_latest(scope)
+    query.read_exact(revision.revision_id, scope)
+    return revision.revision_id, scope
 
 
 def _persist_raw_pages(
@@ -725,13 +745,15 @@ def _persist_raw_pages(
             ),
             None,
         )
-    segment = ingress.seal()
-    records = wal.read_sealed(segment_id)
-    store.write_segment(segment, records)
-    store.verify_segment(segment, records)
-    catalog.commit_durable_segments((segment,))
-    wal.mark_gc_eligible(segment_id)
-    wal.collect_garbage(segment_id)
+    ingress.seal()
+    recovery = OnlyMarketDataRecoveryCoordinator(
+        wal,
+        store,
+        catalog,
+        OnlyRevisionCommitService(store, catalog),
+    )
+    if recovery.recover_all() != ("DURABLE_ONLY:RAW_ONLY",):
+        raise ValueError("BINANCE_RAW_HISTORY_INCOMPLETE")
 
 
 def _definition(dataset: OnlyResearchDatasetDefinition) -> dict[str, object]:
