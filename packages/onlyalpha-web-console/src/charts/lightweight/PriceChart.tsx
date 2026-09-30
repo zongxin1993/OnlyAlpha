@@ -27,6 +27,17 @@ const EMPTY_OVERLAYS: readonly OverlaySpec[] = [];
 
 const utcTime = (seconds: number) => new Date(seconds * 1_000).toISOString();
 
+function publishVisibleAnchor(
+    element: HTMLDivElement | null,
+    bars: readonly CandlestickData<UTCTimestamp>[],
+    range: LogicalRange | null
+): void {
+    if (element === null) return;
+    const anchor = range === null ? undefined : bars[Math.max(0, Math.ceil(range.from))];
+    element.dataset.visibleRangeFrom = range === null ? "" : String(range.from);
+    element.dataset.visibleAnchorTime = anchor === undefined ? "" : String(anchor.time);
+}
+
 export function PriceChart({
     timeframe,
     barSemantic,
@@ -55,8 +66,11 @@ export function PriceChart({
     const overlaySeries = useRef<readonly ISeriesApi<"Line">[]>([]);
     const chartRef = useRef<ReturnType<typeof createChart> | null>(null);
     const previousContextKey = useRef<string | null>(null);
+    const initializedNonEmptyContext = useRef(false);
     const previousBars = useRef<readonly CandlestickData<UTCTimestamp>[]>([]);
-    const nearLeftEdgeArmed = useRef(true);
+    const rendererBars = useRef<readonly CandlestickData<UTCTimestamp>[]>([]);
+    const placingHistory = useRef(false);
+    const nearLeftEdgeArmed = useRef(false);
     const nearLeftEdgeCallback = useRef(onNearLeftEdge);
     const lastRenderedTime = useRef<number | null>(null);
     const bars = useMemo(
@@ -135,6 +149,8 @@ export function PriceChart({
         });
         const timeScale = chart.timeScale();
         const handleVisibleRange = (range: LogicalRange | null) => {
+            publishVisibleAnchor(container.current, rendererBars.current, range);
+            if (placingHistory.current || !initializedNonEmptyContext.current) return;
             if (range === null) return;
             if (range.from <= 24) {
                 if (nearLeftEdgeArmed.current) {
@@ -151,6 +167,9 @@ export function PriceChart({
             overlaySeries.current = [];
             lastRenderedTime.current = null;
             previousBars.current = [];
+            rendererBars.current = [];
+            initializedNonEmptyContext.current = false;
+            nearLeftEdgeArmed.current = false;
             chart.remove();
         };
     }, [renderedOverlays]);
@@ -170,20 +189,29 @@ export function PriceChart({
         const visibleRange = timeScale?.getVisibleLogicalRange() ?? null;
         const priorBars = previousBars.current;
         const contextChanged = previousContextKey.current !== contextKey;
-        const prependCount = bars.length - priorBars.length;
+        if (contextChanged) {
+            initializedNonEmptyContext.current = false;
+            nearLeftEdgeArmed.current = false;
+        }
+        const firstNonEmptyHistory = !initializedNonEmptyContext.current && bars.length > 0;
+        const prependCount =
+            priorBars.length === 0 ? -1 : bars.findIndex((bar) => bar.time === priorBars[0]?.time);
         const strictPrepend =
             !contextChanged &&
+            initializedNonEmptyContext.current &&
             priorBars.length > 0 &&
             prependCount > 0 &&
             priorBars.every((bar, index) => bar.time === bars[index + prependCount]?.time);
+        placingHistory.current = true;
+        rendererBars.current = bars;
         candleSeries.current?.setData([...bars]);
         lastRenderedTime.current = bars.at(-1)?.time ?? null;
-        if (mode === "real" && barSemantic !== undefined && contextChanged && bars.length > 0) {
+        if (mode === "real" && barSemantic !== undefined && firstNonEmptyHistory) {
             const visible = deriveTimeAxisPolicy(
                 barSemantic,
                 container.current?.clientWidth ?? 600
             ).visibleBars;
-            nearLeftEdgeArmed.current = true;
+            nearLeftEdgeArmed.current = false;
             timeScale?.setVisibleLogicalRange({
                 from: Math.max(0, bars.length - visible),
                 to: bars.length + 4
@@ -194,8 +222,14 @@ export function PriceChart({
                 to: visibleRange.to + prependCount
             };
             timeScale?.setVisibleLogicalRange(shifted);
-            nearLeftEdgeArmed.current = shifted.from > 24;
         }
+        initializedNonEmptyContext.current = bars.length > 0;
+        placingHistory.current = false;
+        publishVisibleAnchor(
+            container.current,
+            rendererBars.current,
+            timeScale?.getVisibleLogicalRange() ?? null
+        );
         previousContextKey.current = contextKey;
         previousBars.current = bars;
         overlaySeries.current.forEach((series, index) => {
@@ -208,6 +242,12 @@ export function PriceChart({
         if (mode !== "real" || liveBar === null || candleSeries.current === null) return;
         if (lastRenderedTime.current !== null && liveBar.time < lastRenderedTime.current) return;
         candleSeries.current.update(liveBar);
+        rendererBars.current = [...bars.filter((bar) => bar.time !== liveBar.time), liveBar];
+        publishVisibleAnchor(
+            container.current,
+            rendererBars.current,
+            chartRef.current?.timeScale().getVisibleLogicalRange() ?? null
+        );
         lastRenderedTime.current = liveBar.time;
     }, [barSemantic, bars, contextKey, liveBar, mode]);
 

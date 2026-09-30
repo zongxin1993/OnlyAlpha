@@ -1,4 +1,5 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { StrictMode } from "react";
 import userEvent from "@testing-library/user-event";
 import { AppProviders } from "../../app/providers";
 import { MarketDataWebError } from "../../api/marketData/client";
@@ -21,6 +22,7 @@ import {
     incompleteBars,
     marketDataAcquisition,
     marketDataBars,
+    marketDataBarsForQuery,
     marketDataClient,
     marketDataSource,
     marketDataInstrument
@@ -65,7 +67,10 @@ const chartMocks = vi.hoisted(() => {
     const timeScale = {
         applyOptions: vi.fn(),
         getVisibleLogicalRange: vi.fn(() => range.value),
-        setVisibleLogicalRange: vi.fn(),
+        setVisibleLogicalRange: vi.fn((next: { from: number; to: number }) => {
+            range.value = next;
+            visible.handler?.(next);
+        }),
         subscribeVisibleLogicalRangeChange: vi.fn(
             (handler: (next: { from: number; to: number } | null) => void) => {
                 visible.handler = handler;
@@ -238,6 +243,9 @@ it("requests older history once per left-edge threshold crossing without recreat
     if (handler === null) throw new Error("visible-range handler missing");
 
     handler({ from: 24, to: 80 });
+    expect(onNearLeftEdge).not.toHaveBeenCalled();
+    handler({ from: 25, to: 81 });
+    handler({ from: 24, to: 80 });
     handler({ from: 12, to: 68 });
     expect(onNearLeftEdge).toHaveBeenCalledOnce();
     handler({ from: 25, to: 81 });
@@ -245,6 +253,143 @@ it("requests older history once per left-edge threshold crossing without recreat
 
     expect(onNearLeftEdge).toHaveBeenCalledTimes(2);
     expect(chartMocks.createChart).toHaveBeenCalledTimes(created);
+});
+
+it("initializes the first non-empty history once even after an empty context publication", () => {
+    const callback = vi.fn();
+    const history = onlyBarsToCandles(marketDataBars().bars);
+    const chart = (key: string, bars: typeof history) => (
+        <PriceChart
+            mode="real"
+            barSemantic={marketDataBarSemantic(1)}
+            bars={bars}
+            contextKey={key}
+            onNearLeftEdge={callback}
+        />
+    );
+    const view = render(chart("context-a", []));
+    expect(chartMocks.timeScale.setVisibleLogicalRange).not.toHaveBeenCalled();
+    view.rerender(chart("context-a", history));
+    expect(chartMocks.timeScale.setVisibleLogicalRange).toHaveBeenCalledExactlyOnceWith({
+        from: 0,
+        to: 6
+    });
+    expect(callback).not.toHaveBeenCalled();
+    view.rerender(chart("context-a", [...history]));
+    expect(chartMocks.timeScale.setVisibleLogicalRange).toHaveBeenCalledTimes(1);
+    chartMocks.visible.handler?.({ from: 25, to: 30 });
+    view.rerender(chart("context-b", []));
+    chartMocks.visible.handler?.({ from: 0, to: 5 });
+    view.rerender(chart("context-b", history));
+    expect(chartMocks.timeScale.setVisibleLogicalRange).toHaveBeenCalledTimes(2);
+    expect(callback).not.toHaveBeenCalled();
+});
+
+it("replays effects with one current range handler and no mount history request", () => {
+    const oldCallback = vi.fn();
+    const currentCallback = vi.fn();
+    const history = onlyBarsToCandles(marketDataBars().bars);
+    const chart = (callback: () => void) => (
+        <StrictMode>
+            <PriceChart
+                mode="real"
+                barSemantic={marketDataBarSemantic(1)}
+                bars={history}
+                contextKey="context-a"
+                onNearLeftEdge={callback}
+            />
+        </StrictMode>
+    );
+    const view = render(chart(oldCallback));
+    expect(oldCallback).not.toHaveBeenCalled();
+    expect(
+        chartMocks.timeScale.subscribeVisibleLogicalRangeChange.mock.calls.length -
+            chartMocks.timeScale.unsubscribeVisibleLogicalRangeChange.mock.calls.length
+    ).toBe(1);
+    view.rerender(chart(currentCallback));
+    chartMocks.visible.handler?.({ from: 25, to: 30 });
+    chartMocks.visible.handler?.({ from: 24, to: 30 });
+    expect(currentCallback).toHaveBeenCalledOnce();
+    expect(oldCallback).not.toHaveBeenCalled();
+    view.unmount();
+    expect(chartMocks.visible.handler).toBeNull();
+});
+
+it.each([
+    ["mixed prepend and append", [0, 1, 2, 3], 1],
+    ["two prepends", [-1, 0, 1, 2], 2],
+    ["right append only", [1, 2, 3], 0],
+    ["missing prior identity", [0, 2, 3], 0],
+    ["reordered prior sequence", [0, 2, 1, 3], 0]
+] as const)("preserves the viewport using only proven left offset: %s", (_name, times, offset) => {
+    const first = onlyBarsToCandles(marketDataBars().bars)[0];
+    if (first === undefined) throw new Error("fixture requires a first Bar");
+    const candle = (index: number) => ({
+        ...first,
+        time: (first.time + index * 60) as typeof first.time
+    });
+    const prior = [candle(1), candle(2)];
+    const view = render(
+        <PriceChart
+            mode="real"
+            barSemantic={marketDataBarSemantic(1)}
+            bars={prior}
+            contextKey="context-a"
+        />
+    );
+    const created = chartMocks.createChart.mock.calls.length;
+    chartMocks.range.value = { from: 5, to: 10 };
+    chartMocks.timeScale.setVisibleLogicalRange.mockClear();
+    view.rerender(
+        <PriceChart
+            mode="real"
+            barSemantic={marketDataBarSemantic(1)}
+            bars={times.map(candle)}
+            contextKey="context-a"
+        />
+    );
+    if (offset > 0)
+        expect(chartMocks.timeScale.setVisibleLogicalRange).toHaveBeenCalledExactlyOnceWith({
+            from: 5 + offset,
+            to: 10 + offset
+        });
+    else expect(chartMocks.timeScale.setVisibleLogicalRange).not.toHaveBeenCalled();
+    expect(chartMocks.createChart).toHaveBeenCalledTimes(created);
+});
+
+it("derives the visible anchor from renderer Bars and preserves it after a mixed prepend", () => {
+    const prior = onlyBarsToCandles(marketDataBars().bars);
+    const first = prior[0];
+    const last = prior[1];
+    if (first === undefined || last === undefined) throw new Error("fixture requires two Bars");
+    const view = render(
+        <PriceChart
+            mode="real"
+            barSemantic={marketDataBarSemantic(1)}
+            bars={prior}
+            contextKey="context-a"
+        />
+    );
+    act(() => {
+        chartMocks.range.value = { from: 0.2, to: 1.2 };
+        chartMocks.visible.handler?.(chartMocks.range.value);
+    });
+    const chart = screen.getByTestId("price-chart");
+    expect(chart).toHaveAttribute("data-visible-anchor-time", String(last.time));
+    view.rerender(
+        <PriceChart
+            mode="real"
+            barSemantic={marketDataBarSemantic(1)}
+            bars={[
+                { ...first, time: (first.time - 60) as typeof first.time },
+                ...prior,
+                { ...last, time: (last.time + 60) as typeof last.time }
+            ]}
+            contextKey="context-a"
+        />
+    );
+    expect(chart).toHaveAttribute("data-visible-anchor-time", String(last.time));
+    expect(chart).toHaveAttribute("data-visible-range-from", "1.2");
 });
 
 it("shifts the logical range by the strict prepend count", () => {
@@ -419,7 +564,7 @@ it("renders only canonical Product bars in real READY and disables synthetic ove
     const user = userEvent.setup();
     const client = marketDataClient({
         listInstruments: () => Promise.resolve([marketDataInstrument()]),
-        queryBars: () => Promise.resolve(marketDataBars())
+        queryBars: (_reference, query) => Promise.resolve(marketDataBarsForQuery(query))
     });
     renderWorkspace(client);
 
@@ -454,7 +599,7 @@ it("accepts a custom seven-minute specification through the real Product query",
         queryBars: (_reference, query) => {
             steps.push(fixedDurationMinutes(query.bar_semantic));
             return Promise.resolve(
-                marketDataBars({
+                marketDataBarsForQuery(query, {
                     bar_semantic: query.bar_semantic
                 })
             );
@@ -478,9 +623,11 @@ it("requests an explicit acquisition for incomplete coverage and then renders da
     const calls: string[] = [];
     const client = marketDataClient({
         listInstruments: () => Promise.resolve([marketDataInstrument()]),
-        queryBars: () => {
+        queryBars: (_reference, query) => {
             calls.push("bars");
-            return Promise.resolve(calls.length === 1 ? incompleteBars() : marketDataBars());
+            return Promise.resolve(
+                marketDataBarsForQuery(query, calls.length === 1 ? incompleteBars() : {})
+            );
         },
         createAcquisition: () => {
             calls.push("acquisition");
@@ -511,7 +658,7 @@ it("submits multiple server-planned acquisition ranges in order", async () => {
     let queries = 0;
     const client = marketDataClient({
         listInstruments: () => Promise.resolve([marketDataInstrument()]),
-        queryBars: () => {
+        queryBars: (_reference, query) => {
             queries += 1;
             return Promise.resolve(
                 queries === 1
@@ -522,7 +669,7 @@ it("submits multiple server-planned acquisition ranges in order", async () => {
                               planned_acquisition_ranges: ranges
                           }
                       })
-                    : marketDataBars()
+                    : marketDataBarsForQuery(query)
             );
         },
         createAcquisition: (_reference, query) => {
@@ -562,7 +709,7 @@ it("re-enters the command after owner loss and re-queries the frozen window", as
             return Promise.resolve(
                 calls.filter((item) => item === "bars").length === 1
                     ? incompleteBars()
-                    : marketDataBars()
+                    : marketDataBarsForQuery(query)
             );
         },
         createAcquisition: () => {
