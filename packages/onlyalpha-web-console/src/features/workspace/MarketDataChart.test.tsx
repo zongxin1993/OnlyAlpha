@@ -439,6 +439,11 @@ it("renders only canonical Product bars in real READY and disables synthetic ove
     expect(screen.getByTestId("market-data-status")).toHaveTextContent(
         /test\.market_data\.live · 历史投影 888888888888 · ● 连接中/
     );
+    expect(screen.getByTestId("market-data-status")).toHaveAttribute("data-loaded-bar-count", "2");
+    expect(screen.getByTestId("market-data-status")).toHaveAttribute(
+        "data-older-history-status",
+        "idle"
+    );
 });
 
 it("accepts a custom seven-minute specification through the real Product query", async () => {

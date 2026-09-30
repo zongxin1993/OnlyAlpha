@@ -245,6 +245,16 @@ export function WorkspacePage() {
     const marketData = useMarketDataChart();
     const realPath = marketData.reference !== null;
     const realInstrument = marketData.instrument;
+    const olderHistoryCopy =
+        marketData.olderHistoryStatus === "loading"
+            ? "正在加载更早行情…"
+            : marketData.olderHistoryStatus === "acquiring"
+              ? "正在补齐更早行情…"
+              : marketData.olderHistoryStatus === "failed"
+                ? (marketData.olderHistoryMessage ?? "更早行情加载失败")
+                : marketData.olderHistoryStatus === "exhausted"
+                  ? "已到达可用历史起点"
+                  : null;
     const symbolNeedle = symbolQuery.trim().toLowerCase();
     const symbolMatches: readonly { readonly code: string; readonly name: string }[] = realPath
         ? marketData.instruments.map((item) => ({
@@ -537,6 +547,8 @@ export function WorkspacePage() {
                 <p
                     className="chart-region__status"
                     data-status={marketData.status}
+                    data-loaded-bar-count={marketData.loadedClosedBarCount}
+                    data-older-history-status={marketData.olderHistoryStatus}
                     data-testid="market-data-status"
                 >
                     {marketData.message ??
@@ -557,6 +569,7 @@ export function WorkspacePage() {
                             : realPath
                               ? "已选择真实行情数据源；尚无 canonical K 线"
                               : "未连接真实行情；当前图表为 synthetic 占位")}
+                    {olderHistoryCopy === null ? null : ` · ${olderHistoryCopy}`}
                 </p>
                 <div className="chart-region__body">
                     <PriceChart
