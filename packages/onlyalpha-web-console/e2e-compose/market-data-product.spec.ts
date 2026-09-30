@@ -100,10 +100,14 @@ function observeProduct(page: Page) {
     const subscribed: Record<string, unknown>[] = [];
     const requests: URL[] = [];
     const acquisitions: URL[] = [];
+    const subscriptions: Record<string, unknown>[] = [];
+    page.on("request", (request) => {
+        const url = new URL(request.url());
+        if (url.pathname === "/api/v2/market-data/bars") requests.push(url);
+    });
     page.on("response", async (response) => {
         const url = new URL(response.url());
         if (url.pathname === "/api/v2/market-data/bars" && response.ok()) {
-            requests.push(url);
             bars.push((await response.json()) as Record<string, unknown>);
         }
         if (
@@ -113,12 +117,16 @@ function observeProduct(page: Page) {
             acquisitions.push(url);
     });
     page.on("websocket", (socket) => {
+        socket.on("framesent", ({ payload }) => {
+            const value = JSON.parse(String(payload)) as Record<string, unknown>;
+            if (value.operation === "SUBSCRIBE_BAR") subscriptions.push(value);
+        });
         socket.on("framereceived", ({ payload }) => {
             const value = JSON.parse(String(payload)) as Record<string, unknown>;
             if (value.event === "SUBSCRIBED") subscribed.push(value);
         });
     });
-    return { acquisitions, bars, subscribed, requests };
+    return { acquisitions, bars, subscribed, requests, subscriptions };
 }
 
 async function stats(page: Page) {
@@ -132,15 +140,28 @@ async function stats(page: Page) {
     };
 }
 
-async function panChartToOlderHistory(page: Page, dragCount: number): Promise<void> {
+async function panChartToOlderHistory(
+    page: Page,
+    dragCount: number,
+    stop?: () => boolean
+): Promise<void> {
     const bounds = await page.getByTestId("price-chart").boundingBox();
     if (bounds === null) throw new Error("price chart bounds unavailable");
     for (let index = 0; index < dragCount; index += 1) {
+        if (stop?.()) break;
+        const from = Number(
+            await page.getByTestId("price-chart").getAttribute("data-visible-range-from")
+        );
+        const distance = Math.min(bounds.width * 0.6, Math.max(8, (from - 12) * 7));
         await page.mouse.move(bounds.x + bounds.width * 0.3, bounds.y + bounds.height * 0.5);
         await page.mouse.down();
-        await page.mouse.move(bounds.x + bounds.width * 0.9, bounds.y + bounds.height * 0.5, {
-            steps: 4
-        });
+        await page.mouse.move(
+            bounds.x + bounds.width * 0.3 + distance,
+            bounds.y + bounds.height * 0.5,
+            {
+                steps: 4
+            }
+        );
         await page.mouse.up();
     }
 }
@@ -188,6 +209,9 @@ test("real Browser loads authoritative older native history without moving the v
     const observed = observeProduct(page);
     const integrationId = await provision(page, "Native Viewport History Vertical");
     await openBtc(page, integrationId);
+    await scenario(page);
+    await page.getByRole("combobox", { name: "时间周期" }).selectOption("15");
+    const { http } = await matchingProductEvidence(observed, 15, "PROVIDER_NATIVE");
     const status = page.getByTestId("market-data-status");
     await expect
         .poll(async () => Number(await status.getAttribute("data-loaded-bar-count")), {
@@ -196,6 +220,32 @@ test("real Browser loads authoritative older native history without moving the v
         .toBeGreaterThanOrEqual(1440);
     const initialBarCount = Number(await status.getAttribute("data-loaded-bar-count"));
     await expect(status).toHaveAttribute("data-older-history-status", "idle");
+    expect(
+        observed.requests.filter((url) => url.searchParams.get("target_bar_count") === "240")
+    ).toHaveLength(0);
+    const matchingSubscriptions = () =>
+        observed.subscriptions.filter(
+            (value) =>
+                (value.source_reference as { integration_id?: string }).integration_id ===
+                    integrationId &&
+                (value.source_reference as { integration_revision_fingerprint?: string })
+                    .integration_revision_fingerprint ===
+                    (http?.source_selection as { integration_revision_fingerprint?: string })
+                        .integration_revision_fingerprint &&
+                value.instrument_id === http?.instrument_id &&
+                JSON.stringify(value.bar_semantic) === JSON.stringify(http?.bar_semantic)
+        );
+    const matchingSubscribed = () =>
+        observed.subscribed.filter(
+            (value) =>
+                value.source_id === (http?.source_selection as { source_id?: string }).source_id &&
+                value.instrument_id === http?.instrument_id &&
+                value.resolution_plan_fingerprint === http?.resolution_plan_fingerprint
+        );
+    expect(matchingSubscriptions()).toHaveLength(1);
+    expect(matchingSubscribed()).toHaveLength(1);
+    const subscriptionsBefore = matchingSubscriptions().length;
+    const subscribedBefore = matchingSubscribed().length;
     await scenario(page);
     const initialAcquisitionCount = observed.acquisitions.length;
     const initialRequestCount = observed.requests.length;
@@ -205,20 +255,57 @@ test("real Browser loads authoritative older native history without moving the v
         releaseFirstBeforeRequest = resolve;
     });
     let beforeRequestCount = 0;
+    let firstResponseHeld = false;
     await page.route("**/api/v2/market-data/bars?**", async (route) => {
         const url = new URL(route.request().url());
-        if (url.searchParams.get("anchor_kind") === "BEFORE_TIME") {
+        if (
+            url.searchParams.get("anchor_kind") === "BEFORE_TIME" &&
+            url.searchParams.get("target_bar_count") === "240"
+        ) {
             beforeRequestCount += 1;
-            if (beforeRequestCount === 1) await release;
+            if (beforeRequestCount === 1) {
+                const response = await route.fetch();
+                firstResponseHeld = true;
+                await release;
+                await route.fulfill({ response });
+                return;
+            }
         }
         await route.continue();
     });
 
-    await panChartToOlderHistory(page, 32);
+    await panChartToOlderHistory(page, 32, () => beforeRequestCount > 0);
     await expect.poll(() => beforeRequestCount, { timeout: 45_000 }).toBe(1);
+    await expect.poll(() => firstResponseHeld, { timeout: 45_000 }).toBe(true);
 
-    await panChartToOlderHistory(page, 8);
+    const chart = page.getByTestId("price-chart");
+    const bounds = await chart.boundingBox();
+    if (bounds === null) throw new Error("price chart bounds unavailable");
+    const anchorBefore = await chart.getAttribute("data-visible-anchor-time");
+    const rangeBefore = Number(await chart.getAttribute("data-visible-range-from"));
+    expect(anchorBefore).toMatch(/^[0-9]+$/);
+    expect(rangeBefore).toBeGreaterThanOrEqual(0);
+    // Actual away → left crossings re-enter the same frozen page, then return to the anchor.
+    for (let index = 0; index < 3; index += 1) {
+        const x = bounds.x + bounds.width * 0.65;
+        const y = bounds.y + bounds.height * 0.5;
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x - 240, y, { steps: 8 });
+        await page.mouse.up();
+        await expect
+            .poll(async () => Number(await chart.getAttribute("data-visible-range-from")))
+            .toBeGreaterThan(24);
+        await page.mouse.down();
+        await page.mouse.move(x, y, { steps: 8 });
+        await page.mouse.up();
+        await expect
+            .poll(async () => Number(await chart.getAttribute("data-visible-range-from")))
+            .toBeLessThanOrEqual(24);
+    }
     expect(beforeRequestCount).toBe(1);
+    if (anchorBefore === null) throw new Error("visible anchor unavailable");
+    await expect(chart).toHaveAttribute("data-visible-anchor-time", anchorBefore);
     releaseFirstBeforeRequest();
 
     await expect
@@ -228,8 +315,25 @@ test("real Browser loads authoritative older native history without moving the v
         .toBeGreaterThan(initialBarCount);
     await expect(status).toHaveAttribute("data-older-history-status", "idle");
     const firstOlderBarCount = Number(await status.getAttribute("data-loaded-bar-count"));
+    await expect(chart).toHaveAttribute("data-visible-anchor-time", anchorBefore);
+    expect(Number(await chart.getAttribute("data-visible-range-from"))).toBeGreaterThan(
+        rangeBefore
+    );
+    expect(matchingSubscriptions()).toHaveLength(subscriptionsBefore);
+    expect(matchingSubscribed()).toHaveLength(subscribedBefore);
+    await test.info().attach("viewport-continuity", {
+        contentType: "application/json",
+        body: JSON.stringify({
+            anchorBefore,
+            anchorAfter: await chart.getAttribute("data-visible-anchor-time"),
+            subscriptionsBefore,
+            subscriptionsAfter: matchingSubscriptions().length,
+            subscribedBefore,
+            subscribedAfter: matchingSubscribed().length
+        })
+    });
 
-    await panChartToOlderHistory(page, 8);
+    await panChartToOlderHistory(page, 32, () => beforeRequestCount > 2);
     await expect.poll(() => beforeRequestCount, { timeout: 45_000 }).toBeGreaterThan(2);
     await expect
         .poll(async () => Number(await status.getAttribute("data-loaded-bar-count")), {
