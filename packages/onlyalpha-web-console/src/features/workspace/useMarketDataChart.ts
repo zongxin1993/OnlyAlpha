@@ -8,6 +8,7 @@ import {
 import { openMarketDataStream } from "../../api/marketData/stream";
 import type {
     MarketDataBarSemantic,
+    MarketDataBars,
     MarketDataCoverage,
     MarketDataInstrument,
     MarketDataSource,
@@ -15,6 +16,15 @@ import type {
 } from "../../api/marketData/model";
 import { marketDataBarSemantic } from "../../api/marketData/model";
 import { useMarketDataApi } from "../../app/providers";
+import {
+    MarketDataBarLedgerConflictError,
+    OnlyMarketDataBarLedger,
+    type MarketDataBarLedgerSnapshot
+} from "./marketDataBarLedger";
+import {
+    OnlyMarketDataHistoryLoader,
+    onlyMarketDataChartContextKey
+} from "./marketDataHistoryLoader";
 
 export const DEFAULT_TARGET_BAR_COUNT = 1_440;
 const SECOND_NS = 1_000_000_000n;
@@ -47,11 +57,14 @@ export interface MarketDataChartState {
     readonly status: MarketDataChartStatus;
     readonly message: string | null;
     readonly coverage: MarketDataCoverage | null;
+    readonly chartContextKey: string | null;
     readonly bars: readonly CandlestickData<UTCTimestamp>[];
+    readonly loadedClosedBarCount: number;
     readonly historyProjectionFingerprint: string | null;
     readonly realtimeStatus: MarketDataRealtimeStatus;
     readonly liveBar: CandlestickData<UTCTimestamp> | null;
-    readonly lastClosedStreamBar: CandlestickData<UTCTimestamp> | null;
+    readonly olderHistoryStatus: "idle" | "loading" | "acquiring" | "failed" | "exhausted";
+    readonly olderHistoryMessage: string | null;
     readonly streamId: string | null;
     readonly streamError: string | null;
     readonly lastClosedCursor: string | null;
@@ -59,6 +72,7 @@ export interface MarketDataChartState {
     readonly searchInstruments: (query: string) => Promise<void>;
     readonly selectInstrument: (instrument: MarketDataInstrument) => Promise<void>;
     readonly selectBarDuration: (durationMinutes: number) => Promise<void>;
+    readonly loadOlderHistory: () => Promise<void>;
 }
 
 /** The chart context is presentation state; every fact below comes from the Product API. */
@@ -106,24 +120,38 @@ export function useMarketDataChart(): MarketDataChartState {
     const [status, setStatus] = useState<MarketDataChartStatus>("idle");
     const [message, setMessage] = useState<string | null>(null);
     const [coverage, setCoverage] = useState<MarketDataCoverage | null>(null);
-    const [bars, setBars] = useState<readonly CandlestickData<UTCTimestamp>[]>([]);
+    const [ledgerSnapshot, setLedgerSnapshot] = useState<MarketDataBarLedgerSnapshot | null>(null);
     const [historyProjectionFingerprint, setHistoryProjectionFingerprint] = useState<string | null>(
         null
     );
     const [resolvedSourceId, setResolvedSourceId] = useState<string | null>(null);
     const [realtimeStatus, setRealtimeStatus] = useState<MarketDataRealtimeStatus>("disabled");
-    const [liveBar, setLiveBar] = useState<CandlestickData<UTCTimestamp> | null>(null);
-    const [lastClosedStreamBar, setLastClosedStreamBar] =
-        useState<CandlestickData<UTCTimestamp> | null>(null);
+    const [olderHistoryStatus, setOlderHistoryStatus] = useState<
+        "idle" | "loading" | "acquiring" | "failed" | "exhausted"
+    >("idle");
+    const [olderHistoryMessage, setOlderHistoryMessage] = useState<string | null>(null);
     const [streamId, setStreamId] = useState<string | null>(null);
     const [streamError, setStreamError] = useState<string | null>(null);
     const [lastClosedCursor, setLastClosedCursor] = useState<string | null>(null);
-    const lastLiveStartRef = useRef<bigint | null>(null);
-    const lastClosedStartRef = useRef<bigint | null>(null);
+    const ledger = useRef<OnlyMarketDataBarLedger | null>(null);
+    const olderHistoryLoader = useRef<OnlyMarketDataHistoryLoader | null>(null);
     const streamGeneration = useRef(0);
     const historyGeneration = useRef(0);
     const resume = useRef<{ cursor: string; fingerprint: string } | null>(null);
     const previousRevision = useRef<string | null>(null);
+
+    const chartContextKey = ledgerSnapshot?.contextKey ?? null;
+    const bars = useMemo(
+        () => onlyBarsToCandles(ledgerSnapshot?.closedBars ?? []),
+        [ledgerSnapshot]
+    );
+    const liveBar = useMemo(
+        () =>
+            ledgerSnapshot?.preview === null || ledgerSnapshot === null
+                ? null
+                : onlyBarToCandle(ledgerSnapshot.preview),
+        [ledgerSnapshot]
+    );
 
     useEffect(() => {
         const controller = new AbortController();
@@ -153,7 +181,9 @@ export function useMarketDataChart(): MarketDataChartState {
 
     const apply = useCallback((error: unknown) => {
         const webError = error instanceof MarketDataWebError ? error : null;
-        setBars([]);
+        ledger.current = null;
+        olderHistoryLoader.current = null;
+        setLedgerSnapshot(null);
         setHistoryProjectionFingerprint(null);
         setStatus("failed");
         setMessage(
@@ -163,12 +193,77 @@ export function useMarketDataChart(): MarketDataChartState {
         );
     }, []);
 
+    const failLedger = useCallback((error: MarketDataBarLedgerConflictError) => {
+        historyGeneration.current += 1;
+        streamGeneration.current += 1;
+        olderHistoryLoader.current = null;
+        setLedgerSnapshot((current) =>
+            current === null ? null : { ...current, preview: null, version: current.version + 1 }
+        );
+        setStatus("failed");
+        setMessage(`${error.code}: ${error.message}`);
+        setRealtimeStatus("failed");
+        setOlderHistoryStatus("failed");
+        setOlderHistoryMessage(error.code);
+    }, []);
+
+    const publishCompleteHistory = useCallback(
+        (
+            active: MarketDataSourceReference,
+            query: MarketDataBarsQuery,
+            generation: number,
+            activeLedger: OnlyMarketDataBarLedger,
+            loaded: MarketDataBars
+        ) => {
+            if (generation !== historyGeneration.current || ledger.current !== activeLedger) return;
+            try {
+                const merged = activeLedger.mergeHistory(loaded.bars);
+                setLedgerSnapshot(merged.snapshot);
+            } catch (error) {
+                if (error instanceof MarketDataBarLedgerConflictError) failLedger(error);
+                else throw error;
+                return;
+            }
+            setCoverage(loaded.coverage);
+            setResolvedSourceId(loaded.source_selection.source_id);
+            setHistoryProjectionFingerprint(loaded.history_projection_fingerprint);
+            resume.current =
+                loaded.resume_after_sequence !== null && loaded.resume_plan_fingerprint !== null
+                    ? {
+                          cursor: loaded.resume_after_sequence,
+                          fingerprint: loaded.resume_plan_fingerprint
+                      }
+                    : null;
+            olderHistoryLoader.current = new OnlyMarketDataHistoryLoader({
+                client,
+                reference: active,
+                contextKey: activeLedger.contextKey,
+                isCurrent: () =>
+                    generation === historyGeneration.current && ledger.current === activeLedger,
+                merge: (pageBars) => {
+                    const page = activeLedger.mergeHistory(pageBars);
+                    setLedgerSnapshot(page.snapshot);
+                    return page;
+                },
+                onAcquiring: () => {
+                    setOlderHistoryStatus("acquiring");
+                }
+            });
+            setOlderHistoryStatus("idle");
+            setOlderHistoryMessage(null);
+            setStatus("ready");
+            setMessage(null);
+        },
+        [client, failLedger]
+    );
+
     const acquire = useCallback(
         async (
             active: MarketDataSourceReference,
             query: MarketDataBarsQuery,
             ranges: readonly { start_ns: string; end_ns: string }[],
-            generation: number
+            generation: number,
+            activeLedger: OnlyMarketDataBarLedger
         ) => {
             setStatus("acquiring");
             setMessage("正在同步历史行情…");
@@ -215,30 +310,19 @@ export function useMarketDataChart(): MarketDataChartState {
                 const reloaded = await client.queryBars(active, query);
                 if (generation !== historyGeneration.current) return;
                 setCoverage(reloaded.coverage);
-                setResolvedSourceId(reloaded.source_selection.source_id);
-                setBars(
-                    reloaded.coverage.status === "COMPLETE" ? onlyBarsToCandles(reloaded.bars) : []
-                );
-                setHistoryProjectionFingerprint(reloaded.history_projection_fingerprint);
-                resume.current =
-                    reloaded.resume_after_sequence !== null &&
-                    reloaded.resume_plan_fingerprint !== null
-                        ? {
-                              cursor: reloaded.resume_after_sequence,
-                              fingerprint: reloaded.resume_plan_fingerprint
-                          }
-                        : null;
-                setStatus(reloaded.coverage.status === "COMPLETE" ? "ready" : "incomplete");
-                setMessage(
-                    reloaded.coverage.status === "COMPLETE"
-                        ? null
-                        : `历史行情仍不完整：${reloaded.coverage.issues.join(", ") || reloaded.coverage.status}`
-                );
+                if (reloaded.coverage.status === "COMPLETE") {
+                    publishCompleteHistory(active, query, generation, activeLedger, reloaded);
+                } else {
+                    setStatus("incomplete");
+                    setMessage(
+                        `历史行情仍不完整：${reloaded.coverage.issues.join(", ") || reloaded.coverage.status}`
+                    );
+                }
             } catch (error) {
                 if (generation === historyGeneration.current) apply(error);
             }
         },
-        [apply, client]
+        [apply, client, publishCompleteHistory]
     );
 
     const load = useCallback(
@@ -254,6 +338,17 @@ export function useMarketDataChart(): MarketDataChartState {
                 target_bar_count: DEFAULT_TARGET_BAR_COUNT,
                 bar_semantic: specification
             };
+            const contextKey = onlyMarketDataChartContextKey(
+                active,
+                target.instrument_id,
+                specification
+            );
+            const activeLedger = new OnlyMarketDataBarLedger(contextKey);
+            ledger.current = activeLedger;
+            olderHistoryLoader.current = null;
+            setLedgerSnapshot(activeLedger.snapshot());
+            setOlderHistoryStatus("idle");
+            setOlderHistoryMessage(null);
             resume.current = null;
             setStatus("loading");
             setRealtimeStatus("disabled");
@@ -262,22 +357,10 @@ export function useMarketDataChart(): MarketDataChartState {
                 const loaded = await client.queryBars(active, query);
                 if (generation !== historyGeneration.current) return;
                 setCoverage(loaded.coverage);
-                setResolvedSourceId(loaded.source_selection.source_id);
                 if (loaded.coverage.status === "COMPLETE") {
-                    resume.current =
-                        loaded.resume_after_sequence !== null &&
-                        loaded.resume_plan_fingerprint !== null
-                            ? {
-                                  cursor: loaded.resume_after_sequence,
-                                  fingerprint: loaded.resume_plan_fingerprint
-                              }
-                            : null;
-                    setBars(onlyBarsToCandles(loaded.bars));
-                    setHistoryProjectionFingerprint(loaded.history_projection_fingerprint);
-                    setStatus("ready");
+                    publishCompleteHistory(active, query, generation, activeLedger, loaded);
                     return;
                 }
-                setBars([]);
                 setHistoryProjectionFingerprint(null);
                 await acquire(
                     active,
@@ -287,13 +370,14 @@ export function useMarketDataChart(): MarketDataChartState {
                         before_ns: loaded.resolved_end_ns
                     },
                     loaded.coverage.planned_acquisition_ranges,
-                    generation
+                    generation,
+                    activeLedger
                 );
             } catch (error) {
                 if (generation === historyGeneration.current) apply(error);
             }
         },
-        [acquire, apply, client]
+        [acquire, apply, client, publishCompleteHistory]
     );
 
     useEffect(() => {
@@ -304,10 +388,6 @@ export function useMarketDataChart(): MarketDataChartState {
             resume.current = null;
             setLastClosedCursor(null);
             setStreamId(null);
-            setLiveBar(null);
-            setLastClosedStreamBar(null);
-            lastLiveStartRef.current = null;
-            lastClosedStartRef.current = null;
             if (reference !== null && instrument !== null)
                 void load(reference, instrument, barSemantic, generation);
         }
@@ -320,7 +400,7 @@ export function useMarketDataChart(): MarketDataChartState {
             reference === null ||
             instrument === null ||
             resolvedSourceId === null ||
-            bars.length === 0 ||
+            ledger.current?.snapshot().closedBars.length === 0 ||
             resume.current === null
         ) {
             return;
@@ -370,10 +450,9 @@ export function useMarketDataChart(): MarketDataChartState {
                             resume.current = null;
                             setLastClosedCursor(null);
                             setStreamId(null);
-                            setLiveBar(null);
-                            setLastClosedStreamBar(null);
-                            lastLiveStartRef.current = null;
-                            lastClosedStartRef.current = null;
+                            setLedgerSnapshot((current) =>
+                                current === null ? null : { ...current, preview: null }
+                            );
                             setStreamError("MARKET_DATA_RESUME_PLAN_MISMATCH");
                             setRealtimeStatus("failed");
                             close();
@@ -400,33 +479,29 @@ export function useMarketDataChart(): MarketDataChartState {
                                 resume.current = { ...resume.current, cursor: event.sequence };
                         }
                     } else if (event.event === "BAR_PREVIEW") {
-                        const start = BigInt(event.bar.bar_start_ns);
-                        if (
-                            (lastLiveStartRef.current === null ||
-                                start >= lastLiveStartRef.current) &&
-                            (lastClosedStartRef.current === null ||
-                                start > lastClosedStartRef.current)
-                        ) {
-                            lastLiveStartRef.current = start;
-                            setLiveBar(onlyBarToCandle(event.bar));
+                        try {
+                            const changed = ledger.current?.applyPreview(event.bar);
+                            if (changed?.changed === true) setLedgerSnapshot(changed.snapshot);
+                        } catch (error) {
+                            if (error instanceof MarketDataBarLedgerConflictError) {
+                                terminal = true;
+                                failLedger(error);
+                                close();
+                            } else throw error;
                         }
                     } else if (event.event === "BAR_CLOSED") {
-                        const start = BigInt(event.bar.bar_start_ns);
-                        if (
-                            lastClosedStartRef.current !== null &&
-                            start <= lastClosedStartRef.current
-                        )
-                            return;
-                        const candle = onlyBarToCandle(event.bar);
-                        lastClosedStartRef.current = start;
-                        if (
-                            lastLiveStartRef.current === null ||
-                            start >= lastLiveStartRef.current
-                        ) {
-                            lastLiveStartRef.current = start;
-                            setLiveBar(candle);
+                        try {
+                            const changed = ledger.current?.applyClosed(event.bar);
+                            if (changed?.changed === true) setLedgerSnapshot(changed.snapshot);
+                        } catch (error) {
+                            if (error instanceof MarketDataBarLedgerConflictError) {
+                                terminal = true;
+                                failLedger(error);
+                                close();
+                                return;
+                            }
+                            throw error;
                         }
-                        setLastClosedStreamBar(candle);
                         const cursor = resume.current?.cursor ?? null;
                         if (cursor === null || BigInt(event.sequence) > BigInt(cursor)) {
                             setLastClosedCursor(event.sequence);
@@ -445,10 +520,6 @@ export function useMarketDataChart(): MarketDataChartState {
                             resume.current = null;
                             setLastClosedCursor(null);
                             setStreamId(null);
-                            setLiveBar(null);
-                            setLastClosedStreamBar(null);
-                            lastLiveStartRef.current = null;
-                            lastClosedStartRef.current = null;
                             void load(
                                 reference,
                                 instrument,
@@ -478,8 +549,6 @@ export function useMarketDataChart(): MarketDataChartState {
         };
         queueMicrotask(() => {
             if (stopped) return;
-            setLiveBar(null);
-            setLastClosedStreamBar(null);
             setStreamId(null);
             setStreamError(null);
             connect();
@@ -490,7 +559,7 @@ export function useMarketDataChart(): MarketDataChartState {
             if (reconnect !== undefined) window.clearTimeout(reconnect);
             close();
         };
-    }, [barSemantic, bars, instrument, load, reference, resolvedSourceId, status]);
+    }, [barSemantic, failLedger, instrument, load, reference, resolvedSourceId, status]);
 
     const selectSource = useCallback((integrationId: string) => {
         streamGeneration.current += 1;
@@ -500,15 +569,15 @@ export function useMarketDataChart(): MarketDataChartState {
         setInstruments([]);
         setInstrument(null);
         setCoverage(null);
-        setBars([]);
+        ledger.current = null;
+        olderHistoryLoader.current = null;
+        setLedgerSnapshot(null);
+        setOlderHistoryStatus("idle");
+        setOlderHistoryMessage(null);
         setHistoryProjectionFingerprint(null);
         setResolvedSourceId(null);
-        setLiveBar(null);
-        setLastClosedStreamBar(null);
         setLastClosedCursor(null);
         resume.current = null;
-        lastLiveStartRef.current = null;
-        lastClosedStartRef.current = null;
         setStreamId(null);
         setStreamError(null);
         setRealtimeStatus("disabled");
@@ -541,12 +610,8 @@ export function useMarketDataChart(): MarketDataChartState {
         async (target: MarketDataInstrument) => {
             streamGeneration.current += 1;
             const generation = ++historyGeneration.current;
-            setLiveBar(null);
-            setLastClosedStreamBar(null);
             setLastClosedCursor(null);
             resume.current = null;
-            lastLiveStartRef.current = null;
-            lastClosedStartRef.current = null;
             setStreamId(null);
             setStreamError(null);
             setRealtimeStatus("disabled");
@@ -572,21 +637,50 @@ export function useMarketDataChart(): MarketDataChartState {
             streamGeneration.current += 1;
             const generation = ++historyGeneration.current;
             resume.current = null;
-            lastLiveStartRef.current = null;
-            lastClosedStartRef.current = null;
             setLastClosedCursor(null);
-            setLiveBar(null);
-            setLastClosedStreamBar(null);
             setStreamId(null);
             setStreamError(null);
             setRealtimeStatus("disabled");
-            setBars([]);
+            ledger.current = null;
+            olderHistoryLoader.current = null;
+            setLedgerSnapshot(null);
+            setOlderHistoryStatus("idle");
+            setOlderHistoryMessage(null);
             setBarSemantic(specification);
             if (reference !== null && instrument !== null)
                 await load(reference, instrument, specification, generation);
         },
         [barCapability, instrument, load, reference]
     );
+
+    const loadOlderHistory = useCallback(async () => {
+        const activeLedger = ledger.current;
+        const loader = olderHistoryLoader.current;
+        const beforeNs = activeLedger?.snapshot().earliestStartNs ?? null;
+        if (activeLedger === null || loader === null || instrument === null || beforeNs === null)
+            return;
+        setOlderHistoryStatus("loading");
+        setOlderHistoryMessage(null);
+        try {
+            const result = await loader.loadOlder({
+                instrumentId: instrument.instrument_id,
+                barSemantic,
+                beforeNs
+            });
+            if (ledger.current !== activeLedger || result.status === "stale") return;
+            setOlderHistoryStatus(result.status === "exhausted" ? "exhausted" : "idle");
+        } catch (error) {
+            if (ledger.current !== activeLedger) return;
+            if (error instanceof MarketDataBarLedgerConflictError) {
+                failLedger(error);
+                return;
+            }
+            setOlderHistoryStatus("failed");
+            setOlderHistoryMessage(
+                error instanceof Error ? `较早行情加载失败：${error.message}` : "较早行情加载失败"
+            );
+        }
+    }, [barSemantic, failLedger, instrument]);
 
     return {
         selectableSources,
@@ -600,18 +694,22 @@ export function useMarketDataChart(): MarketDataChartState {
         status,
         message,
         coverage,
+        chartContextKey,
         bars,
+        loadedClosedBarCount: ledgerSnapshot?.closedBars.length ?? 0,
         historyProjectionFingerprint,
         realtimeStatus,
         liveBar,
-        lastClosedStreamBar,
+        olderHistoryStatus,
+        olderHistoryMessage,
         streamId,
         streamError,
         lastClosedCursor,
         selectSource,
         searchInstruments,
         selectInstrument,
-        selectBarDuration
+        selectBarDuration,
+        loadOlderHistory
     };
 }
 

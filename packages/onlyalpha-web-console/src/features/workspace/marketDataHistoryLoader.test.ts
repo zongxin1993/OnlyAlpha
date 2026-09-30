@@ -15,8 +15,11 @@ import {
 } from "./marketDataHistoryLoader";
 
 const currentBars = marketDataBars().bars;
-const firstCurrentBar = currentBars[0];
-if (firstCurrentBar === undefined) throw new Error("Market Data fixture requires a first Bar");
+const firstCurrentBar: MarketDataBar =
+    currentBars[0] ??
+    (() => {
+        throw new Error("Market Data fixture requires a first Bar");
+    })();
 const earlierBar: MarketDataBar = {
     ...firstCurrentBar,
     bar_start_ns: "1767225540000000000",

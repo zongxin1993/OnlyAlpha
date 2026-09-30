@@ -10,6 +10,7 @@ import {
     operationalStatus
 } from "../../test/integrationClient";
 import {
+    FIXTURE_SELECTION,
     marketDataBars,
     marketDataClient,
     marketDataInstrument,
@@ -72,13 +73,229 @@ function Harness() {
             <button type="button" onClick={() => void state.selectBarDuration(37)}>
                 37m
             </button>
+            <button type="button" onClick={() => void state.loadOlderHistory()}>
+                older
+            </button>
             <output>{state.liveBar?.close ?? "none"}</output>
+            <output data-testid="closed-bars">
+                {state.bars.map((bar) => bar.close).join(",")}
+            </output>
+            <output data-testid="closed-count">{state.loadedClosedBarCount}</output>
+            <output data-testid="chart-status">{state.status}</output>
+            <output data-testid="chart-message">{state.message ?? "none"}</output>
+            <output data-testid="context-key">{state.chartContextKey ?? "none"}</output>
+            <output data-testid="older-status">{state.olderHistoryStatus}</output>
             <output data-testid="cursor">{state.lastClosedCursor ?? "none"}</output>
             <output data-testid="realtime-status">{state.realtimeStatus}</output>
             <output data-testid="stream-error">{state.streamError ?? "none"}</output>
         </>
     );
 }
+
+it("keeps initial history, realtime closed Bars, and preview in one ledger projection", async () => {
+    stream.callbacks.length = 0;
+    stream.disconnects.length = 0;
+    stream.requests.length = 0;
+    stream.closed.count = 0;
+    const user = userEvent.setup();
+    render(
+        <AppProviders
+            client={researchClient()}
+            integrationClient={integrationClient()}
+            marketDataClient={marketDataClient()}
+        >
+            <Harness />
+        </AppProviders>
+    );
+    await user.click(screen.getByRole("button", { name: "source" }));
+    await user.click(screen.getByRole("button", { name: "btc" }));
+    await waitFor(() => {
+        expect(screen.getByTestId("closed-count")).toHaveTextContent("2");
+    });
+    const callback = stream.callbacks[0];
+    if (callback === undefined) throw new Error("stream missing");
+
+    act(() => {
+        callback({
+            schema_version: 2,
+            event: "BAR_PREVIEW",
+            source_id: "test.market_data.live",
+            instrument_id: "BTCUSDT.TEST",
+            bar_semantic: marketDataBarSemantic(1),
+            bar: {
+                bar_start_ns: "1767225720000000000",
+                bar_end_ns: "1767225780000000000",
+                open: "102.5",
+                high: "104",
+                low: "102",
+                close: "103",
+                volume: "1",
+                closed: false
+            }
+        });
+    });
+    expect(screen.getByTestId("closed-count")).toHaveTextContent("2");
+    expect(screen.getByText("103")).toBeInTheDocument();
+
+    act(() => {
+        callback({
+            schema_version: 2,
+            event: "BAR_CLOSED",
+            source_id: "test.market_data.live",
+            instrument_id: "BTCUSDT.TEST",
+            bar_semantic: marketDataBarSemantic(1),
+            sequence: "29453762",
+            bar: {
+                bar_start_ns: "1767225720000000000",
+                bar_end_ns: "1767225780000000000",
+                open: "102.5",
+                high: "104",
+                low: "102",
+                close: "103",
+                volume: "1",
+                closed: true
+            }
+        });
+    });
+    expect(screen.getByTestId("closed-count")).toHaveTextContent("3");
+    expect(screen.getByTestId("closed-bars")).toHaveTextContent("101,102.5,103");
+});
+
+it("preserves current Bars when an older page fails", async () => {
+    stream.callbacks.length = 0;
+    const queryBars = vi
+        .fn()
+        .mockResolvedValueOnce(marketDataBars())
+        .mockRejectedValueOnce(new Error("older unavailable"));
+    const user = userEvent.setup();
+    render(
+        <AppProviders
+            client={researchClient()}
+            integrationClient={integrationClient()}
+            marketDataClient={marketDataClient({ queryBars })}
+        >
+            <Harness />
+        </AppProviders>
+    );
+    await user.click(screen.getByRole("button", { name: "source" }));
+    await user.click(screen.getByRole("button", { name: "btc" }));
+    await waitFor(() => {
+        expect(screen.getByTestId("closed-count")).toHaveTextContent("2");
+    });
+
+    await user.click(screen.getByRole("button", { name: "older" }));
+
+    await waitFor(() => {
+        expect(screen.getByTestId("older-status")).toHaveTextContent("failed");
+    });
+    expect(screen.getByTestId("closed-count")).toHaveTextContent("2");
+});
+
+it("fails the exact chart context on a conflicting realtime closed Bar", async () => {
+    stream.callbacks.length = 0;
+    stream.closed.count = 0;
+    const user = userEvent.setup();
+    render(
+        <AppProviders
+            client={researchClient()}
+            integrationClient={integrationClient()}
+            marketDataClient={marketDataClient()}
+        >
+            <Harness />
+        </AppProviders>
+    );
+    await user.click(screen.getByRole("button", { name: "source" }));
+    await user.click(screen.getByRole("button", { name: "btc" }));
+    await waitFor(() => {
+        expect(stream.callbacks).toHaveLength(1);
+    });
+    const conflicting = marketDataBars().bars[0];
+    if (conflicting === undefined) throw new Error("Market Data fixture requires a first Bar");
+
+    act(() => {
+        stream.callbacks[0]?.({
+            schema_version: 2,
+            event: "BAR_CLOSED",
+            source_id: "test.market_data.live",
+            instrument_id: "BTCUSDT.TEST",
+            bar_semantic: marketDataBarSemantic(1),
+            sequence: "29453762",
+            bar: { ...conflicting, close: "conflict" }
+        });
+    });
+
+    expect(screen.getByTestId("chart-status")).toHaveTextContent("failed");
+    expect(screen.getByTestId("chart-message")).toHaveTextContent(
+        "MARKET_DATA_BAR_LEDGER_CONFLICT"
+    );
+    expect(stream.closed.count).toBeGreaterThan(0);
+});
+
+it("replaces the ledger when the exact Integration Revision changes", async () => {
+    stream.callbacks.length = 0;
+    stream.requests.length = 0;
+    const user = userEvent.setup();
+    const view = (revision: string) => (
+        <AppProviders
+            key={revision}
+            client={researchClient()}
+            integrationClient={integrationClient()}
+            marketDataClient={marketDataClient({
+                listSources: () =>
+                    Promise.resolve([
+                        marketDataSource({ integration_revision_fingerprint: revision })
+                    ]),
+                queryBars: () =>
+                    Promise.resolve(
+                        marketDataBars({
+                            source_selection: {
+                                ...FIXTURE_SELECTION,
+                                integration_revision_fingerprint: revision
+                            }
+                        })
+                    )
+            })}
+        >
+            <Harness />
+        </AppProviders>
+    );
+    const rendered = render(view("a".repeat(64)));
+    await user.click(screen.getByRole("button", { name: "source" }));
+    await user.click(screen.getByRole("button", { name: "btc" }));
+    await waitFor(() => {
+        expect(stream.callbacks).toHaveLength(1);
+    });
+    act(() => {
+        stream.callbacks[0]?.({
+            schema_version: 2,
+            event: "BAR_CLOSED",
+            source_id: "test.market_data.live",
+            instrument_id: "BTCUSDT.TEST",
+            bar_semantic: marketDataBarSemantic(1),
+            sequence: "29453762",
+            bar: {
+                bar_start_ns: "1767225720000000000",
+                bar_end_ns: "1767225780000000000",
+                open: "102.5",
+                high: "104",
+                low: "102",
+                close: "103",
+                volume: "1",
+                closed: true
+            }
+        });
+    });
+    expect(screen.getByTestId("closed-count")).toHaveTextContent("3");
+
+    rendered.rerender(view("b".repeat(64)));
+    await user.click(screen.getByRole("button", { name: "source" }));
+    await user.click(screen.getByRole("button", { name: "btc" }));
+
+    await waitFor(() => {
+        expect(screen.getByTestId("context-key")).toHaveTextContent("b".repeat(64));
+        expect(screen.getByTestId("closed-count")).toHaveTextContent("2");
+    });
+});
 
 it("ignores queued events from a stale source or instrument stream", async () => {
     stream.callbacks.length = 0;
@@ -107,6 +324,7 @@ it("ignores queued events from a stale source or instrument stream", async () =>
     await waitFor(() => {
         expect(stream.callbacks).toHaveLength(1);
     });
+    const btcContext = screen.getByTestId("context-key").textContent;
     const first = stream.callbacks[0];
     if (first === undefined) throw new Error("first stream missing");
     first({
@@ -116,8 +334,8 @@ it("ignores queued events from a stale source or instrument stream", async () =>
         instrument_id: "BTCUSDT.TEST",
         bar_semantic: marketDataBarSemantic(1),
         bar: {
-            bar_start_ns: "60000000000",
-            bar_end_ns: "120000000000",
+            bar_start_ns: "1767225720000000000",
+            bar_end_ns: "1767225780000000000",
             open: "1",
             high: "2",
             low: "0.5",
@@ -149,8 +367,8 @@ it("ignores queued events from a stale source or instrument stream", async () =>
         instrument_id: "BTCUSDT.TEST",
         bar_semantic: marketDataBarSemantic(1),
         bar: {
-            bar_start_ns: "120000000000",
-            bar_end_ns: "180000000000",
+            bar_start_ns: "1767225780000000000",
+            bar_end_ns: "1767225840000000000",
             open: "3",
             high: "3",
             low: "3",
@@ -169,8 +387,8 @@ it("ignores queued events from a stale source or instrument stream", async () =>
         instrument_id: "BTCUSDT.TEST",
         bar_semantic: marketDataBarSemantic(1),
         bar: {
-            bar_start_ns: "60000000000",
-            bar_end_ns: "120000000000",
+            bar_start_ns: "1767225720000000000",
+            bar_end_ns: "1767225780000000000",
             open: "9",
             high: "9",
             low: "9",
@@ -185,6 +403,7 @@ it("ignores queued events from a stale source or instrument stream", async () =>
     await waitFor(() => {
         expect(stream.callbacks).toHaveLength(2);
     });
+    expect(screen.getByTestId("context-key").textContent).not.toBe(btcContext);
     expect((stream.requests[1] as { resume_after_sequence: string }).resume_after_sequence).toBe(
         "29453761"
     );
@@ -241,16 +460,20 @@ it("switches 1m to 7m to 37m by closing each old stream and loading typed histor
     await waitFor(() => {
         expect(stream.callbacks).toHaveLength(1);
     });
+    const oneMinuteContext = screen.getByTestId("context-key").textContent;
     const first = stream.callbacks[0];
     await user.click(screen.getByRole("button", { name: "7m" }));
     await waitFor(() => {
         expect(stream.callbacks).toHaveLength(2);
     });
+    const sevenMinuteContext = screen.getByTestId("context-key").textContent;
     await user.click(screen.getByRole("button", { name: "37m" }));
     await waitFor(() => {
         expect(stream.callbacks).toHaveLength(3);
     });
     expect(steps).toEqual([1, 7, 37]);
+    expect(sevenMinuteContext).not.toBe(oneMinuteContext);
+    expect(screen.getByTestId("context-key").textContent).not.toBe(sevenMinuteContext);
     expect(stream.closed.count).toBeGreaterThanOrEqual(2);
     expect(
         stream.requests.map((request) =>

@@ -10,6 +10,7 @@ const BAR_FIELDS = [
     "volume",
     "closed"
 ] as const;
+const NANOS = /^(?:0|[1-9][0-9]*)$/;
 
 export class MarketDataBarLedgerConflictError extends Error {
     readonly code = "MARKET_DATA_BAR_LEDGER_CONFLICT";
@@ -40,6 +41,9 @@ const sameBar = (left: MarketDataBar, right: MarketDataBar): boolean =>
     BAR_FIELDS.every((field) => left[field] === right[field]);
 
 const validateBounds = (bar: MarketDataBar): void => {
+    if (!NANOS.test(bar.bar_start_ns) || !NANOS.test(bar.bar_end_ns)) {
+        throw new MarketDataBarLedgerConflictError("Bar bounds must be canonical nanoseconds");
+    }
     if (BigInt(bar.bar_start_ns) >= BigInt(bar.bar_end_ns)) {
         throw new MarketDataBarLedgerConflictError("Bar start must be before Bar end");
     }
