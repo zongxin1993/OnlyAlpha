@@ -21,14 +21,19 @@ export class MarketDataBarLedgerConflictError extends Error {
 }
 
 export interface MarketDataBarLedgerSnapshot {
+    readonly contextKey: string;
     readonly closedBars: readonly MarketDataBar[];
-    readonly previewBar: MarketDataBar | null;
+    readonly preview: MarketDataBar | null;
+    readonly earliestStartNs: string | null;
+    readonly latestClosedStartNs: string | null;
+    readonly version: number;
 }
 
-export interface MarketDataBarLedgerMutation {
+export interface MarketDataBarLedgerMerge {
     readonly changed: boolean;
-    readonly acceptedCount: number;
     readonly prependedCount: number;
+    readonly appendedCount: number;
+    readonly snapshot: MarketDataBarLedgerSnapshot;
 }
 
 const sameBar = (left: MarketDataBar, right: MarketDataBar): boolean =>
@@ -40,26 +45,30 @@ const validateBounds = (bar: MarketDataBar): void => {
     }
 };
 
-export class MarketDataBarLedger {
+export class OnlyMarketDataBarLedger {
     private closedByStart = new Map<string, MarketDataBar>();
     private preview: MarketDataBar | null = null;
+    private version = 0;
 
-    constructor(initialClosedBars: readonly MarketDataBar[] = []) {
-        this.mergeHistory(initialClosedBars);
-    }
+    constructor(readonly contextKey: string) {}
 
     snapshot(): MarketDataBarLedgerSnapshot {
+        const closedBars = [...this.closedByStart.values()]
+            .sort((left, right) =>
+                BigInt(left.bar_start_ns) < BigInt(right.bar_start_ns) ? -1 : 1
+            )
+            .map((bar) => ({ ...bar }));
         return {
-            closedBars: [...this.closedByStart.values()]
-                .sort((left, right) =>
-                    BigInt(left.bar_start_ns) < BigInt(right.bar_start_ns) ? -1 : 1
-                )
-                .map((bar) => ({ ...bar })),
-            previewBar: this.preview === null ? null : { ...this.preview }
+            contextKey: this.contextKey,
+            closedBars,
+            preview: this.preview === null ? null : { ...this.preview },
+            earliestStartNs: closedBars[0]?.bar_start_ns ?? null,
+            latestClosedStartNs: closedBars.at(-1)?.bar_start_ns ?? null,
+            version: this.version
         };
     }
 
-    mergeHistory(bars: readonly MarketDataBar[]): MarketDataBarLedgerMutation {
+    mergeHistory(bars: readonly MarketDataBar[]): MarketDataBarLedgerMerge {
         const next = new Map(this.closedByStart);
         const previousEarliest = this.earliestClosedStart();
         let acceptedCount = 0;
@@ -86,19 +95,34 @@ export class MarketDataBarLedger {
             }
         }
 
-        if (acceptedCount > 0) this.closedByStart = next;
-        return { changed: acceptedCount > 0, acceptedCount, prependedCount };
+        if (acceptedCount > 0) {
+            this.closedByStart = next;
+            this.version += 1;
+        }
+        return {
+            changed: acceptedCount > 0,
+            prependedCount,
+            appendedCount: acceptedCount - prependedCount,
+            snapshot: this.snapshot()
+        };
     }
 
-    applyClosed(bar: MarketDataBar): MarketDataBarLedgerMutation {
+    applyClosed(bar: MarketDataBar): MarketDataBarLedgerMerge {
         const mutation = this.mergeHistory([bar]);
         const clearsPreview =
             this.preview !== null && BigInt(this.preview.bar_start_ns) <= BigInt(bar.bar_start_ns);
-        if (clearsPreview) this.preview = null;
-        return { ...mutation, changed: mutation.changed || clearsPreview };
+        if (clearsPreview) {
+            this.preview = null;
+            if (!mutation.changed) this.version += 1;
+        }
+        return {
+            ...mutation,
+            changed: mutation.changed || clearsPreview,
+            snapshot: this.snapshot()
+        };
     }
 
-    applyPreview(bar: MarketDataBar): MarketDataBarLedgerMutation {
+    applyPreview(bar: MarketDataBar): MarketDataBarLedgerMerge {
         validateBounds(bar);
         if (bar.closed) {
             throw new MarketDataBarLedgerConflictError("Preview Bar must be open");
@@ -108,10 +132,21 @@ export class MarketDataBarLedger {
             (latestClosed !== null && BigInt(bar.bar_start_ns) <= BigInt(latestClosed)) ||
             (this.preview !== null && BigInt(bar.bar_start_ns) < BigInt(this.preview.bar_start_ns))
         ) {
-            return { changed: false, acceptedCount: 0, prependedCount: 0 };
+            return {
+                changed: false,
+                prependedCount: 0,
+                appendedCount: 0,
+                snapshot: this.snapshot()
+            };
         }
         this.preview = { ...bar };
-        return { changed: true, acceptedCount: 1, prependedCount: 0 };
+        this.version += 1;
+        return {
+            changed: true,
+            prependedCount: 0,
+            appendedCount: 0,
+            snapshot: this.snapshot()
+        };
     }
 
     private earliestClosedStart(): string | null {
