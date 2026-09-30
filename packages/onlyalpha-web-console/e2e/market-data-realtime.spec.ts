@@ -62,6 +62,7 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
     const cursors: string[] = [];
     const steps: number[] = [];
     const historyAnchors: string[] = [];
+    const olderRequests: URL[] = [];
     await page.route("**/api/v2/**", (route) => {
         const url = new URL(route.request().url());
         if (url.pathname === "/api/v2/market-data/sources")
@@ -82,16 +83,26 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
             const anchor = url.searchParams.get("anchor_kind");
             expect(anchor === "LATEST_CLOSED" || anchor === "BEFORE_TIME").toBe(true);
             historyAnchors.push(anchor ?? "");
-            expect(url.searchParams.get("target_bar_count")).toBe("1440");
+            const targetCount = Number(url.searchParams.get("target_bar_count"));
+            expect([1440, 240]).toContain(targetCount);
             expect(url.searchParams.has("start_ns")).toBe(false);
-            const start = historyStart;
-            const end = historyEnd;
-            if (anchor === "BEFORE_TIME")
-                expect(url.searchParams.get("before_ns")).toBe(end.toString());
             const requested = JSON.parse(
                 url.searchParams.get("bar_semantic") ?? "null"
             ) as ReturnType<typeof semantic>;
             const step = requested.formation.window_minutes;
+            const older = targetCount === 240;
+            const before = url.searchParams.get("before_ns");
+            if (older && before === null) throw new Error("older query requires before_ns");
+            const end = older ? BigInt(before ?? "0") : historyEnd;
+            const start = older ? end - BigInt(240 * step) * minuteNs : historyStart;
+            if (older) {
+                expect(anchor).toBe("BEFORE_TIME");
+                olderRequests.push(url);
+            } else {
+                expect(targetCount).toBe(1440);
+                if (anchor === "BEFORE_TIME")
+                    expect(url.searchParams.get("before_ns")).toBe(end.toString());
+            }
             const native = nativeSteps.has(step);
             const historyComplete = !acquireHistory || completedSteps.has(step);
             const duration = BigInt(step) * minuteNs;
@@ -122,7 +133,7 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
                 closed_only: true,
                 anchor_kind: anchor,
                 requested_before_ns: anchor === "BEFORE_TIME" ? end.toString() : null,
-                requested_bar_count: 1440,
+                requested_bar_count: targetCount,
                 resolved_start_ns: start.toString(),
                 resolved_end_ns: end.toString(),
                 coverage: {
@@ -285,6 +296,7 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
         acquisitions: () => acquisitions,
         acquisitionSteps,
         historyAnchors,
+        olderRequests,
         releaseRecovery: () => releaseRecovery?.(),
         emitStalePreview: () => emitStalePreview?.(),
         disconnect: async () => {
@@ -303,6 +315,11 @@ test("history to realtime rollover and reconnect gap repair — CONTROLLED_TEST_
     await page.getByRole("searchbox", { name: "搜索标的" }).press("Enter");
     await page.getByRole("button", { name: /BTCUSDT\.BINANCE/ }).click();
     await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+    expect(fixture.olderRequests).toHaveLength(0);
+    await expect(page.getByTestId("market-data-status")).toHaveAttribute(
+        "data-older-history-status",
+        "idle"
+    );
 
     await fixture.disconnect();
     await expect(page.getByTestId("market-data-status")).toContainText("● 行情中断");
@@ -311,6 +328,7 @@ test("history to realtime rollover and reconnect gap repair — CONTROLLED_TEST_
     await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
     expect(fixture.cursors).toHaveLength(2);
     expect(BigInt(fixture.cursors[1] ?? "0")).toBe(BigInt(fixture.cursors[0] ?? "0") + BigInt(1));
+    expect(fixture.olderRequests).toHaveLength(0);
 });
 
 test("explicit history acquisition, typed realtime and exact reconnect — CONTROLLED_TEST_EVIDENCE", async ({

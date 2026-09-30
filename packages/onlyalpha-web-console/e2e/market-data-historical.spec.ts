@@ -7,7 +7,7 @@ const historyFingerprint = "8".repeat(64);
 const minuteNs = BigInt("60000000000");
 const fixtureRange = {
     start_ns: "1767225600000000000",
-    end_ns: "1767225720000000000"
+    end_ns: "1767312000000000000"
 };
 const nativeSteps = new Set([1, 3, 5, 15, 30, 60, 120, 240]);
 const semantic = (durationMinutes: number) => ({
@@ -77,7 +77,8 @@ function bars(
     complete: boolean,
     planned: readonly Range[] = [],
     step = 1,
-    anchorKind: "LATEST_CLOSED" | "BEFORE_TIME" = "LATEST_CLOSED"
+    anchorKind: "LATEST_CLOSED" | "BEFORE_TIME" = "LATEST_CLOSED",
+    targetBarCount = 1440
 ) {
     const native = nativeSteps.has(step);
     const start = BigInt(range.start_ns);
@@ -95,6 +96,7 @@ function bars(
         volume: "2",
         closed: true
     });
+    const count = Math.min(targetBarCount, Number((BigInt(range.end_ns) - aligned) / duration));
     return {
         schema_version: 1,
         source_selection: {
@@ -112,7 +114,7 @@ function bars(
         closed_only: true,
         anchor_kind: anchorKind,
         requested_before_ns: anchorKind === "BEFORE_TIME" ? range.end_ns : null,
-        requested_bar_count: 1440,
+        requested_bar_count: targetBarCount,
         resolved_start_ns: range.start_ns,
         resolved_end_ns: range.end_ns,
         coverage: coverage(range, complete, planned),
@@ -139,16 +141,25 @@ function bars(
             ? (BigInt(range.end_ns) / minuteNs - BigInt(1)).toString()
             : null,
         resume_plan_fingerprint: complete ? step.toString(16).padStart(64, "0") : null,
-        bars: complete ? [point(BigInt(0), "100", "101"), point(duration, "101", "101.5")] : []
+        bars: complete
+            ? Array.from({ length: count }, (_, index) =>
+                  point(BigInt(index) * duration, "100", "101")
+              )
+            : []
     };
 }
 
-async function controlledMarketData(page: Page, initial: FixtureMode) {
+async function controlledMarketData(page: Page, initial: FixtureMode, holdOlder = false) {
     let mode = initial;
     let acquisitionCount = 0;
     const providerRequests: Range[] = [];
     const queriedSteps: number[] = [];
     const queriedAnchors: string[] = [];
+    const olderRequests: URL[] = [];
+    let releaseOlder!: () => void;
+    const olderBarrier = new Promise<void>((resolve) => {
+        releaseOlder = resolve;
+    });
     await page.route("**/api/v2/**", async (route) => {
         const request = route.request();
         const url = new URL(request.url());
@@ -169,8 +180,24 @@ async function controlledMarketData(page: Page, initial: FixtureMode) {
             const anchor = url.searchParams.get("anchor_kind");
             expect(anchor === "LATEST_CLOSED" || anchor === "BEFORE_TIME").toBe(true);
             queriedAnchors.push(anchor ?? "");
-            expect(url.searchParams.get("target_bar_count")).toBe("1440");
+            const targetCount = Number(url.searchParams.get("target_bar_count"));
+            expect([1440, 240]).toContain(targetCount);
             expect(url.searchParams.has("start_ns")).toBe(false);
+            if (targetCount === 240) {
+                expect(anchor).toBe("BEFORE_TIME");
+                const before = url.searchParams.get("before_ns");
+                expect(before).not.toBeNull();
+                olderRequests.push(url);
+                if (before === null) throw new Error("older query requires before_ns");
+                const end = BigInt(before);
+                const olderRange = {
+                    start_ns: (end - BigInt(240 * step) * minuteNs).toString(),
+                    end_ns: end.toString()
+                };
+                if (holdOlder) await olderBarrier;
+                return json(route, bars(olderRange, true, [], step, "BEFORE_TIME", 240));
+            }
+            expect(targetCount).toBe(1440);
             const range = fixtureRange;
             if (anchor === "BEFORE_TIME")
                 expect(url.searchParams.get("before_ns")).toBe(range.end_ns);
@@ -232,7 +259,9 @@ async function controlledMarketData(page: Page, initial: FixtureMode) {
         acquisitionCount: () => acquisitionCount,
         providerRequests,
         queriedSteps,
-        queriedAnchors
+        queriedAnchors,
+        olderRequests,
+        releaseOlder
     };
 }
 
@@ -266,6 +295,11 @@ test.describe("W1 historical golden path — CONTROLLED_TEST_EVIDENCE", () => {
         await expect(page.getByRole("button", { name: /因子/ })).toBeDisabled();
         expect(fixture.acquisitionCount()).toBe(1);
         expect(fixture.queriedAnchors.slice(0, 2)).toEqual(["LATEST_CLOSED", "BEFORE_TIME"]);
+        expect(fixture.olderRequests).toHaveLength(0);
+        await expect(page.getByTestId("market-data-status")).toHaveAttribute(
+            "data-older-history-status",
+            "idle"
+        );
 
         await page.reload();
         await page.getByRole("combobox", { name: "数据源" }).selectOption(integrationId);
@@ -301,4 +335,40 @@ test.describe("W1 historical golden path — CONTROLLED_TEST_EVIDENCE", () => {
         await expect.poll(() => fixture.queriedSteps[fixture.queriedSteps.length - 1]).toBe(37);
         expect(fixture.acquisitionCount()).toBe(0);
     });
+});
+
+test("an explicit viewport crossing freezes one 240-Bar request while in flight", async ({
+    page
+}) => {
+    const fixture = await controlledMarketData(page, "complete", true);
+    await selectBtc(page);
+    const status = page.getByTestId("market-data-status");
+    await expect(status).toHaveAttribute("data-loaded-bar-count", "1440");
+    await expect(status).toHaveAttribute("data-older-history-status", "idle");
+    expect(fixture.olderRequests).toHaveLength(0);
+    const chart = page.getByTestId("price-chart");
+    const bounds = await chart.boundingBox();
+    if (bounds === null) throw new Error("price chart bounds unavailable");
+    const pan = async (direction = 1) => {
+        await page.mouse.move(
+            bounds.x + bounds.width * (direction > 0 ? 0.3 : 0.9),
+            bounds.y + bounds.height * 0.5
+        );
+        await page.mouse.down();
+        await page.mouse.move(
+            bounds.x + bounds.width * (direction > 0 ? 0.9 : 0.3),
+            bounds.y + bounds.height * 0.5,
+            { steps: 8 }
+        );
+        await page.mouse.up();
+    };
+    for (let index = 0; index < 32 && fixture.olderRequests.length === 0; index += 1) await pan();
+    await expect.poll(() => fixture.olderRequests.length).toBe(1);
+    await expect(status).toHaveAttribute("data-older-history-status", "loading");
+    await pan(-1);
+    await pan();
+    expect(fixture.olderRequests).toHaveLength(1);
+    fixture.releaseOlder();
+    await expect(status).toHaveAttribute("data-loaded-bar-count", "1680");
+    await expect(status).toHaveAttribute("data-older-history-status", "idle");
 });
