@@ -402,7 +402,7 @@ def test_agent_cut_rejects_missing_occurrence_ordinal_locator(tmp_path: Path) ->
     closed = source.capture_closed_cut()
     assert any(entry.locator.startswith("model-calls/by-session-ordinal/") for entry in closed.entries)
     index_root = tmp_path / "research/agent-orchestration/model-calls/by-session-ordinal/sha256"
-    locator = next(index_root.glob("*/*"))
+    locator = next(path for path in index_root.glob("*/*") if path.is_dir())
     shutil.rmtree(locator)
     with pytest.raises(OnlySourceCutError, match="AGENT_CUT_OCCURRENCE_GAP"):
         source.capture_closed_cut()
