@@ -122,3 +122,14 @@ Source capability 显式报告是否提供该 Calendar，以及最小/最大 ste
 并报告 Calendar fingerprint 和聚合语义版本。缺少完整 base coverage 时返回 acquisition gaps；显式 Acquisition 仍只获取 1m。
 派生 GET 的 base 范围最多七天。Realtime 订阅也只连接 provider 1m，先从 durable 1m facts 重建当前目标窗口，再以同一聚合器
 生成 operational preview 与已关闭目标 Bar；base minute sequence 独立作为连续性 cursor。重建缺分钟时拒绝 READY 并要求刷新历史。
+
+## Browser Bar Ledger
+
+Web Console 的 Browser Bar Ledger 只是当前图表上下文内的 presentation state，不是 Market Data、Coverage 或 Revision Authority。
+服务端仍独占 canonical Coverage、Revision、history projection 与 acquisition planning；浏览器只按 exact Integration Revision、
+Instrument 和 Bar Semantic 合并 Product API 返回的 closed Bar，并单独维护最多一个 operational preview。
+
+视口接近左缘时，浏览器以 ledger 当前最早 Bar 的精确纳秒时间发起 query-first `BEFORE_TIME` 请求。Coverage 不完整时，浏览器
+只提交响应中 `planned_acquisition_ranges` 明示的范围，完成后重放同一 frozen query；不得自行推导缺口、直接调用 provider 或把
+preview 当作 canonical history。相同 timestamp 的 exact duplicate 是幂等输入；payload 冲突以
+`MARKET_DATA_BAR_LEDGER_CONFLICT` fail closed，旧上下文的迟到结果也不得进入当前图表。
