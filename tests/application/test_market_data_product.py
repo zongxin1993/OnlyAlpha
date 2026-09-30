@@ -230,6 +230,7 @@ class _FaultyFactStore(OnlyInMemoryMarketFactStore):
         super().__init__()
         self._faults = faults
         self.writes = 0
+        self.segment_reads = 0
 
     def write_segments(self, segments, records_by_segment):  # type: ignore[no-untyped-def]
         self.writes += len(segments)
@@ -238,6 +239,7 @@ class _FaultyFactStore(OnlyInMemoryMarketFactStore):
     def read_segment_facts(
         self, segments: tuple[OnlyIngestSegment, ...], scope: OnlyMarketDataScope
     ) -> tuple[OnlyCanonicalMarketFactRecord, ...]:
+        self.segment_reads += 1
         if self._faults.fact_read is not None:
             raise self._faults.fact_read
         return super().read_segment_facts(segments, scope)
@@ -1620,6 +1622,7 @@ def test_derived_window_plans_one_base_grid_envelope_without_hiding_exact_gaps(t
     assert harness.provider.page_observations - pages_before_derived_acquisition == 9
     acquired_revision, _ = harness.catalog.load_sealed_revision(acquired.revision_id or "")
     assert len(acquired_revision.segment_refs) == 9
+    reads_before_complete_query = harness.service._facts.segment_reads
     complete = harness.service.query_bars(
         reference,
         instrument_id=str(INSTRUMENT),
@@ -1635,6 +1638,7 @@ def test_derived_window_plans_one_base_grid_envelope_without_hiding_exact_gaps(t
     assert complete.derived_projection_fingerprint is not None
     assert complete.resume_after_sequence == str(complete.resolved_end_ns // MINUTE_NS - 1)
     assert complete.resume_plan_fingerprint == complete.resolution_plan_fingerprint
+    assert harness.service._facts.segment_reads - reads_before_complete_query == 1
 
 
 def test_base_grid_envelope_splits_at_the_minimum_bounded_count() -> None:

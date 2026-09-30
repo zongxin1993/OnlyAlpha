@@ -22,7 +22,6 @@ from .models import (
 )
 from .ports import OnlyMarketDataCatalog, OnlyMarketFactStore
 from .revision import (
-    OnlyHistoricalMarketDataQueryService,
     OnlyMarketDataConflictError,
     OnlyMarketDataSealError,
     only_build_coverage,
@@ -170,7 +169,6 @@ class OnlyVerifiedMarketDataRangeQuery:
     def __init__(self, catalog: OnlyMarketDataCatalog, fact_store: OnlyMarketFactStore) -> None:
         self._catalog = catalog
         self._facts = fact_store
-        self._exact = OnlyHistoricalMarketDataQueryService(catalog, fact_store)
 
     def read(
         self,
@@ -181,6 +179,7 @@ class OnlyVerifiedMarketDataRangeQuery:
             raise ValueError("MARKET_DATA_WINDOW_REQUEST_INVALID")
         start_ns = min(item.start_ns for item in intervals)
         end_ns = max(item.end_ns for item in intervals)
+        requested_ranges = _merge_ranges(intervals)
         try:
             revisions = self._catalog.list_current_sealed_revisions_overlapping(family, start_ns, end_ns)
         except Exception as exc:
@@ -188,22 +187,48 @@ class OnlyVerifiedMarketDataRangeQuery:
         facts: list[OnlyCanonicalMarketFactRecord] = []
         segments: dict[str, OnlyIngestSegment] = {}
         evidence: list[OnlyMarketDataRevisionEvidence] = []
+        verified_revisions: list[
+            tuple[OnlyMarketDataRevision, tuple[OnlyIngestSegment, ...], OnlyCoverageManifest, OnlyMarketDataSeal]
+        ] = []
         for revision in revisions:
             if not any(
                 revision.scope.start_ns < interval.end_ns and revision.scope.end_ns > interval.start_ns
-                for interval in intervals
+                for interval in requested_ranges
             ):
                 continue
-            revision_facts, revision_segments, manifest, seal = self._verify_revision(family, revision)
-            facts.extend(
-                fact
-                for fact in revision_facts
-                if any(item.start_ns < fact.ts_event_ns <= item.end_ns for item in intervals)
-            )
+            revision_segments, manifest, seal = self._verify_revision(family, revision)
+            verified_revisions.append((revision, revision_segments, manifest, seal))
             for segment in revision_segments:
                 prior = segments.setdefault(segment.segment_id, segment)
                 if prior != segment:
                     raise OnlyMarketDataConflictError("SEGMENT_ID_CONTENT_CONFLICT")
+
+        ordered_segments = tuple(sorted(segments.values(), key=lambda item: (item.segment_id, item.content_hash)))
+        if ordered_segments:
+            read_scope = OnlyMarketDataScope(
+                family.source_id,
+                family.market,
+                family.instrument_id,
+                family.data_kind,
+                start_ns,
+                end_ns,
+                family.data_version,
+                family.bar_type,
+                bar_construction=family.bar_construction,
+            )
+            range_facts = only_deduplicate_facts(self._facts.read_segment_facts(ordered_segments, read_scope))
+        else:
+            range_facts = ()
+
+        for revision, revision_segments, manifest, seal in verified_revisions:
+            revision_segment_ids = {item.segment_id for item in revision_segments}
+            facts.extend(
+                fact
+                for fact in range_facts
+                if fact.segment_id in revision_segment_ids
+                and revision.scope.start_ns < fact.ts_event_ns <= revision.scope.end_ns
+                and any(item.start_ns < fact.ts_event_ns <= item.end_ns for item in requested_ranges)
+            )
             evidence.append(
                 OnlyMarketDataRevisionEvidence(
                     revision.revision_id,
@@ -217,7 +242,6 @@ class OnlyVerifiedMarketDataRangeQuery:
             )
 
         selected = only_deduplicate_facts(tuple(facts))
-        ordered_segments = tuple(sorted(segments.values(), key=lambda item: (item.segment_id, item.content_hash)))
         interval_inputs = _partition_interval_inputs(intervals, ordered_segments, selected)
         gaps: list[OnlyBarCoverageGap] = []
         issues: list[str] = []
@@ -267,7 +291,6 @@ class OnlyVerifiedMarketDataRangeQuery:
     def _verify_revision(
         self, family: OnlyMarketDataRangeFamily, revision: OnlyMarketDataRevision
     ) -> tuple[
-        tuple[OnlyCanonicalMarketFactRecord, ...],
         tuple[OnlyIngestSegment, ...],
         OnlyCoverageManifest,
         OnlyMarketDataSeal,
@@ -306,7 +329,7 @@ class OnlyVerifiedMarketDataRangeQuery:
             raise OnlyMarketDataSealError("MARKET_DATA_CATALOG_UNAVAILABLE") from exc
         if tuple((item.segment_id, item.content_hash) for item in segments) != revision.segment_refs:
             raise OnlyMarketDataSealError("MARKET_DATA_REVISION_EVIDENCE_INVALID")
-        return self._exact._read_verified_segments(revision, segments, revision.scope), segments, manifest, seal
+        return segments, manifest, seal
 
 
 def only_history_projection_fingerprint(value: object) -> str:
