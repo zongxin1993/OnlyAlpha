@@ -208,9 +208,9 @@ def test_finish_reuses_exact_recovery_seal_without_reading_or_recommitting_facts
     class CountingStore(OnlyInMemoryMarketFactStore):
         reads = 0
 
-        def read_segment_facts(self, segments, scope):  # type: ignore[no-untyped-def]
+        def read_segment_facts(self, segments, scope, proofs):  # type: ignore[no-untyped-def]
             self.reads += 1
-            return super().read_segment_facts(segments, scope)
+            return super().read_segment_facts(segments, scope, proofs)
 
     class CountingCommitter(OnlyRevisionCommitService):
         durable_commits = 0

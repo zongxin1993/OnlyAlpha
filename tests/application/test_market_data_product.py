@@ -69,6 +69,7 @@ from onlyalpha.market_data.durable import (
     OnlyCanonicalMarketFactRecord,
     OnlyCoverageManifest,
     OnlyCoverageStatus,
+    OnlyHistoricalMarketDataQueryService,
     OnlyIngestSegment,
     OnlyInMemoryMarketDataCatalog,
     OnlyInMemoryMarketFactStore,
@@ -171,9 +172,9 @@ class _FaultyCatalog(OnlyInMemoryMarketDataCatalog):
         self._faults = faults
         self.mutations = 0
 
-    def commit_durable_segments(self, segments: tuple[OnlyIngestSegment, ...]) -> None:
+    def commit_durable_segments(self, segments: tuple[OnlyIngestSegment, ...], proofs) -> None:
         self.mutations += 1
-        super().commit_durable_segments(segments)
+        super().commit_durable_segments(segments, proofs)
 
     def commit_coverage_manifest(self, manifest: OnlyCoverageManifest) -> None:
         self.mutations += 1
@@ -237,12 +238,12 @@ class _FaultyFactStore(OnlyInMemoryMarketFactStore):
         return super().write_segments(segments, records_by_segment)
 
     def read_segment_facts(
-        self, segments: tuple[OnlyIngestSegment, ...], scope: OnlyMarketDataScope
+        self, segments: tuple[OnlyIngestSegment, ...], scope: OnlyMarketDataScope, proofs
     ) -> tuple[OnlyCanonicalMarketFactRecord, ...]:
         self.segment_reads += 1
         if self._faults.fact_read is not None:
             raise self._faults.fact_read
-        return super().read_segment_facts(segments, scope)
+        return super().read_segment_facts(segments, scope, proofs)
 
 
 class _Catalog:
@@ -912,10 +913,10 @@ def test_large_complete_window_reads_and_decodes_each_durable_fact_once_per_stag
     read_segment_facts = fact_store.read_segment_facts
     reads = 0
 
-    def counted_read(segments, scope):  # type: ignore[no-untyped-def]
+    def counted_read(segments, scope, proofs):  # type: ignore[no-untyped-def]
         nonlocal reads
         reads += 1
-        return read_segment_facts(segments, scope)
+        return read_segment_facts(segments, scope, proofs)
 
     decode = OnlyMarketDataInboundUpdate.from_dict
     decodes = 0
@@ -966,8 +967,9 @@ def test_conflicting_fact_across_revisions_fails_closed(tmp_path: Path) -> None:
     )
     first_revision, _ = harness.catalog.load_sealed_revision(first.revision_id or "")
     second_revision, _ = harness.catalog.load_sealed_revision(second.revision_id or "")
-    [first_fact] = harness.service._facts.read_revision_facts(first_revision, first_revision.scope)
-    [second_fact] = harness.service._facts.read_revision_facts(second_revision, second_revision.scope)
+    query = OnlyHistoricalMarketDataQueryService(harness.catalog, harness.service._facts)
+    [first_fact] = query.read_exact(first_revision.revision_id, first_revision.scope)
+    [second_fact] = query.read_exact(second_revision.revision_id, second_revision.scope)
     payload = json.loads(json.dumps(second_fact.canonical_payload))
     payload["payload"]["value"]["close"]["value"] = "999.00"
     conflicting = replace(
@@ -1000,7 +1002,9 @@ def test_complete_window_with_unprovable_provider_cursor_fails_closed(
     start_ns, end_ns = _range(minutes=1)
     acquired = harness.service.acquire_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
     revision, _ = harness.catalog.load_sealed_revision(acquired.revision_id or "")
-    [fact] = harness.service._facts.read_revision_facts(revision, revision.scope)
+    [fact] = OnlyHistoricalMarketDataQueryService(harness.catalog, harness.service._facts).read_exact(
+        revision.revision_id, revision.scope
+    )
     payload = json.loads(json.dumps(fact.canonical_payload))
     payload["source_sequence"] = None
     unprovable = replace(
@@ -1395,7 +1399,8 @@ def test_native_fifteen_minute_stream_uses_native_cursor_and_bar_type(
         resolved, str(INSTRUMENT), start_ns, end_ns, harness.service._plan(resolved, str(INSTRUMENT), specification)
     )
     segments = harness.catalog.list_durable_segments(scope)
-    [fact] = harness.service._facts.read_segment_facts(segments, scope)
+    proofs = harness.catalog.load_physical_proofs(tuple(item.segment_id for item in segments))
+    [fact] = harness.service._facts.read_segment_facts(segments, scope, proofs)
     update = OnlyMarketDataInboundUpdate.from_dict(fact.canonical_payload)
     requested_steps = []
 
@@ -1973,7 +1978,9 @@ def test_duplicate_market_fact_ignores_capture_provenance_but_not_market_values(
     result = harness.service.acquire_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
     assert result.status == "COMPLETE" and result.revision_id is not None
     revision, _ = harness.catalog.load_sealed_revision(result.revision_id)
-    [fact, *_] = harness.service._facts.read_revision_facts(revision, revision.scope)
+    [fact, *_] = OnlyHistoricalMarketDataQueryService(harness.catalog, harness.service._facts).read_exact(
+        revision.revision_id, revision.scope
+    )
 
     duplicate_payload = json.loads(json.dumps(fact.canonical_payload))
     duplicate_payload["runtime_id"] = "market-data-stream:reconnected"
@@ -2061,7 +2068,8 @@ def test_thirteen_minute_reconnect_repairs_gap_replays_once_then_reports_ready(
         harness.service._plan(resolved, str(INSTRUMENT), BASE_BAR_SEMANTIC),
     )
     segments = harness.catalog.list_durable_segments(scope)
-    facts = harness.service._facts.read_segment_facts(tuple(segments), scope)
+    proofs = harness.catalog.load_physical_proofs(tuple(item.segment_id for item in segments))
+    facts = harness.service._facts.read_segment_facts(tuple(segments), scope, proofs)
     replay = tuple(OnlyMarketDataInboundUpdate.from_dict(fact.canonical_payload) for fact in facts)
 
     class _ReplaySource(_FakeSource):

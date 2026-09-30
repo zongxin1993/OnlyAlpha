@@ -216,7 +216,8 @@ class OnlyVerifiedMarketDataRangeQuery:
                 family.bar_type,
                 bar_construction=family.bar_construction,
             )
-            range_facts = only_deduplicate_facts(self._facts.read_segment_facts(ordered_segments, read_scope))
+            proofs = self._catalog.load_physical_proofs(tuple(item.segment_id for item in ordered_segments))
+            range_facts = only_deduplicate_facts(self._facts.read_segment_facts(ordered_segments, read_scope, proofs))
         else:
             range_facts = ()
 

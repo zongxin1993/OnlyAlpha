@@ -529,7 +529,8 @@ class OnlyMarketDataStreamProductService:
         scope = self._historical._scope(resolved, instrument_id, start_ns, end_ns, provider_plan)
         try:
             segments = self._catalog.list_durable_segments(scope)
-            facts = self._facts.read_segment_facts(tuple(segments), scope)
+            proofs = self._catalog.load_physical_proofs(tuple(item.segment_id for item in segments))
+            facts = self._facts.read_segment_facts(tuple(segments), scope, proofs)
             coverage = only_build_coverage(scope, tuple(segments), facts)
             if coverage.coverage_status is not OnlyCoverageStatus.COMPLETE:
                 raise OnlyMarketDataProductError("HISTORY_REFRESH_REQUIRED")

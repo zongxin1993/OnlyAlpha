@@ -1,62 +1,26 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from hashlib import sha256
 from pathlib import Path
 
 import pytest
 
+from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.market_data.durable import (
-    OnlyIngestSegment,
     OnlyInMemoryMarketFactStore,
     OnlyMarketDataIngress,
-    OnlyMarketDataProvenance,
     OnlyMarketDataScope,
     OnlyMarketDataWal,
     OnlyVerifiedSegmentBatch,
 )
 from onlyalpha.persistence.clickhouse import OnlyClickHouseMarketFactStore, OnlyClickHouseSegmentConflictError
-from onlyalpha.persistence.clickhouse.market_data_store import _row_proof
+from onlyalpha.persistence.clickhouse.market_data_store import _physical_row_proof
 
 from .conftest import BAR_CONSTRUCTION, BAR_TYPE_ID, BASE, INSTRUMENT, bar_update
 from .test_recovery_revision_dataset import _observation
-
-
-class _EvidenceClient:
-    def __init__(self, rows: dict[str, dict[str, list[str]]]) -> None:
-        self.rows = rows
-        self.queries: list[str] = []
-
-    def query_json(self, sql: str, *, database: str | None = None) -> tuple[dict[str, object], ...]:
-        del database
-        self.queries.append(sql)
-        if sql == "SELECT version() AS version":
-            return ({"version": "26.3.1.1"},)
-        table = re.search(r"FROM (market_[a-z_]+)", sql)
-        assert table is not None
-        stored = self.rows[table.group(1)]
-        ids = re.findall(r"'([^']+)'", sql.split("WHERE segment_id", 1)[1].split(" GROUP BY", 1)[0])
-        if "GROUP BY segment_id, segment_content_hash" in sql:
-            return tuple(
-                {
-                    "segment_id": segment_id,
-                    "segment_content_hash": content_hash,
-                    "physical_count": hashes.count(content_hash),
-                }
-                for segment_id in ids
-                for hashes in (stored.get(segment_id, []),)
-                for content_hash in sorted(set(hashes))
-            )
-        segment_id = ids[0]
-        hashes = stored.get(segment_id, [])
-        if "count() AS count" in sql:
-            return ({"count": len(hashes)},)
-        if "SELECT DISTINCT segment_content_hash" in sql:
-            return tuple({"segment_content_hash": item} for item in sorted(set(hashes)))
-        return ()
 
 
 class _BatchClient:
@@ -93,21 +57,14 @@ class _BatchClient:
                     "segment_id": segment_id,
                     "physical_count": len(rows),
                     "record_set_hash": sha256(
-                        "".join(
-                            sorted(
-                                _row_proof(
-                                    tuple(
-                                        str(row[item]) for item in (*identities, "record_hash", "segment_content_hash")
-                                    )
-                                )
-                                for row in rows
-                            )
-                        ).encode()
+                        "".join(sorted(_physical_row_proof(table, row) for row in rows)).encode()
                     ).hexdigest(),
                     "segment_content_hashes": sorted({str(row["segment_content_hash"]) for row in rows}),
                 }
                 for segment_id, rows in grouped_summaries.items()
             )
+        if "GROUP BY" not in sql:
+            return tuple(selected)
         grouped: dict[tuple[object, ...], int] = {}
         for row in selected:
             key = (
@@ -165,96 +122,55 @@ def _batch(tmp_path: Path, fixed_now, count: int):  # type: ignore[no-untyped-de
     return tuple(segments), records_by_segment, scope
 
 
-def _segments(count: int) -> tuple[OnlyIngestSegment, ...]:
-    now = datetime(2026, 1, 1, tzinfo=UTC)
-    return tuple(
-        OnlyIngestSegment(
-            f"segment-{index}",
-            "capture",
-            "source",
-            "SPOT",
-            "/klines",
-            "provider",
-            "venue",
-            OnlyMarketDataProvenance.REST_BACKFILL,
-            "schema",
-            "json",
-            1,
-            1,
-            1,
-            0,
-            f"{index:064x}",
-            now,
-            now,
-        )
-        for index in range(count)
-    )
-
-
-def _rows(segments: tuple[OnlyIngestSegment, ...]) -> dict[str, dict[str, list[str]]]:
-    return {
-        "market_raw_event": {item.segment_id: [item.content_hash] for item in segments},
-        "market_trade": {},
-        "market_bar": {},
-        "market_reference_price": {},
-    }
-
-
-def _read_query_count(segment_count: int) -> int:
-    segments = _segments(segment_count)
-    client = _EvidenceClient(_rows(segments))
+def _read_query_count(tmp_path: Path, fixed_now, segment_count: int) -> int:
+    segments, records, scope = _batch(tmp_path / str(segment_count), fixed_now, segment_count)
+    client = _BatchClient()
     store = OnlyClickHouseMarketFactStore(client)  # type: ignore[arg-type]
-    scope = OnlyMarketDataScope("source", "SPOT", "instrument", "BAR", 0, 1, "v1", None)
-    assert store.read_segment_facts(segments, scope) == ()
+    store.write_segments(segments, records)
+    proofs = store.verify_segments(segments, records, scope).physical_proofs
+    client.queries.clear()
+    assert len(store.read_segment_facts(segments, scope, proofs)) == segment_count
     return len(client.queries)
 
 
-def test_exact_segment_read_uses_bounded_batch_queries() -> None:
-    ten = _read_query_count(10)
-    hundred = _read_query_count(100)
-    assert hundred <= 7
-    assert hundred == ten
+def test_exact_segment_read_uses_bounded_batch_queries(tmp_path: Path, fixed_now) -> None:
+    ten = _read_query_count(tmp_path, fixed_now, 10)
+    hundred = _read_query_count(tmp_path, fixed_now, 100)
+    assert (ten, hundred) == (5, 5)
 
 
 @pytest.mark.parametrize(
-    ("case", "mutate"),
+    "case",
     (
-        ("missing Segment", lambda rows, segment: rows["market_raw_event"].pop(segment.segment_id)),
-        ("wrong raw count", lambda rows, segment: None),
-        (
-            "wrong canonical count",
-            lambda rows, segment: rows["market_bar"].__setitem__(segment.segment_id, [segment.content_hash]),
-        ),
-        (
-            "different segment_content_hash",
-            lambda rows, segment: rows["market_raw_event"].__setitem__(segment.segment_id, ["f" * 64]),
-        ),
-        (
-            "two hashes for one Segment",
-            lambda rows, segment: rows["market_raw_event"].__setitem__(
-                segment.segment_id, [segment.content_hash, "f" * 64]
-            ),
-        ),
-        (
-            "extra physical duplicate",
-            lambda rows, segment: rows["market_raw_event"][segment.segment_id].append(segment.content_hash),
-        ),
+        "missing raw",
+        "wrong raw count",
+        "wrong canonical count",
+        "different segment_content_hash",
+        "two hashes",
+        "extra duplicate",
     ),
 )
-def test_batched_exact_segment_read_fails_closed(
-    case: str,
-    mutate: Callable[[dict[str, dict[str, list[str]]], OnlyIngestSegment], object],
-) -> None:
-    [segment] = _segments(1)
-    rows = _rows((segment,))
-    if case == "wrong raw count":
-        segment = replace(segment, record_count=2, raw_count=2)
+def test_batched_exact_segment_read_fails_closed(tmp_path: Path, fixed_now, case: str) -> None:
+    segments, records, scope = _batch(tmp_path, fixed_now, 1)
+    client = _BatchClient()
+    store = OnlyClickHouseMarketFactStore(client)  # type: ignore[arg-type]
+    store.write_segments(segments, records)
+    proofs = store.verify_segments(segments, records, scope).physical_proofs
+    raw = client.rows["market_raw_event"]
+    if case == "missing raw":
+        raw.clear()
+    elif case == "wrong raw count":
+        raw.append(dict(raw[0]))
+    elif case == "wrong canonical count":
+        client.rows["market_bar"].clear()
+    elif case == "different segment_content_hash":
+        raw[0]["segment_content_hash"] = "f" * 64
+    elif case == "two hashes":
+        raw.append({**raw[0], "segment_content_hash": "f" * 64})
     else:
-        mutate(rows, segment)
-    store = OnlyClickHouseMarketFactStore(_EvidenceClient(rows))  # type: ignore[arg-type]
-    scope = OnlyMarketDataScope("source", "SPOT", "instrument", "BAR", 0, 1, "v1", None)
+        raw.append(dict(raw[0]))
     with pytest.raises(OnlyClickHouseSegmentConflictError, match="CLICKHOUSE_SEGMENT_NOT_EXACT"):
-        store.read_segment_facts((segment,), scope)
+        store.read_segment_facts(segments, scope, proofs)
 
 
 def test_batch_write_and_verify_query_count_is_bounded_by_tables_not_segments(tmp_path: Path, fixed_now) -> None:
@@ -276,6 +192,60 @@ def test_batch_write_and_verify_query_count_is_bounded_by_tables_not_segments(tm
         assert len(client.queries) <= 2 * 4
         assert client.inserts == 0
     assert counts[0] == counts[1]
+
+
+def test_sealed_read_rejects_raw_payload_change_with_stale_stored_hash(tmp_path: Path, fixed_now) -> None:
+    segments, records, scope = _batch(tmp_path, fixed_now, 1)
+    client = _BatchClient()
+    store = OnlyClickHouseMarketFactStore(client)  # type: ignore[arg-type]
+    store.write_segments(segments, records)
+    verified = store.verify_segments(segments, records, scope)
+    client.rows["market_raw_event"][0]["raw_payload_base64"] = "replaced"
+
+    with pytest.raises(OnlyClickHouseSegmentConflictError, match="CLICKHOUSE_SEGMENT_NOT_EXACT"):
+        store.read_segment_facts(segments, scope, verified.physical_proofs)
+
+
+@pytest.mark.parametrize(
+    ("table", "field", "value"),
+    (
+        ("market_raw_event", "raw_event_id", "other"),
+        ("market_raw_event", "source_id", "other"),
+        ("market_raw_event", "provider", "other"),
+        ("market_raw_event", "capture_session_id", "other"),
+        ("market_raw_event", "raw_payload_base64", "other"),
+        ("market_bar", "canonical_fact_id", "other"),
+        ("market_bar", "raw_event_id", "other"),
+        ("market_bar", "source_id", "other"),
+        ("market_bar", "capture_session_id", "other"),
+        ("market_bar", "instrument_id", "other"),
+        ("market_bar", "ts_event_ns", -1),
+        ("market_bar", "canonical_payload_json", "{}"),
+        ("market_bar", "canonical_payload_hash", "f" * 64),
+        ("market_bar", "open", "999.12"),
+        ("market_bar", "normalizer_version", "other"),
+        ("market_bar", "quality_state", "other"),
+        ("market_bar", "provenance", "other"),
+    ),
+)
+@pytest.mark.parametrize("recompute_stored_hash", (False, True))
+def test_sealed_read_detects_physical_column_mutation(
+    tmp_path: Path, fixed_now, table: str, field: str, value: object, recompute_stored_hash: bool
+) -> None:
+    segments, records, scope = _batch(tmp_path, fixed_now, 1)
+    client = _BatchClient()
+    store = OnlyClickHouseMarketFactStore(client)  # type: ignore[arg-type]
+    store.write_segments(segments, records)
+    proofs = store.verify_segments(segments, records, scope).physical_proofs
+    row = client.rows[table][0]
+    row[field] = value
+    if recompute_stored_hash:
+        row["record_hash"] = only_canonical_fingerprint(
+            {key: item for key, item in row.items() if key != "record_hash"}
+        )
+
+    with pytest.raises(OnlyClickHouseSegmentConflictError, match="CLICKHOUSE_SEGMENT_NOT_EXACT"):
+        store.read_segment_facts(segments, scope, proofs)
 
 
 @pytest.mark.parametrize("field,value", [("record_count", 2), ("canonical_count", 0), ("canonical_count", 2)])

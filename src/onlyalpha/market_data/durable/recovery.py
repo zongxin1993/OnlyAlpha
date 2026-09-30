@@ -8,7 +8,7 @@ from enum import StrEnum
 from threading import Lock
 from time import perf_counter_ns
 
-from .models import OnlyIngestSegment, OnlyMarketDataHealth, OnlyMarketDataScope
+from .models import OnlyIngestSegment, OnlyMarketDataHealth, OnlyMarketDataProvenance, OnlyMarketDataScope
 from .ports import OnlyMarketDataCatalog, OnlyMarketFactStore
 from .revision import OnlyRevisionCommitService
 from .wal import OnlyMarketDataWal
@@ -115,8 +115,13 @@ class OnlyMarketDataRecoveryCoordinator:
             return None
         self._barrier(OnlyMarketDataCrashBoundary.C6_VERIFIED_BEFORE_CATALOG)
         catalog_started = perf_counter_ns()
+        reason = {
+            OnlyMarketDataProvenance.REST_BACKFILL: "BACKFILL",
+            OnlyMarketDataProvenance.REPAIR: "CORRECTION",
+            OnlyMarketDataProvenance.REPLAY: "REPLAY",
+        }.get(segments[0].capture_mode, "INGEST")
         manifest, revision, _ = self._committer.commit_if_complete(
-            tuple(segments), scope, records_by_segment, verified_batch=verified
+            tuple(segments), scope, records_by_segment, verified_batch=verified, reason=reason
         )
         catalog_commit_ms = (perf_counter_ns() - catalog_started) // 1_000_000
         _LOGGER.info(
@@ -219,14 +224,13 @@ class OnlyMarketDataRecoveryCoordinator:
             self._barrier(OnlyMarketDataCrashBoundary.C3_SEALED_BEFORE_STORE)
             self._facts.write_segments((segment,), {segment.segment_id: records})
         self._barrier(OnlyMarketDataCrashBoundary.C5_STORE_BEFORE_VERIFY)
-        self._facts.verify_segments((segment,), {segment.segment_id: records})
+        verified = self._facts.verify_segments((segment,), {segment.segment_id: records})
         with self._state_lock:
             self._last_verified_segment = segment.segment_id
         if not should_continue():
             return False
         self._barrier(OnlyMarketDataCrashBoundary.C6_VERIFIED_BEFORE_CATALOG)
-        if not committed:
-            self._catalog.commit_durable_segments((segment,))
+        self._catalog.commit_durable_segments((segment,), verified.physical_proofs)
         with self._state_lock:
             self._last_committed_segment = segment.segment_id
             self._last_recovery_error = None

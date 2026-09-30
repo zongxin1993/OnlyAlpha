@@ -5,7 +5,9 @@ from __future__ import annotations
 import base64
 import json
 from collections.abc import Iterable, Mapping
+from dataclasses import replace
 from datetime import UTC, datetime
+from decimal import Decimal
 from hashlib import sha256
 from typing import cast
 
@@ -13,10 +15,11 @@ from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 from onlyalpha.market_data.durable.models import (
     OnlyCanonicalMarketFactRecord,
     OnlyIngestSegment,
+    OnlyMarketDataPhysicalPartitionProof,
+    OnlyMarketDataPhysicalSegmentProof,
     OnlyMarketDataProvenance,
     OnlyMarketDataQualityState,
     OnlyMarketDataRecordBundle,
-    OnlyMarketDataRevision,
     OnlyMarketDataScope,
     OnlyVerifiedSegmentBatch,
 )
@@ -32,6 +35,168 @@ _TABLE_IDENTITIES = {
     "market_trade": ("canonical_fact_id", "raw_event_id"),
     "market_bar": ("canonical_fact_id", "raw_event_id"),
     "market_reference_price": ("canonical_fact_id", "raw_event_id"),
+}
+_PHYSICAL_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
+    "market_raw_event": tuple(
+        (
+            name,
+            "I"
+            if name in {"record_ordinal", "provider_sequence", "ts_event_ns", "ts_receive_ns", "ts_ingest_ns"}
+            else "S",
+        )
+        for name in (
+            "raw_event_id",
+            "source_id",
+            "provider",
+            "venue",
+            "market",
+            "stream",
+            "capture_session_id",
+            "segment_id",
+            "segment_content_hash",
+            "record_ordinal",
+            "provider_event_type",
+            "provider_event_id",
+            "provider_sequence",
+            "ts_event_ns",
+            "ts_receive_ns",
+            "ts_ingest_ns",
+            "payload_codec",
+            "provider_schema",
+            "integration_binding_fingerprint",
+            "provenance",
+            "raw_payload_base64",
+            "raw_sha256",
+            "record_hash",
+        )
+    ),
+    "market_trade": tuple(
+        (
+            name,
+            "D"
+            if name in {"price", "quantity"}
+            else "I"
+            if name
+            in {
+                "provider_sequence",
+                "ts_event_ns",
+                "ts_receive_ns",
+                "ts_ingest_ns",
+                "price_precision",
+                "quantity_precision",
+            }
+            else "S",
+        )
+        for name in (
+            "canonical_fact_id",
+            "source_id",
+            "instrument_id",
+            "segment_id",
+            "segment_content_hash",
+            "capture_session_id",
+            "raw_event_id",
+            "provider_event_id",
+            "provider_sequence",
+            "ts_event_ns",
+            "ts_receive_ns",
+            "ts_ingest_ns",
+            "price",
+            "price_precision",
+            "quantity",
+            "quantity_precision",
+            "aggressor_side",
+            "provenance",
+            "quality_state",
+            "canonical_payload_json",
+            "canonical_payload_hash",
+            "normalizer_id",
+            "normalizer_version",
+            "record_hash",
+        )
+    ),
+    "market_bar": tuple(
+        (
+            name,
+            "D"
+            if name in {"open", "high", "low", "close", "volume", "quote_volume"}
+            else "I"
+            if name
+            in {
+                "ts_event_ns",
+                "ts_receive_ns",
+                "ts_ingest_ns",
+                "bar_start_ns",
+                "bar_end_ns",
+                "price_precision",
+                "quantity_precision",
+                "trade_count",
+            }
+            else "S",
+        )
+        for name in (
+            "canonical_fact_id",
+            "source_id",
+            "instrument_id",
+            "segment_id",
+            "segment_content_hash",
+            "capture_session_id",
+            "raw_event_id",
+            "ts_event_ns",
+            "ts_receive_ns",
+            "ts_ingest_ns",
+            "bar_start_ns",
+            "bar_end_ns",
+            "bar_type_json",
+            "open",
+            "high",
+            "low",
+            "close",
+            "price_precision",
+            "volume",
+            "quantity_precision",
+            "quote_volume",
+            "trade_count",
+            "provenance",
+            "quality_state",
+            "canonical_payload_json",
+            "canonical_payload_hash",
+            "normalizer_id",
+            "normalizer_version",
+            "record_hash",
+        )
+    ),
+    "market_reference_price": tuple(
+        (
+            name,
+            "D"
+            if name == "price"
+            else "I"
+            if name in {"ts_event_ns", "ts_receive_ns", "ts_ingest_ns", "price_precision"}
+            else "S",
+        )
+        for name in (
+            "canonical_fact_id",
+            "source_id",
+            "instrument_id",
+            "segment_id",
+            "segment_content_hash",
+            "capture_session_id",
+            "raw_event_id",
+            "ts_event_ns",
+            "ts_receive_ns",
+            "ts_ingest_ns",
+            "reference_kind",
+            "price",
+            "price_precision",
+            "provenance",
+            "quality_state",
+            "canonical_payload_json",
+            "canonical_payload_hash",
+            "normalizer_id",
+            "normalizer_version",
+            "record_hash",
+        )
+    ),
 }
 
 
@@ -93,10 +258,11 @@ class OnlyClickHouseMarketFactStore:
         scope: OnlyMarketDataScope | None = None,
     ) -> OnlyVerifiedSegmentBatch:
         verified = OnlyVerifiedSegmentBatch.build(segments, records_by_segment, scope)
-        states = self._classify_segments(segments, self._expected_rows(segments, records_by_segment))
+        expected_rows = self._expected_rows(segments, records_by_segment)
+        states = self._classify_segments(segments, expected_rows)
         if any(state != "EXACT" for state in states.values()):
             raise OnlyClickHouseSegmentConflictError("CLICKHOUSE_SEGMENT_NOT_EXACT")
-        return verified
+        return replace(verified, physical_proofs=_expected_proofs(segments, expected_rows))
 
     def _expected_rows(
         self,
@@ -147,7 +313,9 @@ class OnlyClickHouseMarketFactStore:
                 wanted = expected[table][segment.segment_id]
                 actual = stored[table][segment.segment_id]
                 expected_hash = _record_set_hash(
-                    _row_proof((*identity, *values)) for identity, values in wanted.items()
+                    _physical_row_proof(table, row)
+                    for row in rows_by_table[table]
+                    if row["segment_id"] == segment.segment_id
                 )
                 expected_count = len(wanted)
                 if actual is None:
@@ -203,16 +371,7 @@ class OnlyClickHouseMarketFactStore:
             chunk = segment_ids[offset : offset + _SEGMENT_VERIFY_CHUNK_SIZE]
             quoted = ",".join(_quote(item) for item in chunk)
             for table in _SEGMENT_TABLES:
-                proof_columns = (*_TABLE_IDENTITIES[table], "record_hash", "segment_content_hash")
-                row_proof = (
-                    "concat("
-                    + ", ".join(
-                        part
-                        for column in proof_columns
-                        for part in (f"toString(length(toString({column})))", "':'", f"toString({column})")
-                    )
-                    + ")"
-                )
+                row_proof = _physical_row_sql(table)
                 rows = self._client.query_json(
                     "SELECT segment_id, count() AS physical_count, "
                     f"lower(hex(SHA256(arrayStringConcat(arraySort(groupArray({row_proof})), '')))) "
@@ -260,52 +419,37 @@ class OnlyClickHouseMarketFactStore:
                     )
         return result
 
-    def read_revision_facts(
-        self, revision: OnlyMarketDataRevision, scope: OnlyMarketDataScope
-    ) -> tuple[OnlyCanonicalMarketFactRecord, ...]:
-        segment_ids = tuple(item[0] for item in revision.segment_refs)
-        return self._read_facts(segment_ids, scope)
-
     def read_segment_facts(
-        self, segments: tuple[OnlyIngestSegment, ...], scope: OnlyMarketDataScope
+        self,
+        segments: tuple[OnlyIngestSegment, ...],
+        scope: OnlyMarketDataScope,
+        proofs: tuple[OnlyMarketDataPhysicalSegmentProof, ...],
     ) -> tuple[OnlyCanonicalMarketFactRecord, ...]:
-        self._verify_segments_exact(segments)
+        self._verify_segments_exact(segments, proofs)
         return self._read_facts(tuple(item.segment_id for item in segments), scope)
 
-    def _verify_segments_exact(self, segments: tuple[OnlyIngestSegment, ...]) -> None:
+    def _verify_segments_exact(
+        self, segments: tuple[OnlyIngestSegment, ...], proofs: tuple[OnlyMarketDataPhysicalSegmentProof, ...]
+    ) -> None:
         expected = {item.segment_id: item for item in segments}
-        if len(expected) != len(segments):
+        by_id = {item.segment_id: item for item in proofs}
+        if len(expected) != len(segments) or set(by_id) != set(expected) or len(by_id) != len(proofs):
             raise OnlyClickHouseSegmentConflictError("CLICKHOUSE_SEGMENT_NOT_EXACT")
-        raw_counts = {segment_id: 0 for segment_id in expected}
-        canonical_counts = {segment_id: 0 for segment_id in expected}
-        hashes = {segment_id: set[str]() for segment_id in expected}
-        segment_ids = tuple(expected)
-        for offset in range(0, len(segment_ids), _SEGMENT_VERIFY_CHUNK_SIZE):
-            chunk = segment_ids[offset : offset + _SEGMENT_VERIFY_CHUNK_SIZE]
-            quoted = ",".join(_quote(item) for item in chunk)
+        try:
+            for segment_id, segment in expected.items():
+                by_id[segment_id].assert_matches(segment)
+        except ValueError as exc:
+            raise OnlyClickHouseSegmentConflictError("CLICKHOUSE_SEGMENT_NOT_EXACT") from exc
+        stored = self._stored_summaries(tuple(expected))
+        for segment_id, proof in by_id.items():
             for table in _SEGMENT_TABLES:
-                rows = self._client.query_json(
-                    "SELECT segment_id, segment_content_hash, count() AS physical_count FROM "
-                    f"{table} WHERE segment_id IN ({quoted}) "
-                    "GROUP BY segment_id, segment_content_hash"
-                )
-                for row in rows:
-                    segment_id = str(row["segment_id"])
-                    if segment_id not in expected:
+                part = next(item for item in proof.partitions if item.table == table)
+                actual = stored[table][segment_id]
+                if part.row_count == 0:
+                    if actual is not None:
                         raise OnlyClickHouseSegmentConflictError("CLICKHOUSE_SEGMENT_NOT_EXACT")
-                    count = int(str(row["physical_count"]))
-                    if table == "market_raw_event":
-                        raw_counts[segment_id] += count
-                    else:
-                        canonical_counts[segment_id] += count
-                    hashes[segment_id].add(str(row["segment_content_hash"]))
-        if any(
-            raw_counts[item.segment_id] != item.raw_count
-            or canonical_counts[item.segment_id] != item.canonical_count
-            or hashes[item.segment_id] != {item.content_hash}
-            for item in segments
-        ):
-            raise OnlyClickHouseSegmentConflictError("CLICKHOUSE_SEGMENT_NOT_EXACT")
+                elif actual != (part.row_count, part.row_set_digest, {proof.segment_content_hash}):
+                    raise OnlyClickHouseSegmentConflictError("CLICKHOUSE_SEGMENT_NOT_EXACT")
 
     def _read_facts(
         self, segment_ids: tuple[str, ...], scope: OnlyMarketDataScope
@@ -500,8 +644,49 @@ def _quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
-def _row_proof(parts: tuple[str, ...]) -> str:
-    return "".join(f"{len(part.encode('utf-8'))}:{part}" for part in parts)
+def _physical_row_proof(table: str, row: Mapping[str, object]) -> str:
+    parts = []
+    for column, tag in _PHYSICAL_COLUMNS[table]:
+        value = row.get(column)
+        if value is None:
+            parts.append(f"{tag}N")
+            continue
+        if tag == "D":
+            rendered = format(Decimal(str(value)), "f")
+            if "." in rendered:
+                rendered = rendered.rstrip("0").rstrip(".")
+        else:
+            rendered = str(int(str(value))) if tag == "I" else str(value)
+        parts.append(f"{tag}V{len(rendered.encode('utf-8'))}:{rendered}")
+    return "".join(parts)
+
+
+def _physical_row_sql(table: str) -> str:
+    parts = []
+    for column, tag in _PHYSICAL_COLUMNS[table]:
+        rendered = f"toString({column})"
+        parts.append(f"if(isNull({column}), '{tag}N', concat('{tag}V', toString(length({rendered})), ':', {rendered}))")
+    return "concat(" + ", ".join(parts) + ")"
+
+
+def _expected_proofs(
+    segments: tuple[OnlyIngestSegment, ...], rows_by_table: Mapping[str, list[dict[str, object]]]
+) -> tuple[OnlyMarketDataPhysicalSegmentProof, ...]:
+    return tuple(
+        OnlyMarketDataPhysicalSegmentProof.build(
+            segment,
+            tuple(
+                OnlyMarketDataPhysicalPartitionProof(
+                    table,
+                    len(selected),
+                    _record_set_hash(_physical_row_proof(table, row) for row in selected),
+                )
+                for table in _SEGMENT_TABLES
+                for selected in ([row for row in rows_by_table[table] if row["segment_id"] == segment.segment_id],)
+            ),
+        )
+        for segment in sorted(segments, key=lambda item: item.segment_id)
+    )
 
 
 def _record_set_hash(row_proofs: Iterable[str]) -> str:

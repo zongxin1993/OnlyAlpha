@@ -12,6 +12,7 @@ from .models import (
     OnlyIngestSegment,
     OnlyMarketDataAcquisitionAttempt,
     OnlyMarketDataAcquisitionIntent,
+    OnlyMarketDataPhysicalSegmentProof,
     OnlyMarketDataRangeFamily,
     OnlyMarketDataRecordBundle,
     OnlyMarketDataRevision,
@@ -42,16 +43,19 @@ class OnlyMarketFactStore(Protocol):
         records_by_segment: Mapping[str, tuple[OnlyMarketDataRecordBundle, ...]],
         scope: OnlyMarketDataScope | None = None,
     ) -> OnlyVerifiedSegmentBatch: ...
-    def read_revision_facts(
-        self, revision: OnlyMarketDataRevision, scope: OnlyMarketDataScope
-    ) -> tuple[OnlyCanonicalMarketFactRecord, ...]: ...
     def read_segment_facts(
-        self, segments: tuple[OnlyIngestSegment, ...], scope: OnlyMarketDataScope
+        self,
+        segments: tuple[OnlyIngestSegment, ...],
+        scope: OnlyMarketDataScope,
+        proofs: tuple[OnlyMarketDataPhysicalSegmentProof, ...],
     ) -> tuple[OnlyCanonicalMarketFactRecord, ...]: ...
 
 
 class OnlyMarketDataCatalog(Protocol):
-    def commit_durable_segments(self, segments: tuple[OnlyIngestSegment, ...]) -> None: ...
+    def commit_durable_segments(
+        self, segments: tuple[OnlyIngestSegment, ...], proofs: tuple[OnlyMarketDataPhysicalSegmentProof, ...]
+    ) -> None: ...
+    def load_physical_proofs(self, segment_ids: tuple[str, ...]) -> tuple[OnlyMarketDataPhysicalSegmentProof, ...]: ...
     def admit_acquisition_intent(self, intent: OnlyMarketDataAcquisitionIntent) -> OnlyMarketDataAcquisitionIntent: ...
     def load_acquisition_intent(self, acquisition_id: str) -> OnlyMarketDataAcquisitionIntent | None: ...
     def start_acquisition_attempt(

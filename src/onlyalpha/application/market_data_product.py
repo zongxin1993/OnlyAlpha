@@ -968,7 +968,8 @@ class OnlyMarketDataProductService:
             manifest = session.coordinator.inspect(intent)
             if manifest.coverage_status is OnlyCoverageStatus.COMPLETE:
                 segments = self._catalog.list_durable_segments(intent.requested_scope)
-                facts = self._facts.read_segment_facts(segments, intent.requested_scope)
+                proofs = self._catalog.load_physical_proofs(tuple(item.segment_id for item in segments))
+                facts = self._facts.read_segment_facts(segments, intent.requested_scope, proofs)
                 OnlyRevisionCommitService(self._facts, self._catalog, now=self._now).commit_durable_facts(
                     segments, intent.requested_scope, facts, reason="BACKFILL"
                 )
@@ -1115,7 +1116,8 @@ class OnlyMarketDataProductService:
             raise OnlyMarketDataProductError(
                 "MARKET_DATA_CATALOG_UNAVAILABLE", "canonical market-data catalog is unavailable"
             ) from exc
-        facts = self._facts.read_segment_facts(tuple(segments), scope) if segments else ()
+        proofs = self._catalog.load_physical_proofs(tuple(item.segment_id for item in segments)) if segments else ()
+        facts = self._facts.read_segment_facts(tuple(segments), scope, proofs) if segments else ()
         manifest = only_build_coverage(scope, tuple(segments), facts)
         bar_gaps = tuple(item for item in manifest.gaps if isinstance(item, OnlyBarCoverageGap))
         step_ns = (

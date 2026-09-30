@@ -47,8 +47,14 @@ segment 进入 bounded normal-operation drain，复用 crash recovery coordinato
 
 ```text
 WAL sealed segment → ClickHouse typed fact write → exact verification
-                   → PostgreSQL coverage/revision/manifest commit → WAL GC eligibility
+                   → PostgreSQL immutable per-Segment physical proof + coverage/revision/manifest commit
+                   → WAL GC eligibility
 ```
+
+Sealed historical reads load that PostgreSQL proof and recompute a digest from every current authoritative ClickHouse
+physical column before returning facts. The exact Revision read also rebuilds the stored Coverage Manifest. Segments
+created before the physical proof migration remain `UNPROVABLE` for exact reads and require new, independently
+captured evidence; current ClickHouse rows alone never create expected authority.
 
 数据库不可用时 sealed WAL 仍是 durable backlog，drain health 显式 DEGRADED 并通过同一 idempotent recovery path 重试；不得静默
 丢弃 Trade 或伪造数据库 commit。WAL 容量和内存 queue 均保持有界。

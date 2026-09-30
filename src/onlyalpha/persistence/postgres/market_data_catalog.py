@@ -20,6 +20,7 @@ from onlyalpha.market_data.durable.models import (
     OnlyIngestSegment,
     OnlyMarketDataAcquisitionAttempt,
     OnlyMarketDataAcquisitionIntent,
+    OnlyMarketDataPhysicalSegmentProof,
     OnlyMarketDataProvenance,
     OnlyMarketDataRangeFamily,
     OnlyMarketDataRevision,
@@ -58,10 +59,17 @@ class OnlyPostgresMarketDataCatalog:
         self._dsn = OnlyPostgresConfig(dsn).operational_dsn()
         self._now = now
 
-    def commit_durable_segments(self, segments: tuple[OnlyIngestSegment, ...]) -> None:
+    def commit_durable_segments(
+        self, segments: tuple[OnlyIngestSegment, ...], proofs: tuple[OnlyMarketDataPhysicalSegmentProof, ...]
+    ) -> None:
         if not segments or len({item.segment_id for item in segments}) != len(segments):
             raise ValueError("POSTGRES_DURABLE_SEGMENT_SET_INVALID")
         ordered = tuple(sorted(segments, key=lambda item: item.segment_id))
+        by_id = {item.segment_id: item for item in proofs}
+        if len(by_id) != len(proofs) or set(by_id) != {item.segment_id for item in ordered}:
+            raise ValueError("POSTGRES_PHYSICAL_PROOF_SET_INVALID")
+        for segment in ordered:
+            by_id[segment.segment_id].assert_matches(segment)
         with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
             with connection.transaction():
                 for segment in ordered:
@@ -77,7 +85,58 @@ class OnlyPostgresMarketDataCatalog:
                             json.dumps({"content_hash": segment.content_hash}),
                         ),
                     )
+                for offset in range(0, len(ordered), 1_000):
+                    chunk = ordered[offset : offset + 1_000]
+                    payload = [
+                        {
+                            "segment_id": segment.segment_id,
+                            "proof_fingerprint": by_id[segment.segment_id].fingerprint,
+                            "proof": by_id[segment.segment_id].to_dict(),
+                        }
+                        for segment in chunk
+                    ]
+                    connection.execute(
+                        "INSERT INTO market_segment_physical_proof(segment_id,proof_fingerprint,proof) "
+                        "SELECT segment_id,proof_fingerprint,proof FROM "
+                        "jsonb_to_recordset(%s::jsonb) AS input(segment_id text,proof_fingerprint text,proof jsonb) "
+                        "ON CONFLICT DO NOTHING",
+                        (json.dumps(payload),),
+                    )
+                    rows = connection.execute(
+                        "SELECT segment_id,proof_fingerprint,proof FROM market_segment_physical_proof "
+                        "WHERE segment_id = ANY(%s)",
+                        ([segment.segment_id for segment in chunk],),
+                    ).fetchall()
+                    if len(rows) != len(chunk) or any(
+                        row["proof_fingerprint"] != by_id[str(row["segment_id"])].fingerprint
+                        or row["proof"] != by_id[str(row["segment_id"])].to_dict()
+                        for row in rows
+                    ):
+                        raise OnlyMarketDataConflictError("MARKET_DATA_PHYSICAL_PROOF_CONFLICT")
                 self._assert_segments_exact(connection, ordered)
+
+    def load_physical_proofs(self, segment_ids: tuple[str, ...]) -> tuple[OnlyMarketDataPhysicalSegmentProof, ...]:
+        if len(set(segment_ids)) != len(segment_ids):
+            raise ValueError("POSTGRES_PHYSICAL_PROOF_SET_INVALID")
+        if not segment_ids:
+            return ()
+        found: dict[str, OnlyMarketDataPhysicalSegmentProof] = {}
+        with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+            for offset in range(0, len(segment_ids), 1_000):
+                chunk = segment_ids[offset : offset + 1_000]
+                rows = connection.execute(
+                    "SELECT segment_id,proof_fingerprint,proof FROM market_segment_physical_proof "
+                    "WHERE segment_id = ANY(%s)",
+                    (list(chunk),),
+                ).fetchall()
+                for row in rows:
+                    proof = OnlyMarketDataPhysicalSegmentProof.from_dict(row["proof"])
+                    if proof.segment_id != row["segment_id"] or proof.fingerprint != row["proof_fingerprint"]:
+                        raise OnlyMarketDataConflictError("MARKET_DATA_PHYSICAL_PROOF_CONFLICT")
+                    found[proof.segment_id] = proof
+        if set(found) != set(segment_ids):
+            raise OnlyMarketDataConflictError("MARKET_DATA_PHYSICAL_PROOF_UNPROVABLE")
+        return tuple(found[item] for item in segment_ids)
 
     def admit_acquisition_intent(self, intent: OnlyMarketDataAcquisitionIntent) -> OnlyMarketDataAcquisitionIntent:
         """Insert-or-exact-load the execution intent and return the durable admission.

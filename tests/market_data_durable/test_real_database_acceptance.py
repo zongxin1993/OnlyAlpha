@@ -25,15 +25,18 @@ from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone
 from onlyalpha.market_data.aggregation.time_bar import OnlyTimeBarAggregator
 from onlyalpha.market_data.durable import (
+    OnlyBarCoverageGap,
     OnlyHistoricalMarketDataQueryService,
     OnlyMarketDataAcquisitionIntent,
     OnlyMarketDataBackfillCoordinator,
     OnlyMarketDataIngress,
     OnlyMarketDataProvenance,
+    OnlyMarketDataRangeFamily,
     OnlyMarketDataRecoveryCoordinator,
     OnlyMarketDataScope,
     OnlyMarketDataWal,
     OnlyRevisionCommitService,
+    OnlyVerifiedMarketDataRangeQuery,
 )
 from onlyalpha.market_data.resolution import (
     OnlyBarCapability,
@@ -180,10 +183,20 @@ def test_combined_real_database_authority_recovery_and_maintenance(tmp_path: Pat
         )
 
         OnlyClickHouseMigrationAuthority(restored_clickhouse).migrate()
-        segment_backup = tmp_path / "segment.json"
-        _backup_segment(fresh_client, result.revision.segment_refs[-1][0], segment_backup)
-        _restore_segment(restored_clickhouse, segment_backup)
-        assert int(str(restored_clickhouse.query_json("SELECT count() count FROM market_bar")[0]["count"])) == 1
+        for segment_id, _ in result.revision.segment_refs:
+            segment_backup = tmp_path / f"{segment_id}.json"
+            _backup_segment(fresh_client, segment_id, segment_backup)
+            _restore_segment(restored_clickhouse, segment_backup)
+        restored_catalog = OnlyPostgresMarketDataCatalog(restore_dsn)
+        restored_store = OnlyClickHouseMarketFactStore(restored_clickhouse)
+        assert (
+            len(
+                OnlyHistoricalMarketDataQueryService(restored_catalog, restored_store).read_exact(
+                    result.revision.revision_id, scope
+                )
+            )
+            == 2
+        )
     finally:
         with psycopg.connect(admin_dsn, autocommit=True) as connection:
             connection.execute(
@@ -429,8 +442,8 @@ def test_real_databases_batch_nine_page_segments_and_idempotent_retry(tmp_path: 
         store = OnlyClickHouseMarketFactStore(client)
 
         class CrashAfterSegments(OnlyPostgresMarketDataCatalog):
-            def commit_durable_segments(self, segments):  # type: ignore[no-untyped-def]
-                super().commit_durable_segments(segments)
+            def commit_durable_segments(self, segments, proofs):  # type: ignore[no-untyped-def]
+                super().commit_durable_segments(segments, proofs)
                 raise RuntimeError("injected durable segment commit crash")
 
         crashing_catalog = CrashAfterSegments(postgres_dsn, now=now)
@@ -468,11 +481,39 @@ def test_real_databases_batch_nine_page_segments_and_idempotent_retry(tmp_path: 
             scope,
             records_by_segment,
             verified_batch=replayed,
-            reason="INGEST",
+            reason="BACKFILL",
         )
         assert (replay_manifest, replay_revision, replay_seal) == (manifest, revision, seal)
         assert catalog.segments_committed(segment_batch) == (True,) * 9
         assert physical_counts() == (9, 18)
+        selected_segment_id = segment_batch[0].segment_id
+        original_payload = str(
+            client.query_json(
+                f"SELECT raw_payload_base64 FROM market_raw_event WHERE segment_id='{selected_segment_id}'"
+            )[0]["raw_payload_base64"]
+        )
+        client.execute(
+            "ALTER TABLE market_raw_event UPDATE raw_payload_base64='changed' "
+            f"WHERE segment_id='{selected_segment_id}' SETTINGS mutations_sync=2"
+        )
+        fresh_store = OnlyClickHouseMarketFactStore(_clickhouse(database))
+        fresh_catalog = OnlyPostgresMarketDataCatalog(postgres_dsn, now=now)
+        with pytest.raises(RuntimeError, match="CLICKHOUSE_SEGMENT_NOT_EXACT"):
+            OnlyHistoricalMarketDataQueryService(fresh_catalog, fresh_store).read_exact(revision.revision_id, scope)
+        with pytest.raises(RuntimeError, match="CLICKHOUSE_SEGMENT_NOT_EXACT"):
+            OnlyVerifiedMarketDataRangeQuery(fresh_catalog, fresh_store).read(
+                OnlyMarketDataRangeFamily.from_scope(scope), (OnlyBarCoverageGap(scope.start_ns, scope.end_ns),)
+            )
+        client.execute(
+            f"ALTER TABLE market_raw_event UPDATE raw_payload_base64='{original_payload}' "
+            f"WHERE segment_id='{selected_segment_id}' SETTINGS mutations_sync=2"
+        )
+        assert (
+            len(
+                OnlyHistoricalMarketDataQueryService(fresh_catalog, fresh_store).read_exact(revision.revision_id, scope)
+            )
+            == 18
+        )
         with psycopg.connect(postgres_dsn) as connection:
             assert connection.execute(
                 "SELECT count(*) FROM market_data_revision WHERE manifest_id=%s", (manifest.manifest_id,)

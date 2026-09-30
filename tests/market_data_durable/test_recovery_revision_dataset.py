@@ -27,6 +27,7 @@ from onlyalpha.market_data.durable import (
     OnlyInMemoryMarketFactStore,
     OnlyMarketDataConflictError,
     OnlyMarketDataIngress,
+    OnlyMarketDataRangeFamily,
     OnlyMarketDataRecoveryCoordinator,
     OnlyMarketDataRevision,
     OnlyMarketDataScope,
@@ -34,6 +35,7 @@ from onlyalpha.market_data.durable import (
     OnlyMarketDataWal,
     OnlyRevisionCommitService,
     OnlyTradeCoverageGap,
+    OnlyVerifiedMarketDataRangeQuery,
     only_build_coverage,
     only_build_seal,
 )
@@ -150,7 +152,8 @@ def test_shifted_bar_window_excludes_prior_bar_ending_at_start(tmp_path: Path, f
         end_ns=_scope("BAR").end_ns + 60_000_000_000,
     )
 
-    facts = store.read_segment_facts((segment,), scope)
+    proof = store.verify_segments((segment,), {segment.segment_id: records}).physical_proofs
+    facts = store.read_segment_facts((segment,), scope, proof)
 
     assert len(facts) == 1
     assert facts[0].ts_event_ns == scope.end_ns
@@ -415,7 +418,13 @@ def test_multi_segment_revision_is_ordered_and_semantically_deterministic(tmp_pa
     assert first.fingerprint == second.fingerprint
 
 
-def test_acquisition_reuses_sealed_ingest_revision_for_identical_manifest(tmp_path: Path, fixed_now) -> None:
+@pytest.mark.parametrize(
+    ("existing_reason", "requested_reason", "requested_parent"),
+    (("INGEST", "BACKFILL", None), ("BACKFILL", "CORRECTION", None), ("BACKFILL", "BACKFILL", "wrong")),
+)
+def test_revision_reuse_requires_exact_operation_context(
+    tmp_path: Path, fixed_now, existing_reason: str, requested_reason: str, requested_parent: str | None
+) -> None:
     wal, segment, _ = _sealed(tmp_path, fixed_now, kind="BAR")
     records = wal.read_sealed(segment.segment_id)
     store = OnlyInMemoryMarketFactStore()
@@ -423,16 +432,15 @@ def test_acquisition_reuses_sealed_ingest_revision_for_identical_manifest(tmp_pa
     catalog = OnlyInMemoryMarketDataCatalog()
     committer = OnlyRevisionCommitService(store, catalog, now=fixed_now)
     scope = _scope("BAR")
-    manifest, ingest_revision, ingest_seal = committer.commit(segment, scope, {segment.segment_id: records})
+    _, original, _ = committer.commit(segment, scope, {segment.segment_id: records}, reason=existing_reason)
     [fact] = records[0].canonical_facts
+    _, repeated, _ = committer.commit_durable_facts((segment,), scope, (fact,), reason=existing_reason)
+    assert repeated == original
 
-    replayed_manifest, acquired_revision, acquired_seal = committer.commit_durable_facts(
-        (segment,), scope, (fact,), reason="REST_BACKFILL"
-    )
-
-    assert replayed_manifest == manifest
-    assert acquired_revision == ingest_revision
-    assert acquired_seal == ingest_seal
+    with pytest.raises(OnlyMarketDataConflictError, match="REVISION_MANIFEST_CONTEXT_MISMATCH"):
+        committer.commit_durable_facts(
+            (segment,), scope, (fact,), reason=requested_reason, parent_revision_id=requested_parent
+        )
 
 
 def test_coverage_rejects_declared_scope_that_does_not_match_segment(tmp_path: Path, fixed_now) -> None:
@@ -456,6 +464,111 @@ def test_exact_read_fails_closed_when_durable_physical_segment_becomes_partial(t
     del store._raw[raw_key]
 
     with pytest.raises(OnlyMarketDataConflictError, match="MARKET_DATA_SEGMENT_NOT_EXACT"):
+        OnlyHistoricalMarketDataQueryService(catalog, store).read_exact(revision.revision_id, scope)
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "missing_manifest",
+        "seal_id",
+        "seal_checks",
+        "extra_seal_check",
+        "manifest_refs",
+        "manifest_fingerprint",
+        "manifest_scope",
+        "manifest_incomplete",
+        "revision_fingerprint",
+        "revision_normalizers",
+        "revision_reason",
+        "revision_parent",
+    ],
+)
+def test_exact_read_rejects_corrupt_sealed_metadata(tmp_path: Path, fixed_now, damage: str) -> None:
+    wal, segment, _ = _sealed(tmp_path, fixed_now, kind="BAR")
+    records = wal.read_sealed(segment.segment_id)
+    store = OnlyInMemoryMarketFactStore()
+    store.write_segment(segment, records)
+    catalog = OnlyInMemoryMarketDataCatalog()
+    _, revision, seal = OnlyRevisionCommitService(store, catalog, now=fixed_now).commit(
+        segment, _scope("BAR"), {segment.segment_id: records}
+    )
+    if damage == "missing_manifest":
+        del catalog._manifests[revision.manifest_id]
+    elif damage == "seal_id":
+        catalog._seals[revision.revision_id] = replace(seal, seal_id="wrong")
+    elif damage == "seal_checks":
+        catalog._seals[revision.revision_id] = replace(seal, checks=seal.checks[:-1])
+    elif damage == "extra_seal_check":
+        catalog._seals[revision.revision_id] = replace(seal, checks=(*seal.checks, "UNDECLARED"))
+    elif damage == "manifest_refs":
+        catalog._manifests[revision.manifest_id] = replace(catalog._manifests[revision.manifest_id], segment_refs=())
+    elif damage == "manifest_fingerprint":
+        catalog._manifests[revision.manifest_id] = replace(
+            catalog._manifests[revision.manifest_id], fingerprint="f" * 64
+        )
+    elif damage == "manifest_scope":
+        catalog._manifests[revision.manifest_id] = replace(
+            catalog._manifests[revision.manifest_id], scope=replace(_scope("BAR"), end_ns=_scope("BAR").end_ns + 1)
+        )
+    elif damage == "manifest_incomplete":
+        catalog._manifests[revision.manifest_id] = replace(
+            catalog._manifests[revision.manifest_id], coverage_status=OnlyCoverageStatus.INCOMPLETE
+        )
+    else:
+        field, value = {
+            "revision_fingerprint": ("fingerprint", "f" * 64),
+            "revision_normalizers": ("normalizers", ()),
+            "revision_reason": ("creation_reason", "OTHER"),
+            "revision_parent": ("parent_revision_id", "OTHER"),
+        }[damage]
+        catalog._revisions[revision.revision_id] = replace(revision, **{field: value})
+
+    with pytest.raises((OnlyMarketDataSealError, KeyError)):
+        OnlyHistoricalMarketDataQueryService(catalog, store).read_exact(revision.revision_id, _scope("BAR"))
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    (("canonical_fact_id", "other"), ("raw_event_id", "other"), ("instrument_id", "other"), ("ts_event_ns", -1)),
+)
+def test_post_wal_fact_mutation_fails_exact_and_range_reads(
+    tmp_path: Path, fixed_now, field: str, value: object
+) -> None:
+    wal, segment, _ = _sealed(tmp_path, fixed_now, kind="BAR")
+    store = OnlyInMemoryMarketFactStore()
+    catalog = OnlyInMemoryMarketDataCatalog()
+    scope = _scope("BAR")
+    recovery = OnlyMarketDataRecoveryCoordinator(
+        wal, store, catalog, OnlyRevisionCommitService(store, catalog, now=fixed_now)
+    )
+    assert recovery.drain(segment.segment_id, scope) == "COMMITTED"
+    assert wal.scan_uncommitted() == ()
+    revision = catalog.latest_sealed_revision(scope)
+    key = next(iter(store._facts))
+    store._facts[key] = replace(store._facts[key], **{field: value})
+
+    with pytest.raises(OnlyMarketDataConflictError, match="MARKET_DATA_SEGMENT_NOT_EXACT"):
+        OnlyHistoricalMarketDataQueryService(catalog, store).read_exact(revision.revision_id, scope)
+    with pytest.raises(OnlyMarketDataConflictError, match="MARKET_DATA_SEGMENT_NOT_EXACT"):
+        OnlyVerifiedMarketDataRangeQuery(catalog, store).read(
+            OnlyMarketDataRangeFamily.from_scope(scope), (OnlyBarCoverageGap(scope.start_ns, scope.end_ns),)
+        )
+
+
+def test_proofless_sealed_segment_is_unprovable(tmp_path: Path, fixed_now) -> None:
+    wal, segment, _ = _sealed(tmp_path, fixed_now, kind="BAR")
+    store = OnlyInMemoryMarketFactStore()
+    catalog = OnlyInMemoryMarketDataCatalog()
+    scope = _scope("BAR")
+    recovery = OnlyMarketDataRecoveryCoordinator(
+        wal, store, catalog, OnlyRevisionCommitService(store, catalog, now=fixed_now)
+    )
+    assert recovery.drain(segment.segment_id, scope) == "COMMITTED"
+    revision = catalog.latest_sealed_revision(scope)
+    del catalog._physical_proofs[segment.segment_id]
+
+    with pytest.raises(OnlyMarketDataConflictError, match="MARKET_DATA_PHYSICAL_PROOF_UNPROVABLE"):
         OnlyHistoricalMarketDataQueryService(catalog, store).read_exact(revision.revision_id, scope)
 
 
@@ -577,8 +690,8 @@ def test_recovery_finishes_catalog_after_partial_commit(tmp_path: Path, fixed_no
     class FaultCatalog(OnlyInMemoryMarketDataCatalog):
         failed = False
 
-        def commit_durable_segments(self, segments):  # type: ignore[no-untyped-def]
-            super().commit_durable_segments(segments)
+        def commit_durable_segments(self, segments, proofs):  # type: ignore[no-untyped-def]
+            super().commit_durable_segments(segments, proofs)
             if failed_commit == "segments" and not self.failed:
                 self.failed = True
                 raise RuntimeError("injected catalog crash")
@@ -742,7 +855,10 @@ def test_grouped_recovery_rejects_mixed_committed_catalog_state(tmp_path: Path, 
         segments.append(ingress.seal())
     store = OnlyInMemoryMarketFactStore()
     catalog = OnlyInMemoryMarketDataCatalog()
-    catalog.commit_durable_segments((segments[0],))
+    first_records = wal.read_sealed(segments[0].segment_id)
+    store.write_segment(segments[0], first_records)
+    proof = store.verify_segments((segments[0],), {segments[0].segment_id: first_records}).physical_proofs
+    catalog.commit_durable_segments((segments[0],), proof)
     recovery = OnlyMarketDataRecoveryCoordinator(
         wal, store, catalog, OnlyRevisionCommitService(store, catalog, now=fixed_now)
     )

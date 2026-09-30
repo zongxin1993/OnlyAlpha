@@ -437,12 +437,100 @@ class OnlyMarketDataScope:
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyMarketDataPhysicalPartitionProof:
+    table: str
+    row_count: int
+    row_set_digest: str
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyMarketDataPhysicalSegmentProof:
+    schema_version: int
+    segment_id: str
+    segment_content_hash: str
+    segment_metadata_fingerprint: str
+    raw_count: int
+    canonical_count: int
+    partitions: tuple[OnlyMarketDataPhysicalPartitionProof, ...]
+    fingerprint: str
+
+    @classmethod
+    def build(
+        cls,
+        segment: OnlyIngestSegment,
+        partitions: tuple[OnlyMarketDataPhysicalPartitionProof, ...],
+    ) -> OnlyMarketDataPhysicalSegmentProof:
+        ordered = tuple(sorted(partitions, key=lambda item: item.table))
+        if (
+            len(ordered) != 4
+            or {item.table for item in ordered}
+            != {"market_raw_event", "market_trade", "market_bar", "market_reference_price"}
+            or any(item.row_count < 0 or not re.fullmatch(r"[0-9a-f]{64}", item.row_set_digest) for item in ordered)
+            or next(item.row_count for item in ordered if item.table == "market_raw_event") != segment.raw_count
+            or sum(item.row_count for item in ordered if item.table != "market_raw_event") != segment.canonical_count
+        ):
+            raise ValueError("MARKET_DATA_PHYSICAL_PROOF_INVALID")
+        body = (
+            1,
+            segment.segment_id,
+            segment.content_hash,
+            only_canonical_fingerprint(segment),
+            segment.raw_count,
+            segment.canonical_count,
+            ordered,
+        )
+        return cls(*body, only_canonical_fingerprint(body))
+
+    def assert_matches(self, segment: OnlyIngestSegment) -> None:
+        if self != type(self).build(segment, self.partitions):
+            raise ValueError("MARKET_DATA_PHYSICAL_PROOF_MISMATCH")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "segment_id": self.segment_id,
+            "segment_content_hash": self.segment_content_hash,
+            "segment_metadata_fingerprint": self.segment_metadata_fingerprint,
+            "raw_count": self.raw_count,
+            "canonical_count": self.canonical_count,
+            "partitions": [
+                {"table": item.table, "row_count": item.row_count, "row_set_digest": item.row_set_digest}
+                for item in self.partitions
+            ],
+            "fingerprint": self.fingerprint,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, object]) -> OnlyMarketDataPhysicalSegmentProof:
+        partitions = value["partitions"]
+        if not isinstance(partitions, list):
+            raise ValueError("MARKET_DATA_PHYSICAL_PROOF_INVALID")
+        return cls(
+            int(str(value["schema_version"])),
+            str(value["segment_id"]),
+            str(value["segment_content_hash"]),
+            str(value["segment_metadata_fingerprint"]),
+            int(str(value["raw_count"])),
+            int(str(value["canonical_count"])),
+            tuple(
+                OnlyMarketDataPhysicalPartitionProof(
+                    str(item["table"]), int(str(item["row_count"])), str(item["row_set_digest"])
+                )
+                for item in partitions
+                if isinstance(item, Mapping)
+            ),
+            str(value["fingerprint"]),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyVerifiedSegmentBatch:
     """Exact physical-store proof bound to one immutable record set and scope."""
 
     segment_refs: tuple[tuple[str, str], ...]
     record_set_fingerprint: str
     scope: OnlyMarketDataScope | None
+    physical_proofs: tuple[OnlyMarketDataPhysicalSegmentProof, ...] = ()
 
     @classmethod
     def build(
@@ -531,8 +619,18 @@ class OnlyVerifiedSegmentBatch:
         records_by_segment: Mapping[str, tuple[OnlyMarketDataRecordBundle, ...]],
         scope: OnlyMarketDataScope | None,
     ) -> None:
-        if self != type(self).build(segments, records_by_segment, scope):
+        rebuilt = type(self).build(segments, records_by_segment, scope)
+        if (
+            self.segment_refs != rebuilt.segment_refs
+            or self.record_set_fingerprint != rebuilt.record_set_fingerprint
+            or self.scope != rebuilt.scope
+            or tuple(item.segment_id for item in self.physical_proofs) != tuple(item[0] for item in self.segment_refs)
+        ):
             raise ValueError("MARKET_DATA_VERIFIED_BATCH_MISMATCH")
+        for segment, proof in zip(
+            sorted(segments, key=lambda item: item.segment_id), self.physical_proofs, strict=True
+        ):
+            proof.assert_matches(segment)
 
 
 @dataclass(frozen=True, slots=True)

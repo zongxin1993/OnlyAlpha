@@ -87,7 +87,8 @@ class OnlyMarketDataBackfillCoordinator:
         self._validate_acquisition(acquisition)
         self._catalog.admit_acquisition_intent(acquisition)
         segments = self._catalog.list_durable_segments(acquisition.requested_scope)
-        facts = self._facts.read_segment_facts(segments, acquisition.requested_scope)
+        proofs = self._catalog.load_physical_proofs(tuple(item.segment_id for item in segments))
+        facts = self._facts.read_segment_facts(segments, acquisition.requested_scope, proofs)
         manifest = only_build_coverage(acquisition.requested_scope, segments, facts)
         self._catalog.commit_coverage_manifest(manifest)
         return manifest
@@ -163,7 +164,12 @@ class OnlyMarketDataBackfillCoordinator:
                 stored, latest_seal = self._catalog.load_sealed_revision(latest_revision.revision_id)
                 manifest = self._catalog.load_coverage_manifest(stored.manifest_id)
                 only_verify_revision_authority(stored, manifest, latest_seal)
-                if stored != latest_revision or stored.scope != acquisition.requested_scope:
+                if (
+                    stored != latest_revision
+                    or stored.scope != acquisition.requested_scope
+                    or stored.creation_reason != "BACKFILL"
+                    or stored.parent_revision_id != parent_revision_id
+                ):
                     raise RuntimeError("MARKET_DATA_REVISION_EVIDENCE_INVALID")
                 if {item[0] for item in new_segment_refs}.issubset({item[0] for item in stored.segment_refs}):
                     if not new_segment_refs.issubset(set(stored.segment_refs)):
@@ -171,14 +177,18 @@ class OnlyMarketDataBackfillCoordinator:
                     return OnlyMarketDataBackfillResult(acquisition, manifest, stored, latest_seal, recovery_results)
             selected = available
         else:
-            parent, _ = self._catalog.load_sealed_revision(parent_revision_id)
+            parent, parent_seal = self._catalog.load_sealed_revision(parent_revision_id)
+            only_verify_revision_authority(
+                parent, self._catalog.load_coverage_manifest(parent.manifest_id), parent_seal
+            )
             if parent.scope != acquisition.requested_scope:
                 raise ValueError("BACKFILL_PARENT_SCOPE_MISMATCH")
             ids = {item[0] for item in parent.segment_refs} | {
                 item.segment_id for item in available if item.segment_id not in prior_segment_ids
             }
             selected = self._catalog.load_durable_segments(tuple(sorted(ids)))
-        facts = self._facts.read_segment_facts(selected, acquisition.requested_scope)
+        proofs = self._catalog.load_physical_proofs(tuple(item.segment_id for item in selected))
+        facts = self._facts.read_segment_facts(selected, acquisition.requested_scope, proofs)
         manifest, revision, seal = self._committer.commit_durable_facts(
             selected,
             acquisition.requested_scope,
@@ -209,7 +219,8 @@ class OnlyMarketDataCorrectionComposer:
         parent_revision_id: str,
         replacements: tuple[tuple[str, str], ...],
     ) -> tuple[OnlyCoverageManifest, OnlyMarketDataRevision, OnlyMarketDataSeal]:
-        parent, _ = self._catalog.load_sealed_revision(parent_revision_id)
+        parent, parent_seal = self._catalog.load_sealed_revision(parent_revision_id)
+        only_verify_revision_authority(parent, self._catalog.load_coverage_manifest(parent.manifest_id), parent_seal)
         replacement_map = dict(replacements)
         if not replacement_map or len(replacement_map) != len(replacements):
             raise ValueError("CORRECTION_REPLACEMENT_SET_INVALID")
@@ -218,7 +229,8 @@ class OnlyMarketDataCorrectionComposer:
             raise ValueError("CORRECTION_REPLACED_SEGMENT_NOT_IN_PARENT")
         selected_ids = tuple(sorted(replacement_map.get(segment_id, segment_id) for segment_id in parent_ids))
         segments = self._catalog.load_durable_segments(selected_ids)
-        facts = self._facts.read_segment_facts(segments, parent.scope)
+        proofs = self._catalog.load_physical_proofs(tuple(item.segment_id for item in segments))
+        facts = self._facts.read_segment_facts(segments, parent.scope, proofs)
         manifest, revision, seal = self._committer.commit_durable_facts(
             segments,
             parent.scope,

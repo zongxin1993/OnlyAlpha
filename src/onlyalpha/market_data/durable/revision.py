@@ -21,6 +21,7 @@ from .models import (
     OnlyIngestSegment,
     OnlyMarketDataAcquisitionAttempt,
     OnlyMarketDataAcquisitionIntent,
+    OnlyMarketDataPhysicalSegmentProof,
     OnlyMarketDataRangeFamily,
     OnlyMarketDataRecordBundle,
     OnlyMarketDataRevision,
@@ -280,6 +281,7 @@ class OnlyInMemoryMarketDataCatalog(OnlyMarketDataCatalog):
     def __init__(self) -> None:
         self._acquisition_lock = RLock()
         self._segments: dict[str, OnlyIngestSegment] = {}
+        self._physical_proofs: dict[str, OnlyMarketDataPhysicalSegmentProof] = {}
         self._acquisitions: dict[str, OnlyMarketDataAcquisitionIntent] = {}
         self._acquisition_attempts: dict[str, list[OnlyMarketDataAcquisitionAttempt]] = {}
         self._active_acquisitions: set[str] = set()
@@ -287,13 +289,32 @@ class OnlyInMemoryMarketDataCatalog(OnlyMarketDataCatalog):
         self._revisions: dict[str, OnlyMarketDataRevision] = {}
         self._seals: dict[str, OnlyMarketDataSeal] = {}
 
-    def commit_durable_segments(self, segments: tuple[OnlyIngestSegment, ...]) -> None:
+    def commit_durable_segments(
+        self, segments: tuple[OnlyIngestSegment, ...], proofs: tuple[OnlyMarketDataPhysicalSegmentProof, ...]
+    ) -> None:
+        by_id = {item.segment_id: item for item in proofs}
+        if len(by_id) != len(proofs) or set(by_id) != {item.segment_id for item in segments}:
+            raise OnlyMarketDataConflictError("MARKET_DATA_PHYSICAL_PROOF_SET_INVALID")
         for segment in segments:
+            by_id[segment.segment_id].assert_matches(segment)
             prior = self._segments.get(segment.segment_id)
             if prior is not None and prior != segment:
                 raise OnlyMarketDataConflictError("SEGMENT_ID_CONTENT_CONFLICT")
+            prior_proof = self._physical_proofs.get(segment.segment_id)
+            if prior_proof is not None and prior_proof != by_id[segment.segment_id]:
+                raise OnlyMarketDataConflictError("MARKET_DATA_PHYSICAL_PROOF_CONFLICT")
         for segment in segments:
             self._segments.setdefault(segment.segment_id, segment)
+            self._physical_proofs.setdefault(segment.segment_id, by_id[segment.segment_id])
+
+    def load_physical_proofs(self, segment_ids: tuple[str, ...]) -> tuple[OnlyMarketDataPhysicalSegmentProof, ...]:
+        try:
+            proofs = tuple(self._physical_proofs[item] for item in segment_ids)
+            for segment_id, proof in zip(segment_ids, proofs, strict=True):
+                proof.assert_matches(self._segments[segment_id])
+            return proofs
+        except (KeyError, ValueError) as exc:
+            raise OnlyMarketDataConflictError("MARKET_DATA_PHYSICAL_PROOF_UNPROVABLE") from exc
 
     def admit_acquisition_intent(self, intent: OnlyMarketDataAcquisitionIntent) -> OnlyMarketDataAcquisitionIntent:
         # `acquisition_id` is the canonical fingerprint of the whole execution intent, so an
@@ -493,18 +514,30 @@ class OnlyHistoricalMarketDataQueryService:
 
     def resolve_with_seal(self, revision_id: str) -> tuple[OnlyMarketDataRevision, OnlyMarketDataSeal]:
         revision, seal = self._catalog.load_sealed_revision(revision_id)
-        if seal.revision_fingerprint != revision.fingerprint:
-            raise OnlyMarketDataSealError("REVISION_SEAL_FINGERPRINT_MISMATCH")
+        if revision.revision_id != revision_id:
+            raise OnlyMarketDataSealError("MARKET_DATA_REVISION_EVIDENCE_INVALID")
+        try:
+            manifest = self._catalog.load_coverage_manifest(revision.manifest_id)
+        except KeyError as exc:
+            raise OnlyMarketDataSealError("MARKET_DATA_REVISION_EVIDENCE_INVALID") from exc
+        only_verify_revision_authority(revision, manifest, seal)
         return revision, seal
 
     def resolve_latest(self, scope: OnlyMarketDataScope) -> OnlyMarketDataRevision:
         """Convenience projection; callers receive and must bind the exact revision."""
-        return self._catalog.latest_sealed_revision(scope)
+        latest = self._catalog.latest_sealed_revision(scope)
+        revision = self.resolve(latest.revision_id)
+        if revision != latest or revision.scope != scope:
+            raise OnlyMarketDataSealError("MARKET_DATA_REVISION_EVIDENCE_INVALID")
+        return revision
 
     def read_exact(self, revision_id: str, scope: OnlyMarketDataScope) -> tuple[OnlyCanonicalMarketFactRecord, ...]:
         revision = self.resolve(revision_id)
         segments = self._catalog.load_durable_segments(tuple(item[0] for item in revision.segment_refs))
-        return self._read_verified_segments(revision, segments, scope)
+        facts = self._read_verified_segments(revision, segments, scope)
+        if only_build_coverage(scope, segments, facts) != self._catalog.load_coverage_manifest(revision.manifest_id):
+            raise OnlyMarketDataSealError("MARKET_DATA_REVISION_COVERAGE_MISMATCH")
+        return facts
 
     def _read_verified_segments(
         self,
@@ -516,7 +549,8 @@ class OnlyHistoricalMarketDataQueryService:
             raise ValueError("REVISION_SCOPE_MISMATCH")
         if tuple((item.segment_id, item.content_hash) for item in segments) != revision.segment_refs:
             raise OnlyMarketDataSealError("REVISION_SEGMENT_METADATA_MISMATCH")
-        facts = self._fact_store.read_segment_facts(segments, scope)
+        proofs = self._catalog.load_physical_proofs(tuple(item.segment_id for item in segments))
+        facts = self._fact_store.read_segment_facts(segments, scope, proofs)
         only_verify_canonical_uniqueness(facts)
         return only_deduplicate_facts(facts)
 
@@ -575,7 +609,7 @@ class OnlyRevisionCommitService:
         if set(records_by_segment) != {item.segment_id for item in ordered}:
             raise ValueError("MARKET_DATA_REVISION_RECORD_SET_MISMATCH")
         verified_batch.assert_matches(ordered, records_by_segment, scope)
-        self._catalog.commit_durable_segments(ordered)
+        self._catalog.commit_durable_segments(ordered, verified_batch.physical_proofs)
         facts = tuple(
             fact
             for segment in ordered
@@ -637,6 +671,7 @@ class OnlyRevisionCommitService:
                     or revision.segment_refs != manifest.segment_refs
                     or revision.normalizers != tuple(sorted(normalizers))
                     or revision.parent_revision_id != parent_revision_id
+                    or revision.creation_reason != reason
                 ):
                     raise OnlyMarketDataConflictError("REVISION_MANIFEST_CONTEXT_MISMATCH")
             return found

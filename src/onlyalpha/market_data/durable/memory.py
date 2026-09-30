@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import replace
+from hashlib import sha256
+
+from onlyalpha.canonical import only_canonical_fingerprint
 
 from .models import (
     OnlyCanonicalMarketFactRecord,
     OnlyIngestSegment,
+    OnlyMarketDataPhysicalPartitionProof,
+    OnlyMarketDataPhysicalSegmentProof,
     OnlyMarketDataRecordBundle,
-    OnlyMarketDataRevision,
     OnlyMarketDataScope,
     OnlyVerifiedSegmentBatch,
 )
@@ -98,30 +103,64 @@ class OnlyInMemoryMarketFactStore:
                 (segment.segment_id, bundle.evidence.raw_event_id): bundle.evidence.raw_sha256 for bundle in records
             }
             expected_facts = {
-                (segment.segment_id, fact.canonical_fact_id, fact.raw_event_id): fact.canonical_payload_hash
+                (segment.segment_id, fact.canonical_fact_id, fact.raw_event_id): fact
                 for bundle in records
                 for fact in bundle.canonical_facts
             }
-            stored_facts = {
-                key: fact.canonical_payload_hash for key, fact in self._facts.items() if key[0] == segment.segment_id
-            }
+            stored_facts = {key: fact for key, fact in self._facts.items() if key[0] == segment.segment_id}
             stored_raw = {key: value for key, value in self._raw.items() if key[0] == segment.segment_id}
             if stored_raw != expected_raw or stored_facts != expected_facts:
                 raise RuntimeError("MARKET_DATA_SEGMENT_CONTENT_NOT_EXACT")
-        return verified
-
-    def read_revision_facts(
-        self, revision: OnlyMarketDataRevision, scope: OnlyMarketDataScope
-    ) -> tuple[OnlyCanonicalMarketFactRecord, ...]:
-        selected = {item[0] for item in revision.segment_refs}
-        return self._read_selected(selected, scope)
+        return replace(
+            verified,
+            physical_proofs=tuple(
+                self._physical_proof(item) for item in sorted(segments, key=lambda item: item.segment_id)
+            ),
+        )
 
     def read_segment_facts(
-        self, segments: tuple[OnlyIngestSegment, ...], scope: OnlyMarketDataScope
+        self,
+        segments: tuple[OnlyIngestSegment, ...],
+        scope: OnlyMarketDataScope,
+        proofs: tuple[OnlyMarketDataPhysicalSegmentProof, ...],
     ) -> tuple[OnlyCanonicalMarketFactRecord, ...]:
-        if any(self.inspect_segment(item) != "EXACT" for item in segments):
+        by_id = {item.segment_id: item for item in proofs}
+        if len(by_id) != len(proofs) or set(by_id) != {item.segment_id for item in segments}:
+            raise OnlyMarketDataConflictError("MARKET_DATA_PHYSICAL_PROOF_UNPROVABLE")
+        if any(
+            self.inspect_segment(item) != "EXACT" or self._physical_proof(item) != by_id[item.segment_id]
+            for item in segments
+        ):
             raise OnlyMarketDataConflictError("MARKET_DATA_SEGMENT_NOT_EXACT")
         return self._read_selected({item.segment_id for item in segments}, scope)
+
+    def _physical_proof(self, segment: OnlyIngestSegment) -> OnlyMarketDataPhysicalSegmentProof:
+        rows: dict[str, list[str]] = {
+            "market_raw_event": [
+                only_canonical_fingerprint((key, value))
+                for key, value in self._raw.items()
+                if key[0] == segment.segment_id
+            ],
+            "market_trade": [],
+            "market_bar": [],
+            "market_reference_price": [],
+        }
+        for (segment_id, _, _), fact in self._facts.items():
+            if segment_id == segment.segment_id:
+                rows[
+                    {"TRADE": "market_trade", "BAR": "market_bar", "MARKET_REFERENCE": "market_reference_price"}[
+                        fact.data_kind
+                    ]
+                ].append(only_canonical_fingerprint(fact))
+        return OnlyMarketDataPhysicalSegmentProof.build(
+            segment,
+            tuple(
+                OnlyMarketDataPhysicalPartitionProof(
+                    table, len(values), sha256("".join(sorted(values)).encode()).hexdigest()
+                )
+                for table, values in rows.items()
+            ),
+        )
 
     def _read_selected(
         self, selected: set[str], scope: OnlyMarketDataScope

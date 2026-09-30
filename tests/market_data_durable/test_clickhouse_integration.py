@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from onlyalpha.market_data.durable import (
+    OnlyHistoricalMarketDataQueryService,
     OnlyInMemoryMarketDataCatalog,
     OnlyMarketDataIngress,
     OnlyMarketDataScope,
@@ -22,6 +23,7 @@ from onlyalpha.persistence.clickhouse import (
     OnlyClickHouseMigrationAuthority,
     only_assert_clickhouse_test_database,
 )
+from onlyalpha.persistence.clickhouse.market_data_store import _PHYSICAL_COLUMNS, _physical_row_proof, _physical_row_sql
 from scripts.market_data_database import _backup_segment, _restore_segment
 
 from .conftest import BASE, INSTRUMENT, trade_update
@@ -88,14 +90,21 @@ def test_clickhouse_batch_verifies_many_one_record_segments_and_reads_in_order(
     clickhouse_client: OnlyClickHouseClient, tmp_path: Path, fixed_now
 ) -> None:
     OnlyClickHouseMigrationAuthority(clickhouse_client).migrate()
+    for table, columns in _PHYSICAL_COLUMNS.items():
+        actual = clickhouse_client.query_json(
+            f"SELECT name FROM system.columns WHERE database=currentDatabase() AND table='{table}' ORDER BY position"
+        )
+        assert tuple(row["name"] for row in actual) == tuple(name for name, _ in columns)
     store = OnlyClickHouseMarketFactStore(clickhouse_client)
     segments = []
+    records_by_segment = {}
     for index in range(10):
         segment, records = _segment(
             tmp_path / str(index), fixed_now, sequence=100 + index, segment_id=f"segment-batch-{index}"
         )
         store.write_segment(segment, records)
         segments.append(segment)
+        records_by_segment[segment.segment_id] = records
     base_ns = int(BASE.timestamp() * 1_000_000_000)
     scope = OnlyMarketDataScope(
         "BINANCE_SPOT",
@@ -110,9 +119,40 @@ def test_clickhouse_batch_verifies_many_one_record_segments_and_reads_in_order(
         109,
     )
 
-    facts = store.read_segment_facts(tuple(segments), scope)
+    proofs = store.verify_segments(tuple(segments), records_by_segment, scope).physical_proofs
+    facts = store.read_segment_facts(tuple(segments), scope, proofs)
 
     assert [item.canonical_payload["source_sequence"] for item in facts] == list(range(100, 110))
+
+
+def test_physical_row_encoding_matches_clickhouse_for_nullable_decimal_and_unicode(
+    clickhouse_client: OnlyClickHouseClient, tmp_path: Path, fixed_now
+) -> None:
+    OnlyClickHouseMigrationAuthority(clickhouse_client).migrate()
+    segment, records = _segment(tmp_path, fixed_now, segment_id="physical-encoding")
+    store = OnlyClickHouseMarketFactStore(clickhouse_client)
+    for index, nullable in enumerate((None, "", "NULL")):
+        row = store._raw_row(segment, index, records[0])
+        row.update(
+            raw_event_id=f"encoding-{index}",
+            provider_event_id=nullable,
+            provider_sequence=-1,
+            ts_event_ns=8_000_000_000_000_000_000,
+            provider_schema="值:|\n😀",
+        )
+        clickhouse_client.insert_json_each_row("market_raw_event", (row,))
+        actual = clickhouse_client.query_json(
+            f"SELECT {_physical_row_sql('market_raw_event')} AS proof FROM market_raw_event "
+            f"WHERE raw_event_id='encoding-{index}'"
+        )
+        assert actual == ({"proof": _physical_row_proof("market_raw_event", row)},)
+    trade = store._fact_row(segment, records[0].canonical_facts[0])
+    trade.update(price="-123.450000000000000001", quantity="0.000000000000000001", aggressor_side="值:|😀")
+    clickhouse_client.insert_json_each_row("market_trade", (trade,))
+    actual = clickhouse_client.query_json(
+        f"SELECT {_physical_row_sql('market_trade')} AS proof FROM market_trade WHERE segment_id='physical-encoding'"
+    )
+    assert actual == ({"proof": _physical_row_proof("market_trade", trade)},)
 
 
 def test_clickhouse_migration_unknown_write_exact_round_trip_and_configured_storage(
@@ -164,10 +204,11 @@ def test_clickhouse_migration_unknown_write_exact_round_trip_and_configured_stor
         10,
         10,
     )
-    revision = OnlyRevisionCommitService(store, OnlyInMemoryMarketDataCatalog(), now=fixed_now).commit(
+    catalog = OnlyInMemoryMarketDataCatalog()
+    revision = OnlyRevisionCommitService(store, catalog, now=fixed_now).commit(
         segment, scope, {segment.segment_id: records}
     )[1]
-    [fact] = store.read_revision_facts(revision, scope)
+    [fact] = OnlyHistoricalMarketDataQueryService(catalog, store).read_exact(revision.revision_id, scope)
     assert fact == records[0].canonical_facts[0]
 
     [stored] = clickhouse_client.query_json(

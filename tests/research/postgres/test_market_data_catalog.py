@@ -24,6 +24,11 @@ from onlyalpha.market_data.durable import (
     only_build_coverage,
     only_build_seal,
 )
+from onlyalpha.market_data.durable.models import (
+    OnlyIngestSegment,
+    OnlyMarketDataPhysicalPartitionProof,
+    OnlyMarketDataPhysicalSegmentProof,
+)
 from onlyalpha.market_data.resolution import (
     OnlyBarCapability,
     OnlyBarConstructionIdentity,
@@ -44,6 +49,19 @@ pytestmark = [
 ]
 
 
+def _proof(segment: OnlyIngestSegment) -> OnlyMarketDataPhysicalSegmentProof:
+    counts = {
+        "market_raw_event": segment.raw_count,
+        "market_trade": segment.canonical_count if segment.data_kind == "TRADE" else 0,
+        "market_bar": segment.canonical_count if segment.data_kind == "BAR" else 0,
+        "market_reference_price": segment.canonical_count if segment.data_kind == "MARKET_REFERENCE" else 0,
+    }
+    return OnlyMarketDataPhysicalSegmentProof.build(
+        segment,
+        tuple(OnlyMarketDataPhysicalPartitionProof(table, count, "0" * 64) for table, count in counts.items()),
+    )
+
+
 def test_native_construction_scope_survives_catalog_reload(postgres_dsn: str, tmp_path: Path) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     wal, legacy_segment, _ = _sealed(tmp_path / "native", lambda: BASE.replace(hour=1), kind="BAR")
@@ -62,7 +80,7 @@ def test_native_construction_scope_survives_catalog_reload(postgres_dsn: str, tm
     segment = replace(legacy_segment, segment_id="native-construction-1", bar_construction=construction)
     constructed_scope = replace(scope, bar_construction=construction)
     catalog = OnlyPostgresMarketDataCatalog(postgres_dsn)
-    catalog.commit_durable_segments((segment,))
+    catalog.commit_durable_segments((segment,), (_proof(segment),))
     assert catalog.load_durable_segments((segment.segment_id,)) == (segment,)
     assert catalog.list_durable_segments(constructed_scope) == (segment,)
     assert catalog.list_durable_segments(replace(scope, bar_construction=None)) == ()
@@ -104,6 +122,15 @@ def test_market_data_catalog_concurrent_commit_is_immutable_and_survives_restore
     assert results == (None, None)
     assert catalog.load_sealed_revision(revision.revision_id) == (revision, seal)
     assert catalog.load_durable_segments((segment.segment_id,)) == (segment,)
+    expected_proofs = fact_store.verify_segments((segment,), {segment.segment_id: records}).physical_proofs
+    assert catalog.load_physical_proofs((segment.segment_id,)) == expected_proofs
+    changed_parts = tuple(
+        replace(item, row_set_digest="1" * 64) if item.table == "market_raw_event" else item
+        for item in expected_proofs[0].partitions
+    )
+    conflicting_proof = OnlyMarketDataPhysicalSegmentProof.build(segment, changed_parts)
+    with pytest.raises(RuntimeError, match="MARKET_DATA_PHYSICAL_PROOF_CONFLICT"):
+        catalog.commit_durable_segments((segment,), (conflicting_proof,))
     assert catalog.list_durable_segments(_scope("TRADE")) == (segment,)
     acquisition = OnlyMarketDataAcquisitionIntent.build(
         "BINANCE_SPOT",
@@ -162,6 +189,7 @@ def test_market_data_catalog_concurrent_commit_is_immutable_and_survives_restore
         restored = OnlyPostgresMarketDataCatalog(target_dsn)
         assert restored.load_sealed_revision(revision.revision_id) == (revision, seal)
         assert restored.load_durable_segments((segment.segment_id,)) == (segment,)
+        assert restored.load_physical_proofs((segment.segment_id,)) == expected_proofs
     finally:
         with psycopg.connect(admin_dsn, autocommit=True) as connection:
             connection.execute(
@@ -170,13 +198,13 @@ def test_market_data_catalog_concurrent_commit_is_immutable_and_survives_restore
             connection.execute("DROP DATABASE IF EXISTS onlyalpha_restore_test")
 
 
-def test_competing_revision_reasons_reuse_one_sealed_manifest(postgres_dsn: str, tmp_path: Path) -> None:
+def test_competing_revision_reasons_reject_losing_context(postgres_dsn: str, tmp_path: Path) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     wal, segment, _ = _sealed(tmp_path / "race", lambda: BASE, close="171.00000000")
     records = wal.read_sealed(segment.segment_id)
     facts = tuple(fact for bundle in records for fact in bundle.canonical_facts)
     catalog = OnlyPostgresMarketDataCatalog(postgres_dsn)
-    catalog.commit_durable_segments((segment,))
+    catalog.commit_durable_segments((segment,), (_proof(segment),))
     store = OnlyInMemoryMarketFactStore()
     store.write_segment(segment, records)
     barrier = Barrier(2)
@@ -188,9 +216,14 @@ def test_competing_revision_reasons_reuse_one_sealed_manifest(postgres_dsn: str,
         )
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        results = tuple(executor.map(commit, ("INGEST", "REST_BACKFILL")))
-    assert results[0][1:] == results[1][1:]
-    manifest, revision, seal = results[0]
+        futures = tuple(executor.submit(commit, reason) for reason in ("INGEST", "BACKFILL"))
+        outcomes = tuple(future.exception() or future.result() for future in futures)
+    assert sum(isinstance(item, tuple) for item in outcomes) == 1
+    assert (
+        sum(isinstance(item, RuntimeError) and str(item) == "REVISION_MANIFEST_CONTEXT_MISMATCH" for item in outcomes)
+        == 1
+    )
+    manifest, revision, seal = next(item for item in outcomes if isinstance(item, tuple))
     assert revision is not None and seal is not None
     assert catalog.sealed_revision_for_manifest(manifest.manifest_id) == (revision, seal)
     with psycopg.connect(postgres_dsn) as connection:
@@ -213,12 +246,12 @@ def test_capture_session_accepts_multiple_segments_created_at_different_times(
     )
     catalog = OnlyPostgresMarketDataCatalog(postgres_dsn)
 
-    catalog.commit_durable_segments((first, second))
+    catalog.commit_durable_segments((first, second), (_proof(first), _proof(second)))
 
     assert catalog.load_durable_segments((first.segment_id, second.segment_id)) == (first, second)
     conflicting = replace(second, segment_id="segment-conflicting", content_hash="b" * 64, provider_schema="v2")
     with pytest.raises(RuntimeError, match="POSTGRES_CAPTURE_SESSION_CONFLICT"):
-        catalog.commit_durable_segments((conflicting,))
+        catalog.commit_durable_segments((conflicting,), (_proof(conflicting),))
 
 
 def _acquisition(source_id: str, binding: str) -> OnlyMarketDataAcquisitionIntent:
@@ -282,6 +315,7 @@ def test_pre_0038_acquisition_identity_remains_exactly_readable(postgres_dsn: st
         "0039_market_data_acquisition_versioned_attempt_outcome",
         "0040_market_bar_construction_identity",
         "0041_market_data_range_lookup",
+        "0042_market_segment_physical_proof",
     )
     catalog = OnlyPostgresMarketDataCatalog(postgres_dsn)
     loaded = catalog.load_acquisition_intent(acquisition_id)
