@@ -566,10 +566,13 @@ export function WorkspacePage() {
                         mode={realPath ? "real" : "synthetic"}
                         bars={marketData.bars}
                         liveBar={marketData.liveBar}
-                        historyKey={
+                        contextKey={realPath ? marketData.chartContextKey : null}
+                        onNearLeftEdge={
                             realPath
-                                ? `${marketData.historyProjectionFingerprint ?? ""}:${String(fixedDurationMinutes(marketData.barSemantic))}`
-                                : null
+                                ? () => {
+                                      void marketData.loadOlderHistory();
+                                  }
+                                : undefined
                         }
                     />
                 </div>

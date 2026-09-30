@@ -47,6 +47,10 @@ class NoopResizeObserver {
  * hide behind the mock.
  */
 const chartMocks = vi.hoisted(() => {
+    const range = { value: { from: 30, to: 60 } as { from: number; to: number } | null };
+    const visible = {
+        handler: null as ((range: { from: number; to: number } | null) => void) | null
+    };
     const candles = {
         setData: vi.fn<(bars: readonly unknown[]) => void>(),
         update: vi.fn<(bar: unknown) => void>()
@@ -58,15 +62,33 @@ const chartMocks = vi.hoisted(() => {
     const addSeries = vi.fn<(definition: string) => typeof candles>((definition) =>
         definition === "Candlestick" ? candles : overlays
     );
+    const timeScale = {
+        applyOptions: vi.fn(),
+        getVisibleLogicalRange: vi.fn(() => range.value),
+        setVisibleLogicalRange: vi.fn(),
+        subscribeVisibleLogicalRangeChange: vi.fn(
+            (handler: (next: { from: number; to: number } | null) => void) => {
+                visible.handler = handler;
+            }
+        ),
+        unsubscribeVisibleLogicalRangeChange: vi.fn(
+            (handler: (next: { from: number; to: number } | null) => void) => {
+                if (visible.handler === handler) visible.handler = null;
+            }
+        )
+    };
     const created = {
         addSeries,
-        timeScale: () => ({ applyOptions: vi.fn(), setVisibleLogicalRange: vi.fn() }),
+        timeScale: () => timeScale,
         remove: vi.fn()
     };
     return {
         candles,
         overlays,
         addSeries,
+        range,
+        visible,
+        timeScale,
         createChart: vi.fn<() => typeof created>(() => created)
     };
 });
@@ -125,6 +147,12 @@ beforeEach(() => {
     chartMocks.candles.setData.mockClear();
     chartMocks.candles.update.mockClear();
     chartMocks.overlays.setData.mockClear();
+    chartMocks.timeScale.getVisibleLogicalRange.mockClear();
+    chartMocks.timeScale.setVisibleLogicalRange.mockClear();
+    chartMocks.timeScale.subscribeVisibleLogicalRangeChange.mockClear();
+    chartMocks.timeScale.unsubscribeVisibleLogicalRangeChange.mockClear();
+    chartMocks.range.value = { from: 30, to: 60 };
+    chartMocks.visible.handler = null;
 });
 
 afterEach(() => {
@@ -145,7 +173,7 @@ it("updates realtime candles without recreating the chart", () => {
             barSemantic={marketDataBarSemantic(7)}
             mode="real"
             bars={historical}
-            historyKey="revision-a"
+            contextKey="revision-a"
         />
     );
     const created = chartMocks.createChart.mock.calls.length;
@@ -158,7 +186,7 @@ it("updates realtime candles without recreating the chart", () => {
             barSemantic={marketDataBarSemantic(7)}
             mode="real"
             bars={historical}
-            historyKey="revision-a"
+            contextKey="revision-a"
             liveBar={preview}
         />
     );
@@ -170,11 +198,111 @@ it("updates realtime candles without recreating the chart", () => {
             barSemantic={marketDataBarSemantic(37)}
             mode="real"
             bars={historical.slice(1)}
-            historyKey="revision-b"
+            contextKey="revision-b"
         />
     );
     expect(chartMocks.candles.setData).toHaveBeenLastCalledWith(historical.slice(1));
     expect(chartMocks.createChart).toHaveBeenCalledTimes(created);
+});
+
+it("subscribes to the visible range and unsubscribes the same handler", () => {
+    const view = render(
+        <PriceChart
+            barSemantic={marketDataBarSemantic(1)}
+            mode="real"
+            bars={onlyBarsToCandles(marketDataBars().bars)}
+            contextKey="context-a"
+        />
+    );
+    const handler = chartMocks.visible.handler;
+
+    expect(chartMocks.timeScale.subscribeVisibleLogicalRangeChange).toHaveBeenCalledOnce();
+    expect(handler).not.toBeNull();
+    view.unmount();
+    expect(chartMocks.timeScale.unsubscribeVisibleLogicalRangeChange).toHaveBeenCalledWith(handler);
+});
+
+it("requests older history once per left-edge threshold crossing without recreating the chart", () => {
+    const onNearLeftEdge = vi.fn();
+    render(
+        <PriceChart
+            barSemantic={marketDataBarSemantic(1)}
+            mode="real"
+            bars={onlyBarsToCandles(marketDataBars().bars)}
+            contextKey="context-a"
+            onNearLeftEdge={onNearLeftEdge}
+        />
+    );
+    const created = chartMocks.createChart.mock.calls.length;
+    const handler = chartMocks.visible.handler;
+    if (handler === null) throw new Error("visible-range handler missing");
+
+    handler({ from: 24, to: 80 });
+    handler({ from: 12, to: 68 });
+    expect(onNearLeftEdge).toHaveBeenCalledOnce();
+    handler({ from: 25, to: 81 });
+    handler({ from: 24, to: 80 });
+
+    expect(onNearLeftEdge).toHaveBeenCalledTimes(2);
+    expect(chartMocks.createChart).toHaveBeenCalledTimes(created);
+});
+
+it("shifts the logical range by the strict prepend count", () => {
+    const historical = onlyBarsToCandles(marketDataBars().bars);
+    const first = historical[0];
+    if (first === undefined) throw new Error("fixture requires a first Bar");
+    const earlier = { ...first, time: (first.time - 60) as typeof first.time };
+    const view = render(
+        <PriceChart
+            barSemantic={marketDataBarSemantic(1)}
+            mode="real"
+            bars={historical}
+            contextKey="context-a"
+        />
+    );
+    chartMocks.timeScale.setVisibleLogicalRange.mockClear();
+    chartMocks.range.value = { from: 5, to: 10 };
+
+    view.rerender(
+        <PriceChart
+            barSemantic={marketDataBarSemantic(1)}
+            mode="real"
+            bars={[earlier, ...historical]}
+            contextKey="context-a"
+        />
+    );
+
+    expect(chartMocks.timeScale.setVisibleLogicalRange).toHaveBeenLastCalledWith({
+        from: 6,
+        to: 11
+    });
+});
+
+it("resets a changed context to the recent range", () => {
+    const historical = onlyBarsToCandles(marketDataBars().bars);
+    const view = render(
+        <PriceChart
+            barSemantic={marketDataBarSemantic(1)}
+            mode="real"
+            bars={historical}
+            contextKey="context-a"
+        />
+    );
+    chartMocks.timeScale.setVisibleLogicalRange.mockClear();
+
+    view.rerender(
+        <PriceChart
+            barSemantic={marketDataBarSemantic(1)}
+            mode="real"
+            bars={historical}
+            contextKey="context-b"
+        />
+    );
+
+    expect(chartMocks.timeScale.setVisibleLogicalRange).toHaveBeenLastCalledWith({
+        from: 0,
+        to: historical.length + 4
+    });
 });
 
 it("ignores realtime bars older than the history or latest realtime candle", () => {
@@ -188,7 +316,7 @@ it("ignores realtime bars older than the history or latest realtime candle", () 
             mode="real"
             barSemantic={specification}
             bars={historical}
-            historyKey="revision-a"
+            contextKey="revision-a"
         />
     );
 
@@ -197,7 +325,7 @@ it("ignores realtime bars older than the history or latest realtime candle", () 
             mode="real"
             barSemantic={specification}
             bars={historical}
-            historyKey="revision-a"
+            contextKey="revision-a"
             liveBar={{ ...first, close: 999 }}
         />
     );
@@ -209,7 +337,7 @@ it("ignores realtime bars older than the history or latest realtime candle", () 
             mode="real"
             barSemantic={specification}
             bars={historical}
-            historyKey="revision-a"
+            contextKey="revision-a"
             liveBar={next}
         />
     );
@@ -220,7 +348,7 @@ it("ignores realtime bars older than the history or latest realtime candle", () 
             mode="real"
             barSemantic={specification}
             bars={historical}
-            historyKey="revision-a"
+            contextKey="revision-a"
             liveBar={{ ...last, close: 999 }}
         />
     );

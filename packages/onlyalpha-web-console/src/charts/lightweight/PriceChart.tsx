@@ -5,7 +5,13 @@ import {
     TickMarkType,
     createChart
 } from "lightweight-charts";
-import type { CandlestickData, ISeriesApi, Time, UTCTimestamp } from "lightweight-charts";
+import type {
+    CandlestickData,
+    ISeriesApi,
+    LogicalRange,
+    Time,
+    UTCTimestamp
+} from "lightweight-charts";
 import { useEffect, useMemo, useRef } from "react";
 import type { MarketDataBarSemantic } from "../../api/marketData/model";
 import { deriveTimeAxisPolicy } from "./timeAxisPolicy";
@@ -28,7 +34,8 @@ export function PriceChart({
     mode,
     bars: productBars,
     liveBar = null,
-    historyKey = null
+    contextKey = null,
+    onNearLeftEdge
 }: {
     readonly timeframe?: Timeframe | undefined;
     readonly barSemantic?: MarketDataBarSemantic | undefined;
@@ -40,13 +47,17 @@ export function PriceChart({
     readonly mode: "synthetic" | "real";
     readonly bars: readonly CandlestickData<UTCTimestamp>[];
     readonly liveBar?: CandlestickData<UTCTimestamp> | null;
-    readonly historyKey?: string | null;
+    readonly contextKey?: string | null;
+    readonly onNearLeftEdge?: (() => void) | undefined;
 }) {
     const container = useRef<HTMLDivElement>(null);
     const candleSeries = useRef<ISeriesApi<"Candlestick"> | null>(null);
     const overlaySeries = useRef<readonly ISeriesApi<"Line">[]>([]);
     const chartRef = useRef<ReturnType<typeof createChart> | null>(null);
-    const previousHistoryKey = useRef<string | null>(null);
+    const previousContextKey = useRef<string | null>(null);
+    const previousBars = useRef<readonly CandlestickData<UTCTimestamp>[]>([]);
+    const nearLeftEdgeArmed = useRef(true);
+    const nearLeftEdgeCallback = useRef(onNearLeftEdge);
     const lastRenderedTime = useRef<number | null>(null);
     const bars = useMemo(
         () => (mode === "synthetic" ? buildPlaceholderBars(timeframe ?? "1D") : productBars),
@@ -56,6 +67,10 @@ export function PriceChart({
         () => (mode === "synthetic" ? overlays : EMPTY_OVERLAYS),
         [mode, overlays]
     );
+
+    useEffect(() => {
+        nearLeftEdgeCallback.current = onNearLeftEdge;
+    }, [onNearLeftEdge]);
 
     useEffect(() => {
         const element = container.current;
@@ -118,11 +133,24 @@ export function PriceChart({
             );
             return line;
         });
+        const timeScale = chart.timeScale();
+        const handleVisibleRange = (range: LogicalRange | null) => {
+            if (range === null) return;
+            if (range.from <= 24) {
+                if (nearLeftEdgeArmed.current) {
+                    nearLeftEdgeArmed.current = false;
+                    nearLeftEdgeCallback.current?.();
+                }
+            } else nearLeftEdgeArmed.current = true;
+        };
+        timeScale.subscribeVisibleLogicalRangeChange(handleVisibleRange);
         return () => {
+            timeScale.unsubscribeVisibleLogicalRangeChange(handleVisibleRange);
             chartRef.current = null;
             candleSeries.current = null;
             overlaySeries.current = [];
             lastRenderedTime.current = null;
+            previousBars.current = [];
             chart.remove();
         };
     }, [renderedOverlays]);
@@ -138,36 +166,50 @@ export function PriceChart({
     }, [barSemantic]);
 
     useEffect(() => {
+        const timeScale = chartRef.current?.timeScale();
+        const visibleRange = timeScale?.getVisibleLogicalRange() ?? null;
+        const priorBars = previousBars.current;
+        const contextChanged = previousContextKey.current !== contextKey;
+        const prependCount = bars.length - priorBars.length;
+        const strictPrepend =
+            !contextChanged &&
+            priorBars.length > 0 &&
+            prependCount > 0 &&
+            priorBars.every((bar, index) => bar.time === bars[index + prependCount]?.time);
         candleSeries.current?.setData([...bars]);
         lastRenderedTime.current = bars.at(-1)?.time ?? null;
-        if (
-            mode === "real" &&
-            barSemantic !== undefined &&
-            previousHistoryKey.current !== historyKey &&
-            bars.length > 0
-        ) {
+        if (mode === "real" && barSemantic !== undefined && contextChanged && bars.length > 0) {
             const visible = deriveTimeAxisPolicy(
                 barSemantic,
                 container.current?.clientWidth ?? 600
             ).visibleBars;
-            chartRef.current?.timeScale().setVisibleLogicalRange({
+            nearLeftEdgeArmed.current = true;
+            timeScale?.setVisibleLogicalRange({
                 from: Math.max(0, bars.length - visible),
                 to: bars.length + 4
             });
+        } else if (strictPrepend && visibleRange !== null) {
+            const shifted = {
+                from: visibleRange.from + prependCount,
+                to: visibleRange.to + prependCount
+            };
+            timeScale?.setVisibleLogicalRange(shifted);
+            nearLeftEdgeArmed.current = shifted.from > 24;
         }
-        previousHistoryKey.current = historyKey;
+        previousContextKey.current = contextKey;
+        previousBars.current = bars;
         overlaySeries.current.forEach((series, index) => {
             const overlay = renderedOverlays[index];
             if (overlay !== undefined) series.setData(buildPlaceholderOverlay([...bars], overlay));
         });
-    }, [barSemantic, bars, historyKey, mode, renderedOverlays]);
+    }, [barSemantic, bars, contextKey, mode, renderedOverlays]);
 
     useEffect(() => {
         if (mode !== "real" || liveBar === null || candleSeries.current === null) return;
         if (lastRenderedTime.current !== null && liveBar.time < lastRenderedTime.current) return;
         candleSeries.current.update(liveBar);
         lastRenderedTime.current = liveBar.time;
-    }, [barSemantic, bars, historyKey, liveBar, mode]);
+    }, [barSemantic, bars, contextKey, liveBar, mode]);
 
     return <div className="chart-region__canvas" ref={container} data-testid="price-chart" />;
 }
