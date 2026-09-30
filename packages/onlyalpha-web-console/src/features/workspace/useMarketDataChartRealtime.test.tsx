@@ -2,7 +2,12 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AppProviders } from "../../app/providers";
 import type { MarketDataStreamEvent } from "../../api/marketData/stream";
-import { fixedDurationMinutes, marketDataBarSemantic } from "../../api/marketData/model";
+import {
+    fixedDurationMinutes,
+    marketDataBarSemantic,
+    type MarketDataBars
+} from "../../api/marketData/model";
+import type { MarketDataBarsQuery } from "../../api/marketData/client";
 import {
     dataSourceSummary,
     dataSourceType,
@@ -11,7 +16,9 @@ import {
 } from "../../test/integrationClient";
 import {
     FIXTURE_SELECTION,
+    incompleteBars,
     marketDataBars,
+    marketDataBarsForQuery,
     marketDataClient,
     marketDataInstrument,
     marketDataSource
@@ -45,6 +52,176 @@ vi.mock("../../api/marketData/stream", async (original) => ({
 }));
 
 const eth = { ...marketDataInstrument(), instrument_id: "ETHUSDT.TEST", display_symbol: "ETHUSDT" };
+
+function resetStream() {
+    stream.callbacks.length = 0;
+    stream.disconnects.length = 0;
+    stream.requests.length = 0;
+    stream.closed.count = 0;
+}
+
+it.each(["merge", "stale", "mismatch"] as const)(
+    "holds an older page across realtime BAR_CLOSED: %s",
+    async (variant) => {
+        resetStream();
+        const firstBar = marketDataBars().bars[0];
+        const lastBar = marketDataBars().bars[1];
+        if (firstBar === undefined || lastBar === undefined)
+            throw new Error("fixture requires two Bars");
+        let release!: (page: MarketDataBars) => void;
+        let frozen!: MarketDataBarsQuery;
+        const queryBars = vi.fn((_reference, query: MarketDataBarsQuery) => {
+            if (query.target_bar_count === 240) {
+                frozen = query;
+                return new Promise<MarketDataBars>((resolve) => {
+                    release = resolve;
+                });
+            }
+            return Promise.resolve(marketDataBarsForQuery(query));
+        });
+        const user = userEvent.setup();
+        render(
+            <AppProviders
+                client={researchClient()}
+                integrationClient={integrationClient()}
+                marketDataClient={marketDataClient({ queryBars })}
+            >
+                <Harness />
+            </AppProviders>
+        );
+        await user.click(screen.getByRole("button", { name: "source" }));
+        await user.click(screen.getByRole("button", { name: "btc" }));
+        await waitFor(() => {
+            expect(stream.requests).toHaveLength(1);
+        });
+        act(() => {
+            stream.callbacks[0]?.({ schema_version: 2, event: "STATE", state: "READY" });
+        });
+        await user.click(screen.getByRole("button", { name: "older" }));
+        await user.click(screen.getByRole("button", { name: "older" }));
+        expect(queryBars).toHaveBeenCalledTimes(2);
+        expect(screen.getByTestId("older-status")).toHaveTextContent("loading");
+        act(() =>
+            stream.callbacks[0]?.({
+                schema_version: 2,
+                event: "BAR_CLOSED",
+                source_id: FIXTURE_SELECTION.source_id,
+                instrument_id: "BTCUSDT.TEST",
+                bar_semantic: marketDataBarSemantic(1),
+                sequence: "29453762",
+                bar: {
+                    ...lastBar,
+                    bar_start_ns: "1767225720000000000",
+                    bar_end_ns: "1767225780000000000",
+                    close: "103"
+                }
+            })
+        );
+        expect(screen.getByTestId("cursor")).toHaveTextContent("29453762");
+        const earlier = {
+            ...firstBar,
+            bar_start_ns: "1767225540000000000",
+            bar_end_ns: "1767225600000000000",
+            close: "99"
+        };
+        if (variant === "stale") {
+            await user.click(screen.getByRole("button", { name: "eth" }));
+            await waitFor(() => {
+                expect(stream.requests).toHaveLength(2);
+            });
+        }
+        await act(async () => {
+            release(
+                marketDataBarsForQuery(frozen, {
+                    resolved_start_ns: earlier.bar_start_ns,
+                    resolved_end_ns: earlier.bar_end_ns,
+                    bars: [earlier, { ...earlier }],
+                    ...(variant === "mismatch"
+                        ? { source_selection: { ...FIXTURE_SELECTION, source_id: "wrong" } }
+                        : {})
+                })
+            );
+            await Promise.resolve();
+        });
+        if (variant === "stale") {
+            expect(screen.getByTestId("closed-bars").textContent).toBe("101,102.5");
+            expect(screen.getByTestId("context-key")).toHaveTextContent("ETHUSDT.TEST");
+            expect(screen.getByTestId("older-status")).toHaveTextContent("idle");
+        } else {
+            expect(screen.getByTestId("closed-bars").textContent).toBe(
+                variant === "merge" ? "99,101,102.5,103" : "101,102.5,103"
+            );
+            expect(screen.getByTestId("closed-count").textContent).toBe(
+                variant === "merge" ? "4" : "3"
+            );
+            expect(screen.getByTestId("older-status")).toHaveTextContent(
+                variant === "merge" ? "idle" : "failed"
+            );
+            expect(screen.getByTestId("chart-status")).toHaveTextContent("ready");
+            expect(screen.getByTestId("cursor")).toHaveTextContent("29453762");
+            expect(stream.requests).toHaveLength(1);
+            expect(stream.closed.count).toBe(0);
+            expect(screen.getByTestId("realtime-status")).toHaveTextContent("ready");
+            if (variant === "merge") {
+                const timer = vi.spyOn(window, "setTimeout");
+                act(() => {
+                    stream.disconnects[0]?.();
+                });
+                const reconnect = timer.mock.calls.at(-1)?.[0] as (() => void) | undefined;
+                if (typeof reconnect !== "function") throw new Error("missing reconnect callback");
+                act(() => {
+                    reconnect();
+                });
+                expect(stream.requests[1]).toMatchObject({
+                    resume_after_sequence: "29453762",
+                    resume_plan_fingerprint: "f".repeat(64)
+                });
+                timer.mockRestore();
+            }
+        }
+    }
+);
+
+it.each(["initial", "reload"] as const)(
+    "fails a mismatched %s response before publishing or opening a stream",
+    async (path) => {
+        resetStream();
+        const queryBars = vi.fn((_reference, query: MarketDataBarsQuery) =>
+            Promise.resolve(
+                path === "reload" && query.anchor_kind === "LATEST_CLOSED"
+                    ? marketDataBarsForQuery(query, incompleteBars())
+                    : marketDataBarsForQuery(query, {
+                          ...(path === "initial" ? incompleteBars() : {}),
+                          instrument_id: "ETHUSDT.TEST"
+                      })
+            )
+        );
+        const user = userEvent.setup();
+        const client = marketDataClient({ queryBars });
+        const acquire = vi.spyOn(client, "createAcquisition");
+        render(
+            <AppProviders
+                client={researchClient()}
+                integrationClient={integrationClient()}
+                marketDataClient={client}
+            >
+                <Harness />
+            </AppProviders>
+        );
+        await user.click(screen.getByRole("button", { name: "source" }));
+        await user.click(screen.getByRole("button", { name: "btc" }));
+        await waitFor(() => {
+            expect(screen.getByTestId("chart-status")).toHaveTextContent("failed");
+        });
+        expect(screen.getByTestId("chart-message")).toHaveTextContent(
+            "MARKET_DATA_HISTORY_RESPONSE_MISMATCH"
+        );
+        expect(screen.getByTestId("closed-count").textContent).toBe("0");
+        expect(stream.requests).toHaveLength(0);
+        expect(queryBars).toHaveBeenCalledTimes(path === "initial" ? 1 : 2);
+        expect(acquire).toHaveBeenCalledTimes(path === "initial" ? 0 : 1);
+    }
+);
 
 function Harness() {
     const state = useMarketDataChart();
@@ -165,7 +342,13 @@ it("preserves current Bars when an older page fails", async () => {
     stream.callbacks.length = 0;
     const queryBars = vi
         .fn()
-        .mockResolvedValueOnce(marketDataBars())
+        .mockResolvedValueOnce(
+            marketDataBars({
+                anchor_kind: "LATEST_CLOSED",
+                requested_before_ns: null,
+                requested_bar_count: 1440
+            })
+        )
         .mockRejectedValueOnce(new Error("older unavailable"));
     const user = userEvent.setup();
     render(
@@ -245,9 +428,9 @@ it("replaces the ledger when the exact Integration Revision changes", async () =
                     Promise.resolve([
                         marketDataSource({ integration_revision_fingerprint: revision })
                     ]),
-                queryBars: () =>
+                queryBars: (_reference, query) =>
                     Promise.resolve(
-                        marketDataBars({
+                        marketDataBarsForQuery(query, {
                             source_selection: {
                                 ...FIXTURE_SELECTION,
                                 integration_revision_fingerprint: revision
@@ -313,7 +496,7 @@ it("ignores queued events from a stale source or instrument stream", async () =>
             })}
             marketDataClient={marketDataClient({
                 listInstruments: () => Promise.resolve([marketDataInstrument(), eth]),
-                queryBars: () => Promise.resolve(marketDataBars())
+                queryBars: (_reference, query) => Promise.resolve(marketDataBarsForQuery(query))
             })}
         >
             <Harness />
@@ -448,7 +631,7 @@ it("switches 1m to 7m to 37m by closing each old stream and loading typed histor
             marketDataClient={marketDataClient({
                 queryBars: (_reference, query) => {
                     steps.push(fixedDurationMinutes(query.bar_semantic));
-                    return Promise.resolve(marketDataBars({ bar_semantic: query.bar_semantic }));
+                    return Promise.resolve(marketDataBarsForQuery(query));
                 }
             })}
         >
