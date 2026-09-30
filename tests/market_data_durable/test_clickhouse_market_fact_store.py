@@ -4,6 +4,7 @@ import re
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -80,6 +81,21 @@ class _BatchClient:
         selected = [row for row in self.rows[table] if str(row["segment_id"]) in ids]
         if self.unexpected is not None and self.unexpected[0] == table:
             selected.append(self.unexpected[1])
+        if "AS record_set_hash" in sql:
+            grouped_summaries: dict[str, list[dict[str, object]]] = {}
+            for row in selected:
+                grouped_summaries.setdefault(str(row["segment_id"]), []).append(row)
+            return tuple(
+                {
+                    "segment_id": segment_id,
+                    "physical_count": len(rows),
+                    "record_set_hash": sha256(
+                        "".join(sorted(str(row["record_hash"]) for row in rows)).encode()
+                    ).hexdigest(),
+                    "segment_content_hashes": sorted({str(row["segment_content_hash"]) for row in rows}),
+                }
+                for segment_id, rows in grouped_summaries.items()
+            )
         grouped: dict[tuple[object, ...], int] = {}
         for row in selected:
             key = (

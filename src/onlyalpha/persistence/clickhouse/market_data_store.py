@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import base64
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
+from hashlib import sha256
 from typing import cast
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
@@ -133,12 +134,48 @@ class OnlyClickHouseMarketFactStore:
                     str(row["record_hash"]),
                     str(row["segment_content_hash"]),
                 )
-        stored = self._stored_rows(segment_ids)
+        stored = self._stored_summaries(segment_ids)
         states: dict[str, str] = {}
+        partial_candidates: list[OnlyIngestSegment] = []
         for segment in segments:
-            if not any(stored[table][segment.segment_id] for table in _SEGMENT_TABLES):
+            if not any(stored[table][segment.segment_id] is not None for table in _SEGMENT_TABLES):
                 states[segment.segment_id] = "ABSENT"
                 continue
+            conflict = False
+            partial = False
+            for table in _SEGMENT_TABLES:
+                wanted = expected[table][segment.segment_id]
+                actual = stored[table][segment.segment_id]
+                expected_hash = _record_set_hash(item[0] for item in wanted.values())
+                expected_count = len(wanted)
+                if actual is None:
+                    partial = partial or bool(wanted)
+                    continue
+                physical_count, record_set_hash, content_hashes = actual
+                if content_hashes != {segment.content_hash} or physical_count > expected_count:
+                    conflict = True
+                elif physical_count < expected_count:
+                    partial = True
+                elif record_set_hash != expected_hash:
+                    conflict = True
+            if conflict:
+                states[segment.segment_id] = "CONFLICT"
+            elif partial:
+                partial_candidates.append(segment)
+            else:
+                states[segment.segment_id] = "EXACT"
+        if partial_candidates:
+            states.update(self._classify_partial_candidates(tuple(partial_candidates), expected))
+        return states
+
+    def _classify_partial_candidates(
+        self,
+        segments: tuple[OnlyIngestSegment, ...],
+        expected: Mapping[str, Mapping[str, Mapping[tuple[str, ...], tuple[str, str]]]],
+    ) -> dict[str, str]:
+        stored = self._stored_rows(tuple(item.segment_id for item in segments))
+        states: dict[str, str] = {}
+        for segment in segments:
             conflict = False
             partial = False
             for table in _SEGMENT_TABLES:
@@ -155,6 +192,31 @@ class OnlyClickHouseMarketFactStore:
                 partial = partial or set(actual) != set(wanted)
             states[segment.segment_id] = "CONFLICT" if conflict else "PARTIAL" if partial else "EXACT"
         return states
+
+    def _stored_summaries(self, segment_ids: tuple[str, ...]) -> dict[str, dict[str, tuple[int, str, set[str]] | None]]:
+        result: dict[str, dict[str, tuple[int, str, set[str]] | None]] = {
+            table: {segment_id: None for segment_id in segment_ids} for table in _SEGMENT_TABLES
+        }
+        for offset in range(0, len(segment_ids), _SEGMENT_VERIFY_CHUNK_SIZE):
+            chunk = segment_ids[offset : offset + _SEGMENT_VERIFY_CHUNK_SIZE]
+            quoted = ",".join(_quote(item) for item in chunk)
+            for table in _SEGMENT_TABLES:
+                rows = self._client.query_json(
+                    "SELECT segment_id, count() AS physical_count, "
+                    "lower(hex(SHA256(arrayStringConcat(arraySort(groupArray(record_hash)), '')))) "
+                    "AS record_set_hash, groupUniqArray(segment_content_hash) AS segment_content_hashes "
+                    f"FROM {table} WHERE segment_id IN ({quoted}) GROUP BY segment_id"
+                )
+                for row in rows:
+                    segment_id = str(row["segment_id"])
+                    if segment_id not in result[table] or result[table][segment_id] is not None:
+                        raise OnlyClickHouseSegmentConflictError("CLICKHOUSE_UNEXPECTED_SEGMENT_ID")
+                    result[table][segment_id] = (
+                        int(str(row["physical_count"])),
+                        str(row["record_set_hash"]),
+                        {str(item) for item in cast(list[object], row["segment_content_hashes"])},
+                    )
+        return result
 
     def _stored_rows(
         self, segment_ids: tuple[str, ...]
@@ -424,6 +486,10 @@ def _iso_ns(value: object) -> int:
 
 def _quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
+
+
+def _record_set_hash(record_hashes: Iterable[str]) -> str:
+    return sha256("".join(sorted(record_hashes)).encode()).hexdigest()
 
 
 __all__ = [name for name in globals() if name.startswith("Only")]
