@@ -144,12 +144,12 @@ it.each(["merge", "stale", "mismatch"] as const)(
             await Promise.resolve();
         });
         if (variant === "stale") {
-            expect(screen.getByTestId("closed-bars").textContent).toBe("101,102.5");
+            expect(screen.getByTestId("closed-bars").textContent).toBe("101.00,102.50");
             expect(screen.getByTestId("context-key")).toHaveTextContent("ETHUSDT.TEST");
             expect(screen.getByTestId("older-status")).toHaveTextContent("idle");
         } else {
             expect(screen.getByTestId("closed-bars").textContent).toBe(
-                variant === "merge" ? "99,101,102.5,103" : "101,102.5,103"
+                variant === "merge" ? "99,101.00,102.50,103" : "101.00,102.50,103"
             );
             expect(screen.getByTestId("closed-count").textContent).toBe(
                 variant === "merge" ? "4" : "3"
@@ -265,9 +265,176 @@ function Harness() {
             <output data-testid="cursor">{state.lastClosedCursor ?? "none"}</output>
             <output data-testid="realtime-status">{state.realtimeStatus}</output>
             <output data-testid="stream-error">{state.streamError ?? "none"}</output>
+            <output data-testid="exact-bars">{JSON.stringify(state.bars)}</output>
+            <output data-testid="exact-preview">{JSON.stringify(state.liveBar)}</output>
         </>
     );
 }
+
+it.each(["initial", "reload", "older", "BAR_PREVIEW", "BAR_CLOSED"] as const)(
+    "rejects invalid projection before Ledger or cursor mutation: %s",
+    async (path) => {
+        resetStream();
+        const original = marketDataBars().bars[0];
+        if (original === undefined) throw new Error("fixture requires a Bar");
+        const badBar = { ...original, close: "Infinity" };
+        const queryBars = vi.fn((_reference, query: MarketDataBarsQuery) =>
+            Promise.resolve(
+                marketDataBarsForQuery(
+                    query,
+                    path === "reload" && query.anchor_kind === "LATEST_CLOSED"
+                        ? incompleteBars()
+                        : path === "initial" ||
+                            path === "reload" ||
+                            (path === "older" && query.target_bar_count === 240)
+                          ? path === "older"
+                              ? {
+                                    bars: [
+                                        {
+                                            ...badBar,
+                                            bar_start_ns: "1767225540000000000",
+                                            bar_end_ns: "1767225600000000000"
+                                        }
+                                    ],
+                                    resolved_start_ns: "1767225540000000000",
+                                    resolved_end_ns: "1767225600000000000"
+                                }
+                              : { bars: [badBar] }
+                          : {}
+                )
+            )
+        );
+        const user = userEvent.setup();
+        render(
+            <AppProviders
+                client={researchClient()}
+                integrationClient={integrationClient()}
+                marketDataClient={marketDataClient({ queryBars })}
+            >
+                <Harness />
+            </AppProviders>
+        );
+        await user.click(screen.getByRole("button", { name: "source" }));
+        await user.click(screen.getByRole("button", { name: "btc" }));
+        if (path === "initial" || path === "reload") {
+            await waitFor(() => {
+                expect(screen.getByTestId("chart-status")).toHaveTextContent("failed");
+            });
+            expect(screen.getByTestId("chart-message")).toHaveTextContent(
+                "MARKET_DATA_CHART_PROJECTION_INVALID"
+            );
+            expect(stream.requests).toHaveLength(0);
+            expect(screen.getByTestId("exact-bars")).toHaveTextContent("[]");
+            return;
+        }
+        await waitFor(() => {
+            expect(stream.requests).toHaveLength(1);
+        });
+        act(() => stream.callbacks[0]?.({ schema_version: 2, event: "STATE", state: "READY" }));
+        const before = screen.getByTestId("exact-bars").textContent;
+        if (path === "older") {
+            await user.click(screen.getByRole("button", { name: "older" }));
+            await waitFor(() => {
+                expect(screen.getByTestId("older-status")).toHaveTextContent("failed");
+            });
+            expect(screen.getByTestId("realtime-status")).toHaveTextContent("ready");
+            expect(stream.closed.count).toBe(0);
+        } else {
+            act(() =>
+                stream.callbacks[0]?.({
+                    schema_version: 2,
+                    event: path,
+                    source_id: FIXTURE_SELECTION.source_id,
+                    instrument_id: "BTCUSDT.TEST",
+                    bar_semantic: marketDataBarSemantic(1),
+                    sequence: "29453762",
+                    bar: {
+                        ...badBar,
+                        bar_start_ns: "1767225720000000000",
+                        bar_end_ns: "1767225780000000000",
+                        closed: path === "BAR_CLOSED"
+                    }
+                })
+            );
+            expect(screen.getByTestId("realtime-status")).toHaveTextContent("failed");
+            expect(screen.getByTestId("stream-error")).toHaveTextContent(
+                "MARKET_DATA_CHART_PROJECTION_INVALID"
+            );
+            expect(screen.getByTestId("cursor")).toHaveTextContent("none");
+            expect(screen.getByTestId("exact-preview")).toHaveTextContent("null");
+            expect(stream.closed.count).toBe(1);
+            act(() => stream.disconnects[0]?.());
+        }
+        expect(screen.getByTestId("exact-bars").textContent).toBe(before);
+        expect(stream.requests).toHaveLength(1);
+        expect(screen.getByTestId("chart-status")).toHaveTextContent("ready");
+    }
+);
+
+it("retains exact history and idempotently projects preview updates and close", async () => {
+    resetStream();
+    const user = userEvent.setup();
+    render(
+        <AppProviders
+            client={researchClient()}
+            integrationClient={integrationClient()}
+            marketDataClient={marketDataClient()}
+        >
+            <Harness />
+        </AppProviders>
+    );
+    await user.click(screen.getByRole("button", { name: "source" }));
+    await user.click(screen.getByRole("button", { name: "btc" }));
+    await waitFor(() => {
+        expect(stream.requests).toHaveLength(1);
+    });
+    const projected = JSON.parse(screen.getByTestId("exact-bars").textContent) as {
+        barStartNs: string;
+        open: string;
+        volume: string;
+    }[];
+    const first = projected[0];
+    const original = marketDataBars().bars[0];
+    if (original === undefined) throw new Error("fixture requires a Bar");
+    expect(first).toMatchObject({
+        barStartNs: original.bar_start_ns,
+        open: original.open,
+        volume: original.volume
+    });
+    const bar = {
+        ...original,
+        bar_start_ns: "1767225720000000000",
+        bar_end_ns: "1767225780000000000",
+        closed: false,
+        close: "103.000000000000000001"
+    };
+    const preview = {
+        schema_version: 2 as const,
+        event: "BAR_PREVIEW" as const,
+        source_id: FIXTURE_SELECTION.source_id,
+        instrument_id: "BTCUSDT.TEST",
+        bar_semantic: marketDataBarSemantic(1),
+        bar
+    };
+    act(() => stream.callbacks[0]?.(preview));
+    const exact = screen.getByTestId("exact-preview").textContent;
+    act(() => stream.callbacks[0]?.(preview));
+    expect(screen.getByTestId("exact-preview").textContent).toBe(exact);
+    act(() =>
+        stream.callbacks[0]?.({ ...preview, bar: { ...bar, close: "104.000000000000000001" } })
+    );
+    expect(screen.getByTestId("exact-preview")).toHaveTextContent("104.000000000000000001");
+    act(() =>
+        stream.callbacks[0]?.({
+            ...preview,
+            event: "BAR_CLOSED",
+            sequence: "29453762",
+            bar: { ...bar, closed: true }
+        })
+    );
+    expect(screen.getByTestId("exact-preview")).toHaveTextContent("null");
+    expect(screen.getByTestId("exact-bars")).toHaveTextContent("103.000000000000000001");
+});
 
 it("keeps initial history, realtime closed Bars, and preview in one ledger projection", async () => {
     stream.callbacks.length = 0;
@@ -335,7 +502,7 @@ it("keeps initial history, realtime closed Bars, and preview in one ledger proje
         });
     });
     expect(screen.getByTestId("closed-count")).toHaveTextContent("3");
-    expect(screen.getByTestId("closed-bars")).toHaveTextContent("101,102.5,103");
+    expect(screen.getByTestId("closed-bars")).toHaveTextContent("101.00,102.50,103");
 });
 
 it("preserves current Bars when an older page fails", async () => {
@@ -403,7 +570,7 @@ it("fails the exact chart context on a conflicting realtime closed Bar", async (
             instrument_id: "BTCUSDT.TEST",
             bar_semantic: marketDataBarSemantic(1),
             sequence: "29453762",
-            bar: { ...conflicting, close: "conflict" }
+            bar: { ...conflicting, close: "999" }
         });
     });
 

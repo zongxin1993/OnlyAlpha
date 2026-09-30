@@ -133,3 +133,8 @@ Instrument 和 Bar Semantic 合并 Product API 返回的 closed Bar，并单独�
 只提交响应中 `planned_acquisition_ranges` 明示的范围，完成后重放同一 frozen query；不得自行推导缺口、直接调用 provider 或把
 preview 当作 canonical history。相同 timestamp 的 exact duplicate 是幂等输入；payload 冲突以
 `MARKET_DATA_BAR_LEDGER_CONFLICT` fail closed，旧上下文的迟到结果也不得进入当前图表。
+
+Chart presentation admission 在 Ledger 变更前校验时间与有限数值；OnlyAlpha-owned projection 保留精确 start/end 纳秒、
+OHLCV 字符串及 closed/preview 状态，renderer number 仅是显式有损投影。图表类型是浏览器展示偏好，不参与 Product query、
+chart context 或 Stream identity。十字线只选择当前 context 内的精确 Bar identity，读数始终从当前 projection 派生，
+不得把 renderer `seriesData` 当作行情事实；没有真实 Bar 时显示 unavailable，不用 synthetic 数值补齐。

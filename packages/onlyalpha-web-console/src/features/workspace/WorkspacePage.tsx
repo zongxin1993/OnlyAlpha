@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { PriceChart } from "../../charts/lightweight/PriceChart";
+import type {
+    FinancialChartType,
+    MarketDataChartSelection
+} from "../../charts/lightweight/marketDataChartProjection";
 import { type OverlaySpec, type Timeframe } from "../../charts/lightweight/placeholderBars";
 import { DataSourceEntry } from "../data/sources/DataSourceEntry";
 import { DataSourceManager } from "../data/sources/DataSourceManager";
@@ -233,6 +237,8 @@ export function WorkspacePage() {
     const [bottomTab, setBottomTab] = useState<"runs" | "results" | "backtest">("runs");
     const [bottomCollapsed, setBottomCollapsed] = useState(false);
     const [timeframe, setTimeframe] = useState<Timeframe>("1D");
+    const [chartType, setChartType] = useState<FinancialChartType>("CANDLESTICK");
+    const [selection, setSelection] = useState<MarketDataChartSelection | null>(null);
     const [customBarDuration, setCustomBarDuration] = useState("7");
     const [customBarOpen, setCustomBarOpen] = useState(false);
     const [symbol, setSymbol] = useState<{ readonly code: string; readonly name: string }>(
@@ -245,6 +251,23 @@ export function WorkspacePage() {
     const marketData = useMarketDataChart();
     const realPath = marketData.reference !== null;
     const realInstrument = marketData.instrument;
+    const selectedBar =
+        selection?.contextKey === marketData.chartContextKey
+            ? marketData.liveBar?.barStartNs === selection.barStartNs
+                ? marketData.liveBar
+                : marketData.bars.find((bar) => bar.barStartNs === selection.barStartNs)
+            : undefined;
+    const observation = realPath
+        ? (selectedBar ?? marketData.liveBar ?? marketData.bars.at(-1))
+        : undefined;
+    const observationMode =
+        observation == null
+            ? "unavailable"
+            : selectedBar != null
+              ? "crosshair"
+              : observation.closed
+                ? "latest-closed"
+                : "preview";
     const olderHistoryCopy =
         marketData.olderHistoryStatus === "loading"
             ? "正在加载更早行情…"
@@ -466,6 +489,17 @@ export function WorkspacePage() {
                                 </select>
                             )}
                         </div>
+                        <select
+                            className="chart-region__chart-type"
+                            aria-label="图表类型"
+                            value={chartType}
+                            onChange={(event) => {
+                                setChartType(event.target.value as FinancialChartType);
+                            }}
+                        >
+                            <option value="CANDLESTICK">蜡烛图</option>
+                            <option value="LINE">收盘线</option>
+                        </select>
                         {symbolMatches.length === 0 ? null : (
                             <ul className="chart-region__suggestions">
                                 {symbolMatches.map((item) => (
@@ -571,8 +605,43 @@ export function WorkspacePage() {
                               : "未连接真实行情；当前图表为 synthetic 占位")}
                     {olderHistoryCopy === null ? null : ` · ${olderHistoryCopy}`}
                 </p>
+                <div
+                    className="chart-observation"
+                    data-testid="market-data-observation"
+                    data-observation-mode={observationMode}
+                    data-bar-start-ns={observation?.barStartNs ?? ""}
+                    data-chart-context-key={realPath ? (marketData.chartContextKey ?? "") : ""}
+                >
+                    <span>
+                        {observation == null
+                            ? "UTC —"
+                            : new Date(observation.time * 1000)
+                                  .toISOString()
+                                  .replace("T", " ")
+                                  .replace(".000Z", " UTC")}
+                    </span>
+                    {(["open", "high", "low", "close", "volume"] as const).map((field) => (
+                        <span key={field}>
+                            {{ open: "O", high: "H", low: "L", close: "C", volume: "V" }[field]}{" "}
+                            <span data-observation-field={field}>
+                                {observation?.[field] ?? "—"}
+                            </span>
+                        </span>
+                    ))}
+                    <span>
+                        {observationMode === "crosshair"
+                            ? "十字线"
+                            : observationMode === "preview"
+                              ? "实时预览"
+                              : observationMode === "latest-closed"
+                                ? "最新已关闭"
+                                : "不可用"}
+                    </span>
+                </div>
                 <div className="chart-region__body">
                     <PriceChart
+                        chartType={chartType}
+                        onSelection={setSelection}
                         timeframe={realPath ? undefined : timeframe}
                         barSemantic={realPath ? marketData.barSemantic : undefined}
                         overlays={overlays}

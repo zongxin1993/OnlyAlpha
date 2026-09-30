@@ -274,6 +274,60 @@ async function selectBtc(page: Page) {
 }
 
 test.describe("W1 historical golden path — CONTROLLED_TEST_EVIDENCE", () => {
+    test("chart type preserves exact context and crosshair reads Product OHLCV", async ({
+        page
+    }) => {
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        const fixture = await controlledMarketData(page, "complete");
+        await selectBtc(page);
+        const status = page.getByTestId("market-data-status");
+        const chart = page.getByTestId("price-chart");
+        const observation = page.getByTestId("market-data-observation");
+        await expect(status).toHaveAttribute("data-loaded-bar-count", "1440");
+        await expect(observation).toHaveAttribute("data-observation-mode", "latest-closed");
+        const count = fixture.queriedAnchors.length;
+        const acquisitions = fixture.acquisitionCount();
+        const range = await chart.getAttribute("data-visible-range-from");
+        const rangeTo = await chart.getAttribute("data-visible-range-to");
+        const anchor = await chart.getAttribute("data-visible-anchor-time");
+        await expect(chart).toHaveAttribute("data-chart-type", "CANDLESTICK");
+        for (const type of ["LINE", "CANDLESTICK"]) {
+            await page.getByRole("combobox", { name: "图表类型" }).selectOption(type);
+            await expect(chart).toHaveAttribute("data-chart-type", type);
+            await expect(chart).toHaveAttribute("data-visible-range-from", range ?? "");
+            await expect(chart).toHaveAttribute("data-visible-range-to", rangeTo ?? "");
+            await expect(chart).toHaveAttribute("data-visible-anchor-time", anchor ?? "");
+            await expect(status).toHaveAttribute("data-loaded-bar-count", "1440");
+            expect(fixture.queriedAnchors).toHaveLength(count);
+            expect(fixture.acquisitionCount()).toBe(acquisitions);
+        }
+        const bounds = await chart.boundingBox();
+        if (bounds === null) throw new Error("price chart bounds unavailable");
+        await page.mouse.move(bounds.x + bounds.width * 0.5, bounds.y + bounds.height * 0.5);
+        await expect(observation).toHaveAttribute("data-observation-mode", "crosshair");
+        const start = await observation.getAttribute("data-bar-start-ns");
+        const selected = bars(fixtureRange, true).bars.find((bar) => bar.bar_start_ns === start);
+        expect(selected).toBeDefined();
+        if (selected === undefined) throw new Error("selected Bar missing from Product response");
+        for (const field of ["open", "high", "low", "close", "volume"] as const)
+            await expect(observation.locator(`[data-observation-field="${field}"]`)).toHaveText(
+                selected[field]
+            );
+        await test.info().attach("exact-crosshair-observation", {
+            contentType: "image/png",
+            body: await page.screenshot({
+                path: test.info().outputPath("exact-crosshair-observation.png")
+            })
+        });
+        const context = await observation.getAttribute("data-chart-context-key");
+        await page.mouse.move(0, 0);
+        await expect(observation).toHaveAttribute("data-observation-mode", "latest-closed");
+        await page.getByRole("combobox", { name: "时间周期" }).selectOption("5");
+        await expect(observation).not.toHaveAttribute("data-chart-context-key", context ?? "");
+        await expect(observation).toHaveAttribute("data-observation-mode", "latest-closed");
+        expect(errors).toEqual([]);
+    });
     test("first load acquires canonical bars and reload does not reacquire complete history", async ({
         page
     }) => {

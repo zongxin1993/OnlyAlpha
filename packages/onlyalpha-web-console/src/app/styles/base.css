@@ -458,7 +458,8 @@ label {
 .chart-region__search input:focus-visible {
     outline: none;
 }
-.chart-region__timeframe {
+.chart-region__timeframe,
+.chart-region__chart-type {
     width: auto;
     min-height: 0;
     margin: 0;
@@ -475,6 +476,17 @@ label {
     position: relative;
     flex: 1;
     min-height: 0;
+}
+.chart-observation {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 0.8rem;
+    padding: 0.3rem 0.6rem;
+    border-bottom: 1px solid var(--line-soft);
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-variant-numeric: tabular-nums;
 }
 .chart-region__canvas {
     position: absolute;

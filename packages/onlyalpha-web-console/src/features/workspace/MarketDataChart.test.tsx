@@ -28,8 +28,32 @@ import {
     marketDataInstrument
 } from "../../test/marketDataClient";
 import { researchClient } from "../../test/researchClient";
-import { onlyBarsToCandles } from "./useMarketDataChart";
+import {
+    projectMarketDataBar,
+    toCandlestick,
+    type MarketDataChartBarProjection
+} from "../../charts/lightweight/marketDataChartProjection";
+const projectBars = (bars: MarketDataBars["bars"]) => bars.map(projectMarketDataBar);
+const renderedBar = (bar: MarketDataChartBarProjection) => ({
+    ...toCandlestick(bar),
+    barStartNs: bar.barStartNs
+});
+const shiftBar = (bar: MarketDataChartBarProjection, seconds: number) => ({
+    ...bar,
+    time: (bar.time + seconds) as typeof bar.time,
+    barStartNs: (BigInt(bar.barStartNs) + BigInt(seconds) * 1_000_000_000n).toString(),
+    barEndNs: (BigInt(bar.barEndNs) + BigInt(seconds) * 1_000_000_000n).toString()
+});
 import { WorkspacePage } from "./WorkspacePage";
+import type { MarketDataStreamEvent } from "../../api/marketData/stream";
+
+const streams = vi.hoisted(() => ({ callbacks: [] as ((event: MarketDataStreamEvent) => void)[] }));
+vi.mock("../../api/marketData/stream", () => ({
+    openMarketDataStream: (_request: unknown, callback: (event: MarketDataStreamEvent) => void) => {
+        streams.callbacks.push(callback);
+        return () => undefined;
+    }
+}));
 
 class NoopResizeObserver {
     observe(): void {
@@ -84,6 +108,9 @@ const chartMocks = vi.hoisted(() => {
     };
     const created = {
         addSeries,
+        removeSeries: vi.fn(),
+        subscribeCrosshairMove: vi.fn<(handler: unknown) => void>(),
+        unsubscribeCrosshairMove: vi.fn<(handler: unknown) => void>(),
         timeScale: () => timeScale,
         remove: vi.fn()
     };
@@ -94,7 +121,8 @@ const chartMocks = vi.hoisted(() => {
         range,
         visible,
         timeScale,
-        createChart: vi.fn<() => typeof created>(() => created)
+        createChart: vi.fn<() => typeof created>(() => created),
+        created
     };
 });
 
@@ -149,6 +177,7 @@ async function selectBtcInstrument(user: ReturnType<typeof userEvent.setup>) {
 }
 
 beforeEach(() => {
+    streams.callbacks.length = 0;
     chartMocks.candles.setData.mockClear();
     chartMocks.candles.update.mockClear();
     chartMocks.overlays.setData.mockClear();
@@ -158,21 +187,252 @@ beforeEach(() => {
     chartMocks.timeScale.unsubscribeVisibleLogicalRangeChange.mockClear();
     chartMocks.range.value = { from: 30, to: 60 };
     chartMocks.visible.handler = null;
+    chartMocks.created.removeSeries.mockClear();
+    chartMocks.created.subscribeCrosshairMove.mockClear();
+    chartMocks.created.unsubscribeCrosshairMove.mockClear();
 });
 
 afterEach(() => {
     vi.restoreAllMocks();
 });
 
+it("replaces only the active price series, preserving range, preview and left-edge guard", () => {
+    const bars = projectBars(marketDataBars().bars);
+    const last = bars.at(-1);
+    if (last === undefined) throw new Error("fixture requires a last Bar");
+    const preview = { ...shiftBar(last, 60), closed: false };
+    const onNearLeftEdge = vi.fn();
+    const semantic = marketDataBarSemantic(1);
+    const chart = (chartType: "CANDLESTICK" | "LINE", liveBar = preview) => (
+        <PriceChart
+            mode="real"
+            barSemantic={semantic}
+            bars={bars}
+            liveBar={liveBar}
+            contextKey="exact-a"
+            chartType={chartType}
+            onNearLeftEdge={onNearLeftEdge}
+        />
+    );
+    const view = render(chart("CANDLESTICK"));
+    const instances = chartMocks.createChart.mock.calls.length;
+    chartMocks.visible.handler?.({ from: 30, to: 80 });
+    chartMocks.range.value = { from: 12, to: 62 };
+    const anchor = screen.getByTestId("price-chart").getAttribute("data-visible-anchor-time");
+    view.rerender(chart("LINE"));
+    expect(chartMocks.createChart).toHaveBeenCalledTimes(instances);
+    expect(chartMocks.created.removeSeries).toHaveBeenLastCalledWith(chartMocks.candles);
+    expect(chartMocks.overlays.setData).toHaveBeenLastCalledWith(
+        [...bars, preview].map((bar) => ({ time: bar.time, value: bar.numeric.close }))
+    );
+    expect(chartMocks.range.value).toEqual({ from: 12, to: 62 });
+    expect(onNearLeftEdge).not.toHaveBeenCalled();
+    const updated = {
+        ...preview,
+        close: "109.000000000000000001",
+        numeric: { ...preview.numeric, close: 109 }
+    };
+    view.rerender(chart("LINE", updated));
+    expect(chartMocks.overlays.update).toHaveBeenLastCalledWith({ time: updated.time, value: 109 });
+    view.rerender(chart("CANDLESTICK", updated));
+    expect(chartMocks.created.removeSeries).toHaveBeenLastCalledWith(chartMocks.overlays);
+    expect(chartMocks.candles.setData).toHaveBeenLastCalledWith(
+        [...bars, updated].map(renderedBar)
+    );
+    expect(chartMocks.range.value).toEqual({ from: 12, to: 62 });
+    expect(screen.getByTestId("price-chart")).toHaveAttribute(
+        "data-visible-anchor-time",
+        anchor ?? ""
+    );
+    expect(onNearLeftEdge).not.toHaveBeenCalled();
+    expect(chartMocks.createChart).toHaveBeenCalledTimes(instances);
+});
+
+it("resolves crosshair time to current exact identity and unsubscribes on destruction", () => {
+    const bars = projectBars(marketDataBars().bars);
+    const first = bars[0];
+    if (first === undefined) throw new Error("fixture requires a first Bar");
+    const onSelection = vi.fn();
+    const view = render(
+        <PriceChart mode="real" bars={bars} contextKey="exact-a" onSelection={onSelection} />
+    );
+    const handler = chartMocks.created.subscribeCrosshairMove.mock.calls[0]?.[0];
+    expect(handler).toBeTypeOf("function");
+    const move = handler as (event: {
+        time?: number;
+        point?: { x: number; y: number };
+        seriesData: Map<unknown, unknown>;
+    }) => void;
+    move({
+        time: first.time,
+        point: { x: 20, y: 20 },
+        seriesData: new Map([[chartMocks.candles, { close: 999 }]])
+    });
+    expect(onSelection).toHaveBeenLastCalledWith({
+        contextKey: "exact-a",
+        barStartNs: first.barStartNs
+    });
+    move({ seriesData: new Map() });
+    expect(onSelection).toHaveBeenLastCalledWith(null);
+    move({ time: -1, point: { x: 20, y: 20 }, seriesData: new Map() });
+    expect(onSelection).toHaveBeenLastCalledWith(null);
+    view.rerender(
+        <PriceChart mode="real" bars={bars} contextKey="exact-b" onSelection={onSelection} />
+    );
+    expect(onSelection).toHaveBeenLastCalledWith(null);
+    move({ time: first.time, point: { x: 20, y: 20 }, seriesData: new Map() });
+    expect(onSelection).toHaveBeenLastCalledWith({
+        contextKey: "exact-b",
+        barStartNs: first.barStartNs
+    });
+    view.unmount();
+    expect(chartMocks.created.unsubscribeCrosshairMove).toHaveBeenCalledExactlyOnceWith(handler);
+});
+
+it("shows exact Workspace observations and changes only browser chart preference", async () => {
+    const user = userEvent.setup();
+    const first = projectBars(marketDataBars().bars)[0];
+    if (first === undefined) throw new Error("fixture requires a first Bar");
+    const queryBars = vi.fn<MarketDataApiClient["queryBars"]>((_reference, query) =>
+        Promise.resolve(marketDataBarsForQuery(query))
+    );
+    const client = marketDataClient({
+        queryBars,
+        listInstruments: () => Promise.resolve([marketDataInstrument()])
+    });
+    const acquisition = vi.spyOn(client, "createAcquisition");
+    renderWorkspace(client);
+    expect(screen.getByTestId("market-data-observation")).toHaveAttribute(
+        "data-observation-mode",
+        "unavailable"
+    );
+    expect(screen.getByRole("combobox", { name: "图表类型" })).toHaveValue("CANDLESTICK");
+    await selectSource(user);
+    await selectBtcInstrument(user);
+    await waitFor(() => {
+        expect(screen.getByTestId("market-data-observation")).toHaveAttribute(
+            "data-observation-mode",
+            "latest-closed"
+        );
+    });
+    expect(screen.getByTestId("market-data-observation")).toHaveTextContent("C 102.50");
+    const requests = queryBars.mock.calls.length;
+    await user.selectOptions(screen.getByRole("combobox", { name: "图表类型" }), "LINE");
+    expect(screen.getByTestId("price-chart")).toHaveAttribute("data-chart-type", "LINE");
+    expect(queryBars).toHaveBeenCalledTimes(requests);
+    expect(acquisition).not.toHaveBeenCalled();
+    const handler = chartMocks.created.subscribeCrosshairMove.mock.calls[0]?.[0] as (
+        event: object
+    ) => void;
+    act(() => {
+        handler({ time: first.time, point: { x: 10, y: 10 } });
+    });
+    expect(screen.getByTestId("market-data-observation")).toHaveAttribute(
+        "data-observation-mode",
+        "crosshair"
+    );
+    expect(screen.getByTestId("market-data-observation")).toHaveTextContent("C 101.00");
+    act(() => {
+        handler({});
+    });
+    expect(screen.getByTestId("market-data-observation")).toHaveAttribute(
+        "data-observation-mode",
+        "latest-closed"
+    );
+    act(() => {
+        handler({ time: first.time, point: { x: 10, y: 10 } });
+    });
+    await user.selectOptions(screen.getByRole("combobox", { name: "时间周期" }), "5");
+    await waitFor(() => {
+        expect(screen.getByTestId("market-data-observation")).toHaveAttribute(
+            "data-observation-mode",
+            "latest-closed"
+        );
+    });
+    expect(screen.getByRole("combobox", { name: "图表类型" })).toHaveValue("LINE");
+});
+
+it("derives selected preview updates from identity and falls back on mouse leave", async () => {
+    const user = userEvent.setup();
+    renderWorkspace(
+        marketDataClient({
+            listInstruments: () => Promise.resolve([marketDataInstrument()]),
+            queryBars: (_reference, query) => Promise.resolve(marketDataBarsForQuery(query))
+        })
+    );
+    await selectSource(user);
+    await selectBtcInstrument(user);
+    await waitFor(() => {
+        expect(streams.callbacks).toHaveLength(1);
+    });
+    const original = marketDataBars().bars[0];
+    if (original === undefined) throw new Error("fixture requires a Bar");
+    const bar = {
+        ...original,
+        bar_start_ns: "1767225720000000000",
+        bar_end_ns: "1767225780000000000",
+        closed: false,
+        close: "103.000000000000000001",
+        volume: "7.000000000000000001"
+    };
+    const event = {
+        schema_version: 2 as const,
+        event: "BAR_PREVIEW" as const,
+        source_id: marketDataSource().source_id,
+        instrument_id: marketDataInstrument().instrument_id,
+        bar_semantic: marketDataBarSemantic(1),
+        bar
+    };
+    act(() => {
+        streams.callbacks[0]?.(event);
+    });
+    const observation = screen.getByTestId("market-data-observation");
+    expect(observation).toHaveAttribute("data-observation-mode", "preview");
+    expect(observation).toHaveTextContent("实时预览");
+    expect(observation).toHaveTextContent("103.000000000000000001");
+    const move = chartMocks.created.subscribeCrosshairMove.mock.calls[0]?.[0] as (
+        event: object
+    ) => void;
+    act(() => {
+        move({ time: projectMarketDataBar(bar).time, point: { x: 10, y: 10 } });
+    });
+    expect(observation).toHaveAttribute("data-observation-mode", "crosshair");
+    act(() => {
+        streams.callbacks[0]?.({ ...event, bar: { ...bar, close: "104.000000000000000001" } });
+    });
+    expect(observation).toHaveTextContent("104.000000000000000001");
+    await user.unhover(screen.getByTestId("price-chart"));
+    act(() => {
+        move({});
+    });
+    expect(observation).toHaveAttribute("data-observation-mode", "preview");
+    act(() => {
+        streams.callbacks[0]?.({
+            ...event,
+            event: "BAR_CLOSED",
+            sequence: "29453762",
+            bar: { ...bar, closed: true }
+        });
+    });
+    expect(observation).toHaveAttribute("data-observation-mode", "latest-closed");
+    expect(observation).toHaveTextContent("103.000000000000000001");
+    act(() => {
+        move({ time: projectMarketDataBar(bar).time, point: { x: 10, y: 10 } });
+    });
+    await user.selectOptions(screen.getByRole("combobox", { name: "数据源" }), "");
+    expect(observation).toHaveAttribute("data-observation-mode", "unavailable");
+    expect(observation).toHaveAttribute("data-bar-start-ns", "");
+});
+
 it("renders canonical Product bars without browser range planning", () => {
-    expect(onlyBarsToCandles(marketDataBars().bars)).toEqual([
+    expect(projectBars(marketDataBars().bars).map(toCandlestick)).toEqual([
         { time: 1_767_225_600, open: 100, high: 102, low: 99, close: 101 },
         { time: 1_767_225_660, open: 101, high: 103, low: 100, close: 102.5 }
     ]);
 });
 
 it("updates realtime candles without recreating the chart", () => {
-    const historical = onlyBarsToCandles(marketDataBars().bars);
+    const historical = projectBars(marketDataBars().bars);
     const view = render(
         <PriceChart
             barSemantic={marketDataBarSemantic(7)}
@@ -184,7 +444,7 @@ it("updates realtime candles without recreating the chart", () => {
     const created = chartMocks.createChart.mock.calls.length;
     const second = historical.at(1);
     if (second === undefined) throw new Error("fixture requires two bars");
-    const preview = { ...second, close: 103 };
+    const preview = { ...second, close: "103", numeric: { ...second.numeric, close: 103 } };
 
     view.rerender(
         <PriceChart
@@ -197,7 +457,7 @@ it("updates realtime candles without recreating the chart", () => {
     );
 
     expect(chartMocks.createChart).toHaveBeenCalledTimes(created);
-    expect(chartMocks.candles.update).toHaveBeenLastCalledWith(preview);
+    expect(chartMocks.candles.update).toHaveBeenLastCalledWith(renderedBar(preview));
     view.rerender(
         <PriceChart
             barSemantic={marketDataBarSemantic(37)}
@@ -206,7 +466,9 @@ it("updates realtime candles without recreating the chart", () => {
             contextKey="revision-b"
         />
     );
-    expect(chartMocks.candles.setData).toHaveBeenLastCalledWith(historical.slice(1));
+    expect(chartMocks.candles.setData).toHaveBeenLastCalledWith(
+        historical.slice(1).map(renderedBar)
+    );
     expect(chartMocks.createChart).toHaveBeenCalledTimes(created);
 });
 
@@ -215,7 +477,7 @@ it("subscribes to the visible range and unsubscribes the same handler", () => {
         <PriceChart
             barSemantic={marketDataBarSemantic(1)}
             mode="real"
-            bars={onlyBarsToCandles(marketDataBars().bars)}
+            bars={projectBars(marketDataBars().bars)}
             contextKey="context-a"
         />
     );
@@ -233,7 +495,7 @@ it("requests older history once per left-edge threshold crossing without recreat
         <PriceChart
             barSemantic={marketDataBarSemantic(1)}
             mode="real"
-            bars={onlyBarsToCandles(marketDataBars().bars)}
+            bars={projectBars(marketDataBars().bars)}
             contextKey="context-a"
             onNearLeftEdge={onNearLeftEdge}
         />
@@ -257,7 +519,7 @@ it("requests older history once per left-edge threshold crossing without recreat
 
 it("initializes the first non-empty history once even after an empty context publication", () => {
     const callback = vi.fn();
-    const history = onlyBarsToCandles(marketDataBars().bars);
+    const history = projectBars(marketDataBars().bars);
     const chart = (key: string, bars: typeof history) => (
         <PriceChart
             mode="real"
@@ -288,7 +550,7 @@ it("initializes the first non-empty history once even after an empty context pub
 it("replays effects with one current range handler and no mount history request", () => {
     const oldCallback = vi.fn();
     const currentCallback = vi.fn();
-    const history = onlyBarsToCandles(marketDataBars().bars);
+    const history = projectBars(marketDataBars().bars);
     const chart = (callback: () => void) => (
         <StrictMode>
             <PriceChart
@@ -322,12 +584,9 @@ it.each([
     ["missing prior identity", [0, 2, 3], 0],
     ["reordered prior sequence", [0, 2, 1, 3], 0]
 ] as const)("preserves the viewport using only proven left offset: %s", (_name, times, offset) => {
-    const first = onlyBarsToCandles(marketDataBars().bars)[0];
+    const first = projectBars(marketDataBars().bars)[0];
     if (first === undefined) throw new Error("fixture requires a first Bar");
-    const candle = (index: number) => ({
-        ...first,
-        time: (first.time + index * 60) as typeof first.time
-    });
+    const candle = (index: number) => shiftBar(first, index * 60);
     const prior = [candle(1), candle(2)];
     const view = render(
         <PriceChart
@@ -358,7 +617,7 @@ it.each([
 });
 
 it("derives the visible anchor from renderer Bars and preserves it after a mixed prepend", () => {
-    const prior = onlyBarsToCandles(marketDataBars().bars);
+    const prior = projectBars(marketDataBars().bars);
     const first = prior[0];
     const last = prior[1];
     if (first === undefined || last === undefined) throw new Error("fixture requires two Bars");
@@ -380,11 +639,7 @@ it("derives the visible anchor from renderer Bars and preserves it after a mixed
         <PriceChart
             mode="real"
             barSemantic={marketDataBarSemantic(1)}
-            bars={[
-                { ...first, time: (first.time - 60) as typeof first.time },
-                ...prior,
-                { ...last, time: (last.time + 60) as typeof last.time }
-            ]}
+            bars={[shiftBar(first, -60), ...prior, shiftBar(last, 60)]}
             contextKey="context-a"
         />
     );
@@ -393,10 +648,10 @@ it("derives the visible anchor from renderer Bars and preserves it after a mixed
 });
 
 it("shifts the logical range by the strict prepend count", () => {
-    const historical = onlyBarsToCandles(marketDataBars().bars);
+    const historical = projectBars(marketDataBars().bars);
     const first = historical[0];
     if (first === undefined) throw new Error("fixture requires a first Bar");
-    const earlier = { ...first, time: (first.time - 60) as typeof first.time };
+    const earlier = shiftBar(first, -60);
     const view = render(
         <PriceChart
             barSemantic={marketDataBarSemantic(1)}
@@ -424,7 +679,7 @@ it("shifts the logical range by the strict prepend count", () => {
 });
 
 it("resets a changed context to the recent range", () => {
-    const historical = onlyBarsToCandles(marketDataBars().bars);
+    const historical = projectBars(marketDataBars().bars);
     const view = render(
         <PriceChart
             barSemantic={marketDataBarSemantic(1)}
@@ -451,7 +706,7 @@ it("resets a changed context to the recent range", () => {
 });
 
 it("ignores realtime bars older than the history or latest realtime candle", () => {
-    const historical = onlyBarsToCandles(marketDataBars().bars);
+    const historical = projectBars(marketDataBars().bars);
     const first = historical[0];
     const last = historical[1];
     if (first === undefined || last === undefined) throw new Error("fixture requires two bars");
@@ -471,12 +726,12 @@ it("ignores realtime bars older than the history or latest realtime candle", () 
             barSemantic={specification}
             bars={historical}
             contextKey="revision-a"
-            liveBar={{ ...first, close: 999 }}
+            liveBar={{ ...first, close: "999", numeric: { ...first.numeric, close: 999 } }}
         />
     );
     expect(chartMocks.candles.update).not.toHaveBeenCalled();
 
-    const next = { ...last, time: (last.time + 60) as typeof last.time, close: 103 };
+    const next = { ...shiftBar(last, 60), close: "103", numeric: { ...last.numeric, close: 103 } };
     view.rerender(
         <PriceChart
             mode="real"
@@ -486,7 +741,7 @@ it("ignores realtime bars older than the history or latest realtime candle", () 
             liveBar={next}
         />
     );
-    expect(chartMocks.candles.update).toHaveBeenCalledExactlyOnceWith(next);
+    expect(chartMocks.candles.update).toHaveBeenCalledExactlyOnceWith(renderedBar(next));
 
     view.rerender(
         <PriceChart
@@ -494,7 +749,7 @@ it("ignores realtime bars older than the history or latest realtime candle", () 
             barSemantic={specification}
             bars={historical}
             contextKey="revision-a"
-            liveBar={{ ...last, close: 999 }}
+            liveBar={{ ...last, close: "999", numeric: { ...last.numeric, close: 999 } }}
         />
     );
     expect(chartMocks.candles.update).toHaveBeenCalledTimes(1);

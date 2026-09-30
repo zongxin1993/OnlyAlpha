@@ -59,6 +59,7 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
     const acquisitionSteps: number[] = [];
     let releaseRecovery: (() => void) | null = null;
     let emitStalePreview: (() => void) | null = null;
+    let emitPreview: (() => void) | null = null;
     const cursors: string[] = [];
     const steps: number[] = [];
     const historyAnchors: string[] = [];
@@ -283,6 +284,24 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
                 });
                 send({ event: "STATE", state: "RECOVERING" });
             };
+            emitPreview = () => {
+                send({
+                    event: "BAR_PREVIEW",
+                    source_id: sourceId,
+                    instrument_id: instrument.instrument_id,
+                    bar_semantic: request.bar_semantic,
+                    bar: {
+                        ...derivedBar,
+                        bar_start_ns: BigInt(derivedBar.bar_end_ns).toString(),
+                        bar_end_ns: (
+                            BigInt(derivedBar.bar_end_ns) +
+                            BigInt(step) * minuteNs
+                        ).toString(),
+                        close: "103.000000000000000001",
+                        volume: "3.000000000000000001"
+                    }
+                });
+            };
             if (connection === 1 || !holdRecovery) send({ event: "STATE", state: "READY" });
             else
                 releaseRecovery = () => {
@@ -299,11 +318,46 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
         olderRequests,
         releaseRecovery: () => releaseRecovery?.(),
         emitStalePreview: () => emitStalePreview?.(),
+        emitPreview: () => emitPreview?.(),
         disconnect: async () => {
             await socket?.close({ code: 1012, reason: "controlled disconnect" });
         }
     };
 }
+
+test("chart type keeps realtime subscription and exact preview readout", async ({ page }) => {
+    const fixture = await controlledRealtime(page);
+    await page.goto("/");
+    await page.getByRole("combobox", { name: "数据源" }).selectOption(integrationId);
+    await page.getByRole("searchbox", { name: "搜索标的" }).fill("BTCUSDT");
+    await page.getByRole("searchbox", { name: "搜索标的" }).press("Enter");
+    await page.getByRole("button", { name: /BTCUSDT\.BINANCE/ }).click();
+    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+    const observation = page.getByTestId("market-data-observation");
+    await expect(observation).toHaveAttribute("data-observation-mode", "latest-closed");
+    fixture.emitPreview();
+    await expect(observation).toHaveAttribute("data-observation-mode", "preview");
+    await expect(observation.locator('[data-observation-field="close"]')).toHaveText(
+        "103.000000000000000001"
+    );
+    await expect(observation.locator('[data-observation-field="volume"]')).toHaveText(
+        "3.000000000000000001"
+    );
+    const barsRequests = fixture.historyAnchors.length;
+    const subscriptions = fixture.cursors.length;
+    for (const type of ["LINE", "CANDLESTICK"]) {
+        await page.getByRole("combobox", { name: "图表类型" }).selectOption(type);
+        await expect(page.getByTestId("price-chart")).toHaveAttribute("data-chart-type", type);
+        await expect(observation).toHaveAttribute("data-observation-mode", "preview");
+        await expect(observation.locator('[data-observation-field="close"]')).toHaveText(
+            "103.000000000000000001"
+        );
+        expect(fixture.historyAnchors).toHaveLength(barsRequests);
+        expect(fixture.cursors).toHaveLength(subscriptions);
+        expect(fixture.acquisitions()).toBe(0);
+        await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+    }
+});
 
 test("history to realtime rollover and reconnect gap repair — CONTROLLED_TEST_EVIDENCE", async ({
     page

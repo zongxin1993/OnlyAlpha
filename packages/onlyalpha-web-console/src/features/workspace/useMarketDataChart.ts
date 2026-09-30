@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CandlestickData, UTCTimestamp } from "lightweight-charts";
+import {
+    admitMarketDataChartBars,
+    projectMarketDataBar,
+    MarketDataChartProjectionError,
+    type MarketDataChartBarProjection
+} from "../../charts/lightweight/marketDataChartProjection";
 import {
     MarketDataWebError,
     type MarketDataApiClient,
@@ -31,7 +36,6 @@ import {
 } from "./marketDataBarsAuthority";
 
 export const DEFAULT_TARGET_BAR_COUNT = 1_440;
-const SECOND_NS = 1_000_000_000n;
 export const STREAM_RECONNECT_DELAYS_MS = [250, 500, 1000, 2000, 4000] as const;
 
 export type MarketDataChartStatus =
@@ -62,11 +66,11 @@ export interface MarketDataChartState {
     readonly message: string | null;
     readonly coverage: MarketDataCoverage | null;
     readonly chartContextKey: string | null;
-    readonly bars: readonly CandlestickData<UTCTimestamp>[];
+    readonly bars: readonly MarketDataChartBarProjection[];
     readonly loadedClosedBarCount: number;
     readonly historyProjectionFingerprint: string | null;
     readonly realtimeStatus: MarketDataRealtimeStatus;
-    readonly liveBar: CandlestickData<UTCTimestamp> | null;
+    readonly liveBar: MarketDataChartBarProjection | null;
     readonly olderHistoryStatus: "idle" | "loading" | "acquiring" | "failed" | "exhausted";
     readonly olderHistoryMessage: string | null;
     readonly streamId: string | null;
@@ -87,32 +91,6 @@ export function onlyMarketDataSourceReference(source: MarketDataSource): MarketD
         expected_type_id: source.type_id
     };
 }
-
-export function onlyBarsToCandles(
-    bars: readonly {
-        readonly bar_start_ns: string;
-        readonly open: string;
-        readonly high: string;
-        readonly low: string;
-        readonly close: string;
-    }[]
-): CandlestickData<UTCTimestamp>[] {
-    return bars.map(onlyBarToCandle);
-}
-
-const onlyBarToCandle = (bar: {
-    readonly bar_start_ns: string;
-    readonly open: string;
-    readonly high: string;
-    readonly low: string;
-    readonly close: string;
-}): CandlestickData<UTCTimestamp> => ({
-    time: Number(BigInt(bar.bar_start_ns) / SECOND_NS) as UTCTimestamp,
-    open: Number(bar.open),
-    high: Number(bar.high),
-    low: Number(bar.low),
-    close: Number(bar.close)
-});
 
 export function useMarketDataChart(): MarketDataChartState {
     const client = useMarketDataApi();
@@ -146,14 +124,14 @@ export function useMarketDataChart(): MarketDataChartState {
 
     const chartContextKey = ledgerSnapshot?.contextKey ?? null;
     const bars = useMemo(
-        () => onlyBarsToCandles(ledgerSnapshot?.closedBars ?? []),
+        () => (ledgerSnapshot?.closedBars ?? []).map(projectMarketDataBar),
         [ledgerSnapshot]
     );
     const liveBar = useMemo(
         () =>
             ledgerSnapshot?.preview === null || ledgerSnapshot === null
                 ? null
-                : onlyBarToCandle(ledgerSnapshot.preview),
+                : projectMarketDataBar(ledgerSnapshot.preview),
         [ledgerSnapshot]
     );
 
@@ -186,7 +164,8 @@ export function useMarketDataChart(): MarketDataChartState {
     const apply = useCallback((error: unknown) => {
         const webError =
             error instanceof MarketDataWebError ||
-            error instanceof MarketDataBarsAuthorityMismatchError
+            error instanceof MarketDataBarsAuthorityMismatchError ||
+            error instanceof MarketDataChartProjectionError
                 ? error
                 : null;
         ledger.current = null;
@@ -225,6 +204,7 @@ export function useMarketDataChart(): MarketDataChartState {
         ) => {
             if (generation !== historyGeneration.current || ledger.current !== activeLedger) return;
             try {
+                admitMarketDataChartBars(loaded.bars);
                 const merged = activeLedger.mergeHistory(loaded.bars);
                 setLedgerSnapshot(merged.snapshot);
             } catch (error) {
@@ -250,6 +230,12 @@ export function useMarketDataChart(): MarketDataChartState {
                 isCurrent: () =>
                     generation === historyGeneration.current && ledger.current === activeLedger,
                 merge: (pageBars) => {
+                    const current = activeLedger.snapshot();
+                    admitMarketDataChartBars([
+                        ...current.closedBars,
+                        ...(current.preview === null ? [] : [current.preview]),
+                        ...pageBars
+                    ]);
                     const page = activeLedger.mergeHistory(pageBars);
                     setLedgerSnapshot(page.snapshot);
                     return page;
@@ -490,6 +476,23 @@ export function useMarketDataChart(): MarketDataChartState {
                         setRealtimeStatus("failed");
                         close();
                         return;
+                    }
+                    if (event.event === "BAR_PREVIEW" || event.event === "BAR_CLOSED") {
+                        try {
+                            const current = ledger.current?.snapshot();
+                            admitMarketDataChartBars([
+                                ...(current?.closedBars ?? []),
+                                ...(current?.preview == null ? [] : [current.preview]),
+                                event.bar
+                            ]);
+                        } catch (error) {
+                            if (!(error instanceof MarketDataChartProjectionError)) throw error;
+                            terminal = true;
+                            setStreamError(error.code);
+                            setRealtimeStatus("failed");
+                            close();
+                            return;
+                        }
                     }
                     if (event.event === "SUBSCRIBED") {
                         if (event.resolution_plan_fingerprint !== resume.current?.fingerprint) {

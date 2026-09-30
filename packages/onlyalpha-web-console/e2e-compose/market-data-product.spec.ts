@@ -268,6 +268,105 @@ test("real Browser uses one native 15m resolution across HTTP and stream", async
     expect(provider.kline_requests.length).toBeGreaterThan(0);
     expect(provider.kline_requests.every((request) => request.interval === "15m")).toBe(true);
     expect(provider.stream_requests).toContain("btcusdt@kline_15m");
+    if (http === undefined) throw new Error("Native Product response unavailable");
+    const selection = http.source_selection as {
+        integration_revision_fingerprint: string;
+        source_id: string;
+    };
+    const matchesSubscription = (value: Record<string, unknown>) =>
+        (
+            value.source_reference as {
+                integration_id: string;
+                integration_revision_fingerprint: string;
+            }
+        ).integration_id === integrationId &&
+        (value.source_reference as { integration_revision_fingerprint: string })
+            .integration_revision_fingerprint === selection.integration_revision_fingerprint &&
+        value.instrument_id === http.instrument_id &&
+        JSON.stringify(value.bar_semantic) === JSON.stringify(http.bar_semantic);
+    const counts = () => ({
+        requests: observed.requests.filter(
+            (url) =>
+                url.searchParams.get("integration_id") === integrationId &&
+                url.searchParams.get("integration_revision_fingerprint") ===
+                    selection.integration_revision_fingerprint &&
+                url.searchParams.get("instrument_id") === http.instrument_id &&
+                url.searchParams.get("bar_semantic") === JSON.stringify(http.bar_semantic) &&
+                url.searchParams.get("target_bar_count") === "1440"
+        ).length,
+        acquisitions: observed.acquisitions.length,
+        subscriptions: observed.subscriptions.filter(matchesSubscription).length,
+        subscribed: observed.subscribed.filter(
+            (value) =>
+                value.source_id === selection.source_id &&
+                value.instrument_id === http.instrument_id &&
+                value.resolution_plan_fingerprint === http.resolution_plan_fingerprint
+        ).length
+    });
+    const before = counts();
+    expect(before.requests).toBeGreaterThan(0);
+    expect(before.subscriptions).toBe(1);
+    expect(before.subscribed).toBe(1);
+    const chart = page.getByTestId("price-chart");
+    const observation = page.getByTestId("market-data-observation");
+    const rangeBefore = await chart.getAttribute("data-visible-range-from");
+    const rangeToBefore = await chart.getAttribute("data-visible-range-to");
+    const anchorBefore = await chart.getAttribute("data-visible-anchor-time");
+    const switches: unknown[] = [];
+    await expect(chart).toHaveAttribute("data-chart-type", "CANDLESTICK");
+    for (const type of ["LINE", "CANDLESTICK"]) {
+        await page.getByRole("combobox", { name: "图表类型" }).selectOption(type);
+        await expect(chart).toHaveAttribute("data-chart-type", type);
+        await expect(chart).toHaveAttribute("data-visible-range-from", rangeBefore ?? "");
+        await expect(chart).toHaveAttribute("data-visible-range-to", rangeToBefore ?? "");
+        await expect(chart).toHaveAttribute("data-visible-anchor-time", anchorBefore ?? "");
+        expect(counts()).toEqual(before);
+        switches.push({
+            type,
+            rangeFrom: await chart.getAttribute("data-visible-range-from"),
+            rangeTo: await chart.getAttribute("data-visible-range-to"),
+            anchor: await chart.getAttribute("data-visible-anchor-time"),
+            counts: counts()
+        });
+    }
+    const bounds = await chart.boundingBox();
+    if (bounds === null) throw new Error("price chart bounds unavailable");
+    await page.mouse.move(bounds.x + bounds.width * 0.5, bounds.y + bounds.height * 0.5);
+    await expect(observation).toHaveAttribute("data-observation-mode", "crosshair");
+    const start = await observation.getAttribute("data-bar-start-ns");
+    const selected = (
+        http.bars as {
+            bar_start_ns: string;
+            open: string;
+            high: string;
+            low: string;
+            close: string;
+            volume: string;
+        }[]
+    ).find((bar) => bar.bar_start_ns === start);
+    expect(selected).toBeDefined();
+    if (selected === undefined) throw new Error("selected Bar missing from Product response");
+    for (const field of ["open", "high", "low", "close", "volume"] as const)
+        await expect(observation.locator(`[data-observation-field="${field}"]`)).toHaveText(
+            selected[field]
+        );
+    expect(counts()).toEqual(before);
+    await page.mouse.move(0, 0);
+    await expect(observation).toHaveAttribute("data-observation-mode", /latest-closed|preview/);
+    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+    await test.info().attach("exact-chart-observation", {
+        contentType: "application/json",
+        body: JSON.stringify({
+            before,
+            after: counts(),
+            rangeBefore,
+            rangeToBefore,
+            anchorBefore,
+            switches,
+            selected,
+            fallback: await observation.getAttribute("data-observation-mode")
+        })
+    });
 });
 
 test("real Browser loads authoritative older native history without moving the viewport", async ({
