@@ -140,29 +140,98 @@ async function stats(page: Page) {
     };
 }
 
-async function panChartToOlderHistory(
+interface ViewportPanEvidence {
+    readonly initialFrom: number;
+    readonly finalFrom: number;
+    readonly attempts: number;
+    readonly ranges: readonly number[];
+    readonly stoppedByRequest: boolean;
+}
+
+async function panChartUntilLeftThreshold(
     page: Page,
-    dragCount: number,
-    stop?: () => boolean
-): Promise<void> {
-    const bounds = await page.getByTestId("price-chart").boundingBox();
-    if (bounds === null) throw new Error("price chart bounds unavailable");
-    for (let index = 0; index < dragCount; index += 1) {
-        if (stop?.()) break;
-        const from = Number(
-            await page.getByTestId("price-chart").getAttribute("data-visible-range-from")
+    options: {
+        readonly threshold: number;
+        readonly requestObserved: () => boolean;
+        readonly maxAttempts?: number;
+    }
+): Promise<ViewportPanEvidence> {
+    const chart = page.getByTestId("price-chart");
+    const readFrom = async () => {
+        const diagnostic = await chart.getAttribute("data-visible-range-from");
+        if (diagnostic === null || diagnostic.trim() === "" || !Number.isFinite(Number(diagnostic)))
+            throw new Error(`VIEWPORT_VISIBLE_RANGE_UNAVAILABLE: ${JSON.stringify(diagnostic)}`);
+        return Number(diagnostic);
+    };
+    const initialFrom = await readFrom();
+    const ranges = [initialFrom];
+    let currentFrom = initialFrom;
+    let attempts = 0;
+    let lastDrag: { distance: number; progress: number } | undefined;
+    const evidence = (): ViewportPanEvidence => ({
+        initialFrom,
+        finalFrom: currentFrom,
+        attempts,
+        ranges,
+        stoppedByRequest: options.requestObserved()
+    });
+    try {
+        expect(initialFrom, "viewport must start away from the left threshold").toBeGreaterThan(
+            options.threshold
         );
-        const distance = Math.min(bounds.width * 0.6, Math.max(8, (from - 12) * 7));
-        await page.mouse.move(bounds.x + bounds.width * 0.3, bounds.y + bounds.height * 0.5);
-        await page.mouse.down();
-        await page.mouse.move(
-            bounds.x + bounds.width * 0.3 + distance,
-            bounds.y + bounds.height * 0.5,
-            {
-                steps: 4
+        while (currentFrom > options.threshold && !options.requestObserved()) {
+            if (attempts >= (options.maxAttempts ?? 128))
+                throw new Error(
+                    `VIEWPORT_LEFT_THRESHOLD_NOT_REACHED: ${JSON.stringify(evidence())}`
+                );
+            const bounds = await chart.boundingBox();
+            if (bounds === null) throw new Error("VIEWPORT_CHART_BOUNDS_UNAVAILABLE");
+            const previousFrom = currentFrom;
+            // Near the boundary, scale the gesture using measured progress, never fixed pixels/Bar.
+            const distance = Math.min(
+                bounds.width * 0.6,
+                lastDrag === undefined
+                    ? bounds.width * 0.6
+                    : (lastDrag.distance * (currentFrom - options.threshold / 2)) /
+                          lastDrag.progress
+            );
+            const x = bounds.x + bounds.width * 0.3;
+            const y = bounds.y + bounds.height * 0.5;
+            await page.mouse.move(x, y);
+            await page.mouse.down();
+            await page.mouse.move(x + distance, y, { steps: 4 });
+            await page.mouse.up();
+            attempts += 1;
+            try {
+                await expect
+                    .poll(async () => {
+                        currentFrom = await readFrom();
+                        return currentFrom < previousFrom || options.requestObserved();
+                    })
+                    .toBe(true);
+            } catch (error) {
+                if (
+                    error instanceof Error &&
+                    error.message.includes("VIEWPORT_VISIBLE_RANGE_UNAVAILABLE")
+                )
+                    throw error;
+                throw Object.assign(
+                    new Error(
+                        `VIEWPORT_PAN_NO_PROGRESS: ${JSON.stringify({ previousFrom, currentFrom, bounds })}`
+                    ),
+                    { cause: error }
+                );
             }
-        );
-        await page.mouse.up();
+            ranges.push(currentFrom);
+            if (currentFrom < previousFrom)
+                lastDrag = { distance, progress: previousFrom - currentFrom };
+        }
+        return evidence();
+    } finally {
+        await test.info().attach("viewport-pan-progression", {
+            contentType: "application/json",
+            body: JSON.stringify({ ...evidence(), threshold: options.threshold })
+        });
     }
 }
 
@@ -254,6 +323,11 @@ test("real Browser loads authoritative older native history without moving the v
     const release = new Promise<void>((resolve) => {
         releaseFirstBeforeRequest = resolve;
     });
+    let releaseSecondBeforeRequest: () => void = () => undefined;
+    const secondRelease = new Promise<void>((resolve) => {
+        releaseSecondBeforeRequest = resolve;
+    });
+    const secondPage = { requestToHold: Number.POSITIVE_INFINITY };
     let beforeRequestCount = 0;
     let firstResponseHeld = false;
     await page.route("**/api/v2/market-data/bars?**", async (route) => {
@@ -270,11 +344,27 @@ test("real Browser loads authoritative older native history without moving the v
                 await route.fulfill({ response });
                 return;
             }
+            if (beforeRequestCount === secondPage.requestToHold) {
+                const response = await route.fetch();
+                await secondRelease;
+                await route.fulfill({ response });
+                return;
+            }
         }
         await route.continue();
     });
 
-    await panChartToOlderHistory(page, 32, () => beforeRequestCount > 0);
+    const firstPan = await panChartUntilLeftThreshold(page, {
+        threshold: 24,
+        requestObserved: () => beforeRequestCount > 0
+    });
+    expect(firstPan.finalFrom, "real gesture must reach the Product threshold").toBeLessThanOrEqual(
+        24
+    );
+    await test.info().attach("viewport-first-threshold", {
+        contentType: "application/json",
+        body: JSON.stringify({ ...firstPan, threshold: 24, requestCount: beforeRequestCount })
+    });
     await expect.poll(() => beforeRequestCount, { timeout: 45_000 }).toBe(1);
     await expect.poll(() => firstResponseHeld, { timeout: 45_000 }).toBe(true);
 
@@ -304,6 +394,7 @@ test("real Browser loads authoritative older native history without moving the v
             .toBeLessThanOrEqual(24);
     }
     expect(beforeRequestCount).toBe(1);
+    const heldRequestCount = beforeRequestCount;
     if (anchorBefore === null) throw new Error("visible anchor unavailable");
     await expect(chart).toHaveAttribute("data-visible-anchor-time", anchorBefore);
     releaseFirstBeforeRequest();
@@ -316,9 +407,25 @@ test("real Browser loads authoritative older native history without moving the v
     await expect(status).toHaveAttribute("data-older-history-status", "idle");
     const firstOlderBarCount = Number(await status.getAttribute("data-loaded-bar-count"));
     await expect(chart).toHaveAttribute("data-visible-anchor-time", anchorBefore);
-    expect(Number(await chart.getAttribute("data-visible-range-from"))).toBeGreaterThan(
-        rangeBefore
-    );
+    const rangeAfter = Number(await chart.getAttribute("data-visible-range-from"));
+    expect(rangeAfter).toBeGreaterThan(rangeBefore);
+    const initialBars = http?.bars as { bar_start_ns: string }[];
+    const earliestInitialStart = BigInt(initialBars[0].bar_start_ns);
+    const prependCount = new Set(
+        observed.bars
+            .filter(
+                (value) =>
+                    value.anchor_kind === "BEFORE_TIME" &&
+                    value.requested_bar_count === 240 &&
+                    JSON.stringify(value.bar_semantic) === JSON.stringify(http?.bar_semantic) &&
+                    (value.coverage as { status?: string }).status === "COMPLETE"
+            )
+            .flatMap((value) => value.bars as { bar_start_ns: string }[])
+            .filter((bar) => BigInt(bar.bar_start_ns) < earliestInitialStart)
+            .map((bar) => bar.bar_start_ns)
+    ).size;
+    expect(prependCount).toBeGreaterThan(0);
+    expect(rangeAfter).toBeCloseTo(rangeBefore + prependCount, 8);
     expect(matchingSubscriptions()).toHaveLength(subscriptionsBefore);
     expect(matchingSubscribed()).toHaveLength(subscribedBefore);
     await test.info().attach("viewport-continuity", {
@@ -326,6 +433,12 @@ test("real Browser loads authoritative older native history without moving the v
         body: JSON.stringify({
             anchorBefore,
             anchorAfter: await chart.getAttribute("data-visible-anchor-time"),
+            rangeBefore,
+            rangeAfter,
+            prependCount,
+            initialBarCount,
+            firstOlderBarCount,
+            heldRequestCount,
             subscriptionsBefore,
             subscriptionsAfter: matchingSubscriptions().length,
             subscribedBefore,
@@ -333,7 +446,18 @@ test("real Browser loads authoritative older native history without moving the v
         })
     });
 
-    await panChartToOlderHistory(page, 32, () => beforeRequestCount > 2);
+    const requestsAfterFirstPage = beforeRequestCount;
+    // Hold the second page too: a fast prepend must not obscure the gesture's threshold evidence.
+    secondPage.requestToHold = requestsAfterFirstPage + 1;
+    const secondPan = await panChartUntilLeftThreshold(page, {
+        threshold: 24,
+        requestObserved: () => beforeRequestCount > requestsAfterFirstPage
+    });
+    expect(
+        secondPan.finalFrom,
+        "second gesture must reach the Product threshold"
+    ).toBeLessThanOrEqual(24);
+    releaseSecondBeforeRequest();
     await expect.poll(() => beforeRequestCount, { timeout: 45_000 }).toBeGreaterThan(2);
     await expect
         .poll(async () => Number(await status.getAttribute("data-loaded-bar-count")), {
@@ -342,6 +466,21 @@ test("real Browser loads authoritative older native history without moving the v
         .toBeGreaterThan(firstOlderBarCount);
     await expect(status).toHaveAttribute("data-older-history-status", "idle");
     await expect(status).toContainText("● 实时");
+    expect(matchingSubscriptions()).toHaveLength(subscriptionsBefore);
+    expect(matchingSubscribed()).toHaveLength(subscribedBefore);
+    await test.info().attach("viewport-page-growth", {
+        contentType: "application/json",
+        body: JSON.stringify({
+            initialBarCount,
+            firstOlderBarCount,
+            secondOlderBarCount: Number(await status.getAttribute("data-loaded-bar-count")),
+            beforeRequestCount,
+            subscriptionsBefore,
+            subscriptionsAfter: matchingSubscriptions().length,
+            subscribedBefore,
+            subscribedAfter: matchingSubscribed().length
+        })
+    });
 
     const olderRequests = observed.requests
         .slice(initialRequestCount)
