@@ -1,17 +1,21 @@
 # 测试规范
 
-P8.3 使用 `uv run python scripts/test_suite.py research-command` 验证 submission/idempotency/cancellation/read projection、HTTP 与
+P8.3 使用 `deploy/run-tests.sh python scripts/test_suite.py research-command` 验证 submission/idempotency/cancellation/read projection、HTTP 与
 architecture boundary；`research-postgres` 串行使用真实 PostgreSQL 验证 migration、唯一约束竞争、CAS、重启与 backup/restore。
 OpenAPI/TypeScript drift 继续由 Web static gate 验证。
 
-本地 PostgreSQL 验收只通过唯一 `deploy/docker-compose.dev.yml` 的 `test` profile 运行。Compose 在隔离网络内向 test
-容器注入唯一正式连接配置 `ONLYALPHA_POSTGRES_DSN`，不使用第二套 test-only PostgreSQL DSN 变量，
-也不向宿主机暴露数据库端口：
+本地正式验证统一通过 `deploy/run-tests.sh` 进入唯一 `deploy/docker-compose.dev.yml` 的 `test` profile。Runner 为每次执行创建
+隔离 namespace、构建当前工作树、注入正式测试连接配置、保留 `test-results/`，并在退出时删除容器、网络和卷。宿主机只要求
+Docker，不承担 Python/uv、localhost socket、PostgreSQL 或 ClickHouse 测试环境。不得新增第二套 Compose topology 或 DSN：
 
 ```bash
-docker compose -f deploy/docker-compose.dev.yml --profile test run --rm test \
-  python scripts/test_suite.py database-acceptance
+deploy/run-tests.sh python scripts/test_suite.py database-acceptance
+deploy/run-tests.sh python -m pytest -q tests/application/test_market_data_product.py
+deploy/run-tests.sh python scripts/verify.py run
 ```
+
+允许用宿主 `.venv` 做快速、非正式 inner-loop 定位，但不得把宿主环境失败或通过当作正式验收。真实 Provider、公网、
+`miniqmt-local`、真实 Broker Account 等 external lane 是例外，仍在其受控目标环境执行并单独报告。
 
 ## 正式测试分层与统一入口
 
@@ -22,16 +26,15 @@ docker compose -f deploy/docker-compose.dev.yml --profile test run --rm test \
 
 统一入口如下：
 
-```powershell
-uv run python scripts/test_suite.py fast
-uv run python scripts/test_suite.py integration
-uv run python scripts/test_suite.py ashare
-uv run python scripts/test_suite.py recovery
-uv run python scripts/test_suite.py miniqmt-contract
-uv run python scripts/test_suite.py miniqmt-local
-uv run python scripts/test_suite.py core-full
-uv run python scripts/test_suite.py exhaustive
-uv run python scripts/test_suite.py release
+```bash
+deploy/run-tests.sh python scripts/test_suite.py fast
+deploy/run-tests.sh python scripts/test_suite.py integration
+deploy/run-tests.sh python scripts/test_suite.py ashare
+deploy/run-tests.sh python scripts/test_suite.py recovery
+deploy/run-tests.sh python scripts/test_suite.py miniqmt-contract
+deploy/run-tests.sh python scripts/test_suite.py core-full
+deploy/run-tests.sh python scripts/test_suite.py exhaustive
+deploy/run-tests.sh python scripts/test_suite.py release
 ```
 
 所有通道打印实际 pytest 参数、返回真实退出码，并将计数、耗时、最慢测试、Marker 和路径分布写入

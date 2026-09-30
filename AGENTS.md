@@ -495,6 +495,10 @@ bounded Independent Review 完成
 
 Coverage 是诊断与专项验证工具，不是普通任务默认 Gate，不得为了固定百分比制造低价值测试。
 
+本地正式验证必须通过 `deploy/run-tests.sh` 进入唯一 canonical Compose `test` profile；宿主 `.venv` 只允许用于快速 inner-loop
+定位，其结果不得替代正式验收。Runner 必须构建当前工作树、使用隔离 namespace、保留 `test-results/`，并在退出时清理容器、
+网络和测试卷。明确依赖公网、Windows、硬件或真实账户的 external lane 在对应受控目标环境执行，不得伪装成容器 PASS。
+
 本地 PostgreSQL 测试必须通过唯一 canonical `deploy/docker-compose.dev.yml` 的 `test` profile 执行；
 不得在宿主机手工启动 PostgreSQL 或为测试引入第二套 PostgreSQL DSN 变量。Compose
 容器只使用正式连接配置 `ONLYALPHA_POSTGRES_DSN`，并必须保留 `_test` 数据库后缀安全校验。

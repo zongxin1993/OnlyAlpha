@@ -179,13 +179,13 @@ Existing Spot foundation
 
 Python 要求以根目录 [`pyproject.toml`](pyproject.toml) 为准。推荐使用 `uv` 管理 workspace 与环境。
 
-常用入口：
+常用入口。正式验证统一进入现有 Compose `test` profile；宿主 `uv` 只用于可选开发 inner loop：
 
 ```bash
 uv sync
-uv run python scripts/verify.py plan
-uv run python scripts/verify.py run
-uv run python scripts/test_suite.py --help
+deploy/run-tests.sh python scripts/verify.py plan
+deploy/run-tests.sh python scripts/verify.py run
+deploy/run-tests.sh python scripts/test_suite.py --help
 ```
 
 `verify.py` 只选择和执行当前工作区的影响验证，不是任务完成 Authority；实际验收范围仍必须遵守 `AGENTS.md` 的 Task Contract、Impact Scope、风险分级与 Stop Condition。

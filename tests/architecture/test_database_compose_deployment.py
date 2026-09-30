@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -158,10 +159,22 @@ def test_dev_dockerfile_builds_python_and_web_targets_without_business_credentia
     assert "FROM web AS playwright" in dockerfile
     assert "PLAYWRIGHT_BROWSERS_PATH=/ms-playwright" in dockerfile
     assert "npx playwright install --with-deps chromium" in dockerfile
-    assert "uv sync --frozen --all-packages --no-dev" in dockerfile
+    assert "uv sync --frozen --all-packages --no-dev --group compose-acceptance" in dockerfile
     assert "python scripts/embed_build_provenance.py" in dockerfile
     for forbidden in ("BINANCE_API_KEY", "BINANCE_API_SECRET", "MODEL_TOKEN", "CONTROL_TOKEN"):
         assert forbidden not in dockerfile
+
+
+def test_compose_acceptance_group_contains_local_verification_toolchain() -> None:
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    dependencies = pyproject["dependency-groups"]["compose-acceptance"]
+    assert {
+        "import-linter>=2.13",
+        "mypy>=1.15",
+        "ruff>=0.11",
+        "types-grpcio==1.0.0.20250703",
+        "types-protobuf==6.30.2.20250809",
+    } <= set(dependencies)
 
 
 def test_env_template_is_optional_and_contains_only_host_overrides() -> None:
@@ -206,3 +219,19 @@ def test_web_e2e_runner_isolated_and_artifact_safe() -> None:
     assert "localhost,127.0.0.1,postgres,clickhouse,api,web" in runner
     assert "data-api.binance.vision,data-stream.binance.vision" in runner
     assert "--abort-on-container-exit" not in runner
+
+
+def test_local_test_runner_uses_only_the_isolated_canonical_test_profile() -> None:
+    runner_path = DEPLOY / "run-tests.sh"
+    assert runner_path.is_file()
+    runner = runner_path.read_text(encoding="utf-8")
+    assert 'export ONLYALPHA_COMPOSE_NAMESPACE="onlyalpha-test-$$"' in runner
+    assert "ONLYALPHA_POSTGRES_DB=onlyalpha_test_environment" in runner
+    assert "ONLYALPHA_CLICKHOUSE_DATABASE=onlyalpha_test_environment" in runner
+    assert 'docker compose -p "$ONLYALPHA_COMPOSE_NAMESPACE" -f "$COMPOSE_FILE"' in runner
+    assert "compose --profile test run --build --rm" in runner
+    assert 'test "$@"' in runner
+    assert '"$ROOT/test-results:/workspace/test-results"' in runner
+    assert "compose --profile test down -v --remove-orphans" in runner
+    assert 'docker image rm "${ONLYALPHA_COMPOSE_NAMESPACE}-test"' in runner
+    assert "\ndocker-compose " not in runner
