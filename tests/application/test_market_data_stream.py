@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import replace
 from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
+
+import pytest
 
 from onlyalpha.application.market_data_stream import (
     OnlyMarketDataStreamEventV1,
@@ -23,6 +26,7 @@ from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.market_data.aggregation.time_bar import OnlyTimeBarAggregator
+from onlyalpha.market_data.durable.models import OnlyMarketDataHealth, OnlyRecordingState
 
 
 def _preview(close: str, minute: int = 1) -> OnlyRealtimeBarPreviewV1:
@@ -78,6 +82,56 @@ def test_preview_coalesces_but_reliable_events_remain_fifo() -> None:
     assert session.next_event(0).event == "STATE"  # type: ignore[union-attr]
     preview = session.next_event(0)
     assert preview is not None and preview.payload["bar"]["close"] == "2"  # type: ignore[index]
+
+
+@pytest.mark.parametrize("sink_fails", [False, True])
+def test_stream_logs_authoritative_health_on_degradation_and_recovery(
+    caplog: pytest.LogCaptureFixture, sink_fails: bool
+) -> None:
+    session = _session([])
+    health = OnlyMarketDataHealth(OnlyRecordingState.HEALTHY, 0, 1000, 0, 0, None, 0, None, None, 0, None)
+    session._drain = SimpleNamespace(health=lambda: health)  # type: ignore[assignment]
+    assert session.next_event(0).event == "SUBSCRIBED"  # type: ignore[union-attr]
+    session.emit_state("READY")
+    assert session.next_event(0).payload == {"state": "READY"}  # type: ignore[union-attr]
+    health = replace(
+        health,
+        recording_state=OnlyRecordingState.DEGRADED,
+        sealed_uncommitted_segments=1,
+        last_recovery_error="RuntimeError:database unavailable",
+    )
+
+    class FailingSink(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            raise RuntimeError("diagnostic sink unavailable")
+
+    logger = logging.getLogger("onlyalpha.market_data.durable.stream")
+    handler = FailingSink()
+    if sink_fails:
+        logger.addHandler(handler)
+    try:
+        with caplog.at_level("INFO", logger=logger.name):
+            assert session.next_event(0).payload == {"state": "DEGRADED"}  # type: ignore[union-attr]
+            assert session.next_event(0) is None
+            health = replace(
+                health,
+                recording_state=OnlyRecordingState.HEALTHY,
+                sealed_uncommitted_segments=0,
+                last_recovery_error=None,
+                last_committed_segment="segment",
+            )
+            assert session.next_event(0).payload == {"state": "READY"}  # type: ignore[union-attr]
+    finally:
+        if sink_fails:
+            logger.removeHandler(handler)
+    if sink_fails:
+        return
+    messages = [record.getMessage() for record in caplog.records]
+    assert len(messages) == 2
+    assert '"last_recovery_error": "RuntimeError:database unavailable"' in messages[0]
+    assert '"sealed_uncommitted_segments": 1' in messages[0]
+    assert '"last_recovery_error": null' in messages[1]
+    assert '"last_committed_segment": "segment"' in messages[1]
 
 
 def test_reliable_overflow_fails_explicitly_and_close_is_idempotent() -> None:

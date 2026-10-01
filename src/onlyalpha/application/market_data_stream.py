@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import queue
 import threading
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import timedelta
 from decimal import Decimal
 from logging import Logger
@@ -43,6 +45,7 @@ from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.market_data.aggregation.base import OnlyBarAggregationError
 from onlyalpha.market_data.aggregation.time_bar import OnlyTimeBarAggregator
+from onlyalpha.market_data.durable.diagnostics import only_market_data_diagnostic_error
 from onlyalpha.market_data.durable.drain import OnlyMarketDataDrainService
 from onlyalpha.market_data.durable.ingress import OnlyMarketDataIngress
 from onlyalpha.market_data.durable.models import (
@@ -232,9 +235,24 @@ class OnlyMarketDataStreamSession:
                     return event
             health = getattr(self._drain, "health", None)
             if callable(health):
-                degraded = health().recording_state is not OnlyRecordingState.HEALTHY
+                snapshot = health()
+                degraded = snapshot.recording_state is not OnlyRecordingState.HEALTHY
                 if degraded != self._drain_degraded:
                     self._drain_degraded = degraded
+                    try:
+                        diagnostic = asdict(snapshot)
+                        diagnostic["last_recovery_error"] = only_market_data_diagnostic_error(
+                            snapshot.last_recovery_error
+                        )
+                        logging.getLogger("onlyalpha.market_data.durable.stream").info(
+                            "market_data_stream_health stream_id=%s state=%s health=%s",
+                            self.stream_id,
+                            "DEGRADED" if degraded else self._connection_state,
+                            json.dumps(diagnostic, default=str, sort_keys=True),
+                        )
+                    except Exception:
+                        # A diagnostic sink is not allowed to suppress the authoritative event.
+                        pass
                     return OnlyMarketDataStreamEventV1(
                         "STATE",
                         {"state": "DEGRADED" if degraded else self._connection_state},

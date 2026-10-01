@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 from enum import StrEnum
 
+from .diagnostics import only_market_data_diagnostic_error
 from .models import OnlyIngestSegment, OnlyMarketDataHealth, OnlyRecordingState
 from .recovery import OnlyMarketDataRecoveryCoordinator
 
@@ -171,9 +173,24 @@ class OnlyMarketDataDrainService:
                             self._last_error = None
                 except Exception as exc:
                     # Do not delete or acknowledge the sealed WAL. Recovery owns retry.
+                    error = f"{type(exc).__name__}:{exc}"
                     with self._lock:
+                        changed = self._last_error != error
+                        lifecycle = self._lifecycle
                         if self._lifecycle is not _OnlyDrainLifecycle.FAILED_STOP:
-                            self._last_error = f"{type(exc).__name__}:{exc}"
+                            self._last_error = error
+                    if changed:
+                        try:
+                            logging.getLogger(__name__).warning(
+                                "market_data_drain_failure trigger_segment_id=%s lifecycle=%s queue_depth=%d error=%s",
+                                getattr(segment, "segment_id", None),
+                                lifecycle.value,
+                                self._queue.qsize(),
+                                only_market_data_diagnostic_error(error),
+                            )
+                        except Exception:
+                            # Diagnostics must never interrupt authoritative recovery/retry.
+                            pass
                     if not self._stop.is_set():
                         try:
                             self._queue.put_nowait(segment)

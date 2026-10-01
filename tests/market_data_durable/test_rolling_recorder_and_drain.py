@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 from pathlib import Path
 
@@ -19,6 +20,56 @@ from onlyalpha.market_data.durable import (
 
 from .conftest import trade_update
 from .test_wal_and_identity import observation
+
+
+@pytest.mark.parametrize("sink_fails", [False, True])
+def test_background_drain_preserves_exact_failure_diagnostics(tmp_path, fixed_now, caplog, sink_fails) -> None:
+    wal, recorder, sealed = _components(tmp_path, fixed_now, max_records=1)
+    recorder(observation(), trade_update())
+    attempted = threading.Event()
+    release = threading.Event()
+    retried = threading.Event()
+
+    class FailingRecovery:
+        def recover_sealed(self, *, should_continue=None):
+            if attempted.is_set():
+                retried.set()
+            attempted.set()
+            assert release.wait(5)
+            raise RuntimeError("database unavailable")
+
+    logged = threading.Event()
+
+    class FailureSignal(logging.Handler):
+        def emit(self, record):
+            if record.name == "onlyalpha.market_data.durable.drain":
+                logged.set()
+                if sink_fails:
+                    raise RuntimeError("diagnostic sink unavailable")
+
+    logger = logging.getLogger("onlyalpha.market_data.durable.drain")
+    signal = FailureSignal()
+    logger.addHandler(signal)
+    drain = OnlyMarketDataDrainService(FailingRecovery())  # type: ignore[arg-type]
+    try:
+        with caplog.at_level(logging.WARNING, logger=logger.name):
+            drain.start()
+            drain.submit(sealed[0])
+            assert attempted.wait(5)
+            release.set()
+            assert logged.wait(5)
+            assert retried.wait(5)
+            assert wal.scan_uncommitted() == (sealed[0].segment_id,)
+            assert drain._worker is not None and drain._worker.is_alive()
+        if not sink_fails:
+            message = next(record.getMessage() for record in caplog.records if record.name == logger.name)
+            assert sealed[0].segment_id in message
+            assert "lifecycle=RUNNING" in message
+            assert "RuntimeError:database unavailable" in message
+    finally:
+        release.set()
+        drain.stop()
+        logger.removeHandler(signal)
 
 
 def _components(tmp_path, fixed_now, *, max_records=3, on_sealed=None):
