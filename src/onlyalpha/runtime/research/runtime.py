@@ -134,28 +134,42 @@ class OnlyResearchRuntime:
             self._checkpoint(control, OnlyResearchRuntimeBoundary.BEFORE_RESULT_COMMIT)
             result_outcome = self._result(direct, sweeps, statistics)
             self._checkpoint(control, OnlyResearchRuntimeBoundary.BEFORE_ARTIFACT_COMMIT)
-            candidate = self._invoke(
-                OnlyResearchRuntimePhase.ARTIFACT_MATERIALIZATION,
-                lambda: self._artifact_materializer.materialize(result_outcome.research_result_plan_fingerprint),
-            )
-            if isinstance(self._artifact_store, OnlyParquetResearchScientificArtifactStore):
-                if not isinstance(candidate, OnlyResearchScientificArtifactCandidate):
-                    raise ValueError("Scientific Artifact Store received an incompatible candidate")
+            if self.workload.result_plan.schema_version == 3:
+                if not isinstance(self._artifact_store, OnlyParquetResearchScientificArtifactStore) or not isinstance(
+                    self._artifact_materializer, OnlyResearchScientificArtifactMaterializer
+                ):
+                    raise ValueError("Calculation publication requires canonical Scientific composition")
                 scientific_store = self._artifact_store
-                scientific_candidate = candidate
+                scientific_materializer = self._artifact_materializer
                 artifact_outcome = self._invoke(
                     OnlyResearchRuntimePhase.ARTIFACT_COMMIT,
-                    lambda: scientific_store.commit(scientific_candidate),
+                    lambda: scientific_store.publish_calculation(
+                        result_outcome.research_result_plan_fingerprint, scientific_materializer
+                    ),
                 )
             else:
-                if not isinstance(candidate, OnlyResearchArtifactCandidate):
-                    raise ValueError("Statistics Artifact Store received an incompatible candidate")
-                statistics_store = self._artifact_store
-                statistics_candidate = candidate
-                artifact_outcome = self._invoke(
-                    OnlyResearchRuntimePhase.ARTIFACT_COMMIT,
-                    lambda: statistics_store.commit(statistics_candidate),
+                candidate = self._invoke(
+                    OnlyResearchRuntimePhase.ARTIFACT_MATERIALIZATION,
+                    lambda: self._artifact_materializer.materialize(result_outcome.research_result_plan_fingerprint),
                 )
+                if isinstance(self._artifact_store, OnlyParquetResearchScientificArtifactStore):
+                    if not isinstance(candidate, OnlyResearchScientificArtifactCandidate):
+                        raise ValueError("Scientific Artifact Store received an incompatible candidate")
+                    scientific_store = self._artifact_store
+                    scientific_candidate = candidate
+                    artifact_outcome = self._invoke(
+                        OnlyResearchRuntimePhase.ARTIFACT_COMMIT,
+                        lambda: scientific_store.commit(scientific_candidate),
+                    )
+                else:
+                    if not isinstance(candidate, OnlyResearchArtifactCandidate):
+                        raise ValueError("Statistics Artifact Store received an incompatible candidate")
+                    statistics_store = self._artifact_store
+                    statistics_candidate = candidate
+                    artifact_outcome = self._invoke(
+                        OnlyResearchRuntimePhase.ARTIFACT_COMMIT,
+                        lambda: statistics_store.commit(statistics_candidate),
+                    )
             research_result = self._invoke(
                 OnlyResearchRuntimePhase.FINAL_VERIFICATION,
                 lambda: self._result_store.load_verified(result_outcome.research_result_plan_fingerprint),

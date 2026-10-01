@@ -23,8 +23,9 @@ from onlyalpha.research.result.result import OnlyResearchResult
 
 from .errors import OnlyResearchArtifactStoreError
 from .model import OnlyResearchArtifactDisposition, OnlyResearchArtifactOutcome, OnlyResearchArtifactStatisticsRow
-from .scientific_materializer import OnlyResearchScientificArtifactCandidate
+from .scientific_materializer import OnlyResearchScientificArtifactCandidate, OnlyResearchScientificArtifactMaterializer
 from .scientific_model import (
+    RESEARCH_CALCULATION_ARTIFACT_PROFILE,
     RESEARCH_SCIENTIFIC_ARTIFACT_PROFILE,
     OnlyResearchScientificArtifact,
     OnlyResearchScientificArtifactManifest,
@@ -84,6 +85,8 @@ _INTEGER = re.compile(r"^(?:0|-?[1-9][0-9]*)$")
 
 
 class OnlyParquetResearchScientificArtifactStore:
+    _profile = RESEARCH_SCIENTIFIC_ARTIFACT_PROFILE
+
     def __init__(
         self,
         root: Path,
@@ -103,9 +106,29 @@ class OnlyParquetResearchScientificArtifactStore:
         return self._target(fingerprint).exists()
 
     def commit(self, candidate: OnlyResearchScientificArtifactCandidate) -> OnlyResearchArtifactOutcome:
+        if self._profile == RESEARCH_CALCULATION_ARTIFACT_PROFILE:
+            raise OnlyResearchArtifactStoreError(
+                "ARTIFACT_CANONICAL_PUBLICATION_REQUIRED",
+                "Calculation Artifact requires verified Result materialization",
+            )
+        return self._commit(candidate)
+
+    def publish_calculation(
+        self, result_plan_fingerprint: str, materializer: OnlyResearchScientificArtifactMaterializer
+    ) -> OnlyResearchArtifactOutcome:
+        """Publish from exact Result intent, never caller-authored derived rows."""
+        if self._profile != RESEARCH_CALCULATION_ARTIFACT_PROFILE:
+            raise OnlyResearchArtifactStoreError(
+                "ARTIFACT_INVALID", "Calculation publication requires its exact profile"
+            )
+        if not isinstance(materializer, OnlyResearchScientificArtifactMaterializer):
+            raise OnlyResearchArtifactStoreError("ARTIFACT_INVALID", "Canonical Scientific materializer is required")
+        return self._commit(materializer.materialize(result_plan_fingerprint))
+
+    def _commit(self, candidate: OnlyResearchScientificArtifactCandidate) -> OnlyResearchArtifactOutcome:
         admitted, tables = self._admit(candidate)
         target = self._target(admitted.result.manifest.research_result_fingerprint)
-        if target.exists():
+        if target.exists() or target.is_symlink():
             return self._reuse_existing(admitted, target)
         target.parent.mkdir(parents=True, exist_ok=True)
         stage = target.parent / f".stage-{uuid.uuid4().hex}"
@@ -141,6 +164,9 @@ class OnlyParquetResearchScientificArtifactStore:
                 tuple(sections),
                 admitted.artifact_content_fingerprint,
                 created,
+                profile=self._profile,
+                schema_version=1 if self._profile == RESEARCH_CALCULATION_ARTIFACT_PROFILE else 2,
+                research_result_schema_version=manifest.schema_version,
             )
             (stage / "artifact_manifest.json").write_text(only_canonical_json(scientific.to_dict()), encoding="utf-8")
             try:
@@ -180,8 +206,9 @@ class OnlyParquetResearchScientificArtifactStore:
             if not isinstance(candidate.result, OnlyResearchResult):
                 raise ValueError("Scientific candidate Research Result is invalid")
             manifest = candidate.result.manifest
-            if manifest.schema_version != 2 or manifest.plan.schema_version != 2:
-                raise ValueError("Scientific candidate requires Research Result V2")
+            expected_version = 3 if self._profile == RESEARCH_CALCULATION_ARTIFACT_PROFILE else 2
+            if manifest.schema_version != expected_version or manifest.plan.schema_version != expected_version:
+                raise ValueError("Scientific candidate Research Result version does not match profile")
             for name, values, expected in (
                 ("market", candidate.market_rows, OnlyResearchScientificMarketRow),
                 ("variables", candidate.variable_rows, OnlyResearchScientificVariableRow),
@@ -221,7 +248,7 @@ class OnlyParquetResearchScientificArtifactStore:
             if actual_sections != expected_sections:
                 raise ValueError("Scientific candidate logical section mismatch")
             expected_artifact = only_research_scientific_artifact_content_fingerprint(
-                manifest.research_result_fingerprint, candidate.sections
+                manifest.research_result_fingerprint, candidate.sections, profile=self._profile
             )
             if expected_artifact != candidate.artifact_content_fingerprint:
                 raise ValueError("Scientific candidate Artifact identity mismatch")
@@ -274,6 +301,10 @@ class OnlyParquetResearchScientificArtifactStore:
         )
 
     def _read_verified(self, root: Path, expected: str) -> OnlyResearchScientificArtifact:
+        if root.is_symlink() or (root.exists() and not root.is_dir()):
+            raise OnlyResearchArtifactStoreError(
+                "ARTIFACT_CORRUPT", "Scientific Artifact root is not a regular directory"
+            )
         if not root.is_dir():
             raise OnlyResearchArtifactStoreError("ARTIFACT_NOT_FOUND", expected)
         try:
@@ -296,6 +327,8 @@ class OnlyParquetResearchScientificArtifactStore:
             if not isinstance(payload, dict):
                 raise ValueError("Scientific Artifact manifest must be an object")
             manifest = OnlyResearchScientificArtifactManifest.from_dict(payload)
+            if manifest.profile != self._profile:
+                raise ValueError("Scientific Artifact stored profile mismatch")
             if manifest.research_result_fingerprint != expected:
                 raise ValueError("Scientific Artifact path identity mismatch")
             descriptors = {item.relative_path: item for item in manifest.sections}
@@ -388,7 +421,7 @@ class OnlyParquetResearchScientificArtifactStore:
             _verify_series_axes(manifest.plan, market, variables, signals)
             if (
                 only_research_scientific_artifact_content_fingerprint(
-                    manifest.research_result_fingerprint, manifest.sections
+                    manifest.research_result_fingerprint, manifest.sections, profile=self._profile
                 )
                 != manifest.artifact_content_fingerprint
             ):
@@ -402,13 +435,7 @@ class OnlyParquetResearchScientificArtifactStore:
     def _target(self, fingerprint: str) -> Path:
         if not isinstance(fingerprint, str) or _SHA256.fullmatch(fingerprint) is None:
             raise OnlyResearchArtifactStoreError("ARTIFACT_NOT_FOUND", fingerprint)
-        return (
-            self._root
-            / RESEARCH_SCIENTIFIC_ARTIFACT_PROFILE.lower().replace("_", "-")
-            / "sha256"
-            / fingerprint[:2]
-            / fingerprint
-        )
+        return self._root / self._profile.lower().replace("_", "-") / "sha256" / fingerprint[:2] / fingerprint
 
     def _audit_timestamp(self) -> datetime:
         if self._audit_time is None:
@@ -417,6 +444,12 @@ class OnlyParquetResearchScientificArtifactStore:
         if value.tzinfo is None or value.utcoffset() != timedelta(0):
             raise ValueError("audit time must be timezone-aware UTC")
         return value
+
+
+class OnlyParquetResearchCalculationArtifactStore(OnlyParquetResearchScientificArtifactStore):
+    """Calculation-only profile with the same portable storage contract."""
+
+    _profile = RESEARCH_CALCULATION_ARTIFACT_PROFILE
 
 
 def _candidate_tables(candidate: OnlyResearchScientificArtifactCandidate) -> dict[str, pa.Table]:

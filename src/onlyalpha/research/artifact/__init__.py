@@ -23,7 +23,7 @@ from .scientific_materializer import (
     OnlyResearchScientificArtifactMaterializer,
 )
 from .scientific_model import *  # noqa: F403
-from .scientific_store import OnlyParquetResearchScientificArtifactStore
+from .scientific_store import OnlyParquetResearchCalculationArtifactStore, OnlyParquetResearchScientificArtifactStore
 from .scientific_v3_materializer import (
     OnlyResearchScientificArtifactCandidateV3,
     OnlyResearchScientificArtifactMaterializerV3,

@@ -10,6 +10,7 @@ from onlyalpha.research.calculation.result import OnlyResearchCalculationResult
 
 from .errors import OnlyResearchResultError
 from .identity import (
+    RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION,
     RESEARCH_RESULT_SCIENTIFIC_SCHEMA_VERSION,
     only_research_result_content_fingerprint,
     only_research_result_fingerprint,
@@ -72,9 +73,14 @@ class OnlyResearchResultAssembler:
                     )
                 )
             schema_version = plan.schema_version
-            if schema_version == RESEARCH_RESULT_SCIENTIFIC_SCHEMA_VERSION:
+            if schema_version in {
+                RESEARCH_RESULT_SCIENTIFIC_SCHEMA_VERSION,
+                RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION,
+            }:
                 if self._calculation_result_store is None:
                     raise ValueError("Scientific Research Result requires Calculation Result Store")
+                if schema_version == RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION:
+                    dataset = plan.dataset_snapshot_fingerprint
                 if dataset != plan.dataset_snapshot_fingerprint:
                     raise ValueError("Research Result Plan Dataset linkage mismatch")
                 calculations = {}

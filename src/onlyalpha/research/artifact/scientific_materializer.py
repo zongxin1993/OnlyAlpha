@@ -17,6 +17,8 @@ from .errors import OnlyResearchArtifactError
 from .materializer import OnlyResearchArtifactMaterializer
 from .model import OnlyResearchArtifactStatisticsEntry, OnlyResearchArtifactStatisticsRow
 from .scientific_model import (
+    RESEARCH_CALCULATION_ARTIFACT_PROFILE,
+    RESEARCH_SCIENTIFIC_ARTIFACT_PROFILE,
     OnlyResearchScientificGraph,
     OnlyResearchScientificMarketRow,
     OnlyResearchScientificSection,
@@ -74,8 +76,8 @@ class OnlyResearchScientificArtifactMaterializer:
         try:
             result = self._results.load_verified(result_plan_fingerprint)
             manifest, plan = result.manifest, result.manifest.plan
-            if manifest.schema_version != 2 or plan.schema_version != 2:
-                raise ValueError("Scientific Artifact requires Research Result V2")
+            if manifest.schema_version not in {2, 3} or plan.schema_version != manifest.schema_version:
+                raise ValueError("Scientific Artifact requires Research Result V2 or calculation-only V3")
             dataset = self._datasets.load_verified_table(manifest.dataset_snapshot_fingerprint)
             market_rows = tuple(
                 sorted(
@@ -184,7 +186,11 @@ class OnlyResearchScientificArtifactMaterializer:
             }
             sections = tuple(OnlyResearchScientificSection(path, *logical[path], "0" * 64) for path in sorted(logical))
             artifact = only_research_scientific_artifact_content_fingerprint(
-                manifest.research_result_fingerprint, sections
+                manifest.research_result_fingerprint,
+                sections,
+                profile=RESEARCH_CALCULATION_ARTIFACT_PROFILE
+                if manifest.schema_version == 3
+                else RESEARCH_SCIENTIFIC_ARTIFACT_PROFILE,
             )
             return OnlyResearchScientificArtifactCandidate(
                 result,

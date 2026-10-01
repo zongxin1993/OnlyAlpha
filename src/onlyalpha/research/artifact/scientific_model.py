@@ -26,6 +26,7 @@ from onlyalpha.research.result.result import (
 from .model import OnlyResearchArtifactStatisticsEntry, OnlyResearchArtifactStatisticsRow
 
 RESEARCH_SCIENTIFIC_ARTIFACT_PROFILE = "RESEARCH_SCIENTIFIC_V2"
+RESEARCH_CALCULATION_ARTIFACT_PROFILE = "RESEARCH_CALCULATION_V1"
 RESEARCH_SCIENTIFIC_ARTIFACT_SCHEMA_VERSION = 2
 _SHA = re.compile(r"^[0-9a-f]{64}$")
 _INTEGER = re.compile(r"^(?:0|-?[1-9][0-9]*)$")
@@ -211,11 +212,23 @@ class OnlyResearchScientificArtifactManifest:
     research_result_schema_version: int = 2
 
     def __post_init__(self) -> None:
-        if self.profile != RESEARCH_SCIENTIFIC_ARTIFACT_PROFILE or self.schema_version != 2:
+        expected_versions = {
+            RESEARCH_SCIENTIFIC_ARTIFACT_PROFILE: (2, 2),
+            RESEARCH_CALCULATION_ARTIFACT_PROFILE: (1, 3),
+        }.get(self.profile)
+        if self.profile == RESEARCH_CALCULATION_ARTIFACT_PROFILE and any(
+            isinstance(value, bool) or not isinstance(value, int)
+            for value in (self.schema_version, self.research_result_schema_version)
+        ):
+            raise ValueError("Calculation Artifact schema versions must be integers")
+        if expected_versions is None or self.schema_version != expected_versions[0]:
             raise ValueError("Scientific Artifact profile/schema is unsupported")
-        if self.research_result_schema_version != 2:
+        if self.research_result_schema_version != expected_versions[1]:
             raise ValueError("Scientific Artifact Research Result schema version mismatch")
-        if self.plan.schema_version != 2 or self.plan.fingerprint != self.research_result_plan_fingerprint:
+        if (
+            self.plan.schema_version != self.research_result_schema_version
+            or self.plan.fingerprint != self.research_result_plan_fingerprint
+        ):
             raise ValueError("Scientific Artifact Result Plan linkage mismatch")
         if tuple(item.calculation_fingerprint for item in self.calculation_results) != tuple(
             item.calculation_fingerprint for item in self.plan.calculations
@@ -243,12 +256,14 @@ class OnlyResearchScientificArtifactManifest:
         content = only_research_result_content_fingerprint(
             tuple(item.to_dict() for item in self.statistics_results),
             tuple(item.to_dict() for item in self.calculation_results),
-            schema_version=2,
+            schema_version=self.research_result_schema_version,
         )
         if content != self.research_result_content_fingerprint:
             raise ValueError("Scientific Artifact Research Result content linkage mismatch")
         if (
-            only_research_result_fingerprint(self.plan.fingerprint, content, schema_version=2)
+            only_research_result_fingerprint(
+                self.plan.fingerprint, content, schema_version=self.research_result_schema_version
+            )
             != self.research_result_fingerprint
         ):
             raise ValueError("Scientific Artifact Research Result identity linkage mismatch")
@@ -261,7 +276,7 @@ class OnlyResearchScientificArtifactManifest:
         ):
             raise ValueError("Scientific Artifact section set/order is invalid")
         expected = only_research_scientific_artifact_content_fingerprint(
-            self.research_result_fingerprint, self.sections
+            self.research_result_fingerprint, self.sections, profile=self.profile
         )
         if expected != self.artifact_content_fingerprint:
             raise ValueError("Scientific Artifact content fingerprint linkage mismatch")
@@ -357,12 +372,18 @@ def only_research_scientific_section_fingerprint(name: str, rows: object) -> str
 
 
 def only_research_scientific_artifact_content_fingerprint(
-    research_result_fingerprint: str, sections: tuple[OnlyResearchScientificSection, ...]
+    research_result_fingerprint: str,
+    sections: tuple[OnlyResearchScientificSection, ...],
+    *,
+    profile: str = RESEARCH_SCIENTIFIC_ARTIFACT_PROFILE,
 ) -> str:
+    versions = {RESEARCH_SCIENTIFIC_ARTIFACT_PROFILE: 2, RESEARCH_CALCULATION_ARTIFACT_PROFILE: 1}
+    if profile not in versions:
+        raise ValueError("Scientific Artifact profile is unsupported")
     return only_canonical_fingerprint(
         {
-            "schema_version": 2,
-            "profile": RESEARCH_SCIENTIFIC_ARTIFACT_PROFILE,
+            "schema_version": versions[profile],
+            "profile": profile,
             "research_result_fingerprint": research_result_fingerprint,
             "sections": [
                 {

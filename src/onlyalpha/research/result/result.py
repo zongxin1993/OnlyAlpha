@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 
 from .identity import (
+    RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION,
     RESEARCH_RESULT_SCHEMA_VERSION,
     RESEARCH_RESULT_SCIENTIFIC_SCHEMA_VERSION,
     only_research_result_content_fingerprint,
@@ -83,7 +84,15 @@ class OnlyResearchResultManifest:
     calculation_results: tuple[OnlyResearchCalculationResultReference, ...] = ()
 
     def __post_init__(self) -> None:
-        if self.schema_version not in {RESEARCH_RESULT_SCHEMA_VERSION, RESEARCH_RESULT_SCIENTIFIC_SCHEMA_VERSION}:
+        if self.schema_version == RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION and (
+            isinstance(self.schema_version, bool) or not isinstance(self.schema_version, int)
+        ):
+            raise ValueError("Calculation-only Result schema version must be an integer")
+        if self.schema_version not in {
+            RESEARCH_RESULT_SCHEMA_VERSION,
+            RESEARCH_RESULT_SCIENTIFIC_SCHEMA_VERSION,
+            RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION,
+        }:
             raise ValueError("Research Result schema is unsupported")
         if self.plan.schema_version != self.schema_version:
             raise ValueError("Research Result schema and Plan schema mismatch")
@@ -101,7 +110,10 @@ class OnlyResearchResultManifest:
             raise ValueError("Research Result Statistics references do not match Plan")
         if self.schema_version == RESEARCH_RESULT_SCHEMA_VERSION and self.calculation_results:
             raise ValueError("Research Result V1 cannot contain Calculation references")
-        if self.schema_version == RESEARCH_RESULT_SCIENTIFIC_SCHEMA_VERSION:
+        if self.schema_version in {
+            RESEARCH_RESULT_SCIENTIFIC_SCHEMA_VERSION,
+            RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION,
+        }:
             if not isinstance(self.calculation_results, tuple) or any(
                 not isinstance(item, OnlyResearchCalculationResultReference) for item in self.calculation_results
             ):
@@ -112,6 +124,9 @@ class OnlyResearchResultManifest:
                 item.calculation_fingerprint for item in self.plan.calculations
             ):
                 raise ValueError("Research Result Calculation references do not match Plan")
+        if self.schema_version == RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION:
+            if self.dataset_snapshot_fingerprint != self.plan.dataset_snapshot_fingerprint:
+                raise ValueError("Calculation-only Result Dataset does not match Plan")
         content = only_research_result_content_fingerprint(
             tuple(item.to_dict() for item in self.statistics_results),
             tuple(item.to_dict() for item in self.calculation_results),
@@ -142,7 +157,10 @@ class OnlyResearchResultManifest:
             "research_result_fingerprint": self.research_result_fingerprint,
             "created_at": self.created_at.isoformat(),
         }
-        if self.schema_version == RESEARCH_RESULT_SCIENTIFIC_SCHEMA_VERSION:
+        if self.schema_version in {
+            RESEARCH_RESULT_SCIENTIFIC_SCHEMA_VERSION,
+            RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION,
+        }:
             payload["calculation_results"] = [item.to_dict() for item in self.calculation_results]
         return payload
 
@@ -159,7 +177,7 @@ class OnlyResearchResultManifest:
             "created_at",
         }
         version = _integer(payload, "schema_version")
-        if version == RESEARCH_RESULT_SCIENTIFIC_SCHEMA_VERSION:
+        if version in {RESEARCH_RESULT_SCIENTIFIC_SCHEMA_VERSION, RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION}:
             expected.add("calculation_results")
         if set(payload) != expected:
             raise ValueError("Research Result manifest fields are invalid")

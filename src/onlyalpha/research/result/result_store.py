@@ -19,7 +19,11 @@ from onlyalpha.research.source_cut import (
 )
 
 from .errors import OnlyResearchResultStoreError
-from .identity import only_research_result_content_fingerprint, only_research_result_fingerprint
+from .identity import (
+    RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION,
+    only_research_result_content_fingerprint,
+    only_research_result_fingerprint,
+)
 from .result import (
     OnlyResearchResult,
     OnlyResearchResultDisposition,
@@ -75,7 +79,7 @@ class OnlyJsonResearchResultStore:
         candidate = self._admit(result)
         plan_fingerprint = candidate.manifest.research_result_plan_fingerprint
         target = self._target(plan_fingerprint)
-        if target.exists():
+        if target.exists() or target.is_symlink():
             existing = self._resolve_existing(candidate)
             return self._outcome(OnlyResearchResultDisposition.REUSED, existing)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -135,6 +139,10 @@ class OnlyJsonResearchResultStore:
         return existing
 
     def _read_verified(self, root: Path, expected_plan_fingerprint: str) -> OnlyResearchResult:
+        if root.is_symlink() or (root.exists() and not root.is_dir()):
+            raise OnlyResearchResultStoreError(
+                "RESEARCH_RESULT_CORRUPT", "Research Result root is not a regular directory"
+            )
         if not root.is_dir():
             raise OnlyResearchResultStoreError("RESEARCH_RESULT_NOT_FOUND", expected_plan_fingerprint)
         try:
@@ -158,7 +166,11 @@ class OnlyJsonResearchResultStore:
 
     def _verify_upstream(self, manifest: OnlyResearchResultManifest) -> None:
         schema_version = getattr(manifest, "schema_version", 1)
-        dataset: str | None = None
+        dataset: str | None = (
+            manifest.plan.dataset_snapshot_fingerprint
+            if schema_version == RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION
+            else None
+        )
         actual_references = []
         verified_statistics: dict[str, OnlyResearchComposableStatisticsResult] = {}
         for reference in manifest.statistics_results:
@@ -177,7 +189,7 @@ class OnlyJsonResearchResultStore:
         if dataset != manifest.dataset_snapshot_fingerprint:
             raise ValueError("Research Result Dataset Snapshot linkage mismatch")
         actual_calculations = []
-        if schema_version == 2:
+        if schema_version in {2, RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION}:
             if self._calculation_result_store is None:
                 raise ValueError("Scientific Research Result requires Calculation Result Store")
             verified_calculations: dict[str, OnlyResearchCalculationResult] = {}

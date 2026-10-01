@@ -168,6 +168,12 @@ Result Plan 对 Result + Artifact 做 non-mutating verified inspection，complet
 full Research API 组合独立 Artifact/Run Router；portable Artifact API 仍不依赖 PostgreSQL。Research YAML、P8.4 Studio 页面、
 Trading/Live Web control 与完整 mixed Runtime lifecycle 尚未实现。
 
+ADR 0136 定义 calculation-only publication：Result Plan/Result V3 在同一 RESEARCH Runtime 中复用 Dataset、Job、Calculation Result
+及 Execution Evidence，仅发布 exact Calculation/Graph/node/output series，不创建 Statistics、Candidate 或 Signal。每个 Calculation
+必须有 publication membership；V1/V2 的非空 Statistics 合同与 identity 不变。独立 `RESEARCH_CALCULATION_V1` Artifact profile
+复用 Scientific 物化/验证与 Query 投影，公开写入口从 verified Result 推导，拒绝 caller-authored rows。COMPLETED 必须同时满足
+Result 和 Artifact final verification；失败或取消留下的 upstream facts 不构成完成证明，重入只允许 verified immutable reuse。
+
 ## 5. Trading Runtime
 
 Backtest、Sim、Live 是 Trading Runtime。每个实例独占其 mutable trading authorities，并通过同一语义核心处理 Strategy、Market Rule、Risk、Reservation、Order、Broker facts、Transaction、Projection、Position、Allocation、Account、Ledger、Fee、Settlement、Result 和 Recovery。

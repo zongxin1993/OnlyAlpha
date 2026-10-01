@@ -3,6 +3,9 @@
 - Status: Accepted
 - Date: 2026-08-15
 
+Extended by [ADR 0136](0136-calculation-only-research-publication.md) for explicitly versioned calculation-only Result V3.
+The nonempty Statistics requirement and identities below remain unchanged for V1/V2.
+
 ## Context
 
 P7.7 ends with immutable verified Statistics Results, but the platform has no stable machine-readable authority that states which

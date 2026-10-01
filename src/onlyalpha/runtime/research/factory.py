@@ -7,7 +7,10 @@ from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.research.artifact.materializer import OnlyResearchArtifactMaterializer
 from onlyalpha.research.artifact.scientific_materializer import OnlyResearchScientificArtifactMaterializer
-from onlyalpha.research.artifact.scientific_store import OnlyParquetResearchScientificArtifactStore
+from onlyalpha.research.artifact.scientific_store import (
+    OnlyParquetResearchCalculationArtifactStore,
+    OnlyParquetResearchScientificArtifactStore,
+)
 from onlyalpha.research.artifact.store import OnlyParquetResearchArtifactStore
 from onlyalpha.research.calculation.backend import OnlyResearchCalculationBackendResolver
 from onlyalpha.research.calculation.execution import OnlyResearchCalculationExecutor
@@ -77,10 +80,13 @@ class OnlyResearchRuntimeFactory:
         )
         artifact: OnlyParquetResearchArtifactStore | OnlyParquetResearchScientificArtifactStore
         materializer: OnlyResearchArtifactMaterializer | OnlyResearchScientificArtifactMaterializer
-        if request.plan.workload.result_plan.schema_version == 2:
-            artifact = OnlyParquetResearchScientificArtifactStore(
-                layout.research_artifact_root, audit_time=only_system_utc_now
+        if request.plan.workload.result_plan.schema_version in {2, 3}:
+            artifact_type = (
+                OnlyParquetResearchCalculationArtifactStore
+                if request.plan.workload.result_plan.schema_version == 3
+                else OnlyParquetResearchScientificArtifactStore
             )
+            artifact = artifact_type(layout.research_artifact_root, audit_time=only_system_utc_now)
             materializer = OnlyResearchScientificArtifactMaterializer(
                 result_store, dataset, calculation_store, statistics_store
             )
