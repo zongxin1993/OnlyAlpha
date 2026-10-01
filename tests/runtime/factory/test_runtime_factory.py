@@ -1013,10 +1013,12 @@ def test_trade_root_sim_disconnect_recovers_provider_trade_suffix(
 
 
 @pytest.mark.parametrize("second_fails", (False, True), ids=("success", "second-root-fails"))
+@pytest.mark.parametrize("suffix_schedule", ("second-root", "both-roots", "stop-cutoff", "worker-idle"))
 def test_multi_provider_disconnect_is_one_atomic_recovery_transaction(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     second_fails: bool,
+    suffix_schedule: str,
 ) -> None:
     from onlyalpha_plugin_generic_t0_cash.factory import OnlyGenericT0CashMarketProductFactory
 
@@ -1091,6 +1093,7 @@ def test_multi_provider_disconnect_is_one_atomic_recovery_transaction(
     runtime = build.runtime
     entered_second = Event()
     release_second = Event()
+    suffix_processed = Event()
     recovery_errors: list[BaseException] = []
     try:
         runtime.initialize()
@@ -1102,7 +1105,7 @@ def test_multi_provider_disconnect_is_one_atomic_recovery_transaction(
         )
         now = source.request.clock.now_utc()
         source.recovery_updates = tuple(
-            source._updates(now - timedelta(seconds=1), 4, instrument_id=root.instrument_id)[0]  # noqa: SLF001
+            source._updates(now - timedelta(seconds=1, milliseconds=100), 4, instrument_id=root.instrument_id)[0]  # noqa: SLF001
             for root in roots
         )
         second_root = roots[1]
@@ -1118,16 +1121,23 @@ def test_multi_provider_disconnect_is_one_atomic_recovery_transaction(
 
         monkeypatch.setattr(source, "load_trades", block_second)
         checkpoint_count = 0
+        suffixes = []
         original_checkpoint = runtime._create_verified_streaming_checkpoint  # noqa: SLF001
 
         def count_checkpoint() -> None:
             nonlocal checkpoint_count
+            assert runtime._driver.worker.recovery_ingress_owned  # noqa: SLF001
+            assert len(runtime._services.market_data_inbound) == 0  # noqa: SLF001
+            for update in (*source.recovery_updates, *suffixes):
+                assert any(
+                    item.update_id == update.update_id and item.status is OnlyMarketDataProcessingStatus.APPLIED
+                    for item in runtime.market_data_audit_store.records()
+                )
             checkpoint_count += 1
             original_checkpoint()
 
         monkeypatch.setattr(runtime, "_create_verified_streaming_checkpoint", count_checkpoint)
         before = runtime.streaming_phase_snapshot
-        source.disconnect()
 
         def recover() -> None:
             try:
@@ -1136,13 +1146,22 @@ def test_multi_provider_disconnect_is_one_atomic_recovery_transaction(
                 recovery_errors.append(exc)
 
         recovery = Thread(target=recover)
-        recovery.start()
+        if suffix_schedule == "worker-idle":
+            source.disconnect()
+        else:
+            source.disconnect()
+            recovery.start()
         assert entered_second.wait(runtime.streaming_recovery_watchdog_seconds)
         blocked = runtime.streaming_phase_snapshot
         assert blocked.phase is OnlyStreamingPhase.RECOVERING
         assert blocked.revision == before.revision + 2
         assert runtime.recovery_generation == 1
         assert runtime.recovery_failure is None
+        assert runtime._driver.worker.recovery_ingress_owned  # noqa: SLF001
+        # A second control notification cannot open a second recovery generation.
+        runtime._recover_stale_or_disconnect(OnlyStreamingDataState.DISCONNECTED)  # noqa: SLF001
+        assert runtime.streaming_phase_snapshot == blocked
+        assert runtime.recovery_generation == 1
 
         request = OnlyOrderRequest(
             OnlyOrderRequestId("multi-provider-recovery-order"),
@@ -1158,21 +1177,63 @@ def test_multi_provider_disconnect_is_one_atomic_recovery_transaction(
         assert denied.error == "ORDER_INTENT_SUPPRESSED_DURING_RECOVERY"
 
         suffix = source._updates(  # noqa: SLF001
-            now - timedelta(seconds=1), 5, instrument_id=second_root.instrument_id
+            now - timedelta(seconds=1, milliseconds=50), 5, instrument_id=second_root.instrument_id
         )[0]
+        original_after = runtime.market_data_processor._after_processing  # noqa: SLF001
+
+        def observe_suffix(update, result):
+            original_after(update, result)
+            if update.update_id == suffix.update_id:
+                suffix_processed.set()
+
+        monkeypatch.setattr(runtime.market_data_processor, "_after_processing", observe_suffix)
         runtime._services.market_data_inbound.put(suffix)  # noqa: SLF001
-        assert all(item.update_id != suffix.update_id for item in runtime.market_data_audit_store.records())
+        suffixes = [suffix]
+        if suffix_schedule == "both-roots":
+            for sequence, root in ((6, roots[0]), (5, roots[0]), (6, roots[1])):
+                update = source._updates(
+                    now - timedelta(seconds=1, milliseconds=50 if sequence == 5 else 0),
+                    sequence,
+                    instrument_id=root.instrument_id,
+                )[0]  # noqa: SLF001
+                runtime._services.market_data_inbound.put(update)  # noqa: SLF001
+                suffixes.append(update)
+        assert len(runtime._services.market_data_inbound) == len(suffixes)  # noqa: SLF001
+        assert not suffix_processed.is_set()
+        if suffix_schedule == "stop-cutoff":
+            runtime.stop()
+            assert not runtime.worker_alive
 
         release_second.set()
-        recovery.join(runtime.streaming_recovery_watchdog_seconds)
-        assert not recovery.is_alive()
+        if recovery.ident is not None:
+            recovery.join(runtime.streaming_recovery_watchdog_seconds)
+            assert not recovery.is_alive()
+        else:
+            target = OnlyStreamingPhase.FAILED if second_fails else OnlyStreamingPhase.LIVE
+            assert runtime.wait_for_streaming_phase(
+                target, after_revision=blocked.revision, timeout=runtime.streaming_recovery_watchdog_seconds
+            )
         assert recovery_errors == []
         completed = runtime.streaming_phase_snapshot
+        if suffix_schedule == "stop-cutoff":
+            assert completed.phase is OnlyStreamingPhase.STOPPED
+            assert checkpoint_count == 0
+            assert all(item.update_id != suffix.update_id for item in runtime.market_data_audit_store.records())
+            assert len(runtime._services.market_data_inbound) == 1  # noqa: SLF001
+            return
         if second_fails:
             assert completed.phase is OnlyStreamingPhase.FAILED
             assert runtime.recovery_failure == "second provider recovery failed"
             assert all(item.update_id != suffix.update_id for item in runtime.market_data_audit_store.records())
             assert checkpoint_count == 0
+            assert len(runtime._services.market_data_inbound) == len(suffixes)  # noqa: SLF001
+            worker = runtime._driver.worker  # noqa: SLF001
+            with worker._ingress:  # noqa: SLF001
+                assert worker._ingress.wait_for(  # noqa: SLF001
+                    lambda: worker.recovery_ingress_failed, timeout=runtime.streaming_recovery_watchdog_seconds
+                )
+            assert runtime._driver.worker.recovery_ingress_failed  # noqa: SLF001
+            assert runtime.worker_alive
             return
         assert completed.phase is OnlyStreamingPhase.LIVE, runtime.recovery_failure
         assert completed.revision == before.revision + 4
@@ -1180,6 +1241,19 @@ def test_multi_provider_disconnect_is_one_atomic_recovery_transaction(
             item.status for item in runtime.market_data_audit_store.records() if item.update_id == suffix.update_id
         ) == (OnlyMarketDataProcessingStatus.APPLIED,)
         assert checkpoint_count == 1
+        assert len(runtime._services.market_data_inbound) == 0  # noqa: SLF001
+        records = runtime.market_data_audit_store.records()
+        for update in suffixes:
+            assert tuple(item.status for item in records if item.update_id == update.update_id) == (
+                OnlyMarketDataProcessingStatus.APPLIED,
+            )
+        for root in roots:
+            applied = [
+                item.source_sequence
+                for item in records
+                if item.instrument_id == root.instrument_id and item.status is OnlyMarketDataProcessingStatus.APPLIED
+            ]
+            assert applied == sorted(applied)
     finally:
         release_second.set()
         runtime.stop()

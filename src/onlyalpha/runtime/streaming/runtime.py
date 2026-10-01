@@ -1251,6 +1251,14 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         return self._remember_timer(cluster_id, timer_id, handle)
 
     def _recover_gap(self, trigger: OnlyMarketDataInboundUpdate) -> None:
+        try:
+            with self._driver.recovery_ingress(lambda: self.streaming_phase is OnlyStreamingPhase.LIVE) as acquired:
+                if acquired:
+                    self._recover_gap_owned(trigger)
+        except Exception as exc:
+            self._fail_streaming_recovery(str(exc))
+
+    def _recover_gap_owned(self, trigger: OnlyMarketDataInboundUpdate) -> None:
         if not isinstance(trigger.payload, OnlyBarUpdate):
             self._fail_streaming_recovery("unexpected non-Bar continuity gap")
             return
@@ -1473,6 +1481,17 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         self._recover_stale_or_disconnect(health.data_state)
 
     def _recover_stale_or_disconnect(self, state: OnlyStreamingDataState) -> None:
+        requested = self.streaming_phase_snapshot
+        if requested.phase is not OnlyStreamingPhase.LIVE:
+            return
+        try:
+            with self._driver.recovery_ingress(lambda: self.streaming_phase is OnlyStreamingPhase.LIVE) as acquired:
+                if acquired and self.streaming_phase_snapshot == requested:
+                    self._recover_stale_or_disconnect_owned(state)
+        except Exception as exc:
+            self._fail_streaming_recovery(str(exc))
+
+    def _recover_stale_or_disconnect_owned(self, state: OnlyStreamingDataState) -> None:
         if not self._transition_streaming_phase(OnlyStreamingPhase.DEGRADED):
             return
         if state is OnlyStreamingDataState.DISCONNECTED and not self._reconnect_source():

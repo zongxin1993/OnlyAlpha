@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from threading import Event
 
 from onlyalpha.core.clock import OnlyLiveClock
@@ -53,6 +55,15 @@ class OnlyStreamingMarketDataDriver:
 
     def start_worker(self) -> None:
         self.worker.start()
+
+    @contextmanager
+    def recovery_ingress(self, resume_live: Callable[[], bool]) -> Iterator[bool]:
+        acquired = self.worker.acquire_recovery_ingress()
+        try:
+            yield acquired
+        finally:
+            if acquired:
+                self.worker.release_recovery_ingress(resume_live=resume_live())
 
     def wait(self, timeout: float | None) -> None:
         self.stop_requested.wait(timeout)

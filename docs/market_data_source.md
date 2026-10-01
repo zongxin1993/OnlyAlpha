@@ -14,6 +14,11 @@ Trading execution: Strategy Decision + immutable Snapshot → Order/Risk → Bro
 BACKTEST: Local HistoricalDataSource → ReplayService → Clock → Processor → Construction/Bar Pipeline
 ```
 
+Streaming Runtime 在 recovery plan 捕获 frontier 前，通过 Driver/Worker 握手取得 inbound queue 的消费权：当前完整
+update/callback 先结束并得到确认，之后 Worker 不再 dequeue，Runtime 独占 historical replay 和 suffix reconciliation。
+Producer 仍可按原 bounded backpressure 入队。成功 checkpoint 并发布 LIVE 后才恢复 Worker；terminal failure 不恢复
+market-data 消费，Stop 唤醒 ownership waiters。该握手不改变 Semantic Lane 的 mutation authority，也不持锁执行 Provider I/O。
+
 Strategy Revision 的正式交付输入仍是 closed Bar。冻结的 Construction Recipe 可以要求 provider BAR，也可以要求
 provider TRADE 并通过注册 executor 构造 Bar。raw Trade 本身永不触发 Strategy/Cluster dispatch；只有新的 canonical
 closed Bar 会进入 Cache/Snapshot/Dispatcher。同一 Trade 也可在通过 Processor 检查后独立推进 realtime reference
