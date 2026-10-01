@@ -10,6 +10,7 @@ from onlyalpha.market_data.durable import (
     OnlyDurableMarketDataRecorder,
     OnlyInMemoryMarketDataCatalog,
     OnlyInMemoryMarketFactStore,
+    OnlyMarketDataCrashBoundary,
     OnlyMarketDataDrainService,
     OnlyMarketDataIngress,
     OnlyMarketDataRecoveryCoordinator,
@@ -20,6 +21,180 @@ from onlyalpha.market_data.durable import (
 
 from .conftest import trade_update
 from .test_wal_and_identity import observation
+
+
+@pytest.mark.parametrize("canonical", [False, True])
+def test_health_cannot_repair_metadata_owned_by_live_seal_publisher(
+    tmp_path, fixed_now, monkeypatch, canonical
+) -> None:
+    publish_entered = threading.Event()
+    publish_release = threading.Event()
+    writer_finished = threading.Event()
+    drain_release = threading.Event()
+    failures = []
+    prepared_reads = []
+    wal, recorder, _ = _components(tmp_path, fixed_now, max_records=1, on_sealed=lambda segment: drain.submit(segment))
+    store = OnlyInMemoryMarketFactStore()
+    catalog = OnlyInMemoryMarketDataCatalog()
+
+    def publication(stage):
+        if stage == "W7_WAL_RENAMED_BEFORE_METADATA":
+            publish_entered.set()
+            assert publish_release.wait(5)
+
+    def recovery_barrier(stage):
+        if stage is OnlyMarketDataCrashBoundary.C3_SEALED_BEFORE_STORE:
+            assert drain_release.wait(5)
+
+    wal._barrier = publication
+    recovery = OnlyMarketDataRecoveryCoordinator(
+        wal, store, catalog, OnlyRevisionCommitService(store, catalog, now=fixed_now), barrier=recovery_barrier
+    )
+    drain = OnlyMarketDataDrainService(recovery)
+    read_text = Path.read_text
+
+    def publishing_metadata(path, *args, **kwargs):
+        if path.name.endswith(".segment.json.tmp"):
+            prepared_reads.append(path)
+            # The real writer publishes between the observer's exists() and read_text().
+            publish_release.set()
+            assert writer_finished.wait(5)
+        return read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", publishing_metadata)
+
+    def write():
+        try:
+            recorder(observation(), trade_update() if canonical else None)
+        except Exception as exc:
+            failures.append(exc)
+        finally:
+            writer_finished.set()
+
+    writer = threading.Thread(target=write)
+    drain.start()
+    writer.start()
+    try:
+        assert publish_entered.wait(5)
+        health = drain.health()
+        assert health.recording_state is OnlyRecordingState.HEALTHY, (
+            health.recording_state,
+            health.last_recovery_error,
+        )
+        assert health.last_recovery_error is None
+        assert prepared_reads == []
+        assert health.sealed_uncommitted_segments == 1
+        assert health.wal_bytes_used > 0
+        publish_release.set()
+        assert writer_finished.wait(5)
+        assert not failures
+        assert recovery.health().sealed_uncommitted_segments == 1
+        drain_release.set()
+        drain._queue.join()
+        assert wal.scan_uncommitted() == ()
+        assert drain.health().recording_state is OnlyRecordingState.HEALTHY
+        assert drain.health().last_recovery_error is None
+        assert drain._worker is not None and drain._worker.is_alive()
+        assert len(catalog._segments) == 1
+        assert len(store._raw) == 1
+        assert recovery.recover_all() == ()
+    finally:
+        publish_release.set()
+        drain_release.set()
+        writer.join(5)
+        drain.stop()
+
+
+def test_live_publication_does_not_exempt_another_segment_from_health_validation(tmp_path, fixed_now) -> None:
+    wal, recorder, sealed = _components(tmp_path, fixed_now, max_records=1)
+    recorder(observation(), trade_update())
+    corrupted_id = sealed[0].segment_id
+    (tmp_path / f"{corrupted_id}.segment.json").write_text("{", encoding="utf-8")
+
+    def during_publication(stage):
+        if stage == "W7_WAL_RENAMED_BEFORE_METADATA":
+            assert wal._sealing_id != corrupted_id
+            health = wal.health()
+            assert health.recording_state is OnlyRecordingState.FAILED
+            assert health.last_recovery_error == "JSONDecodeError"
+
+    wal._barrier = during_publication
+    recorder(observation(b"different observation"), trade_update())
+    assert wal._sealing_id is None
+    assert wal.health().recording_state is OnlyRecordingState.FAILED
+
+
+@pytest.mark.parametrize(
+    "state,error",
+    [(OnlyRecordingState.FAILED, "FileNotFoundError"), (OnlyRecordingState.DEGRADED, "WAL_CAPACITY_FULL")],
+)
+def test_publication_owner_never_clears_prior_failure_state(tmp_path, fixed_now, state, error) -> None:
+    wal, recorder, _ = _components(tmp_path, fixed_now, max_records=1)
+    wal._recording_state = state
+    wal._last_error = error
+
+    def during_publication(stage):
+        if stage == "W7_WAL_RENAMED_BEFORE_METADATA":
+            assert wal.health().recording_state is state
+            assert wal.health().last_recovery_error == error
+
+    wal._barrier = during_publication
+    recorder(observation(), trade_update())
+    assert wal._sealing_id is None
+    assert wal.health().recording_state is state
+    assert wal.health().last_recovery_error == error
+
+
+def test_nested_publisher_is_rejected_without_releasing_outer_ownership(tmp_path, fixed_now) -> None:
+    wal, recorder, _ = _components(tmp_path, fixed_now, max_records=1)
+
+    def during_publication(stage):
+        if stage == "W7_WAL_RENAMED_BEFORE_METADATA":
+            owner = wal._sealing_id
+            with pytest.raises(RuntimeError, match="WAL_SEGMENT_SEAL_ALREADY_ACTIVE"):
+                wal.seal()
+            assert wal._sealing_id == owner
+            assert wal.health().recording_state is OnlyRecordingState.HEALTHY
+
+    wal._barrier = during_publication
+    recorder(observation(), trade_update())
+    assert wal._sealing_id is None
+
+
+def test_failed_publication_owner_cannot_hide_malformed_prepared_metadata(tmp_path, fixed_now) -> None:
+    wal, recorder, _ = _components(tmp_path, fixed_now, max_records=1)
+
+    def interrupted(stage):
+        if stage == "W7_WAL_RENAMED_BEFORE_METADATA":
+            raise RuntimeError("interrupted publication")
+
+    wal._barrier = interrupted
+    with pytest.raises(RuntimeError, match="interrupted publication"):
+        recorder(observation(), trade_update())
+    assert wal._sealing_id is None
+    assert wal._open_id is not None
+    (tmp_path / f"{wal._open_id}.segment.json.tmp").write_text("{", encoding="utf-8")
+    assert wal.health().recording_state is OnlyRecordingState.FAILED
+    assert wal.health().last_recovery_error == "JSONDecodeError"
+
+
+def test_live_publication_cannot_hide_other_owner_metadata_without_wal(tmp_path, fixed_now) -> None:
+    wal, recorder, sealed = _components(tmp_path, fixed_now, max_records=1)
+    recorder(observation(), trade_update())
+    orphaned_id = sealed[0].segment_id
+    (tmp_path / f"{orphaned_id}.sealed.wal").unlink()
+
+    def during_publication(stage):
+        if stage == "W7_WAL_RENAMED_BEFORE_METADATA":
+            assert wal._sealing_id != orphaned_id
+            health = wal.health()
+            assert health.recording_state is OnlyRecordingState.FAILED
+            assert health.last_recovery_error == "WAL_STATE_CORRUPT:SEGMENT_METADATA_ONLY"
+
+    wal._barrier = during_publication
+    recorder(observation(b"different observation"), trade_update())
+    assert wal._sealing_id is None
+    assert wal.health().recording_state is OnlyRecordingState.FAILED
 
 
 @pytest.mark.parametrize("sink_fails", [False, True])

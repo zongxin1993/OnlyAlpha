@@ -101,6 +101,12 @@ function observeProduct(page: Page) {
     const requests: URL[] = [];
     const acquisitions: URL[] = [];
     const subscriptions: Record<string, unknown>[] = [];
+    const streams: {
+        subscription?: Record<string, unknown>;
+        states: string[];
+        previewCount: number;
+        closed: boolean;
+    }[] = [];
     page.on("request", (request) => {
         const url = new URL(request.url());
         if (url.pathname === "/api/v2/market-data/bars") requests.push(url);
@@ -117,16 +123,26 @@ function observeProduct(page: Page) {
             acquisitions.push(url);
     });
     page.on("websocket", (socket) => {
+        const stream: (typeof streams)[number] = { states: [], previewCount: 0, closed: false };
+        streams.push(stream);
+        socket.on("close", () => {
+            stream.closed = true;
+        });
         socket.on("framesent", ({ payload }) => {
             const value = JSON.parse(String(payload)) as Record<string, unknown>;
-            if (value.operation === "SUBSCRIBE_BAR") subscriptions.push(value);
+            if (value.operation === "SUBSCRIBE_BAR") {
+                subscriptions.push(value);
+                stream.subscription = value;
+            }
         });
         socket.on("framereceived", ({ payload }) => {
             const value = JSON.parse(String(payload)) as Record<string, unknown>;
             if (value.event === "SUBSCRIBED") subscribed.push(value);
+            if (value.event === "STATE") stream.states.push(String(value.state));
+            if (value.event === "BAR_PREVIEW") stream.previewCount += 1;
         });
     });
-    return { acquisitions, bars, subscribed, requests, subscriptions };
+    return { acquisitions, bars, subscribed, requests, subscriptions, streams };
 }
 
 async function stats(page: Page) {
@@ -414,6 +430,14 @@ test("real Browser loads authoritative older native history without moving the v
     expect(matchingSubscribed()).toHaveLength(1);
     const subscriptionsBefore = matchingSubscriptions().length;
     const subscribedBefore = matchingSubscribed().length;
+    const matchingStreams = () =>
+        observed.streams.filter(
+            (stream) =>
+                stream.subscription !== undefined &&
+                matchingSubscriptions().includes(stream.subscription)
+        );
+    expect(matchingStreams()).toHaveLength(1);
+    const previewsBeforeHistory = matchingStreams()[0].previewCount;
     await scenario(page);
     const initialAcquisitionCount = observed.acquisitions.length;
     const initialRequestCount = observed.requests.length;
@@ -567,6 +591,13 @@ test("real Browser loads authoritative older native history without moving the v
     await expect(status).toContainText("● 实时");
     expect(matchingSubscriptions()).toHaveLength(subscriptionsBefore);
     expect(matchingSubscribed()).toHaveLength(subscribedBefore);
+    expect(matchingStreams()).toHaveLength(1);
+    await expect
+        .poll(() => matchingStreams()[0].previewCount, { timeout: 45_000 })
+        .toBeGreaterThan(previewsBeforeHistory);
+    expect(matchingStreams()[0].closed).toBe(false);
+    const finalStream = matchingStreams()[0];
+    expect(finalStream.states[finalStream.states.length - 1]).toBe("READY");
     await test.info().attach("viewport-page-growth", {
         contentType: "application/json",
         body: JSON.stringify({
@@ -577,7 +608,12 @@ test("real Browser loads authoritative older native history without moving the v
             subscriptionsBefore,
             subscriptionsAfter: matchingSubscriptions().length,
             subscribedBefore,
-            subscribedAfter: matchingSubscribed().length
+            subscribedAfter: matchingSubscribed().length,
+            websocketCount: matchingStreams().length,
+            previewsBeforeHistory,
+            previewsAfterHistory: matchingStreams()[0].previewCount,
+            streamStates: matchingStreams()[0].states,
+            websocketClosed: matchingStreams()[0].closed
         })
     });
 

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import replace
 from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -14,6 +16,7 @@ from onlyalpha.application.market_data_stream import (
 )
 from onlyalpha.core.clock import OnlyVirtualClock
 from onlyalpha.data.enums import OnlyMarketDataType
+from onlyalpha.data.evidence import OnlyRawProviderObservation
 from onlyalpha.data.identifiers import OnlyDataSequence, OnlyDataVersion, OnlyMarketDataSourceId, OnlyMarketDataUpdateId
 from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate, OnlyRealtimeBarPreviewV1
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
@@ -26,6 +29,16 @@ from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.market_data.aggregation.time_bar import OnlyTimeBarAggregator
+from onlyalpha.market_data.durable import (
+    OnlyDurableMarketDataRecorder,
+    OnlyInMemoryMarketDataCatalog,
+    OnlyInMemoryMarketFactStore,
+    OnlyMarketDataDrainService,
+    OnlyMarketDataIngress,
+    OnlyMarketDataRecoveryCoordinator,
+    OnlyMarketDataWal,
+    OnlyRevisionCommitService,
+)
 from onlyalpha.market_data.durable.models import OnlyMarketDataHealth, OnlyRecordingState
 
 
@@ -132,6 +145,105 @@ def test_stream_logs_authoritative_health_on_degradation_and_recovery(
     assert '"sealed_uncommitted_segments": 1' in messages[0]
     assert '"last_recovery_error": null' in messages[1]
     assert '"last_committed_segment": "segment"' in messages[1]
+
+
+def _durable_session(tmp_path: Path, store: OnlyInMemoryMarketFactStore):
+    def now():
+        return datetime(2026, 1, 1, tzinfo=UTC)
+
+    wal = OnlyMarketDataWal(tmp_path, capacity_bytes=1_000_000, now=now)
+    catalog = OnlyInMemoryMarketDataCatalog()
+    recovery = OnlyMarketDataRecoveryCoordinator(
+        wal, store, catalog, OnlyRevisionCommitService(store, catalog, now=now)
+    )
+    drain = OnlyMarketDataDrainService(recovery)
+    recorder = OnlyDurableMarketDataRecorder(
+        OnlyMarketDataIngress(wal, normalizer_id="normalizer", normalizer_version="1", ingest_clock_ns=lambda: 1),
+        max_records_per_segment=1,
+        on_sealed=drain.submit,
+    )
+    session = _session([])
+    session._drain = drain
+    assert session.next_event(0).event == "SUBSCRIBED"  # type: ignore[union-attr]
+    session.emit_state("READY")
+    assert session.next_event(0).payload == {"state": "READY"}  # type: ignore[union-attr]
+    drain.start()
+    return session, recorder, drain, catalog
+
+
+def _raw_preview(index: int) -> OnlyRawProviderObservation:
+    return OnlyRawProviderObservation(
+        source_id="source",
+        capture_session_id="session",
+        provider="provider",
+        venue="venue",
+        market="market",
+        stream="kline",
+        provider_event_type="kline",
+        provider_event_id=str(index),
+        ts_receive_ns=index + 1,
+        payload=str(index).encode(),
+    )
+
+
+def test_stream_emits_ready_only_after_actual_background_durable_recovery(tmp_path: Path) -> None:
+    retry_entered = threading.Event()
+    release = threading.Event()
+    attempts = 0
+
+    def transient_failure(_stage: str) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("database unavailable")
+        if attempts == 2:
+            retry_entered.set()
+            assert release.wait(5)
+
+    store = OnlyInMemoryMarketFactStore(fault=transient_failure)
+    session, recorder, drain, catalog = _durable_session(tmp_path, store)
+    try:
+        recorder(_raw_preview(0), None)
+        assert retry_entered.wait(5)
+        assert drain.health().last_recovery_error == "RuntimeError:database unavailable"
+        assert drain.health().sealed_uncommitted_segments == 1
+        assert session.next_event(0).payload == {"state": "DEGRADED"}  # type: ignore[union-attr]
+        session.emit_preview(_preview("1.000000000000000001"))
+        assert session.next_event(0).event == "BAR_PREVIEW"  # type: ignore[union-attr]
+        assert session.next_event(0) is None  # No synthetic READY while retry remains blocked.
+        release.set()
+        drain._queue.join()
+        assert drain.health().last_recovery_error is None
+        assert drain.health().recording_state is OnlyRecordingState.HEALTHY
+        assert drain.health().sealed_uncommitted_segments == 0
+        assert session.next_event(0).payload == {"state": "READY"}  # type: ignore[union-attr]
+        assert len(catalog._segments) == 1
+        assert len(store._raw) == 1
+        assert drain._worker is not None and drain._worker.is_alive()
+    finally:
+        release.set()
+        drain.stop()
+
+
+def test_continuous_preview_frames_keep_exact_raw_evidence_and_one_session(tmp_path: Path) -> None:
+    store = OnlyInMemoryMarketFactStore()
+    session, recorder, drain, catalog = _durable_session(tmp_path, store)
+    try:
+        for index in range(64):
+            recorder(_raw_preview(index), None)
+            session.emit_preview(_preview(str(index + 1)))
+            assert session.next_event(0).event == "BAR_PREVIEW"  # type: ignore[union-attr]
+        drain._queue.join()
+        assert drain.health().recording_state is OnlyRecordingState.HEALTHY
+        assert drain.health().last_recovery_error is None
+        assert drain.health().sealed_uncommitted_segments == 0
+        assert len(catalog._segments) == 64
+        assert len(store._raw) == 64
+        assert all(store.inspect_segment(segment) == "EXACT" for segment in catalog._segments.values())
+        assert session._subscription_id == "subscription"
+        assert session.next_event(0) is None
+    finally:
+        drain.stop()
 
 
 def test_reliable_overflow_fails_explicitly_and_close_is_idempotent() -> None:

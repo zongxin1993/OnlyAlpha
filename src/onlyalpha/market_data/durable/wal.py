@@ -85,6 +85,7 @@ class OnlyMarketDataWal:
         self._barrier = barrier or (lambda _stage: None)
         root.mkdir(parents=True, exist_ok=True)
         self._open_id: str | None = None
+        self._sealing_id: str | None = None
         self._created_at: datetime | None = None
         self._recording_state = OnlyRecordingState.HEALTHY
         self._last_error: str | None = None
@@ -149,6 +150,15 @@ class OnlyMarketDataWal:
         return ordinal
 
     def seal(self, *, sealed_at: datetime | None = None) -> OnlyIngestSegment:
+        if self._sealing_id is not None:
+            raise OnlyWalError("WAL_SEGMENT_SEAL_ALREADY_ACTIVE")
+        self._sealing_id = self._open_id
+        try:
+            return self._seal(sealed_at=sealed_at)
+        finally:
+            self._sealing_id = None
+
+    def _seal(self, *, sealed_at: datetime | None = None) -> OnlyIngestSegment:
         if self._open_id is None or self._created_at is None:
             raise OnlyWalError("WAL_SEGMENT_NOT_OPEN")
         segment_id = self._open_id
@@ -524,6 +534,9 @@ class OnlyMarketDataWal:
     ) -> OnlyMarketDataHealth:
         created_at: dict[str, datetime] = {}
         for segment_id in self.scan_uncommitted():
+            if segment_id == self._sealing_id:
+                # A live publisher owns this exact transition; health must not recover it as an orphan.
+                continue
             try:
                 created_at[segment_id] = self.load_segment(segment_id).created_at
             except (OSError, ValueError, OnlyWalError) as exc:
@@ -540,6 +553,8 @@ class OnlyMarketDataWal:
         oldest = None if not pending_times else self._now() - min(pending_times)
         for metadata in self.root.glob("*.segment.json"):
             segment_id = metadata.name.removesuffix(".segment.json")
+            if segment_id == self._sealing_id:
+                continue
             if (
                 not self._path(segment_id, "sealed").exists()
                 and not self._path(segment_id, "gc").exists()

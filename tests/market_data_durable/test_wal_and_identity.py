@@ -223,6 +223,7 @@ def test_seal_interruption_publishes_durable_prepared_metadata(tmp_path: Path, f
     ingress.record(observation(), trade_update())
     with pytest.raises(RuntimeError, match=stage):
         ingress.seal()
+    assert wal._sealing_id is None
 
     restarted = OnlyMarketDataWal(
         tmp_path,
@@ -234,6 +235,7 @@ def test_seal_interruption_publishes_durable_prepared_metadata(tmp_path: Path, f
     else:
         segment = restarted.load_segment("seal-crash")
     assert restarted.verify_sealed(segment)
+    assert restarted._sealing_id is None
     assert segment.recovery_scope().data_kind == "TRADE"
     assert segment.sealed_at == fixed_now()
 
