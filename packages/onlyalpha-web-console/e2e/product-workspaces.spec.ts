@@ -1,6 +1,69 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const strategyId = "a".repeat(64);
+const destinations = [
+    { path: "/", label: "工作台" },
+    { path: "/research/new", label: "研究" },
+    { path: "/data/inputs", label: "数据" },
+    { path: "/strategies", label: "策略" },
+    { path: "/backtest/runs", label: "回测" },
+    { path: "/system/health", label: "系统" }
+] as const;
+
+async function assertProductNavigation(page: Page, width: number) {
+    const navigation = page.getByRole("navigation", { name: "产品导航" });
+    await expect(navigation).toHaveCount(1);
+    const persistentNavigation = await navigation.elementHandle();
+    const evidence: unknown[] = [];
+    for (const destination of destinations) {
+        const link = navigation.getByRole("link", { name: destination.label, exact: true });
+        await expect(link).toHaveAttribute("href", destination.path);
+        await link.scrollIntoViewIfNeeded();
+        await expect(link).toBeInViewport();
+        await link.click();
+        await expect(page).toHaveURL(destination.path);
+        await expect(link).toHaveAttribute("aria-current", "page");
+        await expect(navigation).toHaveCount(1);
+        expect(await persistentNavigation.evaluate((element) => element.isConnected)).toBe(true);
+        await noOverflow(page);
+    }
+    await page.getByRole("link", { name: "OnlyAlpha 工作台" }).focus();
+    for (const destination of destinations) {
+        const link = navigation.getByRole("link", { name: destination.label, exact: true });
+        await page.keyboard.press("Tab");
+        await expect(link).toBeFocused();
+        await expect(link).toBeInViewport();
+        const focus = await link.evaluate((element) => ({
+            visible: element.matches(":focus-visible"),
+            outline: getComputedStyle(element).outlineStyle,
+            outlineWidth: getComputedStyle(element).outlineWidth
+        }));
+        expect(focus).toEqual({ visible: true, outline: "solid", outlineWidth: "3px" });
+        await page.keyboard.press("Enter");
+        await expect(page).toHaveURL(destination.path);
+        await expect(link).toHaveAttribute("aria-current", "page");
+        expect(await persistentNavigation.evaluate((element) => element.isConnected)).toBe(true);
+        const dimensions = await navigation.evaluate((element) => ({
+            scrollWidth: element.scrollWidth,
+            clientWidth: element.clientWidth,
+            scrollLeft: element.scrollLeft,
+            overflowX: getComputedStyle(element).overflowX,
+            documentWidth: document.documentElement.scrollWidth,
+            viewportWidth: window.innerWidth
+        }));
+        expect(dimensions.documentWidth).toBeLessThanOrEqual(dimensions.viewportWidth);
+        if (width === 390) {
+            expect(dimensions.overflowX).toBe("auto");
+            expect(dimensions.scrollWidth).toBeGreaterThan(dimensions.clientWidth);
+        }
+        evidence.push({ ...destination, focus, dimensions, ariaCurrent: "page" });
+    }
+    await test.info().attach("persistent-product-navigation", {
+        contentType: "application/json",
+        body: JSON.stringify({ width, evidence })
+    });
+    await persistentNavigation.dispose();
+}
 
 test("preview forwards the health surface instead of returning the SPA document", async ({
     request
@@ -125,6 +188,13 @@ for (const width of [1440, 390]) {
                 commands.push(request.url());
         });
         await page.goto("/strategies");
+        await assertProductNavigation(page, width);
+        const navigation = page.getByRole("navigation", { name: "产品导航" });
+        const strategy = navigation.getByRole("link", { name: "策略", exact: true });
+        await strategy.scrollIntoViewIfNeeded();
+        await strategy.click();
+        await expect(page).toHaveURL("/strategies");
+        await expect(strategy).toHaveAttribute("aria-current", "page");
         await page.getByLabel("Strategy fingerprint", { exact: true }).fill(strategyId);
         await page.getByRole("button", { name: "Open Strategy" }).click();
         await expect(page).toHaveURL(`/strategies/${strategyId}`);
@@ -132,7 +202,10 @@ for (const width of [1440, 390]) {
         await expect(page.getByText("BACKTEST", { exact: true })).toBeVisible();
         await noOverflow(page);
         await page.screenshot({ path: testInfo.outputPath("strategy.png"), fullPage: true });
+        const backtest = navigation.getByRole("link", { name: "回测", exact: true });
         await page.getByRole("link", { name: "Inspect a Backtest" }).click();
+        await expect(page).toHaveURL("/backtest/runs");
+        await expect(backtest).toHaveAttribute("aria-current", "page");
         await page.getByLabel("Backtest Run ID").fill(runId);
         await page.getByRole("button", { name: "Open Backtest" }).click();
         await expect(page).toHaveURL(`/backtest/runs/${runId}`);
@@ -143,8 +216,11 @@ for (const width of [1440, 390]) {
         await expect(page.getByText("result.json", { exact: true })).toBeVisible();
         await noOverflow(page);
         await page.screenshot({ path: testInfo.outputPath("backtest.png"), fullPage: true });
-        if (width < 1280) await page.getByRole("button", { name: "Toggle navigation" }).click();
-        await page.getByRole("link", { name: "System Health", exact: true }).click();
+        const system = navigation.getByRole("link", { name: "系统", exact: true });
+        await system.scrollIntoViewIfNeeded();
+        await system.click();
+        await expect(page).toHaveURL("/system/health");
+        await expect(system).toHaveAttribute("aria-current", "page");
         await expect(page.getByRole("heading", { name: "System Health" })).toBeVisible();
         await expect(page.getByText("LIVE", { exact: true })).toBeVisible();
         await expect(page.getByText("NOT_READY", { exact: true })).toBeVisible();

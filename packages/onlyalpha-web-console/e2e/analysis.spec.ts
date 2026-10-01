@@ -68,8 +68,9 @@ for (const viewport of [
                 externalRequests.push(request.url());
         });
         await page.goto("/research/analysis");
-        await expect(page.getByRole("link", { name: "OnlyAlpha Research" })).toBeVisible();
-        await expect(page.getByRole("link", { name: "AI Analysis", exact: true })).toBeVisible();
+        await expect(page.getByRole("link", { name: "OnlyAlpha 工作台" })).toBeVisible();
+        await expect(page.getByRole("navigation", { name: "产品导航" })).toHaveCount(1);
+        await expect(page.getByRole("heading", { name: "OnlyAlpha Analysis" })).toBeVisible();
         await expect(page.getByRole("heading", { name: "AI Opportunity Radar" })).toBeVisible();
         await expect(page.locator(".opportunity-card")).toHaveCount(4);
         await expect(page.getByRole("tab", { name: "Instant Analysis" })).toBeVisible();
@@ -118,18 +119,11 @@ test("390px navigation, horizontal Radar and single-column evidence remain usabl
     await mockRunPage(page);
     await page.goto("/research/analysis");
     await expect(page.getByRole("heading", { name: "OnlyAlpha Analysis" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "AI Analysis", exact: true })).toBeHidden();
-    await page.getByRole("button", { name: "Toggle navigation" }).click();
-    await expect(page.getByRole("link", { name: "AI Analysis", exact: true })).toBeVisible();
-    await page.getByRole("link", { name: "Runs", exact: true }).click();
+    await expect(page.getByRole("navigation", { name: "产品导航" })).toHaveCount(1);
+    await page.getByRole("link", { name: "History", exact: true }).click();
     await expect(page).toHaveURL("/research/runs");
     await expect(page.getByRole("heading", { name: "Research Runs" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Toggle navigation" })).toHaveAttribute(
-        "aria-expanded",
-        "false"
-    );
-    await page.getByRole("button", { name: "Toggle navigation" }).click();
-    await page.getByRole("link", { name: "AI Analysis", exact: true }).click();
+    await page.goto("/research/analysis");
     await expect(page.getByRole("heading", { name: "OnlyAlpha Analysis" })).toBeVisible();
     await noPageOverflow(page);
     await page.screenshot({ path: testInfo.outputPath("analysis-mobile.png"), fullPage: true });
@@ -154,6 +148,12 @@ for (const width of [1024, 390]) {
             );
         }
         await page.goto("/data/inputs");
+        const navigation = page.getByRole("navigation", { name: "产品导航" });
+        await expect(navigation).toHaveCount(1);
+        await expect(navigation.getByRole("link", { name: "数据", exact: true })).toHaveAttribute(
+            "aria-current",
+            "page"
+        );
         await expect(
             page.getByRole("heading", { name: "Research Inputs", exact: true })
         ).toBeVisible();
@@ -162,23 +162,18 @@ for (const width of [1024, 390]) {
         ).toBeVisible();
         await noPageOverflow(page);
         await page.screenshot({ path: testInfo.outputPath("data-inputs.png"), fullPage: true });
-        await page.getByRole("button", { name: "Toggle navigation" }).click();
-        await page.getByRole("link", { name: "Research Library", exact: true }).click();
+        await page.goto("/research/library");
         await expect(page).toHaveURL("/research/library");
         await expect(
             page.getByRole("heading", { name: "Research Library", exact: true })
         ).toBeVisible();
-        await expect(page.getByRole("button", { name: "Toggle navigation" })).toHaveAttribute(
-            "aria-expanded",
-            "false"
-        );
+        await expect(navigation).toHaveCount(1);
         await noPageOverflow(page);
         await page.screenshot({
             path: testInfo.outputPath("research-library.png"),
             fullPage: true
         });
-        await page.getByRole("button", { name: "Toggle navigation" }).click();
-        await page.getByRole("link", { name: "Results", exact: true }).click();
+        await page.goto("/research/results");
         await expect(
             page.getByRole("heading", { name: "Open an exact Research result" })
         ).toBeVisible();

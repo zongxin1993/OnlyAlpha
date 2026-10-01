@@ -426,7 +426,7 @@ test("desktop Factor catalog, real independent panes, original-population IC, UT
     await page.setViewportSize({ width: 1440, height: 900 });
     const observations = await mockFactorEvidence(page);
     await page.goto("/research/factors");
-    await expect(page.getByRole("link", { name: "Factor Explorer", exact: true })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "产品导航" })).toHaveCount(1);
     const catalog = page.getByRole("complementary", { name: "Registered Factor catalog" });
     await expect(catalog.getByRole("button", { name: /example\.factor\.momentum/ })).toHaveCount(2);
     await expect(catalog.getByText("example.indicator.sma", { exact: true })).toHaveCount(0);
@@ -561,13 +561,16 @@ test("390px Factor navigation and real stock-basket evidence remain usable witho
     await page.setViewportSize({ width: 390, height: 844 });
     const observations = await mockFactorEvidence(page);
     await page.goto("/research/results");
-    await page.getByRole("button", { name: "Toggle navigation" }).click();
-    await page.getByRole("link", { name: "Factor Explorer", exact: true }).click();
+    const navigation = page.getByRole("navigation", { name: "产品导航" });
+    await expect(navigation).toHaveCount(1);
+    const research = navigation.getByRole("link", { name: "研究", exact: true });
+    await research.scrollIntoViewIfNeeded();
+    await research.click();
+    await expect(page).toHaveURL("/research/new");
+    await expect(research).toHaveAttribute("aria-current", "page");
+    await page.goto("/research/factors");
     await expect(page).toHaveURL("/research/factors");
-    await expect(page.getByRole("button", { name: "Toggle navigation" })).toHaveAttribute(
-        "aria-expanded",
-        "false"
-    );
+    await expect(navigation).toHaveCount(1);
     const { first, correlation, originalRow } = await openSelectedFactor(page);
     await page.getByRole("checkbox", { name: secondStock, exact: true }).check();
     await expect(
