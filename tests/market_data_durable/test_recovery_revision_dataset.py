@@ -868,6 +868,113 @@ def test_grouped_recovery_rejects_mixed_committed_catalog_state(tmp_path: Path, 
     assert len(wal.scan_uncommitted()) == 2
 
 
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "whole_manifest",
+        "whole_batch",
+        "scope",
+        "missing_proofs",
+        "segment_refs",
+        "count",
+        "count_bool",
+        "seal",
+        "segment_owner",
+        "duplicate_segment",
+        "proof_leaf",
+    ],
+)
+def test_verified_completion_rejects_missing_or_mutated_authority(tmp_path: Path, fixed_now, damage: str) -> None:
+    wal, segment, _ = _sealed(tmp_path, fixed_now, kind="BAR")
+    store = OnlyInMemoryMarketFactStore()
+    catalog = OnlyInMemoryMarketDataCatalog()
+    committer = OnlyRevisionCommitService(store, catalog, now=fixed_now)
+    recovery = OnlyMarketDataRecoveryCoordinator(wal, store, catalog, committer)
+    assert recovery.recover_all() == ("COMMITTED",)
+    completion = recovery._completion
+    assert completion is not None
+    assert completion.actual_count == 1
+    assert completion.revision == catalog.latest_sealed_revision(_scope("BAR"))
+    completion.assert_matches(completion.manifest, completion.revision, completion.seal)
+    with pytest.raises((OnlyMarketDataSealError, ValueError)):
+        if damage == "whole_manifest":
+            replace(completion, manifest=None)
+        elif damage == "whole_batch":
+            replace(completion, verified_batch=None)
+        elif damage == "scope":
+            replace(
+                completion,
+                verified_batch=replace(completion.verified_batch, scope=replace(_scope("BAR"), source_id="different")),
+            )
+        elif damage == "missing_proofs":
+            replace(completion, verified_batch=replace(completion.verified_batch, physical_proofs=()))
+        elif damage == "segment_refs":
+            replace(completion, verified_batch=replace(completion.verified_batch, segment_refs=()))
+        elif damage == "count":
+            replace(completion, actual_count=2)
+        elif damage == "count_bool":
+            replace(completion, actual_count=True)
+        elif damage == "seal":
+            replace(completion, seal=replace(completion.seal, seal_id="different"))
+        elif damage == "segment_owner":
+            replace(completion, segments=(replace(segment, source_id="different"),))
+        elif damage == "duplicate_segment":
+            replace(completion, segments=(segment, segment))
+        else:
+            proof = replace(completion.verified_batch.physical_proofs[0], fingerprint="f" * 64)
+            replace(completion, verified_batch=replace(completion.verified_batch, physical_proofs=(proof,)))
+
+
+def test_verified_completion_is_not_reused_by_empty_or_fresh_recovery(tmp_path: Path, fixed_now) -> None:
+    wal, _, _ = _sealed(tmp_path, fixed_now, kind="BAR")
+    store = OnlyInMemoryMarketFactStore()
+    catalog = OnlyInMemoryMarketDataCatalog()
+    recovery = OnlyMarketDataRecoveryCoordinator(
+        wal, store, catalog, OnlyRevisionCommitService(store, catalog, now=fixed_now)
+    )
+    assert recovery.recover_all() == ("COMMITTED",)
+    assert recovery._completion is not None
+    assert recovery.recover_all() == ()
+    assert recovery._completion is None
+    fresh = OnlyMarketDataRecoveryCoordinator(
+        wal, store, catalog, OnlyRevisionCommitService(store, catalog, now=fixed_now)
+    )
+    assert fresh.recover_all() == ()
+    assert fresh._completion is None
+    revision = catalog.latest_sealed_revision(_scope("BAR"))
+    assert (
+        len(OnlyHistoricalMarketDataQueryService(catalog, store).read_exact(revision.revision_id, revision.scope)) == 1
+    )
+
+
+def test_complete_looking_metadata_without_physical_context_cannot_mint_completion(tmp_path: Path, fixed_now) -> None:
+    wal, _, _ = _sealed(tmp_path, fixed_now, kind="BAR")
+    store = OnlyInMemoryMarketFactStore()
+    catalog = OnlyInMemoryMarketDataCatalog()
+    recovery = OnlyMarketDataRecoveryCoordinator(
+        wal, store, catalog, OnlyRevisionCommitService(store, catalog, now=fixed_now)
+    )
+    assert recovery.recover_all() == ("COMMITTED",)
+    completion = recovery._completion
+    assert completion is not None
+    # Correct fingerprints do not make an absent physical owner/context complete.
+    manifest = type(completion.manifest).build(
+        completion.revision.scope,
+        (),
+        coverage_status=OnlyCoverageStatus.COMPLETE,
+        proof=completion.manifest.proof,
+        issues=(),
+        gaps=(),
+    )
+    revision = OnlyMarketDataRevision.build(
+        manifest, normalizers=completion.revision.normalizers, creation_reason="BACKFILL"
+    )
+    seal = only_build_seal(revision, manifest, sealed_at=fixed_now())
+    batch = replace(completion.verified_batch, segment_refs=(), physical_proofs=())
+    with pytest.raises(OnlyMarketDataSealError, match="COMPLETION_EVIDENCE_INVALID"):
+        type(completion)(manifest, revision, seal, (), batch, completion.actual_count)
+
+
 class _SnapshotStore:
     def __init__(self) -> None:
         self.snapshots = {}

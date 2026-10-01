@@ -66,6 +66,12 @@ from onlyalpha.market_data.durable.models import (
     OnlyMarketDataScope,
     OnlyMarketDataSeal,
 )
+from onlyalpha.market_data.durable.performance import (
+    only_current_market_data_performance,
+    only_market_data_performance,
+    only_market_data_phase,
+    only_market_data_timed,
+)
 from onlyalpha.market_data.durable.ports import OnlyMarketDataCatalog, OnlyMarketFactStore
 from onlyalpha.market_data.durable.range_query import (
     OnlyBarWindowAnchorKind,
@@ -82,6 +88,7 @@ from onlyalpha.market_data.durable.revision import (
     OnlyMarketDataConflictError,
     OnlyMarketDataSealError,
     OnlyRevisionCommitService,
+    _OnlyVerifiedMarketDataCompletion,
     only_build_coverage,
 )
 from onlyalpha.market_data.durable.wal import OnlyMarketDataWal
@@ -338,6 +345,7 @@ class _OnlyExactSealedHistory:
     manifest: OnlyCoverageManifest
     seal: OnlyMarketDataSeal
     facts: tuple[OnlyCanonicalMarketFactRecord, ...]
+    verified_actual_count: int | None = None
 
 
 class _OnlyAcquisitionSession:
@@ -358,6 +366,7 @@ class _OnlyAcquisitionSession:
         self.coordinator = coordinator
         self._closed = False
 
+    @only_market_data_timed("session_close")
     def close(self) -> None:
         """Seal the WAL tail, drain it once and stop the DataSource deterministically."""
 
@@ -502,6 +511,26 @@ class OnlyMarketDataProductService:
         before_ns: int | None = None,
         bar_semantic: OnlyBarSemantic = BASE_BAR_SEMANTIC,
     ) -> OnlyMarketDataBarWindowProjectionV1:
+        with only_market_data_performance("QUERY"):
+            return self._query_bars(
+                reference,
+                instrument_id=instrument_id,
+                anchor_kind=anchor_kind,
+                target_bar_count=target_bar_count,
+                before_ns=before_ns,
+                bar_semantic=bar_semantic,
+            )
+
+    def _query_bars(
+        self,
+        reference: OnlyMarketDataSourceReferenceV1,
+        *,
+        instrument_id: str,
+        anchor_kind: OnlyBarWindowAnchorKind,
+        target_bar_count: int,
+        before_ns: int | None,
+        bar_semantic: OnlyBarSemantic,
+    ) -> OnlyMarketDataBarWindowProjectionV1:
         """DB-first verified range read; a Query never acquires or mutates state."""
 
         query_started = perf_counter_ns()
@@ -526,6 +555,16 @@ class OnlyMarketDataProductService:
         except (TypeError, ValueError) as exc:
             raise OnlyMarketDataProductError("MARKET_DATA_WINDOW_REQUEST_INVALID", str(exc)) from exc
         scope = self._scope(resolved, instrument_id, window.resolved_start_ns, window.resolved_end_ns, acquisition_plan)
+        measurement = only_current_market_data_performance()
+        if measurement is not None:
+            measurement.bind(
+                scope_fingerprint=only_canonical_fingerprint(scope),
+                source_id=str(resolved.source_id),
+                instrument_id=instrument_id,
+                resolution_mode=plan.mode.value,
+                target_semantic=semantic,
+                base_semantic=acquisition_plan.provider_semantic,
+            )
         family = OnlyMarketDataRangeFamily.from_scope(scope)
         try:
             verified = self._ranges.read(family, window.target_intervals)
@@ -654,13 +693,14 @@ class OnlyMarketDataProductService:
         bar_semantic: OnlyBarSemantic = BASE_BAR_SEMANTIC,
     ) -> OnlyMarketDataAcquisitionProjectionV1:
         try:
-            return self._acquire_bars(
-                reference,
-                instrument_id=instrument_id,
-                start_ns=start_ns,
-                end_ns=end_ns,
-                bar_semantic=bar_semantic,
-            )
+            with only_market_data_performance("COMMAND"):
+                return self._acquire_bars(
+                    reference,
+                    instrument_id=instrument_id,
+                    start_ns=start_ns,
+                    end_ns=end_ns,
+                    bar_semantic=bar_semantic,
+                )
         except OnlyMarketDataProductError as exc:
             raise OnlyMarketDataProductError(exc.code, exc.detail, phase="COMMAND") from exc
 
@@ -710,6 +750,17 @@ class OnlyMarketDataProductService:
             admitted_at=self._now(),
             integration_binding_fingerprint=resolved.binding_fingerprint,
         )
+        measurement = only_current_market_data_performance()
+        if measurement is not None:
+            measurement.bind(
+                acquisition_id=intent.acquisition_id,
+                scope_fingerprint=only_canonical_fingerprint(scope),
+                source_id=str(resolved.source_id),
+                instrument_id=instrument_id,
+                resolution_mode=plan.mode.value,
+                target_semantic=semantic,
+                base_semantic=acquisition_plan.provider_semantic,
+            )
         admitted = self._admit(intent)
         sealed = self._sealed_for_scope(scope)
         if sealed is not None:
@@ -721,7 +772,8 @@ class OnlyMarketDataProductService:
                 failure_detail=None,
             )
         try:
-            lease = self._catalog.try_acquire_acquisition_execution(admitted.acquisition_id)
+            with only_market_data_phase("admit_and_lease"):
+                lease = self._catalog.try_acquire_acquisition_execution(admitted.acquisition_id)
         except Exception as exc:
             raise OnlyMarketDataProductError(
                 "MARKET_DATA_CATALOG_UNAVAILABLE", "acquisition execution ownership is unavailable"
@@ -796,6 +848,7 @@ class OnlyMarketDataProductService:
 
     # --- Internals ---------------------------------------------------------------------
 
+    @only_market_data_timed("resolve_runtime")
     def resolve_runtime(self, reference: OnlyMarketDataSourceReferenceV1) -> OnlyResolvedMarketDataRuntime:
         if not isinstance(reference, OnlyMarketDataSourceReferenceV1):
             raise OnlyMarketDataProductError("MARKET_DATA_SOURCE_REFERENCE_INVALID")
@@ -868,6 +921,7 @@ class OnlyMarketDataProductService:
             factory,
         )
 
+    @only_market_data_timed("plan_and_scope")
     def _scope(
         self,
         resolved: OnlyResolvedMarketDataRuntime,
@@ -906,6 +960,7 @@ class OnlyMarketDataProductService:
             bar_construction=OnlyBarConstructionIdentity.build(plan, data_version=str(resolved.data_version)),
         )
 
+    @only_market_data_timed("resolve_and_plan")
     def _plan(
         self,
         resolved: OnlyResolvedMarketDataRuntime,
@@ -963,9 +1018,11 @@ class OnlyMarketDataProductService:
         self, resolved: OnlyResolvedMarketDataRuntime, intent: OnlyMarketDataAcquisitionIntent
     ) -> tuple[_OnlyExactSealedHistory | None, str | None]:
         session: _OnlyAcquisitionSession | None = None
+        completion: _OnlyVerifiedMarketDataCompletion | None = None
         try:
             session = self._open_session(resolved, intent.requested_scope)
-            manifest = session.coordinator.inspect(intent)
+            with only_market_data_phase("initial_inspect"):
+                manifest = session.coordinator.inspect(intent)
             if manifest.coverage_status is OnlyCoverageStatus.COMPLETE:
                 segments = self._catalog.list_durable_segments(intent.requested_scope)
                 proofs = self._catalog.load_physical_proofs(tuple(item.segment_id for item in segments))
@@ -976,13 +1033,14 @@ class OnlyMarketDataProductService:
             for planned in only_plan_contiguous_bar_gaps(
                 tuple(item for item in manifest.gaps if isinstance(item, OnlyBarCoverageGap))
             ):
-                session.coordinator.backfill_bar_gap(
+                backfill = session.coordinator.backfill_bar_gap(
                     intent,
                     _bar_request(intent.requested_scope, planned, resolved.data_version, self._batch_size),
                     planned,
                 )
+                completion = backfill.verified_completion
             session.close()
-            sealed = self._sealed_for_scope(intent.requested_scope)
+            sealed = self._sealed_for_scope(intent.requested_scope, completion=completion)
             if sealed is None:
                 return None, self._coverage(intent.requested_scope).status
             return sealed, None
@@ -995,6 +1053,7 @@ class OnlyMarketDataProductService:
             if session is not None:
                 session.close()
 
+    @only_market_data_timed("session_open")
     def _open_session(
         self, resolved: OnlyResolvedMarketDataRuntime, scope: OnlyMarketDataScope
     ) -> _OnlyAcquisitionSession:
@@ -1070,7 +1129,10 @@ class OnlyMarketDataProductService:
         source.authenticate()
         return session
 
-    def _sealed_for_scope(self, scope: OnlyMarketDataScope) -> _OnlyExactSealedHistory | None:
+    @only_market_data_timed("sealed_resolution")
+    def _sealed_for_scope(
+        self, scope: OnlyMarketDataScope, *, completion: _OnlyVerifiedMarketDataCompletion | None = None
+    ) -> _OnlyExactSealedHistory | None:
         """Explicit not-found is the only condition that may mean "no data yet".
 
         An unavailable, corrupt or schema-incompatible catalog must never be projected
@@ -1109,6 +1171,16 @@ class OnlyMarketDataProductService:
                 "MARKET_DATA_CATALOG_CORRUPT", "sealed revision does not match its own scope identity"
             )
         try:
+            if completion is not None:
+                completion.assert_matches(completion.manifest, completion.revision, completion.seal)
+                if (completion.manifest, completion.revision, completion.seal) == (manifest, stored, seal):
+                    segment_ids = tuple(item[0] for item in stored.segment_refs)
+                    if (
+                        self._catalog.load_durable_segments(segment_ids) != completion.segments
+                        or self._catalog.load_physical_proofs(segment_ids) != completion.verified_batch.physical_proofs
+                    ):
+                        raise OnlyMarketDataSealError("MARKET_DATA_COMPLETION_EVIDENCE_INVALID")
+                    return _OnlyExactSealedHistory(stored, manifest, seal, (), completion.actual_count)
             facts = query.read_exact(stored.revision_id, scope)
         except (OnlyMarketDataSealError, OnlyMarketDataConflictError, KeyError, TypeError, ValueError) as exc:
             raise OnlyMarketDataProductError("MARKET_DATA_REVISION_EVIDENCE_INVALID", str(exc)) from exc
@@ -1143,7 +1215,11 @@ class OnlyMarketDataProductService:
             else scope.bar_construction.plan.target_semantic.stride_minutes * MINUTE_NS
         )
         expected = max(0, (scope.end_ns - scope.start_ns) // step_ns)
-        unknown = len({fact.canonical_fact_id for fact in facts})
+        unknown = (
+            sealed.verified_actual_count
+            if sealed is not None and sealed.verified_actual_count is not None
+            else len({fact.canonical_fact_id for fact in facts})
+        )
         unsealed = manifest.coverage_status is OnlyCoverageStatus.COMPLETE and not complete
         return OnlyMarketDataCoverageProjectionV1(
             OnlyCoverageStatus.INCOMPLETE.value if unsealed else manifest.coverage_status.value,
@@ -1189,6 +1265,7 @@ class OnlyMarketDataProductService:
         expected = {(item.start_ns, item.end_ns) for item in intervals}
         return tuple(item for item in bars if (item.bar_start_ns, item.bar_end_ns) in expected)
 
+    @only_market_data_timed("derived_projection")
     def _derived_bars(
         self,
         resolved: OnlyResolvedMarketDataRuntime,
@@ -1199,13 +1276,14 @@ class OnlyMarketDataProductService:
             raise OnlyMarketDataProductError("MARKET_DATA_TIME_BAR_CALENDAR_UNAVAILABLE")
         calendar: OnlyTradingCalendar = resolved.factory.time_bar_calendar(resolved.plugin_config)
         calendar_fingerprint = only_canonical_fingerprint(calendar.to_dict())
-        source_bars = tuple(
-            update.bar
-            for fact in facts
-            if isinstance(
-                update := OnlyMarketDataInboundUpdate.from_dict(fact.canonical_payload).payload, OnlyBarUpdate
+        with only_market_data_phase("payload_decode"):
+            source_bars = tuple(
+                update.bar
+                for fact in facts
+                if isinstance(
+                    update := OnlyMarketDataInboundUpdate.from_dict(fact.canonical_payload).payload, OnlyBarUpdate
+                )
             )
-        )
         if not source_bars:
             return (), calendar_fingerprint
         source_type = source_bars[0].bar_type
@@ -1256,6 +1334,7 @@ class OnlyMarketDataProductService:
             )
         )
 
+    @only_market_data_timed("admit_and_lease")
     def _admit(self, intent: OnlyMarketDataAcquisitionIntent) -> OnlyMarketDataAcquisitionIntent:
         try:
             return self._catalog.admit_acquisition_intent(intent)
@@ -1292,6 +1371,7 @@ class OnlyMarketDataProductService:
                 "terminal acquisition failure could not be persisted",
             ) from exc
 
+    @only_market_data_timed("acquisition_projection")
     def _projection(
         self,
         resolved: OnlyResolvedMarketDataRuntime,

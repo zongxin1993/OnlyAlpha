@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Request } from "@playwright/test";
 
 const minuteNs = BigInt("60000000000");
 
@@ -102,6 +102,22 @@ function observeProduct(page: Page) {
     const acquisitions: URL[] = [];
     const acquisitionRequests: URL[] = [];
     const subscriptions: Record<string, unknown>[] = [];
+    const httpTimings = new Map<
+        Request,
+        {
+            path: string;
+            method: string;
+            startedMs: number;
+            responseMs?: number;
+            finishedMs?: number;
+            status?: number;
+            failure?: string;
+            bodyReadError?: string;
+            requestEvidence: Record<string, unknown>;
+            evidence?: Record<string, unknown>;
+        }
+    >();
+    const subscribedTimings: { receivedMs: number; evidence: Record<string, unknown> }[] = [];
     const streams: {
         subscription?: Record<string, unknown>;
         states: string[];
@@ -114,17 +130,62 @@ function observeProduct(page: Page) {
         if (url.pathname === "/api/v2/market-data/bars") requests.push(url);
         if (url.pathname === "/api/v2/market-data/acquisitions" && request.method() === "POST")
             acquisitionRequests.push(url);
+        if (
+            url.pathname === "/api/v2/market-data/bars" ||
+            (url.pathname === "/api/v2/market-data/acquisitions" && request.method() === "POST")
+        )
+            httpTimings.set(request, {
+                // Deliberately omit headers, credentials and arbitrary request bodies.
+                path: url.pathname,
+                method: request.method(),
+                requestEvidence: Object.fromEntries(
+                    [
+                        "instrument_id",
+                        "anchor_kind",
+                        "before_ns",
+                        "target_bar_count",
+                        "bar_semantic"
+                    ]
+                        .filter((key) => url.searchParams.has(key))
+                        .map((key) => [key, url.searchParams.get(key)])
+                ),
+                startedMs: performance.now()
+            });
+    });
+    page.on("requestfinished", (request) => {
+        const timing = httpTimings.get(request);
+        if (timing !== undefined) timing.finishedMs = performance.now();
+    });
+    page.on("requestfailed", (request) => {
+        const timing = httpTimings.get(request);
+        if (timing !== undefined) {
+            timing.finishedMs = performance.now();
+            timing.failure = "REQUEST_FAILED";
+        }
     });
     page.on("response", async (response) => {
         const url = new URL(response.url());
-        if (url.pathname === "/api/v2/market-data/bars" && response.ok()) {
-            bars.push((await response.json()) as Record<string, unknown>);
+        const timing = httpTimings.get(response.request());
+        if (timing !== undefined) {
+            timing.responseMs = performance.now();
+            timing.status = response.status();
         }
         if (
             url.pathname === "/api/v2/market-data/acquisitions" &&
             response.request().method() === "POST"
-        )
+        ) {
             acquisitions.push(url);
+        }
+        if (timing === undefined) return;
+        try {
+            const value = (await response.json()) as Record<string, unknown>;
+            if (url.pathname === "/api/v2/market-data/bars" && response.ok()) bars.push(value);
+            // Capture acquisition identity even when later matching evidence times out.
+            timing.evidence = productBudgetEvidence(value);
+        } catch {
+            // A cancelled/pending body is diagnostic uncertainty, never matching evidence.
+            timing.bodyReadError = "PRODUCT_RESPONSE_BODY_UNAVAILABLE";
+        }
     });
     page.on("websocket", (socket) => {
         const stream: (typeof streams)[number] = {
@@ -145,7 +206,10 @@ function observeProduct(page: Page) {
         });
         socket.on("framereceived", ({ payload }) => {
             const value = JSON.parse(String(payload)) as Record<string, unknown>;
-            if (value.event === "SUBSCRIBED") subscribed.push(value);
+            if (value.event === "SUBSCRIBED") {
+                subscribed.push(value);
+                subscribedTimings.push({ receivedMs: performance.now(), evidence: value });
+            }
             if (value.event === "STATE") stream.states.push(String(value.state));
             if (value.event === "BAR_PREVIEW") {
                 stream.previewCount += 1;
@@ -160,7 +224,27 @@ function observeProduct(page: Page) {
         subscribed,
         requests,
         subscriptions,
-        streams
+        streams,
+        httpTimings,
+        subscribedTimings
+    };
+}
+
+function productBudgetEvidence(value: Record<string, unknown>) {
+    return {
+        acquisitionId: value.acquisition_id,
+        status: value.status,
+        instrumentId: value.instrument_id,
+        barSemantic: value.bar_semantic,
+        barCount: Array.isArray(value.bars) ? value.bars.length : undefined,
+        coverage: value.coverage,
+        sourceSelection: value.source_selection,
+        resolutionMode: value.resolution_mode,
+        resolutionPlanFingerprint: value.resolution_plan_fingerprint,
+        historyProjectionFingerprint: value.history_projection_fingerprint,
+        derivedProjectionFingerprint: value.derived_projection_fingerprint,
+        revisionEvidence: value.revision_evidence,
+        resumeAfterSequence: value.resume_after_sequence
     };
 }
 
@@ -742,56 +826,104 @@ test("real Browser keeps derived 7m intent while Product uses base 1m", async ({
 
     await page.getByRole("combobox", { name: "时间周期" }).selectOption("custom");
     await page.getByRole("spinbutton", { name: "自定义周期分钟数" }).fill("7");
-    await page.getByRole("button", { name: "应用" }).click();
-    const matchingStarted = performance.now();
-    const { http, stream } = await matchingProductEvidence(observed, 7, "DERIVED");
-    const completeMatchMs = performance.now() - matchingStarted;
-    expect(completeMatchMs).toBeLessThan(45_000);
-    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
-    expect(http).toMatchObject({
-        requested_bar_count: 1440,
-        coverage: {
-            status: "COMPLETE",
-            expected_bar_count: 1440,
-            actual_bar_count: 1440
-        },
-        resolution_mode: "DERIVED",
-        aggregation_semantics_version: "TIME_BAR_V1"
-    });
-    expect((http?.bars as unknown[] | undefined)?.length).toBe(1440);
-    expect(http?.history_projection_fingerprint).toMatch(/^[0-9a-f]{64}$/);
-    expect(http?.derived_projection_fingerprint).toMatch(/^[0-9a-f]{64}$/);
-    expect((http?.revision_evidence as unknown[] | undefined)?.length).toBeGreaterThan(0);
-    expect(http?.resolution_plan_fingerprint).toBe(stream?.resolution_plan_fingerprint);
-    expect(stream).toMatchObject({
-        resolution_mode: "DERIVED",
-        cursor_bar_stride_minutes: 1
-    });
-    expect(BigInt(String(http?.resume_after_sequence))).toBe(
-        BigInt(String(http?.resolved_end_ns)) / minuteNs - BigInt(1)
-    );
-    expect(
-        observed.requests
-            .filter((url) => url.searchParams.get("bar_semantic")?.includes('"window_minutes":7'))
-            .every((url) => !url.searchParams.has("base_step"))
-    ).toBe(true);
-    const provider = await stats(page);
-    expect(provider.kline_requests.length).toBeGreaterThan(0);
-    expect(provider.kline_requests.every((request) => request.interval === "1m")).toBe(true);
-    expect(provider.stream_requests).toContain("btcusdt@kline_1m");
-    await test.info().attach("derived-product-budget", {
-        contentType: "application/json",
-        body: JSON.stringify({
-            completeMatchMs,
-            barCount: (http?.bars as unknown[] | undefined)?.length,
-            coverage: http?.coverage,
-            sourceSelection: http?.source_selection,
-            resolutionPlanFingerprint: http?.resolution_plan_fingerprint,
-            historyProjectionFingerprint: http?.history_projection_fingerprint,
-            derivedProjectionFingerprint: http?.derived_projection_fingerprint,
-            revisionEvidence: http?.revision_evidence,
-            stream,
-            provider
-        })
-    });
+    const applyTimestamp = new Date().toISOString();
+    const applyStarted = performance.now();
+    let completeMatchMs: number | undefined;
+    let http: Record<string, unknown> | undefined;
+    let stream: Record<string, unknown> | undefined;
+    let provider: Awaited<ReturnType<typeof stats>> | undefined;
+    try {
+        await page.getByRole("button", { name: "应用" }).click();
+        const matchingStarted = performance.now();
+        ({ http, stream } = await matchingProductEvidence(observed, 7, "DERIVED"));
+        completeMatchMs = performance.now() - matchingStarted;
+        expect(completeMatchMs).toBeLessThan(45_000);
+        await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+        expect(http).toMatchObject({
+            requested_bar_count: 1440,
+            coverage: {
+                status: "COMPLETE",
+                expected_bar_count: 1440,
+                actual_bar_count: 1440
+            },
+            resolution_mode: "DERIVED",
+            aggregation_semantics_version: "TIME_BAR_V1"
+        });
+        expect((http?.bars as unknown[] | undefined)?.length).toBe(1440);
+        expect(http?.history_projection_fingerprint).toMatch(/^[0-9a-f]{64}$/);
+        expect(http?.derived_projection_fingerprint).toMatch(/^[0-9a-f]{64}$/);
+        expect((http?.revision_evidence as unknown[] | undefined)?.length).toBeGreaterThan(0);
+        expect(http?.resolution_plan_fingerprint).toBe(stream?.resolution_plan_fingerprint);
+        expect(stream).toMatchObject({
+            resolution_mode: "DERIVED",
+            cursor_bar_stride_minutes: 1
+        });
+        expect(BigInt(String(http?.resume_after_sequence))).toBe(
+            BigInt(String(http?.resolved_end_ns)) / minuteNs - BigInt(1)
+        );
+        expect(
+            observed.requests
+                .filter((url) =>
+                    url.searchParams.get("bar_semantic")?.includes('"window_minutes":7')
+                )
+                .every((url) => !url.searchParams.has("base_step"))
+        ).toBe(true);
+        provider = await stats(page);
+        expect(provider.kline_requests.length).toBeGreaterThan(0);
+        expect(provider.kline_requests.every((request) => request.interval === "1m")).toBe(true);
+        expect(provider.stream_requests).toContain("btcusdt@kline_1m");
+    } finally {
+        // Snapshot pending requests before diagnostic reads: the deadline is not extended.
+        const capturedMs = performance.now();
+        const requests = Array.from(observed.httpTimings.values())
+            .filter((timing) => timing.startedMs >= applyStarted)
+            .map((timing) => ({
+                ...timing,
+                state:
+                    timing.failure !== undefined
+                        ? "FAILED"
+                        : timing.finishedMs === undefined
+                          ? "PENDING"
+                          : "FINISHED",
+                elapsedMs: (timing.finishedMs ?? capturedMs) - timing.startedMs
+            }));
+        let diagnosticError: string | undefined;
+        let uiStatus: string | null = null;
+        try {
+            uiStatus = await page.getByTestId("market-data-status").textContent({ timeout: 1000 });
+            if (provider === undefined) {
+                const response = await page.request.get(
+                    "http://binance-probe-fixture:8080/__onlyalpha_e2e__/market-data-stats",
+                    { timeout: 1000 }
+                );
+                if (response.ok()) {
+                    provider = (await response.json()) as Awaited<ReturnType<typeof stats>>;
+                } else {
+                    diagnosticError = `Provider diagnostics HTTP ${String(response.status())}`;
+                }
+            }
+        } catch (error) {
+            // Retain diagnostic failure without replacing the original assertion failure.
+            diagnosticError = error instanceof Error ? error.name : "DIAGNOSTIC_UNAVAILABLE";
+        }
+        await test.info().attach("derived-product-budget", {
+            contentType: "application/json",
+            body: JSON.stringify({
+                applyTimestamp,
+                applyStarted,
+                capturedMs,
+                totalElapsedMs: capturedMs - applyStarted,
+                completeMatchMs,
+                matched: http === undefined ? undefined : productBudgetEvidence(http),
+                requests,
+                subscribed: observed.subscribedTimings.filter(
+                    (timing) => timing.receivedMs >= applyStarted
+                ),
+                uiStatus,
+                diagnosticError,
+                stream,
+                provider
+            })
+        });
+    }
 });

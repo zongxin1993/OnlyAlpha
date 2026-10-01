@@ -13,6 +13,7 @@ from onlyalpha.application.market_data_product import (
     OnlyMarketDataProductService,
     OnlyMarketDataSourceReferenceV1,
 )
+from onlyalpha.market_data.durable.performance import only_market_data_performance, only_market_data_phase
 from onlyalpha.market_data.durable.range_query import OnlyBarWindowAnchorKind
 
 from .schema import (
@@ -78,8 +79,8 @@ def create_market_data_router(service: OnlyMarketDataProductService) -> APIRoute
         before_ns: _Nanoseconds | None = None,
         expected_type_id: str | None = None,
     ) -> MarketDataBarWindowDto:
-        return MarketDataBarWindowDto.from_model(
-            service.query_bars(
+        with only_market_data_performance("QUERY"):
+            projection = service.query_bars(
                 _reference(integration_id, integration_revision_fingerprint, expected_type_id),
                 instrument_id=instrument_id,
                 anchor_kind=OnlyBarWindowAnchorKind(anchor_kind),
@@ -87,7 +88,8 @@ def create_market_data_router(service: OnlyMarketDataProductService) -> APIRoute
                 before_ns=None if before_ns is None else int(before_ns),
                 bar_semantic=MarketDataBarSemanticDto.model_validate_json(bar_semantic).to_model(),
             )
-        )
+            with only_market_data_phase("serialization_projection"):
+                return MarketDataBarWindowDto.from_model(projection)
 
     @router.post(
         "/api/v2/market-data/acquisitions",
@@ -96,15 +98,16 @@ def create_market_data_router(service: OnlyMarketDataProductService) -> APIRoute
         responses=_ERROR_RESPONSES,
     )
     def create_acquisition(request: MarketDataAcquisitionRequestDto) -> MarketDataAcquisitionDto:
-        return MarketDataAcquisitionDto.from_model(
-            service.acquire_bars(
+        with only_market_data_performance("COMMAND"):
+            projection = service.acquire_bars(
                 request.source_reference.to_model(),
                 instrument_id=request.instrument_id,
                 start_ns=int(request.start_ns),
                 end_ns=int(request.end_ns),
                 bar_semantic=request.bar_semantic.to_model(),
             )
-        )
+            with only_market_data_phase("serialization_projection"):
+                return MarketDataAcquisitionDto.from_model(projection)
 
     @router.get(
         "/api/v2/market-data/acquisitions/{acquisition_id}",

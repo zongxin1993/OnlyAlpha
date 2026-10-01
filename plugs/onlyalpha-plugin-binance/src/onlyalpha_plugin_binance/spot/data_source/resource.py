@@ -49,6 +49,7 @@ from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyInstrumentId
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBar, OnlyBarType, OnlyMarketReferenceTick, OnlyTradeTick
 from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.market_data.durable.performance import only_market_data_timed
 from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
 from onlyalpha.plugin.lifecycle import OnlyPluginHealth, OnlyPluginHealthStatus, OnlyPluginLifecycleState
 from onlyalpha_plugin_binance.common.http import OnlyBinancePublicHttpClient
@@ -397,6 +398,7 @@ class OnlyBinanceSpotDataSource:
             f"durable recording {getattr(recording_state, 'value', 'UNKNOWN')}",
         )
 
+    @only_market_data_timed("normalization_and_record")
     def _observe_rest_response(self, endpoint: str, params: Mapping[str, str], payload: bytes) -> None:
         receive_ns = self._request.clock.timestamp_ns()
         observation = OnlyRawProviderObservation(

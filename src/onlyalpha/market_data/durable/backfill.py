@@ -19,9 +19,15 @@ from .models import (
     OnlyMarketDataSeal,
     OnlyTradeCoverageGap,
 )
+from .performance import only_market_data_phase, only_market_data_timed
 from .ports import OnlyMarketDataCatalog, OnlyMarketFactStore
 from .recovery import OnlyMarketDataRecoveryCoordinator
-from .revision import OnlyRevisionCommitService, only_build_coverage, only_verify_revision_authority
+from .revision import (
+    OnlyRevisionCommitService,
+    _OnlyVerifiedMarketDataCompletion,
+    only_build_coverage,
+    only_verify_revision_authority,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -66,6 +72,7 @@ class OnlyMarketDataBackfillResult:
     revision: OnlyMarketDataRevision | None
     seal: OnlyMarketDataSeal | None
     recovery_results: tuple[str, ...]
+    verified_completion: _OnlyVerifiedMarketDataCompletion | None = None
 
 
 class OnlyMarketDataBackfillCoordinator:
@@ -83,6 +90,7 @@ class OnlyMarketDataBackfillCoordinator:
         self._recovery = recovery
         self._committer = revision_committer
 
+    @only_market_data_timed("inspect")
     def inspect(self, acquisition: OnlyMarketDataAcquisitionIntent) -> OnlyCoverageManifest:
         self._validate_acquisition(acquisition)
         self._catalog.admit_acquisition_intent(acquisition)
@@ -101,7 +109,8 @@ class OnlyMarketDataBackfillCoordinator:
         *,
         parent_revision_id: str | None = None,
     ) -> OnlyMarketDataBackfillResult:
-        before = self.inspect(acquisition)
+        with only_market_data_phase("backfill_preinspect"):
+            before = self.inspect(acquisition)
         if not only_bar_gap_is_backfillable(
             gap, tuple(item for item in before.gaps if isinstance(item, OnlyBarCoverageGap))
         ):
@@ -114,7 +123,8 @@ class OnlyMarketDataBackfillCoordinator:
             raise ValueError("BACKFILL_BAR_REQUEST_SCOPE_MISMATCH")
         prior = {item.segment_id for item in self._catalog.list_durable_segments(acquisition.requested_scope)}
         fetch_started = perf_counter_ns()
-        tuple(self._source.load_bars(request))
+        with only_market_data_phase("provider_fetch"):
+            tuple(self._source.load_bars(request))
         _LOGGER.info(
             "market_data_provider_fetch provider_fetch_ms=%d", (perf_counter_ns() - fetch_started) // 1_000_000
         )
@@ -141,6 +151,7 @@ class OnlyMarketDataBackfillCoordinator:
         recovery_results = self._recovery.recover_all()
         return self._finish(acquisition, prior, parent_revision_id, recovery_results)
 
+    @only_market_data_timed("finish_scope_compose")
     def _finish(
         self,
         acquisition: OnlyMarketDataAcquisitionIntent,
@@ -174,7 +185,18 @@ class OnlyMarketDataBackfillCoordinator:
                 if {item[0] for item in new_segment_refs}.issubset({item[0] for item in stored.segment_refs}):
                     if not new_segment_refs.issubset(set(stored.segment_refs)):
                         raise RuntimeError("MARKET_DATA_REVISION_EVIDENCE_INVALID")
-                    return OnlyMarketDataBackfillResult(acquisition, manifest, stored, latest_seal, recovery_results)
+                    completion = self._recovery._completion
+                    if completion is not None:
+                        completion.assert_matches(completion.manifest, completion.revision, completion.seal)
+                        if (completion.manifest, completion.revision, completion.seal) != (
+                            manifest,
+                            stored,
+                            latest_seal,
+                        ):
+                            completion = None
+                    return OnlyMarketDataBackfillResult(
+                        acquisition, manifest, stored, latest_seal, recovery_results, completion
+                    )
             selected = available
         else:
             parent, parent_seal = self._catalog.load_sealed_revision(parent_revision_id)

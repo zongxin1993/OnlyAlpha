@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from threading import RLock
 
@@ -30,6 +31,7 @@ from .models import (
     OnlyTradeCoverageGap,
     OnlyVerifiedSegmentBatch,
 )
+from .performance import only_market_data_phase, only_market_data_timed
 from .ports import OnlyAcquisitionExecutionLease, OnlyMarketDataCatalog, OnlyMarketFactStore
 
 _REQUIRED_SEAL_CHECKS = (
@@ -50,6 +52,7 @@ class OnlyMarketDataSealError(RuntimeError):
     pass
 
 
+@only_market_data_timed("canonical_validation")
 def only_verify_canonical_uniqueness(facts: tuple[OnlyCanonicalMarketFactRecord, ...]) -> None:
     hashes: dict[str, str] = {}
     for fact in facts:
@@ -75,6 +78,7 @@ def only_deduplicate_facts(
     return tuple(sorted(selected.values(), key=lambda item: (item.ts_event_ns, item.canonical_fact_id)))
 
 
+@only_market_data_timed("coverage")
 def only_build_coverage(
     scope: OnlyMarketDataScope,
     segments: tuple[OnlyIngestSegment, ...],
@@ -132,7 +136,8 @@ def only_build_coverage(
             and (scope.end_ns - origin) % stride_ns == 0
         )
         actual = tuple(item.ts_event_ns for item in in_scope)
-        bars = tuple(OnlyMarketDataInboundUpdate.from_dict(item.canonical_payload).payload for item in in_scope)
+        with only_market_data_phase("payload_decode"):
+            bars = tuple(OnlyMarketDataInboundUpdate.from_dict(item.canonical_payload).payload for item in in_scope)
         semantic_valid = all(
             isinstance(item, OnlyBarUpdate)
             and item.bar.is_closed
@@ -273,6 +278,74 @@ def only_verify_revision_authority(
         raise OnlyMarketDataSealError("MARKET_DATA_REVISION_EVIDENCE_INVALID") from exc
     if not valid:
         raise OnlyMarketDataSealError("MARKET_DATA_REVISION_EVIDENCE_INVALID")
+
+
+@dataclass(frozen=True, slots=True)
+class _OnlyVerifiedMarketDataCompletion:
+    """Ephemeral result of one verified commit, never a persistent/query authority."""
+
+    manifest: OnlyCoverageManifest
+    revision: OnlyMarketDataRevision
+    seal: OnlyMarketDataSeal
+    segments: tuple[OnlyIngestSegment, ...]
+    verified_batch: OnlyVerifiedSegmentBatch
+    actual_count: int
+
+    def __post_init__(self) -> None:
+        try:
+            self.assert_matches(self.manifest, self.revision, self.seal)
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise OnlyMarketDataSealError("MARKET_DATA_COMPLETION_EVIDENCE_INVALID") from exc
+
+    def assert_matches(
+        self, manifest: OnlyCoverageManifest, revision: OnlyMarketDataRevision, seal: OnlyMarketDataSeal
+    ) -> None:
+        only_verify_revision_authority(revision, manifest, seal)
+        scope = revision.scope
+        construction = scope.bar_construction
+        family = OnlyMarketDataRangeFamily.from_scope(scope)
+        if (
+            not isinstance(self.verified_batch, OnlyVerifiedSegmentBatch)
+            or self.manifest != manifest
+            or self.revision != revision
+            or self.seal != seal
+            or self.verified_batch.scope != scope
+            or self.verified_batch.segment_refs != revision.segment_refs
+            or tuple((item.segment_id, item.content_hash) for item in self.segments) != revision.segment_refs
+            or not self.segments
+            or len({item.segment_id for item in self.segments}) != len(self.segments)
+            or any(
+                not family.matches(item.recovery_scope())
+                or item.start_ns is None
+                or item.end_ns is None
+                or item.start_ns < scope.start_ns
+                or item.end_ns > scope.end_ns
+                for item in self.segments
+            )
+            or scope.data_kind != "BAR"
+            or construction is None
+            or construction.plan.mode is not OnlyBarResolutionMode.PROVIDER_NATIVE
+            or type(self.actual_count) is not int
+            or self.actual_count < 0
+            or self.actual_count > sum(item.canonical_count for item in self.segments)
+            or self.actual_count
+            != len(
+                only_expected_fixed_duration_bar_ends(
+                    construction.plan.target_semantic,
+                    start_ns=scope.start_ns,
+                    end_ns=scope.end_ns,
+                    grid_origin_ns=construction.plan.grid_origin_ns,
+                )
+            )
+            or tuple(item.segment_id for item in self.verified_batch.physical_proofs)
+            != tuple(item[0] for item in revision.segment_refs)
+        ):
+            raise OnlyMarketDataSealError("MARKET_DATA_COMPLETION_EVIDENCE_INVALID")
+        try:
+            for segment, proof in zip(self.segments, self.verified_batch.physical_proofs, strict=True):
+                proof.assert_matches(segment)
+        except ValueError as exc:
+            raise OnlyMarketDataSealError("MARKET_DATA_COMPLETION_EVIDENCE_INVALID") from exc
 
 
 class OnlyInMemoryMarketDataCatalog(OnlyMarketDataCatalog):
@@ -531,6 +604,7 @@ class OnlyHistoricalMarketDataQueryService:
             raise OnlyMarketDataSealError("MARKET_DATA_REVISION_EVIDENCE_INVALID")
         return revision
 
+    @only_market_data_timed("sealed_exact_read")
     def read_exact(self, revision_id: str, scope: OnlyMarketDataScope) -> tuple[OnlyCanonicalMarketFactRecord, ...]:
         revision = self.resolve(revision_id)
         segments = self._catalog.load_durable_segments(tuple(item[0] for item in revision.segment_refs))
@@ -565,6 +639,7 @@ class OnlyRevisionCommitService:
         self._facts = fact_store
         self._catalog = catalog
         self._now = now
+        self._completion: _OnlyVerifiedMarketDataCompletion | None = None
 
     def commit(
         self,
@@ -589,6 +664,7 @@ class OnlyRevisionCommitService:
             raise OnlyMarketDataSealError(f"REVISION_COVERAGE_NOT_SEALABLE:{manifest.coverage_status.value}")
         return manifest, revision, seal
 
+    @only_market_data_timed("catalog_commit")
     def commit_if_complete(
         self,
         segments: OnlyIngestSegment | tuple[OnlyIngestSegment, ...],
@@ -599,6 +675,7 @@ class OnlyRevisionCommitService:
         parent_revision_id: str | None = None,
         reason: str = "INGEST",
     ) -> tuple[OnlyCoverageManifest, OnlyMarketDataRevision | None, OnlyMarketDataSeal | None]:
+        self._completion = None
         selected = (segments,) if isinstance(segments, OnlyIngestSegment) else tuple(segments)
         if not selected:
             raise ValueError("MARKET_DATA_REVISION_SEGMENTS_EMPTY")
@@ -622,8 +699,27 @@ class OnlyRevisionCommitService:
             return manifest, None, None
         normalizers = tuple({(item.normalizer_id, item.normalizer_version) for item in facts})
         revision, seal = self._seal_complete(manifest, ordered, normalizers, reason, parent_revision_id)
+        if (
+            scope.data_kind == "BAR"
+            and scope.bar_construction is not None
+            and scope.bar_construction.plan.mode is OnlyBarResolutionMode.PROVIDER_NATIVE
+        ):
+            actual_count = len(
+                {
+                    fact.canonical_fact_id
+                    for fact in facts
+                    if fact.source_id == scope.source_id
+                    and fact.instrument_id == scope.instrument_id
+                    and fact.data_kind == scope.data_kind
+                    and scope.start_ns < fact.ts_event_ns <= scope.end_ns
+                }
+            )
+            self._completion = _OnlyVerifiedMarketDataCompletion(
+                manifest, revision, seal, ordered, verified_batch, actual_count
+            )
         return manifest, revision, seal
 
+    @only_market_data_timed("catalog_commit")
     def commit_durable_facts(
         self,
         segments: tuple[OnlyIngestSegment, ...],
@@ -633,6 +729,7 @@ class OnlyRevisionCommitService:
         parent_revision_id: str | None = None,
         reason: str,
     ) -> tuple[OnlyCoverageManifest, OnlyMarketDataRevision | None, OnlyMarketDataSeal | None]:
+        self._completion = None
         ordered = tuple(sorted(segments, key=lambda item: (item.segment_id, item.content_hash)))
         if not ordered or len({item.segment_id for item in ordered}) != len(ordered):
             raise ValueError("MARKET_DATA_DURABLE_REVISION_SEGMENT_SET_INVALID")

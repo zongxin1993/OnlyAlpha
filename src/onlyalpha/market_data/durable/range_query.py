@@ -20,6 +20,7 @@ from .models import (
     OnlyMarketDataScope,
     OnlyMarketDataSeal,
 )
+from .performance import only_market_data_phase, only_market_data_timed
 from .ports import OnlyMarketDataCatalog, OnlyMarketFactStore
 from .revision import (
     OnlyMarketDataConflictError,
@@ -170,6 +171,7 @@ class OnlyVerifiedMarketDataRangeQuery:
         self._catalog = catalog
         self._facts = fact_store
 
+    @only_market_data_timed("range_read")
     def read(
         self,
         family: OnlyMarketDataRangeFamily,
@@ -184,7 +186,6 @@ class OnlyVerifiedMarketDataRangeQuery:
             revisions = self._catalog.list_current_sealed_revisions_overlapping(family, start_ns, end_ns)
         except Exception as exc:
             raise OnlyMarketDataSealError("MARKET_DATA_CATALOG_UNAVAILABLE") from exc
-        facts: list[OnlyCanonicalMarketFactRecord] = []
         segments: dict[str, OnlyIngestSegment] = {}
         evidence: list[OnlyMarketDataRevisionEvidence] = []
         verified_revisions: list[
@@ -221,28 +222,33 @@ class OnlyVerifiedMarketDataRangeQuery:
         else:
             range_facts = ()
 
-        for revision, revision_segments, manifest, seal in verified_revisions:
-            revision_segment_ids = {item.segment_id for item in revision_segments}
-            facts.extend(
+        with only_market_data_phase("revision_membership"):
+            owners: dict[str, list[OnlyMarketDataScope]] = {}
+            for revision, revision_segments, manifest, seal in verified_revisions:
+                for segment in revision_segments:
+                    owners.setdefault(segment.segment_id, []).append(revision.scope)
+                evidence.append(
+                    OnlyMarketDataRevisionEvidence(
+                        revision.revision_id,
+                        revision.fingerprint,
+                        manifest.manifest_id,
+                        manifest.fingerprint,
+                        seal.seal_id,
+                        max(start_ns, revision.scope.start_ns),
+                        min(end_ns, revision.scope.end_ns),
+                    )
+                )
+
+            # range_facts is already hash-verified, unique and canonically ordered.
+            # Select each fact once, but only with an explicit verified segment
+            # owner whose Revision scope covers it. Shared references do not
+            # duplicate facts or confer ownership outside that scope.
+            selected = tuple(
                 fact
                 for fact in range_facts
-                if fact.segment_id in revision_segment_ids
-                and revision.scope.start_ns < fact.ts_event_ns <= revision.scope.end_ns
+                if any(scope.start_ns < fact.ts_event_ns <= scope.end_ns for scope in owners.get(fact.segment_id, ()))
                 and any(item.start_ns < fact.ts_event_ns <= item.end_ns for item in requested_ranges)
             )
-            evidence.append(
-                OnlyMarketDataRevisionEvidence(
-                    revision.revision_id,
-                    revision.fingerprint,
-                    manifest.manifest_id,
-                    manifest.fingerprint,
-                    seal.seal_id,
-                    max(start_ns, revision.scope.start_ns),
-                    min(end_ns, revision.scope.end_ns),
-                )
-            )
-
-        selected = only_deduplicate_facts(tuple(facts))
         interval_inputs = _partition_interval_inputs(intervals, ordered_segments, selected)
         gaps: list[OnlyBarCoverageGap] = []
         issues: list[str] = []
@@ -289,6 +295,7 @@ class OnlyVerifiedMarketDataRangeQuery:
             tuple(sorted(set(issues))),
         )
 
+    @only_market_data_timed("catalog_revision")
     def _verify_revision(
         self, family: OnlyMarketDataRangeFamily, revision: OnlyMarketDataRevision
     ) -> tuple[

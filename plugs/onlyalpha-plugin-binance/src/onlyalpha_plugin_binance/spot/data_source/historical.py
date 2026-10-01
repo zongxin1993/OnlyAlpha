@@ -23,6 +23,7 @@ from onlyalpha.data.identifiers import OnlyDataVersion
 from onlyalpha.domain.enums import OnlyAdjustmentType
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBarType
+from onlyalpha.market_data.durable.performance import only_market_data_phase
 from onlyalpha_plugin_binance.common.http import OnlyBinancePublicHttpClient
 from onlyalpha_plugin_binance.errors import OnlyBinanceError
 
@@ -167,16 +168,17 @@ class OnlyBinanceSpotHistoricalProvider:
             cursor = next_cursor
             if len(page) < self._page_size:
                 break
-        bars = tuple(
-            sorted(
-                (
-                    only_normalize_rest_kline(item, self._instrument, self._bar_type)
-                    for item in rows
-                    if isinstance(item, Sequence)
-                ),
-                key=lambda item: item.bar_start,
+        with only_market_data_phase("normalization_and_record"):
+            bars = tuple(
+                sorted(
+                    (
+                        only_normalize_rest_kline(item, self._instrument, self._bar_type)
+                        for item in rows
+                        if isinstance(item, Sequence)
+                    ),
+                    key=lambda item: item.bar_start,
+                )
             )
-        )
         closed = tuple(
             item
             for item in bars

@@ -23,6 +23,7 @@ from onlyalpha.market_data.durable.models import (
     OnlyMarketDataScope,
     OnlyVerifiedSegmentBatch,
 )
+from onlyalpha.market_data.durable.performance import only_market_data_timed
 
 from .client import OnlyClickHouseClient
 from .version import only_assert_supported_clickhouse_server
@@ -227,6 +228,7 @@ class OnlyClickHouseMarketFactStore:
     def write_segment(self, segment: OnlyIngestSegment, records: tuple[OnlyMarketDataRecordBundle, ...]) -> None:
         self.write_segments((segment,), {segment.segment_id: records})
 
+    @only_market_data_timed("batch_store")
     def write_segments(
         self,
         segments: tuple[OnlyIngestSegment, ...],
@@ -251,6 +253,7 @@ class OnlyClickHouseMarketFactStore:
             segment.recovery_scope() if segment.canonical_count else None,
         )
 
+    @only_market_data_timed("batch_verify")
     def verify_segments(
         self,
         segments: tuple[OnlyIngestSegment, ...],
@@ -428,6 +431,7 @@ class OnlyClickHouseMarketFactStore:
         self._verify_segments_exact(segments, proofs)
         return self._read_facts(tuple(item.segment_id for item in segments), scope)
 
+    @only_market_data_timed("physical_verify")
     def _verify_segments_exact(
         self, segments: tuple[OnlyIngestSegment, ...], proofs: tuple[OnlyMarketDataPhysicalSegmentProof, ...]
     ) -> None:
@@ -451,6 +455,7 @@ class OnlyClickHouseMarketFactStore:
                 elif actual != (part.row_count, part.row_set_digest, {proof.segment_content_hash}):
                     raise OnlyClickHouseSegmentConflictError("CLICKHOUSE_SEGMENT_NOT_EXACT")
 
+    @only_market_data_timed("fact_read")
     def _read_facts(
         self, segment_ids: tuple[str, ...], scope: OnlyMarketDataScope
     ) -> tuple[OnlyCanonicalMarketFactRecord, ...]:

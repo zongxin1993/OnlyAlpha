@@ -9,8 +9,9 @@ from threading import Lock
 from time import perf_counter_ns
 
 from .models import OnlyIngestSegment, OnlyMarketDataHealth, OnlyMarketDataProvenance, OnlyMarketDataScope
+from .performance import only_market_data_timed
 from .ports import OnlyMarketDataCatalog, OnlyMarketFactStore
-from .revision import OnlyRevisionCommitService
+from .revision import OnlyRevisionCommitService, _OnlyVerifiedMarketDataCompletion
 from .wal import OnlyMarketDataWal
 
 _LOGGER = logging.getLogger(__name__)
@@ -50,6 +51,7 @@ class OnlyMarketDataRecoveryCoordinator:
         self._last_recovery_error: str | None = None
         self._last_verified_segment: str | None = None
         self._last_committed_segment: str | None = None
+        self._completion: _OnlyVerifiedMarketDataCompletion | None = None
 
     def drain(self, segment_id: str, scope: OnlyMarketDataScope) -> str:
         return self.drain_revision((segment_id,), scope)
@@ -144,9 +146,12 @@ class OnlyMarketDataRecoveryCoordinator:
             self._wal.collect_garbage(segment.segment_id)
         if revision is None:
             return f"DURABLE_ONLY:{manifest.coverage_status.value}"
+        self._completion = self._committer._completion
         return "ALREADY_COMMITTED" if all(committed) else "COMMITTED"
 
+    @only_market_data_timed("recovery_total")
     def recover_all(self, *, should_continue: Callable[[], bool] | None = None) -> tuple[str, ...]:
+        self._completion = None
         continue_recovery = should_continue or (lambda: True)
         if not continue_recovery():
             return ()
@@ -173,6 +178,7 @@ class OnlyMarketDataRecoveryCoordinator:
         """Drain sealed WAL while a live writer may own an open segment."""
         continue_recovery = should_continue or (lambda: True)
         results: list[str] = []
+        self._completion = None
         groups: dict[tuple[object, ...], tuple[list[str], list[OnlyMarketDataScope]]] = {}
         for segment_id in self._wal.scan_published_uncommitted():
             if not continue_recovery():

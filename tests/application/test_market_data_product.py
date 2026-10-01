@@ -15,6 +15,7 @@ from typing import NamedTuple
 import pytest
 
 import onlyalpha.market_data.durable.range_query as range_query
+import onlyalpha.market_data.durable.revision as market_data_revision
 from onlyalpha.application.integration_configuration import (
     OnlyIntegration,
     OnlyIntegrationId,
@@ -64,6 +65,7 @@ from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone
 from onlyalpha.domain.value import OnlyCurrency, OnlyPrice, OnlyQuantity
+from onlyalpha.market_data.aggregation.time_bar import OnlyTimeBarAggregator
 from onlyalpha.market_data.durable import (
     OnlyBarCoverageGap,
     OnlyCanonicalMarketFactRecord,
@@ -840,6 +842,52 @@ def test_bars_query_is_db_first_and_never_acquires(tmp_path: Path) -> None:
     assert harness.provider.bar_fetches == 0
 
 
+def test_product_phase_accounting_binds_exact_command_and_query_without_credentials(tmp_path: Path, caplog) -> None:
+    harness = _service(tmp_path)
+    reference = _reference(harness.revision_fingerprint)
+    start_ns, end_ns = _range()
+    with caplog.at_level("INFO"):
+        acquisition = harness.service.acquire_bars(
+            reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns
+        )
+        query = _query_bars(harness.service, reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
+    measurements = [
+        json.loads(record.args[0]) for record in caplog.records if record.msg == "market_data_performance %s"
+    ]
+    assert len(measurements) == 2
+    command, read = measurements
+    assert acquisition.status == "COMPLETE"
+    assert query.coverage.status == "COMPLETE"
+    assert command["operation"] == "COMMAND"
+    assert command["correlation"]["acquisition_id"] == acquisition.acquisition_id
+    assert command["correlation"]["instrument_id"] == str(INSTRUMENT)
+    assert command["correlation"]["source_id"] == acquisition.source_id
+    assert read["operation"] == "QUERY"
+    assert read["correlation"]["scope_fingerprint"] == command["correlation"]["scope_fingerprint"]
+    assert {"initial_inspect", "backfill_preinspect", "provider_fetch", "recovery_total"}.issubset(command["phases"])
+    assert "sealed_exact_read" not in command["phases"]
+    assert {"range_read", "canonical_validation", "coverage", "payload_decode", "revision_membership"}.issubset(
+        read["phases"]
+    )
+    for measurement in measurements:
+        assert measurement["residual_ms"] <= max(1000, measurement["total_ms"] * 0.05)
+        assert measurement["residual_ms"] >= 0
+        for phase in measurement["phases"].values():
+            assert phase["inclusive_ms"] >= phase["exclusive_ms"] >= 0
+        assert sum(phase["exclusive_ms"] for phase in measurement["phases"].values()) == pytest.approx(
+            measurement["accounted_ms"]
+        )
+        assert set(measurement["correlation"]) == {
+            "acquisition_id",
+            "scope_fingerprint",
+            "source_id",
+            "instrument_id",
+            "resolution_mode",
+            "target_semantic",
+            "base_semantic",
+        }
+
+
 def test_acquisition_seals_exact_revision_and_later_query_uses_database(tmp_path: Path) -> None:
     harness = _service(tmp_path)
     reference = _reference(harness.revision_fingerprint)
@@ -1097,6 +1145,40 @@ def test_adjacent_revisions_compose_into_one_deterministic_window(
     assert projected.history_projection_fingerprint == repeated.history_projection_fingerprint
     assert projected.resume_after_sequence == str(end_ns // MINUTE_NS - 1)
     assert harness.provider.bar_fetches == fetches
+
+
+def test_overlapping_revision_segment_owners_select_unique_facts_without_rehash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    harness = _service(tmp_path)
+    reference = _reference(harness.revision_fingerprint)
+    start_ns, end_ns = _range(minutes=4)
+    harness.service.acquire_bars(
+        reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=start_ns + 2 * MINUTE_NS
+    )
+    harness.service.acquire_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
+    discovered = harness.catalog.list_current_sealed_revisions_overlapping
+    deduplicate = range_query.only_deduplicate_facts
+    calls: list[int] = []
+
+    def count_deduplicate(facts):
+        calls.append(len(facts))
+        return deduplicate(facts)
+
+    monkeypatch.setattr(range_query, "only_deduplicate_facts", count_deduplicate)
+    original = _query_bars(harness.service, reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
+    assert len(calls) == 1
+    monkeypatch.setattr(
+        harness.catalog,
+        "list_current_sealed_revisions_overlapping",
+        lambda *args, **kwargs: tuple(reversed(discovered(*args, **kwargs))) * 2,
+    )
+    calls.clear()
+    repeated = _query_bars(harness.service, reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
+    assert len(calls) == 1
+    assert repeated.bars == original.bars
+    assert repeated.coverage == original.coverage
+    assert len(repeated.bars) == 4
 
 
 def test_large_complete_window_reads_and_decodes_each_durable_fact_once_per_stage(
@@ -1777,7 +1859,9 @@ def test_acquisition_plan_merges_adjacent_gaps_and_splits_at_exact_bound() -> No
     )
 
 
-def test_derived_window_plans_one_base_grid_envelope_without_hiding_exact_gaps(tmp_path: Path) -> None:
+def test_derived_window_plans_one_base_grid_envelope_without_hiding_exact_gaps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     harness = _service(tmp_path, page_minutes=1000)
     reference = _reference(harness.revision_fingerprint)
     semantic = OnlyBarSemantic.fixed_duration(7)
@@ -1815,6 +1899,14 @@ def test_derived_window_plans_one_base_grid_envelope_without_hiding_exact_gaps(t
     assert all(planned.start_ns <= gap.start_ns and gap.end_ns <= planned.end_ns for gap in projection.coverage.gaps)
 
     pages_before_derived_acquisition = harness.provider.page_observations
+    exact_reads: list[OnlyMarketDataScope] = []
+    original_exact_read = OnlyHistoricalMarketDataQueryService.read_exact
+
+    def count_exact_read(self, revision_id, scope):
+        exact_reads.append(scope)
+        return original_exact_read(self, revision_id, scope)
+
+    monkeypatch.setattr(OnlyHistoricalMarketDataQueryService, "read_exact", count_exact_read)
     acquired = harness.service.acquire_bars(
         reference,
         instrument_id=str(INSTRUMENT),
@@ -1826,7 +1918,46 @@ def test_derived_window_plans_one_base_grid_envelope_without_hiding_exact_gaps(t
     assert harness.provider.page_observations - pages_before_derived_acquisition == 9
     acquired_revision, _ = harness.catalog.load_sealed_revision(acquired.revision_id or "")
     assert len(acquired_revision.segment_refs) == 9
+    # Completion metadata is owned by the just-verified durable commit, not a
+    # second full payload read of that same Revision within the command.
+    assert exact_reads == []
+    status = harness.service.acquisition_status(reference, acquired.acquisition_id)
+    assert status.coverage.actual_bar_count == acquired.coverage.actual_bar_count
+    assert len(exact_reads) == 1
     reads_before_complete_query = harness.service._facts.segment_reads
+    full_canonical_scans: list[int] = []
+    coverage_calls = 0
+    decode_calls = 0
+    aggregator_inputs = 0
+    verify_canonical = market_data_revision.only_verify_canonical_uniqueness
+    build_coverage = range_query.only_build_coverage
+    decode = OnlyMarketDataInboundUpdate.from_dict
+    aggregate = OnlyTimeBarAggregator.process
+
+    def count_canonical(facts):
+        if len(facts) >= 1440 * 7:
+            full_canonical_scans.append(len(facts))
+        return verify_canonical(facts)
+
+    def count_coverage(scope, segments, facts):
+        nonlocal coverage_calls
+        coverage_calls += 1
+        return build_coverage(scope, segments, facts)
+
+    def count_decode(value):
+        nonlocal decode_calls
+        decode_calls += 1
+        return decode(value)
+
+    def count_aggregate(self, bar):
+        nonlocal aggregator_inputs
+        aggregator_inputs += 1
+        return aggregate(self, bar)
+
+    monkeypatch.setattr(market_data_revision, "only_verify_canonical_uniqueness", count_canonical)
+    monkeypatch.setattr(range_query, "only_build_coverage", count_coverage)
+    monkeypatch.setattr(OnlyMarketDataInboundUpdate, "from_dict", staticmethod(count_decode))
+    monkeypatch.setattr(OnlyTimeBarAggregator, "process", count_aggregate)
     complete = harness.service.query_bars(
         reference,
         instrument_id=str(INSTRUMENT),
@@ -1843,6 +1974,12 @@ def test_derived_window_plans_one_base_grid_envelope_without_hiding_exact_gaps(t
     assert complete.resume_after_sequence == str(complete.resolved_end_ns // MINUTE_NS - 1)
     assert complete.resume_plan_fingerprint == complete.resolution_plan_fingerprint
     assert harness.service._facts.segment_reads - reads_before_complete_query == 1
+    assert coverage_calls == 1440
+    assert decode_calls == 2 * 1440 * 7
+    assert aggregator_inputs == 1440 * 7
+    # Membership must select each already-verified canonical fact once, without
+    # extending it once per overlapping Revision and globally hashing it again.
+    assert len(full_canonical_scans) == 1
 
 
 def test_base_grid_envelope_splits_at_the_minimum_bounded_count() -> None:
