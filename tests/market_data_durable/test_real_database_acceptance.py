@@ -9,6 +9,7 @@ from pathlib import Path
 import psycopg
 import pytest
 
+import onlyalpha.market_data.durable.revision as market_data_revision
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.data.identity import only_bar_update_id
@@ -38,6 +39,7 @@ from onlyalpha.market_data.durable import (
     OnlyRevisionCommitService,
     OnlyVerifiedMarketDataRangeQuery,
 )
+from onlyalpha.market_data.durable.models import OnlyCanonicalMarketFactRecord
 from onlyalpha.market_data.resolution import (
     OnlyBarCapability,
     OnlyBarConstructionIdentity,
@@ -83,7 +85,9 @@ def _clickhouse(database: str) -> OnlyClickHouseClient:
     )
 
 
-def test_combined_real_database_authority_recovery_and_maintenance(tmp_path: Path) -> None:
+def test_combined_real_database_authority_recovery_and_maintenance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     postgres_dsn = os.environ.get("ONLYALPHA_POSTGRES_DSN")
     if not postgres_dsn:
         pytest.fail("ONLYALPHA_POSTGRES_DSN is required")
@@ -146,14 +150,23 @@ def test_combined_real_database_authority_recovery_and_maintenance(tmp_path: Pat
         OnlyRevisionCommitService(fresh_store, fresh_catalog, now=fixed_now),
     )
     assert fresh_recovery.recover_all() == ()
-    assert (
-        len(
-            OnlyHistoricalMarketDataQueryService(fresh_catalog, fresh_store).read_exact(
-                result.revision.revision_id, scope
-            )
+    validations: list[tuple[str, ...]] = []
+    verify = market_data_revision.only_verify_canonical_uniqueness
+
+    def count_validation(facts: tuple[OnlyCanonicalMarketFactRecord, ...]) -> None:
+        validations.append(tuple(item.canonical_fact_id for item in facts))
+        verify(facts)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(market_data_revision, "only_verify_canonical_uniqueness", count_validation)
+        exact_facts = OnlyHistoricalMarketDataQueryService(fresh_catalog, fresh_store).read_exact(
+            result.revision.revision_id, scope
         )
-        == 2
-    )
+    assert len(exact_facts) == 2
+    # One verified deduplication, then the independent Coverage reconstruction.
+    # A third full-payload validation is redundant work on the exact same input.
+    assert len(validations) == 2
+    assert validations[0] == validations[1]
 
     before = fresh_client.query_json("SELECT count() count, groupBitXor(cityHash64(tuple(*))) hash FROM market_bar")
     if fresh_client.config.storage_policy == "default":

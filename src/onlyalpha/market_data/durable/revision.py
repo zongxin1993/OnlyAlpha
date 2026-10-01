@@ -551,7 +551,6 @@ class OnlyHistoricalMarketDataQueryService:
             raise OnlyMarketDataSealError("REVISION_SEGMENT_METADATA_MISMATCH")
         proofs = self._catalog.load_physical_proofs(tuple(item.segment_id for item in segments))
         facts = self._fact_store.read_segment_facts(segments, scope, proofs)
-        only_verify_canonical_uniqueness(facts)
         return only_deduplicate_facts(facts)
 
 

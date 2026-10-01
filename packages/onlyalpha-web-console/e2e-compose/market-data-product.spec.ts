@@ -100,16 +100,20 @@ function observeProduct(page: Page) {
     const subscribed: Record<string, unknown>[] = [];
     const requests: URL[] = [];
     const acquisitions: URL[] = [];
+    const acquisitionRequests: URL[] = [];
     const subscriptions: Record<string, unknown>[] = [];
     const streams: {
         subscription?: Record<string, unknown>;
         states: string[];
         previewCount: number;
+        preview?: Record<string, unknown>;
         closed: boolean;
     }[] = [];
     page.on("request", (request) => {
         const url = new URL(request.url());
         if (url.pathname === "/api/v2/market-data/bars") requests.push(url);
+        if (url.pathname === "/api/v2/market-data/acquisitions" && request.method() === "POST")
+            acquisitionRequests.push(url);
     });
     page.on("response", async (response) => {
         const url = new URL(response.url());
@@ -123,7 +127,11 @@ function observeProduct(page: Page) {
             acquisitions.push(url);
     });
     page.on("websocket", (socket) => {
-        const stream: (typeof streams)[number] = { states: [], previewCount: 0, closed: false };
+        const stream: (typeof streams)[number] = {
+            states: [],
+            previewCount: 0,
+            closed: false
+        };
         streams.push(stream);
         socket.on("close", () => {
             stream.closed = true;
@@ -139,10 +147,65 @@ function observeProduct(page: Page) {
             const value = JSON.parse(String(payload)) as Record<string, unknown>;
             if (value.event === "SUBSCRIBED") subscribed.push(value);
             if (value.event === "STATE") stream.states.push(String(value.state));
-            if (value.event === "BAR_PREVIEW") stream.previewCount += 1;
+            if (value.event === "BAR_PREVIEW") {
+                stream.previewCount += 1;
+                stream.preview = value;
+            }
         });
     });
-    return { acquisitions, bars, subscribed, requests, subscriptions, streams };
+    return {
+        acquisitionRequests,
+        acquisitions,
+        bars,
+        subscribed,
+        requests,
+        subscriptions,
+        streams
+    };
+}
+
+async function waitForMatchingPreview(
+    page: Page,
+    streams: () => ReturnType<typeof observeProduct>["streams"],
+    http: Record<string, unknown>,
+    contextKey: string
+): Promise<string> {
+    const observation = page.getByTestId("market-data-observation");
+    await expect(observation).toHaveAttribute("data-chart-context-key", contextKey);
+    await expect(observation).toHaveAttribute("data-observation-mode", "preview");
+    await expect
+        .poll(async () => {
+            const start = await observation.getAttribute("data-bar-start-ns");
+            return (
+                start !== null &&
+                /^[0-9]+$/.test(start) &&
+                streams().some(
+                    (stream) =>
+                        stream.previewCount > 0 &&
+                        stream.preview?.source_id ===
+                            (http.source_selection as { source_id: string }).source_id &&
+                        stream.preview.instrument_id === http.instrument_id &&
+                        JSON.stringify(stream.preview.bar_semantic) ===
+                            JSON.stringify(http.bar_semantic) &&
+                        (stream.preview.bar as { bar_start_ns?: string } | undefined)
+                            ?.bar_start_ns === start
+                )
+            );
+        })
+        .toBe(true);
+    // A render-frame barrier lets the renderer publish the admitted ledger's range;
+    // it does not pause the provider or wait an arbitrary number of milliseconds.
+    await page.evaluate(
+        () =>
+            new Promise<void>((resolve) => {
+                requestAnimationFrame(() => {
+                    resolve();
+                });
+            })
+    );
+    const start = await observation.getAttribute("data-bar-start-ns");
+    if (start === null) throw new Error("Matching preview identity unavailable");
+    return start;
 }
 
 async function stats(page: Page) {
@@ -301,6 +364,9 @@ test("real Browser uses one native 15m resolution across HTTP and stream", async
         value.instrument_id === http.instrument_id &&
         JSON.stringify(value.bar_semantic) === JSON.stringify(http.bar_semantic);
     const counts = () => ({
+        totalRequests: observed.requests.length,
+        acquisitionRequests: observed.acquisitionRequests.length,
+        websockets: observed.streams.length,
         requests: observed.requests.filter(
             (url) =>
                 url.searchParams.get("integration_id") === integrationId &&
@@ -319,30 +385,58 @@ test("real Browser uses one native 15m resolution across HTTP and stream", async
                 value.resolution_plan_fingerprint === http.resolution_plan_fingerprint
         ).length
     });
+    const matchingStreams = () =>
+        observed.streams.filter(
+            (stream) =>
+                stream.subscription !== undefined && matchesSubscription(stream.subscription)
+        );
+    const previewBefore = await waitForMatchingPreview(
+        page,
+        matchingStreams,
+        http,
+        JSON.stringify([
+            integrationId,
+            selection.integration_revision_fingerprint,
+            http.instrument_id,
+            http.bar_semantic
+        ])
+    );
+    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
     const before = counts();
     expect(before.requests).toBeGreaterThan(0);
     expect(before.subscriptions).toBe(1);
     expect(before.subscribed).toBe(1);
+    expect(matchingStreams()).toHaveLength(1);
+    expect(matchingStreams()[0].closed).toBe(false);
     const chart = page.getByTestId("price-chart");
     const observation = page.getByTestId("market-data-observation");
     const rangeBefore = await chart.getAttribute("data-visible-range-from");
     const rangeToBefore = await chart.getAttribute("data-visible-range-to");
     const anchorBefore = await chart.getAttribute("data-visible-anchor-time");
+    if (rangeBefore === null || rangeToBefore === null || anchorBefore === null)
+        throw new Error("Admitted preview viewport unavailable");
     const switches: unknown[] = [];
     await expect(chart).toHaveAttribute("data-chart-type", "CANDLESTICK");
     for (const type of ["LINE", "CANDLESTICK"]) {
         await page.getByRole("combobox", { name: "图表类型" }).selectOption(type);
         await expect(chart).toHaveAttribute("data-chart-type", type);
-        await expect(chart).toHaveAttribute("data-visible-range-from", rangeBefore ?? "");
-        await expect(chart).toHaveAttribute("data-visible-range-to", rangeToBefore ?? "");
-        await expect(chart).toHaveAttribute("data-visible-anchor-time", anchorBefore ?? "");
+        await expect(chart).toHaveAttribute("data-visible-range-from", rangeBefore);
+        await expect(chart).toHaveAttribute("data-visible-range-to", rangeToBefore);
+        await expect(chart).toHaveAttribute("data-visible-anchor-time", anchorBefore);
+        await expect(observation).toHaveAttribute("data-observation-mode", "preview");
+        await expect(observation).toHaveAttribute("data-bar-start-ns", previewBefore);
         expect(counts()).toEqual(before);
+        expect(matchingStreams()).toHaveLength(1);
+        expect(matchingStreams()[0].closed).toBe(false);
         switches.push({
             type,
             rangeFrom: await chart.getAttribute("data-visible-range-from"),
             rangeTo: await chart.getAttribute("data-visible-range-to"),
             anchor: await chart.getAttribute("data-visible-anchor-time"),
-            counts: counts()
+            preview: await observation.getAttribute("data-bar-start-ns"),
+            counts: counts(),
+            websocketCount: matchingStreams().length,
+            websocketClosed: matchingStreams()[0].closed
         });
     }
     const bounds = await chart.boundingBox();
@@ -378,6 +472,7 @@ test("real Browser uses one native 15m resolution across HTTP and stream", async
             rangeBefore,
             rangeToBefore,
             anchorBefore,
+            previewBefore,
             switches,
             selected,
             fallback: await observation.getAttribute("data-observation-mode")
@@ -648,7 +743,10 @@ test("real Browser keeps derived 7m intent while Product uses base 1m", async ({
     await page.getByRole("combobox", { name: "时间周期" }).selectOption("custom");
     await page.getByRole("spinbutton", { name: "自定义周期分钟数" }).fill("7");
     await page.getByRole("button", { name: "应用" }).click();
+    const matchingStarted = performance.now();
     const { http, stream } = await matchingProductEvidence(observed, 7, "DERIVED");
+    const completeMatchMs = performance.now() - matchingStarted;
+    expect(completeMatchMs).toBeLessThan(45_000);
     await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
     expect(http).toMatchObject({
         requested_bar_count: 1440,
@@ -681,4 +779,19 @@ test("real Browser keeps derived 7m intent while Product uses base 1m", async ({
     expect(provider.kline_requests.length).toBeGreaterThan(0);
     expect(provider.kline_requests.every((request) => request.interval === "1m")).toBe(true);
     expect(provider.stream_requests).toContain("btcusdt@kline_1m");
+    await test.info().attach("derived-product-budget", {
+        contentType: "application/json",
+        body: JSON.stringify({
+            completeMatchMs,
+            barCount: (http?.bars as unknown[] | undefined)?.length,
+            coverage: http?.coverage,
+            sourceSelection: http?.source_selection,
+            resolutionPlanFingerprint: http?.resolution_plan_fingerprint,
+            historyProjectionFingerprint: http?.history_projection_fingerprint,
+            derivedProjectionFingerprint: http?.derived_projection_fingerprint,
+            revisionEvidence: http?.revision_evidence,
+            stream,
+            provider
+        })
+    });
 });
