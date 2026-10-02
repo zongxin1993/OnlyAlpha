@@ -492,13 +492,19 @@ def test_public_package_imports_keep_canonical_objects_and_export_counts() -> No
     from onlyalpha.application.product_command_receipt import OnlyProductCommandId
     from onlyalpha.core.clock import OnlyClock
     from onlyalpha.research.agent.errors import OnlyAgentContextError as CanonicalAgentContextError
+    from onlyalpha.research.artifact.scientific_store import (
+        OnlyParquetResearchCalculationArtifactStore as CanonicalResearchCalculationArtifactStore,
+    )
     from onlyalpha.research.experiment.model import OnlySearchBudgetV1
     from onlyalpha.research.run import OnlyResearchOriginKind as CanonicalResearchOriginKind
     from onlyalpha.research.run import OnlyResearchRunReader as CanonicalResearchRunReader
     from onlyalpha.research.workload import OnlyResearchWorkloadPlan
 
     assert len(onlyalpha.__all__) == 17
-    assert len(research.__all__) == 529
+    # Calculation-only publication intentionally adds the public Calculation Artifact store.
+    assert len(research.__all__) == 530
+    assert research.__all__.count("OnlyParquetResearchCalculationArtifactStore") == 1
+    assert research.OnlyParquetResearchCalculationArtifactStore is CanonicalResearchCalculationArtifactStore
     assert len(experiment.__all__) == 52
     assert len(agent.__all__) == 129
     # Private-strategy execution requires the application symbols, OriginKind,
