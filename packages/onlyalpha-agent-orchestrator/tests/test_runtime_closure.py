@@ -495,16 +495,30 @@ def test_public_package_imports_keep_canonical_objects_and_export_counts() -> No
     from onlyalpha.research.artifact.scientific_store import (
         OnlyParquetResearchCalculationArtifactStore as CanonicalResearchCalculationArtifactStore,
     )
+    from onlyalpha.research.calculation import publication as canonical_publication
+    from onlyalpha.research.calculation import readiness as canonical_readiness
     from onlyalpha.research.experiment.model import OnlySearchBudgetV1
     from onlyalpha.research.run import OnlyResearchOriginKind as CanonicalResearchOriginKind
     from onlyalpha.research.run import OnlyResearchRunReader as CanonicalResearchRunReader
     from onlyalpha.research.workload import OnlyResearchWorkloadPlan
 
     assert len(onlyalpha.__all__) == 17
-    # Calculation-only publication intentionally adds the public Calculation Artifact store.
-    assert len(research.__all__) == 530
+    # Calculation-only publication adds the Artifact store; readiness adds five canonical contracts.
+    assert len(research.__all__) == 535
     assert research.__all__.count("OnlyParquetResearchCalculationArtifactStore") == 1
     assert research.OnlyParquetResearchCalculationArtifactStore is CanonicalResearchCalculationArtifactStore
+    for name, canonical in (
+        (
+            "OnlyResearchCalculationPublicationContract",
+            canonical_publication.OnlyResearchCalculationPublicationContract,
+        ),
+        ("OnlyResearchOutputReadiness", canonical_readiness.OnlyResearchOutputReadiness),
+        ("OnlyResearchReadinessState", canonical_readiness.OnlyResearchReadinessState),
+        ("OnlyResearchReadinessReason", canonical_readiness.OnlyResearchReadinessReason),
+        ("only_validate_research_output_readiness", canonical_readiness.only_validate_research_output_readiness),
+    ):
+        assert research.__all__.count(name) == 1
+        assert getattr(research, name) is canonical
     assert len(experiment.__all__) == 52
     assert len(agent.__all__) == 129
     # Private-strategy execution requires the application symbols, OriginKind,
