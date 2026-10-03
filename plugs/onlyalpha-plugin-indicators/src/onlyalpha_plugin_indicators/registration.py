@@ -435,6 +435,9 @@ def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
                 "onlyalpha_plugin_indicators.research:OnlyOfficialResearchIndicatorBackend",
                 ("registration.py", "research.py"),
             ),
+            readiness_contract_versions=(1,)
+            if item.type_id == "onlyalpha.indicator.sma" and item.semantic_version == "1"
+            else (),
         )
         for item in (*TYPES[:3], *TYPES[4:], ATR_V2)
     )

@@ -12,3 +12,9 @@ index. Content changes require a new provider version, while semantic changes ad
 The financial family provides `wma@1`, `roc@1`, `vwap@1`, `obv@1`, and `stochastic@1`. VWAP consumes an explicit price series and volume series; it does not
 choose close or typical price internally. Stochastic exposes named `k` and `d` output ports. Existing EMA, SMA, RSI, ATR, Bollinger,
 Rolling Return, Rolling Volatility, ZScore, and MACD identities are unchanged.
+
+Provider `onlyalpha.indicator.library` version **6** declares readiness contract V1 only for the exact
+`onlyalpha.indicator.sma@1` RESEARCH registration. Its atomic `execute_with_readiness()` returns the existing exact Decimal
+values with `PARTIAL/WARMUP_INCOMPLETE` before the complete window and `READY/NONE` thereafter. Period 1 is READY from
+the first point; partial and ready numeric zero remain numeric zero. Legacy `execute()` is unchanged. This SPI is an
+internal publication foundation, not a Product/API/Web workflow; other Indicator registrations do not claim readiness.

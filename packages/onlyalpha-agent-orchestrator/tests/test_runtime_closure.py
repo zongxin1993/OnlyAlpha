@@ -495,6 +495,7 @@ def test_public_package_imports_keep_canonical_objects_and_export_counts() -> No
     from onlyalpha.research.artifact.scientific_store import (
         OnlyParquetResearchCalculationArtifactStore as CanonicalResearchCalculationArtifactStore,
     )
+    from onlyalpha.research.calculation import backend as canonical_backend
     from onlyalpha.research.calculation import publication as canonical_publication
     from onlyalpha.research.calculation import readiness as canonical_readiness
     from onlyalpha.research.experiment.model import OnlySearchBudgetV1
@@ -503,11 +504,17 @@ def test_public_package_imports_keep_canonical_objects_and_export_counts() -> No
     from onlyalpha.research.workload import OnlyResearchWorkloadPlan
 
     assert len(onlyalpha.__all__) == 17
-    # Calculation-only publication adds the Artifact store; readiness adds five canonical contracts.
-    assert len(research.__all__) == 535
+    # Readiness publication contracts and the exact atomic backend SPI are canonical exports.
+    assert len(research.__all__) == 538
     assert research.__all__.count("OnlyParquetResearchCalculationArtifactStore") == 1
     assert research.OnlyParquetResearchCalculationArtifactStore is CanonicalResearchCalculationArtifactStore
     for name, canonical in (
+        ("OnlyResearchCalculationBackendExecutionV2", canonical_backend.OnlyResearchCalculationBackendExecutionV2),
+        ("OnlyResearchReadinessCalculationBackend", canonical_backend.OnlyResearchReadinessCalculationBackend),
+        (
+            "OnlyResolvedResearchReadinessCalculationBackend",
+            canonical_backend.OnlyResolvedResearchReadinessCalculationBackend,
+        ),
         (
             "OnlyResearchCalculationPublicationContract",
             canonical_publication.OnlyResearchCalculationPublicationContract,

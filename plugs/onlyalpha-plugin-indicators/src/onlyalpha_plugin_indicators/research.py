@@ -8,7 +8,13 @@ from decimal import Decimal, localcontext
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
-from onlyalpha.calculation import OnlyCalculationDefinition, OnlyMissingValuePolicy
+from onlyalpha.calculation import OnlyCalculationDefinition, OnlyCalculationKind, OnlyMissingValuePolicy
+from onlyalpha.research.calculation.backend import OnlyResearchCalculationBackendExecutionV2
+from onlyalpha.research.calculation.readiness import (
+    OnlyResearchOutputReadiness,
+    OnlyResearchReadinessReason,
+    OnlyResearchReadinessState,
+)
 from onlyalpha_plugin_indicators.financial_semantics import evaluate_financial
 
 _Q = Decimal("0.000000000001")
@@ -17,6 +23,35 @@ _DECIMAL = pa.decimal128(38, 12)
 
 class OnlyOfficialResearchIndicatorBackend:
     """Columnar batch adapter around independent deterministic Decimal kernels."""
+
+    def execute_with_readiness(
+        self,
+        definition: OnlyCalculationDefinition,
+        inputs: Mapping[str, pa.Array | pa.ChunkedArray],
+    ) -> OnlyResearchCalculationBackendExecutionV2:
+        if (
+            definition.kind is not OnlyCalculationKind.INDICATOR
+            or definition.type_id != "onlyalpha.indicator.sma"
+            or definition.semantic_version != "1"
+        ):
+            raise ValueError("official readiness supports only onlyalpha.indicator.sma@1")
+        outputs = self.execute(definition, inputs)
+        period = int(str(definition.parameters["period"]))
+        partial = tuple(index + 1 < period for index in range(len(outputs["value"])))
+        readiness = OnlyResearchOutputReadiness(
+            pa.array(
+                [OnlyResearchReadinessState.PARTIAL if item else OnlyResearchReadinessState.READY for item in partial],
+                type=pa.string(),
+            ),
+            pa.array(
+                [
+                    OnlyResearchReadinessReason.WARMUP_INCOMPLETE if item else OnlyResearchReadinessReason.NONE
+                    for item in partial
+                ],
+                type=pa.string(),
+            ),
+        )
+        return OnlyResearchCalculationBackendExecutionV2(outputs, {"value": readiness})
 
     def execute(
         self,

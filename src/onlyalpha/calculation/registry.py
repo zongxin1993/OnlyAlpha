@@ -54,8 +54,16 @@ class OnlyCalculationBackendRegistration:
     implementation_manifest: OnlyCalculationImplementationManifest | None = None
     state_capability: OnlyCalculationStateCapability | None = None
     checkpoint_schema_version: int | None = None
+    readiness_contract_versions: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
+        versions = self.readiness_contract_versions
+        if type(versions) is not tuple or any(type(version) is not int or version < 1 for version in versions):
+            raise ValueError("readiness contract versions must be a tuple of positive plain integers")
+        if versions != tuple(sorted(set(versions))):
+            raise ValueError("readiness contract versions must be sorted and unique")
+        if versions and self.backend is not OnlyCalculationBackendKind.RESEARCH:
+            raise ValueError("readiness contract versions belong only to a RESEARCH registration")
         if self.backend is not OnlyCalculationBackendKind.TRADING:
             if self.state_capability is not None or self.checkpoint_schema_version is not None:
                 raise ValueError("state capability belongs only to a TRADING Calculation registration")

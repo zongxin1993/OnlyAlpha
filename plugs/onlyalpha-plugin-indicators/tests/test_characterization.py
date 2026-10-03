@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from onlyalpha_plugin_indicators.provider import quant_asset_provider
 from onlyalpha_plugin_indicators.registration import registrations
 
 from onlyalpha.domain.enums import (
@@ -28,6 +29,13 @@ from onlyalpha.indicator.identifiers import (
 from onlyalpha.indicator.registry import OnlyIndicatorFactoryRegistry
 
 BAR_TYPE = OnlyBarType(OnlyInstrumentId.parse("TEST.XNAS"), OnlyBarSemantic.fixed_duration(1))
+
+
+def test_official_indicator_provider_versions_content_without_changing_semantic_types() -> None:
+    provider = quant_asset_provider()
+    assert provider.manifest.provider_id == "onlyalpha.indicator.library"
+    assert provider.manifest.provider_version == "6"
+    assert provider.manifest.source.distribution_version == "0.9.9"
 
 
 def _bar(index: int, close: str) -> OnlyBar:
