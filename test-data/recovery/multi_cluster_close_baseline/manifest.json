@@ -194,18 +194,18 @@
     "EACK-6b0e86433c34e611c69387b94d6667733c87d4dd9737d2277c9ca52995f5093c",
     "ETX-40d22474fab99f40c171593274a4cf3dbbe1403e423b17494de77274a5188bbe"
   ],
-  "configuration_fingerprint": "e9b53a779699043ec86cb332c7539627af2baffd264307c9f6f365b255edb8f2",
+  "configuration_fingerprint": "d19c48be6fff875feb84dd80fddc4bfc94eecc16ec741c62d8a144b39e1c3058",
   "database_archive": "database.sqlite3.gz",
-  "database_fingerprint": "570dcf673dd88613774663e3c2c0767f2f9c269a52ac097dfdf65632fa51c62f",
-  "database_template": "multi_cluster_close_baseline-570dcf673dd88613774663e3c2c0767f2f9c269a52ac097dfdf65632fa51c62f.sqlite3",
+  "database_fingerprint": "d5bb5be99a5924ee78af7d0799d6b2f2b10c31f98d459c69ebff2e6eca23fa00",
+  "database_template": "multi_cluster_close_baseline-d5bb5be99a5924ee78af7d0799d6b2f2b10c31f98d459c69ebff2e6eca23fa00.sqlite3",
   "fill_count": 4,
   "onlyalpha_version": "0.9.9",
   "order_count": 4,
   "persistence_schema_version": "5",
-  "result_fingerprint": "224705abd695b4624fafd1b654ca516a9d5d25f65ed096a09aca3c1e42b0ca68",
-  "scenario_fingerprint": "e9b53a779699043ec86cb332c7539627af2baffd264307c9f6f365b255edb8f2",
+  "result_fingerprint": "3be59843035df0cb4d7805ca573d7ff31ac40e3ec7b1b92f2e1cccea24efabfd",
+  "scenario_fingerprint": "d19c48be6fff875feb84dd80fddc4bfc94eecc16ec741c62d8a144b39e1c3058",
   "strategy_fingerprints": [
-    "8b267896bc113b456e0da1bcf932fa0dffaa5853841450d592c517242222591b"
+    "eb87637d272485956685bba49d6eb24a511d7fdacfcc1c660ca9652efa70a30c"
   ],
   "terminal_count": 0
 }

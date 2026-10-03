@@ -350,9 +350,9 @@ def test_same_subject_policy_and_research_evidence_is_deterministic_and_replayab
 
     assert first == second == decisions.load_verified(first.decision_fingerprint)
     assert first.outcome is OnlyQualificationOutcome.APPROVED
-    # The fingerprint binds the exact canonical StrategyRevision and research
-    # evidence while preserving the qualification outcome and criterion.
-    assert first.decision_fingerprint == "ac2c56d4cdc7619b70db319915dc5fd795a7e92d0076005ea8e78820f072e983"
+    # Exact indicator resource bindings propagate through StrategyRevision and
+    # its Freeze relation; qualification policy, outcome and criterion are unchanged.
+    assert first.decision_fingerprint == "62210343e398aab82295ce49c546e41da93b220113d89eec93456b50e959bd85"
     assert evaluator.replay(first.decision_fingerprint) == first
 
 

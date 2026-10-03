@@ -725,10 +725,9 @@ def test_submit_v1_fingerprint_is_frozen_and_v2_separates_science_from_runtime_i
         submit.catalog_generation_fingerprint,
         submit.dataset_snapshot_fingerprint,
     )
-    # The canonical Factor catalog/provider and
-    # implementation-resource identities; the Search Product payload remains
-    # deterministic and its semantic assertions below are unchanged.
-    assert v1.command_fingerprint == "796179dc26dac9d3bf618298ef58d27e6c16fbbc5a208dcafa795b16745d181c"
+    # This pin binds the exact Catalog and algorithm resource closure, including
+    # registry readiness metadata; the V1 intent schema and V2 semantics are unchanged.
+    assert v1.command_fingerprint == "11d4363e751b4461fbf9a3b372c536a4bd46cc078a52eb71160dc9fe56c3be64"
     with pytest.raises(OnlySearchRuntimeGenerationUnbound):
         service.submit(v1)
 
