@@ -145,6 +145,92 @@ def test_kernel_lane_owns_lifecycle_host_and_product_boundary() -> None:
     assert lane.dist == "no"
 
 
+@pytest.mark.parametrize(("store", "clean"), ((True, False), (False, True), (True, True)))
+@pytest.mark.parametrize("absolute", (False, True))
+def test_duration_output_parent_is_prepared_before_pytest(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, store: bool, clean: bool, absolute: bool
+) -> None:
+    output = tmp_path / "test-results/topology/generated.json"
+    supplied = output if absolute else output.relative_to(tmp_path)
+    assert not output.parent.exists()
+
+    def fake_run(command: list[str], env: dict[str, str] | None = None) -> int:
+        assert output.parent.is_dir()
+        assert command[command.index("--durations-path") + 1] == str(output)
+        assert ("--store-durations" in command) is store
+        assert ("--clean-durations" in command) is clean
+        assert env is not None
+        metrics = Path(env["ONLYALPHA_TEST_METRICS"])
+        metrics.parent.mkdir(parents=True, exist_ok=True)
+        metrics.write_text(json.dumps({"collected": 1, "total_seconds": 0.0}))
+        return 0
+
+    monkeypatch.setattr(test_suite, "ROOT", tmp_path)
+    monkeypatch.setattr(test_suite, "run", fake_run)
+    args = Namespace(
+        group=None,
+        splits=None,
+        store_durations=store,
+        clean_durations=clean,
+        workers="0",
+        no_parallel=False,
+        coverage=False,
+        dist=None,
+        durations=None,
+        durations_path=str(supplied),
+        splitting_algorithm="least_duration",
+        metrics_path=None,
+    )
+    assert test_suite.execute(OnlyTestLane.RESEARCH_EVALUATION, args) == 0
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("existing", (False, True))
+def test_duration_shard_input_is_read_only(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, existing: bool) -> None:
+    input_path = tmp_path / "test-data/test-durations.json"
+    before = b'{"test_node": 1.0}\n'
+    if existing:
+        input_path.parent.mkdir()
+        input_path.write_bytes(before)
+
+    def fake_run(command: list[str], env: dict[str, str] | None = None) -> int:
+        assert "--store-durations" not in command and "--clean-durations" not in command
+        assert Path(command[command.index("--durations-path") + 1]) == input_path
+        assert command[command.index("--splits") + 1] == "4"
+        assert command[command.index("--group") + 1] == "1"
+        if existing:
+            assert input_path.read_bytes() == before
+        else:
+            assert not input_path.parent.exists()
+        assert env is not None
+        metrics = Path(env["ONLYALPHA_TEST_METRICS"])
+        metrics.parent.mkdir(parents=True, exist_ok=True)
+        metrics.write_text(json.dumps({"collected": 1, "total_seconds": 0.0}))
+        return 0
+
+    monkeypatch.setattr(test_suite, "ROOT", tmp_path)
+    monkeypatch.setattr(test_suite, "run", fake_run)
+    args = Namespace(
+        group=1,
+        splits=4,
+        store_durations=False,
+        clean_durations=False,
+        workers="0",
+        no_parallel=False,
+        coverage=False,
+        dist=None,
+        durations=None,
+        durations_path=str(input_path),
+        splitting_algorithm="least_duration",
+        metrics_path=None,
+    )
+    assert test_suite.execute(OnlyTestLane.RESEARCH_EVALUATION, args) == 0
+    if existing:
+        assert input_path.read_bytes() == before
+    else:
+        assert not input_path.parent.exists()
+
+
 def test_normal_ci_directly_runs_the_canonical_architecture_gate() -> None:
     workflow = Path(".github/workflows/quality.yml").read_text(encoding="utf-8")
     assert "- run: uv run python scripts/test_suite.py architecture" in workflow
