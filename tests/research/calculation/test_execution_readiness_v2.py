@@ -26,6 +26,7 @@ from onlyalpha.research.calculation.errors import OnlyResearchCalculationError
 from onlyalpha.research.calculation.execution import (
     OnlyResearchCalculationExecutionV2,
     OnlyResearchCalculationExecutor,
+    _immutable_arrow_array,
     _only_require_verified_research_calculation_execution,
     _only_require_verified_research_calculation_execution_v2,
     _OnlyVerifiedResearchCalculationExecutionV2,
@@ -398,3 +399,177 @@ def test_v2_seal_rejects_projection_and_identity_substitution(tmp_path, mutation
     with pytest.raises(OnlyResearchCalculationError, match="RESEARCH_EXECUTION_PUBLICATION_UNAUTHORIZED"):
         _only_require_verified_research_calculation_execution(verified)
     assert _only_require_verified_research_calculation_execution_v2(verified) is execution
+
+
+class _WritableBufferBackend:
+    def __init__(self, *, chunked=False):
+        self.calls = 0
+        self.legacy_calls = 0
+        self.chunked = chunked
+        self.value_validity = bytearray([0b1111])
+        self.value_data = bytearray(4 * 16)
+        self.state_validity = bytearray([0b1111])
+        self.state_offsets = bytearray(pa.array(["READY"] * 4).buffers()[1].to_pybytes())
+        self.state_data = bytearray(b"READY" * 4)
+        self.reason_validity = bytearray([0b1111])
+        self.reason_offsets = bytearray(pa.array(["NONE"] * 4).buffers()[1].to_pybytes())
+        self.reason_data = bytearray(b"NONE" * 4)
+
+    def execute(self, definition, inputs):
+        self.legacy_calls += 1
+        raise AssertionError("legacy call is forbidden")
+
+    def execute_with_readiness(self, definition, inputs):
+        self.calls += 1
+        decimal_type = pa.decimal128(38, 12)
+        values = pa.array([Decimal(self.calls)] * 4, type=decimal_type)
+        self.value_data[:] = values.buffers()[1].to_pybytes()
+        value_array = pa.Array.from_buffers(
+            decimal_type, 4, [pa.py_buffer(self.value_validity), pa.py_buffer(self.value_data)], null_count=-1
+        )
+        states = pa.Array.from_buffers(
+            pa.string(),
+            4,
+            [pa.py_buffer(self.state_validity), pa.py_buffer(self.state_offsets), pa.py_buffer(self.state_data)],
+            null_count=-1,
+        )
+        reasons = pa.Array.from_buffers(
+            pa.string(),
+            4,
+            [pa.py_buffer(self.reason_validity), pa.py_buffer(self.reason_offsets), pa.py_buffer(self.reason_data)],
+            null_count=-1,
+        )
+        if self.chunked:
+            value_array = pa.chunked_array([value_array.slice(0, 2), value_array.slice(2)])
+            states = pa.chunked_array([states.slice(0, 2), states.slice(2)])
+            reasons = pa.chunked_array([reasons.slice(0, 2), reasons.slice(2)])
+        return OnlyResearchCalculationBackendExecutionV2(
+            {"value": value_array}, {"value": OnlyResearchOutputReadiness(states, reasons)}
+        )
+
+
+@pytest.mark.parametrize("chunked", (False, True))
+def test_v2_detaches_shared_decimal_buffer_before_next_instrument_call(tmp_path, chunked) -> None:
+    backend = _WritableBufferBackend(chunked=chunked)
+    executor, spy, fingerprint = _setup(tmp_path, _registry(backend))
+    verified = executor._execute_verified_v2(fingerprint, _graph(), PUBLICATION)
+    execution = _only_require_verified_research_calculation_execution_v2(verified)
+    assert [item.table["value"].to_pylist() for item in execution.outputs] == [
+        [Decimal("1.000000000000")] * 4,
+        [Decimal("2.000000000000")] * 4,
+    ]
+    assert all(item.table["value"].type == pa.decimal128(38, 12) for item in execution.outputs)
+    assert all(item.table["value"].num_chunks == (2 if chunked else 1) for item in execution.outputs)
+    assert spy.loads == 1
+    assert backend.calls == 2
+    assert backend.legacy_calls == 0
+
+
+@pytest.mark.parametrize("buffer_name", ("value_data", "value_validity"))
+def test_v2_sealed_values_are_immutable_after_provider_buffer_mutation(tmp_path, buffer_name) -> None:
+    backend = _WritableBufferBackend()
+    executor, _, fingerprint = _setup(tmp_path, _registry(backend))
+    verified = executor._execute_verified_v2(fingerprint, _graph(), PUBLICATION)
+    before = [item.table.to_pydict() for item in verified.execution.outputs]
+    buffer = getattr(backend, buffer_name)
+    buffer[:] = bytes(len(buffer))
+    execution = _only_require_verified_research_calculation_execution_v2(verified)
+    assert [item.table.to_pydict() for item in execution.outputs] == before
+    assert all(
+        not buffer.is_mutable
+        for item in execution.outputs
+        for column in item.table.columns
+        for chunk in column.chunks
+        for buffer in chunk.buffers()
+        if buffer is not None
+    )
+
+
+@pytest.mark.parametrize(
+    "buffer_name",
+    (
+        "state_validity",
+        "state_offsets",
+        "state_data",
+        "reason_validity",
+        "reason_offsets",
+        "reason_data",
+    ),
+)
+def test_v2_sealed_readiness_is_immutable_after_provider_pairing_corruption(tmp_path, buffer_name) -> None:
+    backend = _WritableBufferBackend(chunked=True)
+    executor, _, fingerprint = _setup(tmp_path, _registry(backend))
+    verified = executor._execute_verified_v2(fingerprint, _graph(), PUBLICATION)
+    before = [item.table.to_pydict() for item in verified.execution.readiness]
+    buffer = getattr(backend, buffer_name)
+    buffer[:] = bytes(len(buffer))
+    execution = _only_require_verified_research_calculation_execution_v2(verified)
+    assert [item.table.to_pydict() for item in execution.readiness] == before
+    for item in execution.readiness:
+        assert item.table["readiness"].to_pylist() == ["READY"] * 4
+        assert item.table["reason"].to_pylist() == ["NONE"] * 4
+        assert all(
+            not buffer.is_mutable
+            for column in item.table.columns
+            for chunk in column.chunks
+            for buffer in chunk.buffers()
+            if buffer is not None
+        )
+
+
+def test_v2_detaches_reused_readiness_buffers_before_next_instrument_call(tmp_path) -> None:
+    class _ReusedReadinessBackend(_WritableBufferBackend):
+        def __init__(self):
+            super().__init__()
+            self.state_data = bytearray(4 * len("PARTIAL"))
+            self.reason_data = bytearray(4 * len("WARMUP_INCOMPLETE"))
+
+        def execute_with_readiness(self, definition, inputs):
+            state, reason = ("PARTIAL", "WARMUP_INCOMPLETE") if self.calls == 0 else ("READY", "NONE")
+            for text, offsets, data in (
+                (state, self.state_offsets, self.state_data),
+                (reason, self.reason_offsets, self.reason_data),
+            ):
+                array = pa.array([text] * 4)
+                offsets[:] = array.buffers()[1].to_pybytes()
+                data[:] = array.buffers()[2].to_pybytes().ljust(len(data), b"\x00")
+            return super().execute_with_readiness(definition, inputs)
+
+    backend = _ReusedReadinessBackend()
+    executor, _, fingerprint = _setup(tmp_path, _registry(backend))
+    execution = executor._execute_verified_v2(fingerprint, _graph(), PUBLICATION).execution
+    assert execution.readiness[0].table["readiness"].to_pylist() == ["PARTIAL"] * 4
+    assert execution.readiness[0].table["reason"].to_pylist() == ["WARMUP_INCOMPLETE"] * 4
+    assert execution.readiness[1].table["readiness"].to_pylist() == ["READY"] * 4
+    assert execution.readiness[1].table["reason"].to_pylist() == ["NONE"] * 4
+    assert backend.calls == 2
+    assert backend.legacy_calls == 0
+
+
+@pytest.mark.parametrize("kind", ("array", "sliced", "chunked", "empty", "empty-chunked"))
+def test_immutable_arrow_copy_preserves_decimal_type_nulls_and_chunk_boundaries(kind) -> None:
+    array = pa.array([Decimal("1.000000000000"), None, Decimal("0.000000000000")], type=pa.decimal128(38, 12))
+    buffers = [None if buffer is None else bytearray(buffer.to_pybytes()) for buffer in array.buffers()]
+    value = pa.Array.from_buffers(
+        array.type, 3, [None if buffer is None else pa.py_buffer(buffer) for buffer in buffers]
+    )
+    if kind == "sliced":
+        value = value.slice(1)
+    elif kind == "chunked":
+        value = pa.chunked_array([value.slice(0, 1), value.slice(1)])
+    elif kind == "empty":
+        value = value.slice(0, 0)
+    elif kind == "empty-chunked":
+        value = pa.chunked_array([], type=value.type)
+    expected = value.to_pylist()
+    copied = _immutable_arrow_array(value)
+    assert type(copied) is type(value)
+    assert copied.type == value.type
+    if isinstance(value, pa.ChunkedArray):
+        assert [len(chunk) for chunk in copied.chunks] == [len(chunk) for chunk in value.chunks]
+    for buffer in buffers:
+        if buffer is not None:
+            buffer[:] = bytes(len(buffer))
+    assert copied.to_pylist() == expected
+    chunks = copied.chunks if isinstance(copied, pa.ChunkedArray) else (copied,)
+    assert all(not buffer.is_mutable for chunk in chunks for buffer in chunk.buffers() if buffer is not None)

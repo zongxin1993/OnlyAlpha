@@ -32,7 +32,7 @@ from .binding import only_bind_research_dataset_source
 from .errors import OnlyResearchCalculationError
 from .identity import only_research_calculation_fingerprint
 from .publication import OnlyResearchCalculationPublicationContract
-from .readiness import only_validate_research_output_readiness
+from .readiness import OnlyResearchOutputReadiness, only_validate_research_output_readiness
 
 
 @dataclass(frozen=True, slots=True)
@@ -302,11 +302,21 @@ class OnlyResearchCalculationExecutor:
                 ) from exc
             if not isinstance(raw, OnlyResearchCalculationBackendExecutionV2):
                 raise OnlyResearchCalculationError("RESEARCH_READINESS_INVALID", "atomic V2 backend carrier required")
-            values = _validate_outputs(node.definition, raw.outputs, instrument_table.num_rows)
+            # Snapshot provider-owned storage before validation or another instrument call.
+            detached_outputs = {name: _immutable_arrow_array(value) for name, value in raw.outputs.items()}
+            detached_readiness = {
+                name: OnlyResearchOutputReadiness(
+                    _immutable_arrow_array(evidence.states), _immutable_arrow_array(evidence.reasons)
+                )
+                if isinstance(evidence, OnlyResearchOutputReadiness)
+                else evidence
+                for name, evidence in raw.readiness.items()
+            }
+            values = _validate_outputs(node.definition, detached_outputs, instrument_table.num_rows)
             only_validate_research_output_readiness(
-                node.definition, values, raw.readiness, row_count=instrument_table.num_rows
+                node.definition, values, detached_readiness, row_count=instrument_table.num_rows
             )
-            axis = _timestamp_column(node.definition, instrument_table)
+            axis = _immutable_arrow_array(_timestamp_column(node.definition, instrument_table))
             outputs.append(
                 OnlyResearchCalculationNodeOutput(
                     node.fingerprint, instrument_id, pa.table({"ts_event_ns": axis, **values})
@@ -317,9 +327,9 @@ class OnlyResearchCalculationExecutor:
                     pa.Table.from_arrays(
                         [
                             axis,
-                            pa.array([name] * instrument_table.num_rows, type=pa.string()),
-                            raw.readiness[name].states,
-                            raw.readiness[name].reasons,
+                            _immutable_arrow_array(pa.array([name] * instrument_table.num_rows, type=pa.string())),
+                            detached_readiness[name].states,
+                            detached_readiness[name].reasons,
                         ],
                         schema=readiness_schema,
                     )
@@ -463,6 +473,26 @@ class OnlyResearchCalculationExecutor:
                 "RESEARCH_EXECUTION_FAILED", f"{definition.type_id}@{definition.semantic_version}"
             ) from exc
         return _validate_outputs(definition, raw, row_count)
+
+
+def _immutable_arrow_array(value: pa.Array | pa.ChunkedArray) -> pa.Array | pa.ChunkedArray:
+    """Detach flat Calculation buffers into immutable bytes, including validity and offsets."""
+
+    if not isinstance(value, (pa.Array, pa.ChunkedArray)):
+        # Preserve malformed input for the existing value/readiness validators.
+        return value
+
+    def copy_chunk(chunk: pa.Array) -> pa.Array:
+        return pa.Array.from_buffers(
+            chunk.type,
+            len(chunk),
+            [None if buffer is None else pa.py_buffer(buffer.to_pybytes()) for buffer in chunk.buffers()],
+            offset=chunk.offset,
+        )
+
+    if isinstance(value, pa.ChunkedArray):
+        return pa.chunked_array([copy_chunk(chunk) for chunk in value.chunks], type=value.type)
+    return copy_chunk(value)
 
 
 def _validate_instrument_rows(table: pa.Table) -> None:
