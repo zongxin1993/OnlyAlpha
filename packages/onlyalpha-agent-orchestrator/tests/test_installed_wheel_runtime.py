@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import ast
 import os
+import selectors
 import shutil
 import subprocess
 import sys
 import textwrap
 import tomllib
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from tests.runtime.search_ownership_support import _support_wheel
 
@@ -41,6 +46,20 @@ def _isolated_runtime_proof() -> str:
         import urllib.request
         from pathlib import Path
         from types import SimpleNamespace
+
+        def wait_for_agent_startup(process):
+            assert process.stderr is not None
+            output = bytearray()
+            with selectors.DefaultSelector() as selector:
+                selector.register(process.stderr, selectors.EVENT_READ)
+                while b"Application startup complete." not in output:
+                    assert selector.select(timeout=30), "Agent node startup barrier timed out: " + repr(output)
+                    # Read the ready descriptor itself: TextIOWrapper.readline()
+                    # can prefetch later lines that a selector can no longer see.
+                    chunk = os.read(process.stderr.fileno(), 65536)
+                    assert chunk and process.poll() is None, "Agent node exited during startup: " + repr(output)
+                    output.extend(chunk)
+            return bytes(output)
 
         import onlyalpha
         import onlyalpha_agent_orchestrator.runtime as runtime
@@ -150,34 +169,24 @@ def _isolated_runtime_proof() -> str:
             env=dict(os.environ),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True,
         )
-        selector = selectors.DefaultSelector()
-        assert process.stderr is not None
-        selector.register(process.stderr, selectors.EVENT_READ)
-        startup_lines = []
-        while "Application startup complete." not in "".join(startup_lines):
-            events = selector.select(timeout=30)
-            assert events, "Agent node startup barrier timed out"
-            line = process.stderr.readline()
-            startup_lines.append(line)
-            assert process.poll() is None, "Agent node exited during startup: " + "".join(startup_lines)
+        startup_output = wait_for_agent_startup(process)
         with urllib.request.urlopen("http://127.0.0.1:18019/internal/v1/healthz", timeout=5) as response:
             response_status = response.status
             response_payload = json.loads(response.read())
-            assert response_status == 200, (response_status, response_payload, startup_lines)
+            assert response_status == 200, (response_status, response_payload, startup_output)
             assert response_payload == {"status": "ALIVE"}, (
                 response_payload,
-                startup_lines,
+                startup_output,
             )
         process.send_signal(signal.SIGTERM)
         remaining_stdout, remaining_stderr = process.communicate(timeout=10)
-        shutdown_output = "".join(startup_lines) + remaining_stderr
+        shutdown_output = (startup_output + remaining_stderr).decode("utf-8")
         assert "Application shutdown complete." in shutdown_output, shutdown_output
         assert "Finished server process" in shutdown_output, shutdown_output
         assert process.returncode in (0, -signal.SIGTERM), (
             process.returncode,
-            startup_lines,
+            startup_output,
             remaining_stdout,
             remaining_stderr,
         )
@@ -277,6 +286,51 @@ def _isolated_runtime_proof() -> str:
         )
         """
     )
+
+
+@pytest.mark.parametrize("read_size", [1, 65536])
+@pytest.mark.parametrize("ready,suffix", [(False, b""), (True, b""), (True, b"\xe2")])
+def test_installed_runtime_startup_barrier_reads_coalesced_and_fragmented_logs(
+    monkeypatch: pytest.MonkeyPatch, read_size: int, ready: bool, suffix: bytes
+) -> None:
+    # Exercise the very function shipped into the isolated proof, not a copy.
+    function = next(
+        node
+        for node in ast.parse(_isolated_runtime_proof()).body
+        if isinstance(node, ast.FunctionDef) and node.name == "wait_for_agent_startup"
+    )
+    namespace: dict[str, object] = {"os": os, "selectors": selectors}
+    exec(compile(ast.Module(body=[function], type_ignores=[]), __file__, "exec"), namespace)
+    wait_for_startup = namespace["wait_for_agent_startup"]
+    assert callable(wait_for_startup)
+    reader, writer = os.pipe()
+    payload = "Starting Agent — isolated wheel\n".encode()
+    if ready:
+        payload += b"Application startup complete." + suffix
+    original_read = os.read
+    monkeypatch.setattr(os, "read", lambda fd, count: original_read(fd, min(count, read_size)))
+
+    class QueuedPipeSelector(selectors.DefaultSelector):
+        def select(self, timeout: float | None = None) -> list[tuple[selectors.SelectorKey, int]]:
+            assert timeout == 30
+            return super().select(timeout=0)
+
+    monkeypatch.setattr(selectors, "DefaultSelector", QueuedPipeSelector)
+    with os.fdopen(reader, "r") as stderr:
+        try:
+            # One write before the consumer starts; no scheduling or sleep dependency.
+            assert os.write(writer, payload) == len(payload)
+            process = SimpleNamespace(stderr=stderr, poll=lambda: None)
+            if ready:
+                expected = payload if read_size == 65536 else payload.removesuffix(suffix)
+                assert wait_for_startup(process) == expected
+            else:
+                os.close(writer)
+                with pytest.raises(AssertionError, match="Agent node exited during startup"):
+                    wait_for_startup(process)
+        finally:
+            if ready:
+                os.close(writer)
 
 
 def test_built_wheels_admit_only_the_exact_installed_agent_runtime(tmp_path: Path) -> None:
