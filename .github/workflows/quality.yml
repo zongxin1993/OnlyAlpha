@@ -324,9 +324,26 @@ jobs:
       - name: Boot the canonical development topology
         run: docker compose -f deploy/docker-compose.dev.yml up -d --build --wait
       - name: Run containerized real-database acceptance in the same topology
-        run: >-
-          docker compose -f deploy/docker-compose.dev.yml --profile test run --rm test
-          python scripts/test_suite.py database-acceptance
+        run: |
+          docker compose -f deploy/docker-compose.dev.yml --profile test run --rm test \
+          bash -c '
+            set -euo pipefail
+            python scripts/embed_build_provenance.py
+
+            python scripts/test_suite.py research-postgres &
+            postgres_pid=$!
+            python scripts/test_suite.py market-data-clickhouse &
+            clickhouse_pid=$!
+
+            postgres_status=0
+            clickhouse_status=0
+            wait "$postgres_pid" || postgres_status=$?
+            wait "$clickhouse_pid" || clickhouse_status=$?
+
+            test "$postgres_status" -eq 0
+            test "$clickhouse_status" -eq 0
+            python scripts/test_suite.py database-acceptance
+          '
       - name: Remove the test stack
         if: always()
         run: docker compose -f deploy/docker-compose.dev.yml down -v

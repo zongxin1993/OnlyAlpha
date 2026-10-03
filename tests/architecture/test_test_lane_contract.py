@@ -1,16 +1,136 @@
 from __future__ import annotations
 
 import json
+import os
+import select
+import shlex
+import subprocess
+import sys
 from argparse import Namespace
 from pathlib import Path
 
 import pytest
+import yaml
 
 import scripts.test_suite as test_suite
 from scripts.pytest_layering import CONCERN_MARKERS, LAYER_MARKERS, path_concerns, path_layer
 from scripts.test_suite import LANES, OnlyTestLane, selected_workers
 
 pytestmark = pytest.mark.architecture
+
+
+def test_research_http_lanes_are_db_free_and_postgres_lane_owns_real_http_flow() -> None:
+    path = "packages/onlyalpha-http-server/tests/test_integration_postgres_api.py"
+    for name in (OnlyTestLane.RESEARCH_COMMAND, OnlyTestLane.RESEARCH_QUERY):
+        lane = LANES[name]
+        assert lane.expression == "not external and not postgres"
+        assert "packages/onlyalpha-http-server/tests" in lane.paths
+    postgres = LANES[OnlyTestLane.RESEARCH_POSTGRES]
+    assert postgres.paths.count(path) == 1
+    assert postgres.expression == "postgres or architecture"
+    assert (postgres.workers, postgres.dist, postgres.timeout_seconds) == ("0", "no", 600)
+
+
+def test_database_compose_runs_independent_database_lanes_before_cross_database_acceptance() -> None:
+    workflow = yaml.safe_load(Path(".github/workflows/quality.yml").read_text(encoding="utf-8"))
+    job = workflow["jobs"]["database-compose"]
+    assert job["timeout-minutes"] == 35
+    steps = job["steps"]
+    commands = [step["run"] for step in steps if "run" in step]
+    prefix = "docker compose -f deploy/docker-compose.dev.yml"
+    assert f"{prefix} config --quiet" in commands
+    assert f"{prefix} up -d --build --wait" in commands
+    orchestration = [command for command in commands if f"{prefix} --profile test run --rm test" in command]
+    assert len(orchestration) == 1
+    command = orchestration[0]
+    assert "bash -c" in command
+    assert "bash -lc" not in command
+    assert "set -euo pipefail" in command
+    assert command.count("python scripts/embed_build_provenance.py") == 1
+    postgres = "python scripts/test_suite.py research-postgres &"
+    clickhouse = "python scripts/test_suite.py market-data-clickhouse &"
+    acceptance = "python scripts/test_suite.py database-acceptance"
+    for lane in (postgres, clickhouse, acceptance):
+        assert command.count(lane) == 1
+    assert command.index(postgres) < command.index('wait "$postgres_pid"')
+    assert command.index(clickhouse) < command.index('wait "$postgres_pid"')
+    assert command.index('wait "$postgres_pid" || postgres_status=$?') < command.index(acceptance)
+    assert command.index('wait "$clickhouse_pid" || clickhouse_status=$?') < command.index(acceptance)
+    assert command.index('test "$postgres_status" -eq 0') < command.index(acceptance)
+    assert command.index('test "$clickhouse_status" -eq 0') < command.index(acceptance)
+    cleanup = next(step for step in steps if step.get("name") == "Remove the test stack")
+    assert cleanup["if"] == "always()"
+    assert cleanup["run"] == f"{prefix} down -v"
+
+
+@pytest.mark.parametrize(("postgres_status", "clickhouse_status"), ((0, 0), (7, 0), (0, 9), (7, 9)))
+def test_database_compose_waits_for_both_lanes_and_fails_closed(
+    tmp_path: Path, postgres_status: int, clickhouse_status: int
+) -> None:
+    workflow = yaml.safe_load(Path(".github/workflows/quality.yml").read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["database-compose"]["steps"]
+    command = next(step["run"] for step in steps if "bash -c" in step.get("run", ""))
+    tokens = shlex.split(command.replace("\\\n", ""))
+    shell_arguments = tokens[tokens.index("bash") + 1 :]
+    assert shell_arguments[0] == "-c"
+    fake_python = tmp_path / "python"
+    fake_python.write_text(
+        f"#!{sys.executable}\n"
+        "import os, sys\n"
+        "name = sys.argv[-1]\n"
+        "with open(os.environ['LANE_LOG'], 'a') as log:\n"
+        "    log.write(name + '\\n')\n"
+        "if name in ('research-postgres', 'market-data-clickhouse'):\n"
+        "    key = 'POSTGRES' if name == 'research-postgres' else 'CLICKHOUSE'\n"
+        "    os.write(int(os.environ['EVENT_FD']), key[0].encode())\n"
+        "    os.read(int(os.environ[key + '_RELEASE_FD']), 1)\n"
+        "    os.write(int(os.environ['EVENT_FD']), key[0].lower().encode())\n"
+        "    sys.exit(int(os.environ[key + '_STATUS']))\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+    events_read, events_write = os.pipe()
+    postgres_read, postgres_write = os.pipe()
+    clickhouse_read, clickhouse_write = os.pipe()
+    log = tmp_path / "lanes.log"
+    env = {
+        **os.environ,
+        "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
+        "LANE_LOG": str(log),
+        "EVENT_FD": str(events_write),
+        "POSTGRES_RELEASE_FD": str(postgres_read),
+        "CLICKHOUSE_RELEASE_FD": str(clickhouse_read),
+        "POSTGRES_STATUS": str(postgres_status),
+        "CLICKHOUSE_STATUS": str(clickhouse_status),
+    }
+    process = subprocess.Popen(
+        ["bash", *shell_arguments], env=env, pass_fds=(events_write, postgres_read, clickhouse_read)
+    )
+
+    def event() -> bytes:
+        assert select.select([events_read], [], [], 20)[0], "database lane barrier was not reached"
+        return os.read(events_read, 1)
+
+    try:
+        assert {event(), event()} == {b"P", b"C"}
+        os.write(postgres_write, b"1")
+        assert event() == b"p"
+        assert process.poll() is None
+        assert "database-acceptance" not in log.read_text(encoding="utf-8")
+        os.write(clickhouse_write, b"1")
+        assert event() == b"c"
+        status = process.wait(timeout=20)
+        assert (status == 0) == (postgres_status == clickhouse_status == 0)
+        lanes = log.read_text(encoding="utf-8").splitlines()
+        assert lanes[0] == "scripts/embed_build_provenance.py"
+        assert set(lanes[1:3]) == {"research-postgres", "market-data-clickhouse"}
+        assert lanes[3:] == (["database-acceptance"] if status == 0 else [])
+    finally:
+        for descriptor in (events_read, events_write, postgres_read, postgres_write, clickhouse_read, clickhouse_write):
+            os.close(descriptor)
+        if process.poll() is None:
+            process.kill()
+        process.wait(timeout=20)
 
 
 def test_layer_and_concern_taxonomies_are_orthogonal() -> None:
