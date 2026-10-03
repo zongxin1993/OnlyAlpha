@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
+from weakref import WeakValueDictionary
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
@@ -23,12 +24,15 @@ from onlyalpha.research.dataset import OnlyResearchDatasetSnapshotStore
 
 from .backend import (
     OnlyResearchCalculationBackend,
+    OnlyResearchCalculationBackendExecutionV2,
     OnlyResearchCalculationBackendResolver,
     OnlyResolvedResearchCalculationBackend,
 )
 from .binding import only_bind_research_dataset_source
 from .errors import OnlyResearchCalculationError
 from .identity import only_research_calculation_fingerprint
+from .publication import OnlyResearchCalculationPublicationContract
+from .readiness import only_validate_research_output_readiness
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +108,51 @@ def _only_require_verified_research_calculation_execution(
         raise OnlyResearchCalculationError(
             "RESEARCH_EXECUTION_PUBLICATION_UNAUTHORIZED",
             "Execution Evidence requires an actual sealed Research execution",
+        )
+    return value.execution
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyResearchCalculationNodeReadiness:
+    node_fingerprint: str
+    instrument_id: str
+    table: pa.Table
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyResearchCalculationExecutionV2:
+    calculation_fingerprint: str
+    dataset_snapshot_fingerprint: str
+    calculation_graph_fingerprint: str
+    outputs: tuple[OnlyResearchCalculationNodeOutput, ...]
+    readiness: tuple[OnlyResearchCalculationNodeReadiness, ...]
+    research_implementation_bindings: tuple[OnlyResearchCalculationImplementationBinding, ...]
+    publication: OnlyResearchCalculationPublicationContract
+
+
+@dataclass(frozen=True, slots=True, weakref_slot=True)
+class _OnlyVerifiedResearchCalculationExecutionV2:
+    """An issued capability for one exact immutable V2 projection."""
+
+    execution: OnlyResearchCalculationExecutionV2
+    seal: object
+
+
+_VERIFIED_EXECUTION_V2_SEAL = object()
+_VERIFIED_EXECUTIONS_V2: WeakValueDictionary[int, _OnlyVerifiedResearchCalculationExecutionV2] = WeakValueDictionary()
+
+
+def _only_require_verified_research_calculation_execution_v2(
+    value: object,
+) -> OnlyResearchCalculationExecutionV2:
+    if (
+        type(value) is not _OnlyVerifiedResearchCalculationExecutionV2
+        or value.seal is not _VERIFIED_EXECUTION_V2_SEAL
+        or _VERIFIED_EXECUTIONS_V2.get(id(value)) is not value
+    ):
+        raise OnlyResearchCalculationError(
+            "RESEARCH_EXECUTION_PUBLICATION_UNAUTHORIZED",
+            "Readiness publication requires an actual sealed V2 Research execution",
         )
     return value.execution
 
@@ -195,6 +244,104 @@ class OnlyResearchCalculationExecutor:
                 "Calculation Graph node set differs from resolved implementation bindings",
             )
         return OnlyResearchCalculationExecutionPlan(graph.fingerprint, bindings)
+
+    def _execute_verified_v2(
+        self,
+        snapshot_fingerprint: str,
+        graph: OnlyCalculationGraphDefinition,
+        publication: OnlyResearchCalculationPublicationContract,
+    ) -> _OnlyVerifiedResearchCalculationExecutionV2:
+        if type(publication) is not OnlyResearchCalculationPublicationContract:
+            raise OnlyResearchCalculationError("RESEARCH_PUBLICATION_INVALID", "exact publication contract required")
+        try:
+            publication = OnlyResearchCalculationPublicationContract.from_dict(publication.to_dict())
+        except (TypeError, ValueError) as exc:
+            raise OnlyResearchCalculationError("RESEARCH_PUBLICATION_INVALID", str(exc)) from exc
+        if (
+            len(graph.nodes) != 1
+            or only_calculation_execution_shape(graph.nodes[0].definition) is not OnlyFactorKind.TIME_SERIES
+        ):
+            raise OnlyResearchCalculationError(
+                "RESEARCH_READINESS_GRAPH_UNSUPPORTED", "readiness requires exactly one TIME_SERIES node"
+            )
+        node = graph.nodes[0]
+        backend = self._resolver.resolve_readiness(node.definition, publication)
+        binding = OnlyResearchCalculationImplementationBinding(
+            node.fingerprint, backend.implementation_manifest.implementation_fingerprint
+        )
+        try:
+            verified = self._store.load_verified_table(snapshot_fingerprint)
+            if verified.snapshot.snapshot_fingerprint != snapshot_fingerprint:
+                raise ValueError("verified Dataset differs from requested Snapshot")
+        except Exception as exc:
+            raise OnlyResearchCalculationError("RESEARCH_DATASET_VERIFICATION_FAILED", str(exc)) from exc
+        snapshot, table = verified.snapshot, verified.table
+        outputs: list[OnlyResearchCalculationNodeOutput] = []
+        readiness: list[OnlyResearchCalculationNodeReadiness] = []
+        readiness_schema = pa.schema(
+            [
+                pa.field("ts_event_ns", pa.int64(), nullable=False),
+                pa.field("output_name", pa.string(), nullable=False),
+                pa.field("readiness", pa.string(), nullable=False),
+                pa.field("reason", pa.string(), nullable=False),
+            ]
+        )
+        for instrument_id in sorted(set(table.column("instrument_id").to_pylist())):
+            instrument_table = table.filter(pa.compute.equal(table.column("instrument_id"), instrument_id))
+            _validate_instrument_rows(instrument_table)
+            inputs = self._resolve_instrument_inputs(
+                node.definition, instrument_table, snapshot.dataset_schema, {}, instrument_id
+            )
+            try:
+                raw = backend.provider.execute_with_readiness(node.definition, MappingProxyType(inputs))
+            except OnlyResearchCalculationError:
+                raise
+            except Exception as exc:
+                raise OnlyResearchCalculationError(
+                    "RESEARCH_EXECUTION_FAILED", f"{node.definition.type_id}@{node.definition.semantic_version}"
+                ) from exc
+            if not isinstance(raw, OnlyResearchCalculationBackendExecutionV2):
+                raise OnlyResearchCalculationError("RESEARCH_READINESS_INVALID", "atomic V2 backend carrier required")
+            values = _validate_outputs(node.definition, raw.outputs, instrument_table.num_rows)
+            only_validate_research_output_readiness(
+                node.definition, values, raw.readiness, row_count=instrument_table.num_rows
+            )
+            axis = _timestamp_column(node.definition, instrument_table)
+            outputs.append(
+                OnlyResearchCalculationNodeOutput(
+                    node.fingerprint, instrument_id, pa.table({"ts_event_ns": axis, **values})
+                )
+            )
+            long_table = pa.concat_tables(
+                [
+                    pa.Table.from_arrays(
+                        [
+                            axis,
+                            pa.array([name] * instrument_table.num_rows, type=pa.string()),
+                            raw.readiness[name].states,
+                            raw.readiness[name].reasons,
+                        ],
+                        schema=readiness_schema,
+                    )
+                    for name in sorted(values)
+                ]
+            )
+            readiness.append(OnlyResearchCalculationNodeReadiness(node.fingerprint, instrument_id, long_table))
+        sealed = _OnlyVerifiedResearchCalculationExecutionV2(
+            OnlyResearchCalculationExecutionV2(
+                only_research_calculation_fingerprint(snapshot.snapshot_fingerprint, graph.fingerprint),
+                snapshot.snapshot_fingerprint,
+                graph.fingerprint,
+                tuple(outputs),
+                tuple(readiness),
+                (binding,),
+                publication,
+            ),
+            _VERIFIED_EXECUTION_V2_SEAL,
+        )
+        # Retain only live capabilities, and reject copied seals attached to replaced projections.
+        _VERIFIED_EXECUTIONS_V2[id(sealed)] = sealed
+        return sealed
 
     def _execute_time_series_node(
         self,
