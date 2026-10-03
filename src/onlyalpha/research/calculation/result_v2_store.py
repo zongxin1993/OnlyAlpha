@@ -82,6 +82,11 @@ class OnlyParquetResearchCalculationResultStoreV2:
         self, verified_execution: _OnlyVerifiedResearchCalculationExecutionV2, graph: OnlyCalculationGraphDefinition
     ) -> OnlyResearchCalculationResultV2:
         execution = _only_require_verified_research_calculation_execution_v2(verified_execution)
+        # Deployment preprovisions this anchor; the Store may create its root,
+        # but never owns creation or durability of ancestors above the anchor.
+        authority_parent = self._root.parent
+        if authority_parent.is_symlink() or not authority_parent.is_dir():
+            raise OnlyResearchCalculationResultStoreError("RESULT_INVALID", "authority parent must be a real directory")
         try:
             if execution.calculation_graph_fingerprint != graph.fingerprint:
                 raise ValueError("sealed Graph linkage mismatch")
@@ -200,7 +205,10 @@ class OnlyParquetResearchCalculationResultStoreV2:
         target = self._target(fingerprint)
         try:
             _sync_tree(target)
-            for parent in target.parents:
+            # _target constructs exactly root/v2/sha256/prefix/fingerprint.
+            # Sync every owned namespace link plus the preprovisioned anchor,
+            # never arbitrary filesystem ancestors. The final tree is synced above.
+            for parent in (target.parent, target.parent.parent, self._root / "v2", self._root, self._root.parent):
                 _sync_directory(parent)
         except OSError as exc:
             raise OnlyResearchCalculationResultStoreError("RESULT_COMMIT_FAILED", "publication sync failed") from exc

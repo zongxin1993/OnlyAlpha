@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 from threading import Barrier, Event
 
 import pyarrow as pa
@@ -708,7 +709,8 @@ def test_v2_visible_race_loser_establishes_durability_before_acknowledging(tmp_p
             assert renamed.wait(10), "publisher did not reach rename barrier"
             synced.clear()
             loser = store.commit(sealed, graph)
-            expected = list(_root(tmp_path, sealed).parents)
+            root = _root(tmp_path, sealed)
+            expected = [root.parent, root.parent.parent, root.parent.parent.parent, tmp_path / "results", tmp_path]
             assert synced[-len(expected) :] == expected
         finally:
             release.set()
@@ -782,6 +784,105 @@ def test_v2_store_provider_buffer_mutations_do_not_change_committed_truth(tmp_pa
     assert [item.table.to_pydict() for item in result.outputs] == expected
     assert [item.table.to_pydict() for item in result.readiness] == readiness
     assert store.commit(sealed, graph) == result
+
+
+def test_v2_publication_sync_stops_at_configured_authority_parent(tmp_path, monkeypatch):
+    import onlyalpha.research.calculation.result_v2_store as module
+
+    _, store, graph, sealed = _case(tmp_path)
+    root = _root(tmp_path, sealed)
+    sync, calls = module._sync_directory, []
+
+    def record(path):
+        sync(path)
+        calls.append(path)
+
+    monkeypatch.setattr(module, "_sync_directory", record)
+    first = store.commit(sealed, graph)
+    calls.clear()  # Isolate acknowledgment from private staging sync.
+    assert store.commit(sealed, graph) == first
+    assert calls == [
+        root / "values",
+        root / "readiness",
+        root,
+        root.parent,
+        root.parent.parent,
+        root.parent.parent.parent,
+        tmp_path / "results",
+        tmp_path,
+    ]
+    assert len(calls) == len(set(calls))
+    assert tmp_path.parent not in calls and Path("/") not in calls
+
+
+@pytest.mark.parametrize("unknown", (False, True))
+def test_v2_publication_does_not_require_unrelated_ancestor_fsync(tmp_path, monkeypatch, unknown):
+    import onlyalpha.research.calculation.result_v2_store as module
+
+    _, store, graph, sealed = _case(tmp_path)
+    sync, rename, calls = module._sync_directory, module._rename_exclusive, []
+
+    def bounded(path):
+        calls.append(path)
+        if path != tmp_path and tmp_path not in path.parents:
+            raise OSError("unrelated ancestor forbids fsync")
+        sync(path)
+
+    def publish(stage, target):
+        rename(stage, target)
+        if unknown:
+            raise OSError("lost rename acknowledgment")
+
+    monkeypatch.setattr(module, "_sync_directory", bounded)
+    monkeypatch.setattr(module, "_rename_exclusive", publish)
+    result = store.commit(sealed, graph)
+    assert store.load_verified(sealed.execution.calculation_fingerprint) == result
+    assert store.commit(sealed, graph) == result
+    assert all(path == tmp_path or tmp_path in path.parents for path in calls)
+
+
+@pytest.mark.parametrize("failed_path", ("target-parent", "authority-root", "authority-parent"))
+def test_v2_required_namespace_sync_failure_is_not_acknowledged_and_retry_converges(tmp_path, monkeypatch, failed_path):
+    import onlyalpha.research.calculation.result_v2_store as module
+
+    _, store, graph, sealed = _case(tmp_path)
+    root = _root(tmp_path, sealed)
+    failure = {"target-parent": root.parent, "authority-root": tmp_path / "results", "authority-parent": tmp_path}[
+        failed_path
+    ]
+    sync = module._sync_directory
+
+    def fail(path):
+        if path == failure:
+            raise OSError("required namespace sync unavailable")
+        sync(path)
+
+    monkeypatch.setattr(module, "_sync_directory", fail)
+    with pytest.raises(OnlyResearchCalculationResultStoreError, match="RESULT_COMMIT_FAILED"):
+        store.commit(sealed, graph)
+    before = {str(p.relative_to(root)): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+    monkeypatch.setattr(module, "_sync_directory", sync)
+    assert store.commit(sealed, graph) == store.load_verified(sealed.execution.calculation_fingerprint)
+    assert before == {str(p.relative_to(root)): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+
+
+@pytest.mark.parametrize("kind", ("missing", "file", "symlink", "dangling-symlink"))
+def test_v2_authority_parent_must_be_preprovisioned_real_directory(tmp_path, kind):
+    executor, _, graph, sealed = _case(tmp_path)
+    parent = tmp_path / "anchor"
+    if kind == "file":
+        parent.write_text("not a directory")
+    elif kind in ("symlink", "dangling-symlink"):
+        destination = tmp_path / "destination"
+        if kind == "symlink":
+            destination.mkdir()
+        parent.symlink_to(destination, target_is_directory=True)
+    store = OnlyParquetResearchCalculationResultStoreV2(
+        parent / "results", executor._store.store, audit_time=lambda: AUDIT
+    )
+    with pytest.raises(OnlyResearchCalculationResultStoreError, match="RESULT_INVALID"):
+        store.commit(sealed, graph)
+    assert not (parent / "results").exists()
 
 
 def test_v2_partition_identities_are_chunk_independent(tmp_path):
