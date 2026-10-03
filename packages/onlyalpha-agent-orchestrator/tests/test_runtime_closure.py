@@ -498,14 +498,18 @@ def test_public_package_imports_keep_canonical_objects_and_export_counts() -> No
     from onlyalpha.research.calculation import backend as canonical_backend
     from onlyalpha.research.calculation import publication as canonical_publication
     from onlyalpha.research.calculation import readiness as canonical_readiness
+    from onlyalpha.research.calculation import result_v2 as canonical_result_v2
+    from onlyalpha.research.calculation import result_v2_identity as canonical_result_v2_identity
+    from onlyalpha.research.calculation import result_v2_ports as canonical_result_v2_ports
+    from onlyalpha.research.calculation import result_v2_store as canonical_result_v2_store
     from onlyalpha.research.experiment.model import OnlySearchBudgetV1
     from onlyalpha.research.run import OnlyResearchOriginKind as CanonicalResearchOriginKind
     from onlyalpha.research.run import OnlyResearchRunReader as CanonicalResearchRunReader
     from onlyalpha.research.workload import OnlyResearchWorkloadPlan
 
     assert len(onlyalpha.__all__) == 17
-    # Readiness publication contracts and the exact atomic backend SPI are canonical exports.
-    assert len(research.__all__) == 538
+    # Readiness contracts, atomic backend SPI and nine Result V2 exports are canonical.
+    assert len(research.__all__) == 547
     assert research.__all__.count("OnlyParquetResearchCalculationArtifactStore") == 1
     assert research.OnlyParquetResearchCalculationArtifactStore is CanonicalResearchCalculationArtifactStore
     for name, canonical in (
@@ -523,6 +527,33 @@ def test_public_package_imports_keep_canonical_objects_and_export_counts() -> No
         ("OnlyResearchReadinessState", canonical_readiness.OnlyResearchReadinessState),
         ("OnlyResearchReadinessReason", canonical_readiness.OnlyResearchReadinessReason),
         ("only_validate_research_output_readiness", canonical_readiness.only_validate_research_output_readiness),
+        ("OnlyResearchCalculationResultManifestV2", canonical_result_v2.OnlyResearchCalculationResultManifestV2),
+        ("OnlyResearchCalculationResultV2", canonical_result_v2.OnlyResearchCalculationResultV2),
+        (
+            "OnlyResearchCalculationResultVerificationV2",
+            canonical_result_v2.OnlyResearchCalculationResultVerificationV2,
+        ),
+        ("OnlyResearchCalculationResultStoreV2", canonical_result_v2_ports.OnlyResearchCalculationResultStoreV2),
+        (
+            "OnlyParquetResearchCalculationResultStoreV2",
+            canonical_result_v2_store.OnlyParquetResearchCalculationResultStoreV2,
+        ),
+        (
+            "only_research_calculation_readiness_partition_fingerprint",
+            canonical_result_v2_identity.only_research_calculation_readiness_partition_fingerprint,
+        ),
+        (
+            "only_research_calculation_value_projection_fingerprint",
+            canonical_result_v2_identity.only_research_calculation_value_projection_fingerprint,
+        ),
+        (
+            "only_research_calculation_result_content_fingerprint_v2",
+            canonical_result_v2_identity.only_research_calculation_result_content_fingerprint_v2,
+        ),
+        (
+            "only_research_calculation_result_fingerprint_v2",
+            canonical_result_v2_identity.only_research_calculation_result_fingerprint_v2,
+        ),
     ):
         assert research.__all__.count(name) == 1
         assert getattr(research, name) is canonical

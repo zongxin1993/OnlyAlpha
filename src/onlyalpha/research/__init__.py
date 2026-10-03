@@ -43,6 +43,7 @@ _PUBLIC_PREFIXES = (
     "MAX_PAGE_",
 )
 _exports_loaded = False
+_public_exports: dict[str, str] = {}
 
 
 def _load_public_exports() -> None:
@@ -53,12 +54,10 @@ def _load_public_exports() -> None:
         module = _import_module(module_name)
         exported = getattr(module, "__all__", tuple(name for name in vars(module) if not name.startswith("_")))
         for name in exported:
-            globals()[name] = getattr(module, name)
-    globals()["OnlyResearchWorkloadPlan"] = _import_module("onlyalpha.research.workload").OnlyResearchWorkloadPlan
-    globals()["OnlyResearchAuthoringProvenance"] = _import_module(
-        "onlyalpha.research.provenance"
-    ).OnlyResearchAuthoringProvenance
-    names = [name for name in globals() if name.startswith(_PUBLIC_PREFIXES)]
+            _public_exports[name] = module_name
+    _public_exports["OnlyResearchWorkloadPlan"] = "onlyalpha.research.workload"
+    _public_exports["OnlyResearchAuthoringProvenance"] = "onlyalpha.research.provenance"
+    names = [name for name in _public_exports if name.startswith(_PUBLIC_PREFIXES)]
     list.clear(__all__)
     list.extend(__all__, names)
     _exports_loaded = True
@@ -92,6 +91,9 @@ __all__: list[str] = _LazyPublicNames()
 def __getattr__(name: str) -> object:
     _load_public_exports()
     try:
-        return globals()[name]
+        module_name = _public_exports[name]
     except KeyError as exc:
         raise AttributeError(name) from exc
+    value = getattr(_import_module(module_name), name)
+    globals()[name] = value
+    return value
