@@ -737,6 +737,10 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
     if workers != "0":
         command.extend(["-n", workers, "--dist", dist])
     durations_path = Path(args.durations_path) if args.durations_path else CANONICAL_DURATION_PATH
+    if args.store_durations or args.clean_durations:
+        if not durations_path.is_absolute():
+            durations_path = ROOT / durations_path
+        durations_path.parent.mkdir(parents=True, exist_ok=True)
     if args.splits is not None:
         command.extend(
             [
