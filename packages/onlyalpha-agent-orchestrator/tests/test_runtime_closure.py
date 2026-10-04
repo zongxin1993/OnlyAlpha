@@ -475,6 +475,22 @@ def test_valid_permit_validation_requires_all_exact_bindings() -> None:
 
 
 def test_public_package_imports_keep_canonical_objects_and_export_counts() -> None:
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+import sys
+from onlyalpha.research import OnlyResearchCalculationExecutionEvidence, OnlyResearchCalculationExecutionEvidenceStore
+from onlyalpha.research.calculation.execution_evidence import OnlyResearchCalculationExecutionEvidence as Canonical
+from onlyalpha.research.calculation.execution_evidence import OnlyResearchCalculationExecutionEvidenceStore as CanonicalStore
+assert OnlyResearchCalculationExecutionEvidence is Canonical
+assert OnlyResearchCalculationExecutionEvidenceStore is CanonicalStore
+assert 'onlyalpha.research.calculation.execution_evidence_v2' not in sys.modules
+""",
+        ],
+        check=True,
+    )
     import onlyalpha
     import onlyalpha.application as application
     import onlyalpha.research as research
@@ -496,6 +512,7 @@ def test_public_package_imports_keep_canonical_objects_and_export_counts() -> No
         OnlyParquetResearchCalculationArtifactStore as CanonicalResearchCalculationArtifactStore,
     )
     from onlyalpha.research.calculation import backend as canonical_backend
+    from onlyalpha.research.calculation import execution_evidence_v2 as canonical_evidence_v2
     from onlyalpha.research.calculation import publication as canonical_publication
     from onlyalpha.research.calculation import readiness as canonical_readiness
     from onlyalpha.research.calculation import result_v2 as canonical_result_v2
@@ -508,11 +525,19 @@ def test_public_package_imports_keep_canonical_objects_and_export_counts() -> No
     from onlyalpha.research.workload import OnlyResearchWorkloadPlan
 
     assert len(onlyalpha.__all__) == 17
-    # Readiness contracts, atomic backend SPI and nine Result V2 exports are canonical.
-    assert len(research.__all__) == 547
+    # Readiness contracts, Result V2 and exactly two Evidence V2 exports are canonical.
+    assert len(research.__all__) == 549
     assert research.__all__.count("OnlyParquetResearchCalculationArtifactStore") == 1
     assert research.OnlyParquetResearchCalculationArtifactStore is CanonicalResearchCalculationArtifactStore
     for name, canonical in (
+        (
+            "OnlyResearchCalculationExecutionEvidenceV2",
+            canonical_evidence_v2.OnlyResearchCalculationExecutionEvidenceV2,
+        ),
+        (
+            "OnlyResearchCalculationExecutionEvidenceStoreV2",
+            canonical_evidence_v2.OnlyResearchCalculationExecutionEvidenceStoreV2,
+        ),
         ("OnlyResearchCalculationBackendExecutionV2", canonical_backend.OnlyResearchCalculationBackendExecutionV2),
         ("OnlyResearchReadinessCalculationBackend", canonical_backend.OnlyResearchReadinessCalculationBackend),
         (
