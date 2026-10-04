@@ -21,6 +21,107 @@ from tests.research.calculation.test_execution_readiness_v2 import PUBLICATION, 
 from tests.research.calculation.test_result_v2_store import _case as _result_case
 
 
+def test_v2_process_death_before_rename_does_not_poison_fresh_process_query_or_retry(tmp_path):
+    code = """
+import os, sys
+from pathlib import Path
+import onlyalpha.research.calculation.execution_evidence_v2 as module
+from tests.research.calculation.test_execution_evidence_v2 import _case
+_, _, _, sealed, result, store = _case(Path(sys.argv[1]))
+module._rename_exclusive = lambda source, target: os._exit(86)
+store._publish_verified(sealed, result)
+"""
+    process = subprocess.run([sys.executable, "-c", code, str(tmp_path)], check=False)
+    assert process.returncode == 86
+    # Verify query semantics first so the baseline proves the persistent defect,
+    # not merely the old staging layout.
+    retry = """
+import sys
+from pathlib import Path
+from onlyalpha.research.calculation.errors import OnlyResearchCalculationError
+from tests.research.calculation.test_execution_evidence_v2 import _case
+_, _, _, sealed, result, store = _case(Path(sys.argv[1]))
+try:
+    store.require_for_result(result)
+except OnlyResearchCalculationError as exc:
+    assert exc.code == 'RESEARCH_EXECUTION_EVIDENCE_NOT_FOUND', str(exc)
+else:
+    raise AssertionError('unpublished stage became Evidence')
+evidence = store._publish_verified(sealed, result)
+assert store.require_for_result(result) == evidence
+assert store.exists(evidence.evidence_fingerprint)
+assert store.load_verified(evidence.evidence_fingerprint) == evidence
+"""
+    subprocess.run([sys.executable, "-c", retry, str(tmp_path)], check=True)
+    v2 = tmp_path / "semantic" / "calculation-execution-evidence" / "v2"
+    orphans = list((v2 / ".staging").iterdir())
+    assert len(orphans) == 1
+    assert orphans[0].name.startswith(".stage-")
+    assert (orphans[0] / "manifest.json").is_file()
+    assert not list((v2 / "sha256").rglob(".stage-*"))
+
+
+@pytest.mark.parametrize("name", (".stage-forged", "junk"))
+def test_v2_authoritative_prefix_never_ignores_stage_like_or_nonfingerprint_entries(tmp_path, name):
+    _, _, _, sealed, result, store = _case(tmp_path)
+    evidence = store._publish_verified(sealed, result)
+    (_root(tmp_path, evidence).parent / name).mkdir()
+    with pytest.raises(OnlyResearchCalculationError, match="RESEARCH_EXECUTION_EVIDENCE_CORRUPT"):
+        store.require_for_result(result)
+
+
+@pytest.mark.parametrize("kind", ("file", "symlink", "dangling-symlink"))
+def test_v2_staging_root_must_be_real_directory(tmp_path, kind):
+    _, _, _, sealed, result, store = _case(tmp_path)
+    stage = tmp_path / "semantic" / "calculation-execution-evidence" / "v2" / ".staging"
+    stage.parent.mkdir(parents=True)
+    if kind == "file":
+        stage.write_bytes(b"untouched")
+    else:
+        stage.symlink_to(tmp_path / ("semantic" if kind == "symlink" else "missing"))
+    with pytest.raises(OnlyResearchCalculationError, match="RESEARCH_EXECUTION_EVIDENCE_CORRUPT"):
+        store._publish_verified(sealed, result)
+    assert not _root(tmp_path, _model(sealed, result)).exists()
+    if kind == "file":
+        assert stage.read_bytes() == b"untouched"
+    else:
+        assert stage.is_symlink()
+
+
+@pytest.mark.parametrize("unknown", (False, True))
+def test_v2_staging_sync_failure_cannot_acknowledge_visible_target(tmp_path, monkeypatch, unknown):
+    import onlyalpha.research.calculation.execution_evidence_v2 as module
+
+    _, _, _, sealed, result, store = _case(tmp_path)
+    evidence = _model(sealed, result)
+    root = _root(tmp_path, evidence)
+    staging = root.parent.parent.parent / ".staging"
+    sync, rename = module._sync_directory, module._rename_exclusive
+
+    def publish(source, target):
+        assert source.parent == staging
+        assert source.parent.stat().st_dev == target.parent.stat().st_dev
+        rename(source, target)
+        if unknown:
+            raise OSError("rename acknowledgement lost")
+
+    def fail(path):
+        if path == staging:
+            raise OSError("source namespace sync failed")
+        sync(path)
+
+    with monkeypatch.context() as context:
+        context.setattr(module, "_rename_exclusive", publish)
+        context.setattr(module, "_sync_directory", fail)
+        with pytest.raises(OnlyResearchCalculationError, match="RESEARCH_EXECUTION_EVIDENCE_COMMIT_FAILED"):
+            store._publish_verified(sealed, result)
+        before = (root / "manifest.json").read_bytes()
+        with pytest.raises(OnlyResearchCalculationError, match="RESEARCH_EXECUTION_EVIDENCE_COMMIT_FAILED"):
+            store._publish_verified(sealed, result)
+    assert store._publish_verified(sealed, result) == evidence
+    assert (root / "manifest.json").read_bytes() == before
+
+
 def _case(tmp_path, registry=None):
     executor, results, graph, sealed = _result_case(tmp_path, registry)
     result = results.commit(sealed, graph)
@@ -385,6 +486,7 @@ def test_v2_evidence_durability_stops_at_semantic_root(tmp_path, monkeypatch):
     assert paths == [
         root,
         root.parent,
+        root.parent.parent.parent / ".staging",
         root.parent.parent,
         root.parent.parent.parent,
         tmp_path / "semantic" / "calculation-execution-evidence",
@@ -610,6 +712,7 @@ def test_v2_failed_stage_is_not_published_and_is_cleaned(tmp_path, monkeypatch, 
         store._publish_verified(sealed, result)
     assert not root.exists()
     assert list(root.parent.iterdir()) == []
+    assert list((root.parent.parent.parent / ".staging").iterdir()) == []
 
 
 def test_v2_readers_revalidate_upstream_result_and_never_certify_corrupt_absence(tmp_path):

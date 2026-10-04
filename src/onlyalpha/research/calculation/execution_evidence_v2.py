@@ -166,7 +166,9 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
     def __init__(self, semantic_root: Path, result_store: OnlyResearchCalculationResultStoreV2) -> None:
         self._semantic_root = semantic_root
         self._authority_root = semantic_root / "calculation-execution-evidence"
-        self._root = self._authority_root / "v2" / "sha256"
+        self._v2_root = self._authority_root / "v2"
+        self._staging_root = self._v2_root / ".staging"
+        self._root = self._v2_root / "sha256"
         self._result_store = result_store
 
     def exists(self, evidence_fingerprint: str) -> bool:
@@ -314,12 +316,17 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
             )
         fingerprint = evidence.evidence_fingerprint
         target = self._target(fingerprint)
-        if _present(target):
-            return self._acknowledge(evidence)
-        stage = target.parent / f".stage-{uuid.uuid4().hex}"
+        if _present(self._staging_root) and (self._staging_root.is_symlink() or not self._staging_root.is_dir()):
+            raise OnlyResearchCalculationError("RESEARCH_EXECUTION_EVIDENCE_CORRUPT", "malformed staging directory")
+        stage = self._staging_root / f".stage-{uuid.uuid4().hex}"
         try:
+            self._staging_root.mkdir(parents=True, exist_ok=True)
+            if _present(target):
+                return self._acknowledge(evidence)
             target.parent.mkdir(parents=True, exist_ok=True)
             self._target(fingerprint)
+            if self._staging_root.stat().st_dev != target.parent.stat().st_dev:
+                raise OSError("staging and Evidence target must share a filesystem")
             stage.mkdir()
             with (stage / "manifest.json").open("x", encoding="utf-8") as stream:
                 stream.write(only_canonical_json(evidence.to_dict()))
@@ -355,8 +362,9 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
             for path in (
                 target,
                 target.parent,
+                self._staging_root,
                 self._root,
-                self._authority_root / "v2",
+                self._v2_root,
                 self._authority_root,
                 self._semantic_root,
             ):
