@@ -505,6 +505,65 @@ def test_v2_failure_phase_preserves_stable_authority_error(tmp_path, monkeypatch
     assert raised.value.code == code
 
 
+@pytest.mark.parametrize(
+    "boundary,phase,code",
+    (
+        ("result-reuse", OnlyResearchJobPhase.RESULT_REUSE, "RESEARCH_JOB_RESULT_REUSE_FAILED"),
+        ("evidence-reuse", OnlyResearchJobPhase.RESULT_REUSE, "RESEARCH_JOB_RESULT_REUSE_FAILED"),
+        ("parity-reuse", OnlyResearchJobPhase.RESULT_REUSE, "RESEARCH_JOB_RESULT_REUSE_FAILED"),
+        ("backend", OnlyResearchJobPhase.CALCULATION_EXECUTION, "RESEARCH_JOB_EXECUTION_FAILED"),
+        ("result-commit", OnlyResearchJobPhase.RESULT_COMMIT, "RESEARCH_JOB_RESULT_COMMIT_FAILED"),
+        ("evidence-publish", OnlyResearchJobPhase.RESULT_COMMIT, "RESEARCH_JOB_RESULT_COMMIT_FAILED"),
+    ),
+)
+def test_v2_unavailable_authority_is_never_absence_or_success(tmp_path, monkeypatch, boundary, phase, code):
+    plan, calculation, legacy, results, evidence = readiness_job_case(tmp_path)
+    if boundary == "evidence-reuse":
+        _precommit(plan, calculation, results)
+    owner, name = {
+        "result-reuse": (results, "load_verified"),
+        "evidence-reuse": (evidence, "require_for_result"),
+        "parity-reuse": (legacy, "load_verified"),
+        "backend": (calculation, "_execute_verified_v2"),
+        "result-commit": (results, "commit"),
+        "evidence-publish": (evidence, "_publish_verified"),
+    }[boundary]
+    failure = OSError("authority unavailable")
+
+    def fail(*args):
+        raise failure
+
+    monkeypatch.setattr(owner, name, fail)
+    counted = _CountingCalculation(calculation)
+    with pytest.raises(OnlyResearchJobError) as raised:
+        _job(counted, legacy, results, evidence).execute(plan)
+    assert raised.value.phase is phase
+    assert raised.value.code == code
+    assert raised.value.__cause__ is failure
+    assert counted.calls == (0 if phase is OnlyResearchJobPhase.RESULT_REUSE else 1)
+    if boundary != "evidence-publish":
+        assert not (tmp_path / "semantic" / "calculation-execution-evidence").exists()
+
+
+def test_v2_complete_different_result_identity_does_not_trigger_reexecution(tmp_path, monkeypatch):
+    plan, calculation, legacy, results, evidence = readiness_job_case(tmp_path)
+    other, other_calculation, _, other_results, _ = readiness_job_case(tmp_path / "other")
+    from onlyalpha.research.job import OnlyResearchJobPlan
+
+    # A different valid Calculation is not malformed or missing proof.
+    definition = replace(other.calculation_graph.nodes[0].definition, parameters={"period": 1})
+    graph = type(other.calculation_graph)((replace(other.calculation_graph.nodes[0], definition=definition),))
+    other = OnlyResearchJobPlan(other.dataset_snapshot_fingerprint, graph, 2, other.publication)
+    _, result = _precommit(other, other_calculation, other_results)
+    monkeypatch.setattr(results, "load_verified", lambda _: result)
+    counted = _CountingCalculation(calculation)
+    with pytest.raises(OnlyResearchJobError) as raised:
+        _job(counted, legacy, results, evidence).execute(plan)
+    assert raised.value.phase is OnlyResearchJobPhase.RESULT_REUSE
+    assert raised.value.code == "RESULT_INVALID"
+    assert counted.calls == 0
+
+
 @pytest.mark.parametrize("boundary", ("reuse", "commit"))
 @pytest.mark.parametrize(
     "field",
