@@ -65,6 +65,10 @@ from .result_ports import OnlyResearchCalculationResultStore
 from .result_store import OnlyParquetResearchCalculationResultStore
 
 if _TYPE_CHECKING:
+    from .execution_evidence_v2 import (
+        OnlyResearchCalculationExecutionEvidenceStoreV2,
+        OnlyResearchCalculationExecutionEvidenceV2,
+    )
     from .result_v2 import (
         OnlyResearchCalculationResultManifestV2,
         OnlyResearchCalculationResultV2,
@@ -81,6 +85,8 @@ if _TYPE_CHECKING:
     from .result_v2_store import OnlyParquetResearchCalculationResultStoreV2
 
 _V2_EXPORTS = {
+    "OnlyResearchCalculationExecutionEvidenceV2": "execution_evidence_v2",
+    "OnlyResearchCalculationExecutionEvidenceStoreV2": "execution_evidence_v2",
     "OnlyResearchCalculationResultManifestV2": "result_v2",
     "OnlyResearchCalculationResultV2": "result_v2",
     "OnlyResearchCalculationResultVerificationV2": "result_v2",
