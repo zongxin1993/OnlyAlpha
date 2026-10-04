@@ -51,3 +51,26 @@ def research_job_executor(calculation, result_store) -> OnlyResearchJobExecutor:
         result_store,
         current._test_execution_evidence_store,
     )
+
+
+def readiness_job_case(root: Path):
+    from onlyalpha.research.calculation.execution_evidence_v2 import OnlyResearchCalculationExecutionEvidenceStoreV2
+    from onlyalpha.research.calculation.publication import OnlyResearchCalculationPublicationContract
+    from onlyalpha.research.calculation.result_v2_store import OnlyParquetResearchCalculationResultStoreV2
+
+    legacy_plan, calculation, legacy_results, _ = job_case(root)
+    sma = next(item for item in TYPES if item.type_id == "onlyalpha.indicator.sma")
+    graph = OnlyCalculationGraphDefinition((OnlyCalculationNodeDefinition(resolve_definition(sma, {"period": 2})),))
+    semantic = root / "semantic"
+    semantic.mkdir(exist_ok=True)
+    results = OnlyParquetResearchCalculationResultStoreV2(
+        root / "results", legacy_results._dataset_store, audit_time=lambda: datetime(2026, 8, 14, tzinfo=UTC)
+    )
+    evidence = OnlyResearchCalculationExecutionEvidenceStoreV2(semantic, results)
+    plan = OnlyResearchJobPlan(
+        legacy_plan.dataset_snapshot_fingerprint,
+        graph,
+        2,
+        OnlyResearchCalculationPublicationContract(),
+    )
+    return plan, calculation, legacy_results, results, evidence

@@ -6,11 +6,13 @@ from dataclasses import dataclass
 
 from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
 from onlyalpha.research.calculation.identity import only_research_calculation_fingerprint
+from onlyalpha.research.calculation.publication import OnlyResearchCalculationPublicationContract
 from onlyalpha.research.dataset.strict import require_sha256
 
 from .errors import OnlyResearchJobError, OnlyResearchJobPhase
 
 RESEARCH_JOB_PLAN_SCHEMA_VERSION = 1
+RESEARCH_JOB_PLAN_READINESS_SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,15 +22,22 @@ class OnlyResearchJobPlan:
     dataset_snapshot_fingerprint: str
     calculation_graph: OnlyCalculationGraphDefinition
     schema_version: int = RESEARCH_JOB_PLAN_SCHEMA_VERSION
+    publication: OnlyResearchCalculationPublicationContract | None = None
 
     def __post_init__(self) -> None:
         try:
-            if (
-                isinstance(self.schema_version, bool)
-                or not isinstance(self.schema_version, int)
-                or self.schema_version != RESEARCH_JOB_PLAN_SCHEMA_VERSION
+            if type(self.schema_version) is not int or self.schema_version not in (
+                RESEARCH_JOB_PLAN_SCHEMA_VERSION,
+                RESEARCH_JOB_PLAN_READINESS_SCHEMA_VERSION,
             ):
                 raise ValueError(f"unsupported Research Job Plan schema version: {self.schema_version}")
+            if self.schema_version == RESEARCH_JOB_PLAN_SCHEMA_VERSION:
+                if self.publication is not None:
+                    raise ValueError("V1 Job Plan cannot request readiness publication")
+            else:
+                if type(self.publication) is not OnlyResearchCalculationPublicationContract:
+                    raise ValueError("V2 Job Plan requires exact publication contract")
+                OnlyResearchCalculationPublicationContract.from_dict(self.publication.to_dict())
             require_sha256(
                 {"dataset_snapshot_fingerprint": self.dataset_snapshot_fingerprint},
                 "dataset_snapshot_fingerprint",
