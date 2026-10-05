@@ -24,6 +24,12 @@ changes ADR 0128/0136 nor makes the existing production submission service ungat
 
 ## 2. Current implementation truth
 
+The table and test description below preserve the **2026-10-01 design-time inspection**, not a current absence claim about internal
+readiness. ADR 0137 and `docs/indicator.md` describe the subsequently implemented atomic readiness execution, Calculation Result V2,
+Execution Evidence V2 and Job Plan V2 foundation. Its tests prove internal point readiness and recovery, not chart Product admission,
+authorization, Specification V3, Result V4, Artifact V2 or a Web indicator workflow. The future Product admission amendments in
+sections 7–8 consume that foundation; the remaining chart contracts are still proposed.
+
 The inspected implementation is the calculation-only publication foundation, not a chart Product workflow:
 
 | Area | Actual capability and boundary |
@@ -170,8 +176,12 @@ registered contract; repeat recovery uses the originally admitted normalized int
 are accepted. The canonical intent hashes schema + exact source reference + instrument + semantic + display range + normalized selection.
 The Product command fingerprint includes command kind and this intent. Command ID, audit time and display style are not in that hash.
 
-One explicit command creates one operation. `operation_id = command_id` (UUID4); the reserved child Run ID equals this UUID4 **in the Run
-identity domain**. A committed relation, never equal text alone, proves ownership. The receipt outcome kind is newly
+One explicit command creates one operation. `operation_id = command_id` is the client-supplied Product Command / Idempotency-Key UUID4.
+`reserved_run_id` is an **independent server-generated `OnlyResearchRunId`**, selected and durably stored during initial T1 admission.
+`runtime_work_id = reserved_run_id.value`, never the operation ID. A committed operation→Run relation, not equal UUID text, proves ownership.
+An unrelated Run whose ID equals the client's command UUID does not collide with this Product Command. Reserved Run-ID collisions are
+resolved during T1 admission by generating another independent Run ID; retries reuse the committed reservation, and T4 cannot select a new ID.
+The receipt outcome kind is newly
 `CHART_CALCULATION_OPERATION`; command kind `CREATE_CHART_CALCULATION`. They extend the existing global receipt domain, not a parallel
 receipt system. Same ID under a different command kind conflicts globally.
 
@@ -196,6 +206,22 @@ operation/Run occurrences. Identical numeric values alone do not prove reuse eli
 
 An unknown HTTP response is not FAILED. GET the same operation ID or retry exactly the same POST/key; never generate a fresh key to
 resolve ambiguity. A definitive body/key conflict is 409 and never authorizes changing the existing operation.
+
+### Exact Catalog readiness admission prerequisite
+
+**W3-C2-CATALOG-READINESS-CAPABILITY:** Before Product admission, a versioned exact Catalog capability projection must advertise readiness
+V1 for the exact `type_id + semantic_version + RESEARCH backend` in the selected immutable Catalog Generation. Persist that exact
+capability/generation witness with the admitted operation and use it for parameter normalization and later generation hosting.
+Matching POST retries return the existing receipt/operation before consulting a newer Catalog. Unsupported/missing capability rejects new
+readiness requests; it is not permission to execute a numeric-only backend.
+
+Runtime registration `readiness_contract_versions` alone is not public Product proof. Provider version or implementation fingerprint alone
+is not a client-readable readiness capability contract. W3-C2 must version this Catalog projection explicitly, without silently redefining
+legacy capability semantics; this design amendment does not implement a Catalog schema or grant admission authority.
+
+W3-C2 consumes the internal readiness foundation documented in `docs/indicator.md` and accepted by ADR 0137. It must not reimplement
+readiness, evaluate in HTTP/Web, mint Result/Evidence from public read models, or use V1 fallback for Job Plan V2. The future chart Product
+contracts below remain proposed; internal publication is not evidence that chart admission, Result V4 or Artifact V2 already exists.
 
 `GET /api/v2/research/chart-calculations/{operation_id}/input-selection` exposes the immutable pinned selection and materialization
 relation described in section 9, with exact owner/intent/reference checks. Before the pin exists it returns 409
@@ -231,11 +257,14 @@ available to an authorized client with its own Product Command ID. The cancelled
 ### 8.2 Transaction and publication order
 
 1. **T1 admission, before any Market Data access:** authorization/mutation readiness, strict local shape and registered parameter
-   validation; lock global Command ID. Existing matching receipt returns the same operation *before* current-source or current-catalog
-   checks. Atomically write Product Admission, canonical normalized intent, operation ADMITTED and Receipt. Existing admission without
+   validation using the exact versioned Catalog readiness witness above; lock global Command ID. Existing matching receipt returns the same
+   operation *before* current-source or current-catalog checks. Atomically persist Product Admission/Receipt, canonical normalized chart intent,
+   operation ADMITTED, the exact Catalog witness and an independent server-generated `reserved_run_id`. Resolve reserved Run-ID collision
+   by regeneration inside admission, never by reusing the client UUID. Existing admission without
    matching operation/receipt is incomplete/corrupt proof, not permission to make a new operation.
 2. A preparation worker claims a bounded lease with monotonically increasing fencing token. Resolve exact hosted Runtime Generation
-   and Catalog for new work and reserve `work_id = operation_id` through the existing Runtime Generation authority. Persist its exact
+   and the Catalog pinned during admission, and reserve `runtime_work_id = reserved_run_id.value` through the existing Runtime Generation
+   authority. Persist its exact
    binding reference before input side effects. If activation changes before reservation, fail explicitly; never fall forward.
    Cross-authority binding is **not** assumed atomic with PostgreSQL. Reconcile by work ID, exact generation and active binding; do not
    release on ambiguous queue commit. Released bindings require recovery intervention, not silent reactivation.
@@ -250,7 +279,8 @@ available to an authorized client with its own Product Command ID. The cancelled
    fence. Persist no fabricated readiness or numeric rows here. If T3 is ambiguous, reload by operation and compare complete exact refs.
 6. Typed Run admission resolves the frozen Specification in the exact generation, verifies Dataset/lineage/Catalog/implementation and
    the active Runtime Work binding. **T4** locks operation and reserved Run ID; atomically writes Run QUEUED, admission-resolution
-   evidence and the immutable operation→Run relation; marks preparation RUN_LINKED. Research Run persistence and operation relation
+   evidence and the immutable operation→Run relation; marks preparation RUN_LINKED. T4 may only create/link the Run reserved at T1;
+   it cannot mint a new Run ID or bind work to the operation ID. Research Run persistence and operation relation
    share this PostgreSQL transaction through an explicit composite admission port. No second CREATE_RESEARCH_RUN receipt or public
    raw Run insertion API is introduced. Queue visibility requires all relation/evidence constraints, not just existence of a Run row.
 7. Existing Research worker alone claims/executes/reconciles the Run using Engine. Record operational COMPLETED only after verified
@@ -603,6 +633,8 @@ default. Do not claim these tests exist or passed merely because this design nam
 |---|---|
 | Identity | Omitted defaults/normalized enum match explicit defaults; same exact pinned Snapshot/Graph gives same semantic ID; style/incarnation changes do not affect it. Parameter/source/instrument/semantic/range changes alter the appropriate identities; repeated same command does not select later Revision. |
 | Command | Real PostgreSQL same key/payload gives one operation/Run; different payload/kind conflicts; parallel submissions and lost responses converge; no Market catalog, provider session or Snapshot side effect before T1. |
+| Command/Run identity | An unrelated existing Run ID equal to client command UUID does not prevent admission; a reserved Run-ID collision regenerates during T1; retry reuses the same committed reservation; Runtime Work ID equals reserved Run ID, not operation ID; T4 cannot mint another ID. |
+| Catalog capability | Exact generation/type/version/RESEARCH projection advertises readiness V1; missing/wrong generation/family/version capability rejects before new admission. Runtime registration or provider fingerprint alone cannot substitute. Legacy Catalog capability semantics remain unchanged under an explicit new projection version. |
 | Recovery | Inject crash at T1/binding/T2/Snapshot/lineage/T3/T4 and Result-before-Artifact; fresh worker resumes same pinned input/reserved Run. No release on unknown T4. Stale lease/fence cannot queue or overwrite selected relations. |
 | Input | Renderer arrays, stream close, unsealed Revision, wrong Integration binding/environment/instrument/data version/construction/range, missing segment/physical proof/Seal fail closed. Full warmup included without moving display bounds. Required exact Revision absent produces explicit separate acquisition, never automatic fetch. |
 | Producer | period=3 full input emits PARTIAL,PARTIAL,READY; period=1 immediately READY; CLOSE/VOLUME/default parity with registered SMA; partial and ready zero retain numeric zero. Execution leaves source input unchanged across repeats. |
