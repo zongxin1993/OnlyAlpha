@@ -25,6 +25,7 @@ PUBLICATION_MODULES = (
     "execution_evidence_v2.py",
 )
 PRODUCT_FORBIDDEN = ("onlyalpha.application", "onlyalpha.persistence", "onlyalpha_http_server", "onlyalpha_web_console")
+AGGREGATE_REEXPORT_MODULES = ("onlyalpha.research", "onlyalpha.research.calculation")
 
 
 def _package(path: Path) -> str:
@@ -60,11 +61,32 @@ def _imports(tree: ast.AST, package: str) -> set[str]:
     return imports
 
 
-def _assert_boundary(path: Path, forbidden: tuple[str, ...]) -> None:
-    imports = _imports(ast.parse(path.read_text()), _package(path))
-    violations = {
-        name for name in imports if any(name == prefix or name.startswith(prefix + ".") for prefix in forbidden)
+def _boundary_violations(
+    imports: set[str],
+    *,
+    forbidden_prefixes: tuple[str, ...],
+    forbidden_exact_modules: tuple[str, ...] = (),
+) -> set[str]:
+    return {
+        name
+        for name in imports
+        if name in forbidden_exact_modules
+        or any(name == prefix or name.startswith(prefix + ".") for prefix in forbidden_prefixes)
     }
+
+
+def _assert_boundary(
+    path: Path,
+    forbidden_prefixes: tuple[str, ...],
+    *,
+    forbidden_exact_modules: tuple[str, ...] = (),
+) -> None:
+    imports = _imports(ast.parse(path.read_text()), _package(path))
+    violations = _boundary_violations(
+        imports,
+        forbidden_prefixes=forbidden_prefixes,
+        forbidden_exact_modules=forbidden_exact_modules,
+    )
     assert not violations, (str(path.relative_to(ROOT)), sorted(violations))
 
 
@@ -82,6 +104,7 @@ def test_readiness_publication_depends_only_on_canonical_research_and_calculatio
             "onlyalpha_plugin_operators",
             "onlyalpha_plugin_targets",
         ),
+        forbidden_exact_modules=AGGREGATE_REEXPORT_MODULES,
     )
 
 
@@ -100,6 +123,7 @@ def test_indicator_readiness_plugin_cannot_publish_or_orchestrate() -> None:
                 "onlyalpha.research.query",
                 "onlyalpha.research.artifact",
             ),
+            forbidden_exact_modules=AGGREGATE_REEXPORT_MODULES,
         )
 
 
@@ -128,7 +152,7 @@ def test_job_orchestrates_authorities_without_product_or_eager_v2_store_dependen
     paths = sorted((CORE / "research/job").rglob("*.py"))
     assert paths
     for path in paths:
-        _assert_boundary(path, PRODUCT_FORBIDDEN)
+        _assert_boundary(path, PRODUCT_FORBIDDEN, forbidden_exact_modules=AGGREGATE_REEXPORT_MODULES)
         tree = ast.parse(path.read_text())
         eager = ast.Module(body=_eager_statements(tree.body), type_ignores=[])
         imports = _imports(eager, _package(path))
@@ -205,3 +229,91 @@ def test_only_production_sma_research_registration_advertises_readiness_v1() -> 
 def test_import_guard_detects_absolute_relative_alias_and_literal_dynamic_dependencies(source: str) -> None:
     imports = _imports(ast.parse(source), "onlyalpha.research.calculation")
     assert any(name == "onlyalpha.application" or name.startswith("onlyalpha.application.") for name in imports)
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "from onlyalpha.research import OnlyParquetResearchCalculationResultStoreV2",
+        "from onlyalpha.research import OnlyResearchJobExecutor as Executor",
+        "import onlyalpha.research as research",
+        "from onlyalpha.research import *",
+        "__import__('onlyalpha.research')",
+        "from .. import OnlyParquetResearchCalculationResultStoreV2",
+        "from onlyalpha import research as research",
+    ),
+)
+def test_boundary_guard_rejects_root_reexport_entrypoint(source: str) -> None:
+    imports = _imports(ast.parse(source), "onlyalpha.research.calculation")
+    violations = _boundary_violations(
+        imports,
+        forbidden_prefixes=("onlyalpha.research.calculation.result_v2_store", "onlyalpha.research.job"),
+        forbidden_exact_modules=AGGREGATE_REEXPORT_MODULES,
+    )
+    assert "onlyalpha.research" in violations
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "from onlyalpha.research.calculation import OnlyResearchCalculationExecutionEvidenceStoreV2",
+        "from onlyalpha.research.calculation import OnlyParquetResearchCalculationResultStoreV2 as Store",
+        "import onlyalpha.research.calculation as calculation",
+        "from onlyalpha.research.calculation import *",
+        "importlib.import_module('onlyalpha.research.calculation')",
+        "from . import OnlyResearchCalculationExecutionEvidenceStoreV2",
+        "from onlyalpha.research import calculation as calculation",
+    ),
+)
+def test_boundary_guard_rejects_calculation_aggregate_reexport_entrypoint(source: str) -> None:
+    imports = _imports(ast.parse(source), "onlyalpha.research.calculation")
+    violations = _boundary_violations(
+        imports,
+        forbidden_prefixes=(
+            "onlyalpha.research.calculation.result_v2_store",
+            "onlyalpha.research.calculation.execution_evidence_v2",
+        ),
+        forbidden_exact_modules=AGGREGATE_REEXPORT_MODULES,
+    )
+    assert "onlyalpha.research.calculation" in violations
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "from onlyalpha.research.calculation.backend import OnlyResearchCalculationBackendExecutionV2",
+        "from onlyalpha.research.calculation.readiness import OnlyResearchOutputReadiness",
+        "from onlyalpha.research.calculation.publication import OnlyResearchCalculationPublicationContract",
+        "from onlyalpha.research.calculation.errors import OnlyResearchCalculationError",
+    ),
+)
+def test_boundary_guard_allows_explicit_narrow_calculation_spi(source: str) -> None:
+    imports = _imports(ast.parse(source), "onlyalpha.research.calculation")
+    assert not _boundary_violations(
+        imports,
+        forbidden_prefixes=(
+            "onlyalpha.research.calculation.result_v2_store",
+            "onlyalpha.research.calculation.execution_evidence_v2",
+        ),
+        forbidden_exact_modules=AGGREGATE_REEXPORT_MODULES,
+    )
+
+
+@pytest.mark.parametrize(
+    "name",
+    (
+        "onlyalpha.research.calculation.result_v2_store",
+        "onlyalpha.research.calculation.result_v2_store.OnlyParquetResearchCalculationResultStoreV2",
+        "onlyalpha.research.calculation.execution_evidence_v2",
+        "onlyalpha.research.calculation.execution_evidence_v2.OnlyResearchCalculationExecutionEvidenceStoreV2",
+    ),
+)
+def test_boundary_guard_retains_implementation_prefix_rejection(name: str) -> None:
+    assert _boundary_violations(
+        {name},
+        forbidden_prefixes=(
+            "onlyalpha.research.calculation.result_v2_store",
+            "onlyalpha.research.calculation.execution_evidence_v2",
+        ),
+        forbidden_exact_modules=AGGREGATE_REEXPORT_MODULES,
+    ) == {name}
