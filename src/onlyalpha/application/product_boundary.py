@@ -8,6 +8,7 @@ from typing import Any, Protocol, cast
 from onlyalpha.application.catalog_context import (
     OnlyExactCatalogContextQueryService,
     OnlyExactCatalogContextV1,
+    OnlyExactCatalogReadinessProjectionV1,
 )
 from onlyalpha.application.private_strategy_research import OnlyPrivateStrategyResearchOutcome
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId
@@ -114,6 +115,11 @@ class OnlyGetExactCatalogContext(OnlyProductQuery):
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyGetExactCatalogReadiness(OnlyProductQuery):
+    catalog_generation_fingerprint: str
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyResearchProductBoundary:
     commands: OnlyProductCommandDispatcher
     queries: OnlyProductQueryDispatcher
@@ -167,6 +173,11 @@ def only_compose_research_product_boundary(
             raise RuntimeError("EXACT_CATALOG_CONTEXT_UNAVAILABLE")
         return exact_catalog_context.get_exact_catalog_context(query.catalog_generation_fingerprint)
 
+    def get_exact_catalog_readiness(query: OnlyGetExactCatalogReadiness) -> OnlyExactCatalogReadinessProjectionV1:
+        if exact_catalog_context is None:
+            raise RuntimeError("EXACT_CATALOG_CONTEXT_UNAVAILABLE")
+        return exact_catalog_context.get_exact_catalog_readiness(query.catalog_generation_fingerprint)
+
     def submit_symbolic(
         command: OnlySubmitSymbolicSearchExperimentV1 | OnlySubmitSymbolicSearchExperimentV2,
     ) -> OnlySearchProductOutcomeV1:
@@ -213,7 +224,10 @@ def only_compose_research_product_boundary(
         OnlyProductQueryBinding(OnlyListResearchRuns, list_runs),
     )
     if exact_catalog_context is not None:
-        query_bindings += (OnlyProductQueryBinding(OnlyGetExactCatalogContext, get_exact_catalog_context),)
+        query_bindings += (
+            OnlyProductQueryBinding(OnlyGetExactCatalogContext, get_exact_catalog_context),
+            OnlyProductQueryBinding(OnlyGetExactCatalogReadiness, get_exact_catalog_readiness),
+        )
     if search_queries is not None:
         query_bindings += (
             OnlyProductQueryBinding(OnlyGetSearchExperimentV1, get_search_experiment),

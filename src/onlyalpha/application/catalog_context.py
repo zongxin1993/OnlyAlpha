@@ -27,6 +27,8 @@ from onlyalpha.quant_assets.catalog import (
 )
 
 EXACT_CATALOG_CONTEXT_SCHEMA_VERSION = 1
+EXACT_CATALOG_READINESS_CAPABILITY_SCHEMA_VERSION = 1
+EXACT_CATALOG_READINESS_PROJECTION_SCHEMA_VERSION = 1
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _PROJECTION_DOMAIN = "onlyalpha.exact-catalog-context-projection"
 _SCHEMA_DOMAIN = "onlyalpha.exact-catalog-context-schema"
@@ -86,6 +88,12 @@ class OnlyExactStatisticsCapabilityReader(Protocol):
     def load_exact_statistics_capabilities(
         self, catalog_generation_fingerprint: str
     ) -> Sequence[OnlyExactStatisticsCapabilityV1]: ...
+
+
+class OnlyExactCatalogCalculationReadinessReader(Protocol):
+    def load_exact_calculation_readiness_capabilities(
+        self, catalog_generation_fingerprint: str
+    ) -> Sequence[OnlyExactCatalogCalculationReadinessCapabilityV1]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -624,6 +632,262 @@ class OnlyExactCatalogContextV1:
         return result
 
 
+_READINESS_CAPABILITY_FIELDS = (
+    "schema_version",
+    "catalog_generation_fingerprint",
+    "provider_id",
+    "provider_version",
+    "provider_kind",
+    "kind",
+    "type_id",
+    "semantic_version",
+    "backend",
+    "implementation_fingerprint",
+    "readiness_contract_versions",
+)
+_READINESS_PROJECTION_FIELDS = (
+    "schema_version",
+    "catalog_generation_fingerprint",
+    "exact_catalog_context_projection_schema_fingerprint",
+    "exact_catalog_context_projection_fingerprint",
+    "ordered_calculation_readiness_capabilities",
+    "projection_schema_fingerprint",
+)
+EXACT_CATALOG_READINESS_PROJECTION_SCHEMA_FINGERPRINT = only_canonical_fingerprint(
+    {
+        "domain": "onlyalpha.exact-catalog-readiness-schema",
+        "schema_version": EXACT_CATALOG_READINESS_PROJECTION_SCHEMA_VERSION,
+        "projection_fields": (*_READINESS_PROJECTION_FIELDS, "projection_fingerprint"),
+        "capability_fields": (*_READINESS_CAPABILITY_FIELDS, "capability_fingerprint"),
+        "capability_order": (
+            "provider_kind",
+            "provider_id",
+            "provider_version",
+            "kind",
+            "type_id",
+            "semantic_version",
+            "backend",
+        ),
+        "provider_kind_discriminants": tuple(item.value for item in OnlyQuantAssetKind),
+        "calculation_kind_discriminants": tuple(item.value for item in OnlyCalculationKind),
+        "backend_discriminants": tuple(item.value for item in OnlyCalculationBackendKind),
+        "readiness_versions": "sorted unique positive plain integers; empty unless RESEARCH",
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyExactCatalogCalculationReadinessCapabilityV1:
+    catalog_generation_fingerprint: str
+    provider_id: str
+    provider_version: str
+    provider_kind: OnlyQuantAssetKind
+    kind: OnlyCalculationKind
+    type_id: str
+    semantic_version: str
+    backend: OnlyCalculationBackendKind
+    implementation_fingerprint: str
+    readiness_contract_versions: tuple[int, ...]
+    schema_version: int = EXACT_CATALOG_READINESS_CAPABILITY_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.schema_version) is not int
+            or self.schema_version != EXACT_CATALOG_READINESS_CAPABILITY_SCHEMA_VERSION
+        ):
+            raise OnlyExactCatalogContextSchemaUnsupported
+        _require_sha(self.catalog_generation_fingerprint)
+        _require_sha(self.implementation_fingerprint)
+        if not all(
+            isinstance(value, str) and value
+            for value in (self.provider_id, self.provider_version, self.type_id, self.semantic_version)
+        ):
+            raise OnlyExactCatalogContextCorrupt
+        if (
+            not isinstance(self.provider_kind, OnlyQuantAssetKind)
+            or not isinstance(self.kind, OnlyCalculationKind)
+            or not isinstance(self.backend, OnlyCalculationBackendKind)
+        ):
+            raise OnlyExactCatalogContextCorrupt
+        if self.provider_kind is OnlyQuantAssetKind.STRATEGY or (self.provider_kind is OnlyQuantAssetKind.FACTOR) != (
+            self.kind is OnlyCalculationKind.FACTOR
+        ):
+            raise OnlyExactCatalogContextCorrupt
+        versions = self.readiness_contract_versions
+        if type(versions) is not tuple or any(type(value) is not int or value < 1 for value in versions):
+            raise OnlyExactCatalogContextCorrupt
+        if versions != tuple(sorted(set(versions))) or (
+            self.backend is not OnlyCalculationBackendKind.RESEARCH and versions
+        ):
+            raise OnlyExactCatalogContextCorrupt
+
+    @property
+    def sort_key(self) -> tuple[str, str, str, str, str, str, str]:
+        return (
+            self.provider_kind.value,
+            self.provider_id,
+            self.provider_version,
+            self.kind.value,
+            self.type_id,
+            self.semantic_version,
+            self.backend.value,
+        )
+
+    @property
+    def capability_fingerprint(self) -> str:
+        return only_canonical_fingerprint(
+            {
+                "domain": "onlyalpha.exact-catalog-calculation-readiness-capability",
+                **self.to_dict(include_capability_fingerprint=False),
+            }
+        )
+
+    def to_dict(self, *, include_capability_fingerprint: bool = True) -> dict[str, object]:
+        result: dict[str, object] = {
+            "schema_version": self.schema_version,
+            "catalog_generation_fingerprint": self.catalog_generation_fingerprint,
+            "provider_id": self.provider_id,
+            "provider_version": self.provider_version,
+            "provider_kind": self.provider_kind.value,
+            "kind": self.kind.value,
+            "type_id": self.type_id,
+            "semantic_version": self.semantic_version,
+            "backend": self.backend.value,
+            "implementation_fingerprint": self.implementation_fingerprint,
+            "readiness_contract_versions": list(self.readiness_contract_versions),
+        }
+        if include_capability_fingerprint:
+            result["capability_fingerprint"] = self.capability_fingerprint
+        return result
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyExactCatalogCalculationReadinessCapabilityV1:
+        _require_exact_fields(payload, {*_READINESS_CAPABILITY_FIELDS, "capability_fingerprint"})
+        versions = payload["readiness_contract_versions"]
+        if not isinstance(versions, (list, tuple)) or any(type(value) is not int for value in versions):
+            raise OnlyExactCatalogContextCorrupt
+        try:
+            result = cls(
+                _string(payload, "catalog_generation_fingerprint"),
+                _string(payload, "provider_id"),
+                _string(payload, "provider_version"),
+                OnlyQuantAssetKind(_string(payload, "provider_kind")),
+                OnlyCalculationKind(_string(payload, "kind")),
+                _string(payload, "type_id"),
+                _string(payload, "semantic_version"),
+                OnlyCalculationBackendKind(_string(payload, "backend")),
+                _string(payload, "implementation_fingerprint"),
+                tuple(versions),
+                _integer(payload, "schema_version"),
+            )
+        except (TypeError, ValueError) as exc:
+            if isinstance(exc, OnlyExactCatalogContextError):
+                raise
+            raise OnlyExactCatalogContextCorrupt from exc
+        if _string(payload, "capability_fingerprint") != result.capability_fingerprint:
+            raise OnlyExactCatalogContextProjectionMismatch
+        return result
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyExactCatalogReadinessProjectionV1:
+    catalog_generation_fingerprint: str
+    exact_catalog_context_projection_schema_fingerprint: str
+    exact_catalog_context_projection_fingerprint: str
+    ordered_calculation_readiness_capabilities: tuple[OnlyExactCatalogCalculationReadinessCapabilityV1, ...]
+    schema_version: int = EXACT_CATALOG_READINESS_PROJECTION_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.schema_version) is not int
+            or self.schema_version != EXACT_CATALOG_READINESS_PROJECTION_SCHEMA_VERSION
+        ):
+            raise OnlyExactCatalogContextSchemaUnsupported
+        _require_sha(self.catalog_generation_fingerprint)
+        _require_sha(self.exact_catalog_context_projection_fingerprint)
+        if (
+            self.exact_catalog_context_projection_schema_fingerprint
+            != EXACT_CATALOG_CONTEXT_PROJECTION_SCHEMA_FINGERPRINT
+        ):
+            raise OnlyExactCatalogContextSchemaUnsupported
+        rows = self.ordered_calculation_readiness_capabilities
+        if type(rows) is not tuple or any(
+            not isinstance(item, OnlyExactCatalogCalculationReadinessCapabilityV1) for item in rows
+        ):
+            raise OnlyExactCatalogContextCorrupt
+        if rows != tuple(sorted(rows, key=lambda item: item.sort_key)) or len({item.sort_key for item in rows}) != len(
+            rows
+        ):
+            raise OnlyExactCatalogContextCorrupt
+        if any(item.catalog_generation_fingerprint != self.catalog_generation_fingerprint for item in rows):
+            raise OnlyExactCatalogContextCorrupt
+
+    @property
+    def projection_schema_fingerprint(self) -> str:
+        return EXACT_CATALOG_READINESS_PROJECTION_SCHEMA_FINGERPRINT
+
+    @property
+    def projection_fingerprint(self) -> str:
+        return only_canonical_fingerprint(
+            {
+                "domain": "onlyalpha.exact-catalog-readiness-projection",
+                **self.to_dict(include_projection_fingerprint=False),
+            }
+        )
+
+    def to_dict(self, *, include_projection_fingerprint: bool = True) -> dict[str, object]:
+        result: dict[str, object] = {
+            "schema_version": self.schema_version,
+            "catalog_generation_fingerprint": self.catalog_generation_fingerprint,
+            "exact_catalog_context_projection_schema_fingerprint": self.exact_catalog_context_projection_schema_fingerprint,
+            "exact_catalog_context_projection_fingerprint": self.exact_catalog_context_projection_fingerprint,
+            "ordered_calculation_readiness_capabilities": [
+                item.to_dict() for item in self.ordered_calculation_readiness_capabilities
+            ],
+            "projection_schema_fingerprint": self.projection_schema_fingerprint,
+        }
+        if include_projection_fingerprint:
+            result["projection_fingerprint"] = self.projection_fingerprint
+        return result
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyExactCatalogReadinessProjectionV1:
+        _require_exact_fields(payload, {*_READINESS_PROJECTION_FIELDS, "projection_fingerprint"})
+        if _string(payload, "projection_schema_fingerprint") != EXACT_CATALOG_READINESS_PROJECTION_SCHEMA_FINGERPRINT:
+            raise OnlyExactCatalogContextSchemaUnsupported
+        result = cls(
+            _string(payload, "catalog_generation_fingerprint"),
+            _string(payload, "exact_catalog_context_projection_schema_fingerprint"),
+            _string(payload, "exact_catalog_context_projection_fingerprint"),
+            tuple(
+                OnlyExactCatalogCalculationReadinessCapabilityV1.from_dict(item)
+                for item in _mapping_sequence(payload, "ordered_calculation_readiness_capabilities")
+            ),
+            _integer(payload, "schema_version"),
+        )
+        if _string(payload, "projection_fingerprint") != result.projection_fingerprint:
+            raise OnlyExactCatalogContextProjectionMismatch
+        return result
+
+
+def only_project_exact_catalog_readiness(
+    context: OnlyExactCatalogContextV1,
+    rows: Sequence[OnlyExactCatalogCalculationReadinessCapabilityV1],
+) -> OnlyExactCatalogReadinessProjectionV1:
+    projection = OnlyExactCatalogReadinessProjectionV1(
+        context.catalog_generation_fingerprint,
+        context.projection_schema_fingerprint,
+        context.projection_fingerprint,
+        tuple(rows),
+    )
+    if tuple(
+        (item.sort_key, item.implementation_fingerprint)
+        for item in projection.ordered_calculation_readiness_capabilities
+    ) != tuple((item.sort_key, item.implementation_fingerprint) for item in context.ordered_calculation_capabilities):
+        raise OnlyExactCatalogContextCorrupt
+    return projection
+
+
 class OnlyExactCatalogContextQueryService:
     def __init__(
         self,
@@ -631,11 +895,25 @@ class OnlyExactCatalogContextQueryService:
         dataset_fields: OnlyExactDatasetFieldContractReader,
         universes: OnlyExactRegisteredUniverseReader,
         statistics: OnlyExactStatisticsCapabilityReader,
+        readiness: OnlyExactCatalogCalculationReadinessReader | None = None,
     ) -> None:
         self._catalog_reader = catalog_reader
         self._dataset_fields = dataset_fields
         self._universes = universes
         self._statistics = statistics
+        self._readiness = readiness
+
+    def get_exact_catalog_readiness(self, catalog_generation_fingerprint: str) -> OnlyExactCatalogReadinessProjectionV1:
+        context = self.get_exact_catalog_context(catalog_generation_fingerprint)
+        if self._readiness is None:
+            raise OnlyExactCatalogContextUnavailable
+        try:
+            rows = self._readiness.load_exact_calculation_readiness_capabilities(catalog_generation_fingerprint)
+        except OnlyExactCatalogContextError:
+            raise
+        except Exception as exc:
+            raise OnlyExactCatalogContextUnavailable from exc
+        return only_project_exact_catalog_readiness(context, rows)
 
     def get_exact_catalog_context(self, catalog_generation_fingerprint: str) -> OnlyExactCatalogContextV1:
         _require_sha(catalog_generation_fingerprint)

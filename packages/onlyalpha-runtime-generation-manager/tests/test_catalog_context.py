@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
@@ -14,6 +15,7 @@ from onlyalpha_runtime_generation_manager.catalog_context import OnlyRuntimeGene
 from onlyalpha_test_factor_provider.provider import quant_asset_provider as factor_provider
 
 from onlyalpha.application.catalog_context import (
+    OnlyExactCatalogContextCorrupt,
     OnlyExactCatalogContextNotFound,
     OnlyExactCatalogContextProjectionMismatch,
     OnlyExactCatalogContextQueryService,
@@ -188,3 +190,146 @@ def test_disagreeing_reconstructions_and_unavailable_or_unknown_generation_fail_
 
     with pytest.raises(OnlyExactCatalogContextNotFound):
         reader.load_verified_catalog_descriptor("f" * 64)
+
+
+class _ReadinessBuilder(_Builder):
+    def __init__(self, catalog: OnlyQuantAssetCatalogGeneration, descriptors: dict[str, dict[str, object]]) -> None:
+        super().__init__(descriptors)
+        self.sidecars: dict[str, object] = {}
+        rows = [
+            {
+                "provider_id": provider.manifest.provider_id,
+                "provider_version": provider.manifest.provider_version,
+                "provider_kind": provider.manifest.kind.value,
+                "kind": registration.type_definition.kind.value,
+                "type_id": registration.type_definition.type_id,
+                "semantic_version": registration.type_definition.semantic_version,
+                "backend": registration.backend.value,
+                "implementation_fingerprint": registration.implementation_manifest.implementation_fingerprint,
+                "readiness_contract_versions": list(registration.readiness_contract_versions),
+            }
+            for provider in catalog.providers
+            for registration in provider.calculation_registrations
+            if registration.implementation_manifest is not None
+        ]
+        rows.sort(
+            key=lambda item: tuple(
+                item[name]
+                for name in (
+                    "provider_kind",
+                    "provider_id",
+                    "provider_version",
+                    "kind",
+                    "type_id",
+                    "semantic_version",
+                    "backend",
+                )
+            )
+        )
+        for fingerprint in descriptors:
+            self.sidecars[fingerprint] = rows
+
+    def rebuild_catalog_context_bundle(
+        self, *, expected_manifest: OnlyRuntimeGenerationManifest, environment_root: Path
+    ) -> dict[str, object]:
+        bundle = super().rebuild_catalog_context_bundle(
+            expected_manifest=expected_manifest, environment_root=environment_root
+        )
+        bundle["calculation_readiness"] = self.sidecars[expected_manifest.runtime_generation_fingerprint]
+        return bundle
+
+
+def test_multiple_exact_runtime_generations_converge_on_complete_readiness(tmp_path: Path) -> None:
+    catalog = OnlyQuantAssetCatalogGeneration((operator_provider(),))
+    registry = OnlyRuntimeGenerationRegistry(tmp_path / "authority")
+    runtimes = (_ready(registry, _manifest("a", catalog), 0), _ready(registry, _manifest("b", catalog), 2))
+    builder = _ReadinessBuilder(catalog, {runtime: catalog.descriptor() for runtime in runtimes})
+    reader = _reader(registry, builder, tmp_path / "environments")
+    rows = reader.load_exact_calculation_readiness_capabilities(catalog.generation_fingerprint)
+    assert len(rows) == sum(len(provider.calculation_registrations) for provider in catalog.providers)
+    assert all(item.readiness_contract_versions == () for item in rows)
+    assert all(item.catalog_generation_fingerprint == catalog.generation_fingerprint for item in rows)
+    assert builder.calls == sorted(runtimes)
+
+
+@pytest.mark.parametrize("sidecar", (None, "malformed", [{}]))
+def test_exact_runtime_generation_malformed_readiness_sidecar_fails_closed(tmp_path: Path, sidecar: object) -> None:
+    catalog = OnlyQuantAssetCatalogGeneration((operator_provider(),))
+    registry = OnlyRuntimeGenerationRegistry(tmp_path / "authority")
+    runtime = _ready(registry, _manifest("a", catalog), 0)
+    builder = _ReadinessBuilder(catalog, {runtime: catalog.descriptor()})
+    builder.sidecars[runtime] = sidecar
+    with pytest.raises(OnlyExactCatalogContextCorrupt):
+        _reader(registry, builder, tmp_path / "environments").load_exact_calculation_readiness_capabilities(
+            catalog.generation_fingerprint
+        )
+
+
+def test_exact_runtime_generation_missing_readiness_sidecar_is_not_unsupported(tmp_path: Path) -> None:
+    catalog = OnlyQuantAssetCatalogGeneration((operator_provider(),))
+    registry = OnlyRuntimeGenerationRegistry(tmp_path / "authority")
+    runtime = _ready(registry, _manifest("a", catalog), 0)
+    reader = _reader(registry, _Builder({runtime: catalog.descriptor()}), tmp_path / "environments")
+    with pytest.raises(OnlyExactCatalogContextCorrupt):
+        reader.load_exact_calculation_readiness_capabilities(catalog.generation_fingerprint)
+
+
+def test_disagreeing_complete_readiness_sidecars_fail_closed(tmp_path: Path) -> None:
+    catalog = OnlyQuantAssetCatalogGeneration((operator_provider(),))
+    registry = OnlyRuntimeGenerationRegistry(tmp_path / "authority")
+    runtimes = (_ready(registry, _manifest("a", catalog), 0), _ready(registry, _manifest("b", catalog), 2))
+    builder = _ReadinessBuilder(catalog, {runtime: catalog.descriptor() for runtime in runtimes})
+    changed = deepcopy(builder.sidecars[runtimes[1]])
+    assert isinstance(changed, list)
+    row = next(item for item in changed if item["backend"] == "RESEARCH")
+    row["readiness_contract_versions"] = [2]
+    builder.sidecars[runtimes[1]] = changed
+    reader = _reader(registry, builder, tmp_path / "environments")
+    assert reader.load_verified_catalog_descriptor(catalog.generation_fingerprint) == catalog.descriptor()
+    with pytest.raises(OnlyExactCatalogContextProjectionMismatch):
+        reader.load_exact_calculation_readiness_capabilities(catalog.generation_fingerprint)
+
+
+@pytest.mark.parametrize("sidecar", ([], [{}], None))
+def test_one_complete_and_one_incomplete_readiness_bundle_is_corrupt(tmp_path: Path, sidecar: object) -> None:
+    catalog = OnlyQuantAssetCatalogGeneration((operator_provider(),))
+    registry = OnlyRuntimeGenerationRegistry(tmp_path / "authority")
+    runtimes = (_ready(registry, _manifest("a", catalog), 0), _ready(registry, _manifest("b", catalog), 2))
+    builder = _ReadinessBuilder(catalog, {runtime: catalog.descriptor() for runtime in runtimes})
+    builder.sidecars[runtimes[1]] = sidecar
+    reader = _reader(registry, builder, tmp_path / "environments")
+    assert reader.load_verified_catalog_descriptor(catalog.generation_fingerprint) == catalog.descriptor()
+    with pytest.raises(OnlyExactCatalogContextCorrupt):
+        reader.load_exact_calculation_readiness_capabilities(catalog.generation_fingerprint)
+
+
+def test_retired_generation_readiness_is_exact_after_fresh_reader_restart(tmp_path: Path) -> None:
+    catalog = OnlyQuantAssetCatalogGeneration((operator_provider(),))
+    registry = OnlyRuntimeGenerationRegistry(tmp_path / "authority")
+    runtime = _ready(registry, _manifest("a", catalog), 0)
+    newer_catalog = OnlyQuantAssetCatalogGeneration((factor_provider(),))
+    newer_runtime = _ready(registry, _manifest("b", newer_catalog), 2)
+    registry.activate_for_new_work(expected_current=None, target=runtime, actor="operator", occurred_at=NOW)
+    registry.activate_for_new_work(
+        expected_current=runtime, target=newer_runtime, actor="operator", occurred_at=NOW + timedelta(seconds=4)
+    )
+    registry.retire(runtime, actor="operator", occurred_at=NOW + timedelta(seconds=5))
+    builder = _ReadinessBuilder(catalog, {runtime: catalog.descriptor()})
+    before_reader = _reader(registry, builder, tmp_path / "before")
+    before = OnlyExactCatalogContextQueryService(
+        before_reader,
+        before_reader,
+        before_reader,
+        before_reader,
+        before_reader,
+    ).get_exact_catalog_readiness(catalog.generation_fingerprint)
+    fresh_reader = _reader(OnlyRuntimeGenerationRegistry(tmp_path / "authority"), builder, tmp_path / "after")
+    after = OnlyExactCatalogContextQueryService(
+        fresh_reader,
+        fresh_reader,
+        fresh_reader,
+        fresh_reader,
+        fresh_reader,
+    ).get_exact_catalog_readiness(catalog.generation_fingerprint)
+    assert before.to_dict() == after.to_dict()
+    assert before.projection_fingerprint == after.projection_fingerprint

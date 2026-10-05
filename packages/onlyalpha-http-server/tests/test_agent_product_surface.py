@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from onlyalpha_http_server.research.catalog_context_routes import create_exact_catalog_context_router
@@ -13,6 +16,7 @@ from onlyalpha_http_server.search.schema import (
     SearchLedgerResponseDto,
     SearchTerminalResponseDto,
 )
+from pydantic import ValidationError
 
 SHA = "a" * 64
 COMMAND = "00000000-0000-4000-8000-000000000001"
@@ -132,6 +136,108 @@ def test_exact_catalog_surface_has_no_latest_current_or_fallback_semantics() -> 
     for alias in ("latest", "current", "fallback"):
         assert client.get(f"/api/v2/research/catalog-context/{alias}").status_code == 422
     assert catalog.requested == [SHA, SHA]
+
+
+def test_exact_catalog_readiness_route_is_additive_and_not_an_agent_operation() -> None:
+    client = _client(_Catalog(), _Search())
+    paths = client.get("/openapi.json").json()["paths"]
+    route = paths["/api/v2/research/catalog-context/exact/{catalog_generation_fingerprint}/readiness"]["get"]
+    assert route["operationId"] == "get_exact_catalog_readiness_v2"
+    assert "x-onlyalpha-agent-operation" not in route
+    assert paths["/api/v2/research/catalog-context/{catalog_generation_fingerprint}"]["get"]["operationId"] == (
+        "get_exact_catalog_context_v2"
+    )
+    complete = paths["/api/v2/research/catalog-context/exact/{catalog_generation_fingerprint}"]["get"]
+    assert complete["operationId"] == "get_complete_exact_catalog_context_v2"
+    assert complete["x-onlyalpha-agent-operation"]["tool_class"] == "EXACT_CATALOG_CONTEXT_QUERY"
+
+
+def test_exact_catalog_legacy_schema_and_response_fields_remain_frozen() -> None:
+    assert LEGACY_EXACT_CATALOG_CONTEXT_PROJECTION_SCHEMA_FINGERPRINT == (
+        "169a7c181f87fdd4293165866d8eede19f1f54db12dec44c78d19c922c800a24"
+    )
+    client = _client(_Catalog(), _Search())
+    legacy = client.get(f"/api/v2/research/catalog-context/{SHA}").json()
+    assert set(legacy) == {
+        "schema_version",
+        "catalog_generation_fingerprint",
+        "ordered_providers",
+        "ordered_calculation_capabilities",
+        "projection_schema_fingerprint",
+        "projection_fingerprint",
+    }
+    complete = client.get(f"/api/v2/research/catalog-context/exact/{SHA}").json()
+    assert set(complete) == set(legacy) | {
+        "ordered_registered_universes",
+        "ordered_dataset_field_contracts",
+        "ordered_statistics_capabilities",
+    }
+    assert complete == _CatalogProjection().to_dict()
+
+
+def test_exact_catalog_readiness_http_projection_is_strict_and_generation_bound() -> None:
+    from onlyalpha_http_server.research.catalog_context_schema import ExactCatalogReadinessProjectionResponseDto
+    from onlyalpha_plugin_indicators.provider import quant_asset_provider
+
+    from onlyalpha.application.catalog_context import (
+        OnlyExactCatalogCalculationReadinessCapabilityV1,
+        only_project_exact_catalog_context,
+        only_project_exact_catalog_readiness,
+    )
+    from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration
+
+    provider = quant_asset_provider()
+    generation = OnlyQuantAssetCatalogGeneration((provider,))
+    context = only_project_exact_catalog_context(
+        generation.generation_fingerprint,
+        generation.descriptor(),
+        dataset_field_contracts=(),
+        registered_universes=(),
+        statistics_capabilities=(),
+    )
+    registrations = {
+        (item.type_definition.type_id, item.type_definition.semantic_version, item.backend): item
+        for item in provider.calculation_registrations
+    }
+    rows = tuple(
+        OnlyExactCatalogCalculationReadinessCapabilityV1(
+            generation.generation_fingerprint,
+            item.provider_id,
+            item.provider_version,
+            item.provider_kind,
+            item.kind,
+            item.type_id,
+            item.semantic_version,
+            item.backend,
+            item.implementation_fingerprint,
+            registrations[item.type_id, item.semantic_version, item.backend].readiness_contract_versions,
+        )
+        for item in context.ordered_calculation_capabilities
+    )
+    projection = only_project_exact_catalog_readiness(context, rows)
+
+    class Catalog(_Catalog):
+        def get_exact_catalog_readiness(self, fingerprint: str):  # type: ignore[no-untyped-def]
+            assert fingerprint == projection.catalog_generation_fingerprint
+            self.requested.append(fingerprint)
+            return projection
+
+    catalog = Catalog()
+    client = _client(catalog, _Search())
+    response = client.get(f"/api/v2/research/catalog-context/exact/{generation.generation_fingerprint}/readiness")
+    assert response.status_code == 200
+    assert response.json() == projection.to_dict()
+    assert catalog.requested == [generation.generation_fingerprint]
+    assert [
+        (item.type_id, item.backend.value, item.readiness_contract_versions)
+        for item in rows
+        if item.readiness_contract_versions
+    ] == [("onlyalpha.indicator.sma", "RESEARCH", (1,))]
+    for key, value in (("unknown", True), ("schema_version", True), ("projection_fingerprint", "f" * 64)):
+        payload = projection.to_dict()
+        payload[key] = value
+        with pytest.raises(ValidationError):
+            ExactCatalogReadinessProjectionResponseDto.model_validate_json(json.dumps(payload))
 
 
 def test_search_query_is_exact_and_commands_echo_the_same_product_command_id() -> None:

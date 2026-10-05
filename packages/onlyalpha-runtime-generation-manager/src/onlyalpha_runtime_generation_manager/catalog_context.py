@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import cast
 
 from onlyalpha.application.catalog_context import (
+    OnlyExactCatalogCalculationReadinessCapabilityV1,
     OnlyExactCatalogContextCorrupt,
     OnlyExactCatalogContextNotFound,
     OnlyExactCatalogContextProjectionMismatch,
@@ -17,8 +18,12 @@ from onlyalpha.application.catalog_context import (
     OnlyExactDatasetFieldContractV1,
     OnlyExactRegisteredUniverseV1,
     OnlyExactStatisticsCapabilityV1,
+    only_project_exact_catalog_context,
+    only_project_exact_catalog_readiness,
 )
+from onlyalpha.calculation.definition import OnlyCalculationBackendKind, OnlyCalculationKind
 from onlyalpha.canonical import only_canonical_json
+from onlyalpha.quant_assets.catalog import OnlyQuantAssetKind
 
 from .builder import OnlyRuntimeGenerationBuilder
 from .registry import OnlyGenerationState, OnlyRuntimeGenerationRegistry
@@ -72,7 +77,16 @@ class OnlyRuntimeGenerationExactCatalogDescriptorReader:
             for item in values
         )
 
-    def _load_bundle(self, catalog_generation_fingerprint: str) -> dict[str, object]:
+    def load_exact_calculation_readiness_capabilities(
+        self, catalog_generation_fingerprint: str
+    ) -> tuple[OnlyExactCatalogCalculationReadinessCapabilityV1, ...]:
+        return _readiness_rows(
+            self._load_bundle(catalog_generation_fingerprint, require_readiness=True), catalog_generation_fingerprint
+        )
+
+    def _load_bundle(
+        self, catalog_generation_fingerprint: str, *, require_readiness: bool = False
+    ) -> dict[str, object]:
         if _SHA256.fullmatch(catalog_generation_fingerprint) is None:
             raise OnlyExactCatalogContextCorrupt
         try:
@@ -124,10 +138,74 @@ class OnlyRuntimeGenerationExactCatalogDescriptorReader:
                 continue
         if not bundles:
             raise OnlyExactCatalogContextUnavailable
-        canonical = {only_canonical_json(item) for item in bundles}
+        if require_readiness:
+            for bundle in bundles:
+                rows = _readiness_rows(bundle, catalog_generation_fingerprint)
+                catalog = cast(Mapping[str, object], bundle["catalog"])
+                context = only_project_exact_catalog_context(
+                    catalog_generation_fingerprint,
+                    catalog,
+                    dataset_field_contracts=(),
+                    registered_universes=(),
+                    statistics_capabilities=(),
+                )
+                only_project_exact_catalog_readiness(context, rows)
+        # The additive readiness family cannot redefine V1 convergence or availability.
+        canonical = {
+            only_canonical_json(
+                item
+                if require_readiness
+                else {name: value for name, value in item.items() if name != "calculation_readiness"}
+            )
+            for item in bundles
+        }
         if len(canonical) != 1:
             raise OnlyExactCatalogContextProjectionMismatch
         return bundles[0]
+
+
+def _readiness_rows(
+    bundle: Mapping[str, object],
+    catalog_generation_fingerprint: str,
+) -> tuple[OnlyExactCatalogCalculationReadinessCapabilityV1, ...]:
+    result = []
+    expected_fields = {
+        "provider_id",
+        "provider_version",
+        "provider_kind",
+        "kind",
+        "type_id",
+        "semantic_version",
+        "backend",
+        "implementation_fingerprint",
+        "readiness_contract_versions",
+    }
+    for item in _entries(bundle, "calculation_readiness"):
+        if set(item) != expected_fields or any(
+            not isinstance(item[name], str) for name in expected_fields - {"readiness_contract_versions"}
+        ):
+            raise OnlyExactCatalogContextCorrupt
+        versions = item["readiness_contract_versions"]
+        if not isinstance(versions, list):
+            raise OnlyExactCatalogContextCorrupt
+        try:
+            result.append(
+                OnlyExactCatalogCalculationReadinessCapabilityV1(
+                    catalog_generation_fingerprint,
+                    cast(str, item["provider_id"]),
+                    cast(str, item["provider_version"]),
+                    OnlyQuantAssetKind(cast(str, item["provider_kind"])),
+                    OnlyCalculationKind(cast(str, item["kind"])),
+                    cast(str, item["type_id"]),
+                    cast(str, item["semantic_version"]),
+                    OnlyCalculationBackendKind(cast(str, item["backend"])),
+                    cast(str, item["implementation_fingerprint"]),
+                    tuple(versions),
+                )
+            )
+        except (TypeError, ValueError) as exc:
+            raise OnlyExactCatalogContextCorrupt from exc
+    return tuple(result)
 
 
 def _entries(bundle: Mapping[str, object], name: str) -> tuple[Mapping[str, object], ...]:

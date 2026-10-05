@@ -584,6 +584,84 @@
         "title": "BacktestRuntimeOptionsDto",
         "type": "object"
       },
+      "ExactCatalogCalculationReadinessCapabilityDto": {
+        "additionalProperties": false,
+        "properties": {
+          "backend": {
+            "$ref": "#/components/schemas/OnlyCalculationBackendKind"
+          },
+          "capability_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Capability Fingerprint",
+            "type": "string"
+          },
+          "catalog_generation_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Catalog Generation Fingerprint",
+            "type": "string"
+          },
+          "implementation_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Implementation Fingerprint",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/OnlyCalculationKind"
+          },
+          "provider_id": {
+            "minLength": 1,
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "provider_kind": {
+            "$ref": "#/components/schemas/OnlyQuantAssetKind"
+          },
+          "provider_version": {
+            "minLength": 1,
+            "title": "Provider Version",
+            "type": "string"
+          },
+          "readiness_contract_versions": {
+            "items": {
+              "minimum": 1.0,
+              "type": "integer"
+            },
+            "title": "Readiness Contract Versions",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "semantic_version": {
+            "minLength": 1,
+            "title": "Semantic Version",
+            "type": "string"
+          },
+          "type_id": {
+            "minLength": 1,
+            "title": "Type Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "catalog_generation_fingerprint",
+          "provider_id",
+          "provider_version",
+          "provider_kind",
+          "kind",
+          "type_id",
+          "semantic_version",
+          "backend",
+          "implementation_fingerprint",
+          "readiness_contract_versions",
+          "capability_fingerprint"
+        ],
+        "title": "ExactCatalogCalculationReadinessCapabilityDto",
+        "type": "object"
+      },
       "ExactCatalogContextLegacyResponseDto": {
         "additionalProperties": false,
         "description": "Frozen compatibility projection; not sufficient for Agent decisions.",
@@ -729,6 +807,59 @@
           "projection_fingerprint"
         ],
         "title": "ExactCatalogContextResponseDto",
+        "type": "object"
+      },
+      "ExactCatalogReadinessProjectionResponseDto": {
+        "additionalProperties": false,
+        "properties": {
+          "catalog_generation_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Catalog Generation Fingerprint",
+            "type": "string"
+          },
+          "exact_catalog_context_projection_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Exact Catalog Context Projection Fingerprint",
+            "type": "string"
+          },
+          "exact_catalog_context_projection_schema_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Exact Catalog Context Projection Schema Fingerprint",
+            "type": "string"
+          },
+          "ordered_calculation_readiness_capabilities": {
+            "items": {
+              "$ref": "#/components/schemas/ExactCatalogCalculationReadinessCapabilityDto"
+            },
+            "title": "Ordered Calculation Readiness Capabilities",
+            "type": "array"
+          },
+          "projection_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Projection Fingerprint",
+            "type": "string"
+          },
+          "projection_schema_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Projection Schema Fingerprint",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "catalog_generation_fingerprint",
+          "exact_catalog_context_projection_schema_fingerprint",
+          "exact_catalog_context_projection_fingerprint",
+          "ordered_calculation_readiness_capabilities",
+          "projection_schema_fingerprint",
+          "projection_fingerprint"
+        ],
+        "title": "ExactCatalogReadinessProjectionResponseDto",
         "type": "object"
       },
       "ExactDatasetSnapshotDto": {
@@ -3263,6 +3394,14 @@
         "title": "MarketDataVolumeFormationDto",
         "type": "object"
       },
+      "OnlyCalculationBackendKind": {
+        "enum": [
+          "TRADING",
+          "RESEARCH"
+        ],
+        "title": "OnlyCalculationBackendKind",
+        "type": "string"
+      },
       "OnlyCalculationDataType": {
         "enum": [
           "DECIMAL",
@@ -3271,6 +3410,16 @@
           "STRING"
         ],
         "title": "OnlyCalculationDataType",
+        "type": "string"
+      },
+      "OnlyCalculationKind": {
+        "enum": [
+          "INDICATOR",
+          "FACTOR",
+          "TARGET",
+          "PREDICATE"
+        ],
+        "title": "OnlyCalculationKind",
         "type": "string"
       },
       "OnlyIntegrationCategory": {
@@ -3359,6 +3508,16 @@
           "PROJECTION_UNAVAILABLE"
         ],
         "title": "OnlyProductAssetSearchStatus",
+        "type": "string"
+      },
+      "OnlyQuantAssetKind": {
+        "enum": [
+          "OPERATOR",
+          "INDICATOR",
+          "FACTOR",
+          "STRATEGY"
+        ],
+        "title": "OnlyQuantAssetKind",
         "type": "string"
       },
       "OnlyResearchPairingPolicy": {
@@ -12846,6 +13005,52 @@
           "schema_version": 1,
           "tool_class": "EXACT_CATALOG_CONTEXT_QUERY"
         }
+      }
+    },
+    "/api/v2/research/catalog-context/exact/{catalog_generation_fingerprint}/readiness": {
+      "get": {
+        "operationId": "get_exact_catalog_readiness_v2",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "catalog_generation_fingerprint",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Catalog Generation Fingerprint",
+              "type": "string",
+              "x-onlyalpha-reference-kind": "CATALOG_GENERATION",
+              "x-onlyalpha-reference-locator-kind": "SHA256",
+              "x-onlyalpha-reference-schema-version": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExactCatalogReadinessProjectionResponseDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Exact Catalog Readiness",
+        "tags": [
+          "exact-catalog-context"
+        ]
       }
     },
     "/api/v2/research/catalog-context/{catalog_generation_fingerprint}": {
