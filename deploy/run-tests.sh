@@ -12,7 +12,17 @@ export ONLYALPHA_COMPOSE_NAMESPACE="onlyalpha-test-$$"
 export ONLYALPHA_POSTGRES_DB=onlyalpha_test_environment
 export ONLYALPHA_CLICKHOUSE_DATABASE=onlyalpha_test_environment
 
+if [[ -L "$ROOT/test-results" ]]; then
+    echo "test-results must not be a symlink" >&2
+    exit 2
+fi
 mkdir -p "$ROOT/test-results"
+# Linux bind mounts retain the host owner, unlike Docker Desktop mounts.
+# Permit the non-root test user to create artifacts; the sticky bit prevents
+# different users from deleting one another's entries. Never chmod recursively.
+if [[ "$(LC_ALL=C ls -ld "$ROOT/test-results")" != drwxrwxrwt* ]]; then
+    chmod 1777 "$ROOT/test-results"
+fi
 
 compose() {
     docker compose -p "$ONLYALPHA_COMPOSE_NAMESPACE" -f "$COMPOSE_FILE" "$@"

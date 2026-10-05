@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError, fields
+from dataclasses import FrozenInstanceError, fields, replace
 
 import pytest
 
@@ -23,8 +23,11 @@ def test_resolved_plan_is_exact_immutable_and_reuses_calculation_identity(tmp_pa
         "dataset_snapshot_fingerprint",
         "calculation_graph",
         "schema_version",
+        "publication",
     )
     assert plan.calculation_fingerprint
+    assert plan.publication is None
+    assert OnlyResearchJobPlan(plan.dataset_snapshot_fingerprint, plan.calculation_graph, 1) == plan
     assert not hasattr(plan, "research_job_fingerprint")
     assert not hasattr(plan, "research_plan_fingerprint")
     with pytest.raises(FrozenInstanceError):
@@ -76,3 +79,46 @@ def test_outcome_contract_is_exact_and_validated() -> None:
         OnlyResearchJobOutcome("FAILED", OnlyResearchJobDisposition.REUSED, "a" * 64, "b" * 64, "c" * 64)
     with pytest.raises(ValueError, match="disposition is invalid"):
         OnlyResearchJobOutcome(OnlyResearchJobStatus.SUCCEEDED, "UNKNOWN", "a" * 64, "b" * 64, "c" * 64)
+
+
+def test_job_plan_v2_requires_exact_publication_without_changing_calculation_identity(tmp_path):
+    from onlyalpha.research.calculation.publication import OnlyResearchCalculationPublicationContract
+    from onlyalpha.research.job import RESEARCH_JOB_PLAN_READINESS_SCHEMA_VERSION
+
+    plan, _, _, _ = job_case(tmp_path)
+    assert RESEARCH_JOB_PLAN_SCHEMA_VERSION == 1
+    assert RESEARCH_JOB_PLAN_READINESS_SCHEMA_VERSION == 2
+    publication = OnlyResearchCalculationPublicationContract()
+    second = OnlyResearchJobPlan(plan.dataset_snapshot_fingerprint, plan.calculation_graph, 2, publication)
+    assert second.calculation_fingerprint == plan.calculation_fingerprint
+    assert second.publication is publication
+
+
+@pytest.mark.parametrize("version", (True, False, 1.0, 2.0, "1", "2", 0, 3, None))
+def test_job_plan_rejects_coerced_unknown_schema(version, tmp_path):
+    plan, _, _, _ = job_case(tmp_path)
+    with pytest.raises(OnlyResearchJobError, match="RESEARCH_JOB_INVALID"):
+        replace(plan, schema_version=version)
+
+
+@pytest.mark.parametrize("candidate", ("v1-with-publication", "v2-without-publication", "dict", "subclass", "corrupt"))
+def test_job_plan_rejects_wrong_or_subclassed_publication_contract(tmp_path, candidate):
+    from onlyalpha.research.calculation.publication import OnlyResearchCalculationPublicationContract
+
+    class _Subclass(OnlyResearchCalculationPublicationContract):
+        pass
+
+    plan, _, _, _ = job_case(tmp_path)
+    publication = OnlyResearchCalculationPublicationContract()
+    if candidate == "corrupt":
+        object.__setattr__(publication, "readiness_contract_version", True)
+    claims = {
+        "v1-with-publication": (1, publication),
+        "v2-without-publication": (2, None),
+        "dict": (2, publication.to_dict()),
+        "subclass": (2, _Subclass()),
+        "corrupt": (2, publication),
+    }
+    version, contract = claims[candidate]
+    with pytest.raises(OnlyResearchJobError, match="RESEARCH_JOB_INVALID"):
+        OnlyResearchJobPlan(plan.dataset_snapshot_fingerprint, plan.calculation_graph, version, contract)
