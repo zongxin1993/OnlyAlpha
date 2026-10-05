@@ -28,6 +28,7 @@ def test_global_coverage_preserves_all_canonical_lane_selection_and_policy(tmp_p
     for command, cwd, env, check in calls[1:6]:
         assert command[1:5] == ["-m", "coverage", "run", "--parallel-mode"]
         assert command[5] == "scripts/test_suite.py"
+        assert command[6] == "--no-parallel"
         assert cwd == tmp_path
         assert check is False
         assert env["COVERAGE_RCFILE"] == str(tmp_path / "pyproject.toml")

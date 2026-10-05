@@ -48,7 +48,16 @@ def main() -> int:
         # Match the canonical database-compose prerequisite: packaged research
         # algorithms require the build's exact Git source-provenance carrier.
         def run_lane(lane: str) -> int:
-            command = [sys.executable, "-m", "coverage", "run", "--parallel-mode", "scripts/test_suite.py", lane]
+            command = [
+                sys.executable,
+                "-m",
+                "coverage",
+                "run",
+                "--parallel-mode",
+                "scripts/test_suite.py",
+                "--no-parallel",
+                lane,
+            ]
             print(f"Coverage: {lane}", flush=True)
             return subprocess.run(command, cwd=ROOT, env=env, check=False).returncode
 
