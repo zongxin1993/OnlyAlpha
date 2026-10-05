@@ -672,6 +672,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         exact_catalog_reader,
         exact_catalog_reader,
         exact_catalog_reader,
+        exact_catalog_reader,
     )
     run_store = OnlyPostgresResearchRunStore(postgres.dsn, operational_options)
     private_assets = OnlyPostgresPrivateAssetStore(postgres.dsn, operational_options)

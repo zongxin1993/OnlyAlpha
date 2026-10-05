@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import subprocess
 import sys
 import zipfile
@@ -9,8 +10,10 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from importlib import metadata
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from onlyalpha_plugin_indicators.provider import quant_asset_provider as indicator_provider
 from onlyalpha_plugin_operators.provider import quant_asset_provider
 from onlyalpha_runtime_generation_manager import (
     OnlyHistoricalExecutableRuntimeGenerationResolver,
@@ -27,7 +30,7 @@ from onlyalpha.application.catalog_context import (
     OnlyExactCatalogContextQueryService,
     OnlyExactCatalogContextUnavailable,
 )
-from onlyalpha.canonical import only_canonical_fingerprint
+from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 from onlyalpha.quant_assets import (
     ONLY_PRIVATE_FACTOR_API_V1,
     OnlyPrivateFactorDraft,
@@ -49,6 +52,47 @@ from onlyalpha.runtime.generation import (
 )
 
 NOW = datetime(2026, 9, 5, tzinfo=UTC)
+
+
+@pytest.mark.parametrize("legacy", (False, True))
+def test_exact_catalog_probe_emits_complete_readiness_and_legacy_empty_support(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], legacy: bool
+) -> None:
+    from onlyalpha_runtime_generation_manager import hosted
+
+    from onlyalpha.runtime.generation import OnlyRuntimeGenerationValidationEvidence
+
+    catalog = OnlyQuantAssetCatalogGeneration((indicator_provider(),))
+    providers = catalog.providers
+    if legacy:
+        providers = tuple(
+            SimpleNamespace(
+                manifest=provider.manifest,
+                calculation_registrations=tuple(
+                    SimpleNamespace(
+                        type_definition=item.type_definition,
+                        backend=item.backend,
+                        implementation_manifest=item.implementation_manifest,
+                    )
+                    for item in provider.calculation_registrations
+                ),
+            )
+            for provider in providers
+        )
+    selected = SimpleNamespace(providers=providers, descriptor=catalog.descriptor)
+    monkeypatch.setattr(hosted, "only_load_hosted_quant_asset_catalog", lambda evidence: selected)
+    monkeypatch.setattr(OnlyRuntimeGenerationValidationEvidence, "from_dict", lambda payload: object())
+    monkeypatch.setattr(Path, "read_text", lambda *args, **kwargs: "{}")
+    exec(compile(runtime_builder_module._CATALOG_PROBE, "<catalog-probe>", "exec"), {})
+    bundle = json.loads(capsys.readouterr().out)
+    assert bundle["catalog"] == json.loads(only_canonical_json(catalog.descriptor()))
+    rows = bundle["calculation_readiness"]
+    assert len(rows) == sum(len(provider.calculation_registrations) for provider in catalog.providers)
+    for row in rows:
+        expected = (
+            [1] if not legacy and row["type_id"] == "onlyalpha.indicator.sma" and row["backend"] == "RESEARCH" else []
+        )
+        assert row["readiness_contract_versions"] == expected
 
 
 def test_hosted_verification_fails_closed_for_unmapped_wheel_data_files(tmp_path: Path) -> None:
@@ -270,6 +314,12 @@ def test_builder_installs_exact_distribution_fixture_in_clean_environment_and_is
     assert only_canonical_fingerprint(native_bundle["catalog"]) == only_canonical_fingerprint(
         native_catalog.descriptor()
     )
+    native_readiness = native_bundle["calculation_readiness"]
+    assert isinstance(native_readiness, list)
+    assert len(native_readiness) == sum(
+        len(provider.calculation_registrations) for provider in native_catalog.providers
+    )
+    assert all(item["readiness_contract_versions"] == [] for item in native_readiness)
     hosted_native = subprocess.run(
         [
             str(tmp_path / "runtime-native-catalog" / "bin" / "python"),

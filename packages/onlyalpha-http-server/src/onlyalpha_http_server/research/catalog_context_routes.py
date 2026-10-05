@@ -8,7 +8,11 @@ from fastapi import APIRouter, Path
 
 from onlyalpha.application.catalog_context import OnlyExactCatalogContextQueryService
 
-from .catalog_context_schema import ExactCatalogContextLegacyResponseDto, ExactCatalogContextResponseDto
+from .catalog_context_schema import (
+    ExactCatalogContextLegacyResponseDto,
+    ExactCatalogContextResponseDto,
+    ExactCatalogReadinessProjectionResponseDto,
+)
 
 EXACT_CATALOG_ROUTE_TAG = "exact-catalog-context"
 CatalogGenerationPath = Annotated[
@@ -68,6 +72,18 @@ def create_exact_catalog_context_router(service: OnlyExactCatalogContextQuerySer
     ) -> ExactCatalogContextResponseDto:
         return ExactCatalogContextResponseDto.from_model(
             service.get_exact_catalog_context(catalog_generation_fingerprint)
+        )
+
+    @router.get(
+        "/exact/{catalog_generation_fingerprint}/readiness",
+        operation_id="get_exact_catalog_readiness_v2",
+        response_model=ExactCatalogReadinessProjectionResponseDto,
+    )
+    def get_exact_catalog_readiness(
+        catalog_generation_fingerprint: CatalogGenerationPath,
+    ) -> ExactCatalogReadinessProjectionResponseDto:
+        return ExactCatalogReadinessProjectionResponseDto.from_model(
+            service.get_exact_catalog_readiness(catalog_generation_fingerprint)
         )
 
     return router

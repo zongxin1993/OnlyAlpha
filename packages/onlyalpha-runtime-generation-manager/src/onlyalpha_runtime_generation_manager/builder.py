@@ -145,11 +145,32 @@ for item in only_research_statistics_capabilities():
         "domain": "onlyalpha.research.statistics-capability", **value,
     })
     statistics.append(value)
+calculation_readiness = []
+for provider in catalog.providers:
+    for registration in provider.calculation_registrations:
+        implementation = registration.implementation_manifest
+        if implementation is None:
+            raise ValueError("RUNTIME_GENERATION_IMPLEMENTATION_MISMATCH")
+        calculation_readiness.append({
+            "provider_id": provider.manifest.provider_id,
+            "provider_version": provider.manifest.provider_version,
+            "provider_kind": provider.manifest.kind.value,
+            "kind": registration.type_definition.kind.value,
+            "type_id": registration.type_definition.type_id,
+            "semantic_version": registration.type_definition.semantic_version,
+            "backend": registration.backend.value,
+            "implementation_fingerprint": implementation.implementation_fingerprint,
+            "readiness_contract_versions": list(getattr(registration, "readiness_contract_versions", ())),
+        })
+calculation_readiness.sort(key=lambda item: tuple(item[name] for name in (
+    "provider_kind", "provider_id", "provider_version", "kind", "type_id", "semantic_version", "backend",
+)))
 print(only_canonical_json({
     "catalog": catalog.descriptor(),
     "dataset_fields": dataset_fields,
     "registered_universes": [],
     "statistics": statistics,
+    "calculation_readiness": calculation_readiness,
 }))
 """
 

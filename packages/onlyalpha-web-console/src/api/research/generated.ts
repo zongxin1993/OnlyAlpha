@@ -739,6 +739,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/research/catalog-context/exact/{catalog_generation_fingerprint}/readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Exact Catalog Readiness */
+        get: operations["get_exact_catalog_readiness_v2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/research/catalog-context/{catalog_generation_fingerprint}": {
         parameters: {
             query?: never;
@@ -1558,6 +1575,33 @@ export interface components {
              */
             ordered_fact_policy: "ORDERED_FACTS_V1";
         };
+        /** ExactCatalogCalculationReadinessCapabilityDto */
+        ExactCatalogCalculationReadinessCapabilityDto: {
+            backend: components["schemas"]["OnlyCalculationBackendKind"];
+            /** Capability Fingerprint */
+            capability_fingerprint: string;
+            /** Catalog Generation Fingerprint */
+            catalog_generation_fingerprint: string;
+            /** Implementation Fingerprint */
+            implementation_fingerprint: string;
+            kind: components["schemas"]["OnlyCalculationKind"];
+            /** Provider Id */
+            provider_id: string;
+            provider_kind: components["schemas"]["OnlyQuantAssetKind"];
+            /** Provider Version */
+            provider_version: string;
+            /** Readiness Contract Versions */
+            readiness_contract_versions: number[];
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /** Semantic Version */
+            semantic_version: string;
+            /** Type Id */
+            type_id: string;
+        };
         /**
          * ExactCatalogContextLegacyResponseDto
          * @description Frozen compatibility projection; not sufficient for Agent decisions.
@@ -1607,6 +1651,26 @@ export interface components {
             ordered_statistics_capabilities: {
                 [key: string]: components["schemas"]["JsonValue"];
             }[];
+            /** Projection Fingerprint */
+            projection_fingerprint: string;
+            /** Projection Schema Fingerprint */
+            projection_schema_fingerprint: string;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** ExactCatalogReadinessProjectionResponseDto */
+        ExactCatalogReadinessProjectionResponseDto: {
+            /** Catalog Generation Fingerprint */
+            catalog_generation_fingerprint: string;
+            /** Exact Catalog Context Projection Fingerprint */
+            exact_catalog_context_projection_fingerprint: string;
+            /** Exact Catalog Context Projection Schema Fingerprint */
+            exact_catalog_context_projection_schema_fingerprint: string;
+            /** Ordered Calculation Readiness Capabilities */
+            ordered_calculation_readiness_capabilities: components["schemas"]["ExactCatalogCalculationReadinessCapabilityDto"][];
             /** Projection Fingerprint */
             projection_fingerprint: string;
             /** Projection Schema Fingerprint */
@@ -2552,10 +2616,20 @@ export interface components {
             schema_version: 1;
         };
         /**
+         * OnlyCalculationBackendKind
+         * @enum {string}
+         */
+        OnlyCalculationBackendKind: "TRADING" | "RESEARCH";
+        /**
          * OnlyCalculationDataType
          * @enum {string}
          */
         OnlyCalculationDataType: "DECIMAL" | "INTEGER" | "BOOLEAN" | "STRING";
+        /**
+         * OnlyCalculationKind
+         * @enum {string}
+         */
+        OnlyCalculationKind: "INDICATOR" | "FACTOR" | "TARGET" | "PREDICATE";
         /**
          * OnlyIntegrationCategory
          * @enum {string}
@@ -2601,6 +2675,11 @@ export interface components {
          * @enum {string}
          */
         OnlyProductAssetSearchStatus: "MATCH" | "NO_MATCH_ON_CERTIFIED_COMPLETE_PROJECTION" | "PROJECTION_INCOMPLETE" | "PROJECTION_UNAVAILABLE";
+        /**
+         * OnlyQuantAssetKind
+         * @enum {string}
+         */
+        OnlyQuantAssetKind: "OPERATOR" | "INDICATOR" | "FACTOR" | "STRATEGY";
         /**
          * OnlyResearchPairingPolicy
          * @enum {string}
@@ -7448,6 +7527,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExactCatalogContextResponseDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_exact_catalog_readiness_v2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                catalog_generation_fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExactCatalogReadinessProjectionResponseDto"];
                 };
             };
             /** @description Validation Error */

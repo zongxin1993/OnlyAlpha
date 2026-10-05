@@ -10,12 +10,14 @@ from onlyalpha_plugin_operators.provider import quant_asset_provider as operator
 from onlyalpha_plugin_targets.registration import registrations as target_registrations
 from onlyalpha_test_factor_provider.provider import quant_asset_provider as factor_provider
 
+from onlyalpha.application import catalog_context as catalog_models
 from onlyalpha.application.catalog_context import (
     EXACT_CATALOG_CONTEXT_PROJECTION_SCHEMA_FINGERPRINT,
     OnlyExactCatalogContextCorrupt,
     OnlyExactCatalogContextProjectionMismatch,
     OnlyExactCatalogContextQueryService,
     OnlyExactCatalogContextSchemaUnsupported,
+    OnlyExactCatalogContextUnavailable,
     OnlyExactCatalogContextV1,
     OnlyExactDatasetFieldContractV1,
     OnlyExactRegisteredUniverseV1,
@@ -25,7 +27,8 @@ from onlyalpha.application.product_boundary import (
     OnlyGetExactCatalogContext,
     only_compose_research_product_boundary,
 )
-from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration
+from onlyalpha.calculation import OnlyCalculationBackendKind
+from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration, OnlyQuantAssetProvider
 from onlyalpha.research.command.query import OnlyResearchRunQueryService
 from onlyalpha.research.command.service import OnlyResearchCommandService
 
@@ -36,7 +39,7 @@ def _generation(
     operator = operator_provider()
     if reverse_registrations:
         operator = replace(operator, calculation_registrations=tuple(reversed(operator.calculation_registrations)))
-    providers = (operator, indicator_provider(), factor_provider())
+    providers: tuple[OnlyQuantAssetProvider, ...] = (operator, indicator_provider(), factor_provider())
     if reverse_providers:
         providers = tuple(reversed(providers))
     return OnlyQuantAssetCatalogGeneration(providers)
@@ -262,3 +265,161 @@ def test_exact_query_uses_existing_product_query_dispatcher_topology() -> None:
     result = boundary.queries.dispatch(OnlyGetExactCatalogContext(generation.generation_fingerprint))
 
     assert result == _context(generation)
+
+
+def test_exact_catalog_v1_schema_fingerprint_remains_frozen() -> None:
+    assert EXACT_CATALOG_CONTEXT_PROJECTION_SCHEMA_FINGERPRINT == (
+        "333cd389d54bc21338308b42f804fd3b8d765d7be0556b8c6be198f7ecb706ee"
+    )
+
+
+def _readiness_rows(context: OnlyExactCatalogContextV1):  # type: ignore[no-untyped-def]
+    model = catalog_models.OnlyExactCatalogCalculationReadinessCapabilityV1
+    return tuple(
+        model(
+            catalog_generation_fingerprint=context.catalog_generation_fingerprint,
+            provider_id=item.provider_id,
+            provider_version=item.provider_version,
+            provider_kind=item.provider_kind,
+            kind=item.kind,
+            type_id=item.type_id,
+            semantic_version=item.semantic_version,
+            backend=item.backend,
+            implementation_fingerprint=item.implementation_fingerprint,
+            readiness_contract_versions=(1,)
+            if item.type_id == "onlyalpha.indicator.sma" and item.backend is OnlyCalculationBackendKind.RESEARCH
+            else (),
+        )
+        for item in context.ordered_calculation_capabilities
+    )
+
+
+class _ReadinessReader(_Reader):
+    def __init__(self, generation: OnlyQuantAssetCatalogGeneration, rows: tuple[object, ...]) -> None:
+        super().__init__({generation.generation_fingerprint: generation.descriptor()})
+        self.rows = rows
+
+    def load_exact_calculation_readiness_capabilities(self, fingerprint: str):  # type: ignore[no-untyped-def]
+        assert fingerprint in self._descriptors
+        return self.rows
+
+
+def _readiness_service(generation: OnlyQuantAssetCatalogGeneration, rows: tuple[object, ...]):  # type: ignore[no-untyped-def]
+    reader = _ReadinessReader(generation, rows)
+    return OnlyExactCatalogContextQueryService(reader, reader, reader, reader, reader)
+
+
+def test_readiness_capability_round_trip_is_strict_and_fingerprinted() -> None:
+    row = next(item for item in _readiness_rows(_context(_generation())) if item.readiness_contract_versions)
+    assert type(row).from_dict(row.to_dict()) == row
+    assert len(row.capability_fingerprint) == 64
+    assert replace(row, readiness_contract_versions=(1, 2)).capability_fingerprint != row.capability_fingerprint
+    for field, value in (("unknown", True), ("schema_version", True), ("implementation_fingerprint", "X" * 64)):
+        payload = row.to_dict()
+        payload[field] = value
+        with pytest.raises(catalog_models.OnlyExactCatalogContextError):
+            type(row).from_dict(payload)
+    payload = row.to_dict()
+    payload["capability_fingerprint"] = "f" * 64
+    with pytest.raises(OnlyExactCatalogContextProjectionMismatch):
+        type(row).from_dict(payload)
+
+
+@pytest.mark.parametrize("versions", ([1], (True,), (0,), (2, 1), (1, 1), ("1",)))
+def test_readiness_capability_rejects_noncanonical_versions(versions: object) -> None:
+    row = next(item for item in _readiness_rows(_context(_generation())) if item.readiness_contract_versions)
+    with pytest.raises(OnlyExactCatalogContextCorrupt):
+        replace(row, readiness_contract_versions=versions)
+
+
+def test_non_research_capability_cannot_advertise_readiness() -> None:
+    row = next(
+        item for item in _readiness_rows(_context(_generation())) if item.backend is OnlyCalculationBackendKind.TRADING
+    )
+    with pytest.raises(OnlyExactCatalogContextCorrupt):
+        replace(row, readiness_contract_versions=(1,))
+
+
+def test_readiness_projection_binds_exact_v1_context_and_complete_registration_set() -> None:
+    generation = _generation()
+    context = _context(generation)
+    rows = _readiness_rows(context)
+    projection = _readiness_service(generation, rows).get_exact_catalog_readiness(generation.generation_fingerprint)
+    assert projection.catalog_generation_fingerprint == context.catalog_generation_fingerprint
+    assert projection.exact_catalog_context_projection_schema_fingerprint == context.projection_schema_fingerprint
+    assert projection.exact_catalog_context_projection_fingerprint == context.projection_fingerprint
+    assert projection.ordered_calculation_readiness_capabilities == rows
+    assert tuple(item.sort_key for item in rows) == tuple(
+        item.sort_key for item in context.ordered_calculation_capabilities
+    )
+    assert type(projection).from_dict(projection.to_dict()) == projection
+
+
+@pytest.mark.parametrize(
+    "mutation", ("missing", "extra", "duplicate", "implementation", "generation", "order", "owner", "family")
+)
+def test_readiness_projection_rejects_incomplete_or_wrong_registration_relation(mutation: str) -> None:
+    generation = _generation()
+    rows = _readiness_rows(_context(generation))
+    if mutation == "missing":
+        changed = rows[1:]
+    elif mutation == "extra":
+        changed = (*rows, replace(rows[-1], type_id="unregistered.type"))
+    elif mutation == "duplicate":
+        changed = (*rows, rows[-1])
+    elif mutation == "implementation":
+        changed = (replace(rows[0], implementation_fingerprint="f" * 64), *rows[1:])
+    elif mutation == "generation":
+        changed = (replace(rows[0], catalog_generation_fingerprint="f" * 64), *rows[1:])
+    elif mutation == "order":
+        changed = tuple(reversed(rows))
+    elif mutation == "owner":
+        changed = (replace(rows[0], provider_id="different.owner"), *rows[1:])
+    else:
+        changed = (replace(rows[0], backend=OnlyCalculationBackendKind.TRADING), *rows[1:])
+    with pytest.raises(OnlyExactCatalogContextCorrupt):
+        _readiness_service(generation, changed).get_exact_catalog_readiness(generation.generation_fingerprint)
+
+
+def test_readiness_change_changes_only_new_projection_identity() -> None:
+    generation = _generation()
+    descriptor = generation.descriptor()
+    context = _context(generation)
+    old_bytes = context.canonical_bytes()
+    rows = _readiness_rows(context)
+    changed = tuple(replace(item, readiness_contract_versions=()) for item in rows)
+    before = _readiness_service(generation, rows).get_exact_catalog_readiness(generation.generation_fingerprint)
+    after = _readiness_service(generation, changed).get_exact_catalog_readiness(generation.generation_fingerprint)
+    assert before.projection_fingerprint != after.projection_fingerprint
+    assert before.exact_catalog_context_projection_fingerprint == after.exact_catalog_context_projection_fingerprint
+    assert _context(generation).canonical_bytes() == old_bytes
+    assert generation.descriptor() == descriptor
+
+
+def test_exact_readiness_query_without_reader_fails_closed_but_v1_remains_usable() -> None:
+    generation = _generation()
+    reader = _Reader({generation.generation_fingerprint: generation.descriptor()})
+    service = OnlyExactCatalogContextQueryService(reader, reader, reader, reader)
+    assert service.get_exact_catalog_context(generation.generation_fingerprint) == _context(generation)
+    with pytest.raises(OnlyExactCatalogContextUnavailable):
+        service.get_exact_catalog_readiness(generation.generation_fingerprint)
+
+
+def test_product_query_returns_exact_readiness_projection_without_mutation_admission() -> None:
+    from onlyalpha.application.product_boundary import OnlyGetExactCatalogReadiness
+
+    class NoMutationAdmission:
+        def assert_mutation_ready(self) -> None:
+            raise AssertionError("A read-only query must not authorize mutation")
+
+    generation = _generation()
+    service = _readiness_service(generation, _readiness_rows(_context(generation)))
+    boundary = only_compose_research_product_boundary(
+        admission=NoMutationAdmission(),
+        commands=cast(OnlyResearchCommandService, object()),
+        queries=cast(OnlyResearchRunQueryService, object()),
+        exact_catalog_context=service,
+    )
+    assert boundary.queries.dispatch(OnlyGetExactCatalogReadiness(generation.generation_fingerprint)) == (
+        service.get_exact_catalog_readiness(generation.generation_fingerprint)
+    )
