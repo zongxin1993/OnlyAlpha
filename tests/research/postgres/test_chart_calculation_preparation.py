@@ -38,6 +38,197 @@ OTHER = OnlyProductCommandId("00000000-0000-4000-8000-000000000712")
 GENERATION = "b" * 64
 
 
+def test_missing_accepted_binding_never_mutates_either_authority(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from onlyalpha.application.chart_calculation_preparation import OnlyChartCalculationRuntimeBindingReferenceV1
+
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch)
+    claim = system.adapter.claim(system.operation, WORKER, GENERATION, lease_duration=timedelta(minutes=2))
+    work = system.operation.reserved_run_id.value
+    system.runtime.bind_new_work_exact(
+        work, GENERATION, owner="CHART_CALCULATION_INPUT", actor="chart", occurred_at=NOW
+    )
+    reference = OnlyChartCalculationRuntimeBindingReferenceV1.from_evidence(
+        system.runtime.require_work_binding_evidence(work)
+    )
+    bound = system.adapter.commit_runtime_binding(system.operation, claim, reference)
+    system.bindings.clear()
+    system.runtime.bind_new_work_exact.reset_mock()
+    monkeypatch.setattr(
+        system.market.service, "plan_selection", Mock(side_effect=AssertionError("missing binding read Market"))
+    )
+    monkeypatch.setattr(
+        system.materializer,
+        "materialize_with_lineage",
+        Mock(side_effect=AssertionError("missing binding wrote Dataset")),
+    )
+    with pytest.raises(ValueError, match="CHART_RUNTIME_BINDING_CONFLICT"):
+        prepare(system)
+    system.runtime.bind_new_work_exact.assert_not_called()
+    system.runtime.require_new_work_generation.assert_not_called()
+    assert system.bindings == {}
+    assert system.adapter.load_verified(system.operation) == bound
+
+
+def test_prebind_failure_cannot_follow_a_persisted_binding_reference(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from onlyalpha.application.chart_calculation_preparation import OnlyChartCalculationRuntimeBindingReferenceV1
+
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch)
+    claim = system.adapter.claim(system.operation, WORKER, GENERATION, lease_duration=timedelta(minutes=2))
+    system.runtime.bind_new_work_exact(
+        system.operation.reserved_run_id.value,
+        GENERATION,
+        owner="CHART_CALCULATION_INPUT",
+        actor="chart",
+        occurred_at=NOW,
+    )
+    reference = OnlyChartCalculationRuntimeBindingReferenceV1.from_evidence(
+        system.runtime.require_work_binding_evidence(system.operation.reserved_run_id.value)
+    )
+    bound = system.adapter.commit_runtime_binding(system.operation, claim, reference)
+    with pytest.raises(ValueError):
+        system.adapter.begin_failure(system.operation, bound, "CHART_RUNTIME_GENERATION_NOT_ELIGIBLE")
+    assert system.adapter.load_verified(system.operation) == bound
+
+
+def test_postbind_failure_requires_persisted_binding_reference_without_appending_fact(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch)
+    claim = system.adapter.claim(system.operation, WORKER, GENERATION, lease_duration=timedelta(minutes=2))
+    with pytest.raises(ValueError):
+        system.adapter.begin_failure(system.operation, claim, "CHART_SEALED_COVERAGE_UNAVAILABLE")
+    assert system.adapter.load_verified(system.operation) == claim
+
+
+def chart_runtime_registry(system, root):
+    from dataclasses import replace
+
+    from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry
+
+    from onlyalpha.runtime.generation import OnlyRuntimeGenerationValidationEvidence
+    from tests.runtime_support.generation_support import only_ready_test_generation
+
+    registry = OnlyRuntimeGenerationRegistry(root)
+    other = only_ready_test_generation(registry, "a", NOW)
+    manifest = replace(
+        registry.load_manifest(other),
+        catalog_generation_fingerprint=system.operation.catalog_witness.to_dict()["context"][
+            "catalog_generation_fingerprint"
+        ],
+    )
+    registry.prepare(manifest, actor="test", occurred_at=NOW)
+    registry.admit_ready(OnlyRuntimeGenerationValidationEvidence.from_manifest(manifest), actor="test", occurred_at=NOW)
+    registry.activate_for_new_work(
+        expected_current=None, target=manifest.runtime_generation_fingerprint, actor="test", occurred_at=NOW
+    )
+    return registry, manifest.runtime_generation_fingerprint, other
+
+
+@pytest.mark.parametrize("decided", (False, True))
+def test_persisted_reference_rejects_wrong_runtime_root_without_mutation(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, decided: bool
+) -> None:
+    from onlyalpha.application.chart_calculation_preparation import OnlyChartCalculationRuntimeBindingReferenceV1
+
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch)
+    original, generation, _ = chart_runtime_registry(system, tmp_path / "original-authority")
+    claim = system.adapter.claim(system.operation, WORKER, generation, lease_duration=timedelta(minutes=2))
+    work = system.operation.reserved_run_id.value
+    original.bind_new_work_exact(work, generation, owner="CHART_CALCULATION_INPUT", actor="chart", occurred_at=NOW)
+    reference = OnlyChartCalculationRuntimeBindingReferenceV1.from_evidence(
+        original.require_work_binding_evidence(work)
+    )
+    bound = system.adapter.commit_runtime_binding(system.operation, claim, reference)
+    if decided:
+        bound = system.adapter.begin_failure(system.operation, bound, "CHART_SEALED_COVERAGE_UNAVAILABLE")
+    system.clock[0] += timedelta(minutes=3)
+    wrong, same_generation, _ = chart_runtime_registry(system, tmp_path / "wrong-authority")
+    assert same_generation == generation
+    system.service._runtime = wrong
+    ledger = (wrong.root / "generation-events.jsonl").read_bytes()
+    monkeypatch.setattr(
+        system.market.service, "plan_selection", Mock(side_effect=AssertionError("missing binding selected Market"))
+    )
+    monkeypatch.setattr(
+        system.service._query, "resolve_latest", Mock(side_effect=AssertionError("missing binding queried Revision"))
+    )
+    monkeypatch.setattr(
+        system.materializer,
+        "materialize_with_lineage",
+        Mock(side_effect=AssertionError("missing binding wrote Dataset")),
+    )
+    with pytest.raises(ValueError, match="CHART_RUNTIME_BINDING_CONFLICT"):
+        system.service.prepare(
+            system.operation, worker_id=WORKER, runtime_generation_fingerprint=generation, occurred_at=NOW
+        )
+    assert (wrong.root / "generation-events.jsonl").read_bytes() == ledger
+    assert system.adapter.load_verified(system.operation) == bound
+
+
+def test_prebind_failure_finishes_after_exact_generation_retirement(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry
+
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch, acquire=False)
+    registry, generation, other = chart_runtime_registry(system, tmp_path / "runtime")
+    system.adapter.claim(system.operation, WORKER, generation, lease_duration=timedelta(minutes=2))
+    registry.activate_for_new_work(expected_current=generation, target=other, actor="operator", occurred_at=NOW)
+    registry.retire(generation, actor="operator", occurred_at=NOW)
+    system.service._runtime = registry
+    monkeypatch.setattr(
+        system.market.service, "plan_selection", Mock(side_effect=AssertionError("retired failure read Market"))
+    )
+    monkeypatch.setattr(
+        system.materializer,
+        "materialize_with_lineage",
+        Mock(side_effect=AssertionError("retired failure wrote Dataset")),
+    )
+    failed = system.service.prepare(
+        system.operation, worker_id=WORKER, runtime_generation_fingerprint=generation, occurred_at=NOW
+    )
+    assert failed.state == "FAILED" and failed.failure_code == "CHART_RUNTIME_GENERATION_NOT_ELIGIBLE"
+    assert failed.runtime_binding_reference is None and failed.runtime_closure_reference is not None
+    system.service._runtime = OnlyRuntimeGenerationRegistry(registry.root)
+    system.service._store = OnlyPostgresChartCalculationPreparationStore(postgres_dsn)
+    assert (
+        system.service.prepare(
+            system.operation, worker_id=OTHER, runtime_generation_fingerprint=generation, occurred_at=NOW
+        )
+        == failed
+    )
+
+
+def test_current_claim_reference_never_allows_rebinding_after_stale_initial_read(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from onlyalpha.application.chart_calculation_preparation import OnlyChartCalculationRuntimeBindingReferenceV1
+
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch)
+    initial = system.adapter.claim(system.operation, WORKER, GENERATION, lease_duration=timedelta(minutes=2))
+    work = system.operation.reserved_run_id.value
+    system.runtime.bind_new_work_exact(
+        work, GENERATION, owner="CHART_CALCULATION_INPUT", actor="chart", occurred_at=NOW
+    )
+    reference = OnlyChartCalculationRuntimeBindingReferenceV1.from_evidence(
+        system.runtime.require_work_binding_evidence(work)
+    )
+    bound = system.adapter.commit_runtime_binding(system.operation, initial, reference)
+    system.bindings.clear()
+    system.runtime.bind_new_work_exact.reset_mock()
+    # Only the initial read is stale; claim returns the authoritative RUNTIME_BOUND relation.
+    monkeypatch.setattr(system.adapter, "load_verified", Mock(return_value=initial))
+    with pytest.raises(ValueError, match="CHART_RUNTIME_BINDING_CONFLICT"):
+        prepare(system)
+    system.runtime.bind_new_work_exact.assert_not_called()
+    assert system.bindings == {}
+    assert OnlyPostgresChartCalculationPreparationStore(postgres_dsn).load_verified(system.operation) == bound
+
+
 def test_claimed_historical_exact_binding_is_never_adopted(
     postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

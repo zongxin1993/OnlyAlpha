@@ -46,6 +46,9 @@ Dataset work. Stale semantic work may finish, but cannot publish operational pro
 Immediately after Runtime binding, the current fence commits `RUNTIME_BOUND`, containing the exact immutable original binding
 event reference (without mutable activity). All subsequent facts inherit this reference; current evidence must match every field.
 No Market Data/Dataset read is permitted before this commit. A bounded heartbeat then verifies the PostgreSQL fence and lease.
+Once this reference is persisted, missing Runtime evidence is a conflict requiring intervention, never permission to rebind,
+append preparation progress, or infer a terminal failure. The returned current claim supplies the expected relation at the binding
+boundary, even if the initial read was stale. Only reference-free recovery may adopt an exact chart-owned late Runtime append.
 A stale worker stops if another fence is materializing; if the durable state is FAILED it reconciles terminal
 ownership, and if INPUT_READY it returns only after exact active binding/pin verification. No second lease Authority is introduced.
 
@@ -66,10 +69,14 @@ Pre-Run failure ordering is `FAILURE_DECIDED` under the current PostgreSQL fence
 immutable closure reference. The durable decision freezes the classified failure reason and prohibits further input progress,
 including after backend/session loss. A PostgreSQL lock alone is not a cross-authority durable boundary. Retry of a decision finishes
 the same Runtime close and FAILED without Market/Dataset reads; it never infers failure from inactivity or pin absence.
+PRE_BIND decisions require no persisted binding reference; POST_BIND decisions require one. Invalid phase transitions append no fact.
 The Runtime Authority atomically verifies the owner, releases matching active NEW_WORK, and appends `RuntimeNewWorkClosed`.
 Owner plus reason are canonical values in the existing event reason field. All first-binding API families reject a closed identity;
 historical assignments remain readable and closure does not count as active work. Release-before-closure crashes recover from the
-durable failure decision; ordinary release cannot manufacture a failure. Failure phase is an explicit closed classification:
+durable failure decision; ordinary release cannot manufacture a failure.
+An unbound closure may verify an exact historically validated RETIRED generation; PREPARING, REJECTED and missing/corrupt generations
+remain invalid. Closure grants no execution or binding eligibility and never reactivates a retired generation.
+Failure phase is an explicit closed classification:
 `CHART_RUNTIME_GENERATION_NOT_ELIGIBLE` is PRE_BIND and normally requires proved UNBOUND. A late chart-owned NEW_WORK binding from
 a stale worker is compensatable: release active or accept inactive. Foreign/EXACT bindings conflict and are never released.
 `CHART_SEALED_COVERAGE_UNAVAILABLE` is POST_BIND and requires exact chart-owned NEW_WORK evidence, active or inactive; UNBOUND conflicts.

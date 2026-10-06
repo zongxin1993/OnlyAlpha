@@ -25,6 +25,125 @@ from tests.strategy.product_support import strategy_product_case
 NOW = datetime(2026, 9, 5, tzinfo=UTC)
 
 
+@pytest.mark.parametrize("first", ("close", "retire"))
+def test_unbound_closure_and_retirement_preserve_both_commit_orders(tmp_path: Path, first: str) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    g1 = _ready(registry, _manifest("a"), 0)
+    g2 = _ready(registry, _manifest("b"), 1)
+    registry.activate_for_new_work(expected_current=None, target=g1, actor="operator", occurred_at=NOW)
+    registry.activate_for_new_work(expected_current=g1, target=g2, actor="operator", occurred_at=NOW)
+    if first == "retire":
+        registry.retire(g1, actor="operator", occurred_at=NOW)
+    closure = registry.close_new_work_exact(
+        "chart",
+        g1,
+        owner="CHART_CALCULATION_INPUT",
+        closure_reason="CHART_RUNTIME_GENERATION_NOT_ELIGIBLE",
+        actor="chart",
+        occurred_at=NOW,
+    )
+    if first == "close":
+        registry.retire(g1, actor="operator", occurred_at=NOW)
+    fresh = OnlyRuntimeGenerationRegistry(tmp_path)
+    assert fresh.projection().state(g1) is OnlyGenerationState.RETIRED
+    assert fresh.require_work_admission_closure_evidence("chart") == closure
+    assert fresh.work_ids_for_generation(g1) == ()
+    with pytest.raises(ValueError, match="RUNTIME_GENERATION_UNAVAILABLE"):
+        fresh.require_runtime_generation(g1)
+    fresh.bind_new_work("parent", actor="test", occurred_at=NOW)
+    for bind in (
+        lambda: fresh.bind_new_work("chart", actor="test", occurred_at=NOW),
+        lambda: fresh.bind_new_work_exact("chart", g1, owner="CHART_CALCULATION_INPUT", actor="test", occurred_at=NOW),
+        lambda: fresh.bind_work_exact("chart", g1, actor="test", occurred_at=NOW),
+        lambda: fresh.bind_derived_work("parent", "chart", actor="test", occurred_at=NOW),
+    ):
+        with pytest.raises(ValueError, match="RUNTIME_WORK_ADMISSION_CLOSED"):
+            bind()
+
+
+@pytest.mark.parametrize("rejected", (False, True))
+def test_unbound_closure_never_accepts_unvalidated_generation(tmp_path: Path, rejected: bool) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    manifest = _manifest("a")
+    registry.prepare(manifest, actor="test", occurred_at=NOW)
+    generation = manifest.runtime_generation_fingerprint
+    if rejected:
+        registry.reject(generation, reason="invalid", actor="test", occurred_at=NOW)
+    before = (tmp_path / "generation-events.jsonl").read_bytes()
+    with pytest.raises(ValueError, match="RUNTIME_GENERATION_UNAVAILABLE"):
+        registry.close_new_work_exact(
+            "chart",
+            generation,
+            owner="CHART_CALCULATION_INPUT",
+            closure_reason="CHART_RUNTIME_GENERATION_NOT_ELIGIBLE",
+            actor="test",
+            occurred_at=NOW,
+        )
+    assert (tmp_path / "generation-events.jsonl").read_bytes() == before
+
+
+@pytest.mark.parametrize("first", ("close", "retire"))
+def test_retire_and_unbound_close_serialize_across_registry_instances(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, first: str
+) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    other = OnlyRuntimeGenerationRegistry(tmp_path)
+    g1 = _ready(registry, _manifest("a"), 0)
+    g2 = _ready(registry, _manifest("b"), 1)
+    registry.activate_for_new_work(expected_current=None, target=g1, actor="operator", occurred_at=NOW)
+    registry.activate_for_new_work(expected_current=g1, target=g2, actor="operator", occurred_at=NOW)
+    holding, resume, started = Event(), Event(), Event()
+    outcomes = {}
+    original = OnlyRuntimeGenerationRegistry._append
+
+    def held_append(self, event):
+        if self is registry:
+            holding.set()
+            assert resume.wait(10)
+        original(self, event)
+
+    monkeypatch.setattr(OnlyRuntimeGenerationRegistry, "_append", held_append)
+
+    def perform(authority, action):
+        try:
+            if action == "close":
+                outcomes[action] = authority.close_new_work_exact(
+                    "chart",
+                    g1,
+                    owner="CHART_CALCULATION_INPUT",
+                    closure_reason="CHART_RUNTIME_GENERATION_NOT_ELIGIBLE",
+                    actor="chart",
+                    occurred_at=NOW,
+                )
+            else:
+                authority.retire(g1, actor="operator", occurred_at=NOW)
+                outcomes[action] = "retired"
+        except Exception as exc:
+            outcomes[action] = exc
+
+    def second():
+        started.set()
+        perform(other, "retire" if first == "close" else "close")
+
+    t1, t2 = Thread(target=perform, args=(registry, first)), Thread(target=second)
+    t1.start()
+    try:
+        assert holding.wait(10)
+        t2.start()
+        assert started.wait(10)
+    finally:
+        resume.set()
+        t1.join(10)
+        if t2.ident is not None:
+            t2.join(10)
+    assert not t1.is_alive() and not t2.is_alive()
+    fresh = OnlyRuntimeGenerationRegistry(tmp_path)
+    assert outcomes["retire"] == "retired"
+    assert fresh.projection().state(g1) is OnlyGenerationState.RETIRED
+    assert fresh.require_work_admission_closure_evidence("chart") == outcomes["close"]
+    assert fresh.work_ids_for_generation(g1) == ()
+
+
 def test_atomic_new_work_replay_rejects_historical_exact_binding(tmp_path: Path) -> None:
     registry = OnlyRuntimeGenerationRegistry(tmp_path)
     generation = _ready(registry, _manifest("a"), 0)

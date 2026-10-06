@@ -580,7 +580,7 @@ class OnlyRuntimeGenerationRegistry:
                     self._append(released)
                     events = (*events, released)
             else:
-                self._load_exact_generation(projection, runtime_generation_fingerprint)
+                self._load_generation_for_admission_closure(projection, runtime_generation_fingerprint)
             closed = self._event(
                 events,
                 _EventKind.NEW_WORK_CLOSED,
@@ -785,6 +785,7 @@ class OnlyRuntimeGenerationRegistry:
                     OnlyGenerationState.READY,
                     OnlyGenerationState.ACTIVE_FOR_NEW_WORK,
                     OnlyGenerationState.DRAINING,
+                    OnlyGenerationState.RETIRED,
                 }:
                     raise ValueError("RUNTIME_GENERATION_EVENT_ORDER_INVALID")
                 closures[event.work_id] = closure
@@ -819,6 +820,28 @@ class OnlyRuntimeGenerationRegistry:
             OnlyGenerationState.READY,
             OnlyGenerationState.ACTIVE_FOR_NEW_WORK,
             OnlyGenerationState.DRAINING,
+        }:
+            raise ValueError("RUNTIME_GENERATION_UNAVAILABLE")
+        manifest = self.load_manifest(generation_fingerprint)
+        evidence = self.load_validation_evidence(generation_fingerprint)
+        if not evidence.verifies(manifest):
+            raise ValueError("RUNTIME_GENERATION_VALIDATION_EVIDENCE_MISMATCH")
+        return manifest
+
+    def _load_generation_for_admission_closure(
+        self,
+        projection: OnlyGenerationProjection,
+        generation_fingerprint: str,
+    ) -> OnlyRuntimeGenerationManifest:
+        try:
+            state = projection.state(generation_fingerprint)
+        except KeyError as exc:
+            raise ValueError("RUNTIME_GENERATION_NOT_FOUND") from exc
+        if state not in {
+            OnlyGenerationState.READY,
+            OnlyGenerationState.ACTIVE_FOR_NEW_WORK,
+            OnlyGenerationState.DRAINING,
+            OnlyGenerationState.RETIRED,
         }:
             raise ValueError("RUNTIME_GENERATION_UNAVAILABLE")
         manifest = self.load_manifest(generation_fingerprint)
