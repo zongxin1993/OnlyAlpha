@@ -299,6 +299,40 @@ class OnlyRuntimeGenerationRegistry:
             self._append(self._event(events, _EventKind.WORK_BOUND, active, actor, occurred_at, work_id=work_id))
             return OnlyRuntimeWorkBinding(work_id, active, True)
 
+    def bind_new_work_exact(
+        self,
+        work_id: str,
+        runtime_generation_fingerprint: str,
+        *,
+        actor: str,
+        occurred_at: datetime,
+    ) -> OnlyRuntimeWorkBinding:
+        """Atomically compare new-work activation and bind, without falling forward."""
+
+        if not work_id.strip():
+            raise ValueError("RUNTIME_WORK_ID_INVALID")
+        with self._locked():
+            projection, events = self._replay()
+            existing = projection.work_bindings.get(work_id)
+            if existing is not None:
+                if not existing.active or existing.runtime_generation_fingerprint != runtime_generation_fingerprint:
+                    raise ValueError("RUNTIME_WORK_GENERATION_BINDING_CONFLICT")
+                return existing
+            if projection.active_for_new_work != runtime_generation_fingerprint:
+                raise ValueError("RUNTIME_GENERATION_NOT_ELIGIBLE_FOR_NEW_WORK")
+            self._load_exact_generation(projection, runtime_generation_fingerprint)
+            self._append(
+                self._event(
+                    events,
+                    _EventKind.WORK_BOUND,
+                    runtime_generation_fingerprint,
+                    actor,
+                    occurred_at,
+                    work_id=work_id,
+                )
+            )
+            return OnlyRuntimeWorkBinding(work_id, runtime_generation_fingerprint, True)
+
     def require_new_work_generation(self, runtime_generation_fingerprint: str) -> OnlyRuntimeGenerationManifest:
         """Verify one exact generation is the generation currently eligible for root work."""
 

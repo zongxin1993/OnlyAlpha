@@ -37,6 +37,14 @@ class OnlyTestRuntimeGenerationAuthority:
         self.bindings.setdefault(work_id, self.generation_fingerprint)
         return self.require_work_binding(work_id)
 
+    def bind_new_work_exact(self, work_id: str, runtime_generation_fingerprint: str, **_: object) -> object:
+        if work_id in self.bindings:
+            if self.bindings[work_id] != runtime_generation_fingerprint or work_id in self.inactive_work_ids:
+                raise ValueError("RUNTIME_WORK_GENERATION_BINDING_CONFLICT")
+            return self.require_work_binding(work_id)
+        self.require_new_work_generation(runtime_generation_fingerprint)
+        return self.bind_work_exact(work_id, runtime_generation_fingerprint)
+
     def bind_work_exact(self, work_id: str, runtime_generation_fingerprint: str, **_: object) -> object:
         if runtime_generation_fingerprint not in self.available_generations:
             raise ValueError("RUNTIME_GENERATION_NOT_FOUND")

@@ -10,11 +10,15 @@ open WAL, fetch reference instruments, acquire data or write Market Data authori
 
 `OnlyChartCalculationPreparationService` verifies the supplied Runtime Generation against the Catalog Generation frozen in
  admission. Fresh work requires `ACTIVE_FOR_NEW_WORK` before claiming and again immediately before first binding
- `operation.reserved_run_id.value` through `OnlyRuntimeGenerationWorkAuthority.bind_work_exact`. A claim without a binding can recover
+ `operation.reserved_run_id.value` through `OnlyRuntimeGenerationWorkAuthority.bind_new_work_exact`. The Runtime Authority compares
+ the expected active generation, verifies its exact validation evidence and appends `RuntimeWorkBound` under one exclusive lock;
+ activation cannot interleave between comparison and binding. Existing `bind_work_exact` historical semantics remain unchanged.
+ A claim without a binding can recover
  only while its frozen generation remains eligible for new work. Activation change before binding commits definitive
  `CHART_RUNTIME_GENERATION_NOT_ELIGIBLE`; it never falls forward to another generation.
  Recovery of an exact active binding may continue in its historical READY/ACTIVE/DRAINING generation without consulting current
- activation. Reentry must provide the same fingerprint. Conflicting bindings, or inactive bindings for nonterminal/`INPUT_READY`
+ activation. A binding without a preparation claim is an orphan/conflict, never adopted or released by this service.
+ Reentry must provide the same fingerprint. Conflicting bindings, or inactive bindings for nonterminal/`INPUT_READY`
  preparation, require intervention and are never reactivated.
 
 For admitted SMA period `p`, display support `[s,e)` requires materialization support `[s-(p-1)*900000000000,e)` in nanoseconds.
@@ -47,8 +51,11 @@ never by selecting latest or allocating another work identity. Unexpected depend
 lease recovery rather than manufacturing successful completion.
 
 Pre-Run `FAILED` owns Runtime binding closure: append the failure under the current fence before idempotently releasing its exact work
-with actor `chart-input-preparation-failed`. Return failure only after verifying an exact inactive binding, or proved UNBOUND when no
-input pin was published. Lost/unavailable release responses leave the durable failure intact and report
+with actor `chart-input-preparation-failed`. Failure phase is an explicit closed classification, not inferred from pin absence:
+`CHART_RUNTIME_GENERATION_NOT_ELIGIBLE` is PRE_BIND and requires proved UNBOUND; any binding conflicts and must not be released.
+`CHART_SEALED_COVERAGE_UNAVAILABLE` is POST_BIND and requires the exact historical binding, active or inactive; UNBOUND conflicts.
+Unknown failure codes fail closed until their producer ordering is explicitly classified. Return post-bind failure only after verifying
+an exact inactive binding. Lost/unavailable release responses leave the durable failure intact and report
 `CHART_RUNTIME_BINDING_RELEASE_UNAVAILABLE`. Retry loads FAILED first and reconciles historical binding without reading current
 activation, Catalog, Market Data or Dataset. Already-inactive bindings remain valid after generation retirement; historical assignment
 is preserved. `INPUT_READY` retains active ownership for future T4/Research execution and its eventual terminal lifecycle.

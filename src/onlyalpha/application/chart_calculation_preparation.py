@@ -41,6 +41,9 @@ from onlyalpha.research.dataset.market_data_materializer import (
 )
 
 DURATION_NS = 900_000_000_000
+# Phase is defined by the producer ordering, never inferred from a missing pin.
+_PRE_BIND_FAILURES = frozenset({"CHART_RUNTIME_GENERATION_NOT_ELIGIBLE"})
+_POST_BIND_FAILURES = frozenset({"CHART_SEALED_COVERAGE_UNAVAILABLE"})
 
 
 def _require(condition: bool, code: str = "CHART_INPUT_EVIDENCE_CORRUPT") -> None:
@@ -341,10 +344,12 @@ class OnlyChartCalculationPreparationService:
         self._require_generation(operation, generation, new_work=True)
         work = operation.reserved_run_id.value
         try:
-            binding = self._runtime.bind_work_exact(
+            binding = self._runtime.bind_new_work_exact(
                 work, generation, actor="chart-input-preparation", occurred_at=occurred_at
             )
         except ValueError as exc:
+            if str(exc) == "RUNTIME_GENERATION_NOT_ELIGIBLE_FOR_NEW_WORK":
+                raise OnlyChartCalculationError("CHART_RUNTIME_GENERATION_NOT_ELIGIBLE") from exc
             if str(exc) == "RUNTIME_WORK_GENERATION_BINDING_CONFLICT":
                 raise OnlyChartCalculationError("CHART_RUNTIME_BINDING_CONFLICT") from exc
             raise OnlyChartCalculationError("CHART_EXECUTION_GENERATION_UNAVAILABLE") from exc
@@ -369,10 +374,13 @@ class OnlyChartCalculationPreparationService:
             if str(exc) == "CHART_RUNTIME_BINDING_CONFLICT":
                 raise
             raise OnlyChartCalculationError("CHART_RUNTIME_BINDING_RELEASE_UNAVAILABLE") from exc
-        if binding is None:
-            # Only a failure before input pin/binding may be historically unbound.
-            _require(preparation.input_pin is None, "CHART_RUNTIME_BINDING_CONFLICT")
+        if preparation.failure_code in _PRE_BIND_FAILURES:
+            _require(binding is None and preparation.input_pin is None, "CHART_RUNTIME_BINDING_CONFLICT")
             return
+        _require(
+            preparation.failure_code in _POST_BIND_FAILURES and binding is not None, "CHART_RUNTIME_BINDING_CONFLICT"
+        )
+        assert binding is not None
         self._verify_binding(operation, preparation.runtime_generation_fingerprint, binding)
         if getattr(binding, "active", None) is False:
             return
@@ -432,6 +440,7 @@ class OnlyChartCalculationPreparationService:
                 self._reconcile_terminal_runtime_binding(operation, preparation, occurred_at=occurred_at)
                 return preparation
         binding = self._load_binding(operation)
+        _require(preparation is not None or binding is None, "CHART_RUNTIME_BINDING_CONFLICT")
         eligibility_lost = False
         if binding is not None:
             self._verify_binding(operation, runtime_generation_fingerprint, binding)

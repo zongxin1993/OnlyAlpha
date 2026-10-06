@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from threading import Barrier, Thread
+from threading import Barrier, Event, Thread
 
 import pytest
 from onlyalpha_runtime_generation_manager import (
@@ -74,6 +74,94 @@ def test_ready_requires_exact_validation_evidence(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="RUNTIME_GENERATION_VALIDATION_EVIDENCE_MISMATCH"):
         registry.admit_ready(mismatched, actor="validator", occurred_at=NOW + timedelta(seconds=2))
     assert registry.projection().state(manifest.runtime_generation_fingerprint) is OnlyGenerationState.PREPARING
+
+
+def test_bind_new_work_exact_requires_active_generation_and_replays_exactly(tmp_path: Path) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    g1 = _ready(registry, _manifest("a"), 0)
+    g2 = _ready(registry, _manifest("b"), 2)
+    bind = registry.bind_new_work_exact
+    with pytest.raises(ValueError, match="RUNTIME_GENERATION_NOT_ELIGIBLE_FOR_NEW_WORK"):
+        bind("chart", g1, actor="chart", occurred_at=NOW)
+    registry.activate_for_new_work(expected_current=None, target=g1, actor="operator", occurred_at=NOW)
+    with pytest.raises(ValueError, match="RUNTIME_GENERATION_NOT_ELIGIBLE_FOR_NEW_WORK"):
+        bind("chart", g2, actor="chart", occurred_at=NOW)
+    binding = bind("chart", g1, actor="chart", occurred_at=NOW)
+    ledger = (tmp_path / "generation-events.jsonl").read_bytes()
+    assert bind("chart", g1, actor="retry", occurred_at=NOW) == binding
+    assert (tmp_path / "generation-events.jsonl").read_bytes() == ledger
+    registry.activate_for_new_work(expected_current=g1, target=g2, actor="operator", occurred_at=NOW)
+    assert bind("chart", g1, actor="retry", occurred_at=NOW) == binding
+    with pytest.raises(ValueError, match="RUNTIME_WORK_GENERATION_BINDING_CONFLICT"):
+        bind("chart", g2, actor="wrong", occurred_at=NOW)
+    registry.release_work("chart", actor="terminal", occurred_at=NOW)
+    with pytest.raises(ValueError, match="RUNTIME_WORK_GENERATION_BINDING_CONFLICT"):
+        bind("chart", g1, actor="retry", occurred_at=NOW)
+    assert OnlyRuntimeGenerationRegistry(tmp_path).require_work_binding("chart").active is False
+    assert b'"kind":"RuntimeWorkBound"' in ledger
+    assert b'"kind":"RuntimeExactWorkBound"' not in ledger
+
+
+@pytest.mark.parametrize("first", ("bind", "activation"))
+def test_bind_new_work_exact_and_activation_have_one_atomic_commit_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, first: str
+) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    other = OnlyRuntimeGenerationRegistry(tmp_path)
+    g1 = _ready(registry, _manifest("a"), 0)
+    g2 = _ready(registry, _manifest("b"), 2)
+    registry.activate_for_new_work(expected_current=None, target=g1, actor="operator", occurred_at=NOW)
+    bind = registry.bind_new_work_exact
+    holding, release, second_started = Event(), Event(), Event()
+    original = OnlyRuntimeGenerationRegistry._append
+
+    def held_append(self, event):
+        if self is registry:
+            holding.set()
+            assert release.wait(10)
+        original(self, event)
+
+    monkeypatch.setattr(OnlyRuntimeGenerationRegistry, "_append", held_append)
+    outcomes = {}
+
+    def perform(action, authority):
+        try:
+            if action == "bind":
+                method = bind if authority is registry else authority.bind_new_work_exact
+                outcomes[action] = method("chart", g1, actor="chart", occurred_at=NOW)
+            else:
+                authority.activate_for_new_work(expected_current=g1, target=g2, actor="operator", occurred_at=NOW)
+                outcomes[action] = "activated"
+        except Exception as exc:
+            outcomes[action] = str(exc)
+
+    def second():
+        second_started.set()
+        perform("activation" if first == "bind" else "bind", other)
+
+    t1 = Thread(target=perform, args=(first, registry))
+    t2 = Thread(target=second)
+    t1.start()
+    try:
+        assert holding.wait(10)
+        t2.start()
+        assert second_started.wait(10)
+    finally:
+        release.set()
+        t1.join(10)
+        if t2.ident is not None:
+            t2.join(10)
+    assert not t1.is_alive() and not t2.is_alive()
+    assert outcomes["activation"] == "activated"
+    recovered = OnlyRuntimeGenerationRegistry(tmp_path)
+    assert recovered.projection().active_for_new_work == g2
+    if first == "bind":
+        assert recovered.require_work_binding("chart") == outcomes["bind"]
+        assert outcomes["bind"].runtime_generation_fingerprint == g1
+    else:
+        assert outcomes["bind"] == "RUNTIME_GENERATION_NOT_ELIGIBLE_FOR_NEW_WORK"
+        with pytest.raises(ValueError, match="RUNTIME_WORK_GENERATION_UNBOUND"):
+            recovered.require_work_binding("chart")
 
 
 def test_activation_isolation_rollback_drain_retire_and_restart(tmp_path: Path) -> None:

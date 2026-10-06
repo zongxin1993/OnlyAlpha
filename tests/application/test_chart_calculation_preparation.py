@@ -98,3 +98,12 @@ def test_incompatible_generation_is_rejected_before_preparation_claim() -> None:
     with pytest.raises(ValueError, match="CHART_EXECUTION_GENERATION_UNAVAILABLE"):
         service.prepare(operation, worker_id=command, runtime_generation_fingerprint="b" * 64, occurred_at=NOW)
     store.claim.assert_not_called()
+
+
+def test_no_claim_runtime_authority_rejects_atomic_exact_admission() -> None:
+    from onlyalpha.application.runtime_generation import OnlyNoClaimRuntimeGenerationWorkAuthority
+
+    with pytest.raises(RuntimeError, match="RUNTIME_GENERATION_WORK_AUTHORITY_UNAVAILABLE"):
+        OnlyNoClaimRuntimeGenerationWorkAuthority().bind_new_work_exact(
+            "chart", "b" * 64, actor="chart", occurred_at=NOW
+        )

@@ -9,6 +9,10 @@ from typing import NoReturn, Protocol
 class OnlyRuntimeGenerationWorkAuthority(Protocol):
     def bind_new_work(self, work_id: str, *, actor: str, occurred_at: datetime) -> object: ...
 
+    def bind_new_work_exact(
+        self, work_id: str, runtime_generation_fingerprint: str, *, actor: str, occurred_at: datetime
+    ) -> object: ...
+
     def bind_work_exact(
         self,
         work_id: str,
@@ -51,6 +55,12 @@ class OnlyNoClaimRuntimeGenerationWorkAuthority:
 
     def bind_new_work(self, work_id: str, *, actor: str, occurred_at: datetime) -> object:
         del work_id, actor, occurred_at
+        self._unavailable()
+
+    def bind_new_work_exact(
+        self, work_id: str, runtime_generation_fingerprint: str, *, actor: str, occurred_at: datetime
+    ) -> object:
+        del work_id, runtime_generation_fingerprint, actor, occurred_at
         self._unavailable()
 
     def bind_work_exact(
