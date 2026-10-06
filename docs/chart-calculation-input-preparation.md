@@ -9,9 +9,13 @@ plugin-native construction and grid-aligned scope. This read-only planning metho
 open WAL, fetch reference instruments, acquire data or write Market Data authority. Derived resolution is rejected.
 
 `OnlyChartCalculationPreparationService` verifies the supplied Runtime Generation against the Catalog Generation frozen in
-admission. It binds `operation.reserved_run_id.value` through `OnlyRuntimeGenerationWorkAuthority.bind_work_exact`, verifies active
-assignment, and never consults the active-for-new-work pointer or substitutes another generation. Reentry must provide the same
-fingerprint. Released or conflicting work bindings require intervention; preparation does not release or reactivate them.
+ admission. Fresh work requires `ACTIVE_FOR_NEW_WORK` before claiming and again immediately before first binding
+ `operation.reserved_run_id.value` through `OnlyRuntimeGenerationWorkAuthority.bind_work_exact`. A claim without a binding can recover
+ only while its frozen generation remains eligible for new work. Activation change before binding commits definitive
+ `CHART_RUNTIME_GENERATION_NOT_ELIGIBLE`; it never falls forward to another generation.
+ Recovery of an exact active binding may continue in its historical READY/ACTIVE/DRAINING generation without consulting current
+ activation. Reentry must provide the same fingerprint. Conflicting bindings, or inactive bindings for nonterminal/`INPUT_READY`
+ preparation, require intervention and are never reactivated.
 
 For admitted SMA period `p`, display support `[s,e)` requires materialization support `[s-(p-1)*900000000000,e)` in nanoseconds.
 Selection requires one exact sealed Revision with precisely this scope. Missing coverage yields durable
@@ -41,6 +45,13 @@ pin and official Dataset publications. Snapshot and lineage are separate immutab
 the same pin and verified reuse. A lost PostgreSQL acknowledgement is reconciled by `load_verified` and exact preparation reentry,
 never by selecting latest or allocating another work identity. Unexpected dependency/process failures leave the existing claim for
 lease recovery rather than manufacturing successful completion.
+
+Pre-Run `FAILED` owns Runtime binding closure: append the failure under the current fence before idempotently releasing its exact work
+with actor `chart-input-preparation-failed`. Return failure only after verifying an exact inactive binding, or proved UNBOUND when no
+input pin was published. Lost/unavailable release responses leave the durable failure intact and report
+`CHART_RUNTIME_BINDING_RELEASE_UNAVAILABLE`. Retry loads FAILED first and reconciles historical binding without reading current
+activation, Catalog, Market Data or Dataset. Already-inactive bindings remain valid after generation retirement; historical assignment
+is preserved. `INPUT_READY` retains active ownership for future T4/Research execution and its eventual terminal lifecycle.
 
 Migration `0045_chart_calculation_input_preparation` is additive and follows checksummed history through `0044`. It performs no
 translation of admitted facts. DDL and migration-ledger commit are atomic; failure rolls back and restart retries the same migration.

@@ -84,11 +84,14 @@ def test_incompatible_generation_is_rejected_before_preparation_claim() -> None:
         command, command, intent.command_fingerprint, intent.intent_fingerprint, intent, witness(), work, NOW
     )
     store = Mock()
+    store.load_verified.return_value = None
     store.claim.return_value = OnlyChartCalculationPreparationV1(command, 1, 1, command, NOW, "b" * 64, work.value)
     runtime = Mock()
+    runtime.require_work_binding.side_effect = ValueError("RUNTIME_WORK_GENERATION_UNBOUND")
     runtime.require_runtime_generation.return_value = SimpleNamespace(
         runtime_generation_fingerprint="b" * 64, catalog_generation_fingerprint="f" * 64
     )
+    runtime.require_new_work_generation.return_value = runtime.require_runtime_generation.return_value
     service = OnlyChartCalculationPreparationService(
         store=store, runtime_generations=runtime, market_data=Mock(), catalog=Mock(), facts=Mock(), materializer=Mock()
     )

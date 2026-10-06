@@ -155,6 +155,16 @@ def prepared_system(
     runtime.require_runtime_generation.return_value = SimpleNamespace(
         runtime_generation_fingerprint=GENERATION, catalog_generation_fingerprint=catalog
     )
+    runtime.require_new_work_generation.return_value = runtime.require_runtime_generation.return_value
+
+    def release(work, **kwargs):
+        binding = load_binding(work)
+        bindings[work] = SimpleNamespace(
+            work_id=binding.work_id, runtime_generation_fingerprint=binding.runtime_generation_fingerprint, active=False
+        )
+        return bindings[work]
+
+    runtime.release_work.side_effect = release
     runtime.bind_work_exact.side_effect = bind_exact
     dataset = OnlyParquetResearchDatasetSnapshotStore(tmp_path / "dataset")
     materializer = OnlySealedMarketDataDatasetMaterializer(
@@ -178,6 +188,7 @@ def prepared_system(
         service=service,
         market=market,
         selected=selected,
+        bindings=bindings,
     )
 
 
@@ -302,6 +313,214 @@ def test_missing_exact_coverage_fails_without_acquisition_or_snapshot(
     assert result.state == "FAILED" and result.failure_code == "CHART_SEALED_COVERAGE_UNAVAILABLE"
     assert system.market.provider.bar_fetches == system.market.catalog.mutations == 0
     assert not system.market.wal_root.exists() and not (tmp_path / "dataset").exists()
+    binding = system.runtime.require_work_binding(system.operation.reserved_run_id.value)
+    assert binding.active is False
+    assert prepare(system) == result
+
+
+@pytest.mark.parametrize("state", ("READY", "DRAINING"))
+def test_fresh_preparation_rejects_nonactive_generation_before_claim(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, state: str
+) -> None:
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch, acquire=False)
+    system.runtime.require_new_work_generation.side_effect = ValueError("RUNTIME_GENERATION_NOT_ELIGIBLE_FOR_NEW_WORK")
+    with pytest.raises(ValueError, match="CHART_RUNTIME_GENERATION_NOT_ELIGIBLE"):
+        prepare(system)
+    assert system.adapter.load_verified(system.operation) is None
+    system.runtime.bind_work_exact.assert_not_called()
+    system.runtime.release_work.assert_not_called()
+    # A rejected generation has not frozen or poisoned this occurrence.
+    system.runtime.require_new_work_generation.side_effect = None
+    assert prepare(system).failure_code == "CHART_SEALED_COVERAGE_UNAVAILABLE"
+
+
+def test_activation_change_between_claim_and_bind_fails_without_fall_forward(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch, acquire=False)
+    system.runtime.require_new_work_generation.side_effect = (
+        system.runtime.require_runtime_generation.return_value,
+        ValueError("RUNTIME_GENERATION_NOT_ELIGIBLE_FOR_NEW_WORK"),
+    )
+    result = prepare(system)
+    assert result.state == "FAILED" and result.failure_code == "CHART_RUNTIME_GENERATION_NOT_ELIGIBLE"
+    assert result.runtime_generation_fingerprint == GENERATION
+    system.runtime.bind_work_exact.assert_not_called()
+    system.runtime.release_work.assert_not_called()
+    assert not system.bindings and system.market.catalog.mutations == 0
+    system.runtime.require_new_work_generation.side_effect = AssertionError("terminal replay read activation")
+    assert prepare(system) == result
+
+
+def test_claim_without_binding_fails_durably_after_activation_change(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch, acquire=False)
+    system.adapter.claim(system.operation, WORKER, GENERATION, lease_duration=timedelta(minutes=2))
+    system.runtime.require_new_work_generation.side_effect = ValueError("RUNTIME_GENERATION_NOT_ELIGIBLE_FOR_NEW_WORK")
+    result = prepare(system)
+    assert result.failure_code == "CHART_RUNTIME_GENERATION_NOT_ELIGIBLE"
+    assert system.adapter.load_verified(system.operation) == result
+    system.runtime.bind_work_exact.assert_not_called()
+
+
+@pytest.mark.parametrize("lost_response", (False, True))
+def test_failed_fact_precedes_release_and_unknown_response_converges(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lost_response: bool
+) -> None:
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch, acquire=False)
+    original = system.runtime.release_work.side_effect
+
+    def unavailable(work, **kwargs):
+        assert system.adapter.load_verified(system.operation).state == "FAILED"
+        if lost_response:
+            original(work, **kwargs)
+        raise OSError("release response lost")
+
+    system.runtime.release_work.side_effect = unavailable
+    with pytest.raises(ValueError, match="CHART_RUNTIME_BINDING_RELEASE_UNAVAILABLE"):
+        prepare(system)
+    failed = system.adapter.load_verified(system.operation)
+    assert failed.state == "FAILED" and failed.failure_code == "CHART_SEALED_COVERAGE_UNAVAILABLE"
+    system.runtime.release_work.side_effect = original
+    system.runtime.require_new_work_generation.side_effect = AssertionError("terminal replay read activation")
+    system.runtime.require_runtime_generation.side_effect = AssertionError(
+        "terminal replay read Catalog/retired generation"
+    )
+    monkeypatch.setattr(
+        system.market.service, "plan_selection", Mock(side_effect=AssertionError("terminal selected Market Data"))
+    )
+    monkeypatch.setattr(
+        system.materializer, "materialize_with_lineage", Mock(side_effect=AssertionError("terminal wrote Dataset"))
+    )
+    assert prepare(system, OTHER) == failed
+    assert not system.runtime.require_work_binding(system.operation.reserved_run_id.value).active
+    assert prepare(system) == failed
+    assert system.adapter.load_verified(system.operation).revision == failed.revision
+
+
+def test_exact_active_binding_recovery_ignores_current_activation(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch)
+    system.adapter.claim(system.operation, WORKER, GENERATION, lease_duration=timedelta(minutes=2))
+    system.runtime.bind_work_exact(
+        system.operation.reserved_run_id.value, GENERATION, actor="recovery", occurred_at=NOW
+    )
+    system.runtime.bind_work_exact.reset_mock()
+    system.runtime.require_new_work_generation.side_effect = AssertionError("bound recovery read activation")
+    result = prepare(system)
+    assert result.state == "INPUT_READY"
+    assert system.runtime.require_work_binding(system.operation.reserved_run_id.value).active
+    assert prepare(system) == result
+    system.runtime.release_work.assert_not_called()
+    system.runtime.bind_work_exact.assert_not_called()
+
+
+@pytest.mark.parametrize("ready", (False, True))
+def test_nonterminal_or_input_ready_inactive_binding_fails_closed(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ready: bool
+) -> None:
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch)
+    if ready:
+        previous = prepare(system)
+    else:
+        previous = system.adapter.claim(system.operation, WORKER, GENERATION, lease_duration=timedelta(minutes=2))
+        system.runtime.bind_work_exact(
+            system.operation.reserved_run_id.value, GENERATION, actor="recovery", occurred_at=NOW
+        )
+    system.runtime.release_work(system.operation.reserved_run_id.value, actor="operator", occurred_at=NOW)
+    system.runtime.bind_work_exact.reset_mock()
+    with pytest.raises(ValueError, match="CHART_RUNTIME_BINDING_INACTIVE"):
+        prepare(system)
+    assert system.adapter.load_verified(system.operation) == previous
+    system.runtime.bind_work_exact.assert_not_called()
+
+
+def test_failed_work_release_allows_real_generation_retirement_and_terminal_replay(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+
+    from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry
+
+    from onlyalpha.runtime.generation import OnlyRuntimeGenerationValidationEvidence
+    from tests.runtime_support.generation_support import only_ready_test_generation
+
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch, acquire=False)
+    registry = OnlyRuntimeGenerationRegistry(tmp_path / "generation-authority")
+    seed = only_ready_test_generation(registry, "a", NOW)
+    manifest = replace(
+        registry.load_manifest(seed),
+        catalog_generation_fingerprint=system.operation.catalog_witness.to_dict()["context"][
+            "catalog_generation_fingerprint"
+        ],
+    )
+    registry.prepare(manifest, actor="test", occurred_at=NOW)
+    registry.admit_ready(OnlyRuntimeGenerationValidationEvidence.from_manifest(manifest), actor="test", occurred_at=NOW)
+    generation = manifest.runtime_generation_fingerprint
+    registry.activate_for_new_work(expected_current=None, target=generation, actor="test", occurred_at=NOW)
+    system.service._runtime = registry
+    failed = system.service.prepare(
+        system.operation,
+        worker_id=WORKER,
+        runtime_generation_fingerprint=generation,
+        occurred_at=NOW,
+    )
+    assert failed.state == "FAILED"
+    assert registry.require_work_binding(system.operation.reserved_run_id.value).active is False
+    registry.activate_for_new_work(expected_current=generation, target=seed, actor="test", occurred_at=NOW)
+    registry.retire(generation, actor="test", occurred_at=NOW)
+    restarted = OnlyRuntimeGenerationRegistry(tmp_path / "generation-authority")
+    system.service._runtime = restarted
+    assert (
+        system.service.prepare(
+            system.operation,
+            worker_id=OTHER,
+            runtime_generation_fingerprint=generation,
+            occurred_at=NOW,
+        )
+        == failed
+    )
+
+
+@pytest.mark.parametrize("terminal", (False, True))
+@pytest.mark.parametrize(
+    "field,value", (("work_id", OTHER.value), ("runtime_generation_fingerprint", "c" * 64), ("active", None))
+)
+def test_conflicting_binding_never_changes_preparation_or_releases_other_work(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, terminal: bool, field: str, value: object
+) -> None:
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch, acquire=False)
+    if terminal:
+        previous = prepare(system)
+    else:
+        previous = None
+        system.runtime.bind_work_exact(
+            system.operation.reserved_run_id.value, GENERATION, actor="test", occurred_at=NOW
+        )
+    binding = system.bindings[system.operation.reserved_run_id.value]
+    setattr(binding, field, value)
+    system.runtime.bind_work_exact.reset_mock()
+    system.runtime.release_work.reset_mock()
+    with pytest.raises(ValueError, match="CHART_RUNTIME_BINDING_CONFLICT"):
+        prepare(system)
+    assert system.adapter.load_verified(system.operation) == previous
+    system.runtime.bind_work_exact.assert_not_called()
+    system.runtime.release_work.assert_not_called()
+
+
+def test_input_ready_missing_binding_requires_intervention_not_rebinding(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch)
+    previous = prepare(system)
+    system.bindings.clear()
+    system.runtime.bind_work_exact.reset_mock()
+    with pytest.raises(ValueError, match="CHART_RUNTIME_BINDING_CONFLICT"):
+        prepare(system)
+    assert system.adapter.load_verified(system.operation) == previous
+    system.runtime.bind_work_exact.assert_not_called()
 
 
 @pytest.mark.parametrize("stage", ["snapshot", "lineage", "ready"])
@@ -376,7 +595,7 @@ def test_wrong_catalog_generation_and_wrong_work_binding_fail_closed(
     system.runtime.bind_work_exact.side_effect = lambda *a, **kw: SimpleNamespace(
         work_id=system.operation.reserved_run_id.value, runtime_generation_fingerprint="f" * 64, active=True
     )
-    with pytest.raises(ValueError, match="CHART_EXECUTION_GENERATION_UNAVAILABLE"):
+    with pytest.raises(ValueError, match="CHART_RUNTIME_BINDING_CONFLICT"):
         prepare(system)
     assert not (tmp_path / "dataset").exists()
 
@@ -499,7 +718,27 @@ def test_conflicting_or_released_existing_work_binding_never_creates_claim(
     system.runtime.require_work_binding.return_value = SimpleNamespace(
         work_id=system.operation.reserved_run_id.value, runtime_generation_fingerprint=generation, active=active
     )
-    with pytest.raises(ValueError, match="CHART_EXECUTION_GENERATION_UNAVAILABLE"):
+    with pytest.raises(
+        ValueError, match="CHART_RUNTIME_BINDING_CONFLICT" if active else "CHART_RUNTIME_BINDING_INACTIVE"
+    ):
         prepare(system)
     assert system.adapter.load_verified(system.operation) is None
     assert not (tmp_path / "dataset").exists()
+
+
+@pytest.mark.parametrize("terminal", (False, True))
+@pytest.mark.parametrize("response", (None, object()))
+def test_malformed_whole_binding_response_never_proves_unbound(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, terminal: bool, response: object
+) -> None:
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch, acquire=False)
+    previous = prepare(system) if terminal else None
+    system.runtime.require_work_binding.side_effect = None
+    system.runtime.require_work_binding.return_value = response
+    system.runtime.bind_work_exact.reset_mock()
+    system.runtime.release_work.reset_mock()
+    with pytest.raises(ValueError, match="CHART_RUNTIME_BINDING_CONFLICT"):
+        prepare(system)
+    assert system.adapter.load_verified(system.operation) == previous
+    system.runtime.bind_work_exact.assert_not_called()
+    system.runtime.release_work.assert_not_called()
