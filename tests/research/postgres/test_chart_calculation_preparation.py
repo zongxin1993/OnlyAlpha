@@ -14,7 +14,11 @@ import pytest
 from onlyalpha.application.chart_calculation import OnlyChartCalculationRequestV1
 from onlyalpha.application.chart_calculation_preparation import OnlyChartCalculationPreparationService
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId
-from onlyalpha.application.runtime_generation import OnlyRuntimeGenerationWorkAuthority, OnlyRuntimeWorkBindingEvidence
+from onlyalpha.application.runtime_generation import (
+    OnlyRuntimeGenerationWorkAuthority,
+    OnlyRuntimeWorkAdmissionClosureEvidence,
+    OnlyRuntimeWorkBindingEvidence,
+)
 from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.domain.market import OnlyBarSemantic
 from onlyalpha.domain.time import OnlyTimestamp
@@ -44,6 +48,71 @@ def test_claimed_historical_exact_binding_is_never_adopted(
         prepare(system)
     assert system.adapter.load_verified(system.operation) == claim
     system.runtime.release_work.assert_not_called()
+
+
+def test_input_path_requires_persisted_original_binding_reference(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch)
+    original = system.market.service.plan_selection
+
+    def selected(*args, **kwargs):
+        persisted = system.adapter.load_verified(system.operation)
+        assert persisted.runtime_binding_reference is not None
+        proof = system.runtime.require_work_binding_evidence(system.operation.reserved_run_id.value)
+        persisted.runtime_binding_reference.verifies(proof, require_active=True)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(system.market.service, "plan_selection", selected)
+    ready = prepare(system)
+    assert ready.runtime_binding_reference is not None
+    with psycopg.connect(postgres_dsn) as connection:
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM chart_calculation_preparation_fact WHERE kind = 'RUNTIME_BOUND'"
+            ).fetchone()[0]
+            == 1
+        )
+
+
+@pytest.mark.parametrize(
+    "field,value", (("binding_event_fingerprint", "f" * 64), ("binding_sequence", 2), ("binding_actor", "other"))
+)
+def test_binding_substitution_after_durable_reference_fails_closed(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, field: str, value: object
+) -> None:
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch)
+    ready = prepare(system)
+    assert ready.runtime_binding_reference is not None
+    setattr(system.bindings[system.operation.reserved_run_id.value], field, value)
+    with pytest.raises(ValueError, match="CHART_RUNTIME_BINDING_CONFLICT"):
+        prepare(system)
+
+
+def test_prebind_failure_proves_runtime_closure_before_failed_fact(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch, acquire=False)
+    system.adapter.claim(system.operation, WORKER, GENERATION, lease_duration=timedelta(minutes=2))
+    system.runtime.require_new_work_generation.side_effect = ValueError("RUNTIME_GENERATION_NOT_ELIGIBLE_FOR_NEW_WORK")
+    original = system.adapter.fail
+
+    def fail(operation, claim, code, **kwargs):
+        proof = system.runtime.require_work_admission_closure_evidence(operation.reserved_run_id.value)
+        assert proof.closure_reason == code
+        return original(operation, claim, code, **kwargs)
+
+    monkeypatch.setattr(system.adapter, "fail", fail)
+    failed = prepare(system)
+    assert failed.runtime_closure_reference is not None
+    with pytest.raises(ValueError, match="RUNTIME_WORK_ADMISSION_CLOSED"):
+        system.runtime.bind_new_work_exact(
+            system.operation.reserved_run_id.value,
+            GENERATION,
+            owner="CHART_CALCULATION_INPUT",
+            actor="stale",
+            occurred_at=NOW,
+        )
 
 
 def test_stale_fence_after_runtime_bind_cannot_select_market_input(
@@ -107,8 +176,18 @@ def test_preparation_history_cannot_be_rewritten(postgres_dsn: str) -> None:
     operation = admit(store(postgres_dsn)).operation
     adapter = OnlyPostgresChartCalculationPreparationStore(postgres_dsn)
     first = adapter.claim(operation, WORKER, GENERATION, lease_duration=timedelta(minutes=2))
-    failed = adapter.fail(operation, first, "CHART_SEALED_COVERAGE_UNAVAILABLE")
-    assert failed.state == "FAILED" and failed.revision == 2
+    decided = adapter.begin_failure(operation, first, "CHART_RUNTIME_GENERATION_NOT_ELIGIBLE")
+    closure = OnlyRuntimeWorkAdmissionClosureEvidence(
+        operation.reserved_run_id.value,
+        GENERATION,
+        "CHART_CALCULATION_INPUT",
+        "CHART_RUNTIME_GENERATION_NOT_ELIGIBLE",
+        "test",
+        "9" * 64,
+        1,
+    )
+    failed = adapter.fail(operation, decided, "CHART_RUNTIME_GENERATION_NOT_ELIGIBLE", closure_reference=closure)
+    assert failed.state == "FAILED" and failed.revision == 3
     for command in (
         "DELETE FROM chart_calculation_preparation_fact",
         "UPDATE chart_calculation_preparation_fact SET fence = fence + 1",
@@ -163,6 +242,7 @@ def prepared_system(
     monkeypatch.setattr(adapter, "_now", lambda connection: clock[0])
     runtime = Mock(spec=OnlyRuntimeGenerationWorkAuthority)
     bindings = {}
+    closures = {}
 
     def load_binding(work):
         if work not in bindings:
@@ -170,6 +250,8 @@ def prepared_system(
         return bindings[work]
 
     def bind_exact(work, generation, **kwargs):
+        if work in closures and work not in bindings:
+            raise ValueError("RUNTIME_WORK_ADMISSION_CLOSED")
         existing = bindings.get(work)
         if existing is not None and existing.runtime_generation_fingerprint != generation:
             raise ValueError("RUNTIME_WORK_GENERATION_BINDING_CONFLICT")
@@ -219,6 +301,8 @@ def prepared_system(
     active_generation = [GENERATION]
 
     def bind_new_exact(work, generation, **kwargs):
+        if work in closures:
+            raise ValueError("RUNTIME_WORK_ADMISSION_CLOSED")
         existing = bindings.get(work)
         if existing is not None:
             if (
@@ -245,6 +329,37 @@ def prepared_system(
         return binding
 
     runtime.bind_new_work_exact = Mock(side_effect=bind_new_exact)
+
+    def load_closure(work):
+        if work not in closures:
+            raise ValueError("RUNTIME_WORK_ADMISSION_NOT_CLOSED")
+        return closures[work]
+
+    def close(work, generation, *, owner, closure_reason, actor, **kwargs):
+        if work in closures:
+            evidence = closures[work]
+            if (evidence.runtime_generation_fingerprint, evidence.binding_owner, evidence.closure_reason) != (
+                generation,
+                owner,
+                closure_reason,
+            ):
+                raise ValueError("RUNTIME_WORK_GENERATION_BINDING_CONFLICT")
+            return evidence
+        if work in bindings:
+            evidence = load_evidence(work)
+            if (
+                evidence.runtime_generation_fingerprint != generation
+                or evidence.binding_kind != "NEW_WORK"
+                or evidence.binding_owner != owner
+            ):
+                raise ValueError("RUNTIME_WORK_GENERATION_BINDING_CONFLICT")
+            runtime.release_work(work, actor=actor, **kwargs)
+        evidence = OnlyRuntimeWorkAdmissionClosureEvidence(work, generation, owner, closure_reason, actor, "9" * 64, 2)
+        closures[work] = evidence
+        return evidence
+
+    runtime.close_new_work_exact.side_effect = close
+    runtime.require_work_admission_closure_evidence.side_effect = load_closure
     dataset = OnlyParquetResearchDatasetSnapshotStore(tmp_path / "dataset")
     materializer = OnlySealedMarketDataDatasetMaterializer(
         OnlyHistoricalMarketDataQueryService(market.catalog, market.service._facts), dataset, dataset, lambda: NOW
@@ -268,6 +383,7 @@ def prepared_system(
         market=market,
         selected=selected,
         bindings=bindings,
+        closures=closures,
         active_generation=active_generation,
     )
 
@@ -449,14 +565,18 @@ def test_claim_without_binding_fails_durably_after_activation_change(
 
 
 @pytest.mark.parametrize("lost_response", (False, True))
-def test_failed_fact_precedes_release_and_unknown_response_converges(
+def test_failure_decision_precedes_release_and_unknown_response_converges(
     postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lost_response: bool
 ) -> None:
     system = prepared_system(postgres_dsn, tmp_path, monkeypatch, acquire=False)
     original = system.runtime.release_work.side_effect
 
     def unavailable(work, **kwargs):
-        assert system.adapter.load_verified(system.operation).state == "FAILED"
+        decision = system.adapter.load_verified(system.operation)
+        assert (
+            decision.state == "MATERIALIZING_INPUT" and decision.failure_decision == "CHART_SEALED_COVERAGE_UNAVAILABLE"
+        )
+        assert decision.runtime_binding_reference is not None
         if lost_response:
             original(work, **kwargs)
         raise OSError("release response lost")
@@ -464,8 +584,8 @@ def test_failed_fact_precedes_release_and_unknown_response_converges(
     system.runtime.release_work.side_effect = unavailable
     with pytest.raises(ValueError, match="CHART_RUNTIME_BINDING_RELEASE_UNAVAILABLE"):
         prepare(system)
-    failed = system.adapter.load_verified(system.operation)
-    assert failed.state == "FAILED" and failed.failure_code == "CHART_SEALED_COVERAGE_UNAVAILABLE"
+    decision = system.adapter.load_verified(system.operation)
+    assert decision.state == "MATERIALIZING_INPUT" and decision.failure_decision == "CHART_SEALED_COVERAGE_UNAVAILABLE"
     system.runtime.release_work.side_effect = original
     system.runtime.require_new_work_generation.side_effect = AssertionError("terminal replay read activation")
     system.runtime.require_runtime_generation.side_effect = AssertionError(
@@ -477,7 +597,9 @@ def test_failed_fact_precedes_release_and_unknown_response_converges(
     monkeypatch.setattr(
         system.materializer, "materialize_with_lineage", Mock(side_effect=AssertionError("terminal wrote Dataset"))
     )
-    assert prepare(system, OTHER) == failed
+    system.clock[0] += timedelta(minutes=3)
+    failed = prepare(system, OTHER)
+    assert failed.state == "FAILED" and failed.runtime_closure_reference is not None
     assert not system.runtime.require_work_binding(system.operation.reserved_run_id.value).active
     assert prepare(system) == failed
     assert system.adapter.load_verified(system.operation).revision == failed.revision
@@ -665,7 +787,7 @@ def test_crash_reentry_remains_on_pinned_revision(
     assert result.state == "INPUT_READY" and result.fence == old.fence + 1
     assert result.input_pin == old.input_pin
     with pytest.raises(ValueError, match="CHART_PREPARATION_FENCE_LOST"):
-        system.adapter.fail(system.operation, old, "CHART_DATASET_MATERIALIZATION_FAILED")
+        system.adapter.begin_failure(system.operation, old, "CHART_RUNTIME_GENERATION_NOT_ELIGIBLE")
     assert (
         system.dataset.load_materialization(result.dataset_materialization_id)
         .market_data_revision_bindings[0]
@@ -745,7 +867,7 @@ def test_expired_lease_cannot_heartbeat_or_publish_even_before_reclaim(
     with pytest.raises(ValueError, match="CHART_PREPARATION_FENCE_LOST"):
         system.adapter.heartbeat(system.operation, first, lease_duration=timedelta(minutes=2))
     with pytest.raises(ValueError, match="CHART_PREPARATION_FENCE_LOST"):
-        system.adapter.fail(system.operation, first, "CHART_DATASET_MATERIALIZATION_FAILED")
+        system.adapter.begin_failure(system.operation, first, "CHART_RUNTIME_GENERATION_NOT_ELIGIBLE")
     assert prepare(system, OTHER).fence == first.fence + 1
 
 
@@ -862,7 +984,7 @@ def test_prebind_failure_rejects_later_binding_without_releasing_foreign_work(
 ) -> None:
     system = prepared_system(postgres_dsn, tmp_path, monkeypatch, acquire=False)
     claim = system.adapter.claim(system.operation, WORKER, GENERATION, lease_duration=timedelta(minutes=2))
-    failed = system.adapter.fail(system.operation, claim, "CHART_RUNTIME_GENERATION_NOT_ELIGIBLE")
+    failed = system.service._fail(system.operation, claim, "CHART_RUNTIME_GENERATION_NOT_ELIGIBLE", NOW)
     assert prepare(system) == failed
     system.bindings[system.operation.reserved_run_id.value] = SimpleNamespace(
         work_id=system.operation.reserved_run_id.value,
@@ -921,19 +1043,18 @@ def test_claimed_unbound_recovery_uses_atomic_new_work_admission(
 
 
 @pytest.mark.parametrize("bound", (False, True))
-def test_unknown_failure_phase_cannot_authorize_binding_release(
+def test_unknown_failure_decision_cannot_authorize_binding_release(
     postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bound: bool
 ) -> None:
     system = prepared_system(postgres_dsn, tmp_path, monkeypatch, acquire=False)
     claim = system.adapter.claim(system.operation, WORKER, GENERATION, lease_duration=timedelta(minutes=2))
-    failed = system.adapter.fail(system.operation, claim, "CHART_UNCLASSIFIED_FAILURE")
     if bound:
         system.runtime.bind_work_exact(
             system.operation.reserved_run_id.value, GENERATION, actor="test", occurred_at=NOW
         )
-    with pytest.raises(ValueError, match="CHART_RUNTIME_BINDING_CONFLICT"):
-        prepare(system)
-    assert system.adapter.load_verified(system.operation) == failed
+    with pytest.raises(ValueError, match="CHART_PREPARATION_FAILURE_CODE_INVALID"):
+        system.adapter.begin_failure(system.operation, claim, "CHART_UNCLASSIFIED_FAILURE")
+    assert system.adapter.load_verified(system.operation) == claim
     system.runtime.release_work.assert_not_called()
 
 
@@ -959,7 +1080,7 @@ def test_foreign_binding_family_cannot_be_adopted_or_released(
     system.runtime.release_work.assert_not_called()
 
 
-def test_late_chart_owned_binding_after_prebind_failure_is_compensated_and_retires(
+def test_terminal_closure_blocks_stale_bind_and_allows_retirement(
     postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from dataclasses import replace
@@ -989,19 +1110,23 @@ def test_late_chart_owned_binding_after_prebind_failure_is_compensated_and_retir
         system.clock[0] += timedelta(minutes=3)
         registry.activate_for_new_work(expected_current=generation, target=other, actor="operator", occurred_at=NOW)
         winner = system.adapter.claim(system.operation, OTHER, generation, lease_duration=timedelta(minutes=2))
-        system.adapter.fail(system.operation, winner, "CHART_RUNTIME_GENERATION_NOT_ELIGIBLE")
+        system.service._fail(system.operation, winner, "CHART_RUNTIME_GENERATION_NOT_ELIGIBLE", NOW)
         registry.activate_for_new_work(expected_current=other, target=generation, actor="operator", occurred_at=NOW)
         return original(self, *args, **kwargs)
 
     monkeypatch.setattr(OnlyRuntimeGenerationRegistry, "bind_new_work_exact", stale_bind)
     selection = Mock(side_effect=AssertionError("stale worker read Market"))
     monkeypatch.setattr(system.market.service, "plan_selection", selection)
-    failed = system.service.prepare(
-        system.operation, worker_id=WORKER, runtime_generation_fingerprint=generation, occurred_at=NOW
-    )
+    with pytest.raises(ValueError, match="CHART_RUNTIME_BINDING_CONFLICT"):
+        system.service.prepare(
+            system.operation, worker_id=WORKER, runtime_generation_fingerprint=generation, occurred_at=NOW
+        )
+    failed = system.adapter.load_verified(system.operation)
     assert failed.failure_code == "CHART_RUNTIME_GENERATION_NOT_ELIGIBLE"
-    proof = registry.require_work_binding_evidence(system.operation.reserved_run_id.value)
-    assert proof.binding_kind == "NEW_WORK" and proof.binding_owner == "CHART_CALCULATION_INPUT" and not proof.active
+    proof = registry.require_work_admission_closure_evidence(system.operation.reserved_run_id.value)
+    assert proof.binding_owner == "CHART_CALCULATION_INPUT"
+    with pytest.raises(ValueError, match="RUNTIME_WORK_GENERATION_UNBOUND"):
+        registry.require_work_binding_evidence(system.operation.reserved_run_id.value)
     selection.assert_not_called()
     assert not (tmp_path / "dataset").exists()
     registry.activate_for_new_work(expected_current=generation, target=other, actor="operator", occurred_at=NOW)
@@ -1075,3 +1200,302 @@ def test_fence_loss_after_binding_replays_winners_input_ready_without_stale_read
     assert winner[0].state == "INPUT_READY"
     assert selection.call_count == 1
     system.runtime.release_work.assert_not_called()
+
+
+def test_current_fence_must_persist_binding_before_pin_or_ready(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from onlyalpha.application.chart_calculation_preparation import OnlyChartCalculationRuntimeBindingReferenceV1
+
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch)
+    claim = system.adapter.claim(system.operation, WORKER, GENERATION, lease_duration=timedelta(minutes=2))
+    pin = Mock()
+    with pytest.raises(ValueError, match="CHART_PREPARATION_RELATION_CORRUPT"):
+        system.adapter.commit_pin(system.operation, claim, pin)
+    pin.verify_operation.assert_not_called()
+    with pytest.raises(ValueError, match="CHART_PREPARATION_RELATION_CORRUPT"):
+        system.adapter.input_ready(
+            system.operation,
+            claim,
+            snapshot_fingerprint="a" * 64,
+            materialization_id="dataset-materialization:" + "a" * 64,
+        )
+    work = system.operation.reserved_run_id.value
+    system.runtime.bind_new_work_exact(
+        work, GENERATION, owner="CHART_CALCULATION_INPUT", actor="chart", occurred_at=NOW
+    )
+    reference = OnlyChartCalculationRuntimeBindingReferenceV1.from_evidence(
+        system.runtime.require_work_binding_evidence(work)
+    )
+    bound = system.adapter.commit_runtime_binding(system.operation, claim, reference)
+    assert bound.fence == claim.fence and bound.revision == claim.revision + 1
+    assert system.adapter.commit_runtime_binding(system.operation, bound, reference) == bound
+
+
+@pytest.mark.parametrize("cut", ("decision", "release", "closure"))
+def test_durable_failure_decision_recovers_every_closure_cut_without_input_reads(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cut: str
+) -> None:
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch, acquire=False)
+    if cut == "decision":
+        original = system.adapter.begin_failure
+
+        def crash(*args, **kwargs):
+            original(*args, **kwargs)
+            raise OSError("process loss after decision commit")
+
+        monkeypatch.setattr(system.adapter, "begin_failure", crash)
+    elif cut == "release":
+        original_release = system.runtime.release_work.side_effect
+
+        def crash_release(*args, **kwargs):
+            original_release(*args, **kwargs)
+            raise OSError("process loss after release commit")
+
+        system.runtime.release_work.side_effect = crash_release
+    else:
+        original_close = system.runtime.close_new_work_exact.side_effect
+
+        def crash_close(*args, **kwargs):
+            original_close(*args, **kwargs)
+            raise OSError("process loss after closure commit")
+
+        system.runtime.close_new_work_exact.side_effect = crash_close
+    with pytest.raises((OSError, ValueError)):
+        prepare(system)
+    decision = system.adapter.load_verified(system.operation)
+    assert decision.state == "MATERIALIZING_INPUT" and decision.failure_decision == "CHART_SEALED_COVERAGE_UNAVAILABLE"
+    assert decision.runtime_binding_reference is not None
+    # Reclaim from fresh PostgreSQL reader: durable decision alone determines recovery.
+    system.clock[0] += timedelta(minutes=3)
+    restarted = OnlyPostgresChartCalculationPreparationStore(postgres_dsn)
+    monkeypatch.setattr(restarted, "_now", lambda connection: system.clock[0])
+    system.service._store = restarted
+    if cut == "release":
+        system.runtime.release_work.side_effect = original_release
+    if cut == "closure":
+        system.runtime.close_new_work_exact.side_effect = original_close
+    monkeypatch.setattr(
+        system.market.service, "plan_selection", Mock(side_effect=AssertionError("closing worker read Market"))
+    )
+    monkeypatch.setattr(
+        system.materializer,
+        "materialize_with_lineage",
+        Mock(side_effect=AssertionError("closing worker wrote Dataset")),
+    )
+    failed = prepare(system, OTHER)
+    assert failed.state == "FAILED" and failed.runtime_closure_reference is not None
+    assert failed.runtime_binding_reference == decision.runtime_binding_reference
+    assert not system.runtime.require_work_binding(system.operation.reserved_run_id.value).active
+    assert (
+        system.runtime.require_work_admission_closure_evidence(system.operation.reserved_run_id.value)
+        == failed.runtime_closure_reference
+    )
+
+
+def test_v1_claim_can_append_runtime_bound_without_rewriting_history(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from onlyalpha.application.chart_calculation_preparation import OnlyChartCalculationPreparationV1
+
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch)
+    legacy = OnlyChartCalculationPreparationV1(
+        system.operation.operation_id,
+        1,
+        1,
+        WORKER,
+        NOW + timedelta(minutes=2),
+        GENERATION,
+        system.operation.reserved_run_id.value,
+        fact_schema_version=1,
+    )
+    with psycopg.connect(postgres_dsn) as connection:
+        system.adapter._append(connection, legacy, "CLAIM", None)
+        before = connection.execute(
+            "SELECT fact_json, fact_fingerprint FROM chart_calculation_preparation_fact WHERE revision = 1"
+        ).fetchone()
+    assert system.adapter.load_verified(system.operation) == legacy
+    ready = prepare(system)
+    assert ready.fact_schema_version == 2 and ready.runtime_binding_reference is not None
+    with psycopg.connect(postgres_dsn) as connection:
+        assert (
+            connection.execute(
+                "SELECT fact_json, fact_fingerprint FROM chart_calculation_preparation_fact WHERE revision = 1"
+            ).fetchone()
+            == before
+        )
+
+
+def test_v1_input_ready_is_readable_but_cannot_be_silently_backfilled(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+
+    from onlyalpha.persistence.postgres.chart_calculation_preparation_store import _decode, _payload
+
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch)
+    ready = prepare(system)
+    legacy = replace(ready, fact_schema_version=1, runtime_binding_reference=None)
+    assert _decode(_payload(legacy), 1) == legacy
+    historical = Mock()
+    historical.load_verified.return_value = legacy
+    system.service._store = historical
+    with pytest.raises(ValueError, match="CHART_RUNTIME_BINDING_CONFLICT"):
+        prepare(system)
+    historical.claim.assert_not_called()
+    historical.commit_runtime_binding.assert_not_called()
+
+
+@pytest.mark.parametrize("cut", ("RuntimeWorkReleased", "RuntimeNewWorkClosed"))
+def test_fresh_runtime_and_postgres_recover_durable_closing_decision(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cut: str
+) -> None:
+    from dataclasses import replace
+
+    from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry
+
+    from onlyalpha.runtime.generation import OnlyRuntimeGenerationValidationEvidence
+    from tests.runtime_support.generation_support import only_ready_test_generation
+
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch, acquire=False)
+    root = tmp_path / "closing-runtime"
+    registry = OnlyRuntimeGenerationRegistry(root)
+    other = only_ready_test_generation(registry, "a", NOW)
+    manifest = replace(
+        registry.load_manifest(other),
+        catalog_generation_fingerprint=system.operation.catalog_witness.to_dict()["context"][
+            "catalog_generation_fingerprint"
+        ],
+    )
+    registry.prepare(manifest, actor="test", occurred_at=NOW)
+    registry.admit_ready(OnlyRuntimeGenerationValidationEvidence.from_manifest(manifest), actor="test", occurred_at=NOW)
+    generation = manifest.runtime_generation_fingerprint
+    registry.activate_for_new_work(expected_current=None, target=generation, actor="operator", occurred_at=NOW)
+    system.service._runtime = registry
+    original = OnlyRuntimeGenerationRegistry._append
+
+    def process_loss(self, event):
+        original(self, event)
+        if event.kind == cut:
+            raise OSError("process death after Runtime fsync")
+
+    monkeypatch.setattr(OnlyRuntimeGenerationRegistry, "_append", process_loss)
+    with pytest.raises(ValueError, match="CHART_RUNTIME_BINDING_RELEASE_UNAVAILABLE"):
+        system.service.prepare(
+            system.operation, worker_id=WORKER, runtime_generation_fingerprint=generation, occurred_at=NOW
+        )
+    decided = system.adapter.load_verified(system.operation)
+    assert decided.state == "MATERIALIZING_INPUT" and decided.failure_decision == "CHART_SEALED_COVERAGE_UNAVAILABLE"
+    monkeypatch.setattr(OnlyRuntimeGenerationRegistry, "_append", original)
+    system.clock[0] += timedelta(minutes=3)
+    restarted = OnlyPostgresChartCalculationPreparationStore(postgres_dsn)
+    monkeypatch.setattr(restarted, "_now", lambda connection: system.clock[0])
+    system.service._store = restarted
+    fresh_runtime = OnlyRuntimeGenerationRegistry(root)
+    system.service._runtime = fresh_runtime
+    monkeypatch.setattr(
+        system.market.service, "plan_selection", Mock(side_effect=AssertionError("recovery read Market"))
+    )
+    monkeypatch.setattr(
+        system.materializer, "materialize_with_lineage", Mock(side_effect=AssertionError("recovery wrote Dataset"))
+    )
+    failed = system.service.prepare(
+        system.operation, worker_id=OTHER, runtime_generation_fingerprint=generation, occurred_at=NOW
+    )
+    assert failed.runtime_binding_reference == decided.runtime_binding_reference
+    assert failed.state == "FAILED" and failed.runtime_closure_reference is not None
+    assert not fresh_runtime.require_work_binding(system.operation.reserved_run_id.value).active
+    fresh_runtime.activate_for_new_work(expected_current=generation, target=other, actor="operator", occurred_at=NOW)
+    fresh_runtime.retire(generation, actor="operator", occurred_at=NOW)
+
+
+def test_durable_failure_decision_fences_successor_after_original_session_is_gone(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch, acquire=False)
+    original = system.runtime.close_new_work_exact.side_effect
+    winners = []
+
+    def after_decision_before_runtime(*args, **kwargs):
+        # begin_failure has committed and closed its PG session; no volatile lock protects A.
+        system.runtime.close_new_work_exact.side_effect = original
+        decision = system.adapter.load_verified(system.operation)
+        assert decision.failure_decision == "CHART_SEALED_COVERAGE_UNAVAILABLE"
+        system.clock[0] += timedelta(minutes=3)
+        fresh = OnlyPostgresChartCalculationPreparationStore(postgres_dsn)
+        monkeypatch.setattr(fresh, "_now", lambda connection: system.clock[0])
+        winner_claim = fresh.claim(system.operation, OTHER, GENERATION, lease_duration=timedelta(minutes=2))
+        with pytest.raises(ValueError, match="CHART_PREPARATION_RELATION_CORRUPT"):
+            fresh.input_ready(
+                system.operation,
+                winner_claim,
+                snapshot_fingerprint="a" * 64,
+                materialization_id="dataset-materialization:" + "a" * 64,
+            )
+        winners.append(prepare(system, OTHER))
+        return original(*args, **kwargs)
+
+    system.runtime.close_new_work_exact.side_effect = after_decision_before_runtime
+    with pytest.raises(ValueError, match="CHART_PREPARATION_FENCE_LOST"):
+        prepare(system)
+    assert system.adapter.load_verified(system.operation) == winners[0]
+    assert winners[0].state == "FAILED"
+    assert winners[0].runtime_closure_reference is not None
+    assert not system.runtime.require_work_binding(system.operation.reserved_run_id.value).active
+
+
+@pytest.mark.parametrize("boundary", ("claim", "heartbeat"))
+def test_returned_claim_or_heartbeat_failure_decision_bypasses_input_reads(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, boundary: str
+) -> None:
+    from onlyalpha.application.chart_calculation_preparation import OnlyChartCalculationRuntimeBindingReferenceV1
+
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch)
+    claim = system.adapter.claim(system.operation, WORKER, GENERATION, lease_duration=timedelta(minutes=2))
+    work = system.operation.reserved_run_id.value
+    system.runtime.bind_new_work_exact(
+        work, GENERATION, owner="CHART_CALCULATION_INPUT", actor="chart", occurred_at=NOW
+    )
+    reference = OnlyChartCalculationRuntimeBindingReferenceV1.from_evidence(
+        system.runtime.require_work_binding_evidence(work)
+    )
+    bound = system.adapter.commit_runtime_binding(system.operation, claim, reference)
+    original = getattr(system.adapter, boundary)
+
+    def decide_between_reads(*args, **kwargs):
+        system.adapter.begin_failure(system.operation, bound, "CHART_SEALED_COVERAGE_UNAVAILABLE")
+        if boundary == "claim":
+            system.clock[0] += timedelta(minutes=3)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(system.adapter, boundary, decide_between_reads)
+    monkeypatch.setattr(
+        system.market.service, "plan_selection", Mock(side_effect=AssertionError("decision reached Market"))
+    )
+    monkeypatch.setattr(
+        system.materializer, "materialize_with_lineage", Mock(side_effect=AssertionError("decision reached Dataset"))
+    )
+    failed = prepare(system, OTHER if boundary == "claim" else WORKER)
+    assert failed.state == "FAILED" and failed.failure_code == "CHART_SEALED_COVERAGE_UNAVAILABLE"
+    assert failed.runtime_binding_reference == bound.runtime_binding_reference
+    assert failed.runtime_closure_reference is not None
+
+
+@pytest.mark.parametrize(
+    "field,value", (("closure_event_fingerprint", "f" * 64), ("closure_sequence", 3), ("closure_actor", "other"))
+)
+def test_terminal_replay_rejects_substitution_of_persisted_closure_event(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, field: str, value: object
+) -> None:
+    from dataclasses import replace
+
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch, acquire=False)
+    failed = prepare(system)
+    assert failed.runtime_closure_reference is not None
+    work = system.operation.reserved_run_id.value
+    system.closures[work] = replace(system.closures[work], **{field: value})
+    system.runtime.close_new_work_exact.reset_mock()
+    with pytest.raises(ValueError, match="CHART_RUNTIME_BINDING_CONFLICT"):
+        prepare(system)
+    assert system.adapter.load_verified(system.operation) == failed
+    system.runtime.close_new_work_exact.assert_not_called()

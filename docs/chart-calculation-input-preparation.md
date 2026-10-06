@@ -43,8 +43,10 @@ Each fact has a monotonic revision. Claim increments the fence; heartbeat keeps 
 leases, bounded to two minutes. A live claim belongs to one worker; an expired claim cannot be renewed. Pin, failure and ready
 publication require that worker, fence, generation and an unexpired lease in a short serialized transaction. No transaction spans
 Dataset work. Stale semantic work may finish, but cannot publish operational progress.
-Immediately after Runtime binding, before the first Market Data/Dataset read, a bounded heartbeat verifies the current PostgreSQL
-fence and lease. A stale worker stops if another fence is materializing; if the durable state is FAILED it reconciles terminal
+Immediately after Runtime binding, the current fence commits `RUNTIME_BOUND`, containing the exact immutable original binding
+event reference (without mutable activity). All subsequent facts inherit this reference; current evidence must match every field.
+No Market Data/Dataset read is permitted before this commit. A bounded heartbeat then verifies the PostgreSQL fence and lease.
+A stale worker stops if another fence is materializing; if the durable state is FAILED it reconciles terminal
 ownership, and if INPUT_READY it returns only after exact active binding/pin verification. No second lease Authority is introduced.
 
 Only the committed pin can construct `OnlySealedMarketDataMaterializationPlan`. The official
@@ -60,17 +62,29 @@ the same pin and verified reuse. A lost PostgreSQL acknowledgement is reconciled
 never by selecting latest or allocating another work identity. Unexpected dependency/process failures leave the existing claim for
 lease recovery rather than manufacturing successful completion.
 
-Pre-Run `FAILED` owns Runtime binding closure: append the failure under the current fence before idempotently releasing its exact work
-with actor `chart-input-preparation-failed`. Failure phase is an explicit closed classification, not inferred from pin absence:
+Pre-Run failure ordering is `FAILURE_DECIDED` under the current PostgreSQL fence, exact Runtime closure, then `FAILED` carrying the
+immutable closure reference. The durable decision freezes the classified failure reason and prohibits further input progress,
+including after backend/session loss. A PostgreSQL lock alone is not a cross-authority durable boundary. Retry of a decision finishes
+the same Runtime close and FAILED without Market/Dataset reads; it never infers failure from inactivity or pin absence.
+The Runtime Authority atomically verifies the owner, releases matching active NEW_WORK, and appends `RuntimeNewWorkClosed`.
+Owner plus reason are canonical values in the existing event reason field. All first-binding API families reject a closed identity;
+historical assignments remain readable and closure does not count as active work. Release-before-closure crashes recover from the
+durable failure decision; ordinary release cannot manufacture a failure. Failure phase is an explicit closed classification:
 `CHART_RUNTIME_GENERATION_NOT_ELIGIBLE` is PRE_BIND and normally requires proved UNBOUND. A late chart-owned NEW_WORK binding from
 a stale worker is compensatable: release active or accept inactive. Foreign/EXACT bindings conflict and are never released.
 `CHART_SEALED_COVERAGE_UNAVAILABLE` is POST_BIND and requires exact chart-owned NEW_WORK evidence, active or inactive; UNBOUND conflicts.
-Unknown failure codes fail closed until their producer ordering is explicitly classified. Return post-bind failure only after verifying
-an exact inactive binding. Lost/unavailable release responses leave the durable failure intact and report
-`CHART_RUNTIME_BINDING_RELEASE_UNAVAILABLE`. Retry loads FAILED first and reconciles historical binding without reading current
+Unknown failure codes fail closed until their producer ordering is explicitly classified. Verified FAILED requires the exact closure
+and, for POST_BIND, the persisted original binding reference. Lost/unavailable closure responses preserve the durable decision and report
+`CHART_RUNTIME_BINDING_RELEASE_UNAVAILABLE`; they do not manufacture FAILED. Retry verifies terminal references without reading current
 activation, Catalog, Market Data or Dataset. Already-inactive bindings remain valid after generation retirement; historical assignment
 is preserved. `INPUT_READY` retains active ownership for future T4/Research execution and its eventual terminal lifecycle.
 
 Migration `0045_chart_calculation_input_preparation` is additive and follows checksummed history through `0044`. It performs no
 translation of admitted facts. DDL and migration-ledger commit are atomic; failure rolls back and restart retries the same migration.
 For rollback, stop preparation writers and retain facts plus a compatible reader, or forward-fix; never delete authority history.
+
+Migration `0046_chart_calculation_runtime_binding_relation` additively permits `RUNTIME_BOUND` and `FAILURE_DECIDED`; 0045 is unchanged.
+New preparation facts use schema 2 with binding/closure references and the durable failure decision. Schema 1 bytes/fingerprints remain
+valid and decode with no new references. A V1 unpinned MATERIALIZING_INPUT history may append explicit V2 relation facts; V1 pinned or
+terminal history is readable but cannot silently acquire missing proof or qualify as verified-ready/closure-certified failure.
+Mixed V1→V2 history is forward-only; migration performs no data rewrite and uses the existing atomic checksummed migration ledger.

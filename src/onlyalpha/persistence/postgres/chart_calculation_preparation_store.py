@@ -14,8 +14,10 @@ from onlyalpha.application.chart_calculation import OnlyChartCalculationError, O
 from onlyalpha.application.chart_calculation_preparation import (
     OnlyChartCalculationInputPinV1,
     OnlyChartCalculationPreparationV1,
+    OnlyChartCalculationRuntimeBindingReferenceV1,
 )
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId
+from onlyalpha.application.runtime_generation import OnlyRuntimeWorkAdmissionClosureEvidence
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 
 from .chart_calculation_store import OnlyPostgresChartCalculationAdmissionStore
@@ -29,7 +31,7 @@ def _require(condition: bool, code: str = "CHART_PREPARATION_RELATION_CORRUPT") 
 
 
 def _payload(value: OnlyChartCalculationPreparationV1) -> dict[str, object]:
-    return {
+    result: dict[str, object] = {
         "operation_id": value.operation_id.value,
         "revision": value.revision,
         "fence": value.fence,
@@ -44,9 +46,20 @@ def _payload(value: OnlyChartCalculationPreparationV1) -> dict[str, object]:
         "dataset_materialization_id": value.dataset_materialization_id,
         "failure_code": value.failure_code,
     }
+    if value.fact_schema_version == 2:
+        result.update(
+            runtime_binding_reference=None
+            if value.runtime_binding_reference is None
+            else value.runtime_binding_reference.to_dict(),
+            runtime_closure_reference=None
+            if value.runtime_closure_reference is None
+            else value.runtime_closure_reference.to_dict(),
+            failure_decision=value.failure_decision,
+        )
+    return result
 
 
-def _decode(raw: dict[str, object]) -> OnlyChartCalculationPreparationV1:
+def _decode(raw: dict[str, object], version: int) -> OnlyChartCalculationPreparationV1:
     pin = raw["input_pin"]
     return OnlyChartCalculationPreparationV1(
         OnlyProductCommandId(cast(str, raw["operation_id"])),
@@ -61,6 +74,18 @@ def _decode(raw: dict[str, object]) -> OnlyChartCalculationPreparationV1:
         cast(str | None, raw["dataset_snapshot_fingerprint"]),
         cast(str | None, raw["dataset_materialization_id"]),
         cast(str | None, raw["failure_code"]),
+        None
+        if version == 1 or raw["runtime_binding_reference"] is None
+        else OnlyChartCalculationRuntimeBindingReferenceV1.from_dict(
+            cast(dict[str, object], raw["runtime_binding_reference"])
+        ),
+        None
+        if version == 1 or raw["runtime_closure_reference"] is None
+        else OnlyRuntimeWorkAdmissionClosureEvidence.from_dict(
+            cast(dict[str, object], raw["runtime_closure_reference"])
+        ),
+        None if version == 1 else cast(str | None, raw["failure_decision"]),
+        version,
     )
 
 
@@ -93,13 +118,13 @@ class OnlyPostgresChartCalculationPreparationStore:
             for index, row in enumerate(rows, 1):
                 body = json.loads(cast(str, row["fact_json"]))
                 _require(set(body) == {"schema_version", "previous_fingerprint", "kind", "preparation"})
-                _require(type(body["schema_version"]) is int and body["schema_version"] == 1)
+                _require(type(body["schema_version"]) is int and body["schema_version"] in {1, 2})
                 _require(body["previous_fingerprint"] == previous_hash and body["kind"] == row["kind"])
                 _require(
                     only_canonical_json(body) == row["fact_json"]
                     and only_canonical_fingerprint(body) == row["fact_fingerprint"]
                 )
-                value = _decode(body["preparation"])
+                value = _decode(body["preparation"], body["schema_version"])
                 _require(_payload(value) == body["preparation"])
                 _require(
                     value.operation_id == operation.operation_id
@@ -119,9 +144,14 @@ class OnlyPostgresChartCalculationPreparationStore:
                         and value.revision == value.fence == 1
                         and value.state == "MATERIALIZING_INPUT"
                         and value.input_pin is None
+                        and value.runtime_binding_reference is None
+                        and value.runtime_closure_reference is None
+                        and value.failure_decision is None
                     )
                 else:
                     _require(current.state == "MATERIALIZING_INPUT")
+                    _require(value.fact_schema_version >= current.fact_schema_version)
+                    current = replace(current, fact_schema_version=value.fact_schema_version)
                     _require(value.runtime_generation_fingerprint == current.runtime_generation_fingerprint)
                     kind = body["kind"]
                     if kind == "CLAIM":
@@ -141,15 +171,33 @@ class OnlyPostgresChartCalculationPreparationStore:
                             value == replace(current, revision=index, lease_until=value.lease_until)
                             and value.lease_until >= current.lease_until
                         )
+                    elif kind == "RUNTIME_BOUND":
+                        _require(
+                            current.failure_decision is None
+                            and current.runtime_binding_reference is None
+                            and value.runtime_binding_reference is not None
+                            and value
+                            == replace(
+                                current, revision=index, runtime_binding_reference=value.runtime_binding_reference
+                            )
+                        )
+                    elif kind == "FAILURE_DECIDED":
+                        _require(
+                            current.failure_decision is None
+                            and value.failure_decision is not None
+                            and value == replace(current, revision=index, failure_decision=value.failure_decision)
+                        )
                     elif kind == "PIN":
                         _require(
-                            current.input_pin is None
+                            current.failure_decision is None
+                            and current.input_pin is None
                             and value.input_pin is not None
                             and value == replace(current, revision=index, input_pin=value.input_pin)
                         )
                     elif kind == "INPUT_READY":
                         _require(
-                            current.input_pin is not None
+                            current.failure_decision is None
+                            and current.input_pin is not None
                             and value.state == "INPUT_READY"
                             and value
                             == replace(
@@ -164,7 +212,13 @@ class OnlyPostgresChartCalculationPreparationStore:
                         _require(
                             value.state == "FAILED"
                             and value
-                            == replace(current, revision=index, state="FAILED", failure_code=value.failure_code)
+                            == replace(
+                                current,
+                                revision=index,
+                                state="FAILED",
+                                failure_code=value.failure_code,
+                                runtime_closure_reference=value.runtime_closure_reference,
+                            )
                         )
                     else:
                         _require(False)
@@ -181,7 +235,7 @@ class OnlyPostgresChartCalculationPreparationStore:
         previous_hash: str | None,
     ) -> OnlyChartCalculationPreparationV1:
         body = {
-            "schema_version": 1,
+            "schema_version": value.fact_schema_version,
             "previous_fingerprint": previous_hash,
             "kind": kind,
             "preparation": _payload(value),
@@ -244,6 +298,7 @@ class OnlyPostgresChartCalculationPreparationStore:
                     fence=current.fence + 1,
                     worker_id=worker_id,
                     lease_until=now + lease_duration,
+                    fact_schema_version=2,
                 )
             return self._append(connection, value, "CLAIM", previous_hash)
 
@@ -258,6 +313,8 @@ class OnlyPostgresChartCalculationPreparationStore:
         materialization_id: str | None = None,
         code: str | None = None,
         lease_duration: timedelta | None = None,
+        binding_reference: OnlyChartCalculationRuntimeBindingReferenceV1 | None = None,
+        closure_reference: OnlyRuntimeWorkAdmissionClosureEvidence | None = None,
     ) -> OnlyChartCalculationPreparationV1:
         with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
             self._lock(connection, operation)
@@ -272,9 +329,28 @@ class OnlyPostgresChartCalculationPreparationStore:
                 and current.lease_until > self._now(connection),
                 "CHART_PREPARATION_FENCE_LOST",
             )
-            value = replace(current, revision=current.revision + 1)
-            if kind == "PIN":
+            value = replace(current, revision=current.revision + 1, fact_schema_version=2)
+            if kind in {"PIN", "INPUT_READY", "RUNTIME_BOUND"}:
+                _require(current.failure_decision is None)
+            if kind == "RUNTIME_BOUND":
+                assert binding_reference is not None
+                _require(
+                    binding_reference.work_id == current.runtime_work_id
+                    and binding_reference.runtime_generation_fingerprint == current.runtime_generation_fingerprint
+                )
+                if current.runtime_binding_reference is not None:
+                    _require(current.runtime_binding_reference == binding_reference, "CHART_RUNTIME_BINDING_CONFLICT")
+                    return current
+                value = replace(value, runtime_binding_reference=binding_reference)
+            elif kind == "FAILURE_DECIDED":
+                _require(code is not None)
+                if current.failure_decision is not None:
+                    _require(current.failure_decision == code)
+                    return current
+                value = replace(value, failure_decision=code)
+            elif kind == "PIN":
                 assert pin is not None
+                _require(current.runtime_binding_reference is not None)
                 pin.verify_operation(operation, current.runtime_generation_fingerprint)
                 if current.input_pin is not None:
                     _require(current.input_pin == pin, "CHART_INPUT_PIN_CONFLICT")
@@ -285,6 +361,7 @@ class OnlyPostgresChartCalculationPreparationStore:
                 _require(timedelta(0) < lease_duration <= timedelta(minutes=2), "CHART_PREPARATION_LEASE_INVALID")
                 value = replace(value, lease_until=max(current.lease_until, self._now(connection) + lease_duration))
             elif kind == "INPUT_READY":
+                _require(current.runtime_binding_reference is not None)
                 _require(current.input_pin is not None and current.input_pin == claim.input_pin)
                 _require(
                     snapshot_fingerprint is not None
@@ -304,7 +381,8 @@ class OnlyPostgresChartCalculationPreparationStore:
                 )
             else:
                 _require(kind == "FAILED" and code is not None and code.startswith("CHART_"))
-                value = replace(value, state="FAILED", failure_code=code)
+                _require(current.failure_decision == code and closure_reference is not None)
+                value = replace(value, state="FAILED", failure_code=code, runtime_closure_reference=closure_reference)
             return self._append(connection, value, kind, previous_hash)
 
     def heartbeat(
@@ -341,6 +419,24 @@ class OnlyPostgresChartCalculationPreparationStore:
         )
 
     def fail(
+        self,
+        operation: OnlyChartCalculationOperationV1,
+        claim: OnlyChartCalculationPreparationV1,
+        code: str,
+        *,
+        closure_reference: OnlyRuntimeWorkAdmissionClosureEvidence,
+    ) -> OnlyChartCalculationPreparationV1:
+        return self._progress(operation, claim, "FAILED", code=code, closure_reference=closure_reference)
+
+    def begin_failure(
         self, operation: OnlyChartCalculationOperationV1, claim: OnlyChartCalculationPreparationV1, code: str
     ) -> OnlyChartCalculationPreparationV1:
-        return self._progress(operation, claim, "FAILED", code=code)
+        return self._progress(operation, claim, "FAILURE_DECIDED", code=code)
+
+    def commit_runtime_binding(
+        self,
+        operation: OnlyChartCalculationOperationV1,
+        claim: OnlyChartCalculationPreparationV1,
+        reference: OnlyChartCalculationRuntimeBindingReferenceV1,
+    ) -> OnlyChartCalculationPreparationV1:
+        return self._progress(operation, claim, "RUNTIME_BOUND", binding_reference=reference)

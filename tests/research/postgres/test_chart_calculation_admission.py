@@ -571,6 +571,9 @@ def test_reservation_migration_backfills_previous_chart_operations_or_fails_clos
     with psycopg.connect(postgres_dsn) as connection:
         connection.execute("DROP TABLE chart_calculation_preparation_fact")
         connection.execute(
+            "DELETE FROM onlyalpha_schema_migration WHERE migration_id = '0046_chart_calculation_runtime_binding_relation'"
+        )
+        connection.execute(
             "DELETE FROM onlyalpha_schema_migration WHERE migration_id = '0045_chart_calculation_input_preparation'"
         )
         connection.execute("DROP TRIGGER research_run_reserved_id_insert ON research_run")
@@ -599,6 +602,7 @@ def test_reservation_migration_backfills_previous_chart_operations_or_fails_clos
         assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == (
             "0044_research_run_id_reservation",
             "0045_chart_calculation_input_preparation",
+            "0046_chart_calculation_runtime_binding_relation",
         )
         assert (
             OnlyPostgresChartCalculationAdmissionStore(postgres_dsn).load_verified(OnlyProductCommandId(COMMAND))

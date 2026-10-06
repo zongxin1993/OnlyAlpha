@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import NoReturn, Protocol
+from typing import NoReturn, Protocol, cast
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +80,19 @@ class OnlyRuntimeGenerationWorkAuthority(Protocol):
 
     def require_work_binding_evidence(self, work_id: str) -> OnlyRuntimeWorkBindingEvidence: ...
 
+    def close_new_work_exact(
+        self,
+        work_id: str,
+        runtime_generation_fingerprint: str,
+        *,
+        owner: str,
+        closure_reason: str,
+        actor: str,
+        occurred_at: datetime,
+    ) -> OnlyRuntimeWorkAdmissionClosureEvidence: ...
+
+    def require_work_admission_closure_evidence(self, work_id: str) -> OnlyRuntimeWorkAdmissionClosureEvidence: ...
+
     def work_ids_for_generation(self, process_generation_fingerprint: str) -> tuple[str, ...]: ...
 
     def verify_hosted_generation(self, generation_fingerprint: str) -> None: ...
@@ -148,6 +161,23 @@ class OnlyNoClaimRuntimeGenerationWorkAuthority:
         del work_id
         self._unavailable()
 
+    def close_new_work_exact(
+        self,
+        work_id: str,
+        runtime_generation_fingerprint: str,
+        *,
+        owner: str,
+        closure_reason: str,
+        actor: str,
+        occurred_at: datetime,
+    ) -> OnlyRuntimeWorkAdmissionClosureEvidence:
+        del work_id, runtime_generation_fingerprint, owner, closure_reason, actor, occurred_at
+        self._unavailable()
+
+    def require_work_admission_closure_evidence(self, work_id: str) -> OnlyRuntimeWorkAdmissionClosureEvidence:
+        del work_id
+        self._unavailable()
+
     def work_ids_for_generation(self, process_generation_fingerprint: str) -> tuple[str, ...]:
         del process_generation_fingerprint
         return ()
@@ -157,8 +187,54 @@ class OnlyNoClaimRuntimeGenerationWorkAuthority:
         self._unavailable()
 
 
+@dataclass(frozen=True, slots=True)
+class OnlyRuntimeWorkAdmissionClosureEvidence:
+    work_id: str
+    runtime_generation_fingerprint: str
+    binding_owner: str
+    closure_reason: str
+    closure_actor: str
+    closure_event_fingerprint: str
+    closure_sequence: int
+
+    def __post_init__(self) -> None:
+        try:
+            OnlyRuntimeWorkBindingEvidence(
+                self.work_id,
+                self.runtime_generation_fingerprint,
+                "NEW_WORK",
+                self.binding_owner,
+                self.closure_actor,
+                self.closure_event_fingerprint,
+                self.closure_sequence,
+                True,
+            )
+            if type(self.closure_reason) is not str or not self.closure_reason.strip():
+                raise ValueError("empty closure reason")
+        except ValueError as exc:
+            raise ValueError("RUNTIME_WORK_ADMISSION_CLOSURE_INVALID") from exc
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, object]) -> OnlyRuntimeWorkAdmissionClosureEvidence:
+        if type(payload) is not dict or set(payload) != set(cls.__dataclass_fields__):
+            raise ValueError("RUNTIME_WORK_ADMISSION_CLOSURE_INVALID")
+        return cls(
+            cast(str, payload["work_id"]),
+            cast(str, payload["runtime_generation_fingerprint"]),
+            cast(str, payload["binding_owner"]),
+            cast(str, payload["closure_reason"]),
+            cast(str, payload["closure_actor"]),
+            cast(str, payload["closure_event_fingerprint"]),
+            cast(int, payload["closure_sequence"]),
+        )
+
+
 __all__ = [
     "OnlyNoClaimRuntimeGenerationWorkAuthority",
     "OnlyRuntimeGenerationWorkAuthority",
     "OnlyRuntimeWorkBindingEvidence",
+    "OnlyRuntimeWorkAdmissionClosureEvidence",
 ]

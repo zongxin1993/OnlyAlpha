@@ -7,7 +7,10 @@ from types import SimpleNamespace
 
 from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry
 
-from onlyalpha.application.runtime_generation import OnlyRuntimeWorkBindingEvidence
+from onlyalpha.application.runtime_generation import (
+    OnlyRuntimeWorkAdmissionClosureEvidence,
+    OnlyRuntimeWorkBindingEvidence,
+)
 from onlyalpha.runtime.generation import (
     OnlyCoreExecutionIdentity,
     OnlyRuntimeGenerationManifest,
@@ -28,6 +31,7 @@ class OnlyTestRuntimeGenerationAuthority:
         self.bindings: dict[str, str] = {}
         self.inactive_work_ids: set[str] = set()
         self.binding_evidence: dict[str, OnlyRuntimeWorkBindingEvidence] = {}
+        self.closures: dict[str, OnlyRuntimeWorkAdmissionClosureEvidence] = {}
 
     def activate(self, generation_fingerprint: str, *, catalog_generation_fingerprint: str | None = None) -> None:
         catalog = catalog_generation_fingerprint or self.catalog_generation_fingerprint
@@ -36,12 +40,14 @@ class OnlyTestRuntimeGenerationAuthority:
         self.catalog_generation_fingerprint = catalog
 
     def bind_new_work(self, work_id: str, **_: object) -> object:
+        self._require_open(work_id)
         self.bindings.setdefault(work_id, self.generation_fingerprint)
         return self.require_work_binding(work_id)
 
     def bind_new_work_exact(
         self, work_id: str, runtime_generation_fingerprint: str, *, owner: str, **kwargs: object
     ) -> object:
+        self._require_open(work_id)
         if work_id in self.bindings:
             evidence = self.require_work_binding_evidence(work_id)
             if (
@@ -78,6 +84,7 @@ class OnlyTestRuntimeGenerationAuthority:
         return replace(evidence, active=work_id not in self.inactive_work_ids)
 
     def bind_work_exact(self, work_id: str, runtime_generation_fingerprint: str, **_: object) -> object:
+        self._require_open(work_id)
         if runtime_generation_fingerprint not in self.available_generations:
             raise ValueError("RUNTIME_GENERATION_NOT_FOUND")
         existing = self.bindings.setdefault(work_id, runtime_generation_fingerprint)
@@ -86,6 +93,7 @@ class OnlyTestRuntimeGenerationAuthority:
         return self.require_work_binding(work_id)
 
     def bind_derived_work(self, parent_work_id: str, child_work_id: str, **_: object) -> object:
+        self._require_open(child_work_id)
         if parent_work_id not in self.bindings:
             raise ValueError("RUNTIME_DERIVED_PARENT_GENERATION_UNBOUND")
         parent = self.bindings[parent_work_id]
@@ -100,6 +108,50 @@ class OnlyTestRuntimeGenerationAuthority:
         if runtime_generation_fingerprint != self.generation_fingerprint:
             raise ValueError("RUNTIME_GENERATION_NOT_ELIGIBLE_FOR_NEW_WORK")
         return self.require_runtime_generation(runtime_generation_fingerprint)
+
+    def _require_open(self, work_id: str) -> None:
+        if work_id not in self.bindings and work_id in self.closures:
+            raise ValueError("RUNTIME_WORK_ADMISSION_CLOSED")
+
+    def require_work_admission_closure_evidence(self, work_id: str) -> OnlyRuntimeWorkAdmissionClosureEvidence:
+        if work_id not in self.closures:
+            raise ValueError("RUNTIME_WORK_ADMISSION_NOT_CLOSED")
+        return self.closures[work_id]
+
+    def close_new_work_exact(
+        self,
+        work_id: str,
+        runtime_generation_fingerprint: str,
+        *,
+        owner: str,
+        closure_reason: str,
+        actor: str,
+        occurred_at: datetime,
+    ) -> OnlyRuntimeWorkAdmissionClosureEvidence:
+        del occurred_at
+        if work_id in self.closures:
+            evidence = self.closures[work_id]
+            if (evidence.runtime_generation_fingerprint, evidence.binding_owner, evidence.closure_reason) != (
+                runtime_generation_fingerprint,
+                owner,
+                closure_reason,
+            ):
+                raise ValueError("RUNTIME_WORK_GENERATION_BINDING_CONFLICT")
+            return evidence
+        if work_id in self.bindings:
+            proof = self.require_work_binding_evidence(work_id)
+            if (
+                proof.runtime_generation_fingerprint != runtime_generation_fingerprint
+                or proof.binding_kind != "NEW_WORK"
+                or proof.binding_owner != owner
+            ):
+                raise ValueError("RUNTIME_WORK_GENERATION_BINDING_CONFLICT")
+            self.inactive_work_ids.add(work_id)
+        evidence = OnlyRuntimeWorkAdmissionClosureEvidence(
+            work_id, runtime_generation_fingerprint, owner, closure_reason, actor, "b" * 64, 2
+        )
+        self.closures[work_id] = evidence
+        return evidence
 
     def require_runtime_generation(self, runtime_generation_fingerprint: str) -> object:
         if runtime_generation_fingerprint not in self.available_generations:

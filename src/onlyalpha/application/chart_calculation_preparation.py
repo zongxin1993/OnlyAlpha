@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Protocol, cast
 
@@ -19,7 +19,11 @@ from onlyalpha.application.market_data_product import (
     OnlyMarketDataSourceReferenceV1,
 )
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId
-from onlyalpha.application.runtime_generation import OnlyRuntimeGenerationWorkAuthority, OnlyRuntimeWorkBindingEvidence
+from onlyalpha.application.runtime_generation import (
+    OnlyRuntimeGenerationWorkAuthority,
+    OnlyRuntimeWorkAdmissionClosureEvidence,
+    OnlyRuntimeWorkBindingEvidence,
+)
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json, only_canonical_payload
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.domain.identifiers import OnlyInstrumentId
@@ -202,6 +206,72 @@ class OnlyChartCalculationInputPinV1:
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyChartCalculationRuntimeBindingReferenceV1:
+    work_id: str
+    runtime_generation_fingerprint: str
+    binding_kind: str
+    binding_owner: str
+    binding_actor: str
+    binding_event_fingerprint: str
+    binding_sequence: int
+    schema_version: int = 1
+
+    def __post_init__(self) -> None:
+        OnlyRuntimeWorkBindingEvidence(
+            self.work_id,
+            self.runtime_generation_fingerprint,
+            self.binding_kind,
+            self.binding_owner,
+            self.binding_actor,
+            self.binding_event_fingerprint,
+            self.binding_sequence,
+            True,
+        )
+        _require(
+            type(self.schema_version) is int
+            and self.schema_version == 1
+            and self.binding_kind == "NEW_WORK"
+            and self.binding_owner == _BINDING_OWNER,
+            "CHART_RUNTIME_BINDING_CONFLICT",
+        )
+
+    @classmethod
+    def from_evidence(cls, evidence: OnlyRuntimeWorkBindingEvidence) -> OnlyChartCalculationRuntimeBindingReferenceV1:
+        return cls(
+            evidence.work_id,
+            evidence.runtime_generation_fingerprint,
+            evidence.binding_kind,
+            cast(str, evidence.binding_owner),
+            evidence.binding_actor,
+            evidence.binding_event_fingerprint,
+            evidence.binding_sequence,
+        )
+
+    def verifies(self, evidence: OnlyRuntimeWorkBindingEvidence, *, require_active: bool) -> None:
+        _require(
+            self == self.from_evidence(evidence) and (not require_active or evidence.active),
+            "CHART_RUNTIME_BINDING_CONFLICT",
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, object]) -> OnlyChartCalculationRuntimeBindingReferenceV1:
+        _require(type(raw) is dict and set(raw) == set(cls.__dataclass_fields__), "CHART_RUNTIME_BINDING_CONFLICT")
+        return cls(
+            cast(str, raw["work_id"]),
+            cast(str, raw["runtime_generation_fingerprint"]),
+            cast(str, raw["binding_kind"]),
+            cast(str, raw["binding_owner"]),
+            cast(str, raw["binding_actor"]),
+            cast(str, raw["binding_event_fingerprint"]),
+            cast(int, raw["binding_sequence"]),
+            cast(int, raw["schema_version"]),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyChartCalculationPreparationV1:
     operation_id: OnlyProductCommandId
     revision: int
@@ -215,12 +285,17 @@ class OnlyChartCalculationPreparationV1:
     dataset_snapshot_fingerprint: str | None = None
     dataset_materialization_id: str | None = None
     failure_code: str | None = None
+    runtime_binding_reference: OnlyChartCalculationRuntimeBindingReferenceV1 | None = None
+    runtime_closure_reference: OnlyRuntimeWorkAdmissionClosureEvidence | None = None
+    failure_decision: str | None = None
+    fact_schema_version: int = 2
 
     @property
     def input_selection_fingerprint(self) -> str | None:
         return None if self.input_pin is None else self.input_pin.fingerprint
 
     def __post_init__(self) -> None:
+        _require(type(self.fact_schema_version) is int and self.fact_schema_version in {1, 2})
         _require(type(self.revision) is int and type(self.fence) is int and 1 <= self.fence <= self.revision)
         _require(self.lease_until.tzinfo is not None and self.lease_until.utcoffset() == timedelta(0))
         _require(self.state in {"MATERIALIZING_INPUT", "INPUT_READY", "FAILED"})
@@ -233,6 +308,41 @@ class OnlyChartCalculationPreparationV1:
             _require(self.dataset_snapshot_fingerprint is None and self.dataset_materialization_id is None)
         if self.state == "INPUT_READY":
             _require(self.input_pin is not None)
+        if self.fact_schema_version == 1:
+            _require(
+                self.runtime_binding_reference is None
+                and self.runtime_closure_reference is None
+                and self.failure_decision is None
+            )
+            return
+        if self.runtime_binding_reference is not None:
+            _require(
+                self.runtime_binding_reference.work_id == self.runtime_work_id
+                and self.runtime_binding_reference.runtime_generation_fingerprint == self.runtime_generation_fingerprint
+            )
+        if self.input_pin is not None or self.state == "INPUT_READY":
+            _require(self.runtime_binding_reference is not None)
+        if self.failure_decision is not None:
+            _require(
+                self.failure_decision in _PRE_BIND_FAILURES | _POST_BIND_FAILURES,
+                "CHART_PREPARATION_FAILURE_CODE_INVALID",
+            )
+            if self.failure_decision in _POST_BIND_FAILURES:
+                _require(self.runtime_binding_reference is not None)
+        if self.state == "INPUT_READY":
+            _require(self.failure_decision is None)
+        if self.state == "FAILED":
+            closure = self.runtime_closure_reference
+            _require(closure is not None and self.failure_code == self.failure_decision)
+            assert closure is not None
+            _require(
+                closure.work_id == self.runtime_work_id
+                and closure.runtime_generation_fingerprint == self.runtime_generation_fingerprint
+                and closure.binding_owner == _BINDING_OWNER
+                and closure.closure_reason == self.failure_code
+            )
+        else:
+            _require(self.runtime_closure_reference is None)
 
 
 class OnlyChartCalculationPreparationStore(Protocol):
@@ -267,6 +377,22 @@ class OnlyChartCalculationPreparationStore(Protocol):
         materialization_id: str,
     ) -> OnlyChartCalculationPreparationV1: ...
     def fail(
+        self,
+        operation: OnlyChartCalculationOperationV1,
+        claim: OnlyChartCalculationPreparationV1,
+        code: str,
+        *,
+        closure_reference: OnlyRuntimeWorkAdmissionClosureEvidence,
+    ) -> OnlyChartCalculationPreparationV1: ...
+
+    def commit_runtime_binding(
+        self,
+        operation: OnlyChartCalculationOperationV1,
+        claim: OnlyChartCalculationPreparationV1,
+        reference: OnlyChartCalculationRuntimeBindingReferenceV1,
+    ) -> OnlyChartCalculationPreparationV1: ...
+
+    def begin_failure(
         self, operation: OnlyChartCalculationOperationV1, claim: OnlyChartCalculationPreparationV1, code: str
     ) -> OnlyChartCalculationPreparationV1: ...
 
@@ -357,7 +483,7 @@ class OnlyChartCalculationPreparationService:
         except ValueError as exc:
             if str(exc) == "RUNTIME_GENERATION_NOT_ELIGIBLE_FOR_NEW_WORK":
                 raise OnlyChartCalculationError("CHART_RUNTIME_GENERATION_NOT_ELIGIBLE") from exc
-            if str(exc) == "RUNTIME_WORK_GENERATION_BINDING_CONFLICT":
+            if str(exc) in {"RUNTIME_WORK_GENERATION_BINDING_CONFLICT", "RUNTIME_WORK_ADMISSION_CLOSED"}:
                 raise OnlyChartCalculationError("CHART_RUNTIME_BINDING_CONFLICT") from exc
             raise OnlyChartCalculationError("CHART_EXECUTION_GENERATION_UNAVAILABLE") from exc
         except Exception as exc:
@@ -375,42 +501,92 @@ class OnlyChartCalculationPreparationService:
         *,
         occurred_at: datetime,
     ) -> None:
-        _require(preparation.state == "FAILED", "CHART_RUNTIME_BINDING_CONFLICT")
-        try:
-            binding = self._load_binding(operation)
-        except OnlyChartCalculationError as exc:
-            if str(exc) == "CHART_RUNTIME_BINDING_CONFLICT":
-                raise
-            raise OnlyChartCalculationError("CHART_RUNTIME_BINDING_RELEASE_UNAVAILABLE") from exc
-        if preparation.failure_code in _PRE_BIND_FAILURES:
-            _require(preparation.input_pin is None, "CHART_RUNTIME_BINDING_CONFLICT")
-            if binding is None:
-                return
-        else:
-            _require(
-                preparation.failure_code in _POST_BIND_FAILURES and binding is not None,
-                "CHART_RUNTIME_BINDING_CONFLICT",
-            )
-        assert binding is not None
-        self._verify_binding(operation, preparation.runtime_generation_fingerprint, binding)
-        if getattr(binding, "active", None) is False:
-            return
-        try:
-            self._runtime.release_work(
-                operation.reserved_run_id.value, actor="chart-input-preparation-failed", occurred_at=occurred_at
-            )
-            released = self._load_binding(operation)
-        except Exception as exc:
-            raise OnlyChartCalculationError("CHART_RUNTIME_BINDING_RELEASE_UNAVAILABLE") from exc
-        self._verify_binding(operation, preparation.runtime_generation_fingerprint, released)
-        assert isinstance(binding, OnlyRuntimeWorkBindingEvidence)
-        assert isinstance(released, OnlyRuntimeWorkBindingEvidence)
+        del occurred_at
         _require(
-            (released.binding_event_fingerprint, released.binding_sequence, released.binding_actor)
-            == (binding.binding_event_fingerprint, binding.binding_sequence, binding.binding_actor),
+            preparation.state == "FAILED" and preparation.runtime_closure_reference is not None,
             "CHART_RUNTIME_BINDING_CONFLICT",
         )
-        _require(getattr(released, "active", None) is False, "CHART_RUNTIME_BINDING_RELEASE_UNAVAILABLE")
+        closure = self._load_closure(operation)
+        _require(closure == preparation.runtime_closure_reference, "CHART_RUNTIME_BINDING_CONFLICT")
+        self._verify_closure(operation, preparation, closure)
+        binding = self._load_binding(operation)
+        if preparation.runtime_binding_reference is not None:
+            self._verify_binding(operation, preparation.runtime_generation_fingerprint, binding)
+            assert isinstance(binding, OnlyRuntimeWorkBindingEvidence)
+            preparation.runtime_binding_reference.verifies(binding, require_active=False)
+        elif binding is not None:
+            self._verify_binding(operation, preparation.runtime_generation_fingerprint, binding)
+        _require(binding is None or getattr(binding, "active", None) is False, "CHART_RUNTIME_BINDING_CONFLICT")
+
+    def _load_closure(
+        self, operation: OnlyChartCalculationOperationV1
+    ) -> OnlyRuntimeWorkAdmissionClosureEvidence | None:
+        try:
+            evidence = self._runtime.require_work_admission_closure_evidence(operation.reserved_run_id.value)
+        except ValueError as exc:
+            if str(exc) == "RUNTIME_WORK_ADMISSION_NOT_CLOSED":
+                return None
+            raise OnlyChartCalculationError("CHART_RUNTIME_BINDING_RELEASE_UNAVAILABLE") from exc
+        except Exception as exc:
+            raise OnlyChartCalculationError("CHART_RUNTIME_BINDING_RELEASE_UNAVAILABLE") from exc
+        _require(isinstance(evidence, OnlyRuntimeWorkAdmissionClosureEvidence), "CHART_RUNTIME_BINDING_CONFLICT")
+        return evidence
+
+    @staticmethod
+    def _verify_closure(
+        operation: OnlyChartCalculationOperationV1,
+        preparation: OnlyChartCalculationPreparationV1,
+        closure: OnlyRuntimeWorkAdmissionClosureEvidence | None,
+    ) -> None:
+        _require(isinstance(closure, OnlyRuntimeWorkAdmissionClosureEvidence), "CHART_RUNTIME_BINDING_CONFLICT")
+        assert isinstance(closure, OnlyRuntimeWorkAdmissionClosureEvidence)
+        _require(
+            closure.work_id == operation.reserved_run_id.value
+            and closure.runtime_generation_fingerprint == preparation.runtime_generation_fingerprint
+            and closure.binding_owner == _BINDING_OWNER
+            and closure.closure_reason == preparation.failure_decision,
+            "CHART_RUNTIME_BINDING_CONFLICT",
+        )
+
+    def _complete_failure(
+        self,
+        operation: OnlyChartCalculationOperationV1,
+        claim: OnlyChartCalculationPreparationV1,
+        occurred_at: datetime,
+    ) -> OnlyChartCalculationPreparationV1:
+        code = claim.failure_decision
+        _require(code in _PRE_BIND_FAILURES | _POST_BIND_FAILURES, "CHART_RUNTIME_BINDING_CONFLICT")
+        assert code is not None
+        binding = self._load_binding(operation)
+        if binding is not None:
+            self._verify_binding(operation, claim.runtime_generation_fingerprint, binding)
+        if claim.runtime_binding_reference is not None:
+            _require(isinstance(binding, OnlyRuntimeWorkBindingEvidence), "CHART_RUNTIME_BINDING_CONFLICT")
+            assert isinstance(binding, OnlyRuntimeWorkBindingEvidence)
+            claim.runtime_binding_reference.verifies(binding, require_active=False)
+        if code in _POST_BIND_FAILURES:
+            _require(claim.runtime_binding_reference is not None, "CHART_RUNTIME_BINDING_CONFLICT")
+        closure = self._load_closure(operation)
+        if closure is None:
+            try:
+                closure = self._runtime.close_new_work_exact(
+                    operation.reserved_run_id.value,
+                    claim.runtime_generation_fingerprint,
+                    owner=_BINDING_OWNER,
+                    closure_reason=code,
+                    actor="chart-input-preparation-failed",
+                    occurred_at=occurred_at,
+                )
+            except ValueError as exc:
+                if str(exc) == "RUNTIME_WORK_GENERATION_BINDING_CONFLICT":
+                    raise OnlyChartCalculationError("CHART_RUNTIME_BINDING_CONFLICT") from exc
+                raise OnlyChartCalculationError("CHART_RUNTIME_BINDING_RELEASE_UNAVAILABLE") from exc
+            except Exception as exc:
+                raise OnlyChartCalculationError("CHART_RUNTIME_BINDING_RELEASE_UNAVAILABLE") from exc
+        self._verify_closure(operation, claim, closure)
+        failed = self._store.fail(operation, claim, code, closure_reference=closure)
+        self._reconcile_terminal_runtime_binding(operation, failed, occurred_at=occurred_at)
+        return failed
 
     def _fail(
         self,
@@ -419,9 +595,8 @@ class OnlyChartCalculationPreparationService:
         code: str,
         occurred_at: datetime,
     ) -> OnlyChartCalculationPreparationV1:
-        failed = self._store.fail(operation, claim, code)
-        self._reconcile_terminal_runtime_binding(operation, failed, occurred_at=occurred_at)
-        return failed
+        decided = self._store.begin_failure(operation, claim, code)
+        return self._complete_failure(operation, decided, occurred_at)
 
     def _evidence(self, revision_id: str, scope: OnlyMarketDataScope) -> dict[str, object]:
         revision, seal = self._query.resolve_with_seal(revision_id)
@@ -446,6 +621,8 @@ class OnlyChartCalculationPreparationService:
         lease_duration: timedelta = timedelta(minutes=2),
     ) -> OnlyChartCalculationPreparationV1:
         preparation = self._store.load_verified(operation)
+        if preparation is None:
+            _require(self._load_closure(operation) is None, "CHART_RUNTIME_BINDING_CONFLICT")
         if preparation is not None:
             _require(
                 preparation.operation_id == operation.operation_id
@@ -458,11 +635,32 @@ class OnlyChartCalculationPreparationService:
             if preparation.state == "FAILED":
                 self._reconcile_terminal_runtime_binding(operation, preparation, occurred_at=occurred_at)
                 return preparation
+            _require(
+                preparation.fact_schema_version != 1 or preparation.input_pin is None, "CHART_RUNTIME_BINDING_CONFLICT"
+            )
+            if preparation.failure_decision is not None:
+                claim = self._store.claim(
+                    operation, worker_id, runtime_generation_fingerprint, lease_duration=lease_duration
+                )
+                return self._complete_failure(operation, claim, occurred_at)
+            closure = self._load_closure(operation)
+            if closure is not None:
+                claim = self._store.claim(
+                    operation, worker_id, runtime_generation_fingerprint, lease_duration=lease_duration
+                )
+                _require(
+                    closure.closure_reason in _PRE_BIND_FAILURES | _POST_BIND_FAILURES, "CHART_RUNTIME_BINDING_CONFLICT"
+                )
+                self._verify_closure(operation, replace(claim, failure_decision=closure.closure_reason), closure)
+                return self._fail(operation, claim, closure.closure_reason, occurred_at)
         binding = self._load_binding(operation)
         _require(preparation is not None or binding is None, "CHART_RUNTIME_BINDING_CONFLICT")
         eligibility_lost = False
         if binding is not None:
             self._verify_binding(operation, runtime_generation_fingerprint, binding)
+            if preparation is not None and preparation.runtime_binding_reference is not None:
+                assert isinstance(binding, OnlyRuntimeWorkBindingEvidence)
+                preparation.runtime_binding_reference.verifies(binding, require_active=False)
             _require(getattr(binding, "active", None) is True, "CHART_RUNTIME_BINDING_INACTIVE")
             self._require_generation(operation, runtime_generation_fingerprint)
         else:
@@ -480,6 +678,8 @@ class OnlyChartCalculationPreparationService:
         if claim.state == "FAILED":
             self._reconcile_terminal_runtime_binding(operation, claim, occurred_at=occurred_at)
             return claim
+        if claim.failure_decision is not None:
+            return self._complete_failure(operation, claim, occurred_at)
         if eligibility_lost:
             return self._fail(operation, claim, "CHART_RUNTIME_GENERATION_NOT_ELIGIBLE", occurred_at)
         try:
@@ -488,9 +688,21 @@ class OnlyChartCalculationPreparationService:
             if str(exc) != "CHART_RUNTIME_GENERATION_NOT_ELIGIBLE":
                 raise
             return self._fail(operation, claim, "CHART_RUNTIME_GENERATION_NOT_ELIGIBLE", occurred_at)
+        binding = self._load_binding(operation)
+        self._verify_binding(operation, claim.runtime_generation_fingerprint, binding)
+        assert isinstance(binding, OnlyRuntimeWorkBindingEvidence)
+        reference = OnlyChartCalculationRuntimeBindingReferenceV1.from_evidence(binding)
+        if claim.runtime_binding_reference is not None:
+            claim.runtime_binding_reference.verifies(binding, require_active=True)
+        else:
+            _require(claim.input_pin is None and claim.state == "MATERIALIZING_INPUT", "CHART_RUNTIME_BINDING_CONFLICT")
         if claim.state != "INPUT_READY":
             try:
+                if claim.runtime_binding_reference is None:
+                    claim = self._store.commit_runtime_binding(operation, claim, reference)
                 claim = self._store.heartbeat(operation, claim, lease_duration=lease_duration)
+                if claim.failure_decision is not None:
+                    return self._complete_failure(operation, claim, occurred_at)
             except ValueError as exc:
                 if str(exc) != "CHART_PREPARATION_FENCE_LOST":
                     raise
@@ -509,6 +721,11 @@ class OnlyChartCalculationPreparationService:
                 if current.state == "INPUT_READY":
                     binding = self._load_binding(operation)
                     self._verify_binding(operation, runtime_generation_fingerprint, binding)
+                    _require(current.runtime_binding_reference is not None, "CHART_RUNTIME_BINDING_CONFLICT")
+                    assert current.runtime_binding_reference is not None and isinstance(
+                        binding, OnlyRuntimeWorkBindingEvidence
+                    )
+                    current.runtime_binding_reference.verifies(binding, require_active=True)
                     _require(getattr(binding, "active", None) is True, "CHART_RUNTIME_BINDING_INACTIVE")
                     assert current.input_pin is not None
                     current.input_pin.verify_operation(operation, runtime_generation_fingerprint)

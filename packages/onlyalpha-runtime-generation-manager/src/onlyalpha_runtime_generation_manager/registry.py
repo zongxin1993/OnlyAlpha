@@ -15,7 +15,10 @@ from threading import RLock
 from types import MappingProxyType
 from typing import Any, cast
 
-from onlyalpha.application.runtime_generation import OnlyRuntimeWorkBindingEvidence
+from onlyalpha.application.runtime_generation import (
+    OnlyRuntimeWorkAdmissionClosureEvidence,
+    OnlyRuntimeWorkBindingEvidence,
+)
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 from onlyalpha.runtime.generation import (
     OnlyRuntimeGenerationManifest,
@@ -45,6 +48,7 @@ class _EventKind(StrEnum):
     WORK_BOUND = "RuntimeWorkBound"
     EXACT_WORK_BOUND = "RuntimeExactWorkBound"
     WORK_RELEASED = "RuntimeWorkReleased"
+    NEW_WORK_CLOSED = "RuntimeNewWorkClosed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +80,7 @@ class OnlyGenerationEvent:
             _EventKind.WORK_BOUND.value,
             _EventKind.EXACT_WORK_BOUND.value,
             _EventKind.WORK_RELEASED.value,
+            _EventKind.NEW_WORK_CLOSED.value,
         }:
             if self.work_id is None or not self.work_id.strip():
                 raise ValueError("RUNTIME_GENERATION_EVENT_INVALID")
@@ -294,6 +299,7 @@ class OnlyRuntimeGenerationRegistry:
             existing = projection.work_bindings.get(work_id)
             if existing is not None:
                 return existing
+            self._require_admission_open(work_id, events)
             active = projection.active_for_new_work
             if active is None:
                 raise ValueError("RUNTIME_GENERATION_NOT_ACTIVE")
@@ -328,6 +334,7 @@ class OnlyRuntimeGenerationRegistry:
                 ):
                     raise ValueError("RUNTIME_WORK_GENERATION_BINDING_CONFLICT")
                 return existing
+            self._require_admission_open(work_id, events)
             if projection.active_for_new_work != runtime_generation_fingerprint:
                 raise ValueError("RUNTIME_GENERATION_NOT_ELIGIBLE_FOR_NEW_WORK")
             self._load_exact_generation(projection, runtime_generation_fingerprint)
@@ -382,6 +389,7 @@ class OnlyRuntimeGenerationRegistry:
                 # release revokes execution eligibility; it does not erase or
                 # reactivate that assignment.
                 return existing
+            self._require_admission_open(work_id, events)
             self._load_exact_generation(projection, runtime_generation_fingerprint)
             self._append(
                 self._event(
@@ -422,6 +430,7 @@ class OnlyRuntimeGenerationRegistry:
                 # Admission-without-Receipt recovery may finish the already-bound
                 # child after the parent itself stops accepting new descendants.
                 return existing
+            self._require_admission_open(child_work_id, events)
             if not parent.active:
                 raise ValueError("RUNTIME_DERIVED_PARENT_GENERATION_UNBOUND")
             self._load_exact_generation(projection, parent.runtime_generation_fingerprint)
@@ -486,6 +495,103 @@ class OnlyRuntimeGenerationRegistry:
         with self._locked(shared=True):
             projection, events = self._replay()
             return self._binding_evidence(work_id, projection, events)
+
+    @staticmethod
+    def _require_admission_open(work_id: str, events: tuple[OnlyGenerationEvent, ...]) -> None:
+        if any(event.work_id == work_id and event.kind == _EventKind.NEW_WORK_CLOSED.value for event in events):
+            raise ValueError("RUNTIME_WORK_ADMISSION_CLOSED")
+
+    @staticmethod
+    def _closure_from_event(event: OnlyGenerationEvent) -> OnlyRuntimeWorkAdmissionClosureEvidence:
+        try:
+            if event.expected_current is not None:
+                raise ValueError("closure has unrelated activation context")
+            reason = json.loads(event.reason or "")
+            if (
+                type(reason) is not dict
+                or set(reason) != {"owner", "closure_reason"}
+                or only_canonical_json(reason) != event.reason
+            ):
+                raise ValueError("invalid closure reason")
+            return OnlyRuntimeWorkAdmissionClosureEvidence(
+                cast(str, event.work_id),
+                event.generation_fingerprint,
+                reason["owner"],
+                reason["closure_reason"],
+                event.actor,
+                event.event_fingerprint,
+                event.sequence,
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("RUNTIME_GENERATION_EVENT_CHAIN_CORRUPT") from exc
+
+    def require_work_admission_closure_evidence(self, work_id: str) -> OnlyRuntimeWorkAdmissionClosureEvidence:
+        with self._locked(shared=True):
+            _, events = self._replay()
+            for event in events:
+                if event.work_id == work_id and event.kind == _EventKind.NEW_WORK_CLOSED.value:
+                    return self._closure_from_event(event)
+            raise ValueError("RUNTIME_WORK_ADMISSION_NOT_CLOSED")
+
+    def close_new_work_exact(
+        self,
+        work_id: str,
+        runtime_generation_fingerprint: str,
+        *,
+        owner: str,
+        closure_reason: str,
+        actor: str,
+        occurred_at: datetime,
+    ) -> OnlyRuntimeWorkAdmissionClosureEvidence:
+        # Validate caller text before the first durable effect.
+        OnlyRuntimeWorkAdmissionClosureEvidence(
+            work_id, runtime_generation_fingerprint, owner, closure_reason, actor, "0" * 64, 1
+        )
+        with self._locked():
+            projection, events = self._replay()
+            for event in events:
+                if event.work_id == work_id and event.kind == _EventKind.NEW_WORK_CLOSED.value:
+                    closure = self._closure_from_event(event)
+                    if (closure.runtime_generation_fingerprint, closure.binding_owner, closure.closure_reason) != (
+                        runtime_generation_fingerprint,
+                        owner,
+                        closure_reason,
+                    ):
+                        raise ValueError("RUNTIME_WORK_GENERATION_BINDING_CONFLICT")
+                    return closure
+            binding = projection.work_bindings.get(work_id)
+            if binding is not None:
+                evidence = self._binding_evidence(work_id, projection, events)
+                if (
+                    evidence.runtime_generation_fingerprint != runtime_generation_fingerprint
+                    or evidence.binding_kind != "NEW_WORK"
+                    or evidence.binding_owner != owner
+                ):
+                    raise ValueError("RUNTIME_WORK_GENERATION_BINDING_CONFLICT")
+                if binding.active:
+                    released = self._event(
+                        events,
+                        _EventKind.WORK_RELEASED,
+                        runtime_generation_fingerprint,
+                        actor,
+                        occurred_at,
+                        work_id=work_id,
+                    )
+                    self._append(released)
+                    events = (*events, released)
+            else:
+                self._load_exact_generation(projection, runtime_generation_fingerprint)
+            closed = self._event(
+                events,
+                _EventKind.NEW_WORK_CLOSED,
+                runtime_generation_fingerprint,
+                actor,
+                occurred_at,
+                work_id=work_id,
+                reason=only_canonical_json({"owner": owner, "closure_reason": closure_reason}),
+            )
+            self._append(closed)
+            return self._closure_from_event(closed)
 
     @staticmethod
     def _binding_evidence(
@@ -597,6 +703,7 @@ class OnlyRuntimeGenerationRegistry:
         events = self._read_events()
         lifecycle: dict[str, OnlyGenerationState] = {}
         bindings: dict[str, OnlyRuntimeWorkBinding] = {}
+        closures: dict[str, OnlyRuntimeWorkAdmissionClosureEvidence] = {}
         active: str | None = None
         for event in events:
             generation = event.generation_fingerprint
@@ -632,7 +739,7 @@ class OnlyRuntimeGenerationRegistry:
                 lifecycle[generation] = OnlyGenerationState.ACTIVE_FOR_NEW_WORK
             elif kind is _EventKind.WORK_BOUND:
                 assert event.work_id is not None
-                if active != generation or event.work_id in bindings:
+                if active != generation or event.work_id in bindings or event.work_id in closures:
                     raise ValueError("RUNTIME_GENERATION_EVENT_ORDER_INVALID")
                 bindings[event.work_id] = OnlyRuntimeWorkBinding(event.work_id, generation, True)
             elif kind is _EventKind.EXACT_WORK_BOUND:
@@ -645,6 +752,7 @@ class OnlyRuntimeGenerationRegistry:
                         OnlyGenerationState.DRAINING,
                     }
                     or event.work_id in bindings
+                    or event.work_id in closures
                 ):
                     raise ValueError("RUNTIME_GENERATION_EVENT_ORDER_INVALID")
                 bindings[event.work_id] = OnlyRuntimeWorkBinding(event.work_id, generation, True)
@@ -654,6 +762,32 @@ class OnlyRuntimeGenerationRegistry:
                 if binding is None or not binding.active or binding.runtime_generation_fingerprint != generation:
                     raise ValueError("RUNTIME_GENERATION_EVENT_ORDER_INVALID")
                 bindings[event.work_id] = OnlyRuntimeWorkBinding(event.work_id, generation, False)
+            elif kind is _EventKind.NEW_WORK_CLOSED:
+                assert event.work_id is not None
+                if event.work_id in closures:
+                    raise ValueError("RUNTIME_GENERATION_EVENT_ORDER_INVALID")
+                closure = self._closure_from_event(event)
+                binding = bindings.get(event.work_id)
+                if binding is not None:
+                    proof = self._binding_evidence(
+                        event.work_id,
+                        OnlyGenerationProjection(active, lifecycle, bindings, None),
+                        tuple(item for item in events if item.sequence < event.sequence),
+                    )
+                    if (
+                        binding.active
+                        or proof.binding_kind != "NEW_WORK"
+                        or proof.binding_owner != closure.binding_owner
+                        or binding.runtime_generation_fingerprint != generation
+                    ):
+                        raise ValueError("RUNTIME_GENERATION_EVENT_ORDER_INVALID")
+                elif lifecycle[generation] not in {
+                    OnlyGenerationState.READY,
+                    OnlyGenerationState.ACTIVE_FOR_NEW_WORK,
+                    OnlyGenerationState.DRAINING,
+                }:
+                    raise ValueError("RUNTIME_GENERATION_EVENT_ORDER_INVALID")
+                closures[event.work_id] = closure
             elif kind is _EventKind.RETIRED:
                 if active == generation or lifecycle[generation] is not OnlyGenerationState.DRAINING:
                     raise ValueError("RUNTIME_GENERATION_EVENT_ORDER_INVALID")

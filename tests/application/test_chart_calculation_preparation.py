@@ -88,6 +88,7 @@ def test_incompatible_generation_is_rejected_before_preparation_claim() -> None:
     store.claim.return_value = OnlyChartCalculationPreparationV1(command, 1, 1, command, NOW, "b" * 64, work.value)
     runtime = Mock()
     runtime.require_work_binding_evidence.side_effect = ValueError("RUNTIME_WORK_GENERATION_UNBOUND")
+    runtime.require_work_admission_closure_evidence.side_effect = ValueError("RUNTIME_WORK_ADMISSION_NOT_CLOSED")
     runtime.require_runtime_generation.return_value = SimpleNamespace(
         runtime_generation_fingerprint="b" * 64, catalog_generation_fingerprint="f" * 64
     )
@@ -142,3 +143,61 @@ def test_runtime_binding_evidence_rejects_incomplete_or_malformed_proof(field: s
     fields[field] = value
     with pytest.raises(ValueError, match="RUNTIME_WORK_BINDING_EVIDENCE_INVALID"):
         OnlyRuntimeWorkBindingEvidence(**fields)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    (
+        ("schema_version", True),
+        ("binding_sequence", True),
+        ("binding_event_fingerprint", "f" * 63),
+        ("binding_owner", "OTHER"),
+        ("binding_kind", "EXACT"),
+        ("binding_actor", ""),
+        ("extra", "ignored"),
+    ),
+)
+def test_persisted_binding_reference_rejects_malformed_or_foreign_context(field: str, value: object) -> None:
+    from onlyalpha.application.chart_calculation_preparation import OnlyChartCalculationRuntimeBindingReferenceV1
+
+    raw = dict(
+        work_id="chart",
+        runtime_generation_fingerprint="b" * 64,
+        binding_kind="NEW_WORK",
+        binding_owner="CHART_CALCULATION_INPUT",
+        binding_actor="chart",
+        binding_event_fingerprint="c" * 64,
+        binding_sequence=1,
+        schema_version=1,
+    )
+    raw[field] = value
+    with pytest.raises(ValueError):
+        OnlyChartCalculationRuntimeBindingReferenceV1.from_dict(raw)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    (
+        ("closure_sequence", True),
+        ("closure_event_fingerprint", "A" * 64),
+        ("closure_actor", ""),
+        ("binding_owner", None),
+        ("closure_reason", ""),
+        ("extra", "ignored"),
+    ),
+)
+def test_closure_reference_rejects_missing_or_malformed_proof(field: str, value: object) -> None:
+    from onlyalpha.application.runtime_generation import OnlyRuntimeWorkAdmissionClosureEvidence
+
+    raw = dict(
+        work_id="chart",
+        runtime_generation_fingerprint="b" * 64,
+        binding_owner="CHART_CALCULATION_INPUT",
+        closure_reason="CHART_RUNTIME_GENERATION_NOT_ELIGIBLE",
+        closure_actor="chart",
+        closure_event_fingerprint="c" * 64,
+        closure_sequence=1,
+    )
+    raw[field] = value
+    with pytest.raises(ValueError, match="RUNTIME_WORK_ADMISSION_CLOSURE_INVALID"):
+        OnlyRuntimeWorkAdmissionClosureEvidence.from_dict(raw)
