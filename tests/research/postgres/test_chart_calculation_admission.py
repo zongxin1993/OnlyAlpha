@@ -31,6 +31,18 @@ def admit(adapter: OnlyPostgresChartCalculationAdmissionStore, params: object = 
     return adapter.admit_or_replay(OnlyProductCommandId(COMMAND), request(params), witness(), accepted_at=NOW)
 
 
+def test_committed_chart_run_reservation_blocks_later_unrelated_research_run_insert(postgres_dsn: str) -> None:
+    from onlyalpha.persistence.postgres.research_run_store import OnlyPostgresResearchRunStore, _insert_run_query
+    from tests.research.postgres.test_postgres_authority import _queued
+
+    operation = admit(store(postgres_dsn)).operation
+    run = _queued(operation.reserved_run_id.value)
+    # Fresh writer after T1 commit: direct/legacy SQL must obey the same exclusion.
+    with pytest.raises(psycopg.errors.UniqueViolation, match="RESEARCH_RUN_ID_RESERVED"):
+        with psycopg.connect(postgres_dsn) as connection:
+            connection.execute(_insert_run_query(), OnlyPostgresResearchRunStore._values(run))
+
+
 @pytest.mark.parametrize(
     "first,second", [({}, {"period": 20, "price_field": "CLOSE"}), ({"period": 20, "price_field": "close"}, {})]
 )
@@ -48,6 +60,9 @@ def test_atomic_admission_and_restart_replay_without_current_catalog(
     with psycopg.connect(postgres_dsn) as connection:
         assert connection.execute("SELECT count(*) FROM research_run").fetchone()[0] == 0
         assert connection.execute("SELECT count(*) FROM chart_calculation_operation").fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT run_id::text, owner_kind, owner_id::text, reserved_at, schema_version FROM research_run_id_reservation"
+        ).fetchall() == [(operation.reserved_run_id.value, "CHART_CALCULATION", COMMAND, NOW, 1)]
 
     def forbidden_catalog():
         raise AssertionError("replay accessed current Catalog")
@@ -94,7 +109,13 @@ def test_parallel_same_key_has_one_reservation(postgres_dsn: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "table", ["product_command_admission", "product_command_receipt", "chart_calculation_operation"]
+    "table",
+    [
+        "product_command_admission",
+        "product_command_receipt",
+        "chart_calculation_operation",
+        "research_run_id_reservation",
+    ],
 )
 def test_partial_t1_fails_closed_without_repair(postgres_dsn: str, table: str) -> None:
     from psycopg import sql
@@ -103,7 +124,7 @@ def test_partial_t1_fails_closed_without_repair(postgres_dsn: str, table: str) -
     admit(adapter)
     with psycopg.connect(postgres_dsn) as connection:
         # Deliberate physical corruption, bypassing immutable-history protection only in this isolated fixture.
-        connection.execute(sql.SQL("ALTER TABLE {} DISABLE TRIGGER USER").format(sql.Identifier(table)))
+        connection.execute(sql.SQL("ALTER TABLE {} DISABLE TRIGGER ALL").format(sql.Identifier(table)))
         connection.execute(sql.SQL("DELETE FROM {}").format(sql.Identifier(table)))
     with pytest.raises(ValueError, match="CHART_OPERATION_RELATION_CORRUPT"):
         adapter.load_verified(OnlyProductCommandId(COMMAND))
@@ -142,7 +163,12 @@ def test_atomic_rollback_when_receipt_write_fails(postgres_dsn: str, monkeypatch
     with pytest.raises(RuntimeError, match="injected"):
         admit(adapter)
     with psycopg.connect(postgres_dsn) as connection:
-        for table in ("product_command_admission", "product_command_receipt", "chart_calculation_operation"):
+        for table in (
+            "product_command_admission",
+            "product_command_receipt",
+            "chart_calculation_operation",
+            "research_run_id_reservation",
+        ):
             from psycopg import sql
 
             assert (
@@ -166,7 +192,7 @@ def test_operation_integrity_mutations_reject(postgres_dsn: str, column: str, va
     adapter = store(postgres_dsn)
     admit(adapter)
     with psycopg.connect(postgres_dsn) as connection:
-        connection.execute("ALTER TABLE chart_calculation_operation DISABLE TRIGGER USER")
+        connection.execute("ALTER TABLE chart_calculation_operation DISABLE TRIGGER ALL")
         connection.execute(
             sql.SQL("UPDATE chart_calculation_operation SET {} = %s").format(sql.Identifier(column)), (value,)
         )
@@ -216,7 +242,7 @@ def test_operation_is_immutable_at_database_boundary(postgres_dsn: str) -> None:
     for query in (
         "UPDATE chart_calculation_operation SET preparation_revision = 0",
         "DELETE FROM chart_calculation_operation",
-        "TRUNCATE chart_calculation_operation",
+        "TRUNCATE chart_calculation_operation CASCADE",
     ):
         with pytest.raises(psycopg.errors.RaiseException):
             with psycopg.connect(postgres_dsn) as connection:
@@ -265,7 +291,7 @@ def test_structural_witness_corruption_cannot_be_replayed(postgres_dsn: str, mut
     else:
         context["ordered_calculation_capabilities"][0]["kind"] = "TARGET"
     with psycopg.connect(postgres_dsn) as connection:
-        connection.execute("ALTER TABLE chart_calculation_operation DISABLE TRIGGER USER")
+        connection.execute("ALTER TABLE chart_calculation_operation DISABLE TRIGGER ALL")
         connection.execute(
             "UPDATE chart_calculation_operation SET catalog_witness_json = %s", (only_canonical_json(encoded),)
         )
@@ -352,3 +378,223 @@ def test_reservation_excludes_concurrent_research_insert_until_t1_commit(
         finally:
             release.set()
         assert pending.result(timeout=30).operation.reserved_run_id.value != COMMAND
+
+
+@pytest.mark.parametrize("isolation", ["read committed", "repeatable read", "serializable"])
+def test_established_snapshot_cannot_steal_later_committed_reservation(postgres_dsn: str, isolation: str) -> None:
+    from psycopg import sql
+
+    from onlyalpha.persistence.postgres.research_run_store import OnlyPostgresResearchRunStore, _insert_run_query
+    from tests.research.postgres.test_postgres_authority import _queued
+
+    adapter = store(postgres_dsn)
+    with psycopg.connect(postgres_dsn) as writer:
+        writer.execute(sql.SQL("SET TRANSACTION ISOLATION LEVEL {}").format(sql.SQL(isolation)))
+        assert writer.execute("SELECT count(*) FROM research_run_id_reservation").fetchone() == (0,)
+        operation = admit(adapter).operation
+        run = _queued(operation.reserved_run_id.value)
+        # Snapshot writers may reject with serialization failure; they must never steal the ID.
+        with pytest.raises((psycopg.errors.UniqueViolation, psycopg.errors.SerializationFailure)):
+            writer.execute(_insert_run_query(), OnlyPostgresResearchRunStore._values(run))
+        writer.rollback()
+    assert (
+        OnlyPostgresChartCalculationAdmissionStore(postgres_dsn).load_verified(OnlyProductCommandId(COMMAND))
+        == operation
+    )
+
+
+@pytest.mark.parametrize("isolation", ["read committed", "repeatable read", "serializable"])
+@pytest.mark.parametrize("immediate", [False, True])
+def test_unreserved_run_insert_preserves_writer_isolation_and_constraint_modes(
+    postgres_dsn: str, isolation: str, immediate: bool
+) -> None:
+    from psycopg import sql
+
+    from onlyalpha.persistence.postgres.research_run_store import OnlyPostgresResearchRunStore, _insert_run_query
+    from tests.research.postgres.test_postgres_authority import _queued
+
+    adapter = store(postgres_dsn)
+    operation = admit(adapter).operation
+    # Run UUID equal to an unrelated operation UUID is legal; only the reserved Run UUID is excluded.
+    run = _queued(COMMAND)
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute(sql.SQL("SET TRANSACTION ISOLATION LEVEL {}").format(sql.SQL(isolation)))
+        if immediate:
+            connection.execute("SET CONSTRAINTS ALL IMMEDIATE")
+        connection.execute(_insert_run_query(), OnlyPostgresResearchRunStore._values(run))
+    assert OnlyPostgresResearchRunStore(postgres_dsn).load(run.run_id) == run
+    assert adapter.load_verified(OnlyProductCommandId(COMMAND)) == operation
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute("SELECT count(*) FROM research_run_id_reservation").fetchone() == (1,)
+
+
+@pytest.mark.parametrize(
+    "column,value",
+    [
+        ("owner_id", "00000000-0000-4000-8000-000000000719"),
+        ("run_id", "00000000-0000-4000-8000-000000000718"),
+        ("reserved_at", NOW + timedelta(seconds=1)),
+    ],
+)
+def test_reservation_relation_mutation_fails_closed_without_repair(
+    postgres_dsn: str, column: str, value: object
+) -> None:
+    from psycopg import sql
+
+    adapter = store(postgres_dsn)
+    operation = admit(adapter).operation
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute("ALTER TABLE research_run_id_reservation DISABLE TRIGGER ALL")
+        connection.execute(
+            sql.SQL("UPDATE research_run_id_reservation SET {} = %s").format(sql.Identifier(column)), (value,)
+        )
+    for read in (
+        lambda: adapter.load_verified(OnlyProductCommandId(COMMAND)),
+        lambda: admit(adapter),
+    ):
+        with pytest.raises(ValueError, match="CHART_OPERATION_RELATION_CORRUPT"):
+            read()
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute("SELECT count(*) FROM research_run_id_reservation").fetchone() == (1,)
+        assert connection.execute("SELECT count(*) FROM research_run").fetchone() == (0,)
+    assert operation.reserved_run_id.value != COMMAND
+
+
+def test_reservation_exclusion_survives_fresh_process_and_blocks_run_id_update(postgres_dsn: str) -> None:
+    import os
+    import subprocess
+    import sys
+
+    from tests.research.postgres.test_postgres_authority import _queued
+    from tests.support.research_run_seeder import OnlyPostgresResearchRunSeeder
+
+    operation = admit(store(postgres_dsn)).operation
+    unrelated = _queued("00000000-0000-4000-8000-000000000717")
+    OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(unrelated)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import os,sys,psycopg\n"
+            "try:\n"
+            " with psycopg.connect(os.environ['ONLYALPHA_POSTGRES_DSN']) as c:\n"
+            "  c.execute('UPDATE research_run SET run_id=%s WHERE run_id=%s',sys.argv[1:])\n"
+            "except psycopg.errors.UniqueViolation as e:\n"
+            " assert 'RESEARCH_RUN_ID_RESERVED' in str(e)\n"
+            "else:\n"
+            " raise AssertionError('reserved ID was stolen')\n",
+            operation.reserved_run_id.value,
+            unrelated.run_id.value,
+        ],
+        env={**os.environ, "ONLYALPHA_POSTGRES_DSN": postgres_dsn},
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert (
+        OnlyPostgresChartCalculationAdmissionStore(postgres_dsn).load_verified(OnlyProductCommandId(COMMAND))
+        == operation
+    )
+
+
+def test_replay_verifies_existing_reservation_without_inserting_it(postgres_dsn: str) -> None:
+    adapter = store(postgres_dsn)
+    operation = admit(adapter).operation
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute(
+            "CREATE FUNCTION forbid_reservation_insert() RETURNS trigger LANGUAGE plpgsql AS $$ "
+            "BEGIN RAISE EXCEPTION 'reservation recreated'; END; $$"
+        )
+        connection.execute(
+            "CREATE TRIGGER forbid_reservation_insert BEFORE INSERT ON research_run_id_reservation "
+            "FOR EACH ROW EXECUTE FUNCTION forbid_reservation_insert()"
+        )
+    assert admit(OnlyPostgresChartCalculationAdmissionStore(postgres_dsn)).operation == operation
+
+
+def test_command_id_equal_to_another_operation_reserved_run_is_a_distinct_domain(postgres_dsn: str) -> None:
+    adapter = store(postgres_dsn)
+    first = admit(adapter).operation
+    second = adapter.admit_or_replay(
+        OnlyProductCommandId(first.reserved_run_id.value), request(), witness(), accepted_at=NOW
+    ).operation
+    assert second.operation_id.value == first.reserved_run_id.value
+    assert second.reserved_run_id not in (first.reserved_run_id, second.operation_id)
+    assert adapter.load_verified(OnlyProductCommandId(COMMAND)) == first
+
+
+def test_database_guard_covers_legacy_insert_only_role(postgres_dsn: str) -> None:
+    from onlyalpha.persistence.postgres.research_run_store import OnlyPostgresResearchRunStore, _insert_run_query
+    from tests.research.postgres.test_postgres_authority import _queued
+
+    operation = admit(store(postgres_dsn)).operation
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute("CREATE ROLE research_run_legacy_insert_writer NOLOGIN")
+        connection.execute("GRANT USAGE ON SCHEMA public TO research_run_legacy_insert_writer")
+        connection.execute("GRANT INSERT ON research_run TO research_run_legacy_insert_writer")
+        # Existing source-history triggers require these baseline writer privileges.
+        connection.execute(
+            "GRANT SELECT, UPDATE ON research_source_history_frontier TO research_run_legacy_insert_writer"
+        )
+        connection.execute("GRANT INSERT ON research_source_history TO research_run_legacy_insert_writer")
+    try:
+        with pytest.raises(psycopg.errors.UniqueViolation, match="RESEARCH_RUN_ID_RESERVED"):
+            with psycopg.connect(postgres_dsn) as connection:
+                connection.execute("SET LOCAL ROLE research_run_legacy_insert_writer")
+                connection.execute(
+                    _insert_run_query(), OnlyPostgresResearchRunStore._values(_queued(operation.reserved_run_id.value))
+                )
+        with psycopg.connect(postgres_dsn) as connection:
+            connection.execute("SET LOCAL ROLE research_run_legacy_insert_writer")
+            connection.execute(_insert_run_query(), OnlyPostgresResearchRunStore._values(_queued(COMMAND)))
+    finally:
+        with psycopg.connect(postgres_dsn) as connection:
+            connection.execute("REVOKE INSERT ON research_run FROM research_run_legacy_insert_writer")
+            connection.execute("REVOKE USAGE ON SCHEMA public FROM research_run_legacy_insert_writer")
+            connection.execute(
+                "REVOKE SELECT, UPDATE ON research_source_history_frontier FROM research_run_legacy_insert_writer"
+            )
+            connection.execute("REVOKE INSERT ON research_source_history FROM research_run_legacy_insert_writer")
+            connection.execute("DROP ROLE research_run_legacy_insert_writer")
+
+
+@pytest.mark.parametrize("occupied", [False, True])
+def test_reservation_migration_backfills_previous_chart_operations_or_fails_closed(
+    postgres_dsn: str, occupied: bool
+) -> None:
+    from onlyalpha.persistence.postgres.research_run_store import OnlyPostgresResearchRunStore, _insert_run_query
+    from tests.research.postgres.test_postgres_authority import _queued
+
+    operation = admit(store(postgres_dsn)).operation
+    # Reconstruct exactly the preceding additive schema, retaining all audited 0043 facts.
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute("DROP TRIGGER research_run_reserved_id_insert ON research_run")
+        connection.execute("DROP TRIGGER research_run_reserved_id_update ON research_run")
+        connection.execute("DROP FUNCTION research_run_reserved_id_guard()")
+        connection.execute("DROP TABLE research_run_id_reservation")
+        connection.execute(
+            "ALTER TABLE chart_calculation_operation DROP CONSTRAINT chart_calculation_operation_reservation_identity"
+        )
+        connection.execute(
+            "DELETE FROM onlyalpha_schema_migration WHERE migration_id = '0044_research_run_id_reservation'"
+        )
+        if occupied:
+            connection.execute(
+                _insert_run_query(), OnlyPostgresResearchRunStore._values(_queued(operation.reserved_run_id.value))
+            )
+    if occupied:
+        from onlyalpha.research.run.errors import OnlyPostgresMigrationIntegrityError
+
+        with pytest.raises(OnlyPostgresMigrationIntegrityError):
+            OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+        with psycopg.connect(postgres_dsn) as connection:
+            assert connection.execute("SELECT to_regclass('public.research_run_id_reservation')").fetchone() == (None,)
+            assert connection.execute("SELECT count(*) FROM chart_calculation_operation").fetchone() == (1,)
+    else:
+        assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == ("0044_research_run_id_reservation",)
+        assert (
+            OnlyPostgresChartCalculationAdmissionStore(postgres_dsn).load_verified(OnlyProductCommandId(COMMAND))
+            == operation
+        )
+        assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == ()
