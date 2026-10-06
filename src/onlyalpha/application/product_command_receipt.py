@@ -44,6 +44,7 @@ class OnlyProductCommandKind(StrEnum):
     RESET_INTEGRATION_DRAFT_CONTRACT = "RESET_INTEGRATION_DRAFT_CONTRACT"
     PUBLISH_INTEGRATION_REVISION = "PUBLISH_INTEGRATION_REVISION"
     SET_INTEGRATION_LIFECYCLE = "SET_INTEGRATION_LIFECYCLE"
+    CREATE_CHART_CALCULATION = "CREATE_CHART_CALCULATION"
 
 
 class OnlyProductCommandOutcomeKind(StrEnum):
@@ -55,6 +56,7 @@ class OnlyProductCommandOutcomeKind(StrEnum):
     SEARCH_EXPERIMENT = "SEARCH_EXPERIMENT"
     INTEGRATION = "INTEGRATION"
     INTEGRATION_REVISION = "INTEGRATION_REVISION"
+    CHART_CALCULATION_OPERATION = "CHART_CALCULATION_OPERATION"
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +92,7 @@ class OnlyProductCommandOutcomeRef:
         if not isinstance(self.kind, OnlyProductCommandOutcomeKind):
             raise ValueError("Product Command outcome kind is invalid")
         if self.kind in {
+            OnlyProductCommandOutcomeKind.CHART_CALCULATION_OPERATION,
             OnlyProductCommandOutcomeKind.RESEARCH_RUN,
             OnlyProductCommandOutcomeKind.BACKTEST_RUN,
             OnlyProductCommandOutcomeKind.INTEGRATION,
